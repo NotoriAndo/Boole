@@ -437,6 +437,95 @@ fn runtime_commits_two_blocks_across_advanced_heads() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn runtime_boots_from_existing_store_and_continues_next_height() {
+    let mut fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    fixture.constants.c =
+        "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+    fixture.cfg.T_share =
+        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+    fixture.cfg.T_block =
+        "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
+    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.K_max = 4;
+
+    let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
+        .expect("runtime config boots from report");
+    let mut runtime = RuntimeAdmissionState::new(config.clone());
+    runtime.set_current_c(fixture.constants.c.clone());
+
+    let valid_op = fixture
+        .operations
+        .iter()
+        .find(|op| op.name == "valid_after_bad_not_rate_limited")
+        .expect("valid op");
+    let body0 = body_for(&fixture.constants, &valid_op.body_patch);
+
+    let dir = std::env::temp_dir().join(format!(
+        "boole-runtime-boot-from-store-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_path = dir.join("blockstore.ndjson");
+    let accepted_tags = BTreeSet::from([0]);
+
+    runtime
+        .observe_ticket_from_body(&body0)
+        .expect("observe height0 ticket");
+    assert!(matches!(
+        runtime.admit_body_with_canon_tag(1_800_000_000_000, &fixture.constants.ip, &body0, 0),
+        AdmissionDecision::Accepted { .. }
+    ));
+    let committed0 = runtime
+        .commit_next_block_for_current_c(&block_path, 1_800_000_000_123, &accepted_tags)
+        .expect("height0 block committed");
+
+    let mut body1 = body0.clone();
+    body1.insert("c".to_string(), Value::String(committed0.block.c.clone()));
+    runtime
+        .observe_ticket_from_body(&body1)
+        .expect("observe height1 ticket");
+    assert!(matches!(
+        runtime.admit_body_with_canon_tag(1_800_000_061_000, "198.51.100.42", &body1, 0),
+        AdmissionDecision::Accepted { .. }
+    ));
+    let committed1 = runtime
+        .commit_next_block_for_current_c(&block_path, 1_800_000_061_123, &accepted_tags)
+        .expect("height1 block committed");
+
+    let mut restarted = RuntimeAdmissionState::boot_from_store(config, &block_path)
+        .expect("runtime boots from existing store");
+    assert_eq!(restarted.current_c(), Some(committed1.block.c.as_str()));
+
+    let mut body2 = body0.clone();
+    body2.insert("c".to_string(), Value::String(committed1.block.c.clone()));
+    restarted
+        .observe_ticket_from_body(&body2)
+        .expect("observe height2 ticket");
+    assert!(matches!(
+        restarted.admit_body_with_canon_tag(1_800_000_122_000, "198.51.100.77", &body2, 0),
+        AdmissionDecision::Accepted { .. }
+    ));
+    let committed2 = restarted
+        .commit_next_block_for_current_c(&block_path, 1_800_000_122_123, &accepted_tags)
+        .expect("height2 block committed after restart");
+    assert_eq!(committed2.block.height, 2);
+    assert_eq!(committed2.block.prev_c, committed1.block.c);
+    assert_eq!(restarted.current_c(), Some(committed2.block.c.as_str()));
+
+    let recovered = FileBlockStore::recover(&block_path).expect("recover three-block store");
+    assert_eq!(recovered.size(), 3);
+    assert_eq!(recovered.latest(), Some(&committed2.block));
+    let replay = replay_blocks(recovered.blocks()).expect("replay after restart commit");
+    assert_eq!(replay.height, 3);
+    assert_eq!(replay.latest_c, committed2.block.c);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn body_for(constants: &Constants, patch: &Map<String, Value>) -> Map<String, Value> {
     let mut body = Map::new();
     body.insert("c".to_string(), Value::String(constants.c.clone()));

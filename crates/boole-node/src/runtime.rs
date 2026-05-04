@@ -1,9 +1,9 @@
 use crate::block_store::FileBlockStore;
 use boole_core::{
     admit_parsed_submission_typed, block_hash, build_block_selection, calibration_policy,
-    parse_submission_body, share_score, AdmissionDecision, AdmissionParsedDeps, BlockBuilderConfig,
-    BuildSelectionResult, CalibrationPolicy, CalibrationReport, CandidateShare, Hex32,
-    PersistedBlock, PoolShare, RateLimiter, SharePool,
+    parse_submission_body, replay_blocks, share_score, AdmissionDecision, AdmissionParsedDeps,
+    BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy, CalibrationReport, CandidateShare,
+    Hex32, PersistedBlock, PoolShare, RateLimiter, SharePool,
 };
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
@@ -49,6 +49,17 @@ impl RuntimeAdmissionState {
             candidates: Vec::new(),
             config,
         }
+    }
+
+    pub fn boot_from_store(
+        config: RuntimeConfig,
+        block_path: impl AsRef<Path>,
+    ) -> anyhow::Result<Self> {
+        let recovered = FileBlockStore::recover(block_path)?;
+        let replay = replay_blocks(recovered.blocks())?;
+        let mut runtime = Self::new(config);
+        runtime.set_current_c(replay.latest_c);
+        Ok(runtime)
     }
 
     pub fn set_current_c(&mut self, c: String) {
