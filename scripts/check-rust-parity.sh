@@ -15,6 +15,7 @@ npx tsx scripts/export-bounty-ledger-fixtures.ts
 npx tsx scripts/export-config-fixtures.ts
 npx tsx scripts/export-validator-fixtures.ts
 npx tsx scripts/export-submission-pow-fixtures.ts
+npx tsx scripts/export-rejection-log-fixtures.ts
 
 cargo fmt --all --check
 cargo test --workspace
