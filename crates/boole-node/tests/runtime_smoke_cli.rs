@@ -216,6 +216,51 @@ fn node_runtime_smoke_accepts_multistep_scenario_json_input() {
 }
 
 #[test]
+fn runtime_smoke_all_script_runs_multiple_checked_cases() {
+    let repo_root = env!("CARGO_MANIFEST_DIR").trim_end_matches("/crates/boole-node");
+    let script_path = format!("{repo_root}/scripts/runtime-smoke-all.sh");
+
+    let dir = std::env::temp_dir().join(format!(
+        "boole-node-runtime-smoke-all-script-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+
+    let output = Command::new("bash")
+        .arg(&script_path)
+        .env("BOOLE_NODE_BIN", env!("CARGO_BIN_EXE_boole-node"))
+        .env("BLOCK_STORE_DIR", dir.to_str().expect("utf8 temp path"))
+        .output()
+        .expect("run runtime smoke all script");
+    assert!(
+        output.status.success(),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("json output");
+    assert_eq!(parsed["ok"], true);
+    let cases = parsed["cases"].as_array().expect("cases array");
+    assert_eq!(cases.len(), 2);
+    assert_eq!(cases[0]["name"], "runtime-smoke-multistep");
+    assert_eq!(cases[0]["mode"], "scenario");
+    assert_eq!(cases[0]["storeSize"], 2);
+    assert_eq!(cases[0]["replayHeight"], 2);
+    assert_eq!(cases[0]["latestMatchesRuntime"], true);
+    assert_eq!(cases[0]["replayMatchesRuntime"], true);
+    assert_eq!(cases[1]["name"], "admission-fixture-compat");
+    assert_eq!(cases[1]["mode"], "fixture");
+    assert_eq!(cases[1]["storeSize"], 1);
+    assert_eq!(cases[1]["replayHeight"], 1);
+    assert_eq!(cases[1]["latestMatchesRuntime"], true);
+    assert_eq!(cases[1]["replayMatchesRuntime"], true);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn runtime_smoke_script_runs_tracked_scenario_and_validates_output() {
     let repo_root = env!("CARGO_MANIFEST_DIR").trim_end_matches("/crates/boole-node");
     let script_path = format!("{repo_root}/scripts/runtime-smoke.sh");

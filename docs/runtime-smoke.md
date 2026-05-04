@@ -16,15 +16,53 @@ scenario input
 
 It is not a public testnet, networking layer, or economic benchmark. It is a local deterministic smoke harness for proving the node runtime can produce replayable blocks.
 
-## Run the tracked multi-step scenario
+## Run the checked multi-case harness
 
-From the workspace root, use the checked script:
+From the workspace root:
+
+```bash
+./scripts/runtime-smoke-all.sh
+```
+
+This runs and validates multiple local node smoke cases:
+
+- `runtime-smoke-multistep`: `--scenario fixtures/protocol/runtime-smoke/v1.json`, expected `storeSize == 2`.
+- `admission-fixture-compat`: `--fixture fixtures/protocol/admission/v1.json`, expected `storeSize == 1`.
+
+The harness prints per-case PASS lines and `runtime-smoke-all: PASS` to stderr, and emits aggregate JSON to stdout:
+
+```json
+{
+  "ok": true,
+  "caseCount": 2,
+  "cases": [
+    {
+      "name": "runtime-smoke-multistep",
+      "mode": "scenario",
+      "storeSize": 2,
+      "replayHeight": 2,
+      "latestMatchesRuntime": true,
+      "replayMatchesRuntime": true
+    },
+    {
+      "name": "admission-fixture-compat",
+      "mode": "fixture",
+      "storeSize": 1,
+      "replayHeight": 1,
+      "latestMatchesRuntime": true,
+      "replayMatchesRuntime": true
+    }
+  ]
+}
+```
+
+Use the single-case script when you only want the tracked two-block scenario JSON:
 
 ```bash
 ./scripts/runtime-smoke.sh
 ```
 
-The script removes the target block store, runs the tracked scenario, validates the JSON consistency fields, prints `runtime-smoke: PASS` to stderr, and emits the raw JSON output to stdout.
+The single-case script removes the target block store, runs the tracked scenario, validates the JSON consistency fields, prints `runtime-smoke: PASS` to stderr, and emits the raw scenario JSON output to stdout.
 
 Optional overrides:
 
@@ -138,6 +176,8 @@ This mode adapts the admission fixture into a one-block `RuntimeSmokeScenario`. 
 Use the focused smoke tests:
 
 ```bash
+./scripts/runtime-smoke-all.sh
+./scripts/runtime-smoke.sh
 cargo test -q -p boole-node --test runtime_smoke_cli -- --nocapture
 cargo test -q -p boole-node --test runtime_smoke_library -- --nocapture
 ```
