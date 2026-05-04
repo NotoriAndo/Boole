@@ -43,6 +43,20 @@ Rust boole-core can replay TypeScript-produced block/reward fixtures and produce
 - `boole-node`: future Rust node daemon/RPC layer.
 - `boole-lean-runner`: Rust wrapper around Lean verifier artifacts/toolchain.
 
+## Runtime smoke
+
+Run the tracked two-block node smoke scenario:
+
+```bash
+cargo run -q -p boole-node -- runtime-smoke \
+  --scenario fixtures/protocol/runtime-smoke/v1.json \
+  --block-store /tmp/boole-runtime-smoke.ndjson
+```
+
+This drives the actual `boole-node` binary through runtime policy boot, admission, block commit, block-store recovery, replay, and consistency reporting. A successful run reports `accepted: true`, `storeSize: 2`, `replayHeight: 2`, `latestMatchesRuntime: true`, and `replayMatchesRuntime: true`.
+
+See [`docs/runtime-smoke.md`](docs/runtime-smoke.md) for the scenario format and output fields.
+
 ## Source plan
 
 The local migration plan is stored in the original repo:
