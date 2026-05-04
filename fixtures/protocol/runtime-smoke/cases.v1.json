@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "domain": "runtime-smoke",
+  "cases": [
+    {
+      "name": "runtime-smoke-multistep",
+      "mode": "scenario",
+      "input": "fixtures/protocol/runtime-smoke/v1.json",
+      "expectedStoreSize": 2,
+      "expectedReplayHeight": 2
+    },
+    {
+      "name": "admission-fixture-compat",
+      "mode": "fixture",
+      "input": "fixtures/protocol/admission/v1.json",
+      "expectedStoreSize": 1,
+      "expectedReplayHeight": 1
+    }
+  ]
+}

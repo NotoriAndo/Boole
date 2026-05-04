@@ -51,7 +51,7 @@ Run the checked node smoke harness:
 ./scripts/runtime-smoke-all.sh
 ```
 
-The harness drives the actual `boole-node` binary through both the tracked two-block scenario and the admission-fixture compatibility path. Each case validates runtime policy boot, admission, block commit, block-store recovery, replay, and consistency fields. The aggregate JSON reports `ok: true` with per-case `storeSize`, `replayHeight`, `latestMatchesRuntime`, and `replayMatchesRuntime`.
+The harness drives the actual `boole-node` binary through every case in `fixtures/protocol/runtime-smoke/cases.v1.json`; today that covers both the tracked two-block scenario and the admission-fixture compatibility path. Each case validates runtime policy boot, admission, block commit, block-store recovery, replay, and consistency fields. The aggregate JSON reports `ok: true` with per-case `storeSize`, `replayHeight`, `latestMatchesRuntime`, and `replayMatchesRuntime`.
 
 For the single tracked two-block scenario only:
 

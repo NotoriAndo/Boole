@@ -24,8 +24,13 @@ From the workspace root:
 ./scripts/runtime-smoke-all.sh
 ```
 
-This runs and validates multiple local node smoke cases:
+This runs and validates every case listed in the tracked manifest:
 
+```text
+fixtures/protocol/runtime-smoke/cases.v1.json
+```
+
+Current cases:
 - `runtime-smoke-multistep`: `--scenario fixtures/protocol/runtime-smoke/v1.json`, expected `storeSize == 2`.
 - `admission-fixture-compat`: `--fixture fixtures/protocol/admission/v1.json`, expected `storeSize == 1`.
 
