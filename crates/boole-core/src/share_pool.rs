@@ -9,10 +9,27 @@ pub struct PoolShare {
     pub c: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SharePoolRejectReason {
+    Duplicate,
+    PkCapExceeded,
+    StaleC,
+}
+
+impl SharePoolRejectReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Duplicate => "duplicate",
+            Self::PkCapExceeded => "pk_cap_exceeded",
+            Self::StaleC => "stale_c",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AcceptResult {
     Ok,
-    Err { reason: &'static str },
+    Err { reason: SharePoolRejectReason },
 }
 
 impl AcceptResult {
@@ -23,7 +40,14 @@ impl AcceptResult {
     pub fn reason(&self) -> Option<&'static str> {
         match self {
             Self::Ok => None,
-            Self::Err { reason } => Some(reason),
+            Self::Err { reason } => Some(reason.as_str()),
+        }
+    }
+
+    pub fn reason_typed(&self) -> Option<SharePoolRejectReason> {
+        match self {
+            Self::Ok => None,
+            Self::Err { reason } => Some(*reason),
         }
     }
 }
@@ -58,20 +82,22 @@ impl SharePool {
     pub fn accept(&mut self, share: PoolShare) -> AcceptResult {
         if let Some(current_c) = &self.current_c {
             if &share.c != current_c {
-                return AcceptResult::Err { reason: "stale_c" };
+                return AcceptResult::Err {
+                    reason: SharePoolRejectReason::StaleC,
+                };
             }
         }
         let key = share_key(&share);
         if self.by_key.contains_key(&key) {
             return AcceptResult::Err {
-                reason: "duplicate",
+                reason: SharePoolRejectReason::Duplicate,
             };
         }
         let cap_key = per_pk_key(&share.pk, &share.c);
         let used = self.per_pk_per_c.get(&cap_key).copied().unwrap_or(0);
         if used >= self.share_cap_per_pk_block {
             return AcceptResult::Err {
-                reason: "pk_cap_exceeded",
+                reason: SharePoolRejectReason::PkCapExceeded,
             };
         }
         self.by_key.insert(key.clone(), share);

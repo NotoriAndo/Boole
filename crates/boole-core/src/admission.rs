@@ -1,7 +1,7 @@
 use crate::{
     check_submission_pow, share_hash, ticket, validate_proof_package, validation_reason_json,
     CalibrationReport, Hex32, PoolShare, RateLimitRejectReason, RateLimitResult, RateLimiter,
-    SharePool, SubmissionPowResult, ValidationReason, ValidationResult,
+    SharePool, SharePoolRejectReason, SubmissionPowResult, ValidationReason, ValidationResult,
 };
 use num_bigint::BigUint;
 use serde_json::{json, Map, Value};
@@ -80,32 +80,6 @@ impl SubmitPowRejectReason {
     fn as_str(self) -> &'static str {
         match self {
             Self::AboveTSubmit => "above_T_submit",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SharePoolRejectReason {
-    Duplicate,
-    PkCapExceeded,
-    StaleC,
-}
-
-impl SharePoolRejectReason {
-    fn from_str(value: &str) -> Self {
-        match value {
-            "duplicate" => Self::Duplicate,
-            "pk_cap_exceeded" => Self::PkCapExceeded,
-            "stale_c" => Self::StaleC,
-            other => panic!("unknown share-pool reason {other}"),
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Duplicate => "duplicate",
-            Self::PkCapExceeded => "pk_cap_exceeded",
-            Self::StaleC => "stale_c",
         }
     }
 }
@@ -242,8 +216,7 @@ pub fn admit_submission_typed(deps: AdmissionDeps<'_>) -> AdmissionDecision {
         j: j_hex.to_string(),
         c: c_hex.to_string(),
     });
-    if let Some(reason) = pool_result.reason() {
-        let reason = SharePoolRejectReason::from_str(reason);
+    if let Some(reason) = pool_result.reason_typed() {
         return reject(
             AdmissionStatus::UnprocessableEntity,
             AdmissionError::SharePool { reason },

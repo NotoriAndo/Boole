@@ -51,7 +51,7 @@ pub use rejection_log::{
 pub use replay::{
     compute_block_credits, replay_blocks, PersistedCredit, PersistedRewardEvent, ReplayResult,
 };
-pub use share_pool::{AcceptResult, PoolShare, SharePool};
+pub use share_pool::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
 pub use submission_pow::{
     check_submission_pow, check_submission_pow_json, SubmissionPowRejectReason, SubmissionPowResult,
 };

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use boole_core::{AcceptResult, PoolShare, SharePool};
+use boole_core::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -54,6 +54,26 @@ fn assert_accept_result(got: AcceptResult, expected: &Value) {
             .expect("reason field");
         assert_eq!(got.reason(), Some(reason));
     }
+}
+
+#[test]
+fn share_pool_rejection_uses_typed_reason() {
+    let mut pool = SharePool::new(4);
+    pool.set_current_c("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    let share = PoolShare {
+        label: "first".to_string(),
+        pk: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+        n: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string(),
+        j: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string(),
+        c: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+    };
+    assert_eq!(pool.accept(share.clone()), AcceptResult::Ok);
+    assert_eq!(
+        pool.accept(share),
+        AcceptResult::Err {
+            reason: SharePoolRejectReason::Duplicate,
+        }
+    );
 }
 
 #[test]

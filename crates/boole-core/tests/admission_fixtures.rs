@@ -1,7 +1,7 @@
 use boole_core::{
-    admission::SharePoolRejectReason, admit_submission_json, admit_submission_typed,
-    AdmissionDecision, AdmissionDeps, AdmissionError, AdmissionStatus, CalibrationReport,
-    DecodeDetail, RateLimiter, RejectionReason, SharePool, ValidationReason,
+    admit_submission_json, admit_submission_typed, AdmissionDecision, AdmissionDeps,
+    AdmissionError, AdmissionStatus, CalibrationReport, DecodeDetail, RateLimiter, RejectionReason,
+    SharePool, SharePoolRejectReason, ValidationReason,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
