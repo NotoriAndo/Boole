@@ -1,8 +1,9 @@
 use boole_core::{
-    admit_submission_json, admit_submission_typed, check_admission_ticket, AdmissionDecision,
-    AdmissionDeps, AdmissionError, AdmissionStatus, CalibrationReport, DecodeDetail, RateLimiter,
-    RejectionReason, SharePool, SharePoolRejectReason, TicketAdmissionResult, TicketRejectReason,
-    ValidationReason,
+    admit_parsed_submission_typed, admit_submission_json, admit_submission_typed,
+    calibration_policy, check_admission_ticket, parse_submission_body, AdmissionDecision,
+    AdmissionDeps, AdmissionError, AdmissionParsedDeps, AdmissionStatus, CalibrationReport,
+    DecodeDetail, RateLimiter, RejectionReason, SharePool, SharePoolRejectReason,
+    TicketAdmissionResult, TicketRejectReason, ValidationReason,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -59,8 +60,42 @@ fn admission_ticket_check_returns_typed_result() {
 }
 
 #[test]
+fn admission_parses_json_boundary_before_core_admission() {
+    let fixture = load_fixture();
+    let policy = calibration_policy(&fixture.cfg).expect("policy parses");
+    let mut rate_limiter = RateLimiter::new(fixture.cfg.clone(), 60_000);
+    let mut pool = SharePool::new(fixture.cfg.ShareCapPerPK_Block as usize);
+    pool.set_current_c(fixture.constants.c.clone());
+
+    let valid_op = fixture
+        .operations
+        .iter()
+        .find(|op| op.name == "valid_after_bad_not_rate_limited")
+        .expect("valid op");
+    let body = body_for(&fixture.constants, &valid_op.body_patch);
+    observe_from_body(&mut rate_limiter, &body);
+    let parsed = parse_submission_body(&body).expect("valid body parses");
+    assert_eq!(parsed.pk_hex, fixture.constants.pk);
+    assert_eq!(
+        parsed.package_bytes,
+        hex::decode(&fixture.constants.valid_bytes_hex).unwrap()
+    );
+
+    let decision = admit_parsed_submission_typed(AdmissionParsedDeps {
+        policy: &policy,
+        rate_limiter: &mut rate_limiter,
+        pool: &mut pool,
+        now: 1_800_000_000_002,
+        ip: &fixture.constants.ip,
+        submission: &parsed,
+    });
+    assert!(matches!(decision, AdmissionDecision::Accepted { .. }));
+}
+
+#[test]
 fn admission_pipeline_matches_improved_fixture() {
     let fixture = load_fixture();
+    let policy = calibration_policy(&fixture.cfg).expect("policy parses");
     let mut rate_limiter = RateLimiter::new(fixture.cfg.clone(), 60_000);
     let mut pool = SharePool::new(fixture.cfg.ShareCapPerPK_Block as usize);
     pool.set_current_c(fixture.constants.c.clone());
@@ -71,7 +106,7 @@ fn admission_pipeline_matches_improved_fixture() {
             observe_from_body(&mut rate_limiter, &body);
         }
         let decision = admit_submission_typed(AdmissionDeps {
-            cfg: &fixture.cfg,
+            policy: &policy,
             rate_limiter: &mut rate_limiter,
             pool: &mut pool,
             now: 1_800_000_000_000 + idx as i64,
@@ -88,6 +123,7 @@ fn admission_pool_rejection_does_not_consume_rate_quota() {
     let mut cfg = fixture.cfg.clone();
     cfg.perIpRateLimitPer60s = 10;
     cfg.M = 1;
+    let policy = calibration_policy(&cfg).expect("policy parses");
     let mut rate_limiter = RateLimiter::new(cfg.clone(), 60_000);
     let mut pool = SharePool::new(cfg.ShareCapPerPK_Block as usize);
     pool.set_current_c(fixture.constants.c.clone());
@@ -100,7 +136,7 @@ fn admission_pool_rejection_does_not_consume_rate_quota() {
 
     let first_body = body_for(&fixture.constants, &Map::new());
     let first = admit_submission_typed(AdmissionDeps {
-        cfg: &cfg,
+        policy: &policy,
         rate_limiter: &mut rate_limiter,
         pool: &mut pool,
         now: 1_800_000_000_000,
@@ -110,7 +146,7 @@ fn admission_pool_rejection_does_not_consume_rate_quota() {
     assert!(matches!(first, AdmissionDecision::Accepted { .. }));
 
     let duplicate = admit_submission_typed(AdmissionDeps {
-        cfg: &cfg,
+        policy: &policy,
         rate_limiter: &mut rate_limiter,
         pool: &mut pool,
         now: 1_800_000_000_001,
@@ -145,7 +181,7 @@ fn admission_pool_rejection_does_not_consume_rate_quota() {
     );
     let fresh_body = body_for(&fixture.constants, &fresh_patch);
     let fresh = admit_submission_typed(AdmissionDeps {
-        cfg: &cfg,
+        policy: &policy,
         rate_limiter: &mut rate_limiter,
         pool: &mut pool,
         now: 1_800_000_000_002,
@@ -161,6 +197,7 @@ fn admission_pool_rejection_does_not_consume_rate_quota() {
 #[test]
 fn admission_validator_rejection_uses_typed_validation_reason() {
     let fixture = load_fixture();
+    let policy = calibration_policy(&fixture.cfg).expect("policy parses");
     let mut rate_limiter = RateLimiter::new(fixture.cfg.clone(), 60_000);
     let mut pool = SharePool::new(fixture.cfg.ShareCapPerPK_Block as usize);
     pool.set_current_c(fixture.constants.c.clone());
@@ -171,7 +208,7 @@ fn admission_validator_rejection_uses_typed_validation_reason() {
     observe_from_body(&mut rate_limiter, &body);
 
     let decision = admit_submission_typed(AdmissionDeps {
-        cfg: &fixture.cfg,
+        policy: &policy,
         rate_limiter: &mut rate_limiter,
         pool: &mut pool,
         now: 1_800_000_000_000,
@@ -200,13 +237,14 @@ fn admission_validator_rejection_uses_typed_validation_reason() {
 #[test]
 fn admission_core_returns_typed_rejection_and_success() {
     let fixture = load_fixture();
+    let policy = calibration_policy(&fixture.cfg).expect("policy parses");
     let mut rate_limiter = RateLimiter::new(fixture.cfg.clone(), 60_000);
     let mut pool = SharePool::new(fixture.cfg.ShareCapPerPK_Block as usize);
     pool.set_current_c(fixture.constants.c.clone());
 
     let missing_pk = body_for(&fixture.constants, &fixture.operations[0].body_patch);
     let decision = admit_submission_typed(AdmissionDeps {
-        cfg: &fixture.cfg,
+        policy: &policy,
         rate_limiter: &mut rate_limiter,
         pool: &mut pool,
         now: 1_800_000_000_000,
@@ -234,7 +272,7 @@ fn admission_core_returns_typed_rejection_and_success() {
     let valid_body = body_for(&fixture.constants, &valid_op.body_patch);
     observe_from_body(&mut rate_limiter, &valid_body);
     let decision = admit_submission_typed(AdmissionDeps {
-        cfg: &fixture.cfg,
+        policy: &policy,
         rate_limiter: &mut rate_limiter,
         pool: &mut pool,
         now: 1_800_000_000_002,

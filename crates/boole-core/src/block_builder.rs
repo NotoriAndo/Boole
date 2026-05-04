@@ -1,5 +1,7 @@
 use std::collections::BTreeSet;
 
+use crate::{min_share_score, CalibrationPolicy};
+use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +22,20 @@ pub struct BlockBuilderConfig {
     pub t_block: String,
     pub min_share_score: u128,
     pub k_max: usize,
+}
+
+impl BlockBuilderConfig {
+    pub fn from_policy(policy: &CalibrationPolicy) -> anyhow::Result<Self> {
+        let multiplier_nanos = (policy.min_share_score_multiplier * 1_000_000_000.0).round() as u64;
+        let min_share_score = min_share_score(&policy.thresholds.t_share, multiplier_nanos)?
+            .to_u128()
+            .ok_or_else(|| anyhow::anyhow!("min share score exceeds u128"))?;
+        Ok(Self {
+            t_block: format!("0x{:064x}", policy.thresholds.t_block),
+            min_share_score,
+            k_max: policy.k_max,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

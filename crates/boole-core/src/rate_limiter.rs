@@ -46,8 +46,15 @@ pub struct RateLimiter {
 
 impl RateLimiter {
     pub fn new(cfg: CalibrationReport, window_ms: i64) -> Self {
-        let policy = calibration_policy(&cfg).expect("calibration report is valid");
-        Self::from_policy(&policy, window_ms)
+        Self::from_calibration_report(&cfg, window_ms).expect("calibration report is valid")
+    }
+
+    pub fn from_calibration_report(
+        cfg: &CalibrationReport,
+        window_ms: i64,
+    ) -> Result<Self, String> {
+        let policy = calibration_policy(cfg)?;
+        Ok(Self::from_policy(&policy, window_ms))
     }
 
     pub fn from_policy(policy: &CalibrationPolicy, window_ms: i64) -> Self {

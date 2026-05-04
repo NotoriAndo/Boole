@@ -103,6 +103,15 @@ pub fn validate_calibration_report(report: &CalibrationReport) -> Result<(), Str
     if report.D_max <= 0 {
         return Err("D_max must be > 0".to_string());
     }
+    if report.M <= 0 {
+        return Err("M must be > 0".to_string());
+    }
+    if report.perIpRateLimitPer60s <= 0 {
+        return Err("perIpRateLimitPer60s must be > 0".to_string());
+    }
+    if report.ShareCapPerPK_Block <= 0 {
+        return Err("ShareCapPerPK_Block must be > 0".to_string());
+    }
     if report.MinShareScoreMultiplier <= 0.0 {
         return Err("MinShareScoreMultiplier must be > 0".to_string());
     }

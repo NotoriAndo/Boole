@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use boole_core::{build_block_selection, BlockBuilderConfig, BuildSelectionResult, CandidateShare};
+use boole_core::{
+    build_block_selection, calibration_policy, BlockBuilderConfig, BuildSelectionResult,
+    CalibrationReport, CandidateShare,
+};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -16,10 +19,8 @@ struct Fixture {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConfigFixture {
-    #[serde(rename = "T_block")]
-    t_block: String,
-    #[serde(rename = "K_max")]
-    k_max: usize,
+    #[serde(flatten)]
+    report: CalibrationReport,
     min_share_score: String,
 }
 
@@ -46,14 +47,15 @@ fn block_builder_matches_typescript_golden_fixture() {
     .expect("fixture parses");
     assert!(fixture.expected.ok);
 
-    let cfg = BlockBuilderConfig {
-        t_block: fixture.config.t_block,
-        min_share_score: fixture.config.min_share_score.parse().expect("min score"),
-        k_max: fixture.config.k_max,
-    };
+    let policy = calibration_policy(&fixture.config.report).expect("policy parses");
+    let cfg = BlockBuilderConfig::from_policy(&policy).expect("block builder config from policy");
     assert_eq!(
         cfg.min_share_score.to_string(),
         fixture.expected.min_share_score
+    );
+    assert_eq!(
+        cfg.min_share_score.to_string(),
+        fixture.config.min_share_score
     );
     let accepted = fixture
         .accepted_canon_tags

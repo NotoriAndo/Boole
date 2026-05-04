@@ -71,6 +71,20 @@ fn rate_limiter_from_policy_uses_policy_quotas() {
 }
 
 #[test]
+fn rate_limiter_from_calibration_report_is_fallible() {
+    let fixture: Fixture = serde_json::from_str(include_str!(
+        "../../../fixtures/protocol/rate-limiter/v1.json"
+    ))
+    .expect("fixture parses");
+    let mut cfg = fixture.cfg.clone();
+    cfg.perIpRateLimitPer60s = 0;
+
+    let err = RateLimiter::from_calibration_report(&cfg, fixture.window_ms)
+        .expect_err("invalid policy should not construct limiter");
+    assert_eq!(err, "perIpRateLimitPer60s must be > 0");
+}
+
+#[test]
 fn rate_limiter_returns_typed_result_with_json_adapter() {
     let fixture: Fixture = serde_json::from_str(include_str!(
         "../../../fixtures/protocol/rate-limiter/v1.json"
