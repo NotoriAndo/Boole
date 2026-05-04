@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "source": "/Users/seoyong/projects/pof/dispatcher/src/sharePool.ts",
+  "generatedBy": "scripts/export-share-pool-fixtures.ts",
+  "config": {
+    "ShareCapPerPK_Block": 2
+  },
+  "currentC": "c0",
+  "nextC": "c1",
+  "shares": [
+    {
+      "label": "s1",
+      "pk": "aa",
+      "n": "00",
+      "j": "00",
+      "c": "c0"
+    },
+    {
+      "label": "s2",
+      "pk": "aa",
+      "n": "00",
+      "j": "01",
+      "c": "c0"
+    },
+    {
+      "label": "duplicate-s1",
+      "pk": "aa",
+      "n": "00",
+      "j": "00",
+      "c": "c0"
+    },
+    {
+      "label": "cap-exceeded",
+      "pk": "aa",
+      "n": "00",
+      "j": "02",
+      "c": "c0"
+    },
+    {
+      "label": "stale",
+      "pk": "bb",
+      "n": "00",
+      "j": "00",
+      "c": "old"
+    },
+    {
+      "label": "next",
+      "pk": "cc",
+      "n": "00",
+      "j": "00",
+      "c": "c1"
+    }
+  ],
+  "operations": [
+    {
+      "op": "accept",
+      "label": "s1",
+      "result": {
+        "ok": true
+      }
+    },
+    {
+      "op": "accept",
+      "label": "s2",
+      "result": {
+        "ok": true
+      }
+    },
+    {
+      "op": "accept",
+      "label": "duplicate-s1",
+      "result": {
+        "ok": false,
+        "reason": "duplicate"
+      }
+    },
+    {
+      "op": "accept",
+      "label": "cap-exceeded",
+      "result": {
+        "ok": false,
+        "reason": "pk_cap_exceeded"
+      }
+    },
+    {
+      "op": "accept",
+      "label": "stale",
+      "result": {
+        "ok": false,
+        "reason": "stale_c"
+      }
+    },
+    {
+      "op": "forChain",
+      "c": "c0",
+      "labels": [
+        "s1",
+        "s2"
+      ],
+      "size": 2
+    },
+    {
+      "op": "pruneToHeight",
+      "c": "c1",
+      "dropped": 2,
+      "size": 0,
+      "labels": []
+    },
+    {
+      "op": "accept",
+      "label": "next",
+      "result": {
+        "ok": true
+      }
+    },
+    {
+      "op": "forChain",
+      "c": "c1",
+      "labels": [
+        "next"
+      ],
+      "size": 1
+    }
+  ]
+}

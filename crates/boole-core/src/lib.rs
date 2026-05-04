@@ -7,6 +7,7 @@ pub mod block;
 pub mod block_builder;
 pub mod hash;
 pub mod replay;
+pub mod share_pool;
 
 pub use block::PersistedBlock;
 pub use block_builder::{
@@ -21,6 +22,7 @@ pub use hash::{
 pub use replay::{
     compute_block_credits, replay_blocks, PersistedCredit, PersistedRewardEvent, ReplayResult,
 };
+pub use share_pool::{AcceptResult, PoolShare, SharePool};
 
 #[cfg(test)]
 mod tests {
