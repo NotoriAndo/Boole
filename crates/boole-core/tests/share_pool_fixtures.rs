@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use boole_core::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
+use boole_core::{AcceptResult, CalibrationReport, PoolShare, SharePool, SharePoolRejectReason};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -54,6 +54,50 @@ fn assert_accept_result(got: AcceptResult, expected: &Value) {
             .expect("reason field");
         assert_eq!(got.reason(), Some(reason));
     }
+}
+
+#[test]
+fn share_pool_from_calibration_report_uses_policy_cap() {
+    let report = CalibrationReport {
+        T_submit: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string(),
+        T_share: "0x2020202020202020202020202020202020202020202020202020202020202020".to_string(),
+        T_block: "0x0101010101010101010101010101010101010101010101010101010101010101".to_string(),
+        T_ticket: "0x3030303030303030303030303030303030303030303030303030303030303030".to_string(),
+        MinShareScoreMultiplier: 2.0,
+        K_max: 16,
+        ShareCapPerPK_Block: 1,
+        L: 4096,
+        D_max: 8,
+        EMAWindow: 32,
+        M: 8,
+        perIpRateLimitPer60s: 120,
+        provenance: "calibration-final".to_string(),
+    };
+    let mut pool = SharePool::from_calibration_report(&report).expect("policy pool");
+    pool.set_current_c("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+    let first = PoolShare {
+        label: "first".to_string(),
+        pk: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+        n: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string(),
+        j: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string(),
+        c: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+    };
+    let second = PoolShare {
+        label: "second".to_string(),
+        pk: first.pk.clone(),
+        n: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string(),
+        j: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string(),
+        c: first.c.clone(),
+    };
+
+    assert_eq!(pool.accept(first), AcceptResult::Ok);
+    assert_eq!(
+        pool.accept(second),
+        AcceptResult::Err {
+            reason: SharePoolRejectReason::PkCapExceeded,
+        }
+    );
 }
 
 #[test]

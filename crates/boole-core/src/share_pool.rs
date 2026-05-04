@@ -1,3 +1,4 @@
+use crate::{calibration_policy, CalibrationPolicy, CalibrationReport};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +71,14 @@ impl SharePool {
             insertion_order: Vec::new(),
             per_pk_per_c: BTreeMap::new(),
         }
+    }
+
+    pub fn from_policy(policy: &CalibrationPolicy) -> Self {
+        Self::new(policy.share_cap_per_pk_block)
+    }
+
+    pub fn from_calibration_report(report: &CalibrationReport) -> Result<Self, String> {
+        Ok(Self::from_policy(&calibration_policy(report)?))
     }
 
     pub fn set_current_c(&mut self, c: impl Into<String>) {
