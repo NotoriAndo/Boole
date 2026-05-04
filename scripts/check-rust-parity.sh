@@ -13,6 +13,7 @@ npx tsx scripts/export-manifest-fixtures.ts
 npx tsx scripts/export-bounty-registry-fixtures.ts
 npx tsx scripts/export-bounty-ledger-fixtures.ts
 npx tsx scripts/export-config-fixtures.ts
+npx tsx scripts/export-validator-fixtures.ts
 
 cargo fmt --all --check
 cargo test --workspace
