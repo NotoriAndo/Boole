@@ -12,6 +12,17 @@ pub struct RuntimeSmokeInput {
     pub block_path: PathBuf,
 }
 
+#[derive(Debug, Clone)]
+pub struct RuntimeSmokeScenario {
+    pub config: RuntimeConfig,
+    pub genesis_c: String,
+    pub body: Map<String, Value>,
+    pub ip: String,
+    pub canon_tag: u8,
+    pub block_path: PathBuf,
+    pub ts: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeSmokeOutput {
@@ -68,32 +79,50 @@ pub fn run_runtime_smoke(input: RuntimeSmokeInput) -> anyhow::Result<RuntimeSmok
 
     let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
         .map_err(|err| anyhow::anyhow!(err))?;
-    let mut runtime = RuntimeAdmissionState::new(config);
-    runtime.set_current_c(fixture.constants.c.clone());
-
     let valid_op = fixture
         .operations
         .iter()
         .find(|op| op.name == "valid_after_bad_not_rate_limited")
         .ok_or_else(|| anyhow::anyhow!("admission fixture missing valid operation"))?;
     let body = body_for(&fixture.constants, &valid_op.body_patch);
+
+    run_runtime_smoke_scenario(RuntimeSmokeScenario {
+        config,
+        genesis_c: fixture.constants.c,
+        body,
+        ip: fixture.constants.ip,
+        canon_tag: 0,
+        block_path: input.block_path,
+        ts: 1_800_000_000_123,
+    })
+}
+
+pub fn run_runtime_smoke_scenario(
+    scenario: RuntimeSmokeScenario,
+) -> anyhow::Result<RuntimeSmokeOutput> {
+    let mut runtime = RuntimeAdmissionState::new(scenario.config);
+    runtime.set_current_c(scenario.genesis_c);
     runtime
-        .observe_ticket_from_body(&body)
+        .observe_ticket_from_body(&scenario.body)
         .map_err(|err| anyhow::anyhow!(err))?;
-    let decision =
-        runtime.admit_body_with_canon_tag(1_800_000_000_000, &fixture.constants.ip, &body, 0);
+    let decision = runtime.admit_body_with_canon_tag(
+        1_800_000_000_000,
+        &scenario.ip,
+        &scenario.body,
+        scenario.canon_tag,
+    );
     let accepted = matches!(decision, AdmissionDecision::Accepted { .. });
     if !accepted {
         anyhow::bail!("runtime smoke admission was rejected: {decision:?}");
     }
 
-    let accepted_tags = BTreeSet::from([0]);
+    let accepted_tags = BTreeSet::from([scenario.canon_tag]);
     let committed = runtime.commit_next_block_for_current_c(
-        &input.block_path,
-        1_800_000_000_123,
+        &scenario.block_path,
+        scenario.ts,
         &accepted_tags,
     )?;
-    let recovered = FileBlockStore::recover(&input.block_path)?;
+    let recovered = FileBlockStore::recover(&scenario.block_path)?;
     let replay = replay_blocks(recovered.blocks())?;
     let runtime_head = runtime
         .current_c()
