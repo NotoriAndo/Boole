@@ -39,6 +39,17 @@ pub struct RuntimeSmokeOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct RuntimeSmokeScenarioJson {
+    cfg: CalibrationReport,
+    genesis_c: String,
+    body: Map<String, Value>,
+    ip: String,
+    canon_tag: u8,
+    ts: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Fixture {
     constants: Constants,
     cfg: CalibrationReport,
@@ -94,6 +105,25 @@ pub fn run_runtime_smoke(input: RuntimeSmokeInput) -> anyhow::Result<RuntimeSmok
         canon_tag: 0,
         block_path: input.block_path,
         ts: 1_800_000_000_123,
+    })
+}
+
+pub fn run_runtime_smoke_scenario_file(
+    scenario_path: PathBuf,
+    block_path: PathBuf,
+) -> anyhow::Result<RuntimeSmokeOutput> {
+    let raw = std::fs::read_to_string(scenario_path)?;
+    let scenario: RuntimeSmokeScenarioJson = serde_json::from_str(&raw)?;
+    let config = RuntimeConfig::from_calibration_report(scenario.cfg, 60_000)
+        .map_err(|err| anyhow::anyhow!(err))?;
+    run_runtime_smoke_scenario(RuntimeSmokeScenario {
+        config,
+        genesis_c: scenario.genesis_c,
+        body: scenario.body,
+        ip: scenario.ip,
+        canon_tag: scenario.canon_tag,
+        block_path,
+        ts: scenario.ts,
     })
 }
 
