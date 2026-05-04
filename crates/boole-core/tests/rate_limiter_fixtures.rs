@@ -1,4 +1,6 @@
-use boole_core::{CalibrationReport, RateLimiter};
+use boole_core::{
+    rate_limit_result_json, CalibrationReport, RateLimitRejectReason, RateLimitResult, RateLimiter,
+};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -29,6 +31,51 @@ struct Operation {
     result: Option<Value>,
     #[serde(default)]
     error: Option<String>,
+}
+
+#[test]
+fn rate_limiter_returns_typed_result_with_json_adapter() {
+    let fixture: Fixture = serde_json::from_str(include_str!(
+        "../../../fixtures/protocol/rate-limiter/v1.json"
+    ))
+    .expect("fixture parses");
+    let mut limiter = RateLimiter::new(fixture.cfg.clone(), fixture.window_ms);
+
+    assert_eq!(
+        limiter.peek(
+            1_800_000_000_000,
+            &fixture.constants.ip,
+            &fixture.constants.pk,
+            &fixture.constants.c
+        ),
+        RateLimitResult::Rejected {
+            reason: RateLimitRejectReason::PkQuota,
+        }
+    );
+    assert_eq!(
+        rate_limit_result_json(&limiter.peek(
+            1_800_000_000_000,
+            &fixture.constants.ip,
+            &fixture.constants.pk,
+            &fixture.constants.c,
+        )),
+        serde_json::json!({ "allowed": false, "reason": "pk_quota" })
+    );
+
+    assert!(limiter.observe_ticket(
+        &fixture.constants.pk,
+        &fixture.constants.c,
+        Some(&fixture.constants.n1)
+    ));
+    assert_eq!(
+        limiter.peek(
+            1_800_000_000_001,
+            &fixture.constants.ip,
+            &fixture.constants.pk,
+            &fixture.constants.c
+        ),
+        RateLimitResult::Allowed,
+    );
 }
 
 #[test]
@@ -63,7 +110,7 @@ fn apply_op(
 ) -> Result<Value, String> {
     let value = match op.name.as_str() {
         "check_no_ticket_pk_quota" => {
-            limiter.check(op.now, &constants.ip, &constants.pk, &constants.c)
+            limiter.check_json(op.now, &constants.ip, &constants.pk, &constants.c)
         }
         "observe_exact_n1" => {
             Value::Bool(limiter.observe_ticket(&constants.pk, &constants.c, Some(&constants.n1)))
@@ -77,16 +124,16 @@ fn apply_op(
         "has_observed_n2_before" => {
             Value::Bool(limiter.has_observed_ticket(&constants.pk, &constants.c, &constants.n2))
         }
-        "check_allowed_1" => limiter.check(op.now, &constants.ip, &constants.pk, &constants.c),
-        "check_allowed_2" => limiter.check(op.now, &constants.ip, &constants.pk, &constants.c),
+        "check_allowed_1" => limiter.check_json(op.now, &constants.ip, &constants.pk, &constants.c),
+        "check_allowed_2" => limiter.check_json(op.now, &constants.ip, &constants.pk, &constants.c),
         "check_ip_quota_before_pk_quota" => {
-            limiter.check(op.now, &constants.ip, &constants.pk, &constants.c)
+            limiter.check_json(op.now, &constants.ip, &constants.pk, &constants.c)
         }
         "check_window_boundary_still_ip_quota" => {
-            limiter.check(op.now, &constants.ip, &constants.pk, &constants.c)
+            limiter.check_json(op.now, &constants.ip, &constants.pk, &constants.c)
         }
         "check_pk_quota_after_window" => {
-            limiter.check(op.now, &constants.ip, &constants.pk, &constants.c)
+            limiter.check_json(op.now, &constants.ip, &constants.pk, &constants.c)
         }
         "observe_exact_n2" => {
             Value::Bool(limiter.observe_ticket(&constants.pk, &constants.c, Some(&constants.n2)))
@@ -95,27 +142,27 @@ fn apply_op(
             Value::Bool(limiter.has_observed_ticket(&constants.pk, &constants.c, &constants.n2))
         }
         "check_allowed_after_second_ticket" => {
-            limiter.check(op.now, &constants.ip, &constants.pk, &constants.c)
+            limiter.check_json(op.now, &constants.ip, &constants.pk, &constants.c)
         }
         "reset" => {
             limiter.reset();
             Value::Null
         }
         "check_after_reset_no_ticket" => {
-            limiter.check(op.now, &constants.ip, &constants.pk, &constants.c)
+            limiter.check_json(op.now, &constants.ip, &constants.pk, &constants.c)
         }
         "observe_legacy" => Value::Bool(limiter.observe_ticket(&constants.pk, &constants.c, None)),
         "legacy_has_any_nonce" => {
             Value::Bool(limiter.has_observed_ticket(&constants.pk, &constants.c, &"ff".repeat(32)))
         }
         "legacy_check_allowed_1" => {
-            limiter.check(op.now, &constants.ip, &constants.pk, &constants.c)
+            limiter.check_json(op.now, &constants.ip, &constants.pk, &constants.c)
         }
         "legacy_check_allowed_2" => {
-            limiter.check(op.now, "203.0.113.8", &constants.pk, &constants.c)
+            limiter.check_json(op.now, "203.0.113.8", &constants.pk, &constants.c)
         }
         "legacy_check_pk_quota" => {
-            limiter.check(op.now, "203.0.113.9", &constants.pk, &constants.c)
+            limiter.check_json(op.now, "203.0.113.9", &constants.pk, &constants.c)
         }
         other => panic!("unknown op {other}"),
     };

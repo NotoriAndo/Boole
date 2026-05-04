@@ -1,7 +1,7 @@
 use crate::{
     check_submission_pow, share_hash, ticket, validate_proof_package, validation_reason_json,
-    CalibrationReport, Hex32, PoolShare, RateLimiter, SharePool, SubmissionPowResult,
-    ValidationReason, ValidationResult,
+    CalibrationReport, Hex32, PoolShare, RateLimitRejectReason, RateLimitResult, RateLimiter,
+    SharePool, SubmissionPowResult, ValidationReason, ValidationResult,
 };
 use num_bigint::BigUint;
 use serde_json::{json, Map, Value};
@@ -80,29 +80,6 @@ impl SubmitPowRejectReason {
     fn as_str(self) -> &'static str {
         match self {
             Self::AboveTSubmit => "above_T_submit",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RateLimitRejectReason {
-    IpQuota,
-    PkQuota,
-}
-
-impl RateLimitRejectReason {
-    fn from_str(value: &str) -> Self {
-        match value {
-            "ip_quota" => Self::IpQuota,
-            "pk_quota" => Self::PkQuota,
-            other => panic!("unknown rate-limit reason {other}"),
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::IpQuota => "ip_quota",
-            Self::PkQuota => "pk_quota",
         }
     }
 }
@@ -249,16 +226,7 @@ pub fn admit_submission_typed(deps: AdmissionDeps<'_>) -> AdmissionDecision {
     }
 
     let rate = deps.rate_limiter.peek(deps.now, deps.ip, pk_hex, c_hex);
-    if !rate
-        .get("allowed")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        let reason = RateLimitRejectReason::from_str(
-            rate.get("reason")
-                .and_then(Value::as_str)
-                .expect("rate reason"),
-        );
+    if let RateLimitResult::Rejected { reason } = rate {
         return reject(
             AdmissionStatus::RateLimited,
             AdmissionError::RateLimited { reason },

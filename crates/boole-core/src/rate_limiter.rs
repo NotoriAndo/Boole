@@ -2,6 +2,36 @@ use crate::CalibrationReport;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RateLimitResult {
+    Allowed,
+    Rejected { reason: RateLimitRejectReason },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RateLimitRejectReason {
+    IpQuota,
+    PkQuota,
+}
+
+impl RateLimitRejectReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::IpQuota => "ip_quota",
+            Self::PkQuota => "pk_quota",
+        }
+    }
+}
+
+pub fn rate_limit_result_json(result: &RateLimitResult) -> Value {
+    match result {
+        RateLimitResult::Allowed => json!({ "allowed": true }),
+        RateLimitResult::Rejected { reason } => {
+            json!({ "allowed": false, "reason": reason.as_str() })
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RateLimiter {
     cfg: CalibrationReport,
@@ -49,19 +79,19 @@ impl RateLimiter {
         self.seen_tickets.contains(&format!("{pk}|{c}|{n}"))
     }
 
-    pub fn check(&mut self, now: i64, ip: &str, pk: &str, c: &str) -> Value {
+    pub fn check(&mut self, now: i64, ip: &str, pk: &str, c: &str) -> RateLimitResult {
         let result = self.peek(now, ip, pk, c);
-        if result
-            .get("allowed")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
+        if matches!(result, RateLimitResult::Allowed) {
             self.commit(now, ip, pk, c);
         }
         result
     }
 
-    pub fn peek(&self, now: i64, ip: &str, pk: &str, c: &str) -> Value {
+    pub fn check_json(&mut self, now: i64, ip: &str, pk: &str, c: &str) -> Value {
+        rate_limit_result_json(&self.check(now, ip, pk, c))
+    }
+
+    pub fn peek(&self, now: i64, ip: &str, pk: &str, c: &str) -> RateLimitResult {
         let cutoff = now - self.window_ms;
         let ip_count = self
             .ip
@@ -69,7 +99,9 @@ impl RateLimiter {
             .map(|timestamps| timestamps.iter().filter(|ts| **ts >= cutoff).count())
             .unwrap_or(0);
         if ip_count >= self.cfg.perIpRateLimitPer60s as usize {
-            return json!({ "allowed": false, "reason": "ip_quota" });
+            return RateLimitResult::Rejected {
+                reason: RateLimitRejectReason::IpQuota,
+            };
         }
 
         let k = key(pk, c);
@@ -77,10 +109,12 @@ impl RateLimiter {
         let ceiling = tickets * self.cfg.M;
         let used = self.pk_count.get(&k).copied().unwrap_or(0);
         if used >= ceiling {
-            return json!({ "allowed": false, "reason": "pk_quota" });
+            return RateLimitResult::Rejected {
+                reason: RateLimitRejectReason::PkQuota,
+            };
         }
 
-        json!({ "allowed": true })
+        RateLimitResult::Allowed
     }
 
     pub fn commit(&mut self, now: i64, ip: &str, pk: &str, c: &str) {

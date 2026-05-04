@@ -40,7 +40,9 @@ pub use hash::{
     parse_biguint_hex, share_hash, share_score, submission_pow_hash, submission_pow_ok, ticket,
     Hex32, TicketResult,
 };
-pub use rate_limiter::RateLimiter;
+pub use rate_limiter::{
+    rate_limit_result_json, RateLimitRejectReason, RateLimitResult, RateLimiter,
+};
 pub use rejection_log::{
     json_rejection_line, reason_key, reason_key_typed, rejection_event_from_json,
     rejection_event_json, rejection_event_line, LoggedRejectionReason, RejectionEvent,
