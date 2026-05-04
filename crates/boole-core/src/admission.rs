@@ -1,8 +1,9 @@
 use crate::{
     check_submission_pow_with_policy, share_hash, ticket, validate_proof_package_with_policy,
-    validation_reason_json, CalibrationPolicy, Hex32, PoolShare, RateLimitRejectReason,
-    RateLimitResult, RateLimiter, SharePool, SharePoolRejectReason, SubmissionPowResult,
-    ValidationReason, ValidationResult,
+    validation_reason_json, AdmissionDecision, AdmissionError, AdmissionStatus, CalibrationPolicy,
+    Hex32, ParsedSubmission, PoolShare, RateLimitResult, RateLimiter, RejectionReason, SharePool,
+    SubmissionPowResult, SubmitPowRejectReason, TicketAdmissionResult, TicketRejectReason,
+    ValidationResult,
 };
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -23,106 +24,6 @@ pub struct AdmissionParsedDeps<'a> {
     pub now: i64,
     pub ip: &'a str,
     pub submission: &'a ParsedSubmission,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParsedSubmission {
-    pub c_hex: String,
-    pub pk_hex: String,
-    pub n_hex: String,
-    pub j_hex: String,
-    pub nonce_s_hex: String,
-    pub c: Hex32,
-    pub pk: Hex32,
-    pub n: Hex32,
-    pub j: Hex32,
-    pub nonce_s: Hex32,
-    pub package_bytes: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AdmissionDecision {
-    Accepted {
-        share_hash: Hex32,
-    },
-    Rejected {
-        status: AdmissionStatus,
-        error: AdmissionError,
-        rejection: RejectionReason,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AdmissionStatus {
-    BadRequest,
-    UnprocessableEntity,
-    RateLimited,
-}
-
-impl AdmissionStatus {
-    fn code(self) -> u16 {
-        match self {
-            Self::BadRequest => 400,
-            Self::UnprocessableEntity => 422,
-            Self::RateLimited => 429,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AdmissionError {
-    MissingField { field: String },
-    BadHex { field: String, detail: String },
-    Ticket { reason: TicketRejectReason },
-    Validator { reason: ValidationReason },
-    SubmitPow { reason: SubmitPowRejectReason },
-    RateLimited { reason: RateLimitRejectReason },
-    SharePool { reason: SharePoolRejectReason },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TicketAdmissionResult {
-    Allowed,
-    Rejected { reason: TicketRejectReason },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TicketRejectReason {
-    AboveTTicket,
-    Unobserved,
-}
-
-impl TicketRejectReason {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::AboveTTicket => "above_T_ticket",
-            Self::Unobserved => "unobserved",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SubmitPowRejectReason {
-    AboveTSubmit,
-}
-
-impl SubmitPowRejectReason {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::AboveTSubmit => "above_T_submit",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RejectionReason {
-    BadRequest { field: String },
-    Decode { field: String, detail: String },
-    Ticket { detail: TicketRejectReason },
-    Validator { reason: ValidationReason },
-    SubmitPow { detail: SubmitPowRejectReason },
-    RateLimit { quota: RateLimitRejectReason },
-    SharePool { detail: SharePoolRejectReason },
 }
 
 pub fn check_admission_ticket(ticket_valid: bool, observed: bool) -> TicketAdmissionResult {

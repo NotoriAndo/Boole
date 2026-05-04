@@ -4,6 +4,7 @@
 //! TypeScript-generated golden fixtures from `/Users/seoyong/projects/pof`.
 
 pub mod admission;
+pub mod admission_types;
 pub mod block;
 pub mod block_builder;
 pub mod bounty_ledger;
@@ -21,9 +22,11 @@ pub mod work_manifest;
 
 pub use admission::{
     admit_parsed_submission_typed, admit_submission, admit_submission_json, admit_submission_typed,
-    check_admission_ticket, parse_submission_body, AdmissionDecision, AdmissionDeps,
-    AdmissionError, AdmissionParsedDeps, AdmissionStatus, ParsedSubmission, RejectionReason,
-    TicketAdmissionResult, TicketRejectReason,
+    check_admission_ticket, parse_submission_body, AdmissionDeps, AdmissionParsedDeps,
+};
+pub use admission_types::{
+    AdmissionDecision, AdmissionError, AdmissionStatus, ParsedSubmission, RejectionReason,
+    SubmitPowRejectReason, TicketAdmissionResult, TicketRejectReason,
 };
 pub use block::PersistedBlock;
 pub use block_builder::{
