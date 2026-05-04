@@ -252,7 +252,7 @@ pub fn admit_submission_typed(deps: AdmissionDeps<'_>) -> AdmissionDecision {
         );
     }
 
-    let rate = deps.rate_limiter.check(deps.now, deps.ip, pk_hex, c_hex);
+    let rate = deps.rate_limiter.peek(deps.now, deps.ip, pk_hex, c_hex);
     if !rate
         .get("allowed")
         .and_then(Value::as_bool)
@@ -286,6 +286,7 @@ pub fn admit_submission_typed(deps: AdmissionDeps<'_>) -> AdmissionDecision {
             RejectionReason::SharePool { detail: reason },
         );
     }
+    deps.rate_limiter.commit(deps.now, deps.ip, pk_hex, c_hex);
 
     AdmissionDecision::Accepted { share_hash }
 }

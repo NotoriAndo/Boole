@@ -50,12 +50,25 @@ impl RateLimiter {
     }
 
     pub fn check(&mut self, now: i64, ip: &str, pk: &str, c: &str) -> Value {
-        let cutoff = now - self.window_ms;
-        let timestamps = self.ip.entry(ip.to_string()).or_default();
-        while timestamps.front().is_some_and(|ts| *ts < cutoff) {
-            timestamps.pop_front();
+        let result = self.peek(now, ip, pk, c);
+        if result
+            .get("allowed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            self.commit(now, ip, pk, c);
         }
-        if timestamps.len() >= self.cfg.perIpRateLimitPer60s as usize {
+        result
+    }
+
+    pub fn peek(&self, now: i64, ip: &str, pk: &str, c: &str) -> Value {
+        let cutoff = now - self.window_ms;
+        let ip_count = self
+            .ip
+            .get(ip)
+            .map(|timestamps| timestamps.iter().filter(|ts| **ts >= cutoff).count())
+            .unwrap_or(0);
+        if ip_count >= self.cfg.perIpRateLimitPer60s as usize {
             return json!({ "allowed": false, "reason": "ip_quota" });
         }
 
@@ -67,9 +80,20 @@ impl RateLimiter {
             return json!({ "allowed": false, "reason": "pk_quota" });
         }
 
-        timestamps.push_back(now);
-        self.pk_count.insert(k, used + 1);
         json!({ "allowed": true })
+    }
+
+    pub fn commit(&mut self, now: i64, ip: &str, pk: &str, c: &str) {
+        let cutoff = now - self.window_ms;
+        let timestamps = self.ip.entry(ip.to_string()).or_default();
+        while timestamps.front().is_some_and(|ts| *ts < cutoff) {
+            timestamps.pop_front();
+        }
+        timestamps.push_back(now);
+
+        let k = key(pk, c);
+        let used = self.pk_count.get(&k).copied().unwrap_or(0);
+        self.pk_count.insert(k, used + 1);
     }
 
     pub fn reset(&mut self) {

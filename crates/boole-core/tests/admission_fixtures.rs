@@ -1,6 +1,7 @@
 use boole_core::{
-    admit_submission_json, admit_submission_typed, AdmissionDecision, AdmissionDeps,
-    AdmissionError, AdmissionStatus, CalibrationReport, RateLimiter, RejectionReason, SharePool,
+    admission::SharePoolRejectReason, admit_submission_json, admit_submission_typed,
+    AdmissionDecision, AdmissionDeps, AdmissionError, AdmissionStatus, CalibrationReport,
+    RateLimiter, RejectionReason, SharePool,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -58,6 +59,82 @@ fn admission_pipeline_matches_improved_fixture() {
         });
         assert_eq!(admit_submission_json(&decision), op.expect, "{}", op.name);
     }
+}
+
+#[test]
+fn admission_pool_rejection_does_not_consume_rate_quota() {
+    let fixture = load_fixture();
+    let mut cfg = fixture.cfg.clone();
+    cfg.perIpRateLimitPer60s = 10;
+    cfg.M = 1;
+    let mut rate_limiter = RateLimiter::new(cfg.clone(), 60_000);
+    let mut pool = SharePool::new(cfg.ShareCapPerPK_Block as usize);
+    pool.set_current_c(fixture.constants.c.clone());
+
+    // Legacy ticket observations preserve TypeScript compatibility: with no exact
+    // tickets observed, any n for this (pk, c) is considered observed. Two tickets
+    // make exactly two valid admission quota slots available for this pk/c.
+    assert!(rate_limiter.observe_ticket(&fixture.constants.pk, &fixture.constants.c, None));
+    assert!(rate_limiter.observe_ticket(&fixture.constants.pk, &fixture.constants.c, None));
+
+    let first_body = body_for(&fixture.constants, &Map::new());
+    let first = admit_submission_typed(AdmissionDeps {
+        cfg: &cfg,
+        rate_limiter: &mut rate_limiter,
+        pool: &mut pool,
+        now: 1_800_000_000_000,
+        ip: &fixture.constants.ip,
+        body: &first_body,
+    });
+    assert!(matches!(first, AdmissionDecision::Accepted { .. }));
+
+    let duplicate = admit_submission_typed(AdmissionDeps {
+        cfg: &cfg,
+        rate_limiter: &mut rate_limiter,
+        pool: &mut pool,
+        now: 1_800_000_000_001,
+        ip: &fixture.constants.ip,
+        body: &first_body,
+    });
+    assert_eq!(
+        duplicate,
+        AdmissionDecision::Rejected {
+            status: AdmissionStatus::UnprocessableEntity,
+            error: AdmissionError::SharePool {
+                reason: SharePoolRejectReason::Duplicate
+            },
+            rejection: RejectionReason::SharePool {
+                detail: SharePoolRejectReason::Duplicate
+            },
+        }
+    );
+
+    let mut fresh_patch = Map::new();
+    fresh_patch.insert(
+        "n".to_string(),
+        Value::String(
+            "3434343434343434343434343434343434343434343434343434343434343434".to_string(),
+        ),
+    );
+    fresh_patch.insert(
+        "j".to_string(),
+        Value::String(
+            "1212121212121212121212121212121212121212121212121212121212121212".to_string(),
+        ),
+    );
+    let fresh_body = body_for(&fixture.constants, &fresh_patch);
+    let fresh = admit_submission_typed(AdmissionDeps {
+        cfg: &cfg,
+        rate_limiter: &mut rate_limiter,
+        pool: &mut pool,
+        now: 1_800_000_000_002,
+        ip: &fixture.constants.ip,
+        body: &fresh_body,
+    });
+    assert!(
+        matches!(fresh, AdmissionDecision::Accepted { .. }),
+        "share-pool duplicate rejection must not debit the second valid quota slot; got {fresh:?}"
+    );
 }
 
 #[test]
