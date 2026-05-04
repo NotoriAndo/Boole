@@ -1,0 +1,180 @@
+{
+  "version": 1,
+  "source": {
+    "rateLimiter": "/Users/seoyong/projects/pof/dispatcher/src/rateLimiter.ts"
+  },
+  "generatedBy": "scripts/export-rate-limiter-fixtures.ts",
+  "cfg": {
+    "T_submit": "0x1010101010101010101010101010101010101010101010101010101010101010",
+    "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+    "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+    "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+    "MinShareScoreMultiplier": 2,
+    "K_max": 16,
+    "ShareCapPerPK_Block": 4,
+    "L": 4096,
+    "D_max": 8,
+    "EMAWindow": 32,
+    "M": 2,
+    "perIpRateLimitPer60s": 2,
+    "provenance": "calibration-final"
+  },
+  "windowMs": 60000,
+  "constants": {
+    "pk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "c": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "n1": "0101010101010101010101010101010101010101010101010101010101010101",
+    "n2": "0202020202020202020202020202020202020202020202020202020202020202",
+    "ip": "203.0.113.7"
+  },
+  "operations": [
+    {
+      "name": "check_no_ticket_pk_quota",
+      "now": 1000000,
+      "ok": true,
+      "result": {
+        "allowed": false,
+        "reason": "pk_quota"
+      }
+    },
+    {
+      "name": "observe_exact_n1",
+      "now": 1000000,
+      "ok": true,
+      "result": true
+    },
+    {
+      "name": "observe_exact_n1_replay",
+      "now": 1000000,
+      "ok": true,
+      "result": false
+    },
+    {
+      "name": "has_observed_n1",
+      "now": 1000000,
+      "ok": true,
+      "result": true
+    },
+    {
+      "name": "has_observed_n2_before",
+      "now": 1000000,
+      "ok": true,
+      "result": false
+    },
+    {
+      "name": "check_allowed_1",
+      "now": 1000000,
+      "ok": true,
+      "result": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "check_allowed_2",
+      "now": 1000000,
+      "ok": true,
+      "result": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "check_ip_quota_before_pk_quota",
+      "now": 1000000,
+      "ok": true,
+      "result": {
+        "allowed": false,
+        "reason": "ip_quota"
+      }
+    },
+    {
+      "name": "check_window_boundary_still_ip_quota",
+      "now": 1060000,
+      "ok": true,
+      "result": {
+        "allowed": false,
+        "reason": "ip_quota"
+      }
+    },
+    {
+      "name": "check_pk_quota_after_window",
+      "now": 1060001,
+      "ok": true,
+      "result": {
+        "allowed": false,
+        "reason": "pk_quota"
+      }
+    },
+    {
+      "name": "observe_exact_n2",
+      "now": 1060001,
+      "ok": true,
+      "result": true
+    },
+    {
+      "name": "has_observed_n2_after",
+      "now": 1060001,
+      "ok": true,
+      "result": true
+    },
+    {
+      "name": "check_allowed_after_second_ticket",
+      "now": 1060001,
+      "ok": true,
+      "result": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "reset",
+      "now": 1060001,
+      "ok": true,
+      "result": null
+    },
+    {
+      "name": "check_after_reset_no_ticket",
+      "now": 1060001,
+      "ok": true,
+      "result": {
+        "allowed": false,
+        "reason": "pk_quota"
+      }
+    },
+    {
+      "name": "observe_legacy",
+      "now": 1060001,
+      "ok": true,
+      "result": true
+    },
+    {
+      "name": "legacy_has_any_nonce",
+      "now": 1060001,
+      "ok": true,
+      "result": true
+    },
+    {
+      "name": "legacy_check_allowed_1",
+      "now": 1060001,
+      "ok": true,
+      "result": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "legacy_check_allowed_2",
+      "now": 1060001,
+      "ok": true,
+      "result": {
+        "allowed": true
+      }
+    },
+    {
+      "name": "legacy_check_pk_quota",
+      "now": 1060001,
+      "ok": true,
+      "result": {
+        "allowed": false,
+        "reason": "pk_quota"
+      }
+    }
+  ]
+}

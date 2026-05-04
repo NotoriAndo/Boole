@@ -10,6 +10,7 @@ pub mod bounty_registry;
 pub mod config;
 pub mod family_manifest;
 pub mod hash;
+pub mod rate_limiter;
 pub mod rejection_log;
 pub mod replay;
 pub mod share_pool;
@@ -34,6 +35,7 @@ pub use hash::{
     parse_biguint_hex, share_hash, share_score, submission_pow_hash, submission_pow_ok, ticket,
     Hex32, TicketResult,
 };
+pub use rate_limiter::RateLimiter;
 pub use rejection_log::{json_rejection_line, reason_key, RingRejectionLogger};
 pub use replay::{
     compute_block_credits, replay_blocks, PersistedCredit, PersistedRewardEvent, ReplayResult,
