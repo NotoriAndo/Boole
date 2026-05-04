@@ -5,43 +5,139 @@ const MAGIC: [u8; 4] = [0x42, 0x50, 0x50, 0x4b];
 const FORMAT_VERSION: u32 = 1;
 const MAX_WALK_DEPTH: usize = 4096;
 
-pub fn validate_proof_package(bytes: &[u8], cfg: &CalibrationReport) -> Value {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ValidationResult {
+    Ok {
+        decl_count: u32,
+        size: usize,
+        universe_arity: u32,
+    },
+    Err {
+        reason: ValidationReason,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ValidationReason {
+    TooLarge { size: usize, limit: i64 },
+    TooManyDecls { decl_count: u32, limit: i64 },
+    Decode { detail: DecodeDetail },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DecodeDetail {
+    BadMagic,
+    UnexpectedEof,
+    UnsupportedVersion {
+        version: u32,
+    },
+    TrailingBytes {
+        at: usize,
+        size: usize,
+    },
+    RecursionLimit {
+        where_tag: &'static str,
+        limit: usize,
+    },
+    UnknownTag {
+        where_tag: &'static str,
+        tag: u8,
+    },
+}
+
+pub fn validate_proof_package(bytes: &[u8], cfg: &CalibrationReport) -> ValidationResult {
     if bytes.len() > cfg.L as usize {
-        return json!({
-            "ok": false,
-            "reason": { "kind": "tooLarge", "size": bytes.len(), "limit": cfg.L }
-        });
+        return ValidationResult::Err {
+            reason: ValidationReason::TooLarge {
+                size: bytes.len(),
+                limit: cfg.L,
+            },
+        };
     }
 
     let walked = match walk_package(bytes) {
         Ok(walked) => walked,
         Err(detail) => {
-            return json!({
-                "ok": false,
-                "reason": { "kind": "decode", "detail": detail }
-            });
+            return ValidationResult::Err {
+                reason: ValidationReason::Decode { detail },
+            };
         }
     };
 
     if walked.size > cfg.L as usize {
-        return json!({
-            "ok": false,
-            "reason": { "kind": "tooLarge", "size": walked.size, "limit": cfg.L }
-        });
+        return ValidationResult::Err {
+            reason: ValidationReason::TooLarge {
+                size: walked.size,
+                limit: cfg.L,
+            },
+        };
     }
     if walked.decl_count > cfg.D_max as u32 {
-        return json!({
-            "ok": false,
-            "reason": { "kind": "tooManyDecls", "declCount": walked.decl_count, "limit": cfg.D_max }
-        });
+        return ValidationResult::Err {
+            reason: ValidationReason::TooManyDecls {
+                decl_count: walked.decl_count,
+                limit: cfg.D_max,
+            },
+        };
     }
 
-    json!({
-        "ok": true,
-        "declCount": walked.decl_count,
-        "size": walked.size,
-        "universeArity": walked.universe_arity,
-    })
+    ValidationResult::Ok {
+        decl_count: walked.decl_count,
+        size: walked.size,
+        universe_arity: walked.universe_arity,
+    }
+}
+
+pub fn validate_proof_package_json(result: &ValidationResult) -> Value {
+    match result {
+        ValidationResult::Ok {
+            decl_count,
+            size,
+            universe_arity,
+        } => json!({
+            "ok": true,
+            "declCount": decl_count,
+            "size": size,
+            "universeArity": universe_arity,
+        }),
+        ValidationResult::Err { reason } => json!({
+            "ok": false,
+            "reason": validation_reason_json(reason),
+        }),
+    }
+}
+
+pub fn validation_reason_json(reason: &ValidationReason) -> Value {
+    match reason {
+        ValidationReason::TooLarge { size, limit } => {
+            json!({ "kind": "tooLarge", "size": size, "limit": limit })
+        }
+        ValidationReason::TooManyDecls { decl_count, limit } => {
+            json!({ "kind": "tooManyDecls", "declCount": decl_count, "limit": limit })
+        }
+        ValidationReason::Decode { detail } => {
+            json!({ "kind": "decode", "detail": decode_detail_json(detail) })
+        }
+    }
+}
+
+pub fn decode_detail_json(detail: &DecodeDetail) -> Value {
+    match detail {
+        DecodeDetail::BadMagic => json!({ "kind": "badMagic" }),
+        DecodeDetail::UnexpectedEof => json!({ "kind": "unexpectedEOF" }),
+        DecodeDetail::UnsupportedVersion { version } => {
+            json!({ "kind": "unsupportedVersion", "version": version })
+        }
+        DecodeDetail::TrailingBytes { at, size } => {
+            json!({ "kind": "trailingBytes", "at": at, "size": size })
+        }
+        DecodeDetail::RecursionLimit { where_tag, limit } => {
+            json!({ "kind": "recursionLimit", "whereTag": where_tag, "limit": limit })
+        }
+        DecodeDetail::UnknownTag { where_tag, tag } => {
+            json!({ "kind": "unknownTag", "whereTag": where_tag, "tag": tag })
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -51,19 +147,19 @@ struct WalkResult {
     universe_arity: u32,
 }
 
-fn walk_package(bytes: &[u8]) -> Result<WalkResult, Value> {
+fn walk_package(bytes: &[u8]) -> Result<WalkResult, DecodeDetail> {
     if bytes.len() < 12 {
-        return Err(json!({ "kind": "unexpectedEOF" }));
+        return Err(DecodeDetail::UnexpectedEof);
     }
     if bytes[0..4] != MAGIC {
-        return Err(json!({ "kind": "badMagic" }));
+        return Err(DecodeDetail::BadMagic);
     }
 
     let mut cursor = Cursor::new(bytes);
     cursor.skip(4)?;
     let version = cursor.read_u32_le()?;
     if version != FORMAT_VERSION {
-        return Err(json!({ "kind": "unsupportedVersion", "version": version }));
+        return Err(DecodeDetail::UnsupportedVersion { version });
     }
     let universe_arity = cursor.read_u32_le()?;
     walk_name(&mut cursor)?;
@@ -74,7 +170,10 @@ fn walk_package(bytes: &[u8]) -> Result<WalkResult, Value> {
         walk_decl(&mut cursor)?;
     }
     if cursor.pos != bytes.len() {
-        return Err(json!({ "kind": "trailingBytes", "at": cursor.pos, "size": bytes.len() }));
+        return Err(DecodeDetail::TrailingBytes {
+            at: cursor.pos,
+            size: bytes.len(),
+        });
     }
 
     Ok(WalkResult {
@@ -94,22 +193,22 @@ impl<'a> Cursor<'a> {
         Self { bytes, pos: 0 }
     }
 
-    fn ensure(&self, n: usize) -> Result<(), Value> {
+    fn ensure(&self, n: usize) -> Result<(), DecodeDetail> {
         if self.pos + n > self.bytes.len() {
-            Err(json!({ "kind": "unexpectedEOF" }))
+            Err(DecodeDetail::UnexpectedEof)
         } else {
             Ok(())
         }
     }
 
-    fn read_byte(&mut self) -> Result<u8, Value> {
+    fn read_byte(&mut self) -> Result<u8, DecodeDetail> {
         self.ensure(1)?;
         let out = self.bytes[self.pos];
         self.pos += 1;
         Ok(out)
     }
 
-    fn read_u32_le(&mut self) -> Result<u32, Value> {
+    fn read_u32_le(&mut self) -> Result<u32, DecodeDetail> {
         self.ensure(4)?;
         let out = u32::from_le_bytes([
             self.bytes[self.pos],
@@ -121,18 +220,19 @@ impl<'a> Cursor<'a> {
         Ok(out)
     }
 
-    fn skip(&mut self, n: usize) -> Result<(), Value> {
+    fn skip(&mut self, n: usize) -> Result<(), DecodeDetail> {
         self.ensure(n)?;
         self.pos += n;
         Ok(())
     }
 }
 
-fn walk_level(cursor: &mut Cursor<'_>, depth: usize) -> Result<(), Value> {
+fn walk_level(cursor: &mut Cursor<'_>, depth: usize) -> Result<(), DecodeDetail> {
     if depth > MAX_WALK_DEPTH {
-        return Err(
-            json!({ "kind": "recursionLimit", "whereTag": "CanonLevel", "limit": MAX_WALK_DEPTH }),
-        );
+        return Err(DecodeDetail::RecursionLimit {
+            where_tag: "CanonLevel",
+            limit: MAX_WALK_DEPTH,
+        });
     }
     let tag = cursor.read_byte()?;
     match tag {
@@ -146,11 +246,14 @@ fn walk_level(cursor: &mut Cursor<'_>, depth: usize) -> Result<(), Value> {
             cursor.read_u32_le()?;
             Ok(())
         }
-        _ => Err(json!({ "kind": "unknownTag", "whereTag": "CanonLevel", "tag": tag })),
+        _ => Err(DecodeDetail::UnknownTag {
+            where_tag: "CanonLevel",
+            tag,
+        }),
     }
 }
 
-fn walk_lit(cursor: &mut Cursor<'_>) -> Result<(), Value> {
+fn walk_lit(cursor: &mut Cursor<'_>) -> Result<(), DecodeDetail> {
     let tag = cursor.read_byte()?;
     match tag {
         0x00 => {
@@ -161,11 +264,14 @@ fn walk_lit(cursor: &mut Cursor<'_>) -> Result<(), Value> {
             let n = cursor.read_u32_le()? as usize;
             cursor.skip(n)
         }
-        _ => Err(json!({ "kind": "unknownTag", "whereTag": "CanonLit", "tag": tag })),
+        _ => Err(DecodeDetail::UnknownTag {
+            where_tag: "CanonLit",
+            tag,
+        }),
     }
 }
 
-fn walk_name(cursor: &mut Cursor<'_>) -> Result<(), Value> {
+fn walk_name(cursor: &mut Cursor<'_>) -> Result<(), DecodeDetail> {
     let parts = cursor.read_u32_le()?;
     for _ in 0..parts {
         let len = cursor.read_u32_le()? as usize;
@@ -174,11 +280,12 @@ fn walk_name(cursor: &mut Cursor<'_>) -> Result<(), Value> {
     Ok(())
 }
 
-fn walk_expr(cursor: &mut Cursor<'_>, depth: usize) -> Result<(), Value> {
+fn walk_expr(cursor: &mut Cursor<'_>, depth: usize) -> Result<(), DecodeDetail> {
     if depth > MAX_WALK_DEPTH {
-        return Err(
-            json!({ "kind": "recursionLimit", "whereTag": "CanonExpr", "limit": MAX_WALK_DEPTH }),
-        );
+        return Err(DecodeDetail::RecursionLimit {
+            where_tag: "CanonExpr",
+            limit: MAX_WALK_DEPTH,
+        });
     }
     let tag = cursor.read_byte()?;
     match tag {
@@ -210,11 +317,14 @@ fn walk_expr(cursor: &mut Cursor<'_>, depth: usize) -> Result<(), Value> {
             cursor.read_u32_le()?;
             walk_expr(cursor, depth + 1)
         }
-        _ => Err(json!({ "kind": "unknownTag", "whereTag": "CanonExpr", "tag": tag })),
+        _ => Err(DecodeDetail::UnknownTag {
+            where_tag: "CanonExpr",
+            tag,
+        }),
     }
 }
 
-fn walk_decl(cursor: &mut Cursor<'_>) -> Result<(), Value> {
+fn walk_decl(cursor: &mut Cursor<'_>) -> Result<(), DecodeDetail> {
     walk_name(cursor)?;
     walk_expr(cursor, 0)?;
     walk_expr(cursor, 0)

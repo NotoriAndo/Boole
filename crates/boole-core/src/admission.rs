@@ -1,6 +1,6 @@
 use crate::{
-    check_submission_pow, share_hash, ticket, validate_proof_package, CalibrationReport, Hex32,
-    PoolShare, RateLimiter, SharePool,
+    check_submission_pow, share_hash, ticket, validate_proof_package, validate_proof_package_json,
+    CalibrationReport, Hex32, PoolShare, RateLimiter, SharePool,
 };
 use num_bigint::BigUint;
 use serde_json::{json, Map, Value};
@@ -216,7 +216,7 @@ pub fn admit_submission_typed(deps: AdmissionDeps<'_>) -> AdmissionDecision {
         );
     }
 
-    let validator = validate_proof_package(&package_bytes, deps.cfg);
+    let validator = validate_proof_package_json(&validate_proof_package(&package_bytes, deps.cfg));
     if !validator
         .get("ok")
         .and_then(Value::as_bool)
