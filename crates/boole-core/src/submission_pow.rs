@@ -1,5 +1,30 @@
 use crate::{hex_to_biguint, submission_pow_ok, CalibrationReport, Hex32};
+use num_bigint::BigUint;
 use serde_json::{json, Value};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubmissionPowResult {
+    Ok {
+        hash_int: BigUint,
+    },
+    Err {
+        reason: SubmissionPowRejectReason,
+        hash_int: BigUint,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubmissionPowRejectReason {
+    AboveTSubmit,
+}
+
+impl SubmissionPowRejectReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AboveTSubmit => "above_T_submit",
+        }
+    }
+}
 
 pub fn check_submission_pow(
     c: &[u8],
@@ -7,7 +32,7 @@ pub fn check_submission_pow(
     nonce_s: &[u8],
     canon_hash: &[u8],
     cfg: &CalibrationReport,
-) -> Value {
+) -> SubmissionPowResult {
     let c = hex32_from_slice(c, "c");
     let pk = hex32_from_slice(pk, "pk");
     let nonce_s = hex32_from_slice(nonce_s, "nonceS");
@@ -16,9 +41,25 @@ pub fn check_submission_pow(
         hex_to_biguint(&cfg.T_submit).expect("cfg.T_submit parses like TypeScript fixture");
     let (ok, hash_int) = submission_pow_ok(&c, &pk, &nonce_s, &canon_hash, &t_submit);
     if ok {
-        json!({ "ok": true, "hashInt": hash_int.to_string() })
+        SubmissionPowResult::Ok { hash_int }
     } else {
-        json!({ "ok": false, "reason": "above_T_submit", "hashInt": hash_int.to_string() })
+        SubmissionPowResult::Err {
+            reason: SubmissionPowRejectReason::AboveTSubmit,
+            hash_int,
+        }
+    }
+}
+
+pub fn check_submission_pow_json(result: &SubmissionPowResult) -> Value {
+    match result {
+        SubmissionPowResult::Ok { hash_int } => {
+            json!({ "ok": true, "hashInt": hash_int.to_string() })
+        }
+        SubmissionPowResult::Err { reason, hash_int } => json!({
+            "ok": false,
+            "reason": reason.as_str(),
+            "hashInt": hash_int.to_string()
+        }),
     }
 }
 

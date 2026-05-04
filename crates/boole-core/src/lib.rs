@@ -50,7 +50,9 @@ pub use replay::{
     compute_block_credits, replay_blocks, PersistedCredit, PersistedRewardEvent, ReplayResult,
 };
 pub use share_pool::{AcceptResult, PoolShare, SharePool};
-pub use submission_pow::check_submission_pow;
+pub use submission_pow::{
+    check_submission_pow, check_submission_pow_json, SubmissionPowRejectReason, SubmissionPowResult,
+};
 pub use validator::{
     decode_detail_from_json, decode_detail_json, validate_proof_package,
     validate_proof_package_json, validation_reason_from_json, validation_reason_json, DecodeDetail,

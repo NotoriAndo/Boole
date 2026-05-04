@@ -1,7 +1,7 @@
 use crate::{
     check_submission_pow, share_hash, ticket, validate_proof_package, validation_reason_json,
-    CalibrationReport, Hex32, PoolShare, RateLimiter, SharePool, ValidationReason,
-    ValidationResult,
+    CalibrationReport, Hex32, PoolShare, RateLimiter, SharePool, SubmissionPowResult,
+    ValidationReason, ValidationResult,
 };
 use num_bigint::BigUint;
 use serde_json::{json, Map, Value};
@@ -236,7 +236,7 @@ pub fn admit_submission_typed(deps: AdmissionDeps<'_>) -> AdmissionDecision {
         canon_hash.as_bytes(),
         deps.cfg,
     );
-    if !pow.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+    if let SubmissionPowResult::Err { .. } = pow {
         return reject(
             AdmissionStatus::UnprocessableEntity,
             AdmissionError::SubmitPow {
