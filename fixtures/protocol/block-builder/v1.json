@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "source": "/Users/seoyong/projects/pof/dispatcher/src/blockBuilder.ts",
+  "generatedBy": "scripts/export-block-builder-fixtures.ts",
+  "chainHead": "c0",
+  "config": {
+    "T_submit": "0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_share": "0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_block": "0x000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_ticket": "0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "MinShareScoreMultiplier": 1,
+    "K_max": 2,
+    "ShareCapPerPK_Block": 16,
+    "L": 65536,
+    "D_max": 64,
+    "EMAWindow": 300,
+    "M": 32,
+    "perIpRateLimitPer60s": 60,
+    "provenance": "rust-migration-block-builder-fixture",
+    "minShareScore": "16"
+  },
+  "inputShares": [
+    {
+      "label": "top-proposer",
+      "pk": "20",
+      "n": "00",
+      "j": "00",
+      "c": "c0",
+      "shareHash": "0001000000000000000000000000000000000000000000000000000000000000",
+      "score": "316",
+      "canonTag": 1
+    },
+    {
+      "label": "second-accepted",
+      "pk": "30",
+      "n": "00",
+      "j": "00",
+      "c": "c0",
+      "shareHash": "ff00000000000000000000000000000000000000000000000000000000000000",
+      "score": "216",
+      "canonTag": 2
+    },
+    {
+      "label": "below-kmax",
+      "pk": "00",
+      "n": "00",
+      "j": "00",
+      "c": "c0",
+      "shareHash": "ff00000000000000000000000000000000000000000000000000000000000000",
+      "score": "116",
+      "canonTag": 3
+    },
+    {
+      "label": "below-min-score",
+      "pk": "10",
+      "n": "00",
+      "j": "00",
+      "c": "c0",
+      "shareHash": "f000000000000000000000000000000000000000000000000000000000000000",
+      "score": "15",
+      "canonTag": 4
+    },
+    {
+      "label": "stale-c",
+      "pk": "40",
+      "n": "00",
+      "j": "00",
+      "c": "stale",
+      "shareHash": "0100000000000000000000000000000000000000000000000000000000000000",
+      "score": "1015",
+      "canonTag": 5
+    }
+  ],
+  "acceptedCanonTags": [
+    1,
+    2
+  ],
+  "expected": {
+    "ok": true,
+    "selectedLabels": [
+      "top-proposer",
+      "second-accepted"
+    ],
+    "selectedKeys": [
+      "20|00|00",
+      "30|00|00"
+    ],
+    "proposerIndex": 0,
+    "minShareScore": "16",
+    "droppedBelowMinScore": 1,
+    "droppedKernelReject": 0,
+    "truncatedByKmax": 1,
+    "kernelCheckedTags": [
+      1,
+      2
+    ],
+    "kernelAccepted": [
+      true,
+      true
+    ]
+  }
+}

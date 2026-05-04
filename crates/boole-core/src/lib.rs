@@ -4,10 +4,15 @@
 //! TypeScript-generated golden fixtures from `/Users/seoyong/projects/pof`.
 
 pub mod block;
+pub mod block_builder;
 pub mod hash;
 pub mod replay;
 
 pub use block::PersistedBlock;
+pub use block_builder::{
+    build_block_selection, BlockBuilderConfig, BuildSelectionResult, BuiltBlockSelection,
+    CandidateShare,
+};
 pub use hash::{block_hash, h_protocol, Hex32};
 pub use replay::{
     compute_block_credits, replay_blocks, PersistedCredit, PersistedRewardEvent, ReplayResult,
