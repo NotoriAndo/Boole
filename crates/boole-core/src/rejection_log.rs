@@ -1,3 +1,4 @@
+use crate::{validation_reason_from_json, validation_reason_json, ValidationReason};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, VecDeque};
 
@@ -15,7 +16,7 @@ pub enum LoggedRejectionReason {
     BadRequest { field: String },
     RateLimit { quota: String },
     Decode { field: String, detail: String },
-    Validator { reason: Value },
+    Validator { reason: ValidationReason },
     SubmitPow { detail: String },
     SharePool { detail: String },
     Ticket { detail: String },
@@ -132,10 +133,11 @@ pub fn reason_key_typed(reason: &LoggedRejectionReason) -> String {
         LoggedRejectionReason::RateLimit { quota } => format!("rate_limit:{quota}"),
         LoggedRejectionReason::Decode { field, .. } => format!("decode:{field}"),
         LoggedRejectionReason::Validator { reason } => {
-            let kind = reason
+            let kind = validation_reason_json(reason)
                 .get("kind")
                 .and_then(Value::as_str)
-                .expect("validator reason.kind");
+                .expect("validator reason.kind")
+                .to_string();
             format!("validator:{kind}")
         }
         LoggedRejectionReason::SubmitPow { detail } => format!("submit_pow:{detail}"),
@@ -161,10 +163,11 @@ fn rejection_reason_from_json(reason: &Value) -> Result<LoggedRejectionReason, S
             detail: required_string(reason, "detail")?.to_string(),
         }),
         "validator" => Ok(LoggedRejectionReason::Validator {
-            reason: reason
-                .get("reason")
-                .ok_or_else(|| "validator.reason must exist".to_string())?
-                .clone(),
+            reason: validation_reason_from_json(
+                reason
+                    .get("reason")
+                    .ok_or_else(|| "validator.reason must exist".to_string())?,
+            )?,
         }),
         "submit_pow" => Ok(LoggedRejectionReason::SubmitPow {
             detail: required_string(reason, "detail")?.to_string(),
@@ -191,7 +194,7 @@ fn rejection_reason_json(reason: &LoggedRejectionReason) -> Value {
             json!({ "stage": "decode", "field": field, "detail": detail })
         }
         LoggedRejectionReason::Validator { reason } => {
-            json!({ "stage": "validator", "reason": reason })
+            json!({ "stage": "validator", "reason": validation_reason_json(reason) })
         }
         LoggedRejectionReason::SubmitPow { detail } => {
             json!({ "stage": "submit_pow", "detail": detail })
@@ -222,7 +225,7 @@ fn reason_line_json(reason: &LoggedRejectionReason) -> String {
         ),
         LoggedRejectionReason::Validator { reason } => format!(
             "{{\"stage\":\"validator\",\"reason\":{}}}",
-            validation_reason_json(reason)
+            validation_reason_line_json(reason)
         ),
         LoggedRejectionReason::SubmitPow { detail } => format!(
             "{{\"stage\":\"submit_pow\",\"detail\":{}}}",
@@ -239,34 +242,43 @@ fn reason_line_json(reason: &LoggedRejectionReason) -> String {
     }
 }
 
-fn validation_reason_json(reason: &Value) -> String {
-    let kind = string_field(reason, "kind");
-    match kind {
-        "tooLarge" => format!(
+fn validation_reason_line_json(reason: &ValidationReason) -> String {
+    match reason {
+        ValidationReason::TooLarge { size, limit } => format!(
             "{{\"kind\":\"tooLarge\",\"size\":{},\"limit\":{}}}",
-            serde_json::to_string(reason.get("size").expect("size")).expect("size json"),
-            serde_json::to_string(reason.get("limit").expect("limit")).expect("limit json")
+            size, limit
         ),
-        "tooManyDecls" => format!(
+        ValidationReason::TooManyDecls { decl_count, limit } => format!(
             "{{\"kind\":\"tooManyDecls\",\"declCount\":{},\"limit\":{}}}",
-            serde_json::to_string(reason.get("declCount").expect("declCount"))
-                .expect("declCount json"),
-            serde_json::to_string(reason.get("limit").expect("limit")).expect("limit json")
+            decl_count, limit
         ),
-        "decode" => format!(
+        ValidationReason::Decode { detail } => format!(
             "{{\"kind\":\"decode\",\"detail\":{}}}",
-            decode_detail_json(reason.get("detail").expect("detail"))
+            decode_detail_line_json(detail)
         ),
-        other => panic!("unknown validator reason {other}"),
     }
 }
 
-fn decode_detail_json(detail: &Value) -> String {
-    match string_field(detail, "kind") {
-        "badMagic" => "{\"kind\":\"badMagic\"}".to_string(),
-        "unexpectedEOF" => "{\"kind\":\"unexpectedEOF\"}".to_string(),
-        other => serde_json::to_string(detail)
-            .unwrap_or_else(|_| panic!("unknown decode detail {other}")),
+fn decode_detail_line_json(detail: &crate::DecodeDetail) -> String {
+    match detail {
+        crate::DecodeDetail::BadMagic => "{\"kind\":\"badMagic\"}".to_string(),
+        crate::DecodeDetail::UnexpectedEof => "{\"kind\":\"unexpectedEOF\"}".to_string(),
+        crate::DecodeDetail::UnsupportedVersion { version } => {
+            format!("{{\"kind\":\"unsupportedVersion\",\"version\":{version}}}")
+        }
+        crate::DecodeDetail::TrailingBytes { at, size } => {
+            format!("{{\"kind\":\"trailingBytes\",\"at\":{at},\"size\":{size}}}")
+        }
+        crate::DecodeDetail::RecursionLimit { where_tag, limit } => format!(
+            "{{\"kind\":\"recursionLimit\",\"whereTag\":{},\"limit\":{}}}",
+            serde_json::to_string(where_tag).expect("whereTag json"),
+            limit
+        ),
+        crate::DecodeDetail::UnknownTag { where_tag, tag } => format!(
+            "{{\"kind\":\"unknownTag\",\"whereTag\":{},\"tag\":{}}}",
+            serde_json::to_string(where_tag).expect("whereTag json"),
+            tag
+        ),
     }
 }
 
@@ -283,13 +295,6 @@ fn required_string<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
         .get(key)
         .and_then(Value::as_str)
         .ok_or_else(|| format!("{key} must be string"))
-}
-
-fn string_field<'a>(value: &'a Value, key: &str) -> &'a str {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .expect("string field")
 }
 
 fn option_string_json(value: &Option<String>) -> String {

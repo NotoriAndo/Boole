@@ -52,8 +52,9 @@ pub use replay::{
 pub use share_pool::{AcceptResult, PoolShare, SharePool};
 pub use submission_pow::check_submission_pow;
 pub use validator::{
-    decode_detail_json, validate_proof_package, validate_proof_package_json,
-    validation_reason_json, DecodeDetail, ValidationReason, ValidationResult,
+    decode_detail_from_json, decode_detail_json, validate_proof_package,
+    validate_proof_package_json, validation_reason_from_json, validation_reason_json, DecodeDetail,
+    ValidationReason, ValidationResult,
 };
 pub use work_manifest::{bounty_to_work_manifest, BountyFixture, WorkManifest, WorkVerifier};
 

@@ -1,7 +1,7 @@
 use boole_core::{
     json_rejection_line, reason_key, reason_key_typed, rejection_event_from_json,
     rejection_event_json, rejection_event_line, LoggedRejectionReason, RejectionEvent,
-    RingRejectionLogger,
+    RingRejectionLogger, ValidationReason,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -88,6 +88,29 @@ fn rejection_event_typed_adapter_roundtrips_json_and_line_format() {
     ring.record_typed(typed.clone());
     assert_eq!(ring.events_typed(), vec![typed]);
     assert_eq!(ring.events(), vec![raw.clone()]);
+}
+
+#[test]
+fn rejection_event_validator_reason_is_typed_validation_reason() {
+    let fixture: Fixture = serde_json::from_str(include_str!(
+        "../../../fixtures/protocol/rejection-log/v1.json"
+    ))
+    .expect("fixture parses");
+
+    let raw = &fixture.ring_case.inputs[3];
+    let typed = rejection_event_from_json(raw).expect("typed validator rejection event");
+    assert_eq!(
+        typed.reason,
+        LoggedRejectionReason::Validator {
+            reason: ValidationReason::TooLarge {
+                size: 65,
+                limit: 64,
+            },
+        }
+    );
+    assert_eq!(reason_key_typed(&typed.reason), "validator:tooLarge");
+    assert_eq!(rejection_event_json(&typed), *raw);
+    assert_eq!(rejection_event_line(&typed), json_rejection_line(raw));
 }
 
 #[test]

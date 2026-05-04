@@ -140,6 +140,108 @@ pub fn decode_detail_json(detail: &DecodeDetail) -> Value {
     }
 }
 
+pub fn validation_reason_from_json(reason: &Value) -> Result<ValidationReason, String> {
+    let kind = reason
+        .get("kind")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "validation reason.kind must be string".to_string())?;
+    match kind {
+        "tooLarge" => Ok(ValidationReason::TooLarge {
+            size: reason
+                .get("size")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "tooLarge.size must be integer".to_string())?
+                as usize,
+            limit: reason
+                .get("limit")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "tooLarge.limit must be integer".to_string())?,
+        }),
+        "tooManyDecls" => Ok(ValidationReason::TooManyDecls {
+            decl_count: reason
+                .get("declCount")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "tooManyDecls.declCount must be integer".to_string())?
+                as u32,
+            limit: reason
+                .get("limit")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "tooManyDecls.limit must be integer".to_string())?,
+        }),
+        "decode" => Ok(ValidationReason::Decode {
+            detail: decode_detail_from_json(
+                reason
+                    .get("detail")
+                    .ok_or_else(|| "decode.detail must exist".to_string())?,
+            )?,
+        }),
+        other => Err(format!("unknown validation reason {other}")),
+    }
+}
+
+pub fn decode_detail_from_json(detail: &Value) -> Result<DecodeDetail, String> {
+    let kind = detail
+        .get("kind")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "decode detail.kind must be string".to_string())?;
+    match kind {
+        "badMagic" => Ok(DecodeDetail::BadMagic),
+        "unexpectedEOF" => Ok(DecodeDetail::UnexpectedEof),
+        "unsupportedVersion" => Ok(DecodeDetail::UnsupportedVersion {
+            version: detail
+                .get("version")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "unsupportedVersion.version must be integer".to_string())?
+                as u32,
+        }),
+        "trailingBytes" => Ok(DecodeDetail::TrailingBytes {
+            at: detail
+                .get("at")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "trailingBytes.at must be integer".to_string())?
+                as usize,
+            size: detail
+                .get("size")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "trailingBytes.size must be integer".to_string())?
+                as usize,
+        }),
+        "recursionLimit" => Ok(DecodeDetail::RecursionLimit {
+            where_tag: intern_where_tag(required_json_string(detail, "whereTag")?)?,
+            limit: detail
+                .get("limit")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "recursionLimit.limit must be integer".to_string())?
+                as usize,
+        }),
+        "unknownTag" => Ok(DecodeDetail::UnknownTag {
+            where_tag: intern_where_tag(required_json_string(detail, "whereTag")?)?,
+            tag: detail
+                .get("tag")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| "unknownTag.tag must be integer".to_string())?
+                as u8,
+        }),
+        other => Err(format!("unknown decode detail {other}")),
+    }
+}
+
+fn intern_where_tag(value: &str) -> Result<&'static str, String> {
+    match value {
+        "CanonLevel" => Ok("CanonLevel"),
+        "CanonLit" => Ok("CanonLit"),
+        "CanonExpr" => Ok("CanonExpr"),
+        other => Err(format!("unknown whereTag {other}")),
+    }
+}
+
+fn required_json_string<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{key} must be string"))
+}
+
 #[derive(Debug, Clone, Copy)]
 struct WalkResult {
     decl_count: u32,
