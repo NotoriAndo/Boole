@@ -1,10 +1,11 @@
 use boole_core::{
-    admit_submission_json, AdmissionDecision, AdmissionError, AdmissionStatus, CalibrationReport,
-    RateLimitRejectReason, RejectionReason,
+    admit_submission_json, AdmissionDecision, AdmissionError, AdmissionStatus,
+    BuildSelectionResult, CalibrationReport, RateLimitRejectReason, RejectionReason,
 };
 use boole_node::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use serde::Deserialize;
 use serde_json::{Map, Value};
+use std::collections::BTreeSet;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -116,6 +117,50 @@ fn runtime_admission_state_preserves_pool_and_rate_limit_state() {
     assert_eq!(admit_submission_json(&second), second_op.expect);
     assert_eq!(runtime.pool_size(), 1);
     assert_eq!(runtime.shares_for_current_c().len(), 1);
+}
+
+#[test]
+fn runtime_builds_block_selection_from_admitted_candidates() {
+    let mut fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    fixture.cfg.T_share =
+        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+    fixture.cfg.T_block =
+        "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
+    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.K_max = 4;
+    fixture.cfg.perIpRateLimitPer60s = 10;
+
+    let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
+        .expect("runtime config boots from report");
+    let mut runtime = RuntimeAdmissionState::new(config);
+    runtime.set_current_c(fixture.constants.c.clone());
+
+    let valid_op = fixture
+        .operations
+        .iter()
+        .find(|op| op.name == "valid_after_bad_not_rate_limited")
+        .expect("valid op");
+    let body = body_for(&fixture.constants, &valid_op.body_patch);
+    runtime
+        .observe_ticket_from_body(&body)
+        .expect("observe ticket");
+    let decision =
+        runtime.admit_body_with_canon_tag(1_800_000_000_000, &fixture.constants.ip, &body, 0);
+    assert!(matches!(decision, AdmissionDecision::Accepted { .. }));
+
+    let accepted_tags = BTreeSet::from([0]);
+    let selection = runtime
+        .build_block_selection_for_current_c(&accepted_tags)
+        .expect("block selection runs");
+    let BuildSelectionResult::Ok(selection) = selection else {
+        panic!("expected admitted candidate to be selected");
+    };
+    assert_eq!(selection.selected.len(), 1);
+    assert_eq!(selection.selected[0].pk, fixture.constants.pk);
+    assert_eq!(selection.selected[0].canon_tag, 0);
+    assert_eq!(selection.proposer_index, 0);
 }
 
 fn body_for(constants: &Constants, patch: &Map<String, Value>) -> Map<String, Value> {
