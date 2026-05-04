@@ -35,6 +35,10 @@ pub struct RuntimeSmokeOutput {
     pub replay_latest_c: String,
     pub runtime_head: String,
     pub dropped_stale_shares: usize,
+    pub store_size: usize,
+    pub latest_matches_runtime: bool,
+    pub replay_matches_runtime: bool,
+    pub block_store_path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -158,6 +162,13 @@ pub fn run_runtime_smoke_scenario(
         .current_c()
         .ok_or_else(|| anyhow::anyhow!("runtime head is not set after commit"))?
         .to_string();
+    let store_size = recovered.size();
+    let latest_matches_runtime = recovered
+        .latest()
+        .map(|block| block.c == runtime_head)
+        .unwrap_or(false);
+    let replay_matches_runtime = replay.latest_c == runtime_head;
+    let block_store_path = scenario.block_path.to_string_lossy().to_string();
 
     Ok(RuntimeSmokeOutput {
         ok: true,
@@ -169,6 +180,10 @@ pub fn run_runtime_smoke_scenario(
         replay_latest_c: replay.latest_c,
         runtime_head,
         dropped_stale_shares: committed.dropped_stale_shares,
+        store_size,
+        latest_matches_runtime,
+        replay_matches_runtime,
+        block_store_path,
     })
 }
 

@@ -15,6 +15,10 @@ struct RuntimeSmokeOutput {
     replay_latest_c: String,
     runtime_head: String,
     dropped_stale_shares: usize,
+    store_size: usize,
+    latest_matches_runtime: bool,
+    replay_matches_runtime: bool,
+    block_store_path: String,
 }
 
 #[test]
@@ -58,6 +62,10 @@ fn node_runtime_smoke_commits_replayable_block_from_fixture() {
     assert_eq!(parsed.replay_latest_c, parsed.c);
     assert_eq!(parsed.runtime_head, parsed.c);
     assert_eq!(parsed.dropped_stale_shares, 1);
+    assert_eq!(parsed.store_size, 1);
+    assert!(parsed.latest_matches_runtime);
+    assert!(parsed.replay_matches_runtime);
+    assert_eq!(parsed.block_store_path, block_path.to_string_lossy());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -131,6 +139,10 @@ fn node_runtime_smoke_accepts_scenario_json_input() {
     assert_eq!(parsed.replay_latest_c, parsed.c);
     assert_eq!(parsed.runtime_head, parsed.c);
     assert_eq!(parsed.dropped_stale_shares, 1);
+    assert_eq!(parsed.store_size, 1);
+    assert!(parsed.latest_matches_runtime);
+    assert!(parsed.replay_matches_runtime);
+    assert_eq!(parsed.block_store_path, block_path.to_string_lossy());
 
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -59,6 +59,10 @@ fn runtime_smoke_runs_as_reusable_library_api() {
     assert_eq!(output.replay_latest_c, output.c);
     assert_eq!(output.runtime_head, output.c);
     assert_eq!(output.dropped_stale_shares, 1);
+    assert_eq!(output.store_size, 1);
+    assert!(output.latest_matches_runtime);
+    assert!(output.replay_matches_runtime);
+    assert_eq!(output.block_store_path, block_path.to_string_lossy());
     assert!(block_path.exists());
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -111,6 +115,10 @@ fn runtime_smoke_scenario_runs_without_fixture_adapter() {
     assert_eq!(output.replay_latest_c, output.c);
     assert_eq!(output.runtime_head, output.c);
     assert_eq!(output.dropped_stale_shares, 1);
+    assert_eq!(output.store_size, 1);
+    assert!(output.latest_matches_runtime);
+    assert!(output.replay_matches_runtime);
+    assert_eq!(output.block_store_path, block_path.to_string_lossy());
     assert!(block_path.exists());
 
     let _ = std::fs::remove_dir_all(&dir);
