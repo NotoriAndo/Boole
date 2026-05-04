@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "source": {
+    "submissionPow": "/Users/seoyong/projects/pof/dispatcher/src/submissionPow.ts",
+    "hash": "/Users/seoyong/projects/pof/dispatcher/src/hash.ts"
+  },
+  "generatedBy": "scripts/export-submission-pow-fixtures.ts",
+  "hashHex": "483c615598b15e9cf8df2d3b3f4f212faec00b375d0eca8f42abba4e773a32f7",
+  "hashInt": "32673207698953422362934606298455525198702981768023058197793330300196327404279",
+  "cases": [
+    {
+      "name": "accept_high_threshold",
+      "input": {
+        "c": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "nonceS": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "canonHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "cfg": {
+        "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+        "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+        "MinShareScoreMultiplier": 2,
+        "K_max": 16,
+        "ShareCapPerPK_Block": 4,
+        "L": 4096,
+        "D_max": 8,
+        "EMAWindow": 32,
+        "M": 8,
+        "perIpRateLimitPer60s": 120,
+        "provenance": "calibration-final"
+      },
+      "expected": {
+        "ok": true,
+        "hashInt": "32673207698953422362934606298455525198702981768023058197793330300196327404279"
+      }
+    },
+    {
+      "name": "reject_zero_threshold",
+      "input": {
+        "c": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "nonceS": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "canonHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "cfg": {
+        "T_submit": "0x0",
+        "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+        "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+        "MinShareScoreMultiplier": 2,
+        "K_max": 16,
+        "ShareCapPerPK_Block": 4,
+        "L": 4096,
+        "D_max": 8,
+        "EMAWindow": 32,
+        "M": 8,
+        "perIpRateLimitPer60s": 120,
+        "provenance": "calibration-final"
+      },
+      "expected": {
+        "ok": false,
+        "reason": "above_T_submit",
+        "hashInt": "32673207698953422362934606298455525198702981768023058197793330300196327404279"
+      }
+    },
+    {
+      "name": "reject_equal_hash",
+      "input": {
+        "c": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "nonceS": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "canonHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "cfg": {
+        "T_submit": "0x483c615598b15e9cf8df2d3b3f4f212faec00b375d0eca8f42abba4e773a32f7",
+        "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+        "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+        "MinShareScoreMultiplier": 2,
+        "K_max": 16,
+        "ShareCapPerPK_Block": 4,
+        "L": 4096,
+        "D_max": 8,
+        "EMAWindow": 32,
+        "M": 8,
+        "perIpRateLimitPer60s": 120,
+        "provenance": "calibration-final"
+      },
+      "expected": {
+        "ok": false,
+        "reason": "above_T_submit",
+        "hashInt": "32673207698953422362934606298455525198702981768023058197793330300196327404279"
+      }
+    },
+    {
+      "name": "accept_hash_plus_one",
+      "input": {
+        "c": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "nonceS": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "canonHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "cfg": {
+        "T_submit": "0x483c615598b15e9cf8df2d3b3f4f212faec00b375d0eca8f42abba4e773a32f8",
+        "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+        "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+        "MinShareScoreMultiplier": 2,
+        "K_max": 16,
+        "ShareCapPerPK_Block": 4,
+        "L": 4096,
+        "D_max": 8,
+        "EMAWindow": 32,
+        "M": 8,
+        "perIpRateLimitPer60s": 120,
+        "provenance": "calibration-final"
+      },
+      "expected": {
+        "ok": true,
+        "hashInt": "32673207698953422362934606298455525198702981768023058197793330300196327404279"
+      }
+    }
+  ]
+}

@@ -12,6 +12,7 @@ pub mod family_manifest;
 pub mod hash;
 pub mod replay;
 pub mod share_pool;
+pub mod submission_pow;
 pub mod validator;
 pub mod work_manifest;
 
@@ -36,6 +37,7 @@ pub use replay::{
     compute_block_credits, replay_blocks, PersistedCredit, PersistedRewardEvent, ReplayResult,
 };
 pub use share_pool::{AcceptResult, PoolShare, SharePool};
+pub use submission_pow::check_submission_pow;
 pub use validator::validate_proof_package;
 pub use work_manifest::{bounty_to_work_manifest, BountyFixture, WorkManifest, WorkVerifier};
 
