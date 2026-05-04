@@ -1,6 +1,7 @@
 use crate::{
-    check_submission_pow, share_hash, ticket, validate_proof_package, validate_proof_package_json,
-    CalibrationReport, Hex32, PoolShare, RateLimiter, SharePool,
+    check_submission_pow, share_hash, ticket, validate_proof_package, validation_reason_json,
+    CalibrationReport, Hex32, PoolShare, RateLimiter, SharePool, ValidationReason,
+    ValidationResult,
 };
 use num_bigint::BigUint;
 use serde_json::{json, Map, Value};
@@ -49,7 +50,7 @@ pub enum AdmissionError {
     MissingField { field: String },
     BadHex { field: String, detail: String },
     Ticket { reason: TicketRejectReason },
-    Validator { reason: Value },
+    Validator { reason: ValidationReason },
     SubmitPow { reason: SubmitPowRejectReason },
     RateLimited { reason: RateLimitRejectReason },
     SharePool { reason: SharePoolRejectReason },
@@ -137,7 +138,7 @@ pub enum RejectionReason {
     BadRequest { field: String },
     Decode { field: String, detail: String },
     Ticket { detail: TicketRejectReason },
-    Validator { reason: Value },
+    Validator { reason: ValidationReason },
     SubmitPow { detail: SubmitPowRejectReason },
     RateLimit { quota: RateLimitRejectReason },
     SharePool { detail: SharePoolRejectReason },
@@ -216,13 +217,8 @@ pub fn admit_submission_typed(deps: AdmissionDeps<'_>) -> AdmissionDecision {
         );
     }
 
-    let validator = validate_proof_package_json(&validate_proof_package(&package_bytes, deps.cfg));
-    if !validator
-        .get("ok")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        let reason = validator.get("reason").expect("validator reason").clone();
+    let validator = validate_proof_package(&package_bytes, deps.cfg);
+    if let ValidationResult::Err { reason } = validator {
         return reject(
             AdmissionStatus::UnprocessableEntity,
             AdmissionError::Validator {
@@ -369,7 +365,7 @@ fn rejected_json(
             "accepted": false,
             "status": status.code(),
             "error": "validator",
-            "reason": reason,
+            "reason": validation_reason_json(reason),
             "rejection": rejection_json(rejection)
         }),
         AdmissionError::SubmitPow { reason } => json!({
@@ -408,7 +404,7 @@ fn rejection_json(rejection: &RejectionReason) -> Value {
             json!({ "stage": "ticket", "detail": detail.as_str() })
         }
         RejectionReason::Validator { reason } => {
-            json!({ "stage": "validator", "reason": reason })
+            json!({ "stage": "validator", "reason": validation_reason_json(reason) })
         }
         RejectionReason::SubmitPow { detail } => {
             json!({ "stage": "submit_pow", "detail": detail.as_str() })

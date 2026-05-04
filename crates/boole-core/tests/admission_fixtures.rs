@@ -1,7 +1,7 @@
 use boole_core::{
     admission::SharePoolRejectReason, admit_submission_json, admit_submission_typed,
     AdmissionDecision, AdmissionDeps, AdmissionError, AdmissionStatus, CalibrationReport,
-    RateLimiter, RejectionReason, SharePool,
+    DecodeDetail, RateLimiter, RejectionReason, SharePool, ValidationReason,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -134,6 +134,45 @@ fn admission_pool_rejection_does_not_consume_rate_quota() {
     assert!(
         matches!(fresh, AdmissionDecision::Accepted { .. }),
         "share-pool duplicate rejection must not debit the second valid quota slot; got {fresh:?}"
+    );
+}
+
+#[test]
+fn admission_validator_rejection_uses_typed_validation_reason() {
+    let fixture = load_fixture();
+    let mut rate_limiter = RateLimiter::new(fixture.cfg.clone(), 60_000);
+    let mut pool = SharePool::new(fixture.cfg.ShareCapPerPK_Block as usize);
+    pool.set_current_c(fixture.constants.c.clone());
+
+    let mut patch = Map::new();
+    patch.insert("bytes".to_string(), Value::String("00".to_string()));
+    let body = body_for(&fixture.constants, &patch);
+    observe_from_body(&mut rate_limiter, &body);
+
+    let decision = admit_submission_typed(AdmissionDeps {
+        cfg: &fixture.cfg,
+        rate_limiter: &mut rate_limiter,
+        pool: &mut pool,
+        now: 1_800_000_000_000,
+        ip: &fixture.constants.ip,
+        body: &body,
+    });
+
+    assert_eq!(
+        decision,
+        AdmissionDecision::Rejected {
+            status: AdmissionStatus::UnprocessableEntity,
+            error: AdmissionError::Validator {
+                reason: ValidationReason::Decode {
+                    detail: DecodeDetail::UnexpectedEof,
+                },
+            },
+            rejection: RejectionReason::Validator {
+                reason: ValidationReason::Decode {
+                    detail: DecodeDetail::UnexpectedEof,
+                },
+            },
+        }
     );
 }
 
