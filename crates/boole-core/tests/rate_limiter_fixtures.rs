@@ -1,5 +1,6 @@
 use boole_core::{
-    rate_limit_result_json, CalibrationReport, RateLimitRejectReason, RateLimitResult, RateLimiter,
+    calibration_policy, rate_limit_result_json, CalibrationReport, RateLimitRejectReason,
+    RateLimitResult, RateLimiter,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -31,6 +32,42 @@ struct Operation {
     result: Option<Value>,
     #[serde(default)]
     error: Option<String>,
+}
+
+#[test]
+fn rate_limiter_from_policy_uses_policy_quotas() {
+    let fixture: Fixture = serde_json::from_str(include_str!(
+        "../../../fixtures/protocol/rate-limiter/v1.json"
+    ))
+    .expect("fixture parses");
+    let policy = calibration_policy(&fixture.cfg).expect("policy parses");
+    let mut limiter = RateLimiter::from_policy(&policy, fixture.window_ms);
+
+    assert_eq!(
+        limiter.check(
+            1_800_000_000_000,
+            &fixture.constants.ip,
+            &fixture.constants.pk,
+            &fixture.constants.c
+        ),
+        RateLimitResult::Rejected {
+            reason: RateLimitRejectReason::PkQuota,
+        }
+    );
+    assert!(limiter.observe_ticket(
+        &fixture.constants.pk,
+        &fixture.constants.c,
+        Some(&fixture.constants.n1)
+    ));
+    assert_eq!(
+        limiter.check(
+            1_800_000_000_001,
+            &fixture.constants.ip,
+            &fixture.constants.pk,
+            &fixture.constants.c
+        ),
+        RateLimitResult::Allowed,
+    );
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use crate::CalibrationReport;
+use crate::{calibration_policy, CalibrationPolicy, CalibrationReport};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -34,7 +34,8 @@ pub fn rate_limit_result_json(result: &RateLimitResult) -> Value {
 
 #[derive(Debug, Clone)]
 pub struct RateLimiter {
-    cfg: CalibrationReport,
+    m: i64,
+    per_ip_rate_limit_per_60s: usize,
     window_ms: i64,
     ip: HashMap<String, VecDeque<i64>>,
     pk_count: HashMap<String, i64>,
@@ -45,8 +46,14 @@ pub struct RateLimiter {
 
 impl RateLimiter {
     pub fn new(cfg: CalibrationReport, window_ms: i64) -> Self {
+        let policy = calibration_policy(&cfg).expect("calibration report is valid");
+        Self::from_policy(&policy, window_ms)
+    }
+
+    pub fn from_policy(policy: &CalibrationPolicy, window_ms: i64) -> Self {
         Self {
-            cfg,
+            m: policy.m,
+            per_ip_rate_limit_per_60s: policy.per_ip_rate_limit_per_60s,
             window_ms,
             ip: HashMap::new(),
             pk_count: HashMap::new(),
@@ -98,7 +105,7 @@ impl RateLimiter {
             .get(ip)
             .map(|timestamps| timestamps.iter().filter(|ts| **ts >= cutoff).count())
             .unwrap_or(0);
-        if ip_count >= self.cfg.perIpRateLimitPer60s as usize {
+        if ip_count >= self.per_ip_rate_limit_per_60s {
             return RateLimitResult::Rejected {
                 reason: RateLimitRejectReason::IpQuota,
             };
@@ -106,7 +113,7 @@ impl RateLimiter {
 
         let k = key(pk, c);
         let tickets = self.pk_tickets.get(&k).copied().unwrap_or(0);
-        let ceiling = tickets * self.cfg.M;
+        let ceiling = tickets * self.m;
         let used = self.pk_count.get(&k).copied().unwrap_or(0);
         if used >= ceiling {
             return RateLimitResult::Rejected {
