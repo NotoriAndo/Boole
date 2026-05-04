@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "source": {
+    "note": "Rust-native improved admission pipeline; intentionally not byte-for-byte TypeScript /submit parity"
+  },
+  "generatedBy": "manual-rust-admission-fixture-v1",
+  "policy": {
+    "improvement": "decode/ticket/validator/submission_pow checks run before quota debit so malformed or unobserved submissions do not consume per-IP/per-pk quota",
+    "requiredHex32Fields": ["c", "pk", "n", "j", "nonceS"],
+    "acceptFlow": ["required_fields", "hex32_decode", "ticket", "observed_ticket", "validator", "submission_pow", "rate_limit", "share_pool"]
+  },
+  "constants": {
+    "c": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "n": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "j": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "nonceS": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "ip": "203.0.113.55",
+    "validBytesHex": "4250504b0100000000000000000000001000000000100100000000000000"
+  },
+  "cfg": {
+    "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+    "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+    "T_ticket": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "MinShareScoreMultiplier": 2,
+    "K_max": 16,
+    "ShareCapPerPK_Block": 2,
+    "L": 4096,
+    "D_max": 8,
+    "EMAWindow": 32,
+    "M": 1,
+    "perIpRateLimitPer60s": 1,
+    "provenance": "calibration-final"
+  },
+  "operations": [
+    {
+      "name": "missing_pk",
+      "bodyPatch": { "pk": null },
+      "expect": {
+        "accepted": false,
+        "status": 400,
+        "error": "missing field",
+        "field": "pk",
+        "rejection": { "stage": "bad_request", "field": "pk" }
+      }
+    },
+    {
+      "name": "bad_j_hex32",
+      "bodyPatch": { "j": "dd" },
+      "expect": {
+        "accepted": false,
+        "status": 400,
+        "error": "bad hex",
+        "field": "j",
+        "rejection": { "stage": "decode", "field": "j", "detail": "hex32 must be 64 lowercase hex characters" }
+      }
+    },
+    {
+      "name": "valid_after_bad_not_rate_limited",
+      "observeTicket": true,
+      "expect": {
+        "accepted": true,
+        "status": 200,
+        "responseStatus": "accepted",
+        "shareHash": "f6be734b86f7d5892da61a18add1a53f850cf642b21cecac0c85997f53f6377c"
+      }
+    },
+    {
+      "name": "second_valid_rate_limited",
+      "bodyPatch": { "j": "1212121212121212121212121212121212121212121212121212121212121212", "n": "3434343434343434343434343434343434343434343434343434343434343434" },
+      "observeTicket": true,
+      "expect": {
+        "accepted": false,
+        "status": 429,
+        "error": "rate_limited",
+        "reason": "ip_quota",
+        "rejection": { "stage": "rate_limit", "quota": "ip_quota" }
+      }
+    }
+  ]
+}

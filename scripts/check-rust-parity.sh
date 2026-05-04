@@ -17,6 +17,7 @@ npx tsx scripts/export-validator-fixtures.ts
 npx tsx scripts/export-submission-pow-fixtures.ts
 npx tsx scripts/export-rejection-log-fixtures.ts
 npx tsx scripts/export-rate-limiter-fixtures.ts
+# admission/v1.json is Rust-native improved policy fixture (not TS-exported)
 
 cargo fmt --all --check
 cargo test --workspace
