@@ -69,6 +69,16 @@ cargo run -q -p boole-node -- runtime-smoke \
 
 See [`docs/runtime-smoke.md`](docs/runtime-smoke.md) for the scenario format and output fields.
 
+## Proof-to-Block Benchmark v0
+
+The current benchmark seed wraps the checked runtime-smoke harness and reports local proof-to-block metrics:
+
+```bash
+./scripts/proof-to-block-benchmark.sh
+```
+
+This is not a public model leaderboard yet. It is the deterministic base layer for later model-by-model runs: checked cases, blocks produced, replay failures, and safety badges. See [`docs/proof-to-block-benchmark.md`](docs/proof-to-block-benchmark.md).
+
 ## Source plan
 
 The local migration plan is stored in the original repo:

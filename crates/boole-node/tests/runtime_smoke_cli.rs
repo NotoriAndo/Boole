@@ -3,6 +3,44 @@ use std::process::Command;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+#[test]
+fn proof_to_block_benchmark_script_reports_smoke_metrics() {
+    let repo_root = env!("CARGO_MANIFEST_DIR").trim_end_matches("/crates/boole-node");
+    let script_path = format!("{repo_root}/scripts/proof-to-block-benchmark.sh");
+
+    let dir = std::env::temp_dir().join(format!(
+        "boole-node-proof-to-block-benchmark-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+
+    let output = Command::new("bash")
+        .arg(&script_path)
+        .env("BOOLE_NODE_BIN", env!("CARGO_BIN_EXE_boole-node"))
+        .env("BLOCK_STORE_DIR", dir.to_str().expect("utf8 temp path"))
+        .output()
+        .expect("run proof-to-block benchmark script");
+    assert!(
+        output.status.success(),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("json output");
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["benchmark"], "proof-to-block");
+    assert_eq!(parsed["version"], 0);
+    assert_eq!(parsed["summary"]["casesPassed"], 2);
+    assert_eq!(parsed["summary"]["blocksProduced"], 3);
+    assert_eq!(parsed["summary"]["replayFailures"], 0);
+    assert_eq!(parsed["safety"]["invalidAccepted"], 0);
+    assert_eq!(parsed["safety"]["chainDivergence"], 0);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RuntimeSmokeOutput {
