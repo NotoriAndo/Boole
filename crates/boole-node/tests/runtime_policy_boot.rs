@@ -1,7 +1,8 @@
 use boole_core::{
-    admit_submission_json, AdmissionDecision, AdmissionError, AdmissionStatus,
+    admit_submission_json, replay_blocks, AdmissionDecision, AdmissionError, AdmissionStatus,
     BuildSelectionResult, CalibrationReport, RateLimitRejectReason, RejectionReason,
 };
+use boole_node::block_store::FileBlockStore;
 use boole_node::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -161,6 +162,70 @@ fn runtime_builds_block_selection_from_admitted_candidates() {
     assert_eq!(selection.selected[0].pk, fixture.constants.pk);
     assert_eq!(selection.selected[0].canon_tag, 0);
     assert_eq!(selection.proposer_index, 0);
+}
+
+#[test]
+fn runtime_produces_persists_and_replays_selected_block() {
+    let mut fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    fixture.constants.c =
+        "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+    fixture.cfg.T_share =
+        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+    fixture.cfg.T_block =
+        "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
+    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.K_max = 4;
+    fixture.cfg.perIpRateLimitPer60s = 10;
+
+    let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
+        .expect("runtime config boots from report");
+    let mut runtime = RuntimeAdmissionState::new(config);
+    runtime.set_current_c(fixture.constants.c.clone());
+
+    let valid_op = fixture
+        .operations
+        .iter()
+        .find(|op| op.name == "valid_after_bad_not_rate_limited")
+        .expect("valid op");
+    let body = body_for(&fixture.constants, &valid_op.body_patch);
+    runtime
+        .observe_ticket_from_body(&body)
+        .expect("observe ticket");
+    let decision =
+        runtime.admit_body_with_canon_tag(1_800_000_000_000, &fixture.constants.ip, &body, 0);
+    assert!(matches!(decision, AdmissionDecision::Accepted { .. }));
+
+    let accepted_tags = BTreeSet::from([0]);
+    let block = runtime
+        .produce_block_for_current_c(0, 1_800_000_000_123, &accepted_tags)
+        .expect("block is produced");
+    assert_eq!(block.height, 0);
+    assert_eq!(block.prev_c, fixture.constants.c);
+    assert_eq!(block.selected_share_hashes.len(), 1);
+    assert_eq!(block.selected_share_pks, vec![fixture.constants.pk.clone()]);
+    block.validate_shape().expect("block shape is valid");
+
+    let dir = std::env::temp_dir().join(format!(
+        "boole-runtime-block-production-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_path = dir.join("blockstore.ndjson");
+
+    FileBlockStore::append(&block_path, &block).expect("append block");
+    let recovered = FileBlockStore::recover(&block_path).expect("recover block store");
+    assert_eq!(recovered.size(), 1);
+    assert_eq!(recovered.latest().expect("latest block"), &block);
+
+    let replay = replay_blocks(recovered.blocks()).expect("replay produced block");
+    assert_eq!(replay.height, 1);
+    assert_eq!(replay.latest_c, block.c);
+    assert_eq!(replay.balances.get(&fixture.constants.pk).copied(), Some(2));
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn body_for(constants: &Constants, patch: &Map<String, Value>) -> Map<String, Value> {

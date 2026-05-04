@@ -1,8 +1,8 @@
 use boole_core::{
-    admit_parsed_submission_typed, build_block_selection, calibration_policy,
+    admit_parsed_submission_typed, block_hash, build_block_selection, calibration_policy,
     parse_submission_body, share_score, AdmissionDecision, AdmissionParsedDeps, BlockBuilderConfig,
-    BuildSelectionResult, CalibrationPolicy, CalibrationReport, CandidateShare, PoolShare,
-    RateLimiter, SharePool,
+    BuildSelectionResult, CalibrationPolicy, CalibrationReport, CandidateShare, Hex32,
+    PersistedBlock, PoolShare, RateLimiter, SharePool,
 };
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
@@ -88,6 +88,58 @@ impl RuntimeAdmissionState {
             &config,
             accepted_canon_tags,
         )
+    }
+
+    pub fn produce_block_for_current_c(
+        &self,
+        height: u64,
+        ts: u64,
+        accepted_canon_tags: &BTreeSet<u8>,
+    ) -> anyhow::Result<PersistedBlock> {
+        let prev_c = self
+            .current_c
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("current chain head is not set"))?;
+        let config = BlockBuilderConfig::from_policy(&self.config.policy)?;
+        let selection = self.build_block_selection_for_current_c(accepted_canon_tags)?;
+        let BuildSelectionResult::Ok(selection) = selection else {
+            anyhow::bail!("block selection did not produce a single proposer");
+        };
+        let selected_share_hashes = selection
+            .selected
+            .iter()
+            .map(|share| share.share_hash.clone())
+            .collect::<Vec<_>>();
+        let selected_share_pks = selection
+            .selected
+            .iter()
+            .map(|share| share.pk.clone())
+            .collect::<Vec<_>>();
+        let share_hashes = selected_share_hashes
+            .iter()
+            .map(|hash| Hex32::from_hex(hash))
+            .collect::<Result<Vec<_>, _>>()?;
+        let prev = Hex32::from_hex(prev_c)?;
+        let c = block_hash(&prev, &share_hashes).to_hex();
+        let proposer = selection
+            .selected
+            .get(selection.proposer_index)
+            .ok_or_else(|| anyhow::anyhow!("proposer index out of range"))?;
+
+        Ok(PersistedBlock {
+            height,
+            prev_c: prev_c.to_string(),
+            c,
+            proposer_pk: proposer.pk.clone(),
+            selected_share_hashes,
+            selected_share_pks,
+            min_share_score: config.min_share_score.to_string(),
+            kmax_applied: selection.selected.len() as u64,
+            dropped_below_min_score: selection.dropped_below_min_score as u64,
+            dropped_kernel_reject: selection.dropped_kernel_reject as u64,
+            truncated_by_kmax: selection.truncated_by_kmax as u64,
+            ts,
+        })
     }
 
     pub fn observe_ticket_from_body(&mut self, body: &Map<String, Value>) -> Result<bool, String> {
