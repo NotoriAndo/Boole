@@ -1,0 +1,210 @@
+{
+  "version": 1,
+  "source": {
+    "familyManifest": "/Users/seoyong/projects/pof/dispatcher/src/familyManifest.ts",
+    "workManifest": "/Users/seoyong/projects/pof/dispatcher/src/workManifest.ts"
+  },
+  "generatedBy": "scripts/export-manifest-fixtures.ts",
+  "familyCases": [
+    {
+      "name": "valid",
+      "input": {
+        "version": "1",
+        "familyId": "smart-contract-invariant-v01",
+        "generatorHash": "abababababababababababababababababababababababababababababababab",
+        "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "canonicalizerHash": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+        "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
+        "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
+        "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
+        "resourceLimits": {
+          "maxProofBytes": 16384,
+          "verifyTimeoutMs": 30000,
+          "maxDecls": 1024
+        },
+        "rewardPolicy": {
+          "mode": "capped_bonus",
+          "maxBlockRewardShareBps": 500
+        },
+        "activationHeight": 123000,
+        "status": "experimental"
+      },
+      "result": {
+        "ok": true,
+        "manifest": {
+          "version": "1",
+          "familyId": "smart-contract-invariant-v01",
+          "generatorHash": "abababababababababababababababababababababababababababababababab",
+          "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "canonicalizerHash": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+          "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
+          "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
+          "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
+          "resourceLimits": {
+            "maxProofBytes": 16384,
+            "verifyTimeoutMs": 30000,
+            "maxDecls": 1024
+          },
+          "rewardPolicy": {
+            "mode": "capped_bonus",
+            "maxBlockRewardShareBps": 500
+          },
+          "activationHeight": 123000,
+          "status": "experimental"
+        }
+      }
+    },
+    {
+      "name": "bad_version",
+      "input": {
+        "version": "2",
+        "familyId": "smart-contract-invariant-v01",
+        "generatorHash": "abababababababababababababababababababababababababababababababab",
+        "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "canonicalizerHash": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+        "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
+        "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
+        "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
+        "resourceLimits": {
+          "maxProofBytes": 16384,
+          "verifyTimeoutMs": 30000,
+          "maxDecls": 1024
+        },
+        "rewardPolicy": {
+          "mode": "capped_bonus",
+          "maxBlockRewardShareBps": 500
+        },
+        "activationHeight": 123000,
+        "status": "experimental"
+      },
+      "result": {
+        "ok": false,
+        "reason": "bad_version"
+      }
+    },
+    {
+      "name": "bad_hex32",
+      "input": {
+        "version": "1",
+        "familyId": "smart-contract-invariant-v01",
+        "generatorHash": "abababababababababababababababababababababababababababababababab",
+        "verifierHash": "CDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCDCD",
+        "canonicalizerHash": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+        "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
+        "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
+        "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
+        "resourceLimits": {
+          "maxProofBytes": 16384,
+          "verifyTimeoutMs": 30000,
+          "maxDecls": 1024
+        },
+        "rewardPolicy": {
+          "mode": "capped_bonus",
+          "maxBlockRewardShareBps": 500
+        },
+        "activationHeight": 123000,
+        "status": "experimental"
+      },
+      "result": {
+        "ok": false,
+        "reason": "bad_hex32:verifierHash"
+      }
+    },
+    {
+      "name": "bad_bps",
+      "input": {
+        "version": "1",
+        "familyId": "smart-contract-invariant-v01",
+        "generatorHash": "abababababababababababababababababababababababababababababababab",
+        "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "canonicalizerHash": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+        "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
+        "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
+        "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
+        "resourceLimits": {
+          "maxProofBytes": 16384,
+          "verifyTimeoutMs": 30000,
+          "maxDecls": 1024
+        },
+        "rewardPolicy": {
+          "mode": "no_protocol_reward",
+          "maxBlockRewardShareBps": 1
+        },
+        "activationHeight": 123000,
+        "status": "experimental"
+      },
+      "result": {
+        "ok": false,
+        "reason": "bad_bps"
+      }
+    },
+    {
+      "name": "missing_family_id",
+      "input": {
+        "version": "1",
+        "familyId": "",
+        "generatorHash": "abababababababababababababababababababababababababababababababab",
+        "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "canonicalizerHash": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+        "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
+        "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
+        "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
+        "resourceLimits": {
+          "maxProofBytes": 16384,
+          "verifyTimeoutMs": 30000,
+          "maxDecls": 1024
+        },
+        "rewardPolicy": {
+          "mode": "capped_bonus",
+          "maxBlockRewardShareBps": 500
+        },
+        "activationHeight": 123000,
+        "status": "experimental"
+      },
+      "result": {
+        "ok": false,
+        "reason": "missing_field:familyId"
+      }
+    }
+  ],
+  "workCase": {
+    "name": "bountyToWorkManifest-open",
+    "bounty": {
+      "id": "lean-bounty-1",
+      "domain": "lean.protocol-invariant",
+      "problemHash": "9999999999999999999999999999999999999999999999999999999999999999",
+      "verifier": {
+        "kind": "lean",
+        "metadata": {
+          "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "profile": "v02"
+        }
+      },
+      "reward": "42",
+      "deadline": 1900000000000,
+      "status": "open",
+      "createdAt": 1800000000000,
+      "updatedAt": 1800000001000
+    },
+    "expected": {
+      "version": "1",
+      "workId": "lean-bounty-1",
+      "source": "bounty",
+      "familyId": "lean.protocol-invariant",
+      "problemHash": "9999999999999999999999999999999999999999999999999999999999999999",
+      "verifier": {
+        "kind": "lean",
+        "metadata": {
+          "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "profile": "v02"
+        }
+      },
+      "reward": "42",
+      "deadline": 1900000000000,
+      "status": "open",
+      "retryable": true,
+      "createdAt": 1800000000000,
+      "updatedAt": 1800000001000
+    }
+  }
+}

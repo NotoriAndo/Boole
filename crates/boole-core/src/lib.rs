@@ -5,15 +5,18 @@
 
 pub mod block;
 pub mod block_builder;
+pub mod family_manifest;
 pub mod hash;
 pub mod replay;
 pub mod share_pool;
+pub mod work_manifest;
 
 pub use block::PersistedBlock;
 pub use block_builder::{
     build_block_selection, BlockBuilderConfig, BuildSelectionResult, BuiltBlockSelection,
     CandidateShare,
 };
+pub use family_manifest::{parse_family_manifest, FamilyManifest, FamilyManifestParseResult};
 pub use hash::{
     block_hash, difficulty_weight, digest_to_biguint, h_protocol, min_share_score,
     parse_biguint_hex, share_hash, share_score, submission_pow_hash, submission_pow_ok, ticket,
@@ -23,6 +26,7 @@ pub use replay::{
     compute_block_credits, replay_blocks, PersistedCredit, PersistedRewardEvent, ReplayResult,
 };
 pub use share_pool::{AcceptResult, PoolShare, SharePool};
+pub use work_manifest::{bounty_to_work_manifest, BountyFixture, WorkManifest, WorkVerifier};
 
 #[cfg(test)]
 mod tests {
