@@ -1,6 +1,6 @@
 use boole_core::{
     admit_submission_typed, calibration_policy, AdmissionDecision, AdmissionDeps,
-    CalibrationPolicy, CalibrationReport, RateLimiter, SharePool,
+    CalibrationPolicy, CalibrationReport, PoolShare, RateLimiter, SharePool,
 };
 use serde_json::{Map, Value};
 
@@ -26,6 +26,7 @@ pub struct RuntimeAdmissionState {
     pub config: RuntimeConfig,
     rate_limiter: RateLimiter,
     pool: SharePool,
+    current_c: Option<String>,
 }
 
 impl RuntimeAdmissionState {
@@ -33,12 +34,25 @@ impl RuntimeAdmissionState {
         Self {
             rate_limiter: RateLimiter::from_policy(&config.policy, config.admission_window_ms),
             pool: SharePool::from_policy(&config.policy),
+            current_c: None,
             config,
         }
     }
 
     pub fn set_current_c(&mut self, c: String) {
+        self.current_c = Some(c.clone());
         self.pool.set_current_c(c);
+    }
+
+    pub fn pool_size(&self) -> usize {
+        self.pool.size()
+    }
+
+    pub fn shares_for_current_c(&self) -> Vec<&PoolShare> {
+        self.current_c
+            .as_deref()
+            .map(|c| self.pool.for_chain(c))
+            .unwrap_or_default()
     }
 
     pub fn observe_ticket_from_body(&mut self, body: &Map<String, Value>) -> Result<bool, String> {
