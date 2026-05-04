@@ -1,6 +1,7 @@
 use boole_core::{
-    validate_proof_package, validate_proof_package_json, CalibrationReport, DecodeDetail,
-    ValidationReason, ValidationResult,
+    calibration_policy, validate_proof_package, validate_proof_package_json,
+    validate_proof_package_with_policy, CalibrationReport, DecodeDetail, ValidationReason,
+    ValidationResult,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -60,6 +61,41 @@ fn validator_returns_typed_result_with_json_adapter() {
     assert_eq!(
         validate_proof_package_json(&bad_magic_result),
         bad_magic.expected
+    );
+}
+
+#[test]
+fn validator_with_policy_uses_policy_limits() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/validator/v1.json"))
+            .expect("fixture parses");
+
+    let valid = fixture
+        .cases
+        .iter()
+        .find(|case| case.name == "valid_empty")
+        .expect("valid case");
+    let valid_bytes = hex::decode(&valid.bytes_hex).expect("valid bytes hex");
+    let mut policy = calibration_policy(&valid.cfg).expect("policy parses");
+
+    assert_eq!(
+        validate_proof_package_with_policy(&valid_bytes, &policy),
+        ValidationResult::Ok {
+            decl_count: 0,
+            size: 30,
+            universe_arity: 0,
+        }
+    );
+
+    policy.l = valid_bytes.len() - 1;
+    assert_eq!(
+        validate_proof_package_with_policy(&valid_bytes, &policy),
+        ValidationResult::Err {
+            reason: ValidationReason::TooLarge {
+                size: valid_bytes.len(),
+                limit: policy.l as i64,
+            },
+        }
     );
 }
 

@@ -1,4 +1,4 @@
-use crate::CalibrationReport;
+use crate::{calibration_policy, CalibrationPolicy, CalibrationReport};
 use serde_json::{json, Value};
 
 const MAGIC: [u8; 4] = [0x42, 0x50, 0x50, 0x4b];
@@ -46,11 +46,19 @@ pub enum DecodeDetail {
 }
 
 pub fn validate_proof_package(bytes: &[u8], cfg: &CalibrationReport) -> ValidationResult {
-    if bytes.len() > cfg.L as usize {
+    let policy = calibration_policy(cfg).expect("calibration report is valid");
+    validate_proof_package_with_policy(bytes, &policy)
+}
+
+pub fn validate_proof_package_with_policy(
+    bytes: &[u8],
+    policy: &CalibrationPolicy,
+) -> ValidationResult {
+    if bytes.len() > policy.l {
         return ValidationResult::Err {
             reason: ValidationReason::TooLarge {
                 size: bytes.len(),
-                limit: cfg.L,
+                limit: policy.l as i64,
             },
         };
     }
@@ -64,19 +72,19 @@ pub fn validate_proof_package(bytes: &[u8], cfg: &CalibrationReport) -> Validati
         }
     };
 
-    if walked.size > cfg.L as usize {
+    if walked.size > policy.l {
         return ValidationResult::Err {
             reason: ValidationReason::TooLarge {
                 size: walked.size,
-                limit: cfg.L,
+                limit: policy.l as i64,
             },
         };
     }
-    if walked.decl_count > cfg.D_max as u32 {
+    if walked.decl_count > policy.d_max as u32 {
         return ValidationResult::Err {
             reason: ValidationReason::TooManyDecls {
                 decl_count: walked.decl_count,
-                limit: cfg.D_max,
+                limit: policy.d_max as i64,
             },
         };
     }
