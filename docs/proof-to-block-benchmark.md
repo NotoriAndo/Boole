@@ -36,9 +36,9 @@ Expected v0 summary:
   "benchmark": "proof-to-block",
   "version": 0,
   "summary": {
-    "casesPassed": 2,
-    "caseCount": 2,
-    "blocksProduced": 3,
+    "casesPassed": 5,
+    "caseCount": 5,
+    "blocksProduced": 13,
     "replayFailures": 0
   },
   "safety": {
@@ -61,6 +61,9 @@ They cover:
 
 - `runtime-smoke-multistep`: a two-block scenario fixture.
 - `admission-fixture-compat`: the one-block admission fixture adapter path.
+- `runtime-smoke-restart-replay`: a three-block scenario that restarts the runtime from recovered store before continuing.
+- `runtime-smoke-three-block`: a deterministic three-block mini-chain.
+- `runtime-smoke-multiminer`: a deterministic four-block local multi-miner scenario with three distinct proposer keys.
 
 ## Why this exists before model benchmarking
 

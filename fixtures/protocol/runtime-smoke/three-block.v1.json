@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "source": {
+    "note": "Boole node runtime-smoke three-block scenario fixture"
+  },
+  "cfg": {
+    "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_share": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_block": "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
+    "T_ticket": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "MinShareScoreMultiplier": 1.0,
+    "K_max": 4,
+    "ShareCapPerPK_Block": 2,
+    "L": 4096,
+    "D_max": 8,
+    "EMAWindow": 32,
+    "M": 1,
+    "perIpRateLimitPer60s": 1,
+    "provenance": "calibration-final"
+  },
+  "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",
+  "steps": [
+    {
+      "body": {
+        "c": "0000000000000000000000000000000000000000000000000000000000000000",
+        "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "n": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "j": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "nonceS": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "bytes": "4250504b0100000000000000000000001000000000100100000000000000"
+      },
+      "ip": "203.0.113.55",
+      "canonTag": 0,
+      "ts": 1800000000123,
+      "expectedPrevC": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "body": {
+        "c": "0000000000000000000000000000000000000000000000000000000000000000",
+        "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "n": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "j": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "nonceS": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "bytes": "4250504b0100000000000000000000001000000000100100000000000000"
+      },
+      "ip": "198.51.100.88",
+      "canonTag": 0,
+      "ts": 1800000061246,
+      "cFromRuntimeHead": true
+    },
+    {
+      "body": {
+        "c": "0000000000000000000000000000000000000000000000000000000000000000",
+        "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "n": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "j": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "nonceS": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "bytes": "4250504b0100000000000000000000001000000000100100000000000000"
+      },
+      "ip": "198.51.100.89",
+      "canonTag": 0,
+      "ts": 1800000122369,
+      "cFromRuntimeHead": true
+    }
+  ]
+}

@@ -33,13 +33,16 @@ fixtures/protocol/runtime-smoke/cases.v1.json
 Current cases:
 - `runtime-smoke-multistep`: `--scenario fixtures/protocol/runtime-smoke/v1.json`, expected `storeSize == 2`.
 - `admission-fixture-compat`: `--fixture fixtures/protocol/admission/v1.json`, expected `storeSize == 1`.
+- `runtime-smoke-restart-replay`: `--scenario fixtures/protocol/runtime-smoke/restart-replay.v1.json`, expected `storeSize == 3`; restarts the runtime from the recovered block store before continuing.
+- `runtime-smoke-three-block`: `--scenario fixtures/protocol/runtime-smoke/three-block.v1.json`, expected `storeSize == 3`.
+- `runtime-smoke-multiminer`: `--scenario fixtures/protocol/runtime-smoke/multiminer.v1.json`, expected `storeSize == 4`; rotates deterministic local proposer PKs.
 
 The harness prints per-case PASS lines and `runtime-smoke-all: PASS` to stderr, and emits aggregate JSON to stdout:
 
 ```json
 {
   "ok": true,
-  "caseCount": 2,
+  "caseCount": 5,
   "cases": [
     {
       "name": "runtime-smoke-multistep",
@@ -163,6 +166,15 @@ Each step contains:
 - `canonTag`: accepted canonical verifier tag used by block selection.
 - `ts`: block timestamp.
 - `cFromRuntimeHead` optional boolean. When true, the runner overwrites `body.c` with the current runtime head before observing/admitting the ticket. This lets later steps build on the previous block without hard-coding the previous block hash.
+- `expectedPrevC` optional string. When present, the runner checks the current runtime head before admission and fails fast if it differs.
+- `restartFromStore` optional boolean. When true, the runner recovers/replays the block store and boots a fresh runtime before processing that step.
+
+After every committed step, the runner performs a fail-fast consistency check:
+
+```text
+block store latest c == runtime head
+replay latest c == runtime head
+```
 
 ## Single-fixture compatibility mode
 

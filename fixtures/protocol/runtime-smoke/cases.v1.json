@@ -15,6 +15,27 @@
       "input": "fixtures/protocol/admission/v1.json",
       "expectedStoreSize": 1,
       "expectedReplayHeight": 1
+    },
+    {
+      "name": "runtime-smoke-restart-replay",
+      "mode": "scenario",
+      "input": "fixtures/protocol/runtime-smoke/restart-replay.v1.json",
+      "expectedStoreSize": 3,
+      "expectedReplayHeight": 3
+    },
+    {
+      "name": "runtime-smoke-three-block",
+      "mode": "scenario",
+      "input": "fixtures/protocol/runtime-smoke/three-block.v1.json",
+      "expectedStoreSize": 3,
+      "expectedReplayHeight": 3
+    },
+    {
+      "name": "runtime-smoke-multiminer",
+      "mode": "scenario",
+      "input": "fixtures/protocol/runtime-smoke/multiminer.v1.json",
+      "expectedStoreSize": 4,
+      "expectedReplayHeight": 4
     }
   ]
 }

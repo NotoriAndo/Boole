@@ -27,6 +27,8 @@ pub struct RuntimeSmokeScenario {
 pub struct RuntimeSmokeStep {
     pub body: Map<String, Value>,
     pub c_from_runtime_head: bool,
+    pub expected_prev_c: Option<String>,
+    pub restart_from_store: bool,
     pub ip: String,
     pub canon_tag: u8,
     pub ts: u64,
@@ -46,6 +48,7 @@ pub struct RuntimeSmokeBlockOutput {
     pub height: u64,
     pub prev_c: String,
     pub c: String,
+    pub proposer_pk: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -85,6 +88,9 @@ struct RuntimeSmokeStepJson {
     body: Map<String, Value>,
     #[serde(default)]
     c_from_runtime_head: bool,
+    expected_prev_c: Option<String>,
+    #[serde(default)]
+    restart_from_store: bool,
     ip: String,
     canon_tag: u8,
     ts: u64,
@@ -167,6 +173,8 @@ pub fn run_runtime_smoke_scenario_file(
                 .map(|step| RuntimeSmokeStep {
                     body: step.body,
                     c_from_runtime_head: step.c_from_runtime_head,
+                    expected_prev_c: step.expected_prev_c,
+                    restart_from_store: step.restart_from_store,
                     ip: step.ip,
                     canon_tag: step.canon_tag,
                     ts: step.ts,
@@ -203,6 +211,8 @@ pub fn run_runtime_smoke_scenario(
         steps: vec![RuntimeSmokeStep {
             body: scenario.body,
             c_from_runtime_head: false,
+            expected_prev_c: None,
+            restart_from_store: false,
             ip: scenario.ip,
             canon_tag: scenario.canon_tag,
             ts: scenario.ts,
@@ -217,13 +227,29 @@ pub fn run_runtime_smoke_multi_scenario(
     if scenario.steps.is_empty() {
         anyhow::bail!("runtime smoke scenario must contain at least one step");
     }
-    let mut runtime = RuntimeAdmissionState::new(scenario.config);
+    let config = scenario.config;
+    let mut runtime = RuntimeAdmissionState::new(config.clone());
     runtime.set_current_c(scenario.genesis_c);
     let mut accepted = true;
     let mut total_dropped_stale_shares = 0usize;
     let mut blocks = Vec::new();
 
     for step in scenario.steps {
+        if step.restart_from_store {
+            runtime = RuntimeAdmissionState::boot_from_store(config.clone(), &scenario.block_path)?;
+        }
+        if let Some(expected_prev_c) = &step.expected_prev_c {
+            let runtime_head = runtime.current_c().ok_or_else(|| {
+                anyhow::anyhow!("runtime head is not set before expectedPrevC check")
+            })?;
+            if runtime_head != expected_prev_c {
+                anyhow::bail!(
+                    "expectedPrevC {} does not match runtime head {}",
+                    expected_prev_c,
+                    runtime_head
+                );
+            }
+        }
         let mut body = step.body;
         if step.c_from_runtime_head {
             let runtime_head = runtime
@@ -254,7 +280,9 @@ pub fn run_runtime_smoke_multi_scenario(
             height: committed.block.height,
             prev_c: committed.block.prev_c,
             c: committed.block.c,
+            proposer_pk: committed.block.proposer_pk,
         });
+        assert_runtime_store_replay_consistency(&scenario.block_path, runtime.current_c())?;
     }
 
     let recovered = FileBlockStore::recover(&scenario.block_path)?;
@@ -290,6 +318,34 @@ pub fn run_runtime_smoke_multi_scenario(
         block_store_path,
         blocks,
     })
+}
+
+fn assert_runtime_store_replay_consistency(
+    block_path: &PathBuf,
+    runtime_head: Option<&str>,
+) -> anyhow::Result<()> {
+    let runtime_head = runtime_head
+        .ok_or_else(|| anyhow::anyhow!("runtime head is not set during consistency check"))?;
+    let recovered = FileBlockStore::recover(block_path)?;
+    let replay = replay_blocks(recovered.blocks())?;
+    let latest = recovered
+        .latest()
+        .ok_or_else(|| anyhow::anyhow!("block store is empty during consistency check"))?;
+    if latest.c != runtime_head {
+        anyhow::bail!(
+            "runtime/store divergence: latest block {} != runtime head {}",
+            latest.c,
+            runtime_head
+        );
+    }
+    if replay.latest_c != runtime_head {
+        anyhow::bail!(
+            "runtime/replay divergence: replay head {} != runtime head {}",
+            replay.latest_c,
+            runtime_head
+        );
+    }
+    Ok(())
 }
 
 fn body_for(constants: &Constants, patch: &Map<String, Value>) -> Map<String, Value> {

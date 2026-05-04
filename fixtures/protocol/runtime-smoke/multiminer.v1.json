@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "source": {
+    "note": "Boole node runtime-smoke deterministic local multi-miner scenario fixture"
+  },
+  "cfg": {
+    "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_share": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_block": "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
+    "T_ticket": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "MinShareScoreMultiplier": 1.0,
+    "K_max": 4,
+    "ShareCapPerPK_Block": 2,
+    "L": 4096,
+    "D_max": 8,
+    "EMAWindow": 32,
+    "M": 1,
+    "perIpRateLimitPer60s": 1,
+    "provenance": "calibration-final"
+  },
+  "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",
+  "steps": [
+    {
+      "body": {
+        "c": "0000000000000000000000000000000000000000000000000000000000000000",
+        "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "n": "3333333333333333333333333333333333333333333333333333333333333333",
+        "j": "4444444444444444444444444444444444444444444444444444444444444444",
+        "nonceS": "5555555555555555555555555555555555555555555555555555555555555555",
+        "bytes": "4250504b0100000000000000000000001000000000100100000000000000"
+      },
+      "ip": "192.0.2.10",
+      "canonTag": 0,
+      "ts": 1800000000123,
+      "expectedPrevC": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "body": {
+        "c": "0000000000000000000000000000000000000000000000000000000000000000",
+        "pk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "n": "4444444444444444444444444444444444444444444444444444444444444444",
+        "j": "5555555555555555555555555555555555555555555555555555555555555555",
+        "nonceS": "6666666666666666666666666666666666666666666666666666666666666666",
+        "bytes": "4250504b0100000000000000000000001000000000100100000000000000"
+      },
+      "ip": "192.0.2.11",
+      "canonTag": 0,
+      "ts": 1800000061246,
+      "cFromRuntimeHead": true
+    },
+    {
+      "body": {
+        "c": "0000000000000000000000000000000000000000000000000000000000000000",
+        "pk": "9999999999999999999999999999999999999999999999999999999999999999",
+        "n": "5555555555555555555555555555555555555555555555555555555555555555",
+        "j": "6666666666666666666666666666666666666666666666666666666666666666",
+        "nonceS": "7777777777777777777777777777777777777777777777777777777777777777",
+        "bytes": "4250504b0100000000000000000000001000000000100100000000000000"
+      },
+      "ip": "192.0.2.12",
+      "canonTag": 0,
+      "ts": 1800000122369,
+      "cFromRuntimeHead": true
+    },
+    {
+      "body": {
+        "c": "0000000000000000000000000000000000000000000000000000000000000000",
+        "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "n": "6666666666666666666666666666666666666666666666666666666666666666",
+        "j": "7777777777777777777777777777777777777777777777777777777777777777",
+        "nonceS": "8888888888888888888888888888888888888888888888888888888888888888",
+        "bytes": "4250504b0100000000000000000000001000000000100100000000000000"
+      },
+      "ip": "192.0.2.13",
+      "canonTag": 0,
+      "ts": 1800000183492,
+      "cFromRuntimeHead": true
+    }
+  ]
+}

@@ -32,8 +32,8 @@ fn proof_to_block_benchmark_script_reports_smoke_metrics() {
     assert_eq!(parsed["ok"], true);
     assert_eq!(parsed["benchmark"], "proof-to-block");
     assert_eq!(parsed["version"], 0);
-    assert_eq!(parsed["summary"]["casesPassed"], 2);
-    assert_eq!(parsed["summary"]["blocksProduced"], 3);
+    assert_eq!(parsed["summary"]["casesPassed"], 5);
+    assert_eq!(parsed["summary"]["blocksProduced"], 13);
     assert_eq!(parsed["summary"]["replayFailures"], 0);
     assert_eq!(parsed["safety"]["invalidAccepted"], 0);
     assert_eq!(parsed["safety"]["chainDivergence"], 0);
@@ -281,7 +281,7 @@ fn runtime_smoke_all_script_runs_multiple_checked_cases() {
     let parsed: Value = serde_json::from_slice(&output.stdout).expect("json output");
     assert_eq!(parsed["ok"], true);
     let cases = parsed["cases"].as_array().expect("cases array");
-    assert_eq!(cases.len(), 2);
+    assert_eq!(cases.len(), 5);
     assert_eq!(cases[0]["name"], "runtime-smoke-multistep");
     assert_eq!(cases[0]["mode"], "scenario");
     assert_eq!(cases[0]["storeSize"], 2);
@@ -332,7 +332,7 @@ fn runtime_smoke_all_script_uses_tracked_case_manifest() {
         "fixtures/protocol/runtime-smoke/cases.v1.json"
     );
     let cases = parsed["cases"].as_array().expect("cases array");
-    assert_eq!(cases.len(), 2);
+    assert_eq!(cases.len(), 5);
     assert!(cases.iter().all(|case| case["input"].as_str().is_some()));
     assert!(cases
         .iter()
@@ -378,6 +378,109 @@ fn runtime_smoke_script_runs_tracked_scenario_and_validates_output() {
     assert_eq!(parsed.replay_latest_c, parsed.c);
     assert!(parsed.latest_matches_runtime);
     assert!(parsed.replay_matches_runtime);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn runtime_smoke_rejects_expected_prev_c_mismatch_before_admission() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/protocol/runtime-smoke/v1.json"
+    ))
+    .expect("fixture parses");
+    let mut scenario = fixture;
+    scenario["steps"][0]["expectedPrevC"] =
+        json!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+    let dir = std::env::temp_dir().join(format!(
+        "boole-node-runtime-smoke-prev-c-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let scenario_path = dir.join("expected-prev-c-mismatch.json");
+    let block_path = dir.join("blockstore.ndjson");
+    std::fs::write(
+        &scenario_path,
+        serde_json::to_vec(&scenario).expect("scenario json"),
+    )
+    .expect("write scenario");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
+        .args([
+            "runtime-smoke",
+            "--scenario",
+            scenario_path.to_str().expect("utf8 scenario path"),
+            "--block-store",
+            block_path.to_str().expect("utf8 block path"),
+        ])
+        .output()
+        .expect("run boole-node runtime-smoke expectedPrevC mismatch");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("expectedPrevC") && stderr.contains("does not match runtime head"),
+        "stderr={stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn proof_to_block_benchmark_includes_restart_nblock_and_multiminer_cases() {
+    let repo_root = env!("CARGO_MANIFEST_DIR").trim_end_matches("/crates/boole-node");
+    let script_path = format!("{repo_root}/scripts/proof-to-block-benchmark.sh");
+
+    let dir = std::env::temp_dir().join(format!(
+        "boole-node-proof-to-block-expanded-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+
+    let output = Command::new("bash")
+        .arg(&script_path)
+        .env("BOOLE_NODE_BIN", env!("CARGO_BIN_EXE_boole-node"))
+        .env("BLOCK_STORE_DIR", dir.to_str().expect("utf8 temp path"))
+        .output()
+        .expect("run expanded proof-to-block benchmark script");
+    assert!(
+        output.status.success(),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("json output");
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["summary"]["casesPassed"], 5);
+    assert_eq!(parsed["summary"]["blocksProduced"], 13);
+    assert_eq!(parsed["summary"]["replayFailures"], 0);
+    assert_eq!(parsed["safety"]["chainDivergence"], 0);
+    let case_names = parsed["cases"]
+        .as_array()
+        .expect("cases array")
+        .iter()
+        .map(|case| case["name"].as_str().expect("case name"))
+        .collect::<Vec<_>>();
+    assert!(case_names.contains(&"runtime-smoke-restart-replay"));
+    assert!(case_names.contains(&"runtime-smoke-three-block"));
+    assert!(case_names.contains(&"runtime-smoke-multiminer"));
+
+    let multiminer = parsed["cases"]
+        .as_array()
+        .expect("cases array")
+        .iter()
+        .find(|case| case["name"] == "runtime-smoke-multiminer")
+        .expect("multiminer case");
+    let proposer_pks = multiminer["blocks"]
+        .as_array()
+        .expect("blocks array")
+        .iter()
+        .map(|block| block["proposerPk"].as_str().expect("proposerPk"))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(proposer_pks.len(), 3);
 
     let _ = std::fs::remove_dir_all(&dir);
 }
