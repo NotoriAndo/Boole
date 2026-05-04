@@ -188,6 +188,17 @@ impl RuntimeAdmissionState {
         })
     }
 
+    pub fn commit_next_block_for_current_c(
+        &mut self,
+        block_path: impl AsRef<Path>,
+        ts: u64,
+        accepted_canon_tags: &BTreeSet<u8>,
+    ) -> anyhow::Result<RuntimeCommittedBlock> {
+        let block_path = block_path.as_ref();
+        let height = FileBlockStore::recover(block_path)?.size() as u64;
+        self.commit_block_for_current_c(block_path, height, ts, accepted_canon_tags)
+    }
+
     pub fn observe_ticket_from_body(&mut self, body: &Map<String, Value>) -> Result<bool, String> {
         let pk = required_string(body, "pk")?;
         let c = required_string(body, "c")?;

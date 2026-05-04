@@ -360,6 +360,83 @@ fn runtime_commits_block_by_appending_and_advancing_head() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn runtime_commits_two_blocks_across_advanced_heads() {
+    let mut fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    fixture.constants.c =
+        "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+    fixture.cfg.T_share =
+        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+    fixture.cfg.T_block =
+        "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
+    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.K_max = 4;
+
+    let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
+        .expect("runtime config boots from report");
+    let mut runtime = RuntimeAdmissionState::new(config);
+    runtime.set_current_c(fixture.constants.c.clone());
+
+    let valid_op = fixture
+        .operations
+        .iter()
+        .find(|op| op.name == "valid_after_bad_not_rate_limited")
+        .expect("valid op");
+    let body0 = body_for(&fixture.constants, &valid_op.body_patch);
+    runtime
+        .observe_ticket_from_body(&body0)
+        .expect("observe height0 ticket");
+    assert!(matches!(
+        runtime.admit_body_with_canon_tag(1_800_000_000_000, &fixture.constants.ip, &body0, 0),
+        AdmissionDecision::Accepted { .. }
+    ));
+
+    let dir = std::env::temp_dir().join(format!(
+        "boole-runtime-two-block-loop-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_path = dir.join("blockstore.ndjson");
+    let accepted_tags = BTreeSet::from([0]);
+
+    let committed0 = runtime
+        .commit_next_block_for_current_c(&block_path, 1_800_000_000_123, &accepted_tags)
+        .expect("height0 block committed");
+    assert_eq!(committed0.block.height, 0);
+    assert_eq!(runtime.current_c(), Some(committed0.block.c.as_str()));
+
+    let mut body1 = body0.clone();
+    body1.insert("c".to_string(), Value::String(committed0.block.c.clone()));
+    runtime
+        .observe_ticket_from_body(&body1)
+        .expect("observe height1 ticket");
+    assert!(matches!(
+        runtime.admit_body_with_canon_tag(1_800_000_061_000, "198.51.100.42", &body1, 0),
+        AdmissionDecision::Accepted { .. }
+    ));
+
+    let committed1 = runtime
+        .commit_next_block_for_current_c(&block_path, 1_800_000_061_123, &accepted_tags)
+        .expect("height1 block committed");
+    assert_eq!(committed1.block.height, 1);
+    assert_eq!(committed1.block.prev_c, committed0.block.c);
+    assert_eq!(runtime.current_c(), Some(committed1.block.c.as_str()));
+    assert_eq!(runtime.pool_size(), 0);
+    assert_eq!(runtime.candidate_shares_for_current_c().len(), 0);
+
+    let recovered = FileBlockStore::recover(&block_path).expect("recover two-block store");
+    assert_eq!(recovered.size(), 2);
+    assert_eq!(recovered.latest(), Some(&committed1.block));
+    let replay = replay_blocks(recovered.blocks()).expect("replay two committed blocks");
+    assert_eq!(replay.height, 2);
+    assert_eq!(replay.latest_c, committed1.block.c);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn body_for(constants: &Constants, patch: &Map<String, Value>) -> Map<String, Value> {
     let mut body = Map::new();
     body.insert("c".to_string(), Value::String(constants.c.clone()));
