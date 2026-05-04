@@ -5,7 +5,9 @@
 
 pub mod block;
 pub mod block_builder;
+pub mod bounty_ledger;
 pub mod bounty_registry;
+pub mod config;
 pub mod family_manifest;
 pub mod hash;
 pub mod replay;
@@ -17,10 +19,12 @@ pub use block_builder::{
     build_block_selection, BlockBuilderConfig, BuildSelectionResult, BuiltBlockSelection,
     CandidateShare,
 };
+pub use bounty_ledger::BountyEventLedger;
 pub use bounty_registry::{
     Bounty, BountyRegistry, BountyVerifier, CreateBountyInput, SubmitProofInput, SubmitProofResult,
     UpdateStatusInput,
 };
+pub use config::{hex_to_biguint, validate_calibration_report, CalibrationReport};
 pub use family_manifest::{parse_family_manifest, FamilyManifest, FamilyManifestParseResult};
 pub use hash::{
     block_hash, difficulty_weight, digest_to_biguint, h_protocol, min_share_score,

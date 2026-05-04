@@ -11,6 +11,8 @@ npx tsx scripts/export-hash-pow-fixtures.ts
 npx tsx scripts/export-share-pool-fixtures.ts
 npx tsx scripts/export-manifest-fixtures.ts
 npx tsx scripts/export-bounty-registry-fixtures.ts
+npx tsx scripts/export-bounty-ledger-fixtures.ts
+npx tsx scripts/export-config-fixtures.ts
 
 cargo fmt --all --check
 cargo test --workspace

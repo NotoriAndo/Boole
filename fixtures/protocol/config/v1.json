@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "source": {
+    "config": "/Users/seoyong/projects/pof/dispatcher/src/config.ts"
+  },
+  "generatedBy": "scripts/export-config-fixtures.ts",
+  "cases": [
+    {
+      "name": "valid",
+      "report": {
+        "T_submit": "0x1010101010101010101010101010101010101010101010101010101010101010",
+        "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+        "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+        "MinShareScoreMultiplier": 2,
+        "K_max": 16,
+        "ShareCapPerPK_Block": 4,
+        "L": 16384,
+        "D_max": 1024,
+        "EMAWindow": 32,
+        "M": 8,
+        "perIpRateLimitPer60s": 120,
+        "provenance": "calibration-final"
+      },
+      "result": {
+        "ok": true,
+        "loaded": {
+          "T_submit": "0x1010101010101010101010101010101010101010101010101010101010101010",
+          "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+          "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+          "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+          "MinShareScoreMultiplier": 2,
+          "K_max": 16,
+          "ShareCapPerPK_Block": 4,
+          "L": 16384,
+          "D_max": 1024,
+          "EMAWindow": 32,
+          "M": 8,
+          "perIpRateLimitPer60s": 120,
+          "provenance": "calibration-final"
+        }
+      }
+    },
+    {
+      "name": "zero_threshold",
+      "report": {
+        "T_submit": "0x0",
+        "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+        "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+        "MinShareScoreMultiplier": 2,
+        "K_max": 16,
+        "ShareCapPerPK_Block": 4,
+        "L": 16384,
+        "D_max": 1024,
+        "EMAWindow": 32,
+        "M": 8,
+        "perIpRateLimitPer60s": 120,
+        "provenance": "calibration-final"
+      },
+      "result": {
+        "ok": false,
+        "error": "T_submit must be > 0"
+      }
+    },
+    {
+      "name": "over_256",
+      "report": {
+        "T_submit": "0x10000000000000000000000000000000000000000000000000000000000000000",
+        "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+        "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+        "MinShareScoreMultiplier": 2,
+        "K_max": 16,
+        "ShareCapPerPK_Block": 4,
+        "L": 16384,
+        "D_max": 1024,
+        "EMAWindow": 32,
+        "M": 8,
+        "perIpRateLimitPer60s": 120,
+        "provenance": "calibration-final"
+      },
+      "result": {
+        "ok": true,
+        "loaded": {
+          "T_submit": "0x10000000000000000000000000000000000000000000000000000000000000000",
+          "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+          "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+          "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+          "MinShareScoreMultiplier": 2,
+          "K_max": 16,
+          "ShareCapPerPK_Block": 4,
+          "L": 16384,
+          "D_max": 1024,
+          "EMAWindow": 32,
+          "M": 8,
+          "perIpRateLimitPer60s": 120,
+          "provenance": "calibration-final"
+        }
+      }
+    },
+    {
+      "name": "block_not_less_than_share",
+      "report": {
+        "T_submit": "0x1010101010101010101010101010101010101010101010101010101010101010",
+        "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_block": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+        "MinShareScoreMultiplier": 2,
+        "K_max": 16,
+        "ShareCapPerPK_Block": 4,
+        "L": 16384,
+        "D_max": 1024,
+        "EMAWindow": 32,
+        "M": 8,
+        "perIpRateLimitPer60s": 120,
+        "provenance": "calibration-final"
+      },
+      "result": {
+        "ok": false,
+        "error": "T_block must be strictly less than T_share"
+      }
+    },
+    {
+      "name": "bad_k_max",
+      "report": {
+        "T_submit": "0x1010101010101010101010101010101010101010101010101010101010101010",
+        "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+        "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+        "MinShareScoreMultiplier": 2,
+        "K_max": 0,
+        "ShareCapPerPK_Block": 4,
+        "L": 16384,
+        "D_max": 1024,
+        "EMAWindow": 32,
+        "M": 8,
+        "perIpRateLimitPer60s": 120,
+        "provenance": "calibration-final"
+      },
+      "result": {
+        "ok": false,
+        "error": "K_max must be > 0"
+      }
+    },
+    {
+      "name": "bad_l",
+      "report": {
+        "T_submit": "0x1010101010101010101010101010101010101010101010101010101010101010",
+        "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+        "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+        "MinShareScoreMultiplier": 2,
+        "K_max": 16,
+        "ShareCapPerPK_Block": 4,
+        "L": 0,
+        "D_max": 1024,
+        "EMAWindow": 32,
+        "M": 8,
+        "perIpRateLimitPer60s": 120,
+        "provenance": "calibration-final"
+      },
+      "result": {
+        "ok": false,
+        "error": "L must be > 0"
+      }
+    },
+    {
+      "name": "bad_d_max",
+      "report": {
+        "T_submit": "0x1010101010101010101010101010101010101010101010101010101010101010",
+        "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+        "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+        "MinShareScoreMultiplier": 2,
+        "K_max": 16,
+        "ShareCapPerPK_Block": 4,
+        "L": 16384,
+        "D_max": 0,
+        "EMAWindow": 32,
+        "M": 8,
+        "perIpRateLimitPer60s": 120,
+        "provenance": "calibration-final"
+      },
+      "result": {
+        "ok": false,
+        "error": "D_max must be > 0"
+      }
+    },
+    {
+      "name": "bad_multiplier",
+      "report": {
+        "T_submit": "0x1010101010101010101010101010101010101010101010101010101010101010",
+        "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+        "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+        "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+        "MinShareScoreMultiplier": 0,
+        "K_max": 16,
+        "ShareCapPerPK_Block": 4,
+        "L": 16384,
+        "D_max": 1024,
+        "EMAWindow": 32,
+        "M": 8,
+        "perIpRateLimitPer60s": 120,
+        "provenance": "calibration-final"
+      },
+      "result": {
+        "ok": false,
+        "error": "MinShareScoreMultiplier must be > 0"
+      }
+    }
+  ],
+  "hexCases": [
+    {
+      "input": "0x01",
+      "ok": true,
+      "value": "1"
+    },
+    {
+      "input": "0X10",
+      "ok": true,
+      "value": "16"
+    },
+    {
+      "input": "ff",
+      "ok": true,
+      "value": "255"
+    },
+    {
+      "input": "",
+      "ok": false,
+      "error": "empty hex"
+    },
+    {
+      "input": "0xzz",
+      "ok": false,
+      "error": "Cannot convert 0xzz to a BigInt"
+    }
+  ]
+}

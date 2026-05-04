@@ -1,0 +1,399 @@
+{
+  "version": 1,
+  "source": {
+    "bountyLedger": "/Users/seoyong/projects/pof/dispatcher/src/bountyLedger.ts"
+  },
+  "generatedBy": "scripts/export-bounty-ledger-fixtures.ts",
+  "validEvents": [
+    {
+      "schemaVersion": 1,
+      "kind": "create",
+      "workId": "alpha-1",
+      "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "verifierKind": "lean",
+      "reward": "7",
+      "ts": 1800000000000
+    },
+    {
+      "schemaVersion": 1,
+      "kind": "proof",
+      "workId": "alpha-1",
+      "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "verifierKind": "lean",
+      "proofHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "solverPk": "1111111111111111111111111111111111111111111111111111111111111111",
+      "accepted": false,
+      "ts": 1800000000100
+    },
+    {
+      "schemaVersion": 1,
+      "kind": "proof",
+      "workId": "alpha-1",
+      "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "verifierKind": "lean",
+      "proofHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "solverPk": "2222222222222222222222222222222222222222222222222222222222222222",
+      "accepted": true,
+      "reward": "7",
+      "credit": "7",
+      "ts": 1800000000200
+    },
+    {
+      "schemaVersion": 1,
+      "kind": "status_change",
+      "workId": "beta-1",
+      "problemHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "verifierKind": "wasm",
+      "prevStatus": "open",
+      "newStatus": "withdrawn",
+      "ts": 1800000000300
+    }
+  ],
+  "appendResults": [
+    {
+      "index": 0,
+      "ok": true,
+      "size": 1
+    },
+    {
+      "index": 1,
+      "ok": true,
+      "size": 2
+    },
+    {
+      "index": 2,
+      "ok": true,
+      "size": 3
+    },
+    {
+      "index": 3,
+      "ok": true,
+      "size": 4
+    }
+  ],
+  "expected": {
+    "all": [
+      {
+        "schemaVersion": 1,
+        "kind": "create",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "reward": "7",
+        "ts": 1800000000000
+      },
+      {
+        "schemaVersion": 1,
+        "kind": "proof",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "proofHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "solverPk": "1111111111111111111111111111111111111111111111111111111111111111",
+        "accepted": false,
+        "ts": 1800000000100
+      },
+      {
+        "schemaVersion": 1,
+        "kind": "proof",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "proofHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "solverPk": "2222222222222222222222222222222222222222222222222222222222222222",
+        "accepted": true,
+        "reward": "7",
+        "credit": "7",
+        "ts": 1800000000200
+      },
+      {
+        "schemaVersion": 1,
+        "kind": "status_change",
+        "workId": "beta-1",
+        "problemHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "verifierKind": "wasm",
+        "prevStatus": "open",
+        "newStatus": "withdrawn",
+        "ts": 1800000000300
+      }
+    ],
+    "byWorkIdAlpha": [
+      {
+        "schemaVersion": 1,
+        "kind": "create",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "reward": "7",
+        "ts": 1800000000000
+      },
+      {
+        "schemaVersion": 1,
+        "kind": "proof",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "proofHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "solverPk": "1111111111111111111111111111111111111111111111111111111111111111",
+        "accepted": false,
+        "ts": 1800000000100
+      },
+      {
+        "schemaVersion": 1,
+        "kind": "proof",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "proofHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "solverPk": "2222222222222222222222222222222222222222222222222222222222222222",
+        "accepted": true,
+        "reward": "7",
+        "credit": "7",
+        "ts": 1800000000200
+      }
+    ],
+    "bySolverPk1": [
+      {
+        "schemaVersion": 1,
+        "kind": "proof",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "proofHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "solverPk": "1111111111111111111111111111111111111111111111111111111111111111",
+        "accepted": false,
+        "ts": 1800000000100
+      }
+    ],
+    "byVerifierLean": [
+      {
+        "schemaVersion": 1,
+        "kind": "create",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "reward": "7",
+        "ts": 1800000000000
+      },
+      {
+        "schemaVersion": 1,
+        "kind": "proof",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "proofHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "solverPk": "1111111111111111111111111111111111111111111111111111111111111111",
+        "accepted": false,
+        "ts": 1800000000100
+      },
+      {
+        "schemaVersion": 1,
+        "kind": "proof",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "proofHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "solverPk": "2222222222222222222222222222222222222222222222222222222222222222",
+        "accepted": true,
+        "reward": "7",
+        "credit": "7",
+        "ts": 1800000000200
+      }
+    ],
+    "byMissing": [],
+    "size": 4
+  },
+  "invalidCases": [
+    {
+      "name": "bad_schema",
+      "event": {
+        "schemaVersion": 2,
+        "kind": "create",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "reward": "7",
+        "ts": 1800000000000
+      },
+      "result": {
+        "name": "bad_schema",
+        "ok": false,
+        "error": "bountyLedger: unsupported schemaVersion 2 (only v1 accepted)"
+      }
+    },
+    {
+      "name": "bad_kind",
+      "event": {
+        "schemaVersion": 1,
+        "kind": "unknown",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "reward": "7",
+        "ts": 1800000000000
+      },
+      "result": {
+        "name": "bad_kind",
+        "ok": false,
+        "error": "bountyLedger: unknown event kind: unknown"
+      }
+    },
+    {
+      "name": "empty_work_id",
+      "event": {
+        "schemaVersion": 1,
+        "kind": "create",
+        "workId": "",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "reward": "7",
+        "ts": 1800000000000
+      },
+      "result": {
+        "name": "empty_work_id",
+        "ok": false,
+        "error": "bountyLedger: workId must be a non-empty string"
+      }
+    },
+    {
+      "name": "bad_problem_hash",
+      "event": {
+        "schemaVersion": 1,
+        "kind": "create",
+        "workId": "alpha-1",
+        "problemHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "verifierKind": "lean",
+        "reward": "7",
+        "ts": 1800000000000
+      },
+      "result": {
+        "name": "bad_problem_hash",
+        "ok": false,
+        "error": "bountyLedger: problemHash must be 32-byte lowercase hex"
+      }
+    },
+    {
+      "name": "empty_verifier_kind",
+      "event": {
+        "schemaVersion": 1,
+        "kind": "create",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "",
+        "reward": "7",
+        "ts": 1800000000000
+      },
+      "result": {
+        "name": "empty_verifier_kind",
+        "ok": false,
+        "error": "bountyLedger: verifierKind must be a non-empty string"
+      }
+    },
+    {
+      "name": "negative_ts",
+      "event": {
+        "schemaVersion": 1,
+        "kind": "create",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "reward": "7",
+        "ts": -1
+      },
+      "result": {
+        "name": "negative_ts",
+        "ok": false,
+        "error": "bountyLedger: ts must be a non-negative integer (unix ms)"
+      }
+    },
+    {
+      "name": "proof_missing_hash",
+      "event": {
+        "schemaVersion": 1,
+        "kind": "proof",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "solverPk": "1111111111111111111111111111111111111111111111111111111111111111",
+        "accepted": false,
+        "ts": 1800000000100
+      },
+      "result": {
+        "name": "proof_missing_hash",
+        "ok": false,
+        "error": "bountyLedger: proof event requires proofHash (32-byte lowercase hex)"
+      }
+    },
+    {
+      "name": "proof_bad_solver",
+      "event": {
+        "schemaVersion": 1,
+        "kind": "proof",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "proofHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "solverPk": "1111111111111111111111111111111111111111111111111111111111111111",
+        "accepted": false,
+        "ts": 1800000000100
+      },
+      "result": {
+        "name": "proof_bad_solver",
+        "ok": true
+      }
+    },
+    {
+      "name": "proof_missing_accepted",
+      "event": {
+        "schemaVersion": 1,
+        "kind": "proof",
+        "workId": "alpha-1",
+        "problemHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verifierKind": "lean",
+        "proofHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "solverPk": "1111111111111111111111111111111111111111111111111111111111111111",
+        "ts": 1800000000100
+      },
+      "result": {
+        "name": "proof_missing_accepted",
+        "ok": false,
+        "error": "bountyLedger: proof event requires accepted (boolean)"
+      }
+    },
+    {
+      "name": "status_missing_prev",
+      "event": {
+        "schemaVersion": 1,
+        "kind": "status_change",
+        "workId": "beta-1",
+        "problemHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "verifierKind": "wasm",
+        "newStatus": "withdrawn",
+        "ts": 1800000000300
+      },
+      "result": {
+        "name": "status_missing_prev",
+        "ok": false,
+        "error": "bountyLedger: status_change event requires prevStatus"
+      }
+    },
+    {
+      "name": "status_bad_new",
+      "event": {
+        "schemaVersion": 1,
+        "kind": "status_change",
+        "workId": "beta-1",
+        "problemHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "verifierKind": "wasm",
+        "prevStatus": "open",
+        "newStatus": "closed",
+        "ts": 1800000000300
+      },
+      "result": {
+        "name": "status_bad_new",
+        "ok": false,
+        "error": "bountyLedger: status_change event requires newStatus"
+      }
+    }
+  ]
+}
