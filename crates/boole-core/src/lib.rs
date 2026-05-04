@@ -57,7 +57,8 @@ pub use replay::{
 };
 pub use share_pool::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
 pub use submission_pow::{
-    check_submission_pow, check_submission_pow_json, SubmissionPowRejectReason, SubmissionPowResult,
+    check_submission_pow, check_submission_pow_json, check_submission_pow_with_policy,
+    SubmissionPowRejectReason, SubmissionPowResult,
 };
 pub use validator::{
     decode_detail_from_json, decode_detail_json, validate_proof_package,

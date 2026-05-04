@@ -1,5 +1,6 @@
 use boole_core::{
-    check_submission_pow, check_submission_pow_json, CalibrationReport, SubmissionPowRejectReason,
+    calibration_policy, check_submission_pow, check_submission_pow_json,
+    check_submission_pow_with_policy, CalibrationReport, SubmissionPowRejectReason,
     SubmissionPowResult,
 };
 use serde::Deserialize;
@@ -67,6 +68,29 @@ fn submission_pow_returns_typed_result_with_json_adapter() {
         other => panic!("expected submit pow rejected, got {other:?}"),
     }
     assert_eq!(check_submission_pow_json(&rejected), reject.expected);
+}
+
+#[test]
+fn submission_pow_with_policy_uses_policy_thresholds() {
+    let fixture: Fixture = serde_json::from_str(include_str!(
+        "../../../fixtures/protocol/submission-pow/v1.json"
+    ))
+    .expect("fixture parses");
+    let accept = fixture
+        .cases
+        .iter()
+        .find(|case| case.name == "accept_high_threshold")
+        .expect("accept case");
+    let policy = calibration_policy(&accept.cfg).expect("policy parses");
+
+    let got = check_submission_pow_with_policy(
+        &hex::decode(&accept.input.c).expect("c hex"),
+        &hex::decode(&accept.input.pk).expect("pk hex"),
+        &hex::decode(&accept.input.nonce_s).expect("nonce hex"),
+        &hex::decode(&accept.input.canon_hash).expect("canon hash hex"),
+        &policy,
+    );
+    assert_eq!(check_submission_pow_json(&got), accept.expected);
 }
 
 #[test]
