@@ -1,9 +1,9 @@
 use crate::{
-    check_submission_pow, share_hash, ticket, validate_proof_package, validation_reason_json,
-    CalibrationReport, Hex32, PoolShare, RateLimitRejectReason, RateLimitResult, RateLimiter,
-    SharePool, SharePoolRejectReason, SubmissionPowResult, ValidationReason, ValidationResult,
+    calibration_thresholds, check_submission_pow, share_hash, ticket, validate_proof_package,
+    validation_reason_json, CalibrationReport, Hex32, PoolShare, RateLimitRejectReason,
+    RateLimitResult, RateLimiter, SharePool, SharePoolRejectReason, SubmissionPowResult,
+    ValidationReason, ValidationResult,
 };
-use num_bigint::BigUint;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
@@ -162,9 +162,8 @@ pub fn admit_submission_typed(deps: AdmissionDeps<'_>) -> AdmissionDecision {
         Err(err) => return decode_reject("bytes", err.to_string()),
     };
 
-    let t_ticket = BigUint::parse_bytes(strip_0x(&deps.cfg.T_ticket).as_bytes(), 16)
-        .expect("cfg.T_ticket parses");
-    let ticket_result = ticket(&c, &pk, &n, &t_ticket);
+    let thresholds = calibration_thresholds(deps.cfg).expect("cfg thresholds parse");
+    let ticket_result = ticket(&c, &pk, &n, &thresholds.t_ticket);
     let ticket_check = check_admission_ticket(
         ticket_result.valid,
         deps.rate_limiter.has_observed_ticket(pk_hex, c_hex, n_hex),
@@ -376,13 +375,6 @@ fn string_field<'a>(body: &'a Map<String, Value>, field: &str) -> &'a str {
 
 fn hex32(value: &str) -> Result<Hex32, String> {
     Hex32::from_hex(value).map_err(|err| err.to_string())
-}
-
-fn strip_0x(value: &str) -> &str {
-    value
-        .strip_prefix("0x")
-        .or_else(|| value.strip_prefix("0X"))
-        .unwrap_or(value)
 }
 
 fn sha256_32(bytes: &[u8]) -> [u8; 32] {

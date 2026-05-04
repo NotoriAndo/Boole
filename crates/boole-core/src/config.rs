@@ -33,22 +33,39 @@ pub fn hex_to_biguint(hex: &str) -> Result<BigUint, String> {
         .ok_or_else(|| format!("Cannot convert {hex} to a BigInt"))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalibrationThresholds {
+    pub t_submit: BigUint,
+    pub t_share: BigUint,
+    pub t_block: BigUint,
+    pub t_ticket: BigUint,
+}
+
+pub fn calibration_thresholds(report: &CalibrationReport) -> Result<CalibrationThresholds, String> {
+    Ok(CalibrationThresholds {
+        t_submit: hex_to_biguint(&report.T_submit)?,
+        t_share: hex_to_biguint(&report.T_share)?,
+        t_block: hex_to_biguint(&report.T_block)?,
+        t_ticket: hex_to_biguint(&report.T_ticket)?,
+    })
+}
+
 pub fn validate_calibration_report(report: &CalibrationReport) -> Result<(), String> {
-    for (key, value) in [
-        ("T_submit", &report.T_submit),
-        ("T_share", &report.T_share),
-        ("T_block", &report.T_block),
-        ("T_ticket", &report.T_ticket),
+    let thresholds = calibration_thresholds(report)?;
+    for (key, parsed) in [
+        ("T_submit", &thresholds.t_submit),
+        ("T_share", &thresholds.t_share),
+        ("T_block", &thresholds.t_block),
+        ("T_ticket", &thresholds.t_ticket),
     ] {
-        let parsed = hex_to_biguint(value)?;
         if parsed.is_zero() {
             return Err(format!("{key} must be > 0"));
         }
-        if parsed > two_pow_256() {
+        if *parsed > two_pow_256() {
             return Err(format!("{key} must be ≤ 2^256"));
         }
     }
-    if hex_to_biguint(&report.T_block)? >= hex_to_biguint(&report.T_share)? {
+    if thresholds.t_block >= thresholds.t_share {
         return Err("T_block must be strictly less than T_share".to_string());
     }
     if report.K_max <= 0 {

@@ -34,7 +34,10 @@ pub use bounty_registry::{
     Bounty, BountyRegistry, BountyVerifier, CreateBountyInput, SubmitProofInput, SubmitProofResult,
     UpdateStatusInput,
 };
-pub use config::{hex_to_biguint, validate_calibration_report, CalibrationReport};
+pub use config::{
+    calibration_thresholds, hex_to_biguint, validate_calibration_report, CalibrationReport,
+    CalibrationThresholds,
+};
 pub use family_manifest::{parse_family_manifest, FamilyManifest, FamilyManifestParseResult};
 pub use hash::{
     block_hash, difficulty_weight, digest_to_biguint, h_protocol, min_share_score,

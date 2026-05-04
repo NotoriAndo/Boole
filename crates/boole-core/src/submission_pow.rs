@@ -1,4 +1,4 @@
-use crate::{hex_to_biguint, submission_pow_ok, CalibrationReport, Hex32};
+use crate::{calibration_thresholds, submission_pow_ok, CalibrationReport, Hex32};
 use num_bigint::BigUint;
 use serde_json::{json, Value};
 
@@ -37,9 +37,9 @@ pub fn check_submission_pow(
     let pk = hex32_from_slice(pk, "pk");
     let nonce_s = hex32_from_slice(nonce_s, "nonceS");
     let canon_hash = hex32_from_slice(canon_hash, "canonHash");
-    let t_submit =
-        hex_to_biguint(&cfg.T_submit).expect("cfg.T_submit parses like TypeScript fixture");
-    let (ok, hash_int) = submission_pow_ok(&c, &pk, &nonce_s, &canon_hash, &t_submit);
+    let thresholds =
+        calibration_thresholds(cfg).expect("cfg thresholds parse like TypeScript fixture");
+    let (ok, hash_int) = submission_pow_ok(&c, &pk, &nonce_s, &canon_hash, &thresholds.t_submit);
     if ok {
         SubmissionPowResult::Ok { hash_int }
     } else {

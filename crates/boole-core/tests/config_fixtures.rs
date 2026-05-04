@@ -1,4 +1,6 @@
-use boole_core::{hex_to_biguint, validate_calibration_report, CalibrationReport};
+use boole_core::{
+    calibration_thresholds, hex_to_biguint, validate_calibration_report, CalibrationReport,
+};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -30,6 +32,36 @@ struct HexCase {
     value: Option<String>,
     #[serde(default)]
     error: Option<String>,
+}
+
+#[test]
+fn calibration_thresholds_parse_all_thresholds_once() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/config/v1.json"))
+            .expect("fixture parses");
+    let valid = fixture
+        .cases
+        .iter()
+        .find(|case| case.name == "valid")
+        .expect("valid config case");
+
+    let thresholds = calibration_thresholds(&valid.report).expect("thresholds parse");
+    assert_eq!(
+        thresholds.t_submit,
+        hex_to_biguint(&valid.report.T_submit).unwrap()
+    );
+    assert_eq!(
+        thresholds.t_share,
+        hex_to_biguint(&valid.report.T_share).unwrap()
+    );
+    assert_eq!(
+        thresholds.t_block,
+        hex_to_biguint(&valid.report.T_block).unwrap()
+    );
+    assert_eq!(
+        thresholds.t_ticket,
+        hex_to_biguint(&valid.report.T_ticket).unwrap()
+    );
 }
 
 #[test]
