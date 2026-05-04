@@ -23,6 +23,31 @@ pub struct RuntimeSmokeScenario {
     pub ts: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct RuntimeSmokeStep {
+    pub body: Map<String, Value>,
+    pub c_from_runtime_head: bool,
+    pub ip: String,
+    pub canon_tag: u8,
+    pub ts: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeSmokeMultiScenario {
+    pub config: RuntimeConfig,
+    pub genesis_c: String,
+    pub steps: Vec<RuntimeSmokeStep>,
+    pub block_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeSmokeBlockOutput {
+    pub height: u64,
+    pub prev_c: String,
+    pub c: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeSmokeOutput {
@@ -39,6 +64,7 @@ pub struct RuntimeSmokeOutput {
     pub latest_matches_runtime: bool,
     pub replay_matches_runtime: bool,
     pub block_store_path: String,
+    pub blocks: Vec<RuntimeSmokeBlockOutput>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,7 +72,19 @@ pub struct RuntimeSmokeOutput {
 struct RuntimeSmokeScenarioJson {
     cfg: CalibrationReport,
     genesis_c: String,
+    body: Option<Map<String, Value>>,
+    ip: Option<String>,
+    canon_tag: Option<u8>,
+    ts: Option<u64>,
+    steps: Option<Vec<RuntimeSmokeStepJson>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeSmokeStepJson {
     body: Map<String, Value>,
+    #[serde(default)]
+    c_from_runtime_head: bool,
     ip: String,
     canon_tag: u8,
     ts: u64,
@@ -120,42 +158,105 @@ pub fn run_runtime_smoke_scenario_file(
     let scenario: RuntimeSmokeScenarioJson = serde_json::from_str(&raw)?;
     let config = RuntimeConfig::from_calibration_report(scenario.cfg, 60_000)
         .map_err(|err| anyhow::anyhow!(err))?;
+    if let Some(steps) = scenario.steps {
+        return run_runtime_smoke_multi_scenario(RuntimeSmokeMultiScenario {
+            config,
+            genesis_c: scenario.genesis_c,
+            steps: steps
+                .into_iter()
+                .map(|step| RuntimeSmokeStep {
+                    body: step.body,
+                    c_from_runtime_head: step.c_from_runtime_head,
+                    ip: step.ip,
+                    canon_tag: step.canon_tag,
+                    ts: step.ts,
+                })
+                .collect(),
+            block_path,
+        });
+    }
     run_runtime_smoke_scenario(RuntimeSmokeScenario {
         config,
         genesis_c: scenario.genesis_c,
-        body: scenario.body,
-        ip: scenario.ip,
-        canon_tag: scenario.canon_tag,
+        body: scenario
+            .body
+            .ok_or_else(|| anyhow::anyhow!("scenario missing body"))?,
+        ip: scenario
+            .ip
+            .ok_or_else(|| anyhow::anyhow!("scenario missing ip"))?,
+        canon_tag: scenario
+            .canon_tag
+            .ok_or_else(|| anyhow::anyhow!("scenario missing canonTag"))?,
         block_path,
-        ts: scenario.ts,
+        ts: scenario
+            .ts
+            .ok_or_else(|| anyhow::anyhow!("scenario missing ts"))?,
     })
 }
 
 pub fn run_runtime_smoke_scenario(
     scenario: RuntimeSmokeScenario,
 ) -> anyhow::Result<RuntimeSmokeOutput> {
+    run_runtime_smoke_multi_scenario(RuntimeSmokeMultiScenario {
+        config: scenario.config,
+        genesis_c: scenario.genesis_c,
+        steps: vec![RuntimeSmokeStep {
+            body: scenario.body,
+            c_from_runtime_head: false,
+            ip: scenario.ip,
+            canon_tag: scenario.canon_tag,
+            ts: scenario.ts,
+        }],
+        block_path: scenario.block_path,
+    })
+}
+
+pub fn run_runtime_smoke_multi_scenario(
+    scenario: RuntimeSmokeMultiScenario,
+) -> anyhow::Result<RuntimeSmokeOutput> {
+    if scenario.steps.is_empty() {
+        anyhow::bail!("runtime smoke scenario must contain at least one step");
+    }
     let mut runtime = RuntimeAdmissionState::new(scenario.config);
     runtime.set_current_c(scenario.genesis_c);
-    runtime
-        .observe_ticket_from_body(&scenario.body)
-        .map_err(|err| anyhow::anyhow!(err))?;
-    let decision = runtime.admit_body_with_canon_tag(
-        1_800_000_000_000,
-        &scenario.ip,
-        &scenario.body,
-        scenario.canon_tag,
-    );
-    let accepted = matches!(decision, AdmissionDecision::Accepted { .. });
-    if !accepted {
-        anyhow::bail!("runtime smoke admission was rejected: {decision:?}");
+    let mut accepted = true;
+    let mut total_dropped_stale_shares = 0usize;
+    let mut blocks = Vec::new();
+
+    for step in scenario.steps {
+        let mut body = step.body;
+        if step.c_from_runtime_head {
+            let runtime_head = runtime
+                .current_c()
+                .ok_or_else(|| anyhow::anyhow!("runtime head is not set before step"))?
+                .to_string();
+            body.insert("c".to_string(), Value::String(runtime_head));
+        }
+        runtime
+            .observe_ticket_from_body(&body)
+            .map_err(|err| anyhow::anyhow!(err))?;
+        let decision =
+            runtime.admit_body_with_canon_tag(1_800_000_000_000, &step.ip, &body, step.canon_tag);
+        let step_accepted = matches!(decision, AdmissionDecision::Accepted { .. });
+        accepted &= step_accepted;
+        if !step_accepted {
+            anyhow::bail!("runtime smoke admission was rejected: {decision:?}");
+        }
+
+        let accepted_tags = BTreeSet::from([step.canon_tag]);
+        let committed = runtime.commit_next_block_for_current_c(
+            &scenario.block_path,
+            step.ts,
+            &accepted_tags,
+        )?;
+        total_dropped_stale_shares += committed.dropped_stale_shares;
+        blocks.push(RuntimeSmokeBlockOutput {
+            height: committed.block.height,
+            prev_c: committed.block.prev_c,
+            c: committed.block.c,
+        });
     }
 
-    let accepted_tags = BTreeSet::from([scenario.canon_tag]);
-    let committed = runtime.commit_next_block_for_current_c(
-        &scenario.block_path,
-        scenario.ts,
-        &accepted_tags,
-    )?;
     let recovered = FileBlockStore::recover(&scenario.block_path)?;
     let replay = replay_blocks(recovered.blocks())?;
     let runtime_head = runtime
@@ -169,21 +270,25 @@ pub fn run_runtime_smoke_scenario(
         .unwrap_or(false);
     let replay_matches_runtime = replay.latest_c == runtime_head;
     let block_store_path = scenario.block_path.to_string_lossy().to_string();
+    let latest_block = blocks
+        .last()
+        .ok_or_else(|| anyhow::anyhow!("runtime smoke scenario did not produce a block"))?;
 
     Ok(RuntimeSmokeOutput {
         ok: true,
         accepted,
-        height: committed.block.height,
-        prev_c: committed.block.prev_c,
-        c: committed.block.c,
+        height: latest_block.height,
+        prev_c: latest_block.prev_c.clone(),
+        c: latest_block.c.clone(),
         replay_height: replay.height,
         replay_latest_c: replay.latest_c,
         runtime_head,
-        dropped_stale_shares: committed.dropped_stale_shares,
+        dropped_stale_shares: total_dropped_stale_shares,
         store_size,
         latest_matches_runtime,
         replay_matches_runtime,
         block_store_path,
+        blocks,
     })
 }
 
