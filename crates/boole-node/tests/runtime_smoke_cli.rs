@@ -166,44 +166,9 @@ fn node_runtime_smoke_accepts_scenario_json_input() {
 
 #[test]
 fn node_runtime_smoke_accepts_multistep_scenario_json_input() {
-    let fixture: Value =
-        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
-            .expect("fixture parses");
-    let constants = fixture.get("constants").expect("constants");
-    let mut cfg = fixture.get("cfg").expect("cfg").clone();
-    cfg["T_share"] = json!("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-    cfg["T_block"] = json!("0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe");
-    cfg["MinShareScoreMultiplier"] = json!(1.0);
-    cfg["K_max"] = json!(4);
-
+    let repo_root = env!("CARGO_MANIFEST_DIR").trim_end_matches("/crates/boole-node");
+    let scenario_path = format!("{repo_root}/fixtures/protocol/runtime-smoke/v1.json");
     let genesis_c = "0000000000000000000000000000000000000000000000000000000000000000";
-    let base_body = json!({
-        "c": genesis_c,
-        "pk": constants["pk"],
-        "n": constants["n"],
-        "j": constants["j"],
-        "nonceS": constants["nonceS"],
-        "bytes": constants["validBytesHex"]
-    });
-    let scenario = json!({
-        "cfg": cfg,
-        "genesisC": genesis_c,
-        "steps": [
-            {
-                "body": base_body,
-                "ip": constants["ip"],
-                "canonTag": 0,
-                "ts": 1800000000123u64
-            },
-            {
-                "body": base_body,
-                "cFromRuntimeHead": true,
-                "ip": "198.51.100.88",
-                "canonTag": 0,
-                "ts": 1800000061123u64
-            }
-        ]
-    });
 
     let dir = std::env::temp_dir().join(format!(
         "boole-node-runtime-smoke-multistep-cli-{}",
@@ -211,19 +176,13 @@ fn node_runtime_smoke_accepts_multistep_scenario_json_input() {
     ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("tmp dir");
-    let scenario_path = dir.join("runtime-smoke-multistep.json");
     let block_path = dir.join("blockstore.ndjson");
-    std::fs::write(
-        &scenario_path,
-        serde_json::to_vec(&scenario).expect("scenario json"),
-    )
-    .expect("write scenario");
 
     let output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
         .args([
             "runtime-smoke",
             "--scenario",
-            scenario_path.to_str().expect("utf8 scenario path"),
+            &scenario_path,
             "--block-store",
             block_path.to_str().expect("utf8 temp path"),
         ])
