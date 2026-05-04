@@ -1,7 +1,8 @@
 use boole_core::{
-    admit_submission_json, admit_submission_typed, AdmissionDecision, AdmissionDeps,
-    AdmissionError, AdmissionStatus, CalibrationReport, DecodeDetail, RateLimiter, RejectionReason,
-    SharePool, SharePoolRejectReason, ValidationReason,
+    admit_submission_json, admit_submission_typed, check_admission_ticket, AdmissionDecision,
+    AdmissionDeps, AdmissionError, AdmissionStatus, CalibrationReport, DecodeDetail, RateLimiter,
+    RejectionReason, SharePool, SharePoolRejectReason, TicketAdmissionResult, TicketRejectReason,
+    ValidationReason,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -35,6 +36,26 @@ struct Operation {
     #[serde(default)]
     observe_ticket: bool,
     expect: Value,
+}
+
+#[test]
+fn admission_ticket_check_returns_typed_result() {
+    assert_eq!(
+        check_admission_ticket(false, true),
+        TicketAdmissionResult::Rejected {
+            reason: TicketRejectReason::AboveTTicket,
+        }
+    );
+    assert_eq!(
+        check_admission_ticket(true, false),
+        TicketAdmissionResult::Rejected {
+            reason: TicketRejectReason::Unobserved,
+        }
+    );
+    assert_eq!(
+        check_admission_ticket(true, true),
+        TicketAdmissionResult::Allowed
+    );
 }
 
 #[test]

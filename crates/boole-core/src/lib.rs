@@ -20,8 +20,9 @@ pub mod validator;
 pub mod work_manifest;
 
 pub use admission::{
-    admit_submission, admit_submission_json, admit_submission_typed, AdmissionDecision,
-    AdmissionDeps, AdmissionError, AdmissionStatus, RejectionReason,
+    admit_submission, admit_submission_json, admit_submission_typed, check_admission_ticket,
+    AdmissionDecision, AdmissionDeps, AdmissionError, AdmissionStatus, RejectionReason,
+    TicketAdmissionResult, TicketRejectReason,
 };
 pub use block::PersistedBlock;
 pub use block_builder::{

@@ -57,6 +57,12 @@ pub enum AdmissionError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TicketAdmissionResult {
+    Allowed,
+    Rejected { reason: TicketRejectReason },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TicketRejectReason {
     AboveTTicket,
     Unobserved,
@@ -93,6 +99,20 @@ pub enum RejectionReason {
     SubmitPow { detail: SubmitPowRejectReason },
     RateLimit { quota: RateLimitRejectReason },
     SharePool { detail: SharePoolRejectReason },
+}
+
+pub fn check_admission_ticket(ticket_valid: bool, observed: bool) -> TicketAdmissionResult {
+    if !ticket_valid {
+        return TicketAdmissionResult::Rejected {
+            reason: TicketRejectReason::AboveTTicket,
+        };
+    }
+    if !observed {
+        return TicketAdmissionResult::Rejected {
+            reason: TicketRejectReason::Unobserved,
+        };
+    }
+    TicketAdmissionResult::Allowed
 }
 
 pub fn admit_submission_typed(deps: AdmissionDeps<'_>) -> AdmissionDecision {
@@ -145,26 +165,15 @@ pub fn admit_submission_typed(deps: AdmissionDeps<'_>) -> AdmissionDecision {
     let t_ticket = BigUint::parse_bytes(strip_0x(&deps.cfg.T_ticket).as_bytes(), 16)
         .expect("cfg.T_ticket parses");
     let ticket_result = ticket(&c, &pk, &n, &t_ticket);
-    if !ticket_result.valid {
+    let ticket_check = check_admission_ticket(
+        ticket_result.valid,
+        deps.rate_limiter.has_observed_ticket(pk_hex, c_hex, n_hex),
+    );
+    if let TicketAdmissionResult::Rejected { reason } = ticket_check {
         return reject(
             AdmissionStatus::UnprocessableEntity,
-            AdmissionError::Ticket {
-                reason: TicketRejectReason::AboveTTicket,
-            },
-            RejectionReason::Ticket {
-                detail: TicketRejectReason::AboveTTicket,
-            },
-        );
-    }
-    if !deps.rate_limiter.has_observed_ticket(pk_hex, c_hex, n_hex) {
-        return reject(
-            AdmissionStatus::UnprocessableEntity,
-            AdmissionError::Ticket {
-                reason: TicketRejectReason::Unobserved,
-            },
-            RejectionReason::Ticket {
-                detail: TicketRejectReason::Unobserved,
-            },
+            AdmissionError::Ticket { reason },
+            RejectionReason::Ticket { detail: reason },
         );
     }
 
