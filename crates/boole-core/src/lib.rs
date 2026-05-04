@@ -5,6 +5,7 @@
 
 pub mod block;
 pub mod block_builder;
+pub mod bounty_registry;
 pub mod family_manifest;
 pub mod hash;
 pub mod replay;
@@ -15,6 +16,10 @@ pub use block::PersistedBlock;
 pub use block_builder::{
     build_block_selection, BlockBuilderConfig, BuildSelectionResult, BuiltBlockSelection,
     CandidateShare,
+};
+pub use bounty_registry::{
+    Bounty, BountyRegistry, BountyVerifier, CreateBountyInput, SubmitProofInput, SubmitProofResult,
+    UpdateStatusInput,
 };
 pub use family_manifest::{parse_family_manifest, FamilyManifest, FamilyManifestParseResult};
 pub use hash::{

@@ -10,6 +10,7 @@ npx tsx scripts/export-block-builder-fixtures.ts
 npx tsx scripts/export-hash-pow-fixtures.ts
 npx tsx scripts/export-share-pool-fixtures.ts
 npx tsx scripts/export-manifest-fixtures.ts
+npx tsx scripts/export-bounty-registry-fixtures.ts
 
 cargo fmt --all --check
 cargo test --workspace
