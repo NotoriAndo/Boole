@@ -41,7 +41,11 @@ pub use hash::{
     Hex32, TicketResult,
 };
 pub use rate_limiter::RateLimiter;
-pub use rejection_log::{json_rejection_line, reason_key, RingRejectionLogger};
+pub use rejection_log::{
+    json_rejection_line, reason_key, reason_key_typed, rejection_event_from_json,
+    rejection_event_json, rejection_event_line, LoggedRejectionReason, RejectionEvent,
+    RingRejectionLogger,
+};
 pub use replay::{
     compute_block_credits, replay_blocks, PersistedCredit, PersistedRewardEvent, ReplayResult,
 };

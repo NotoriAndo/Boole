@@ -1,4 +1,8 @@
-use boole_core::{json_rejection_line, reason_key, RingRejectionLogger};
+use boole_core::{
+    json_rejection_line, reason_key, reason_key_typed, rejection_event_from_json,
+    rejection_event_json, rejection_event_line, LoggedRejectionReason, RejectionEvent,
+    RingRejectionLogger,
+};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -50,6 +54,40 @@ struct CompositeCase {
     inputs: Vec<Value>,
     ring_events: Vec<Value>,
     json_output: String,
+}
+
+#[test]
+fn rejection_event_typed_adapter_roundtrips_json_and_line_format() {
+    let fixture: Fixture = serde_json::from_str(include_str!(
+        "../../../fixtures/protocol/rejection-log/v1.json"
+    ))
+    .expect("fixture parses");
+
+    let raw = &fixture.ring_case.inputs[2];
+    let typed = rejection_event_from_json(raw).expect("typed rejection event");
+    assert_eq!(
+        typed,
+        RejectionEvent {
+            ts: 1_800_000_000_002,
+            ip: "192.0.2.3".to_string(),
+            pk: Some(
+                "0303030303030303030303030303030303030303030303030303030303030303".to_string()
+            ),
+            c: Some("1616161616161616161616161616161616161616161616161616161616161616".to_string()),
+            reason: LoggedRejectionReason::Decode {
+                field: "canon".to_string(),
+                detail: "invalid hex".to_string(),
+            },
+        }
+    );
+    assert_eq!(reason_key_typed(&typed.reason), "decode:canon");
+    assert_eq!(rejection_event_json(&typed), *raw);
+    assert_eq!(rejection_event_line(&typed), json_rejection_line(raw));
+
+    let mut ring = RingRejectionLogger::new(2).expect("ring");
+    ring.record_typed(typed.clone());
+    assert_eq!(ring.events_typed(), vec![typed]);
+    assert_eq!(ring.events(), vec![raw.clone()]);
 }
 
 #[test]
