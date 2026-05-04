@@ -48,12 +48,18 @@ Rust boole-core can replay TypeScript-produced block/reward fixtures and produce
 Run the tracked two-block node smoke scenario:
 
 ```bash
+./scripts/runtime-smoke.sh
+```
+
+The script drives the actual `boole-node` binary through runtime policy boot, admission, block commit, block-store recovery, replay, and consistency reporting, then validates the JSON consistency fields. A successful run reports `accepted: true`, `storeSize: 2`, `replayHeight: 2`, `latestMatchesRuntime: true`, and `replayMatchesRuntime: true`.
+
+Equivalent direct command:
+
+```bash
 cargo run -q -p boole-node -- runtime-smoke \
   --scenario fixtures/protocol/runtime-smoke/v1.json \
   --block-store /tmp/boole-runtime-smoke.ndjson
 ```
-
-This drives the actual `boole-node` binary through runtime policy boot, admission, block commit, block-store recovery, replay, and consistency reporting. A successful run reports `accepted: true`, `storeSize: 2`, `replayHeight: 2`, `latestMatchesRuntime: true`, and `replayMatchesRuntime: true`.
 
 See [`docs/runtime-smoke.md`](docs/runtime-smoke.md) for the scenario format and output fields.
 

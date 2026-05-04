@@ -18,7 +18,23 @@ It is not a public testnet, networking layer, or economic benchmark. It is a loc
 
 ## Run the tracked multi-step scenario
 
-From the workspace root:
+From the workspace root, use the checked script:
+
+```bash
+./scripts/runtime-smoke.sh
+```
+
+The script removes the target block store, runs the tracked scenario, validates the JSON consistency fields, prints `runtime-smoke: PASS` to stderr, and emits the raw JSON output to stdout.
+
+Optional overrides:
+
+```bash
+SCENARIO=fixtures/protocol/runtime-smoke/v1.json \
+BLOCK_STORE=/tmp/boole-runtime-smoke.ndjson \
+./scripts/runtime-smoke.sh
+```
+
+Equivalent direct command:
 
 ```bash
 cargo run -q -p boole-node -- runtime-smoke \

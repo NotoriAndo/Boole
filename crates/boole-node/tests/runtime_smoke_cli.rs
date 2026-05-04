@@ -214,3 +214,44 @@ fn node_runtime_smoke_accepts_multistep_scenario_json_input() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn runtime_smoke_script_runs_tracked_scenario_and_validates_output() {
+    let repo_root = env!("CARGO_MANIFEST_DIR").trim_end_matches("/crates/boole-node");
+    let script_path = format!("{repo_root}/scripts/runtime-smoke.sh");
+
+    let dir = std::env::temp_dir().join(format!(
+        "boole-node-runtime-smoke-script-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_path = dir.join("script-blockstore.ndjson");
+
+    let output = Command::new("bash")
+        .arg(&script_path)
+        .env("BOOLE_NODE_BIN", env!("CARGO_BIN_EXE_boole-node"))
+        .env("BLOCK_STORE", block_path.to_str().expect("utf8 temp path"))
+        .output()
+        .expect("run runtime smoke script");
+    assert!(
+        output.status.success(),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    let parsed: RuntimeSmokeOutput = serde_json::from_slice(&output.stdout).expect("json output");
+    assert!(parsed.ok);
+    assert!(parsed.accepted);
+    assert_eq!(parsed.store_size, 2);
+    assert_eq!(parsed.replay_height, 2);
+    assert_eq!(parsed.blocks.len(), 2);
+    assert_eq!(parsed.block_store_path, block_path.to_string_lossy());
+    assert_eq!(parsed.runtime_head, parsed.c);
+    assert_eq!(parsed.replay_latest_c, parsed.c);
+    assert!(parsed.latest_matches_runtime);
+    assert!(parsed.replay_matches_runtime);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
