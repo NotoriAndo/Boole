@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "source": "/Users/seoyong/projects/pof/dispatcher/src/hash.ts",
+  "generatedBy": "scripts/export-hash-pow-fixtures.ts",
+  "inputs": {
+    "c": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "pk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "n": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "j": "0000000000000000000000000000000000000000000000000000000000000007",
+    "canonHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "nonceS": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "T_ticket": "0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_submit": "0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_share": "0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "minShareScoreMultiplier": 1
+  },
+  "expected": {
+    "ticket": {
+      "valid": false,
+      "hashBytes": "3813cf7a7fea3ea72e4c6c2620455cba964323e14a81faa610239be532cc31a8",
+      "hashInt": "25364521578972009828330313233293326479714198845321517300221812594714916696488"
+    },
+    "shareHash": "4be6996bd9b0fb69c70df987198effe8d6ea2ade8d7b6ab7c28d991c5fea7a09",
+    "shareHashInt": "34330897343474933363206044102069069833565578262936783879051089716066202057225",
+    "shareScore": "3",
+    "difficultyWeight": "16",
+    "minShareScore": "16",
+    "submissionPow": {
+      "hashBytes": "c25b46a4fddc992e643d11a71442fea3c5f63dcbd9dd2a75c239cf2d23abf6ad",
+      "hashInt": "87909963278458799766109942037232548103498781227386951874121668376940728022701",
+      "ok": false
+    }
+  }
+}

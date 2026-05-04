@@ -1,4 +1,10 @@
+use num_bigint::BigUint;
+use num_traits::{One, Zero};
 use thiserror::Error;
+
+const DOMAIN_TICKET: &[u8] = b"ticket";
+const DOMAIN_SHARE: &[u8] = b"share";
+const DOMAIN_SUBMIT: &[u8] = b"submit";
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum Hex32Error {
@@ -38,6 +44,13 @@ impl Hex32 {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TicketResult {
+    pub valid: bool,
+    pub hash_bytes: Hex32,
+    pub hash_int: BigUint,
+}
+
 pub fn h_protocol(domain: &[u8], parts: &[&[u8]]) -> Hex32 {
     let mut hasher = blake3::Hasher::new();
     hasher.update(domain);
@@ -55,4 +68,82 @@ pub fn block_hash(prev_c: &Hex32, share_hashes: &[Hex32]) -> Hex32 {
         hasher.update(share_hash.as_bytes());
     }
     Hex32::from_bytes(*hasher.finalize().as_bytes())
+}
+
+pub fn digest_to_biguint(d: &Hex32) -> BigUint {
+    BigUint::from_bytes_be(d.as_bytes())
+}
+
+pub fn ticket(c: &Hex32, pk: &Hex32, n: &Hex32, t_ticket: &BigUint) -> TicketResult {
+    let hash_bytes = h_protocol(DOMAIN_TICKET, &[c.as_bytes(), pk.as_bytes(), n.as_bytes()]);
+    let hash_int = digest_to_biguint(&hash_bytes);
+    TicketResult {
+        valid: &hash_int < t_ticket,
+        hash_bytes,
+        hash_int,
+    }
+}
+
+pub fn share_hash(c: &Hex32, pk: &Hex32, n: &Hex32, j: &Hex32, canon_hash: &Hex32) -> Hex32 {
+    h_protocol(
+        DOMAIN_SHARE,
+        &[
+            c.as_bytes(),
+            pk.as_bytes(),
+            n.as_bytes(),
+            j.as_bytes(),
+            canon_hash.as_bytes(),
+        ],
+    )
+}
+
+pub fn share_score(share_hash_bytes: &Hex32) -> BigUint {
+    let two_to_256 = BigUint::one() << 256usize;
+    let denominator = digest_to_biguint(share_hash_bytes) + BigUint::one();
+    two_to_256 / denominator
+}
+
+pub fn difficulty_weight(t: &BigUint) -> anyhow::Result<BigUint> {
+    if t.is_zero() {
+        anyhow::bail!("T must be > 0");
+    }
+    Ok((BigUint::one() << 256usize) / t)
+}
+
+pub fn min_share_score(t_share: &BigUint, multiplier_nanos: u64) -> anyhow::Result<BigUint> {
+    let scale = BigUint::from(1_000_000_000u64);
+    Ok((difficulty_weight(t_share)? * BigUint::from(multiplier_nanos)) / scale)
+}
+
+pub fn submission_pow_hash(c: &Hex32, pk: &Hex32, nonce_s: &Hex32, canon_hash: &Hex32) -> Hex32 {
+    h_protocol(
+        DOMAIN_SUBMIT,
+        &[
+            c.as_bytes(),
+            pk.as_bytes(),
+            nonce_s.as_bytes(),
+            canon_hash.as_bytes(),
+        ],
+    )
+}
+
+pub fn submission_pow_ok(
+    c: &Hex32,
+    pk: &Hex32,
+    nonce_s: &Hex32,
+    canon_hash: &Hex32,
+    t_submit: &BigUint,
+) -> (bool, BigUint) {
+    let hash = submission_pow_hash(c, pk, nonce_s, canon_hash);
+    let hash_int = digest_to_biguint(&hash);
+    (&hash_int < t_submit, hash_int)
+}
+
+pub fn parse_biguint_hex(value: &str) -> anyhow::Result<BigUint> {
+    let without_prefix = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .unwrap_or(value);
+    BigUint::parse_bytes(without_prefix.as_bytes(), 16)
+        .ok_or_else(|| anyhow::anyhow!("invalid hex bigint"))
 }
