@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "domain": "block",
+  "source": "/Users/seoyong/projects/pof/dispatcher/src/chain.ts:blockHash",
+  "generatedBy": "scripts/export-block-hash-fixtures.ts",
+  "cases": [
+    {
+      "name": "zero-prev-empty-shares",
+      "prevC": "0000000000000000000000000000000000000000000000000000000000000000",
+      "shareHashes": [],
+      "expectedC": "05ec6c6a6576c08e81e58d83aab1dffb8bdbb84c94299602a4f273e5ff7b87f2"
+    },
+    {
+      "name": "zero-prev-one-share",
+      "prevC": "0000000000000000000000000000000000000000000000000000000000000000",
+      "shareHashes": [
+        "1111111111111111111111111111111111111111111111111111111111111111"
+      ],
+      "expectedC": "44eda9a9dcec62128dbac8061b178364b600eae8c082884b0f5c64bbf5ed116c"
+    },
+    {
+      "name": "nonzero-prev-two-shares-lex-ordered",
+      "prevC": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "shareHashes": [
+        "0101010101010101010101010101010101010101010101010101010101010101",
+        "fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe"
+      ],
+      "expectedC": "6b731c18bc5733cd0b22394e686e41effb2bfe1beb312a9fb7dcfdad9b57320a"
+    },
+    {
+      "name": "nonzero-prev-three-shares",
+      "prevC": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "shareHashes": [
+        "2222222222222222222222222222222222222222222222222222222222222222",
+        "3333333333333333333333333333333333333333333333333333333333333333",
+        "4444444444444444444444444444444444444444444444444444444444444444"
+      ],
+      "expectedC": "0c25e365d04b69a20de47db5f0a994acbd7ee65174767df11241204c994c63da"
+    }
+  ]
+}

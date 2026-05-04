@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "source": {
+    "blockStore": "/Users/seoyong/projects/pof/dispatcher/src/blockStore.ts",
+    "rewardLedger": "/Users/seoyong/projects/pof/dispatcher/src/rewardLedger.ts",
+    "chain": "/Users/seoyong/projects/pof/dispatcher/src/chain.ts"
+  },
+  "generatedBy": "scripts/export-replay-fixtures.ts",
+  "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",
+  "blocks": [
+    {
+      "height": 0,
+      "prevC": "0000000000000000000000000000000000000000000000000000000000000000",
+      "c": "4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d",
+      "proposerPk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "selectedShareHashes": [
+        "0101010101010101010101010101010101010101010101010101010101010101",
+        "0202020202020202020202020202020202020202020202020202020202020202"
+      ],
+      "selectedSharePks": [
+        "1111111111111111111111111111111111111111111111111111111111111111",
+        "2222222222222222222222222222222222222222222222222222222222222222"
+      ],
+      "minShareScore": "10",
+      "kmaxApplied": 2,
+      "droppedBelowMinScore": 0,
+      "droppedKernelReject": 0,
+      "truncatedByKmax": 0,
+      "ts": 1700000000000
+    },
+    {
+      "height": 1,
+      "prevC": "4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d",
+      "c": "abbd27303f939d92feab97c196c14dc05d28e0631b66580d9c63305bb2044b49",
+      "proposerPk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "selectedShareHashes": [
+        "0303030303030303030303030303030303030303030303030303030303030303",
+        "0404040404040404040404040404040404040404040404040404040404040404",
+        "0505050505050505050505050505050505050505050505050505050505050505"
+      ],
+      "selectedSharePks": [
+        "2222222222222222222222222222222222222222222222222222222222222222",
+        "2222222222222222222222222222222222222222222222222222222222222222",
+        "3333333333333333333333333333333333333333333333333333333333333333"
+      ],
+      "minShareScore": "20",
+      "kmaxApplied": 3,
+      "droppedBelowMinScore": 1,
+      "droppedKernelReject": 0,
+      "truncatedByKmax": 2,
+      "ts": 1700000001000
+    }
+  ],
+  "rewardEvents": [
+    {
+      "height": 0,
+      "c": "4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d",
+      "credits": [
+        {
+          "pk": "1111111111111111111111111111111111111111111111111111111111111111",
+          "amount": "1"
+        },
+        {
+          "pk": "2222222222222222222222222222222222222222222222222222222222222222",
+          "amount": "1"
+        },
+        {
+          "pk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "height": 1,
+      "c": "abbd27303f939d92feab97c196c14dc05d28e0631b66580d9c63305bb2044b49",
+      "credits": [
+        {
+          "pk": "2222222222222222222222222222222222222222222222222222222222222222",
+          "amount": "2"
+        },
+        {
+          "pk": "3333333333333333333333333333333333333333333333333333333333333333",
+          "amount": "1"
+        },
+        {
+          "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "amount": "1"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "latestC": "abbd27303f939d92feab97c196c14dc05d28e0631b66580d9c63305bb2044b49",
+    "height": 2,
+    "balances": {
+      "1111111111111111111111111111111111111111111111111111111111111111": "1",
+      "2222222222222222222222222222222222222222222222222222222222222222": "3",
+      "3333333333333333333333333333333333333333333333333333333333333333": "1",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "1",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "1"
+    }
+  }
+}

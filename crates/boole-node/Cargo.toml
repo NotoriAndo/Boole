@@ -1,0 +1,13 @@
+[package]
+name = "boole-node"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+boole-core = { path = "../boole-core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
