@@ -299,6 +299,67 @@ fn runtime_applies_block_head_and_prunes_stale_shares() {
     );
 }
 
+#[test]
+fn runtime_commits_block_by_appending_and_advancing_head() {
+    let mut fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    fixture.constants.c =
+        "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+    fixture.cfg.T_share =
+        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+    fixture.cfg.T_block =
+        "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
+    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.K_max = 4;
+
+    let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
+        .expect("runtime config boots from report");
+    let mut runtime = RuntimeAdmissionState::new(config);
+    runtime.set_current_c(fixture.constants.c.clone());
+
+    let valid_op = fixture
+        .operations
+        .iter()
+        .find(|op| op.name == "valid_after_bad_not_rate_limited")
+        .expect("valid op");
+    let body = body_for(&fixture.constants, &valid_op.body_patch);
+    runtime
+        .observe_ticket_from_body(&body)
+        .expect("observe ticket");
+    assert!(matches!(
+        runtime.admit_body_with_canon_tag(1_800_000_000_000, &fixture.constants.ip, &body, 0),
+        AdmissionDecision::Accepted { .. }
+    ));
+
+    let dir =
+        std::env::temp_dir().join(format!("boole-runtime-commit-block-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_path = dir.join("blockstore.ndjson");
+
+    let accepted_tags = BTreeSet::from([0]);
+    let committed = runtime
+        .commit_block_for_current_c(&block_path, 0, 1_800_000_000_123, &accepted_tags)
+        .expect("block is committed");
+
+    assert_eq!(committed.block.height, 0);
+    assert_eq!(committed.block.prev_c, fixture.constants.c);
+    assert_eq!(committed.dropped_stale_shares, 1);
+    assert_eq!(runtime.current_c(), Some(committed.block.c.as_str()));
+    assert_eq!(runtime.pool_size(), 0);
+    assert_eq!(runtime.candidate_shares_for_current_c().len(), 0);
+
+    let recovered = FileBlockStore::recover(&block_path).expect("recover committed block");
+    assert_eq!(recovered.size(), 1);
+    assert_eq!(recovered.latest(), Some(&committed.block));
+    let replay = replay_blocks(recovered.blocks()).expect("replay committed block");
+    assert_eq!(replay.height, 1);
+    assert_eq!(replay.latest_c, committed.block.c);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn body_for(constants: &Constants, patch: &Map<String, Value>) -> Map<String, Value> {
     let mut body = Map::new();
     body.insert("c".to_string(), Value::String(constants.c.clone()));

@@ -1,3 +1,4 @@
+use crate::block_store::FileBlockStore;
 use boole_core::{
     admit_parsed_submission_typed, block_hash, build_block_selection, calibration_policy,
     parse_submission_body, share_score, AdmissionDecision, AdmissionParsedDeps, BlockBuilderConfig,
@@ -6,6 +7,7 @@ use boole_core::{
 };
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
+use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
@@ -23,6 +25,11 @@ impl RuntimeConfig {
             admission_window_ms,
         })
     }
+}
+
+pub struct RuntimeCommittedBlock {
+    pub block: PersistedBlock,
+    pub dropped_stale_shares: usize,
 }
 
 pub struct RuntimeAdmissionState {
@@ -162,6 +169,22 @@ impl RuntimeAdmissionState {
             dropped_kernel_reject: selection.dropped_kernel_reject as u64,
             truncated_by_kmax: selection.truncated_by_kmax as u64,
             ts,
+        })
+    }
+
+    pub fn commit_block_for_current_c(
+        &mut self,
+        block_path: impl AsRef<Path>,
+        height: u64,
+        ts: u64,
+        accepted_canon_tags: &BTreeSet<u8>,
+    ) -> anyhow::Result<RuntimeCommittedBlock> {
+        let block = self.produce_block_for_current_c(height, ts, accepted_canon_tags)?;
+        FileBlockStore::append(block_path, &block)?;
+        let dropped_stale_shares = self.apply_produced_block(&block)?;
+        Ok(RuntimeCommittedBlock {
+            block,
+            dropped_stale_shares,
         })
     }
 
