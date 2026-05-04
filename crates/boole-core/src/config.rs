@@ -50,6 +50,32 @@ pub fn calibration_thresholds(report: &CalibrationReport) -> Result<CalibrationT
     })
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalibrationPolicy {
+    pub thresholds: CalibrationThresholds,
+    pub k_max: usize,
+    pub share_cap_per_pk_block: usize,
+    pub l: usize,
+    pub d_max: usize,
+    pub m: i64,
+    pub per_ip_rate_limit_per_60s: usize,
+    pub min_share_score_multiplier: f64,
+}
+
+pub fn calibration_policy(report: &CalibrationReport) -> Result<CalibrationPolicy, String> {
+    validate_calibration_report(report)?;
+    Ok(CalibrationPolicy {
+        thresholds: calibration_thresholds(report)?,
+        k_max: report.K_max as usize,
+        share_cap_per_pk_block: report.ShareCapPerPK_Block as usize,
+        l: report.L as usize,
+        d_max: report.D_max as usize,
+        m: report.M,
+        per_ip_rate_limit_per_60s: report.perIpRateLimitPer60s as usize,
+        min_share_score_multiplier: report.MinShareScoreMultiplier,
+    })
+}
+
 pub fn validate_calibration_report(report: &CalibrationReport) -> Result<(), String> {
     let thresholds = calibration_thresholds(report)?;
     for (key, parsed) in [

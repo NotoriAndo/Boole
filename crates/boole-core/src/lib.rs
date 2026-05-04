@@ -35,8 +35,8 @@ pub use bounty_registry::{
     UpdateStatusInput,
 };
 pub use config::{
-    calibration_thresholds, hex_to_biguint, validate_calibration_report, CalibrationReport,
-    CalibrationThresholds,
+    calibration_policy, calibration_thresholds, hex_to_biguint, validate_calibration_report,
+    CalibrationPolicy, CalibrationReport, CalibrationThresholds,
 };
 pub use family_manifest::{parse_family_manifest, FamilyManifest, FamilyManifestParseResult};
 pub use hash::{
