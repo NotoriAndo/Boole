@@ -19,7 +19,10 @@ pub mod submission_pow;
 pub mod validator;
 pub mod work_manifest;
 
-pub use admission::{admit_submission, AdmissionDeps};
+pub use admission::{
+    admit_submission, admit_submission_json, admit_submission_typed, AdmissionDecision,
+    AdmissionDeps, AdmissionError, AdmissionStatus, RejectionReason,
+};
 pub use block::PersistedBlock;
 pub use block_builder::{
     build_block_selection, BlockBuilderConfig, BuildSelectionResult, BuiltBlockSelection,
