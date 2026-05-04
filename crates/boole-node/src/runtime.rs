@@ -49,6 +49,29 @@ impl RuntimeAdmissionState {
         self.pool.set_current_c(c);
     }
 
+    pub fn current_c(&self) -> Option<&str> {
+        self.current_c.as_deref()
+    }
+
+    pub fn apply_produced_block(&mut self, block: &PersistedBlock) -> anyhow::Result<usize> {
+        let current_c = self
+            .current_c
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("current chain head is not set"))?;
+        if block.prev_c != current_c {
+            anyhow::bail!(
+                "block prevC {} does not match runtime head {}",
+                block.prev_c,
+                current_c
+            );
+        }
+        block.validate_shape()?;
+        self.current_c = Some(block.c.clone());
+        let dropped = self.pool.prune_to_height(block.c.clone());
+        self.candidates.retain(|candidate| candidate.c == block.c);
+        Ok(dropped)
+    }
+
     pub fn pool_size(&self) -> usize {
         self.pool.size()
     }

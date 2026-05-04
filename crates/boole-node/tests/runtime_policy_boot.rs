@@ -1,6 +1,7 @@
 use boole_core::{
     admit_submission_json, replay_blocks, AdmissionDecision, AdmissionError, AdmissionStatus,
     BuildSelectionResult, CalibrationReport, RateLimitRejectReason, RejectionReason,
+    SharePoolRejectReason,
 };
 use boole_node::block_store::FileBlockStore;
 use boole_node::runtime::{RuntimeAdmissionState, RuntimeConfig};
@@ -226,6 +227,76 @@ fn runtime_produces_persists_and_replays_selected_block() {
     assert_eq!(replay.balances.get(&fixture.constants.pk).copied(), Some(2));
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn runtime_applies_block_head_and_prunes_stale_shares() {
+    let mut fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    fixture.constants.c =
+        "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+    fixture.cfg.T_share =
+        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+    fixture.cfg.T_block =
+        "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
+    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.K_max = 4;
+
+    let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
+        .expect("runtime config boots from report");
+    let mut runtime = RuntimeAdmissionState::new(config);
+    runtime.set_current_c(fixture.constants.c.clone());
+
+    let valid_op = fixture
+        .operations
+        .iter()
+        .find(|op| op.name == "valid_after_bad_not_rate_limited")
+        .expect("valid op");
+    let old_body = body_for(&fixture.constants, &valid_op.body_patch);
+    runtime
+        .observe_ticket_from_body(&old_body)
+        .expect("observe old ticket");
+    assert!(matches!(
+        runtime.admit_body_with_canon_tag(1_800_000_000_000, &fixture.constants.ip, &old_body, 0),
+        AdmissionDecision::Accepted { .. }
+    ));
+    assert_eq!(runtime.pool_size(), 1);
+
+    let accepted_tags = BTreeSet::from([0]);
+    let block = runtime
+        .produce_block_for_current_c(0, 1_800_000_000_123, &accepted_tags)
+        .expect("block is produced");
+    let dropped = runtime.apply_produced_block(&block).expect("apply block");
+    assert_eq!(dropped, 1);
+    assert_eq!(runtime.current_c(), Some(block.c.as_str()));
+    assert_eq!(runtime.pool_size(), 0);
+    assert_eq!(runtime.shares_for_current_c().len(), 0);
+    assert_eq!(runtime.candidate_shares_for_current_c().len(), 0);
+
+    let mut stale_body = old_body.clone();
+    stale_body.insert(
+        "pk".to_string(),
+        Value::String(
+            "1111111111111111111111111111111111111111111111111111111111111111".to_string(),
+        ),
+    );
+    runtime
+        .observe_ticket_from_body(&stale_body)
+        .expect("observe stale ticket");
+    let stale = runtime.admit_body(1_800_000_000_001, "198.51.100.99", &stale_body);
+    assert_eq!(
+        stale,
+        AdmissionDecision::Rejected {
+            status: AdmissionStatus::UnprocessableEntity,
+            error: AdmissionError::SharePool {
+                reason: SharePoolRejectReason::StaleC,
+            },
+            rejection: RejectionReason::SharePool {
+                detail: SharePoolRejectReason::StaleC,
+            },
+        }
+    );
 }
 
 fn body_for(constants: &Constants, patch: &Map<String, Value>) -> Map<String, Value> {
