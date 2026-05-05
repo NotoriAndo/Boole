@@ -16,7 +16,7 @@
     "j": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
     "nonceS": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     "ip": "203.0.113.55",
-    "validBytesHex": "4250504b0100000000000000000000001000000000100100000000000000"
+    "validBytesHex": "504f46500100000000000000000000001000000000100100000000000000"
   },
   "cfg": {
     "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -63,7 +63,7 @@
         "accepted": true,
         "status": 200,
         "responseStatus": "accepted",
-        "shareHash": "f6be734b86f7d5892da61a18add1a53f850cf642b21cecac0c85997f53f6377c"
+        "shareHash": "cd067f100f0a185e973b67435e68c0edebdbaebf23857b0f67860a26831be327"
       }
     },
     {

@@ -283,7 +283,7 @@ fn admission_core_returns_typed_rejection_and_success() {
         AdmissionDecision::Accepted { share_hash } => {
             assert_eq!(
                 share_hash.to_hex(),
-                "f6be734b86f7d5892da61a18add1a53f850cf642b21cecac0c85997f53f6377c"
+                "cd067f100f0a185e973b67435e68c0edebdbaebf23857b0f67860a26831be327"
             );
         }
         other => panic!("expected accepted, got {other:?}"),

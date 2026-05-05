@@ -21,6 +21,29 @@ struct Case {
 }
 
 #[test]
+fn validator_accepts_lean_canonical_pofp_magic() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/validator/v1.json"))
+            .expect("fixture parses");
+    let valid = fixture
+        .cases
+        .iter()
+        .find(|case| case.name == "valid_empty")
+        .expect("valid case");
+    let mut bytes = hex::decode(&valid.bytes_hex).expect("valid bytes hex");
+    bytes[0..4].copy_from_slice(b"POFP");
+
+    assert_eq!(
+        validate_proof_package(&bytes, &valid.cfg),
+        ValidationResult::Ok {
+            decl_count: 0,
+            size: 30,
+            universe_arity: 0,
+        }
+    );
+}
+
+#[test]
 fn validator_returns_typed_result_with_json_adapter() {
     let fixture: Fixture =
         serde_json::from_str(include_str!("../../../fixtures/protocol/validator/v1.json"))

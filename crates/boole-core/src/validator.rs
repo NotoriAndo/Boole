@@ -1,7 +1,7 @@
 use crate::{calibration_policy, CalibrationPolicy, CalibrationReport};
 use serde_json::{json, Value};
 
-const MAGIC: [u8; 4] = [0x42, 0x50, 0x50, 0x4b];
+const MAGIC: [u8; 4] = [0x50, 0x4f, 0x46, 0x50];
 const FORMAT_VERSION: u32 = 1;
 const MAX_WALK_DEPTH: usize = 4096;
 

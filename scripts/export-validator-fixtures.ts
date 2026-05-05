@@ -65,7 +65,7 @@ console.log(`wrote ${outPath}`);
 
 function packageBytes(declCount: number): Uint8Array {
   const out: number[] = [];
-  out.push(0x42, 0x50, 0x50, 0x4b); // BPPK
+  out.push(0x50, 0x4f, 0x46, 0x50); // POFP
   pushU32(out, 1); // version
   pushU32(out, 0); // universeArity
   pushName(out, []); // theoremName
