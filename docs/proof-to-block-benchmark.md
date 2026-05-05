@@ -14,17 +14,31 @@ runtime-smoke case manifest
 
 ## Run
 
+Deterministic runtime safety benchmark:
+
 ```bash
 ./scripts/proof-to-block-benchmark.sh
 ```
 
-The script wraps:
+Agent-runtime leaderboard, for tool-using CLIs such as Hermes and OpenClaw/OpenCode-compatible runners:
+
+```bash
+LEADERBOARD_MD=/tmp/boole-agent-runtime-leaderboard.md ./scripts/agent-runtime-benchmark.sh
+```
+
+Provider/model leaderboard, for raw LLM backends such as mock transport and optional Ollama/OpenAI-compatible models:
+
+```bash
+LEADERBOARD_MD=/tmp/boole-provider-model-leaderboard.md ./scripts/provider-model-benchmark.sh
+```
+
+The deterministic benchmark wraps:
 
 ```bash
 ./scripts/runtime-smoke-all.sh
 ```
 
-and emits JSON to stdout. Human PASS lines go to stderr.
+and emits JSON to stdout. Human PASS lines go to stderr. Leaderboard scripts emit JSON to stdout and optionally write Markdown when `LEADERBOARD_MD` is set.
 
 ## Current metrics
 
@@ -76,4 +90,9 @@ invalidAccepted == 0
 chainDivergence == 0
 ```
 
-Later model benchmark runs can reuse the same JSON shape and add model/provider/cost/time fields without weakening the runtime consistency checks.
+The current benchmark stack now separates two dimensions:
+
+- **Agent runtime benchmark**: Hermes/OpenClaw/OpenCode-style CLIs invoked through `boole-miner`'s `agent_cli` backend. The runtime may use tools, edit files, call Lean/Lake, or do multi-step proof search. Its output is still treated only as an untrusted candidate proof; deterministic verification, canonical bytes, share hash, block commit, and replay decide acceptance.
+- **Provider/model benchmark**: raw model/provider backends such as mock transport and optional OpenAI-compatible/Ollama rows. Optional live rows should be gated by environment variables so missing local daemons/API credentials do not create false CI failures.
+
+Both leaderboard wrappers use `scripts/benchmark-runner.py`, emit machine-readable JSON, and can write a Markdown leaderboard via `LEADERBOARD_MD`. Rows are ranked by successful non-skipped run, blocks, verified shares, and lower elapsed time.

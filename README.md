@@ -124,13 +124,23 @@ See [`docs/runtime-smoke.md`](docs/runtime-smoke.md) for the scenario format and
 
 ## Proof-to-Block Benchmark v0
 
-The current benchmark seed wraps the checked runtime-smoke harness and reports local proof-to-block metrics:
+The deterministic benchmark seed wraps the checked runtime-smoke harness and reports local proof-to-block metrics:
 
 ```bash
 ./scripts/proof-to-block-benchmark.sh
 ```
 
-This is not a public model leaderboard yet. It is the deterministic base layer for later model-by-model runs: checked cases, blocks produced, replay failures, and safety badges. See [`docs/proof-to-block-benchmark.md`](docs/proof-to-block-benchmark.md).
+Two leaderboard wrappers extend that safety rail without mixing unlike backends:
+
+```bash
+# Tool-using agent runtimes: Hermes, OpenClaw/OpenCode-compatible CLIs, etc.
+LEADERBOARD_MD=/tmp/boole-agent-runtime-leaderboard.md ./scripts/agent-runtime-benchmark.sh
+
+# Raw provider/model backends: mock transport and optional OpenAI-compatible/Ollama rows.
+LEADERBOARD_MD=/tmp/boole-provider-model-leaderboard.md ./scripts/provider-model-benchmark.sh
+```
+
+Agent-runtime output is treated as an untrusted candidate proof; deterministic verifier/canonical bytes/share hash/block replay decide acceptance. Optional live provider rows are gated by env vars so missing daemons or credentials do not create false CI failures. See [`docs/proof-to-block-benchmark.md`](docs/proof-to-block-benchmark.md).
 
 ## Source plan
 
