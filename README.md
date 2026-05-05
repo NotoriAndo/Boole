@@ -70,6 +70,7 @@ Initial local endpoints:
 GET  /status
 GET  /head
 GET  /config
+POST /ticket
 POST /submit
 ```
 
@@ -85,7 +86,7 @@ Run the checked local mock mining smoke test:
 ./scripts/local-mining-smoke.sh
 ```
 
-The mining smoke starts `boole-node run-local`, reads `/head` and `/config`, submits two fixture-backed mock-miner candidates to `/submit`, and verifies two replayable blocks are mined.
+The mining smoke starts `boole-node run-local`, reads `/head` and `/config`, announces tickets through `/ticket`, submits two fixture-backed mock-miner candidates to `/submit`, and verifies two replayable blocks are mined.
 
 This is the first Rust `boole-node` replacement path for the old TypeScript dispatcher shape: local HTTP submit, runtime admission, block commit, store recovery, and replay consistency.
 

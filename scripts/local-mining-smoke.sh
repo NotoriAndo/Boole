@@ -13,7 +13,7 @@ cargo run -q -p boole-node -- run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
-  --max-requests 7 \
+  --max-requests 9 \
   >/tmp/boole-node-local-mining-smoke.out \
   2>/tmp/boole-node-local-mining-smoke.err &
 PID=$!
@@ -69,6 +69,9 @@ for i, step in enumerate(steps):
         "canonTag": step.get("canonTag", 0),
         "ts": step.get("ts", 1800000000000 + i),
     }
+    ticket = request("POST", "/ticket", {"c": body["c"], "pk": body["pk"], "n": body["n"]})
+    if not ticket.get("ok") or len(ticket.get("hashHex", "")) != 64:
+        raise SystemExit(f"bad ticket result at step {i}: {ticket}")
     submit = request("POST", "/submit", candidate)
     if not submit.get("accepted"):
         raise SystemExit(f"mock miner submit rejected at step {i}: {submit}")

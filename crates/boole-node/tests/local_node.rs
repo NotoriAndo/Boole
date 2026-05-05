@@ -28,7 +28,7 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
             LocalNodeConfig {
                 scenario_path: server_scenario_path,
                 block_path,
-                max_requests: Some(3),
+                max_requests: Some(4),
             },
         );
         if let Err(err) = &result {
@@ -55,6 +55,11 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
     let head = request_json(addr, "GET /head HTTP/1.1\r\nHost: localhost\r\n\r\n");
     assert_eq!(head["height"], 1);
     assert_eq!(head["c"], submit["block"]["c"]);
+    assert_eq!(head["T_share"], scenario["cfg"]["T_share"]);
+
+    let ticket = request_json_with_body(addr, "/ticket", body);
+    assert_eq!(ticket["ok"], true);
+    assert_eq!(ticket["hashHex"].as_str().expect("ticket hash").len(), 64);
 
     handle
         .join()

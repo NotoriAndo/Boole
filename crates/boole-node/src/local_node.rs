@@ -1,6 +1,8 @@
 use crate::block_store::FileBlockStore;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
-use boole_core::{replay_blocks, AdmissionDecision, CalibrationReport, PersistedBlock};
+use boole_core::{
+    replay_blocks, ticket, AdmissionDecision, CalibrationReport, Hex32, PersistedBlock,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -26,6 +28,7 @@ struct LocalNodeState {
     runtime: RuntimeAdmissionState,
     genesis_c: String,
     block_path: PathBuf,
+    report: CalibrationReport,
     max_requests: Option<usize>,
 }
 
@@ -54,7 +57,7 @@ impl LocalNodeState {
     fn from_config(config: LocalNodeConfig) -> anyhow::Result<Self> {
         let raw = std::fs::read_to_string(&config.scenario_path)?;
         let scenario: LocalNodeScenarioConfig = serde_json::from_str(&raw)?;
-        let runtime_config = RuntimeConfig::from_calibration_report(scenario.cfg, 60_000)
+        let runtime_config = RuntimeConfig::from_calibration_report(scenario.cfg.clone(), 60_000)
             .map_err(|err| anyhow::anyhow!(err))?;
         let recovered = FileBlockStore::recover(&config.block_path)?;
         let mut runtime = if recovered.size() == 0 {
@@ -71,6 +74,7 @@ impl LocalNodeState {
             runtime,
             genesis_c: scenario.genesis_c,
             block_path: config.block_path,
+            report: scenario.cfg,
             max_requests: config.max_requests,
         })
     }
@@ -82,6 +86,7 @@ fn handle_connection(mut stream: TcpStream, state: &mut LocalNodeState) -> anyho
         ("GET", "/status") => status_json(state)?,
         ("GET", "/head") => head_json(state)?,
         ("GET", "/config") => config_json(state),
+        ("POST", "/ticket") => ticket_json(state, &request.body)?,
         ("POST", "/submit") => submit_json(state, &request.body)?,
         _ => {
             write_json_response(
@@ -170,24 +175,76 @@ fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
 
 fn head_json(state: &LocalNodeState) -> anyhow::Result<Value> {
     let recovered = FileBlockStore::recover(&state.block_path)?;
+    let report = &state.report;
     Ok(json!({
         "ok": true,
         "height": recovered.size(),
         "c": current_head(state),
+        "T_ticket": report.T_ticket,
+        "T_share": report.T_share,
+        "T_block": report.T_block,
+        "T_submit": report.T_submit,
+        "MinShareScoreMultiplier": report.MinShareScoreMultiplier,
+        "M": report.M,
+        "K_max": report.K_max,
+        "L": report.L,
+        "D_max": report.D_max,
+        "provenance": report.provenance,
     }))
 }
 
 fn config_json(state: &LocalNodeState) -> Value {
-    let policy = &state.runtime.config.policy;
+    let report = &state.report;
     json!({
         "ok": true,
-        "T_submit": policy.thresholds.t_submit.to_string(),
-        "T_share": policy.thresholds.t_share.to_string(),
-        "T_block": policy.thresholds.t_block.to_string(),
-        "T_ticket": policy.thresholds.t_ticket.to_string(),
-        "K_max": policy.k_max,
-        "ShareCapPerPK_Block": policy.share_cap_per_pk_block,
+        "T_submit": report.T_submit,
+        "T_share": report.T_share,
+        "T_block": report.T_block,
+        "T_ticket": report.T_ticket,
+        "MinShareScoreMultiplier": report.MinShareScoreMultiplier,
+        "M": report.M,
+        "K_max": report.K_max,
+        "ShareCapPerPK_Block": report.ShareCapPerPK_Block,
+        "L": report.L,
+        "D_max": report.D_max,
+        "EMAWindow": report.EMAWindow,
+        "perIpRateLimitPer60s": report.perIpRateLimitPer60s,
+        "provenance": report.provenance,
     })
+}
+
+fn ticket_json(state: &mut LocalNodeState, body: &[u8]) -> anyhow::Result<Value> {
+    let body_value: Value = serde_json::from_slice(body)?;
+    let ticket_body = body_value
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("ticket body must be a JSON object"))?;
+    state
+        .runtime
+        .observe_ticket_from_body(ticket_body)
+        .map_err(|err| anyhow::anyhow!(err))?;
+    let c = Hex32::from_hex(required_string(ticket_body, "c")?)?;
+    let pk = Hex32::from_hex(required_string(ticket_body, "pk")?)?;
+    let n = Hex32::from_hex(required_string(ticket_body, "n")?)?;
+    let result = ticket(
+        &c,
+        &pk,
+        &n,
+        &state.runtime.config.policy.thresholds.t_ticket,
+    );
+    Ok(json!({
+        "ok": true,
+        "hashHex": result.hash_bytes.to_hex(),
+        "valid": result.valid,
+    }))
+}
+
+fn required_string<'a>(
+    body: &'a serde_json::Map<String, Value>,
+    field: &str,
+) -> anyhow::Result<&'a str> {
+    body.get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("missing field {field}"))
 }
 
 fn submit_json(state: &mut LocalNodeState, body: &[u8]) -> anyhow::Result<Value> {
