@@ -40,7 +40,7 @@ Rust boole-core can replay TypeScript-produced block/reward fixtures and produce
 
 - `boole-core`: protocol types, hashes, canonical encoding, replay, ledger state.
 - `boole-cli`: native CLI with stable JSON output and exit codes.
-- `boole-node`: future Rust node daemon/RPC layer.
+- `boole-node`: Rust local node/runtime server, smoke runner, and future network daemon/RPC layer.
 - `boole-lean-runner`: Rust wrapper around Lean verifier artifacts/toolchain.
 
 ## Self-test gate
@@ -52,6 +52,34 @@ Run the local core health gate before publishing changes:
 ```
 
 The gate runs Rust formatting, strict clippy, TypeScript-to-Rust parity, runtime smoke cases, Proof-to-Block Benchmark v0, diff whitespace checks, and gitleaks when available. It emits machine-readable JSON on stdout and progress/PASS lines on stderr.
+
+## Local node
+
+Start a local Rust node HTTP server:
+
+```bash
+cargo run -q -p boole-node -- run-local \
+  --addr 127.0.0.1:8080 \
+  --scenario fixtures/protocol/runtime-smoke/v1.json \
+  --block-store /tmp/boole-node-local.ndjson
+```
+
+Initial local endpoints:
+
+```text
+GET  /status
+GET  /head
+GET  /config
+POST /submit
+```
+
+Run the checked local-node smoke test:
+
+```bash
+./scripts/local-node-smoke.sh
+```
+
+This is the first Rust `boole-node` replacement path for the old TypeScript dispatcher shape: local HTTP submit, runtime admission, block commit, store recovery, and replay consistency.
 
 ## Runtime smoke
 
