@@ -51,7 +51,7 @@ Run the local core health gate before publishing changes:
 ./scripts/self-test.sh
 ```
 
-The gate runs Rust formatting, strict clippy, TypeScript-to-Rust parity, runtime smoke cases, Proof-to-Block Benchmark v0, diff whitespace checks, and gitleaks when available. It emits machine-readable JSON on stdout and progress/PASS lines on stderr.
+The gate runs Rust formatting, strict clippy, TypeScript-to-Rust parity, runtime smoke cases, Proof-to-Block Benchmark v0, local mock mining smoke, diff whitespace checks, and gitleaks when available. It emits machine-readable JSON on stdout and progress/PASS lines on stderr.
 
 ## Local node
 
@@ -78,6 +78,14 @@ Run the checked local-node smoke test:
 ```bash
 ./scripts/local-node-smoke.sh
 ```
+
+Run the checked local mock mining smoke test:
+
+```bash
+./scripts/local-mining-smoke.sh
+```
+
+The mining smoke starts `boole-node run-local`, reads `/head` and `/config`, submits two fixture-backed mock-miner candidates to `/submit`, and verifies two replayable blocks are mined.
 
 This is the first Rust `boole-node` replacement path for the old TypeScript dispatcher shape: local HTTP submit, runtime admission, block commit, store recovery, and replay consistency.
 

@@ -48,6 +48,8 @@ SMOKE_JSON="$TMP_DIR/runtime-smoke-all.json"
 BENCH_JSON="$TMP_DIR/proof-to-block-benchmark.json"
 run_capture_json runtime-smoke-all "$SMOKE_JSON" ./scripts/runtime-smoke-all.sh
 run_capture_json proof-to-block-benchmark "$BENCH_JSON" ./scripts/proof-to-block-benchmark.sh
+MINING_JSON="$TMP_DIR/local-mining-smoke.json"
+run_capture_json local-mining-smoke "$MINING_JSON" ./scripts/local-mining-smoke.sh
 run_logged git-diff-check git diff --check
 
 GITLEAKS_STATUS="skipped"
@@ -56,13 +58,14 @@ if command -v gitleaks >/dev/null 2>&1; then
   GITLEAKS_STATUS="pass"
 fi
 
-python3 - "$SMOKE_JSON" "$BENCH_JSON" "$GITLEAKS_STATUS" <<'PY'
+python3 - "$SMOKE_JSON" "$BENCH_JSON" "$MINING_JSON" "$GITLEAKS_STATUS" <<'PY'
 import json
 import sys
 
 smoke = json.load(open(sys.argv[1]))
 benchmark = json.load(open(sys.argv[2]))
-gitleaks_status = sys.argv[3]
+mining = json.load(open(sys.argv[3]))
+gitleaks_status = sys.argv[4]
 
 cases = smoke.get("cases", [])
 summary = benchmark.get("summary", {})
@@ -86,6 +89,13 @@ checks = [
         "replayFailures": summary.get("replayFailures"),
         "invalidAccepted": safety.get("invalidAccepted"),
         "chainDivergence": safety.get("chainDivergence"),
+    },
+    {
+        "name": "local-mining-smoke",
+        "ok": mining.get("ok") is True,
+        "miner": mining.get("miner"),
+        "blocksMined": mining.get("blocksMined"),
+        "finalHeight": mining.get("finalHead", {}).get("height"),
     },
     {"name": "git-diff-check", "ok": True},
     {"name": "gitleaks", "ok": gitleaks_status in {"pass", "skipped"}, "status": gitleaks_status},
