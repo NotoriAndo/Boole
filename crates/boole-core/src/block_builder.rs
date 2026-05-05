@@ -87,7 +87,7 @@ pub fn build_block_selection(
         score_survivors.push(share.clone());
     }
 
-    score_survivors.sort_by(|a, b| compare_preselection(a, b));
+    score_survivors.sort_by(compare_preselection);
     let truncated_by_kmax = score_survivors.len().saturating_sub(cfg.k_max);
     let preselected = score_survivors
         .into_iter()
@@ -168,10 +168,7 @@ fn normalize_hex256(value: &str) -> anyhow::Result<String> {
     if without_prefix.len() > 64 {
         anyhow::bail!("hex256 value too long");
     }
-    if !without_prefix
-        .bytes()
-        .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F'))
-    {
+    if !without_prefix.bytes().all(|b| b.is_ascii_hexdigit()) {
         anyhow::bail!("hex256 contains non-hex characters");
     }
     Ok(format!("{:0>64}", without_prefix.to_ascii_lowercase()))

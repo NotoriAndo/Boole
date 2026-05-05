@@ -44,7 +44,7 @@ pub struct FamilyRewardPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FamilyManifestParseResult {
-    Ok(FamilyManifest),
+    Ok(Box<FamilyManifest>),
     Err(String),
 }
 
@@ -123,7 +123,7 @@ pub fn parse_family_manifest(input: &Value) -> FamilyManifestParseResult {
     }
 
     let get = |field: &str| obj.get(field).and_then(Value::as_str).unwrap().to_string();
-    FamilyManifestParseResult::Ok(FamilyManifest {
+    FamilyManifestParseResult::Ok(Box::new(FamilyManifest {
         version: "1".to_string(),
         family_id: family_id.to_string(),
         generator_hash: get("generatorHash"),
@@ -143,7 +143,7 @@ pub fn parse_family_manifest(input: &Value) -> FamilyManifestParseResult {
         },
         activation_height,
         status: status.to_string(),
-    })
+    }))
 }
 
 fn is_lower_hex32(value: &str) -> bool {

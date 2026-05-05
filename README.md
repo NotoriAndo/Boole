@@ -43,6 +43,16 @@ Rust boole-core can replay TypeScript-produced block/reward fixtures and produce
 - `boole-node`: future Rust node daemon/RPC layer.
 - `boole-lean-runner`: Rust wrapper around Lean verifier artifacts/toolchain.
 
+## Self-test gate
+
+Run the local core health gate before publishing changes:
+
+```bash
+./scripts/self-test.sh
+```
+
+The gate runs Rust formatting, strict clippy, TypeScript-to-Rust parity, runtime smoke cases, Proof-to-Block Benchmark v0, diff whitespace checks, and gitleaks when available. It emits machine-readable JSON on stdout and progress/PASS lines on stderr.
+
 ## Runtime smoke
 
 Run the checked node smoke harness:

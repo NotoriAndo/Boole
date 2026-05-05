@@ -412,7 +412,7 @@ fn walk_expr(cursor: &mut Cursor<'_>, depth: usize) -> Result<(), DecodeDetail> 
             }
             Ok(())
         }
-        0x13 | 0x14 | 0x15 => {
+        0x13..=0x15 => {
             walk_expr(cursor, depth + 1)?;
             walk_expr(cursor, depth + 1)
         }

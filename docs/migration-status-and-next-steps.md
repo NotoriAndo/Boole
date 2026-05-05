@@ -359,10 +359,12 @@ It should run and summarize:
 
 ```text
 cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
 ./scripts/check-rust-parity.sh
 ./scripts/runtime-smoke-all.sh
 ./scripts/proof-to-block-benchmark.sh
-cargo test -q -p boole-node --test runtime_smoke_cli -- --nocapture
+git diff --check
+gitleaks detect --redact --verbose --no-banner  # when available
 ```
 
 Expected output shape:
