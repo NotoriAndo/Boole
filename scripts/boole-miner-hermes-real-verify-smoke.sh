@@ -74,7 +74,6 @@ for trial in $(seq 1 "$TRIALS"); do
       --max-cycles 1 \
       --profile v01 \
       --difficulty 0 \
-      --placeholder-canon \
       --fixed-target-seed-hex "$FIXED_SEED" \
       --fixed-target-render "$FIXED_RENDER" \
       >"$out"
@@ -125,7 +124,7 @@ ok = success_raw == "1" and status.get("height", 0) >= 1 and status.get("replayM
 out = {
     "ok": ok,
     "kind": "boole-miner-hermes-real-verify-smoke",
-    "miner": "boole-miner agent_cli hermes chat + real Lean verifier + placeholder POFP canon",
+    "miner": "boole-miner agent_cli hermes chat + real Lean verifier + LakeCanonicalizer/boole_emit POFP canon",
     "node": "boole-node run-local",
     "trials": len(rows),
     "aggregate": {"verifyAccepted": verify_accepted, "sharesAccepted": shares_accepted},
