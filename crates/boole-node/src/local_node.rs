@@ -215,16 +215,18 @@ fn config_json(state: &LocalNodeState) -> Value {
 
 fn ticket_json(state: &mut LocalNodeState, body: &[u8]) -> anyhow::Result<Value> {
     let body_value: Value = serde_json::from_slice(body)?;
-    let ticket_body = body_value
+    let mut ticket_body = body_value
         .as_object()
+        .cloned()
         .ok_or_else(|| anyhow::anyhow!("ticket body must be a JSON object"))?;
+    normalize_pow_fields(&mut ticket_body);
     state
         .runtime
-        .observe_ticket_from_body(ticket_body)
+        .observe_ticket_from_body(&ticket_body)
         .map_err(|err| anyhow::anyhow!(err))?;
-    let c = Hex32::from_hex(required_string(ticket_body, "c")?)?;
-    let pk = Hex32::from_hex(required_string(ticket_body, "pk")?)?;
-    let n = Hex32::from_hex(required_string(ticket_body, "n")?)?;
+    let c = Hex32::from_hex(required_string(&ticket_body, "c")?)?;
+    let pk = Hex32::from_hex(required_string(&ticket_body, "pk")?)?;
+    let n = Hex32::from_hex(required_string(&ticket_body, "n")?)?;
     let result = ticket(
         &c,
         &pk,
@@ -247,6 +249,19 @@ fn required_string<'a>(
         .ok_or_else(|| anyhow::anyhow!("missing field {field}"))
 }
 
+fn normalize_pow_fields(body: &mut serde_json::Map<String, Value>) {
+    for field in ["n", "j", "nonceS"] {
+        if let Some(value) = body.get(field).and_then(Value::as_str) {
+            if value.len() < 64
+                && value.len() % 2 == 0
+                && value.bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                body.insert(field.to_string(), Value::String(format!("{value:0>64}")));
+            }
+        }
+    }
+}
+
 fn submit_json(state: &mut LocalNodeState, body: &[u8]) -> anyhow::Result<Value> {
     let body_value: Value = serde_json::from_slice(body)?;
     let submit_body = body_value
@@ -264,11 +279,12 @@ fn submit_json(state: &mut LocalNodeState, body: &[u8]) -> anyhow::Result<Value>
         .get("ts")
         .and_then(Value::as_u64)
         .unwrap_or(1_800_000_000_000);
-    let body = submit_body
+    let mut body = submit_body
         .get("body")
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_else(|| submit_body.clone());
+    normalize_pow_fields(&mut body);
 
     state
         .runtime

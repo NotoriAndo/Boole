@@ -86,7 +86,13 @@ Run the checked local mock mining smoke test:
 ./scripts/local-mining-smoke.sh
 ```
 
-The mining smoke starts `boole-node run-local`, reads `/head` and `/config`, announces tickets through `/ticket`, submits two fixture-backed mock-miner candidates to `/submit`, and verifies two replayable blocks are mined.
+Run the checked TypeScript `boole-miner` → Rust `boole-node` smoke test:
+
+```bash
+./scripts/boole-miner-smoke.sh
+```
+
+The mining smoke starts `boole-node run-local`, reads `/head` and `/config`, announces tickets through `/ticket`, submits two fixture-backed mock-miner candidates to `/submit`, and verifies two replayable blocks are mined. The `boole-miner` smoke starts the same Rust node, runs the TypeScript miner CLI with mock LLM/mock verifier, and verifies one accepted share becomes one replayable block.
 
 This is the first Rust `boole-node` replacement path for the old TypeScript dispatcher shape: local HTTP submit, runtime admission, block commit, store recovery, and replay consistency.
 
