@@ -1,7 +1,8 @@
 use std::collections::BTreeSet;
 
 use crate::{difficulty_weight, min_share_score, parse_biguint_hex, CalibrationPolicy};
-use num_traits::ToPrimitive;
+use num_bigint::BigUint;
+use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,7 +22,7 @@ pub struct CandidateShare {
 pub struct BlockBuilderConfig {
     pub t_block: String,
     pub t_share: String,
-    pub min_share_score: u128,
+    pub min_share_score: BigUint,
     pub k_max: usize,
     pub difficulty_epoch: u64,
     pub difficulty_weight: String,
@@ -38,9 +39,7 @@ impl BlockBuilderConfig {
         difficulty_epoch: u64,
     ) -> anyhow::Result<Self> {
         let multiplier_nanos = (policy.min_share_score_multiplier * 1_000_000_000.0).round() as u64;
-        let min_share_score = min_share_score(&policy.thresholds.t_share, multiplier_nanos)?
-            .to_u128()
-            .ok_or_else(|| anyhow::anyhow!("min share score exceeds u128"))?;
+        let min_share_score = min_share_score(&policy.thresholds.t_share, multiplier_nanos)?;
         let t_block_value = parse_biguint_hex(&t_block)?;
         Ok(Self {
             t_block,
@@ -94,7 +93,7 @@ pub fn build_block_selection(
         if share.c != chain_head {
             continue;
         }
-        let score: u128 = share.score.parse()?;
+        let score = parse_score_decimal(&share.score)?;
         if score < cfg.min_share_score {
             dropped_below_min_score += 1;
             continue;
@@ -164,9 +163,15 @@ pub fn build_block_selection(
 }
 
 fn compare_preselection(a: &CandidateShare, b: &CandidateShare) -> std::cmp::Ordering {
-    let a_score: u128 = a.score.parse().unwrap_or(0);
-    let b_score: u128 = b.score.parse().unwrap_or(0);
+    let a_score = parse_score_decimal(&a.score).unwrap_or_else(|_| BigUint::zero());
+    let b_score = parse_score_decimal(&b.score).unwrap_or_else(|_| BigUint::zero());
     b_score.cmp(&a_score).then_with(|| compare_canonical(a, b))
+}
+
+fn parse_score_decimal(value: &str) -> anyhow::Result<BigUint> {
+    value
+        .parse::<BigUint>()
+        .map_err(|err| anyhow::anyhow!("invalid decimal score: {err}"))
 }
 
 fn compare_canonical(a: &CandidateShare, b: &CandidateShare) -> std::cmp::Ordering {

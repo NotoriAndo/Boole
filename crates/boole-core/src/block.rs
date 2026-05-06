@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use num_bigint::BigUint;
+
 use crate::{difficulty_weight, parse_biguint_hex, Hex32};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,7 +46,7 @@ impl PersistedBlock {
         if self.kmax_applied as usize != self.selected_share_hashes.len() {
             anyhow::bail!("kmaxApplied must equal selectedShareHashes length");
         }
-        let _: u128 = self.min_share_score.parse()?;
+        let _: BigUint = self.min_share_score.parse()?;
         let t_block = parse_biguint_hex(&self.t_block)?;
         let _ = parse_biguint_hex(&self.t_share)?;
         let expected_weight = difficulty_weight(&t_block)?.to_string();
