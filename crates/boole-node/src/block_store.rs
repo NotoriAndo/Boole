@@ -15,7 +15,15 @@ impl FileBlockStore {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let raw = fs::read_to_string(path)?;
+        let raw_bytes = fs::read(path)?;
+        let stable_len = stable_jsonl_prefix_len(&raw_bytes);
+        if stable_len < raw_bytes.len() {
+            OpenOptions::new()
+                .write(true)
+                .open(path)?
+                .set_len(stable_len as u64)?;
+        }
+        let raw = String::from_utf8(raw_bytes[..stable_len].to_vec())?;
         let mut blocks = Vec::new();
         for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
             let block: PersistedBlock = serde_json::from_str(line).map_err(|err| {
@@ -52,6 +60,8 @@ impl FileBlockStore {
         }
         let mut file = OpenOptions::new().create(true).append(true).open(path)?;
         writeln!(file, "{}", serde_json::to_string(block)?)?;
+        file.flush()?;
+        file.sync_all()?;
         Ok(())
     }
 
@@ -66,4 +76,15 @@ impl FileBlockStore {
     pub fn size(&self) -> usize {
         self.blocks.len()
     }
+}
+
+fn stable_jsonl_prefix_len(bytes: &[u8]) -> usize {
+    if bytes.is_empty() || bytes.last() == Some(&b'\n') {
+        return bytes.len();
+    }
+    bytes
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map(|index| index + 1)
+        .unwrap_or(0)
 }
