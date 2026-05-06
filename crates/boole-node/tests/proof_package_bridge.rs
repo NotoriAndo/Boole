@@ -274,8 +274,11 @@ impl TestLeanWorkspace {
     }
 
     fn write_checker_project_with_main(&self, main_lean: &str) {
-        std::fs::write(self.root.join("lean-toolchain"), "leanprover/lean4:v4.29.1\n")
-            .expect("write lean-toolchain");
+        std::fs::write(
+            self.root.join("lean-toolchain"),
+            "leanprover/lean4:v4.29.1\n",
+        )
+        .expect("write lean-toolchain");
         std::fs::write(
             self.root.join("lakefile.lean"),
             r#"import Lake

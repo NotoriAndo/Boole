@@ -110,10 +110,11 @@ fn canonical_checker_accepts_valid_proof_through_sandbox() {
         return;
     }
     let dir = canonical_checker_dir();
-    let proof = dir.join("..").join("..").join("target").join(format!(
-        "boole-canonical-valid-{}.lean",
-        std::process::id()
-    ));
+    let proof = dir
+        .join("..")
+        .join("..")
+        .join("target")
+        .join(format!("boole-canonical-valid-{}.lean", std::process::id()));
     if let Some(parent) = proof.parent() {
         std::fs::create_dir_all(parent).expect("create target dir for test proof");
     }

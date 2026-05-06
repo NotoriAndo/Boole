@@ -547,8 +547,8 @@ fn runtime_check_block_applicable_is_read_only_so_disk_and_cache_cannot_diverge(
     fixture.cfg.MinShareScoreMultiplier = 1.0;
     fixture.cfg.K_max = 4;
 
-    let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
-        .expect("runtime config boots");
+    let config =
+        RuntimeConfig::from_calibration_report(fixture.cfg, 60_000).expect("runtime config boots");
     let mut runtime = RuntimeAdmissionState::new(config);
     runtime.set_current_c(fixture.constants.c.clone());
 
@@ -572,8 +572,7 @@ fn runtime_check_block_applicable_is_read_only_so_disk_and_cache_cannot_diverge(
         .expect("block produced");
 
     // Force a linkage mismatch the runtime has no way to satisfy.
-    block.prev_c =
-        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+    block.prev_c = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
 
     let head_before = runtime.current_c().map(str::to_string);
     let pool_before = runtime.pool_size();

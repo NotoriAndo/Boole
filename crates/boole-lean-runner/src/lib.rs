@@ -495,11 +495,7 @@ fn kill_child_group(child: &mut Child) {
 
 // Files the artifact hash always pins, in order. Anything outside this list
 // must come from the recursive `BooleCheck/**` walk below.
-const CHECKER_PINNED_FILES: &[&str] = &[
-    "lean-toolchain",
-    "lakefile.lean",
-    "lake-manifest.json",
-];
+const CHECKER_PINNED_FILES: &[&str] = &["lean-toolchain", "lakefile.lean", "lake-manifest.json"];
 
 fn checker_artifact_hash(package_dir: &Path) -> Result<String> {
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
@@ -526,10 +522,7 @@ fn checker_artifact_hash(package_dir: &Path) -> Result<String> {
 // The walk is deterministic (sorted by relative path during hashing) and
 // rejects symlinks so an operator cannot smuggle a file in via a symlink that
 // resolves outside the package.
-fn collect_boole_check_sources(
-    package_dir: &Path,
-    out: &mut Vec<(String, Vec<u8>)>,
-) -> Result<()> {
+fn collect_boole_check_sources(package_dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Result<()> {
     let root = package_dir.join("BooleCheck");
     if !root.exists() {
         return Ok(());
