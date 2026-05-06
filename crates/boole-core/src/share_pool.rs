@@ -13,16 +13,18 @@ pub struct PoolShare {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SharePoolRejectReason {
     Duplicate,
-    PkCapExceeded,
     StaleC,
+    PkCapExceeded,
+    GlobalCapExceeded,
 }
 
 impl SharePoolRejectReason {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Duplicate => "duplicate",
-            Self::PkCapExceeded => "pk_cap_exceeded",
             Self::StaleC => "stale_c",
+            Self::PkCapExceeded => "pk_cap_exceeded",
+            Self::GlobalCapExceeded => "global_cap_exceeded",
         }
     }
 }
@@ -57,6 +59,7 @@ impl AcceptResult {
 pub struct SharePool {
     current_c: Option<String>,
     share_cap_per_pk_block: usize,
+    global_share_cap: usize,
     by_key: BTreeMap<String, PoolShare>,
     insertion_order: Vec<String>,
     per_pk_per_c: BTreeMap<String, usize>,
@@ -64,9 +67,14 @@ pub struct SharePool {
 
 impl SharePool {
     pub fn new(share_cap_per_pk_block: usize) -> Self {
+        Self::new_with_global_cap(share_cap_per_pk_block, usize::MAX)
+    }
+
+    pub fn new_with_global_cap(share_cap_per_pk_block: usize, global_share_cap: usize) -> Self {
         Self {
             current_c: None,
             share_cap_per_pk_block,
+            global_share_cap,
             by_key: BTreeMap::new(),
             insertion_order: Vec::new(),
             per_pk_per_c: BTreeMap::new(),
@@ -74,7 +82,7 @@ impl SharePool {
     }
 
     pub fn from_policy(policy: &CalibrationPolicy) -> Self {
-        Self::new(policy.share_cap_per_pk_block)
+        Self::new_with_global_cap(policy.share_cap_per_pk_block, policy.global_share_cap)
     }
 
     pub fn from_calibration_report(report: &CalibrationReport) -> Result<Self, String> {
@@ -107,6 +115,11 @@ impl SharePool {
         if used >= self.share_cap_per_pk_block {
             return AcceptResult::Err {
                 reason: SharePoolRejectReason::PkCapExceeded,
+            };
+        }
+        if self.by_key.len() >= self.global_share_cap {
+            return AcceptResult::Err {
+                reason: SharePoolRejectReason::GlobalCapExceeded,
             };
         }
         self.by_key.insert(key.clone(), share);

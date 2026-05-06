@@ -39,6 +39,16 @@ fn pool_share(s: &ShareFixture) -> PoolShare {
     }
 }
 
+fn make_pool_share(label: &str, pk_suffix: &str, c: &str) -> PoolShare {
+    PoolShare {
+        label: label.to_string(),
+        pk: format!("{:0>64}", pk_suffix),
+        n: format!("{:0>64}", format!("n{pk_suffix}")),
+        j: format!("{:0>64}", format!("j{pk_suffix}")),
+        c: c.to_string(),
+    }
+}
+
 fn assert_accept_result(got: AcceptResult, expected: &Value) {
     let expected_ok = expected
         .get("ok")
@@ -98,6 +108,29 @@ fn share_pool_from_calibration_report_uses_policy_cap() {
             reason: SharePoolRejectReason::PkCapExceeded,
         }
     );
+}
+
+#[test]
+fn share_pool_enforces_global_cap_before_growing_unbounded() {
+    let c = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let mut pool = SharePool::new_with_global_cap(4, 2);
+    pool.set_current_c(c);
+
+    assert_eq!(
+        pool.accept(make_pool_share("first", "01", c)),
+        AcceptResult::Ok
+    );
+    assert_eq!(
+        pool.accept(make_pool_share("second", "02", c)),
+        AcceptResult::Ok
+    );
+    assert_eq!(
+        pool.accept(make_pool_share("third", "03", c)),
+        AcceptResult::Err {
+            reason: SharePoolRejectReason::GlobalCapExceeded,
+        }
+    );
+    assert_eq!(pool.size(), 2);
 }
 
 #[test]
