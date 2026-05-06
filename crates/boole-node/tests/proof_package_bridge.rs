@@ -1,7 +1,7 @@
 use boole_core::{replay_blocks, AdmissionDecision, CalibrationReport};
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use boole_node::block_store::FileBlockStore;
-use boole_node::proof_bridge::{LeanProofBridge, ProofSubmissionTemplate};
+use boole_node::proof_bridge::{LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate};
 use boole_node::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use serde::Deserialize;
 use serde_json::Value;
@@ -101,6 +101,55 @@ fn lean_checked_proof_package_is_admitted_as_block_and_replays() {
     let replay = replay_blocks(recovered.blocks()).expect("replay succeeds");
     assert_eq!(replay.latest_c, block.c);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn lean_bridge_rejects_checker_artifact_not_in_allowlist_before_submission_body() {
+    if !lake_and_lean_available() {
+        eprintln!("skipping Lean proof bridge artifact guard test: lake/lean unavailable");
+        return;
+    }
+    let fixture = easy_runtime_fixture();
+    let workspace = TestLeanWorkspace::new("bridge-artifact-guard");
+    workspace.write_checker_project();
+    let proof = workspace.write_proof(
+        "ValidBridgeProof.lean",
+        r#"theorem boole_bridge_valid : 1 + 1 = 2 := by
+  decide
+"#,
+    );
+
+    let base_config = LeanRunnerConfig::new("bridge-verifier-hash")
+        .with_package_dir(workspace.root.clone())
+        .with_timeout_ms(5_000)
+        .with_memory_limit_mb(256);
+    let expected_artifact_hash = LeanRunner::new(base_config.clone())
+        .evidence()
+        .expect("evidence hashes baseline checker")
+        .checker_artifact_hash;
+
+    workspace.write_checker_project_with_main(
+        r#"def main (_args : List String) : IO UInt32 := do
+  IO.println "tampered checker accepts without checking proof"
+  return 0
+"#,
+    );
+
+    let bridge = LeanProofBridge::new_with_policy(
+        LeanRunner::new(base_config),
+        LeanProofBridgePolicy::new()
+            .require_verifier_hash("bridge-verifier-hash")
+            .allow_checker_artifact_hash(expected_artifact_hash),
+    );
+    let template = template_from_fixture(&fixture.constants);
+    let rejected = bridge
+        .build_submission_body(&proof, &template)
+        .expect_err("tampered checker artifact must not produce a submission body");
+    assert_eq!(rejected.kind(), "lean_artifact_not_allowed");
+    assert!(
+        rejected.lean().accepted,
+        "guard should reject even when the tampered checker exits success"
+    );
 }
 
 #[test]
@@ -204,20 +253,7 @@ impl TestLeanWorkspace {
     }
 
     fn write_checker_project(&self) {
-        std::fs::write(
-            self.root.join("lakefile.lean"),
-            r#"import Lake
-open Lake DSL
-
-package boole_check_fixture
-
-lean_exe boole_check where
-  root := `BooleCheck.Main
-"#,
-        )
-        .expect("write lakefile");
-        std::fs::write(
-            self.root.join("BooleCheck/Main.lean"),
+        self.write_checker_project_with_main(
             r#"def main (args : List String) : IO UInt32 := do
   let some proofPath := args.head?
     | IO.eprintln "usage: boole_check <proof.lean>"; return 64
@@ -234,8 +270,24 @@ lean_exe boole_check where
   else
     return 1
 "#,
+        );
+    }
+
+    fn write_checker_project_with_main(&self, main_lean: &str) {
+        std::fs::write(
+            self.root.join("lakefile.lean"),
+            r#"import Lake
+open Lake DSL
+
+package boole_check_fixture
+
+lean_exe boole_check where
+  root := `BooleCheck.Main
+"#,
         )
-        .expect("write checker main");
+        .expect("write lakefile");
+        std::fs::write(self.root.join("BooleCheck/Main.lean"), main_lean)
+            .expect("write checker main");
     }
 
     fn write_proof(&self, name: &str, content: &str) -> PathBuf {

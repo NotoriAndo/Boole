@@ -1,3 +1,4 @@
+use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -124,6 +125,82 @@ fn submit_lean_cli_rejects_invalid_proof_as_json_stderr_before_admission() {
     );
 }
 
+#[test]
+fn submit_lean_cli_rejects_checker_artifact_not_in_required_allowlist() {
+    if !lake_and_lean_available() {
+        eprintln!("skipping submit-lean CLI artifact guard test: lake/lean unavailable");
+        return;
+    }
+    let repo_root = repo_root();
+    let fixture_path = repo_root.join("fixtures/protocol/admission/v1.json");
+    let workspace = TestLeanWorkspace::new("submit-lean-artifact-guard");
+    workspace.write_checker_project();
+    let proof = workspace.write_proof(
+        "ValidButTamperedChecker.lean",
+        r#"theorem boole_submit_lean_tampered_checker : 3 + 3 = 6 := by
+  decide
+"#,
+    );
+    let expected_artifact_hash = LeanRunner::new(
+        LeanRunnerConfig::new("submit-lean-cli-test-verifier")
+            .with_package_dir(workspace.root.clone()),
+    )
+    .evidence()
+    .expect("baseline checker evidence")
+    .checker_artifact_hash;
+    workspace.write_checker_project_with_main(
+        r#"def main (_args : List String) : IO UInt32 := do
+  IO.println "tampered checker accepts without checking proof"
+  return 0
+"#,
+    );
+    let block_path = workspace.root.join("blockstore.ndjson");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
+        .args([
+            "submit-lean",
+            "--proof",
+            proof.to_str().expect("proof path utf8"),
+            "--checker-dir",
+            workspace.root.to_str().expect("checker dir utf8"),
+            "--fixture",
+            fixture_path.to_str().expect("fixture path utf8"),
+            "--block-store",
+            block_path.to_str().expect("block path utf8"),
+            "--verifier-hash",
+            "submit-lean-cli-test-verifier",
+            "--require-checker-artifact-hash",
+            &expected_artifact_hash,
+        ])
+        .output()
+        .expect("run boole-node submit-lean with artifact guard");
+    assert!(
+        !output.status.success(),
+        "tampered checker artifact must exit non-zero stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "failed submit-lean must keep stdout empty: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    let parsed: Value = serde_json::from_slice(&output.stderr).expect("json stderr");
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["command"], "submit-lean");
+    assert_eq!(parsed["accepted"], false);
+    assert_eq!(parsed["error"], "lean_artifact_not_allowed");
+    assert_eq!(parsed["lean"]["accepted"], true);
+    assert_eq!(parsed["shareAccepted"], false);
+    assert_eq!(parsed["blockProduced"], false);
+    assert_eq!(parsed["invalidAccepted"], 0);
+    assert!(
+        !block_path.exists(),
+        "artifact-guard rejection must not create a block store"
+    );
+}
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -157,20 +234,7 @@ impl TestLeanWorkspace {
     }
 
     fn write_checker_project(&self) {
-        std::fs::write(
-            self.root.join("lakefile.lean"),
-            r#"import Lake
-open Lake DSL
-
-package boole_check_fixture
-
-lean_exe boole_check where
-  root := `BooleCheck.Main
-"#,
-        )
-        .expect("write lakefile");
-        std::fs::write(
-            self.root.join("BooleCheck/Main.lean"),
+        self.write_checker_project_with_main(
             r#"def main (args : List String) : IO UInt32 := do
   let some proofPath := args.head?
     | IO.eprintln "usage: boole_check <proof.lean>"; return 64
@@ -187,8 +251,24 @@ lean_exe boole_check where
   else
     return 1
 "#,
+        );
+    }
+
+    fn write_checker_project_with_main(&self, main_lean: &str) {
+        std::fs::write(
+            self.root.join("lakefile.lean"),
+            r#"import Lake
+open Lake DSL
+
+package boole_check_fixture
+
+lean_exe boole_check where
+  root := `BooleCheck.Main
+"#,
         )
-        .expect("write checker main");
+        .expect("write lakefile");
+        std::fs::write(self.root.join("BooleCheck/Main.lean"), main_lean)
+            .expect("write checker main");
     }
 
     fn write_proof(&self, name: &str, content: &str) -> PathBuf {

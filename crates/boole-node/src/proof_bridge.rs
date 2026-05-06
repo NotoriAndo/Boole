@@ -1,6 +1,7 @@
 use boole_lean_runner::{LeanCheckResult, LeanRunner};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 use std::path::Path;
 
 pub const LEAN_CANON_TAG: u8 = 0;
@@ -40,11 +41,57 @@ impl ProofBridgeError {
 
 pub struct LeanProofBridge {
     runner: LeanRunner,
+    policy: LeanProofBridgePolicy,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct LeanProofBridgePolicy {
+    required_verifier_hash: Option<String>,
+    allowed_checker_artifact_hashes: BTreeSet<String>,
+}
+
+impl LeanProofBridgePolicy {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn require_verifier_hash(mut self, verifier_hash: impl Into<String>) -> Self {
+        self.required_verifier_hash = Some(verifier_hash.into());
+        self
+    }
+
+    pub fn allow_checker_artifact_hash(mut self, checker_artifact_hash: impl Into<String>) -> Self {
+        self.allowed_checker_artifact_hashes
+            .insert(checker_artifact_hash.into());
+        self
+    }
+
+    fn validate(&self, lean: &LeanCheckResult) -> Option<&'static str> {
+        if self
+            .required_verifier_hash
+            .as_ref()
+            .is_some_and(|expected| lean.evidence.verifier_hash != *expected)
+        {
+            return Some("lean_verifier_hash_mismatch");
+        }
+        if !self.allowed_checker_artifact_hashes.is_empty()
+            && !self
+                .allowed_checker_artifact_hashes
+                .contains(&lean.evidence.checker_artifact_hash)
+        {
+            return Some("lean_artifact_not_allowed");
+        }
+        None
+    }
 }
 
 impl LeanProofBridge {
     pub fn new(runner: LeanRunner) -> Self {
-        Self { runner }
+        Self::new_with_policy(runner, LeanProofBridgePolicy::default())
+    }
+
+    pub fn new_with_policy(runner: LeanRunner, policy: LeanProofBridgePolicy) -> Self {
+        Self { runner, policy }
     }
 
     pub fn build_submission_body(
@@ -62,6 +109,12 @@ impl LeanProofBridge {
         if !lean.accepted {
             return Err(ProofBridgeError {
                 kind: "lean_rejected",
+                lean: Box::new(lean),
+            });
+        }
+        if let Some(kind) = self.policy.validate(&lean) {
+            return Err(ProofBridgeError {
+                kind,
                 lean: Box::new(lean),
             });
         }

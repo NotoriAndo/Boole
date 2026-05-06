@@ -2,7 +2,7 @@ use boole_core::{replay_blocks, AdmissionDecision, CalibrationReport};
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use boole_node::block_store::FileBlockStore;
 use boole_node::local_node::{serve_local_node, LocalNodeConfig};
-use boole_node::proof_bridge::{LeanProofBridge, ProofSubmissionTemplate};
+use boole_node::proof_bridge::{LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate};
 use boole_node::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use boole_node::runtime_smoke::{
     run_runtime_smoke, run_runtime_smoke_scenario_file, RuntimeSmokeInput,
@@ -92,6 +92,8 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
     let block_path = PathBuf::from(take_flag_value(&mut args, "--block-store")?);
     let verifier_hash = take_optional_flag_value(&mut args, "--verifier-hash")?
         .unwrap_or_else(|| "boole-submit-lean-v0".to_string());
+    let required_checker_artifact_hash =
+        take_optional_flag_value(&mut args, "--require-checker-artifact-hash")?;
     let timeout_ms = take_optional_flag_value(&mut args, "--timeout-ms")?
         .map(|value| value.parse::<u64>())
         .transpose()?
@@ -110,12 +112,20 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
     }
 
     let fixture = submit_lean_fixture(&fixture_path)?;
-    let bridge = LeanProofBridge::new(LeanRunner::new(
-        LeanRunnerConfig::new(verifier_hash)
-            .with_package_dir(checker_dir)
-            .with_timeout_ms(timeout_ms)
-            .with_memory_limit_mb(memory_limit_mb),
-    ));
+    let mut bridge_policy =
+        LeanProofBridgePolicy::new().require_verifier_hash(verifier_hash.clone());
+    if let Some(checker_artifact_hash) = required_checker_artifact_hash {
+        bridge_policy = bridge_policy.allow_checker_artifact_hash(checker_artifact_hash);
+    }
+    let bridge = LeanProofBridge::new_with_policy(
+        LeanRunner::new(
+            LeanRunnerConfig::new(verifier_hash)
+                .with_package_dir(checker_dir)
+                .with_timeout_ms(timeout_ms)
+                .with_memory_limit_mb(memory_limit_mb),
+        ),
+        bridge_policy,
+    );
     let template = ProofSubmissionTemplate {
         c: fixture.constants.c.clone(),
         pk: fixture.constants.pk.clone(),
