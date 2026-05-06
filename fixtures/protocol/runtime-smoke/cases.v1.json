@@ -31,6 +31,13 @@
       "expectedReplayHeight": 3
     },
     {
+      "name": "runtime-smoke-retarget-v0",
+      "mode": "scenario",
+      "input": "fixtures/protocol/runtime-smoke/retarget.v1.json",
+      "expectedStoreSize": 3,
+      "expectedReplayHeight": 3
+    },
+    {
       "name": "runtime-smoke-multiminer",
       "mode": "scenario",
       "input": "fixtures/protocol/runtime-smoke/multiminer.v1.json",

@@ -149,9 +149,9 @@ genesisHash: zero genesis head
 configHash / scenarioHash / runtimeSmokeCasesHash
 replayFromGenesis: true
 replayPassed: true
-difficulty: static-calibrated block target evidence
+difficulty: static-calibrated or epoch-retarget-v0 block target evidence
 invalidAccepted: 0
 chainDivergence: 0
 ```
 
-The genesis-reset run is a controlled benchmark: every run starts from the same empty/zero head and must replay deterministically. It is not a claim of production public-network retargeting or Bitcoin-style live difficulty adjustment. The current difficulty evidence is static-calibrated: blocks record `difficultyEpoch`, `tBlock`, `tShare`, and `difficultyWeight`; replay validates the recorded weight but does not retarget yet.
+The genesis-reset run is a controlled benchmark: every run starts from the same empty/zero head and must replay deterministically. It is not a claim of Bitcoin-style cumulative-work fork choice or public-network difficulty governance. Current difficulty evidence records `difficultyEpoch`, `tBlock`, `tShare`, and `difficultyWeight` for every produced block. Static runs keep one calibrated target; retarget-v0 runs derive epoch targets from prior block timing, record the resulting epoch/target in block evidence, and validate that evidence during replay/store recovery.

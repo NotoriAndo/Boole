@@ -1,7 +1,8 @@
 use crate::block_store::FileBlockStore;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use boole_core::{
-    replay_blocks, ticket, AdmissionDecision, CalibrationReport, Hex32, PersistedBlock,
+    replay_blocks, ticket, AdmissionDecision, CalibrationReport, DifficultyRetargetPolicy, Hex32,
+    PersistedBlock,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -21,6 +22,7 @@ pub struct LocalNodeConfig {
 #[serde(rename_all = "camelCase")]
 struct LocalNodeScenarioConfig {
     cfg: CalibrationReport,
+    difficulty_retarget: Option<DifficultyRetargetPolicy>,
     genesis_c: String,
 }
 
@@ -57,8 +59,14 @@ impl LocalNodeState {
     fn from_config(config: LocalNodeConfig) -> anyhow::Result<Self> {
         let raw = std::fs::read_to_string(&config.scenario_path)?;
         let scenario: LocalNodeScenarioConfig = serde_json::from_str(&raw)?;
-        let runtime_config = RuntimeConfig::from_calibration_report(scenario.cfg.clone(), 60_000)
-            .map_err(|err| anyhow::anyhow!(err))?;
+        let mut runtime_config =
+            RuntimeConfig::from_calibration_report(scenario.cfg.clone(), 60_000)
+                .map_err(|err| anyhow::anyhow!(err))?;
+        if let Some(policy) = scenario.difficulty_retarget.clone() {
+            runtime_config = runtime_config
+                .with_difficulty_retarget(policy)
+                .map_err(|err| anyhow::anyhow!(err))?;
+        }
         let recovered = FileBlockStore::recover(&config.block_path)?;
         let mut runtime = if recovered.size() == 0 {
             let mut runtime = RuntimeAdmissionState::new(runtime_config);

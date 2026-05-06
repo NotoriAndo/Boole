@@ -69,7 +69,8 @@ benchmark=proof-to-block-genesis-preflight
 genesisMode=reset
 genesisHash=000...000
 configHash/scenarioHash/runtimeSmokeCasesHash
-difficulty.mode=static-calibrated
+difficulty.mode=epoch-retarget-v0 when the tracked retarget smoke case is present; otherwise static-calibrated
+difficulty.retarget=enabled when epoch boundaries are observed
 difficulty.tBlock / difficulty.tShare / difficulty.difficultyWeight
 replayFromGenesis=true
 replayPassed=true
@@ -84,8 +85,8 @@ For model rows, select attempts/trials with:
 ./scripts/boole-preflight-wizard.py --preset everything --genesis-benchmark --attempts-per-model 50 --yes
 ```
 
-This is a controlled genesis-reset benchmark, not a public-network difficulty-retarget benchmark.
-Each produced block records static calibrated difficulty evidence (`difficultyEpoch`, `tBlock`, `tShare`, `difficultyWeight`), and replay/block-store recovery validates the recorded difficulty weight.
+This is a controlled genesis-reset benchmark, not a public-network cumulative-work/fork-choice benchmark.
+Each produced block records difficulty evidence (`difficultyEpoch`, `tBlock`, `tShare`, `difficultyWeight`). Static runs keep one calibrated target; retarget-v0 runs derive epoch targets from prior block timing, record the resulting epoch/target per block, and replay/block-store recovery validates the recorded difficulty evidence.
 
 ## Required checks
 

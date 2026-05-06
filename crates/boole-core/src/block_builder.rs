@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::{difficulty_weight, min_share_score, CalibrationPolicy};
+use crate::{difficulty_weight, min_share_score, parse_biguint_hex, CalibrationPolicy};
 use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
@@ -29,17 +29,26 @@ pub struct BlockBuilderConfig {
 
 impl BlockBuilderConfig {
     pub fn from_policy(policy: &CalibrationPolicy) -> anyhow::Result<Self> {
+        Self::from_policy_with_t_block(policy, format!("0x{:064x}", policy.thresholds.t_block), 0)
+    }
+
+    pub fn from_policy_with_t_block(
+        policy: &CalibrationPolicy,
+        t_block: String,
+        difficulty_epoch: u64,
+    ) -> anyhow::Result<Self> {
         let multiplier_nanos = (policy.min_share_score_multiplier * 1_000_000_000.0).round() as u64;
         let min_share_score = min_share_score(&policy.thresholds.t_share, multiplier_nanos)?
             .to_u128()
             .ok_or_else(|| anyhow::anyhow!("min share score exceeds u128"))?;
+        let t_block_value = parse_biguint_hex(&t_block)?;
         Ok(Self {
-            t_block: format!("0x{:064x}", policy.thresholds.t_block),
+            t_block,
             t_share: format!("0x{:064x}", policy.thresholds.t_share),
             min_share_score,
             k_max: policy.k_max,
-            difficulty_epoch: 0,
-            difficulty_weight: difficulty_weight(&policy.thresholds.t_block)?.to_string(),
+            difficulty_epoch,
+            difficulty_weight: difficulty_weight(&t_block_value)?.to_string(),
         })
     }
 }

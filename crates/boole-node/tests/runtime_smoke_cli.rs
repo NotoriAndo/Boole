@@ -32,8 +32,8 @@ fn proof_to_block_benchmark_script_reports_smoke_metrics() {
     assert_eq!(parsed["ok"], true);
     assert_eq!(parsed["benchmark"], "proof-to-block");
     assert_eq!(parsed["version"], 0);
-    assert_eq!(parsed["summary"]["casesPassed"], 5);
-    assert_eq!(parsed["summary"]["blocksProduced"], 13);
+    assert_eq!(parsed["summary"]["casesPassed"], 6);
+    assert_eq!(parsed["summary"]["blocksProduced"], 16);
     assert_eq!(parsed["summary"]["replayFailures"], 0);
     assert_eq!(parsed["safety"]["invalidAccepted"], 0);
     assert_eq!(parsed["safety"]["chainDivergence"], 0);
@@ -272,6 +272,88 @@ fn node_runtime_smoke_accepts_multistep_scenario_json_input() {
 }
 
 #[test]
+fn node_runtime_smoke_applies_epoch_retarget_policy() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    let constants = fixture.get("constants").expect("constants");
+    let mut cfg = fixture.get("cfg").expect("cfg").clone();
+    cfg["T_share"] = json!("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    cfg["T_block"] = json!("0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe");
+    cfg["MinShareScoreMultiplier"] = json!(1.0);
+    cfg["K_max"] = json!(4);
+    cfg["perIpRateLimitPer60s"] = json!(1);
+
+    let genesis_c = "0000000000000000000000000000000000000000000000000000000000000000";
+    let body = json!({
+        "c": genesis_c,
+        "pk": constants["pk"],
+        "n": constants["n"],
+        "j": constants["j"],
+        "nonceS": constants["nonceS"],
+        "bytes": constants["validBytesHex"]
+    });
+    let scenario = json!({
+        "cfg": cfg,
+        "difficultyRetarget": {
+            "targetBlockMs": 61000,
+            "retargetEveryBlocks": 2,
+            "maxAdjustmentFactor": 4
+        },
+        "genesisC": genesis_c,
+        "steps": [
+            {"body": body, "ip": "203.0.113.55", "canonTag": 0, "ts": 1800000000123u64},
+            {"body": body, "cFromRuntimeHead": true, "ip": "198.51.100.88", "canonTag": 0, "ts": 1800000061123u64},
+            {"body": body, "cFromRuntimeHead": true, "ip": "192.0.2.44", "canonTag": 0, "ts": 1800000122123u64}
+        ]
+    });
+
+    let dir = std::env::temp_dir().join(format!(
+        "boole-node-runtime-smoke-retarget-cli-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let scenario_path = dir.join("runtime-smoke-retarget-scenario.json");
+    let block_path = dir.join("blockstore.ndjson");
+    std::fs::write(
+        &scenario_path,
+        serde_json::to_vec(&scenario).expect("scenario json"),
+    )
+    .expect("write scenario");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
+        .args([
+            "runtime-smoke",
+            "--scenario",
+            scenario_path.to_str().expect("utf8 scenario path"),
+            "--block-store",
+            block_path.to_str().expect("utf8 temp path"),
+        ])
+        .output()
+        .expect("run boole-node runtime-smoke retarget scenario");
+    assert!(
+        output.status.success(),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    let parsed: RuntimeSmokeOutput = serde_json::from_slice(&output.stdout).expect("json output");
+    assert_eq!(parsed.store_size, 3);
+    assert_eq!(parsed.replay_height, 3);
+    assert_eq!(parsed.blocks.len(), 3);
+    assert_eq!(parsed.blocks[0].difficulty_epoch, 0);
+    assert_eq!(parsed.blocks[1].difficulty_epoch, 0);
+    assert_eq!(parsed.blocks[2].difficulty_epoch, 1);
+    assert_eq!(parsed.blocks[0].t_block, parsed.blocks[1].t_block);
+    assert_eq!(parsed.blocks[1].t_block, parsed.blocks[2].t_block);
+    assert!(parsed.replay_matches_runtime);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn runtime_smoke_all_script_runs_multiple_checked_cases() {
     let repo_root = env!("CARGO_MANIFEST_DIR").trim_end_matches("/crates/boole-node");
     let script_path = format!("{repo_root}/scripts/runtime-smoke-all.sh");
@@ -299,7 +381,7 @@ fn runtime_smoke_all_script_runs_multiple_checked_cases() {
     let parsed: Value = serde_json::from_slice(&output.stdout).expect("json output");
     assert_eq!(parsed["ok"], true);
     let cases = parsed["cases"].as_array().expect("cases array");
-    assert_eq!(cases.len(), 5);
+    assert_eq!(cases.len(), 6);
     assert_eq!(cases[0]["name"], "runtime-smoke-multistep");
     assert_eq!(cases[0]["mode"], "scenario");
     assert_eq!(cases[0]["storeSize"], 2);
@@ -312,6 +394,12 @@ fn runtime_smoke_all_script_runs_multiple_checked_cases() {
     assert_eq!(cases[1]["replayHeight"], 1);
     assert_eq!(cases[1]["latestMatchesRuntime"], true);
     assert_eq!(cases[1]["replayMatchesRuntime"], true);
+    assert_eq!(cases[4]["name"], "runtime-smoke-retarget-v0");
+    assert_eq!(cases[4]["storeSize"], 3);
+    assert_eq!(cases[4]["replayHeight"], 3);
+    assert_eq!(cases[4]["blocks"][0]["difficultyEpoch"], 0);
+    assert_eq!(cases[4]["blocks"][1]["difficultyEpoch"], 0);
+    assert_eq!(cases[4]["blocks"][2]["difficultyEpoch"], 1);
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -350,7 +438,7 @@ fn runtime_smoke_all_script_uses_tracked_case_manifest() {
         "fixtures/protocol/runtime-smoke/cases.v1.json"
     );
     let cases = parsed["cases"].as_array().expect("cases array");
-    assert_eq!(cases.len(), 5);
+    assert_eq!(cases.len(), 6);
     assert!(cases.iter().all(|case| case["input"].as_str().is_some()));
     assert!(cases
         .iter()
@@ -472,8 +560,8 @@ fn proof_to_block_benchmark_includes_restart_nblock_and_multiminer_cases() {
 
     let parsed: Value = serde_json::from_slice(&output.stdout).expect("json output");
     assert_eq!(parsed["ok"], true);
-    assert_eq!(parsed["summary"]["casesPassed"], 5);
-    assert_eq!(parsed["summary"]["blocksProduced"], 13);
+    assert_eq!(parsed["summary"]["casesPassed"], 6);
+    assert_eq!(parsed["summary"]["blocksProduced"], 16);
     assert_eq!(parsed["summary"]["replayFailures"], 0);
     assert_eq!(parsed["safety"]["chainDivergence"], 0);
     let case_names = parsed["cases"]
@@ -484,6 +572,7 @@ fn proof_to_block_benchmark_includes_restart_nblock_and_multiminer_cases() {
         .collect::<Vec<_>>();
     assert!(case_names.contains(&"runtime-smoke-restart-replay"));
     assert!(case_names.contains(&"runtime-smoke-three-block"));
+    assert!(case_names.contains(&"runtime-smoke-retarget-v0"));
     assert!(case_names.contains(&"runtime-smoke-multiminer"));
 
     let multiminer = parsed["cases"]

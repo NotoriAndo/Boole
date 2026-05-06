@@ -1,9 +1,10 @@
 use crate::block_store::FileBlockStore;
 use boole_core::{
     admit_parsed_submission_typed, block_hash, build_block_selection, calibration_policy,
-    parse_submission_body, replay_blocks, share_score, AdmissionDecision, AdmissionParsedDeps,
-    BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy, CalibrationReport, CandidateShare,
-    Hex32, PersistedBlock, PoolShare, RateLimiter, SharePool,
+    expected_retarget_difficulty_for_height, parse_submission_body, replay_blocks, share_score,
+    AdmissionDecision, AdmissionParsedDeps, BlockBuilderConfig, BuildSelectionResult,
+    CalibrationPolicy, CalibrationReport, CandidateShare, DifficultyRetargetPolicy, Hex32,
+    PersistedBlock, PoolShare, RateLimiter, SharePool,
 };
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
@@ -13,6 +14,7 @@ use std::path::Path;
 pub struct RuntimeConfig {
     pub policy: CalibrationPolicy,
     pub admission_window_ms: i64,
+    pub difficulty_retarget: Option<DifficultyRetargetPolicy>,
 }
 
 impl RuntimeConfig {
@@ -23,7 +25,17 @@ impl RuntimeConfig {
         Ok(Self {
             policy: calibration_policy(&report)?,
             admission_window_ms,
+            difficulty_retarget: None,
         })
+    }
+
+    pub fn with_difficulty_retarget(
+        mut self,
+        policy: DifficultyRetargetPolicy,
+    ) -> Result<Self, String> {
+        policy.validate().map_err(|err| err.to_string())?;
+        self.difficulty_retarget = Some(policy);
+        Ok(self)
     }
 }
 
@@ -58,6 +70,13 @@ impl RuntimeAdmissionState {
         let recovered = FileBlockStore::recover(block_path)?;
         let replay = replay_blocks(recovered.blocks())?;
         let mut runtime = Self::new(config);
+        if let Some(policy) = &runtime.config.difficulty_retarget {
+            boole_core::validate_retargeted_difficulty(
+                recovered.blocks(),
+                &format!("0x{:064x}", runtime.config.policy.thresholds.t_block),
+                policy,
+            )?;
+        }
         runtime.set_current_c(replay.latest_c);
         Ok(runtime)
     }
@@ -131,18 +150,52 @@ impl RuntimeAdmissionState {
         )
     }
 
+    fn block_builder_config_for_height(
+        &self,
+        existing_blocks: &[PersistedBlock],
+    ) -> anyhow::Result<BlockBuilderConfig> {
+        let Some(policy) = &self.config.difficulty_retarget else {
+            return BlockBuilderConfig::from_policy(&self.config.policy);
+        };
+        let evidence = expected_retarget_difficulty_for_height(
+            existing_blocks,
+            &format!("0x{:064x}", self.config.policy.thresholds.t_block),
+            policy,
+        )?;
+        BlockBuilderConfig::from_policy_with_t_block(
+            &self.config.policy,
+            evidence.t_block,
+            evidence.difficulty_epoch,
+        )
+    }
+
     pub fn produce_block_for_current_c(
         &self,
         height: u64,
         ts: u64,
         accepted_canon_tags: &BTreeSet<u8>,
     ) -> anyhow::Result<PersistedBlock> {
+        let config = BlockBuilderConfig::from_policy(&self.config.policy)?;
+        self.produce_block_for_current_c_with_config(height, ts, accepted_canon_tags, &config)
+    }
+
+    fn produce_block_for_current_c_with_config(
+        &self,
+        height: u64,
+        ts: u64,
+        accepted_canon_tags: &BTreeSet<u8>,
+        config: &BlockBuilderConfig,
+    ) -> anyhow::Result<PersistedBlock> {
         let prev_c = self
             .current_c
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("current chain head is not set"))?;
-        let config = BlockBuilderConfig::from_policy(&self.config.policy)?;
-        let selection = self.build_block_selection_for_current_c(accepted_canon_tags)?;
+        let selection = build_block_selection(
+            prev_c,
+            &self.candidate_shares_for_current_c(),
+            config,
+            accepted_canon_tags,
+        )?;
         let BuildSelectionResult::Ok(selection) = selection else {
             anyhow::bail!("block selection did not produce a single proposer");
         };
@@ -177,9 +230,9 @@ impl RuntimeAdmissionState {
             min_share_score: config.min_share_score.to_string(),
             kmax_applied: selection.selected.len() as u64,
             difficulty_epoch: config.difficulty_epoch,
-            t_block: config.t_block,
-            t_share: config.t_share,
-            difficulty_weight: config.difficulty_weight,
+            t_block: config.t_block.clone(),
+            t_share: config.t_share.clone(),
+            difficulty_weight: config.difficulty_weight.clone(),
             dropped_below_min_score: selection.dropped_below_min_score as u64,
             dropped_kernel_reject: selection.dropped_kernel_reject as u64,
             truncated_by_kmax: selection.truncated_by_kmax as u64,
@@ -194,7 +247,18 @@ impl RuntimeAdmissionState {
         ts: u64,
         accepted_canon_tags: &BTreeSet<u8>,
     ) -> anyhow::Result<RuntimeCommittedBlock> {
-        let block = self.produce_block_for_current_c(height, ts, accepted_canon_tags)?;
+        let block_path = block_path.as_ref();
+        let recovered = FileBlockStore::recover(block_path)?;
+        if recovered.size() as u64 != height {
+            anyhow::bail!(
+                "commit height {} does not match recovered store size {}",
+                height,
+                recovered.size()
+            );
+        }
+        let config = self.block_builder_config_for_height(recovered.blocks())?;
+        let block =
+            self.produce_block_for_current_c_with_config(height, ts, accepted_canon_tags, &config)?;
         FileBlockStore::append(block_path, &block)?;
         let dropped_stale_shares = self.apply_produced_block(&block)?;
         Ok(RuntimeCommittedBlock {

@@ -1,6 +1,6 @@
 use crate::block_store::FileBlockStore;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
-use boole_core::{replay_blocks, AdmissionDecision, CalibrationReport};
+use boole_core::{replay_blocks, AdmissionDecision, CalibrationReport, DifficultyRetargetPolicy};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
@@ -78,6 +78,7 @@ pub struct RuntimeSmokeOutput {
 #[serde(rename_all = "camelCase")]
 struct RuntimeSmokeScenarioJson {
     cfg: CalibrationReport,
+    difficulty_retarget: Option<DifficultyRetargetPolicy>,
     genesis_c: String,
     body: Option<Map<String, Value>>,
     ip: Option<String>,
@@ -166,8 +167,13 @@ pub fn run_runtime_smoke_scenario_file(
 ) -> anyhow::Result<RuntimeSmokeOutput> {
     let raw = std::fs::read_to_string(scenario_path)?;
     let scenario: RuntimeSmokeScenarioJson = serde_json::from_str(&raw)?;
-    let config = RuntimeConfig::from_calibration_report(scenario.cfg, 60_000)
+    let mut config = RuntimeConfig::from_calibration_report(scenario.cfg, 60_000)
         .map_err(|err| anyhow::anyhow!(err))?;
+    if let Some(policy) = scenario.difficulty_retarget {
+        config = config
+            .with_difficulty_retarget(policy)
+            .map_err(|err| anyhow::anyhow!(err))?;
+    }
     if let Some(steps) = scenario.steps {
         return run_runtime_smoke_multi_scenario(RuntimeSmokeMultiScenario {
             config,

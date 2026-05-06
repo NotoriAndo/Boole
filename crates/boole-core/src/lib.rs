@@ -10,6 +10,7 @@ pub mod block_builder;
 pub mod bounty_ledger;
 pub mod bounty_registry;
 pub mod config;
+pub mod difficulty;
 pub mod family_manifest;
 pub mod hash;
 pub mod rate_limiter;
@@ -41,6 +42,10 @@ pub use bounty_registry::{
 pub use config::{
     calibration_policy, calibration_thresholds, hex_to_biguint, validate_calibration_report,
     CalibrationPolicy, CalibrationReport, CalibrationThresholds,
+};
+pub use difficulty::{
+    expected_retarget_difficulty_for_height, retarget_t_block, validate_retargeted_difficulty,
+    DifficultyEvidence, DifficultyRetargetPolicy,
 };
 pub use family_manifest::{parse_family_manifest, FamilyManifest, FamilyManifestParseResult};
 pub use hash::{

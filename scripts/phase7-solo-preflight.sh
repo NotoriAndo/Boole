@@ -253,9 +253,10 @@ def difficulty_summary_from_benchmark(benchmark):
         "difficultyWeight": sorted({block.get("difficultyWeight") for block in blocks if block.get("difficultyWeight")}),
         "difficultyEpoch": sorted({block.get("difficultyEpoch") for block in blocks if block.get("difficultyEpoch") is not None}),
     }
+    retarget_enabled = len(targets["difficultyEpoch"]) > 1 or len(targets["tBlock"]) > 1
     return {
-        "mode": "static-calibrated",
-        "retarget": "not-enabled",
+        "mode": "epoch-retarget-v0" if retarget_enabled else "static-calibrated",
+        "retarget": "enabled" if retarget_enabled else "not-enabled",
         "blockCount": len(blocks),
         "difficultyEpoch": first.get("difficultyEpoch"),
         "tBlock": first.get("tBlock"),
