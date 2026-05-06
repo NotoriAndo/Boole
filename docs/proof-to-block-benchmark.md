@@ -32,6 +32,39 @@ Provider/model leaderboard, for raw LLM backends such as mock transport and opti
 LEADERBOARD_MD=/tmp/boole-provider-model-leaderboard.md ./scripts/provider-model-benchmark.sh
 ```
 
+To select a broader model matrix for solo preflight, generate a spec first. The setup script supports frontier API rows, local OAuth CLI rows, and installed Ollama models without printing secret values:
+
+```bash
+# Safe list: prints credential presence, never values.
+./scripts/preflight-model-benchmark-setup.py --preset all --list
+
+# Generate all known frontier API + OAuth + installed Ollama rows.
+./scripts/preflight-model-benchmark-setup.py --preset all --output /tmp/boole-model-spec.json
+
+# Generate only Ollama rows, auto-detected from `ollama list`.
+./scripts/preflight-model-benchmark-setup.py --preset ollama --output /tmp/boole-ollama-spec.json
+
+# Generate one explicit Ollama model row.
+./scripts/preflight-model-benchmark-setup.py --preset ollama --ollama-model gemma4:26b --output /tmp/boole-gemma-spec.json
+```
+
+Run a generated spec:
+
+```bash
+PROVIDER_MODEL_BENCHMARK_SPEC="$(python3 -c 'import json; print(json.dumps(json.load(open("/tmp/boole-model-spec.json")), separators=(",",":")))')" \
+  LEADERBOARD_MD=/tmp/boole-provider-model-leaderboard.md \
+  ./scripts/provider-model-benchmark.sh
+```
+
+Or let the preflight runner collect it into the evidence bundle:
+
+```bash
+./scripts/phase7-solo-preflight.sh --run-model-benchmark --model-preset all
+./scripts/phase7-solo-preflight.sh --run-model-benchmark --model-preset ollama --ollama-model gemma4:26b
+```
+
+The generated frontier rows currently cover Anthropic API, OpenAI API, Google/Gemini API, xAI/Grok via OpenAI-compatible API, and Claude CLI OAuth. Missing API env vars become `SKIP`; selected live rows with present credentials may fail if the model does not produce a verifier-accepted proof.
+
 The deterministic benchmark wraps:
 
 ```bash

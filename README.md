@@ -140,7 +140,23 @@ LEADERBOARD_MD=/tmp/boole-agent-runtime-leaderboard.md ./scripts/agent-runtime-b
 LEADERBOARD_MD=/tmp/boole-provider-model-leaderboard.md ./scripts/provider-model-benchmark.sh
 ```
 
-Agent-runtime output is treated as an untrusted candidate proof; deterministic verifier/canonical bytes/share hash/block replay decide acceptance. Optional live provider rows are gated by env vars so missing daemons or credentials do not create false CI failures. See [`docs/proof-to-block-benchmark.md`](docs/proof-to-block-benchmark.md).
+Agent-runtime output is treated as an untrusted candidate proof; deterministic verifier/canonical bytes/share hash/block replay decide acceptance. Optional live provider rows are gated by env vars so missing daemons or credentials do not create false CI failures. To generate a larger preflight model matrix from frontier API keys, local OAuth CLIs, and installed Ollama models:
+
+```bash
+./scripts/preflight-model-benchmark-setup.py --preset all --list
+./scripts/preflight-model-benchmark-setup.py --preset all --output /tmp/boole-model-spec.json
+PROVIDER_MODEL_BENCHMARK_SPEC="$(python3 -c 'import json; print(json.dumps(json.load(open("/tmp/boole-model-spec.json")), separators=(",",":")))')" \
+  LEADERBOARD_MD=/tmp/boole-provider-model-leaderboard.md \
+  ./scripts/provider-model-benchmark.sh
+```
+
+For preflight evidence collection:
+
+```bash
+./scripts/phase7-solo-preflight.sh --run-model-benchmark --model-preset all
+```
+
+See [`docs/proof-to-block-benchmark.md`](docs/proof-to-block-benchmark.md).
 
 ## Agent slash-command mining foundation
 

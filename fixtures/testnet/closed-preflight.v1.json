@@ -24,7 +24,8 @@
     "agent-runtime-benchmark"
   ],
   "optionalChecks": [
-    "boole-agent-mine-hermes-real"
+    "boole-agent-mine-hermes-real",
+    "provider-model-live-benchmark"
   ],
   "safetyInvariants": {
     "invalidAccepted": 0,

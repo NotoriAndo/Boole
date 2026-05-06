@@ -7,10 +7,13 @@ cd "$ROOT"
 CONFIG="${PREFLIGHT_CONFIG:-fixtures/testnet/closed-preflight.v1.json}"
 EVIDENCE_DIR="${PREFLIGHT_EVIDENCE_DIR:-}"
 RUN_HERMES_REAL="${RUN_HERMES_REAL_PREFLIGHT:-0}"
+RUN_MODEL_BENCHMARK="${RUN_MODEL_BENCHMARK_PREFLIGHT:-0}"
+MODEL_BENCHMARK_PRESET="${MODEL_BENCHMARK_PRESET:-all}"
+MODEL_BENCHMARK_ARGS=()
 
 usage() {
   cat <<'EOF'
-Usage: phase7-solo-preflight.sh [--config PATH] [--evidence-dir DIR] [--run-hermes-real]
+Usage: phase7-solo-preflight.sh [--config PATH] [--evidence-dir DIR] [--run-hermes-real] [--run-model-benchmark] [--model-preset mock|frontier|oauth|ollama|all] [--model-include TERM] [--ollama-model MODEL]
 
 Runs the local Phase 7.0 solo preflight evidence gate and writes captured JSON,
 stderr, and git metadata into an evidence directory. The summary JSON is printed
@@ -31,6 +34,22 @@ while [[ $# -gt 0 ]]; do
     --run-hermes-real)
       RUN_HERMES_REAL=1
       shift
+      ;;
+    --run-model-benchmark)
+      RUN_MODEL_BENCHMARK=1
+      shift
+      ;;
+    --model-preset)
+      MODEL_BENCHMARK_PRESET="${2:?missing --model-preset value}"
+      shift 2
+      ;;
+    --model-include)
+      MODEL_BENCHMARK_ARGS+=(--include "${2:?missing --model-include value}")
+      shift 2
+      ;;
+    --ollama-model)
+      MODEL_BENCHMARK_ARGS+=(--ollama-model "${2:?missing --ollama-model value}")
+      shift 2
       ;;
     -h|--help)
       usage
@@ -106,7 +125,15 @@ if [[ "$RUN_HERMES_REAL" == "1" ]]; then
   TRIALS="${HERMES_REAL_PREFLIGHT_TRIALS:-1}" run_json_check boole-agent-mine-hermes-real ./scripts/boole-agent-mine.sh --runtime hermes --verify real
 fi
 
-python3 - "$EVIDENCE_DIR" "$CONFIG" "$RUN_HERMES_REAL" <<'PY'
+if [[ "$RUN_MODEL_BENCHMARK" == "1" ]]; then
+  run_json_check provider-model-live-benchmark ./scripts/preflight-model-benchmark.sh \
+    --preset "$MODEL_BENCHMARK_PRESET" \
+    ${MODEL_BENCHMARK_ARGS[@]+"${MODEL_BENCHMARK_ARGS[@]}"} \
+    --output-spec "$EVIDENCE_DIR/provider-model-live-spec.json" \
+    --leaderboard-md "$EVIDENCE_DIR/provider-model-live-leaderboard.md"
+fi
+
+python3 - "$EVIDENCE_DIR" "$CONFIG" "$RUN_HERMES_REAL" "$RUN_MODEL_BENCHMARK" <<'PY'
 import json
 import pathlib
 import sys
@@ -114,6 +141,7 @@ import sys
 evidence_dir = pathlib.Path(sys.argv[1])
 config_path = sys.argv[2]
 run_hermes_real = sys.argv[3] == "1"
+run_model_benchmark = sys.argv[4] == "1"
 
 def load(name):
     return json.loads((evidence_dir / f"{name}.json").read_text())
@@ -180,6 +208,25 @@ if run_hermes_real:
         "aggregate": real.get("aggregate"),
         "height": real.get("status", {}).get("height"),
         "replayMatchesRuntime": real.get("status", {}).get("replayMatchesRuntime"),
+    })
+
+if run_model_benchmark:
+    model_bench = load("provider-model-live-benchmark")
+    checks.append({
+        "name": "provider-model-live-benchmark",
+        "ok": model_bench.get("ok") is True,
+        "leaderboardMarkdown": model_bench.get("leaderboardMarkdown"),
+        "rows": [
+            {
+                "name": row.get("name"),
+                "status": row.get("status"),
+                "ok": row.get("ok"),
+                "skipped": row.get("skipped"),
+                "score": row.get("score"),
+                "metadata": row.get("metadata"),
+            }
+            for row in model_bench.get("rows", [])
+        ],
     })
 
 def check_ok(check):

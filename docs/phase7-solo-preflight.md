@@ -52,6 +52,26 @@ or:
 
 This optional row is useful evidence, but it is not a deterministic default gate because live agent/model quality and runtime availability can vary by machine.
 
+## Optional model matrix benchmark
+
+You can also collect model-by-model provider evidence during preflight:
+
+```bash
+./scripts/preflight-model-benchmark-setup.py --preset all --list
+./scripts/phase7-solo-preflight.sh --run-model-benchmark --model-preset all
+```
+
+Useful narrower selections:
+
+```bash
+./scripts/phase7-solo-preflight.sh --run-model-benchmark --model-preset frontier
+./scripts/phase7-solo-preflight.sh --run-model-benchmark --model-preset oauth
+./scripts/phase7-solo-preflight.sh --run-model-benchmark --model-preset ollama
+./scripts/phase7-solo-preflight.sh --run-model-benchmark --model-preset ollama --ollama-model gemma4:26b
+```
+
+The setup script supports Anthropic/OpenAI/Google/xAI API rows, Claude CLI OAuth, and all installed Ollama models. It records whether credentials are present but never prints credential values. Missing API envs become `SKIP`; selected live rows may fail if the model cannot produce a verifier-accepted proof.
+
 ## Config
 
 The tracked local preflight config is:

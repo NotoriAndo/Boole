@@ -61,6 +61,7 @@ def run_row(row: dict[str, Any], timeout_s: int) -> dict[str, Any]:
         return {
             "name": name,
             "kind": row.get("kind"),
+            "metadata": row.get("metadata"),
             "ok": True,
             "skipped": True,
             "status": "SKIP",
@@ -101,6 +102,7 @@ def run_row(row: dict[str, Any], timeout_s: int) -> dict[str, Any]:
     return {
         "name": name,
         "kind": row.get("kind"),
+        "metadata": row.get("metadata"),
         "ok": row_ok,
         "skipped": skipped,
         "status": "SKIP" if skipped else ("PASS" if row_ok else "FAIL"),
