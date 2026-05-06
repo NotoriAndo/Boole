@@ -42,6 +42,7 @@ run_capture_json() {
 
 run_logged cargo-fmt cargo fmt --all --check
 run_logged cargo-clippy cargo clippy --workspace --all-targets -- -D warnings
+run_logged cargo-test cargo test --workspace --all-targets
 run_logged rust-parity ./scripts/check-rust-parity.sh
 
 SMOKE_JSON="$TMP_DIR/runtime-smoke-all.json"
@@ -74,6 +75,7 @@ safety = benchmark.get("safety", {})
 checks = [
     {"name": "cargo-fmt", "ok": True},
     {"name": "cargo-clippy", "ok": True},
+    {"name": "cargo-test", "ok": True},
     {"name": "rust-parity", "ok": True},
     {
         "name": "runtime-smoke-all",
