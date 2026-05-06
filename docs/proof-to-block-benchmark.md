@@ -84,9 +84,9 @@ Expected v0 summary:
   "benchmark": "proof-to-block",
   "version": 0,
   "summary": {
-    "casesPassed": 5,
-    "caseCount": 5,
-    "blocksProduced": 13,
+    "casesPassed": 7,
+    "caseCount": 7,
+    "blocksProduced": 17,
     "replayFailures": 0
   },
   "safety": {
@@ -111,7 +111,9 @@ They cover:
 - `admission-fixture-compat`: the one-block admission fixture adapter path.
 - `runtime-smoke-restart-replay`: a three-block scenario that restarts the runtime from recovered store before continuing.
 - `runtime-smoke-three-block`: a deterministic three-block mini-chain.
+- `runtime-smoke-retarget-v0`: a deterministic retarget-v0 evidence case for controlled preflight runs.
 - `runtime-smoke-multiminer`: a deterministic four-block local multi-miner scenario with three distinct proposer keys.
+- `lean-submit-proof-to-block`: a deterministic Lean-backed `boole-node submit-lean` case that checks a real Lean proof, admits the canonical proof package, produces one block, and replays from genesis with `invalidAccepted == 0`.
 
 ## Why this exists before model benchmarking
 

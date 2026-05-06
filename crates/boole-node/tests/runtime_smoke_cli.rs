@@ -32,8 +32,8 @@ fn proof_to_block_benchmark_script_reports_smoke_metrics() {
     assert_eq!(parsed["ok"], true);
     assert_eq!(parsed["benchmark"], "proof-to-block");
     assert_eq!(parsed["version"], 0);
-    assert_eq!(parsed["summary"]["casesPassed"], 6);
-    assert_eq!(parsed["summary"]["blocksProduced"], 16);
+    assert_eq!(parsed["summary"]["casesPassed"], 7);
+    assert_eq!(parsed["summary"]["blocksProduced"], 17);
     assert_eq!(parsed["summary"]["replayFailures"], 0);
     assert_eq!(parsed["safety"]["invalidAccepted"], 0);
     assert_eq!(parsed["safety"]["chainDivergence"], 0);
@@ -560,8 +560,8 @@ fn proof_to_block_benchmark_includes_restart_nblock_and_multiminer_cases() {
 
     let parsed: Value = serde_json::from_slice(&output.stdout).expect("json output");
     assert_eq!(parsed["ok"], true);
-    assert_eq!(parsed["summary"]["casesPassed"], 6);
-    assert_eq!(parsed["summary"]["blocksProduced"], 16);
+    assert_eq!(parsed["summary"]["casesPassed"], 7);
+    assert_eq!(parsed["summary"]["blocksProduced"], 17);
     assert_eq!(parsed["summary"]["replayFailures"], 0);
     assert_eq!(parsed["safety"]["chainDivergence"], 0);
     let case_names = parsed["cases"]
@@ -574,6 +574,21 @@ fn proof_to_block_benchmark_includes_restart_nblock_and_multiminer_cases() {
     assert!(case_names.contains(&"runtime-smoke-three-block"));
     assert!(case_names.contains(&"runtime-smoke-retarget-v0"));
     assert!(case_names.contains(&"runtime-smoke-multiminer"));
+    assert!(case_names.contains(&"lean-submit-proof-to-block"));
+
+    let lean_case = parsed["cases"]
+        .as_array()
+        .expect("cases array")
+        .iter()
+        .find(|case| case["name"] == "lean-submit-proof-to-block")
+        .expect("Lean-backed submit-lean benchmark case");
+    assert_eq!(lean_case["mode"], "submit-lean");
+    assert_eq!(lean_case["ok"], true);
+    assert_eq!(lean_case["accepted"], true);
+    assert_eq!(lean_case["shareAccepted"], true);
+    assert_eq!(lean_case["blockProduced"], true);
+    assert_eq!(lean_case["replayMatchesRuntime"], true);
+    assert_eq!(lean_case["invalidAccepted"], 0);
 
     let multiminer = parsed["cases"]
         .as_array()
