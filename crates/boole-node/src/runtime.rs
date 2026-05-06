@@ -256,15 +256,13 @@ impl RuntimeAdmissionState {
                 recovered.size()
             );
         }
-        let config = self.block_builder_config_for_height(recovered.blocks())?;
-        let block =
-            self.produce_block_for_current_c_with_config(height, ts, accepted_canon_tags, &config)?;
-        FileBlockStore::append(block_path, &block)?;
-        let dropped_stale_shares = self.apply_produced_block(&block)?;
-        Ok(RuntimeCommittedBlock {
-            block,
-            dropped_stale_shares,
-        })
+        self.commit_with_recovered(
+            block_path,
+            recovered.blocks(),
+            height,
+            ts,
+            accepted_canon_tags,
+        )
     }
 
     pub fn commit_next_block_for_current_c(
@@ -274,8 +272,34 @@ impl RuntimeAdmissionState {
         accepted_canon_tags: &BTreeSet<u8>,
     ) -> anyhow::Result<RuntimeCommittedBlock> {
         let block_path = block_path.as_ref();
-        let height = FileBlockStore::recover(block_path)?.size() as u64;
-        self.commit_block_for_current_c(block_path, height, ts, accepted_canon_tags)
+        let recovered = FileBlockStore::recover(block_path)?;
+        let height = recovered.size() as u64;
+        self.commit_with_recovered(
+            block_path,
+            recovered.blocks(),
+            height,
+            ts,
+            accepted_canon_tags,
+        )
+    }
+
+    fn commit_with_recovered(
+        &mut self,
+        block_path: &Path,
+        existing_blocks: &[PersistedBlock],
+        height: u64,
+        ts: u64,
+        accepted_canon_tags: &BTreeSet<u8>,
+    ) -> anyhow::Result<RuntimeCommittedBlock> {
+        let config = self.block_builder_config_for_height(existing_blocks)?;
+        let block =
+            self.produce_block_for_current_c_with_config(height, ts, accepted_canon_tags, &config)?;
+        FileBlockStore::append(block_path, &block)?;
+        let dropped_stale_shares = self.apply_produced_block(&block)?;
+        Ok(RuntimeCommittedBlock {
+            block,
+            dropped_stale_shares,
+        })
     }
 
     pub fn observe_ticket_from_body(&mut self, body: &Map<String, Value>) -> Result<bool, String> {
@@ -314,6 +338,13 @@ impl RuntimeAdmissionState {
             submission: &submission,
         });
         if let AdmissionDecision::Accepted { share_hash } = &decision {
+            // Defence-in-depth: SharePool already enforces global_share_cap, but
+            // the candidates Vec is a separate collection. If anything ever
+            // makes it past the pool while the cap is full (e.g. policy bug,
+            // future code path), do not let this Vec grow unbounded.
+            if self.candidates.len() >= self.config.policy.global_share_cap {
+                return decision;
+            }
             self.candidates.push(CandidateShare {
                 label: "runtime-admission".to_string(),
                 pk: submission.pk_hex,

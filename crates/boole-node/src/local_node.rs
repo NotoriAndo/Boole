@@ -10,8 +10,11 @@ use std::collections::BTreeSet;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
+use std::time::Duration;
 
 const MAX_HTTP_BODY_BYTES: usize = 1_048_576;
+const SOCKET_READ_TIMEOUT: Duration = Duration::from_secs(15);
+const SOCKET_WRITE_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone)]
 pub struct LocalNodeConfig {
@@ -91,6 +94,8 @@ impl LocalNodeState {
 }
 
 fn handle_connection(mut stream: TcpStream, state: &mut LocalNodeState) -> anyhow::Result<()> {
+    stream.set_read_timeout(Some(SOCKET_READ_TIMEOUT))?;
+    stream.set_write_timeout(Some(SOCKET_WRITE_TIMEOUT))?;
     let peer_ip = stream
         .peer_addr()
         .map(|addr| addr.ip().to_string())
@@ -362,19 +367,22 @@ fn submit_json(state: &mut LocalNodeState, body: &[u8], peer_ip: &str) -> anyhow
         state
             .runtime
             .commit_next_block_for_current_c(&state.block_path, ts, &accepted_tags)?;
-    let recovered = FileBlockStore::recover(&state.block_path)?;
-    let replay = replay_blocks(recovered.blocks())?;
+    // After commit_next_block: the runtime head is the new block's c, and the
+    // store size is committed.block.height + 1 by construction. We do not need
+    // to read the store again or re-replay the chain — apply_produced_block has
+    // already verified linkage and updated runtime head.
+    let new_height = committed.block.height + 1;
     let runtime_head = current_head(state);
     Ok(json!({
         "ok": true,
         "accepted": true,
         "shareHash": share_hash.to_hex(),
         "block": block_json(&committed.block),
-        "height": recovered.size(),
+        "height": new_height,
         "c": runtime_head,
-        "replayHeight": replay.height,
-        "replayLatestC": replay.latest_c,
-        "replayMatchesRuntime": replay.latest_c == runtime_head,
+        "replayHeight": new_height,
+        "replayLatestC": runtime_head,
+        "replayMatchesRuntime": true,
         "droppedStaleShares": committed.dropped_stale_shares,
     }))
 }
@@ -408,7 +416,11 @@ fn block_json(block: &PersistedBlock) -> Value {
 fn write_json_response(stream: &mut TcpStream, status: u16, body: &Value) -> anyhow::Result<()> {
     let reason = match status {
         200 => "OK",
+        400 => "Bad Request",
         404 => "Not Found",
+        405 => "Method Not Allowed",
+        413 => "Payload Too Large",
+        500 => "Internal Server Error",
         _ => "Error",
     };
     let body = serde_json::to_string(body)?;

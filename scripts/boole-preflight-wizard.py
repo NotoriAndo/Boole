@@ -96,6 +96,9 @@ def env_status() -> dict[str, Any]:
             "node": command_ok("node"),
             "npm": command_ok("npm"),
             "python3": command_ok("python3"),
+            "lean": command_ok("lean"),
+            "lake": command_ok("lake"),
+            "elan": command_ok("elan"),
             "hermes": command_ok("hermes"),
             "claude": command_ok("claude"),
             "codex": command_ok("codex"),
@@ -173,6 +176,8 @@ def build_plan(args: argparse.Namespace, preset_name: str) -> list[list[str]]:
         preflight.append("--genesis-benchmark")
     if args.attempts_per_model is not None:
         preflight += ["--attempts-per-model", str(args.attempts_per_model)]
+    if getattr(args, "skip_hardening_checks", False):
+        preflight.append("--skip-hardening-checks")
     if preset["run_hermes_real"] or args.run_hermes_real:
         preflight.append("--run-hermes-real")
     model_preset = args.model_preset or preset["model_preset"]
@@ -233,6 +238,7 @@ def main() -> None:
     parser.add_argument("--yes", action="store_true", help="Do not prompt before executing in interactive mode.")
     parser.add_argument("--evidence-dir", help="Evidence directory to pass to phase7-solo-preflight.sh.")
     parser.add_argument("--genesis-benchmark", action="store_true", help="Run a clean genesis-reset preflight benchmark and record reproducibility metadata.")
+    parser.add_argument("--skip-hardening-checks", action="store_true", help="Skip the S7.5 hardening regression gate inside phase7-solo-preflight.sh.")
     parser.add_argument("--attempts-per-model", type=positive_int, help="Attempts/trials per live provider model row in the optional model benchmark.")
     parser.add_argument("--install-claude", action="store_true", help="Install Claude Code command templates regardless of preset.")
     parser.add_argument("--install-codex", action="store_true", help="Install Codex prompt templates regardless of preset.")

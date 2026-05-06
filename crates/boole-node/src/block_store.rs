@@ -1,4 +1,4 @@
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 
@@ -55,13 +55,21 @@ impl FileBlockStore {
     }
 
     pub fn append(path: impl AsRef<Path>, block: &PersistedBlock) -> anyhow::Result<()> {
-        if let Some(parent) = path.as_ref().parent() {
+        let path = path.as_ref();
+        let is_new_file = !path.exists();
+        if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
         let mut file = OpenOptions::new().create(true).append(true).open(path)?;
         writeln!(file, "{}", serde_json::to_string(block)?)?;
         file.flush()?;
         file.sync_all()?;
+        if is_new_file {
+            // Fsync the parent directory so the new file's existence (and the
+            // directory entry) survive crash. A file's own fsync does not
+            // guarantee directory durability on most Unix filesystems.
+            fsync_parent_dir(path)?;
+        }
         Ok(())
     }
 
@@ -87,4 +95,26 @@ fn stable_jsonl_prefix_len(bytes: &[u8]) -> usize {
         .rposition(|byte| *byte == b'\n')
         .map(|index| index + 1)
         .unwrap_or(0)
+}
+
+#[cfg(unix)]
+fn fsync_parent_dir(path: &Path) -> anyhow::Result<()> {
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    // An empty parent (relative path with no slash) means the current dir.
+    let dir = if dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        dir
+    };
+    let dir_file = File::open(dir)?;
+    dir_file.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn fsync_parent_dir(_path: &Path) -> anyhow::Result<()> {
+    // On Windows, opening a directory as a File and calling sync_all is not
+    // supported the same way. Files created via WriteThrough+FlushFileBuffers
+    // already imply directory metadata flush in NTFS in most configurations.
+    Ok(())
 }

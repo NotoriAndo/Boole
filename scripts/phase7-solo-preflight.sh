@@ -12,10 +12,11 @@ MODEL_BENCHMARK_PRESET="${MODEL_BENCHMARK_PRESET:-all}"
 MODEL_BENCHMARK_ARGS=()
 GENESIS_BENCHMARK="${GENESIS_BENCHMARK_PREFLIGHT:-0}"
 ATTEMPTS_PER_MODEL="${ATTEMPTS_PER_MODEL:-}"
+SKIP_HARDENING_CHECKS="${SKIP_HARDENING_CHECKS:-0}"
 
 usage() {
   cat <<'EOF'
-Usage: phase7-solo-preflight.sh [--config PATH] [--evidence-dir DIR] [--run-hermes-real] [--run-model-benchmark] [--model-preset mock|frontier|oauth|ollama|all] [--model-include TERM] [--ollama-model MODEL] [--genesis-benchmark] [--attempts-per-model N]
+Usage: phase7-solo-preflight.sh [--config PATH] [--evidence-dir DIR] [--run-hermes-real] [--run-model-benchmark] [--model-preset mock|frontier|oauth|ollama|all] [--model-include TERM] [--ollama-model MODEL] [--genesis-benchmark] [--attempts-per-model N] [--skip-hardening-checks]
 
 Runs the local Phase 7.0 solo preflight evidence gate and writes captured JSON,
 stderr, and git metadata into an evidence directory. The summary JSON is printed
@@ -56,6 +57,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --genesis-benchmark)
       GENESIS_BENCHMARK=1
+      shift
+      ;;
+    --skip-hardening-checks)
+      SKIP_HARDENING_CHECKS=1
       shift
       ;;
     --attempts-per-model)
@@ -152,6 +157,40 @@ if data.get("ok") is not True:
 PY
 }
 
+run_text_check() {
+  local name="$1"
+  shift
+  local out="$EVIDENCE_DIR/${name}.stdout.txt"
+  local err="$EVIDENCE_DIR/${name}.stderr.txt"
+  printf 'phase7 preflight check %s: RUN\n' "$name" >&2
+  if "$@" >"$out" 2>"$err"; then
+    cat "$err" >&2
+    printf 'phase7 preflight check %s: PASS\n' "$name" >&2
+  else
+    local status=$?
+    printf 'phase7 preflight check %s: FAIL\n' "$name" >&2
+    cat "$err" >&2 || true
+    cat "$out" >&2 || true
+    return "$status"
+  fi
+}
+
+run_hardening_checks() {
+  run_text_check s7.5-hardening-biguint-score cargo test -p boole-core --test biguint_score -- --nocapture
+  run_text_check s7.5-hardening-block-store cargo test -p boole-node --test store_fixtures -- --nocapture
+  run_text_check s7.5-hardening-peer-ip cargo test -p boole-node --test local_node -- --nocapture
+  run_text_check s7.5-hardening-lean-bounds cargo test -p boole-lean-runner --test real_checker -- --nocapture
+  run_text_check s7.5-hardening-proof-bridge cargo test -p boole-node --test proof_package_bridge -- --nocapture
+  run_text_check s7.5-hardening-submit-lean-cli cargo test -p boole-node --test submit_lean_cli -- --nocapture
+  run_text_check s7.5-hardening-global-cap cargo test -p boole-node --test runtime_global_cap -- --nocapture
+}
+
+if [[ "$SKIP_HARDENING_CHECKS" == "1" ]]; then
+  printf 'phase7 preflight check s7.5-hardening: SKIP\n' >&2
+else
+  run_hardening_checks
+fi
+
 run_json_check runtime-smoke-all ./scripts/runtime-smoke-all.sh
 run_json_check proof-to-block-benchmark ./scripts/proof-to-block-benchmark.sh
 run_json_check local-mining-smoke ./scripts/local-mining-smoke.sh
@@ -180,7 +219,7 @@ if [[ "$RUN_MODEL_BENCHMARK" == "1" ]]; then
   fi
 fi
 
-python3 - "$EVIDENCE_DIR" "$CONFIG" "$RUN_HERMES_REAL" "$RUN_MODEL_BENCHMARK" "$GENESIS_BENCHMARK" "${ATTEMPTS_PER_MODEL:-}" <<'PY'
+python3 - "$EVIDENCE_DIR" "$CONFIG" "$RUN_HERMES_REAL" "$RUN_MODEL_BENCHMARK" "$GENESIS_BENCHMARK" "${ATTEMPTS_PER_MODEL:-}" "$SKIP_HARDENING_CHECKS" <<'PY'
 import json
 import pathlib
 import sys
@@ -191,6 +230,7 @@ run_hermes_real = sys.argv[3] == "1"
 run_model_benchmark = sys.argv[4] == "1"
 genesis_benchmark = sys.argv[5] == "1"
 attempts_per_model = int(sys.argv[6]) if sys.argv[6] else None
+skip_hardening_checks = sys.argv[7] == "1"
 
 def load(name):
     return json.loads((evidence_dir / f"{name}.json").read_text())
@@ -275,6 +315,20 @@ agent_bench = load("agent-runtime-benchmark")
 summary = benchmark.get("summary", {})
 safety = benchmark.get("safety", {})
 checks = [
+    {
+        "name": "s7.5-hardening",
+        "ok": True,
+        "skipped": skip_hardening_checks,
+        "regressions": [
+            "biguint_score",
+            "store_fixtures",
+            "local_node",
+            "real_checker",
+            "proof_package_bridge",
+            "submit_lean_cli",
+            "runtime_global_cap",
+        ],
+    },
     {
         "name": "runtime-smoke-all",
         "ok": runtime.get("ok") is True,
