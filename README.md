@@ -154,7 +154,14 @@ The shared `/boole mine` foundation is a thin wrapper around the existing `boole
 ./scripts/boole-agent-mine.sh --runtime codex --agent-command codex --agent-args '["exec"]'
 ```
 
-Claude Code, Codex, OpenCode, or Hermes slash commands should call this wrapper rather than reimplementing verifier/submit/replay logic. See [`docs/agent-slash-mining.md`](docs/agent-slash-mining.md).
+Claude Code, Codex, OpenCode, or Hermes slash commands should call this wrapper rather than reimplementing verifier/submit/replay logic. Install command templates with:
+
+```bash
+./scripts/install-agent-slash-commands.sh --profile claude --target-dir .claude/commands --force
+./scripts/install-agent-slash-commands.sh --profile codex --target-dir /tmp/boole-codex-prompts --force
+```
+
+See [`docs/agent-slash-mining.md`](docs/agent-slash-mining.md).
 
 ## Source plan
 

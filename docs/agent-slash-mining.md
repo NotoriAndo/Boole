@@ -89,6 +89,15 @@ A runtime-specific command can use explicit args:
   --agent-args '["-p"]'
 ```
 
+Install generated command templates with:
+
+```bash
+./scripts/install-agent-slash-commands.sh --profile claude --target-dir .claude/commands --force
+./scripts/install-agent-slash-commands.sh --profile codex --target-dir /tmp/boole-codex-prompts --force
+```
+
+The Claude template is written as a project/user command file under `boole/mine.md` and `boole/status.md`. The Codex template is written as prompt files because Codex CLI slash-command packaging varies by environment; it still calls the same shared wrapper and should be adapted by the local Codex plugin layer if a native slash-command directory is available.
+
 The expected user-facing result is the underlying smoke JSON plus stderr PASS/SKIP line. A successful run must include node `height >= 1` and `replayMatchesRuntime: true`; miner counters alone are not sufficient.
 
 ## Current support level
