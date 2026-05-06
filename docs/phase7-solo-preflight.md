@@ -30,10 +30,11 @@ Useful non-interactive modes:
 ./scripts/boole-preflight-wizard.py --doctor
 ./scripts/boole-preflight-wizard.py --list-models
 ./scripts/boole-preflight-wizard.py --preset safe --dry-run
+./scripts/boole-preflight-wizard.py --preset safe --genesis-benchmark --yes
 ./scripts/boole-preflight-wizard.py --preset agent-local --yes
 ./scripts/boole-preflight-wizard.py --preset local-models --yes
 ./scripts/boole-preflight-wizard.py --preset frontier --yes
-./scripts/boole-preflight-wizard.py --preset everything --yes
+./scripts/boole-preflight-wizard.py --preset everything --genesis-benchmark --attempts-per-model 50 --yes
 ```
 
 Presets:
@@ -45,6 +46,43 @@ Presets:
 - `everything`: agent-local plus frontier API/OAuth/Ollama rows.
 
 The wizard prints a plan before running it and summarizes the final evidence directory.
+
+## Genesis preflight benchmark
+
+Use `--genesis-benchmark` when the preflight run is intended to become controlled benchmark evidence:
+
+```bash
+./scripts/phase7-solo-preflight.sh --genesis-benchmark
+./scripts/boole-preflight-wizard.py --preset safe --genesis-benchmark --yes
+```
+
+In this mode the runner uses a clean/reset evidence directory under:
+
+```text
+artifacts/preflight-genesis/<UTC timestamp>/
+```
+
+If an explicit `--evidence-dir` is provided, it is automatically reset only when it is safely under `artifacts/` or `/tmp`. The summary includes a `genesisBenchmark` object and writes `genesis-benchmark.json` with:
+
+```text
+benchmark=proof-to-block-genesis-preflight
+genesisMode=reset
+genesisHash=000...000
+configHash/scenarioHash/runtimeSmokeCasesHash
+replayFromGenesis=true
+replayPassed=true
+invalidAccepted=0
+chainDivergence=0
+```
+
+For model rows, select attempts/trials with:
+
+```bash
+./scripts/phase7-solo-preflight.sh --genesis-benchmark --run-model-benchmark --model-preset all --attempts-per-model 50
+./scripts/boole-preflight-wizard.py --preset everything --genesis-benchmark --attempts-per-model 50 --yes
+```
+
+This is a controlled genesis-reset benchmark, not a public-network difficulty-retarget benchmark.
 
 ## Required checks
 

@@ -60,6 +60,7 @@ Or let the preflight runner collect it into the evidence bundle:
 
 ```bash
 ./scripts/phase7-solo-preflight.sh --run-model-benchmark --model-preset all
+./scripts/phase7-solo-preflight.sh --genesis-benchmark --run-model-benchmark --model-preset all --attempts-per-model 50
 ./scripts/phase7-solo-preflight.sh --run-model-benchmark --model-preset ollama --ollama-model gemma4:26b
 ```
 
@@ -129,3 +130,27 @@ The current benchmark stack now separates two dimensions:
 - **Provider/model benchmark**: raw model/provider backends such as mock transport and optional OpenAI-compatible/Ollama rows. Optional live rows should be gated by environment variables so missing local daemons/API credentials do not create false CI failures.
 
 Both leaderboard wrappers use `scripts/benchmark-runner.py`, emit machine-readable JSON, and can write a Markdown leaderboard via `LEADERBOARD_MD`. Rows are ranked by successful non-skipped run, blocks, verified shares, and lower elapsed time.
+
+## Genesis preflight benchmark
+
+For GitHub/VC-facing controlled evidence, run the full preflight from a clean genesis state:
+
+```bash
+./scripts/boole-preflight-wizard.py --preset safe --genesis-benchmark --yes
+./scripts/boole-preflight-wizard.py --preset everything --genesis-benchmark --attempts-per-model 50 --yes
+```
+
+This writes `genesis-benchmark.json` beside `summary.json` and records:
+
+```text
+benchmark: proof-to-block-genesis-preflight
+genesisMode: reset
+genesisHash: zero genesis head
+configHash / scenarioHash / runtimeSmokeCasesHash
+replayFromGenesis: true
+replayPassed: true
+invalidAccepted: 0
+chainDivergence: 0
+```
+
+The genesis-reset run is a controlled benchmark: every run starts from the same empty/zero head and must replay deterministically. It is not a claim of production public-network retargeting or Bitcoin-style live difficulty adjustment.

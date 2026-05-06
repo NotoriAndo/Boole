@@ -7,12 +7,13 @@ cd "$ROOT"
 PRESET="${MODEL_BENCHMARK_PRESET:-all}"
 OUTPUT_SPEC=""
 LEADERBOARD_MD="${LEADERBOARD_MD:-}"
+ATTEMPTS_PER_MODEL="${ATTEMPTS_PER_MODEL:-}"
 INCLUDES=()
 OLLAMA_MODELS=()
 
 usage() {
   cat <<'EOF'
-Usage: preflight-model-benchmark.sh [--preset mock|frontier|oauth|ollama|all] [--include TERM] [--ollama-model MODEL] [--output-spec PATH] [--leaderboard-md PATH]
+Usage: preflight-model-benchmark.sh [--preset mock|frontier|oauth|ollama|all] [--include TERM] [--ollama-model MODEL] [--output-spec PATH] [--leaderboard-md PATH] [--attempts-per-model N]
 
 Generates a provider/model benchmark spec from available frontier API envs,
 local OAuth CLIs, and Ollama models, then runs provider-model-benchmark.sh.
@@ -42,6 +43,14 @@ while [[ $# -gt 0 ]]; do
       LEADERBOARD_MD="${2:?missing --leaderboard-md value}"
       shift 2
       ;;
+    --attempts-per-model)
+      ATTEMPTS_PER_MODEL="${2:?missing --attempts-per-model value}"
+      if ! [[ "$ATTEMPTS_PER_MODEL" =~ ^[1-9][0-9]*$ ]]; then
+        printf 'preflight-model-benchmark: --attempts-per-model must be a positive integer\n' >&2
+        exit 64
+      fi
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -60,6 +69,10 @@ if [[ -z "$OUTPUT_SPEC" ]]; then
   OUTPUT_SPEC="$TMP_SPEC"
 fi
 trap 'if [[ -n "$TMP_SPEC" ]]; then rm -f "$TMP_SPEC"; fi' EXIT
+
+if [[ -n "$ATTEMPTS_PER_MODEL" ]]; then
+  export TRIALS="$ATTEMPTS_PER_MODEL"
+fi
 
 ./scripts/preflight-model-benchmark-setup.py \
   --preset "$PRESET" \

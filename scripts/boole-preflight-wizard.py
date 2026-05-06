@@ -151,6 +151,13 @@ def model_list(dry_run: bool) -> None:
     subprocess.run([str(ROOT / "scripts/preflight-model-benchmark-setup.py"), "--preset", "all", "--list"], cwd=ROOT, check=False)
 
 
+def positive_int(raw: str) -> int:
+    value = int(raw)
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return value
+
+
 def build_plan(args: argparse.Namespace, preset_name: str) -> list[list[str]]:
     preset = PRESETS[preset_name]
     plan: list[list[str]] = []
@@ -162,6 +169,10 @@ def build_plan(args: argparse.Namespace, preset_name: str) -> list[list[str]]:
     preflight = ["./scripts/phase7-solo-preflight.sh"]
     if args.evidence_dir:
         preflight += ["--evidence-dir", args.evidence_dir]
+    if args.genesis_benchmark:
+        preflight.append("--genesis-benchmark")
+    if args.attempts_per_model is not None:
+        preflight += ["--attempts-per-model", str(args.attempts_per_model)]
     if preset["run_hermes_real"] or args.run_hermes_real:
         preflight.append("--run-hermes-real")
     model_preset = args.model_preset or preset["model_preset"]
@@ -205,6 +216,9 @@ def run_plan(plan: list[list[str]], dry_run: bool) -> int:
         print("--------------")
         print(f"ok: {last_summary.get('ok')}")
         print(f"evidenceDir: {last_summary.get('evidenceDir')}")
+        genesis = last_summary.get("genesisBenchmark")
+        if isinstance(genesis, dict):
+            print(f"genesisBenchmark: {genesis.get('benchmark')} mode={genesis.get('genesisMode')} replayPassed={genesis.get('replayPassed')}")
         for check in last_summary.get("checks", []):
             print(f"- {check.get('name')}: ok={check.get('ok')}")
     return 0
@@ -218,6 +232,8 @@ def main() -> None:
     parser.add_argument("--list-models", action="store_true", help="List generated model rows and credential presence.")
     parser.add_argument("--yes", action="store_true", help="Do not prompt before executing in interactive mode.")
     parser.add_argument("--evidence-dir", help="Evidence directory to pass to phase7-solo-preflight.sh.")
+    parser.add_argument("--genesis-benchmark", action="store_true", help="Run a clean genesis-reset preflight benchmark and record reproducibility metadata.")
+    parser.add_argument("--attempts-per-model", type=positive_int, help="Attempts/trials per live provider model row in the optional model benchmark.")
     parser.add_argument("--install-claude", action="store_true", help="Install Claude Code command templates regardless of preset.")
     parser.add_argument("--install-codex", action="store_true", help="Install Codex prompt templates regardless of preset.")
     parser.add_argument("--run-hermes-real", action="store_true", help="Include Hermes real proof-to-block row regardless of preset.")
