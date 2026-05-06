@@ -16,6 +16,36 @@ artifacts/preflight/<UTC timestamp>/
 
 `artifacts/` is ignored by git. The machine-readable summary is printed to stdout and also saved as `summary.json` inside the evidence directory.
 
+## Wizard mode
+
+For a guided Hermes-style setup flow, use:
+
+```bash
+./scripts/boole-preflight-wizard.py
+```
+
+Useful non-interactive modes:
+
+```bash
+./scripts/boole-preflight-wizard.py --doctor
+./scripts/boole-preflight-wizard.py --list-models
+./scripts/boole-preflight-wizard.py --preset safe --dry-run
+./scripts/boole-preflight-wizard.py --preset agent-local --yes
+./scripts/boole-preflight-wizard.py --preset local-models --yes
+./scripts/boole-preflight-wizard.py --preset frontier --yes
+./scripts/boole-preflight-wizard.py --preset everything --yes
+```
+
+Presets:
+
+- `safe`: deterministic core preflight only.
+- `agent-local`: installs Claude/Codex templates and includes Hermes real proof-to-block.
+- `local-models`: agent-local plus installed Ollama model rows.
+- `frontier`: agent-local plus frontier API model rows.
+- `everything`: agent-local plus frontier API/OAuth/Ollama rows.
+
+The wizard prints a plan before running it and summarizes the final evidence directory.
+
 ## Required checks
 
 The preflight runner currently captures:

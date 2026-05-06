@@ -181,7 +181,15 @@ See [`docs/agent-slash-mining.md`](docs/agent-slash-mining.md).
 
 ## Phase 7.0 solo preflight
 
-Run the local evidence gate before closed-testnet onboarding:
+Run the Hermes-style setup wizard for guided local preflight:
+
+```bash
+./scripts/boole-preflight-wizard.py --doctor
+./scripts/boole-preflight-wizard.py --preset safe --dry-run
+./scripts/boole-preflight-wizard.py --preset everything --yes
+```
+
+Or run the local evidence gate directly before closed-testnet onboarding:
 
 ```bash
 ./scripts/phase7-solo-preflight.sh
