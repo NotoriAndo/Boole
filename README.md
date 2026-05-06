@@ -163,6 +163,16 @@ Claude Code, Codex, OpenCode, or Hermes slash commands should call this wrapper 
 
 See [`docs/agent-slash-mining.md`](docs/agent-slash-mining.md).
 
+## Phase 7.0 solo preflight
+
+Run the local evidence gate before closed-testnet onboarding:
+
+```bash
+./scripts/phase7-solo-preflight.sh
+```
+
+The runner captures runtime smoke, Proof-to-Block benchmark, local mining, agent wrapper checks, git metadata, and a summary JSON under ignored `artifacts/preflight/<timestamp>/`. See [`docs/phase7-solo-preflight.md`](docs/phase7-solo-preflight.md).
+
 ## Source plan
 
 The local migration plan is stored in the original repo:

@@ -1,0 +1,34 @@
+{
+  "domain": "boole-closed-testnet-preflight",
+  "version": 1,
+  "chainId": "boole-closed-preflight-local-v1",
+  "scenario": "fixtures/protocol/runtime-smoke/v1.json",
+  "runtimeSmokeCases": "fixtures/protocol/runtime-smoke/cases.v1.json",
+  "profile": "v01",
+  "difficulty": 1,
+  "node": {
+    "defaultAddr": "127.0.0.1:18110",
+    "mode": "local"
+  },
+  "verifier": {
+    "label": "Lean verifier",
+    "canonicalizer": "LakeCanonicalizer/boole_emit POFP canon",
+    "agentOutputTrust": "untrusted_candidate_only"
+  },
+  "requiredChecks": [
+    "runtime-smoke-all",
+    "proof-to-block-benchmark",
+    "local-mining-smoke",
+    "boole-agent-mine-fake",
+    "boole-agent-mine-hermes-mock",
+    "agent-runtime-benchmark"
+  ],
+  "optionalChecks": [
+    "boole-agent-mine-hermes-real"
+  ],
+  "safetyInvariants": {
+    "invalidAccepted": 0,
+    "chainDivergence": 0,
+    "replayRequired": true
+  }
+}
