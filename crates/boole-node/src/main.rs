@@ -19,6 +19,7 @@ fn main() -> anyhow::Result<()> {
         Some("runtime-smoke") => run_runtime_smoke_command(args),
         Some("run-local") => run_local_command(args),
         Some("submit-lean") => run_submit_lean_command(args),
+        Some("agent-proof") => run_agent_proof_command(args),
         Some("--help") | Some("-h") | None => {
             print_help();
             Ok(())
@@ -210,9 +211,59 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_agent_proof_command(mut args: Vec<String>) -> anyhow::Result<()> {
+    args.remove(0);
+    let backend = take_flag_value(&mut args, "--backend")?;
+    let out_dir = PathBuf::from(take_flag_value(&mut args, "--out-dir")?);
+    if !args.is_empty() {
+        anyhow::bail!("unexpected args: {}", args.join(" "));
+    }
+
+    let (file_name, proof_source, backend_description) = match backend.as_str() {
+        "fixture-valid" => (
+            "Proof.lean",
+            "theorem boole_agent_fixture_valid : 2 + 2 = 4 := by\n  decide\n",
+            "deterministic valid Lean fixture backend",
+        ),
+        "fixture-invalid" => (
+            "Proof.lean",
+            "theorem boole_agent_fixture_invalid : 2 + 2 = 5 := by\n  decide\n",
+            "deterministic invalid Lean fixture backend",
+        ),
+        other => anyhow::bail!("unsupported agent-proof backend {other}"),
+    };
+
+    std::fs::create_dir_all(&out_dir)?;
+    let proof_path = out_dir.join(file_name);
+    std::fs::write(&proof_path, proof_source)?;
+    let source_hash = blake3::hash(proof_source.as_bytes()).to_hex().to_string();
+
+    println!(
+        "{}",
+        serde_json::to_string(&json!({
+            "ok": true,
+            "command": "agent-proof",
+            "backend": backend,
+            "backendDescription": backend_description,
+            "agentProofCandidate": true,
+            "trusted": false,
+            "consensusAccepted": false,
+            "proofFormat": "lean",
+            "proofPath": proof_path.to_string_lossy(),
+            "sourceHash": source_hash,
+            "safety": {
+                "agentOutputTrusted": false,
+                "requiresDeterministicVerifier": true,
+                "consensusBoundary": "boole-node submit-lean / LeanRunner / canonical package / replay",
+            }
+        }))?
+    );
+    Ok(())
+}
+
 fn print_help() {
     println!(
-        "boole-node\n\ncommands:\n  runtime-smoke --scenario <path>|--fixture <path> --block-store <path>\n  run-local [--addr 127.0.0.1:8080] [--scenario <path>] [--block-store <path>] [--max-requests <n>]\n  submit-lean --proof <path> --block-store <path> [--checker-dir <path>] [--fixture <path>] [--verifier-hash <hash>]"
+        "boole-node\n\ncommands:\n  runtime-smoke --scenario <path>|--fixture <path> --block-store <path>\n  run-local [--addr 127.0.0.1:8080] [--scenario <path>] [--block-store <path>] [--max-requests <n>]\n  submit-lean --proof <path> --block-store <path> [--checker-dir <path>] [--fixture <path>] [--verifier-hash <hash>]\n  agent-proof --backend fixture-valid|fixture-invalid --out-dir <path>"
     );
 }
 

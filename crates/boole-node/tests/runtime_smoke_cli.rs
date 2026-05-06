@@ -37,6 +37,69 @@ fn proof_to_block_benchmark_script_reports_smoke_metrics() {
     assert_eq!(parsed["summary"]["replayFailures"], 0);
     assert_eq!(parsed["safety"]["invalidAccepted"], 0);
     assert_eq!(parsed["safety"]["chainDivergence"], 0);
+    let cases = parsed["cases"].as_array().expect("benchmark cases array");
+    assert!(
+        cases
+            .iter()
+            .any(|case| case["name"] == "lean-submit-proof-to-block"),
+        "default benchmark should include deterministic Lean submit case: {cases:?}"
+    );
+    assert!(
+        cases
+            .iter()
+            .all(|case| case["name"] != "agent-fixture-submit-proof-to-block"),
+        "agent proof candidate row must stay opt-in by default: {cases:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn proof_to_block_benchmark_can_opt_into_agent_fixture_candidate_case() {
+    let repo_root = env!("CARGO_MANIFEST_DIR").trim_end_matches("/crates/boole-node");
+    let script_path = format!("{repo_root}/scripts/proof-to-block-benchmark.sh");
+
+    let dir = std::env::temp_dir().join(format!(
+        "boole-node-proof-to-block-agent-benchmark-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+
+    let output = Command::new("bash")
+        .arg(&script_path)
+        .env("BOOLE_NODE_BIN", env!("CARGO_BIN_EXE_boole-node"))
+        .env("BLOCK_STORE_DIR", dir.to_str().expect("utf8 temp path"))
+        .env("BOOLE_ENABLE_AGENT_PROOF_CANDIDATE", "1")
+        .output()
+        .expect("run proof-to-block benchmark script with agent row");
+    assert!(
+        output.status.success(),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("json output");
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["summary"]["casesPassed"], 8);
+    assert_eq!(parsed["summary"]["caseCount"], 8);
+    assert_eq!(parsed["summary"]["blocksProduced"], 18);
+    assert_eq!(parsed["summary"]["replayFailures"], 0);
+    assert_eq!(parsed["safety"]["invalidAccepted"], 0);
+    let cases = parsed["cases"].as_array().expect("benchmark cases array");
+    let agent_case = cases
+        .iter()
+        .find(|case| case["name"] == "agent-fixture-submit-proof-to-block")
+        .expect("agent candidate benchmark case exists when env-gated on");
+    assert_eq!(agent_case["ok"], true);
+    assert_eq!(agent_case["agentProofCandidate"], true);
+    assert_eq!(agent_case["trusted"], false);
+    assert_eq!(agent_case["accepted"], true);
+    assert_eq!(agent_case["shareAccepted"], true);
+    assert_eq!(agent_case["blockProduced"], true);
+    assert_eq!(agent_case["replayMatchesRuntime"], true);
+    assert_eq!(agent_case["invalidAccepted"], 0);
 
     let _ = std::fs::remove_dir_all(&dir);
 }

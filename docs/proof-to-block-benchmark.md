@@ -115,6 +115,14 @@ They cover:
 - `runtime-smoke-multiminer`: a deterministic four-block local multi-miner scenario with three distinct proposer keys.
 - `lean-submit-proof-to-block`: a deterministic Lean-backed `boole-node submit-lean` case that checks a real Lean proof, admits the canonical proof package, produces one block, and replays from genesis with `invalidAccepted == 0`.
 
+Optional preflight row, disabled by default so CI and local smoke remain deterministic:
+
+```bash
+BOOLE_ENABLE_AGENT_PROOF_CANDIDATE=1 ./scripts/proof-to-block-benchmark.sh
+```
+
+- `agent-fixture-submit-proof-to-block`: runs `boole-node agent-proof --backend fixture-valid`, records the generated Lean file as an explicitly untrusted `agentProofCandidate`, then routes it through the same deterministic `submit-lean` verifier/admission/block/replay path. The row must keep `trusted == false` and `invalidAccepted == 0`.
+
 ## Why this exists before model benchmarking
 
 The model-by-model Proof-to-Block leaderboard should not start from an unverified benchmark shell. This v0 script locks the local safety rail first:

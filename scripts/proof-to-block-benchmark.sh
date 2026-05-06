@@ -138,8 +138,103 @@ def run_lean_submit_case():
     }
 
 
+def run_agent_fixture_submit_case():
+    workspace = block_store_dir / "agent-fixture-submit-proof-to-block-workspace"
+    write_lean_checker_workspace(workspace)
+    candidate_dir = workspace / "agent-candidate"
+    block_store = block_store_dir / "agent-fixture-submit-proof-to-block.ndjson"
+    if block_store.exists():
+        block_store.unlink()
+
+    candidate_proc = subprocess.run(
+        node_cmd([
+            "agent-proof",
+            "--backend",
+            "fixture-valid",
+            "--out-dir",
+            str(candidate_dir),
+        ]),
+        cwd=root,
+        text=True,
+        capture_output=True,
+    )
+    if candidate_proc.returncode != 0:
+        print(candidate_proc.stderr, file=sys.stderr, end="")
+        print(candidate_proc.stdout, file=sys.stderr, end="")
+        raise SystemExit(candidate_proc.returncode)
+    candidate = json.loads(candidate_proc.stdout)
+    if candidate.get("agentProofCandidate") is not True or candidate.get("trusted") is not False:
+        print("agent fixture candidate must be explicitly untrusted", file=sys.stderr)
+        raise SystemExit(1)
+    proof_path = pathlib.Path(candidate["proofPath"])
+
+    submit_proc = subprocess.run(
+        node_cmd([
+            "submit-lean",
+            "--proof",
+            str(proof_path),
+            "--checker-dir",
+            str(workspace),
+            "--fixture",
+            "fixtures/protocol/admission/v1.json",
+            "--block-store",
+            str(block_store),
+            "--verifier-hash",
+            "proof-to-block-benchmark-agent-fixture-v0",
+        ]),
+        cwd=root,
+        text=True,
+        capture_output=True,
+    )
+    if submit_proc.returncode != 0:
+        print(submit_proc.stderr, file=sys.stderr, end="")
+        print(submit_proc.stdout, file=sys.stderr, end="")
+        raise SystemExit(submit_proc.returncode)
+    out = json.loads(submit_proc.stdout)
+    errors = []
+    for key in ["ok", "accepted", "shareAccepted", "replayMatchesRuntime"]:
+        if out.get(key) is not True:
+            errors.append(f"agent fixture submit output {key} must be true")
+    if out.get("invalidAccepted") != 0:
+        errors.append("agent fixture submit invalidAccepted must be 0")
+    if errors:
+        for error in errors:
+            print(f"Agent fixture benchmark case failed: {error}", file=sys.stderr)
+        raise SystemExit(1)
+
+    block = out["block"]
+    print("proof-to-block case agent-fixture-submit-proof-to-block: PASS", file=sys.stderr)
+    return {
+        "name": "agent-fixture-submit-proof-to-block",
+        "mode": "agent-proof+submit-lean",
+        "backend": candidate.get("backend"),
+        "agentProofCandidate": True,
+        "trusted": False,
+        "input": str(proof_path.relative_to(root)) if proof_path.is_relative_to(root) else str(proof_path),
+        "ok": True,
+        "accepted": True,
+        "shareAccepted": True,
+        "blockProduced": True,
+        "height": block["height"],
+        "storeSize": 1,
+        "replayHeight": out["replayHeight"],
+        "latestMatchesRuntime": out["replayLatestC"] == out["runtimeHead"],
+        "replayMatchesRuntime": out["replayMatchesRuntime"],
+        "invalidAccepted": out["invalidAccepted"],
+        "blockStorePath": out["blockStorePath"],
+        "lean": {
+            "accepted": out.get("lean", {}).get("accepted"),
+            "checker": out.get("lean", {}).get("checker"),
+            "verifierHash": out.get("lean", {}).get("verifier_hash"),
+        },
+        "blocks": [block],
+    }
+
+
 cases = list(smoke.get("cases", []))
 cases.append(run_lean_submit_case())
+if os.environ.get("BOOLE_ENABLE_AGENT_PROOF_CANDIDATE") == "1":
+    cases.append(run_agent_fixture_submit_case())
 blocks_produced = sum(int(case.get("storeSize", 0)) for case in cases)
 replay_failures = sum(
     1
