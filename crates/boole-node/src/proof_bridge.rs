@@ -110,6 +110,8 @@ fn runner_error_result(error: String) -> LeanCheckResult {
         exit_code: -1,
         stdout: String::new(),
         stderr: error,
+        timed_out: false,
+        output_truncated: false,
         evidence: boole_lean_runner::LeanRunnerEvidence {
             verifier_hash: String::new(),
             checker: "lake exec boole_check".to_string(),
@@ -120,6 +122,7 @@ fn runner_error_result(error: String) -> LeanCheckResult {
             lake_version: String::new(),
             timeout_ms: 0,
             memory_limit_mb: 0,
+            output_limit_bytes: 0,
         },
     }
 }

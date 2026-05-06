@@ -47,6 +47,89 @@ fn lake_exec_checker_accepts_valid_lean_file_with_evidence() {
 }
 
 #[test]
+fn lake_exec_checker_times_out_and_returns_rejection_envelope() {
+    if !lake_and_lean_available() {
+        eprintln!("skipping real Lean runner timeout test: lake/lean unavailable");
+        return;
+    }
+    let workspace = TestLeanWorkspace::new("timeout");
+    workspace.write_checker_project_with_main(
+        r#"def main (_args : List String) : IO UInt32 := do
+  IO.sleep 1000
+  IO.println "unexpected completion"
+  return 0
+"#,
+    );
+    let proof = workspace.write_proof(
+        "ValidProof.lean",
+        "theorem trivial : True := by\n  trivial\n",
+    );
+
+    let runner = LeanRunner::new(
+        LeanRunnerConfig::new("fixture-verifier-hash")
+            .with_package_dir(workspace.root.clone())
+            .with_timeout_ms(50)
+            .with_output_limit_bytes(1024),
+    );
+
+    let result = runner.check_file(&proof).expect("timeout returns envelope");
+    assert!(!result.accepted, "timed-out check must reject");
+    assert!(result.timed_out, "result should record timeout: {result:?}");
+    assert_eq!(result.exit_code, -1);
+    assert!(
+        result.stderr.contains("timeout"),
+        "timeout rejection should be visible in stderr: {:?}",
+        result.stderr
+    );
+}
+
+#[test]
+fn lake_exec_checker_caps_captured_output_and_marks_truncation() {
+    if !lake_and_lean_available() {
+        eprintln!("skipping real Lean runner output-cap test: lake/lean unavailable");
+        return;
+    }
+    let workspace = TestLeanWorkspace::new("output-cap");
+    workspace.write_checker_project_with_main(
+        r#"partial def repeatPrint : Nat -> IO Unit
+  | 0 => pure ()
+  | n + 1 => do
+    IO.print "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    repeatPrint n
+
+def main (_args : List String) : IO UInt32 := do
+  repeatPrint 64
+  return 1
+"#,
+    );
+    let proof = workspace.write_proof(
+        "ValidProof.lean",
+        "theorem trivial : True := by\n  trivial\n",
+    );
+
+    let runner = LeanRunner::new(
+        LeanRunnerConfig::new("fixture-verifier-hash")
+            .with_package_dir(workspace.root.clone())
+            .with_timeout_ms(5_000)
+            .with_output_limit_bytes(256),
+    );
+
+    let result = runner.check_file(&proof).expect("checker returns envelope");
+    assert!(!result.accepted, "non-zero checker should reject");
+    assert!(
+        result.output_truncated,
+        "result should record output truncation: {result:?}"
+    );
+    assert!(
+        result.stdout.len() <= 256,
+        "stdout must be capped instead of captured unboundedly: len={} stdout={:?}",
+        result.stdout.len(),
+        result.stdout
+    );
+    assert_eq!(result.evidence.output_limit_bytes, 256);
+}
+
+#[test]
 fn lake_exec_checker_rejects_invalid_lean_file_without_panicking() {
     if !lake_and_lean_available() {
         eprintln!("skipping real Lean runner test: lake/lean unavailable");
@@ -110,20 +193,7 @@ impl TestLeanWorkspace {
     }
 
     fn write_checker_project(&self) {
-        std::fs::write(
-            self.root.join("lakefile.lean"),
-            r#"import Lake
-open Lake DSL
-
-package boole_check_fixture
-
-lean_exe boole_check where
-  root := `BooleCheck.Main
-"#,
-        )
-        .expect("write lakefile");
-        std::fs::write(
-            self.root.join("BooleCheck/Main.lean"),
+        self.write_checker_project_with_main(
             r#"def main (args : List String) : IO UInt32 := do
   let some proofPath := args.head?
     | IO.eprintln "usage: boole_check <proof.lean>"; return 64
@@ -140,8 +210,24 @@ lean_exe boole_check where
   else
     return 1
 "#,
+        );
+    }
+
+    fn write_checker_project_with_main(&self, main_lean: &str) {
+        std::fs::write(
+            self.root.join("lakefile.lean"),
+            r#"import Lake
+open Lake DSL
+
+package boole_check_fixture
+
+lean_exe boole_check where
+  root := `BooleCheck.Main
+"#,
         )
-        .expect("write checker main");
+        .expect("write lakefile");
+        std::fs::write(self.root.join("BooleCheck/Main.lean"), main_lean)
+            .expect("write checker main");
     }
 
     fn write_proof(&self, name: &str, content: &str) -> PathBuf {

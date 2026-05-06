@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeanRunnerConfig {
@@ -17,6 +18,7 @@ pub struct LeanRunnerConfig {
     pub checker_exe: String,
     pub timeout_ms: u64,
     pub memory_limit_mb: u64,
+    pub output_limit_bytes: usize,
 }
 
 impl LeanRunnerConfig {
@@ -27,6 +29,7 @@ impl LeanRunnerConfig {
             checker_exe: "boole_check".to_string(),
             timeout_ms: 10_000,
             memory_limit_mb: 512,
+            output_limit_bytes: 64 * 1024,
         }
     }
 
@@ -49,6 +52,11 @@ impl LeanRunnerConfig {
         self.memory_limit_mb = memory_limit_mb;
         self
     }
+
+    pub fn with_output_limit_bytes(mut self, output_limit_bytes: usize) -> Self {
+        self.output_limit_bytes = output_limit_bytes;
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +70,7 @@ pub struct LeanRunnerEvidence {
     pub lake_version: String,
     pub timeout_ms: u64,
     pub memory_limit_mb: u64,
+    pub output_limit_bytes: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,6 +79,8 @@ pub struct LeanCheckResult {
     pub exit_code: i32,
     pub stdout: String,
     pub stderr: String,
+    pub timed_out: bool,
+    pub output_truncated: bool,
     pub evidence: LeanRunnerEvidence,
 }
 
@@ -99,13 +110,15 @@ impl LeanRunner {
         }
 
         let evidence = self.evidence()?;
-        let output = Command::new("lake")
+        let mut child = Command::new("lake")
             .arg("exec")
             .arg(&self.config.checker_exe)
             .arg(proof_path)
             .current_dir(&self.config.package_dir)
             .stdin(Stdio::null())
-            .output()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .with_context(|| {
                 format!(
                     "failed to run lake exec {} in {}",
@@ -114,11 +127,44 @@ impl LeanRunner {
                 )
             })?;
 
+        let deadline = Instant::now() + Duration::from_millis(self.config.timeout_ms);
+        let timed_out = loop {
+            if child.try_wait()?.is_some() {
+                break false;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                break true;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        };
+
+        let output = child.wait_with_output()?;
+        let mut stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let mut stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        if timed_out {
+            if !stderr.is_empty() && !stderr.ends_with('\n') {
+                stderr.push('\n');
+            }
+            stderr.push_str(&format!(
+                "lean runner timeout after {}ms",
+                self.config.timeout_ms
+            ));
+        }
+        let stdout_truncated = truncate_utf8_to_bytes(&mut stdout, self.config.output_limit_bytes);
+        let stderr_truncated = truncate_utf8_to_bytes(&mut stderr, self.config.output_limit_bytes);
+
         Ok(LeanCheckResult {
-            accepted: output.status.success(),
-            exit_code: output.status.code().unwrap_or(-1),
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            accepted: !timed_out && output.status.success(),
+            exit_code: if timed_out {
+                -1
+            } else {
+                output.status.code().unwrap_or(-1)
+            },
+            stdout,
+            stderr,
+            timed_out,
+            output_truncated: stdout_truncated || stderr_truncated,
             evidence,
         })
     }
@@ -134,8 +180,21 @@ impl LeanRunner {
             lake_version: command_version("lake")?,
             timeout_ms: self.config.timeout_ms,
             memory_limit_mb: self.config.memory_limit_mb,
+            output_limit_bytes: self.config.output_limit_bytes,
         })
     }
+}
+
+fn truncate_utf8_to_bytes(value: &mut String, limit: usize) -> bool {
+    if value.len() <= limit {
+        return false;
+    }
+    let mut end = limit;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value.truncate(end);
+    true
 }
 
 fn checker_artifact_hash(package_dir: &Path) -> Result<String> {
@@ -179,5 +238,6 @@ mod tests {
         assert_eq!(cfg.checker_exe, "boole_check");
         assert_eq!(cfg.timeout_ms, 10_000);
         assert_eq!(cfg.memory_limit_mb, 512);
+        assert_eq!(cfg.output_limit_bytes, 64 * 1024);
     }
 }
