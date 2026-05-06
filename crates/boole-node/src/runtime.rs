@@ -105,7 +105,12 @@ impl RuntimeAdmissionState {
         self.current_c.as_deref()
     }
 
-    pub fn apply_produced_block(&mut self, block: &PersistedBlock) -> anyhow::Result<usize> {
+    /// Read-only pre-check that `block` can be applied on top of the current
+    /// runtime head. Returns Err if linkage or shape is wrong; never mutates
+    /// state. Pair with `apply_block_unchecked` after the disk append succeeds
+    /// so the cache and the file always agree even if the runtime is killed
+    /// between the two steps.
+    pub fn check_block_applicable(&self, block: &PersistedBlock) -> anyhow::Result<()> {
         let current_c = self
             .current_c
             .as_deref()
@@ -118,10 +123,21 @@ impl RuntimeAdmissionState {
             );
         }
         block.validate_shape()?;
+        Ok(())
+    }
+
+    /// Apply state mutations for a block that has already been validated by
+    /// `check_block_applicable`. Infallible: callers must validate first.
+    pub fn apply_block_unchecked(&mut self, block: &PersistedBlock) -> usize {
         self.current_c = Some(block.c.clone());
         let dropped = self.pool.prune_to_height(block.c.clone());
         self.candidates.retain(|candidate| candidate.c == block.c);
-        Ok(dropped)
+        dropped
+    }
+
+    pub fn apply_produced_block(&mut self, block: &PersistedBlock) -> anyhow::Result<usize> {
+        self.check_block_applicable(block)?;
+        Ok(self.apply_block_unchecked(block))
     }
 
     pub fn pool_size(&self) -> usize {
@@ -295,11 +311,13 @@ impl RuntimeAdmissionState {
         let config = self.block_builder_config_for_height(&self.block_cache)?;
         let block =
             self.produce_block_for_current_c_with_config(height, ts, accepted_canon_tags, &config)?;
-        // Append to disk first; only mirror into the in-memory cache after the
-        // file write succeeded. If append() fails the cache stays consistent
-        // with the file and the runtime can be re-driven.
+        // Validate first so any rejection cannot leave a block on disk that
+        // the runtime never applied. The pair {check, append, apply_unchecked}
+        // is the only ordering where a crash between the two write steps
+        // still leaves the on-disk store and the in-memory state in agreement.
+        self.check_block_applicable(&block)?;
         FileBlockStore::append(block_path, &block)?;
-        let dropped_stale_shares = self.apply_produced_block(&block)?;
+        let dropped_stale_shares = self.apply_block_unchecked(&block);
         self.block_cache.push(block.clone());
         Ok(RuntimeCommittedBlock {
             block,

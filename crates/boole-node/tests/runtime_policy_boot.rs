@@ -526,6 +526,81 @@ fn runtime_boots_from_existing_store_and_continues_next_height() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn runtime_check_block_applicable_is_read_only_so_disk_and_cache_cannot_diverge() {
+    // Regression: commit_using_cache used to call FileBlockStore::append before
+    // apply_produced_block. If apply_produced_block then failed (e.g. shape or
+    // linkage check), the on-disk store had a block the runtime had not
+    // applied, leaving cached_block_count and the file out of sync forever.
+    // The fix splits the validation step out so we can run it BEFORE the disk
+    // write. This test pins down the contract that check_block_applicable
+    // never mutates state, so a Result::Err return cannot leak partial state.
+    let mut fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    fixture.constants.c =
+        "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+    fixture.cfg.T_share =
+        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+    fixture.cfg.T_block =
+        "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
+    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.K_max = 4;
+
+    let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
+        .expect("runtime config boots");
+    let mut runtime = RuntimeAdmissionState::new(config);
+    runtime.set_current_c(fixture.constants.c.clone());
+
+    let valid_op = fixture
+        .operations
+        .iter()
+        .find(|op| op.name == "valid_after_bad_not_rate_limited")
+        .expect("valid op");
+    let body = body_for(&fixture.constants, &valid_op.body_patch);
+    runtime
+        .observe_ticket_from_body(&body)
+        .expect("observe ticket");
+    assert!(matches!(
+        runtime.admit_body_with_canon_tag(1_800_000_000_000, &fixture.constants.ip, &body, 0),
+        AdmissionDecision::Accepted { .. }
+    ));
+
+    let accepted_tags = BTreeSet::from([0]);
+    let mut block = runtime
+        .produce_block_for_current_c(0, 1_800_000_000_123, &accepted_tags)
+        .expect("block produced");
+
+    // Force a linkage mismatch the runtime has no way to satisfy.
+    block.prev_c =
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+
+    let head_before = runtime.current_c().map(str::to_string);
+    let pool_before = runtime.pool_size();
+    let candidates_before = runtime.candidate_shares_for_current_c().len();
+    let cache_before = runtime.cached_block_count();
+
+    runtime
+        .check_block_applicable(&block)
+        .expect_err("linkage mismatch must fail the read-only check");
+
+    assert_eq!(runtime.current_c().map(str::to_string), head_before);
+    assert_eq!(runtime.pool_size(), pool_before);
+    assert_eq!(
+        runtime.candidate_shares_for_current_c().len(),
+        candidates_before
+    );
+    assert_eq!(runtime.cached_block_count(), cache_before);
+
+    // The legacy combined entry point preserves the same guarantee.
+    runtime
+        .apply_produced_block(&block)
+        .expect_err("legacy apply must propagate the linkage rejection");
+    assert_eq!(runtime.current_c().map(str::to_string), head_before);
+    assert_eq!(runtime.pool_size(), pool_before);
+    assert_eq!(runtime.cached_block_count(), cache_before);
+}
+
 fn body_for(constants: &Constants, patch: &Map<String, Value>) -> Map<String, Value> {
     let mut body = Map::new();
     body.insert("c".to_string(), Value::String(constants.c.clone()));
