@@ -125,7 +125,12 @@ fn canonical_checker_accepts_valid_proof_through_sandbox() {
         LeanRunnerConfig::new("canonical-checker-test")
             .with_package_dir(dir)
             .with_timeout_ms(30_000)
-            .with_memory_limit_mb(256),
+            // Lean 4.29's Linux runtime can fail before elaboration with
+            // `failed to create thread` under a 256 MiB RLIMIT_AS on GitHub
+            // hosted runners. Keep this smoke realistic but above that floor;
+            // dedicated limit-enforcement tests should use intentionally tiny
+            // limits instead of making the canonical accept path flaky.
+            .with_memory_limit_mb(1024),
     );
     let result = runner.check_file(&proof).expect("checker runs");
     let _ = std::fs::remove_file(&proof);
