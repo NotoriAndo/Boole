@@ -143,6 +143,33 @@ impl LeanProofBridge {
     }
 }
 
+/// Build the canonical POFP-v1 package bytes from a `LeanCheckResult`.
+///
+/// SECURITY: this package is the input to `canon_hash = sha256(package)`,
+/// which the protocol uses (via `share_hash(c, pk, n, j, canon_hash)`) to
+/// bind a share to the Lean proof identity. The package format pins two
+/// 32-bit slots derived from `stable_u32(result, ...)`, so the
+/// *variable* portion of the package across distinct `LeanCheckResult`
+/// inputs is at most 64 bits. That puts the effective entropy of
+/// `canon_hash` at 64 bits even though sha256 itself outputs 256.
+///
+/// This is acceptable in the v1 protocol because:
+/// 1. `share_hash` mixes `(c, pk, n, j)` with `canon_hash`. Two distinct
+///    submissions cannot share `share_hash` unless `(c, pk, n, j)` also
+///    collide, and `(pk, n)` is bound by the share PoW that consumed real
+///    Lean compute.
+/// 2. The pool dedups by `share_hash`. A canon_hash-only collision does
+///    not let an attacker replay a share or steal credit for someone
+///    else's proof.
+/// 3. Forging an accepted `LeanCheckResult` with chosen `canon_hash`
+///    requires either editing the checker (which changes
+///    `checker_artifact_hash` and is rejected by the bridge policy
+///    allowlist) or breaking the host `lean` binary.
+///
+/// Future protocol revisions (POFP-v2) should widen the slots to 16 or
+/// 32 bytes each so `canon_hash` recovers a full 256-bit collision space.
+/// Doing so changes the wire format and invalidates every previously
+/// recorded proof, so it must coincide with a chain reset.
 pub fn canonical_pofp_package_from_lean_result(result: &LeanCheckResult) -> Vec<u8> {
     let mut package = Vec::with_capacity(30);
     package.extend_from_slice(b"POFP");

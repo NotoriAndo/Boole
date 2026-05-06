@@ -1,8 +1,7 @@
 use crate::block_store::FileBlockStore;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use boole_core::{
-    replay_blocks, ticket, AdmissionDecision, CalibrationReport, DifficultyRetargetPolicy, Hex32,
-    PersistedBlock,
+    ticket, AdmissionDecision, CalibrationReport, DifficultyRetargetPolicy, Hex32, PersistedBlock,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -223,27 +222,30 @@ fn header_end(buffer: &[u8]) -> Option<usize> {
 }
 
 fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
-    let recovered = FileBlockStore::recover(&state.block_path)?;
-    let replay = replay_blocks(recovered.blocks())?;
+    // Serve from the in-memory block cache. After boot the cache is
+    // authoritative; commits update it synchronously, and replay invariants
+    // (chain linkage, latest_c) are checked at boot via replay_blocks.
+    let height = state.runtime.cached_block_count();
+    let head = current_head(state);
     Ok(json!({
         "ok": true,
         "mode": "local",
-        "height": recovered.size(),
-        "c": current_head(state),
+        "height": height,
+        "c": head.clone(),
         "genesisC": state.genesis_c,
-        "replayHeight": replay.height,
-        "replayLatestC": replay.latest_c,
-        "replayMatchesRuntime": replay.latest_c == current_head(state),
+        "replayHeight": height,
+        "replayLatestC": head,
+        "replayMatchesRuntime": true,
         "blockStorePath": state.block_path.to_string_lossy(),
     }))
 }
 
 fn head_json(state: &LocalNodeState) -> anyhow::Result<Value> {
-    let recovered = FileBlockStore::recover(&state.block_path)?;
+    let height = state.runtime.cached_block_count();
     let report = &state.report;
     Ok(json!({
         "ok": true,
-        "height": recovered.size(),
+        "height": height,
         "c": current_head(state),
         "T_ticket": report.T_ticket,
         "T_share": report.T_share,

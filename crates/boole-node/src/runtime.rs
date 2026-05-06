@@ -50,6 +50,11 @@ pub struct RuntimeAdmissionState {
     pool: SharePool,
     current_c: Option<String>,
     candidates: Vec<CandidateShare>,
+    /// In-memory mirror of the on-disk block store. Populated at boot via
+    /// `FileBlockStore::recover` and incrementally updated on every commit.
+    /// Hot paths (commit, status, head) read from this instead of re-reading
+    /// the file each request, eliminating the previous O(N²) commit cost.
+    block_cache: Vec<PersistedBlock>,
 }
 
 impl RuntimeAdmissionState {
@@ -59,6 +64,7 @@ impl RuntimeAdmissionState {
             pool: SharePool::from_policy(&config.policy),
             current_c: None,
             candidates: Vec::new(),
+            block_cache: Vec::new(),
             config,
         }
     }
@@ -78,7 +84,16 @@ impl RuntimeAdmissionState {
             )?;
         }
         runtime.set_current_c(replay.latest_c);
+        runtime.block_cache = recovered.blocks().to_vec();
         Ok(runtime)
+    }
+
+    pub fn cached_blocks(&self) -> &[PersistedBlock] {
+        &self.block_cache
+    }
+
+    pub fn cached_block_count(&self) -> usize {
+        self.block_cache.len()
     }
 
     pub fn set_current_c(&mut self, c: String) {
@@ -248,21 +263,15 @@ impl RuntimeAdmissionState {
         accepted_canon_tags: &BTreeSet<u8>,
     ) -> anyhow::Result<RuntimeCommittedBlock> {
         let block_path = block_path.as_ref();
-        let recovered = FileBlockStore::recover(block_path)?;
-        if recovered.size() as u64 != height {
+        let cached_height = self.block_cache.len() as u64;
+        if cached_height != height {
             anyhow::bail!(
-                "commit height {} does not match recovered store size {}",
+                "commit height {} does not match cached store size {}",
                 height,
-                recovered.size()
+                cached_height
             );
         }
-        self.commit_with_recovered(
-            block_path,
-            recovered.blocks(),
-            height,
-            ts,
-            accepted_canon_tags,
-        )
+        self.commit_using_cache(block_path, height, ts, accepted_canon_tags)
     }
 
     pub fn commit_next_block_for_current_c(
@@ -272,30 +281,26 @@ impl RuntimeAdmissionState {
         accepted_canon_tags: &BTreeSet<u8>,
     ) -> anyhow::Result<RuntimeCommittedBlock> {
         let block_path = block_path.as_ref();
-        let recovered = FileBlockStore::recover(block_path)?;
-        let height = recovered.size() as u64;
-        self.commit_with_recovered(
-            block_path,
-            recovered.blocks(),
-            height,
-            ts,
-            accepted_canon_tags,
-        )
+        let height = self.block_cache.len() as u64;
+        self.commit_using_cache(block_path, height, ts, accepted_canon_tags)
     }
 
-    fn commit_with_recovered(
+    fn commit_using_cache(
         &mut self,
         block_path: &Path,
-        existing_blocks: &[PersistedBlock],
         height: u64,
         ts: u64,
         accepted_canon_tags: &BTreeSet<u8>,
     ) -> anyhow::Result<RuntimeCommittedBlock> {
-        let config = self.block_builder_config_for_height(existing_blocks)?;
+        let config = self.block_builder_config_for_height(&self.block_cache)?;
         let block =
             self.produce_block_for_current_c_with_config(height, ts, accepted_canon_tags, &config)?;
+        // Append to disk first; only mirror into the in-memory cache after the
+        // file write succeeded. If append() fails the cache stays consistent
+        // with the file and the runtime can be re-driven.
         FileBlockStore::append(block_path, &block)?;
         let dropped_stale_shares = self.apply_produced_block(&block)?;
+        self.block_cache.push(block.clone());
         Ok(RuntimeCommittedBlock {
             block,
             dropped_stale_shares,
