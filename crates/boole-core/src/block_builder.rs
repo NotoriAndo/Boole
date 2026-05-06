@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::{min_share_score, CalibrationPolicy};
+use crate::{difficulty_weight, min_share_score, CalibrationPolicy};
 use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
@@ -20,8 +20,11 @@ pub struct CandidateShare {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockBuilderConfig {
     pub t_block: String,
+    pub t_share: String,
     pub min_share_score: u128,
     pub k_max: usize,
+    pub difficulty_epoch: u64,
+    pub difficulty_weight: String,
 }
 
 impl BlockBuilderConfig {
@@ -32,8 +35,11 @@ impl BlockBuilderConfig {
             .ok_or_else(|| anyhow::anyhow!("min share score exceeds u128"))?;
         Ok(Self {
             t_block: format!("0x{:064x}", policy.thresholds.t_block),
+            t_share: format!("0x{:064x}", policy.thresholds.t_share),
             min_share_score,
             k_max: policy.k_max,
+            difficulty_epoch: 0,
+            difficulty_weight: difficulty_weight(&policy.thresholds.t_block)?.to_string(),
         })
     }
 }

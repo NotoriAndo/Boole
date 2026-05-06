@@ -69,6 +69,8 @@ benchmark=proof-to-block-genesis-preflight
 genesisMode=reset
 genesisHash=000...000
 configHash/scenarioHash/runtimeSmokeCasesHash
+difficulty.mode=static-calibrated
+difficulty.tBlock / difficulty.tShare / difficulty.difficultyWeight
 replayFromGenesis=true
 replayPassed=true
 invalidAccepted=0
@@ -83,6 +85,7 @@ For model rows, select attempts/trials with:
 ```
 
 This is a controlled genesis-reset benchmark, not a public-network difficulty-retarget benchmark.
+Each produced block records static calibrated difficulty evidence (`difficultyEpoch`, `tBlock`, `tShare`, `difficultyWeight`), and replay/block-store recovery validates the recorded difficulty weight.
 
 ## Required checks
 

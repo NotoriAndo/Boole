@@ -16,6 +16,12 @@ const pks = {
 };
 
 const genesisC = "0000000000000000000000000000000000000000000000000000000000000000";
+const staticDifficulty = {
+  difficultyEpoch: 0,
+  tBlock: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  tShare: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  difficultyWeight: "1",
+};
 const blockStore = new InMemoryBlockStore();
 const rewardLedger = new InMemoryRewardLedger();
 
@@ -79,6 +85,11 @@ const c2 = makeBlock({
 const balancePks = Object.values(pks).sort();
 const balances = Object.fromEntries(balancePks.map((pk) => [pk, rewardLedger.balanceOf(pk).toString()]));
 
+function persistedBlock(height: number) {
+  const block = blockStore.getByHeight(height)!;
+  return { ...block, ...staticDifficulty };
+}
+
 const fixture = {
   version: 1,
   source: {
@@ -88,7 +99,7 @@ const fixture = {
   },
   generatedBy: "scripts/export-replay-fixtures.ts",
   genesisC,
-  blocks: [blockStore.getByHeight(0), blockStore.getByHeight(1)],
+  blocks: [persistedBlock(0), persistedBlock(1)],
   rewardEvents: [0, 1].map((height) => ({
     height,
     // Preserve public expected effect. Rust fixture tests recompute events from blocks.

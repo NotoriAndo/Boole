@@ -49,6 +49,10 @@ pub struct RuntimeSmokeBlockOutput {
     pub prev_c: String,
     pub c: String,
     pub proposer_pk: String,
+    pub difficulty_epoch: u64,
+    pub t_block: String,
+    pub t_share: String,
+    pub difficulty_weight: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -281,6 +285,10 @@ pub fn run_runtime_smoke_multi_scenario(
             prev_c: committed.block.prev_c,
             c: committed.block.c,
             proposer_pk: committed.block.proposer_pk,
+            difficulty_epoch: committed.block.difficulty_epoch,
+            t_block: committed.block.t_block,
+            t_share: committed.block.t_share,
+            difficulty_weight: committed.block.difficulty_weight,
         });
         assert_runtime_store_replay_consistency(&scenario.block_path, runtime.current_c())?;
     }

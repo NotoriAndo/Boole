@@ -197,7 +197,7 @@ Or run the local evidence gate directly before closed-testnet onboarding:
 ./scripts/phase7-solo-preflight.sh
 ```
 
-The runner captures runtime smoke, Proof-to-Block benchmark, local mining, agent wrapper checks, git metadata, and a summary JSON under ignored `artifacts/preflight/<timestamp>/`. With `--genesis-benchmark`, the runner resets a clean evidence root under `artifacts/preflight-genesis/<timestamp>/`, records `genesis-benchmark.json`, and treats the run as a controlled benchmark from the zero genesis head. See [`docs/phase7-solo-preflight.md`](docs/phase7-solo-preflight.md).
+The runner captures runtime smoke, Proof-to-Block benchmark, local mining, agent wrapper checks, git metadata, and a summary JSON under ignored `artifacts/preflight/<timestamp>/`. With `--genesis-benchmark`, the runner resets a clean evidence root under `artifacts/preflight-genesis/<timestamp>/`, records `genesis-benchmark.json`, and treats the run as a controlled benchmark from the zero genesis head. Produced blocks now include static calibrated difficulty evidence (`difficultyEpoch`, `tBlock`, `tShare`, `difficultyWeight`) that replay validates. See [`docs/phase7-solo-preflight.md`](docs/phase7-solo-preflight.md).
 
 ## Source plan
 

@@ -66,6 +66,10 @@ struct RuntimeSmokeBlockOutput {
     height: u64,
     prev_c: String,
     c: String,
+    difficulty_epoch: u64,
+    t_block: String,
+    t_share: String,
+    difficulty_weight: String,
 }
 
 #[test]
@@ -117,6 +121,16 @@ fn node_runtime_smoke_commits_replayable_block_from_fixture() {
     assert_eq!(parsed.blocks[0].height, 0);
     assert_eq!(parsed.blocks[0].prev_c, parsed.prev_c);
     assert_eq!(parsed.blocks[0].c, parsed.c);
+    assert_eq!(parsed.blocks[0].difficulty_epoch, 0);
+    assert_eq!(
+        parsed.blocks[0].t_block,
+        "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe"
+    );
+    assert_eq!(
+        parsed.blocks[0].t_share,
+        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    );
+    assert_eq!(parsed.blocks[0].difficulty_weight, "1");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -198,6 +212,10 @@ fn node_runtime_smoke_accepts_scenario_json_input() {
     assert_eq!(parsed.blocks[0].height, 0);
     assert_eq!(parsed.blocks[0].prev_c, parsed.prev_c);
     assert_eq!(parsed.blocks[0].c, parsed.c);
+    assert_eq!(parsed.blocks[0].difficulty_epoch, 0);
+    assert_eq!(parsed.blocks[0].t_block, scenario["cfg"]["T_block"]);
+    assert_eq!(parsed.blocks[0].t_share, scenario["cfg"]["T_share"]);
+    assert_eq!(parsed.blocks[0].difficulty_weight, "1");
 
     let _ = std::fs::remove_dir_all(&dir);
 }

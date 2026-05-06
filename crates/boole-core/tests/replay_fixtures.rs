@@ -47,3 +47,18 @@ fn replay_matches_typescript_golden_fixture() {
         .collect::<BTreeMap<_, _>>();
     assert_eq!(got_balances, fixture.expected.balances);
 }
+
+#[test]
+fn replay_rejects_block_with_bad_difficulty_weight() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
+            .expect("fixture parses");
+    let mut blocks = fixture.blocks;
+    blocks[0].difficulty_weight = "999".to_string();
+
+    let err = replay_blocks(&blocks).expect_err("bad difficulty weight is rejected");
+    assert!(
+        err.to_string().contains("difficultyWeight mismatch"),
+        "unexpected error: {err}"
+    );
+}

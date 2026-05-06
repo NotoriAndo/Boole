@@ -240,6 +240,30 @@ def genesis_metadata():
         },
     }
 
+def difficulty_summary_from_benchmark(benchmark):
+    blocks = []
+    for case in benchmark.get("cases", []):
+        blocks.extend(case.get("blocks", []) or [])
+    if not blocks:
+        return None
+    first = blocks[0]
+    targets = {
+        "tBlock": sorted({block.get("tBlock") for block in blocks if block.get("tBlock")}),
+        "tShare": sorted({block.get("tShare") for block in blocks if block.get("tShare")}),
+        "difficultyWeight": sorted({block.get("difficultyWeight") for block in blocks if block.get("difficultyWeight")}),
+        "difficultyEpoch": sorted({block.get("difficultyEpoch") for block in blocks if block.get("difficultyEpoch") is not None}),
+    }
+    return {
+        "mode": "static-calibrated",
+        "retarget": "not-enabled",
+        "blockCount": len(blocks),
+        "difficultyEpoch": first.get("difficultyEpoch"),
+        "tBlock": first.get("tBlock"),
+        "tShare": first.get("tShare"),
+        "difficultyWeight": first.get("difficultyWeight"),
+        "uniqueTargets": targets,
+    }
+
 runtime = load("runtime-smoke-all")
 benchmark = load("proof-to-block-benchmark")
 mining = load("local-mining-smoke")
@@ -341,6 +365,7 @@ if genesis is not None:
         "blocksProduced": summary.get("blocksProduced"),
         "casesPassed": summary.get("casesPassed"),
         "caseCount": summary.get("caseCount"),
+        "difficulty": difficulty_summary_from_benchmark(benchmark),
     })
     (evidence_dir / "genesis-benchmark.json").write_text(json.dumps(genesis, indent=2, sort_keys=True) + "\n")
 

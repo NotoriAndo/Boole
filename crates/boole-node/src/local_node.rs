@@ -339,6 +339,12 @@ fn block_json(block: &PersistedBlock) -> Value {
         "proposerPk": block.proposer_pk,
         "selectedShareHashes": block.selected_share_hashes,
         "selectedSharePks": block.selected_share_pks,
+        "minShareScore": block.min_share_score,
+        "kmaxApplied": block.kmax_applied,
+        "difficultyEpoch": block.difficulty_epoch,
+        "tBlock": block.t_block,
+        "tShare": block.t_share,
+        "difficultyWeight": block.difficulty_weight,
         "ts": block.ts,
     })
 }

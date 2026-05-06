@@ -26,7 +26,11 @@
       "droppedBelowMinScore": 0,
       "droppedKernelReject": 0,
       "truncatedByKmax": 0,
-      "ts": 1700000000000
+      "ts": 1700000000000,
+      "difficultyEpoch": 0,
+      "tBlock": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "tShare": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "difficultyWeight": "1"
     },
     {
       "height": 1,
@@ -48,7 +52,11 @@
       "droppedBelowMinScore": 1,
       "droppedKernelReject": 0,
       "truncatedByKmax": 2,
-      "ts": 1700000001000
+      "ts": 1700000001000,
+      "difficultyEpoch": 0,
+      "tBlock": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "tShare": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "difficultyWeight": "1"
     }
   ],
   "rewardEvents": [
