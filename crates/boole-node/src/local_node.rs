@@ -334,14 +334,34 @@ fn submit_json(state: &mut LocalNodeState, body: &[u8], peer_ip: &str) -> anyhow
     let submit_body = body_value
         .as_object()
         .ok_or_else(|| anyhow::anyhow!("submit body must be a JSON object"))?;
-    let canon_tag = submit_body
+    let canon_tag_raw = submit_body
         .get("canonTag")
         .and_then(Value::as_u64)
-        .unwrap_or(0) as u8;
-    let ts = submit_body
+        .unwrap_or(0);
+    if canon_tag_raw > u8::MAX as u64 {
+        return Ok(json!({
+            "ok": false,
+            "accepted": false,
+            "error": "canon_tag_out_of_range",
+            "canonTag": canon_tag_raw,
+            "max": u8::MAX,
+        }));
+    }
+    let canon_tag = canon_tag_raw as u8;
+    let ts_raw = submit_body
         .get("ts")
         .and_then(Value::as_u64)
         .unwrap_or(1_800_000_000_000);
+    if ts_raw > i64::MAX as u64 {
+        return Ok(json!({
+            "ok": false,
+            "accepted": false,
+            "error": "ts_out_of_range",
+            "ts": ts_raw,
+            "maxI64": i64::MAX,
+        }));
+    }
+    let ts_i64 = ts_raw as i64;
     let mut body = submit_body
         .get("body")
         .and_then(Value::as_object)
@@ -355,7 +375,7 @@ fn submit_json(state: &mut LocalNodeState, body: &[u8], peer_ip: &str) -> anyhow
         .map_err(|err| anyhow::anyhow!(err))?;
     let decision = state
         .runtime
-        .admit_body_with_canon_tag(ts as i64, peer_ip, &body, canon_tag);
+        .admit_body_with_canon_tag(ts_i64, peer_ip, &body, canon_tag);
     let AdmissionDecision::Accepted { share_hash } = decision else {
         return Ok(json!({
             "ok": false,
@@ -368,7 +388,7 @@ fn submit_json(state: &mut LocalNodeState, body: &[u8], peer_ip: &str) -> anyhow
     let committed =
         state
             .runtime
-            .commit_next_block_for_current_c(&state.block_path, ts, &accepted_tags)?;
+            .commit_next_block_for_current_c(&state.block_path, ts_raw, &accepted_tags)?;
     // After commit_next_block: the runtime head is the new block's c, and the
     // store size is committed.block.height + 1 by construction. We do not need
     // to read the store again or re-replay the chain — apply_produced_block has
