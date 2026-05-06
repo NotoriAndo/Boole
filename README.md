@@ -142,6 +142,20 @@ LEADERBOARD_MD=/tmp/boole-provider-model-leaderboard.md ./scripts/provider-model
 
 Agent-runtime output is treated as an untrusted candidate proof; deterministic verifier/canonical bytes/share hash/block replay decide acceptance. Optional live provider rows are gated by env vars so missing daemons or credentials do not create false CI failures. See [`docs/proof-to-block-benchmark.md`](docs/proof-to-block-benchmark.md).
 
+## Agent slash-command mining foundation
+
+The shared `/boole mine` foundation is a thin wrapper around the existing `boole-miner` + Rust `boole-node` paths:
+
+```bash
+./scripts/boole-agent-mine.sh --runtime fake
+./scripts/boole-agent-mine.sh --runtime hermes --verify mock
+./scripts/boole-agent-mine.sh --runtime hermes --verify real
+./scripts/boole-agent-mine.sh --runtime claude-code --agent-command claude --agent-args '["-p"]'
+./scripts/boole-agent-mine.sh --runtime codex --agent-command codex --agent-args '["exec"]'
+```
+
+Claude Code, Codex, OpenCode, or Hermes slash commands should call this wrapper rather than reimplementing verifier/submit/replay logic. See [`docs/agent-slash-mining.md`](docs/agent-slash-mining.md).
+
 ## Source plan
 
 The local migration plan is stored in the original repo:
