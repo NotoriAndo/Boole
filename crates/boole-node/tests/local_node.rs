@@ -69,6 +69,66 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
 }
 
 #[test]
+fn local_node_submit_uses_tcp_peer_ip_not_spoofed_body_ip_for_rate_limit() {
+    let tmp = std::env::temp_dir().join(format!(
+        "boole-local-node-peer-ip-boundary-{}.ndjson",
+        std::process::id()
+    ));
+    let _ = fs::remove_file(&tmp);
+
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("repo root");
+    let scenario_path = repo_root.join("fixtures/protocol/runtime-smoke/v1.json");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind local listener");
+    let addr = listener.local_addr().expect("local addr");
+    let (tx, rx) = mpsc::channel();
+    let block_path = tmp.clone();
+    let server_scenario_path = scenario_path.clone();
+    let handle = thread::spawn(move || {
+        tx.send(()).expect("signal ready");
+        serve_local_node(
+            listener,
+            LocalNodeConfig {
+                scenario_path: server_scenario_path,
+                block_path,
+                max_requests: Some(2),
+            },
+        )
+    });
+    rx.recv().expect("server ready");
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let scenario: Value =
+        serde_json::from_str(&fs::read_to_string(&scenario_path).expect("scenario fixture"))
+            .expect("scenario json");
+
+    let first = request_json_with_body(addr, "/submit", &scenario["steps"][0]);
+    assert_eq!(first["accepted"], true);
+
+    let mut second = scenario["steps"][1].clone();
+    second["body"]["c"] = first["block"]["c"].clone();
+    second["ts"] = serde_json::json!(1800000001123u64);
+    second["ip"] = serde_json::json!("198.51.100.250");
+    let rejected = request_json_with_body(addr, "/submit", &second);
+    assert_eq!(rejected["accepted"], false);
+    assert!(
+        rejected["decision"]
+            .as_str()
+            .expect("debug decision")
+            .contains("IpQuota"),
+        "second submit from same TCP peer must hit peer-IP quota, not spoofed body IP: {rejected}"
+    );
+
+    handle
+        .join()
+        .expect("server thread joined")
+        .expect("server exits cleanly");
+    let _ = fs::remove_file(&tmp);
+}
+
+#[test]
 fn local_node_rejects_oversized_http_body_before_json_parsing() {
     let tmp = std::env::temp_dir().join(format!(
         "boole-local-node-oversized-{}.ndjson",

@@ -91,6 +91,10 @@ impl LocalNodeState {
 }
 
 fn handle_connection(mut stream: TcpStream, state: &mut LocalNodeState) -> anyhow::Result<()> {
+    let peer_ip = stream
+        .peer_addr()
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
     let request = match read_http_request(&mut stream) {
         Ok(request) => request,
         Err(HttpRequestError::BodyTooLarge { limit, actual }) => {
@@ -113,7 +117,7 @@ fn handle_connection(mut stream: TcpStream, state: &mut LocalNodeState) -> anyho
         ("GET", "/head") => head_json(state)?,
         ("GET", "/config") => config_json(state),
         ("POST", "/ticket") => ticket_json(state, &request.body)?,
-        ("POST", "/submit") => submit_json(state, &request.body)?,
+        ("POST", "/submit") => submit_json(state, &request.body, &peer_ip)?,
         _ => {
             write_json_response(
                 &mut stream,
@@ -318,15 +322,11 @@ fn normalize_pow_fields(body: &mut serde_json::Map<String, Value>) {
     }
 }
 
-fn submit_json(state: &mut LocalNodeState, body: &[u8]) -> anyhow::Result<Value> {
+fn submit_json(state: &mut LocalNodeState, body: &[u8], peer_ip: &str) -> anyhow::Result<Value> {
     let body_value: Value = serde_json::from_slice(body)?;
     let submit_body = body_value
         .as_object()
         .ok_or_else(|| anyhow::anyhow!("submit body must be a JSON object"))?;
-    let ip = submit_body
-        .get("ip")
-        .and_then(Value::as_str)
-        .unwrap_or("127.0.0.1");
     let canon_tag = submit_body
         .get("canonTag")
         .and_then(Value::as_u64)
@@ -348,7 +348,7 @@ fn submit_json(state: &mut LocalNodeState, body: &[u8]) -> anyhow::Result<Value>
         .map_err(|err| anyhow::anyhow!(err))?;
     let decision = state
         .runtime
-        .admit_body_with_canon_tag(ts as i64, ip, &body, canon_tag);
+        .admit_body_with_canon_tag(ts as i64, peer_ip, &body, canon_tag);
     let AdmissionDecision::Accepted { share_hash } = decision else {
         return Ok(json!({
             "ok": false,
