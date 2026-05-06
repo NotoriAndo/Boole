@@ -47,7 +47,7 @@ impl LeanRunnerConfig {
             package_dir: PathBuf::from("."),
             checker_exe: "boole_check".to_string(),
             timeout_ms: 10_000,
-            memory_limit_mb: 512,
+            memory_limit_mb: 8192,
             output_limit_bytes: 64 * 1024,
         }
     }
@@ -586,7 +586,7 @@ mod tests {
         assert_eq!(cfg.verifier_hash, "abc");
         assert_eq!(cfg.checker_exe, "boole_check");
         assert_eq!(cfg.timeout_ms, 10_000);
-        assert_eq!(cfg.memory_limit_mb, 512);
+        assert_eq!(cfg.memory_limit_mb, 8192);
         assert_eq!(cfg.output_limit_bytes, 64 * 1024);
     }
 

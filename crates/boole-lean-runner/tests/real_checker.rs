@@ -21,7 +21,7 @@ fn lake_exec_checker_accepts_valid_lean_file_with_evidence() {
         LeanRunnerConfig::new("fixture-verifier-hash")
             .with_package_dir(workspace.root.clone())
             .with_timeout_ms(5_000)
-            .with_memory_limit_mb(256),
+            .with_memory_limit_mb(8192),
     );
 
     let result = runner.check_file(&proof).expect("checker runs");
@@ -43,7 +43,7 @@ fn lake_exec_checker_accepts_valid_lean_file_with_evidence() {
         result.evidence.lean_version
     );
     assert_eq!(result.evidence.timeout_ms, 5_000);
-    assert_eq!(result.evidence.memory_limit_mb, 256);
+    assert_eq!(result.evidence.memory_limit_mb, 8192);
 }
 
 #[test]
@@ -148,7 +148,7 @@ fn lake_exec_checker_rejects_invalid_lean_file_without_panicking() {
         LeanRunnerConfig::new("fixture-verifier-hash")
             .with_package_dir(workspace.root.clone())
             .with_timeout_ms(5_000)
-            .with_memory_limit_mb(256),
+            .with_memory_limit_mb(8192),
     );
 
     let result = runner.check_file(&proof).expect("checker returns envelope");

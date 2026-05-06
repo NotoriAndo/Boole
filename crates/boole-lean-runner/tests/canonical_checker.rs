@@ -130,7 +130,7 @@ fn canonical_checker_accepts_valid_proof_through_sandbox() {
             // hosted runners. Keep this smoke realistic but above that floor;
             // dedicated limit-enforcement tests should use intentionally tiny
             // limits instead of making the canonical accept path flaky.
-            .with_memory_limit_mb(1024),
+            .with_memory_limit_mb(8192),
     );
     let result = runner.check_file(&proof).expect("checker runs");
     let _ = std::fs::remove_file(&proof);

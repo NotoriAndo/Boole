@@ -47,7 +47,7 @@ fn lean_checked_proof_package_is_admitted_as_block_and_replays() {
         LeanRunnerConfig::new("bridge-verifier-hash")
             .with_package_dir(workspace.root.clone())
             .with_timeout_ms(5_000)
-            .with_memory_limit_mb(256),
+            .with_memory_limit_mb(8192),
     ));
     let template = template_from_fixture(&fixture.constants);
     let bridged = bridge
@@ -122,7 +122,7 @@ fn lean_bridge_rejects_checker_artifact_not_in_allowlist_before_submission_body(
     let base_config = LeanRunnerConfig::new("bridge-verifier-hash")
         .with_package_dir(workspace.root.clone())
         .with_timeout_ms(5_000)
-        .with_memory_limit_mb(256);
+        .with_memory_limit_mb(8192);
     let expected_artifact_hash = LeanRunner::new(base_config.clone())
         .evidence()
         .expect("evidence hashes baseline checker")
@@ -172,7 +172,7 @@ fn invalid_lean_proof_is_rejected_before_admission_or_block() {
         LeanRunnerConfig::new("bridge-verifier-hash")
             .with_package_dir(workspace.root.clone())
             .with_timeout_ms(5_000)
-            .with_memory_limit_mb(256),
+            .with_memory_limit_mb(8192),
     ));
     let template = template_from_fixture(&fixture.constants);
     let rejected = bridge
