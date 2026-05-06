@@ -31,6 +31,7 @@ def write_lean_checker_workspace(workspace: pathlib.Path) -> pathlib.Path:
     if workspace.exists():
         shutil.rmtree(workspace)
     (workspace / "BooleCheck").mkdir(parents=True)
+    (workspace / "lean-toolchain").write_text("leanprover/lean4:v4.29.1\n")
     (workspace / "lakefile.lean").write_text(
         """import Lake
 open Lake DSL
@@ -39,6 +40,14 @@ package boole_check_fixture
 
 lean_exe boole_check where
   root := `BooleCheck.Main
+"""
+    )
+    (workspace / "lake-manifest.json").write_text(
+        """{"version": "1.1.0",
+ "packagesDir": ".lake/packages",
+ "packages": [],
+ "name": "boole_check_fixture",
+ "lakeDir": ".lake"}
 """
     )
     (workspace / "BooleCheck" / "Main.lean").write_text(

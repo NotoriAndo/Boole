@@ -493,18 +493,78 @@ fn kill_child_group(child: &mut Child) {
     let _ = child.kill();
 }
 
+// Files the artifact hash always pins, in order. Anything outside this list
+// must come from the recursive `BooleCheck/**` walk below.
+const CHECKER_PINNED_FILES: &[&str] = &[
+    "lean-toolchain",
+    "lakefile.lean",
+    "lake-manifest.json",
+];
+
 fn checker_artifact_hash(package_dir: &Path) -> Result<String> {
-    let mut hasher = Sha256::new();
-    for relative in ["lakefile.lean", "BooleCheck/Main.lean"] {
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for relative in CHECKER_PINNED_FILES {
         let path = package_dir.join(relative);
         let bytes = std::fs::read(&path)
             .with_context(|| format!("failed to read checker artifact {}", path.display()))?;
+        entries.push(((*relative).to_string(), bytes));
+    }
+    collect_boole_check_sources(package_dir, &mut entries)?;
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut hasher = Sha256::new();
+    for (relative, bytes) in &entries {
         hasher.update(relative.as_bytes());
         hasher.update([0]);
         hasher.update(bytes);
         hasher.update([0]);
     }
     Ok(hex::encode(hasher.finalize()))
+}
+
+// Walk `BooleCheck/**` and collect every file the checker source tree owns.
+// The walk is deterministic (sorted by relative path during hashing) and
+// rejects symlinks so an operator cannot smuggle a file in via a symlink that
+// resolves outside the package.
+fn collect_boole_check_sources(
+    package_dir: &Path,
+    out: &mut Vec<(String, Vec<u8>)>,
+) -> Result<()> {
+    let root = package_dir.join("BooleCheck");
+    if !root.exists() {
+        return Ok(());
+    }
+    let mut stack = vec![root.clone()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir)
+            .with_context(|| format!("failed to read checker dir {}", dir.display()))?
+        {
+            let entry = entry?;
+            let path = entry.path();
+            let metadata = entry
+                .metadata()
+                .with_context(|| format!("failed to stat {}", path.display()))?;
+            if metadata.file_type().is_symlink() {
+                return Err(anyhow!(
+                    "symlink not allowed inside checker package: {}",
+                    path.display()
+                ));
+            }
+            if metadata.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let bytes = std::fs::read(&path)
+                .with_context(|| format!("failed to read checker source {}", path.display()))?;
+            let relative = path
+                .strip_prefix(package_dir)
+                .with_context(|| format!("path {} not inside package", path.display()))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            out.push((relative, bytes));
+        }
+    }
+    Ok(())
 }
 
 fn command_version(command: &str) -> Result<String> {

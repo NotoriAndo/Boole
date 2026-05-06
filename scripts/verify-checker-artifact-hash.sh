@@ -14,10 +14,30 @@ fi
 
 actual=$(python3 - "$checker_dir" <<'PY'
 import hashlib, pathlib, sys
+
 root = pathlib.Path(sys.argv[1])
+PINNED = ("lean-toolchain", "lakefile.lean", "lake-manifest.json")
+
+entries = []
+for rel in PINNED:
+    path = root / rel
+    if not path.is_file():
+        sys.exit(f"missing pinned checker file: {rel}")
+    entries.append((rel, path.read_bytes()))
+
+boole_check = root / "BooleCheck"
+if boole_check.exists():
+    for path in sorted(boole_check.rglob("*")):
+        if path.is_symlink():
+            sys.exit(f"symlink not allowed: {path.relative_to(root)}")
+        if path.is_file():
+            rel = path.relative_to(root).as_posix()
+            entries.append((rel, path.read_bytes()))
+
+entries.sort(key=lambda item: item[0])
+
 h = hashlib.sha256()
-for rel in ("lakefile.lean", "BooleCheck/Main.lean"):
-    data = (root / rel).read_bytes()
+for rel, data in entries:
     h.update(rel.encode())
     h.update(b"\x00")
     h.update(data)

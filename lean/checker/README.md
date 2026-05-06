@@ -7,19 +7,28 @@ returns 0 if and only if `lean` accepted the proof file.
 
 ## Why this directory matters
 
-The SHA-256 of `lakefile.lean` and `BooleCheck/Main.lean` (concatenated
-with NUL separators in that order) is recorded in every proof package as
-`checker_artifact_hash`. Operators pin a hash allowlist via
-`LeanProofBridgePolicy::allow_checker_artifact_hash(...)`, so any byte-level
-modification of this directory invalidates every proof produced afterwards
-until operators rotate the allowlist.
+The SHA-256 of every file the checker depends on is recorded in every
+proof package as `checker_artifact_hash`. Operators pin a hash allowlist
+via `LeanProofBridgePolicy::allow_checker_artifact_hash(...)`, so any
+byte-level modification of this directory invalidates every proof produced
+afterwards until operators rotate the allowlist.
+
+The hash inputs, in canonical order, are:
+
+1. `lean-toolchain` — pins the Lean compiler version operators must use.
+2. `lakefile.lean` — pins the Lake build configuration.
+3. `lake-manifest.json` — pins resolved dependency versions.
+4. Every file under `BooleCheck/**` (recursive), sorted by relative path.
+
+Symlinks anywhere inside the package are rejected so an operator cannot
+smuggle a file in via a symlink that resolves outside the package.
 
 ## Canonical artifact hash
 
 The hash of the files committed to this repo:
 
 ```
-a91261b9957ea0cae0a37a090ad6fc90852e701d4788f3fdf83552ab27668239
+e255971c4605fe99d45a7d4e2609d01b5b05c3ba7a51ace3896336d413278fef
 ```
 
 Recompute and verify with:
@@ -50,8 +59,10 @@ core, not the sandbox.
 
 ## Toolchain
 
-The repository does not pin a `lean-toolchain` here. Operators are
-expected to install a Lean 4 toolchain on their PATH; the
-`checker_artifact_hash` covers only the Lean source, not the compiler
-binary. A future change may pin the toolchain so the proof package can
-attest to Lean version determinism.
+The expected Lean compiler version is pinned in `lean-toolchain`. The
+`checker_artifact_hash` covers that file, so any node running a different
+toolchain produces a different artifact hash and is rejected by operators
+pinning the canonical hash. The compiler binary itself is still installed
+on the host PATH (Lake style); the runtime additionally records the
+output of `lean --version` and `lake --version` in evidence so a build
+that links against an unexpected compiler is detectable post-hoc.

@@ -214,6 +214,8 @@ impl TestLeanWorkspace {
     }
 
     fn write_checker_project_with_main(&self, main_lean: &str) {
+        std::fs::write(self.root.join("lean-toolchain"), "leanprover/lean4:v4.29.1\n")
+            .expect("write lean-toolchain");
         std::fs::write(
             self.root.join("lakefile.lean"),
             r#"import Lake
@@ -226,6 +228,16 @@ lean_exe boole_check where
 "#,
         )
         .expect("write lakefile");
+        std::fs::write(
+            self.root.join("lake-manifest.json"),
+            r#"{"version": "1.1.0",
+ "packagesDir": ".lake/packages",
+ "packages": [],
+ "name": "boole_check_fixture",
+ "lakeDir": ".lake"}
+"#,
+        )
+        .expect("write lake-manifest");
         std::fs::write(self.root.join("BooleCheck/Main.lean"), main_lean)
             .expect("write checker main");
     }
