@@ -57,12 +57,12 @@ pub fn parse_submission_body(
         }
     }
 
-    let c_hex = string_field(body, "c").to_string();
-    let pk_hex = string_field(body, "pk").to_string();
-    let n_hex = string_field(body, "n").to_string();
-    let j_hex = string_field(body, "j").to_string();
-    let nonce_s_hex = string_field(body, "nonceS").to_string();
-    let bytes_hex = string_field(body, "bytes");
+    let c_hex = string_field(body, "c")?.to_string();
+    let pk_hex = string_field(body, "pk")?.to_string();
+    let n_hex = string_field(body, "n")?.to_string();
+    let j_hex = string_field(body, "j")?.to_string();
+    let nonce_s_hex = string_field(body, "nonceS")?.to_string();
+    let bytes_hex = string_field(body, "bytes")?;
 
     let c = hex32(&c_hex).map_err(|detail| decode_reject("c", detail))?;
     let pk = hex32(&pk_hex).map_err(|detail| decode_reject("pk", detail))?;
@@ -241,6 +241,14 @@ fn rejected_json(
             "field": field,
             "rejection": rejection_json(rejection)
         }),
+        AdmissionError::InvalidFieldType { field, expected } => json!({
+            "accepted": false,
+            "status": status.code(),
+            "error": "invalid field type",
+            "field": field,
+            "expected": expected,
+            "rejection": rejection_json(rejection)
+        }),
         AdmissionError::BadHex { field, .. } => json!({
             "accepted": false,
             "status": status.code(),
@@ -312,10 +320,33 @@ fn rejection_json(rejection: &RejectionReason) -> Value {
     }
 }
 
-fn string_field<'a>(body: &'a Map<String, Value>, field: &str) -> &'a str {
-    body.get(field)
-        .and_then(Value::as_str)
-        .unwrap_or_else(|| panic!("{field} must be string"))
+fn string_field<'a>(
+    body: &'a Map<String, Value>,
+    field: &str,
+) -> Result<&'a str, AdmissionDecision> {
+    let Some(value) = body.get(field) else {
+        return Err(reject(
+            AdmissionStatus::BadRequest,
+            AdmissionError::MissingField {
+                field: field.to_string(),
+            },
+            RejectionReason::BadRequest {
+                field: field.to_string(),
+            },
+        ));
+    };
+    value.as_str().ok_or_else(|| {
+        reject(
+            AdmissionStatus::BadRequest,
+            AdmissionError::InvalidFieldType {
+                field: field.to_string(),
+                expected: "string".to_string(),
+            },
+            RejectionReason::BadRequest {
+                field: field.to_string(),
+            },
+        )
+    })
 }
 
 fn hex32(value: &str) -> Result<Hex32, String> {

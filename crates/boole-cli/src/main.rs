@@ -40,7 +40,7 @@ fn main() {
     let cli = Cli::parse();
     let result = run(cli);
     if let Err(err) = result {
-        println!(
+        eprintln!(
             "{}",
             serde_json::json!({
                 "ok": false,

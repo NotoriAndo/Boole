@@ -68,6 +68,59 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
     let _ = fs::remove_file(&tmp);
 }
 
+#[test]
+fn local_node_rejects_oversized_http_body_before_json_parsing() {
+    let tmp = std::env::temp_dir().join(format!(
+        "boole-local-node-oversized-{}.ndjson",
+        std::process::id()
+    ));
+    let _ = fs::remove_file(&tmp);
+
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("repo root");
+    let scenario_path = repo_root.join("fixtures/protocol/runtime-smoke/v1.json");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind local listener");
+    let addr = listener.local_addr().expect("local addr");
+    let (tx, rx) = mpsc::channel();
+    let block_path = tmp.clone();
+    let server_scenario_path = scenario_path.clone();
+    let handle = thread::spawn(move || {
+        tx.send(()).expect("signal ready");
+        serve_local_node(
+            listener,
+            LocalNodeConfig {
+                scenario_path: server_scenario_path,
+                block_path,
+                max_requests: Some(1),
+            },
+        )
+    });
+    rx.recv().expect("server ready");
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let oversized_len = 1_048_577;
+    let request = format!(
+        "POST /submit HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {oversized_len}\r\n\r\n"
+    );
+    let raw = request_raw(addr, &request);
+    assert!(
+        raw.starts_with("HTTP/1.1 413"),
+        "oversized body should be rejected with 413 before parsing: {raw}"
+    );
+    let (_, body) = raw.split_once("\r\n\r\n").expect("response body");
+    let parsed: Value = serde_json::from_str(body).expect("response json");
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["error"], "body_too_large");
+
+    handle
+        .join()
+        .expect("server thread joined")
+        .expect("server exits cleanly");
+    let _ = fs::remove_file(&tmp);
+}
+
 fn request_json(addr: std::net::SocketAddr, request: &str) -> Value {
     let mut stream = TcpStream::connect(addr).expect("connect");
     stream.write_all(request.as_bytes()).expect("write request");
@@ -84,17 +137,27 @@ fn request_json_with_body(addr: std::net::SocketAddr, path: &str, body: &Value) 
 }
 
 fn read_json_response(mut stream: TcpStream) -> Value {
-    let mut bytes = Vec::new();
-    match stream.read_to_end(&mut bytes) {
-        Ok(_) => {}
-        Err(err) if err.kind() == ErrorKind::ConnectionReset && !bytes.is_empty() => {}
-        Err(err) => panic!("read response: {err}"),
-    }
-    let raw = String::from_utf8(bytes).expect("utf8 response");
+    let raw = read_raw_response(&mut stream);
     assert!(
         raw.starts_with("HTTP/1.1 200"),
         "unexpected response: {raw}"
     );
     let (_, body) = raw.split_once("\r\n\r\n").expect("response body");
     serde_json::from_str(body).expect("response json")
+}
+
+fn request_raw(addr: std::net::SocketAddr, request: &str) -> String {
+    let mut stream = TcpStream::connect(addr).expect("connect");
+    stream.write_all(request.as_bytes()).expect("write request");
+    read_raw_response(&mut stream)
+}
+
+fn read_raw_response(stream: &mut TcpStream) -> String {
+    let mut bytes = Vec::new();
+    match stream.read_to_end(&mut bytes) {
+        Ok(_) => {}
+        Err(err) if err.kind() == ErrorKind::ConnectionReset && !bytes.is_empty() => {}
+        Err(err) => panic!("read response: {err}"),
+    }
+    String::from_utf8(bytes).expect("utf8 response")
 }

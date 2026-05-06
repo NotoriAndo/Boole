@@ -11,6 +11,8 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 
+const MAX_HTTP_BODY_BYTES: usize = 1_048_576;
+
 #[derive(Debug, Clone)]
 pub struct LocalNodeConfig {
     pub scenario_path: PathBuf,
@@ -89,7 +91,23 @@ impl LocalNodeState {
 }
 
 fn handle_connection(mut stream: TcpStream, state: &mut LocalNodeState) -> anyhow::Result<()> {
-    let request = read_http_request(&mut stream)?;
+    let request = match read_http_request(&mut stream) {
+        Ok(request) => request,
+        Err(HttpRequestError::BodyTooLarge { limit, actual }) => {
+            write_json_response(
+                &mut stream,
+                413,
+                &json!({
+                    "ok": false,
+                    "error": "body_too_large",
+                    "limitBytes": limit,
+                    "actualBytes": actual,
+                }),
+            )?;
+            return Ok(());
+        }
+        Err(HttpRequestError::Invalid(err)) => return Err(err),
+    };
     let response = match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/status") => status_json(state)?,
         ("GET", "/head") => head_json(state)?,
@@ -114,7 +132,31 @@ struct HttpRequest {
     body: Vec<u8>,
 }
 
-fn read_http_request(stream: &mut TcpStream) -> anyhow::Result<HttpRequest> {
+#[derive(Debug)]
+enum HttpRequestError {
+    BodyTooLarge { limit: usize, actual: usize },
+    Invalid(anyhow::Error),
+}
+
+impl From<anyhow::Error> for HttpRequestError {
+    fn from(err: anyhow::Error) -> Self {
+        Self::Invalid(err)
+    }
+}
+
+impl From<std::io::Error> for HttpRequestError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Invalid(err.into())
+    }
+}
+
+impl From<std::str::Utf8Error> for HttpRequestError {
+    fn from(err: std::str::Utf8Error) -> Self {
+        Self::Invalid(err.into())
+    }
+}
+
+fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, HttpRequestError> {
     let mut buffer = Vec::new();
     let mut chunk = [0u8; 1024];
     loop {
@@ -128,7 +170,7 @@ fn read_http_request(stream: &mut TcpStream) -> anyhow::Result<HttpRequest> {
         }
     }
     let Some(header_end) = header_end(&buffer) else {
-        anyhow::bail!("bad HTTP request: missing header terminator");
+        return Err(anyhow::anyhow!("bad HTTP request: missing header terminator").into());
     };
     let header = std::str::from_utf8(&buffer[..header_end])?;
     let mut lines = header.split("\r\n");
@@ -149,6 +191,12 @@ fn read_http_request(stream: &mut TcpStream) -> anyhow::Result<HttpRequest> {
         .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
         .and_then(|(_, value)| value.trim().parse::<usize>().ok())
         .unwrap_or(0);
+    if content_length > MAX_HTTP_BODY_BYTES {
+        return Err(HttpRequestError::BodyTooLarge {
+            limit: MAX_HTTP_BODY_BYTES,
+            actual: content_length,
+        });
+    }
     let body_start = header_end + 4;
     while buffer.len() < body_start + content_length {
         let n = stream.read(&mut chunk)?;

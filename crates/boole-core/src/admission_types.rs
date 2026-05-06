@@ -47,6 +47,7 @@ impl AdmissionStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdmissionError {
     MissingField { field: String },
+    InvalidFieldType { field: String, expected: String },
     BadHex { field: String, detail: String },
     Ticket { reason: TicketRejectReason },
     Validator { reason: ValidationReason },

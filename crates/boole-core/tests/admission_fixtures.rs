@@ -195,6 +195,42 @@ fn admission_pool_rejection_does_not_consume_rate_quota() {
 }
 
 #[test]
+fn admission_rejects_non_string_boundary_fields_without_panicking() {
+    let fixture = load_fixture();
+    let policy = calibration_policy(&fixture.cfg).expect("policy parses");
+    let mut rate_limiter = RateLimiter::new(fixture.cfg.clone(), 60_000);
+    let mut pool = SharePool::new(fixture.cfg.ShareCapPerPK_Block as usize);
+    pool.set_current_c(fixture.constants.c.clone());
+
+    let mut patch = Map::new();
+    patch.insert("c".to_string(), Value::Number(123.into()));
+    let body = body_for(&fixture.constants, &patch);
+
+    let decision = admit_submission_typed(AdmissionDeps {
+        policy: &policy,
+        rate_limiter: &mut rate_limiter,
+        pool: &mut pool,
+        now: 1_800_000_000_000,
+        ip: &fixture.constants.ip,
+        body: &body,
+    });
+
+    assert_eq!(
+        decision,
+        AdmissionDecision::Rejected {
+            status: AdmissionStatus::BadRequest,
+            error: AdmissionError::InvalidFieldType {
+                field: "c".to_string(),
+                expected: "string".to_string(),
+            },
+            rejection: RejectionReason::BadRequest {
+                field: "c".to_string(),
+            },
+        }
+    );
+}
+
+#[test]
 fn admission_validator_rejection_uses_typed_validation_reason() {
     let fixture = load_fixture();
     let policy = calibration_policy(&fixture.cfg).expect("policy parses");
