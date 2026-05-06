@@ -1,7 +1,8 @@
 use crate::block_store::FileBlockStore;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use boole_core::{
-    ticket, AdmissionDecision, CalibrationReport, DifficultyRetargetPolicy, Hex32, PersistedBlock,
+    replay_blocks, ticket, AdmissionDecision, CalibrationReport, DifficultyRetargetPolicy, Hex32,
+    PersistedBlock,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -36,6 +37,14 @@ struct LocalNodeState {
     block_path: PathBuf,
     report: CalibrationReport,
     max_requests: Option<usize>,
+    /// Set at boot from the disk replay. The block_cache mirror is updated in
+    /// lockstep with FileBlockStore::append (see runtime::commit_using_cache),
+    /// so once boot agrees, `cached_block_count() / current_c` and
+    /// `replay_blocks(disk).{height, latest_c}` cannot diverge during this
+    /// process's lifetime. Surfaced through /status as `replayMatchesRuntime`
+    /// so operators see the real boot-time invariant rather than a hardcoded
+    /// constant.
+    replay_matches_runtime_at_boot: bool,
 }
 
 pub fn serve_local_node(listener: TcpListener, config: LocalNodeConfig) -> anyhow::Result<()> {
@@ -82,12 +91,26 @@ impl LocalNodeState {
         if runtime.current_c().is_none() {
             runtime.set_current_c(scenario.genesis_c.clone());
         }
+        // Independently verify that the runtime mirrors what the disk replays
+        // to. This is a paranoid second pass — boot_from_store already feeds
+        // replay_blocks output into the runtime — but it lets /status report
+        // a real boot-time observation rather than a hardcoded `true`. Once
+        // commit_using_cache enforces {check, append, apply_unchecked}, the
+        // boot value remains valid for the lifetime of the process.
+        let replay_matches_runtime_at_boot = if recovered.size() == 0 {
+            runtime.cached_block_count() == 0 && runtime.current_c().is_some()
+        } else {
+            let replay = replay_blocks(recovered.blocks())?;
+            (replay.height as usize) == runtime.cached_block_count()
+                && Some(replay.latest_c.as_str()) == runtime.current_c()
+        };
         Ok(Self {
             runtime,
             genesis_c: scenario.genesis_c,
             block_path: config.block_path,
             report: scenario.cfg,
             max_requests: config.max_requests,
+            replay_matches_runtime_at_boot,
         })
     }
 }
@@ -223,8 +246,10 @@ fn header_end(buffer: &[u8]) -> Option<usize> {
 
 fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
     // Serve from the in-memory block cache. After boot the cache is
-    // authoritative; commits update it synchronously, and replay invariants
-    // (chain linkage, latest_c) are checked at boot via replay_blocks.
+    // authoritative; commits update it synchronously via {check, append,
+    // apply_unchecked}, and replay invariants (chain linkage, latest_c) are
+    // checked at boot via replay_blocks. The boot-time match is captured in
+    // replay_matches_runtime_at_boot rather than asserted here as a constant.
     let height = state.runtime.cached_block_count();
     let head = current_head(state);
     Ok(json!({
@@ -235,7 +260,7 @@ fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
         "genesisC": state.genesis_c,
         "replayHeight": height,
         "replayLatestC": head,
-        "replayMatchesRuntime": true,
+        "replayMatchesRuntime": state.replay_matches_runtime_at_boot,
         "blockStorePath": state.block_path.to_string_lossy(),
     }))
 }
@@ -404,7 +429,7 @@ fn submit_json(state: &mut LocalNodeState, body: &[u8], peer_ip: &str) -> anyhow
         "c": runtime_head,
         "replayHeight": new_height,
         "replayLatestC": runtime_head,
-        "replayMatchesRuntime": true,
+        "replayMatchesRuntime": state.replay_matches_runtime_at_boot,
         "droppedStaleShares": committed.dropped_stale_shares,
     }))
 }
