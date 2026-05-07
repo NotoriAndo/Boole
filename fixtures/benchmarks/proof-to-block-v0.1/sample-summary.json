@@ -1,0 +1,53 @@
+{
+  "benchmark": "proof-to-block-v0.1-public-sample",
+  "version": 1,
+  "sampleOnly": true,
+  "claimBoundary": "pipeline sample, not real model performance",
+  "generatedAt": "deterministic-fixture",
+  "description": "Public-safe sample artifact generated from deterministic fake/local command semantics. It demonstrates Boole's verifier/replay benchmark pipeline and is not public-network mining.",
+  "totals": {
+    "rows": 2,
+    "generatedAttempts": 1,
+    "accepted": 1,
+    "rejected": 1,
+    "setupRequired": 0,
+    "verifiedShares": 1,
+    "blocksProduced": 1
+  },
+  "safety": {
+    "invalidAccepted": 0,
+    "chainDivergence": 0,
+    "replayFailures": 0
+  },
+  "replayPassed": true,
+  "rows": [
+    {
+      "name": "ollama-qwen2-5-coder-fake",
+      "provider": "ollama",
+      "model": "qwen2.5-coder:fake",
+      "source": "fixture/mock",
+      "generatedAttempt": true,
+      "accepted": true,
+      "status": "ACCEPTED",
+      "score": {
+        "blocks": 1,
+        "verifiedShares": 1,
+        "replayPass": true
+      }
+    },
+    {
+      "name": "ollama-llama3-2-fake-rejected",
+      "provider": "ollama",
+      "model": "llama3.2:fake",
+      "source": "fixture/mock",
+      "generatedAttempt": true,
+      "accepted": false,
+      "status": "REJECTED",
+      "score": {
+        "blocks": 0,
+        "verifiedShares": 0,
+        "replayPass": true
+      }
+    }
+  ]
+}

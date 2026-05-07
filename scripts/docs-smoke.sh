@@ -25,6 +25,9 @@ require_file README.md
 require_file install.sh
 require_file docs/install.md
 require_file docs/proof-to-block-benchmark.md
+require_file docs/benchmarks/proof-to-block-v0.1-sample.md
+require_file fixtures/benchmarks/proof-to-block-v0.1/sample-summary.json
+require_file fixtures/benchmarks/proof-to-block-v0.1/sample-leaderboard.md
 require_file docs/replay-consensus.md
 require_file docs/adr/0001-pofp-v2-canonical-widening.md
 
@@ -56,6 +59,11 @@ require_text docs/proof-to-block-benchmark.md "boole-model-benchmark.py"
 require_text docs/proof-to-block-benchmark.md "benchmark-summary.json"
 require_text docs/proof-to-block-benchmark.md "benchmark-rows.ndjson"
 require_text docs/proof-to-block-benchmark.md 'Rows with missing required env vars are recorded as `SKIP`'
+require_text docs/benchmarks/proof-to-block-v0.1-sample.md "Sample benchmark artifact"
+require_text docs/benchmarks/proof-to-block-v0.1-sample.md "not real model performance"
+require_text docs/benchmarks/proof-to-block-v0.1-sample.md "not public-network mining"
+require_text docs/benchmarks/proof-to-block-v0.1-sample.md "sample-summary.json"
+require_text fixtures/benchmarks/proof-to-block-v0.1/sample-leaderboard.md "fixture/mock"
 
 require_text docs/replay-consensus.md "selectedShareEvidence"
 require_text docs/replay-consensus.md "minShareScoreMultiplierNanos"
