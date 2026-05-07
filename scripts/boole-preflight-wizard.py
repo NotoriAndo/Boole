@@ -768,7 +768,7 @@ def render_leaderboard(summary: dict[str, Any]) -> str:
         append_leaderboard_rows(lines, agents)
     else:
         lines.extend(["No agent-runtime benchmark rows found in this run.", ""])
-    lines.extend(["# Local model proof-attempt rows", ""])
+    lines.extend(["# Local model proof-attempt rows", "", "- check: provider-model-live-benchmark", ""])
     if models:
         append_leaderboard_rows(lines, models)
     else:
@@ -801,6 +801,7 @@ def render_report(summary: dict[str, Any], *, purpose: str, benchmark_profile: s
         f"- retarget: {difficulty.get('retarget')}",
         "",
         "Local model-generated proof attempts:",
+        "- check: provider-model-live-benchmark",
         f"- rows: {len(models)}",
         f"- generated attempts: {generated_attempts}",
         f"- accepted: {accepted_models}",

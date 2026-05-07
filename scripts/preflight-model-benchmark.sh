@@ -8,12 +8,15 @@ PRESET="${MODEL_BENCHMARK_PRESET:-all}"
 OUTPUT_SPEC=""
 LEADERBOARD_MD="${LEADERBOARD_MD:-}"
 ATTEMPTS_PER_MODEL="${ATTEMPTS_PER_MODEL:-}"
+BENCHMARK_COMMAND="${MODEL_BENCHMARK_COMMAND:-}"
+OLLAMA_COMMAND="${BOOLE_OLLAMA_COMMAND:-}"
+SUBMIT_LEAN_COMMAND="${BOOLE_SUBMIT_LEAN_COMMAND:-}"
 INCLUDES=()
 OLLAMA_MODELS=()
 
 usage() {
   cat <<'EOF'
-Usage: preflight-model-benchmark.sh [--preset mock|frontier|oauth|ollama|all] [--include TERM] [--ollama-model MODEL] [--output-spec PATH] [--leaderboard-md PATH] [--attempts-per-model N]
+Usage: preflight-model-benchmark.sh [--preset mock|frontier|oauth|ollama|all] [--include TERM] [--ollama-model MODEL] [--output-spec PATH] [--leaderboard-md PATH] [--attempts-per-model N] [--benchmark-command CMD] [--ollama-command CMD] [--submit-lean-command CMD]
 
 Generates a provider/model benchmark spec from available frontier API envs,
 local OAuth CLIs, and Ollama models, then runs provider-model-benchmark.sh.
@@ -51,6 +54,18 @@ while [[ $# -gt 0 ]]; do
       fi
       shift 2
       ;;
+    --benchmark-command)
+      BENCHMARK_COMMAND="${2:?missing --benchmark-command value}"
+      shift 2
+      ;;
+    --ollama-command)
+      OLLAMA_COMMAND="${2:?missing --ollama-command value}"
+      shift 2
+      ;;
+    --submit-lean-command)
+      SUBMIT_LEAN_COMMAND="${2:?missing --submit-lean-command value}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -74,10 +89,25 @@ if [[ -n "$ATTEMPTS_PER_MODEL" ]]; then
   export TRIALS="$ATTEMPTS_PER_MODEL"
 fi
 
+SETUP_ARGS=()
+if [[ -n "$BENCHMARK_COMMAND" ]]; then
+  SETUP_ARGS+=(--benchmark-command "$BENCHMARK_COMMAND")
+fi
+if [[ -n "$OLLAMA_COMMAND" ]]; then
+  SETUP_ARGS+=(--ollama-command "$OLLAMA_COMMAND")
+fi
+if [[ -n "$SUBMIT_LEAN_COMMAND" ]]; then
+  SETUP_ARGS+=(--submit-lean-command "$SUBMIT_LEAN_COMMAND")
+fi
+if [[ -n "$OUTPUT_SPEC" ]]; then
+  SETUP_ARGS+=(--artifact-root "$(dirname "$OUTPUT_SPEC")/model-benchmark-artifacts")
+fi
+
 ./scripts/preflight-model-benchmark-setup.py \
   --preset "$PRESET" \
   ${INCLUDES[@]+"${INCLUDES[@]}"} \
   ${OLLAMA_MODELS[@]+"${OLLAMA_MODELS[@]}"} \
+  ${SETUP_ARGS[@]+"${SETUP_ARGS[@]}"} \
   --output "$OUTPUT_SPEC"
 
 spec_json="$(python3 - "$OUTPUT_SPEC" <<'PY'

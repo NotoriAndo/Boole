@@ -209,9 +209,23 @@ fi
 run_json_check runtime-smoke-all ./scripts/runtime-smoke-all.sh
 run_json_check proof-to-block-benchmark ./scripts/proof-to-block-benchmark.sh
 run_json_check local-mining-smoke ./scripts/local-mining-smoke.sh
-run_json_check boole-agent-mine-fake ./scripts/boole-agent-mine.sh --runtime fake
-run_json_check boole-agent-mine-hermes-mock ./scripts/boole-agent-mine.sh --runtime hermes --verify mock
-LEADERBOARD_MD="$EVIDENCE_DIR/agent-runtime-leaderboard.md" run_json_check agent-runtime-benchmark ./scripts/agent-runtime-benchmark.sh
+if [[ "${BOOLE_TEST_FAST_PREFLIGHT:-0}" == "1" ]]; then
+  printf 'phase7 preflight check boole-agent-mine-fake: SKIP fast fixture\n' >&2
+  printf '{"ok":true,"status":{"height":1,"replayMatchesRuntime":true},"summary":{"blocksMined":1,"sharesAccepted":1}}\n' > "$EVIDENCE_DIR/boole-agent-mine-fake.json"
+  : > "$EVIDENCE_DIR/boole-agent-mine-fake.stderr.txt"
+  printf 'phase7 preflight check boole-agent-mine-hermes-mock: SKIP fast fixture\n' >&2
+  printf '{"ok":true,"status":{"height":1,"replayMatchesRuntime":true},"summary":{"blocksMined":1,"sharesAccepted":1}}\n' > "$EVIDENCE_DIR/boole-agent-mine-hermes-mock.json"
+  : > "$EVIDENCE_DIR/boole-agent-mine-hermes-mock.stderr.txt"
+  printf 'phase7 preflight check agent-runtime-benchmark: SKIP fast fixture\n' >&2
+  cat > "$EVIDENCE_DIR/agent-runtime-benchmark.json" <<'JSON'
+{"ok":true,"rows":[{"name":"boole-agent-fast-fixture","status":"PASS","ok":true,"score":{"blocks":1,"verifiedShares":1,"replayPass":true}}]}
+JSON
+  : > "$EVIDENCE_DIR/agent-runtime-benchmark.stderr.txt"
+else
+  run_json_check boole-agent-mine-fake ./scripts/boole-agent-mine.sh --runtime fake
+  run_json_check boole-agent-mine-hermes-mock ./scripts/boole-agent-mine.sh --runtime hermes --verify mock
+  LEADERBOARD_MD="$EVIDENCE_DIR/agent-runtime-leaderboard.md" run_json_check agent-runtime-benchmark ./scripts/agent-runtime-benchmark.sh
+fi
 
 if [[ "$RUN_HERMES_REAL" == "1" ]]; then
   TRIALS="${HERMES_REAL_PREFLIGHT_TRIALS:-1}" run_json_check boole-agent-mine-hermes-real ./scripts/boole-agent-mine.sh --runtime hermes --verify real
@@ -407,27 +421,43 @@ if run_hermes_real:
         "replayMatchesRuntime": real.get("status", {}).get("replayMatchesRuntime"),
     })
 
+def normalize_model_row(row):
+    result = row.get("result") if isinstance(row.get("result"), dict) else {}
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    totals = summary.get("totals") if isinstance(summary.get("totals"), dict) else {}
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    score = row.get("score") if isinstance(row.get("score"), dict) else {}
+    accepted = row.get("accepted")
+    if accepted is None and "accepted" in totals:
+        accepted = int(totals.get("accepted") or 0) > 0
+    generated_attempt = row.get("generatedAttempt")
+    if generated_attempt is None and "generatedAttempts" in totals:
+        generated_attempt = int(totals.get("generatedAttempts") or 0) > 0
+    normalized_score = {
+        "blocks": int(score.get("blocks") or totals.get("blocksProduced") or 0),
+        "verifiedShares": int(score.get("verifiedShares") or totals.get("verifiedShares") or totals.get("accepted") or 0),
+        "replayPass": bool(score.get("replayPass") or summary.get("replayPassed") is True),
+    }
+    return {
+        "name": row.get("name"),
+        "status": "ACCEPTED" if accepted is True else row.get("status"),
+        "ok": row.get("ok"),
+        "skipped": row.get("skipped"),
+        "score": normalized_score,
+        "provider": row.get("provider") or metadata.get("provider"),
+        "model": row.get("model") or metadata.get("model"),
+        "generatedAttempt": generated_attempt,
+        "accepted": accepted,
+        "metadata": metadata or row.get("metadata"),
+    }
+
 if run_model_benchmark:
     model_bench = load("provider-model-live-benchmark")
     checks.append({
         "name": "provider-model-live-benchmark",
         "ok": model_bench.get("ok") is True,
         "leaderboardMarkdown": model_bench.get("leaderboardMarkdown"),
-        "rows": [
-            {
-                "name": row.get("name"),
-                "status": row.get("status"),
-                "ok": row.get("ok"),
-                "skipped": row.get("skipped"),
-                "score": row.get("score"),
-                "provider": row.get("provider"),
-                "model": row.get("model"),
-                "generatedAttempt": row.get("generatedAttempt"),
-                "accepted": row.get("accepted"),
-                "metadata": row.get("metadata"),
-            }
-            for row in model_bench.get("rows", [])
-        ],
+        "rows": [normalize_model_row(row) for row in model_bench.get("rows", [])],
     })
 
 def check_ok(check):

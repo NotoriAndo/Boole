@@ -5,6 +5,9 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
+import stat
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -363,8 +366,112 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertIn("verifiedShares", leaderboard)
         self.assertIn("ollama-qwen2.5-coder-7b", leaderboard)
         self.assertIn("Local model-generated proof attempts", report)
+        self.assertIn("provider-model-live-benchmark", report)
+        self.assertIn("provider-model-live-benchmark", leaderboard)
         self.assertNotIn("/Users/", json.dumps(redacted))
         self.assertEqual(redacted["evidenceDir"], "[REDACTED_LOCAL_PATH]")
+
+    def test_wizard_runs_local_model_benchmark_smoke_with_fake_commands(self) -> None:
+        with tempfile.TemporaryDirectory(dir="/tmp") as td:
+            tmp = Path(td)
+            evidence_dir = tmp / "evidence"
+            fake_ollama_log = tmp / "fake-ollama-invocations.ndjson"
+            fake_submit_log = tmp / "fake-submit-lean-invocations.ndjson"
+
+            fake_ollama = tmp / "fake-ollama.py"
+            fake_ollama.write_text(
+                f"""#!/usr/bin/env python3
+import json
+import sys
+from pathlib import Path
+Path({str(fake_ollama_log)!r}).open("a", encoding="utf-8").write(json.dumps({{"argv": sys.argv[1:]}}) + "\\n")
+print("theorem boole_benchmark_true : True := by trivial")
+""",
+                encoding="utf-8",
+            )
+            fake_submit = tmp / "fake-submit-lean.py"
+            fake_submit.write_text(
+                f"""#!/usr/bin/env python3
+import hashlib
+import json
+import sys
+from pathlib import Path
+proof = Path(sys.argv[sys.argv.index("--proof") + 1]) if "--proof" in sys.argv else Path(sys.argv[1])
+Path({str(fake_submit_log)!r}).open("a", encoding="utf-8").write(json.dumps({{"argv": sys.argv[1:], "proof": str(proof)}}) + "\\n")
+print(json.dumps({{
+    "ok": True,
+    "accepted": True,
+    "shareAccepted": True,
+    "replayMatchesRuntime": True,
+    "invalidAccepted": 0,
+    "block": {{"height": 1, "hash": "fake-block-hash"}},
+    "verifierHash": "boole-model-benchmark-ollama-v0",
+    "checkerArtifactHash": hashlib.sha256(proof.read_bytes()).hexdigest(),
+    "elapsedMs": 1,
+}}))
+""",
+                encoding="utf-8",
+            )
+            for script in [fake_ollama, fake_submit]:
+                script.chmod(script.stat().st_mode | stat.S_IXUSR)
+
+            env = os.environ.copy()
+            env["BOOLE_TEST_FAST_PREFLIGHT"] = "1"
+            proc = subprocess.run(
+                [
+                    "python3",
+                    "scripts/boole-preflight-wizard.py",
+                    "--preset",
+                    "safe",
+                    "--yes",
+                    "--evidence-dir",
+                    str(evidence_dir),
+                    "--genesis-benchmark",
+                    "--model-preset",
+                    "ollama",
+                    "--ollama-model",
+                    "qwen2.5-coder:fake",
+                    "--attempts-per-model",
+                    "1",
+                    "--model-benchmark-command",
+                    "python3 scripts/boole-model-benchmark.py",
+                    "--ollama-command",
+                    str(fake_ollama),
+                    "--submit-lean-command",
+                    str(fake_submit),
+                    "--skip-hardening-checks",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=180,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertTrue(fake_ollama_log.exists(), proc.stdout + proc.stderr)
+            self.assertTrue(fake_submit_log.exists(), proc.stdout + proc.stderr)
+            ollama_calls = [json.loads(line) for line in fake_ollama_log.read_text(encoding="utf-8").splitlines()]
+            submit_calls = [json.loads(line) for line in fake_submit_log.read_text(encoding="utf-8").splitlines()]
+            self.assertTrue(any("qwen2.5-coder:fake" in " ".join(call["argv"]) for call in ollama_calls))
+            self.assertTrue(any(call["proof"].endswith(".lean") for call in submit_calls))
+
+            model_artifact_dir = evidence_dir / "model-benchmark-artifacts" / "ollama-qwen2-5-coder-fake"
+            for name in ["benchmark-summary.json", "benchmark-rows.ndjson", "replay-report.json", "leaderboard.md"]:
+                self.assertTrue((model_artifact_dir / name).exists(), f"missing {name}\nstdout={proc.stdout}\nstderr={proc.stderr}")
+
+            wizard_summary = json.loads((evidence_dir / "wizard-summary.redacted.json").read_text(encoding="utf-8"))
+            provider_check = next(check for check in wizard_summary["checks"] if check["name"] == "provider-model-live-benchmark")
+            self.assertTrue(provider_check["ok"])
+            self.assertEqual(provider_check["rows"][0]["metadata"]["provider"], "ollama")
+            self.assertEqual(provider_check["rows"][0]["metadata"]["model"], "qwen2.5-coder:fake")
+            self.assertTrue(provider_check["rows"][0]["generatedAttempt"])
+            self.assertTrue(provider_check["rows"][0]["accepted"])
+            self.assertEqual(provider_check["rows"][0]["score"]["verifiedShares"], 1)
+            self.assertEqual(wizard_summary["genesisBenchmark"]["invalidAccepted"], 0)
+            self.assertIn("Local model proof-attempt rows", (evidence_dir / "wizard-leaderboard.md").read_text(encoding="utf-8"))
+            self.assertIn("qwen2.5-coder:fake", (evidence_dir / "wizard-leaderboard.md").read_text(encoding="utf-8"))
+            self.assertIn("generated attempts: 1", (evidence_dir / "wizard-report.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

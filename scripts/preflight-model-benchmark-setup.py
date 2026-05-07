@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -26,7 +27,7 @@ class ModelRow:
     kind: str = "provider-model"
     timeout_sec: int = 900
 
-    def to_benchmark_row(self) -> dict[str, Any]:
+    def to_benchmark_row(self, *, benchmark_command: str = "", ollama_command: str = "", submit_lean_command: str = "", artifact_root: str = "") -> dict[str, Any]:
         if self.backend == "mock":
             return {
                 "name": self.name,
@@ -38,6 +39,36 @@ class ModelRow:
                     "backend": self.backend,
                     "model": self.model,
                     "credential": "none_or_oauth",
+                },
+            }
+
+        if self.provider == "ollama-openai-compatible" and benchmark_command:
+            row_name = f"ollama-{slug(self.model)}"
+            artifact_dir = os.path.join(artifact_root or os.path.join("artifacts", "model-benchmarks"), row_name)
+            command = shlex.split(benchmark_command) + [
+                "--target",
+                f"ollama:{self.model}",
+                "--attempts",
+                os.environ.get("TRIALS", "1"),
+                "--output-dir",
+                artifact_dir,
+                "--run-id",
+                row_name,
+            ]
+            if ollama_command:
+                command.extend(["--ollama-command", ollama_command])
+            if submit_lean_command:
+                command.extend(["--submit-lean-command", submit_lean_command])
+            return {
+                "name": row_name,
+                "kind": self.kind,
+                "command": command,
+                "timeoutSec": self.timeout_sec,
+                "metadata": {
+                    "provider": "ollama",
+                    "backend": "ollama",
+                    "model": self.model,
+                    "credential": "none_local",
                 },
             }
 
@@ -149,6 +180,10 @@ def main() -> None:
     parser.add_argument("--ollama-model", action="append", default=[], help="Specific Ollama model to include; repeatable. Defaults to all installed models.")
     parser.add_argument("--include", action="append", default=[], help="Only include rows whose name contains this substring; repeatable.")
     parser.add_argument("--output", help="Write benchmark spec JSON to this path.")
+    parser.add_argument("--benchmark-command", default="", help="Override Ollama rows with this runner command, e.g. python3 scripts/boole-model-benchmark.py.")
+    parser.add_argument("--ollama-command", default="", help="Ollama command override forwarded to benchmark-command Ollama rows.")
+    parser.add_argument("--submit-lean-command", default="", help="submit-lean command override forwarded to benchmark-command Ollama rows.")
+    parser.add_argument("--artifact-root", default="", help="Artifact root for benchmark-command per-model outputs.")
     parser.add_argument("--print-spec", action="store_true", help="Print the benchmark spec JSON array.")
     parser.add_argument("--list", action="store_true", help="Print a safe human-readable model list with credential presence only.")
     args = parser.parse_args()
@@ -157,7 +192,15 @@ def main() -> None:
     if args.include:
         rows = [row for row in rows if any(term.lower() in row.name.lower() for term in args.include)]
 
-    spec = [row.to_benchmark_row() for row in rows]
+    spec = [
+        row.to_benchmark_row(
+            benchmark_command=args.benchmark_command,
+            ollama_command=args.ollama_command,
+            submit_lean_command=args.submit_lean_command,
+            artifact_root=args.artifact_root,
+        )
+        for row in rows
+    ]
 
     if args.list:
         for row in rows:
