@@ -84,6 +84,12 @@ confirm() {
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+normalize_repo_url() {
+  local raw="$1"
+  raw="${raw%/}"
+  printf '%s' "${raw%.git}"
+}
+
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -260,7 +266,7 @@ clone_or_update_repo() {
     if [[ "$DRY_RUN" -eq 0 ]]; then
       local remote
       remote="$(git -C "$INSTALL_DIR" remote get-url origin 2>/dev/null || true)"
-      if [[ "$remote" != "$REPO_URL" ]]; then
+      if [[ "$(normalize_repo_url "$remote")" != "$(normalize_repo_url "$REPO_URL")" ]]; then
         fail "existing checkout origin is not $REPO_URL: $remote"
       fi
       if [[ -n "$(git -C "$INSTALL_DIR" status --porcelain)" ]]; then

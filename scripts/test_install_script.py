@@ -83,6 +83,31 @@ class InstallScriptTests(unittest.TestCase):
         self.assertNotIn("apt-get install", combined)
         self.assertNotIn("brew install", combined)
 
+    def test_existing_checkout_accepts_github_actions_origin_without_dot_git_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = Path(tmp) / "boole"
+            scripts = checkout / "scripts"
+            scripts.mkdir(parents=True)
+            wizard = scripts / "boole-preflight-wizard.py"
+            wizard.write_text("#!/usr/bin/env python3\nprint('fake doctor ok')\n", encoding="utf-8")
+            wizard.chmod(0o755)
+            subprocess.run(["git", "init"], cwd=checkout, check=True, capture_output=True, text=True)
+            subprocess.run(
+                ["git", "remote", "add", "origin", "https://github.com/NotoriAndo/Boole"],
+                cwd=checkout,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            proc = self.run_installer("--no-install", "--doctor", "--dir", str(checkout))
+
+            combined = proc.stdout + proc.stderr
+            self.assertEqual(proc.returncode, 0, combined)
+            self.assertIn("Using existing Boole checkout", combined)
+            self.assertIn("fake doctor ok", combined)
+            self.assertNotIn("existing checkout origin is not", combined)
+
 
 if __name__ == "__main__":
     unittest.main()
