@@ -101,7 +101,7 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
     let memory_limit_mb = take_optional_flag_value(&mut args, "--memory-limit-mb")?
         .map(|value| value.parse::<u64>())
         .transpose()?
-        .unwrap_or(512);
+        .unwrap_or(8192);
     let ip_override = take_optional_flag_value(&mut args, "--ip")?;
     let ts = take_optional_flag_value(&mut args, "--ts")?
         .map(|value| value.parse::<u64>())
