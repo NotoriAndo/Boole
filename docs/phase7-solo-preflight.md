@@ -33,8 +33,8 @@ Useful non-interactive modes:
 ./scripts/boole-preflight-wizard.py --preset safe --genesis-benchmark --yes
 ./scripts/boole-preflight-wizard.py --preset agent-local --yes
 ./scripts/boole-preflight-wizard.py --preset local-models --yes
-./scripts/boole-preflight-wizard.py --preset frontier --yes
-./scripts/boole-preflight-wizard.py --preset everything --genesis-benchmark --attempts-per-model 50 --yes
+./scripts/boole-preflight-wizard.py --preset frontier --allow-paid-api --yes
+./scripts/boole-preflight-wizard.py --preset everything --genesis-benchmark --attempts-per-model 50 --allow-paid-api --yes
 ```
 
 Presets:
@@ -45,7 +45,19 @@ Presets:
 - `frontier`: agent-local plus frontier API model rows.
 - `everything`: agent-local plus frontier API/OAuth/Ollama rows.
 
-The wizard prints a plan before running it and summarizes the final evidence directory.
+The wizard prints a seven-step guided plan before running it:
+
+1. Environment check.
+2. Run purpose.
+3. Runtime/model selection.
+4. Benchmark profile.
+5. Safety and cost boundary.
+6. Execution plan.
+7. Evidence, report, and reproducibility.
+
+After a successful preflight, the wizard writes `wizard-report.md`, `wizard-leaderboard.md`, and `wizard-summary.redacted.json` into the evidence directory. The redacted summary hides local paths and never contains API key values.
+
+Frontier/API and `everything` model rows are blocked unless `--allow-paid-api` is provided. Choose provider/models/attempt count/cost budget before enabling that flag.
 
 ## Genesis preflight benchmark
 

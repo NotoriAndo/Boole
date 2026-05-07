@@ -34,6 +34,11 @@ require_text install.sh "never prints API key values"
 require_text docs/install.md 'Rust `1.95.0`'
 require_text docs/install.md 'Lean `leanprover/lean4:v4.29.1`'
 require_text docs/install.md "--run-safe-preflight"
+require_text docs/install.md "Step 1/7"
+require_text docs/install.md "wizard-report.md"
+require_text docs/install.md "--allow-paid-api"
+require_text docs/phase7-solo-preflight.md "seven-step guided plan"
+require_text docs/phase7-solo-preflight.md "wizard-summary.redacted.json"
 
 require_text docs/replay-consensus.md "selectedShareEvidence"
 require_text docs/replay-consensus.md "minShareScoreMultiplierNanos"

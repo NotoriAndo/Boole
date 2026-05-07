@@ -28,6 +28,15 @@ bash install.sh
 
 The installer installs required local tools for the safe preflight path: Git, curl, Python 3, Rust `1.95.0` with `rustfmt`/`clippy`, and Lean `leanprover/lean4:v4.29.1` via `elan`. It never asks for wallet seeds/private keys, never prints API key values, never starts public mining, and never runs paid API benchmarks without explicit confirmation. See [`docs/install.md`](docs/install.md).
 
+After install, the guided wizard gives a Hermes-style seven-step flow:
+
+```bash
+cd ~/boole
+./scripts/boole-preflight-wizard.py --preset safe --genesis-benchmark --yes
+```
+
+The wizard prints `Step 1/7` through `Step 7/7`, explains the safety/cost boundary, runs the local preflight plan, and writes `wizard-report.md`, `wizard-leaderboard.md`, and `wizard-summary.redacted.json` beside the evidence. Frontier/all model rows require `--allow-paid-api` so API-cost benchmarks cannot run accidentally.
+
 ## Target language split
 
 ```text
@@ -216,7 +225,7 @@ Run the Hermes-style setup wizard for guided local preflight:
 ./scripts/boole-preflight-wizard.py --doctor
 ./scripts/boole-preflight-wizard.py --preset safe --dry-run
 ./scripts/boole-preflight-wizard.py --preset safe --genesis-benchmark --yes
-./scripts/boole-preflight-wizard.py --preset everything --genesis-benchmark --attempts-per-model 50 --yes
+./scripts/boole-preflight-wizard.py --preset everything --genesis-benchmark --attempts-per-model 50 --allow-paid-api --yes
 ```
 
 Or run the local evidence gate directly before closed-testnet onboarding:

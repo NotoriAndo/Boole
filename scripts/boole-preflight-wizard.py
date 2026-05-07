@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -161,6 +162,201 @@ def positive_int(raw: str) -> int:
     return value
 
 
+def selected_model_preset(args: argparse.Namespace, preset_name: str) -> str | None:
+    return args.model_preset or PRESETS[preset_name]["model_preset"]
+
+
+def requires_paid_api_confirmation(args: argparse.Namespace, preset_name: str) -> bool:
+    if getattr(args, "allow_paid_api", False):
+        return False
+    return selected_model_preset(args, preset_name) in {"frontier", "all"}
+
+
+def redacted_status(status: dict[str, Any]) -> dict[str, Any]:
+    redacted = deepcopy(status)
+    redacted["credentials"] = {name: "present" if ok else "missing" for name, ok in status.get("credentials", {}).items()}
+    return redacted
+
+
+def purpose_label(args: argparse.Namespace) -> str:
+    return getattr(args, "purpose", None) or "github-v0.1"
+
+
+def benchmark_profile_label(args: argparse.Namespace) -> str:
+    return getattr(args, "benchmark_profile", None) or "github-v0.1"
+
+
+def reproduce_command(args: argparse.Namespace, preset_name: str) -> str:
+    cmd = ["./scripts/boole-preflight-wizard.py", "--preset", preset_name]
+    if getattr(args, "genesis_benchmark", False):
+        cmd.append("--genesis-benchmark")
+    if getattr(args, "benchmark_profile", None):
+        cmd += ["--benchmark-profile", args.benchmark_profile]
+    if getattr(args, "purpose", None):
+        cmd += ["--purpose", args.purpose]
+    if getattr(args, "attempts_per_model", None) is not None:
+        cmd += ["--attempts-per-model", str(args.attempts_per_model)]
+    model_preset = getattr(args, "model_preset", None)
+    if model_preset:
+        cmd += ["--model-preset", model_preset]
+    for include in getattr(args, "model_include", []):
+        cmd += ["--model-include", include]
+    for model in getattr(args, "ollama_model", []):
+        cmd += ["--ollama-model", model]
+    if getattr(args, "run_hermes_real", False):
+        cmd.append("--run-hermes-real")
+    if getattr(args, "allow_paid_api", False):
+        cmd.append("--allow-paid-api")
+    cmd.append("--yes")
+    return " ".join(cmd)
+
+
+def render_guided_steps(args: argparse.Namespace, preset_name: str, plan: list[list[str]], status: dict[str, Any]) -> str:
+    model_preset = selected_model_preset(args, preset_name) or "none"
+    paid_state = "enabled" if model_preset in {"frontier", "all"} else "disabled"
+    benchmark_profile = benchmark_profile_label(args)
+    purpose = purpose_label(args)
+    command_lines = [" ".join(cmd) for cmd in plan]
+    missing_required = [name for name in ["cargo", "python3", "lean", "lake"] if not status.get("commands", {}).get(name)]
+    ollama_count = len(status.get("ollamaModels", []))
+    lines = [
+        "\nBoole Guided Preflight",
+        "=======================",
+        "Step 1/7 — Environment check",
+        f"required tooling: {'OK' if not missing_required else 'missing ' + ', '.join(missing_required)}",
+        f"ollama models detected: {ollama_count}",
+        "API credentials: values hidden; status is present/missing only",
+        "Step 2/7 — Run purpose",
+        f"purpose: {purpose}",
+        "Step 3/7 — Runtime/model selection",
+        f"preset: {preset_name}",
+        f"model preset: {model_preset}",
+        f"paid/API model rows: {paid_state}",
+        "Step 4/7 — Benchmark profile",
+        f"benchmark profile: {benchmark_profile}",
+        f"genesis reset: {'enabled' if getattr(args, 'genesis_benchmark', False) else 'disabled'}",
+        "Step 5/7 — Safety and cost boundary",
+        "safe preset uses no API/OAuth, no wallet seed, no token value, and no public mining",
+        "frontier/all model rows require --allow-paid-api before non-interactive execution",
+        "Step 6/7 — Execution plan",
+    ]
+    lines.extend(f"- {line}" for line in command_lines)
+    lines.extend(
+        [
+            "Step 7/7 — Evidence, report, and reproducibility",
+            "loop: Agent → Proof → Verifier → Share → Block → Replay",
+            f"reproduce command: {reproduce_command(args, preset_name)}",
+            "reports: wizard-report.md, wizard-leaderboard.md, wizard-summary.redacted.json",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def redact_summary(summary: dict[str, Any], evidence_dir: Path) -> dict[str, Any]:
+    redacted = deepcopy(summary)
+    redacted["evidenceDir"] = "[REDACTED_LOCAL_PATH]"
+    if "gitStatus" in redacted:
+        redacted["gitStatus"] = "[REDACTED_LOCAL_STATUS]"
+    redacted["reportEvidenceDirName"] = evidence_dir.name
+    return redacted
+
+
+def agent_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    for check in summary.get("checks", []):
+        if check.get("name") == "agent-runtime-benchmark" and isinstance(check.get("rows"), list):
+            return check["rows"]
+    return []
+
+
+def render_leaderboard(summary: dict[str, Any]) -> str:
+    rows = agent_rows(summary)
+    lines = [
+        "# Boole Wizard Leaderboard",
+        "",
+        "Local agent/runtime rows. Scores are verifier/replay-backed; skipped rows are not failures.",
+        "",
+        "- Rank key: blocks → verifiedShares → replayPass → status",
+        "",
+    ]
+    if not rows:
+        lines.append("No agent-runtime benchmark rows found in this run.")
+        return "\n".join(lines) + "\n"
+    sorted_rows = sorted(
+        rows,
+        key=lambda row: (
+            int(row.get("score", {}).get("blocks", 0) or 0),
+            int(row.get("score", {}).get("verifiedShares", 0) or 0),
+            bool(row.get("score", {}).get("replayPass", False)),
+            row.get("status") == "PASS",
+        ),
+        reverse=True,
+    )
+    for index, row in enumerate(sorted_rows, start=1):
+        score = row.get("score", {})
+        lines.extend(
+            [
+                f"## {index}. {row.get('name')}",
+                f"- status: {row.get('status')}",
+                f"- blocks: {score.get('blocks', 0)}",
+                f"- verifiedShares: {score.get('verifiedShares', 0)}",
+                f"- replayPass: {score.get('replayPass', False)}",
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def render_report(summary: dict[str, Any], *, purpose: str, benchmark_profile: str) -> str:
+    genesis = summary.get("genesisBenchmark") if isinstance(summary.get("genesisBenchmark"), dict) else {}
+    difficulty = genesis.get("difficulty") if isinstance(genesis.get("difficulty"), dict) else {}
+    lines = [
+        "# Proof-to-Block Benchmark v0.1 Wizard Report",
+        "",
+        "This is local safe-genesis preflight evidence, not public-network mining and not a token/reward claim.",
+        "",
+        f"- purpose: {purpose}",
+        f"- benchmark profile: {benchmark_profile}",
+        f"- phase: {summary.get('phase')}",
+        f"- ok: {summary.get('ok')}",
+        f"- blocks produced: {genesis.get('blocksProduced')}",
+        f"- cases passed: {genesis.get('casesPassed')}/{genesis.get('caseCount')}",
+        f"- replay passed: {genesis.get('replayPassed')}",
+        f"- invalid accepted: {genesis.get('invalidAccepted')}",
+        f"- chain divergence: {genesis.get('chainDivergence')}",
+        f"- difficulty mode: {difficulty.get('mode')}",
+        f"- retarget: {difficulty.get('retarget')}",
+        "",
+        "Safe public wording:",
+        "",
+        f"> Local safe-genesis preflight produced {genesis.get('blocksProduced')} replay-valid blocks, {genesis.get('invalidAccepted')} invalid accepted, {genesis.get('chainDivergence')} divergence.",
+        "",
+        "Loop:",
+        "",
+        "```text",
+        "Agent → Proof → Verifier → Share → Block → Replay",
+        "```",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def write_wizard_reports(summary: dict[str, Any], evidence_dir: Path, *, purpose: str, benchmark_profile: str) -> dict[str, Path]:
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    report_path = evidence_dir / "wizard-report.md"
+    leaderboard_path = evidence_dir / "wizard-leaderboard.md"
+    redacted_path = evidence_dir / "wizard-summary.redacted.json"
+    report_path.write_text(render_report(summary, purpose=purpose, benchmark_profile=benchmark_profile), encoding="utf-8")
+    leaderboard_path.write_text(render_leaderboard(summary), encoding="utf-8")
+    redacted_path.write_text(json.dumps(redact_summary(summary, evidence_dir), indent=2) + "\n", encoding="utf-8")
+    return {"report": report_path, "leaderboard": leaderboard_path, "redacted_summary": redacted_path}
+
+
+def summary_evidence_dir(summary: dict[str, Any]) -> Path | None:
+    raw = summary.get("evidenceDir")
+    if not isinstance(raw, str) or not raw:
+        return None
+    return Path(raw)
+
+
 def build_plan(args: argparse.Namespace, preset_name: str) -> list[list[str]]:
     preset = PRESETS[preset_name]
     plan: list[list[str]] = []
@@ -201,7 +397,7 @@ def summarize_preflight(stdout: str) -> dict[str, Any] | None:
         return None
 
 
-def run_plan(plan: list[list[str]], dry_run: bool) -> int:
+def run_plan(plan: list[list[str]], dry_run: bool, *, purpose: str = "github-v0.1", benchmark_profile: str = "github-v0.1") -> int:
     last_summary = None
     for cmd in plan:
         proc = run(cmd, dry_run=dry_run, capture=not dry_run)
@@ -224,8 +420,20 @@ def run_plan(plan: list[list[str]], dry_run: bool) -> int:
         genesis = last_summary.get("genesisBenchmark")
         if isinstance(genesis, dict):
             print(f"genesisBenchmark: {genesis.get('benchmark')} mode={genesis.get('genesisMode')} replayPassed={genesis.get('replayPassed')}")
+            print(
+                "safePublicClaim: "
+                f"local safe-genesis preflight produced {genesis.get('blocksProduced')} replay-valid blocks, "
+                f"{genesis.get('invalidAccepted')} invalid accepted, {genesis.get('chainDivergence')} divergence"
+            )
         for check in last_summary.get("checks", []):
             print(f"- {check.get('name')}: ok={check.get('ok')}")
+        evidence_dir = summary_evidence_dir(last_summary)
+        if evidence_dir:
+            paths = write_wizard_reports(last_summary, evidence_dir, purpose=purpose, benchmark_profile=benchmark_profile)
+            print("\nWizard reports")
+            print("--------------")
+            for name, path in paths.items():
+                print(f"{name}: {path}")
     return 0
 
 
@@ -246,6 +454,9 @@ def main() -> None:
     parser.add_argument("--model-preset", choices=["mock", "frontier", "oauth", "ollama", "all"], help="Override preset model benchmark selection.")
     parser.add_argument("--model-include", action="append", default=[], help="Filter model benchmark rows by substring; repeatable.")
     parser.add_argument("--ollama-model", action="append", default=[], help="Specific Ollama model to include; repeatable.")
+    parser.add_argument("--purpose", choices=["github-v0.1", "local-validation", "vc-demo", "tester-onboarding"], default="github-v0.1", help="Human-facing run purpose shown in the guided plan and report.")
+    parser.add_argument("--benchmark-profile", choices=["github-v0.1", "safe-genesis", "local-llm", "frontier-api"], default="github-v0.1", help="Report profile label; does not enable paid/API rows by itself.")
+    parser.add_argument("--allow-paid-api", action="store_true", help="Explicitly allow frontier/all model benchmark rows that may use paid API credentials.")
     args = parser.parse_args()
 
     status = env_status()
@@ -260,10 +471,15 @@ def main() -> None:
     preset = args.preset or choose_preset()
     print(f"\nSelected preset: {preset}")
     print(PRESETS[preset]["description"])
+    if requires_paid_api_confirmation(args, preset):
+        print(
+            "boole-preflight-wizard: frontier/all model rows may use paid API credentials; "
+            "rerun with --allow-paid-api after choosing provider/models/cost budget.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
     plan = build_plan(args, preset)
-    print("\nPlan")
-    for cmd in plan:
-        print("- " + " ".join(cmd))
+    print(render_guided_steps(args, preset, plan, status))
 
     if not args.dry_run and not args.yes and not args.preset:
         answer = input("\nRun this plan? [y/N]: ").strip().lower()
@@ -271,7 +487,7 @@ def main() -> None:
             print("Cancelled")
             return
 
-    raise SystemExit(run_plan(plan, args.dry_run))
+    raise SystemExit(run_plan(plan, args.dry_run, purpose=purpose_label(args), benchmark_profile=benchmark_profile_label(args)))
 
 
 if __name__ == "__main__":

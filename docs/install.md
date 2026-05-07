@@ -92,3 +92,17 @@ For the deterministic API-free local evidence path:
 ```
 
 The safe preflight produces local, replay-checkable proof-to-block evidence. It is not public-network mining, not a token/reward claim, and not a paid model benchmark.
+
+The wizard renders a seven-step guided plan (`Step 1/7` through `Step 7/7`) and writes three user-facing artifacts into the evidence directory after a successful run:
+
+- `wizard-report.md`: safe public wording and replay/invalid/divergence metrics.
+- `wizard-leaderboard.md`: local agent/runtime rows ranked by verifier/replay-backed score.
+- `wizard-summary.redacted.json`: machine-readable summary with local paths redacted.
+
+Frontier/API model rows require explicit cost acknowledgement:
+
+```bash
+./scripts/boole-preflight-wizard.py --preset frontier --allow-paid-api --yes
+```
+
+Without `--allow-paid-api`, frontier/all rows fail fast before execution.
