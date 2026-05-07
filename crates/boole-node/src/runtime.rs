@@ -273,6 +273,7 @@ impl RuntimeAdmissionState {
             selected_share_pks,
             selected_share_evidence,
             min_share_score: config.min_share_score.to_string(),
+            min_share_score_multiplier_nanos: config.min_share_score_multiplier_nanos,
             kmax_applied: selection.selected.len() as u64,
             difficulty_epoch: config.difficulty_epoch,
             t_block: config.t_block.clone(),

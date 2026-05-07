@@ -99,6 +99,7 @@ fn block(height: u64, ts: u64, t_block: &str, difficulty_epoch: u64) -> Persiste
         ],
         selected_share_evidence: vec![],
         min_share_score: "1".to_string(),
+        min_share_score_multiplier_nanos: 0,
         kmax_applied: 1,
         difficulty_epoch,
         t_block: t_block.to_string(),

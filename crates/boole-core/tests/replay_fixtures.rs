@@ -138,6 +138,25 @@ fn replay_rejects_selected_share_evidence_share_hash_mismatch() {
     assert_replay_error_contains(block, "selected share evidence shareHash mismatch");
 }
 
+#[test]
+fn replay_rejects_selected_share_evidence_min_share_score_policy_mismatch() {
+    let mut block = evidence_backed_block();
+    block.min_share_score = "9".to_string();
+
+    assert_replay_error_contains(block, "selected share evidence minShareScore mismatch");
+}
+
+#[test]
+fn replay_rejects_selected_share_evidence_without_policy_multiplier() {
+    let mut block = evidence_backed_block();
+    block.min_share_score_multiplier_nanos = 0;
+
+    assert_replay_error_contains(
+        block,
+        "selected share evidence requires minShareScoreMultiplierNanos",
+    );
+}
+
 fn assert_replay_error_contains(block: PersistedBlock, expected: &str) {
     let err = replay_blocks(&[block]).expect_err("tampered selected share evidence is rejected");
     assert!(
@@ -183,7 +202,8 @@ fn evidence_backed_block() -> PersistedBlock {
             canon_hash,
             proof_package,
         }],
-        min_share_score: "10".to_string(),
+        min_share_score: "1".to_string(),
+        min_share_score_multiplier_nanos: 1_000_000_000,
         kmax_applied: 1,
         difficulty_epoch: 0,
         t_block: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string(),

@@ -98,6 +98,7 @@ fn persisted_block_shape_accepts_large_decimal_min_share_score() {
         ],
         selected_share_evidence: vec![],
         min_share_score: "340282366920938463463374607431768211456".to_string(),
+        min_share_score_multiplier_nanos: 0,
         kmax_applied: 1,
         difficulty_epoch: 0,
         t_block: "0x000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string(),

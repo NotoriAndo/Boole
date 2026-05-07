@@ -1,7 +1,10 @@
 use sha2::{Digest, Sha256};
 
 use crate::block::PersistedBlock;
-use crate::{share_hash, validate_proof_package_shape, Hex32, ValidationResult};
+use crate::{
+    min_share_score, parse_biguint_hex, share_hash, validate_proof_package_shape, Hex32,
+    ValidationResult,
+};
 
 pub(crate) fn verify_selected_share_evidence(block: &PersistedBlock) -> anyhow::Result<()> {
     if block.selected_share_evidence.is_empty() {
@@ -12,6 +15,19 @@ pub(crate) fn verify_selected_share_evidence(block: &PersistedBlock) -> anyhow::
             "selected share evidence count mismatch: got {}, expected {}",
             block.selected_share_evidence.len(),
             block.selected_share_hashes.len()
+        );
+    }
+    if block.min_share_score_multiplier_nanos == 0 {
+        anyhow::bail!("selected share evidence requires minShareScoreMultiplierNanos");
+    }
+    let t_share = parse_biguint_hex(&block.t_share)?;
+    let expected_min_share_score =
+        min_share_score(&t_share, block.min_share_score_multiplier_nanos)?.to_string();
+    if block.min_share_score != expected_min_share_score {
+        anyhow::bail!(
+            "selected share evidence minShareScore mismatch: got {}, expected {}",
+            block.min_share_score,
+            expected_min_share_score
         );
     }
 

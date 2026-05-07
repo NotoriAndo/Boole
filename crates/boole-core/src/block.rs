@@ -27,6 +27,8 @@ pub struct PersistedBlock {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub selected_share_evidence: Vec<SelectedShareEvidence>,
     pub min_share_score: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub min_share_score_multiplier_nanos: u64,
     pub kmax_applied: u64,
     pub difficulty_epoch: u64,
     pub t_block: String,
@@ -36,6 +38,10 @@ pub struct PersistedBlock {
     pub dropped_kernel_reject: u64,
     pub truncated_by_kmax: u64,
     pub ts: u64,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 impl PersistedBlock {
