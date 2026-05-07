@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { validate } from "/Users/seoyong/projects/pof/dispatcher/src/validator.ts";
-import type { CalibrationReport } from "/Users/seoyong/projects/pof/dispatcher/src/config.ts";
+import { validate } from "../../pof/dispatcher/src/validator.ts";
+import type { CalibrationReport } from "../../pof/dispatcher/src/config.ts";
 
 const outPath = resolve("fixtures/protocol/validator/v1.json");
 
@@ -52,8 +52,8 @@ const cases = [
 const fixture = {
   version: 1,
   source: {
-    validator: "/Users/seoyong/projects/pof/dispatcher/src/validator.ts",
-    proofPackage: "/Users/seoyong/projects/pof/dispatcher/src/proofPackage.ts",
+    validator: "legacy-pof/dispatcher/src/validator.ts",
+    proofPackage: "legacy-pof/dispatcher/src/proofPackage.ts",
   },
   generatedBy: "scripts/export-validator-fixtures.ts",
   cases,

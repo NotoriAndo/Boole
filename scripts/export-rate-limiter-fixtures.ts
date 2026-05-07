@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { RateLimiter } from "/Users/seoyong/projects/pof/dispatcher/src/rateLimiter.ts";
-import type { CalibrationReport } from "/Users/seoyong/projects/pof/dispatcher/src/config.ts";
+import { RateLimiter } from "../../pof/dispatcher/src/rateLimiter.ts";
+import type { CalibrationReport } from "../../pof/dispatcher/src/config.ts";
 
 const outPath = resolve("fixtures/protocol/rate-limiter/v1.json");
 
@@ -63,7 +63,7 @@ op("legacy_check_pk_quota", () => limiter.check({ ip: "203.0.113.9", pk, c }));
 
 const fixture = {
   version: 1,
-  source: { rateLimiter: "/Users/seoyong/projects/pof/dispatcher/src/rateLimiter.ts" },
+  source: { rateLimiter: "legacy-pof/dispatcher/src/rateLimiter.ts" },
   generatedBy: "scripts/export-rate-limiter-fixtures.ts",
   cfg,
   windowMs: 60_000,

@@ -1,7 +1,7 @@
 //! Core protocol types and deterministic state transition logic for Boole.
 //!
 //! This crate is intentionally small at first. It will grow by matching
-//! TypeScript-generated golden fixtures from `/Users/seoyong/projects/pof`.
+//! TypeScript-generated golden fixtures from `legacy-pof`.
 
 pub mod admission;
 pub mod admission_types;

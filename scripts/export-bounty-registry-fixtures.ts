@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { InMemoryBountyRegistry } from "/Users/seoyong/projects/pof/dispatcher/src/bountyRegistry.ts";
+import { InMemoryBountyRegistry } from "../../pof/dispatcher/src/bountyRegistry.ts";
 
 const outPath = resolve("fixtures/protocol/bounty-registry/v1.json");
 
@@ -98,7 +98,7 @@ recovery.updateStatus({ id: "beta-1", status: "withdrawn", ts: 1800000001500 });
 const fixture = {
   version: 1,
   source: {
-    bountyRegistry: "/Users/seoyong/projects/pof/dispatcher/src/bountyRegistry.ts",
+    bountyRegistry: "legacy-pof/dispatcher/src/bountyRegistry.ts",
   },
   generatedBy: "scripts/export-bounty-registry-fixtures.ts",
   constants: { HEX_A, HEX_B, HEX_C, HEX_D, HEX_E, HEX_F, HEX_1, HEX_2, HEX_3: HEX_3() },

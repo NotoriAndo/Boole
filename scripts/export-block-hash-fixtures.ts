@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { blockHash } from "/Users/seoyong/projects/pof/dispatcher/src/chain.ts";
-import { fromHex, toHex } from "/Users/seoyong/projects/pof/dispatcher/src/hash.ts";
+import { blockHash } from "../../pof/dispatcher/src/chain.ts";
+import { fromHex, toHex } from "../../pof/dispatcher/src/hash.ts";
 
 const outPath = resolve("fixtures/protocol/block-hash/v1.json");
 
@@ -41,7 +41,7 @@ const cases = [
 const fixture = {
   version: 1,
   domain: "block",
-  source: "/Users/seoyong/projects/pof/dispatcher/src/chain.ts:blockHash",
+  source: "legacy-pof/dispatcher/src/chain.ts:blockHash",
   generatedBy: "scripts/export-block-hash-fixtures.ts",
   cases,
 };

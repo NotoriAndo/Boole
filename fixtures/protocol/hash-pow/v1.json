@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "source": "/Users/seoyong/projects/pof/dispatcher/src/hash.ts",
+  "source": "legacy-pof/dispatcher/src/hash.ts",
   "generatedBy": "scripts/export-hash-pow-fixtures.ts",
   "inputs": {
     "c": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",

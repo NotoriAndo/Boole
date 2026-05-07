@@ -1,10 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { buildBlock } from "/Users/seoyong/projects/pof/dispatcher/src/blockBuilder.ts";
-import { hexToBigInt } from "/Users/seoyong/projects/pof/dispatcher/src/config.ts";
-import { fromHex, minShareScore, toHex } from "/Users/seoyong/projects/pof/dispatcher/src/hash.ts";
-import type { AcceptedShare } from "/Users/seoyong/projects/pof/dispatcher/src/sharePool.ts";
-import type { BooleCheckChecker, BooleCheckRequest, BooleCheckResult } from "/Users/seoyong/projects/pof/dispatcher/src/booleCheck.ts";
+import { buildBlock } from "../../pof/dispatcher/src/blockBuilder.ts";
+import { hexToBigInt } from "../../pof/dispatcher/src/config.ts";
+import { fromHex, minShareScore, toHex } from "../../pof/dispatcher/src/hash.ts";
+import type { AcceptedShare } from "../../pof/dispatcher/src/sharePool.ts";
+import type { BooleCheckChecker, BooleCheckRequest, BooleCheckResult } from "../../pof/dispatcher/src/booleCheck.ts";
 
 const outPath = resolve("fixtures/protocol/block-builder/v1.json");
 
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
 
   const fixture = {
     version: 1,
-    source: "/Users/seoyong/projects/pof/dispatcher/src/blockBuilder.ts",
+    source: "legacy-pof/dispatcher/src/blockBuilder.ts",
     generatedBy: "scripts/export-block-builder-fixtures.ts",
     chainHead: "c0",
     config: {

@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { SharePool, type AcceptedShare } from "/Users/seoyong/projects/pof/dispatcher/src/sharePool.ts";
+import { SharePool, type AcceptedShare } from "../../pof/dispatcher/src/sharePool.ts";
 
 const outPath = resolve("fixtures/protocol/share-pool/v1.json");
 
@@ -66,7 +66,7 @@ operations.push({ op: "forChain", c: nextC, labels: pool.forChain(nextC).map((s)
 
 const fixture = {
   version: 1,
-  source: "/Users/seoyong/projects/pof/dispatcher/src/sharePool.ts",
+  source: "legacy-pof/dispatcher/src/sharePool.ts",
   generatedBy: "scripts/export-share-pool-fixtures.ts",
   config: { ShareCapPerPK_Block: cfg.ShareCapPerPK_Block },
   currentC,

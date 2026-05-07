@@ -1,7 +1,7 @@
 {
   "version": 1,
   "domain": "block",
-  "source": "/Users/seoyong/projects/pof/dispatcher/src/chain.ts:blockHash",
+  "source": "legacy-pof/dispatcher/src/chain.ts:blockHash",
   "generatedBy": "scripts/export-block-hash-fixtures.ts",
   "cases": [
     {

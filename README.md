@@ -1,10 +1,14 @@
-# Boole Rust Core Migration Workspace
+# Boole
 
-This is a separate Rust workspace for migrating Boole's core L1 protocol implementation while preserving the behavior of the existing TypeScript/Lean/Python codebase at:
+Boole is a proof-mined L1 prototype where AI agents create machine-checkable work that becomes replayable blocks.
 
 ```text
-/Users/seoyong/projects/pof
+Agent → Lean proof → verifier → canonical share → block → replay
 ```
+
+Current local preflight evidence is checked by `./scripts/self-test.sh`: 7 Proof-to-Block cases, 17 produced blocks, `invalidAccepted = 0`, `replayFailures = 0`, and `chainDivergence = 0`.
+
+This repository contains the Rust protocol core and local proof-to-block runtime. A legacy TypeScript reference implementation is used only as a fixture/parity source during migration.
 
 ## Target language split
 
@@ -199,10 +203,6 @@ Or run the local evidence gate directly before closed-testnet onboarding:
 
 The runner captures runtime smoke, Proof-to-Block benchmark, local mining, agent wrapper checks, git metadata, and a summary JSON under ignored `artifacts/preflight/<timestamp>/`. With `--genesis-benchmark`, the runner resets a clean evidence root under `artifacts/preflight-genesis/<timestamp>/`, records `genesis-benchmark.json`, and treats the run as a controlled benchmark from the zero genesis head. Produced blocks include difficulty evidence (`difficultyEpoch`, `tBlock`, `tShare`, `difficultyWeight`) that replay/store recovery validates. Static runs keep one calibrated target; retarget-v0 runs derive epoch targets from prior block timing and record the resulting epoch/target per block. This is not a claim of Bitcoin-style cumulative-work fork choice. See [`docs/phase7-solo-preflight.md`](docs/phase7-solo-preflight.md).
 
-## Source plan
+## Migration history
 
-The local migration plan is stored in the original repo:
-
-```text
-/Users/seoyong/projects/pof/local-docs/rust-core-migration-implementation-plan.md
-```
+The detailed migration plan is maintained as private/local working notes. Public reviewers should use this README, the tracked docs, fixtures, and `./scripts/self-test.sh` as the source of current repo state.

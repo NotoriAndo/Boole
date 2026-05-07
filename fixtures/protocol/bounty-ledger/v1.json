@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": {
-    "bountyLedger": "/Users/seoyong/projects/pof/dispatcher/src/bountyLedger.ts"
+    "bountyLedger": "legacy-pof/dispatcher/src/bountyLedger.ts"
   },
   "generatedBy": "scripts/export-bounty-ledger-fixtures.ts",
   "validEvents": [

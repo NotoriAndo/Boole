@@ -1,8 +1,8 @@
 {
   "version": 1,
   "source": {
-    "familyManifest": "/Users/seoyong/projects/pof/dispatcher/src/familyManifest.ts",
-    "workManifest": "/Users/seoyong/projects/pof/dispatcher/src/workManifest.ts"
+    "familyManifest": "legacy-pof/dispatcher/src/familyManifest.ts",
+    "workManifest": "legacy-pof/dispatcher/src/workManifest.ts"
   },
   "generatedBy": "scripts/export-manifest-fixtures.ts",
   "familyCases": [

@@ -11,8 +11,8 @@ import {
   submissionPowOk,
   ticket,
   toHex,
-} from "/Users/seoyong/projects/pof/dispatcher/src/hash.ts";
-import { hexToBigInt } from "/Users/seoyong/projects/pof/dispatcher/src/config.ts";
+} from "../../pof/dispatcher/src/hash.ts";
+import { hexToBigInt } from "../../pof/dispatcher/src/config.ts";
 
 const outPath = resolve("fixtures/protocol/hash-pow/v1.json");
 
@@ -33,7 +33,7 @@ const submissionOk = submissionPowOk(fromHex(c), fromHex(pk), fromHex(nonceS), f
 
 const fixture = {
   version: 1,
-  source: "/Users/seoyong/projects/pof/dispatcher/src/hash.ts",
+  source: "legacy-pof/dispatcher/src/hash.ts",
   generatedBy: "scripts/export-hash-pow-fixtures.ts",
   inputs: {
     c,

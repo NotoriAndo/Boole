@@ -1,9 +1,9 @@
 {
   "version": 1,
   "source": {
-    "blockStore": "/Users/seoyong/projects/pof/dispatcher/src/blockStore.ts",
-    "rewardLedger": "/Users/seoyong/projects/pof/dispatcher/src/rewardLedger.ts",
-    "chain": "/Users/seoyong/projects/pof/dispatcher/src/chain.ts"
+    "blockStore": "legacy-pof/dispatcher/src/blockStore.ts",
+    "rewardLedger": "legacy-pof/dispatcher/src/rewardLedger.ts",
+    "chain": "legacy-pof/dispatcher/src/chain.ts"
   },
   "generatedBy": "scripts/export-replay-fixtures.ts",
   "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",

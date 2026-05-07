@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "source": "/Users/seoyong/projects/pof/dispatcher/src/sharePool.ts",
+  "source": "legacy-pof/dispatcher/src/sharePool.ts",
   "generatedBy": "scripts/export-share-pool-fixtures.ts",
   "config": {
     "ShareCapPerPK_Block": 2

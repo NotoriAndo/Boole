@@ -43,12 +43,14 @@ run_capture_json() {
 run_logged cargo-fmt cargo fmt --all --check
 run_logged cargo-clippy cargo clippy --workspace --all-targets -- -D warnings
 run_logged cargo-test cargo test --workspace --all-targets
+LEGACY_POF_ROOT="${BOOLE_LEGACY_POF_ROOT:-$ROOT/../pof}"
+LEGACY_CHAIN_TS="$LEGACY_POF_ROOT/dispatcher/src/chain.ts"
 RUST_PARITY_STATUS="pass"
 if [[ "${BOOLE_SKIP_RUST_PARITY:-0}" == "1" ]]; then
   printf 'self-test check rust-parity: SKIP (BOOLE_SKIP_RUST_PARITY=1)\n' >&2
   RUST_PARITY_STATUS="skipped"
-elif [[ ! -f "/Users/seoyong/projects/pof/dispatcher/src/chain.ts" ]]; then
-  printf 'self-test check rust-parity: SKIP (legacy TypeScript reference not present)\n' >&2
+elif [[ ! -f "$LEGACY_CHAIN_TS" ]]; then
+  printf 'self-test check rust-parity: SKIP (legacy TypeScript reference not present at %s)\n' "$LEGACY_CHAIN_TS" >&2
   RUST_PARITY_STATUS="skipped"
 else
   run_logged rust-parity ./scripts/check-rust-parity.sh

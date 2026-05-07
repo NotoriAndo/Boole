@@ -8,7 +8,7 @@ import {
   RingRejectionLogger,
   type RejectionEvent,
   type RejectionReason,
-} from "/Users/seoyong/projects/pof/dispatcher/src/rejectionLog.ts";
+} from "../../pof/dispatcher/src/rejectionLog.ts";
 
 class CaptureWritable extends Writable {
   output = "";
@@ -77,7 +77,7 @@ composite.record(events[3]!);
 const fixture = {
   version: 1,
   source: {
-    rejectionLog: "/Users/seoyong/projects/pof/dispatcher/src/rejectionLog.ts",
+    rejectionLog: "legacy-pof/dispatcher/src/rejectionLog.ts",
   },
   generatedBy: "scripts/export-rejection-log-fixtures.ts",
   reasonCases: reasons.map((reason) => ({ reason, key: reasonKey(reason) })),

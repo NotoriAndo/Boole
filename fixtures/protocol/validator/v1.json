@@ -1,8 +1,8 @@
 {
   "version": 1,
   "source": {
-    "validator": "/Users/seoyong/projects/pof/dispatcher/src/validator.ts",
-    "proofPackage": "/Users/seoyong/projects/pof/dispatcher/src/proofPackage.ts"
+    "validator": "legacy-pof/dispatcher/src/validator.ts",
+    "proofPackage": "legacy-pof/dispatcher/src/proofPackage.ts"
   },
   "generatedBy": "scripts/export-validator-fixtures.ts",
   "cases": [

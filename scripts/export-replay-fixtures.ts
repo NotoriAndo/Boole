@@ -1,9 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { blockHash } from "/Users/seoyong/projects/pof/dispatcher/src/chain.ts";
-import { fromHex, toHex } from "/Users/seoyong/projects/pof/dispatcher/src/hash.ts";
-import { InMemoryBlockStore, type AppendInput } from "/Users/seoyong/projects/pof/dispatcher/src/blockStore.ts";
-import { computeBlockCredits, InMemoryRewardLedger } from "/Users/seoyong/projects/pof/dispatcher/src/rewardLedger.ts";
+import { blockHash } from "../../pof/dispatcher/src/chain.ts";
+import { fromHex, toHex } from "../../pof/dispatcher/src/hash.ts";
+import { InMemoryBlockStore, type AppendInput } from "../../pof/dispatcher/src/blockStore.ts";
+import { computeBlockCredits, InMemoryRewardLedger } from "../../pof/dispatcher/src/rewardLedger.ts";
 
 const outPath = resolve("fixtures/protocol/replay/v1.json");
 
@@ -93,9 +93,9 @@ function persistedBlock(height: number) {
 const fixture = {
   version: 1,
   source: {
-    blockStore: "/Users/seoyong/projects/pof/dispatcher/src/blockStore.ts",
-    rewardLedger: "/Users/seoyong/projects/pof/dispatcher/src/rewardLedger.ts",
-    chain: "/Users/seoyong/projects/pof/dispatcher/src/chain.ts",
+    blockStore: "legacy-pof/dispatcher/src/blockStore.ts",
+    rewardLedger: "legacy-pof/dispatcher/src/rewardLedger.ts",
+    chain: "legacy-pof/dispatcher/src/chain.ts",
   },
   generatedBy: "scripts/export-replay-fixtures.ts",
   genesisC,

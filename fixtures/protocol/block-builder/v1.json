@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "source": "/Users/seoyong/projects/pof/dispatcher/src/blockBuilder.ts",
+  "source": "legacy-pof/dispatcher/src/blockBuilder.ts",
   "generatedBy": "scripts/export-block-builder-fixtures.ts",
   "chainHead": "c0",
   "config": {

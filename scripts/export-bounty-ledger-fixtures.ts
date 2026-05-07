@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { InMemoryBountyEventLedger, type BountyLedgerEvent } from "/Users/seoyong/projects/pof/dispatcher/src/bountyLedger.ts";
+import { InMemoryBountyEventLedger, type BountyLedgerEvent } from "../../pof/dispatcher/src/bountyLedger.ts";
 
 const outPath = resolve("fixtures/protocol/bounty-ledger/v1.json");
 const HEX_A = "aa".repeat(32);
@@ -93,7 +93,7 @@ const invalidResults = invalidCases.map(({ name, event }) => {
 const fixture = {
   version: 1,
   source: {
-    bountyLedger: "/Users/seoyong/projects/pof/dispatcher/src/bountyLedger.ts",
+    bountyLedger: "legacy-pof/dispatcher/src/bountyLedger.ts",
   },
   generatedBy: "scripts/export-bounty-ledger-fixtures.ts",
   validEvents,

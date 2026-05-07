@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": {
-    "rateLimiter": "/Users/seoyong/projects/pof/dispatcher/src/rateLimiter.ts"
+    "rateLimiter": "legacy-pof/dispatcher/src/rateLimiter.ts"
   },
   "generatedBy": "scripts/export-rate-limiter-fixtures.ts",
   "cfg": {

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": {
-    "config": "/Users/seoyong/projects/pof/dispatcher/src/config.ts"
+    "config": "legacy-pof/dispatcher/src/config.ts"
   },
   "generatedBy": "scripts/export-config-fixtures.ts",
   "cases": [

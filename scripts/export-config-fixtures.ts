@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { _resetConfigCache, hexToBigInt, loadConfig, type CalibrationReport } from "/Users/seoyong/projects/pof/dispatcher/src/config.ts";
+import { _resetConfigCache, hexToBigInt, loadConfig, type CalibrationReport } from "../../pof/dispatcher/src/config.ts";
 
 const outPath = resolve("fixtures/protocol/config/v1.json");
 
@@ -57,7 +57,7 @@ const hexCases = ["0x01", "0X10", "ff", "", "0xzz"].map((input) => {
 const fixture = {
   version: 1,
   source: {
-    config: "/Users/seoyong/projects/pof/dispatcher/src/config.ts",
+    config: "legacy-pof/dispatcher/src/config.ts",
   },
   generatedBy: "scripts/export-config-fixtures.ts",
   cases,

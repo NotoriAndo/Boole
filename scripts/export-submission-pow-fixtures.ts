@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { checkSubmissionPow } from "/Users/seoyong/projects/pof/dispatcher/src/submissionPow.ts";
-import { submissionPowHash } from "/Users/seoyong/projects/pof/dispatcher/src/hash.ts";
-import type { CalibrationReport } from "/Users/seoyong/projects/pof/dispatcher/src/config.ts";
+import { checkSubmissionPow } from "../../pof/dispatcher/src/submissionPow.ts";
+import { submissionPowHash } from "../../pof/dispatcher/src/hash.ts";
+import type { CalibrationReport } from "../../pof/dispatcher/src/config.ts";
 
 const outPath = resolve("fixtures/protocol/submission-pow/v1.json");
 
@@ -52,8 +52,8 @@ const cases = [
 const fixture = {
   version: 1,
   source: {
-    submissionPow: "/Users/seoyong/projects/pof/dispatcher/src/submissionPow.ts",
-    hash: "/Users/seoyong/projects/pof/dispatcher/src/hash.ts",
+    submissionPow: "legacy-pof/dispatcher/src/submissionPow.ts",
+    hash: "legacy-pof/dispatcher/src/hash.ts",
   },
   generatedBy: "scripts/export-submission-pow-fixtures.ts",
   hashHex: Buffer.from(hash).toString("hex"),

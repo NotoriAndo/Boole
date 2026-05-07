@@ -1,8 +1,8 @@
 {
   "version": 1,
   "source": {
-    "submissionPow": "/Users/seoyong/projects/pof/dispatcher/src/submissionPow.ts",
-    "hash": "/Users/seoyong/projects/pof/dispatcher/src/hash.ts"
+    "submissionPow": "legacy-pof/dispatcher/src/submissionPow.ts",
+    "hash": "legacy-pof/dispatcher/src/hash.ts"
   },
   "generatedBy": "scripts/export-submission-pow-fixtures.ts",
   "hashHex": "483c615598b15e9cf8df2d3b3f4f212faec00b375d0eca8f42abba4e773a32f7",

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": {
-    "bountyRegistry": "/Users/seoyong/projects/pof/dispatcher/src/bountyRegistry.ts"
+    "bountyRegistry": "legacy-pof/dispatcher/src/bountyRegistry.ts"
   },
   "generatedBy": "scripts/export-bounty-registry-fixtures.ts",
   "constants": {

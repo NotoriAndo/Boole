@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { parseFamilyManifest, type FamilyManifest } from "/Users/seoyong/projects/pof/dispatcher/src/familyManifest.ts";
-import { bountyToWorkManifest } from "/Users/seoyong/projects/pof/dispatcher/src/workManifest.ts";
+import { parseFamilyManifest, type FamilyManifest } from "../../pof/dispatcher/src/familyManifest.ts";
+import { bountyToWorkManifest } from "../../pof/dispatcher/src/workManifest.ts";
 
 const outPath = resolve("fixtures/protocol/manifests/v1.json");
 
@@ -57,8 +57,8 @@ const bounty = {
 const fixture = {
   version: 1,
   source: {
-    familyManifest: "/Users/seoyong/projects/pof/dispatcher/src/familyManifest.ts",
-    workManifest: "/Users/seoyong/projects/pof/dispatcher/src/workManifest.ts",
+    familyManifest: "legacy-pof/dispatcher/src/familyManifest.ts",
+    workManifest: "legacy-pof/dispatcher/src/workManifest.ts",
   },
   generatedBy: "scripts/export-manifest-fixtures.ts",
   familyCases,
