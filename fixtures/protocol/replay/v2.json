@@ -1,0 +1,68 @@
+{
+  "blocks": [
+    {
+      "c": "fadcbd4c2a6eb2cf940f48467b90046af81291b92d177ed2f68dba4ec0a60405",
+      "difficultyEpoch": 0,
+      "difficultyWeight": "1",
+      "droppedBelowMinScore": 0,
+      "droppedKernelReject": 0,
+      "height": 0,
+      "kmaxApplied": 1,
+      "minShareScore": "1",
+      "minShareScoreMultiplierNanos": 1000000000,
+      "prevC": "0000000000000000000000000000000000000000000000000000000000000000",
+      "proposerPk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "selectedShareEvidence": [
+        {
+          "c": "0000000000000000000000000000000000000000000000000000000000000000",
+          "canonHash": "b41ec0a1b3fb3daaef3c4be6f8a35825db9e05c1ff34b5882b04f8866561514e",
+          "j": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "n": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pk": "1111111111111111111111111111111111111111111111111111111111111111",
+          "proofPackage": "504f465002000000000000000000000019111111111111111111111111111111111111111111111111111111111111111119222222222222222222222222222222222222222222222222222222222222222200000000"
+        }
+      ],
+      "selectedShareHashes": [
+        "b844baae68de5f8c6a5138fce0345d99d6ae207ccfee928c007b330d7e087b53"
+      ],
+      "selectedSharePks": [
+        "1111111111111111111111111111111111111111111111111111111111111111"
+      ],
+      "tBlock": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "tShare": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "truncatedByKmax": 0,
+      "ts": 1700000000000
+    }
+  ],
+  "expected": {
+    "balances": {
+      "1111111111111111111111111111111111111111111111111111111111111111": "1",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "1"
+    },
+    "height": 1,
+    "latestC": "fadcbd4c2a6eb2cf940f48467b90046af81291b92d177ed2f68dba4ec0a60405"
+  },
+  "generatedBy": "boole-core consensus fixture generator",
+  "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",
+  "rewardEvents": [
+    {
+      "c": "fadcbd4c2a6eb2cf940f48467b90046af81291b92d177ed2f68dba4ec0a60405",
+      "credits": [
+        {
+          "amount": "1",
+          "pk": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "amount": "1",
+          "pk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "height": 0
+    }
+  ],
+  "source": {
+    "policyBinding": "crates/boole-core/src/replay_evidence.rs",
+    "replayEvidence": "crates/boole-core/tests/replay_fixtures.rs::evidence_backed_block"
+  },
+  "version": 2
+}

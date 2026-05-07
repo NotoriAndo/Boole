@@ -25,10 +25,32 @@ struct Expected {
 
 #[test]
 fn replay_matches_typescript_golden_fixture() {
-    let fixture: Fixture =
-        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
-            .expect("fixture parses");
+    assert_replay_fixture_matches(include_str!("../../../fixtures/protocol/replay/v1.json"));
+}
 
+#[test]
+fn replay_matches_evidence_backed_v2_golden_fixture() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v2.json"))
+            .expect("fixture parses");
+    assert!(
+        fixture
+            .blocks
+            .iter()
+            .any(|block| !block.selected_share_evidence.is_empty()
+                && block.min_share_score_multiplier_nanos != 0),
+        "v2 fixture must cover selected-share evidence with policy-bound multiplier"
+    );
+
+    assert_replay_fixture(fixture);
+}
+
+fn assert_replay_fixture_matches(raw: &str) {
+    let fixture: Fixture = serde_json::from_str(raw).expect("fixture parses");
+    assert_replay_fixture(fixture);
+}
+
+fn assert_replay_fixture(fixture: Fixture) {
     for (block, event) in fixture.blocks.iter().zip(fixture.reward_events.iter()) {
         let credits = compute_block_credits(&block.proposer_pk, &block.selected_share_pks)
             .expect("credits compute");
