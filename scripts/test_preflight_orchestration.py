@@ -88,16 +88,77 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertIn("paid/API model rows: disabled", rendered)
         self.assertIn("reproduce command", rendered)
 
+    def test_model_picker_renders_detailed_hermes_style_targets(self) -> None:
+        wizard = load_wizard()
+        status = {
+            "commands": {
+                "cargo": True,
+                "python3": True,
+                "lean": True,
+                "lake": True,
+                "hermes": True,
+                "claude": True,
+                "codex": False,
+                "ollama": True,
+            },
+            "credentials": {
+                "ANTHROPIC_API_KEY": False,
+                "OPENAI_API_KEY": False,
+                "GOOGLE_API_KEY": False,
+                "XAI_API_KEY": False,
+            },
+            "ollamaModels": ["qwen2.5-coder:7b"],
+        }
+        catalog = wizard.model_target_catalog(status)
+        rendered = wizard.render_model_picker(catalog)
+        self.assertIn("[1] safe-core", rendered)
+        self.assertIn("cost: free", rendered)
+        self.assertIn("API key: not needed", rendered)
+        self.assertIn("status: ready", rendered)
+        self.assertIn("ollama:qwen2.5-coder:7b", rendered)
+        self.assertIn("action: ready", rendered)
+        self.assertIn("hermes:configured", rendered)
+        self.assertIn("openai:gpt-5", rendered)
+        self.assertIn("OPENAI_API_KEY missing", rendered)
+        self.assertIn("status: disabled", rendered)
+
+    def test_target_selection_maps_to_preflight_flags(self) -> None:
+        wizard = load_wizard()
+        args = argparse.Namespace(
+            install_claude=False,
+            install_codex=False,
+            evidence_dir=None,
+            genesis_benchmark=True,
+            attempts_per_model=None,
+            run_hermes_real=False,
+            model_preset=None,
+            model_include=[],
+            ollama_model=[],
+            target=["safe-core", "hermes:configured", "ollama:qwen2.5-coder:7b"],
+            skip_hardening_checks=False,
+        )
+        plan = wizard.build_plan(args, "safe")
+        preflight = plan[-1]
+        self.assertIn("--genesis-benchmark", preflight)
+        self.assertIn("--run-hermes-real", preflight)
+        self.assertIn("--run-model-benchmark", preflight)
+        self.assertIn("--model-preset", preflight)
+        self.assertIn("ollama", preflight)
+        self.assertIn("--ollama-model", preflight)
+        self.assertIn("qwen2.5-coder:7b", preflight)
+
     def test_frontier_or_everything_requires_explicit_paid_api_confirmation(self) -> None:
         wizard = load_wizard()
-        safe_args = argparse.Namespace(model_preset=None, allow_paid_api=False)
-        frontier_args = argparse.Namespace(model_preset=None, allow_paid_api=False)
-        override_args = argparse.Namespace(model_preset="frontier", allow_paid_api=False)
-        allowed_args = argparse.Namespace(model_preset="frontier", allow_paid_api=True)
+        safe_args = argparse.Namespace(model_preset=None, target=[], allow_paid_api=False)
+        frontier_args = argparse.Namespace(model_preset=None, target=[], allow_paid_api=False)
+        override_args = argparse.Namespace(model_preset="frontier", target=[], allow_paid_api=False)
+        target_args = argparse.Namespace(model_preset=None, target=["openai:gpt-5"], allow_paid_api=False)
+        allowed_args = argparse.Namespace(model_preset="frontier", target=["openai:gpt-5"], allow_paid_api=True)
         self.assertFalse(wizard.requires_paid_api_confirmation(safe_args, "safe"))
         self.assertTrue(wizard.requires_paid_api_confirmation(frontier_args, "frontier"))
         self.assertTrue(wizard.requires_paid_api_confirmation(frontier_args, "everything"))
         self.assertTrue(wizard.requires_paid_api_confirmation(override_args, "safe"))
+        self.assertTrue(wizard.requires_paid_api_confirmation(target_args, "safe"))
         self.assertFalse(wizard.requires_paid_api_confirmation(allowed_args, "safe"))
 
     def test_wizard_writes_redacted_report_and_leaderboard_from_summary(self) -> None:

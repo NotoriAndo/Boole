@@ -30,14 +30,14 @@ Useful non-interactive modes:
 ./scripts/boole-preflight-wizard.py --doctor
 ./scripts/boole-preflight-wizard.py --list-models
 ./scripts/boole-preflight-wizard.py --preset safe --dry-run
-./scripts/boole-preflight-wizard.py --preset safe --genesis-benchmark --yes
-./scripts/boole-preflight-wizard.py --preset agent-local --yes
-./scripts/boole-preflight-wizard.py --preset local-models --yes
-./scripts/boole-preflight-wizard.py --preset frontier --allow-paid-api --yes
+./scripts/boole-preflight-wizard.py --target safe-core --preset safe --genesis-benchmark --yes
+./scripts/boole-preflight-wizard.py --target ollama:qwen2.5-coder:7b --preset local-models --yes
+./scripts/boole-preflight-wizard.py --target hermes:configured --preset agent-local --yes
+./scripts/boole-preflight-wizard.py --target anthropic:claude-opus-4-7 --preset frontier --allow-paid-api --yes
 ./scripts/boole-preflight-wizard.py --preset everything --genesis-benchmark --attempts-per-model 50 --allow-paid-api --yes
 ```
 
-Presets:
+Presets remain available for quick starts, but the preferred user-facing flow is target selection. `--list-models` shows a detailed runtime/model catalog with each row's group, status, credential boundary, cost class, and action. Interactive mode prompts for numbered target choices; scripts can use repeatable `--target <id>` flags.
 
 - `safe`: deterministic core preflight only.
 - `agent-local`: installs Claude/Codex templates and includes Hermes real proof-to-block.

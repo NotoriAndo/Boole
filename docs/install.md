@@ -93,7 +93,20 @@ For the deterministic API-free local evidence path:
 
 The safe preflight produces local, replay-checkable proof-to-block evidence. It is not public-network mining, not a token/reward claim, and not a paid model benchmark.
 
-The wizard renders a seven-step guided plan (`Step 1/7` through `Step 7/7`) and writes three user-facing artifacts into the evidence directory after a successful run:
+The wizard renders a seven-step guided plan (`Step 1/7` through `Step 7/7`) and writes three user-facing artifacts into the evidence directory after a successful run. It includes a Hermes-style model/runtime picker so users can inspect available targets and choose exactly what to run:
+
+```bash
+# Show all detected target rows, credential status, cost class, and action.
+./scripts/boole-preflight-wizard.py --list-models
+
+# Non-interactive safe target selection.
+./scripts/boole-preflight-wizard.py --target safe-core --preset safe --genesis-benchmark --yes
+
+# Local model rows stay API-free, but require the local runtime/model to be installed.
+./scripts/boole-preflight-wizard.py --target ollama:qwen2.5-coder:7b --preset local-models --yes
+```
+
+Report artifacts:
 
 - `wizard-report.md`: safe public wording and replay/invalid/divergence metrics.
 - `wizard-leaderboard.md`: local agent/runtime rows ranked by verifier/replay-backed score.

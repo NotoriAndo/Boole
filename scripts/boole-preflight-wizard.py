@@ -15,7 +15,7 @@ import subprocess
 import sys
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,6 +56,21 @@ PRESETS: dict[str, dict[str, Any]] = {
         "model_preset": "all",
     },
 }
+
+
+class ModelTarget(NamedTuple):
+    id: str
+    title: str
+    group: str
+    cost: str
+    credential: str
+    status: str
+    action: str
+    paid: bool = False
+    run_hermes_real: bool = False
+    model_preset: str | None = None
+    ollama_model: str | None = None
+    model_include: str | None = None
 
 
 def run(cmd: list[str], *, dry_run: bool, capture: bool = False, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str] | None:
@@ -103,6 +118,7 @@ def env_status() -> dict[str, Any]:
             "hermes": command_ok("hermes"),
             "claude": command_ok("claude"),
             "codex": command_ok("codex"),
+            "opencode": command_ok("opencode"),
             "ollama": command_ok("ollama"),
             "gitleaks": command_ok("gitleaks"),
         },
@@ -162,6 +178,172 @@ def positive_int(raw: str) -> int:
     return value
 
 
+def model_target_catalog(status: dict[str, Any]) -> list[ModelTarget]:
+    commands = status.get("commands", {})
+    credentials = status.get("credentials", {})
+    ollama_installed = bool(commands.get("ollama"))
+    ollama_detected = set(status.get("ollamaModels", []))
+
+    def command_target(target_id: str, title: str, command: str) -> ModelTarget:
+        ready = bool(commands.get(command))
+        return ModelTarget(
+            id=target_id,
+            title=title,
+            group="agent cli",
+            cost="subscription/local",
+            credential="OAuth/configured CLI; no API key printed",
+            status="ready" if ready else "missing",
+            action="ready" if ready else f"install or configure `{command}`",
+            run_hermes_real=target_id == "hermes:configured" and ready,
+            model_preset="oauth" if ready and target_id in {"claude-code", "codex", "opencode"} else None,
+            model_include=target_id.split(":", 1)[0] if ready and target_id in {"claude-code", "codex", "opencode"} else None,
+        )
+
+    targets: list[ModelTarget] = [
+        ModelTarget(
+            id="safe-core",
+            title="Safe deterministic core preflight",
+            group="core",
+            cost="free",
+            credential="not needed",
+            status="ready",
+            action="ready",
+        ),
+        ModelTarget(
+            id="hermes:configured",
+            title="Hermes configured agent runtime",
+            group="agent cli",
+            cost="subscription/local",
+            credential="Hermes config; no API key printed",
+            status="ready" if commands.get("hermes") else "missing",
+            action="ready" if commands.get("hermes") else "install/configure `hermes`",
+            run_hermes_real=bool(commands.get("hermes")),
+        ),
+        command_target("claude-code", "Claude Code CLI runtime", "claude"),
+        command_target("codex", "Codex CLI runtime", "codex"),
+        command_target("opencode", "OpenCode CLI runtime", "opencode"),
+    ]
+
+    for model in ["qwen2.5-coder:7b", "llama3.1:8b"]:
+        ready = ollama_installed and model in ollama_detected
+        action = "ready" if ready else (f"ollama pull {model}" if ollama_installed else "install Ollama, then pull model")
+        targets.append(
+            ModelTarget(
+                id=f"ollama:{model}",
+                title=f"Ollama local model {model}",
+                group="local llm",
+                cost="free/local compute",
+                credential="not needed",
+                status="ready" if ready else "missing",
+                action=action,
+                model_preset="ollama",
+                ollama_model=model,
+            )
+        )
+    for model in sorted(ollama_detected):
+        target_id = f"ollama:{model}"
+        if any(target.id == target_id for target in targets):
+            continue
+        targets.append(
+            ModelTarget(
+                id=target_id,
+                title=f"Ollama local model {model}",
+                group="local llm",
+                cost="free/local compute",
+                credential="not needed",
+                status="ready",
+                action="ready",
+                model_preset="ollama",
+                ollama_model=model,
+            )
+        )
+
+    frontier_specs = [
+        ("openai:gpt-5", "OpenAI GPT-5 API", "OPENAI_API_KEY", "openai-gpt-5-api"),
+        ("anthropic:claude-opus-4-7", "Anthropic Claude Opus 4.7 API", "ANTHROPIC_API_KEY", "anthropic-claude-opus-4-7-api"),
+        ("google:gemini-2.5-pro", "Google Gemini 2.5 Pro API", "GOOGLE_API_KEY", "google-gemini-2-5-pro-api"),
+        ("xai:grok-4", "xAI Grok 4 API", "XAI_API_KEY", "xai-grok-openai-compat-api"),
+    ]
+    for target_id, title, key, include in frontier_specs:
+        present = bool(credentials.get(key))
+        targets.append(
+            ModelTarget(
+                id=target_id,
+                title=title,
+                group="paid api",
+                cost="paid/API",
+                credential=f"{key} {'present' if present else 'missing'}",
+                status="available" if present else "disabled",
+                action="requires --allow-paid-api" if present else f"set {key} and pass --allow-paid-api",
+                paid=True,
+                model_preset="frontier",
+                model_include=include,
+            )
+        )
+    return targets
+
+
+def render_model_picker(catalog: list[ModelTarget]) -> str:
+    lines = [
+        "\nModel/runtime targets",
+        "=====================",
+        "Select benchmark targets by number or id. Examples: 1,2 or safe-core,ollama:qwen2.5-coder:7b",
+    ]
+    for index, target in enumerate(catalog, start=1):
+        lines.extend(
+            [
+                f"[{index}] {target.id} — {target.title}",
+                f"    group: {target.group}",
+                f"    cost: {target.cost}",
+                f"    API key: {target.credential}",
+                f"    status: {target.status}",
+                f"    action: {target.action}",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def parse_target_selection(raw: str, catalog: list[ModelTarget]) -> list[str]:
+    by_id = {target.id: target.id for target in catalog}
+    selected: list[str] = []
+    for item in [part.strip() for part in raw.split(",") if part.strip()]:
+        if item.isdigit() and 1 <= int(item) <= len(catalog):
+            selected.append(catalog[int(item) - 1].id)
+        elif item in by_id:
+            selected.append(item)
+        else:
+            raise ValueError(f"unknown target: {item}")
+    return selected
+
+
+def apply_selected_targets(args: argparse.Namespace, catalog: list[ModelTarget]) -> None:
+    selected = list(getattr(args, "target", []) or [])
+    if not selected:
+        return
+    by_id = {target.id: target for target in catalog}
+    model_presets: set[str] = set()
+    for target_id in selected:
+        target = by_id.get(target_id)
+        if target is None:
+            raise SystemExit(f"boole-preflight-wizard: unknown --target {target_id}")
+        if target.run_hermes_real:
+            args.run_hermes_real = True
+        if target.model_preset:
+            model_presets.add(target.model_preset)
+        if target.ollama_model and target.ollama_model not in args.ollama_model:
+            args.ollama_model.append(target.ollama_model)
+        if target.model_include and target.model_include not in args.model_include:
+            args.model_include.append(target.model_include)
+    if "frontier" in model_presets and "ollama" in model_presets:
+        args.model_preset = "all"
+    elif "frontier" in model_presets:
+        args.model_preset = "frontier"
+    elif "ollama" in model_presets:
+        args.model_preset = "ollama"
+    elif "oauth" in model_presets and not args.model_preset:
+        args.model_preset = "oauth"
+
+
 def selected_model_preset(args: argparse.Namespace, preset_name: str) -> str | None:
     return args.model_preset or PRESETS[preset_name]["model_preset"]
 
@@ -169,7 +351,8 @@ def selected_model_preset(args: argparse.Namespace, preset_name: str) -> str | N
 def requires_paid_api_confirmation(args: argparse.Namespace, preset_name: str) -> bool:
     if getattr(args, "allow_paid_api", False):
         return False
-    return selected_model_preset(args, preset_name) in {"frontier", "all"}
+    paid_targets = [target for target in getattr(args, "target", []) if target.startswith(("openai:", "anthropic:", "google:", "xai:"))]
+    return bool(paid_targets) or selected_model_preset(args, preset_name) in {"frontier", "all"}
 
 
 def redacted_status(status: dict[str, Any]) -> dict[str, Any]:
@@ -201,6 +384,8 @@ def reproduce_command(args: argparse.Namespace, preset_name: str) -> str:
         cmd += ["--model-preset", model_preset]
     for include in getattr(args, "model_include", []):
         cmd += ["--model-include", include]
+    for target in getattr(args, "target", []):
+        cmd += ["--target", target]
     for model in getattr(args, "ollama_model", []):
         cmd += ["--ollama-model", model]
     if getattr(args, "run_hermes_real", False):
@@ -214,6 +399,7 @@ def reproduce_command(args: argparse.Namespace, preset_name: str) -> str:
 def render_guided_steps(args: argparse.Namespace, preset_name: str, plan: list[list[str]], status: dict[str, Any]) -> str:
     model_preset = selected_model_preset(args, preset_name) or "none"
     paid_state = "enabled" if model_preset in {"frontier", "all"} else "disabled"
+    selected_targets = getattr(args, "target", []) or ["safe-core"]
     benchmark_profile = benchmark_profile_label(args)
     purpose = purpose_label(args)
     command_lines = [" ".join(cmd) for cmd in plan]
@@ -230,6 +416,7 @@ def render_guided_steps(args: argparse.Namespace, preset_name: str, plan: list[l
         f"purpose: {purpose}",
         "Step 3/7 — Runtime/model selection",
         f"preset: {preset_name}",
+        f"selected targets: {', '.join(selected_targets)}",
         f"model preset: {model_preset}",
         f"paid/API model rows: {paid_state}",
         "Step 4/7 — Benchmark profile",
@@ -358,6 +545,7 @@ def summary_evidence_dir(summary: dict[str, Any]) -> Path | None:
 
 
 def build_plan(args: argparse.Namespace, preset_name: str) -> list[list[str]]:
+    apply_selected_targets(args, model_target_catalog(env_status()))
     preset = PRESETS[preset_name]
     plan: list[list[str]] = []
     if preset["install_claude"] or args.install_claude:
@@ -454,6 +642,7 @@ def main() -> None:
     parser.add_argument("--model-preset", choices=["mock", "frontier", "oauth", "ollama", "all"], help="Override preset model benchmark selection.")
     parser.add_argument("--model-include", action="append", default=[], help="Filter model benchmark rows by substring; repeatable.")
     parser.add_argument("--ollama-model", action="append", default=[], help="Specific Ollama model to include; repeatable.")
+    parser.add_argument("--target", action="append", default=[], help="Hermes-style model/runtime target id to include; repeatable. Example: --target safe-core --target ollama:qwen2.5-coder:7b")
     parser.add_argument("--purpose", choices=["github-v0.1", "local-validation", "vc-demo", "tester-onboarding"], default="github-v0.1", help="Human-facing run purpose shown in the guided plan and report.")
     parser.add_argument("--benchmark-profile", choices=["github-v0.1", "safe-genesis", "local-llm", "frontier-api"], default="github-v0.1", help="Report profile label; does not enable paid/API rows by itself.")
     parser.add_argument("--allow-paid-api", action="store_true", help="Explicitly allow frontier/all model benchmark rows that may use paid API credentials.")
@@ -464,11 +653,19 @@ def main() -> None:
     if args.doctor:
         return
     if args.list_models:
-        print("\nModel rows")
-        model_list(args.dry_run)
+        print(render_model_picker(model_target_catalog(status)))
         return
 
     preset = args.preset or choose_preset()
+    if not args.target and not args.preset and not args.yes:
+        catalog = model_target_catalog(status)
+        print(render_model_picker(catalog))
+        raw = input("Select benchmark targets [1]: ").strip() or "1"
+        try:
+            args.target = parse_target_selection(raw, catalog)
+        except ValueError as exc:
+            print(f"boole-preflight-wizard: {exc}", file=sys.stderr)
+            raise SystemExit(2) from exc
     print(f"\nSelected preset: {preset}")
     print(PRESETS[preset]["description"])
     if requires_paid_api_confirmation(args, preset):
@@ -487,6 +684,7 @@ def main() -> None:
             print("Cancelled")
             return
 
+    sys.stdout.flush()
     raise SystemExit(run_plan(plan, args.dry_run, purpose=purpose_label(args), benchmark_profile=benchmark_profile_label(args)))
 
 
