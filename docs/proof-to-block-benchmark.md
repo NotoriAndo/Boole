@@ -56,13 +56,24 @@ PROVIDER_MODEL_BENCHMARK_SPEC="$(python3 -c 'import json; print(json.dumps(json.
   ./scripts/provider-model-benchmark.sh
 ```
 
-For reproducible model-by-model evidence bundles, use the artifact runner skeleton:
+For reproducible model-by-model evidence bundles, use the artifact runner:
 
 ```bash
 ./scripts/boole-model-benchmark.py \
   --spec /tmp/boole-model-spec.json \
   --output-dir /tmp/boole-model-benchmark
 ```
+
+For a local Ollama model attempt run, use an explicit `ollama:<model>` target:
+
+```bash
+./scripts/boole-model-benchmark.py \
+  --target ollama:qwen2.5-coder:7b \
+  --attempts 3 \
+  --output-dir /tmp/boole-ollama-benchmark
+```
+
+The Ollama path calls `ollama run <model> <prompt>` and records each generated candidate as an untrusted attempt row. It does not auto-start the Ollama daemon and does not auto-pull models. Missing command, daemon, or model setup is recorded as `SETUP_REQUIRED`, with recovery guidance such as `ollama serve` or `ollama pull <model>`, and the benchmark artifact run itself can still complete.
 
 It writes:
 
@@ -73,7 +84,7 @@ leaderboard.md
 replay-report.json
 ```
 
-This runner does not auto-pull Ollama models, start daemons, or bypass paid/API confirmation. Rows with missing required env vars are recorded as `SKIP`; accepted/rejected proof attempts remain subject to verifier/replay metrics, with `invalidAccepted`, `replayFailures`, and `chainDivergence` preserved as the safety rail.
+This runner does not auto-pull Ollama models, start daemons, or bypass paid/API confirmation. Rows with missing required env vars are recorded as `SKIP`; Ollama setup gaps are recorded as `SETUP_REQUIRED`; accepted/rejected proof attempts remain subject to verifier/replay metrics, with `invalidAccepted`, `replayFailures`, and `chainDivergence` preserved as the safety rail. Local model-generated proof attempts are evidence rows, not claims of live network mining.
 
 Or let the preflight runner collect it into the evidence bundle:
 

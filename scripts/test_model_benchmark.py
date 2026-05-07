@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -99,6 +100,150 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             self.assertEqual(rows[0]["reason"], "missing_required_env")
             self.assertEqual(rows[0]["missingEnv"], ["BOOLE_TEST_MISSING_API_KEY"])
             self.assertNotIn("sk-", json.dumps(summary) + json.dumps(rows))
+
+    def test_ollama_target_records_generated_attempt_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake_ollama = tmp_path / "fake-ollama.py"
+            fake_ollama.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "print('theorem boole_benchmark_true : True := by trivial')\n",
+                encoding="utf-8",
+            )
+            fake_ollama.chmod(0o755)
+            out_dir = tmp_path / "model-benchmark"
+
+            proc = subprocess.run(
+                [
+                    "python3",
+                    str(BENCHMARK_PATH),
+                    "--target",
+                    "ollama:qwen2.5-coder:7b",
+                    "--ollama-command",
+                    str(fake_ollama),
+                    "--attempts",
+                    "2",
+                    "--output-dir",
+                    str(out_dir),
+                    "--run-id",
+                    "ollama-run",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            summary = json.loads((out_dir / "benchmark-summary.json").read_text())
+            rows = [json.loads(line) for line in (out_dir / "benchmark-rows.ndjson").read_text().splitlines()]
+            leaderboard = (out_dir / "leaderboard.md").read_text()
+
+            self.assertTrue(summary["ok"])
+            self.assertEqual(summary["totals"]["rows"], 2)
+            self.assertEqual(summary["totals"]["generatedAttempts"], 2)
+            self.assertEqual(summary["totals"]["rejected"], 2)
+            self.assertEqual(summary["safety"]["invalidAccepted"], 0)
+            self.assertEqual({row["provider"] for row in rows}, {"ollama"})
+            self.assertEqual({row["model"] for row in rows}, {"qwen2.5-coder:7b"})
+            self.assertTrue(all(row["generatedAttempt"] is True for row in rows))
+            self.assertTrue(all(row["status"] == "REJECTED" for row in rows))
+            self.assertTrue(all(row["accepted"] is False for row in rows))
+            self.assertTrue(all(row["invalidAccepted"] is False for row in rows))
+            self.assertTrue(all(row["candidateSha256"] for row in rows))
+            self.assertIn("ollama:qwen2.5-coder:7b", leaderboard)
+            self.assertIn("Local model-generated proof attempts", leaderboard)
+
+    def test_missing_ollama_command_records_setup_required_without_failing_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            out_dir = tmp_path / "model-benchmark"
+            missing_command = tmp_path / "missing-ollama"
+
+            proc = subprocess.run(
+                [
+                    "python3",
+                    str(BENCHMARK_PATH),
+                    "--target",
+                    "ollama:qwen2.5-coder:7b",
+                    "--ollama-command",
+                    str(missing_command),
+                    "--attempts",
+                    "1",
+                    "--output-dir",
+                    str(out_dir),
+                    "--run-id",
+                    "missing-ollama-run",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            summary = json.loads((out_dir / "benchmark-summary.json").read_text())
+            rows = [json.loads(line) for line in (out_dir / "benchmark-rows.ndjson").read_text().splitlines()]
+
+            self.assertTrue(summary["ok"])
+            self.assertEqual(summary["totals"]["setupRequired"], 1)
+            self.assertEqual(summary["totals"]["generatedAttempts"], 0)
+            self.assertEqual(summary["safety"]["invalidAccepted"], 0)
+            self.assertEqual(rows[0]["status"], "SETUP_REQUIRED")
+            self.assertEqual(rows[0]["reason"], "ollama-command-not-found")
+            self.assertFalse(rows[0]["generatedAttempt"])
+            self.assertFalse(rows[0]["invalidAccepted"])
+
+    def test_missing_ollama_model_records_setup_required_without_auto_pull(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake_ollama = tmp_path / "fake-ollama.py"
+            fake_ollama.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "sys.stderr.write(\"model 'qwen2.5-coder:7b' not found, try pulling it first\\n\")\n"
+                "raise SystemExit(1)\n",
+                encoding="utf-8",
+            )
+            fake_ollama.chmod(0o755)
+            out_dir = tmp_path / "model-benchmark"
+
+            proc = subprocess.run(
+                [
+                    "python3",
+                    str(BENCHMARK_PATH),
+                    "--target",
+                    "ollama:qwen2.5-coder:7b",
+                    "--ollama-command",
+                    str(fake_ollama),
+                    "--attempts",
+                    "1",
+                    "--output-dir",
+                    str(out_dir),
+                    "--run-id",
+                    "missing-model-run",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            summary = json.loads((out_dir / "benchmark-summary.json").read_text())
+            rows = [json.loads(line) for line in (out_dir / "benchmark-rows.ndjson").read_text().splitlines()]
+
+            self.assertTrue(summary["ok"])
+            self.assertEqual(summary["totals"]["setupRequired"], 1)
+            self.assertEqual(summary["safety"]["invalidAccepted"], 0)
+            self.assertEqual(rows[0]["status"], "SETUP_REQUIRED")
+            self.assertEqual(rows[0]["reason"], "ollama-model-missing")
+            self.assertFalse(rows[0]["generatedAttempt"])
+            self.assertNotIn("ollama pull", rows[0].get("stdoutTail", ""))
 
 
 if __name__ == "__main__":
