@@ -401,15 +401,43 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
     )
     for idx in range(attempts):
         started = time.time()
-        proc = subprocess.run(
-            [resolved_command, "run", model, prompt],
-            cwd=ROOT,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout_s,
-            check=False,
-        )
+        try:
+            proc = subprocess.run(
+                [resolved_command, "run", model, prompt],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout_s,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as err:
+            elapsed_ms = int((time.time() - started) * 1000)
+            rows.append(
+                {
+                    "name": f"{target} attempt {idx + 1}",
+                    "kind": "provider-model",
+                    "target": target,
+                    "provider": "ollama",
+                    "model": model,
+                    "attemptIndex": idx,
+                    "ok": True,
+                    "skipped": False,
+                    "status": "REJECTED",
+                    "reason": "ollama-timeout",
+                    "generatedAttempt": False,
+                    "accepted": False,
+                    "invalidAccepted": False,
+                    "elapsedMs": elapsed_ms,
+                    "latencyMs": elapsed_ms,
+                    "score": {"blocks": 0, "verifiedShares": 0, "replayPass": True},
+                    "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
+                    "verifier": {"invoked": False, "command": "submit-lean"},
+                    "stderrTail": str(err)[-1200:],
+                    "stdoutTail": "",
+                }
+            )
+            continue
         elapsed_ms = int((time.time() - started) * 1000)
         if proc.returncode != 0:
             rows.append(

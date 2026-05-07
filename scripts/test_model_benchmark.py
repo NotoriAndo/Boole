@@ -269,6 +269,53 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             self.assertEqual(invocation["verifierHash"], "boole-model-benchmark-ollama-v0")
             self.assertRegex(invocation["requiredCheckerArtifactHash"], r"^[0-9a-f]{64}$")
 
+    def test_ollama_timeout_records_rejected_row_without_crashing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake_ollama = tmp_path / "fake-slow-ollama.py"
+            fake_ollama.write_text(
+                "#!/usr/bin/env python3\n"
+                "import time\n"
+                "time.sleep(2)\n",
+                encoding="utf-8",
+            )
+            fake_ollama.chmod(0o755)
+            out_dir = tmp_path / "model-benchmark"
+
+            proc = subprocess.run(
+                [
+                    "python3",
+                    str(BENCHMARK_PATH),
+                    "--target",
+                    "ollama:slow-model",
+                    "--ollama-command",
+                    str(fake_ollama),
+                    "--attempts",
+                    "1",
+                    "--timeout-sec",
+                    "1",
+                    "--output-dir",
+                    str(out_dir),
+                    "--run-id",
+                    "timeout-run",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            summary = json.loads((out_dir / "benchmark-summary.json").read_text())
+            rows = [json.loads(line) for line in (out_dir / "benchmark-rows.ndjson").read_text().splitlines()]
+            self.assertTrue(summary["ok"])
+            self.assertEqual(summary["totals"]["rejected"], 1)
+            self.assertEqual(rows[0]["status"], "REJECTED")
+            self.assertEqual(rows[0]["reason"], "ollama-timeout")
+            self.assertEqual(rows[0]["score"], {"blocks": 0, "verifiedShares": 0, "replayPass": True})
+            self.assertEqual(rows[0]["safety"], {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0})
+
     def test_missing_ollama_model_records_setup_required_without_auto_pull(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
