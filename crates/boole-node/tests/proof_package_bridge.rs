@@ -1,7 +1,12 @@
-use boole_core::{replay_blocks, AdmissionDecision, CalibrationReport};
-use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
+use boole_core::{
+    replay_blocks, validate_proof_package, AdmissionDecision, CalibrationReport, ValidationResult,
+};
+use boole_lean_runner::{LeanCheckResult, LeanRunner, LeanRunnerConfig, LeanRunnerEvidence};
 use boole_node::block_store::FileBlockStore;
-use boole_node::proof_bridge::{LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate};
+use boole_node::proof_bridge::{
+    canonical_pofp_package_from_lean_result, LeanProofBridge, LeanProofBridgePolicy,
+    ProofSubmissionTemplate,
+};
 use boole_node::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use serde::Deserialize;
 use serde_json::Value;
@@ -25,6 +30,41 @@ struct Constants {
     j: String,
     nonce_s: String,
     ip: String,
+}
+
+#[test]
+fn lean_canonical_package_uses_pofp_v2_256_bit_slots() {
+    let fixture = easy_runtime_fixture();
+    let lean = synthetic_accepted_lean_result("stdout-a");
+    let package = canonical_pofp_package_from_lean_result(&lean);
+
+    assert_eq!(&package[0..4], b"POFP");
+    assert_eq!(u32::from_le_bytes(package[4..8].try_into().unwrap()), 2);
+    assert_eq!(package.len(), 86);
+    assert_eq!(package[16], 0x19);
+    assert_eq!(package[49], 0x19);
+    assert_ne!(&package[17..49], [0u8; 32].as_slice());
+    assert_ne!(&package[50..82], [0u8; 32].as_slice());
+
+    assert!(matches!(
+        validate_proof_package(&package, &fixture.cfg),
+        ValidationResult::Ok {
+            decl_count: 0,
+            size: 86,
+            universe_arity: 0,
+        }
+    ));
+}
+
+#[test]
+fn lean_canonical_package_hash_surface_changes_across_full_digest_slots() {
+    let first =
+        canonical_pofp_package_from_lean_result(&synthetic_accepted_lean_result("stdout-a"));
+    let second =
+        canonical_pofp_package_from_lean_result(&synthetic_accepted_lean_result("stdout-b"));
+
+    assert_ne!(&first[17..49], &second[17..49]);
+    assert_ne!(&first[50..82], &second[50..82]);
 }
 
 #[test]
@@ -367,4 +407,28 @@ fn unique_nanos() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("time")
         .as_nanos()
+}
+
+fn synthetic_accepted_lean_result(stdout: &str) -> LeanCheckResult {
+    LeanCheckResult {
+        accepted: true,
+        exit_code: 0,
+        stdout: stdout.to_string(),
+        stderr: String::new(),
+        timed_out: false,
+        output_truncated: false,
+        evidence: LeanRunnerEvidence {
+            verifier_hash: "bridge-verifier-hash".to_string(),
+            checker: "lake exec boole_check".to_string(),
+            checker_exe: "lake".to_string(),
+            checker_artifact_hash:
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
+            package_dir: "/tmp/boole-check".to_string(),
+            lean_version: "Lean 4.29.1".to_string(),
+            lake_version: "Lake 5.0.0".to_string(),
+            timeout_ms: 5_000,
+            memory_limit_mb: 8_192,
+            output_limit_bytes: 65_536,
+        },
+    }
 }

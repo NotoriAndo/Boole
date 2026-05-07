@@ -27,7 +27,7 @@ const trailing = new Uint8Array([...validEmpty, 0x99, 0x88]);
 const badMagic = new Uint8Array(validEmpty);
 badMagic[0] = 0x00;
 const unsupportedVersion = new Uint8Array(validEmpty);
-writeU32LEInto(unsupportedVersion, 4, 2);
+writeU32LEInto(unsupportedVersion, 4, 3);
 const unknownExprTag = new Uint8Array(validEmpty);
 // offset: magic 4 + version 4 + universeArity 4 + theoremName(empty name u32) 4
 unknownExprTag[16] = 0x99;

@@ -6,6 +6,8 @@ use boole_core::{
 use serde::Deserialize;
 use serde_json::Value;
 
+const POFP_V2_OPAQUE_DIGEST_EXPR: u8 = 0x19;
+
 #[derive(Debug, Deserialize)]
 struct Fixture {
     cases: Vec<Case>,
@@ -133,4 +135,63 @@ fn validator_matches_typescript_golden_fixture() {
         let got = validate_proof_package_json(&validate_proof_package(&bytes, &case.cfg));
         assert_eq!(got, case.expected, "{}", case.name);
     }
+}
+
+#[test]
+fn validator_accepts_pofp_v2_with_256_bit_canonical_slots() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/validator/v1.json"))
+            .expect("fixture parses");
+    let valid = fixture
+        .cases
+        .iter()
+        .find(|case| case.name == "valid_empty")
+        .expect("valid case");
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"POFP");
+    bytes.extend_from_slice(&2u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.push(POFP_V2_OPAQUE_DIGEST_EXPR);
+    bytes.extend_from_slice(&[0x11; 32]);
+    bytes.push(POFP_V2_OPAQUE_DIGEST_EXPR);
+    bytes.extend_from_slice(&[0x22; 32]);
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+
+    assert_eq!(
+        validate_proof_package(&bytes, &valid.cfg),
+        ValidationResult::Ok {
+            decl_count: 0,
+            size: 86,
+            universe_arity: 0,
+        }
+    );
+}
+
+#[test]
+fn validator_rejects_truncated_pofp_v2_opaque_digest_slot() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/validator/v1.json"))
+            .expect("fixture parses");
+    let valid = fixture
+        .cases
+        .iter()
+        .find(|case| case.name == "valid_empty")
+        .expect("valid case");
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"POFP");
+    bytes.extend_from_slice(&2u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.push(POFP_V2_OPAQUE_DIGEST_EXPR);
+    bytes.extend_from_slice(&[0x11; 31]);
+
+    assert_eq!(
+        validate_proof_package(&bytes, &valid.cfg),
+        ValidationResult::Err {
+            reason: ValidationReason::Decode {
+                detail: DecodeDetail::UnexpectedEof,
+            },
+        }
+    );
 }

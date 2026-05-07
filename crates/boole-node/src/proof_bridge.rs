@@ -168,50 +168,28 @@ impl LeanProofBridge {
     }
 }
 
-/// Build the canonical POFP-v1 package bytes from a `LeanCheckResult`.
+/// Build the canonical POFP-v2 package bytes from a `LeanCheckResult`.
 ///
 /// SECURITY: this package is the input to `canon_hash = sha256(package)`,
 /// which the protocol uses (via `share_hash(c, pk, n, j, canon_hash)`)
-/// to bind a share to the Lean proof identity. The package format pins
-/// two 32-bit slots derived from `stable_u32(result, ...)`, so the
-/// *variable* portion of the package across distinct `LeanCheckResult`
-/// inputs is at most 64 bits. That puts the effective entropy of
-/// `canon_hash` at 64 bits even though sha256 itself outputs 256.
+/// to bind a share to the Lean proof identity. POFP-v2 encodes two
+/// domain-separated 256-bit opaque digest expression slots derived from
+/// the Lean runner evidence and stdout, widening the variable canonical
+/// surface from POFP-v1's two 32-bit slots to two full SHA-256 slots.
 ///
-/// This is acceptable in the v1 protocol because:
-/// 1. `share_hash(c, pk, n, j, canon_hash)` mixes the share identity
-///    with `canon_hash`. Two distinct submissions cannot collide on
-///    `share_hash` unless `(c, pk, n, j)` also collide.
-/// 2. `n` is bound by the **ticket PoW** `ticket(c, pk, n) < T_ticket`
-///    (see `boole_core::hash::ticket`). The **submission PoW** is
-///    `submission_pow_hash(c, pk, nonceS, canon_hash)` and does NOT
-///    bind `n`; only the ticket step does.
-/// 3. The share pool dedups by `(pk, n, j)` per chain head `c` (see
-///    `boole_core::share_pool::share_key`), NOT by `share_hash`. A
-///    canon_hash-only collision therefore cannot replay against the
-///    same `(c, pk, n, j)` slot — the second insert is rejected as
-///    `Duplicate` regardless of `canon_hash`.
-/// 4. Forging an accepted `LeanCheckResult` with a chosen `canon_hash`
-///    requires either editing the checker (rejected by
-///    `LeanProofBridgePolicy::allow_checker_artifact_hash`, which
-///    pins `lean-toolchain`, `lakefile.lean`, `lake-manifest.json`,
-///    and the recursive `BooleCheck/**` tree) or breaking the host
-///    `lean` binary.
-///
-/// Widening to a full 256-bit canonical surface is tracked in
-/// `docs/adr/0001-pofp-v2-canonical-widening.md`. POFP-v2 changes the
-/// wire format and invalidates every previously recorded proof, so it
-/// must coincide with a chain reset.
+/// POFP-v2 changes the wire format and invalidates every previously
+/// recorded POFP-v1 proof package, so deployment must coincide with a
+/// chain reset.
 pub fn canonical_pofp_package_from_lean_result(result: &LeanCheckResult) -> Vec<u8> {
-    let mut package = Vec::with_capacity(30);
+    let mut package = Vec::with_capacity(86);
     package.extend_from_slice(b"POFP");
-    package.extend_from_slice(&1u32.to_le_bytes());
+    package.extend_from_slice(&2u32.to_le_bytes());
     package.extend_from_slice(&0u32.to_le_bytes());
     package.extend_from_slice(&0u32.to_le_bytes());
-    package.push(0x10);
-    package.extend_from_slice(&stable_u32(result, b"type").to_le_bytes());
-    package.push(0x10);
-    package.extend_from_slice(&stable_u32(result, b"value").to_le_bytes());
+    package.push(0x19);
+    package.extend_from_slice(&stable_digest(result, b"pofp-v2:type"));
+    package.push(0x19);
+    package.extend_from_slice(&stable_digest(result, b"pofp-v2:value"));
     package.extend_from_slice(&0u32.to_le_bytes());
     package
 }
@@ -239,7 +217,7 @@ fn runner_error_result(error: String) -> LeanCheckResult {
     }
 }
 
-fn stable_u32(result: &LeanCheckResult, domain: &[u8]) -> u32 {
+fn stable_digest(result: &LeanCheckResult, domain: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(domain);
     hasher.update(result.evidence.verifier_hash.as_bytes());
@@ -247,6 +225,5 @@ fn stable_u32(result: &LeanCheckResult, domain: &[u8]) -> u32 {
     hasher.update(result.evidence.lean_version.as_bytes());
     hasher.update(result.evidence.lake_version.as_bytes());
     hasher.update(result.stdout.as_bytes());
-    let digest = hasher.finalize();
-    u32::from_le_bytes([digest[0], digest[1], digest[2], digest[3]])
+    hasher.finalize().into()
 }

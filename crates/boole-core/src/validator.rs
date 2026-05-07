@@ -2,7 +2,8 @@ use crate::{calibration_policy, CalibrationPolicy, CalibrationReport};
 use serde_json::{json, Value};
 
 const MAGIC: [u8; 4] = [0x50, 0x4f, 0x46, 0x50];
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION_V1: u32 = 1;
+const FORMAT_VERSION_V2: u32 = 2;
 const MAX_WALK_DEPTH: usize = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -268,16 +269,26 @@ fn walk_package(bytes: &[u8]) -> Result<WalkResult, DecodeDetail> {
     let mut cursor = Cursor::new(bytes);
     cursor.skip(4)?;
     let version = cursor.read_u32_le()?;
-    if version != FORMAT_VERSION {
-        return Err(DecodeDetail::UnsupportedVersion { version });
+    match version {
+        FORMAT_VERSION_V1 | FORMAT_VERSION_V2 => {}
+        _ => return Err(DecodeDetail::UnsupportedVersion { version }),
     }
     let universe_arity = cursor.read_u32_le()?;
     walk_name(&mut cursor)?;
-    walk_expr(&mut cursor, 0)?;
-    walk_expr(&mut cursor, 0)?;
+    match version {
+        FORMAT_VERSION_V1 => {
+            walk_expr(&mut cursor, 0, false)?;
+            walk_expr(&mut cursor, 0, false)?;
+        }
+        FORMAT_VERSION_V2 => {
+            walk_opaque_digest_expr(&mut cursor)?;
+            walk_opaque_digest_expr(&mut cursor)?;
+        }
+        _ => unreachable!("version checked above"),
+    }
     let decl_count = cursor.read_u32_le()?;
     for _ in 0..decl_count {
-        walk_decl(&mut cursor)?;
+        walk_decl(&mut cursor, version)?;
     }
     if cursor.pos != bytes.len() {
         return Err(DecodeDetail::TrailingBytes {
@@ -390,7 +401,22 @@ fn walk_name(cursor: &mut Cursor<'_>) -> Result<(), DecodeDetail> {
     Ok(())
 }
 
-fn walk_expr(cursor: &mut Cursor<'_>, depth: usize) -> Result<(), DecodeDetail> {
+fn walk_opaque_digest_expr(cursor: &mut Cursor<'_>) -> Result<(), DecodeDetail> {
+    let tag = cursor.read_byte()?;
+    if tag != 0x19 {
+        return Err(DecodeDetail::UnknownTag {
+            where_tag: "CanonExpr",
+            tag,
+        });
+    }
+    cursor.skip(32)
+}
+
+fn walk_expr(
+    cursor: &mut Cursor<'_>,
+    depth: usize,
+    allow_opaque_digest: bool,
+) -> Result<(), DecodeDetail> {
     if depth > MAX_WALK_DEPTH {
         return Err(DecodeDetail::RecursionLimit {
             where_tag: "CanonExpr",
@@ -403,6 +429,7 @@ fn walk_expr(cursor: &mut Cursor<'_>, depth: usize) -> Result<(), DecodeDetail> 
             cursor.read_u32_le()?;
             Ok(())
         }
+        0x19 if allow_opaque_digest => cursor.skip(32),
         0x11 => walk_level(cursor, 0),
         0x12 => {
             walk_name(cursor)?;
@@ -413,19 +440,19 @@ fn walk_expr(cursor: &mut Cursor<'_>, depth: usize) -> Result<(), DecodeDetail> 
             Ok(())
         }
         0x13..=0x15 => {
-            walk_expr(cursor, depth + 1)?;
-            walk_expr(cursor, depth + 1)
+            walk_expr(cursor, depth + 1, allow_opaque_digest)?;
+            walk_expr(cursor, depth + 1, allow_opaque_digest)
         }
         0x16 => {
-            walk_expr(cursor, depth + 1)?;
-            walk_expr(cursor, depth + 1)?;
-            walk_expr(cursor, depth + 1)
+            walk_expr(cursor, depth + 1, allow_opaque_digest)?;
+            walk_expr(cursor, depth + 1, allow_opaque_digest)?;
+            walk_expr(cursor, depth + 1, allow_opaque_digest)
         }
         0x17 => walk_lit(cursor),
         0x18 => {
             walk_name(cursor)?;
             cursor.read_u32_le()?;
-            walk_expr(cursor, depth + 1)
+            walk_expr(cursor, depth + 1, allow_opaque_digest)
         }
         _ => Err(DecodeDetail::UnknownTag {
             where_tag: "CanonExpr",
@@ -434,8 +461,9 @@ fn walk_expr(cursor: &mut Cursor<'_>, depth: usize) -> Result<(), DecodeDetail> 
     }
 }
 
-fn walk_decl(cursor: &mut Cursor<'_>) -> Result<(), DecodeDetail> {
+fn walk_decl(cursor: &mut Cursor<'_>, version: u32) -> Result<(), DecodeDetail> {
+    let allow_opaque_digest = version == FORMAT_VERSION_V2;
     walk_name(cursor)?;
-    walk_expr(cursor, 0)?;
-    walk_expr(cursor, 0)
+    walk_expr(cursor, 0, allow_opaque_digest)?;
+    walk_expr(cursor, 0, allow_opaque_digest)
 }
