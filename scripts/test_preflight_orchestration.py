@@ -237,6 +237,12 @@ class PreflightOrchestrationTests(unittest.TestCase):
             target=["safe-core", "hermes:configured", "ollama:qwen2.5-coder:7b"],
             skip_hardening_checks=False,
         )
+        wizard.env_status = lambda: {
+            "commands": {"hermes": True, "ollama": True},
+            "credentials": {},
+            "ollamaModels": ["qwen2.5-coder:7b"],
+            "ollama": {"installed": True, "daemon": True, "models": ["qwen2.5-coder:7b"], "error": None},
+        }
         plan = wizard.build_plan(args, "safe")
         preflight = plan[-1]
         self.assertIn("--genesis-benchmark", preflight)
