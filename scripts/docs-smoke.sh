@@ -25,6 +25,7 @@ require_file README.md
 require_file install.sh
 require_file docs/install.md
 require_file docs/proof-to-block-benchmark.md
+require_file docs/local-ollama-benchmark.md
 require_file docs/benchmarks/proof-to-block-v0.1-sample.md
 require_file fixtures/benchmarks/proof-to-block-v0.1/sample-summary.json
 require_file fixtures/benchmarks/proof-to-block-v0.1/sample-leaderboard.md
@@ -56,6 +57,7 @@ require_text README.md "Proof-to-Block Benchmark v0.1 card"
 require_text README.md "Which AI agents can create verified work that becomes blocks?"
 require_text README.md "fake-command CI path: PASS"
 require_text README.md "docs/benchmarks/proof-to-block-v0.1-sample.md"
+require_text README.md "docs/local-ollama-benchmark.md"
 require_text docs/phase7-solo-preflight.md "seven-step guided plan"
 require_text docs/phase7-solo-preflight.md "wizard-summary.redacted.json"
 require_text docs/phase7-solo-preflight.md "--target hermes:configured"
@@ -67,6 +69,10 @@ require_text docs/benchmarks/proof-to-block-v0.1-sample.md "Sample benchmark art
 require_text docs/benchmarks/proof-to-block-v0.1-sample.md "not real model performance"
 require_text docs/benchmarks/proof-to-block-v0.1-sample.md "not public-network mining"
 require_text docs/benchmarks/proof-to-block-v0.1-sample.md "sample-summary.json"
+require_text docs/local-ollama-benchmark.md "Optional local Ollama"
+require_text docs/local-ollama-benchmark.md "No automatic model pull"
+require_text docs/local-ollama-benchmark.md "No automatic daemon start"
+require_text docs/local-ollama-benchmark.md "--model-preset ollama"
 require_text fixtures/benchmarks/proof-to-block-v0.1/sample-leaderboard.md "fixture/mock"
 
 require_text docs/replay-consensus.md "selectedShareEvidence"

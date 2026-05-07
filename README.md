@@ -212,7 +212,7 @@ For preflight evidence collection:
 ./scripts/phase7-solo-preflight.sh --genesis-benchmark --run-model-benchmark --model-preset all --attempts-per-model 50
 ```
 
-See [`docs/proof-to-block-benchmark.md`](docs/proof-to-block-benchmark.md).
+See [`docs/proof-to-block-benchmark.md`](docs/proof-to-block-benchmark.md). For manual local Ollama runs, see [`docs/local-ollama-benchmark.md`](docs/local-ollama-benchmark.md).
 
 ## Agent slash-command mining foundation
 

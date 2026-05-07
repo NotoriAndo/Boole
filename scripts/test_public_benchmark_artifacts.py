@@ -67,6 +67,22 @@ class PublicBenchmarkArtifactTests(unittest.TestCase):
         self.assertIn("not real model performance", readme)
         self.assertNotIn("Ollama mined", readme)
         self.assertNotIn("real network mined", readme)
+    def test_local_ollama_manual_smoke_guide_is_safe_and_optional(self) -> None:
+        guide_path = ROOT / "docs" / "local-ollama-benchmark.md"
+        self.assertTrue(guide_path.exists(), "missing docs/local-ollama-benchmark.md")
+        guide = guide_path.read_text(encoding="utf-8")
+        self.assertIn("Optional local Ollama", guide)
+        self.assertIn("No automatic model pull", guide)
+        self.assertIn("No automatic daemon start", guide)
+        self.assertIn("ollama serve", guide)
+        self.assertIn("ollama pull qwen2.5-coder:7b", guide)
+        self.assertIn("--model-preset ollama", guide)
+        self.assertIn("--ollama-model qwen2.5-coder:7b", guide)
+        self.assertIn("setup-required", guide)
+        self.assertIn("Local model-generated proof attempts are evaluated", guide)
+        self.assertIn("not public-network mining", guide)
+        self.assertNotIn("Ollama mined", guide)
+        self.assertNotIn("token reward", guide)
 
 
 if __name__ == "__main__":
