@@ -15,17 +15,25 @@ require_file() {
 require_text() {
   local path="$1"
   local needle="$2"
-  if ! grep -Fq "$needle" "$path"; then
+  if ! grep -Fq -- "$needle" "$path"; then
     printf 'docs-smoke: missing %q in %s\n' "$needle" "$path" >&2
     return 1
   fi
 }
 
 require_file README.md
+require_file install.sh
+require_file docs/install.md
 require_file docs/replay-consensus.md
 require_file docs/adr/0001-pofp-v2-canonical-widening.md
 
+require_text README.md "docs/install.md"
 require_text README.md "docs/replay-consensus.md"
+require_text install.sh "installs required dependencies"
+require_text install.sh "never prints API key values"
+require_text docs/install.md 'Rust `1.95.0`'
+require_text docs/install.md 'Lean `leanprover/lean4:v4.29.1`'
+require_text docs/install.md "--run-safe-preflight"
 
 require_text docs/replay-consensus.md "selectedShareEvidence"
 require_text docs/replay-consensus.md "minShareScoreMultiplierNanos"

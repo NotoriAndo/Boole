@@ -10,6 +10,24 @@ Current local preflight evidence is checked by `./scripts/self-test.sh`: 7 Proof
 
 This repository contains the Rust protocol core and local proof-to-block runtime. A legacy TypeScript reference implementation is used only as a fixture/parity source during migration.
 
+## Quick install
+
+Install required local dependencies, clone/update Boole, and run the setup doctor:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh | bash
+```
+
+Review before running:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh -o install.sh
+less install.sh
+bash install.sh
+```
+
+The installer installs required local tools for the safe preflight path: Git, curl, Python 3, Rust `1.95.0` with `rustfmt`/`clippy`, and Lean `leanprover/lean4:v4.29.1` via `elan`. It never asks for wallet seeds/private keys, never prints API key values, never starts public mining, and never runs paid API benchmarks without explicit confirmation. See [`docs/install.md`](docs/install.md).
+
 ## Target language split
 
 ```text
