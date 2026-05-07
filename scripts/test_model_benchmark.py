@@ -197,6 +197,78 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             self.assertFalse(rows[0]["generatedAttempt"])
             self.assertFalse(rows[0]["invalidAccepted"])
 
+    def test_ollama_generated_candidate_is_submitted_to_verifier_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake_ollama = tmp_path / "fake-ollama.py"
+            fake_ollama.write_text(
+                "#!/usr/bin/env python3\n"
+                "print('theorem boole_benchmark_true : True := by trivial')\n",
+                encoding="utf-8",
+            )
+            fake_ollama.chmod(0o755)
+            verifier_log = tmp_path / "verifier-invocation.json"
+            fake_submit = tmp_path / "fake-submit-lean.py"
+            fake_submit.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, pathlib, sys\n"
+                "args = sys.argv[1:]\n"
+                "proof = pathlib.Path(args[args.index('--proof') + 1])\n"
+                "block_store = pathlib.Path(args[args.index('--block-store') + 1])\n"
+                "verifier_hash = args[args.index('--verifier-hash') + 1]\n"
+                "required_hash = args[args.index('--require-checker-artifact-hash') + 1]\n"
+                "block_store.write_text('{\\\"height\\\":0}\\n')\n"
+                f"pathlib.Path({str(verifier_log)!r}).write_text(json.dumps({{'proof': str(proof), 'proofText': proof.read_text(), 'blockStore': str(block_store), 'verifierHash': verifier_hash, 'requiredCheckerArtifactHash': required_hash}}))\n"
+                "print(json.dumps({'ok': True, 'command': 'submit-lean', 'accepted': True, 'shareAccepted': True, 'replayMatchesRuntime': True, 'invalidAccepted': 0, 'block': {'height': 0, 'selectedShares': 1}, 'replayHeight': 1, 'runtimeHead': '0xabc', 'replayLatestC': '0xabc', 'blockStorePath': str(block_store), 'lean': {'accepted': True, 'verifier_hash': verifier_hash}}))\n",
+                encoding="utf-8",
+            )
+            fake_submit.chmod(0o755)
+            out_dir = tmp_path / "model-benchmark"
+
+            proc = subprocess.run(
+                [
+                    "python3",
+                    str(BENCHMARK_PATH),
+                    "--target",
+                    "ollama:qwen2.5-coder:7b",
+                    "--ollama-command",
+                    str(fake_ollama),
+                    "--submit-lean-command",
+                    str(fake_submit),
+                    "--attempts",
+                    "1",
+                    "--output-dir",
+                    str(out_dir),
+                    "--run-id",
+                    "submit-candidate-run",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            summary = json.loads((out_dir / "benchmark-summary.json").read_text())
+            rows = [json.loads(line) for line in (out_dir / "benchmark-rows.ndjson").read_text().splitlines()]
+            invocation = json.loads(verifier_log.read_text())
+
+            self.assertTrue(summary["ok"])
+            self.assertEqual(summary["totals"]["accepted"], 1)
+            self.assertEqual(summary["totals"]["verifiedShares"], 1)
+            self.assertEqual(summary["totals"]["blocksProduced"], 1)
+            self.assertEqual(summary["safety"]["invalidAccepted"], 0)
+            self.assertEqual(rows[0]["status"], "ACCEPTED")
+            self.assertTrue(rows[0]["accepted"])
+            self.assertTrue(rows[0]["verifier"]["invoked"])
+            self.assertEqual(rows[0]["verifier"]["command"], "submit-lean")
+            self.assertEqual(rows[0]["verifier"]["exitCode"], 0)
+            self.assertEqual(rows[0]["score"], {"blocks": 1, "verifiedShares": 1, "replayPass": True})
+            self.assertIn("theorem boole_benchmark_true", invocation["proofText"])
+            self.assertEqual(invocation["verifierHash"], "boole-model-benchmark-ollama-v0")
+            self.assertRegex(invocation["requiredCheckerArtifactHash"], r"^[0-9a-f]{64}$")
+
     def test_missing_ollama_model_records_setup_required_without_auto_pull(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

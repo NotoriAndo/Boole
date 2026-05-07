@@ -231,7 +231,156 @@ def recovery_for_ollama_reason(reason: str, model: str) -> list[str]:
     return ["Inspect Ollama stderr/stdout tail and retry after fixing local setup."]
 
 
-def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, timeout_s: int) -> list[dict[str, Any]]:
+def write_lean_checker_workspace(workspace: Path) -> None:
+    if workspace.exists():
+        shutil.rmtree(workspace)
+    (workspace / "BooleCheck").mkdir(parents=True)
+    (workspace / "lean-toolchain").write_text("leanprover/lean4:v4.29.1\n", encoding="utf-8")
+    (workspace / "lakefile.lean").write_text(
+        """import Lake
+open Lake DSL
+
+package boole_check_fixture
+
+lean_exe boole_check where
+  root := `BooleCheck.Main
+""",
+        encoding="utf-8",
+    )
+    (workspace / "lake-manifest.json").write_text(
+        """{\"version\": \"1.1.0\",
+ \"packagesDir\": \".lake/packages\",
+ \"packages\": [],
+ \"name\": \"boole_check_fixture\",
+ \"lakeDir\": \".lake\"}
+""",
+        encoding="utf-8",
+    )
+    (workspace / "BooleCheck" / "Main.lean").write_text(
+        """def main (args : List String) : IO UInt32 := do
+  let some proofPath := args.head?
+    | IO.eprintln \"usage: boole_check <proof.lean>\"; return 64
+  let output ← IO.Process.output {
+    cmd := \"lean\"
+    args := #[proofPath]
+  }
+  if output.stdout.length > 0 then
+    IO.print output.stdout
+  if output.stderr.length > 0 then
+    IO.eprint output.stderr
+  if output.exitCode == 0 then
+    return 0
+  else
+    return 1
+""",
+        encoding="utf-8",
+    )
+
+
+def checker_artifact_hash(workspace: Path) -> str:
+    entries: list[tuple[str, bytes]] = []
+    for relative in ["lean-toolchain", "lakefile.lean", "lake-manifest.json"]:
+        path = workspace / relative
+        entries.append((relative, path.read_bytes()))
+    checker_root = workspace / "BooleCheck"
+    if checker_root.exists():
+        for path in checker_root.rglob("*"):
+            if path.is_symlink():
+                raise RuntimeError(f"symlink not allowed inside checker package: {path}")
+            if path.is_file():
+                entries.append((path.relative_to(workspace).as_posix(), path.read_bytes()))
+    entries.sort(key=lambda item: item[0])
+    hasher = hashlib.sha256()
+    for relative, data in entries:
+        hasher.update(relative.encode())
+        hasher.update(b"\0")
+        hasher.update(data)
+        hasher.update(b"\0")
+    return hasher.hexdigest()
+
+
+def parse_submit_lean_output(proc: subprocess.CompletedProcess[str]) -> dict[str, Any] | None:
+    return parse_json_output(proc.stdout) or parse_json_output(proc.stderr)
+
+
+def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, attempt_index: int, submit_lean_command: str, candidate_root: Path, timeout_s: int) -> dict[str, Any]:
+    resolved_submit = resolve_command(submit_lean_command)
+    if resolved_submit is None:
+        return {
+            "invoked": False,
+            "command": "submit-lean",
+            "reason": "submit-lean-command-not-found",
+            "exitCode": None,
+            "accepted": False,
+            "shareAccepted": False,
+            "replayMatchesRuntime": True,
+            "invalidAccepted": 0,
+            "score": {"blocks": 0, "verifiedShares": 0, "replayPass": True},
+            "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
+        }
+
+    workspace = candidate_root / f"attempt-{attempt_index + 1}"
+    write_lean_checker_workspace(workspace)
+    proof_path = workspace / "ModelCandidate.lean"
+    proof_path.write_text(candidate + "\n", encoding="utf-8")
+    block_store = workspace / "blockstore.ndjson"
+    required_checker_hash = checker_artifact_hash(workspace)
+    verifier_hash = "boole-model-benchmark-ollama-v0"
+    started = time.time()
+    proc = subprocess.run(
+        [
+            resolved_submit,
+            "submit-lean",
+            "--proof",
+            str(proof_path),
+            "--checker-dir",
+            str(workspace),
+            "--fixture",
+            "fixtures/protocol/admission/v1.json",
+            "--block-store",
+            str(block_store),
+            "--verifier-hash",
+            verifier_hash,
+            "--require-checker-artifact-hash",
+            required_checker_hash,
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout_s,
+        check=False,
+    )
+    elapsed_ms = int((time.time() - started) * 1000)
+    parsed = parse_submit_lean_output(proc)
+    accepted = proc.returncode == 0 and bool((parsed or {}).get("accepted"))
+    share_accepted = bool((parsed or {}).get("shareAccepted"))
+    replay_matches = bool((parsed or {}).get("replayMatchesRuntime"))
+    invalid_accepted = int((parsed or {}).get("invalidAccepted") or 0)
+    blocks = 1 if accepted and share_accepted and (parsed or {}).get("block") else 0
+    verified = 1 if accepted and share_accepted else 0
+    return {
+        "invoked": True,
+        "command": "submit-lean",
+        "exitCode": proc.returncode,
+        "elapsedMs": elapsed_ms,
+        "accepted": accepted,
+        "shareAccepted": share_accepted,
+        "replayMatchesRuntime": replay_matches,
+        "invalidAccepted": invalid_accepted,
+        "verifierHash": verifier_hash,
+        "checkerArtifactHash": required_checker_hash,
+        "proofSha256": hashlib.sha256(candidate.encode("utf-8")).hexdigest(),
+        "result": parsed,
+        "score": {"blocks": blocks, "verifiedShares": verified, "replayPass": replay_matches},
+        "safety": {"invalidAccepted": invalid_accepted, "chainDivergence": 0, "replayFailures": 0 if replay_matches else 1},
+        "stderrTail": proc.stderr[-1200:],
+        "stdoutTail": proc.stdout[-1200:],
+        "target": target,
+        "model": model,
+    }
+
+def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, timeout_s: int, submit_lean_command: str | None = None, candidate_root: Path | None = None) -> list[dict[str, Any]]:
     model = parse_ollama_target(target)
     resolved_command = resolve_command(ollama_command)
     if resolved_command is None:
@@ -278,6 +427,20 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
 
         candidate = proc.stdout.strip()
         digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+        verifier = None
+        if submit_lean_command:
+            verifier = submit_candidate_to_verifier(
+                candidate=candidate,
+                target=target,
+                model=model,
+                attempt_index=idx,
+                submit_lean_command=submit_lean_command,
+                candidate_root=candidate_root or (ROOT / "artifacts" / "model-benchmarks" / "candidates"),
+                timeout_s=timeout_s,
+            )
+        accepted = bool((verifier or {}).get("accepted"))
+        score = (verifier or {}).get("score") or {"blocks": 0, "verifiedShares": 0, "replayPass": True}
+        safety = (verifier or {}).get("safety") or {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0}
         rows.append(
             {
                 "name": f"{target} attempt {idx + 1}",
@@ -288,19 +451,20 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                 "attemptIndex": idx,
                 "ok": True,
                 "skipped": False,
-                "status": "REJECTED",
-                "reason": "verifier-integration-pending",
+                "status": "ACCEPTED" if accepted else "REJECTED",
+                "reason": None if accepted else ((verifier or {}).get("reason") or ("verifier_rejected" if verifier else "verifier-integration-pending")),
                 "generatedAttempt": True,
                 "candidateSha256": digest,
                 "candidatePreview": candidate_preview(candidate),
-                "accepted": False,
-                "invalidAccepted": False,
+                "accepted": accepted,
+                "invalidAccepted": bool(safety.get("invalidAccepted", 0)),
                 "elapsedMs": elapsed_ms,
                 "latencyMs": elapsed_ms,
-                "score": {"blocks": 0, "verifiedShares": 0, "replayPass": True},
-                "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
-                "stderrTail": proc.stderr[-1200:],
-                "stdoutTail": proc.stdout[-1200:],
+                "score": score,
+                "safety": safety,
+                "verifier": verifier or {"invoked": False, "command": "submit-lean"},
+                "stderrTail": ((verifier or {}).get("stderrTail") or proc.stderr)[-1200:],
+                "stdoutTail": ((verifier or {}).get("stdoutTail") or proc.stdout)[-1200:],
             }
         )
     return rows
@@ -416,13 +580,20 @@ def write_artifacts(output_dir: Path, summary: dict[str, Any], rows: list[dict[s
     (output_dir / "leaderboard.md").write_text(render_leaderboard(summary, ordered), encoding="utf-8")
 
 
-def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: str | None = None, timeout_s: int = 300, target: str | None = None, attempts: int = 1, ollama_command: str = "ollama") -> dict[str, Any]:
+def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: str | None = None, timeout_s: int = 300, target: str | None = None, attempts: int = 1, ollama_command: str = "ollama", submit_lean_command: str | None = None) -> dict[str, Any]:
     run_id = run_id or default_run_id()
     generated_at_ms = now_ms()
     if target:
         if not target.startswith("ollama:"):
             raise SystemExit(f"unsupported benchmark target: {target}")
-        rows = run_ollama_attempts(target=target, ollama_command=ollama_command, attempts=attempts, timeout_s=timeout_s)
+        rows = run_ollama_attempts(
+            target=target,
+            ollama_command=ollama_command,
+            attempts=attempts,
+            timeout_s=timeout_s,
+            submit_lean_command=submit_lean_command,
+            candidate_root=output_dir / "candidates",
+        )
     else:
         if spec_path is None:
             raise SystemExit("--spec is required unless --target is provided")
@@ -438,6 +609,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--target", help="Single model target, currently supports ollama:<model>.")
     parser.add_argument("--attempts", type=int, default=1, help="Attempts for single --target runs.")
     parser.add_argument("--ollama-command", default=os.environ.get("BOOLE_OLLAMA_COMMAND", "ollama"), help="Ollama command path/name. Defaults to BOOLE_OLLAMA_COMMAND or ollama.")
+    parser.add_argument("--submit-lean-command", default=os.environ.get("BOOLE_SUBMIT_LEAN_COMMAND"), help="Optional submit-lean command path/name for verifier-backed generated attempts.")
     parser.add_argument("--output-dir", help="Artifact output directory. Defaults to artifacts/model-benchmarks/<run-id>.")
     parser.add_argument("--run-id", help="Stable run id for reproducible tests/evidence.")
     parser.add_argument("--timeout-sec", type=int, default=300)
@@ -458,6 +630,7 @@ def main(argv: list[str] | None = None) -> None:
         target=args.target,
         attempts=args.attempts,
         ollama_command=args.ollama_command,
+        submit_lean_command=args.submit_lean_command,
     )
     print(json.dumps(result, separators=(",", ":")))
     if not result["ok"]:
