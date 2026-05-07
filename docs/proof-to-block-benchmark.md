@@ -56,6 +56,25 @@ PROVIDER_MODEL_BENCHMARK_SPEC="$(python3 -c 'import json; print(json.dumps(json.
   ./scripts/provider-model-benchmark.sh
 ```
 
+For reproducible model-by-model evidence bundles, use the artifact runner skeleton:
+
+```bash
+./scripts/boole-model-benchmark.py \
+  --spec /tmp/boole-model-spec.json \
+  --output-dir /tmp/boole-model-benchmark
+```
+
+It writes:
+
+```text
+benchmark-summary.json
+benchmark-rows.ndjson
+leaderboard.md
+replay-report.json
+```
+
+This runner does not auto-pull Ollama models, start daemons, or bypass paid/API confirmation. Rows with missing required env vars are recorded as `SKIP`; accepted/rejected proof attempts remain subject to verifier/replay metrics, with `invalidAccepted`, `replayFailures`, and `chainDivergence` preserved as the safety rail.
+
 Or let the preflight runner collect it into the evidence bundle:
 
 ```bash

@@ -175,9 +175,12 @@ LEADERBOARD_MD=/tmp/boole-agent-runtime-leaderboard.md ./scripts/agent-runtime-b
 
 # Raw provider/model backends: mock transport and optional OpenAI-compatible/Ollama rows.
 LEADERBOARD_MD=/tmp/boole-provider-model-leaderboard.md ./scripts/provider-model-benchmark.sh
+
+# Artifact bundle skeleton for model-by-model Proof-to-Block evidence.
+./scripts/boole-model-benchmark.py --spec /tmp/boole-model-spec.json
 ```
 
-Agent-runtime output is treated as an untrusted candidate proof; deterministic verifier/canonical bytes/share hash/block replay decide acceptance. Optional live provider rows are gated by env vars so missing daemons or credentials do not create false CI failures. To generate a larger preflight model matrix from frontier API keys, local OAuth CLIs, and installed Ollama models:
+Agent-runtime output is treated as an untrusted candidate proof; deterministic verifier/canonical bytes/share hash/block replay decide acceptance. Optional live provider rows are gated by env vars so missing daemons or credentials do not create false CI failures. The `boole-model-benchmark.py` runner writes a stable artifact bundle under `artifacts/model-benchmarks/<run-id>/` with `benchmark-summary.json`, `benchmark-rows.ndjson`, `leaderboard.md`, and `replay-report.json`; missing API/OAuth env vars are recorded as `SKIP`, not false failures. To generate a larger preflight model matrix from frontier API keys, local OAuth CLIs, and installed Ollama models:
 
 ```bash
 ./scripts/preflight-model-benchmark-setup.py --preset all --list

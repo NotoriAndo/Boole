@@ -41,6 +41,7 @@ run_capture_json() {
 }
 
 run_logged cargo-fmt cargo fmt --all --check
+run_logged python-script-tests python3 -m unittest scripts/test_install_script.py scripts/test_preflight_orchestration.py scripts/test_model_benchmark.py
 run_logged docs-smoke ./scripts/docs-smoke.sh
 run_logged cargo-clippy cargo clippy --workspace --all-targets -- -D warnings
 run_logged cargo-test cargo test --workspace --all-targets
@@ -87,6 +88,7 @@ safety = benchmark.get("safety", {})
 
 checks = [
     {"name": "cargo-fmt", "ok": True},
+    {"name": "python-script-tests", "ok": True},
     {"name": "docs-smoke", "ok": True},
     {"name": "cargo-clippy", "ok": True},
     {"name": "cargo-test", "ok": True},
