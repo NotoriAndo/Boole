@@ -16,6 +16,7 @@ pub mod hash;
 pub mod rate_limiter;
 pub mod rejection_log;
 pub mod replay;
+pub(crate) mod replay_evidence;
 pub mod share_pool;
 pub mod submission_pow;
 pub mod validator;
