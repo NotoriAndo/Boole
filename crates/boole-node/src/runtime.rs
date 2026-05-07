@@ -4,9 +4,10 @@ use boole_core::{
     expected_retarget_difficulty_for_height, parse_submission_body, replay_blocks, share_score,
     AdmissionDecision, AdmissionParsedDeps, BlockBuilderConfig, BuildSelectionResult,
     CalibrationPolicy, CalibrationReport, CandidateShare, DifficultyRetargetPolicy, Hex32,
-    PersistedBlock, PoolShare, RateLimiter, SharePool,
+    PersistedBlock, PoolShare, RateLimiter, SelectedShareEvidence, SharePool,
 };
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -240,6 +241,18 @@ impl RuntimeAdmissionState {
             .iter()
             .map(|share| share.pk.clone())
             .collect::<Vec<_>>();
+        let selected_share_evidence = selection
+            .selected
+            .iter()
+            .map(|share| SelectedShareEvidence {
+                pk: share.pk.clone(),
+                n: share.n.clone(),
+                j: share.j.clone(),
+                c: share.c.clone(),
+                canon_hash: share.canon_hash.clone(),
+                proof_package: share.proof_package.clone(),
+            })
+            .collect::<Vec<_>>();
         let share_hashes = selected_share_hashes
             .iter()
             .map(|hash| Hex32::from_hex(hash))
@@ -258,6 +271,7 @@ impl RuntimeAdmissionState {
             proposer_pk: proposer.pk.clone(),
             selected_share_hashes,
             selected_share_pks,
+            selected_share_evidence,
             min_share_score: config.min_share_score.to_string(),
             kmax_applied: selection.selected.len() as u64,
             difficulty_epoch: config.difficulty_epoch,
@@ -368,6 +382,8 @@ impl RuntimeAdmissionState {
             if self.candidates.len() >= self.config.policy.global_share_cap {
                 return decision;
             }
+            let canon_hash = hex::encode(Sha256::digest(&submission.package_bytes));
+            let proof_package = hex::encode(&submission.package_bytes);
             self.candidates.push(CandidateShare {
                 label: "runtime-admission".to_string(),
                 pk: submission.pk_hex,
@@ -377,6 +393,8 @@ impl RuntimeAdmissionState {
                 share_hash: share_hash.to_hex(),
                 score: share_score(share_hash).to_string(),
                 canon_tag,
+                canon_hash,
+                proof_package,
             });
         }
         decision

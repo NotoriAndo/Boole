@@ -6,6 +6,17 @@ use crate::{difficulty_weight, parse_biguint_hex, Hex32};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SelectedShareEvidence {
+    pub pk: String,
+    pub n: String,
+    pub j: String,
+    pub c: String,
+    pub canon_hash: String,
+    pub proof_package: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PersistedBlock {
     pub height: u64,
     pub prev_c: String,
@@ -13,6 +24,8 @@ pub struct PersistedBlock {
     pub proposer_pk: String,
     pub selected_share_hashes: Vec<String>,
     pub selected_share_pks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_share_evidence: Vec<SelectedShareEvidence>,
     pub min_share_score: String,
     pub kmax_applied: u64,
     pub difficulty_epoch: u64,

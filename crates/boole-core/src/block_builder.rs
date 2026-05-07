@@ -16,6 +16,10 @@ pub struct CandidateShare {
     pub share_hash: String,
     pub score: String,
     pub canon_tag: u8,
+    #[serde(default)]
+    pub canon_hash: String,
+    #[serde(default)]
+    pub proof_package: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

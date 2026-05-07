@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use boole_core::{compute_block_credits, replay_blocks, PersistedBlock, PersistedRewardEvent};
+use boole_core::{
+    compute_block_credits, replay_blocks, PersistedBlock, PersistedRewardEvent,
+    SelectedShareEvidence,
+};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +62,28 @@ fn replay_rejects_block_with_bad_difficulty_weight() {
     let err = replay_blocks(&blocks).expect_err("bad difficulty weight is rejected");
     assert!(
         err.to_string().contains("difficultyWeight mismatch"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn replay_rejects_selected_share_evidence_hash_mismatch() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
+            .expect("fixture parses");
+    let mut blocks = fixture.blocks;
+    blocks[0].selected_share_evidence = vec![SelectedShareEvidence {
+        pk: "1111111111111111111111111111111111111111111111111111111111111111".to_string(),
+        n: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        j: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+        c: blocks[0].prev_c.clone(),
+        canon_hash: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string(),
+        proof_package: "504f4650020000000000000000190000000000000000000000000000000000000000000000000000000000000000000019010101010101010101010101010101010101010101010101010101010101010100000000".to_string(),
+    }];
+
+    let err = replay_blocks(&blocks).expect_err("bad selected share evidence is rejected");
+    assert!(
+        err.to_string().contains("selected share evidence"),
         "unexpected error: {err}"
     );
 }

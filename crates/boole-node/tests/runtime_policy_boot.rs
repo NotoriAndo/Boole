@@ -206,6 +206,13 @@ fn runtime_produces_persists_and_replays_selected_block() {
     assert_eq!(block.prev_c, fixture.constants.c);
     assert_eq!(block.selected_share_hashes.len(), 1);
     assert_eq!(block.selected_share_pks, vec![fixture.constants.pk.clone()]);
+    assert_eq!(block.selected_share_evidence.len(), 1);
+    let evidence = &block.selected_share_evidence[0];
+    assert_eq!(evidence.pk, fixture.constants.pk);
+    assert_eq!(evidence.n, fixture.constants.n);
+    assert_eq!(evidence.j, fixture.constants.j);
+    assert_eq!(evidence.c, fixture.constants.c);
+    assert_eq!(evidence.proof_package, fixture.constants.valid_bytes_hex);
     block.validate_shape().expect("block shape is valid");
 
     let dir = std::env::temp_dir().join(format!(

@@ -29,7 +29,7 @@ pub use admission_types::{
     AdmissionDecision, AdmissionError, AdmissionStatus, ParsedSubmission, RejectionReason,
     SubmitPowRejectReason, TicketAdmissionResult, TicketRejectReason,
 };
-pub use block::PersistedBlock;
+pub use block::{PersistedBlock, SelectedShareEvidence};
 pub use block_builder::{
     build_block_selection, BlockBuilderConfig, BuildSelectionResult, BuiltBlockSelection,
     CandidateShare,
@@ -71,8 +71,9 @@ pub use submission_pow::{
 };
 pub use validator::{
     decode_detail_from_json, decode_detail_json, validate_proof_package,
-    validate_proof_package_json, validate_proof_package_with_policy, validation_reason_from_json,
-    validation_reason_json, DecodeDetail, ValidationReason, ValidationResult,
+    validate_proof_package_json, validate_proof_package_shape, validate_proof_package_with_policy,
+    validation_reason_from_json, validation_reason_json, DecodeDetail, ValidationReason,
+    ValidationResult,
 };
 pub use work_manifest::{bounty_to_work_manifest, BountyFixture, WorkManifest, WorkVerifier};
 

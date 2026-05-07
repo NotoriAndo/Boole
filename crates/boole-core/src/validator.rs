@@ -51,6 +51,19 @@ pub fn validate_proof_package(bytes: &[u8], cfg: &CalibrationReport) -> Validati
     validate_proof_package_with_policy(bytes, &policy)
 }
 
+pub fn validate_proof_package_shape(bytes: &[u8]) -> ValidationResult {
+    match walk_package(bytes) {
+        Ok(walked) => ValidationResult::Ok {
+            decl_count: walked.decl_count,
+            size: walked.size,
+            universe_arity: walked.universe_arity,
+        },
+        Err(detail) => ValidationResult::Err {
+            reason: ValidationReason::Decode { detail },
+        },
+    }
+}
+
 pub fn validate_proof_package_with_policy(
     bytes: &[u8],
     policy: &CalibrationPolicy,

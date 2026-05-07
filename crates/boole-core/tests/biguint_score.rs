@@ -55,6 +55,8 @@ fn block_selection_orders_scores_above_u128_without_truncation() {
                 .to_string(),
             score: "680564733841876926926749214863536422913".to_string(),
             canon_tag: 1,
+            canon_hash: "00".repeat(32),
+            proof_package: String::new(),
         },
         CandidateShare {
             label: "also-larger-than-u128-but-smaller".to_string(),
@@ -66,6 +68,8 @@ fn block_selection_orders_scores_above_u128_without_truncation() {
                 .to_string(),
             score: "340282366920938463463374607431768211457".to_string(),
             canon_tag: 1,
+            canon_hash: "00".repeat(32),
+            proof_package: String::new(),
         },
     ];
     let accepted = [1].into_iter().collect();
@@ -92,6 +96,7 @@ fn persisted_block_shape_accepts_large_decimal_min_share_score() {
         selected_share_pks: vec![
             "2222222222222222222222222222222222222222222222222222222222222222".to_string(),
         ],
+        selected_share_evidence: vec![],
         min_share_score: "340282366920938463463374607431768211456".to_string(),
         kmax_applied: 1,
         difficulty_epoch: 0,
