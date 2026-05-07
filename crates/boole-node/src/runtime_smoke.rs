@@ -138,7 +138,7 @@ pub fn run_runtime_smoke(input: RuntimeSmokeInput) -> anyhow::Result<RuntimeSmok
         "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
     fixture.cfg.T_block =
         "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
-    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
     fixture.cfg.K_max = 4;
 
     let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)

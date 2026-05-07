@@ -207,7 +207,7 @@ fn node_runtime_smoke_accepts_scenario_json_input() {
     let mut cfg = fixture.get("cfg").expect("cfg").clone();
     cfg["T_share"] = json!("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     cfg["T_block"] = json!("0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe");
-    cfg["MinShareScoreMultiplier"] = json!(1.0);
+    cfg["MinShareScoreMultiplier"] = json!(1);
     cfg["K_max"] = json!(4);
 
     let genesis_c = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -343,7 +343,7 @@ fn node_runtime_smoke_applies_epoch_retarget_policy() {
     let mut cfg = fixture.get("cfg").expect("cfg").clone();
     cfg["T_share"] = json!("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     cfg["T_block"] = json!("0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe");
-    cfg["MinShareScoreMultiplier"] = json!(1.0);
+    cfg["MinShareScoreMultiplier"] = json!(1);
     cfg["K_max"] = json!(4);
     cfg["perIpRateLimitPer60s"] = json!(1);
 

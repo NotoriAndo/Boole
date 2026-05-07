@@ -130,7 +130,7 @@ fn runtime_builds_block_selection_from_admitted_candidates() {
         "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
     fixture.cfg.T_block =
         "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
-    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
     fixture.cfg.K_max = 4;
     fixture.cfg.perIpRateLimitPer60s = 10;
 
@@ -176,7 +176,7 @@ fn runtime_produces_persists_and_replays_selected_block() {
         "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
     fixture.cfg.T_block =
         "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
-    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
     fixture.cfg.K_max = 4;
     fixture.cfg.perIpRateLimitPer60s = 10;
 
@@ -240,7 +240,7 @@ fn runtime_applies_block_head_and_prunes_stale_shares() {
         "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
     fixture.cfg.T_block =
         "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
-    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
     fixture.cfg.K_max = 4;
 
     let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
@@ -310,7 +310,7 @@ fn runtime_commits_block_by_appending_and_advancing_head() {
         "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
     fixture.cfg.T_block =
         "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
-    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
     fixture.cfg.K_max = 4;
 
     let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
@@ -371,7 +371,7 @@ fn runtime_commits_two_blocks_across_advanced_heads() {
         "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
     fixture.cfg.T_block =
         "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
-    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
     fixture.cfg.K_max = 4;
 
     let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
@@ -448,7 +448,7 @@ fn runtime_boots_from_existing_store_and_continues_next_height() {
         "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
     fixture.cfg.T_block =
         "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
-    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
     fixture.cfg.K_max = 4;
 
     let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
@@ -544,7 +544,7 @@ fn runtime_check_block_applicable_is_read_only_so_disk_and_cache_cannot_diverge(
         "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
     fixture.cfg.T_block =
         "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
-    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
     fixture.cfg.K_max = 4;
 
     let config =

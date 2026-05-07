@@ -76,7 +76,7 @@ fn runtime_smoke_scenario_runs_without_fixture_adapter() {
     let mut cfg = fixture.cfg;
     cfg.T_share = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
     cfg.T_block = "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
-    cfg.MinShareScoreMultiplier = 1.0;
+    cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
     cfg.K_max = 4;
 
     let valid_op = fixture

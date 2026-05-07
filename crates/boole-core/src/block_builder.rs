@@ -38,8 +38,10 @@ impl BlockBuilderConfig {
         t_block: String,
         difficulty_epoch: u64,
     ) -> anyhow::Result<Self> {
-        let multiplier_nanos = (policy.min_share_score_multiplier * 1_000_000_000.0).round() as u64;
-        let min_share_score = min_share_score(&policy.thresholds.t_share, multiplier_nanos)?;
+        let min_share_score = min_share_score(
+            &policy.thresholds.t_share,
+            policy.min_share_score_multiplier_nanos,
+        )?;
         let t_block_value = parse_biguint_hex(&t_block)?;
         Ok(Self {
             t_block,

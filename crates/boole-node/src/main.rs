@@ -323,7 +323,7 @@ fn submit_lean_fixture(path: &Path) -> anyhow::Result<SubmitLeanFixture> {
         "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
     fixture.cfg.T_block =
         "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
-    fixture.cfg.MinShareScoreMultiplier = 1.0;
+    fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
     fixture.cfg.K_max = 4;
     fixture.cfg.perIpRateLimitPer60s = 10;
     Ok(fixture)

@@ -1,6 +1,7 @@
 use num_bigint::BigUint;
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
+use serde_json::Number;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[allow(non_snake_case)]
@@ -9,7 +10,7 @@ pub struct CalibrationReport {
     pub T_share: String,
     pub T_block: String,
     pub T_ticket: String,
-    pub MinShareScoreMultiplier: f64,
+    pub MinShareScoreMultiplier: Number,
     pub K_max: i64,
     pub ShareCapPerPK_Block: i64,
     pub L: i64,
@@ -60,7 +61,53 @@ pub struct CalibrationPolicy {
     pub d_max: usize,
     pub m: i64,
     pub per_ip_rate_limit_per_60s: usize,
-    pub min_share_score_multiplier: f64,
+    pub min_share_score_multiplier_nanos: u64,
+}
+
+fn min_share_score_multiplier_nanos(report: &CalibrationReport) -> Result<u64, String> {
+    parse_decimal_nanos(&report.MinShareScoreMultiplier.to_string())
+}
+
+fn parse_decimal_nanos(raw: &str) -> Result<u64, String> {
+    if raw.starts_with('-') {
+        return Err("MinShareScoreMultiplier must be > 0".to_string());
+    }
+    let (whole, fractional) = match raw.split_once('.') {
+        Some((whole, fractional)) => (whole, fractional),
+        None => (raw, ""),
+    };
+    if whole.is_empty() || !whole.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("MinShareScoreMultiplier must be decimal".to_string());
+    }
+    if !fractional.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("MinShareScoreMultiplier must be decimal".to_string());
+    }
+    if fractional.len() > 9 {
+        return Err("MinShareScoreMultiplier must have at most 9 decimal places".to_string());
+    }
+
+    let whole_nanos = whole
+        .parse::<u64>()
+        .map_err(|_| "MinShareScoreMultiplier is too large".to_string())?
+        .checked_mul(1_000_000_000)
+        .ok_or_else(|| "MinShareScoreMultiplier is too large".to_string())?;
+    let mut frac = fractional.to_string();
+    while frac.len() < 9 {
+        frac.push('0');
+    }
+    let fractional_nanos = if frac.is_empty() {
+        0
+    } else {
+        frac.parse::<u64>()
+            .map_err(|_| "MinShareScoreMultiplier must be decimal".to_string())?
+    };
+    let nanos = whole_nanos
+        .checked_add(fractional_nanos)
+        .ok_or_else(|| "MinShareScoreMultiplier is too large".to_string())?;
+    if nanos == 0 {
+        return Err("MinShareScoreMultiplier must be > 0".to_string());
+    }
+    Ok(nanos)
 }
 
 pub fn calibration_policy(report: &CalibrationReport) -> Result<CalibrationPolicy, String> {
@@ -74,7 +121,7 @@ pub fn calibration_policy(report: &CalibrationReport) -> Result<CalibrationPolic
         d_max: report.D_max as usize,
         m: report.M,
         per_ip_rate_limit_per_60s: report.perIpRateLimitPer60s as usize,
-        min_share_score_multiplier: report.MinShareScoreMultiplier,
+        min_share_score_multiplier_nanos: min_share_score_multiplier_nanos(report)?,
     })
 }
 
@@ -114,9 +161,7 @@ pub fn validate_calibration_report(report: &CalibrationReport) -> Result<(), Str
     if report.ShareCapPerPK_Block <= 0 {
         return Err("ShareCapPerPK_Block must be > 0".to_string());
     }
-    if report.MinShareScoreMultiplier <= 0.0 {
-        return Err("MinShareScoreMultiplier must be > 0".to_string());
-    }
+    min_share_score_multiplier_nanos(report)?;
     Ok(())
 }
 

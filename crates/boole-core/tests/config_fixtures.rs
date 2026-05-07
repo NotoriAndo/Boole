@@ -63,9 +63,61 @@ fn calibration_policy_types_numeric_runtime_fields() {
         policy.per_ip_rate_limit_per_60s,
         valid.report.perIpRateLimitPer60s as usize
     );
-    assert_eq!(
-        policy.min_share_score_multiplier,
-        valid.report.MinShareScoreMultiplier
+    assert_eq!(policy.min_share_score_multiplier_nanos, 2_000_000_000);
+}
+
+#[test]
+fn calibration_policy_converts_multiplier_to_fixed_point_nanos() {
+    let report: CalibrationReport = serde_json::from_str(
+        r#"{
+          "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "T_share": "0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "T_block": "0x00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "T_ticket": "0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "MinShareScoreMultiplier": 1.234567891,
+          "K_max": 4,
+          "ShareCapPerPK_Block": 2,
+          "L": 5,
+          "D_max": 8,
+          "EMAWindow": 16,
+          "M": 2,
+          "perIpRateLimitPer60s": 10,
+          "provenance": "fixed-point-test"
+        }"#,
+    )
+    .expect("report parses");
+
+    let policy = calibration_policy(&report).expect("policy parses");
+
+    assert_eq!(policy.min_share_score_multiplier_nanos, 1_234_567_891);
+}
+
+#[test]
+fn calibration_report_rejects_multiplier_precision_beyond_nanos() {
+    let report: CalibrationReport = serde_json::from_str(
+        r#"{
+          "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "T_share": "0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "T_block": "0x00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "T_ticket": "0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "MinShareScoreMultiplier": 1.0000000001,
+          "K_max": 4,
+          "ShareCapPerPK_Block": 2,
+          "L": 5,
+          "D_max": 8,
+          "EMAWindow": 16,
+          "M": 2,
+          "perIpRateLimitPer60s": 10,
+          "provenance": "fixed-point-test"
+        }"#,
+    )
+    .expect("report parses at JSON boundary");
+    let err =
+        calibration_policy(&report).expect_err("sub-nano multiplier precision must be rejected");
+
+    assert!(
+        err.contains("at most 9 decimal places"),
+        "unexpected error: {err}"
     );
 }
 

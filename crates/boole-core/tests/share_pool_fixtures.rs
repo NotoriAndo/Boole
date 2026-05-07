@@ -73,7 +73,7 @@ fn share_pool_from_calibration_report_uses_policy_cap() {
         T_share: "0x2020202020202020202020202020202020202020202020202020202020202020".to_string(),
         T_block: "0x0101010101010101010101010101010101010101010101010101010101010101".to_string(),
         T_ticket: "0x3030303030303030303030303030303030303030303030303030303030303030".to_string(),
-        MinShareScoreMultiplier: 2.0,
+        MinShareScoreMultiplier: serde_json::Number::from(2),
         K_max: 16,
         ShareCapPerPK_Block: 1,
         L: 4096,
