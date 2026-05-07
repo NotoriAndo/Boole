@@ -60,6 +60,15 @@ class PreflightOrchestrationTests(unittest.TestCase):
             "runtime_global_cap",
         ]:
             self.assertIn(test_name, text)
+
+    def test_phase7_preflight_accepts_local_benchmark_command_overrides(self) -> None:
+        text = PREFLIGHT_PATH.read_text()
+        self.assertIn("--model-benchmark-command)", text)
+        self.assertIn("--ollama-command)", text)
+        self.assertIn("--submit-lean-command)", text)
+        self.assertIn('MODEL_BENCHMARK_ARGS+=(--benchmark-command "$MODEL_BENCHMARK_COMMAND")', text)
+        self.assertIn('MODEL_BENCHMARK_ARGS+=(--ollama-command "$OLLAMA_COMMAND")', text)
+        self.assertIn('MODEL_BENCHMARK_ARGS+=(--submit-lean-command "$SUBMIT_LEAN_COMMAND")', text)
     def test_guided_flow_renders_seven_step_onboarding_contract(self) -> None:
         wizard = load_wizard()
         args = argparse.Namespace(
@@ -253,6 +262,44 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertIn("--ollama-model", preflight)
         self.assertIn("qwen2.5-coder:7b", preflight)
 
+    def test_wizard_plan_forwards_local_benchmark_runner_commands(self) -> None:
+        wizard = load_wizard()
+        args = argparse.Namespace(
+            install_claude=False,
+            install_codex=False,
+            evidence_dir=None,
+            genesis_benchmark=False,
+            attempts_per_model=2,
+            run_hermes_real=False,
+            model_preset="ollama",
+            model_include=[],
+            ollama_model=["qwen2.5-coder:7b"],
+            target=["ollama:qwen2.5-coder:7b"],
+            skip_hardening_checks=False,
+            model_benchmark_command="/tmp/fake-model-benchmark.py",
+            ollama_command="/tmp/fake-ollama.py",
+            submit_lean_command="/tmp/fake-submit-lean.py",
+        )
+        wizard.env_status = lambda: {
+            "commands": {"ollama": True},
+            "credentials": {},
+            "ollamaModels": ["qwen2.5-coder:7b"],
+            "ollama": {"installed": True, "daemon": True, "models": ["qwen2.5-coder:7b"], "error": None},
+        }
+        plan = wizard.build_plan(args, "safe")
+        preflight = plan[-1]
+        self.assertIn("--run-model-benchmark", preflight)
+        self.assertIn("--model-preset", preflight)
+        self.assertIn("ollama", preflight)
+        self.assertIn("--ollama-model", preflight)
+        self.assertIn("qwen2.5-coder:7b", preflight)
+        self.assertIn("--model-benchmark-command", preflight)
+        self.assertIn("/tmp/fake-model-benchmark.py", preflight)
+        self.assertIn("--ollama-command", preflight)
+        self.assertIn("/tmp/fake-ollama.py", preflight)
+        self.assertIn("--submit-lean-command", preflight)
+        self.assertIn("/tmp/fake-submit-lean.py", preflight)
+
     def test_frontier_or_everything_requires_explicit_paid_api_confirmation(self) -> None:
         wizard = load_wizard()
         safe_args = argparse.Namespace(model_preset=None, target=[], allow_paid_api=False)
@@ -291,7 +338,15 @@ class PreflightOrchestrationTests(unittest.TestCase):
                         {"name": "hermes-agent-cli-mock-verify", "status": "PASS", "score": {"verifiedShares": 1, "blocks": 1, "replayPass": True}},
                         {"name": "openclaw-opencode-agent-cli-mock-verify", "status": "SKIP", "score": {"verifiedShares": 0, "blocks": 0, "replayPass": False}},
                     ],
-                }
+                },
+                {
+                    "name": "provider-model-live-benchmark",
+                    "ok": True,
+                    "rows": [
+                        {"name": "ollama-qwen2.5-coder-7b", "status": "ACCEPTED", "provider": "ollama", "model": "qwen2.5-coder:7b", "generatedAttempt": True, "accepted": True, "score": {"verifiedShares": 1, "blocks": 1, "replayPass": True}},
+                        {"name": "ollama-llama3.2", "status": "REJECTED", "provider": "ollama", "model": "llama3.2", "generatedAttempt": True, "accepted": False, "score": {"verifiedShares": 0, "blocks": 0, "replayPass": True}},
+                    ],
+                },
             ],
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -306,6 +361,8 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertIn("0 invalid accepted", report)
         self.assertIn("hermes-agent-cli-mock-verify", leaderboard)
         self.assertIn("verifiedShares", leaderboard)
+        self.assertIn("ollama-qwen2.5-coder-7b", leaderboard)
+        self.assertIn("Local model-generated proof attempts", report)
         self.assertNotIn("/Users/", json.dumps(redacted))
         self.assertEqual(redacted["evidenceDir"], "[REDACTED_LOCAL_PATH]")
 

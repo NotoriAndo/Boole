@@ -12,11 +12,14 @@ MODEL_BENCHMARK_PRESET="${MODEL_BENCHMARK_PRESET:-all}"
 MODEL_BENCHMARK_ARGS=()
 GENESIS_BENCHMARK="${GENESIS_BENCHMARK_PREFLIGHT:-0}"
 ATTEMPTS_PER_MODEL="${ATTEMPTS_PER_MODEL:-}"
+MODEL_BENCHMARK_COMMAND="${MODEL_BENCHMARK_COMMAND:-}"
+OLLAMA_COMMAND="${BOOLE_OLLAMA_COMMAND:-}"
+SUBMIT_LEAN_COMMAND="${BOOLE_SUBMIT_LEAN_COMMAND:-}"
 SKIP_HARDENING_CHECKS="${SKIP_HARDENING_CHECKS:-0}"
 
 usage() {
   cat <<'EOF'
-Usage: phase7-solo-preflight.sh [--config PATH] [--evidence-dir DIR] [--run-hermes-real] [--run-model-benchmark] [--model-preset mock|frontier|oauth|ollama|all] [--model-include TERM] [--ollama-model MODEL] [--genesis-benchmark] [--attempts-per-model N] [--skip-hardening-checks]
+Usage: phase7-solo-preflight.sh [--config PATH] [--evidence-dir DIR] [--run-hermes-real] [--run-model-benchmark] [--model-preset mock|frontier|oauth|ollama|all] [--model-include TERM] [--ollama-model MODEL] [--model-benchmark-command CMD] [--ollama-command CMD] [--submit-lean-command CMD] [--genesis-benchmark] [--attempts-per-model N] [--skip-hardening-checks]
 
 Runs the local Phase 7.0 solo preflight evidence gate and writes captured JSON,
 stderr, and git metadata into an evidence directory. The summary JSON is printed
@@ -53,6 +56,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --ollama-model)
       MODEL_BENCHMARK_ARGS+=(--ollama-model "${2:?missing --ollama-model value}")
+      shift 2
+      ;;
+    --model-benchmark-command)
+      MODEL_BENCHMARK_COMMAND="${2:?missing --model-benchmark-command value}"
+      shift 2
+      ;;
+    --ollama-command)
+      OLLAMA_COMMAND="${2:?missing --ollama-command value}"
+      shift 2
+      ;;
+    --submit-lean-command)
+      SUBMIT_LEAN_COMMAND="${2:?missing --submit-lean-command value}"
       shift 2
       ;;
     --genesis-benchmark)
@@ -203,6 +218,15 @@ if [[ "$RUN_HERMES_REAL" == "1" ]]; then
 fi
 
 if [[ "$RUN_MODEL_BENCHMARK" == "1" ]]; then
+  if [[ -n "$MODEL_BENCHMARK_COMMAND" ]]; then
+    MODEL_BENCHMARK_ARGS+=(--benchmark-command "$MODEL_BENCHMARK_COMMAND")
+  fi
+  if [[ -n "$OLLAMA_COMMAND" ]]; then
+    MODEL_BENCHMARK_ARGS+=(--ollama-command "$OLLAMA_COMMAND")
+  fi
+  if [[ -n "$SUBMIT_LEAN_COMMAND" ]]; then
+    MODEL_BENCHMARK_ARGS+=(--submit-lean-command "$SUBMIT_LEAN_COMMAND")
+  fi
   if [[ -n "$ATTEMPTS_PER_MODEL" ]]; then
     TRIALS="$ATTEMPTS_PER_MODEL" run_json_check provider-model-live-benchmark ./scripts/preflight-model-benchmark.sh \
       --preset "$MODEL_BENCHMARK_PRESET" \
@@ -396,6 +420,10 @@ if run_model_benchmark:
                 "ok": row.get("ok"),
                 "skipped": row.get("skipped"),
                 "score": row.get("score"),
+                "provider": row.get("provider"),
+                "model": row.get("model"),
+                "generatedAttempt": row.get("generatedAttempt"),
+                "accepted": row.get("accepted"),
                 "metadata": row.get("metadata"),
             }
             for row in model_bench.get("rows", [])

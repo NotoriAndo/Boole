@@ -622,6 +622,12 @@ def reproduce_command(args: argparse.Namespace, preset_name: str) -> str:
         cmd += ["--purpose", args.purpose]
     if getattr(args, "attempts_per_model", None) is not None:
         cmd += ["--attempts-per-model", str(args.attempts_per_model)]
+    if getattr(args, "model_benchmark_command", None):
+        cmd += ["--model-benchmark-command", args.model_benchmark_command]
+    if getattr(args, "ollama_command", None):
+        cmd += ["--ollama-command", args.ollama_command]
+    if getattr(args, "submit_lean_command", None):
+        cmd += ["--submit-lean-command", args.submit_lean_command]
     model_preset = getattr(args, "model_preset", None)
     if model_preset:
         cmd += ["--model-preset", model_preset]
@@ -694,38 +700,39 @@ def redact_summary(summary: dict[str, Any], evidence_dir: Path) -> dict[str, Any
     return redacted
 
 
-def agent_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+def check_rows(summary: dict[str, Any], name: str) -> list[dict[str, Any]]:
     for check in summary.get("checks", []):
-        if check.get("name") == "agent-runtime-benchmark" and isinstance(check.get("rows"), list):
+        if check.get("name") == name and isinstance(check.get("rows"), list):
             return check["rows"]
     return []
 
 
-def render_leaderboard(summary: dict[str, Any]) -> str:
-    rows = agent_rows(summary)
-    lines = [
-        "# Boole Wizard Leaderboard",
-        "",
-        "Local agent/runtime rows. Scores are verifier/replay-backed; skipped rows are not failures.",
-        "",
-        "- Rank key: blocks → verifiedShares → replayPass → status",
-        "",
-    ]
-    if not rows:
-        lines.append("No agent-runtime benchmark rows found in this run.")
-        return "\n".join(lines) + "\n"
-    sorted_rows = sorted(
+def agent_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    return check_rows(summary, "agent-runtime-benchmark")
+
+
+def model_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    return check_rows(summary, "provider-model-live-benchmark")
+
+
+def sorted_benchmark_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
         rows,
         key=lambda row: (
             int(row.get("score", {}).get("blocks", 0) or 0),
             int(row.get("score", {}).get("verifiedShares", 0) or 0),
             bool(row.get("score", {}).get("replayPass", False)),
-            row.get("status") == "PASS",
+            row.get("status") in {"PASS", "ACCEPTED"},
         ),
         reverse=True,
     )
-    for index, row in enumerate(sorted_rows, start=1):
+
+
+def append_leaderboard_rows(lines: list[str], rows: list[dict[str, Any]]) -> None:
+    for index, row in enumerate(sorted_benchmark_rows(rows), start=1):
         score = row.get("score", {})
+        provider = row.get("provider")
+        model = row.get("model")
         lines.extend(
             [
                 f"## {index}. {row.get('name')}",
@@ -733,15 +740,49 @@ def render_leaderboard(summary: dict[str, Any]) -> str:
                 f"- blocks: {score.get('blocks', 0)}",
                 f"- verifiedShares: {score.get('verifiedShares', 0)}",
                 f"- replayPass: {score.get('replayPass', False)}",
-                "",
             ]
         )
+        if provider:
+            lines.append(f"- provider: {provider}")
+        if model:
+            lines.append(f"- model: {model}")
+        if "generatedAttempt" in row:
+            lines.append(f"- generatedAttempt: {row.get('generatedAttempt')}")
+        lines.append("")
+
+
+def render_leaderboard(summary: dict[str, Any]) -> str:
+    agents = agent_rows(summary)
+    models = model_rows(summary)
+    lines = [
+        "# Boole Wizard Leaderboard",
+        "",
+        "Local agent/runtime and model proof-attempt rows. Scores are verifier/replay-backed; skipped or rejected rows are not runner failures.",
+        "",
+        "- Rank key: blocks → verifiedShares → replayPass → status",
+        "",
+        "# Agent/runtime rows",
+        "",
+    ]
+    if agents:
+        append_leaderboard_rows(lines, agents)
+    else:
+        lines.extend(["No agent-runtime benchmark rows found in this run.", ""])
+    lines.extend(["# Local model proof-attempt rows", ""])
+    if models:
+        append_leaderboard_rows(lines, models)
+    else:
+        lines.extend(["No local model proof-attempt rows found in this run.", ""])
     return "\n".join(lines)
 
 
 def render_report(summary: dict[str, Any], *, purpose: str, benchmark_profile: str) -> str:
     genesis = summary.get("genesisBenchmark") if isinstance(summary.get("genesisBenchmark"), dict) else {}
     difficulty = genesis.get("difficulty") if isinstance(genesis.get("difficulty"), dict) else {}
+    models = model_rows(summary)
+    generated_attempts = sum(1 for row in models if row.get("generatedAttempt"))
+    accepted_models = sum(1 for row in models if row.get("status") == "ACCEPTED" or row.get("accepted") is True)
+    rejected_models = sum(1 for row in models if row.get("status") == "REJECTED" or row.get("accepted") is False)
     lines = [
         "# Proof-to-Block Benchmark v0.1 Wizard Report",
         "",
@@ -758,6 +799,12 @@ def render_report(summary: dict[str, Any], *, purpose: str, benchmark_profile: s
         f"- chain divergence: {genesis.get('chainDivergence')}",
         f"- difficulty mode: {difficulty.get('mode')}",
         f"- retarget: {difficulty.get('retarget')}",
+        "",
+        "Local model-generated proof attempts:",
+        f"- rows: {len(models)}",
+        f"- generated attempts: {generated_attempts}",
+        f"- accepted: {accepted_models}",
+        f"- rejected: {rejected_models}",
         "",
         "Safe public wording:",
         "",
@@ -806,6 +853,12 @@ def build_plan(args: argparse.Namespace, preset_name: str) -> list[list[str]]:
         preflight.append("--genesis-benchmark")
     if args.attempts_per_model is not None:
         preflight += ["--attempts-per-model", str(args.attempts_per_model)]
+    if getattr(args, "model_benchmark_command", None):
+        preflight += ["--model-benchmark-command", args.model_benchmark_command]
+    if getattr(args, "ollama_command", None):
+        preflight += ["--ollama-command", args.ollama_command]
+    if getattr(args, "submit_lean_command", None):
+        preflight += ["--submit-lean-command", args.submit_lean_command]
     if getattr(args, "skip_hardening_checks", False):
         preflight.append("--skip-hardening-checks")
     if preset["run_hermes_real"] or args.run_hermes_real:
@@ -882,6 +935,9 @@ def main() -> None:
     parser.add_argument("--genesis-benchmark", action="store_true", help="Run a clean genesis-reset preflight benchmark and record reproducibility metadata.")
     parser.add_argument("--skip-hardening-checks", action="store_true", help="Skip the S7.5 hardening regression gate inside phase7-solo-preflight.sh.")
     parser.add_argument("--attempts-per-model", type=positive_int, help="Attempts/trials per live provider model row in the optional model benchmark.")
+    parser.add_argument("--model-benchmark-command", help="Override model benchmark runner command for local/fake Ollama tests; forwarded to phase7-solo-preflight.sh.")
+    parser.add_argument("--ollama-command", help="Override Ollama command for local/fake benchmark attempts; forwarded without starting a daemon or pulling models.")
+    parser.add_argument("--submit-lean-command", help="Override submit-lean verifier command for local/fake generated proof verification.")
     parser.add_argument("--install-claude", action="store_true", help="Install Claude Code command templates regardless of preset.")
     parser.add_argument("--install-codex", action="store_true", help="Install Codex prompt templates regardless of preset.")
     parser.add_argument("--run-hermes-real", action="store_true", help="Include Hermes real proof-to-block row regardless of preset.")
