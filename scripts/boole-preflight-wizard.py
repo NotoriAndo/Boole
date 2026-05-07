@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -88,27 +89,119 @@ def command_ok(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def ollama_version() -> str | None:
+    if not command_ok("ollama"):
+        return None
+    try:
+        proc = subprocess.run(["ollama", "--version"], text=True, capture_output=True, timeout=5)
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    output = "\n".join(part for part in [proc.stdout, proc.stderr] if part).strip()
+    version_match = re.search(r"(?:client version is|version is|version)\s+([0-9][^\s]*)", output, flags=re.IGNORECASE)
+    if version_match:
+        return version_match.group(1)
+    for line in output.splitlines():
+        if line.strip() and "warning" not in line.lower() and "could not connect" not in line.lower():
+            return line.strip()
+    return None
+
+
 def ollama_status() -> dict[str, Any]:
     installed = command_ok("ollama")
+    version = ollama_version() if installed else None
+    endpoint = "http://127.0.0.1:11434"
     if not installed:
-        return {"installed": False, "daemon": False, "models": [], "error": "ollama command missing"}
+        return {"installed": False, "version": None, "endpoint": endpoint, "daemon": False, "models": [], "error": "ollama command missing"}
     try:
         proc = subprocess.run(["ollama", "list"], text=True, capture_output=True, timeout=10)
     except Exception as exc:
-        return {"installed": True, "daemon": False, "models": [], "error": str(exc)}
+        return {"installed": True, "version": version, "endpoint": endpoint, "daemon": False, "models": [], "error": str(exc)}
     if proc.returncode != 0:
         error = (proc.stderr or proc.stdout or "ollama list failed").strip()
-        return {"installed": True, "daemon": False, "models": [], "error": error}
+        return {"installed": True, "version": version, "endpoint": endpoint, "daemon": False, "models": [], "error": error}
     models = []
     for line in proc.stdout.splitlines()[1:]:
         parts = line.split()
         if parts:
             models.append(parts[0])
-    return {"installed": True, "daemon": True, "models": models, "error": None}
+    return {"installed": True, "version": version, "endpoint": endpoint, "daemon": True, "models": models, "error": None}
 
 
 def ollama_models() -> list[str]:
     return list(ollama_status().get("models", []))
+
+
+def summarize_ollama_readiness(status: dict[str, Any], requested_models: list[str] | None = None) -> dict[str, Any]:
+    ollama = status.get("ollama", {})
+    commands = status.get("commands", {})
+    installed = bool(ollama.get("installed", commands.get("ollama")))
+    daemon = bool(ollama.get("daemon", bool(status.get("ollamaModels"))))
+    models = sorted(set(ollama.get("models") or status.get("ollamaModels", [])))
+    requested = list(dict.fromkeys(requested_models or []))
+    missing = [model for model in requested if model not in models]
+    fix_commands: list[str] = []
+    retry_command = "./scripts/boole-preflight-wizard.py --list-models"
+    status_label = "ready"
+    if not installed:
+        state = "command-missing"
+        status_label = "blocked"
+        fix_commands.append("Install Ollama from https://ollama.com/download")
+    elif not daemon:
+        state = "daemon-unreachable"
+        status_label = "blocked"
+        fix_commands.append("ollama serve")
+    elif missing:
+        state = "models-missing"
+        status_label = "setup-required"
+        fix_commands.extend(f"ollama pull {model}" for model in missing)
+    else:
+        state = "ready"
+    if requested:
+        retry_command = "./scripts/boole-preflight-wizard.py " + " ".join(f"--target ollama:{model}" for model in requested) + " --preset local-models --yes"
+        if state in {"command-missing", "daemon-unreachable"}:
+            retry_command = "./scripts/boole-preflight-wizard.py --list-models"
+    return {
+        "state": state,
+        "status": status_label,
+        "installed": installed,
+        "version": ollama.get("version"),
+        "endpoint": ollama.get("endpoint", "http://127.0.0.1:11434"),
+        "daemon": "reachable" if daemon else "unreachable",
+        "models": models,
+        "requestedModels": requested,
+        "missingModels": missing,
+        "error": ollama.get("error"),
+        "fixCommands": fix_commands,
+        "retryCommand": retry_command,
+    }
+
+
+def render_ollama_readiness(readiness: dict[str, Any]) -> str:
+    lines = [
+        "",
+        "Ollama readiness",
+        "================",
+        f"status: {readiness['status']}",
+        f"state: {readiness['state']}",
+        f"installed: {'yes' if readiness['installed'] else 'no'}",
+        f"version: {readiness.get('version') or 'unknown'}",
+        f"endpoint: {readiness.get('endpoint')}",
+        f"daemon: {readiness['daemon']}",
+        "models: " + (", ".join(readiness.get("models", [])) if readiness.get("models") else "none detected"),
+    ]
+    if readiness.get("requestedModels"):
+        lines.append("requested models: " + ", ".join(readiness["requestedModels"]))
+    if readiness.get("missingModels"):
+        lines.append("missing models: " + ", ".join(readiness["missingModels"]))
+    if readiness.get("error"):
+        lines.append(f"last error: {readiness['error']}")
+    fixes = readiness.get("fixCommands") or ["none"]
+    for command in fixes:
+        lines.append(f"fix: {command}")
+    lines.append(f"retry: {readiness['retryCommand']}")
+    return "\n".join(lines)
 
 
 def env_status() -> dict[str, Any]:
@@ -150,6 +243,7 @@ def print_status(status: dict[str, Any]) -> None:
     for name, ok in status["credentials"].items():
         print(f"- {name}: {'present' if ok else 'missing'}")
     models = status["ollamaModels"]
+    print(render_ollama_readiness(summarize_ollama_readiness(status)))
     print("\nOllama models")
     if models:
         for model in models:
@@ -189,8 +283,10 @@ def positive_int(raw: str) -> int:
 def model_target_catalog(status: dict[str, Any]) -> list[ModelTarget]:
     commands = status.get("commands", {})
     credentials = status.get("credentials", {})
-    ollama_installed = bool(commands.get("ollama"))
-    ollama_detected = set(status.get("ollamaModels", []))
+    ollama_readiness = summarize_ollama_readiness(status)
+    ollama_installed = bool(ollama_readiness["installed"])
+    ollama_daemon = ollama_readiness["daemon"] == "reachable"
+    ollama_detected = set(ollama_readiness["models"])
 
     def command_target(target_id: str, title: str, command: str) -> ModelTarget:
         ready = bool(commands.get(command))
@@ -233,8 +329,19 @@ def model_target_catalog(status: dict[str, Any]) -> list[ModelTarget]:
     ]
 
     for model in ["qwen2.5-coder:7b", "llama3.1:8b"]:
-        ready = ollama_installed and model in ollama_detected
-        action = "ready" if ready else (f"ollama pull {model}" if ollama_installed else "install Ollama, then pull model")
+        ready = ollama_installed and ollama_daemon and model in ollama_detected
+        if ready:
+            status_label = "ready"
+            action = "ready"
+        elif not ollama_installed:
+            status_label = "blocked"
+            action = "install Ollama, then pull model"
+        elif not ollama_daemon:
+            status_label = "blocked"
+            action = "start Ollama daemon with `ollama serve`"
+        else:
+            status_label = "setup-required"
+            action = f"ollama pull {model}"
         targets.append(
             ModelTarget(
                 id=f"ollama:{model}",
@@ -242,7 +349,7 @@ def model_target_catalog(status: dict[str, Any]) -> list[ModelTarget]:
                 group="local llm",
                 cost="free/local compute",
                 credential="not needed",
-                status="ready" if ready else "missing",
+                status=status_label,
                 action=action,
                 model_preset="ollama",
                 ollama_model=model,
@@ -337,11 +444,11 @@ def recovery_items(status: dict[str, Any], targets: list[str] | None = None) -> 
         for target in selected:
             if target.startswith("ollama:"):
                 model = target.split(":", 1)[1]
-                if model not in ollama_models_detected:
+                if ollama_daemon and model not in ollama_models_detected:
                     items.append(
                         {
                             "target": target,
-                            "status": "blocked",
+                            "status": "setup-required",
                             "why": "The selected local model is not installed, so Boole cannot create a model benchmark row for it yet.",
                             "fix": f"ollama pull {model}",
                             "retry": f"./scripts/boole-preflight-wizard.py --target {target} --preset local-models --yes",

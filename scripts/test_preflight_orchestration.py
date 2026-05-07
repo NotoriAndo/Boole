@@ -153,8 +153,8 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertIn("why: Boole can run local model rows only when the Ollama daemon is reachable", rendered)
         self.assertIn("fix: ollama serve", rendered)
         self.assertIn("retry: ./scripts/boole-preflight-wizard.py --list-models", rendered)
-        self.assertIn("target: ollama:qwen2.5-coder:7b", rendered)
-        self.assertIn("fix: ollama pull qwen2.5-coder:7b", rendered)
+        self.assertNotIn("target: ollama:qwen2.5-coder:7b", rendered)
+        self.assertNotIn("fix: ollama pull qwen2.5-coder:7b", rendered)
         self.assertIn("target: hermes:configured", rendered)
         self.assertIn("fix: install/configure `hermes`", rendered)
         self.assertNotIn("sk-", rendered)
@@ -185,9 +185,42 @@ class PreflightOrchestrationTests(unittest.TestCase):
         rendered = wizard.render_guided_steps(args, "local-models", plan, status)
         self.assertIn("Diagnostics and recovery", rendered)
         self.assertIn("target: ollama:qwen2.5-coder:7b", rendered)
-        self.assertIn("status: blocked", rendered)
+        self.assertIn("status: setup-required", rendered)
         self.assertIn("fix: ollama pull qwen2.5-coder:7b", rendered)
         self.assertIn("retry: ./scripts/boole-preflight-wizard.py --target ollama:qwen2.5-coder:7b --preset local-models --yes", rendered)
+
+    def test_ollama_readiness_splits_install_daemon_model_states(self) -> None:
+        wizard = load_wizard()
+        status = {
+            "commands": {"ollama": True},
+            "ollamaModels": [],
+            "ollama": {"installed": True, "daemon": False, "models": [], "error": "connection refused"},
+        }
+        readiness = wizard.summarize_ollama_readiness(status, requested_models=["qwen2.5-coder:7b"])
+        self.assertEqual(readiness["state"], "daemon-unreachable")
+        self.assertEqual(readiness["daemon"], "unreachable")
+        self.assertIn("qwen2.5-coder:7b", readiness["missingModels"])
+        self.assertIn("ollama serve", readiness["fixCommands"])
+        rendered = wizard.render_ollama_readiness(readiness)
+        self.assertIn("Ollama readiness", rendered)
+        self.assertIn("status: blocked", rendered)
+        self.assertIn("daemon: unreachable", rendered)
+        self.assertIn("fix: ollama serve", rendered)
+        self.assertIn("retry: ./scripts/boole-preflight-wizard.py --list-models", rendered)
+
+    def test_model_picker_marks_ollama_daemon_unreachable_before_pull(self) -> None:
+        wizard = load_wizard()
+        status = {
+            "commands": {"ollama": True},
+            "credentials": {},
+            "ollamaModels": [],
+            "ollama": {"installed": True, "daemon": False, "models": [], "error": "connection refused"},
+        }
+        rendered = wizard.render_model_picker(wizard.model_target_catalog(status))
+        self.assertIn("ollama:qwen2.5-coder:7b", rendered)
+        self.assertIn("status: blocked", rendered)
+        self.assertIn("action: start Ollama daemon with `ollama serve`", rendered)
+        self.assertNotIn("action: ollama pull qwen2.5-coder:7b", rendered)
 
     def test_target_selection_maps_to_preflight_flags(self) -> None:
         wizard = load_wizard()

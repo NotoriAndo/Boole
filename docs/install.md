@@ -93,7 +93,7 @@ For the deterministic API-free local evidence path:
 
 The safe preflight produces local, replay-checkable proof-to-block evidence. It is not public-network mining, not a token/reward claim, and not a paid model benchmark.
 
-The wizard renders a seven-step guided plan (`Step 1/7` through `Step 7/7`) and writes three user-facing artifacts into the evidence directory after a successful run. It includes a Hermes-style model/runtime picker so users can inspect available targets and choose exactly what to run. Missing local dependencies are shown as friendly recovery blocks instead of opaque failures: `Diagnostics and recovery` includes `status`, `why`, `fix`, and `retry` lines such as `fix: ollama serve`, `fix: ollama pull qwen2.5-coder:7b`, or `fix: install/configure hermes`.
+The wizard renders a seven-step guided plan (`Step 1/7` through `Step 7/7`) and writes three user-facing artifacts into the evidence directory after a successful run. It includes a Hermes-style model/runtime picker so users can inspect available targets and choose exactly what to run. The `Ollama readiness` section reports whether the command is installed, whether the daemon is reachable, which local models are available, and whether each requested Ollama target is `ready`, `setup-required`, or `blocked`; it never auto-pulls large models. Missing local dependencies are shown as friendly recovery blocks instead of opaque failures: `Diagnostics and recovery` includes `status`, `why`, `fix`, and `retry` lines such as `fix: ollama serve`, `fix: ollama pull qwen2.5-coder:7b`, or `fix: install/configure hermes`.
 
 ```bash
 # Show all detected target rows, credential status, cost class, and action.
