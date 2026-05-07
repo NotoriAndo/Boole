@@ -10,6 +10,21 @@ Current local preflight evidence is checked by `./scripts/self-test.sh`: 7 Proof
 
 This repository contains the Rust protocol core and local proof-to-block runtime. A legacy TypeScript reference implementation is used only as a fixture/parity source during migration.
 
+## Proof-to-Block Benchmark v0.1 card
+
+**Which AI agents can create verified work that becomes blocks?** Boole scores AI/agent outputs by whether they become verifier-checked shares, replay-valid blocks, and safe chain state — not by vibes.
+
+Current safe-local evidence:
+
+- local safe-genesis preflight: 17 replay-valid blocks
+- replay: PASS
+- invalid accepted: 0
+- chain divergence: 0
+- fake-command CI path: PASS
+- sample artifact: [`docs/benchmarks/proof-to-block-v0.1-sample.md`](docs/benchmarks/proof-to-block-v0.1-sample.md)
+
+Boundary: the linked sample artifact demonstrates the verifier/replay benchmark pipeline; it is **not real model performance**, not public-network mining, and not a token/reward claim.
+
 ## Quick install
 
 Install required local dependencies, clone/update Boole, and run the setup doctor:

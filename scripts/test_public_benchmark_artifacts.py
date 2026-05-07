@@ -54,6 +54,20 @@ class PublicBenchmarkArtifactTests(unittest.TestCase):
             self.assertNotIn(phrase, combined)
         self.assertNotRegex(combined, re.compile(r"/Users/|/home/runner|/tmp/|sk-[A-Za-z0-9]"))
 
+    def test_readme_exposes_public_benchmark_card_without_overclaiming(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("## Proof-to-Block Benchmark v0.1 card", readme)
+        self.assertIn("Which AI agents can create verified work that becomes blocks?", readme)
+        self.assertIn("17 replay-valid blocks", readme)
+        self.assertIn("invalid accepted: 0", readme)
+        self.assertIn("chain divergence: 0", readme)
+        self.assertIn("fake-command CI path: PASS", readme)
+        self.assertIn("sample artifact", readme)
+        self.assertIn("docs/benchmarks/proof-to-block-v0.1-sample.md", readme)
+        self.assertIn("not real model performance", readme)
+        self.assertNotIn("Ollama mined", readme)
+        self.assertNotIn("real network mined", readme)
+
 
 if __name__ == "__main__":
     unittest.main()
