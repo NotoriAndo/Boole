@@ -7,6 +7,7 @@ cd "$ROOT"
 SMOKE_JSON="$(${ROOT}/scripts/runtime-smoke-all.sh)"
 
 python3 - "$SMOKE_JSON" <<'PY'
+import hashlib
 import json
 import os
 import pathlib
@@ -75,9 +76,32 @@ lean_exe boole_check where
     return proof
 
 
+def checker_artifact_hash(workspace: pathlib.Path) -> str:
+    entries = []
+    for relative in ["lean-toolchain", "lakefile.lean", "lake-manifest.json"]:
+        path = workspace / relative
+        entries.append((relative, path.read_bytes()))
+    checker_root = workspace / "BooleCheck"
+    if checker_root.exists():
+        for path in checker_root.rglob("*"):
+            if path.is_symlink():
+                raise RuntimeError(f"symlink not allowed inside checker package: {path}")
+            if path.is_file():
+                entries.append((path.relative_to(workspace).as_posix(), path.read_bytes()))
+    entries.sort(key=lambda item: item[0])
+    hasher = hashlib.sha256()
+    for relative, data in entries:
+        hasher.update(relative.encode())
+        hasher.update(b"\0")
+        hasher.update(data)
+        hasher.update(b"\0")
+    return hasher.hexdigest()
+
+
 def run_lean_submit_case():
     workspace = block_store_dir / "lean-submit-proof-to-block-workspace"
     proof = write_lean_checker_workspace(workspace)
+    expected_artifact_hash = checker_artifact_hash(workspace)
     block_store = block_store_dir / "lean-submit-proof-to-block.ndjson"
     if block_store.exists():
         block_store.unlink()
@@ -95,6 +119,8 @@ def run_lean_submit_case():
             str(block_store),
             "--verifier-hash",
             "proof-to-block-benchmark-lean-v0",
+            "--require-checker-artifact-hash",
+            expected_artifact_hash,
         ]),
         cwd=root,
         text=True,
@@ -150,6 +176,7 @@ def run_lean_submit_case():
 def run_agent_fixture_submit_case():
     workspace = block_store_dir / "agent-fixture-submit-proof-to-block-workspace"
     write_lean_checker_workspace(workspace)
+    expected_artifact_hash = checker_artifact_hash(workspace)
     candidate_dir = workspace / "agent-candidate"
     block_store = block_store_dir / "agent-fixture-submit-proof-to-block.ndjson"
     if block_store.exists():
@@ -190,6 +217,8 @@ def run_agent_fixture_submit_case():
             str(block_store),
             "--verifier-hash",
             "proof-to-block-benchmark-agent-fixture-v0",
+            "--require-checker-artifact-hash",
+            expected_artifact_hash,
         ]),
         cwd=root,
         text=True,

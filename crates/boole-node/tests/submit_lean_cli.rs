@@ -19,6 +19,7 @@ fn submit_lean_cli_accepts_valid_proof_into_replayable_block() {
   decide
 "#,
     );
+    let expected_artifact_hash = checker_artifact_hash(&workspace, "submit-lean-cli-test-verifier");
     let block_path = workspace.root.join("blockstore.ndjson");
 
     let output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
@@ -34,6 +35,8 @@ fn submit_lean_cli_accepts_valid_proof_into_replayable_block() {
             block_path.to_str().expect("block path utf8"),
             "--verifier-hash",
             "submit-lean-cli-test-verifier",
+            "--require-checker-artifact-hash",
+            &expected_artifact_hash,
         ])
         .output()
         .expect("run boole-node submit-lean");
@@ -80,6 +83,7 @@ fn submit_lean_cli_rejects_invalid_proof_as_json_stderr_before_admission() {
   decide
 "#,
     );
+    let expected_artifact_hash = checker_artifact_hash(&workspace, "submit-lean-cli-test-verifier");
     let block_path = workspace.root.join("blockstore.ndjson");
 
     let output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
@@ -95,6 +99,8 @@ fn submit_lean_cli_rejects_invalid_proof_as_json_stderr_before_admission() {
             block_path.to_str().expect("block path utf8"),
             "--verifier-hash",
             "submit-lean-cli-test-verifier",
+            "--require-checker-artifact-hash",
+            &expected_artifact_hash,
         ])
         .output()
         .expect("run boole-node submit-lean invalid");
@@ -123,6 +129,52 @@ fn submit_lean_cli_rejects_invalid_proof_as_json_stderr_before_admission() {
         !block_path.exists(),
         "invalid proof must not create a block store"
     );
+}
+
+#[test]
+fn submit_lean_cli_rejects_missing_checker_artifact_hash_as_json_stderr() {
+    if !lake_and_lean_available() {
+        eprintln!("skipping submit-lean CLI missing policy test: lake/lean unavailable");
+        return;
+    }
+    let repo_root = repo_root();
+    let fixture_path = repo_root.join("fixtures/protocol/admission/v1.json");
+    let workspace = TestLeanWorkspace::new("submit-lean-missing-policy");
+    workspace.write_checker_project();
+    let proof = workspace.write_proof(
+        "ValidMissingPolicy.lean",
+        r#"theorem boole_submit_lean_missing_policy : 2 + 2 = 4 := by
+  decide
+"#,
+    );
+    let block_path = workspace.root.join("blockstore.ndjson");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
+        .args([
+            "submit-lean",
+            "--proof",
+            proof.to_str().expect("proof path utf8"),
+            "--checker-dir",
+            workspace.root.to_str().expect("checker dir utf8"),
+            "--fixture",
+            fixture_path.to_str().expect("fixture path utf8"),
+            "--block-store",
+            block_path.to_str().expect("block path utf8"),
+            "--verifier-hash",
+            "submit-lean-cli-test-verifier",
+        ])
+        .output()
+        .expect("run boole-node submit-lean missing checker policy");
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let parsed: Value = serde_json::from_slice(&output.stderr).expect("json stderr");
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["command"], "submit-lean");
+    assert_eq!(parsed["error"], "missing_checker_artifact_policy");
+    assert_eq!(parsed["shareAccepted"], false);
+    assert_eq!(parsed["blockProduced"], false);
+    assert_eq!(parsed["invalidAccepted"], 0);
+    assert!(!block_path.exists());
 }
 
 #[test]
@@ -203,6 +255,13 @@ fn submit_lean_cli_rejects_checker_artifact_not_in_required_allowlist() {
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn checker_artifact_hash(workspace: &TestLeanWorkspace, verifier_hash: &str) -> String {
+    LeanRunner::new(LeanRunnerConfig::new(verifier_hash).with_package_dir(workspace.root.clone()))
+        .evidence()
+        .expect("checker evidence")
+        .checker_artifact_hash
 }
 
 fn lake_and_lean_available() -> bool {

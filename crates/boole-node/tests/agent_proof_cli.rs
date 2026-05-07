@@ -1,3 +1,4 @@
+use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -55,6 +56,7 @@ fn agent_proof_fixture_valid_emits_untrusted_candidate_that_submit_lean_accepts(
         "candidate proof should be the fixture-valid theorem: {proof}"
     );
 
+    let expected_artifact_hash = checker_artifact_hash(&workspace, "agent-proof-cli-test-verifier");
     let block_path = workspace.root.join("blockstore.ndjson");
     let submit_output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
         .args([
@@ -69,6 +71,8 @@ fn agent_proof_fixture_valid_emits_untrusted_candidate_that_submit_lean_accepts(
             block_path.to_str().expect("block path utf8"),
             "--verifier-hash",
             "agent-proof-cli-test-verifier",
+            "--require-checker-artifact-hash",
+            expected_artifact_hash.as_str(),
         ])
         .output()
         .expect("run boole-node submit-lean on agent candidate");
@@ -128,6 +132,7 @@ fn agent_proof_fixture_invalid_stays_untrusted_and_is_rejected_before_admission(
         .expect("candidate proof path string");
     assert!(Path::new(proof_path).exists(), "candidate proof exists");
 
+    let expected_artifact_hash = checker_artifact_hash(&workspace, "agent-proof-cli-test-verifier");
     let block_path = workspace.root.join("blockstore.ndjson");
     let submit_output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
         .args([
@@ -142,6 +147,8 @@ fn agent_proof_fixture_invalid_stays_untrusted_and_is_rejected_before_admission(
             block_path.to_str().expect("block path utf8"),
             "--verifier-hash",
             "agent-proof-cli-test-verifier",
+            "--require-checker-artifact-hash",
+            expected_artifact_hash.as_str(),
         ])
         .output()
         .expect("run boole-node submit-lean invalid agent candidate");
@@ -171,6 +178,13 @@ fn agent_proof_fixture_invalid_stays_untrusted_and_is_rejected_before_admission(
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn checker_artifact_hash(workspace: &TestLeanWorkspace, verifier_hash: &str) -> String {
+    LeanRunner::new(LeanRunnerConfig::new(verifier_hash).with_package_dir(workspace.root.clone()))
+        .evidence()
+        .expect("checker evidence")
+        .checker_artifact_hash
 }
 
 fn lake_and_lean_available() -> bool {

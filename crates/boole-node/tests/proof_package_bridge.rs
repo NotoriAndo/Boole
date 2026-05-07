@@ -28,6 +28,28 @@ struct Constants {
 }
 
 #[test]
+fn lean_bridge_policy_requires_verifier_and_checker_hash() {
+    let runner = LeanRunner::new(LeanRunnerConfig::new("bridge-verifier-hash"));
+    let missing_verifier = LeanProofBridge::try_new_with_policy(
+        runner.clone(),
+        LeanProofBridgePolicy::new().allow_checker_artifact_hash("abc"),
+    )
+    .expect_err("bridge policy must require verifier hash");
+    assert!(missing_verifier
+        .to_string()
+        .contains("required verifier hash"));
+
+    let missing_artifact = LeanProofBridge::try_new_with_policy(
+        runner,
+        LeanProofBridgePolicy::new().require_verifier_hash("bridge-verifier-hash"),
+    )
+    .expect_err("bridge policy must pin at least one checker artifact hash");
+    assert!(missing_artifact
+        .to_string()
+        .contains("checker artifact allowlist"));
+}
+
+#[test]
 fn lean_checked_proof_package_is_admitted_as_block_and_replays() {
     if !lake_and_lean_available() {
         eprintln!("skipping Lean proof bridge test: lake/lean unavailable");
@@ -43,12 +65,23 @@ fn lean_checked_proof_package_is_admitted_as_block_and_replays() {
 "#,
     );
 
-    let bridge = LeanProofBridge::new(LeanRunner::new(
+    let runner = LeanRunner::new(
         LeanRunnerConfig::new("bridge-verifier-hash")
             .with_package_dir(workspace.root.clone())
             .with_timeout_ms(5_000)
             .with_memory_limit_mb(8192),
-    ));
+    );
+    let expected_artifact_hash = runner
+        .evidence()
+        .expect("evidence hashes checker before bridge construction")
+        .checker_artifact_hash;
+    let bridge = LeanProofBridge::try_new_with_policy(
+        runner,
+        LeanProofBridgePolicy::new()
+            .require_verifier_hash("bridge-verifier-hash")
+            .allow_checker_artifact_hash(expected_artifact_hash),
+    )
+    .expect("pinned proof bridge policy");
     let template = template_from_fixture(&fixture.constants);
     let bridged = bridge
         .build_submission_body(&proof, &template)
@@ -168,12 +201,23 @@ fn invalid_lean_proof_is_rejected_before_admission_or_block() {
 "#,
     );
 
-    let bridge = LeanProofBridge::new(LeanRunner::new(
+    let runner = LeanRunner::new(
         LeanRunnerConfig::new("bridge-verifier-hash")
             .with_package_dir(workspace.root.clone())
             .with_timeout_ms(5_000)
             .with_memory_limit_mb(8192),
-    ));
+    );
+    let expected_artifact_hash = runner
+        .evidence()
+        .expect("evidence hashes checker before bridge construction")
+        .checker_artifact_hash;
+    let bridge = LeanProofBridge::try_new_with_policy(
+        runner,
+        LeanProofBridgePolicy::new()
+            .require_verifier_hash("bridge-verifier-hash")
+            .allow_checker_artifact_hash(expected_artifact_hash),
+    )
+    .expect("pinned proof bridge policy");
     let template = template_from_fixture(&fixture.constants);
     let rejected = bridge
         .build_submission_body(&proof, &template)

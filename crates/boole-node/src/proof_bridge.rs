@@ -39,6 +39,7 @@ impl ProofBridgeError {
     }
 }
 
+#[derive(Debug)]
 pub struct LeanProofBridge {
     runner: LeanRunner,
     policy: LeanProofBridgePolicy,
@@ -66,6 +67,18 @@ impl LeanProofBridgePolicy {
         self
     }
 
+    fn validate_required(&self) -> anyhow::Result<()> {
+        if self.required_verifier_hash.is_none() {
+            anyhow::bail!("Lean proof bridge policy must set a required verifier hash");
+        }
+        if self.allowed_checker_artifact_hashes.is_empty() {
+            anyhow::bail!(
+                "Lean proof bridge policy must set a non-empty checker artifact allowlist"
+            );
+        }
+        Ok(())
+    }
+
     fn validate(&self, lean: &LeanCheckResult) -> Option<&'static str> {
         if self
             .required_verifier_hash
@@ -86,12 +99,24 @@ impl LeanProofBridgePolicy {
 }
 
 impl LeanProofBridge {
-    pub fn new(runner: LeanRunner) -> Self {
-        Self::new_with_policy(runner, LeanProofBridgePolicy::default())
+    pub fn try_new_with_policy(
+        runner: LeanRunner,
+        policy: LeanProofBridgePolicy,
+    ) -> anyhow::Result<Self> {
+        policy.validate_required()?;
+        Ok(Self { runner, policy })
+    }
+
+    pub fn new_unchecked_for_tests(runner: LeanRunner) -> Self {
+        Self {
+            runner,
+            policy: LeanProofBridgePolicy::default(),
+        }
     }
 
     pub fn new_with_policy(runner: LeanRunner, policy: LeanProofBridgePolicy) -> Self {
-        Self { runner, policy }
+        Self::try_new_with_policy(runner, policy)
+            .expect("Lean proof bridge policy must be pinned before use")
     }
 
     pub fn build_submission_body(

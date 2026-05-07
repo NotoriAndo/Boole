@@ -93,7 +93,24 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
     let verifier_hash = take_optional_flag_value(&mut args, "--verifier-hash")?
         .unwrap_or_else(|| "boole-submit-lean-v0".to_string());
     let required_checker_artifact_hash =
-        take_optional_flag_value(&mut args, "--require-checker-artifact-hash")?;
+        match take_optional_flag_value(&mut args, "--require-checker-artifact-hash")? {
+            Some(value) => value,
+            None => {
+                eprintln!(
+                    "{}",
+                    serde_json::to_string(&json!({
+                        "ok": false,
+                        "command": "submit-lean",
+                        "accepted": false,
+                        "error": "missing_checker_artifact_policy",
+                        "shareAccepted": false,
+                        "blockProduced": false,
+                        "invalidAccepted": 0,
+                    }))?
+                );
+                std::process::exit(1);
+            }
+        };
     let timeout_ms = take_optional_flag_value(&mut args, "--timeout-ms")?
         .map(|value| value.parse::<u64>())
         .transpose()?
@@ -112,11 +129,9 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
     }
 
     let fixture = submit_lean_fixture(&fixture_path)?;
-    let mut bridge_policy =
-        LeanProofBridgePolicy::new().require_verifier_hash(verifier_hash.clone());
-    if let Some(checker_artifact_hash) = required_checker_artifact_hash {
-        bridge_policy = bridge_policy.allow_checker_artifact_hash(checker_artifact_hash);
-    }
+    let bridge_policy = LeanProofBridgePolicy::new()
+        .require_verifier_hash(verifier_hash.clone())
+        .allow_checker_artifact_hash(required_checker_artifact_hash);
     let bridge = LeanProofBridge::new_with_policy(
         LeanRunner::new(
             LeanRunnerConfig::new(verifier_hash)
