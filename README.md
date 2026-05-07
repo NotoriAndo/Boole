@@ -35,7 +35,7 @@ cd ~/boole
 ./scripts/boole-preflight-wizard.py --preset safe --genesis-benchmark --yes
 ```
 
-The wizard prints `Step 1/7` through `Step 7/7`, explains the safety/cost boundary, shows a detailed model/runtime picker, runs the selected local preflight plan, and writes `wizard-report.md`, `wizard-leaderboard.md`, and `wizard-summary.redacted.json` beside the evidence. Use `--list-models` to inspect targets such as `safe-core`, local Ollama rows, Hermes/Claude/Codex/opencode CLI rows, and frontier API rows; use repeatable `--target` flags for non-interactive selection. Frontier/API targets require `--allow-paid-api` so API-cost benchmarks cannot run accidentally.
+The wizard prints `Step 1/7` through `Step 7/7`, explains the safety/cost boundary, shows a detailed model/runtime picker, runs the selected local preflight plan, and writes `wizard-report.md`, `wizard-leaderboard.md`, and `wizard-summary.redacted.json` beside the evidence. Use `--list-models` to inspect targets such as `safe-core`, local Ollama rows, Hermes/Claude/Codex/opencode CLI rows, and frontier API rows; use repeatable `--target` flags for non-interactive selection. If a selected target is not ready, the wizard prints `Diagnostics and recovery` with `status`, `why`, `fix`, and `retry` lines, for example `fix: ollama serve` or `fix: ollama pull qwen2.5-coder:7b`. Frontier/API targets require `--allow-paid-api` so API-cost benchmarks cannot run accidentally.
 
 ## Target language split
 

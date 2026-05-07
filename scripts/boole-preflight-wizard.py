@@ -88,24 +88,31 @@ def command_ok(name: str) -> bool:
     return shutil.which(name) is not None
 
 
-def ollama_models() -> list[str]:
-    if not command_ok("ollama"):
-        return []
+def ollama_status() -> dict[str, Any]:
+    installed = command_ok("ollama")
+    if not installed:
+        return {"installed": False, "daemon": False, "models": [], "error": "ollama command missing"}
     try:
         proc = subprocess.run(["ollama", "list"], text=True, capture_output=True, timeout=10)
-    except Exception:
-        return []
+    except Exception as exc:
+        return {"installed": True, "daemon": False, "models": [], "error": str(exc)}
     if proc.returncode != 0:
-        return []
+        error = (proc.stderr or proc.stdout or "ollama list failed").strip()
+        return {"installed": True, "daemon": False, "models": [], "error": error}
     models = []
     for line in proc.stdout.splitlines()[1:]:
         parts = line.split()
         if parts:
             models.append(parts[0])
-    return models
+    return {"installed": True, "daemon": True, "models": models, "error": None}
+
+
+def ollama_models() -> list[str]:
+    return list(ollama_status().get("models", []))
 
 
 def env_status() -> dict[str, Any]:
+    ollama = ollama_status()
     return {
         "commands": {
             "cargo": command_ok("cargo"),
@@ -128,7 +135,8 @@ def env_status() -> dict[str, Any]:
             "GOOGLE_API_KEY": bool(os.environ.get("GOOGLE_API_KEY")),
             "XAI_API_KEY": bool(os.environ.get("XAI_API_KEY")),
         },
-        "ollamaModels": ollama_models(),
+        "ollamaModels": ollama["models"],
+        "ollama": ollama,
     }
 
 
@@ -281,6 +289,134 @@ def model_target_catalog(status: dict[str, Any]) -> list[ModelTarget]:
             )
         )
     return targets
+
+
+def recovery_items(status: dict[str, Any], targets: list[str] | None = None) -> list[dict[str, str]]:
+    commands = status.get("commands", {})
+    credentials = status.get("credentials", {})
+    ollama = status.get("ollama", {})
+    ollama_installed = bool(ollama.get("installed", commands.get("ollama")))
+    ollama_daemon = bool(ollama.get("daemon", bool(status.get("ollamaModels"))))
+    ollama_models_detected = set(ollama.get("models") or status.get("ollamaModels", []))
+    selected = targets or []
+    items: list[dict[str, str]] = []
+
+    required_missing = [name for name in ["cargo", "python3", "lean", "lake"] if not commands.get(name)]
+    if required_missing:
+        items.append(
+            {
+                "target": "required tooling",
+                "status": "blocked",
+                "why": "Boole cannot run the verifier/replay preflight without Rust, Python, Lean, and Lake.",
+                "fix": "rerun ./install.sh --yes, or install the missing commands: " + ", ".join(required_missing),
+                "retry": "./scripts/boole-preflight-wizard.py --doctor",
+            }
+        )
+
+    if any(target.startswith("ollama:") for target in selected):
+        if not ollama_installed:
+            items.append(
+                {
+                    "target": "ollama",
+                    "status": "blocked",
+                    "why": "Boole can run local model rows only when the Ollama command is installed.",
+                    "fix": "Install Ollama from https://ollama.com/download, then pull the selected model.",
+                    "retry": "./scripts/boole-preflight-wizard.py --list-models",
+                }
+            )
+        elif not ollama_daemon:
+            items.append(
+                {
+                    "target": "ollama",
+                    "status": "blocked",
+                    "why": "Boole can run local model rows only when the Ollama daemon is reachable.",
+                    "fix": "ollama serve",
+                    "retry": "./scripts/boole-preflight-wizard.py --list-models",
+                }
+            )
+        for target in selected:
+            if target.startswith("ollama:"):
+                model = target.split(":", 1)[1]
+                if model not in ollama_models_detected:
+                    items.append(
+                        {
+                            "target": target,
+                            "status": "blocked",
+                            "why": "The selected local model is not installed, so Boole cannot create a model benchmark row for it yet.",
+                            "fix": f"ollama pull {model}",
+                            "retry": f"./scripts/boole-preflight-wizard.py --target {target} --preset local-models --yes",
+                        }
+                    )
+
+    if "hermes:configured" in selected and not commands.get("hermes"):
+        items.append(
+            {
+                "target": "hermes:configured",
+                "status": "blocked",
+                "why": "Hermes agent-runtime rows require the Hermes CLI to be installed and configured locally.",
+                "fix": "install/configure `hermes`",
+                "retry": "./scripts/boole-preflight-wizard.py --target hermes:configured --preset agent-local --yes",
+            }
+        )
+
+    cli_targets = [("claude-code", "claude"), ("codex", "codex"), ("opencode", "opencode")]
+    for target, command in cli_targets:
+        if target in selected and not commands.get(command):
+            items.append(
+                {
+                    "target": target,
+                    "status": "blocked",
+                    "why": f"The {target} row needs the `{command}` CLI to be installed and logged in before Boole can run it.",
+                    "fix": f"install or configure `{command}`",
+                    "retry": f"./scripts/boole-preflight-wizard.py --target {target} --preset agent-local --yes",
+                }
+            )
+
+    api_keys = {
+        "openai:": "OPENAI_API_KEY",
+        "anthropic:": "ANTHROPIC_API_KEY",
+        "google:": "GOOGLE_API_KEY",
+        "xai:": "XAI_API_KEY",
+    }
+    for target in selected:
+        for prefix, key in api_keys.items():
+            if target.startswith(prefix):
+                missing = not credentials.get(key)
+                items.append(
+                    {
+                        "target": target,
+                        "status": "blocked" if missing else "needs-confirmation",
+                        "why": "Frontier/API rows can cost money and must be explicitly approved; API key values are never printed or stored.",
+                        "fix": f"set {key} in your shell" if missing else "choose provider/model/attempt budget, then add --allow-paid-api",
+                        "retry": f"./scripts/boole-preflight-wizard.py --target {target} --preset frontier --allow-paid-api --yes",
+                    }
+                )
+                break
+
+    return items
+
+
+def render_recovery_guidance(status: dict[str, Any], targets: list[str] | None = None) -> str:
+    items = recovery_items(status, targets)
+    lines = ["", "Diagnostics and recovery", "========================"]
+    if not items:
+        lines.append("status: ready")
+        lines.append("why: required local tooling and selected targets look ready for the requested wizard path")
+        lines.append("fix: none")
+        lines.append("retry: ./scripts/boole-preflight-wizard.py --preset safe --genesis-benchmark --yes")
+        return "\n".join(lines)
+    for item in items:
+        lines.extend(
+            [
+                f"target: {item['target']}",
+                f"status: {item['status']}",
+                f"why: {item['why']}",
+                f"fix: {item['fix']}",
+                f"retry: {item['retry']}",
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip()
 
 
 def render_model_picker(catalog: list[ModelTarget]) -> str:
@@ -436,6 +572,9 @@ def render_guided_steps(args: argparse.Namespace, preset_name: str, plan: list[l
             "reports: wizard-report.md, wizard-leaderboard.md, wizard-summary.redacted.json",
         ]
     )
+    guidance = render_recovery_guidance(status, targets=selected_targets)
+    if "status: ready" not in guidance:
+        lines.append(guidance)
     return "\n".join(lines)
 
 
@@ -651,6 +790,7 @@ def main() -> None:
     status = env_status()
     print_status(status)
     if args.doctor:
+        print(render_recovery_guidance(status))
         return
     if args.list_models:
         print(render_model_picker(model_target_catalog(status)))

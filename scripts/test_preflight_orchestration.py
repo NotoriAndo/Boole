@@ -122,6 +122,73 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertIn("OPENAI_API_KEY missing", rendered)
         self.assertIn("status: disabled", rendered)
 
+    def test_recovery_guidance_explains_status_why_fix_and_retry(self) -> None:
+        wizard = load_wizard()
+        status = {
+            "commands": {
+                "cargo": True,
+                "python3": True,
+                "lean": True,
+                "lake": True,
+                "ollama": True,
+                "hermes": False,
+            },
+            "credentials": {
+                "OPENAI_API_KEY": False,
+                "ANTHROPIC_API_KEY": False,
+                "GOOGLE_API_KEY": False,
+                "XAI_API_KEY": False,
+            },
+            "ollamaModels": [],
+            "ollama": {
+                "installed": True,
+                "daemon": False,
+                "models": [],
+                "error": "connection refused",
+            },
+        }
+        rendered = wizard.render_recovery_guidance(status, targets=["ollama:qwen2.5-coder:7b", "hermes:configured"])
+        self.assertIn("Diagnostics and recovery", rendered)
+        self.assertIn("status: blocked", rendered)
+        self.assertIn("why: Boole can run local model rows only when the Ollama daemon is reachable", rendered)
+        self.assertIn("fix: ollama serve", rendered)
+        self.assertIn("retry: ./scripts/boole-preflight-wizard.py --list-models", rendered)
+        self.assertIn("target: ollama:qwen2.5-coder:7b", rendered)
+        self.assertIn("fix: ollama pull qwen2.5-coder:7b", rendered)
+        self.assertIn("target: hermes:configured", rendered)
+        self.assertIn("fix: install/configure `hermes`", rendered)
+        self.assertNotIn("sk-", rendered)
+
+    def test_guided_flow_embeds_recovery_guidance_for_selected_missing_target(self) -> None:
+        wizard = load_wizard()
+        status = {
+            "commands": {"cargo": True, "python3": True, "lean": True, "lake": True, "ollama": True},
+            "credentials": {"OPENAI_API_KEY": False, "ANTHROPIC_API_KEY": False, "GOOGLE_API_KEY": False, "XAI_API_KEY": False},
+            "ollamaModels": [],
+            "ollama": {"installed": True, "daemon": True, "models": [], "error": None},
+        }
+        args = argparse.Namespace(
+            preset="local-models",
+            purpose="local-validation",
+            benchmark_profile="local-llm",
+            genesis_benchmark=False,
+            attempts_per_model=None,
+            model_preset="ollama",
+            model_include=[],
+            ollama_model=["qwen2.5-coder:7b"],
+            target=["ollama:qwen2.5-coder:7b"],
+            run_hermes_real=False,
+            allow_paid_api=False,
+            dry_run=True,
+        )
+        plan = [["./scripts/phase7-solo-preflight.sh", "--run-model-benchmark", "--model-preset", "ollama", "--ollama-model", "qwen2.5-coder:7b"]]
+        rendered = wizard.render_guided_steps(args, "local-models", plan, status)
+        self.assertIn("Diagnostics and recovery", rendered)
+        self.assertIn("target: ollama:qwen2.5-coder:7b", rendered)
+        self.assertIn("status: blocked", rendered)
+        self.assertIn("fix: ollama pull qwen2.5-coder:7b", rendered)
+        self.assertIn("retry: ./scripts/boole-preflight-wizard.py --target ollama:qwen2.5-coder:7b --preset local-models --yes", rendered)
+
     def test_target_selection_maps_to_preflight_flags(self) -> None:
         wizard = load_wizard()
         args = argparse.Namespace(
