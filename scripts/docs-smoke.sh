@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+require_file() {
+  local path="$1"
+  if [[ ! -f "$path" ]]; then
+    printf 'docs-smoke: missing required file: %s\n' "$path" >&2
+    return 1
+  fi
+}
+
+require_text() {
+  local path="$1"
+  local needle="$2"
+  if ! grep -Fq "$needle" "$path"; then
+    printf 'docs-smoke: missing %q in %s\n' "$needle" "$path" >&2
+    return 1
+  fi
+}
+
+require_file README.md
+require_file docs/replay-consensus.md
+require_file docs/adr/0001-pofp-v2-canonical-widening.md
+
+require_text README.md "docs/replay-consensus.md"
+
+require_text docs/replay-consensus.md "selectedShareEvidence"
+require_text docs/replay-consensus.md "minShareScoreMultiplierNanos"
+require_text docs/replay-consensus.md "fixtures/protocol/replay/v1.json"
+require_text docs/replay-consensus.md "fixtures/protocol/replay/v2.json"
+require_text docs/replay-consensus.md "legacy/no-evidence replay compatibility"
+require_text docs/replay-consensus.md "selected share evidence minShareScore mismatch"
+require_text docs/replay-consensus.md "selected share evidence requires minShareScoreMultiplierNanos"
+
+require_text docs/adr/0001-pofp-v2-canonical-widening.md "Status: Implemented"
+require_text docs/adr/0001-pofp-v2-canonical-widening.md "POFP-v2 is the default canonical package emitted by the Rust Lean proof bridge"
+
+printf 'docs-smoke: PASS\n' >&2

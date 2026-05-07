@@ -41,6 +41,7 @@ run_capture_json() {
 }
 
 run_logged cargo-fmt cargo fmt --all --check
+run_logged docs-smoke ./scripts/docs-smoke.sh
 run_logged cargo-clippy cargo clippy --workspace --all-targets -- -D warnings
 run_logged cargo-test cargo test --workspace --all-targets
 LEGACY_POF_ROOT="${BOOLE_LEGACY_POF_ROOT:-$ROOT/../pof}"
@@ -86,6 +87,7 @@ safety = benchmark.get("safety", {})
 
 checks = [
     {"name": "cargo-fmt", "ok": True},
+    {"name": "docs-smoke", "ok": True},
     {"name": "cargo-clippy", "ok": True},
     {"name": "cargo-test", "ok": True},
     {"name": "rust-parity", "ok": rust_parity_status in {"pass", "skipped"}, "status": rust_parity_status},

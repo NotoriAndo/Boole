@@ -100,6 +100,12 @@ The mining smoke starts `boole-node run-local`, reads `/head` and `/config`, ann
 
 This is the first Rust `boole-node` replacement path for the old TypeScript dispatcher shape: local HTTP submit, runtime admission, block commit, store recovery, and replay consistency.
 
+## Replay consensus evidence
+
+Replay is the reviewer-facing safety rail: persisted blocks must rebuild the same head and account state without trusting live runtime memory. New evidence-backed blocks carry `selectedShareEvidence` plus `minShareScoreMultiplierNanos` so replay can re-derive selected share hashes from canonical proof packages and verify the admission-policy multiplier used for `minShareScore`. Legacy `fixtures/protocol/replay/v1.json` remains accepted for migration compatibility; `fixtures/protocol/replay/v2.json` covers the stricter evidence-backed path.
+
+See [`docs/replay-consensus.md`](docs/replay-consensus.md).
+
 ## Runtime smoke
 
 Run the checked node smoke harness:
