@@ -385,7 +385,7 @@ import json
 import sys
 from pathlib import Path
 Path({str(fake_ollama_log)!r}).open("a", encoding="utf-8").write(json.dumps({{"argv": sys.argv[1:]}}) + "\\n")
-print("theorem boole_benchmark_true : True := by trivial")
+print("True.intro")
 """,
                 encoding="utf-8",
             )

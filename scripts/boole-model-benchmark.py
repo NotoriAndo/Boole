@@ -190,6 +190,86 @@ def candidate_preview(text: str, limit: int = 160) -> str:
     return compact[:limit]
 
 
+def extract_proof_term_candidate(raw_output: str) -> tuple[str | None, dict[str, Any], str | None]:
+    raw = raw_output.strip()
+    extraction: dict[str, Any] = {"mode": "proof-term", "format": "raw", "normalization": "none"}
+    if not raw:
+        return None, extraction, "candidate-empty"
+
+    fence_matches = list(re.finditer(r"```([A-Za-z0-9_-]*)\s*\n([\s\S]*?)\n```", raw))
+    if fence_matches:
+        if len(fence_matches) != 1 or raw[: fence_matches[0].start()].strip() or raw[fence_matches[0].end() :].strip():
+            extraction.update({"format": "ambiguous-fenced", "normalization": "none"})
+            return None, extraction, "candidate-ambiguous"
+        lang = fence_matches[0].group(1).strip().lower()
+        raw = fence_matches[0].group(2).strip()
+        extraction.update({"format": "fenced-lean" if lang == "lean" else "fenced-code", "normalization": "strip-fence"})
+
+    parsed_json = parse_json_output(raw)
+    if parsed_json is not None:
+        for key in ("proof_lean", "proofTerm", "proof", "code"):
+            value = parsed_json.get(key)
+            if isinstance(value, str) and value.strip():
+                raw = value.strip()
+                extraction.update({"format": f"json-{key}", "normalization": "json-extract"})
+                break
+        else:
+            return None, extraction | {"format": "json"}, "candidate-missing-proof-field"
+
+    lowered = raw.lower()
+    if re.search(r"\b(sorry|admit)\b", lowered):
+        return None, extraction, "candidate-forbidden-token"
+    if "```" in raw:
+        return None, extraction, "candidate-shape-invalid"
+    if re.search(r"^\s*(import|open|namespace|section|def|theorem|lemma|example)\b", raw, re.MULTILINE):
+        return None, extraction, "candidate-shape-invalid"
+    if re.search(r"^\s*by\b", raw):
+        return None, extraction, "candidate-shape-invalid"
+    return raw, extraction, None
+
+
+def wrap_proof_term_candidate(proof_term: str) -> str:
+    indented = "\n".join(("  " + line) if line.strip() else line for line in proof_term.splitlines())
+    return f"theorem boole_benchmark_true : True :=\n{indented}\n"
+
+
+def rejected_candidate_shape_row(*, target: str, provider: str, model: str, attempt_index: int, reason: str, elapsed_ms: int, raw_output: str, extraction: dict[str, Any], stderr: str = "") -> dict[str, Any]:
+    return {
+        "name": f"{target} attempt {attempt_index + 1}",
+        "kind": "provider-model",
+        "target": target,
+        "provider": provider,
+        "model": model,
+        "attemptIndex": attempt_index,
+        "ok": True,
+        "skipped": False,
+        "status": "REJECTED",
+        "reason": reason,
+        "generatedAttempt": False,
+        "candidateMode": "proof-term",
+        "candidateExtraction": extraction,
+        "candidatePreview": candidate_preview(raw_output),
+        "accepted": False,
+        "invalidAccepted": False,
+        "elapsedMs": elapsed_ms,
+        "latencyMs": elapsed_ms,
+        "score": {"blocks": 0, "verifiedShares": 0, "replayPass": True},
+        "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
+        "verifier": {"invoked": False, "command": "submit-lean"},
+        "stderrTail": stderr[-1200:],
+        "stdoutTail": raw_output[-1200:],
+    }
+
+
+def model_proof_term_prompt() -> str:
+    return (
+        "Boole proof-to-block benchmark target contract. Return exactly one Lean 4 proof term for this theorem body, "
+        "not a full theorem and not a Markdown code block. Target theorem: `theorem boole_benchmark_true : True := <YOUR_PROOF_TERM>`. "
+        "Valid example response: `True.intro`. Do not include `theorem`, `lemma`, `example`, `import`, explanations, JSON, markdown fences, `by`, `sorry`, or `admit`. "
+        "The returned term will be inserted verbatim after `:=` and verified by Boole's submit-lean path."
+    )
+
+
 def classify_ollama_failure(stderr: str, stdout: str, returncode: int) -> str:
     combined = f"{stderr}\n{stdout}".lower()
     if "not found" in combined and "model" in combined:
@@ -427,10 +507,7 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
         ]
 
     rows: list[dict[str, Any]] = []
-    prompt = (
-        "Generate one Lean 4 proof candidate for Boole's local proof-to-block benchmark. "
-        "Return only the proof text. The candidate is untrusted and will be verifier-checked."
-    )
+    prompt = model_proof_term_prompt()
     for idx in range(attempts):
         started = time.time()
         try:
@@ -489,7 +566,27 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                 on_row(rows[-1], rows)
             continue
 
-        candidate = proc.stdout.strip()
+        raw_candidate = proc.stdout.strip()
+        proof_term, extraction, extraction_reason = extract_proof_term_candidate(raw_candidate)
+        if extraction_reason:
+            rows.append(
+                rejected_candidate_shape_row(
+                    target=target,
+                    provider="ollama",
+                    model=model,
+                    attempt_index=idx,
+                    reason=extraction_reason,
+                    elapsed_ms=elapsed_ms,
+                    raw_output=raw_candidate,
+                    extraction=extraction,
+                    stderr=proc.stderr,
+                )
+            )
+            if on_row:
+                on_row(rows[-1], rows)
+            continue
+
+        candidate = wrap_proof_term_candidate(proof_term or "")
         digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
         verifier = None
         if submit_lean_command:
@@ -518,8 +615,11 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                 "status": "ACCEPTED" if accepted else "REJECTED",
                 "reason": None if accepted else ((verifier or {}).get("reason") or ("verifier_rejected" if verifier else "verifier-integration-pending")),
                 "generatedAttempt": True,
+                "candidateMode": "proof-term",
+                "candidateExtraction": extraction,
                 "candidateSha256": digest,
-                "candidatePreview": candidate_preview(candidate),
+                "candidateTermSha256": hashlib.sha256((proof_term or "").encode("utf-8")).hexdigest(),
+                "candidatePreview": candidate_preview(proof_term or ""),
                 "accepted": accepted,
                 "invalidAccepted": bool(safety.get("invalidAccepted", 0)),
                 "elapsedMs": elapsed_ms,
@@ -551,10 +651,7 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
         ]
 
     rows: list[dict[str, Any]] = []
-    prompt = (
-        "Generate one Lean 4 proof candidate for Boole's local proof-to-block benchmark. "
-        "Return only the proof text. The candidate is untrusted and will be verifier-checked."
-    )
+    prompt = model_proof_term_prompt()
     for idx in range(attempts):
         started = time.time()
         try:
@@ -613,7 +710,27 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
                 on_row(rows[-1], rows)
             continue
 
-        candidate = proc.stdout.strip()
+        raw_candidate = proc.stdout.strip()
+        proof_term, extraction, extraction_reason = extract_proof_term_candidate(raw_candidate)
+        if extraction_reason:
+            rows.append(
+                rejected_candidate_shape_row(
+                    target=target,
+                    provider="claude-cli",
+                    model=model,
+                    attempt_index=idx,
+                    reason=extraction_reason,
+                    elapsed_ms=elapsed_ms,
+                    raw_output=raw_candidate,
+                    extraction=extraction,
+                    stderr=proc.stderr,
+                )
+            )
+            if on_row:
+                on_row(rows[-1], rows)
+            continue
+
+        candidate = wrap_proof_term_candidate(proof_term or "")
         digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
         verifier = None
         if submit_lean_command:
@@ -642,8 +759,11 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
                 "status": "ACCEPTED" if accepted else "REJECTED",
                 "reason": None if accepted else ((verifier or {}).get("reason") or ("verifier_rejected" if verifier else "verifier-integration-pending")),
                 "generatedAttempt": True,
+                "candidateMode": "proof-term",
+                "candidateExtraction": extraction,
                 "candidateSha256": digest,
-                "candidatePreview": candidate_preview(candidate),
+                "candidateTermSha256": hashlib.sha256((proof_term or "").encode("utf-8")).hexdigest(),
+                "candidatePreview": candidate_preview(proof_term or ""),
                 "accepted": accepted,
                 "invalidAccepted": bool(safety.get("invalidAccepted", 0)),
                 "elapsedMs": elapsed_ms,

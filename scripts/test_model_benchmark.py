@@ -108,7 +108,7 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             fake_ollama.write_text(
                 "#!/usr/bin/env python3\n"
                 "import sys\n"
-                "print('theorem boole_benchmark_true : True := by trivial')\n",
+                "print('True.intro')\n",
                 encoding="utf-8",
             )
             fake_ollama.chmod(0o755)
@@ -203,7 +203,7 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             fake_ollama = tmp_path / "fake-ollama.py"
             fake_ollama.write_text(
                 "#!/usr/bin/env python3\n"
-                "print('theorem boole_benchmark_true : True := by trivial')\n",
+                "print('True.intro')\n",
                 encoding="utf-8",
             )
             fake_ollama.chmod(0o755)
@@ -268,9 +268,69 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             self.assertEqual(rows[0]["verifier"]["command"], "submit-lean")
             self.assertEqual(rows[0]["verifier"]["exitCode"], 0)
             self.assertEqual(rows[0]["score"], {"blocks": 1, "verifiedShares": 1, "replayPass": True})
-            self.assertIn("theorem boole_benchmark_true", invocation["proofText"])
+            self.assertIn("theorem boole_benchmark_true : True", invocation["proofText"])
+            self.assertIn("True.intro", invocation["proofText"])
+            self.assertEqual(rows[0]["candidateMode"], "proof-term")
+            self.assertEqual(rows[0]["candidateExtraction"]["format"], "raw")
             self.assertEqual(invocation["verifierHash"], "boole-model-benchmark-ollama-v0")
             self.assertRegex(invocation["requiredCheckerArtifactHash"], r"^[0-9a-f]{64}$")
+
+    def test_full_theorem_output_is_rejected_before_verifier_in_proof_term_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake_ollama = tmp_path / "fake-ollama.py"
+            fake_ollama.write_text(
+                "#!/usr/bin/env python3\n"
+                "print('```lean')\n"
+                "print('theorem arbitrary : True := by trivial')\n"
+                "print('```')\n",
+                encoding="utf-8",
+            )
+            fake_ollama.chmod(0o755)
+            fake_submit = tmp_path / "fake-submit-lean.py"
+            fake_submit.write_text(
+                "#!/usr/bin/env python3\n"
+                "raise SystemExit('verifier must not be invoked for wrong candidate shape')\n",
+                encoding="utf-8",
+            )
+            fake_submit.chmod(0o755)
+            out_dir = tmp_path / "model-benchmark"
+
+            proc = subprocess.run(
+                [
+                    "python3",
+                    str(BENCHMARK_PATH),
+                    "--target",
+                    "ollama:qwen2.5-coder:7b",
+                    "--ollama-command",
+                    str(fake_ollama),
+                    "--submit-lean-command",
+                    str(fake_submit),
+                    "--attempts",
+                    "1",
+                    "--output-dir",
+                    str(out_dir),
+                    "--run-id",
+                    "full-theorem-rejected-run",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            summary = json.loads((out_dir / "benchmark-summary.json").read_text())
+            rows = [json.loads(line) for line in (out_dir / "benchmark-rows.ndjson").read_text().splitlines()]
+            self.assertTrue(summary["ok"])
+            self.assertEqual(summary["totals"]["rejected"], 1)
+            self.assertEqual(summary["totals"]["generatedAttempts"], 0)
+            self.assertEqual(rows[0]["status"], "REJECTED")
+            self.assertEqual(rows[0]["reason"], "candidate-shape-invalid")
+            self.assertFalse(rows[0]["generatedAttempt"])
+            self.assertFalse(rows[0]["verifier"]["invoked"])
+            self.assertEqual(rows[0]["candidateExtraction"]["format"], "fenced-lean")
 
     def test_submit_lean_receives_absolute_paths_for_relative_output_dir(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
@@ -278,7 +338,7 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             fake_ollama = tmp_path / "fake-ollama.py"
             fake_ollama.write_text(
                 "#!/usr/bin/env python3\n"
-                "print('theorem boole_benchmark_true : True := by trivial')\n",
+                "print('True.intro')\n",
                 encoding="utf-8",
             )
             fake_ollama.chmod(0o755)
@@ -397,7 +457,7 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
                 "if count == 2 and (not rows.exists() or len(rows.read_text().splitlines()) != 1 or not progress.exists()):\n"
                 "    print('missing streaming checkpoint after first attempt', file=sys.stderr)\n"
                 "    raise SystemExit(42)\n"
-                "print('theorem boole_benchmark_true : True := by trivial')\n",
+                "print('True.intro')\n",
                 encoding="utf-8",
             )
             fake_ollama.chmod(0o755)
@@ -446,7 +506,7 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
                 "#!/usr/bin/env python3\n"
                 "import json, pathlib, sys\n"
                 f"pathlib.Path({str(invocation_log)!r}).write_text(json.dumps(sys.argv[1:]))\n"
-                "print('theorem boole_benchmark_true : True := by trivial')\n",
+                "print('True.intro')\n",
                 encoding="utf-8",
             )
             fake_claude.chmod(0o755)
