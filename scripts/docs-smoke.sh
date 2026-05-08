@@ -64,6 +64,7 @@ require_text docs/phase7-solo-preflight.md "--target hermes:configured"
 require_text docs/proof-to-block-benchmark.md "boole-model-benchmark.py"
 require_text docs/proof-to-block-benchmark.md "benchmark-summary.json"
 require_text docs/proof-to-block-benchmark.md "benchmark-rows.ndjson"
+require_text docs/proof-to-block-benchmark.md "--use-node-ticket"
 require_text docs/proof-to-block-benchmark.md 'Rows with missing required env vars are recorded as `SKIP`'
 require_text docs/benchmarks/proof-to-block-v0.1-sample.md "Sample benchmark artifact"
 require_text docs/benchmarks/proof-to-block-v0.1-sample.md "not real model performance"
