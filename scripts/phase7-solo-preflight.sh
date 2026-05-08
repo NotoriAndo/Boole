@@ -16,11 +16,12 @@ MODEL_BENCHMARK_COMMAND="${MODEL_BENCHMARK_COMMAND:-}"
 OLLAMA_COMMAND="${BOOLE_OLLAMA_COMMAND:-}"
 SUBMIT_LEAN_COMMAND="${BOOLE_SUBMIT_LEAN_COMMAND:-}"
 NODE_URL="${BOOLE_NODE_URL:-}"
+USE_NODE_TICKET="${BOOLE_USE_NODE_TICKET:-0}"
 SKIP_HARDENING_CHECKS="${SKIP_HARDENING_CHECKS:-0}"
 
 usage() {
   cat <<'EOF'
-Usage: phase7-solo-preflight.sh [--config PATH] [--evidence-dir DIR] [--run-hermes-real] [--run-model-benchmark] [--model-preset mock|frontier|oauth|ollama|all] [--model-include TERM] [--ollama-model MODEL] [--model-benchmark-command CMD] [--ollama-command CMD] [--submit-lean-command CMD] [--node-url URL] [--genesis-benchmark] [--attempts-per-model N] [--skip-hardening-checks]
+Usage: phase7-solo-preflight.sh [--config PATH] [--evidence-dir DIR] [--run-hermes-real] [--run-model-benchmark] [--model-preset mock|frontier|oauth|ollama|all] [--model-include TERM] [--ollama-model MODEL] [--model-benchmark-command CMD] [--ollama-command CMD] [--submit-lean-command CMD] [--node-url URL] [--use-node-ticket] [--genesis-benchmark] [--attempts-per-model N] [--skip-hardening-checks]
 
 Runs the local Phase 7.0 solo preflight evidence gate and writes captured JSON,
 stderr, and git metadata into an evidence directory. The summary JSON is printed
@@ -74,6 +75,10 @@ while [[ $# -gt 0 ]]; do
     --node-url)
       NODE_URL="${2:?missing --node-url value}"
       shift 2
+      ;;
+    --use-node-ticket)
+      USE_NODE_TICKET=1
+      shift
       ;;
     --genesis-benchmark)
       GENESIS_BENCHMARK=1
@@ -249,6 +254,11 @@ if [[ "$RUN_MODEL_BENCHMARK" == "1" ]]; then
   if [[ -n "$NODE_URL" ]]; then
     MODEL_BENCHMARK_ARGS+=(--node-url "$NODE_URL")
   fi
+  case "$USE_NODE_TICKET" in
+    1|true|TRUE|yes|YES)
+      MODEL_BENCHMARK_ARGS+=(--use-node-ticket)
+      ;;
+  esac
   if [[ -n "$ATTEMPTS_PER_MODEL" ]]; then
     TRIALS="$ATTEMPTS_PER_MODEL" run_json_check provider-model-live-benchmark ./scripts/preflight-model-benchmark.sh \
       --preset "$MODEL_BENCHMARK_PRESET" \

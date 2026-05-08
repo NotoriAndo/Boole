@@ -12,12 +12,13 @@ BENCHMARK_COMMAND="${MODEL_BENCHMARK_COMMAND:-}"
 OLLAMA_COMMAND="${BOOLE_OLLAMA_COMMAND:-}"
 SUBMIT_LEAN_COMMAND="${BOOLE_SUBMIT_LEAN_COMMAND:-}"
 NODE_URL="${BOOLE_NODE_URL:-}"
+USE_NODE_TICKET="${BOOLE_USE_NODE_TICKET:-0}"
 INCLUDES=()
 OLLAMA_MODELS=()
 
 usage() {
   cat <<'EOF'
-Usage: preflight-model-benchmark.sh [--preset mock|frontier|oauth|ollama|all] [--include TERM] [--ollama-model MODEL] [--output-spec PATH] [--leaderboard-md PATH] [--attempts-per-model N] [--benchmark-command CMD] [--ollama-command CMD] [--submit-lean-command CMD] [--node-url URL]
+Usage: preflight-model-benchmark.sh [--preset mock|frontier|oauth|ollama|all] [--include TERM] [--ollama-model MODEL] [--output-spec PATH] [--leaderboard-md PATH] [--attempts-per-model N] [--benchmark-command CMD] [--ollama-command CMD] [--submit-lean-command CMD] [--node-url URL] [--use-node-ticket]
 
 Generates a provider/model benchmark spec from available frontier API envs,
 local OAuth CLIs, and Ollama models, then runs provider-model-benchmark.sh.
@@ -71,6 +72,10 @@ while [[ $# -gt 0 ]]; do
       NODE_URL="${2:?missing --node-url value}"
       shift 2
       ;;
+    --use-node-ticket)
+      USE_NODE_TICKET=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -107,6 +112,11 @@ fi
 if [[ -n "$NODE_URL" ]]; then
   SETUP_ARGS+=(--node-url "$NODE_URL")
 fi
+case "$USE_NODE_TICKET" in
+  1|true|TRUE|yes|YES)
+    SETUP_ARGS+=(--use-node-ticket)
+    ;;
+esac
 if [[ -n "$OUTPUT_SPEC" ]]; then
   SETUP_ARGS+=(--artifact-root "$(dirname "$OUTPUT_SPEC")/model-benchmark-artifacts")
 fi

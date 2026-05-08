@@ -409,6 +409,103 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_node_ticket_mode_requests_ticket_before_submit_and_records_evidence(self) -> None:
+        requests: list[dict[str, object]] = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802 - http.server API
+                body = json.loads(self.rfile.read(int(self.headers.get("content-length", "0"))))
+                requests.append({"path": self.path, "body": body})
+                if self.path == "/ticket":
+                    response = {"ok": True, "hashHex": "cd" * 32, "valid": True}
+                elif self.path == "/submit":
+                    response = {
+                        "ok": True,
+                        "accepted": True,
+                        "block": {"height": 0, "selectedShares": 1},
+                        "replayMatchesRuntime": True,
+                        "invalidAccepted": 0,
+                        "shareHash": "ef" * 32,
+                    }
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                payload = json.dumps(response).encode("utf-8")
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, _format: str, *_args: object) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                fake_ollama = tmp_path / "fake-ollama.py"
+                fake_ollama.write_text("#!/usr/bin/env python3\nprint('True.intro')\n", encoding="utf-8")
+                fake_ollama.chmod(0o755)
+                fake_submit = tmp_path / "fake-submit-lean.py"
+                fake_submit.write_text(
+                    "#!/usr/bin/env python3\n"
+                    "import json\n"
+                    "print(json.dumps({'ok': True, 'command': 'submit-lean', 'accepted': True, 'shareAccepted': True, 'replayMatchesRuntime': True, 'invalidAccepted': 0, 'canonTag': 0, 'submissionBody': {'c': '00'*32, 'pk': '11'*32, 'n': '1', 'j': '0', 'nonceS': '2', 'bytes': '504f4650'}, 'block': None}))\n",
+                    encoding="utf-8",
+                )
+                fake_submit.chmod(0o755)
+                out_dir = tmp_path / "model-benchmark"
+                node_url = f"http://127.0.0.1:{server.server_port}"
+
+                proc = subprocess.run(
+                    [
+                        "python3",
+                        str(BENCHMARK_PATH),
+                        "--target",
+                        "ollama:qwen2.5-coder:7b",
+                        "--ollama-command",
+                        str(fake_ollama),
+                        "--submit-lean-command",
+                        str(fake_submit),
+                        "--node-url",
+                        node_url,
+                        "--use-node-ticket",
+                        "--attempts",
+                        "1",
+                        "--output-dir",
+                        str(out_dir),
+                        "--run-id",
+                        "node-ticket-path-run",
+                        "--benchmark-mode",
+                        "smoke",
+                    ],
+                    cwd=ROOT,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+
+                self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+                rows = [json.loads(line) for line in (out_dir / "benchmark-rows.ndjson").read_text().splitlines()]
+                self.assertEqual([request["path"] for request in requests], ["/ticket", "/submit"])
+                self.assertEqual(requests[0]["body"]["payload"]["c"], "00" * 32)
+                self.assertEqual(requests[0]["body"]["payload"]["pk"], "11" * 32)
+                self.assertEqual(requests[0]["body"]["payload"]["n"], "1")
+                node_http = rows[0]["verifier"]["nodeHttp"]
+                self.assertTrue(node_http["ticketInvoked"])
+                self.assertTrue(node_http["ticket"]["valid"])
+                self.assertEqual(node_http["ticket"]["hashHex"], "cd" * 32)
+                self.assertTrue(rows[0]["miningPath"]["targetIssued"])
+                self.assertEqual(rows[0]["score"], {"blocksProduced": 1, "replayPass": True})
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_default_model_benchmark_uses_mining_target_not_true_smoke(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
