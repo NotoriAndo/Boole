@@ -171,6 +171,13 @@ def parse_ollama_target(target: str) -> str:
     return target[len(prefix) :]
 
 
+def parse_claude_cli_target(target: str) -> str:
+    prefix = "claude-cli:"
+    if not target.startswith(prefix) or target == prefix:
+        raise SystemExit(f"unsupported benchmark target: {target}")
+    return target[len(prefix) :]
+
+
 def resolve_command(command: str) -> str | None:
     command_path = Path(command).expanduser()
     if command_path.is_absolute() or "/" in command:
@@ -229,6 +236,31 @@ def recovery_for_ollama_reason(reason: str, model: str) -> list[str]:
     if reason == "ollama-model-missing":
         return [f"Pull the model manually with `ollama pull {model}`, then retry."]
     return ["Inspect Ollama stderr/stdout tail and retry after fixing local setup."]
+
+
+def setup_required_claude_cli_row(*, target: str, model: str, attempt_index: int, reason: str, elapsed_ms: int = 0, stderr: str = "", stdout: str = "") -> dict[str, Any]:
+    return {
+        "name": f"{target} attempt {attempt_index + 1}",
+        "kind": "provider-model",
+        "target": target,
+        "provider": "claude-cli",
+        "model": model,
+        "attemptIndex": attempt_index,
+        "ok": True,
+        "skipped": True,
+        "status": "SETUP_REQUIRED",
+        "reason": reason,
+        "generatedAttempt": False,
+        "accepted": False,
+        "invalidAccepted": False,
+        "elapsedMs": elapsed_ms,
+        "latencyMs": elapsed_ms,
+        "score": {"blocks": 0, "verifiedShares": 0, "replayPass": True},
+        "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
+        "stderrTail": stderr[-1200:],
+        "stdoutTail": stdout[-1200:],
+        "recovery": ["Install/authenticate Claude CLI, then retry this benchmark target."],
+    }
 
 
 def write_lean_checker_workspace(workspace: Path) -> None:
@@ -504,6 +536,130 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
     return rows
 
 
+def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, timeout_s: int, submit_lean_command: str | None = None, candidate_root: Path | None = None, on_row: Any | None = None) -> list[dict[str, Any]]:
+    model = parse_claude_cli_target(target)
+    resolved_command = resolve_command(claude_command)
+    if resolved_command is None:
+        return [
+            setup_required_claude_cli_row(
+                target=target,
+                model=model,
+                attempt_index=idx,
+                reason="claude-cli-command-not-found",
+            )
+            for idx in range(attempts)
+        ]
+
+    rows: list[dict[str, Any]] = []
+    prompt = (
+        "Generate one Lean 4 proof candidate for Boole's local proof-to-block benchmark. "
+        "Return only the proof text. The candidate is untrusted and will be verifier-checked."
+    )
+    for idx in range(attempts):
+        started = time.time()
+        try:
+            proc = subprocess.run(
+                [resolved_command, "-p", prompt, "--model", model],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout_s,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as err:
+            elapsed_ms = int((time.time() - started) * 1000)
+            rows.append(
+                {
+                    "name": f"{target} attempt {idx + 1}",
+                    "kind": "provider-model",
+                    "target": target,
+                    "provider": "claude-cli",
+                    "model": model,
+                    "attemptIndex": idx,
+                    "ok": True,
+                    "skipped": False,
+                    "status": "REJECTED",
+                    "reason": "claude-cli-timeout",
+                    "generatedAttempt": False,
+                    "accepted": False,
+                    "invalidAccepted": False,
+                    "elapsedMs": elapsed_ms,
+                    "latencyMs": elapsed_ms,
+                    "score": {"blocks": 0, "verifiedShares": 0, "replayPass": True},
+                    "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
+                    "verifier": {"invoked": False, "command": "submit-lean"},
+                    "stderrTail": str(err)[-1200:],
+                    "stdoutTail": "",
+                }
+            )
+            if on_row:
+                on_row(rows[-1], rows)
+            continue
+        elapsed_ms = int((time.time() - started) * 1000)
+        if proc.returncode != 0:
+            rows.append(
+                setup_required_claude_cli_row(
+                    target=target,
+                    model=model,
+                    attempt_index=idx,
+                    reason="claude-cli-generation-failed",
+                    elapsed_ms=elapsed_ms,
+                    stderr=proc.stderr,
+                    stdout=proc.stdout,
+                )
+            )
+            if on_row:
+                on_row(rows[-1], rows)
+            continue
+
+        candidate = proc.stdout.strip()
+        digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+        verifier = None
+        if submit_lean_command:
+            verifier = submit_candidate_to_verifier(
+                candidate=candidate,
+                target=target,
+                model=model,
+                attempt_index=idx,
+                submit_lean_command=submit_lean_command,
+                candidate_root=candidate_root or (ROOT / "artifacts" / "model-benchmarks" / "candidates"),
+                timeout_s=timeout_s,
+            )
+        accepted = bool((verifier or {}).get("accepted"))
+        score = (verifier or {}).get("score") or {"blocks": 0, "verifiedShares": 0, "replayPass": True}
+        safety = (verifier or {}).get("safety") or {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0}
+        rows.append(
+            {
+                "name": f"{target} attempt {idx + 1}",
+                "kind": "provider-model",
+                "target": target,
+                "provider": "claude-cli",
+                "model": model,
+                "attemptIndex": idx,
+                "ok": True,
+                "skipped": False,
+                "status": "ACCEPTED" if accepted else "REJECTED",
+                "reason": None if accepted else ((verifier or {}).get("reason") or ("verifier_rejected" if verifier else "verifier-integration-pending")),
+                "generatedAttempt": True,
+                "candidateSha256": digest,
+                "candidatePreview": candidate_preview(candidate),
+                "accepted": accepted,
+                "invalidAccepted": bool(safety.get("invalidAccepted", 0)),
+                "elapsedMs": elapsed_ms,
+                "latencyMs": elapsed_ms,
+                "score": score,
+                "safety": safety,
+                "verifier": verifier or {"invoked": False, "command": "submit-lean"},
+                "stderrTail": ((verifier or {}).get("stderrTail") or proc.stderr)[-1200:],
+                "stdoutTail": ((verifier or {}).get("stdoutTail") or proc.stdout)[-1200:],
+            }
+        )
+        if on_row:
+            on_row(rows[-1], rows)
+    return rows
+
+
 def leaderboard_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(
         rows,
@@ -645,11 +801,11 @@ def write_artifacts(output_dir: Path, summary: dict[str, Any], rows: list[dict[s
     (output_dir / "leaderboard.md").write_text(render_leaderboard(summary, ordered), encoding="utf-8")
 
 
-def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: str | None = None, timeout_s: int = 300, target: str | None = None, attempts: int = 1, ollama_command: str = "ollama", submit_lean_command: str | None = None) -> dict[str, Any]:
+def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: str | None = None, timeout_s: int = 300, target: str | None = None, attempts: int = 1, ollama_command: str = "ollama", claude_command: str = "claude", submit_lean_command: str | None = None) -> dict[str, Any]:
     run_id = run_id or default_run_id()
     generated_at_ms = now_ms()
     if target:
-        if not target.startswith("ollama:"):
+        if not (target.startswith("ollama:") or target.startswith("claude-cli:")):
             raise SystemExit(f"unsupported benchmark target: {target}")
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "benchmark-rows.ndjson").write_text("", encoding="utf-8")
@@ -665,15 +821,26 @@ def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: st
                 total_attempts=attempts,
             )
 
-        rows = run_ollama_attempts(
-            target=target,
-            ollama_command=ollama_command,
-            attempts=attempts,
-            timeout_s=timeout_s,
-            submit_lean_command=submit_lean_command,
-            candidate_root=output_dir / "candidates",
-            on_row=checkpoint,
-        )
+        if target.startswith("ollama:"):
+            rows = run_ollama_attempts(
+                target=target,
+                ollama_command=ollama_command,
+                attempts=attempts,
+                timeout_s=timeout_s,
+                submit_lean_command=submit_lean_command,
+                candidate_root=output_dir / "candidates",
+                on_row=checkpoint,
+            )
+        else:
+            rows = run_claude_cli_attempts(
+                target=target,
+                claude_command=claude_command,
+                attempts=attempts,
+                timeout_s=timeout_s,
+                submit_lean_command=submit_lean_command,
+                candidate_root=output_dir / "candidates",
+                on_row=checkpoint,
+            )
     else:
         if spec_path is None:
             raise SystemExit("--spec is required unless --target is provided")
@@ -687,9 +854,10 @@ def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: st
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run Boole model Proof-to-Block benchmark rows and write artifacts.")
     parser.add_argument("--spec", help="Benchmark row spec JSON array path.")
-    parser.add_argument("--target", help="Single model target, currently supports ollama:<model>.")
+    parser.add_argument("--target", help="Single model target, supports ollama:<model> and claude-cli:<model>.")
     parser.add_argument("--attempts", type=int, default=1, help="Attempts for single --target runs.")
     parser.add_argument("--ollama-command", default=os.environ.get("BOOLE_OLLAMA_COMMAND", "ollama"), help="Ollama command path/name. Defaults to BOOLE_OLLAMA_COMMAND or ollama.")
+    parser.add_argument("--claude-command", default=os.environ.get("BOOLE_CLAUDE_COMMAND", "claude"), help="Claude CLI command path/name. Defaults to BOOLE_CLAUDE_COMMAND or claude.")
     parser.add_argument("--submit-lean-command", default=os.environ.get("BOOLE_SUBMIT_LEAN_COMMAND"), help="Optional submit-lean command path/name for verifier-backed generated attempts.")
     parser.add_argument("--output-dir", help="Artifact output directory. Defaults to artifacts/model-benchmarks/<run-id>.")
     parser.add_argument("--run-id", help="Stable run id for reproducible tests/evidence.")
@@ -711,6 +879,7 @@ def main(argv: list[str] | None = None) -> None:
         target=args.target,
         attempts=args.attempts,
         ollama_command=args.ollama_command,
+        claude_command=args.claude_command,
         submit_lean_command=args.submit_lean_command,
     )
     print(json.dumps(result, separators=(",", ":")))

@@ -375,6 +375,63 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             self.assertEqual(progress["totalAttempts"], 2)
             self.assertEqual(progress["totals"]["rejected"], 2)
 
+    def test_claude_cli_target_records_generated_attempt_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake_claude = tmp_path / "fake-claude.py"
+            invocation_log = tmp_path / "claude-invocation.json"
+            fake_claude.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, pathlib, sys\n"
+                f"pathlib.Path({str(invocation_log)!r}).write_text(json.dumps(sys.argv[1:]))\n"
+                "print('theorem boole_benchmark_true : True := by trivial')\n",
+                encoding="utf-8",
+            )
+            fake_claude.chmod(0o755)
+            out_dir = tmp_path / "model-benchmark"
+
+            proc = subprocess.run(
+                [
+                    "python3",
+                    str(BENCHMARK_PATH),
+                    "--target",
+                    "claude-cli:sonnet",
+                    "--claude-command",
+                    str(fake_claude),
+                    "--attempts",
+                    "2",
+                    "--output-dir",
+                    str(out_dir),
+                    "--run-id",
+                    "claude-cli-run",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            summary = json.loads((out_dir / "benchmark-summary.json").read_text())
+            rows = [json.loads(line) for line in (out_dir / "benchmark-rows.ndjson").read_text().splitlines()]
+            invocation = json.loads(invocation_log.read_text())
+
+            self.assertTrue(summary["ok"])
+            self.assertEqual(summary["totals"]["rows"], 2)
+            self.assertEqual(summary["totals"]["generatedAttempts"], 2)
+            self.assertEqual(summary["totals"]["rejected"], 2)
+            self.assertEqual(summary["safety"]["invalidAccepted"], 0)
+            self.assertEqual({row["provider"] for row in rows}, {"claude-cli"})
+            self.assertEqual({row["model"] for row in rows}, {"sonnet"})
+            self.assertTrue(all(row["generatedAttempt"] is True for row in rows))
+            self.assertTrue(all(row["status"] == "REJECTED" for row in rows))
+            self.assertTrue(all(row["accepted"] is False for row in rows))
+            self.assertTrue(all(row["candidateSha256"] for row in rows))
+            self.assertIn("-p", invocation)
+            self.assertIn("--model", invocation)
+            self.assertIn("sonnet", invocation)
+
     def test_missing_ollama_model_records_setup_required_without_auto_pull(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
