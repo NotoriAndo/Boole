@@ -22,6 +22,12 @@
     "accepted": 1,
     "verifiedShares": 1
   },
+  "attemptHierarchy": {
+    "generatedAttempts": 2,
+    "verifierAccepted": 1,
+    "verifiedShares": 1,
+    "blocksProduced": 1
+  },
   "safety": {
     "invalidAccepted": 0,
     "chainDivergence": 0,
@@ -40,6 +46,17 @@
         "blocksProduced": 1,
         "replayPass": true
       },
+      "miningPath": {
+        "targetIssued": true,
+        "modelGenerated": true,
+        "candidateWrapped": true,
+        "submitLeanInvoked": true,
+        "verifierAccepted": true,
+        "canonicalPackageSubmitted": true,
+        "shareAccepted": true,
+        "blockProduced": true,
+        "replayPassed": true
+      },
       "diagnostics": {
         "accepted": true,
         "verifiedShares": 1
@@ -55,6 +72,17 @@
       "score": {
         "blocksProduced": 0,
         "replayPass": true
+      },
+      "miningPath": {
+        "targetIssued": true,
+        "modelGenerated": true,
+        "candidateWrapped": true,
+        "submitLeanInvoked": true,
+        "verifierAccepted": false,
+        "canonicalPackageSubmitted": true,
+        "shareAccepted": false,
+        "blockProduced": false,
+        "replayPassed": true
       },
       "diagnostics": {
         "accepted": false,

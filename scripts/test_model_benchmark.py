@@ -274,6 +274,15 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             self.assertEqual(summary["totals"]["blocksProduced"], 1)
             self.assertEqual(summary["totals"]["generatedAttempts"], 1)
             self.assertEqual(summary["totals"]["blockProductionRatePct"], 100.0)
+            self.assertEqual(
+                summary["attemptHierarchy"],
+                {
+                    "generatedAttempts": 1,
+                    "verifierAccepted": 1,
+                    "verifiedShares": 1,
+                    "blocksProduced": 1,
+                },
+            )
             self.assertEqual(summary["safety"]["invalidAccepted"], 0)
             self.assertEqual(rows[0]["status"], "ACCEPTED")
             self.assertTrue(rows[0]["accepted"])
@@ -282,6 +291,20 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             self.assertEqual(rows[0]["verifier"]["exitCode"], 0)
             self.assertEqual(rows[0]["score"], {"blocksProduced": 1, "replayPass": True})
             self.assertEqual(rows[0]["diagnostics"], {"verifiedShares": 1})
+            self.assertEqual(
+                rows[0]["miningPath"],
+                {
+                    "targetIssued": True,
+                    "modelGenerated": True,
+                    "candidateWrapped": True,
+                    "submitLeanInvoked": True,
+                    "verifierAccepted": True,
+                    "canonicalPackageSubmitted": True,
+                    "shareAccepted": True,
+                    "blockProduced": True,
+                    "replayPassed": True,
+                },
+            )
             self.assertIn("theorem boole_benchmark_true : True", invocation["proofText"])
             self.assertIn("True.intro", invocation["proofText"])
             self.assertEqual(rows[0]["candidateMode"], "proof-term")

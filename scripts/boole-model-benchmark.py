@@ -116,6 +116,27 @@ def zero_diagnostics() -> dict[str, Any]:
     return {"verifiedShares": 0}
 
 
+def mining_path_status(*, target_issued: bool, model_generated: bool, candidate_wrapped: bool, submit_lean_invoked: bool, verifier_accepted: bool, share_accepted: bool, block_produced: bool, replay_passed: bool) -> dict[str, bool]:
+    """Expose the controlled local mining path as explicit row evidence.
+
+    The benchmark is not a generation-only score: a public block score must pass
+    target issuance, model candidate generation, verifier/admission, share/block
+    selection, and replay.  `canonicalPackageSubmitted` is true only when the
+    submit-lean verifier path was invoked with a wrapped candidate package.
+    """
+    return {
+        "targetIssued": target_issued,
+        "modelGenerated": model_generated,
+        "candidateWrapped": candidate_wrapped,
+        "submitLeanInvoked": submit_lean_invoked,
+        "verifierAccepted": verifier_accepted,
+        "canonicalPackageSubmitted": submit_lean_invoked and candidate_wrapped,
+        "shareAccepted": share_accepted,
+        "blockProduced": block_produced,
+        "replayPassed": replay_passed,
+    }
+
+
 def block_production_rate_pct(*, blocks_produced: int, generated_attempts: int) -> float:
     if generated_attempts <= 0:
         return 0.0
@@ -592,6 +613,16 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
         "shareAccepted": share_accepted,
         "replayMatchesRuntime": replay_matches,
         "invalidAccepted": invalid_accepted,
+        "miningPath": mining_path_status(
+            target_issued=True,
+            model_generated=True,
+            candidate_wrapped=True,
+            submit_lean_invoked=True,
+            verifier_accepted=accepted,
+            share_accepted=share_accepted,
+            block_produced=blocks > 0,
+            replay_passed=replay_matches,
+        ),
         "verifierHash": verifier_hash,
         "checkerArtifactHash": required_checker_hash,
         "proofSha256": hashlib.sha256(candidate.encode("utf-8")).hexdigest(),
@@ -727,6 +758,16 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
         score = (verifier or {}).get("score") or zero_score()
         diagnostics = (verifier or {}).get("diagnostics") or zero_diagnostics()
         safety = (verifier or {}).get("safety") or {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0}
+        mining_path = (verifier or {}).get("miningPath") or mining_path_status(
+            target_issued=True,
+            model_generated=True,
+            candidate_wrapped=True,
+            submit_lean_invoked=False,
+            verifier_accepted=False,
+            share_accepted=False,
+            block_produced=False,
+            replay_passed=True,
+        )
         rows.append(
             {
                 **row_target_metadata(benchmark_mode=benchmark_mode, attempt_context=ctx),
@@ -753,6 +794,7 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                 "score": score,
                 "diagnostics": diagnostics,
                 "safety": safety,
+                "miningPath": mining_path,
                 "verifier": verifier or {"invoked": False, "command": "submit-lean"},
                 "stderrTail": ((verifier or {}).get("stderrTail") or proc.stderr)[-1200:],
                 "stdoutTail": ((verifier or {}).get("stdoutTail") or proc.stdout)[-1200:],
@@ -885,6 +927,16 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
         score = (verifier or {}).get("score") or zero_score()
         diagnostics = (verifier or {}).get("diagnostics") or zero_diagnostics()
         safety = (verifier or {}).get("safety") or {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0}
+        mining_path = (verifier or {}).get("miningPath") or mining_path_status(
+            target_issued=True,
+            model_generated=True,
+            candidate_wrapped=True,
+            submit_lean_invoked=False,
+            verifier_accepted=False,
+            share_accepted=False,
+            block_produced=False,
+            replay_passed=True,
+        )
         rows.append(
             {
                 **row_target_metadata(benchmark_mode=benchmark_mode, attempt_context=ctx),
@@ -911,6 +963,7 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
                 "score": score,
                 "diagnostics": diagnostics,
                 "safety": safety,
+                "miningPath": mining_path,
                 "verifier": verifier or {"invoked": False, "command": "submit-lean"},
                 "stderrTail": ((verifier or {}).get("stderrTail") or proc.stderr)[-1200:],
                 "stdoutTail": ((verifier or {}).get("stdoutTail") or proc.stdout)[-1200:],
@@ -979,6 +1032,8 @@ def summarize(rows: list[dict[str, Any]], run_id: str, generated_at_ms: int) -> 
     }
     active_rows = [row for row in rows if not row.get("skipped")]
     generated_attempts = sum(1 for row in rows if row.get("generatedAttempt") is True)
+    verifier_accepted = sum(1 for row in rows if row.get("miningPath", {}).get("verifierAccepted") is True or row.get("accepted") is True)
+    verified_shares = sum(int(row.get("diagnostics", {}).get("verifiedShares", 0)) for row in rows)
     blocks_produced = sum(int(row.get("score", {}).get("blocksProduced", 0)) for row in rows)
     replay_passed = bool(active_rows) and all(row.get("score", {}).get("replayPass") is True for row in active_rows)
     ok = all(row.get("ok") is True for row in rows) and safety == {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0}
@@ -1019,9 +1074,15 @@ def summarize(rows: list[dict[str, Any]], run_id: str, generated_at_ms: int) -> 
             "generatedAttempts": generated_attempts,
             "blockProductionRatePct": block_production_rate_pct(blocks_produced=blocks_produced, generated_attempts=generated_attempts),
         },
+        "attemptHierarchy": {
+            "generatedAttempts": generated_attempts,
+            "verifierAccepted": verifier_accepted,
+            "verifiedShares": verified_shares,
+            "blocksProduced": blocks_produced,
+        },
         "diagnostics": {
             "accepted": sum(1 for row in rows if row.get("accepted") is True),
-            "verifiedShares": sum(int(row.get("diagnostics", {}).get("verifiedShares", 0)) for row in rows),
+            "verifiedShares": verified_shares,
             "uniqueCandidates": len(candidate_hashes),
             "uniqueShares": unique_shares,
             "uniqueShareRatePct": round(unique_shares / generated_attempts * 100, 2) if generated_attempts else 0.0,

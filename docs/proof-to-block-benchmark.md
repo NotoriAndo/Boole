@@ -173,6 +173,23 @@ The current benchmark stack now separates two dimensions:
 
 Both leaderboard wrappers use `scripts/benchmark-runner.py`, emit machine-readable JSON, and can write a Markdown leaderboard via `LEADERBOARD_MD`. Public rows report `blockProductionRate = blocksProduced / generatedAttempts * 100`; `accepted` and `verifiedShares` remain diagnostic-only and are not public ranking criteria.
 
+Model benchmark artifacts also expose the controlled mining path explicitly:
+
+```text
+row.miningPath.targetIssued
+row.miningPath.modelGenerated
+row.miningPath.candidateWrapped
+row.miningPath.submitLeanInvoked
+row.miningPath.verifierAccepted
+row.miningPath.canonicalPackageSubmitted
+row.miningPath.shareAccepted
+row.miningPath.blockProduced
+row.miningPath.replayPassed
+summary.attemptHierarchy = generatedAttempts -> verifierAccepted -> verifiedShares -> blocksProduced
+```
+
+This keeps the public claim precise: generation is only the first step, verifier acceptance is narrower, verified shares are diagnostic, and only calibrated block production is the public score.
+
 ## Genesis preflight benchmark
 
 For GitHub/VC-facing controlled evidence, run the full preflight from a clean genesis state:
