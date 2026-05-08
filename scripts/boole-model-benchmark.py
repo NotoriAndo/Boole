@@ -380,7 +380,7 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
         "model": model,
     }
 
-def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, timeout_s: int, submit_lean_command: str | None = None, candidate_root: Path | None = None) -> list[dict[str, Any]]:
+def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, timeout_s: int, submit_lean_command: str | None = None, candidate_root: Path | None = None, on_row: Any | None = None) -> list[dict[str, Any]]:
     model = parse_ollama_target(target)
     resolved_command = resolve_command(ollama_command)
     if resolved_command is None:
@@ -437,6 +437,8 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                     "stdoutTail": "",
                 }
             )
+            if on_row:
+                on_row(rows[-1], rows)
             continue
         elapsed_ms = int((time.time() - started) * 1000)
         if proc.returncode != 0:
@@ -451,6 +453,8 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                     stdout=proc.stdout,
                 )
             )
+            if on_row:
+                on_row(rows[-1], rows)
             continue
 
         candidate = proc.stdout.strip()
@@ -495,6 +499,8 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                 "stdoutTail": ((verifier or {}).get("stdoutTail") or proc.stdout)[-1200:],
             }
         )
+        if on_row:
+            on_row(rows[-1], rows)
     return rows
 
 
@@ -583,8 +589,39 @@ def summarize(rows: list[dict[str, Any]], run_id: str, generated_at_ms: int) -> 
             "rows": "benchmark-rows.ndjson",
             "leaderboard": "leaderboard.md",
             "replayReport": "replay-report.json",
+            "progress": "progress.json",
         },
     }
+
+
+def write_progress(output_dir: Path, *, run_id: str, generated_at_ms: int, rows: list[dict[str, Any]], total_attempts: int | None = None) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary = summarize(rows, run_id, generated_at_ms)
+    progress = {
+        "runId": run_id,
+        "generatedAtUnixMs": generated_at_ms,
+        "completedAttempts": len(rows),
+        "totalAttempts": total_attempts,
+        "okSoFar": summary["ok"],
+        "totals": summary["totals"],
+        "safety": summary["safety"],
+        "replayPassed": summary["replayPassed"],
+        "artifacts": {
+            "progress": "progress.json",
+            "rows": "benchmark-rows.ndjson",
+            "summary": "benchmark-summary.json",
+            "leaderboard": "leaderboard.md",
+            "replayReport": "replay-report.json",
+        },
+    }
+    (output_dir / "progress.json").write_text(json.dumps(progress, indent=2) + "\n", encoding="utf-8")
+
+
+def append_row_checkpoint(output_dir: Path, row: dict[str, Any], *, run_id: str, generated_at_ms: int, rows: list[dict[str, Any]], total_attempts: int | None = None) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with (output_dir / "benchmark-rows.ndjson").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row, separators=(",", ":")) + "\n")
+    write_progress(output_dir, run_id=run_id, generated_at_ms=generated_at_ms, rows=rows, total_attempts=total_attempts)
 
 
 def write_artifacts(output_dir: Path, summary: dict[str, Any], rows: list[dict[str, Any]]) -> None:
@@ -614,6 +651,20 @@ def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: st
     if target:
         if not target.startswith("ollama:"):
             raise SystemExit(f"unsupported benchmark target: {target}")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "benchmark-rows.ndjson").write_text("", encoding="utf-8")
+        write_progress(output_dir, run_id=run_id, generated_at_ms=generated_at_ms, rows=[], total_attempts=attempts)
+
+        def checkpoint(row: dict[str, Any], current_rows: list[dict[str, Any]]) -> None:
+            append_row_checkpoint(
+                output_dir,
+                row,
+                run_id=run_id,
+                generated_at_ms=generated_at_ms,
+                rows=current_rows,
+                total_attempts=attempts,
+            )
+
         rows = run_ollama_attempts(
             target=target,
             ollama_command=ollama_command,
@@ -621,12 +672,14 @@ def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: st
             timeout_s=timeout_s,
             submit_lean_command=submit_lean_command,
             candidate_root=output_dir / "candidates",
+            on_row=checkpoint,
         )
     else:
         if spec_path is None:
             raise SystemExit("--spec is required unless --target is provided")
         rows = [run_row(row, timeout_s=timeout_s) for row in load_spec(spec_path)]
     summary = summarize(rows, run_id, generated_at_ms)
+    write_progress(output_dir, run_id=run_id, generated_at_ms=generated_at_ms, rows=rows, total_attempts=attempts if target else len(rows))
     write_artifacts(output_dir, summary, rows)
     return {"ok": summary["ok"], "runId": run_id, "artifactDir": str(output_dir), "summary": summary}
 

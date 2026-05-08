@@ -316,6 +316,65 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             self.assertEqual(rows[0]["score"], {"blocks": 0, "verifiedShares": 0, "replayPass": True})
             self.assertEqual(rows[0]["safety"], {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0})
 
+    def test_ollama_target_streams_rows_before_all_attempts_finish(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            counter = tmp_path / "count.txt"
+            rows_path = tmp_path / "model-benchmark" / "benchmark-rows.ndjson"
+            progress_path = tmp_path / "model-benchmark" / "progress.json"
+            fake_ollama = tmp_path / "fake-stream-check-ollama.py"
+            fake_ollama.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os, pathlib, sys\n"
+                f"counter = pathlib.Path({str(counter)!r})\n"
+                "count = int(counter.read_text()) if counter.exists() else 0\n"
+                "count += 1\n"
+                "counter.write_text(str(count))\n"
+                "rows = pathlib.Path(os.environ['BOOLE_TEST_ROWS_PATH'])\n"
+                "progress = pathlib.Path(os.environ['BOOLE_TEST_PROGRESS_PATH'])\n"
+                "if count == 2 and (not rows.exists() or len(rows.read_text().splitlines()) != 1 or not progress.exists()):\n"
+                "    print('missing streaming checkpoint after first attempt', file=sys.stderr)\n"
+                "    raise SystemExit(42)\n"
+                "print('theorem boole_benchmark_true : True := by trivial')\n",
+                encoding="utf-8",
+            )
+            fake_ollama.chmod(0o755)
+            out_dir = tmp_path / "model-benchmark"
+            env = os.environ.copy()
+            env["BOOLE_TEST_ROWS_PATH"] = str(rows_path)
+            env["BOOLE_TEST_PROGRESS_PATH"] = str(progress_path)
+
+            proc = subprocess.run(
+                [
+                    "python3",
+                    str(BENCHMARK_PATH),
+                    "--target",
+                    "ollama:qwen2.5-coder:7b",
+                    "--ollama-command",
+                    str(fake_ollama),
+                    "--attempts",
+                    "2",
+                    "--output-dir",
+                    str(out_dir),
+                    "--run-id",
+                    "stream-run",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            rows = [json.loads(line) for line in rows_path.read_text().splitlines()]
+            progress = json.loads(progress_path.read_text())
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(progress["completedAttempts"], 2)
+            self.assertEqual(progress["totalAttempts"], 2)
+            self.assertEqual(progress["totals"]["rejected"], 2)
+
     def test_missing_ollama_model_records_setup_required_without_auto_pull(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
