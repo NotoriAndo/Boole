@@ -73,6 +73,8 @@ fn agent_proof_fixture_valid_emits_untrusted_candidate_that_submit_lean_accepts(
             "agent-proof-cli-test-verifier",
             "--require-checker-artifact-hash",
             expected_artifact_hash.as_str(),
+            "--difficulty-mode",
+            "preflight-easy",
         ])
         .output()
         .expect("run boole-node submit-lean on agent candidate");

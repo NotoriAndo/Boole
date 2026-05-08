@@ -8,6 +8,7 @@ This guide is for a **manual, optional local Ollama** smoke run after the safe B
 - No automatic daemon start.
 - Missing command, unreachable daemon, or absent model is recorded as `setup-required` / blocked guidance, not a false benchmark failure.
 - Local model-generated proof attempts are evaluated by Boole's verifier and recorded as accepted/rejected/setup-required benchmark rows.
+- Model benchmark submissions use the fixture's calibrated admission/block difficulty by default. A verified share only becomes a block when the same `T_block` selection rule would select it; benchmark code must not loosen this to make every proof produce a block.
 - This is local preflight evidence, not public-network mining and not a token/reward claim.
 
 ## Manual prerequisites
@@ -70,7 +71,7 @@ Per-model benchmark bundles are written below the evidence artifact root and inc
 Accepted row:
 
 ```text
-The generated proof candidate passed the verifier path, produced a verified share/block row, and replay stayed safe.
+The generated proof candidate passed the verifier/admission path. It counts as a verified share. It counts as a block only if the calibrated block-selection difficulty also selects it.
 ```
 
 Rejected row:

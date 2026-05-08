@@ -143,7 +143,7 @@ They cover:
 - `runtime-smoke-three-block`: a deterministic three-block mini-chain.
 - `runtime-smoke-retarget-v0`: a deterministic retarget-v0 evidence case for controlled preflight runs.
 - `runtime-smoke-multiminer`: a deterministic four-block local multi-miner scenario with three distinct proposer keys.
-- `lean-submit-proof-to-block`: a deterministic Lean-backed `boole-node submit-lean` case that checks a real Lean proof, admits the canonical proof package, produces one block, and replays from genesis with `invalidAccepted == 0`.
+- `lean-submit-proof-to-block`: a deterministic Lean-backed `boole-node submit-lean` smoke case that explicitly uses `--difficulty-mode preflight-easy` to check Lean verification, admission, block append, and replay from genesis with `invalidAccepted == 0`. Model benchmarks do **not** use this easy override; they use the fixture's calibrated block-selection difficulty by default.
 
 Optional preflight row, disabled by default so CI and local smoke remain deterministic:
 

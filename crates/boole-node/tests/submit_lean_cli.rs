@@ -37,6 +37,8 @@ fn submit_lean_cli_accepts_valid_proof_into_replayable_block() {
             "submit-lean-cli-test-verifier",
             "--require-checker-artifact-hash",
             &expected_artifact_hash,
+            "--difficulty-mode",
+            "preflight-easy",
         ])
         .output()
         .expect("run boole-node submit-lean");
@@ -64,6 +66,65 @@ fn submit_lean_cli_accepts_valid_proof_into_replayable_block() {
     assert_eq!(
         parsed["blockStorePath"].as_str(),
         Some(block_path.to_string_lossy().as_ref())
+    );
+}
+
+#[test]
+fn submit_lean_cli_uses_fixture_block_difficulty_by_default() {
+    if !lake_and_lean_available() {
+        eprintln!("skipping submit-lean CLI difficulty test: lake/lean unavailable");
+        return;
+    }
+    let repo_root = repo_root();
+    let fixture_path = repo_root.join("fixtures/protocol/admission/v1.json");
+    let workspace = TestLeanWorkspace::new("submit-lean-fixture-difficulty");
+    workspace.write_checker_project();
+    let proof = workspace.write_proof(
+        "ValidNoBlockAtFixtureDifficulty.lean",
+        r#"theorem boole_submit_lean_valid_no_block : 2 + 2 = 4 := by
+  decide
+"#,
+    );
+    let expected_artifact_hash = checker_artifact_hash(&workspace, "submit-lean-cli-test-verifier");
+    let block_path = workspace.root.join("blockstore.ndjson");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
+        .args([
+            "submit-lean",
+            "--proof",
+            proof.to_str().expect("proof path utf8"),
+            "--checker-dir",
+            workspace.root.to_str().expect("checker dir utf8"),
+            "--fixture",
+            fixture_path.to_str().expect("fixture path utf8"),
+            "--block-store",
+            block_path.to_str().expect("block path utf8"),
+            "--verifier-hash",
+            "submit-lean-cli-test-verifier",
+            "--require-checker-artifact-hash",
+            &expected_artifact_hash,
+        ])
+        .output()
+        .expect("run boole-node submit-lean at fixture difficulty");
+
+    assert!(
+        output.status.success(),
+        "fixture-difficulty valid share must be reported, not crash: stderr={} stdout={}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(output.stderr.is_empty());
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("json stdout");
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["accepted"], true);
+    assert_eq!(parsed["shareAccepted"], true);
+    assert_eq!(parsed["blockProduced"], false);
+    assert_eq!(parsed["block"], Value::Null);
+    assert_eq!(parsed["replayMatchesRuntime"], true);
+    assert_eq!(parsed["invalidAccepted"], 0);
+    assert!(
+        !block_path.exists(),
+        "share below actual block difficulty must not append a block"
     );
 }
 

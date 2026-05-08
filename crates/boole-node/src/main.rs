@@ -1,4 +1,4 @@
-use boole_core::{replay_blocks, AdmissionDecision, CalibrationReport};
+use boole_core::{replay_blocks, AdmissionDecision, BuildSelectionResult, CalibrationReport};
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use boole_node::block_store::FileBlockStore;
 use boole_node::local_node::{serve_local_node, LocalNodeConfig};
@@ -120,6 +120,13 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
         .transpose()?
         .unwrap_or(8192);
     let ip_override = take_optional_flag_value(&mut args, "--ip")?;
+    let difficulty_mode = take_optional_flag_value(&mut args, "--difficulty-mode")?
+        .unwrap_or_else(|| "fixture".to_string());
+    if !matches!(difficulty_mode.as_str(), "fixture" | "preflight-easy") {
+        anyhow::bail!(
+            "unsupported --difficulty-mode {difficulty_mode}; expected fixture or preflight-easy"
+        );
+    }
     let ts = take_optional_flag_value(&mut args, "--ts")?
         .map(|value| value.parse::<u64>())
         .transpose()?
@@ -128,7 +135,7 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
         anyhow::bail!("unexpected args: {}", args.join(" "));
     }
 
-    let fixture = submit_lean_fixture(&fixture_path)?;
+    let fixture = submit_lean_fixture(&fixture_path, &difficulty_mode)?;
     let bridge_policy = LeanProofBridgePolicy::new()
         .require_verifier_hash(verifier_hash.clone())
         .allow_checker_artifact_hash(required_checker_artifact_hash);
@@ -197,6 +204,38 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
     };
 
     let accepted_tags = BTreeSet::from([bridged.canon_tag]);
+    let selection = runtime.build_block_selection_for_current_c(&accepted_tags)?;
+    if !matches!(selection, BuildSelectionResult::Ok(_)) {
+        let runtime_head = runtime
+            .current_c()
+            .ok_or_else(|| anyhow::anyhow!("runtime head is not set after submit-lean"))?
+            .to_string();
+        println!(
+            "{}",
+            serde_json::to_string(&json!({
+                "ok": true,
+                "command": "submit-lean",
+                "accepted": true,
+                "lean": bridged.lean,
+                "shareAccepted": true,
+                "shareHash": share_hash.to_hex(),
+                "packageBytes": hex::encode(&bridged.package_bytes),
+                "canonTag": bridged.canon_tag,
+                "blockProduced": false,
+                "block": null,
+                "blockSelection": format!("{selection:?}"),
+                "replayHeight": 0,
+                "replayLatestC": runtime_head,
+                "runtimeHead": runtime_head,
+                "replayMatchesRuntime": true,
+                "blockStorePath": block_path.to_string_lossy(),
+                "difficultyMode": difficulty_mode,
+                "invalidAccepted": 0,
+            }))?
+        );
+        return Ok(());
+    }
+
     let committed = runtime.commit_next_block_for_current_c(&block_path, ts, &accepted_tags)?;
     let recovered = FileBlockStore::recover(&block_path)?;
     let replay = replay_blocks(recovered.blocks())?;
@@ -215,6 +254,7 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
             "shareHash": share_hash.to_hex(),
             "packageBytes": hex::encode(&bridged.package_bytes),
             "canonTag": bridged.canon_tag,
+            "blockProduced": true,
             "block": {
                 "height": committed.block.height,
                 "prevC": committed.block.prev_c,
@@ -230,6 +270,7 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
             "runtimeHead": runtime_head,
             "replayMatchesRuntime": replay.latest_c == runtime_head,
             "blockStorePath": block_path.to_string_lossy(),
+            "difficultyMode": difficulty_mode,
             "invalidAccepted": 0,
         }))?
     );
@@ -288,7 +329,7 @@ fn run_agent_proof_command(mut args: Vec<String>) -> anyhow::Result<()> {
 
 fn print_help() {
     println!(
-        "boole-node\n\ncommands:\n  runtime-smoke --scenario <path>|--fixture <path> --block-store <path>\n  run-local [--addr 127.0.0.1:8080] [--scenario <path>] [--block-store <path>] [--max-requests <n>]\n  submit-lean --proof <path> --block-store <path> [--checker-dir <path>] [--fixture <path>] [--verifier-hash <hash>]\n  agent-proof --backend fixture-valid|fixture-invalid --out-dir <path>"
+        "boole-node\n\ncommands:\n  runtime-smoke --scenario <path>|--fixture <path> --block-store <path>\n  run-local [--addr 127.0.0.1:8080] [--scenario <path>] [--block-store <path>] [--max-requests <n>]\n  submit-lean --proof <path> --block-store <path> [--checker-dir <path>] [--fixture <path>] [--verifier-hash <hash>] [--difficulty-mode fixture|preflight-easy]\n  agent-proof --backend fixture-valid|fixture-invalid --out-dir <path>"
     );
 }
 
@@ -310,22 +351,24 @@ struct SubmitLeanConstants {
     ip: String,
 }
 
-fn submit_lean_fixture(path: &Path) -> anyhow::Result<SubmitLeanFixture> {
+fn submit_lean_fixture(path: &Path, difficulty_mode: &str) -> anyhow::Result<SubmitLeanFixture> {
     let raw = std::fs::read_to_string(path)?;
     let mut fixture: SubmitLeanFixture = serde_json::from_str(&raw)?;
-    fixture.constants.c =
-        "0000000000000000000000000000000000000000000000000000000000000000".to_string();
-    fixture.cfg.T_submit =
-        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
-    fixture.cfg.T_ticket =
-        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
-    fixture.cfg.T_share =
-        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
-    fixture.cfg.T_block =
-        "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
-    fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
-    fixture.cfg.K_max = 4;
-    fixture.cfg.perIpRateLimitPer60s = 10;
+    if difficulty_mode == "preflight-easy" {
+        fixture.constants.c =
+            "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+        fixture.cfg.T_submit =
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+        fixture.cfg.T_ticket =
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+        fixture.cfg.T_share =
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string();
+        fixture.cfg.T_block =
+            "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe".to_string();
+        fixture.cfg.MinShareScoreMultiplier = serde_json::Number::from(1);
+        fixture.cfg.K_max = 4;
+        fixture.cfg.perIpRateLimitPer60s = 10;
+    }
     Ok(fixture)
 }
 
