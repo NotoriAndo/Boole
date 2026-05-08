@@ -16,6 +16,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -545,7 +547,64 @@ def parse_submit_lean_output(proc: subprocess.CompletedProcess[str]) -> dict[str
     return parse_json_output(proc.stdout) or parse_json_output(proc.stderr)
 
 
-def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, attempt_index: int, submit_lean_command: str, candidate_root: Path, timeout_s: int | None, benchmark_mode: str = "mining", attempt_context: dict[str, Any] | None = None) -> dict[str, Any]:
+def node_submit_url(node_url: str) -> str:
+    return node_url.rstrip("/") + "/submit"
+
+
+def post_submission_to_node(*, node_url: str, parsed: dict[str, Any], timeout_s: int | None) -> dict[str, Any]:
+    """Submit the exact submit-lean canonical body to a local node HTTP endpoint."""
+    body = parsed.get("submissionBody")
+    canon_tag = parsed.get("canonTag")
+    if not isinstance(body, dict) or canon_tag is None:
+        return {
+            "invoked": False,
+            "url": node_url,
+            "reason": "missing_submission_body",
+            "accepted": False,
+            "shareAccepted": False,
+            "blockProduced": False,
+            "result": None,
+        }
+    payload = json.dumps({"body": body, "canonTag": canon_tag}, separators=(",", ":")).encode("utf-8")
+    request = urllib.request.Request(
+        node_submit_url(node_url),
+        data=payload,
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    started = time.time()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_s) as response:  # noqa: S310 - caller-provided local testnet URL
+            response_body = response.read().decode("utf-8")
+            result = json.loads(response_body) if response_body.strip() else {}
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as err:
+        return {
+            "invoked": True,
+            "url": node_url,
+            "endpoint": node_submit_url(node_url),
+            "elapsedMs": int((time.time() - started) * 1000),
+            "reason": "node_http_submit_failed",
+            "error": str(err)[-500:],
+            "accepted": False,
+            "shareAccepted": False,
+            "blockProduced": False,
+            "result": None,
+        }
+    return {
+        "invoked": True,
+        "url": node_url,
+        "endpoint": node_submit_url(node_url),
+        "elapsedMs": int((time.time() - started) * 1000),
+        "accepted": bool(result.get("accepted")),
+        "shareAccepted": bool(result.get("shareAccepted")),
+        "blockProduced": bool(result.get("blockProduced") or result.get("block")),
+        "replayMatchesRuntime": bool(result.get("replayMatchesRuntime")),
+        "invalidAccepted": int(result.get("invalidAccepted") or 0),
+        "result": result,
+    }
+
+
+def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, attempt_index: int, submit_lean_command: str, candidate_root: Path, timeout_s: int | None, benchmark_mode: str = "mining", attempt_context: dict[str, Any] | None = None, node_url: str | None = None) -> dict[str, Any]:
     resolved_submit = resolve_command(submit_lean_command)
     if resolved_submit is None:
         return {
@@ -596,12 +655,14 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
         check=False,
     )
     elapsed_ms = int((time.time() - started) * 1000)
-    parsed = parse_submit_lean_output(proc)
-    accepted = proc.returncode == 0 and bool((parsed or {}).get("accepted"))
-    share_accepted = bool((parsed or {}).get("shareAccepted"))
-    replay_matches = bool((parsed or {}).get("replayMatchesRuntime"))
-    invalid_accepted = int((parsed or {}).get("invalidAccepted") or 0)
-    blocks = 1 if accepted and share_accepted and (parsed or {}).get("block") else 0
+    parsed = parse_submit_lean_output(proc) or {}
+    node_http = post_submission_to_node(node_url=node_url, parsed=parsed, timeout_s=timeout_s) if node_url else None
+    effective = ((node_http or {}).get("result") if node_url else parsed) or {}
+    accepted = proc.returncode == 0 and bool(effective.get("accepted"))
+    share_accepted = bool(effective.get("shareAccepted"))
+    replay_matches = bool(effective.get("replayMatchesRuntime"))
+    invalid_accepted = int(effective.get("invalidAccepted") or 0)
+    blocks = 1 if accepted and share_accepted and (effective.get("blockProduced") or effective.get("block")) else 0
     verified = 1 if accepted and share_accepted else 0
     return {
         **row_target_metadata(benchmark_mode=benchmark_mode, attempt_context=attempt_context),
@@ -627,6 +688,7 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
         "checkerArtifactHash": required_checker_hash,
         "proofSha256": hashlib.sha256(candidate.encode("utf-8")).hexdigest(),
         "result": parsed,
+        "nodeHttp": node_http or {"invoked": False, "url": node_url},
         "score": {"blocksProduced": blocks, "replayPass": replay_matches},
         "diagnostics": {"verifiedShares": verified},
         "safety": {"invalidAccepted": invalid_accepted, "chainDivergence": 0, "replayFailures": 0 if replay_matches else 1},
@@ -636,7 +698,7 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
         "model": model,
     }
 
-def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, timeout_s: int | None, submit_lean_command: str | None = None, candidate_root: Path | None = None, on_row: Any | None = None, benchmark_mode: str = "mining", run_id: str = "manual") -> list[dict[str, Any]]:
+def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, timeout_s: int | None, submit_lean_command: str | None = None, candidate_root: Path | None = None, on_row: Any | None = None, benchmark_mode: str = "mining", run_id: str = "manual", node_url: str | None = None) -> list[dict[str, Any]]:
     model = parse_ollama_target(target)
     resolved_command = resolve_command(ollama_command)
     if resolved_command is None:
@@ -753,6 +815,7 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                 timeout_s=timeout_s,
                 benchmark_mode=benchmark_mode,
                 attempt_context=ctx,
+                node_url=node_url,
             )
         accepted = bool((verifier or {}).get("accepted"))
         score = (verifier or {}).get("score") or zero_score()
@@ -805,7 +868,7 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
     return rows
 
 
-def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, timeout_s: int | None, submit_lean_command: str | None = None, candidate_root: Path | None = None, on_row: Any | None = None, benchmark_mode: str = "mining", run_id: str = "manual") -> list[dict[str, Any]]:
+def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, timeout_s: int | None, submit_lean_command: str | None = None, candidate_root: Path | None = None, on_row: Any | None = None, benchmark_mode: str = "mining", run_id: str = "manual", node_url: str | None = None) -> list[dict[str, Any]]:
     model = parse_claude_cli_target(target)
     resolved_command = resolve_command(claude_command)
     if resolved_command is None:
@@ -922,6 +985,7 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
                 timeout_s=timeout_s,
                 benchmark_mode=benchmark_mode,
                 attempt_context=ctx,
+                node_url=node_url,
             )
         accepted = bool((verifier or {}).get("accepted"))
         score = (verifier or {}).get("score") or zero_score()
@@ -1150,7 +1214,7 @@ def write_artifacts(output_dir: Path, summary: dict[str, Any], rows: list[dict[s
     (output_dir / "leaderboard.md").write_text(render_leaderboard(summary, ordered), encoding="utf-8")
 
 
-def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: str | None = None, timeout_s: int | None = 300, target: str | None = None, attempts: int = 1, ollama_command: str = "ollama", claude_command: str = "claude", submit_lean_command: str | None = None, benchmark_mode: str = "mining") -> dict[str, Any]:
+def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: str | None = None, timeout_s: int | None = 300, target: str | None = None, attempts: int = 1, ollama_command: str = "ollama", claude_command: str = "claude", submit_lean_command: str | None = None, benchmark_mode: str = "mining", node_url: str | None = None) -> dict[str, Any]:
     run_id = run_id or default_run_id()
     generated_at_ms = now_ms()
     if target:
@@ -1181,6 +1245,7 @@ def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: st
                 candidate_root=output_dir / "candidates",
                 on_row=checkpoint,
                 run_id=run_id,
+                node_url=node_url,
             )
         else:
             rows = run_claude_cli_attempts(
@@ -1193,6 +1258,7 @@ def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: st
                 candidate_root=output_dir / "candidates",
                 on_row=checkpoint,
                 run_id=run_id,
+                node_url=node_url,
             )
     else:
         if spec_path is None:
@@ -1212,6 +1278,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--ollama-command", default=os.environ.get("BOOLE_OLLAMA_COMMAND", "ollama"), help="Ollama command path/name. Defaults to BOOLE_OLLAMA_COMMAND or ollama.")
     parser.add_argument("--claude-command", default=os.environ.get("BOOLE_CLAUDE_COMMAND", "claude"), help="Claude CLI command path/name. Defaults to BOOLE_CLAUDE_COMMAND or claude.")
     parser.add_argument("--submit-lean-command", default=os.environ.get("BOOLE_SUBMIT_LEAN_COMMAND"), help="Optional submit-lean command path/name for verifier-backed generated attempts.")
+    parser.add_argument("--node-url", default=os.environ.get("BOOLE_NODE_URL"), help="Optional local Boole node base URL. When set with --submit-lean-command, accepted canonical submissions are POSTed to <url>/submit and scoring uses the node HTTP result.")
     parser.add_argument("--output-dir", help="Artifact output directory. Defaults to artifacts/model-benchmarks/<run-id>.")
     parser.add_argument("--run-id", help="Stable run id for reproducible tests/evidence.")
     parser.add_argument("--timeout-sec", type=int, default=300, help="Per-attempt timeout seconds. Use 0 to disable subprocess timeouts.")
@@ -1238,6 +1305,7 @@ def main(argv: list[str] | None = None) -> None:
         claude_command=args.claude_command,
         submit_lean_command=args.submit_lean_command,
         benchmark_mode=args.benchmark_mode,
+        node_url=args.node_url,
     )
     print(json.dumps(result, separators=(",", ":")))
     if not result["ok"]:

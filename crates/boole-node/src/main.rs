@@ -220,6 +220,7 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
                 "shareAccepted": true,
                 "shareHash": share_hash.to_hex(),
                 "packageBytes": hex::encode(&bridged.package_bytes),
+                "submissionBody": bridged.body,
                 "canonTag": bridged.canon_tag,
                 "blockProduced": false,
                 "block": null,
@@ -253,6 +254,7 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
             "shareAccepted": true,
             "shareHash": share_hash.to_hex(),
             "packageBytes": hex::encode(&bridged.package_bytes),
+            "submissionBody": bridged.body,
             "canonTag": bridged.canon_tag,
             "blockProduced": true,
             "block": {

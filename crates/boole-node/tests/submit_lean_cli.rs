@@ -63,6 +63,11 @@ fn submit_lean_cli_accepts_valid_proof_into_replayable_block() {
     assert_eq!(parsed["block"]["height"], 0);
     assert_eq!(parsed["replayMatchesRuntime"], true);
     assert_eq!(parsed["invalidAccepted"], 0);
+    assert_eq!(parsed["canonTag"], 0);
+    assert_eq!(parsed["submissionBody"]["c"], parsed["block"]["prevC"]);
+    assert_eq!(parsed["submissionBody"]["bytes"], parsed["packageBytes"]);
+    assert!(parsed["submissionBody"]["pk"].as_str().is_some());
+    assert!(parsed["submissionBody"]["nonceS"].as_str().is_some());
     assert_eq!(
         parsed["blockStorePath"].as_str(),
         Some(block_path.to_string_lossy().as_ref())
