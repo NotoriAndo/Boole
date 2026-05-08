@@ -596,7 +596,7 @@ def post_submission_to_node(*, node_url: str, parsed: dict[str, Any], timeout_s:
         "endpoint": node_submit_url(node_url),
         "elapsedMs": int((time.time() - started) * 1000),
         "accepted": bool(result.get("accepted")),
-        "shareAccepted": bool(result.get("shareAccepted")),
+        "shareAccepted": bool(result.get("shareAccepted") or result.get("shareHash")),
         "blockProduced": bool(result.get("blockProduced") or result.get("block")),
         "replayMatchesRuntime": bool(result.get("replayMatchesRuntime")),
         "invalidAccepted": int(result.get("invalidAccepted") or 0),
@@ -659,7 +659,7 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
     node_http = post_submission_to_node(node_url=node_url, parsed=parsed, timeout_s=timeout_s) if node_url else None
     effective = ((node_http or {}).get("result") if node_url else parsed) or {}
     accepted = proc.returncode == 0 and bool(effective.get("accepted"))
-    share_accepted = bool(effective.get("shareAccepted"))
+    share_accepted = bool(effective.get("shareAccepted") or effective.get("shareHash"))
     replay_matches = bool(effective.get("replayMatchesRuntime"))
     invalid_accepted = int(effective.get("invalidAccepted") or 0)
     blocks = 1 if accepted and share_accepted and (effective.get("blockProduced") or effective.get("block")) else 0

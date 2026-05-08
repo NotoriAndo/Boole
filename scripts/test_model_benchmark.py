@@ -325,8 +325,8 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
                 response = {
                     "ok": True,
                     "accepted": True,
-                    "shareAccepted": True,
-                    "blockProduced": True,
+                    # Real boole-node /submit returns shareHash/block evidence, not an explicit
+                    # shareAccepted/blockProduced boolean pair.
                     "block": {"height": 7, "selectedShares": 1},
                     "replayMatchesRuntime": True,
                     "invalidAccepted": 0,
