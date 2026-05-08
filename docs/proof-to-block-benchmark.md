@@ -86,6 +86,8 @@ replay-report.json
 
 This runner does not auto-pull Ollama models, start daemons, or bypass paid/API confirmation. Rows with missing required env vars are recorded as `SKIP`; Ollama setup gaps are recorded as `SETUP_REQUIRED`; accepted/rejected proof attempts remain subject to verifier/replay metrics, with `invalidAccepted`, `replayFailures`, and `chainDivergence` preserved as the safety rail. Local model-generated proof attempts are evidence rows, not claims of live network mining.
 
+By default, generated model runs use `benchmarkMode: mining` and `targetFamily: boole.calibration.pow.v1`. Each attempt receives its own deterministic lottery sample derived from `(runId, target, attemptIndex, benchmarkMode, targetFamily)`, and rows expose that sample under `lotterySample`. The `True.intro` / `theorem ... : True` contract is now isolated behind explicit `--benchmark-mode smoke` for pipeline smoke only; it is not a public model score.
+
 Or let the preflight runner collect it into the evidence bundle:
 
 ```bash

@@ -250,6 +250,8 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
                     str(out_dir),
                     "--run-id",
                     "submit-candidate-run",
+                    "--benchmark-mode",
+                    "smoke",
                 ],
                 cwd=ROOT,
                 text=True,
@@ -286,6 +288,139 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             self.assertEqual(rows[0]["candidateExtraction"]["format"], "raw")
             self.assertEqual(invocation["verifierHash"], "boole-model-benchmark-ollama-v0")
             self.assertRegex(invocation["requiredCheckerArtifactHash"], r"^[0-9a-f]{64}$")
+
+    def test_default_model_benchmark_uses_mining_target_not_true_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake_ollama = tmp_path / "fake-ollama.py"
+            fake_ollama.write_text(
+                "#!/usr/bin/env python3\n"
+                "print('rfl')\n",
+                encoding="utf-8",
+            )
+            fake_ollama.chmod(0o755)
+            verifier_log = tmp_path / "verifier-invocations.ndjson"
+            fake_submit = tmp_path / "fake-submit-lean.py"
+            fake_submit.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, pathlib, sys\n"
+                "args = sys.argv[1:]\n"
+                "proof = pathlib.Path(args[args.index('--proof') + 1])\n"
+                "text = proof.read_text()\n"
+                f"with pathlib.Path({str(verifier_log)!r}).open('a') as f:\n"
+                "    f.write(json.dumps({'proofText': text}) + '\\n')\n"
+                "print(json.dumps({'ok': True, 'command': 'submit-lean', 'accepted': False, 'shareAccepted': False, 'replayMatchesRuntime': True, 'invalidAccepted': 0}))\n",
+                encoding="utf-8",
+            )
+            fake_submit.chmod(0o755)
+            out_dir = tmp_path / "model-benchmark"
+
+            proc = subprocess.run(
+                [
+                    "python3",
+                    str(BENCHMARK_PATH),
+                    "--target",
+                    "ollama:qwen2.5-coder:7b",
+                    "--ollama-command",
+                    str(fake_ollama),
+                    "--submit-lean-command",
+                    str(fake_submit),
+                    "--attempts",
+                    "1",
+                    "--output-dir",
+                    str(out_dir),
+                    "--run-id",
+                    "default-mining-target-run",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            summary = json.loads((out_dir / "benchmark-summary.json").read_text())
+            rows = [json.loads(line) for line in (out_dir / "benchmark-rows.ndjson").read_text().splitlines()]
+            proof_text = json.loads(verifier_log.read_text().splitlines()[0])["proofText"]
+            self.assertEqual(summary["benchmarkMode"], "mining")
+            self.assertEqual(summary["targetFamily"], "boole.calibration.pow.v1")
+            self.assertEqual(rows[0]["benchmarkMode"], "mining")
+            self.assertEqual(rows[0]["targetFamily"], "boole.calibration.pow.v1")
+            self.assertNotIn("boole_benchmark_true", proof_text)
+            self.assertNotIn(": True", proof_text)
+            self.assertIn("boole_benchmark_pow_target", proof_text)
+
+    def test_multi_attempt_mining_benchmark_binds_unique_lottery_samples(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake_ollama = tmp_path / "fake-ollama.py"
+            fake_ollama.write_text(
+                "#!/usr/bin/env python3\n"
+                "print('rfl')\n",
+                encoding="utf-8",
+            )
+            fake_ollama.chmod(0o755)
+            verifier_log = tmp_path / "verifier-invocations.ndjson"
+            fake_submit = tmp_path / "fake-submit-lean.py"
+            fake_submit.write_text(
+                "#!/usr/bin/env python3\n"
+                "import hashlib, json, pathlib, sys\n"
+                "args = sys.argv[1:]\n"
+                "proof = pathlib.Path(args[args.index('--proof') + 1])\n"
+                "text = proof.read_text()\n"
+                "digest = hashlib.sha256(text.encode()).hexdigest()\n"
+                f"with pathlib.Path({str(verifier_log)!r}).open('a') as f:\n"
+                "    f.write(json.dumps({'proofText': text, 'digest': digest}) + '\\n')\n"
+                "print(json.dumps({'ok': True, 'command': 'submit-lean', 'accepted': True, 'shareAccepted': True, 'replayMatchesRuntime': True, 'invalidAccepted': 0, 'shareHash': digest, 'block': None}))\n",
+                encoding="utf-8",
+            )
+            fake_submit.chmod(0o755)
+            out_dir = tmp_path / "model-benchmark"
+
+            proc = subprocess.run(
+                [
+                    "python3",
+                    str(BENCHMARK_PATH),
+                    "--target",
+                    "ollama:qwen2.5-coder:7b",
+                    "--ollama-command",
+                    str(fake_ollama),
+                    "--submit-lean-command",
+                    str(fake_submit),
+                    "--attempts",
+                    "3",
+                    "--output-dir",
+                    str(out_dir),
+                    "--run-id",
+                    "unique-lottery-run",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            summary = json.loads((out_dir / "benchmark-summary.json").read_text())
+            rows = [json.loads(line) for line in (out_dir / "benchmark-rows.ndjson").read_text().splitlines()]
+            invocations = [json.loads(line) for line in verifier_log.read_text().splitlines()]
+            self.assertEqual(summary["diagnostics"]["uniqueCandidates"], 3)
+            self.assertEqual(summary["diagnostics"]["uniqueShares"], 3)
+            self.assertEqual(summary["diagnostics"]["uniqueShareRatePct"], 100.0)
+            self.assertEqual(len({row["lotterySample"]["challenge"] for row in rows}), 3)
+            self.assertEqual(len({row["lotterySample"]["nonce"] for row in rows}), 3)
+            self.assertEqual(len({row["candidateSha256"] for row in rows}), 3)
+            self.assertEqual(len({item["digest"] for item in invocations}), 3)
+
+    def test_explicit_smoke_mode_is_segregated_from_public_mining_target(self) -> None:
+        benchmark = load_benchmark()
+        prompt = benchmark.model_proof_term_prompt(benchmark_mode="smoke", attempt_context=benchmark.attempt_context("smoke-run", "ollama:test", 0, benchmark_mode="smoke"))
+        candidate = benchmark.wrap_proof_term_candidate("True.intro", benchmark_mode="smoke", attempt_context=benchmark.attempt_context("smoke-run", "ollama:test", 0, benchmark_mode="smoke"))
+        self.assertIn("boole_benchmark_true", prompt)
+        self.assertIn("Valid example response: `True.intro`", prompt)
+        self.assertIn("theorem boole_benchmark_true : True", candidate)
 
     def test_full_theorem_output_is_rejected_before_verifier_in_proof_term_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

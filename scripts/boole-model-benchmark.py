@@ -265,13 +265,69 @@ def extract_proof_term_candidate(raw_output: str) -> tuple[str | None, dict[str,
     return raw, extraction, None
 
 
-def wrap_proof_term_candidate(proof_term: str) -> str:
-    indented = "\n".join(("  " + line) if line.strip() else line for line in proof_term.splitlines())
-    return f"theorem boole_benchmark_true : True :=\n{indented}\n"
+MINING_TARGET_FAMILY = "boole.calibration.pow.v1"
+SMOKE_TARGET_FAMILY = "boole.smoke.true.v1"
 
 
-def rejected_candidate_shape_row(*, target: str, provider: str, model: str, attempt_index: int, reason: str, elapsed_ms: int, raw_output: str, extraction: dict[str, Any], stderr: str = "") -> dict[str, Any]:
+def target_family_for_mode(benchmark_mode: str) -> str:
+    if benchmark_mode == "smoke":
+        return SMOKE_TARGET_FAMILY
+    if benchmark_mode == "mining":
+        return MINING_TARGET_FAMILY
+    raise SystemExit(f"unsupported benchmark mode: {benchmark_mode}")
+
+
+def attempt_context(run_id: str, target: str, attempt_index: int, *, benchmark_mode: str = "mining") -> dict[str, Any]:
+    target_family = target_family_for_mode(benchmark_mode)
+    seed = f"{run_id}|{target}|{attempt_index}|{benchmark_mode}|{target_family}"
+    challenge = hashlib.sha256((seed + "|challenge").encode("utf-8")).hexdigest()
+    nonce = hashlib.sha256((seed + "|nonce").encode("utf-8")).hexdigest()[:32]
     return {
+        "benchmarkMode": benchmark_mode,
+        "targetFamily": target_family,
+        "attemptIndex": attempt_index,
+        "challenge": challenge,
+        "nonce": nonce,
+        "theoremName": f"boole_benchmark_pow_target_{attempt_index + 1}",
+    }
+
+
+def row_target_metadata(*, benchmark_mode: str, attempt_context: dict[str, Any] | None = None) -> dict[str, Any]:
+    target_family = (attempt_context or {}).get("targetFamily") or target_family_for_mode(benchmark_mode)
+    metadata: dict[str, Any] = {
+        "benchmarkMode": benchmark_mode,
+        "targetFamily": target_family,
+    }
+    if attempt_context:
+        metadata["lotterySample"] = {
+            "challenge": attempt_context["challenge"],
+            "nonce": attempt_context["nonce"],
+            "theoremName": attempt_context["theoremName"],
+        }
+    return metadata
+
+
+def wrap_proof_term_candidate(proof_term: str, *, benchmark_mode: str = "mining", attempt_context: dict[str, Any] | None = None) -> str:
+    indented = "\n".join(("  " + line) if line.strip() else line for line in proof_term.splitlines())
+    if benchmark_mode == "smoke":
+        return f"theorem boole_benchmark_true : True :=\n{indented}\n"
+    ctx = attempt_context or globals()["attempt_context"]("manual", "manual", 0, benchmark_mode="mining")
+    theorem_name = ctx["theoremName"]
+    challenge = ctx["challenge"]
+    nonce = ctx["nonce"]
+    return (
+        f"-- benchmarkMode: mining\n"
+        f"-- targetFamily: {MINING_TARGET_FAMILY}\n"
+        f"-- lotteryChallenge: {challenge}\n"
+        f"-- lotteryNonce: {nonce}\n"
+        f"theorem {theorem_name} : \"{challenge}\" = \"{challenge}\" :=\n"
+        f"{indented}\n"
+    )
+
+
+def rejected_candidate_shape_row(*, target: str, provider: str, model: str, attempt_index: int, reason: str, elapsed_ms: int, raw_output: str, extraction: dict[str, Any], stderr: str = "", benchmark_mode: str = "mining", attempt_context: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        **row_target_metadata(benchmark_mode=benchmark_mode, attempt_context=attempt_context),
         "name": f"{target} attempt {attempt_index + 1}",
         "kind": "provider-model",
         "target": target,
@@ -299,12 +355,23 @@ def rejected_candidate_shape_row(*, target: str, provider: str, model: str, atte
     }
 
 
-def model_proof_term_prompt() -> str:
+def model_proof_term_prompt(*, benchmark_mode: str = "mining", attempt_context: dict[str, Any] | None = None) -> str:
+    if benchmark_mode == "smoke":
+        return (
+            "Boole proof-to-block benchmark SMOKE target contract. Return exactly one Lean 4 proof term for this theorem body, "
+            "not a full theorem and not a Markdown code block. Target theorem: `theorem boole_benchmark_true : True := <YOUR_PROOF_TERM>`. "
+            "Valid example response: `True.intro`. This mode is smoke-only and is not a public mining score. "
+            "Do not include `theorem`, `lemma`, `example`, `import`, explanations, JSON, markdown fences, `by`, `sorry`, or `admit`. "
+            "The returned term will be inserted verbatim after `:=` and verified by Boole's submit-lean path."
+        )
+    ctx = attempt_context or globals()["attempt_context"]("manual", "manual", 0, benchmark_mode="mining")
     return (
-        "Boole proof-to-block benchmark target contract. Return exactly one Lean 4 proof term for this theorem body, "
-        "not a full theorem and not a Markdown code block. Target theorem: `theorem boole_benchmark_true : True := <YOUR_PROOF_TERM>`. "
-        "Valid example response: `True.intro`. Do not include `theorem`, `lemma`, `example`, `import`, explanations, JSON, markdown fences, `by`, `sorry`, or `admit`. "
-        "The returned term will be inserted verbatim after `:=` and verified by Boole's submit-lean path."
+        "Boole proof-to-block benchmark MINING target contract. Return exactly one Lean 4 proof term for this theorem body, "
+        "not a full theorem and not a Markdown code block. "
+        f"Target family: `{ctx['targetFamily']}`. Lottery challenge: `{ctx['challenge']}`. Nonce: `{ctx['nonce']}`. "
+        f"Target theorem: `theorem {ctx['theoremName']} : \"{ctx['challenge']}\" = \"{ctx['challenge']}\" := <YOUR_PROOF_TERM>`. "
+        "A minimal valid proof term for this equality target is `rfl`. Do not include `theorem`, `lemma`, `example`, `import`, explanations, JSON, markdown fences, `by`, `sorry`, or `admit`. "
+        "The returned term will be bound to this per-attempt lottery sample and verified by Boole's submit-lean path."
     )
 
 
@@ -321,8 +388,9 @@ def classify_ollama_failure(stderr: str, stdout: str, returncode: int) -> str:
     return "ollama-generation-failed"
 
 
-def setup_required_ollama_row(*, target: str, model: str, attempt_index: int, reason: str, elapsed_ms: int = 0, stderr: str = "", stdout: str = "") -> dict[str, Any]:
+def setup_required_ollama_row(*, target: str, model: str, attempt_index: int, reason: str, elapsed_ms: int = 0, stderr: str = "", stdout: str = "", benchmark_mode: str = "mining", attempt_context: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
+        **row_target_metadata(benchmark_mode=benchmark_mode, attempt_context=attempt_context),
         "name": f"{target} attempt {attempt_index + 1}",
         "kind": "provider-model",
         "target": target,
@@ -357,8 +425,9 @@ def recovery_for_ollama_reason(reason: str, model: str) -> list[str]:
     return ["Inspect Ollama stderr/stdout tail and retry after fixing local setup."]
 
 
-def setup_required_claude_cli_row(*, target: str, model: str, attempt_index: int, reason: str, elapsed_ms: int = 0, stderr: str = "", stdout: str = "") -> dict[str, Any]:
+def setup_required_claude_cli_row(*, target: str, model: str, attempt_index: int, reason: str, elapsed_ms: int = 0, stderr: str = "", stdout: str = "", benchmark_mode: str = "mining", attempt_context: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
+        **row_target_metadata(benchmark_mode=benchmark_mode, attempt_context=attempt_context),
         "name": f"{target} attempt {attempt_index + 1}",
         "kind": "provider-model",
         "target": target,
@@ -455,10 +524,11 @@ def parse_submit_lean_output(proc: subprocess.CompletedProcess[str]) -> dict[str
     return parse_json_output(proc.stdout) or parse_json_output(proc.stderr)
 
 
-def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, attempt_index: int, submit_lean_command: str, candidate_root: Path, timeout_s: int) -> dict[str, Any]:
+def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, attempt_index: int, submit_lean_command: str, candidate_root: Path, timeout_s: int | None, benchmark_mode: str = "mining", attempt_context: dict[str, Any] | None = None) -> dict[str, Any]:
     resolved_submit = resolve_command(submit_lean_command)
     if resolved_submit is None:
         return {
+            **row_target_metadata(benchmark_mode=benchmark_mode, attempt_context=attempt_context),
             "invoked": False,
             "command": "submit-lean",
             "reason": "submit-lean-command-not-found",
@@ -513,6 +583,7 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
     blocks = 1 if accepted and share_accepted and (parsed or {}).get("block") else 0
     verified = 1 if accepted and share_accepted else 0
     return {
+        **row_target_metadata(benchmark_mode=benchmark_mode, attempt_context=attempt_context),
         "invoked": True,
         "command": "submit-lean",
         "exitCode": proc.returncode,
@@ -534,7 +605,7 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
         "model": model,
     }
 
-def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, timeout_s: int, submit_lean_command: str | None = None, candidate_root: Path | None = None, on_row: Any | None = None) -> list[dict[str, Any]]:
+def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, timeout_s: int | None, submit_lean_command: str | None = None, candidate_root: Path | None = None, on_row: Any | None = None, benchmark_mode: str = "mining", run_id: str = "manual") -> list[dict[str, Any]]:
     model = parse_ollama_target(target)
     resolved_command = resolve_command(ollama_command)
     if resolved_command is None:
@@ -544,13 +615,16 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                 model=model,
                 attempt_index=idx,
                 reason="ollama-command-not-found",
+                benchmark_mode=benchmark_mode,
+                attempt_context=attempt_context(run_id=run_id, target=target, attempt_index=idx, benchmark_mode=benchmark_mode),
             )
             for idx in range(attempts)
         ]
 
     rows: list[dict[str, Any]] = []
-    prompt = model_proof_term_prompt()
     for idx in range(attempts):
+        ctx = attempt_context(run_id=run_id, target=target, attempt_index=idx, benchmark_mode=benchmark_mode)
+        prompt = model_proof_term_prompt(benchmark_mode=benchmark_mode, attempt_context=ctx)
         started = time.time()
         try:
             proc = subprocess.run(
@@ -566,6 +640,7 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
             elapsed_ms = int((time.time() - started) * 1000)
             rows.append(
                 {
+                    **row_target_metadata(benchmark_mode=benchmark_mode, attempt_context=ctx),
                     "name": f"{target} attempt {idx + 1}",
                     "kind": "provider-model",
                     "target": target,
@@ -603,6 +678,8 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                     elapsed_ms=elapsed_ms,
                     stderr=proc.stderr,
                     stdout=proc.stdout,
+                    benchmark_mode=benchmark_mode,
+                    attempt_context=ctx,
                 )
             )
             if on_row:
@@ -623,13 +700,15 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                     raw_output=raw_candidate,
                     extraction=extraction,
                     stderr=proc.stderr,
+                    benchmark_mode=benchmark_mode,
+                    attempt_context=ctx,
                 )
             )
             if on_row:
                 on_row(rows[-1], rows)
             continue
 
-        candidate = wrap_proof_term_candidate(proof_term or "")
+        candidate = wrap_proof_term_candidate(proof_term or "", benchmark_mode=benchmark_mode, attempt_context=ctx)
         digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
         verifier = None
         if submit_lean_command:
@@ -641,6 +720,8 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                 submit_lean_command=submit_lean_command,
                 candidate_root=candidate_root or (ROOT / "artifacts" / "model-benchmarks" / "candidates"),
                 timeout_s=timeout_s,
+                benchmark_mode=benchmark_mode,
+                attempt_context=ctx,
             )
         accepted = bool((verifier or {}).get("accepted"))
         score = (verifier or {}).get("score") or zero_score()
@@ -648,6 +729,7 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
         safety = (verifier or {}).get("safety") or {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0}
         rows.append(
             {
+                **row_target_metadata(benchmark_mode=benchmark_mode, attempt_context=ctx),
                 "name": f"{target} attempt {idx + 1}",
                 "kind": "provider-model",
                 "target": target,
@@ -681,7 +763,7 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
     return rows
 
 
-def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, timeout_s: int, submit_lean_command: str | None = None, candidate_root: Path | None = None, on_row: Any | None = None) -> list[dict[str, Any]]:
+def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, timeout_s: int | None, submit_lean_command: str | None = None, candidate_root: Path | None = None, on_row: Any | None = None, benchmark_mode: str = "mining", run_id: str = "manual") -> list[dict[str, Any]]:
     model = parse_claude_cli_target(target)
     resolved_command = resolve_command(claude_command)
     if resolved_command is None:
@@ -691,13 +773,16 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
                 model=model,
                 attempt_index=idx,
                 reason="claude-cli-command-not-found",
+                benchmark_mode=benchmark_mode,
+                attempt_context=attempt_context(run_id=run_id, target=target, attempt_index=idx, benchmark_mode=benchmark_mode),
             )
             for idx in range(attempts)
         ]
 
     rows: list[dict[str, Any]] = []
-    prompt = model_proof_term_prompt()
     for idx in range(attempts):
+        ctx = attempt_context(run_id=run_id, target=target, attempt_index=idx, benchmark_mode=benchmark_mode)
+        prompt = model_proof_term_prompt(benchmark_mode=benchmark_mode, attempt_context=ctx)
         started = time.time()
         try:
             proc = subprocess.run(
@@ -713,6 +798,7 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
             elapsed_ms = int((time.time() - started) * 1000)
             rows.append(
                 {
+                    **row_target_metadata(benchmark_mode=benchmark_mode, attempt_context=ctx),
                     "name": f"{target} attempt {idx + 1}",
                     "kind": "provider-model",
                     "target": target,
@@ -750,6 +836,8 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
                     elapsed_ms=elapsed_ms,
                     stderr=proc.stderr,
                     stdout=proc.stdout,
+                    benchmark_mode=benchmark_mode,
+                    attempt_context=ctx,
                 )
             )
             if on_row:
@@ -770,13 +858,15 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
                     raw_output=raw_candidate,
                     extraction=extraction,
                     stderr=proc.stderr,
+                    benchmark_mode=benchmark_mode,
+                    attempt_context=ctx,
                 )
             )
             if on_row:
                 on_row(rows[-1], rows)
             continue
 
-        candidate = wrap_proof_term_candidate(proof_term or "")
+        candidate = wrap_proof_term_candidate(proof_term or "", benchmark_mode=benchmark_mode, attempt_context=ctx)
         digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
         verifier = None
         if submit_lean_command:
@@ -788,6 +878,8 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
                 submit_lean_command=submit_lean_command,
                 candidate_root=candidate_root or (ROOT / "artifacts" / "model-benchmarks" / "candidates"),
                 timeout_s=timeout_s,
+                benchmark_mode=benchmark_mode,
+                attempt_context=ctx,
             )
         accepted = bool((verifier or {}).get("accepted"))
         score = (verifier or {}).get("score") or zero_score()
@@ -795,6 +887,7 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
         safety = (verifier or {}).get("safety") or {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0}
         rows.append(
             {
+                **row_target_metadata(benchmark_mode=benchmark_mode, attempt_context=ctx),
                 "name": f"{target} attempt {idx + 1}",
                 "kind": "provider-model",
                 "target": target,
@@ -889,10 +982,23 @@ def summarize(rows: list[dict[str, Any]], run_id: str, generated_at_ms: int) -> 
     blocks_produced = sum(int(row.get("score", {}).get("blocksProduced", 0)) for row in rows)
     replay_passed = bool(active_rows) and all(row.get("score", {}).get("replayPass") is True for row in active_rows)
     ok = all(row.get("ok") is True for row in rows) and safety == {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0}
+    benchmark_modes = {row.get("benchmarkMode") for row in rows if row.get("benchmarkMode")}
+    target_families = {row.get("targetFamily") for row in rows if row.get("targetFamily")}
+    benchmark_mode = next(iter(benchmark_modes)) if len(benchmark_modes) == 1 else ("mixed" if benchmark_modes else "unknown")
+    target_family = next(iter(target_families)) if len(target_families) == 1 else ("mixed" if target_families else "unknown")
+    candidate_hashes = {row.get("candidateSha256") for row in rows if row.get("candidateSha256")}
+    share_hashes = {
+        (row.get("verifier", {}) or {}).get("result", {}).get("shareHash") or (row.get("verifier", {}) or {}).get("shareHash")
+        for row in rows
+        if ((row.get("verifier", {}) or {}).get("result", {}).get("shareHash") or (row.get("verifier", {}) or {}).get("shareHash"))
+    }
+    unique_shares = len(share_hashes)
     return {
         "ok": ok,
         "benchmark": "boole-model-proof-to-block",
         "version": 0,
+        "benchmarkMode": benchmark_mode,
+        "targetFamily": target_family,
         "runId": run_id,
         "generatedAtUnixMs": generated_at_ms,
         "totals": {
@@ -916,6 +1022,9 @@ def summarize(rows: list[dict[str, Any]], run_id: str, generated_at_ms: int) -> 
         "diagnostics": {
             "accepted": sum(1 for row in rows if row.get("accepted") is True),
             "verifiedShares": sum(int(row.get("diagnostics", {}).get("verifiedShares", 0)) for row in rows),
+            "uniqueCandidates": len(candidate_hashes),
+            "uniqueShares": unique_shares,
+            "uniqueShareRatePct": round(unique_shares / generated_attempts * 100, 2) if generated_attempts else 0.0,
         },
         "safety": safety,
         "replayPassed": replay_passed,
@@ -980,7 +1089,7 @@ def write_artifacts(output_dir: Path, summary: dict[str, Any], rows: list[dict[s
     (output_dir / "leaderboard.md").write_text(render_leaderboard(summary, ordered), encoding="utf-8")
 
 
-def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: str | None = None, timeout_s: int = 300, target: str | None = None, attempts: int = 1, ollama_command: str = "ollama", claude_command: str = "claude", submit_lean_command: str | None = None) -> dict[str, Any]:
+def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: str | None = None, timeout_s: int | None = 300, target: str | None = None, attempts: int = 1, ollama_command: str = "ollama", claude_command: str = "claude", submit_lean_command: str | None = None, benchmark_mode: str = "mining") -> dict[str, Any]:
     run_id = run_id or default_run_id()
     generated_at_ms = now_ms()
     if target:
@@ -1006,9 +1115,11 @@ def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: st
                 ollama_command=ollama_command,
                 attempts=attempts,
                 timeout_s=timeout_s,
+                benchmark_mode=benchmark_mode,
                 submit_lean_command=submit_lean_command,
                 candidate_root=output_dir / "candidates",
                 on_row=checkpoint,
+                run_id=run_id,
             )
         else:
             rows = run_claude_cli_attempts(
@@ -1016,9 +1127,11 @@ def run_benchmark(*, spec_path: Path | None = None, output_dir: Path, run_id: st
                 claude_command=claude_command,
                 attempts=attempts,
                 timeout_s=timeout_s,
+                benchmark_mode=benchmark_mode,
                 submit_lean_command=submit_lean_command,
                 candidate_root=output_dir / "candidates",
                 on_row=checkpoint,
+                run_id=run_id,
             )
     else:
         if spec_path is None:
@@ -1040,13 +1153,16 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--submit-lean-command", default=os.environ.get("BOOLE_SUBMIT_LEAN_COMMAND"), help="Optional submit-lean command path/name for verifier-backed generated attempts.")
     parser.add_argument("--output-dir", help="Artifact output directory. Defaults to artifacts/model-benchmarks/<run-id>.")
     parser.add_argument("--run-id", help="Stable run id for reproducible tests/evidence.")
-    parser.add_argument("--timeout-sec", type=int, default=300)
+    parser.add_argument("--timeout-sec", type=int, default=300, help="Per-attempt timeout seconds. Use 0 to disable subprocess timeouts.")
+    parser.add_argument("--benchmark-mode", choices=["mining", "smoke"], default="mining", help="Benchmark target mode. Default mining uses per-attempt calibrated target family; smoke is True.intro pipeline-only.")
     args = parser.parse_args(argv)
 
     if bool(args.spec) == bool(args.target):
         raise SystemExit("provide exactly one of --spec or --target")
     if args.attempts < 1:
         raise SystemExit("--attempts must be >= 1")
+    if args.timeout_sec < 0:
+        raise SystemExit("--timeout-sec must be >= 0")
 
     run_id = args.run_id or default_run_id()
     output_dir = Path(args.output_dir) if args.output_dir else ROOT / "artifacts" / "model-benchmarks" / run_id
@@ -1054,12 +1170,13 @@ def main(argv: list[str] | None = None) -> None:
         spec_path=Path(args.spec) if args.spec else None,
         output_dir=output_dir,
         run_id=run_id,
-        timeout_s=args.timeout_sec,
+        timeout_s=None if args.timeout_sec == 0 else args.timeout_sec,
         target=args.target,
         attempts=args.attempts,
         ollama_command=args.ollama_command,
         claude_command=args.claude_command,
         submit_lean_command=args.submit_lean_command,
+        benchmark_mode=args.benchmark_mode,
     )
     print(json.dumps(result, separators=(",", ":")))
     if not result["ok"]:
