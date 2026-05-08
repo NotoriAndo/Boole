@@ -169,7 +169,7 @@ The current benchmark stack now separates two dimensions:
 - **Agent runtime benchmark**: Hermes/OpenClaw/OpenCode-style CLIs invoked through `boole-miner`'s `agent_cli` backend. The runtime may use tools, edit files, call Lean/Lake, or do multi-step proof search. Its output is still treated only as an untrusted candidate proof; deterministic verification, canonical bytes, share hash, block commit, and replay decide acceptance.
 - **Provider/model benchmark**: raw model/provider backends such as mock transport and optional OpenAI-compatible/Ollama rows. Optional live rows should be gated by environment variables so missing local daemons/API credentials do not create false CI failures.
 
-Both leaderboard wrappers use `scripts/benchmark-runner.py`, emit machine-readable JSON, and can write a Markdown leaderboard via `LEADERBOARD_MD`. Rows are ranked by successful non-skipped run, blocks, verified shares, and lower elapsed time.
+Both leaderboard wrappers use `scripts/benchmark-runner.py`, emit machine-readable JSON, and can write a Markdown leaderboard via `LEADERBOARD_MD`. Public rows report `blockProductionRate = blocksProduced / generatedAttempts * 100`; `accepted` and `verifiedShares` remain diagnostic-only and are not public ranking criteria.
 
 ## Genesis preflight benchmark
 

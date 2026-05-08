@@ -5,10 +5,17 @@ This is a **Sample benchmark artifact** for Boole's public documentation. It is 
 ## What this sample proves
 
 ```text
-fake/local model row → generated Lean candidate → submit-lean verifier path → accepted/rejected row → replay-safe summary
+fake/local model row → generated Lean candidate → submit-lean verifier path → blockProduced public score + replay-safe summary
 ```
 
 The sample is useful for GitHub/landing-page readers because it shows what Boole's Proof-to-Block artifacts look like without requiring Ollama, a paid API key, a wallet, or a live network.
+
+## Public score
+
+- blockProductionRate: 1/2 (50.00%)
+- formula: `blocksProduced / generatedAttempts * 100`
+- blocksProduced: 1
+- generatedAttempts: 2
 
 ## Safety metrics
 
@@ -26,7 +33,7 @@ The sample is useful for GitHub/landing-page readers because it shows what Boole
 
 - `qwen2.5-coder:fake` is a fixture/mock model label, not a measured local model result.
 - `ACCEPTED` means the fake verifier fixture returned a share/block/replay-success envelope that exercises Boole's row normalization and report path.
-- `REJECTED` means generated attempts can be recorded without becoming verified shares or blocks.
+- `REJECTED` means generated attempts can be safely recorded without producing blocks.
 - The sample demonstrates artifact semantics; live local model attempts should be labeled separately as local preflight evidence.
 
 ## Public wording boundary

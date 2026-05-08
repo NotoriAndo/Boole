@@ -68,7 +68,8 @@ def run_row(row: dict[str, Any], timeout_s: int) -> dict[str, Any]:
             "reason": "missing_required_env",
             "missingEnv": missing,
             "elapsedMs": 0,
-            "score": {"blocks": 0, "verifiedShares": 0, "replayPass": False},
+            "score": {"blocksProduced": 0, "replayPass": False},
+            "diagnostics": {"verifiedShares": 0},
         }
 
     env = os.environ.copy()
@@ -93,7 +94,7 @@ def run_row(row: dict[str, Any], timeout_s: int) -> dict[str, Any]:
     summary = (parsed or {}).get("summary") or {}
     status = (parsed or {}).get("status") or {}
     aggregate = (parsed or {}).get("aggregate") or {}
-    blocks = int(status.get("height") or summary.get("blocksMined") or summary.get("blocksProduced") or 0)
+    blocks = int(status.get("height") or summary.get("blocksMined") or summary.get("blocksProduced") or aggregate.get("blocksProduced") or 0)
     verified = int(summary.get("verifyAccepted") or aggregate.get("verifyAccepted") or summary.get("sharesAccepted") or aggregate.get("sharesAccepted") or 0)
     replay_pass = bool(status.get("replayMatchesRuntime") or (parsed or {}).get("replayMatchesRuntime") or False)
     row_ok = proc.returncode == 0 and parsed is not None and (parsed.get("ok") is True)
@@ -108,11 +109,18 @@ def run_row(row: dict[str, Any], timeout_s: int) -> dict[str, Any]:
         "status": "SKIP" if skipped else ("PASS" if row_ok else "FAIL"),
         "exitCode": proc.returncode,
         "elapsedMs": elapsed_ms,
-        "score": {"blocks": blocks, "verifiedShares": verified, "replayPass": replay_pass},
+        "score": {"blocksProduced": blocks, "replayPass": replay_pass},
+        "diagnostics": {"verifiedShares": verified},
         "result": parsed,
         "stderrTail": proc.stderr[-1200:],
         "stdoutTail": proc.stdout[-1200:],
     }
+
+
+def block_production_rate_pct(*, blocks_produced: int, generated_attempts: int) -> float:
+    if generated_attempts <= 0:
+        return 0.0
+    return round((blocks_produced / generated_attempts) * 100.0, 2)
 
 
 def write_markdown(path: str, benchmark: dict[str, Any]) -> None:
@@ -123,6 +131,7 @@ def write_markdown(path: str, benchmark: dict[str, Any]) -> None:
         f"- kind: `{benchmark['kind']}`",
         f"- ok: `{str(benchmark['ok']).lower()}`",
         f"- generatedAtUnixMs: `{benchmark['generatedAtUnixMs']}`",
+        f"- blockProductionRate: `{benchmark['totals']['blocksProduced']}/{benchmark['totals']['generatedAttempts']} ({benchmark['totals']['blockProductionRatePct']:.2f}%)`",
         "",
         "## Leaderboard",
         "",
@@ -133,8 +142,8 @@ def write_markdown(path: str, benchmark: dict[str, Any]) -> None:
         lines.extend([
             f"### {idx}. {row['name']}",
             f"- status: `{status}`",
-            f"- blocks: `{score.get('blocks', 0)}`",
-            f"- verifiedShares: `{score.get('verifiedShares', 0)}`",
+            f"- blocksProduced: `{score.get('blocksProduced', 0)}`",
+            f"- blockProduced: `{str(int(score.get('blocksProduced', 0)) > 0).lower()}`",
             f"- replayPass: `{str(score.get('replayPass') is True).lower()}`",
             f"- elapsedMs: `{row.get('elapsedMs', 0)}`",
             "",
@@ -155,17 +164,27 @@ def main() -> None:
         key=lambda r: (
             0 if r.get("skipped") else 1,
             1 if r.get("ok") else 0,
-            int(r.get("score", {}).get("blocks", 0)),
-            int(r.get("score", {}).get("verifiedShares", 0)),
+            int(r.get("score", {}).get("blocksProduced", 0)),
             -int(r.get("elapsedMs", 0)),
         ),
         reverse=True,
     )
+    generated_attempts = sum(1 for row in rows if not row.get("skipped"))
+    blocks_produced = sum(int(row.get("score", {}).get("blocksProduced", 0)) for row in rows)
     out = {
         "ok": all(row.get("ok") is True for row in rows),
         "kind": kind,
         "title": title,
         "generatedAtUnixMs": int(time.time() * 1000),
+        "totals": {
+            "generatedAttempts": generated_attempts,
+            "blocksProduced": blocks_produced,
+            "blockProductionRatePct": block_production_rate_pct(blocks_produced=blocks_produced, generated_attempts=generated_attempts),
+        },
+        "publicScore": {
+            "primaryMetric": "blockProductionRatePct",
+            "formula": "blocksProduced / generatedAttempts * 100",
+        },
         "rows": rows,
         "leaderboard": leaderboard,
     }

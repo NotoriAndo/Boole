@@ -715,12 +715,16 @@ def model_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
     return check_rows(summary, "provider-model-live-benchmark")
 
 
+def block_score(row: dict[str, Any]) -> int:
+    score = row.get("score", {})
+    return int(score.get("blocksProduced", score.get("blocks", 0)) or 0)
+
+
 def sorted_benchmark_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(
         rows,
         key=lambda row: (
-            int(row.get("score", {}).get("blocks", 0) or 0),
-            int(row.get("score", {}).get("verifiedShares", 0) or 0),
+            block_score(row),
             bool(row.get("score", {}).get("replayPass", False)),
             row.get("status") in {"PASS", "ACCEPTED"},
         ),
@@ -737,8 +741,7 @@ def append_leaderboard_rows(lines: list[str], rows: list[dict[str, Any]]) -> Non
             [
                 f"## {index}. {row.get('name')}",
                 f"- status: {row.get('status')}",
-                f"- blocks: {score.get('blocks', 0)}",
-                f"- verifiedShares: {score.get('verifiedShares', 0)}",
+                f"- blocksProduced: {block_score(row)}",
                 f"- replayPass: {score.get('replayPass', False)}",
             ]
         )
@@ -759,7 +762,7 @@ def render_leaderboard(summary: dict[str, Any]) -> str:
         "",
         "Local agent/runtime and model proof-attempt rows. Scores are verifier/replay-backed; skipped or rejected rows are not runner failures.",
         "",
-        "- Rank key: blocks → verifiedShares → replayPass → status",
+        "- Rank key: blocksProduced → replayPass → status",
         "",
         "# Agent/runtime rows",
         "",

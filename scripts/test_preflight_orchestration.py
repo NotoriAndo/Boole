@@ -338,16 +338,16 @@ class PreflightOrchestrationTests(unittest.TestCase):
                     "name": "agent-runtime-benchmark",
                     "ok": True,
                     "rows": [
-                        {"name": "hermes-agent-cli-mock-verify", "status": "PASS", "score": {"verifiedShares": 1, "blocks": 1, "replayPass": True}},
-                        {"name": "openclaw-opencode-agent-cli-mock-verify", "status": "SKIP", "score": {"verifiedShares": 0, "blocks": 0, "replayPass": False}},
+                        {"name": "hermes-agent-cli-mock-verify", "status": "PASS", "score": {"blocksProduced": 1, "replayPass": True}, "diagnostics": {"verifiedShares": 1}},
+                        {"name": "openclaw-opencode-agent-cli-mock-verify", "status": "SKIP", "score": {"blocksProduced": 0, "replayPass": False}, "diagnostics": {"verifiedShares": 0}},
                     ],
                 },
                 {
                     "name": "provider-model-live-benchmark",
                     "ok": True,
                     "rows": [
-                        {"name": "ollama-qwen2.5-coder-7b", "status": "ACCEPTED", "provider": "ollama", "model": "qwen2.5-coder:7b", "generatedAttempt": True, "accepted": True, "score": {"verifiedShares": 1, "blocks": 1, "replayPass": True}},
-                        {"name": "ollama-llama3.2", "status": "REJECTED", "provider": "ollama", "model": "llama3.2", "generatedAttempt": True, "accepted": False, "score": {"verifiedShares": 0, "blocks": 0, "replayPass": True}},
+                        {"name": "ollama-qwen2.5-coder-7b", "status": "ACCEPTED", "provider": "ollama", "model": "qwen2.5-coder:7b", "generatedAttempt": True, "accepted": True, "score": {"blocksProduced": 1, "replayPass": True}, "diagnostics": {"verifiedShares": 1}},
+                        {"name": "ollama-llama3.2", "status": "REJECTED", "provider": "ollama", "model": "llama3.2", "generatedAttempt": True, "accepted": False, "score": {"blocksProduced": 0, "replayPass": True}, "diagnostics": {"verifiedShares": 0}},
                     ],
                 },
             ],
@@ -363,7 +363,7 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertIn("17", report)
         self.assertIn("0 invalid accepted", report)
         self.assertIn("hermes-agent-cli-mock-verify", leaderboard)
-        self.assertIn("verifiedShares", leaderboard)
+        self.assertNotIn("verifiedShares", leaderboard)
         self.assertIn("ollama-qwen2.5-coder-7b", leaderboard)
         self.assertIn("Local model-generated proof attempts", report)
         self.assertIn("provider-model-live-benchmark", report)
@@ -467,7 +467,8 @@ print(json.dumps({{
             self.assertEqual(provider_check["rows"][0]["metadata"]["model"], "qwen2.5-coder:fake")
             self.assertTrue(provider_check["rows"][0]["generatedAttempt"])
             self.assertTrue(provider_check["rows"][0]["accepted"])
-            self.assertEqual(provider_check["rows"][0]["score"]["verifiedShares"], 1)
+            self.assertEqual(provider_check["rows"][0]["score"], {"blocksProduced": 1, "replayPass": True})
+            self.assertEqual(provider_check["rows"][0]["diagnostics"]["verifiedShares"], 1)
             self.assertEqual(wizard_summary["genesisBenchmark"]["invalidAccepted"], 0)
             self.assertIn("Local model proof-attempt rows", (evidence_dir / "wizard-leaderboard.md").read_text(encoding="utf-8"))
             self.assertIn("qwen2.5-coder:fake", (evidence_dir / "wizard-leaderboard.md").read_text(encoding="utf-8"))

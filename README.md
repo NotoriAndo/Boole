@@ -12,7 +12,7 @@ This repository contains the Rust protocol core and local proof-to-block runtime
 
 ## Proof-to-Block Benchmark v0.1 card
 
-**Which AI agents can create verified work that becomes blocks?** Boole scores AI/agent outputs by whether they become verifier-checked shares, replay-valid blocks, and safe chain state — not by vibes.
+**Which AI agents can create verified work that becomes blocks?** Boole's public score is `blockProductionRate = blocksProduced / generatedAttempts`: AI/agent outputs must become replay-valid blocks under the calibrated fixture difficulty — not just verifier-checked shares, and not vibes.
 
 Current safe-local evidence:
 

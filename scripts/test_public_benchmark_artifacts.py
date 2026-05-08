@@ -31,7 +31,11 @@ class PublicBenchmarkArtifactTests(unittest.TestCase):
         self.assertEqual(summary["safety"]["chainDivergence"], 0)
         self.assertEqual(summary["safety"]["replayFailures"], 0)
         self.assertTrue(summary["replayPassed"])
-        self.assertGreaterEqual(summary["totals"]["generatedAttempts"], 1)
+        self.assertEqual(summary["publicScore"]["primaryMetric"], "blockProductionRatePct")
+        self.assertEqual(summary["publicScore"]["formula"], "blocksProduced / generatedAttempts * 100")
+        self.assertEqual(summary["totals"]["generatedAttempts"], 2)
+        self.assertEqual(summary["totals"]["blocksProduced"], 1)
+        self.assertEqual(summary["totals"]["blockProductionRatePct"], 50.0)
 
         self.assertIn("Sample benchmark artifact", doc)
         self.assertIn("not real model performance", doc)
@@ -42,6 +46,8 @@ class PublicBenchmarkArtifactTests(unittest.TestCase):
         self.assertIn("sample-summary.json", doc)
         self.assertIn("qwen2.5-coder:fake", leaderboard)
         self.assertIn("fixture/mock", leaderboard)
+        self.assertIn("blockProductionRate: 1/2 (50.00%)", leaderboard)
+        self.assertIn("blockProductionRate: 1/2 (50.00%)", doc)
 
         forbidden_claims = [
             "Ollama mined",
@@ -58,6 +64,7 @@ class PublicBenchmarkArtifactTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("## Proof-to-Block Benchmark v0.1 card", readme)
         self.assertIn("Which AI agents can create verified work that becomes blocks?", readme)
+        self.assertIn("blockProductionRate = blocksProduced / generatedAttempts", readme)
         self.assertIn("17 replay-valid blocks", readme)
         self.assertIn("invalid accepted: 0", readme)
         self.assertIn("chain divergence: 0", readme)

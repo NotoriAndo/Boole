@@ -5,14 +5,22 @@
   "claimBoundary": "pipeline sample, not real model performance",
   "generatedAt": "deterministic-fixture",
   "description": "Public-safe sample artifact generated from deterministic fake/local command semantics. It demonstrates Boole's verifier/replay benchmark pipeline and is not public-network mining.",
+  "publicScore": {
+    "primaryMetric": "blockProductionRatePct",
+    "formula": "blocksProduced / generatedAttempts * 100",
+    "ranking": "blockProductionRatePct with blocksProduced as the numerator; accepted and verifiedShares are diagnostic-only"
+  },
   "totals": {
     "rows": 2,
-    "generatedAttempts": 1,
-    "accepted": 1,
+    "generatedAttempts": 2,
     "rejected": 1,
     "setupRequired": 0,
-    "verifiedShares": 1,
-    "blocksProduced": 1
+    "blocksProduced": 1,
+    "blockProductionRatePct": 50.0
+  },
+  "diagnostics": {
+    "accepted": 1,
+    "verifiedShares": 1
   },
   "safety": {
     "invalidAccepted": 0,
@@ -27,12 +35,14 @@
       "model": "qwen2.5-coder:fake",
       "source": "fixture/mock",
       "generatedAttempt": true,
-      "accepted": true,
       "status": "ACCEPTED",
       "score": {
-        "blocks": 1,
-        "verifiedShares": 1,
+        "blocksProduced": 1,
         "replayPass": true
+      },
+      "diagnostics": {
+        "accepted": true,
+        "verifiedShares": 1
       }
     },
     {
@@ -41,12 +51,14 @@
       "model": "llama3.2:fake",
       "source": "fixture/mock",
       "generatedAttempt": true,
-      "accepted": false,
       "status": "REJECTED",
       "score": {
-        "blocks": 0,
-        "verifiedShares": 0,
+        "blocksProduced": 0,
         "replayPass": true
+      },
+      "diagnostics": {
+        "accepted": false,
+        "verifiedShares": 0
       }
     }
   ]

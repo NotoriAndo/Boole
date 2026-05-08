@@ -218,7 +218,7 @@ if [[ "${BOOLE_TEST_FAST_PREFLIGHT:-0}" == "1" ]]; then
   : > "$EVIDENCE_DIR/boole-agent-mine-hermes-mock.stderr.txt"
   printf 'phase7 preflight check agent-runtime-benchmark: SKIP fast fixture\n' >&2
   cat > "$EVIDENCE_DIR/agent-runtime-benchmark.json" <<'JSON'
-{"ok":true,"rows":[{"name":"boole-agent-fast-fixture","status":"PASS","ok":true,"score":{"blocks":1,"verifiedShares":1,"replayPass":true}}]}
+{"ok":true,"rows":[{"name":"boole-agent-fast-fixture","status":"PASS","ok":true,"score":{"blocksProduced":1,"blockProductionRatePct":100.0,"replayPass":true},"diagnostics":{"verifiedShares":1}}]}
 JSON
   : > "$EVIDENCE_DIR/agent-runtime-benchmark.stderr.txt"
 else
@@ -425,18 +425,24 @@ def normalize_model_row(row):
     result = row.get("result") if isinstance(row.get("result"), dict) else {}
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
     totals = summary.get("totals") if isinstance(summary.get("totals"), dict) else {}
+    summary_diagnostics = summary.get("diagnostics") if isinstance(summary.get("diagnostics"), dict) else {}
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     score = row.get("score") if isinstance(row.get("score"), dict) else {}
     accepted = row.get("accepted")
     if accepted is None and "accepted" in totals:
         accepted = int(totals.get("accepted") or 0) > 0
+    if accepted is None and int(totals.get("blocksProduced") or 0) > 0:
+        accepted = True
+    diagnostics = row.get("diagnostics") if isinstance(row.get("diagnostics"), dict) else {}
     generated_attempt = row.get("generatedAttempt")
     if generated_attempt is None and "generatedAttempts" in totals:
         generated_attempt = int(totals.get("generatedAttempts") or 0) > 0
     normalized_score = {
-        "blocks": int(score.get("blocks") or totals.get("blocksProduced") or 0),
-        "verifiedShares": int(score.get("verifiedShares") or totals.get("verifiedShares") or totals.get("accepted") or 0),
+        "blocksProduced": int(score.get("blocksProduced") or score.get("blocks") or totals.get("blocksProduced") or 0),
         "replayPass": bool(score.get("replayPass") or summary.get("replayPassed") is True),
+    }
+    normalized_diagnostics = {
+        "verifiedShares": int(diagnostics.get("verifiedShares") or summary_diagnostics.get("verifiedShares") or totals.get("verifiedShares") or totals.get("accepted") or 0),
     }
     return {
         "name": row.get("name"),
@@ -444,6 +450,7 @@ def normalize_model_row(row):
         "ok": row.get("ok"),
         "skipped": row.get("skipped"),
         "score": normalized_score,
+        "diagnostics": normalized_diagnostics,
         "provider": row.get("provider") or metadata.get("provider"),
         "model": row.get("model") or metadata.get("model"),
         "generatedAttempt": generated_attempt,

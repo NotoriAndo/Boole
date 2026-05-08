@@ -4,6 +4,8 @@ Sample benchmark artifact for public docs. This is fixture/mock evidence for the
 
 - sampleOnly: true
 - claim boundary: pipeline sample, not real model performance
+- public score: blockProductionRate = blocksProduced / generatedAttempts
+- blockProductionRate: 1/2 (50.00%)
 - replay: PASS
 - invalid accepted: 0
 - chain divergence: 0
@@ -17,9 +19,8 @@ Sample benchmark artifact for public docs. This is fixture/mock evidence for the
 - source: fixture/mock
 - status: ACCEPTED
 - generatedAttempt: true
-- accepted: true
-- blocks: 1
-- verifiedShares: 1
+- blocksProduced: 1
+- blockProduced: true
 - replayPass: true
 
 ### 2. ollama-llama3-2-fake-rejected
@@ -29,7 +30,6 @@ Sample benchmark artifact for public docs. This is fixture/mock evidence for the
 - source: fixture/mock
 - status: REJECTED
 - generatedAttempt: true
-- accepted: false
-- blocks: 0
-- verifiedShares: 0
+- blocksProduced: 0
+- blockProduced: false
 - replayPass: true

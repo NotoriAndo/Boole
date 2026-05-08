@@ -58,33 +58,68 @@ def missing_env(row: dict[str, Any]) -> list[str]:
     return [name for name in row.get("requireEnv", []) if isinstance(name, str) and not os.environ.get(name)]
 
 
-def score_from_result(parsed: dict[str, Any] | None) -> dict[str, Any]:
+def blocks_produced_from_result(parsed: dict[str, Any] | None) -> int:
     data = parsed or {}
     summary = data.get("summary") or {}
     status = data.get("status") or {}
     aggregate = data.get("aggregate") or {}
-    safety = data.get("safety") or {}
-    blocks = int(
+    return int(
         status.get("height")
         or summary.get("blocksMined")
         or summary.get("blocksProduced")
         or aggregate.get("blocksProduced")
         or 0
     )
-    verified = int(
+
+
+def verified_shares_from_result(parsed: dict[str, Any] | None) -> int:
+    data = parsed or {}
+    summary = data.get("summary") or {}
+    aggregate = data.get("aggregate") or {}
+    return int(
         summary.get("verifyAccepted")
         or aggregate.get("verifyAccepted")
         or summary.get("sharesAccepted")
         or aggregate.get("sharesAccepted")
         or 0
     )
-    replay_pass = bool(
+
+
+def replay_pass_from_result(parsed: dict[str, Any] | None) -> bool:
+    data = parsed or {}
+    status = data.get("status") or {}
+    safety = data.get("safety") or {}
+    return bool(
         status.get("replayMatchesRuntime")
         or data.get("replayMatchesRuntime")
         or safety.get("replayMatchesRuntime")
         or False
     )
-    return {"blocks": blocks, "verifiedShares": verified, "replayPass": replay_pass}
+
+
+def score_from_result(parsed: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "blocksProduced": blocks_produced_from_result(parsed),
+        "replayPass": replay_pass_from_result(parsed),
+    }
+
+
+def diagnostics_from_result(parsed: dict[str, Any] | None) -> dict[str, Any]:
+    return {"verifiedShares": verified_shares_from_result(parsed)}
+
+
+def zero_score(*, replay_pass: bool = True) -> dict[str, Any]:
+    return {"blocksProduced": 0, "replayPass": replay_pass}
+
+
+def zero_diagnostics() -> dict[str, Any]:
+    return {"verifiedShares": 0}
+
+
+def block_production_rate_pct(*, blocks_produced: int, generated_attempts: int) -> float:
+    if generated_attempts <= 0:
+        return 0.0
+    return round((blocks_produced / generated_attempts) * 100.0, 2)
 
 
 def safety_from_result(parsed: dict[str, Any] | None) -> dict[str, int]:
@@ -124,7 +159,8 @@ def run_row(row: dict[str, Any], timeout_s: int) -> dict[str, Any]:
             "reason": "missing_required_env",
             "missingEnv": required_missing,
             "elapsedMs": 0,
-            "score": {"blocks": 0, "verifiedShares": 0, "replayPass": False},
+            "score": zero_score(replay_pass=False),
+            "diagnostics": zero_diagnostics(),
             "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
         }
 
@@ -157,6 +193,7 @@ def run_row(row: dict[str, Any], timeout_s: int) -> dict[str, Any]:
         "exitCode": proc.returncode,
         "elapsedMs": elapsed_ms,
         "score": score_from_result(parsed),
+        "diagnostics": diagnostics_from_result(parsed),
         "safety": safety_from_result(parsed),
         "result": parsed,
         "stderrTail": proc.stderr[-1200:],
@@ -253,7 +290,8 @@ def rejected_candidate_shape_row(*, target: str, provider: str, model: str, atte
         "invalidAccepted": False,
         "elapsedMs": elapsed_ms,
         "latencyMs": elapsed_ms,
-        "score": {"blocks": 0, "verifiedShares": 0, "replayPass": True},
+        "score": zero_score(),
+        "diagnostics": zero_diagnostics(),
         "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
         "verifier": {"invoked": False, "command": "submit-lean"},
         "stderrTail": stderr[-1200:],
@@ -300,7 +338,8 @@ def setup_required_ollama_row(*, target: str, model: str, attempt_index: int, re
         "invalidAccepted": False,
         "elapsedMs": elapsed_ms,
         "latencyMs": elapsed_ms,
-        "score": {"blocks": 0, "verifiedShares": 0, "replayPass": True},
+        "score": zero_score(),
+        "diagnostics": zero_diagnostics(),
         "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
         "stderrTail": stderr[-1200:],
         "stdoutTail": stdout[-1200:],
@@ -335,7 +374,8 @@ def setup_required_claude_cli_row(*, target: str, model: str, attempt_index: int
         "invalidAccepted": False,
         "elapsedMs": elapsed_ms,
         "latencyMs": elapsed_ms,
-        "score": {"blocks": 0, "verifiedShares": 0, "replayPass": True},
+        "score": zero_score(),
+        "diagnostics": zero_diagnostics(),
         "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
         "stderrTail": stderr[-1200:],
         "stdoutTail": stdout[-1200:],
@@ -427,7 +467,8 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
             "shareAccepted": False,
             "replayMatchesRuntime": True,
             "invalidAccepted": 0,
-            "score": {"blocks": 0, "verifiedShares": 0, "replayPass": True},
+            "score": zero_score(),
+            "diagnostics": zero_diagnostics(),
             "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
         }
 
@@ -484,7 +525,8 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
         "checkerArtifactHash": required_checker_hash,
         "proofSha256": hashlib.sha256(candidate.encode("utf-8")).hexdigest(),
         "result": parsed,
-        "score": {"blocks": blocks, "verifiedShares": verified, "replayPass": replay_matches},
+        "score": {"blocksProduced": blocks, "replayPass": replay_matches},
+        "diagnostics": {"verifiedShares": verified},
         "safety": {"invalidAccepted": invalid_accepted, "chainDivergence": 0, "replayFailures": 0 if replay_matches else 1},
         "stderrTail": proc.stderr[-1200:],
         "stdoutTail": proc.stdout[-1200:],
@@ -539,7 +581,8 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                     "invalidAccepted": False,
                     "elapsedMs": elapsed_ms,
                     "latencyMs": elapsed_ms,
-                    "score": {"blocks": 0, "verifiedShares": 0, "replayPass": True},
+                    "score": zero_score(),
+                    "diagnostics": zero_diagnostics(),
                     "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
                     "verifier": {"invoked": False, "command": "submit-lean"},
                     "stderrTail": str(err)[-1200:],
@@ -600,7 +643,8 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                 timeout_s=timeout_s,
             )
         accepted = bool((verifier or {}).get("accepted"))
-        score = (verifier or {}).get("score") or {"blocks": 0, "verifiedShares": 0, "replayPass": True}
+        score = (verifier or {}).get("score") or zero_score()
+        diagnostics = (verifier or {}).get("diagnostics") or zero_diagnostics()
         safety = (verifier or {}).get("safety") or {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0}
         rows.append(
             {
@@ -625,6 +669,7 @@ def run_ollama_attempts(*, target: str, ollama_command: str, attempts: int, time
                 "elapsedMs": elapsed_ms,
                 "latencyMs": elapsed_ms,
                 "score": score,
+                "diagnostics": diagnostics,
                 "safety": safety,
                 "verifier": verifier or {"invoked": False, "command": "submit-lean"},
                 "stderrTail": ((verifier or {}).get("stderrTail") or proc.stderr)[-1200:],
@@ -683,7 +728,8 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
                     "invalidAccepted": False,
                     "elapsedMs": elapsed_ms,
                     "latencyMs": elapsed_ms,
-                    "score": {"blocks": 0, "verifiedShares": 0, "replayPass": True},
+                    "score": zero_score(),
+                    "diagnostics": zero_diagnostics(),
                     "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
                     "verifier": {"invoked": False, "command": "submit-lean"},
                     "stderrTail": str(err)[-1200:],
@@ -744,7 +790,8 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
                 timeout_s=timeout_s,
             )
         accepted = bool((verifier or {}).get("accepted"))
-        score = (verifier or {}).get("score") or {"blocks": 0, "verifiedShares": 0, "replayPass": True}
+        score = (verifier or {}).get("score") or zero_score()
+        diagnostics = (verifier or {}).get("diagnostics") or zero_diagnostics()
         safety = (verifier or {}).get("safety") or {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0}
         rows.append(
             {
@@ -769,6 +816,7 @@ def run_claude_cli_attempts(*, target: str, claude_command: str, attempts: int, 
                 "elapsedMs": elapsed_ms,
                 "latencyMs": elapsed_ms,
                 "score": score,
+                "diagnostics": diagnostics,
                 "safety": safety,
                 "verifier": verifier or {"invoked": False, "command": "submit-lean"},
                 "stderrTail": ((verifier or {}).get("stderrTail") or proc.stderr)[-1200:],
@@ -786,8 +834,7 @@ def leaderboard_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         key=lambda row: (
             0 if row.get("skipped") else 1,
             1 if row.get("ok") else 0,
-            int(row.get("score", {}).get("blocks", 0)),
-            int(row.get("score", {}).get("verifiedShares", 0)),
+            int(row.get("score", {}).get("blocksProduced", 0)),
             -int(row.get("elapsedMs", 0)),
         ),
         reverse=True,
@@ -802,8 +849,9 @@ def render_leaderboard(summary: dict[str, Any], rows: list[dict[str, Any]]) -> s
         "",
         f"- runId: `{summary['runId']}`",
         f"- ok: `{str(summary['ok']).lower()}`",
-        f"- verifiedShares: `{summary['totals']['verifiedShares']}`",
+        f"- blockProductionRate: `{summary['totals']['blocksProduced']}/{summary['totals']['generatedAttempts']} ({summary['totals']['blockProductionRatePct']:.2f}%)`",
         f"- blocksProduced: `{summary['totals']['blocksProduced']}`",
+        f"- generatedAttempts: `{summary['totals']['generatedAttempts']}`",
         f"- replayPassed: `{str(summary['replayPassed']).lower()}`",
         f"- invalidAccepted: `{summary['safety']['invalidAccepted']}`",
         "",
@@ -819,10 +867,9 @@ def render_leaderboard(summary: dict[str, Any], rows: list[dict[str, Any]]) -> s
                 f"- provider: `{row.get('provider') or row.get('metadata', {}).get('provider', '')}`",
                 f"- model: `{row.get('model') or row.get('metadata', {}).get('model', '')}`",
                 f"- generatedAttempt: `{str(row.get('generatedAttempt') is True).lower()}`",
-                f"- accepted: `{str(row.get('accepted') is True).lower()}`",
                 f"- invalidAccepted: `{str(row.get('invalidAccepted') is True).lower()}`",
-                f"- blocks: `{score.get('blocks', 0)}`",
-                f"- verifiedShares: `{score.get('verifiedShares', 0)}`",
+                f"- blocksProduced: `{score.get('blocksProduced', 0)}`",
+                f"- blockProduced: `{str(int(score.get('blocksProduced', 0)) > 0).lower()}`",
                 f"- replayPass: `{str(score.get('replayPass') is True).lower()}`",
                 f"- elapsedMs: `{row.get('elapsedMs', 0)}`",
                 "",
@@ -838,6 +885,8 @@ def summarize(rows: list[dict[str, Any]], run_id: str, generated_at_ms: int) -> 
         "replayFailures": sum(int(row.get("safety", {}).get("replayFailures", 0)) for row in rows),
     }
     active_rows = [row for row in rows if not row.get("skipped")]
+    generated_attempts = sum(1 for row in rows if row.get("generatedAttempt") is True)
+    blocks_produced = sum(int(row.get("score", {}).get("blocksProduced", 0)) for row in rows)
     replay_passed = bool(active_rows) and all(row.get("score", {}).get("replayPass") is True for row in active_rows)
     ok = all(row.get("ok") is True for row in rows) and safety == {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0}
     return {
@@ -853,10 +902,20 @@ def summarize(rows: list[dict[str, Any]], run_id: str, generated_at_ms: int) -> 
             "setupRequired": sum(1 for row in rows if row.get("status") == "SETUP_REQUIRED"),
             "failed": sum(1 for row in rows if row.get("status") == "FAIL"),
             "rejected": sum(1 for row in rows if row.get("status") == "REJECTED"),
+            "generatedAttempts": generated_attempts,
+            "blocksProduced": blocks_produced,
+            "blockProductionRatePct": block_production_rate_pct(blocks_produced=blocks_produced, generated_attempts=generated_attempts),
+        },
+        "publicScore": {
+            "primaryMetric": "blockProductionRatePct",
+            "formula": "blocksProduced / generatedAttempts * 100",
+            "blocksProduced": blocks_produced,
+            "generatedAttempts": generated_attempts,
+            "blockProductionRatePct": block_production_rate_pct(blocks_produced=blocks_produced, generated_attempts=generated_attempts),
+        },
+        "diagnostics": {
             "accepted": sum(1 for row in rows if row.get("accepted") is True),
-            "generatedAttempts": sum(1 for row in rows if row.get("generatedAttempt") is True),
-            "blocksProduced": sum(int(row.get("score", {}).get("blocks", 0)) for row in rows),
-            "verifiedShares": sum(int(row.get("score", {}).get("verifiedShares", 0)) for row in rows),
+            "verifiedShares": sum(int(row.get("diagnostics", {}).get("verifiedShares", 0)) for row in rows),
         },
         "safety": safety,
         "replayPassed": replay_passed,
