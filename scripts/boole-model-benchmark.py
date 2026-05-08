@@ -351,11 +351,11 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
             "safety": {"invalidAccepted": 0, "chainDivergence": 0, "replayFailures": 0},
         }
 
-    workspace = candidate_root / f"attempt-{attempt_index + 1}"
+    workspace = (candidate_root / f"attempt-{attempt_index + 1}").resolve()
     write_lean_checker_workspace(workspace)
-    proof_path = workspace / "ModelCandidate.lean"
+    proof_path = (workspace / "ModelCandidate.lean").resolve()
     proof_path.write_text(candidate + "\n", encoding="utf-8")
-    block_store = workspace / "blockstore.ndjson"
+    block_store = (workspace / "blockstore.ndjson").resolve()
     required_checker_hash = checker_artifact_hash(workspace)
     verifier_hash = "boole-model-benchmark-ollama-v0"
     started = time.time()
