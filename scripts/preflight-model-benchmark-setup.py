@@ -27,7 +27,7 @@ class ModelRow:
     kind: str = "provider-model"
     timeout_sec: int = 900
 
-    def to_benchmark_row(self, *, benchmark_command: str = "", ollama_command: str = "", submit_lean_command: str = "", artifact_root: str = "") -> dict[str, Any]:
+    def to_benchmark_row(self, *, benchmark_command: str = "", ollama_command: str = "", submit_lean_command: str = "", node_url: str = "", artifact_root: str = "") -> dict[str, Any]:
         if self.backend == "mock":
             return {
                 "name": self.name,
@@ -59,6 +59,8 @@ class ModelRow:
                 command.extend(["--ollama-command", ollama_command])
             if submit_lean_command:
                 command.extend(["--submit-lean-command", submit_lean_command])
+            if node_url:
+                command.extend(["--node-url", node_url])
             return {
                 "name": row_name,
                 "kind": self.kind,
@@ -183,6 +185,7 @@ def main() -> None:
     parser.add_argument("--benchmark-command", default="", help="Override Ollama rows with this runner command, e.g. python3 scripts/boole-model-benchmark.py.")
     parser.add_argument("--ollama-command", default="", help="Ollama command override forwarded to benchmark-command Ollama rows.")
     parser.add_argument("--submit-lean-command", default="", help="submit-lean command override forwarded to benchmark-command Ollama rows.")
+    parser.add_argument("--node-url", default="", help="Local node URL forwarded to benchmark-command Ollama rows for controlled node HTTP submit evidence.")
     parser.add_argument("--artifact-root", default="", help="Artifact root for benchmark-command per-model outputs.")
     parser.add_argument("--print-spec", action="store_true", help="Print the benchmark spec JSON array.")
     parser.add_argument("--list", action="store_true", help="Print a safe human-readable model list with credential presence only.")
@@ -197,6 +200,7 @@ def main() -> None:
             benchmark_command=args.benchmark_command,
             ollama_command=args.ollama_command,
             submit_lean_command=args.submit_lean_command,
+            node_url=args.node_url,
             artifact_root=args.artifact_root,
         )
         for row in rows

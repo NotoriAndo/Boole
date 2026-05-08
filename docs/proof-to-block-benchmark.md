@@ -188,7 +188,7 @@ row.miningPath.replayPassed
 summary.attemptHierarchy = generatedAttempts -> verifierAccepted -> verifiedShares -> blocksProduced
 ```
 
-When `--node-url <local-node-base-url>` is provided together with `--submit-lean-command`, the benchmark does not stop at the standalone `submit-lean` runtime result. `submit-lean` emits the deterministic canonical `submissionBody` plus `canonTag`; the benchmark POSTs `{ body, canonTag }` to `<node-url>/submit`, records `row.verifier.nodeHttp`, and uses the local node HTTP response for `shareAccepted`, `blockProduced`, and replay scoring. This is the controlled-local-node path, not a public-network mining claim.
+When `--node-url <local-node-base-url>` is provided together with `--submit-lean-command`, the benchmark does not stop at the standalone `submit-lean` runtime result. `submit-lean` emits the deterministic canonical `submissionBody` plus `canonTag`; the benchmark POSTs `{ body, canonTag }` to `<node-url>/submit`, records `row.verifier.nodeHttp`, and uses the local node HTTP response for `shareAccepted`, `blockProduced`, and replay scoring. The same option can be forwarded from `boole-preflight-wizard.py`, `phase7-solo-preflight.sh`, and `preflight-model-benchmark.sh` so one-command preflight runs can preserve node-path evidence. This is the controlled-local-node path, not a public-network mining claim.
 
 This keeps the public claim precise: generation is only the first step, verifier acceptance is narrower, verified shares are diagnostic, and only calibrated block production is the public score.
 

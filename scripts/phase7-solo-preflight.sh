@@ -15,11 +15,12 @@ ATTEMPTS_PER_MODEL="${ATTEMPTS_PER_MODEL:-}"
 MODEL_BENCHMARK_COMMAND="${MODEL_BENCHMARK_COMMAND:-}"
 OLLAMA_COMMAND="${BOOLE_OLLAMA_COMMAND:-}"
 SUBMIT_LEAN_COMMAND="${BOOLE_SUBMIT_LEAN_COMMAND:-}"
+NODE_URL="${BOOLE_NODE_URL:-}"
 SKIP_HARDENING_CHECKS="${SKIP_HARDENING_CHECKS:-0}"
 
 usage() {
   cat <<'EOF'
-Usage: phase7-solo-preflight.sh [--config PATH] [--evidence-dir DIR] [--run-hermes-real] [--run-model-benchmark] [--model-preset mock|frontier|oauth|ollama|all] [--model-include TERM] [--ollama-model MODEL] [--model-benchmark-command CMD] [--ollama-command CMD] [--submit-lean-command CMD] [--genesis-benchmark] [--attempts-per-model N] [--skip-hardening-checks]
+Usage: phase7-solo-preflight.sh [--config PATH] [--evidence-dir DIR] [--run-hermes-real] [--run-model-benchmark] [--model-preset mock|frontier|oauth|ollama|all] [--model-include TERM] [--ollama-model MODEL] [--model-benchmark-command CMD] [--ollama-command CMD] [--submit-lean-command CMD] [--node-url URL] [--genesis-benchmark] [--attempts-per-model N] [--skip-hardening-checks]
 
 Runs the local Phase 7.0 solo preflight evidence gate and writes captured JSON,
 stderr, and git metadata into an evidence directory. The summary JSON is printed
@@ -68,6 +69,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --submit-lean-command)
       SUBMIT_LEAN_COMMAND="${2:?missing --submit-lean-command value}"
+      shift 2
+      ;;
+    --node-url)
+      NODE_URL="${2:?missing --node-url value}"
       shift 2
       ;;
     --genesis-benchmark)
@@ -240,6 +245,9 @@ if [[ "$RUN_MODEL_BENCHMARK" == "1" ]]; then
   fi
   if [[ -n "$SUBMIT_LEAN_COMMAND" ]]; then
     MODEL_BENCHMARK_ARGS+=(--submit-lean-command "$SUBMIT_LEAN_COMMAND")
+  fi
+  if [[ -n "$NODE_URL" ]]; then
+    MODEL_BENCHMARK_ARGS+=(--node-url "$NODE_URL")
   fi
   if [[ -n "$ATTEMPTS_PER_MODEL" ]]; then
     TRIALS="$ATTEMPTS_PER_MODEL" run_json_check provider-model-live-benchmark ./scripts/preflight-model-benchmark.sh \

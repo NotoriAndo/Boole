@@ -69,9 +69,11 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertIn("--model-benchmark-command)", text)
         self.assertIn("--ollama-command)", text)
         self.assertIn("--submit-lean-command)", text)
+        self.assertIn("--node-url)", text)
         self.assertIn('MODEL_BENCHMARK_ARGS+=(--benchmark-command "$MODEL_BENCHMARK_COMMAND")', text)
         self.assertIn('MODEL_BENCHMARK_ARGS+=(--ollama-command "$OLLAMA_COMMAND")', text)
         self.assertIn('MODEL_BENCHMARK_ARGS+=(--submit-lean-command "$SUBMIT_LEAN_COMMAND")', text)
+        self.assertIn('MODEL_BENCHMARK_ARGS+=(--node-url "$NODE_URL")', text)
     def test_guided_flow_renders_seven_step_onboarding_contract(self) -> None:
         wizard = load_wizard()
         args = argparse.Namespace(
@@ -282,6 +284,7 @@ class PreflightOrchestrationTests(unittest.TestCase):
             model_benchmark_command="/tmp/fake-model-benchmark.py",
             ollama_command="/tmp/fake-ollama.py",
             submit_lean_command="/tmp/fake-submit-lean.py",
+            node_url="http://127.0.0.1:8765",
         )
         wizard.env_status = lambda: {
             "commands": {"ollama": True},
@@ -302,6 +305,8 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertIn("/tmp/fake-ollama.py", preflight)
         self.assertIn("--submit-lean-command", preflight)
         self.assertIn("/tmp/fake-submit-lean.py", preflight)
+        self.assertIn("--node-url", preflight)
+        self.assertIn("http://127.0.0.1:8765", preflight)
 
     def test_frontier_or_everything_requires_explicit_paid_api_confirmation(self) -> None:
         wizard = load_wizard()

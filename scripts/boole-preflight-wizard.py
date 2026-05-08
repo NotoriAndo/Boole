@@ -628,6 +628,8 @@ def reproduce_command(args: argparse.Namespace, preset_name: str) -> str:
         cmd += ["--ollama-command", args.ollama_command]
     if getattr(args, "submit_lean_command", None):
         cmd += ["--submit-lean-command", args.submit_lean_command]
+    if getattr(args, "node_url", None):
+        cmd += ["--node-url", args.node_url]
     model_preset = getattr(args, "model_preset", None)
     if model_preset:
         cmd += ["--model-preset", model_preset]
@@ -863,6 +865,8 @@ def build_plan(args: argparse.Namespace, preset_name: str) -> list[list[str]]:
         preflight += ["--ollama-command", args.ollama_command]
     if getattr(args, "submit_lean_command", None):
         preflight += ["--submit-lean-command", args.submit_lean_command]
+    if getattr(args, "node_url", None):
+        preflight += ["--node-url", args.node_url]
     if getattr(args, "skip_hardening_checks", False):
         preflight.append("--skip-hardening-checks")
     if preset["run_hermes_real"] or args.run_hermes_real:
@@ -942,6 +946,7 @@ def main() -> None:
     parser.add_argument("--model-benchmark-command", help="Override model benchmark runner command for local/fake Ollama tests; forwarded to phase7-solo-preflight.sh.")
     parser.add_argument("--ollama-command", help="Override Ollama command for local/fake benchmark attempts; forwarded without starting a daemon or pulling models.")
     parser.add_argument("--submit-lean-command", help="Override submit-lean verifier command for local/fake generated proof verification.")
+    parser.add_argument("--node-url", help="Forward local node URL to optional controlled model benchmark /submit path.")
     parser.add_argument("--install-claude", action="store_true", help="Install Claude Code command templates regardless of preset.")
     parser.add_argument("--install-codex", action="store_true", help="Install Codex prompt templates regardless of preset.")
     parser.add_argument("--run-hermes-real", action="store_true", help="Include Hermes real proof-to-block row regardless of preset.")
