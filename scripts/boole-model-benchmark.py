@@ -250,9 +250,45 @@ def candidate_preview(text: str, limit: int = 160) -> str:
     return compact[:limit]
 
 
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def normalize_model_output(raw_output: str) -> tuple[str, list[str]]:
+    normalizations: list[str] = []
+    normalized = ANSI_ESCAPE_RE.sub("", raw_output)
+    if normalized != raw_output:
+        normalizations.append("strip-ansi")
+    normalized = normalized.strip()
+    return normalized, normalizations
+
+
+def last_proof_term_line(raw: str) -> str | None:
+    for line in reversed(raw.splitlines()):
+        candidate = line.strip().strip("`")
+        if not candidate:
+            continue
+        lowered = candidate.lower()
+        if lowered.startswith("thinking") or "do not include" in lowered:
+            continue
+        if re.search(r"\b(sorry|admit)\b", lowered):
+            continue
+        if "```" in candidate:
+            continue
+        if re.search(r"^\s*(import|open|namespace|section|def|theorem|lemma|example)\b", candidate):
+            continue
+        if re.search(r"^\s*by\b", candidate):
+            continue
+        if re.search(r"[.!?]$", candidate):
+            continue
+        if not re.search(r"[A-Za-z0-9_\.(){}\[\]:'\"=><,+\-*/\s]+\Z", candidate):
+            continue
+        return candidate
+    return None
+
+
 def extract_proof_term_candidate(raw_output: str) -> tuple[str | None, dict[str, Any], str | None]:
-    raw = raw_output.strip()
-    extraction: dict[str, Any] = {"mode": "proof-term", "format": "raw", "normalization": "none"}
+    raw, normalizations = normalize_model_output(raw_output)
+    extraction: dict[str, Any] = {"mode": "proof-term", "format": "raw", "normalization": "+".join(normalizations) if normalizations else "none"}
     if not raw:
         return None, extraction, "candidate-empty"
 
@@ -278,7 +314,17 @@ def extract_proof_term_candidate(raw_output: str) -> tuple[str | None, dict[str,
 
     lowered = raw.lower()
     if re.search(r"\b(sorry|admit)\b", lowered):
-        return None, extraction, "candidate-forbidden-token"
+        fallback = last_proof_term_line(raw)
+        if fallback is not None:
+            normalization = extraction.get("normalization", "none")
+            extraction.update({
+                "format": "ollama-final-line",
+                "normalization": "last-proof-line" if normalization == "none" else f"{normalization}+last-proof-line",
+            })
+            raw = fallback
+            lowered = raw.lower()
+        else:
+            return None, extraction, "candidate-forbidden-token"
     if "```" in raw:
         return None, extraction, "candidate-shape-invalid"
     if re.search(r"^\s*(import|open|namespace|section|def|theorem|lemma|example)\b", raw, re.MULTILINE):
@@ -547,6 +593,40 @@ def parse_submit_lean_output(proc: subprocess.CompletedProcess[str]) -> dict[str
     return parse_json_output(proc.stdout) or parse_json_output(proc.stderr)
 
 
+def node_head_url(node_url: str) -> str:
+    return node_url.rstrip("/") + "/head"
+
+
+def http_timeout(timeout_s: int | None) -> int | None:
+    return timeout_s if timeout_s and timeout_s > 0 else None
+
+
+def fetch_node_head(*, node_url: str, timeout_s: int | None) -> dict[str, Any]:
+    started = time.time()
+    request = urllib.request.Request(node_head_url(node_url), method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=http_timeout(timeout_s)) as response:  # noqa: S310 - caller-provided local testnet URL
+            response_body = response.read().decode("utf-8")
+            result = json.loads(response_body) if response_body.strip() else {}
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as err:
+        return {
+            "invoked": True,
+            "endpoint": node_head_url(node_url),
+            "elapsedMs": int((time.time() - started) * 1000),
+            "reason": "node_http_head_failed",
+            "error": str(err)[-500:],
+            "c": None,
+        }
+    c = result.get("c")
+    return {
+        "invoked": True,
+        "endpoint": node_head_url(node_url),
+        "elapsedMs": int((time.time() - started) * 1000),
+        "c": c if isinstance(c, str) else None,
+        "result": result,
+    }
+
+
 def node_submit_url(node_url: str) -> str:
     return node_url.rstrip("/") + "/submit"
 
@@ -566,7 +646,7 @@ def post_ticket_to_node(*, node_url: str, submission_body: dict[str, Any], timeo
     )
     started = time.time()
     try:
-        with urllib.request.urlopen(request, timeout=timeout_s) as response:  # noqa: S310 - caller-provided local testnet URL
+        with urllib.request.urlopen(request, timeout=http_timeout(timeout_s)) as response:  # noqa: S310 - caller-provided local testnet URL
             response_body = response.read().decode("utf-8")
             result = json.loads(response_body) if response_body.strip() else {}
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as err:
@@ -611,7 +691,7 @@ def post_submission_to_node(*, node_url: str, parsed: dict[str, Any], timeout_s:
     )
     started = time.time()
     try:
-        with urllib.request.urlopen(request, timeout=timeout_s) as response:  # noqa: S310 - caller-provided local testnet URL
+        with urllib.request.urlopen(request, timeout=http_timeout(timeout_s)) as response:  # noqa: S310 - caller-provided local testnet URL
             response_body = response.read().decode("utf-8")
             result = json.loads(response_body) if response_body.strip() else {}
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as err:
@@ -673,23 +753,27 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
     required_checker_hash = checker_artifact_hash(workspace)
     verifier_hash = "boole-model-benchmark-ollama-v0"
     started = time.time()
+    node_head = fetch_node_head(node_url=node_url, timeout_s=timeout_s) if node_url else {"invoked": False}
+    submit_args = [
+        resolved_submit,
+        "submit-lean",
+        "--proof",
+        str(proof_path),
+        "--checker-dir",
+        str(workspace),
+        "--fixture",
+        "fixtures/protocol/admission/v1.json",
+        "--block-store",
+        str(block_store),
+        "--verifier-hash",
+        verifier_hash,
+        "--require-checker-artifact-hash",
+        required_checker_hash,
+    ]
+    if node_head.get("c"):
+        submit_args.extend(["--head-c", str(node_head["c"])])
     proc = subprocess.run(
-        [
-            resolved_submit,
-            "submit-lean",
-            "--proof",
-            str(proof_path),
-            "--checker-dir",
-            str(workspace),
-            "--fixture",
-            "fixtures/protocol/admission/v1.json",
-            "--block-store",
-            str(block_store),
-            "--verifier-hash",
-            verifier_hash,
-            "--require-checker-artifact-hash",
-            required_checker_hash,
-        ],
+        submit_args,
         cwd=ROOT,
         text=True,
         stdout=subprocess.PIPE,
@@ -731,6 +815,7 @@ def submit_candidate_to_verifier(*, candidate: str, target: str, model: str, att
         "checkerArtifactHash": required_checker_hash,
         "proofSha256": hashlib.sha256(candidate.encode("utf-8")).hexdigest(),
         "result": parsed,
+        "nodeHead": node_head,
         "nodeHttp": node_http or {"invoked": False, "url": node_url},
         "score": {"blocksProduced": blocks, "replayPass": replay_matches},
         "diagnostics": {"verifiedShares": verified},

@@ -144,7 +144,12 @@ impl LeanProofBridge {
             });
         }
 
-        let package_bytes = canonical_pofp_package_from_lean_result(&lean);
+        let proof_source = std::fs::read(proof_path.as_ref()).map_err(|err| ProofBridgeError {
+            kind: "proof_source_read_failed",
+            lean: Box::new(runner_error_result(err.to_string())),
+        })?;
+        let package_bytes =
+            canonical_pofp_package_from_lean_result_and_source(&lean, &proof_source);
         let mut body = Map::new();
         body.insert("c".to_string(), Value::String(template.c.clone()));
         body.insert("pk".to_string(), Value::String(template.pk.clone()));
@@ -181,15 +186,22 @@ impl LeanProofBridge {
 /// recorded POFP-v1 proof package, so deployment must coincide with a
 /// chain reset.
 pub fn canonical_pofp_package_from_lean_result(result: &LeanCheckResult) -> Vec<u8> {
+    canonical_pofp_package_from_lean_result_and_source(result, &[])
+}
+
+pub fn canonical_pofp_package_from_lean_result_and_source(
+    result: &LeanCheckResult,
+    proof_source: &[u8],
+) -> Vec<u8> {
     let mut package = Vec::with_capacity(86);
     package.extend_from_slice(b"POFP");
     package.extend_from_slice(&2u32.to_le_bytes());
     package.extend_from_slice(&0u32.to_le_bytes());
     package.extend_from_slice(&0u32.to_le_bytes());
     package.push(0x19);
-    package.extend_from_slice(&stable_digest(result, b"pofp-v2:type"));
+    package.extend_from_slice(&stable_digest(result, b"pofp-v2:type", proof_source));
     package.push(0x19);
-    package.extend_from_slice(&stable_digest(result, b"pofp-v2:value"));
+    package.extend_from_slice(&stable_digest(result, b"pofp-v2:value", proof_source));
     package.extend_from_slice(&0u32.to_le_bytes());
     package
 }
@@ -217,7 +229,7 @@ fn runner_error_result(error: String) -> LeanCheckResult {
     }
 }
 
-fn stable_digest(result: &LeanCheckResult, domain: &[u8]) -> [u8; 32] {
+fn stable_digest(result: &LeanCheckResult, domain: &[u8], proof_source: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(domain);
     hasher.update(result.evidence.verifier_hash.as_bytes());
@@ -225,5 +237,7 @@ fn stable_digest(result: &LeanCheckResult, domain: &[u8]) -> [u8; 32] {
     hasher.update(result.evidence.lean_version.as_bytes());
     hasher.update(result.evidence.lake_version.as_bytes());
     hasher.update(result.stdout.as_bytes());
+    hasher.update(b"\0proof-source\0");
+    hasher.update(proof_source);
     hasher.finalize().into()
 }

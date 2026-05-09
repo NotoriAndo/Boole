@@ -921,6 +921,112 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             self.assertIn("--model", invocation)
             self.assertIn("sonnet", invocation)
 
+    def test_extractor_handles_ollama_thinking_prompt_echo_and_final_proof_line(self) -> None:
+        benchmark = load_benchmark()
+        raw = "\x1b[?25lThinking...\nI should follow the instruction: do not include explanations, JSON, markdown fences, by, sorry, or admit.\n\x1b[?25h\nrfl\n"
+
+        candidate, extraction, reason = benchmark.extract_proof_term_candidate(raw)
+
+        self.assertIsNone(reason)
+        self.assertEqual(candidate, "rfl")
+        self.assertEqual(extraction["format"], "ollama-final-line")
+        self.assertIn("strip-ansi", extraction["normalization"])
+
+    def test_node_url_fetches_current_head_and_passes_it_to_submit_lean(self) -> None:
+        requests: list[dict[str, object]] = []
+        node_head = "ab" * 32
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 - stdlib handler hook
+                requests.append({"method": "GET", "path": self.path})
+                if self.path != "/head":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                payload = json.dumps({"ok": True, "c": node_head}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def do_POST(self) -> None:  # noqa: N802 - stdlib handler hook
+                length = int(self.headers.get("content-length", "0"))
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                requests.append({"method": "POST", "path": self.path, "body": body})
+                payload = json.dumps({"ok": True, "accepted": True, "shareHash": "cd" * 32, "block": None, "replayMatchesRuntime": True, "invalidAccepted": 0}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.send_header("content-length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, _format: str, *_args: object) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                fake_ollama = tmp_path / "fake-ollama.py"
+                fake_ollama.write_text("#!/usr/bin/env python3\nprint('rfl')\n", encoding="utf-8")
+                fake_ollama.chmod(0o755)
+                submit_args_log = tmp_path / "submit-args.json"
+                fake_submit = tmp_path / "fake-submit-lean.py"
+                fake_submit.write_text(
+                    "#!/usr/bin/env python3\n"
+                    "import json, pathlib, sys\n"
+                    "args = sys.argv[1:]\n"
+                    f"pathlib.Path({str(submit_args_log)!r}).write_text(json.dumps(args))\n"
+                    "head = args[args.index('--head-c') + 1]\n"
+                    "print(json.dumps({'ok': True, 'command': 'submit-lean', 'accepted': True, 'shareAccepted': True, 'replayMatchesRuntime': True, 'invalidAccepted': 0, 'canonTag': 0, 'submissionBody': {'c': head, 'pk': '11'*32, 'n': '1', 'j': '0', 'nonceS': '2', 'bytes': '504f4650'}, 'block': None}))\n",
+                    encoding="utf-8",
+                )
+                fake_submit.chmod(0o755)
+                out_dir = tmp_path / "model-benchmark"
+                node_url = f"http://127.0.0.1:{server.server_port}"
+
+                proc = subprocess.run(
+                    [
+                        "python3",
+                        str(BENCHMARK_PATH),
+                        "--target",
+                        "ollama:qwen2.5-coder:7b",
+                        "--ollama-command",
+                        str(fake_ollama),
+                        "--submit-lean-command",
+                        str(fake_submit),
+                        "--node-url",
+                        node_url,
+                        "--attempts",
+                        "1",
+                        "--output-dir",
+                        str(out_dir),
+                        "--run-id",
+                        "node-head-aligned-run",
+                    ],
+                    cwd=ROOT,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
+
+                self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+                submit_args = json.loads(submit_args_log.read_text())
+                rows = [json.loads(line) for line in (out_dir / "benchmark-rows.ndjson").read_text().splitlines()]
+                self.assertIn("--head-c", submit_args)
+                self.assertEqual(submit_args[submit_args.index("--head-c") + 1], node_head)
+                self.assertEqual([request["path"] for request in requests], ["/head", "/submit"])
+                self.assertEqual(requests[1]["body"]["body"]["c"], node_head)
+                self.assertTrue(rows[0]["verifier"]["nodeHead"]["invoked"])
+                self.assertEqual(rows[0]["verifier"]["nodeHead"]["c"], node_head)
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_missing_ollama_model_records_setup_required_without_auto_pull(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

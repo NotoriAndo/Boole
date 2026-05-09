@@ -120,6 +120,7 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
         .transpose()?
         .unwrap_or(8192);
     let ip_override = take_optional_flag_value(&mut args, "--ip")?;
+    let head_c_override = take_optional_flag_value(&mut args, "--head-c")?;
     let difficulty_mode = take_optional_flag_value(&mut args, "--difficulty-mode")?
         .unwrap_or_else(|| "fixture".to_string());
     if !matches!(difficulty_mode.as_str(), "fixture" | "preflight-easy") {
@@ -149,7 +150,7 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
         bridge_policy,
     );
     let template = ProofSubmissionTemplate {
-        c: fixture.constants.c.clone(),
+        c: head_c_override.unwrap_or_else(|| fixture.constants.c.clone()),
         pk: fixture.constants.pk.clone(),
         n: fixture.constants.n.clone(),
         j: fixture.constants.j.clone(),
@@ -178,7 +179,7 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
     let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
         .map_err(|err| anyhow::anyhow!(err))?;
     let mut runtime = RuntimeAdmissionState::new(config);
-    runtime.set_current_c(fixture.constants.c.clone());
+    runtime.set_current_c(template.c.clone());
     runtime
         .observe_ticket_from_body(&bridged.body)
         .map_err(|err| anyhow::anyhow!(err))?;
@@ -331,7 +332,7 @@ fn run_agent_proof_command(mut args: Vec<String>) -> anyhow::Result<()> {
 
 fn print_help() {
     println!(
-        "boole-node\n\ncommands:\n  runtime-smoke --scenario <path>|--fixture <path> --block-store <path>\n  run-local [--addr 127.0.0.1:8080] [--scenario <path>] [--block-store <path>] [--max-requests <n>]\n  submit-lean --proof <path> --block-store <path> [--checker-dir <path>] [--fixture <path>] [--verifier-hash <hash>] [--difficulty-mode fixture|preflight-easy]\n  agent-proof --backend fixture-valid|fixture-invalid --out-dir <path>"
+        "boole-node\n\ncommands:\n  runtime-smoke --scenario <path>|--fixture <path> --block-store <path>\n  run-local [--addr 127.0.0.1:8080] [--scenario <path>] [--block-store <path>] [--max-requests <n>]\n  submit-lean --proof <path> --block-store <path> [--checker-dir <path>] [--fixture <path>] [--verifier-hash <hash>] [--head-c <64-hex>] [--difficulty-mode fixture|preflight-easy]\n  agent-proof --backend fixture-valid|fixture-invalid --out-dir <path>"
     );
 }
 

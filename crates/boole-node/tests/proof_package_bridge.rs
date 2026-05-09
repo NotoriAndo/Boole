@@ -177,6 +177,62 @@ fn lean_checked_proof_package_is_admitted_as_block_and_replays() {
 }
 
 #[test]
+fn lean_bridge_binds_proof_source_into_canonical_package() {
+    if !lake_and_lean_available() {
+        eprintln!("skipping Lean proof bridge source-binding test: lake/lean unavailable");
+        return;
+    }
+    let fixture = easy_runtime_fixture();
+    let workspace = TestLeanWorkspace::new("bridge-source-binding");
+    workspace.write_checker_project();
+    let first_proof = workspace.write_proof(
+        "FirstProof.lean",
+        r#"theorem boole_bridge_source_binding_first : "aaa" = "aaa" :=
+  rfl
+"#,
+    );
+    let second_proof = workspace.write_proof(
+        "SecondProof.lean",
+        r#"theorem boole_bridge_source_binding_second : "bbb" = "bbb" :=
+  rfl
+"#,
+    );
+
+    let base_config = LeanRunnerConfig::new("bridge-verifier-hash")
+        .with_package_dir(workspace.root.clone())
+        .with_timeout_ms(5_000)
+        .with_memory_limit_mb(8192);
+    let expected_artifact_hash = LeanRunner::new(base_config.clone())
+        .evidence()
+        .expect("evidence hashes checker before bridge construction")
+        .checker_artifact_hash;
+    let bridge = LeanProofBridge::new_with_policy(
+        LeanRunner::new(base_config),
+        LeanProofBridgePolicy::new()
+            .require_verifier_hash("bridge-verifier-hash")
+            .allow_checker_artifact_hash(expected_artifact_hash),
+    );
+    let template = template_from_fixture(&fixture.constants);
+
+    let first = bridge
+        .build_submission_body(&first_proof, &template)
+        .expect("first proof accepted");
+    let second = bridge
+        .build_submission_body(&second_proof, &template)
+        .expect("second proof accepted");
+
+    assert_ne!(
+        first.package_bytes, second.package_bytes,
+        "distinct per-attempt proof sources must not collapse to one canonical package"
+    );
+    assert_ne!(
+        first.body.get("bytes"),
+        second.body.get("bytes"),
+        "submission body bytes must bind the proof source"
+    );
+}
+
+#[test]
 fn lean_bridge_rejects_checker_artifact_not_in_allowlist_before_submission_body() {
     if !lake_and_lean_available() {
         eprintln!("skipping Lean proof bridge artifact guard test: lake/lean unavailable");
