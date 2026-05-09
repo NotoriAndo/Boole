@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -608,7 +609,7 @@ def fetch_node_head(*, node_url: str, timeout_s: int | None) -> dict[str, Any]:
         with urllib.request.urlopen(request, timeout=http_timeout(timeout_s)) as response:  # noqa: S310 - caller-provided local testnet URL
             response_body = response.read().decode("utf-8")
             result = json.loads(response_body) if response_body.strip() else {}
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as err:
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, http.client.RemoteDisconnected) as err:
         return {
             "invoked": True,
             "endpoint": node_head_url(node_url),
@@ -649,7 +650,7 @@ def post_ticket_to_node(*, node_url: str, submission_body: dict[str, Any], timeo
         with urllib.request.urlopen(request, timeout=http_timeout(timeout_s)) as response:  # noqa: S310 - caller-provided local testnet URL
             response_body = response.read().decode("utf-8")
             result = json.loads(response_body) if response_body.strip() else {}
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as err:
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, http.client.RemoteDisconnected) as err:
         return {
             "invoked": True,
             "endpoint": node_ticket_url(node_url),
@@ -694,7 +695,7 @@ def post_submission_to_node(*, node_url: str, parsed: dict[str, Any], timeout_s:
         with urllib.request.urlopen(request, timeout=http_timeout(timeout_s)) as response:  # noqa: S310 - caller-provided local testnet URL
             response_body = response.read().decode("utf-8")
             result = json.loads(response_body) if response_body.strip() else {}
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as err:
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, http.client.RemoteDisconnected) as err:
         return {
             "invoked": True,
             "url": node_url,
