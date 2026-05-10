@@ -68,7 +68,12 @@ fn min_share_score_multiplier_nanos(report: &CalibrationReport) -> Result<u64, S
     parse_decimal_nanos(&report.MinShareScoreMultiplier.to_string())
 }
 
-fn parse_decimal_nanos(raw: &str) -> Result<u64, String> {
+/// Parse a non-negative decimal numeral (e.g. "1", "1.0", "0.5") into a
+/// fixed-point u64 measured in nanos (10⁻⁹). Used by both the calibration
+/// validator and downstream consumers (e.g. `boole-miner`'s `/head` parser)
+/// that need to read `MinShareScoreMultiplier`-style decimal fields without
+/// duplicating this logic.
+pub fn parse_decimal_nanos(raw: &str) -> Result<u64, String> {
     if raw.starts_with('-') {
         return Err("MinShareScoreMultiplier must be > 0".to_string());
     }

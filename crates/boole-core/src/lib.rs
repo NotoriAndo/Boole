@@ -51,8 +51,8 @@ pub use bounty_registry::{
 pub use bounty_side_pool::{BountyShare, BountySidePool};
 pub use canonical_json::canonicalize;
 pub use config::{
-    calibration_policy, calibration_thresholds, hex_to_biguint, validate_calibration_report,
-    CalibrationPolicy, CalibrationReport, CalibrationThresholds,
+    calibration_policy, calibration_thresholds, hex_to_biguint, parse_decimal_nanos,
+    validate_calibration_report, CalibrationPolicy, CalibrationReport, CalibrationThresholds,
 };
 pub use difficulty::{
     expected_retarget_difficulty_for_height, retarget_t_block, validate_retargeted_difficulty,

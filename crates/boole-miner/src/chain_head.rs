@@ -15,7 +15,7 @@ use num_bigint::BigUint;
 use serde_json::Value;
 use thiserror::Error;
 
-use boole_core::{min_share_score, parse_biguint_hex, Hex32};
+use boole_core::{min_share_score, parse_biguint_hex, parse_decimal_nanos, Hex32};
 
 use crate::http_client::{HttpClient, HttpError};
 
@@ -109,10 +109,15 @@ impl HttpChainHeadFetcher {
         let t_block = parse_hex_field(obj, "T_block")?;
         let t_submit = parse_hex_field(obj, "T_submit")?;
 
-        let multiplier_nanos = obj
+        let multiplier_raw = obj
             .get("MinShareScoreMultiplier")
-            .and_then(Value::as_u64)
             .ok_or(ChainHeadError::MissingField("MinShareScoreMultiplier"))?;
+        let multiplier_nanos = parse_decimal_nanos(&multiplier_raw.to_string()).map_err(|e| {
+            ChainHeadError::InvalidField {
+                field: "MinShareScoreMultiplier",
+                detail: e,
+            }
+        })?;
         let m = obj
             .get("M")
             .and_then(Value::as_u64)

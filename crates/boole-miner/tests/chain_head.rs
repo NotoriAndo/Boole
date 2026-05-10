@@ -31,7 +31,7 @@ fn valid_head_body() -> &'static [u8] {
         "T_share": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
         "T_block": "00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
         "T_submit": "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-        "MinShareScoreMultiplier": 1000000000,
+        "MinShareScoreMultiplier": 1.0,
         "M": 32,
         "K_max": 256,
         "L": 4,
@@ -94,7 +94,7 @@ fn test_fetch_head_rejects_missing_field() {
         "T_share": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
         "T_block": "00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
         "T_submit": "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-        "MinShareScoreMultiplier": 1000000000,
+        "MinShareScoreMultiplier": 1.0,
         "M": 32
     }"#
     .to_vec();
@@ -107,6 +107,53 @@ fn test_fetch_head_rejects_missing_field() {
 }
 
 #[test]
+fn test_fetch_head_accepts_decimal_multiplier() {
+    // boole-node /head emits MinShareScoreMultiplier as a JSON decimal
+    // (e.g. 1.0) per protocol; the parser must accept it.
+    let body = br#"{
+        "c": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+        "T_ticket": "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "T_share": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "T_block": "00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "T_submit": "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "MinShareScoreMultiplier": 1.0,
+        "M": 32
+    }"#
+    .to_vec();
+    let (url, handle) = one_shot_get_responder(200, body);
+    let f =
+        HttpChainHeadFetcher::with_timeout(url, Duration::from_secs(5), 1, "v01".to_string(), None);
+    let head = f.fetch_head().expect("fetch_head with decimal multiplier");
+    let two_to_256: num_bigint::BigUint = num_bigint::BigUint::from(1u8) << 256;
+    let expected = &two_to_256 / &head.t_share;
+    assert_eq!(head.min_share_score, expected);
+    handle.join().unwrap();
+}
+
+#[test]
+fn test_fetch_head_accepts_fractional_multiplier() {
+    let body = br#"{
+        "c": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+        "T_ticket": "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "T_share": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "T_block": "00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "T_submit": "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "MinShareScoreMultiplier": 0.5,
+        "M": 32
+    }"#
+    .to_vec();
+    let (url, handle) = one_shot_get_responder(200, body);
+    let f =
+        HttpChainHeadFetcher::with_timeout(url, Duration::from_secs(5), 1, "v01".to_string(), None);
+    let head = f.fetch_head().expect("fetch_head with 0.5 multiplier");
+    // multiplier 0.5 → min_share_score = difficulty_weight(T_share) / 2
+    let two_to_256: num_bigint::BigUint = num_bigint::BigUint::from(1u8) << 256;
+    let expected = (&two_to_256 / &head.t_share) / 2u32;
+    assert_eq!(head.min_share_score, expected);
+    handle.join().unwrap();
+}
+
+#[test]
 fn test_fetch_head_rejects_invalid_c_hex() {
     let body = br#"{
         "c": "not-hex",
@@ -114,7 +161,7 @@ fn test_fetch_head_rejects_invalid_c_hex() {
         "T_share": "01",
         "T_block": "01",
         "T_submit": "01",
-        "MinShareScoreMultiplier": 1000000000,
+        "MinShareScoreMultiplier": 1.0,
         "M": 32
     }"#
     .to_vec();
