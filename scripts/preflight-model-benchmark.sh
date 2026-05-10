@@ -13,6 +13,8 @@ OLLAMA_COMMAND="${BOOLE_OLLAMA_COMMAND:-}"
 SUBMIT_LEAN_COMMAND="${BOOLE_SUBMIT_LEAN_COMMAND:-}"
 NODE_URL="${BOOLE_NODE_URL:-}"
 USE_NODE_TICKET="${BOOLE_USE_NODE_TICKET:-0}"
+PROVER_PK="${BOOLE_PROVER_PK:-}"
+BOUNTY_ID="${BOOLE_BOUNTY_ID:-}"
 INCLUDES=()
 OLLAMA_MODELS=()
 
@@ -76,6 +78,14 @@ while [[ $# -gt 0 ]]; do
       USE_NODE_TICKET=1
       shift
       ;;
+    --prover-pk)
+      PROVER_PK="${2:?missing --prover-pk value}"
+      shift 2
+      ;;
+    --bounty-id)
+      BOUNTY_ID="${2:?missing --bounty-id value}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -97,6 +107,23 @@ trap 'if [[ -n "$TMP_SPEC" ]]; then rm -f "$TMP_SPEC"; fi' EXIT
 
 if [[ -n "$ATTEMPTS_PER_MODEL" ]]; then
   export TRIALS="$ATTEMPTS_PER_MODEL"
+fi
+
+# S24e — when running against a live node, probe the economic-signal routes
+# (/head, /account/<pk>/balance, /bounties/<id>) up front. The benchmark
+# silently records empty reward fields if any of these 404, so a misconfigured
+# node would otherwise produce a green run with no economic signal. Failing
+# fast here is cheap and surfaces the failing route to the operator.
+if [[ -n "$NODE_URL" ]]; then
+  PREFLIGHT_ARGS=(--preflight-node --node-url "$NODE_URL")
+  if [[ -n "$PROVER_PK" ]]; then
+    PREFLIGHT_ARGS+=(--prover-pk "$PROVER_PK")
+  fi
+  if [[ -n "$BOUNTY_ID" ]]; then
+    PREFLIGHT_ARGS+=(--bounty-id "$BOUNTY_ID")
+  fi
+  printf 'preflight-model-benchmark: probing %s economic routes...\n' "$NODE_URL" >&2
+  python3 ./scripts/boole-model-benchmark.py "${PREFLIGHT_ARGS[@]}"
 fi
 
 SETUP_ARGS=()
