@@ -7,17 +7,23 @@ cd "$ROOT"
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18082}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-local-mining-smoke.ndjson}"
-rm -f "$BLOCK_STORE"
+# Pin the reward ledger to a smoke-specific path so the run cannot inherit
+# a stale `/tmp/boole-node-rewards.ndjson` left by an earlier self-test
+# stage (e.g. `submit-lean` from proof-to-block-benchmark) and bail at boot
+# with `reward ledger divergence: ledger=N replay=0`.
+REWARD_LEDGER="${REWARD_LEDGER:-${TMPDIR:-/tmp}/boole-node-local-mining-smoke-rewards.ndjson}"
+rm -f "$BLOCK_STORE" "$REWARD_LEDGER"
 
 cargo run -q -p boole-node -- run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
+  --reward-store "$REWARD_LEDGER" \
   --max-requests 9 \
   >/tmp/boole-node-local-mining-smoke.out \
   2>/tmp/boole-node-local-mining-smoke.err &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -f /tmp/boole-node-local-mining-smoke.out /tmp/boole-node-local-mining-smoke.err' EXIT
+trap 'kill "$PID" >/dev/null 2>&1 || true; rm -f /tmp/boole-node-local-mining-smoke.out /tmp/boole-node-local-mining-smoke.err "$BLOCK_STORE" "$REWARD_LEDGER"' EXIT
 
 python3 - "$ADDR" "$SCENARIO" <<'PY'
 import http.client
