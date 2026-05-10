@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-MINER_ROOT="${BOOLE_MINER_ROOT:-$(cd "$ROOT/../pof/boole-miner" && pwd)}"
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18086}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-boole-miner-smoke.ndjson}"
@@ -43,22 +42,20 @@ for _ in range(80):
 raise SystemExit(f"boole-node did not become ready: {last}")
 PY
 
-(
-  cd "$MINER_ROOT"
-  npx tsx src/cli.ts --state "$STATE" init \
-    --dispatcher-url "http://$ADDR" \
-    --llm-backend mock \
-    --force >/tmp/boole-miner-smoke-init.out
-  npx tsx src/cli.ts --state "$STATE" start \
-    --max-shares 1 \
-    --max-cycles 1 \
-    --profile v01 \
-    --difficulty 1 \
-    --placeholder-canon \
-    --mock-verify-accept \
-    --mock-llm-response $'```lean\nfun xs => rfl\n```' \
-    >/tmp/boole-miner-smoke-start.out
-)
+cargo run -q -p boole-miner -- init \
+  --state "$STATE" \
+  --dispatcher-url "http://$ADDR" \
+  --llm-backend mock \
+  --force >/tmp/boole-miner-smoke-init.out
+cargo run -q -p boole-miner -- start \
+  --state "$STATE" \
+  --max-shares 1 \
+  --max-cycles 1 \
+  --profile v01 \
+  --difficulty 1 \
+  --mock-verify-accept \
+  --mock-llm-response $'```lean\nfun xs => rfl\n```' \
+  >/tmp/boole-miner-smoke-start.out
 
 python3 - /tmp/boole-miner-smoke-start.out "$ADDR" <<'PY'
 import http.client

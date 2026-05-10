@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-MINER_ROOT="${BOOLE_MINER_ROOT:-$(cd "$ROOT/../pof/boole-miner" && pwd)}"
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18120}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-provider-model-smoke.ndjson}"
@@ -98,32 +97,27 @@ for _ in range(80):
 raise SystemExit(f"boole-node did not become ready: {last}")
 PY
 
-init_args=(--state "$STATE" init --dispatcher-url "http://$ADDR" --llm-backend "$LLM_BACKEND" --force)
+init_args=(init --state "$STATE" --dispatcher-url "http://$ADDR" --llm-backend "$LLM_BACKEND" --force)
 if [[ -n "$LLM_MODEL" ]]; then init_args+=(--llm-model "$LLM_MODEL"); fi
 if [[ -n "$LLM_BASE_URL" ]]; then init_args+=(--llm-base-url "$LLM_BASE_URL"); fi
 if [[ -n "$LLM_API_KEY_ENV" ]]; then init_args+=(--llm-api-key "${!LLM_API_KEY_ENV}"); fi
 if [[ "$LLM_BACKEND" == "openai_compat" && -z "$LLM_API_KEY_ENV" ]]; then init_args+=(--llm-api-key sk-no-key); fi
 
-(
-  cd "$MINER_ROOT"
-  npx tsx src/cli.ts "${init_args[@]}" >/tmp/boole-provider-model-smoke-init.out
-)
+cargo run -q -p boole-miner -- "${init_args[@]}" >/tmp/boole-provider-model-smoke-init.out
 
 success=0
 for trial in $(seq 1 "$TRIALS"); do
   out="/tmp/boole-provider-model-smoke-start.${trial}.out"
   set +e
-  (
-    cd "$MINER_ROOT"
-    npx tsx src/cli.ts --state "$STATE" start \
-      --max-shares 1 \
-      --max-cycles 1 \
-      --profile v01 \
-      --difficulty 0 \
-      --fixed-target-seed-hex "$FIXED_SEED" \
-      --fixed-target-render "$FIXED_RENDER" \
-      >"$out"
-  )
+  cargo run -q -p boole-miner -- start \
+    --state "$STATE" \
+    --max-shares 1 \
+    --max-cycles 1 \
+    --profile v01 \
+    --difficulty 0 \
+    --fixed-target-seed-hex "$FIXED_SEED" \
+    --fixed-target-render "$FIXED_RENDER" \
+    >"$out"
   code=$?
   set -e
   python3 - "$trial" "$code" "$out" >>"$RESULTS_JSONL" <<'PY'
@@ -166,7 +160,7 @@ out = {
     "provider": provider,
     "backend": backend,
     "model": model,
-    "miner": "boole-miner provider/model + real Lean verifier + LakeCanonicalizer/boole_emit POFP canon",
+    "miner": "boole-miner provider/model + StructuralCanonicalizer (placeholder POFP canon) + accepting verifier",
     "node": "boole-node run-local",
     "trials": len(rows),
     "aggregate": {"verifyAccepted": verify_accepted, "sharesAccepted": shares_accepted},

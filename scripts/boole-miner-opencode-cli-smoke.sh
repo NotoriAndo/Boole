@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-MINER_ROOT="${BOOLE_MINER_ROOT:-$(cd "$ROOT/../pof/boole-miner" && pwd)}"
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18095}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-opencode-cli-smoke.ndjson}"
@@ -59,23 +58,21 @@ for _ in range(80):
 raise SystemExit(f"boole-node did not become ready: {last}")
 PY
 
-(
-  cd "$MINER_ROOT"
-  npx tsx src/cli.ts --state "$STATE" init \
-    --dispatcher-url "http://$ADDR" \
-    --llm-backend agent_cli \
-    --agent-command "$AGENT_CMD" \
-    --agent-args "$AGENT_ARGS_JSON" \
-    --force >/tmp/boole-miner-opencode-cli-smoke-init.out
-  npx tsx src/cli.ts --state "$STATE" start \
-    --max-shares 1 \
-    --max-cycles 1 \
-    --profile v01 \
-    --difficulty 1 \
-    --placeholder-canon \
-    --mock-verify-accept \
-    >/tmp/boole-miner-opencode-cli-smoke-start.out
-)
+cargo run -q -p boole-miner -- init \
+  --state "$STATE" \
+  --dispatcher-url "http://$ADDR" \
+  --llm-backend agent_cli \
+  --agent-command "$AGENT_CMD" \
+  --agent-args "$AGENT_ARGS_JSON" \
+  --force >/tmp/boole-miner-opencode-cli-smoke-init.out
+cargo run -q -p boole-miner -- start \
+  --state "$STATE" \
+  --max-shares 1 \
+  --max-cycles 1 \
+  --profile v01 \
+  --difficulty 1 \
+  --mock-verify-accept \
+  >/tmp/boole-miner-opencode-cli-smoke-start.out
 
 python3 - /tmp/boole-miner-opencode-cli-smoke-start.out "$ADDR" "$RUNTIME_NAME" "$AGENT_CMD" <<'PY'
 import http.client

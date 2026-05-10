@@ -53,3 +53,35 @@
   4. **Metadata capture** (model id, verifier hash version, backend, cost) so historical rows can be re-interpreted under future verifier upgrades
 - They are not separate tools. They share the same code paths in `boole-miner` + node `/submit` + `/bounties/{id}/proof`. The benchmark is "mining session × operational discipline × statistical scale."
 - Avoid presenting them as architecturally distinct — that misleads on what work needs to ship for each gate.
+
+## 2026-05-10 — Migration scripts: clean stale runtime state before declaring failure
+
+**Pattern:** when a freshly migrated `boole-miner-smoke.sh` failed with `boole-node did not become ready: [Errno 61] Connection refused`, my first instinct was to assume my migration broke something. The actual cause was a **stale `/tmp/boole-node-rewards.ndjson` reward ledger** from a previous (pre-migration) test run — the node was crashing at boot with `reward ledger divergence at pk … ledger=2 replay=0`, and the readiness probe just observed the closed port. The script's trap clears `BLOCK_STORE` but not the reward ledger.
+
+**Rule:** when a smoke script fails with "did not become ready" or "connection refused" *immediately* after a migration:
+- Do not assume the migration is broken. First diagnose: run the inner command (e.g. `cargo run -q -p boole-node -- run-local …`) directly without trap-cleanup so error output survives.
+- Check for **persistent runtime state** the script does not clean: `/tmp/boole-node-rewards.ndjson`, lockfiles, leftover state directories. Most local boole-node smoke scripts share these tmp paths across runs.
+- After resolving, consider whether the script *should* clean it on entry. For per-test isolation, prefer `mktemp -d` paths over fixed `/tmp/boole-node-*.ndjson` names — but a one-off `rm -f` on entry is acceptable when the path is already a known fixed location.
+
+## 2026-05-10 — When migrating tests across two implementations, distrust fixtures that work around bugs
+
+**Pattern:** I made `parse_decimal_nanos` public to fix `chain_head` accepting `MinShareScoreMultiplier: 1.0` (the actual wire format from boole-node `/head`). My new tests with `1.0` and `0.5` passed, but a pre-existing test `test_fetch_head_min_share_score_uses_t_share_and_multiplier` started failing because it used `"MinShareScoreMultiplier": 1000000000` (raw nanos) — a fixture that compensated for the buggy `as_u64()` parser by writing pre-multiplied integer nanos instead of the protocol's decimal.
+
+**Rule:** when fixing a parser that previously had a bug, audit existing test fixtures for the **inverse pattern**. If parser P used to compute `f(x)` but should compute `g(x)`, any fixture written as `f⁻¹(target)` now produces a wrong value. Check:
+- Pre-existing fixtures that look "magic" (round numbers, computed constants) — they may encode the old wrong path.
+- Tests whose expected values are derived from the input via the buggy code rather than the protocol spec.
+- If in doubt, check the actual wire format (here: live `curl /head | jq`) and align fixtures with reality, not with the previously-passing tests.
+
+## 2026-05-10 — Telegram-initiated task: every reply goes via Telegram, not just the completion ping
+
+**Pattern:** A Telegram message arrived asking a clarification question (`lake-verify 와이어업이 테스트를 말하는거야?`). I answered with terminal text output, treating it like an interactive CLI question. The user pushed back: "내가 텔레그램으로 대답하라고 했지." The global rule in `~/.claude/CLAUDE.md` says **all** replies for Telegram-initiated tasks go via Telegram — not only the final completion ping. Mid-conversation Q&A counts.
+
+**Rule:** if the inbound `<channel source="telegram" ...>` block is present in the *current* message, the reply MUST go via `mcp__plugin_telegram_telegram__reply` with the originating chat_id. This applies to:
+- Clarifying questions back to the user (don't ask via terminal)
+- Direct answers to user follow-up questions (don't answer via terminal)
+- Status updates / blockers / decision requests (don't post via terminal)
+- Final completion summaries (already covered)
+
+The terminal output is invisible to the user. Re-asking "should I do X or Y?" via terminal stalls the conversation indefinitely. Treat the Telegram chat as the sole channel for the entire task lifecycle, not just the final report.
+
+**Self-check before sending any text response:** if the most recent inbound message has a `<channel source="telegram">` tag, my next user-facing response goes through `reply`, not bare text. Bare terminal text in a Telegram-initiated session = silent message from the user's perspective.

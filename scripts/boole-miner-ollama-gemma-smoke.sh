@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-MINER_ROOT="${BOOLE_MINER_ROOT:-$(cd "$ROOT/../pof/boole-miner" && pwd)}"
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18096}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-ollama-gemma-smoke.ndjson}"
@@ -58,32 +57,28 @@ for _ in range(80):
 raise SystemExit(f"boole-node did not become ready: {last}")
 PY
 
-(
-  cd "$MINER_ROOT"
-  npx tsx src/cli.ts --state "$STATE" init \
-    --dispatcher-url "http://$ADDR" \
-    --llm-backend openai_compat \
-    --llm-base-url "$OLLAMA_BASE_URL" \
-    --llm-model "$OLLAMA_MODEL" \
-    --llm-api-key sk-no-key \
-    --force >/tmp/boole-miner-ollama-gemma-smoke-init.out
-)
+cargo run -q -p boole-miner -- init \
+  --state "$STATE" \
+  --dispatcher-url "http://$ADDR" \
+  --llm-backend openai_compat \
+  --llm-base-url "$OLLAMA_BASE_URL" \
+  --llm-model "$OLLAMA_MODEL" \
+  --llm-api-key sk-no-key \
+  --force >/tmp/boole-miner-ollama-gemma-smoke-init.out
 
 success=0
 for trial in $(seq 1 "$TRIALS"); do
   out="/tmp/boole-miner-ollama-gemma-smoke-start.${trial}.out"
   set +e
-  (
-    cd "$MINER_ROOT"
-    npx tsx src/cli.ts --state "$STATE" start \
-      --max-shares 1 \
-      --max-cycles 1 \
-      --profile v01 \
-      --difficulty 0 \
-      --fixed-target-seed-hex "$FIXED_SEED" \
-      --fixed-target-render "$FIXED_RENDER" \
-      >"$out"
-  )
+  cargo run -q -p boole-miner -- start \
+    --state "$STATE" \
+    --max-shares 1 \
+    --max-cycles 1 \
+    --profile v01 \
+    --difficulty 0 \
+    --fixed-target-seed-hex "$FIXED_SEED" \
+    --fixed-target-render "$FIXED_RENDER" \
+    >"$out"
   code=$?
   set -e
   python3 - "$trial" "$code" "$out" >>"$RESULTS_JSONL" <<'PY'
@@ -119,7 +114,7 @@ res = conn.getresponse(); status = json.loads(res.read().decode())
 verify_accepted = sum(1 for r in rows if (r.get("summary") or {}).get("verifyAccepted") == 1)
 shares_accepted = sum(1 for r in rows if (r.get("summary") or {}).get("sharesAccepted") == 1)
 ok = success_raw == "1" and status.get("height", 0) >= 1 and status.get("replayMatchesRuntime") is True
-out = {"ok": ok, "kind": "boole-miner-ollama-gemma-smoke", "provider": "ollama-openai-compatible", "model": model, "miner": "boole-miner openai_compat + real Lean verifier + LakeCanonicalizer/boole_emit POFP canon", "node": "boole-node run-local", "trials": len(rows), "aggregate": {"verifyAccepted": verify_accepted, "sharesAccepted": shares_accepted}, "rows": rows, "status": status}
+out = {"ok": ok, "kind": "boole-miner-ollama-gemma-smoke", "provider": "ollama-openai-compatible", "model": model, "miner": "boole-miner openai_compat + StructuralCanonicalizer (placeholder POFP canon) + accepting verifier", "node": "boole-node run-local", "trials": len(rows), "aggregate": {"verifyAccepted": verify_accepted, "sharesAccepted": shares_accepted}, "rows": rows, "status": status}
 print(json.dumps(out, separators=(",", ":")))
 if not ok:
     raise SystemExit("boole-miner-ollama-gemma-smoke: no proof-to-block success")

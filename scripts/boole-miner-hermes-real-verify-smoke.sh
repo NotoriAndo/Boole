@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-MINER_ROOT="${BOOLE_MINER_ROOT:-$(cd "$ROOT/../pof/boole-miner" && pwd)}"
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18094}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-hermes-real-verify-smoke.ndjson}"
@@ -53,31 +52,27 @@ for _ in range(80):
 raise SystemExit(f"boole-node did not become ready: {last}")
 PY
 
-(
-  cd "$MINER_ROOT"
-  npx tsx src/cli.ts --state "$STATE" init \
-    --dispatcher-url "http://$ADDR" \
-    --llm-backend agent_cli \
-    --agent-command hermes \
-    --agent-args '["chat","-Q","-t","","-q"]' \
-    --force >/tmp/boole-miner-hermes-real-verify-smoke-init.out
-)
+cargo run -q -p boole-miner -- init \
+  --state "$STATE" \
+  --dispatcher-url "http://$ADDR" \
+  --llm-backend agent_cli \
+  --agent-command hermes \
+  --agent-args '["chat","-Q","-t","","-q"]' \
+  --force >/tmp/boole-miner-hermes-real-verify-smoke-init.out
 
 success=0
 for trial in $(seq 1 "$TRIALS"); do
   out="/tmp/boole-miner-hermes-real-verify-smoke-start.${trial}.out"
   set +e
-  (
-    cd "$MINER_ROOT"
-    npx tsx src/cli.ts --state "$STATE" start \
-      --max-shares 1 \
-      --max-cycles 1 \
-      --profile v01 \
-      --difficulty 0 \
-      --fixed-target-seed-hex "$FIXED_SEED" \
-      --fixed-target-render "$FIXED_RENDER" \
-      >"$out"
-  )
+  cargo run -q -p boole-miner -- start \
+    --state "$STATE" \
+    --max-shares 1 \
+    --max-cycles 1 \
+    --profile v01 \
+    --difficulty 0 \
+    --fixed-target-seed-hex "$FIXED_SEED" \
+    --fixed-target-render "$FIXED_RENDER" \
+    >"$out"
   code=$?
   set -e
   python3 - "$trial" "$code" "$out" >>"$RESULTS_JSONL" <<'PY'
@@ -124,7 +119,7 @@ ok = success_raw == "1" and status.get("height", 0) >= 1 and status.get("replayM
 out = {
     "ok": ok,
     "kind": "boole-miner-hermes-real-verify-smoke",
-    "miner": "boole-miner agent_cli hermes chat + real Lean verifier + LakeCanonicalizer/boole_emit POFP canon",
+    "miner": "boole-miner agent_cli hermes chat + StructuralCanonicalizer (placeholder POFP canon) + accepting verifier",
     "node": "boole-node run-local",
     "trials": len(rows),
     "aggregate": {"verifyAccepted": verify_accepted, "sharesAccepted": shares_accepted},

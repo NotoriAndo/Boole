@@ -311,3 +311,61 @@ Sub-slices:
   - Parity-plan §1.4 dashboard now carries the row `Benchmark economic-signal capture (share-reward + proposer-bonus + bounty-credit + economic-spread) | ✅ PASS | Slice S24 (a–e) — Phase N5b-FOLLOW`.
 
 **Sequencing.** S24a → S24b → S24c → S24d → S24e. Each ships behind green tests; live-mode bits stay non-CI but mock-node regression tests are CI-runnable.
+
+---
+
+## Slice A1–A6 — Universal-mining: Rust miner gains TLS + 4 LLM backends, then TS miner is retired
+
+**Status (2026-05-10):** A1 ✅, A2 ✅, A3 ✅, A4 ✅, A5 ✅, A6 ✅, A6.1 ✅ (chain_head decimal multiplier parser fix). All 7 smoke scripts now invoke `cargo run -q -p boole-miner` directly; `MINER_ROOT` / `BOOLE_MINER_ROOT` / `npx tsx src/cli.ts` paths are removed from `scripts/`. `boole-miner-smoke.sh` and `boole-miner-agent-cli-smoke.sh` re-validated end-to-end (PASS).
+
+### Vision (locked by user)
+"로컬 및 프론티어 모델 제약 없이 다 마이닝 가능 — 능력에 따라 실패와는 별개로 다 마이닝 시도는 할 수 있어야돼." Translation: every model — local Ollama, vLLM, LM Studio, Anthropic API, OpenAI API, Gemini API, anything — must be able to *attempt* real mining (not just benchmark). Win/loss is determined by capability, but no model is locked out by tooling. This is a product invariant, not a nice-to-have.
+
+### Scope decisions (locked)
+1. **Rust miner gains 4 SDK backends**: `openai_compat`, `anthropic`, `openai`, `google`. After A2–A5 ship, no model class is locked out of real mining via the Rust miner.
+2. **TLS via `reqwest::blocking` + `rustls-tls`**. Sync API matches the existing `ProverDriver::generate(&str)` signature — no async refactor. Pure-Rust TLS (no OpenSSL dependency).
+3. **Inject HTTP via `HttpRunner` trait, mirroring existing `ProcessRunner` pattern.** Pure unit tests stay deterministic; live-API tests gate behind env flags (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OLLAMA_BASE_URL`, etc.).
+4. **State schema unchanged.** `LlmConfig` already has `api_key`/`model`/`base_url` fields (state.rs:31–43, schema version 1). Adding new `LLMBackend::parse` cases is forward-compatible — backend is a plain String.
+5. **Behavior parity with TS miner**: non-streaming, identical request bodies, identical default models. `openai_compat` ports `think: false` (TS llmDriver.ts:245) so Ollama reasoning models return non-empty content.
+6. **Script migration is the *last* slice (A6).** While A1–A5 are in flight, the original M1–M4 cleanup is paused. TS miner stays available as fallback so no user is blocked.
+7. **Adjacent quick win (optional): `/ticket` normalization patch on the node** so TS miner stays usable for openai_compat users *during* the A1–A5 gap. 1-line change to `local_node.rs:1352–1358` mirroring the existing `/submit` `normalize_pow_fields` call. Tracked as **A0 (optional, parallel)**.
+
+### Affected files (A1–A6)
+- `crates/boole-miner/Cargo.toml` — add `reqwest = { default-features = false, features = ["blocking", "json", "rustls-tls"] }` (workspace-local).
+- `crates/boole-miner/src/http_client.rs` — keep plaintext client untouched; new TLS client added separately so existing tests stay valid.
+- `crates/boole-miner/src/llm_driver.rs` — extend `LLMBackend` enum, add 4 driver structs + `HttpRunner` trait + `ReqwestHttpRunner` impl, extend `create_driver` factory.
+- `crates/boole-miner/src/cli.rs` — extend `run_start` match (lines 465–487).
+- `crates/boole-miner/tests/llm_driver.rs` — add `FakeHttpRunner` mirroring `FakeRunner` pattern; add unit tests per backend.
+- `crates/boole-miner/tests/llm_driver_live.rs` (NEW) — env-gated live-API integration tests.
+- 7 scripts + 4 wrappers (A6) — same set as the previous M1–M4 plan.
+
+### Slice A0 — `/ticket` normalize_pow_fields parity (optional, 1-line node fix)
+**Edit** `crates/boole-node/src/local_node.rs:1352–1358` to call `normalize_pow_fields(&mut ticket_body_owned)` before the `Hex32::from_hex` validations, mirroring the existing `/submit` call at line 1437. **Rationale:** /submit already auto-pads short hex (n/j/nonceS) to 64 chars; /ticket should be consistent. Side effect: TS miner's 8B nonce stops failing at /ticket, keeping all openai_compat users unblocked during A1–A5.
+**Acceptance:** existing /ticket tests still pass; new test asserts a 16-char hex `n` zero-pads to 64 and accepts; `provider-model-smoke.sh` with TS miner + Ollama backend goes green locally.
+**Decision needed:** ship A0 in parallel with A1, or skip and let TS-miner Ollama users be blocked until A2 ships?
+
+### Slice A1 — TLS HTTP foundation + `HttpRunner` trait (foundational)
+**Add** `reqwest` (blocking, rustls-tls) to `boole-miner/Cargo.toml`. **Define** `HttpRunner` trait in `llm_driver.rs` mirroring `ProcessRunner` — methods like `post_json(url, headers, body, timeout) -> Result<HttpResponse, HttpError>`. **Implement** `ReqwestHttpRunner` for production. **Add** `FakeHttpRunner` to `tests/llm_driver.rs` for deterministic unit tests.
+**Acceptance:** `cargo test -p boole-miner` green; `cargo build -p boole-miner --release` no new warnings; binary still ≤ 5MB after `strip` (sanity check on TLS bloat).
+
+### Slice A2 — `openai_compat` backend (Ollama / vLLM / LM Studio / DeepSeek / etc.)
+**Add** `LLMBackend::OpenAiCompat` (parse case `"openai_compat"`). **Implement** `OpenAiCompatDriver` — POST to `{base_url}/v1/chat/completions` with body `{ model, messages: [{role: "user", content: prompt}], max_tokens: 8192, think: false }`, Bearer auth (defaults to `sk-no-key`), parse `choices[0].message.content`, tokens from `usage.completion_tokens`. **Wire** into `run_start` match. Default `max_tokens: 8192` per TS miner.
+**Acceptance:** unit tests with `FakeHttpRunner` cover happy path + error responses + missing fields; env-gated live test against `OLLAMA_BASE_URL`; manual smoke `boole-miner init --llm-backend openai_compat --llm-base-url http://localhost:11434 --llm-model gemma4:26b && boole-miner start --max-shares 1 --max-cycles 1` produces a real proof attempt.
+
+### Slice A3 — `anthropic` backend
+**Add** `LLMBackend::Anthropic`. **Implement** `AnthropicDriver` — POST to `https://api.anthropic.com/v1/messages` with headers `{x-api-key, anthropic-version: "2023-06-01", content-type: application/json}`, body `{ model, max_tokens: 2048, messages: [{role: "user", content: prompt}] }`. Parse: concatenate all `content` blocks where `type=="text"`. Tokens from `usage.output_tokens`. Default model `claude-opus-4-7`.
+**Acceptance:** unit tests + env-gated live test against `ANTHROPIC_API_KEY`.
+
+### Slice A4 — `openai` backend
+**Add** `LLMBackend::OpenAi`. **Implement** `OpenAiDriver` — POST to `https://api.openai.com/v1/chat/completions`, Bearer auth, body `{ model, max_tokens: 2048, messages: [{role: "user", content: prompt}] }`. Parse `choices[0].message.content`. Tokens from `usage.completion_tokens`. Default model `gpt-5`.
+**Acceptance:** unit tests + env-gated live test against `OPENAI_API_KEY`.
+
+### Slice A5 — `google` backend
+**Add** `LLMBackend::Google`. **Implement** `GoogleDriver` — POST to `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}`, body `{ contents: [{parts: [{text: prompt}]}] }`. Parse `candidates[0].content.parts[0].text`. Tokens from `usageMetadata.candidatesTokenCount`. Default model `gemini-2.5-pro`.
+**Acceptance:** unit tests + env-gated live test against `GOOGLE_API_KEY`.
+
+### Slice A6 — Script migration + TS miner retirement (the original M1–M4, deferred to here)
+After A2–A5 land, every backend has a Rust-native path. Now safely retire the TS miner: rewrite all 7 scripts (`boole-miner-smoke.sh`, `*-agent-cli-smoke.sh`, `*-hermes-cli-smoke.sh`, `*-hermes-real-verify-smoke.sh`, `*-opencode-cli-smoke.sh`, `*-ollama-gemma-smoke.sh`, `provider-model-smoke.sh`) to invoke `target/release/boole-miner` directly. Update 4 wrappers (`boole-agent-mine.sh`, `agent-runtime-benchmark.sh`, `provider-model-benchmark.sh`, `phase7-solo-preflight.sh`). Drop `BOOLE_MINER_ROOT` and all `../pof/boole-miner` references.
+**Acceptance:** `grep -rn "pof/boole-miner\|BOOLE_MINER_ROOT" scripts/ docs/ .github/` returns zero hits + every original assertion still PASSes + `./scripts/self-test.sh` green.
+
+**Sequencing.** A0 (optional, parallel) → A1 → A2 → A3 → A4 → A5 → A6. A2 unlocks Ollama (highest user value); A3–A5 unlock direct-API frontier mining. Each slice ships behind green tests + Telegram completion ping.
