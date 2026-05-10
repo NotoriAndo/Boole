@@ -1,16 +1,28 @@
 // LLM driver — provider abstraction for proof generation.
 //
-// Backends supported in this slice:
-//   - mock        — in-process canned responses for tests.
-//   - claude_cli  — shells out to `claude -p`; uses the CLI's local OAuth
-//                   session, no API key required.
-//   - agent_cli   — shells out to a configurable autonomous-agent CLI
-//                   (Hermes, OpenClaw, OpenCode, etc.) with the prompt
-//                   appended as the final argv item.
-//
-// SDK-based backends (anthropic / openai / google / openai_compat) are
-// deferred — they require a TLS HTTP client; the miner's existing
-// HttpClient is plaintext-only on purpose.
+// Backends supported:
+//   - mock          — in-process canned responses for tests.
+//   - claude_cli    — shells out to `claude -p`; uses the CLI's local OAuth
+//                     session, no API key required.
+//   - agent_cli     — shells out to a configurable autonomous-agent CLI
+//                     (Hermes, OpenClaw, OpenCode, etc.) with the prompt
+//                     appended as the final argv item.
+//   - openai_compat — POSTs to a self-hosted or proxied
+//                     `{base_url}/v1/chat/completions` (Ollama, vLLM,
+//                     LM Studio, llama.cpp, DeepSeek, etc.). TLS via
+//                     `http_runner::ReqwestHttpRunner`. Includes the
+//                     `think: false` Ollama extension so reasoning-mode
+//                     models route their output to `content` rather than
+//                     a non-standard `reasoning` field.
+//   - anthropic     — direct Anthropic API: `POST /v1/messages` with
+//                     `x-api-key` + `anthropic-version` headers. Parses
+//                     `content[*].text` (concatenating all text blocks).
+//   - openai        — direct OpenAI API: thin wrapper around the
+//                     openai_compat driver pinned to
+//                     `https://api.openai.com`. Strategy::Frontier.
+//   - google        — direct Gemini API: `POST /v1beta/models/{model}:generateContent`
+//                     with `x-goog-api-key`. Parses
+//                     `candidates[0].content.parts[*].text`.
 //
 // Each driver accepts a constructed prompt and returns either a candidate
 // proof source string or a typed failure (rejected vs error). The retry
@@ -28,11 +40,17 @@ use std::time::{Duration, Instant};
 
 use thiserror::Error;
 
+use crate::http_runner::{HttpRunner, HttpRunnerError, ReqwestHttpRunner};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LLMBackend {
     Mock,
     ClaudeCli,
     AgentCli,
+    OpenAiCompat,
+    Anthropic,
+    OpenAi,
+    Google,
 }
 
 impl LLMBackend {
@@ -41,6 +59,10 @@ impl LLMBackend {
             LLMBackend::Mock => "mock",
             LLMBackend::ClaudeCli => "claude_cli",
             LLMBackend::AgentCli => "agent_cli",
+            LLMBackend::OpenAiCompat => "openai_compat",
+            LLMBackend::Anthropic => "anthropic",
+            LLMBackend::OpenAi => "openai",
+            LLMBackend::Google => "google",
         }
     }
 
@@ -49,6 +71,10 @@ impl LLMBackend {
             "mock" => Some(LLMBackend::Mock),
             "claude_cli" => Some(LLMBackend::ClaudeCli),
             "agent_cli" => Some(LLMBackend::AgentCli),
+            "openai_compat" => Some(LLMBackend::OpenAiCompat),
+            "anthropic" => Some(LLMBackend::Anthropic),
+            "openai" => Some(LLMBackend::OpenAi),
+            "google" => Some(LLMBackend::Google),
             _ => None,
         }
     }
@@ -428,6 +454,477 @@ impl ProverDriver for AgentCliDriver {
     }
 }
 
+// --- OpenAI-compat driver (Ollama / vLLM / LM Studio / DeepSeek / …) -----
+
+/// Default `max_tokens` for openai_compat, mirroring pof's TS miner. Higher
+/// than the 2k frontier-API default because reasoning-mode models (Gemma 3/4,
+/// DeepSeek-R1, Qwen3-thinking) burn ~1k–4k tokens on chain-of-thought even
+/// with `think: false` — 2k truncates before usable content emits.
+pub const OPENAI_COMPAT_DEFAULT_MAX_TOKENS: u32 = 8192;
+
+pub struct OpenAiCompatDriver {
+    base_url: String,
+    api_key: String,
+    model: String,
+    max_tokens: u32,
+    timeout: Duration,
+    http: Box<dyn HttpRunner>,
+}
+
+impl OpenAiCompatDriver {
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        max_tokens: u32,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            base_url: base_url.into(),
+            api_key: api_key.into(),
+            model: model.into(),
+            max_tokens,
+            timeout,
+            http: Box::new(ReqwestHttpRunner),
+        }
+    }
+
+    pub fn with_runner(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        max_tokens: u32,
+        timeout: Duration,
+        http: Box<dyn HttpRunner>,
+    ) -> Self {
+        Self {
+            base_url: base_url.into(),
+            api_key: api_key.into(),
+            model: model.into(),
+            max_tokens,
+            timeout,
+            http,
+        }
+    }
+}
+
+impl ProverDriver for OpenAiCompatDriver {
+    fn name(&self) -> &str {
+        "openai_compat"
+    }
+
+    fn strategy(&self) -> Strategy {
+        Strategy::OpenWeight
+    }
+
+    fn generate(&self, prompt: &str) -> GenerateResult {
+        let started = Instant::now();
+        let url = format!(
+            "{}/v1/chat/completions",
+            self.base_url.trim_end_matches('/')
+        );
+        let auth = format!("Bearer {}", self.api_key);
+        // Body mirrors pof llmDriver.ts:241-246. `think: false` is the
+        // Ollama extension that disables reasoning-mode CoT scratchpad;
+        // servers that don't recognize it ignore it per OpenAI spec
+        // forward-compat.
+        let body = serde_json::json!({
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+            "think": false,
+        });
+        let resp = match self.http.post_json(
+            &url,
+            &[("authorization", auth.as_str())],
+            &body,
+            self.timeout,
+        ) {
+            Ok(r) => r,
+            Err(err) => {
+                return GenerateResult::Error {
+                    cause: render_http_runner_error(&err),
+                    elapsed: started.elapsed(),
+                }
+            }
+        };
+        if resp.status < 200 || resp.status >= 300 {
+            let snippet = String::from_utf8_lossy(&resp.body)
+                .chars()
+                .take(500)
+                .collect::<String>();
+            return GenerateResult::Error {
+                cause: format!("openai_compat HTTP {}: {}", resp.status, snippet),
+                elapsed: started.elapsed(),
+            };
+        }
+        let payload: serde_json::Value = match serde_json::from_slice(&resp.body) {
+            Ok(v) => v,
+            Err(err) => {
+                return GenerateResult::Error {
+                    cause: format!("openai_compat: malformed JSON: {err}"),
+                    elapsed: started.elapsed(),
+                }
+            }
+        };
+        let text = payload
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
+        let tokens = payload
+            .get("usage")
+            .and_then(|u| u.get("completion_tokens"))
+            .and_then(|n| n.as_u64());
+        classify_response(&text, started.elapsed(), tokens)
+    }
+}
+
+fn render_http_runner_error(err: &HttpRunnerError) -> String {
+    err.to_string()
+}
+
+// --- Anthropic direct-API driver -----------------------------------------
+
+pub const ANTHROPIC_DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
+pub const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+pub const ANTHROPIC_DEFAULT_MAX_TOKENS: u32 = 8192;
+
+pub struct AnthropicDriver {
+    base_url: String,
+    api_key: String,
+    model: String,
+    max_tokens: u32,
+    timeout: Duration,
+    http: Box<dyn HttpRunner>,
+}
+
+impl AnthropicDriver {
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        max_tokens: u32,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            base_url: base_url.into(),
+            api_key: api_key.into(),
+            model: model.into(),
+            max_tokens,
+            timeout,
+            http: Box::new(ReqwestHttpRunner),
+        }
+    }
+
+    pub fn with_runner(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        max_tokens: u32,
+        timeout: Duration,
+        http: Box<dyn HttpRunner>,
+    ) -> Self {
+        Self {
+            base_url: base_url.into(),
+            api_key: api_key.into(),
+            model: model.into(),
+            max_tokens,
+            timeout,
+            http,
+        }
+    }
+}
+
+impl ProverDriver for AnthropicDriver {
+    fn name(&self) -> &str {
+        "anthropic"
+    }
+
+    fn strategy(&self) -> Strategy {
+        Strategy::Frontier
+    }
+
+    fn generate(&self, prompt: &str) -> GenerateResult {
+        let started = Instant::now();
+        let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
+        let body = serde_json::json!({
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        });
+        let resp = match self.http.post_json(
+            &url,
+            &[
+                ("x-api-key", self.api_key.as_str()),
+                ("anthropic-version", ANTHROPIC_API_VERSION),
+            ],
+            &body,
+            self.timeout,
+        ) {
+            Ok(r) => r,
+            Err(err) => {
+                return GenerateResult::Error {
+                    cause: render_http_runner_error(&err),
+                    elapsed: started.elapsed(),
+                }
+            }
+        };
+        if resp.status < 200 || resp.status >= 300 {
+            let snippet = String::from_utf8_lossy(&resp.body)
+                .chars()
+                .take(500)
+                .collect::<String>();
+            return GenerateResult::Error {
+                cause: format!("anthropic HTTP {}: {}", resp.status, snippet),
+                elapsed: started.elapsed(),
+            };
+        }
+        let payload: serde_json::Value = match serde_json::from_slice(&resp.body) {
+            Ok(v) => v,
+            Err(err) => {
+                return GenerateResult::Error {
+                    cause: format!("anthropic: malformed JSON: {err}"),
+                    elapsed: started.elapsed(),
+                }
+            }
+        };
+        // Concatenate `text` from every `text` block. Anthropic returns
+        // multiple content blocks for tool-use / structured output; for our
+        // single-turn message-only requests there is typically one, but we
+        // fold across all of them defensively.
+        let text = payload
+            .get("content")
+            .and_then(|c| c.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
+                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .unwrap_or_default();
+        let tokens = payload
+            .get("usage")
+            .and_then(|u| u.get("output_tokens"))
+            .and_then(|n| n.as_u64());
+        classify_response(&text, started.elapsed(), tokens)
+    }
+}
+
+// --- OpenAI direct-API driver --------------------------------------------
+
+pub const OPENAI_DEFAULT_BASE_URL: &str = "https://api.openai.com";
+pub const OPENAI_DEFAULT_MAX_TOKENS: u32 = 8192;
+
+/// Direct OpenAI API driver. Wire-format identical to `openai_compat`
+/// (same `/v1/chat/completions` endpoint, same Bearer auth), so we
+/// delegate to `OpenAiCompatDriver` and only override `name()` /
+/// `strategy()` for telemetry.
+pub struct OpenAiDriver {
+    inner: OpenAiCompatDriver,
+}
+
+impl OpenAiDriver {
+    pub fn new(
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        max_tokens: u32,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            inner: OpenAiCompatDriver::new(
+                OPENAI_DEFAULT_BASE_URL,
+                api_key,
+                model,
+                max_tokens,
+                timeout,
+            ),
+        }
+    }
+
+    pub fn with_runner(
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        max_tokens: u32,
+        timeout: Duration,
+        http: Box<dyn HttpRunner>,
+    ) -> Self {
+        Self {
+            inner: OpenAiCompatDriver::with_runner(
+                OPENAI_DEFAULT_BASE_URL,
+                api_key,
+                model,
+                max_tokens,
+                timeout,
+                http,
+            ),
+        }
+    }
+
+    pub fn with_base_url(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        max_tokens: u32,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            inner: OpenAiCompatDriver::new(base_url, api_key, model, max_tokens, timeout),
+        }
+    }
+}
+
+impl ProverDriver for OpenAiDriver {
+    fn name(&self) -> &str {
+        "openai"
+    }
+
+    fn strategy(&self) -> Strategy {
+        Strategy::Frontier
+    }
+
+    fn generate(&self, prompt: &str) -> GenerateResult {
+        self.inner.generate(prompt)
+    }
+}
+
+// --- Google Gemini direct-API driver -------------------------------------
+
+pub const GOOGLE_DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com";
+pub const GOOGLE_DEFAULT_MAX_TOKENS: u32 = 8192;
+
+pub struct GoogleDriver {
+    base_url: String,
+    api_key: String,
+    model: String,
+    max_tokens: u32,
+    timeout: Duration,
+    http: Box<dyn HttpRunner>,
+}
+
+impl GoogleDriver {
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        max_tokens: u32,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            base_url: base_url.into(),
+            api_key: api_key.into(),
+            model: model.into(),
+            max_tokens,
+            timeout,
+            http: Box::new(ReqwestHttpRunner),
+        }
+    }
+
+    pub fn with_runner(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        max_tokens: u32,
+        timeout: Duration,
+        http: Box<dyn HttpRunner>,
+    ) -> Self {
+        Self {
+            base_url: base_url.into(),
+            api_key: api_key.into(),
+            model: model.into(),
+            max_tokens,
+            timeout,
+            http,
+        }
+    }
+}
+
+impl ProverDriver for GoogleDriver {
+    fn name(&self) -> &str {
+        "google"
+    }
+
+    fn strategy(&self) -> Strategy {
+        Strategy::Frontier
+    }
+
+    fn generate(&self, prompt: &str) -> GenerateResult {
+        let started = Instant::now();
+        // Gemini's REST surface bakes the model into the URL path:
+        //   /v1beta/models/{model}:generateContent
+        // The model id may contain ':' (e.g. `gemini-2.5-pro`), so we do not
+        // URL-encode the path beyond what reqwest already handles.
+        let url = format!(
+            "{}/v1beta/models/{}:generateContent",
+            self.base_url.trim_end_matches('/'),
+            self.model
+        );
+        let body = serde_json::json!({
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": self.max_tokens},
+        });
+        let resp = match self.http.post_json(
+            &url,
+            &[("x-goog-api-key", self.api_key.as_str())],
+            &body,
+            self.timeout,
+        ) {
+            Ok(r) => r,
+            Err(err) => {
+                return GenerateResult::Error {
+                    cause: render_http_runner_error(&err),
+                    elapsed: started.elapsed(),
+                }
+            }
+        };
+        if resp.status < 200 || resp.status >= 300 {
+            let snippet = String::from_utf8_lossy(&resp.body)
+                .chars()
+                .take(500)
+                .collect::<String>();
+            return GenerateResult::Error {
+                cause: format!("google HTTP {}: {}", resp.status, snippet),
+                elapsed: started.elapsed(),
+            };
+        }
+        let payload: serde_json::Value = match serde_json::from_slice(&resp.body) {
+            Ok(v) => v,
+            Err(err) => {
+                return GenerateResult::Error {
+                    cause: format!("google: malformed JSON: {err}"),
+                    elapsed: started.elapsed(),
+                }
+            }
+        };
+        // Concat all `text` parts of the first candidate. Gemini may emit
+        // multiple parts per candidate (e.g. for function calls or
+        // structured output) — for a plain text request there is usually
+        // one, but folding is robust.
+        let text = payload
+            .get("candidates")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("content"))
+            .and_then(|c| c.get("parts"))
+            .and_then(|p| p.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .unwrap_or_default();
+        let tokens = payload
+            .get("usageMetadata")
+            .and_then(|u| u.get("candidatesTokenCount"))
+            .and_then(|n| n.as_u64());
+        classify_response(&text, started.elapsed(), tokens)
+    }
+}
+
 // --- Driver factory -------------------------------------------------------
 
 #[derive(Debug, Clone)]
@@ -437,6 +934,10 @@ pub struct LLMDriverConfig {
     pub claude_binary: Option<String>,
     pub agent_command: Option<String>,
     pub agent_args: Vec<String>,
+    pub api_key: Option<String>,
+    pub model: Option<String>,
+    pub base_url: Option<String>,
+    pub max_tokens: Option<u32>,
 }
 
 #[derive(Debug, Error)]
@@ -445,6 +946,12 @@ pub enum DriverConfigError {
     MockNotConstructible,
     #[error("agent_command is required for backend=agent_cli")]
     AgentCommandMissing,
+    #[error("base_url is required for backend=openai_compat")]
+    BaseUrlMissing,
+    #[error("model is required for backend={0}")]
+    ModelMissing(&'static str),
+    #[error("api_key is required for backend={0}")]
+    ApiKeyMissing(&'static str),
 }
 
 /// Build a live driver from a config. Returns an error for the `Mock`
@@ -469,6 +976,88 @@ pub fn create_driver(cfg: &LLMDriverConfig) -> Result<Box<dyn ProverDriver>, Dri
             Ok(Box::new(AgentCliDriver::new(
                 command,
                 cfg.agent_args.clone(),
+                cfg.timeout,
+            )))
+        }
+        LLMBackend::OpenAiCompat => {
+            let base_url = cfg
+                .base_url
+                .clone()
+                .ok_or(DriverConfigError::BaseUrlMissing)?;
+            let model = cfg
+                .model
+                .clone()
+                .ok_or(DriverConfigError::ModelMissing("openai_compat"))?;
+            let api_key = cfg
+                .api_key
+                .clone()
+                .unwrap_or_else(|| "sk-no-key".to_string());
+            let max_tokens = cfg.max_tokens.unwrap_or(OPENAI_COMPAT_DEFAULT_MAX_TOKENS);
+            Ok(Box::new(OpenAiCompatDriver::new(
+                base_url,
+                api_key,
+                model,
+                max_tokens,
+                cfg.timeout,
+            )))
+        }
+        LLMBackend::Anthropic => {
+            let api_key = cfg
+                .api_key
+                .clone()
+                .ok_or(DriverConfigError::ApiKeyMissing("anthropic"))?;
+            let model = cfg
+                .model
+                .clone()
+                .ok_or(DriverConfigError::ModelMissing("anthropic"))?;
+            let base_url = cfg
+                .base_url
+                .clone()
+                .unwrap_or_else(|| ANTHROPIC_DEFAULT_BASE_URL.to_string());
+            let max_tokens = cfg.max_tokens.unwrap_or(ANTHROPIC_DEFAULT_MAX_TOKENS);
+            Ok(Box::new(AnthropicDriver::new(
+                base_url,
+                api_key,
+                model,
+                max_tokens,
+                cfg.timeout,
+            )))
+        }
+        LLMBackend::OpenAi => {
+            let api_key = cfg
+                .api_key
+                .clone()
+                .ok_or(DriverConfigError::ApiKeyMissing("openai"))?;
+            let model = cfg
+                .model
+                .clone()
+                .ok_or(DriverConfigError::ModelMissing("openai"))?;
+            let max_tokens = cfg.max_tokens.unwrap_or(OPENAI_DEFAULT_MAX_TOKENS);
+            // Allow base_url override for Azure OpenAI / proxy deployments.
+            Ok(Box::new(match cfg.base_url.clone() {
+                Some(b) => OpenAiDriver::with_base_url(b, api_key, model, max_tokens, cfg.timeout),
+                None => OpenAiDriver::new(api_key, model, max_tokens, cfg.timeout),
+            }))
+        }
+        LLMBackend::Google => {
+            let api_key = cfg
+                .api_key
+                .clone()
+                .ok_or(DriverConfigError::ApiKeyMissing("google"))?;
+            let model = cfg
+                .model
+                .clone()
+                .ok_or(DriverConfigError::ModelMissing("google"))?;
+            let base_url = cfg
+                .base_url
+                .clone()
+                .unwrap_or_else(|| GOOGLE_DEFAULT_BASE_URL.to_string());
+            let max_tokens = cfg.max_tokens.unwrap_or(GOOGLE_DEFAULT_MAX_TOKENS);
+            Ok(Box::new(GoogleDriver::new(
+                base_url,
+                api_key,
+                model,
+                max_tokens,
                 cfg.timeout,
             )))
         }

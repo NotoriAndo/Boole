@@ -59,16 +59,17 @@ pub struct InitArgs {
     /// Dispatcher base URL.
     #[arg(long = "dispatcher-url", default_value = "http://127.0.0.1:8080")]
     pub dispatcher_url: String,
-    /// LLM backend: mock | claude_cli | agent_cli.
+    /// LLM backend: mock | claude_cli | agent_cli | openai_compat | anthropic | openai | google.
     #[arg(long = "llm-backend", default_value = "mock")]
     pub llm_backend: String,
     /// Override the model id (forwarded to the backend if applicable).
     #[arg(long = "llm-model")]
     pub llm_model: Option<String>,
-    /// API key (omitted for claude_cli / agent_cli).
+    /// API key (required for anthropic / openai / google; optional for openai_compat).
     #[arg(long = "llm-api-key")]
     pub llm_api_key: Option<String>,
-    /// OpenAI-compatible base URL (currently unused; reserved).
+    /// Base URL override. Required for openai_compat (e.g. http://localhost:11434).
+    /// Optional for anthropic / openai / google (Azure proxy / Vertex / etc.).
     #[arg(long = "llm-base-url")]
     pub llm_base_url: Option<String>,
     /// `agent_cli` executable (e.g. hermes, openclaw, opencode).
@@ -240,6 +241,38 @@ pub fn run_init(args: InitArgs) -> anyhow::Result<()> {
     let backend = ensure_backend(&args.llm_backend)?;
     if backend == LLMBackend::AgentCli && args.agent_command.is_none() {
         anyhow::bail!("--agent-command required when --llm-backend=agent_cli");
+    }
+    if backend == LLMBackend::OpenAiCompat {
+        if args.llm_base_url.is_none() {
+            anyhow::bail!(
+                "--llm-base-url required when --llm-backend=openai_compat \
+                 (e.g. http://localhost:11434 for Ollama)"
+            );
+        }
+        if args.llm_model.is_none() {
+            anyhow::bail!(
+                "--llm-model required when --llm-backend=openai_compat \
+                 (e.g. \"gemma3:27b\")"
+            );
+        }
+    }
+    if matches!(
+        backend,
+        LLMBackend::Anthropic | LLMBackend::OpenAi | LLMBackend::Google
+    ) {
+        if args.llm_api_key.is_none() {
+            anyhow::bail!(
+                "--llm-api-key required when --llm-backend={}",
+                backend.as_str()
+            );
+        }
+        if args.llm_model.is_none() {
+            anyhow::bail!(
+                "--llm-model required when --llm-backend={} \
+                 (e.g. \"claude-opus-4-7\" / \"gpt-5\" / \"gemini-2.5-pro\")",
+                backend.as_str()
+            );
+        }
     }
     let llm = LlmConfig {
         backend: backend.as_str().to_string(),
@@ -483,15 +516,22 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
                     Duration::from_secs(300),
                 ))
             }
+            backend @ (LLMBackend::OpenAiCompat
+            | LLMBackend::Anthropic
+            | LLMBackend::OpenAi
+            | LLMBackend::Google) => create_driver(&LLMDriverConfig {
+                backend,
+                timeout: Duration::from_secs(300),
+                claude_binary: None,
+                agent_command: None,
+                agent_args: Vec::new(),
+                api_key: state.config.llm.api_key.clone(),
+                model: state.config.llm.model.clone(),
+                base_url: state.config.llm.base_url.clone(),
+                max_tokens: None,
+            })?,
         }
     };
-    let _ = create_driver(&LLMDriverConfig {
-        backend: LLMBackend::Mock,
-        timeout: Duration::from_secs(120),
-        claude_binary: None,
-        agent_command: None,
-        agent_args: Vec::new(),
-    });
 
     let emitter: Box<dyn TargetEmitter> = if let (Some(seed), Some(render)) = (
         args.fixed_target_seed_hex.clone(),

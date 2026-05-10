@@ -2,9 +2,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use boole_miner::{
-    create_driver, extract_proof_source, with_retry, AgentCliDriver, ClaudeCliDriver,
-    DriverConfigError, GenerateResult, LLMBackend, LLMDriverConfig, MockDriver, MockResponse,
-    ProcessError, ProcessRunner, ProverDriver, RejectionReason, RetryConfig, Sleeper,
+    create_driver, extract_proof_source, with_retry, AgentCliDriver, AnthropicDriver,
+    ClaudeCliDriver, DriverConfigError, GenerateResult, GoogleDriver, HttpRunner, HttpRunnerError,
+    HttpRunnerResponse, LLMBackend, LLMDriverConfig, MockDriver, MockResponse, OpenAiCompatDriver,
+    OpenAiDriver, ProcessError, ProcessRunner, ProverDriver, RejectionReason, RetryConfig, Sleeper,
     StdProcessRunner, Strategy,
 };
 
@@ -238,15 +239,23 @@ fn test_agent_cli_driver_classifies_empty_stdout_as_rejected() {
 
 // --- create_driver --------------------------------------------------------
 
-#[test]
-fn test_create_driver_mock_backend_is_not_constructible() {
-    let cfg = LLMDriverConfig {
-        backend: LLMBackend::Mock,
-        timeout: Duration::from_secs(10),
+fn driver_cfg(backend: LLMBackend, timeout: Duration) -> LLMDriverConfig {
+    LLMDriverConfig {
+        backend,
+        timeout,
         claude_binary: None,
         agent_command: None,
         agent_args: vec![],
-    };
+        api_key: None,
+        model: None,
+        base_url: None,
+        max_tokens: None,
+    }
+}
+
+#[test]
+fn test_create_driver_mock_backend_is_not_constructible() {
+    let cfg = driver_cfg(LLMBackend::Mock, Duration::from_secs(10));
     match create_driver(&cfg) {
         Err(DriverConfigError::MockNotConstructible) => (),
         Err(other) => panic!("expected MockNotConstructible, got {other:?}"),
@@ -256,26 +265,14 @@ fn test_create_driver_mock_backend_is_not_constructible() {
 
 #[test]
 fn test_create_driver_claude_cli_uses_default_binary() {
-    let cfg = LLMDriverConfig {
-        backend: LLMBackend::ClaudeCli,
-        timeout: Duration::from_secs(120),
-        claude_binary: None,
-        agent_command: None,
-        agent_args: vec![],
-    };
+    let cfg = driver_cfg(LLMBackend::ClaudeCli, Duration::from_secs(120));
     let d = create_driver(&cfg).unwrap();
     assert_eq!(d.name(), "claude_cli");
 }
 
 #[test]
 fn test_create_driver_agent_cli_requires_command() {
-    let cfg = LLMDriverConfig {
-        backend: LLMBackend::AgentCli,
-        timeout: Duration::from_secs(60),
-        claude_binary: None,
-        agent_command: None,
-        agent_args: vec![],
-    };
+    let cfg = driver_cfg(LLMBackend::AgentCli, Duration::from_secs(60));
     match create_driver(&cfg) {
         Err(DriverConfigError::AgentCommandMissing) => (),
         Err(other) => panic!("expected AgentCommandMissing, got {other:?}"),
@@ -285,24 +282,130 @@ fn test_create_driver_agent_cli_requires_command() {
 
 #[test]
 fn test_create_driver_agent_cli_with_command_succeeds() {
-    let cfg = LLMDriverConfig {
-        backend: LLMBackend::AgentCli,
-        timeout: Duration::from_secs(60),
-        claude_binary: None,
-        agent_command: Some("hermes".to_string()),
-        agent_args: vec!["--mode=lean".to_string()],
-    };
+    let mut cfg = driver_cfg(LLMBackend::AgentCli, Duration::from_secs(60));
+    cfg.agent_command = Some("hermes".to_string());
+    cfg.agent_args = vec!["--mode=lean".to_string()];
     let d = create_driver(&cfg).unwrap();
     assert_eq!(d.name(), "agent_cli");
 }
 
 #[test]
+fn test_create_driver_openai_compat_requires_base_url() {
+    let mut cfg = driver_cfg(LLMBackend::OpenAiCompat, Duration::from_secs(60));
+    cfg.model = Some("gemma3:27b".to_string());
+    match create_driver(&cfg) {
+        Err(DriverConfigError::BaseUrlMissing) => (),
+        Err(other) => panic!("expected BaseUrlMissing, got {other:?}"),
+        Ok(_) => panic!("expected error"),
+    }
+}
+
+#[test]
+fn test_create_driver_openai_compat_requires_model() {
+    let mut cfg = driver_cfg(LLMBackend::OpenAiCompat, Duration::from_secs(60));
+    cfg.base_url = Some("http://localhost:11434".to_string());
+    match create_driver(&cfg) {
+        Err(DriverConfigError::ModelMissing("openai_compat")) => (),
+        Err(other) => panic!("expected ModelMissing(\"openai_compat\"), got {other:?}"),
+        Ok(_) => panic!("expected error"),
+    }
+}
+
+#[test]
+fn test_create_driver_openai_compat_with_required_fields_succeeds() {
+    let mut cfg = driver_cfg(LLMBackend::OpenAiCompat, Duration::from_secs(60));
+    cfg.base_url = Some("http://localhost:11434".to_string());
+    cfg.model = Some("gemma3:27b".to_string());
+    let d = create_driver(&cfg).unwrap();
+    assert_eq!(d.name(), "openai_compat");
+}
+
+#[test]
 fn test_llm_backend_parse_round_trips() {
-    for s in ["mock", "claude_cli", "agent_cli"] {
+    for s in [
+        "mock",
+        "claude_cli",
+        "agent_cli",
+        "openai_compat",
+        "anthropic",
+        "openai",
+        "google",
+    ] {
         let b = LLMBackend::parse(s).unwrap();
         assert_eq!(b.as_str(), s);
     }
     assert_eq!(LLMBackend::parse("unknown"), None);
+}
+
+#[test]
+fn test_create_driver_anthropic_requires_api_key() {
+    let mut cfg = driver_cfg(LLMBackend::Anthropic, Duration::from_secs(60));
+    cfg.model = Some("claude-opus-4-7".to_string());
+    match create_driver(&cfg) {
+        Err(DriverConfigError::ApiKeyMissing("anthropic")) => (),
+        Err(other) => panic!("expected ApiKeyMissing(\"anthropic\"), got {other:?}"),
+        Ok(_) => panic!("expected error"),
+    }
+}
+
+#[test]
+fn test_create_driver_anthropic_requires_model() {
+    let mut cfg = driver_cfg(LLMBackend::Anthropic, Duration::from_secs(60));
+    cfg.api_key = Some("sk-ant-xxx".to_string());
+    match create_driver(&cfg) {
+        Err(DriverConfigError::ModelMissing("anthropic")) => (),
+        Err(other) => panic!("expected ModelMissing(\"anthropic\"), got {other:?}"),
+        Ok(_) => panic!("expected error"),
+    }
+}
+
+#[test]
+fn test_create_driver_anthropic_with_required_fields_succeeds() {
+    let mut cfg = driver_cfg(LLMBackend::Anthropic, Duration::from_secs(60));
+    cfg.api_key = Some("sk-ant-xxx".to_string());
+    cfg.model = Some("claude-opus-4-7".to_string());
+    let d = create_driver(&cfg).unwrap();
+    assert_eq!(d.name(), "anthropic");
+}
+
+#[test]
+fn test_create_driver_openai_requires_api_key() {
+    let mut cfg = driver_cfg(LLMBackend::OpenAi, Duration::from_secs(60));
+    cfg.model = Some("gpt-5".to_string());
+    match create_driver(&cfg) {
+        Err(DriverConfigError::ApiKeyMissing("openai")) => (),
+        Err(other) => panic!("expected ApiKeyMissing(\"openai\"), got {other:?}"),
+        Ok(_) => panic!("expected error"),
+    }
+}
+
+#[test]
+fn test_create_driver_openai_with_required_fields_succeeds() {
+    let mut cfg = driver_cfg(LLMBackend::OpenAi, Duration::from_secs(60));
+    cfg.api_key = Some("sk-xxx".to_string());
+    cfg.model = Some("gpt-5".to_string());
+    let d = create_driver(&cfg).unwrap();
+    assert_eq!(d.name(), "openai");
+}
+
+#[test]
+fn test_create_driver_google_requires_api_key() {
+    let mut cfg = driver_cfg(LLMBackend::Google, Duration::from_secs(60));
+    cfg.model = Some("gemini-2.5-pro".to_string());
+    match create_driver(&cfg) {
+        Err(DriverConfigError::ApiKeyMissing("google")) => (),
+        Err(other) => panic!("expected ApiKeyMissing(\"google\"), got {other:?}"),
+        Ok(_) => panic!("expected error"),
+    }
+}
+
+#[test]
+fn test_create_driver_google_with_required_fields_succeeds() {
+    let mut cfg = driver_cfg(LLMBackend::Google, Duration::from_secs(60));
+    cfg.api_key = Some("AIza-xxx".to_string());
+    cfg.model = Some("gemini-2.5-pro".to_string());
+    let d = create_driver(&cfg).unwrap();
+    assert_eq!(d.name(), "google");
 }
 
 // --- with_retry ----------------------------------------------------------
@@ -434,6 +537,595 @@ fn test_std_process_runner_kills_long_running_child_on_timeout() {
         )
         .unwrap_err();
     assert!(matches!(err, ProcessError::Timeout { .. }), "got {err:?}");
+}
+
+// --- HttpRunner mock + OpenAiCompatDriver --------------------------------
+
+#[derive(Default, Debug)]
+struct HttpCapture {
+    url: String,
+    headers: Vec<(String, String)>,
+    body: serde_json::Value,
+    timeout: Duration,
+}
+
+#[derive(Clone)]
+struct FakeHttpRunner {
+    inner: Arc<Mutex<FakeHttpRunnerInner>>,
+}
+
+struct FakeHttpRunnerInner {
+    captures: Vec<HttpCapture>,
+    next: Vec<Result<HttpRunnerResponse, HttpRunnerError>>,
+}
+
+impl FakeHttpRunner {
+    fn new(responses: Vec<Result<HttpRunnerResponse, HttpRunnerError>>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(FakeHttpRunnerInner {
+                captures: Vec::new(),
+                next: responses,
+            })),
+        }
+    }
+
+    fn captured(&self) -> Vec<HttpCapture> {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .captures
+            .iter()
+            .map(|c| HttpCapture {
+                url: c.url.clone(),
+                headers: c.headers.clone(),
+                body: c.body.clone(),
+                timeout: c.timeout,
+            })
+            .collect()
+    }
+}
+
+impl HttpRunner for FakeHttpRunner {
+    fn post_json(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: &serde_json::Value,
+        timeout: Duration,
+    ) -> Result<HttpRunnerResponse, HttpRunnerError> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.captures.push(HttpCapture {
+            url: url.to_string(),
+            headers: headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            body: body.clone(),
+            timeout,
+        });
+        if inner.next.is_empty() {
+            return Err(HttpRunnerError::Network(
+                "FakeHttpRunner exhausted".to_string(),
+            ));
+        }
+        inner.next.remove(0)
+    }
+}
+
+fn ok_chat_completion(content: &str, completion_tokens: Option<u64>) -> HttpRunnerResponse {
+    let usage = match completion_tokens {
+        Some(n) => serde_json::json!({"completion_tokens": n}),
+        None => serde_json::Value::Null,
+    };
+    let payload = serde_json::json!({
+        "choices": [{"message": {"role": "assistant", "content": content}}],
+        "usage": usage,
+    });
+    HttpRunnerResponse {
+        status: 200,
+        body: serde_json::to_vec(&payload).unwrap(),
+    }
+}
+
+#[test]
+fn test_openai_compat_driver_posts_to_v1_chat_completions_with_bearer_auth() {
+    let http = FakeHttpRunner::new(vec![Ok(ok_chat_completion(
+        "```lean\nby trivial\n```",
+        Some(42),
+    ))]);
+    let driver = OpenAiCompatDriver::with_runner(
+        "http://localhost:11434",
+        "sk-secret",
+        "gemma3:27b",
+        4096,
+        Duration::from_secs(30),
+        Box::new(http.clone()),
+    );
+    let r = driver.generate("PROMPT");
+    assert_eq!(driver.name(), "openai_compat");
+    assert_eq!(driver.strategy(), Strategy::OpenWeight);
+    match r {
+        GenerateResult::Solved {
+            proof_source,
+            tokens_used,
+            ..
+        } => {
+            assert_eq!(proof_source, "by trivial");
+            assert_eq!(tokens_used, Some(42));
+        }
+        other => panic!("expected Solved, got {other:?}"),
+    }
+    let cap = http.captured();
+    assert_eq!(cap.len(), 1);
+    assert_eq!(cap[0].url, "http://localhost:11434/v1/chat/completions");
+    assert!(
+        cap[0]
+            .headers
+            .iter()
+            .any(|(k, v)| k == "authorization" && v == "Bearer sk-secret"),
+        "expected Bearer auth header, got {:?}",
+        cap[0].headers
+    );
+    assert_eq!(cap[0].body["model"], "gemma3:27b");
+    assert_eq!(cap[0].body["max_tokens"], 4096);
+    assert_eq!(cap[0].body["think"], false);
+    assert_eq!(cap[0].body["messages"][0]["role"], "user");
+    assert_eq!(cap[0].body["messages"][0]["content"], "PROMPT");
+}
+
+#[test]
+fn test_openai_compat_driver_strips_trailing_slash_from_base_url() {
+    let http = FakeHttpRunner::new(vec![Ok(ok_chat_completion("by rfl", None))]);
+    let driver = OpenAiCompatDriver::with_runner(
+        "http://localhost:11434/",
+        "sk",
+        "m",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http.clone()),
+    );
+    let _ = driver.generate("p");
+    let cap = http.captured();
+    assert_eq!(cap[0].url, "http://localhost:11434/v1/chat/completions");
+}
+
+#[test]
+fn test_openai_compat_driver_returns_error_on_http_5xx() {
+    let http = FakeHttpRunner::new(vec![Ok(HttpRunnerResponse {
+        status: 503,
+        body: b"upstream unavailable".to_vec(),
+    })]);
+    let driver = OpenAiCompatDriver::with_runner(
+        "http://localhost:11434",
+        "sk",
+        "m",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Error { cause, .. } => {
+            assert!(cause.contains("503"), "got {cause}");
+            assert!(cause.contains("upstream unavailable"), "got {cause}");
+        }
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_openai_compat_driver_returns_error_on_network_failure() {
+    let http = FakeHttpRunner::new(vec![Err(HttpRunnerError::Timeout {
+        url: "http://localhost:11434/v1/chat/completions".to_string(),
+        ms: 30_000,
+    })]);
+    let driver = OpenAiCompatDriver::with_runner(
+        "http://localhost:11434",
+        "sk",
+        "m",
+        2048,
+        Duration::from_secs(30),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Error { cause, .. } => {
+            assert!(cause.contains("timed out"), "got {cause}");
+        }
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_openai_compat_driver_classifies_empty_content_as_rejected() {
+    let http = FakeHttpRunner::new(vec![Ok(ok_chat_completion("", None))]);
+    let driver = OpenAiCompatDriver::with_runner(
+        "http://localhost:11434",
+        "sk",
+        "m",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Rejected { reason, .. } => {
+            assert_eq!(reason, RejectionReason::EmptyResponse);
+        }
+        other => panic!("expected Rejected, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_openai_compat_driver_returns_error_on_malformed_json() {
+    let http = FakeHttpRunner::new(vec![Ok(HttpRunnerResponse {
+        status: 200,
+        body: b"not json".to_vec(),
+    })]);
+    let driver = OpenAiCompatDriver::with_runner(
+        "http://localhost:11434",
+        "sk",
+        "m",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Error { cause, .. } => {
+            assert!(cause.contains("malformed JSON"), "got {cause}");
+        }
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
+
+// --- AnthropicDriver -----------------------------------------------------
+
+fn ok_anthropic(content: &str, output_tokens: Option<u64>) -> HttpRunnerResponse {
+    let usage = match output_tokens {
+        Some(n) => serde_json::json!({"input_tokens": 10, "output_tokens": n}),
+        None => serde_json::Value::Null,
+    };
+    let payload = serde_json::json!({
+        "id": "msg_x",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": content}],
+        "usage": usage,
+    });
+    HttpRunnerResponse {
+        status: 200,
+        body: serde_json::to_vec(&payload).unwrap(),
+    }
+}
+
+#[test]
+fn test_anthropic_driver_posts_to_v1_messages_with_x_api_key() {
+    let http = FakeHttpRunner::new(vec![Ok(ok_anthropic(
+        "```lean\nby trivial\n```",
+        Some(57),
+    ))]);
+    let driver = AnthropicDriver::with_runner(
+        "https://api.anthropic.com",
+        "sk-ant-secret",
+        "claude-opus-4-7",
+        4096,
+        Duration::from_secs(30),
+        Box::new(http.clone()),
+    );
+    let r = driver.generate("PROMPT");
+    assert_eq!(driver.name(), "anthropic");
+    assert_eq!(driver.strategy(), Strategy::Frontier);
+    match r {
+        GenerateResult::Solved {
+            proof_source,
+            tokens_used,
+            ..
+        } => {
+            assert_eq!(proof_source, "by trivial");
+            assert_eq!(tokens_used, Some(57));
+        }
+        other => panic!("expected Solved, got {other:?}"),
+    }
+    let cap = http.captured();
+    assert_eq!(cap.len(), 1);
+    assert_eq!(cap[0].url, "https://api.anthropic.com/v1/messages");
+    assert!(
+        cap[0]
+            .headers
+            .iter()
+            .any(|(k, v)| k == "x-api-key" && v == "sk-ant-secret"),
+        "expected x-api-key header, got {:?}",
+        cap[0].headers
+    );
+    assert!(
+        cap[0]
+            .headers
+            .iter()
+            .any(|(k, v)| k == "anthropic-version" && v == "2023-06-01"),
+        "expected anthropic-version header, got {:?}",
+        cap[0].headers
+    );
+    assert_eq!(cap[0].body["model"], "claude-opus-4-7");
+    assert_eq!(cap[0].body["max_tokens"], 4096);
+    assert_eq!(cap[0].body["messages"][0]["role"], "user");
+    assert_eq!(cap[0].body["messages"][0]["content"], "PROMPT");
+}
+
+#[test]
+fn test_anthropic_driver_concatenates_multiple_text_blocks() {
+    let payload = serde_json::json!({
+        "content": [
+            {"type": "text", "text": "```lean\n"},
+            {"type": "text", "text": "by rfl\n```"},
+        ],
+        "usage": {"output_tokens": 9},
+    });
+    let http = FakeHttpRunner::new(vec![Ok(HttpRunnerResponse {
+        status: 200,
+        body: serde_json::to_vec(&payload).unwrap(),
+    })]);
+    let driver = AnthropicDriver::with_runner(
+        "https://api.anthropic.com",
+        "k",
+        "m",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Solved { proof_source, .. } => assert_eq!(proof_source, "by rfl"),
+        other => panic!("expected Solved, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_anthropic_driver_returns_error_on_4xx() {
+    let http = FakeHttpRunner::new(vec![Ok(HttpRunnerResponse {
+        status: 401,
+        body: b"{\"error\":\"invalid_api_key\"}".to_vec(),
+    })]);
+    let driver = AnthropicDriver::with_runner(
+        "https://api.anthropic.com",
+        "bad",
+        "m",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Error { cause, .. } => {
+            assert!(cause.contains("401"), "got {cause}");
+            assert!(cause.contains("invalid_api_key"), "got {cause}");
+        }
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_anthropic_driver_classifies_empty_content_as_rejected() {
+    let payload = serde_json::json!({
+        "content": [],
+        "usage": {"output_tokens": 0},
+    });
+    let http = FakeHttpRunner::new(vec![Ok(HttpRunnerResponse {
+        status: 200,
+        body: serde_json::to_vec(&payload).unwrap(),
+    })]);
+    let driver = AnthropicDriver::with_runner(
+        "https://api.anthropic.com",
+        "k",
+        "m",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Rejected { reason, .. } => {
+            assert_eq!(reason, RejectionReason::EmptyResponse);
+        }
+        other => panic!("expected Rejected, got {other:?}"),
+    }
+}
+
+// --- OpenAiDriver --------------------------------------------------------
+
+#[test]
+fn test_openai_driver_pins_to_api_openai_com_with_bearer_auth() {
+    let http = FakeHttpRunner::new(vec![Ok(ok_chat_completion(
+        "```lean\nby trivial\n```",
+        Some(31),
+    ))]);
+    let driver = OpenAiDriver::with_runner(
+        "sk-openai-secret",
+        "gpt-5",
+        4096,
+        Duration::from_secs(30),
+        Box::new(http.clone()),
+    );
+    let r = driver.generate("PROMPT");
+    assert_eq!(driver.name(), "openai");
+    assert_eq!(driver.strategy(), Strategy::Frontier);
+    match r {
+        GenerateResult::Solved {
+            proof_source,
+            tokens_used,
+            ..
+        } => {
+            assert_eq!(proof_source, "by trivial");
+            assert_eq!(tokens_used, Some(31));
+        }
+        other => panic!("expected Solved, got {other:?}"),
+    }
+    let cap = http.captured();
+    assert_eq!(cap.len(), 1);
+    assert_eq!(cap[0].url, "https://api.openai.com/v1/chat/completions");
+    assert!(
+        cap[0]
+            .headers
+            .iter()
+            .any(|(k, v)| k == "authorization" && v == "Bearer sk-openai-secret"),
+        "expected Bearer auth header, got {:?}",
+        cap[0].headers
+    );
+    assert_eq!(cap[0].body["model"], "gpt-5");
+}
+
+#[test]
+fn test_openai_driver_returns_error_on_5xx() {
+    let http = FakeHttpRunner::new(vec![Ok(HttpRunnerResponse {
+        status: 500,
+        body: b"server boom".to_vec(),
+    })]);
+    let driver = OpenAiDriver::with_runner(
+        "sk",
+        "gpt-5",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Error { cause, .. } => {
+            assert!(cause.contains("500"), "got {cause}");
+        }
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
+
+// --- GoogleDriver --------------------------------------------------------
+
+fn ok_gemini(parts: Vec<&str>, candidates_tokens: Option<u64>) -> HttpRunnerResponse {
+    let usage = match candidates_tokens {
+        Some(n) => serde_json::json!({"promptTokenCount": 12, "candidatesTokenCount": n}),
+        None => serde_json::Value::Null,
+    };
+    let parts_json: Vec<serde_json::Value> = parts
+        .iter()
+        .map(|t| serde_json::json!({"text": t}))
+        .collect();
+    let payload = serde_json::json!({
+        "candidates": [{
+            "content": {"parts": parts_json, "role": "model"},
+            "finishReason": "STOP",
+        }],
+        "usageMetadata": usage,
+    });
+    HttpRunnerResponse {
+        status: 200,
+        body: serde_json::to_vec(&payload).unwrap(),
+    }
+}
+
+#[test]
+fn test_google_driver_posts_to_generate_content_with_x_goog_api_key() {
+    let http = FakeHttpRunner::new(vec![Ok(ok_gemini(
+        vec!["```lean\nby trivial\n```"],
+        Some(64),
+    ))]);
+    let driver = GoogleDriver::with_runner(
+        "https://generativelanguage.googleapis.com",
+        "AIza-secret",
+        "gemini-2.5-pro",
+        4096,
+        Duration::from_secs(30),
+        Box::new(http.clone()),
+    );
+    let r = driver.generate("PROMPT");
+    assert_eq!(driver.name(), "google");
+    assert_eq!(driver.strategy(), Strategy::Frontier);
+    match r {
+        GenerateResult::Solved {
+            proof_source,
+            tokens_used,
+            ..
+        } => {
+            assert_eq!(proof_source, "by trivial");
+            assert_eq!(tokens_used, Some(64));
+        }
+        other => panic!("expected Solved, got {other:?}"),
+    }
+    let cap = http.captured();
+    assert_eq!(cap.len(), 1);
+    assert_eq!(
+        cap[0].url,
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent"
+    );
+    assert!(
+        cap[0]
+            .headers
+            .iter()
+            .any(|(k, v)| k == "x-goog-api-key" && v == "AIza-secret"),
+        "expected x-goog-api-key header, got {:?}",
+        cap[0].headers
+    );
+    assert_eq!(cap[0].body["contents"][0]["parts"][0]["text"], "PROMPT");
+    assert_eq!(cap[0].body["generationConfig"]["maxOutputTokens"], 4096);
+}
+
+#[test]
+fn test_google_driver_concatenates_multiple_parts() {
+    let http = FakeHttpRunner::new(vec![Ok(ok_gemini(
+        vec!["```lean\n", "by rfl\n", "```"],
+        Some(7),
+    ))]);
+    let driver = GoogleDriver::with_runner(
+        "https://generativelanguage.googleapis.com",
+        "k",
+        "gemini-2.5-pro",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Solved { proof_source, .. } => assert_eq!(proof_source, "by rfl"),
+        other => panic!("expected Solved, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_google_driver_returns_error_on_4xx() {
+    let http = FakeHttpRunner::new(vec![Ok(HttpRunnerResponse {
+        status: 403,
+        body: b"PERMISSION_DENIED".to_vec(),
+    })]);
+    let driver = GoogleDriver::with_runner(
+        "https://generativelanguage.googleapis.com",
+        "bad",
+        "gemini-2.5-pro",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Error { cause, .. } => {
+            assert!(cause.contains("403"), "got {cause}");
+            assert!(cause.contains("PERMISSION_DENIED"), "got {cause}");
+        }
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_google_driver_classifies_empty_candidates_as_rejected() {
+    let payload = serde_json::json!({
+        "candidates": [{
+            "content": {"parts": [], "role": "model"},
+            "finishReason": "MAX_TOKENS",
+        }],
+    });
+    let http = FakeHttpRunner::new(vec![Ok(HttpRunnerResponse {
+        status: 200,
+        body: serde_json::to_vec(&payload).unwrap(),
+    })]);
+    let driver = GoogleDriver::with_runner(
+        "https://generativelanguage.googleapis.com",
+        "k",
+        "gemini-2.5-pro",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Rejected { reason, .. } => {
+            assert_eq!(reason, RejectionReason::EmptyResponse);
+        }
+        other => panic!("expected Rejected, got {other:?}"),
+    }
 }
 
 #[test]
