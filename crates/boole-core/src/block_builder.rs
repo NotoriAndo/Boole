@@ -5,6 +5,52 @@ use num_bigint::BigUint;
 use num_traits::Zero;
 use serde::{Deserialize, Serialize};
 
+/// Bounty proof that has cleared its `FamilyManifest`'s activation +
+/// signature gates and is admitted as additional block content alongside
+/// the base PoF lane. Carries the routing fields the audit log + reward
+/// ledger need (`family_id`, `bounty_id`, `proof_hash`, `prover`).
+///
+/// The block builder treats this slice as fully vetted: activation
+/// gating, signature verification, and per-family caps (`max_shares_per_block`,
+/// `max_score_multiplier_bps`) are the *caller's* responsibility — see
+/// `select_promoted_bounty_shares`. `build_block_selection` does not
+/// apply base-lane kernel-acceptance to promoted shares either; bounty
+/// proofs run through their family's `BountyProofVerifier`, which is a
+/// different namespace from the base canonicalizer's `canon_tag`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromotedBountyShare {
+    pub family_id: String,
+    pub bounty_id: String,
+    pub proof_hash: String,
+    pub prover: String,
+}
+
+/// Credit row attached to a promoted bounty share. `amount` is already
+/// capped against the per-family `caps.max_reward_credit_per_block`
+/// budget at selection time. `amount == 0` rows are dropped before
+/// persistence (they would land as no-op events on disk and complicate
+/// replay diffs).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromotedBountyCredit {
+    pub family_id: String,
+    pub bounty_id: String,
+    pub prover: String,
+    /// Decimal `u128` string — JSON cannot carry full `u128` precision
+    /// natively, so we pin it as text the same way `FamilyCaps` does.
+    pub amount: String,
+}
+
+/// Bundled output of the activation/caps gate. Shares feed
+/// `build_block_selection`'s bounty slot; credits feed `RewardLedger`
+/// + `FileBountyEventLedger` at commit time.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PromotedBountySelection {
+    pub shares: Vec<PromotedBountyShare>,
+    pub credits: Vec<PromotedBountyCredit>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CandidateShare {
@@ -69,6 +115,14 @@ pub struct BuiltBlockSelection {
     pub truncated_by_kmax: usize,
     pub kernel_checked_tags: Vec<u8>,
     pub kernel_accepted: Vec<bool>,
+    /// Bounty-lane shares that survived their kernel-tag check. Empty
+    /// unless a caller passed promoted shares; never folded into the
+    /// base-lane drop counters above (Hard-Guard).
+    pub promoted_bounty_shares: Vec<PromotedBountyShare>,
+    /// S23b — bounty credit rows attached to this block. Already capped
+    /// against per-family `max_reward_credit_per_block` by the selection
+    /// gate. Empty unless promoted credits were supplied.
+    pub promoted_bounty_credits: Vec<PromotedBountyCredit>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +146,8 @@ pub fn build_block_selection(
     shares: &[CandidateShare],
     cfg: &BlockBuilderConfig,
     accepted_canon_tags: &BTreeSet<u8>,
+    promoted_bounty_shares: &[PromotedBountyShare],
+    promoted_bounty_credits: &[PromotedBountyCredit],
 ) -> anyhow::Result<BuildSelectionResult> {
     let t_block = normalize_hex256(&cfg.t_block)?;
     let mut dropped_below_min_score = 0usize;
@@ -167,6 +223,8 @@ pub fn build_block_selection(
         truncated_by_kmax,
         kernel_checked_tags,
         kernel_accepted,
+        promoted_bounty_shares: promoted_bounty_shares.to_vec(),
+        promoted_bounty_credits: promoted_bounty_credits.to_vec(),
     }))
 }
 

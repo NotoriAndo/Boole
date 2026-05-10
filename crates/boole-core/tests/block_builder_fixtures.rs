@@ -61,8 +61,15 @@ fn block_builder_matches_typescript_golden_fixture() {
         .accepted_canon_tags
         .into_iter()
         .collect::<BTreeSet<_>>();
-    let result = build_block_selection(&fixture.chain_head, &fixture.input_shares, &cfg, &accepted)
-        .expect("build selection");
+    let result = build_block_selection(
+        &fixture.chain_head,
+        &fixture.input_shares,
+        &cfg,
+        &accepted,
+        &[],
+        &[],
+    )
+    .expect("build selection");
 
     let BuildSelectionResult::Ok(selection) = result else {
         panic!("expected ok selection");

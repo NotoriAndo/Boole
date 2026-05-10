@@ -28,7 +28,7 @@ smuggle a file in via a symlink that resolves outside the package.
 The hash of the files committed to this repo:
 
 ```
-e255971c4605fe99d45a7d4e2609d01b5b05c3ba7a51ace3896336d413278fef
+160009a4f09686c0d264e82261bfd1fa8783f78fb98a8f7783695ccdae217b87
 ```
 
 Recompute and verify with:

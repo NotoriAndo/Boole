@@ -1,0 +1,16 @@
+{
+  "name": "block-by-height-not-found",
+  "description": "Well-formed numeric height beyond committed chain length: HTTP 404 not_found with the queried height in detail. Distinguishes from bad_request (parse failure on the path).",
+  "request": {
+    "method": "GET",
+    "path": "/block/9999"
+  },
+  "expect": {
+    "status": 404,
+    "bodyEquals": {
+      "ok": false,
+      "reason": "not_found",
+      "detail": "no block at height 9999"
+    }
+  }
+}

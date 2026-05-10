@@ -1,0 +1,16 @@
+{
+  "name": "block-by-height-bad-request",
+  "description": "Non-numeric height segment is a contract violation, not a missing resource: HTTP 400 bad_request. Distinguishes parse failure (path malformed) from lookup failure (path well-formed, height beyond chain).",
+  "request": {
+    "method": "GET",
+    "path": "/block/notanumber"
+  },
+  "expect": {
+    "status": 400,
+    "bodyEquals": {
+      "ok": false,
+      "reason": "bad_request",
+      "detail": "height must be a non-negative integer"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "block-latest-empty",
+  "description": "Empty chain is a VALID state, not an error: GET /block/latest returns HTTP 200 with block:null, height:null, c:<GENESIS_C>. This intentionally diverges from pof (pof returns 404 no_blocks) — the plan rationale (§2 N0 task 3) is that clients always receive a chain-head reference so they can post /ticket and /submit against genesis without a separate bootstrap call.",
+  "request": {
+    "method": "GET",
+    "path": "/block/latest"
+  },
+  "expect": {
+    "status": 200,
+    "bodyContains": {
+      "ok": true,
+      "block": null,
+      "height": null,
+      "c": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  }
+}

@@ -235,6 +235,7 @@ fn evidence_backed_block() -> PersistedBlock {
         dropped_kernel_reject: 0,
         truncated_by_kmax: 0,
         ts: 1_700_000_000_000,
+        promoted_bounty_credits: vec![],
     }
 }
 

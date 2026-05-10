@@ -1,0 +1,145 @@
+{
+  "fixtureFamily": "boole.calibration.pow.v2",
+  "fixtureNote": "Deterministic 5-instance regression fixture for the v031-lp port (Slice S8). Regenerated from attempt_context + wrap_proof_term_candidate. Replay must yield byte-identical (chainExpr, canonicalProof, wrappedCandidate).",
+  "instances": [
+    {
+      "runId": "ci-v2-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 0,
+      "benchmarkMode": "mining-v2",
+      "challenge": "02fb668951ceab8cd9e4c304a05d1d7f7b2e429a660251bec57a1416127533be",
+      "nonce": "f9fdc95f4b6fdff030f5735daced9f3c",
+      "theoremName": "boole_benchmark_pow_v2_target_1",
+      "lpChainLen": 2,
+      "lpD": 1,
+      "lpChain": [
+        {
+          "op": "mapAdd",
+          "k": -2
+        },
+        {
+          "op": "mapMul",
+          "k": 3
+        }
+      ],
+      "chainExpr": "(mapMul (3 : Int) (mapAdd (-2 : Int) xs))",
+      "canonicalProof": "fun xs => (length_mapMul (3 : Int) _).trans (length_mapAdd (-2 : Int) xs)",
+      "wrappedCandidate": "-- benchmarkMode: mining-v2\n-- targetFamily: boole.calibration.pow.v2\n-- lotteryChallenge: 02fb668951ceab8cd9e4c304a05d1d7f7b2e429a660251bec57a1416127533be\n-- lotteryNonce: f9fdc95f4b6fdff030f5735daced9f3c\n-- lpChainLen: 2\n-- lpD: 1\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v2_target_1\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v2_target_1 : ∀ (xs : List Int),\n    (mapMul (3 : Int) (mapAdd (-2 : Int) xs)).length = xs.length :=\n  fun xs => (length_mapMul (3 : Int) _).trans (length_mapAdd (-2 : Int) xs)\n\nend boole_benchmark_pow_v2_target_1\n"
+    },
+    {
+      "runId": "ci-v2-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 1,
+      "benchmarkMode": "mining-v2",
+      "challenge": "0a2b0f97dec726f12129aeb02c254880ca16bdc2eb70b76a83202bcd4b0da50b",
+      "nonce": "e0758bef2b0d55ae42a04f4f9d224d99",
+      "theoremName": "boole_benchmark_pow_v2_target_2",
+      "lpChainLen": 3,
+      "lpD": 2,
+      "lpChain": [
+        {
+          "op": "sortAsc"
+        },
+        {
+          "op": "sortAsc"
+        },
+        {
+          "op": "mapAdd",
+          "k": 8
+        }
+      ],
+      "chainExpr": "(mapAdd (8 : Int) (sortAsc (sortAsc xs)))",
+      "canonicalProof": "fun xs => (length_mapAdd (8 : Int) _).trans ((length_sortAsc _).trans (length_sortAsc xs))",
+      "wrappedCandidate": "-- benchmarkMode: mining-v2\n-- targetFamily: boole.calibration.pow.v2\n-- lotteryChallenge: 0a2b0f97dec726f12129aeb02c254880ca16bdc2eb70b76a83202bcd4b0da50b\n-- lotteryNonce: e0758bef2b0d55ae42a04f4f9d224d99\n-- lpChainLen: 3\n-- lpD: 2\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v2_target_2\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v2_target_2 : ∀ (xs : List Int),\n    (mapAdd (8 : Int) (sortAsc (sortAsc xs))).length = xs.length :=\n  fun xs => (length_mapAdd (8 : Int) _).trans ((length_sortAsc _).trans (length_sortAsc xs))\n\nend boole_benchmark_pow_v2_target_2\n"
+    },
+    {
+      "runId": "ci-v2-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 2,
+      "benchmarkMode": "mining-v2",
+      "challenge": "64087eb33ed8d296da463fc66522addb63c3e68f4a86828166990fd80e48fa8d",
+      "nonce": "76465eeab36231ee406ec0f53fbc8d49",
+      "theoremName": "boole_benchmark_pow_v2_target_3",
+      "lpChainLen": 2,
+      "lpD": 1,
+      "lpChain": [
+        {
+          "op": "mapAdd",
+          "k": -2
+        },
+        {
+          "op": "sortAsc"
+        }
+      ],
+      "chainExpr": "(sortAsc (mapAdd (-2 : Int) xs))",
+      "canonicalProof": "fun xs => (length_sortAsc _).trans (length_mapAdd (-2 : Int) xs)",
+      "wrappedCandidate": "-- benchmarkMode: mining-v2\n-- targetFamily: boole.calibration.pow.v2\n-- lotteryChallenge: 64087eb33ed8d296da463fc66522addb63c3e68f4a86828166990fd80e48fa8d\n-- lotteryNonce: 76465eeab36231ee406ec0f53fbc8d49\n-- lpChainLen: 2\n-- lpD: 1\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v2_target_3\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v2_target_3 : ∀ (xs : List Int),\n    (sortAsc (mapAdd (-2 : Int) xs)).length = xs.length :=\n  fun xs => (length_sortAsc _).trans (length_mapAdd (-2 : Int) xs)\n\nend boole_benchmark_pow_v2_target_3\n"
+    },
+    {
+      "runId": "ci-v2-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 3,
+      "benchmarkMode": "mining-v2",
+      "challenge": "20669b841e3b6d52eeb79fd16904cd8f705c52b5eabd15fdfd7d53b66f71ba4a",
+      "nonce": "02366e83cd924bb5944330c28e253bd3",
+      "theoremName": "boole_benchmark_pow_v2_target_4",
+      "lpChainLen": 4,
+      "lpD": 3,
+      "lpChain": [
+        {
+          "op": "mapMul",
+          "k": 2
+        },
+        {
+          "op": "sortAsc"
+        },
+        {
+          "op": "mapMul",
+          "k": 3
+        },
+        {
+          "op": "mapMul",
+          "k": 4
+        }
+      ],
+      "chainExpr": "(mapMul (4 : Int) (mapMul (3 : Int) (sortAsc (mapMul (2 : Int) xs))))",
+      "canonicalProof": "fun xs => (length_mapMul (4 : Int) _).trans ((length_mapMul (3 : Int) _).trans ((length_sortAsc _).trans (length_mapMul (2 : Int) xs)))",
+      "wrappedCandidate": "-- benchmarkMode: mining-v2\n-- targetFamily: boole.calibration.pow.v2\n-- lotteryChallenge: 20669b841e3b6d52eeb79fd16904cd8f705c52b5eabd15fdfd7d53b66f71ba4a\n-- lotteryNonce: 02366e83cd924bb5944330c28e253bd3\n-- lpChainLen: 4\n-- lpD: 3\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v2_target_4\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v2_target_4 : ∀ (xs : List Int),\n    (mapMul (4 : Int) (mapMul (3 : Int) (sortAsc (mapMul (2 : Int) xs)))).length = xs.length :=\n  fun xs => (length_mapMul (4 : Int) _).trans ((length_mapMul (3 : Int) _).trans ((length_sortAsc _).trans (length_mapMul (2 : Int) xs)))\n\nend boole_benchmark_pow_v2_target_4\n"
+    },
+    {
+      "runId": "ci-v2-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 4,
+      "benchmarkMode": "mining-v2",
+      "challenge": "86a802587bd3e9a31099acee620ec56f967aa86e36043c5bf39ab8839b18a358",
+      "nonce": "bd8aa10febdc3616ac3236f581985714",
+      "theoremName": "boole_benchmark_pow_v2_target_5",
+      "lpChainLen": 5,
+      "lpD": 4,
+      "lpChain": [
+        {
+          "op": "mapMul",
+          "k": 1
+        },
+        {
+          "op": "mapAdd",
+          "k": -9
+        },
+        {
+          "op": "mapMul",
+          "k": 3
+        },
+        {
+          "op": "mapAdd",
+          "k": 5
+        },
+        {
+          "op": "sortAsc"
+        }
+      ],
+      "chainExpr": "(sortAsc (mapAdd (5 : Int) (mapMul (3 : Int) (mapAdd (-9 : Int) (mapMul (1 : Int) xs)))))",
+      "canonicalProof": "fun xs => (length_sortAsc _).trans ((length_mapAdd (5 : Int) _).trans ((length_mapMul (3 : Int) _).trans ((length_mapAdd (-9 : Int) _).trans (length_mapMul (1 : Int) xs))))",
+      "wrappedCandidate": "-- benchmarkMode: mining-v2\n-- targetFamily: boole.calibration.pow.v2\n-- lotteryChallenge: 86a802587bd3e9a31099acee620ec56f967aa86e36043c5bf39ab8839b18a358\n-- lotteryNonce: bd8aa10febdc3616ac3236f581985714\n-- lpChainLen: 5\n-- lpD: 4\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v2_target_5\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v2_target_5 : ∀ (xs : List Int),\n    (sortAsc (mapAdd (5 : Int) (mapMul (3 : Int) (mapAdd (-9 : Int) (mapMul (1 : Int) xs))))).length = xs.length :=\n  fun xs => (length_sortAsc _).trans ((length_mapAdd (5 : Int) _).trans ((length_mapMul (3 : Int) _).trans ((length_mapAdd (-9 : Int) _).trans (length_mapMul (1 : Int) xs))))\n\nend boole_benchmark_pow_v2_target_5\n"
+    }
+  ]
+}

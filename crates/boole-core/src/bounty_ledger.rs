@@ -1,7 +1,54 @@
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::Path;
 
 const HEX32_LEN: usize = 64;
+
+/// NDJSON file-backed audit log for bounty events.
+///
+/// Mirrors `FileRewardLedger` (`crates/boole-node/src/reward_store.rs`):
+/// one JSON object per line, append-only, recovery is an idempotent fold
+/// over the file. Schema validation reuses `validate_event` so every line
+/// admitted to the file is also admissible to the in-memory
+/// `BountyEventLedger`.
+pub struct FileBountyEventLedger;
+
+impl FileBountyEventLedger {
+    pub fn append(path: impl AsRef<Path>, event: &Value) -> anyhow::Result<()> {
+        validate_event(event)
+            .map_err(|err| anyhow::anyhow!("bountyEventLedger: {err}"))?;
+        if let Some(parent) = path.as_ref().parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path.as_ref())?;
+        writeln!(file, "{}", serde_json::to_string(event)?)?;
+        Ok(())
+    }
+
+    pub fn recover(path: impl AsRef<Path>) -> anyhow::Result<Vec<Value>> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let raw = fs::read_to_string(path)?;
+        let mut events = Vec::new();
+        for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
+            let event: Value = serde_json::from_str(line).map_err(|err| {
+                anyhow::anyhow!("bountyEventLedger: line {} invalid JSON: {}", i + 1, err)
+            })?;
+            validate_event(&event).map_err(|err| {
+                anyhow::anyhow!("bountyEventLedger: line {} schema invalid: {}", i + 1, err)
+            })?;
+            events.push(event);
+        }
+        Ok(events)
+    }
+}
 
 #[derive(Debug, Default, Clone)]
 pub struct BountyEventLedger {
@@ -65,9 +112,47 @@ fn validate_event(event: &Value) -> Result<(), String> {
     }
 
     let kind = string_field(event, "kind").unwrap_or("");
-    if !matches!(kind, "create" | "status_change" | "proof") {
+    if !matches!(kind, "create" | "status_change" | "proof" | "credit") {
         return Err(format!("bountyLedger: unknown event kind: {kind}"));
     }
+
+    // S23c — credit events carry block-level identifiers (height, c) and
+    // payment routing (familyId, bountyId, prover, amount). They predate
+    // the workId/problemHash/verifierKind/ts shape used by the other
+    // three event kinds, so dispatch validation by kind here.
+    if kind == "credit" {
+        if event
+            .get("height")
+            .and_then(Value::as_u64)
+            .is_none()
+        {
+            return Err("bountyLedger: credit event requires height (unsigned integer)".to_string());
+        }
+        if !string_field(event, "c").is_some_and(is_hex32) {
+            return Err("bountyLedger: credit event requires c (32-byte lowercase hex)".to_string());
+        }
+        if string_field(event, "familyId").is_none_or(str::is_empty) {
+            return Err("bountyLedger: credit event requires familyId".to_string());
+        }
+        if string_field(event, "bountyId").is_none_or(str::is_empty) {
+            return Err("bountyLedger: credit event requires bountyId".to_string());
+        }
+        if !string_field(event, "prover").is_some_and(is_hex32) {
+            return Err(
+                "bountyLedger: credit event requires prover (32-byte lowercase hex)".to_string(),
+            );
+        }
+        match string_field(event, "amount") {
+            Some(s) if s.parse::<u128>().is_ok() => {}
+            _ => {
+                return Err(
+                    "bountyLedger: credit event requires amount (u128 decimal string)".to_string(),
+                );
+            }
+        }
+        return Ok(());
+    }
+
     if string_field(event, "workId").is_none_or(str::is_empty) {
         return Err("bountyLedger: workId must be a non-empty string".to_string());
     }
@@ -107,6 +192,55 @@ fn validate_event(event: &Value) -> Result<(), String> {
         }
         if !string_field(event, "newStatus").is_some_and(is_status) {
             return Err("bountyLedger: status_change event requires newStatus".to_string());
+        }
+    }
+
+    if kind == "create" {
+        // S13b durable announce events embed the full Bounty under `bounty`
+        // so a restart can rebuild a dynamically-announced registry without
+        // an external catalog. Legacy pof fixtures predate this and carry
+        // only the flat fields, so the sub-object is optional. When it IS
+        // present the cross-checks run — a divergence between the flat
+        // index fields and the embedded record would let a replay restore
+        // a bounty under the wrong id and silently corrupt state.
+        if let Some(bounty) = event.get("bounty").and_then(Value::as_object) {
+            let bounty_id = bounty
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "bountyLedger: create event bounty.id missing".to_string())?;
+            let work_id = string_field(event, "workId").unwrap_or("");
+            if bounty_id != work_id {
+                return Err(format!(
+                    "bountyLedger: create event workId/bounty.id mismatch ({work_id} vs {bounty_id})"
+                ));
+            }
+            let bounty_problem_hash = bounty
+                .get("problemHash")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    "bountyLedger: create event bounty.problemHash missing".to_string()
+                })?;
+            let problem_hash = string_field(event, "problemHash").unwrap_or("");
+            if bounty_problem_hash != problem_hash {
+                return Err(
+                    "bountyLedger: create event problemHash mismatch with bounty.problemHash"
+                        .to_string(),
+                );
+            }
+            let bounty_verifier_kind = bounty
+                .get("verifier")
+                .and_then(|v| v.get("kind"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    "bountyLedger: create event bounty.verifier.kind missing".to_string()
+                })?;
+            let verifier_kind = string_field(event, "verifierKind").unwrap_or("");
+            if bounty_verifier_kind != verifier_kind {
+                return Err(
+                    "bountyLedger: create event verifierKind mismatch with bounty.verifier.kind"
+                        .to_string(),
+                );
+            }
         }
     }
 

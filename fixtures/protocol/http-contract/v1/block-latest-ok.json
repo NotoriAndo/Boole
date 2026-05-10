@@ -1,0 +1,19 @@
+{
+  "name": "block-latest-ok",
+  "description": "Non-empty chain: GET /block/latest returns HTTP 200 with the latest PersistedBlock plus its height and c at the top level. Driven after one /submit-and-commit cycle so concrete block contents are dynamic; structural-only assertion.",
+  "request": {
+    "method": "GET",
+    "path": "/block/latest"
+  },
+  "expect": {
+    "status": 200,
+    "bodyContains": {
+      "ok": true
+    },
+    "bodyTypes": {
+      "block": "object",
+      "height": "uint",
+      "c": "hex64"
+    }
+  }
+}

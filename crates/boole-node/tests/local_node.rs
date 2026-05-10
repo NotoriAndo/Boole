@@ -28,7 +28,15 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
             LocalNodeConfig {
                 scenario_path: server_scenario_path,
                 block_path,
+                reward_ledger_path: None,
+                work_manifests_path: None,
+                bounties_path: None,
+                bounty_event_ledger_path: None,
+                bounty_verifiers: None,
+                family_manifests_dir: None,
                 max_requests: Some(4),
+                operator_signer_pks: vec![],
+                genesis_override: None,
             },
         );
         if let Err(err) = &result {
@@ -57,7 +65,14 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
     assert_eq!(head["c"], submit["block"]["c"]);
     assert_eq!(head["T_share"], scenario["cfg"]["T_share"]);
 
-    let ticket = request_json_with_body(addr, "/ticket", body);
+    // pof TicketBody contract: {c, pk, n} only. Submit-shaped bodies that include j/nonceS/etc
+    // are rejected with HTTP 400 unexpected_field at the /ticket boundary.
+    let ticket_body = serde_json::json!({
+        "c": body["c"],
+        "pk": body["pk"],
+        "n": body["n"],
+    });
+    let ticket = request_json_with_body(addr, "/ticket", &ticket_body);
     assert_eq!(ticket["ok"], true);
     assert_eq!(ticket["hashHex"].as_str().expect("ticket hash").len(), 64);
 
@@ -93,7 +108,15 @@ fn local_node_submit_uses_tcp_peer_ip_not_spoofed_body_ip_for_rate_limit() {
             LocalNodeConfig {
                 scenario_path: server_scenario_path,
                 block_path,
+                reward_ledger_path: None,
+                work_manifests_path: None,
+                bounties_path: None,
+                bounty_event_ledger_path: None,
+                bounty_verifiers: None,
+                family_manifests_dir: None,
                 max_requests: Some(2),
+                operator_signer_pks: vec![],
+                genesis_override: None,
             },
         )
     });
@@ -153,7 +176,15 @@ fn local_node_rejects_oversized_http_body_before_json_parsing() {
             LocalNodeConfig {
                 scenario_path: server_scenario_path,
                 block_path,
+                reward_ledger_path: None,
+                work_manifests_path: None,
+                bounties_path: None,
+                bounty_event_ledger_path: None,
+                bounty_verifiers: None,
+                family_manifests_dir: None,
                 max_requests: Some(1),
+                operator_signer_pks: vec![],
+                genesis_override: None,
             },
         )
     });
@@ -172,7 +203,9 @@ fn local_node_rejects_oversized_http_body_before_json_parsing() {
     let (_, body) = raw.split_once("\r\n\r\n").expect("response body");
     let parsed: Value = serde_json::from_str(body).expect("response json");
     assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["error"], "body_too_large");
+    assert_eq!(parsed["reason"], "body_too_large");
+    assert_eq!(parsed["limitBytes"], 1_048_576);
+    assert_eq!(parsed["actualBytes"], oversized_len);
 
     handle
         .join()

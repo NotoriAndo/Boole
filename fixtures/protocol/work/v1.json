@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "source": "boole-node N4 work-manifest catalog v1",
+  "generatedAt": "2026-05-09T00:00:00Z",
+  "work": [
+    {
+      "version": "1",
+      "workId": "lean-bounty-1",
+      "source": "bounty",
+      "familyId": "lean.protocol-invariant",
+      "problemHash": "9999999999999999999999999999999999999999999999999999999999999999",
+      "verifier": {
+        "kind": "lean",
+        "metadata": {
+          "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "profile": "v02"
+        }
+      },
+      "reward": "42",
+      "deadline": 1900000000000,
+      "status": "open",
+      "retryable": true,
+      "createdAt": 1800000000000,
+      "updatedAt": 1800000001000
+    },
+    {
+      "version": "1",
+      "workId": "smart-contract-invariant-v01-direct",
+      "source": "direct",
+      "familyId": "smart-contract-invariant-v01",
+      "problemHash": "8181818181818181818181818181818181818181818181818181818181818181",
+      "verifier": {
+        "kind": "lean",
+        "metadata": {
+          "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "profile": "v02"
+        }
+      },
+      "reward": "100",
+      "deadline": 1950000000000,
+      "status": "open",
+      "retryable": true,
+      "createdAt": 1800000010000,
+      "updatedAt": 1800000010000
+    }
+  ]
+}

@@ -1,0 +1,540 @@
+{
+  "fixtureFamily": "boole.calibration.pow.v3",
+  "fixtureNote": "Deterministic regression fixture for the v031-mixed port (Slice S8b). Regenerated from attempt_context + wrap_proof_term_candidate under benchmark_mode='mining-v3'. Replay must yield byte-identical (theoremRhs, canonicalProof, wrappedCandidate). Covers all 5 invariant classes (allSatisfy / sortedAsc / dedupFirst / partitionEq / lengthPreserved) with at least one chainLen=1 and one chainLen>=3 case.",
+  "instances": [
+    {
+      "runId": "ci-v3-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 0,
+      "benchmarkMode": "mining-v3",
+      "challenge": "6c645928bdd77f9397b22f097ae80eb7b937b11ca2b194b3892ea407e49ff602",
+      "nonce": "5bfb343ae118e080782e0494503ab010",
+      "theoremName": "boole_benchmark_pow_v3_target_1",
+      "invariantClass": "dedupFirst",
+      "invariantPred": null,
+      "branchChain": [
+        {
+          "op": "filterP",
+          "pred": {
+            "kind": "modK",
+            "k": 5,
+            "r": 4
+          }
+        },
+        {
+          "op": "dedup"
+        }
+      ],
+      "bodyChain": [
+        {
+          "op": "filterP",
+          "pred": {
+            "kind": "modK",
+            "k": 5,
+            "r": 4
+          }
+        }
+      ],
+      "witnessOp": {
+        "op": "dedup"
+      },
+      "chainLen": 2,
+      "D": 1,
+      "bodyExpr": "(filterByPred (fun x : Int => x % (5 : Int) == (4 : Int)) xs)",
+      "resultExpr": "(dedup (filterByPred (fun x : Int => x % (5 : Int) == (4 : Int)) xs))",
+      "theoremRhs": "List.Nodup (dedup (filterByPred (fun x : Int => x % (5 : Int) == (4 : Int)) xs))",
+      "canonicalProof": "fun xs => nodup_dedup (filterByPred (fun x : Int => x % (5 : Int) == (4 : Int)) xs)",
+      "wrappedCandidate": "-- benchmarkMode: mining-v3\n-- targetFamily: boole.calibration.pow.v3\n-- lotteryChallenge: 6c645928bdd77f9397b22f097ae80eb7b937b11ca2b194b3892ea407e49ff602\n-- lotteryNonce: 5bfb343ae118e080782e0494503ab010\n-- invariantClass: dedupFirst\n-- chainLen: 2\n-- D: 1\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v3_target_1\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v3_target_1 : \u2200 (xs : List Int),\n    List.Nodup (dedup (filterByPred (fun x : Int => x % (5 : Int) == (4 : Int)) xs)) :=\n  fun xs => nodup_dedup (filterByPred (fun x : Int => x % (5 : Int) == (4 : Int)) xs)\n\nend boole_benchmark_pow_v3_target_1\n"
+    },
+    {
+      "runId": "ci-v3-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 1,
+      "benchmarkMode": "mining-v3",
+      "challenge": "e6477ae42bfed92b820ce79f77b7819047ed94825346a6e5aa6b0a943f238600",
+      "nonce": "4d6bd86b5305d8d7966beff74c7d6508",
+      "theoremName": "boole_benchmark_pow_v3_target_2",
+      "invariantClass": "partitionEq",
+      "invariantPred": {
+        "kind": "ltK",
+        "k": -4
+      },
+      "branchChain": [
+        {
+          "op": "mapAdd",
+          "k": 4
+        },
+        {
+          "op": "mapAdd",
+          "k": -6
+        },
+        {
+          "op": "mapAdd",
+          "k": -7
+        }
+      ],
+      "bodyChain": [
+        {
+          "op": "mapAdd",
+          "k": 4
+        },
+        {
+          "op": "mapAdd",
+          "k": -6
+        },
+        {
+          "op": "mapAdd",
+          "k": -7
+        }
+      ],
+      "witnessOp": null,
+      "chainLen": 3,
+      "D": 2,
+      "bodyExpr": "(mapAdd (-7 : Int) (mapAdd (-6 : Int) (mapAdd (4 : Int) xs)))",
+      "resultExpr": "(mapAdd (-7 : Int) (mapAdd (-6 : Int) (mapAdd (4 : Int) xs)))",
+      "theoremRhs": "((mapAdd (-7 : Int) (mapAdd (-6 : Int) (mapAdd (4 : Int) xs)))).partition (fun x : Int => decide (x < (-4 : Int))) = (((mapAdd (-7 : Int) (mapAdd (-6 : Int) (mapAdd (4 : Int) xs)))).filter (fun x : Int => decide (x < (-4 : Int))), ((mapAdd (-7 : Int) (mapAdd (-6 : Int) (mapAdd (4 : Int) xs)))).filter (fun y : Int => !((fun x : Int => decide (x < (-4 : Int))) y)))",
+      "canonicalProof": "fun xs => partition_eq_filter_filter (fun x : Int => decide (x < (-4 : Int))) (mapAdd (-7 : Int) (mapAdd (-6 : Int) (mapAdd (4 : Int) xs)))",
+      "wrappedCandidate": "-- benchmarkMode: mining-v3\n-- targetFamily: boole.calibration.pow.v3\n-- lotteryChallenge: e6477ae42bfed92b820ce79f77b7819047ed94825346a6e5aa6b0a943f238600\n-- lotteryNonce: 4d6bd86b5305d8d7966beff74c7d6508\n-- invariantClass: partitionEq\n-- chainLen: 3\n-- D: 2\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v3_target_2\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v3_target_2 : \u2200 (xs : List Int),\n    ((mapAdd (-7 : Int) (mapAdd (-6 : Int) (mapAdd (4 : Int) xs)))).partition (fun x : Int => decide (x < (-4 : Int))) = (((mapAdd (-7 : Int) (mapAdd (-6 : Int) (mapAdd (4 : Int) xs)))).filter (fun x : Int => decide (x < (-4 : Int))), ((mapAdd (-7 : Int) (mapAdd (-6 : Int) (mapAdd (4 : Int) xs)))).filter (fun y : Int => !((fun x : Int => decide (x < (-4 : Int))) y))) :=\n  fun xs => partition_eq_filter_filter (fun x : Int => decide (x < (-4 : Int))) (mapAdd (-7 : Int) (mapAdd (-6 : Int) (mapAdd (4 : Int) xs)))\n\nend boole_benchmark_pow_v3_target_2\n"
+    },
+    {
+      "runId": "ci-v3-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 2,
+      "benchmarkMode": "mining-v3",
+      "challenge": "4997af7768ce4f5c52b8ef5a7d427a84ba581239a9bcef92629255995054b014",
+      "nonce": "afc828f82c1e22e415b12d479dfc2cf4",
+      "theoremName": "boole_benchmark_pow_v3_target_3",
+      "invariantClass": "allSatisfy",
+      "invariantPred": {
+        "kind": "ltK",
+        "k": 7
+      },
+      "branchChain": [
+        {
+          "op": "mapAdd",
+          "k": -4
+        },
+        {
+          "op": "filterP",
+          "pred": {
+            "kind": "odd"
+          }
+        },
+        {
+          "op": "sortAsc"
+        },
+        {
+          "op": "dedup"
+        },
+        {
+          "op": "dedup"
+        },
+        {
+          "op": "filterP",
+          "pred": {
+            "kind": "ltK",
+            "k": 7
+          }
+        }
+      ],
+      "bodyChain": [
+        {
+          "op": "mapAdd",
+          "k": -4
+        },
+        {
+          "op": "filterP",
+          "pred": {
+            "kind": "odd"
+          }
+        },
+        {
+          "op": "sortAsc"
+        },
+        {
+          "op": "dedup"
+        },
+        {
+          "op": "dedup"
+        }
+      ],
+      "witnessOp": {
+        "op": "filterP",
+        "pred": {
+          "kind": "ltK",
+          "k": 7
+        }
+      },
+      "chainLen": 6,
+      "D": 5,
+      "bodyExpr": "(dedup (dedup (sortAsc (filterByPred (fun x : Int => x % 2 != 0) (mapAdd (-4 : Int) xs)))))",
+      "resultExpr": "(filterByPred (fun x : Int => decide (x < (7 : Int))) (dedup (dedup (sortAsc (filterByPred (fun x : Int => x % 2 != 0) (mapAdd (-4 : Int) xs))))))",
+      "theoremRhs": "((filterByPred (fun x : Int => decide (x < (7 : Int))) (dedup (dedup (sortAsc (filterByPred (fun x : Int => x % 2 != 0) (mapAdd (-4 : Int) xs))))))).all (fun x : Int => decide (x < (7 : Int))) = true",
+      "canonicalProof": "fun xs => all_filterByPred_self (fun x : Int => decide (x < (7 : Int))) (dedup (dedup (sortAsc (filterByPred (fun x : Int => x % 2 != 0) (mapAdd (-4 : Int) xs)))))",
+      "wrappedCandidate": "-- benchmarkMode: mining-v3\n-- targetFamily: boole.calibration.pow.v3\n-- lotteryChallenge: 4997af7768ce4f5c52b8ef5a7d427a84ba581239a9bcef92629255995054b014\n-- lotteryNonce: afc828f82c1e22e415b12d479dfc2cf4\n-- invariantClass: allSatisfy\n-- chainLen: 6\n-- D: 5\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v3_target_3\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v3_target_3 : \u2200 (xs : List Int),\n    ((filterByPred (fun x : Int => decide (x < (7 : Int))) (dedup (dedup (sortAsc (filterByPred (fun x : Int => x % 2 != 0) (mapAdd (-4 : Int) xs))))))).all (fun x : Int => decide (x < (7 : Int))) = true :=\n  fun xs => all_filterByPred_self (fun x : Int => decide (x < (7 : Int))) (dedup (dedup (sortAsc (filterByPred (fun x : Int => x % 2 != 0) (mapAdd (-4 : Int) xs)))))\n\nend boole_benchmark_pow_v3_target_3\n"
+    },
+    {
+      "runId": "ci-v3-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 3,
+      "benchmarkMode": "mining-v3",
+      "challenge": "2b2107ecc275bd019c7e91b27bb12c72778166b0d9745c96b53a677f781ad11e",
+      "nonce": "2e9bd6ba433d0bbf8f853ce40ecb9ecf",
+      "theoremName": "boole_benchmark_pow_v3_target_4",
+      "invariantClass": "dedupFirst",
+      "invariantPred": null,
+      "branchChain": [
+        {
+          "op": "filterP",
+          "pred": {
+            "kind": "modK",
+            "k": 5,
+            "r": 3
+          }
+        },
+        {
+          "op": "dedup"
+        },
+        {
+          "op": "filterP",
+          "pred": {
+            "kind": "eqK",
+            "k": -3
+          }
+        },
+        {
+          "op": "sortAsc"
+        },
+        {
+          "op": "dedup"
+        }
+      ],
+      "bodyChain": [
+        {
+          "op": "filterP",
+          "pred": {
+            "kind": "modK",
+            "k": 5,
+            "r": 3
+          }
+        },
+        {
+          "op": "dedup"
+        },
+        {
+          "op": "filterP",
+          "pred": {
+            "kind": "eqK",
+            "k": -3
+          }
+        },
+        {
+          "op": "sortAsc"
+        }
+      ],
+      "witnessOp": {
+        "op": "dedup"
+      },
+      "chainLen": 5,
+      "D": 4,
+      "bodyExpr": "(sortAsc (filterByPred (fun x : Int => x == (-3 : Int)) (dedup (filterByPred (fun x : Int => x % (5 : Int) == (3 : Int)) xs))))",
+      "resultExpr": "(dedup (sortAsc (filterByPred (fun x : Int => x == (-3 : Int)) (dedup (filterByPred (fun x : Int => x % (5 : Int) == (3 : Int)) xs)))))",
+      "theoremRhs": "List.Nodup (dedup (sortAsc (filterByPred (fun x : Int => x == (-3 : Int)) (dedup (filterByPred (fun x : Int => x % (5 : Int) == (3 : Int)) xs)))))",
+      "canonicalProof": "fun xs => nodup_dedup (sortAsc (filterByPred (fun x : Int => x == (-3 : Int)) (dedup (filterByPred (fun x : Int => x % (5 : Int) == (3 : Int)) xs))))",
+      "wrappedCandidate": "-- benchmarkMode: mining-v3\n-- targetFamily: boole.calibration.pow.v3\n-- lotteryChallenge: 2b2107ecc275bd019c7e91b27bb12c72778166b0d9745c96b53a677f781ad11e\n-- lotteryNonce: 2e9bd6ba433d0bbf8f853ce40ecb9ecf\n-- invariantClass: dedupFirst\n-- chainLen: 5\n-- D: 4\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v3_target_4\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v3_target_4 : \u2200 (xs : List Int),\n    List.Nodup (dedup (sortAsc (filterByPred (fun x : Int => x == (-3 : Int)) (dedup (filterByPred (fun x : Int => x % (5 : Int) == (3 : Int)) xs))))) :=\n  fun xs => nodup_dedup (sortAsc (filterByPred (fun x : Int => x == (-3 : Int)) (dedup (filterByPred (fun x : Int => x % (5 : Int) == (3 : Int)) xs))))\n\nend boole_benchmark_pow_v3_target_4\n"
+    },
+    {
+      "runId": "ci-v3-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 4,
+      "benchmarkMode": "mining-v3",
+      "challenge": "11fe90d511c9d2ae021ebb4cdc157e675e8f08ea1205cf878edb65303ed9785f",
+      "nonce": "3c9c20c61f798a34211eb71903dc0322",
+      "theoremName": "boole_benchmark_pow_v3_target_5",
+      "invariantClass": "lengthPreserved",
+      "invariantPred": null,
+      "branchChain": [
+        {
+          "op": "mapMul",
+          "k": 4
+        },
+        {
+          "op": "mapAdd",
+          "k": -1
+        },
+        {
+          "op": "mapAdd",
+          "k": 6
+        },
+        {
+          "op": "mapAdd",
+          "k": 5
+        },
+        {
+          "op": "mapMul",
+          "k": 5
+        },
+        {
+          "op": "mapMul",
+          "k": 3
+        }
+      ],
+      "bodyChain": [
+        {
+          "op": "mapMul",
+          "k": 4
+        },
+        {
+          "op": "mapAdd",
+          "k": -1
+        },
+        {
+          "op": "mapAdd",
+          "k": 6
+        },
+        {
+          "op": "mapAdd",
+          "k": 5
+        },
+        {
+          "op": "mapMul",
+          "k": 5
+        },
+        {
+          "op": "mapMul",
+          "k": 3
+        }
+      ],
+      "witnessOp": null,
+      "chainLen": 6,
+      "D": 5,
+      "bodyExpr": "(mapMul (3 : Int) (mapMul (5 : Int) (mapAdd (5 : Int) (mapAdd (6 : Int) (mapAdd (-1 : Int) (mapMul (4 : Int) xs))))))",
+      "resultExpr": "(mapMul (3 : Int) (mapMul (5 : Int) (mapAdd (5 : Int) (mapAdd (6 : Int) (mapAdd (-1 : Int) (mapMul (4 : Int) xs))))))",
+      "theoremRhs": "((mapMul (3 : Int) (mapMul (5 : Int) (mapAdd (5 : Int) (mapAdd (6 : Int) (mapAdd (-1 : Int) (mapMul (4 : Int) xs))))))).length = xs.length",
+      "canonicalProof": "fun xs => (length_mapMul (3 : Int) _).trans ((length_mapMul (5 : Int) _).trans ((length_mapAdd (5 : Int) _).trans ((length_mapAdd (6 : Int) _).trans ((length_mapAdd (-1 : Int) _).trans (length_mapMul (4 : Int) xs)))))",
+      "wrappedCandidate": "-- benchmarkMode: mining-v3\n-- targetFamily: boole.calibration.pow.v3\n-- lotteryChallenge: 11fe90d511c9d2ae021ebb4cdc157e675e8f08ea1205cf878edb65303ed9785f\n-- lotteryNonce: 3c9c20c61f798a34211eb71903dc0322\n-- invariantClass: lengthPreserved\n-- chainLen: 6\n-- D: 5\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v3_target_5\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v3_target_5 : \u2200 (xs : List Int),\n    ((mapMul (3 : Int) (mapMul (5 : Int) (mapAdd (5 : Int) (mapAdd (6 : Int) (mapAdd (-1 : Int) (mapMul (4 : Int) xs))))))).length = xs.length :=\n  fun xs => (length_mapMul (3 : Int) _).trans ((length_mapMul (5 : Int) _).trans ((length_mapAdd (5 : Int) _).trans ((length_mapAdd (6 : Int) _).trans ((length_mapAdd (-1 : Int) _).trans (length_mapMul (4 : Int) xs)))))\n\nend boole_benchmark_pow_v3_target_5\n"
+    },
+    {
+      "runId": "ci-v3-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 5,
+      "benchmarkMode": "mining-v3",
+      "challenge": "2e1a5a3b51f8bdeba2372f934abf38f299df0946c54338c938828e7043d0c876",
+      "nonce": "78f14b5615785059b7cc4ac32411bb60",
+      "theoremName": "boole_benchmark_pow_v3_target_6",
+      "invariantClass": "lengthPreserved",
+      "invariantPred": null,
+      "branchChain": [
+        {
+          "op": "mapMul",
+          "k": 1
+        },
+        {
+          "op": "mapMul",
+          "k": 4
+        },
+        {
+          "op": "mapAdd",
+          "k": 2
+        },
+        {
+          "op": "sortAsc"
+        }
+      ],
+      "bodyChain": [
+        {
+          "op": "mapMul",
+          "k": 1
+        },
+        {
+          "op": "mapMul",
+          "k": 4
+        },
+        {
+          "op": "mapAdd",
+          "k": 2
+        },
+        {
+          "op": "sortAsc"
+        }
+      ],
+      "witnessOp": null,
+      "chainLen": 4,
+      "D": 3,
+      "bodyExpr": "(sortAsc (mapAdd (2 : Int) (mapMul (4 : Int) (mapMul (1 : Int) xs))))",
+      "resultExpr": "(sortAsc (mapAdd (2 : Int) (mapMul (4 : Int) (mapMul (1 : Int) xs))))",
+      "theoremRhs": "((sortAsc (mapAdd (2 : Int) (mapMul (4 : Int) (mapMul (1 : Int) xs))))).length = xs.length",
+      "canonicalProof": "fun xs => (length_sortAsc _).trans ((length_mapAdd (2 : Int) _).trans ((length_mapMul (4 : Int) _).trans (length_mapMul (1 : Int) xs)))",
+      "wrappedCandidate": "-- benchmarkMode: mining-v3\n-- targetFamily: boole.calibration.pow.v3\n-- lotteryChallenge: 2e1a5a3b51f8bdeba2372f934abf38f299df0946c54338c938828e7043d0c876\n-- lotteryNonce: 78f14b5615785059b7cc4ac32411bb60\n-- invariantClass: lengthPreserved\n-- chainLen: 4\n-- D: 3\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v3_target_6\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v3_target_6 : \u2200 (xs : List Int),\n    ((sortAsc (mapAdd (2 : Int) (mapMul (4 : Int) (mapMul (1 : Int) xs))))).length = xs.length :=\n  fun xs => (length_sortAsc _).trans ((length_mapAdd (2 : Int) _).trans ((length_mapMul (4 : Int) _).trans (length_mapMul (1 : Int) xs)))\n\nend boole_benchmark_pow_v3_target_6\n"
+    },
+    {
+      "runId": "ci-v3-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 6,
+      "benchmarkMode": "mining-v3",
+      "challenge": "0af5ef3c422b6970a798b4a15ee3de0a5f36adb7cfd257bbeac511f36b6fff44",
+      "nonce": "e32357986fe779d5a8864083e9658b21",
+      "theoremName": "boole_benchmark_pow_v3_target_7",
+      "invariantClass": "lengthPreserved",
+      "invariantPred": null,
+      "branchChain": [
+        {
+          "op": "sortAsc"
+        }
+      ],
+      "bodyChain": [
+        {
+          "op": "sortAsc"
+        }
+      ],
+      "witnessOp": null,
+      "chainLen": 1,
+      "D": 0,
+      "bodyExpr": "(sortAsc xs)",
+      "resultExpr": "(sortAsc xs)",
+      "theoremRhs": "((sortAsc xs)).length = xs.length",
+      "canonicalProof": "fun xs => length_sortAsc xs",
+      "wrappedCandidate": "-- benchmarkMode: mining-v3\n-- targetFamily: boole.calibration.pow.v3\n-- lotteryChallenge: 0af5ef3c422b6970a798b4a15ee3de0a5f36adb7cfd257bbeac511f36b6fff44\n-- lotteryNonce: e32357986fe779d5a8864083e9658b21\n-- invariantClass: lengthPreserved\n-- chainLen: 1\n-- D: 0\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v3_target_7\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v3_target_7 : \u2200 (xs : List Int),\n    ((sortAsc xs)).length = xs.length :=\n  fun xs => length_sortAsc xs\n\nend boole_benchmark_pow_v3_target_7\n"
+    },
+    {
+      "runId": "ci-v3-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 7,
+      "benchmarkMode": "mining-v3",
+      "challenge": "450a467617056af39459b89858501d615e2ae21f8354560a4f3c6b9145b6bd04",
+      "nonce": "c7a849a053b588361768ffc898b324c8",
+      "theoremName": "boole_benchmark_pow_v3_target_8",
+      "invariantClass": "allSatisfy",
+      "invariantPred": {
+        "kind": "even"
+      },
+      "branchChain": [
+        {
+          "op": "mapMul",
+          "k": 1
+        },
+        {
+          "op": "sortAsc"
+        },
+        {
+          "op": "mapMul",
+          "k": 3
+        },
+        {
+          "op": "mapAdd",
+          "k": -5
+        },
+        {
+          "op": "sortAsc"
+        },
+        {
+          "op": "filterP",
+          "pred": {
+            "kind": "even"
+          }
+        }
+      ],
+      "bodyChain": [
+        {
+          "op": "mapMul",
+          "k": 1
+        },
+        {
+          "op": "sortAsc"
+        },
+        {
+          "op": "mapMul",
+          "k": 3
+        },
+        {
+          "op": "mapAdd",
+          "k": -5
+        },
+        {
+          "op": "sortAsc"
+        }
+      ],
+      "witnessOp": {
+        "op": "filterP",
+        "pred": {
+          "kind": "even"
+        }
+      },
+      "chainLen": 6,
+      "D": 5,
+      "bodyExpr": "(sortAsc (mapAdd (-5 : Int) (mapMul (3 : Int) (sortAsc (mapMul (1 : Int) xs)))))",
+      "resultExpr": "(filterByPred (fun x : Int => x % 2 == 0) (sortAsc (mapAdd (-5 : Int) (mapMul (3 : Int) (sortAsc (mapMul (1 : Int) xs))))))",
+      "theoremRhs": "((filterByPred (fun x : Int => x % 2 == 0) (sortAsc (mapAdd (-5 : Int) (mapMul (3 : Int) (sortAsc (mapMul (1 : Int) xs))))))).all (fun x : Int => x % 2 == 0) = true",
+      "canonicalProof": "fun xs => all_filterByPred_self (fun x : Int => x % 2 == 0) (sortAsc (mapAdd (-5 : Int) (mapMul (3 : Int) (sortAsc (mapMul (1 : Int) xs)))))",
+      "wrappedCandidate": "-- benchmarkMode: mining-v3\n-- targetFamily: boole.calibration.pow.v3\n-- lotteryChallenge: 450a467617056af39459b89858501d615e2ae21f8354560a4f3c6b9145b6bd04\n-- lotteryNonce: c7a849a053b588361768ffc898b324c8\n-- invariantClass: allSatisfy\n-- chainLen: 6\n-- D: 5\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v3_target_8\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v3_target_8 : \u2200 (xs : List Int),\n    ((filterByPred (fun x : Int => x % 2 == 0) (sortAsc (mapAdd (-5 : Int) (mapMul (3 : Int) (sortAsc (mapMul (1 : Int) xs))))))).all (fun x : Int => x % 2 == 0) = true :=\n  fun xs => all_filterByPred_self (fun x : Int => x % 2 == 0) (sortAsc (mapAdd (-5 : Int) (mapMul (3 : Int) (sortAsc (mapMul (1 : Int) xs)))))\n\nend boole_benchmark_pow_v3_target_8\n"
+    },
+    {
+      "runId": "ci-v3-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 8,
+      "benchmarkMode": "mining-v3",
+      "challenge": "549e548d16919e036191fb395f40b0671b61f18e8ab64e0d29580b85360e5353",
+      "nonce": "b3142abb7a03e5f823defc754a926107",
+      "theoremName": "boole_benchmark_pow_v3_target_9",
+      "invariantClass": "partitionEq",
+      "invariantPred": {
+        "kind": "modK",
+        "k": 5,
+        "r": 2
+      },
+      "branchChain": [
+        {
+          "op": "filterP",
+          "pred": {
+            "kind": "eqK",
+            "k": 2
+          }
+        }
+      ],
+      "bodyChain": [
+        {
+          "op": "filterP",
+          "pred": {
+            "kind": "eqK",
+            "k": 2
+          }
+        }
+      ],
+      "witnessOp": null,
+      "chainLen": 1,
+      "D": 0,
+      "bodyExpr": "(filterByPred (fun x : Int => x == (2 : Int)) xs)",
+      "resultExpr": "(filterByPred (fun x : Int => x == (2 : Int)) xs)",
+      "theoremRhs": "((filterByPred (fun x : Int => x == (2 : Int)) xs)).partition (fun x : Int => x % (5 : Int) == (2 : Int)) = (((filterByPred (fun x : Int => x == (2 : Int)) xs)).filter (fun x : Int => x % (5 : Int) == (2 : Int)), ((filterByPred (fun x : Int => x == (2 : Int)) xs)).filter (fun y : Int => !((fun x : Int => x % (5 : Int) == (2 : Int)) y)))",
+      "canonicalProof": "fun xs => partition_eq_filter_filter (fun x : Int => x % (5 : Int) == (2 : Int)) (filterByPred (fun x : Int => x == (2 : Int)) xs)",
+      "wrappedCandidate": "-- benchmarkMode: mining-v3\n-- targetFamily: boole.calibration.pow.v3\n-- lotteryChallenge: 549e548d16919e036191fb395f40b0671b61f18e8ab64e0d29580b85360e5353\n-- lotteryNonce: b3142abb7a03e5f823defc754a926107\n-- invariantClass: partitionEq\n-- chainLen: 1\n-- D: 0\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v3_target_9\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v3_target_9 : \u2200 (xs : List Int),\n    ((filterByPred (fun x : Int => x == (2 : Int)) xs)).partition (fun x : Int => x % (5 : Int) == (2 : Int)) = (((filterByPred (fun x : Int => x == (2 : Int)) xs)).filter (fun x : Int => x % (5 : Int) == (2 : Int)), ((filterByPred (fun x : Int => x == (2 : Int)) xs)).filter (fun y : Int => !((fun x : Int => x % (5 : Int) == (2 : Int)) y))) :=\n  fun xs => partition_eq_filter_filter (fun x : Int => x % (5 : Int) == (2 : Int)) (filterByPred (fun x : Int => x == (2 : Int)) xs)\n\nend boole_benchmark_pow_v3_target_9\n"
+    },
+    {
+      "runId": "ci-v3-fixture",
+      "target": "ollama:test",
+      "attemptIndex": 9,
+      "benchmarkMode": "mining-v3",
+      "challenge": "bc5db369a97e33221b0ca2d3de09eafc7bcf46148a84e136418b32c83d0ebe61",
+      "nonce": "322b684e100f1cfb52920440532c1ce5",
+      "theoremName": "boole_benchmark_pow_v3_target_10",
+      "invariantClass": "sortedAsc",
+      "invariantPred": null,
+      "branchChain": [
+        {
+          "op": "sortAsc"
+        }
+      ],
+      "bodyChain": [],
+      "witnessOp": {
+        "op": "sortAsc"
+      },
+      "chainLen": 1,
+      "D": 0,
+      "bodyExpr": "xs",
+      "resultExpr": "(sortAsc xs)",
+      "theoremRhs": "List.Pairwise (\u00b7 \u2264 \u00b7) (sortAsc xs)",
+      "canonicalProof": "fun xs => pairwise_sortAsc xs",
+      "wrappedCandidate": "-- benchmarkMode: mining-v3\n-- targetFamily: boole.calibration.pow.v3\n-- lotteryChallenge: bc5db369a97e33221b0ca2d3de09eafc7bcf46148a84e136418b32c83d0ebe61\n-- lotteryNonce: 322b684e100f1cfb52920440532c1ce5\n-- invariantClass: sortedAsc\n-- chainLen: 1\n-- D: 0\nimport Boole.Family.V0Helpers\n\nnamespace boole_benchmark_pow_v3_target_10\n\nopen Boole.Family.V0Helpers\n\ntheorem boole_benchmark_pow_v3_target_10 : \u2200 (xs : List Int),\n    List.Pairwise (\u00b7 \u2264 \u00b7) (sortAsc xs) :=\n  fun xs => pairwise_sortAsc xs\n\nend boole_benchmark_pow_v3_target_10\n"
+    }
+  ]
+}

@@ -246,7 +246,8 @@ pub fn run_runtime_smoke_multi_scenario(
 
     for step in scenario.steps {
         if step.restart_from_store {
-            runtime = RuntimeAdmissionState::boot_from_store(config.clone(), &scenario.block_path)?;
+            runtime =
+                RuntimeAdmissionState::boot_from_store(config.clone(), &scenario.block_path, None)?;
         }
         if let Some(expected_prev_c) = &step.expected_prev_c {
             let runtime_head = runtime.current_c().ok_or_else(|| {

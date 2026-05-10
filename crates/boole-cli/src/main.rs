@@ -1,4 +1,9 @@
 use clap::{Parser, Subcommand};
+use std::fs::OpenOptions;
+use std::io::{Read as _, Write as _};
+use std::net::TcpStream;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Parser)]
 #[command(name = "boole")]
@@ -21,6 +26,44 @@ enum Command {
         #[command(subcommand)]
         command: ChainCommand,
     },
+    /// Local node lifecycle commands.
+    Node {
+        #[command(subcommand)]
+        command: NodeCommand,
+    },
+    /// Block inspection commands hitting a running boole-node.
+    Block {
+        #[command(subcommand)]
+        command: BlockCommand,
+    },
+    /// Account balance lookup against a running boole-node.
+    Account {
+        #[command(subcommand)]
+        command: AccountCommand,
+    },
+    /// Work manifest catalog queries against a running boole-node.
+    Work {
+        #[command(subcommand)]
+        command: WorkCommand,
+    },
+    /// Bounty catalog queries against a running boole-node.
+    Bounty {
+        #[command(subcommand)]
+        command: BountyCommand,
+    },
+    /// Local key management. Storage at `$BOOLE_KEYS_DIR` (env override) or
+    /// `$HOME/.boole/keys` (default), mode 0600 per file.
+    Keys {
+        #[command(subcommand)]
+        command: KeysCommand,
+    },
+    /// Boole-v3.1.1 miner: state init/inspection, mining loop, and bounty
+    /// submission. Delegates to the `boole-miner` library so the standalone
+    /// `boole-miner` binary and `boole mine ...` share the same code paths.
+    Mine {
+        #[command(subcommand)]
+        command: boole_miner::cli::MineCommand,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -29,8 +72,274 @@ enum ChainCommand {
     Replay {
         /// Path to replay fixture JSON.
         #[arg(long)]
-        fixture: std::path::PathBuf,
+        fixture: PathBuf,
         /// Emit JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum NodeCommand {
+    /// Spawn a local boole-node process bound to --port writing into --data-dir.
+    Start {
+        /// TCP port to bind (env: PORT).
+        #[arg(long)]
+        port: Option<u16>,
+        /// Directory holding node state (block store NDJSON).
+        #[arg(long)]
+        data_dir: PathBuf,
+        /// Scenario fixture path; defaults to fixtures/protocol/runtime-smoke/v1.json.
+        #[arg(long)]
+        scenario: Option<PathBuf>,
+        /// Override the scenario's genesis_c (env: GENESIS_C).
+        #[arg(long)]
+        genesis: Option<String>,
+        /// Cap requests served before exiting (smoke/test convenience).
+        #[arg(long)]
+        max_requests: Option<usize>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum KeysCommand {
+    /// Generate a new local key and persist it under the keys directory.
+    New {
+        /// Human label for the key (matches `[a-zA-Z0-9_-]+`).
+        #[arg(long)]
+        id: String,
+        /// Use a deterministic seed derived from `--id` instead of OS random.
+        /// Intended for fixtures and reproducible tests.
+        #[arg(long)]
+        dev: bool,
+        /// Print the envelope to stdout but skip the disk write.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Enumerate keys under the keys directory, sorted by id.
+    List,
+    /// Print a single key envelope by id.
+    Show {
+        /// Id of the key to read.
+        #[arg(long)]
+        id: String,
+    },
+    /// Sign a JSON payload with a stored v2 key. Default stdout is the bare
+    /// hex64 ed25519 signature; `--json` emits the full `boole.signed.v1`
+    /// envelope.
+    Sign {
+        /// Id of the key to sign with (must be a v2 envelope).
+        #[arg(long)]
+        id: String,
+        /// JSON payload to sign — accepts an inline JSON string or a path to
+        /// a JSON file.
+        #[arg(long)]
+        payload: String,
+        /// Emit the full `boole.signed.v1` envelope instead of just the
+        /// signature.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Verify a hex64 ed25519 signature against a hex32 public key and a
+    /// JSON payload. Stateless: never touches the keys directory.
+    Verify {
+        /// 32-byte ed25519 public key (64 lowercase hex chars).
+        #[arg(long)]
+        pk: String,
+        /// 64-byte ed25519 signature (128 lowercase hex chars).
+        #[arg(long)]
+        signature: String,
+        /// JSON payload to verify against — inline JSON or a file path.
+        #[arg(long)]
+        payload: String,
+        /// Emit the full result as a typed envelope instead of the bare
+        /// `valid`/`invalid` word.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum AccountCommand {
+    /// Print the reward balance for `--pk` from a node's `/account/{pk}/balance`.
+    Balance {
+        /// 32-byte public key hex (64 lowercase hex chars).
+        #[arg(long)]
+        pk: String,
+        /// Base URL of the boole-node (default http://127.0.0.1:8080).
+        #[arg(long)]
+        node: Option<String>,
+        /// Print the full server envelope as JSON instead of the bare balance.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum WorkCommand {
+    /// List the static work manifests served by `/work`.
+    List {
+        /// Base URL of the boole-node (default http://127.0.0.1:8080).
+        #[arg(long)]
+        node: Option<String>,
+        /// Print the full server envelope as JSON instead of the terse table.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Fetch a single work manifest by id from `/work/{id}`.
+    Get {
+        /// Work id to look up (server returns 404 typed envelope on miss).
+        #[arg(long)]
+        id: String,
+        /// Base URL of the boole-node (default http://127.0.0.1:8080).
+        #[arg(long)]
+        node: Option<String>,
+        /// Print the full server envelope as JSON instead of the bare verifier hash.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum BountyCommand {
+    /// List the static bounties served by `/bounties`.
+    List {
+        /// Base URL of the boole-node (default http://127.0.0.1:8080).
+        #[arg(long)]
+        node: Option<String>,
+        /// Print the full server envelope as JSON instead of the terse table.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Fetch a single bounty by id from `/bounties/{id}`.
+    Get {
+        /// Bounty id to look up (server returns 404 typed envelope on miss).
+        #[arg(long)]
+        id: String,
+        /// Base URL of the boole-node (default http://127.0.0.1:8080).
+        #[arg(long)]
+        node: Option<String>,
+        /// Print the full server envelope as JSON instead of the bare verifier hash.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Submit a proof envelope to `POST /bounties/{id}/proof`.
+    Submit {
+        /// Bounty id whose verifier will judge the envelope.
+        #[arg(long)]
+        id: String,
+        /// 32-byte lowercase hex hash uniquely identifying the proof
+        /// payload (used for dedup).
+        #[arg(long = "proof-hash")]
+        proof_hash: String,
+        /// 32-byte lowercase hex prover public key.
+        #[arg(long)]
+        prover: String,
+        /// Path to a JSON envelope file or an inline JSON string. The
+        /// envelope shape is verifier-specific (e.g. `{"leanSource": "..."}`
+        /// for the Lean verifier).
+        #[arg(long)]
+        envelope: String,
+        /// Base URL of the boole-node (default http://127.0.0.1:8080).
+        #[arg(long)]
+        node: Option<String>,
+        /// Print the full server envelope as JSON instead of the bare
+        /// status word (`solved`/`open`/`duplicate`).
+        #[arg(long)]
+        json: bool,
+    },
+    /// Announce a new bounty: build a `boole.bounty.announce.v1` payload,
+    /// sign it locally with a stored v2 key, and POST the
+    /// `boole.signed.v1` envelope to `/bounties`.
+    Announce {
+        /// New bounty id (1-128 printable ASCII chars without whitespace).
+        #[arg(long)]
+        id: String,
+        /// Bounty domain string (e.g. `code.spec-template`).
+        #[arg(long)]
+        domain: String,
+        /// 32-byte lowercase hex hash of the problem statement.
+        #[arg(long = "problem-hash")]
+        problem_hash: String,
+        /// Verifier kind (e.g. `lean`, `mock-accept`).
+        #[arg(long = "verifier-kind")]
+        verifier_kind: String,
+        /// Verifier metadata as inline JSON or a path to a JSON file.
+        #[arg(long = "verifier-metadata")]
+        verifier_metadata: String,
+        /// Reward amount as a positive base-10 integer (u128 string).
+        #[arg(long)]
+        reward: String,
+        /// Deadline as unix milliseconds.
+        #[arg(long)]
+        deadline: u64,
+        /// Optional override for the announce timestamp (unix ms). Defaults
+        /// to the current wall-clock time. Surfaced for fixture
+        /// reproducibility.
+        #[arg(long)]
+        ts: Option<u64>,
+        /// Id of the stored v2 key used to sign the payload.
+        #[arg(long = "signing-key")]
+        signing_key: String,
+        /// Base URL of the boole-node (default http://127.0.0.1:8080).
+        #[arg(long)]
+        node: Option<String>,
+        /// Print the full server envelope as JSON instead of the bare
+        /// bounty id.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Change a bounty's lifecycle status. Builds a
+    /// `boole.bounty.status.v1` payload, signs it locally with a stored
+    /// v2 key, and POSTs the `boole.signed.v1` envelope to
+    /// `/bounties/{id}/status`.
+    Status {
+        /// Bounty id whose status should change.
+        #[arg(long)]
+        id: String,
+        /// Target status (one of `open`, `solved`, `expired`, `withdrawn`).
+        #[arg(long = "new-status", value_parser = ["open", "solved", "expired", "withdrawn"])]
+        new_status: String,
+        /// Optional operator-supplied free-form reason recorded in the audit log.
+        #[arg(long)]
+        reason: Option<String>,
+        /// Optional override for the status timestamp (unix ms). Defaults
+        /// to current wall-clock time. Surfaced for fixture reproducibility.
+        #[arg(long)]
+        ts: Option<u64>,
+        /// Id of the stored v2 key used to sign the payload.
+        #[arg(long = "signing-key")]
+        signing_key: String,
+        /// Base URL of the boole-node (default http://127.0.0.1:8080).
+        #[arg(long)]
+        node: Option<String>,
+        /// Print the full server envelope as JSON instead of the bare
+        /// new status word.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum BlockCommand {
+    /// Fetch the latest block envelope from a node.
+    Latest {
+        /// Base URL of the boole-node (default http://127.0.0.1:8080).
+        #[arg(long)]
+        node: Option<String>,
+        /// Emit JSON output. Always set on stdout for now.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Fetch a block by height from a node.
+    Get {
+        /// Block height (non-negative integer).
+        #[arg(long)]
+        height: String,
+        /// Base URL of the boole-node (default http://127.0.0.1:8080).
+        #[arg(long)]
+        node: Option<String>,
+        /// Emit JSON output. Always set on stdout for now.
         #[arg(long)]
         json: bool,
     },
@@ -40,12 +349,16 @@ fn main() {
     let cli = Cli::parse();
     let result = run(cli);
     if let Err(err) = result {
+        // Top-level catch-all: any error path that did not already write a
+        // typed envelope to stderr lands here. Wrap as `internal_error` so
+        // the CLI contract (stderr=typed JSON) holds even for unexpected
+        // failures from anyhow-bearing code paths.
         eprintln!(
             "{}",
             serde_json::json!({
                 "ok": false,
-                "error": "runtime",
-                "message": err.to_string()
+                "reason": "internal_error",
+                "detail": err.to_string()
             })
         );
         std::process::exit(1);
@@ -57,6 +370,99 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::Version { json }) => print_version(json),
         Some(Command::Chain { command }) => match command {
             ChainCommand::Replay { fixture, json } => replay_fixture(&fixture, json),
+        },
+        Some(Command::Node { command }) => match command {
+            NodeCommand::Start {
+                port,
+                data_dir,
+                scenario,
+                genesis,
+                max_requests,
+            } => node_start(port, &data_dir, scenario.as_deref(), genesis, max_requests),
+        },
+        Some(Command::Block { command }) => match command {
+            BlockCommand::Latest { node, json: _ } => block_latest(node.as_deref()),
+            BlockCommand::Get {
+                height,
+                node,
+                json: _,
+            } => block_get(&height, node.as_deref()),
+        },
+        Some(Command::Account { command }) => match command {
+            AccountCommand::Balance { pk, node, json } => {
+                account_balance(&pk, node.as_deref(), json)
+            }
+        },
+        Some(Command::Work { command }) => match command {
+            WorkCommand::List { node, json } => work_list(node.as_deref(), json),
+            WorkCommand::Get { id, node, json } => work_get(&id, node.as_deref(), json),
+        },
+        Some(Command::Bounty { command }) => match command {
+            BountyCommand::List { node, json } => bounty_list(node.as_deref(), json),
+            BountyCommand::Get { id, node, json } => bounty_get(&id, node.as_deref(), json),
+            BountyCommand::Submit {
+                id,
+                proof_hash,
+                prover,
+                envelope,
+                node,
+                json,
+            } => bounty_submit(&id, &proof_hash, &prover, &envelope, node.as_deref(), json),
+            BountyCommand::Announce {
+                id,
+                domain,
+                problem_hash,
+                verifier_kind,
+                verifier_metadata,
+                reward,
+                deadline,
+                ts,
+                signing_key,
+                node,
+                json,
+            } => bounty_announce(
+                &id,
+                &domain,
+                &problem_hash,
+                &verifier_kind,
+                &verifier_metadata,
+                &reward,
+                deadline,
+                ts,
+                &signing_key,
+                node.as_deref(),
+                json,
+            ),
+            BountyCommand::Status {
+                id,
+                new_status,
+                reason,
+                ts,
+                signing_key,
+                node,
+                json,
+            } => bounty_status(
+                &id,
+                &new_status,
+                reason.as_deref(),
+                ts,
+                &signing_key,
+                node.as_deref(),
+                json,
+            ),
+        },
+        Some(Command::Mine { command }) => boole_miner::cli::run_mine(command),
+        Some(Command::Keys { command }) => match command {
+            KeysCommand::New { id, dev, dry_run } => keys_new(&id, dev, dry_run),
+            KeysCommand::List => keys_list(),
+            KeysCommand::Show { id } => keys_show(&id),
+            KeysCommand::Sign { id, payload, json } => keys_sign(&id, &payload, json),
+            KeysCommand::Verify {
+                pk,
+                signature,
+                payload,
+                json,
+            } => keys_verify(&pk, &signature, &payload, json),
         },
         None => print_version(false),
     }
@@ -79,7 +485,7 @@ struct ReplayFixture {
     blocks: Vec<boole_core::PersistedBlock>,
 }
 
-fn replay_fixture(path: &std::path::Path, json: bool) -> anyhow::Result<()> {
+fn replay_fixture(path: &Path, json: bool) -> anyhow::Result<()> {
     let raw = std::fs::read_to_string(path)?;
     let fixture: ReplayFixture = serde_json::from_str(&raw)?;
     let replay = boole_core::replay_blocks(&fixture.blocks)?;
@@ -97,4 +503,1005 @@ fn replay_fixture(path: &std::path::Path, json: bool) -> anyhow::Result<()> {
         println!("latestC={} height={}", replay.latest_c, replay.height);
     }
     Ok(())
+}
+
+/// Resolve the boole-node binary used by `node start`. Tests set
+/// BOOLE_NODE_BIN to point at the workspace target binary; production runs
+/// fall back to a sibling of the boole-cli binary (cargo workspace layout)
+/// before relying on PATH.
+fn resolve_node_binary() -> anyhow::Result<PathBuf> {
+    if let Ok(explicit) = std::env::var("BOOLE_NODE_BIN") {
+        return Ok(PathBuf::from(explicit));
+    }
+    let cli_bin = std::env::current_exe()?;
+    if let Some(parent) = cli_bin.parent() {
+        let sibling = parent.join("boole-node");
+        if sibling.exists() {
+            return Ok(sibling);
+        }
+    }
+    Ok(PathBuf::from("boole-node"))
+}
+
+fn node_start(
+    port: Option<u16>,
+    data_dir: &Path,
+    scenario: Option<&Path>,
+    genesis: Option<String>,
+    max_requests: Option<usize>,
+) -> anyhow::Result<()> {
+    std::fs::create_dir_all(data_dir)?;
+    let block_path = data_dir.join("blocks.ndjson");
+    let node_bin = resolve_node_binary()?;
+
+    let mut command = std::process::Command::new(&node_bin);
+    command.arg("run-local");
+    if let Some(port) = port {
+        command.arg("--port").arg(port.to_string());
+    }
+    command
+        .arg("--block-store")
+        .arg(block_path.as_os_str());
+    if let Some(scenario) = scenario {
+        command.arg("--scenario").arg(scenario.as_os_str());
+    }
+    if let Some(genesis) = genesis {
+        command.arg("--genesis").arg(genesis);
+    }
+    if let Some(max) = max_requests {
+        command.arg("--max-requests").arg(max.to_string());
+    }
+
+    let status = command.status()?;
+    if !status.success() {
+        anyhow::bail!("boole-node exited with status {status}");
+    }
+    Ok(())
+}
+
+/// Fetch `/account/{pk}/balance` from `node`. Validates `pk` locally first so
+/// a malformed input never reaches the wire — matches the typed-rejection
+/// shape (`{ok:false, reason:"malformed-pk"}`) the server itself emits, which
+/// keeps CLI/server contracts consistent for downstream automation.
+fn account_balance(pk: &str, node: Option<&str>, json: bool) -> anyhow::Result<()> {
+    if !is_well_formed_hex32(pk) {
+        emit_typed_error("malformed-pk", 2, serde_json::json!({ "pk": pk }));
+    }
+    let url = node.unwrap_or("http://127.0.0.1:8080");
+    let path = format!("/account/{pk}/balance");
+    let response = http_get(url, &path)?;
+    let body_text =
+        std::str::from_utf8(&response.body).map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    if !(200..300).contains(&response.status) {
+        eprintln!("{body_text}");
+        std::process::exit(1);
+    }
+    if json {
+        println!("{body_text}");
+        return Ok(());
+    }
+    let parsed: serde_json::Value = serde_json::from_str(body_text)?;
+    let balance = parsed
+        .get("balance")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("server response missing string balance: {body_text}"))?;
+    println!("{balance}");
+    Ok(())
+}
+
+fn is_well_formed_hex32(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Fetch `/work` and print one line per manifest by default. Each line is
+/// `<workId>\t<familyId>\t<status>` — terse enough to grep, structured enough
+/// to feed `column -t` if a human wants a table. `--json` forwards the server
+/// envelope verbatim, matching the bare-vs-envelope split used by
+/// `account balance`.
+fn work_list(node: Option<&str>, json: bool) -> anyhow::Result<()> {
+    let url = node.unwrap_or("http://127.0.0.1:8080");
+    let response = http_get(url, "/work")?;
+    let body_text =
+        std::str::from_utf8(&response.body).map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    if !(200..300).contains(&response.status) {
+        eprintln!("{body_text}");
+        std::process::exit(1);
+    }
+    if json {
+        println!("{body_text}");
+        return Ok(());
+    }
+    let parsed: serde_json::Value = serde_json::from_str(body_text)?;
+    let work = parsed
+        .get("work")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("server response missing work array: {body_text}"))?;
+    for entry in work {
+        let work_id = entry
+            .get("workId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<missing>");
+        let family_id = entry
+            .get("familyId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<missing>");
+        let status = entry
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<missing>");
+        println!("{work_id}\t{family_id}\t{status}");
+    }
+    Ok(())
+}
+
+/// Fetch `/work/{id}` and by default print just the embedded `verifierHash`
+/// (the obvious useful field for downstream miners). `--json` forwards the
+/// envelope; non-2xx (e.g. 404 `work_not_found`) forwards the body to stderr
+/// and exits 1, matching `block get` precedent.
+fn work_get(id: &str, node: Option<&str>, json: bool) -> anyhow::Result<()> {
+    let url = node.unwrap_or("http://127.0.0.1:8080");
+    let path = format!("/work/{id}");
+    let response = http_get(url, &path)?;
+    let body_text =
+        std::str::from_utf8(&response.body).map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    if !(200..300).contains(&response.status) {
+        eprintln!("{body_text}");
+        std::process::exit(1);
+    }
+    if json {
+        println!("{body_text}");
+        return Ok(());
+    }
+    let parsed: serde_json::Value = serde_json::from_str(body_text)?;
+    let verifier_hash = parsed
+        .get("work")
+        .and_then(|w| w.get("verifier"))
+        .and_then(|v| v.get("metadata"))
+        .and_then(|m| m.get("verifierHash"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            anyhow::anyhow!("server response missing verifier.metadata.verifierHash: {body_text}")
+        })?;
+    println!("{verifier_hash}");
+    Ok(())
+}
+
+/// Fetch `/bounties` and print one line per bounty by default. Each line
+/// is `<id>\t<domain>\t<status>\t<reward>` — adds reward over `work
+/// list` because reward is the bounty-specific value miners care about.
+/// `--json` forwards the server envelope verbatim.
+fn bounty_list(node: Option<&str>, json: bool) -> anyhow::Result<()> {
+    let url = node.unwrap_or("http://127.0.0.1:8080");
+    let response = http_get(url, "/bounties")?;
+    let body_text =
+        std::str::from_utf8(&response.body).map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    if !(200..300).contains(&response.status) {
+        eprintln!("{body_text}");
+        std::process::exit(1);
+    }
+    if json {
+        println!("{body_text}");
+        return Ok(());
+    }
+    let parsed: serde_json::Value = serde_json::from_str(body_text)?;
+    let bounties = parsed
+        .get("bounties")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("server response missing bounties array: {body_text}"))?;
+    for entry in bounties {
+        let id = entry
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<missing>");
+        let domain = entry
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<missing>");
+        let status = entry
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<missing>");
+        let reward = entry
+            .get("reward")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<missing>");
+        println!("{id}\t{domain}\t{status}\t{reward}");
+    }
+    Ok(())
+}
+
+/// Fetch `/bounties/{id}` and by default print just the embedded
+/// `verifierHash` — same "obvious useful field" choice as `work get`.
+/// `--json` forwards the envelope; non-2xx (e.g. 404 `bounty_not_found`)
+/// forwards the body to stderr and exits 1.
+fn bounty_get(id: &str, node: Option<&str>, json: bool) -> anyhow::Result<()> {
+    let url = node.unwrap_or("http://127.0.0.1:8080");
+    let path = format!("/bounties/{id}");
+    let response = http_get(url, &path)?;
+    let body_text =
+        std::str::from_utf8(&response.body).map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    if !(200..300).contains(&response.status) {
+        eprintln!("{body_text}");
+        std::process::exit(1);
+    }
+    if json {
+        println!("{body_text}");
+        return Ok(());
+    }
+    let parsed: serde_json::Value = serde_json::from_str(body_text)?;
+    let verifier_hash = parsed
+        .get("bounty")
+        .and_then(|w| w.get("verifier"))
+        .and_then(|v| v.get("metadata"))
+        .and_then(|m| m.get("verifierHash"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            anyhow::anyhow!("server response missing verifier.metadata.verifierHash: {body_text}")
+        })?;
+    println!("{verifier_hash}");
+    Ok(())
+}
+
+/// POST a proof envelope to `/bounties/{id}/proof` and route the response.
+/// Default output is the bare bounty status word (`solved`/`open`/`duplicate`)
+/// so shell scripts can pipe the result without parsing JSON. `--json`
+/// forwards the full server envelope verbatim. Non-2xx forwards the typed
+/// envelope (`bounty_not_found`, `bad_proof_hash`, ...) to stderr with exit 1.
+fn bounty_submit(
+    id: &str,
+    proof_hash: &str,
+    prover: &str,
+    envelope: &str,
+    node: Option<&str>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let envelope_value = read_json_arg(envelope, "envelope")?;
+    let url = node.unwrap_or("http://127.0.0.1:8080");
+    let path = format!("/bounties/{id}/proof");
+    let body = serde_json::json!({
+        "proofHash": proof_hash,
+        "prover": prover,
+        "envelope": envelope_value,
+    });
+    let response = http_post(url, &path, &body)?;
+    let body_text =
+        std::str::from_utf8(&response.body).map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    if !(200..300).contains(&response.status) {
+        eprintln!("{body_text}");
+        std::process::exit(1);
+    }
+    if json {
+        println!("{body_text}");
+        return Ok(());
+    }
+    let parsed: serde_json::Value = serde_json::from_str(body_text)?;
+    let duplicate = parsed
+        .get("duplicate")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if duplicate {
+        println!("duplicate");
+        return Ok(());
+    }
+    let status = parsed
+        .get("bounty")
+        .and_then(|b| b.get("status"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("server response missing bounty.status: {body_text}"))?;
+    println!("{status}");
+    Ok(())
+}
+
+/// Build a `boole.bounty.announce.v1` payload, sign it locally with a
+/// stored v2 key, and POST the resulting `boole.signed.v1` envelope to
+/// `/bounties`. Local validation runs first so a malformed `--problem-hash`
+/// never reaches the wire — matches the typed-rejection precedent set by
+/// `account balance`.
+#[allow(clippy::too_many_arguments)]
+fn bounty_announce(
+    id: &str,
+    domain: &str,
+    problem_hash: &str,
+    verifier_kind: &str,
+    verifier_metadata: &str,
+    reward: &str,
+    deadline: u64,
+    ts: Option<u64>,
+    signing_key: &str,
+    node: Option<&str>,
+    json: bool,
+) -> anyhow::Result<()> {
+    if !is_well_formed_hex32(problem_hash) {
+        emit_typed_error(
+            "malformed-problem-hash",
+            2,
+            serde_json::json!({
+                "problemHash": problem_hash,
+                "detail": "expected 64 lowercase hex chars",
+            }),
+        );
+    }
+    let metadata = read_json_arg(verifier_metadata, "verifier-metadata")?;
+    if !metadata.is_object() {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({
+                "detail": "verifier-metadata must be a JSON object",
+                "field": "verifier-metadata",
+            }),
+        );
+    }
+    if let Err(detail) = validate_key_id(signing_key) {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({ "detail": detail, "field": "signing-key" }),
+        );
+    }
+    let dir = keys_dir();
+    let path = key_path(&dir, signing_key);
+    if !path.exists() {
+        emit_typed_error(
+            "key_not_found",
+            3,
+            serde_json::json!({ "id": signing_key, "path": path.to_string_lossy() }),
+        );
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let key_envelope: serde_json::Value = serde_json::from_str(&raw)?;
+    let schema = key_envelope
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if schema != KEYS_SCHEMA_V2 {
+        emit_typed_error(
+            "legacy_v1_key",
+            3,
+            serde_json::json!({
+                "id": signing_key,
+                "schema": schema,
+                "detail": "key was created before S13a and has no secret seed; rotate by creating a new key with a different id",
+            }),
+        );
+    }
+    let sk_hex = key_envelope
+        .get("sk")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("v2 key envelope missing required `sk` field"))?;
+    let signing = boole_core::SigningKeyV2::from_seed_hex(sk_hex)
+        .map_err(|err| anyhow::anyhow!("stored sk is not a valid ed25519 seed: {err}"))?;
+
+    let ts_value = ts.unwrap_or_else(unix_ms_now);
+    let payload = serde_json::json!({
+        "schema": "boole.bounty.announce.v1",
+        "id": id,
+        "domain": domain,
+        "problemHash": problem_hash,
+        "verifier": {
+            "kind": verifier_kind,
+            "metadata": metadata,
+        },
+        "reward": reward,
+        "deadline": deadline,
+        "ts": ts_value,
+    });
+    let signed = signing
+        .sign(&payload)
+        .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
+    let envelope = serde_json::json!({
+        "schema": signed.schema,
+        "payload": signed.payload,
+        "pk": signed.pk,
+        "signature": signed.signature,
+    });
+
+    let url = node.unwrap_or("http://127.0.0.1:8080");
+    let response = http_post(url, "/bounties", &envelope)?;
+    let body_text =
+        std::str::from_utf8(&response.body).map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    if !(200..300).contains(&response.status) {
+        eprintln!("{body_text}");
+        std::process::exit(1);
+    }
+    if json {
+        println!("{body_text}");
+        return Ok(());
+    }
+    let parsed: serde_json::Value = serde_json::from_str(body_text)?;
+    let id_str = parsed
+        .get("bounty")
+        .and_then(|b| b.get("id"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("server response missing bounty.id: {body_text}"))?;
+    println!("{id_str}");
+    Ok(())
+}
+
+fn bounty_status(
+    id: &str,
+    new_status: &str,
+    reason: Option<&str>,
+    ts: Option<u64>,
+    signing_key: &str,
+    node: Option<&str>,
+    json: bool,
+) -> anyhow::Result<()> {
+    if let Err(detail) = validate_key_id(signing_key) {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({ "detail": detail, "field": "signing-key" }),
+        );
+    }
+    let dir = keys_dir();
+    let path = key_path(&dir, signing_key);
+    if !path.exists() {
+        emit_typed_error(
+            "key_not_found",
+            3,
+            serde_json::json!({ "id": signing_key, "path": path.to_string_lossy() }),
+        );
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let key_envelope: serde_json::Value = serde_json::from_str(&raw)?;
+    let schema = key_envelope
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if schema != KEYS_SCHEMA_V2 {
+        emit_typed_error(
+            "legacy_v1_key",
+            3,
+            serde_json::json!({
+                "id": signing_key,
+                "schema": schema,
+                "detail": "key was created before S13a and has no secret seed; rotate by creating a new key with a different id",
+            }),
+        );
+    }
+    let sk_hex = key_envelope
+        .get("sk")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("v2 key envelope missing required `sk` field"))?;
+    let signing = boole_core::SigningKeyV2::from_seed_hex(sk_hex)
+        .map_err(|err| anyhow::anyhow!("stored sk is not a valid ed25519 seed: {err}"))?;
+
+    let ts_value = ts.unwrap_or_else(unix_ms_now);
+    let mut payload = serde_json::Map::new();
+    payload.insert(
+        "schema".to_string(),
+        serde_json::Value::String("boole.bounty.status.v1".to_string()),
+    );
+    payload.insert("id".to_string(), serde_json::Value::String(id.to_string()));
+    payload.insert(
+        "newStatus".to_string(),
+        serde_json::Value::String(new_status.to_string()),
+    );
+    if let Some(text) = reason {
+        payload.insert(
+            "reason".to_string(),
+            serde_json::Value::String(text.to_string()),
+        );
+    }
+    payload.insert(
+        "ts".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(ts_value)),
+    );
+    let payload_value = serde_json::Value::Object(payload);
+    let signed = signing
+        .sign(&payload_value)
+        .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
+    let envelope = serde_json::json!({
+        "schema": signed.schema,
+        "payload": signed.payload,
+        "pk": signed.pk,
+        "signature": signed.signature,
+    });
+
+    let url = node.unwrap_or("http://127.0.0.1:8080");
+    let route = format!("/bounties/{id}/status");
+    let response = http_post(url, &route, &envelope)?;
+    let body_text =
+        std::str::from_utf8(&response.body).map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    if !(200..300).contains(&response.status) {
+        eprintln!("{body_text}");
+        std::process::exit(1);
+    }
+    if json {
+        println!("{body_text}");
+        return Ok(());
+    }
+    let parsed: serde_json::Value = serde_json::from_str(body_text)?;
+    let status_str = parsed
+        .get("bounty")
+        .and_then(|b| b.get("status"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("server response missing bounty.status: {body_text}"))?;
+    println!("{status_str}");
+    Ok(())
+}
+
+fn unix_ms_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// JSON-bearing CLI flags accept either an inline JSON string or a path to
+/// a JSON file. Inline takes precedence: if the argument parses as JSON we
+/// use it directly; otherwise treat it as a path. This avoids double-quoting
+/// pain from shells without giving up the convenience of `--flag @file`
+/// patterns when the caller is OK with reading a file.
+///
+/// `field` is the user-visible name of the flag; it appears in the error
+/// detail when neither branch succeeds, so callers should pass the actual
+/// flag name (e.g. "envelope", "payload") rather than a generic label.
+fn read_json_arg(arg: &str, field: &str) -> anyhow::Result<serde_json::Value> {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(arg) {
+        return Ok(value);
+    }
+    let raw = std::fs::read_to_string(arg).map_err(|err| {
+        anyhow::anyhow!("{field} argument is neither inline JSON nor a readable file: {err}")
+    })?;
+    Ok(serde_json::from_str(&raw)?)
+}
+
+fn block_latest(node: Option<&str>) -> anyhow::Result<()> {
+    let url = node.unwrap_or("http://127.0.0.1:8080");
+    http_get_print(url, "/block/latest")
+}
+
+fn block_get(height: &str, node: Option<&str>) -> anyhow::Result<()> {
+    let url = node.unwrap_or("http://127.0.0.1:8080");
+    let path = format!("/block/{height}");
+    http_get_print(url, &path)
+}
+
+/// Send an HTTP GET and route the response: 2xx body to stdout, anything
+/// else to stderr with a non-zero exit. The server already speaks the typed
+/// envelope (`{ok, reason, ...}`), so on errors we forward the body as-is
+/// rather than re-wrapping — that keeps the CLI contract identical to a
+/// direct curl against the node.
+fn http_get_print(base_url: &str, path: &str) -> anyhow::Result<()> {
+    let response = http_get(base_url, path)?;
+    let body_text =
+        std::str::from_utf8(&response.body).map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    if (200..300).contains(&response.status) {
+        println!("{body_text}");
+        Ok(())
+    } else {
+        eprintln!("{body_text}");
+        std::process::exit(1);
+    }
+}
+
+struct HttpResponse {
+    status: u16,
+    body: Vec<u8>,
+}
+
+fn http_post(
+    base_url: &str,
+    path: &str,
+    body: &serde_json::Value,
+) -> anyhow::Result<HttpResponse> {
+    let stripped = base_url
+        .strip_prefix("http://")
+        .ok_or_else(|| anyhow::anyhow!("only http:// URLs are supported, got {base_url}"))?;
+    let (host_port, base_path) = match stripped.find('/') {
+        Some(idx) => (&stripped[..idx], &stripped[idx..]),
+        None => (stripped, ""),
+    };
+    let full_path = if base_path.is_empty() {
+        path.to_string()
+    } else {
+        format!("{}{}", base_path.trim_end_matches('/'), path)
+    };
+    let host_for_header = host_port.to_string();
+    let body_str = serde_json::to_string(body)?;
+    let mut stream = TcpStream::connect(host_port)?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(15)))?;
+    stream.set_write_timeout(Some(std::time::Duration::from_secs(15)))?;
+    let request = format!(
+        "POST {full_path} HTTP/1.1\r\nHost: {host_for_header}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body_str}",
+        body_str.len()
+    );
+    stream.write_all(request.as_bytes())?;
+    let mut buffer = Vec::new();
+    stream.read_to_end(&mut buffer)?;
+    parse_http_response(&buffer)
+}
+
+fn http_get(base_url: &str, path: &str) -> anyhow::Result<HttpResponse> {
+    let stripped = base_url
+        .strip_prefix("http://")
+        .ok_or_else(|| anyhow::anyhow!("only http:// URLs are supported, got {base_url}"))?;
+    let (host_port, base_path) = match stripped.find('/') {
+        Some(idx) => (&stripped[..idx], &stripped[idx..]),
+        None => (stripped, ""),
+    };
+    let full_path = if base_path.is_empty() {
+        path.to_string()
+    } else {
+        format!("{}{}", base_path.trim_end_matches('/'), path)
+    };
+    let host_for_header = host_port.to_string();
+    let mut stream = TcpStream::connect(host_port)?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(15)))?;
+    stream.set_write_timeout(Some(std::time::Duration::from_secs(15)))?;
+    let request = format!(
+        "GET {full_path} HTTP/1.1\r\nHost: {host_for_header}\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes())?;
+    let mut buffer = Vec::new();
+    stream.read_to_end(&mut buffer)?;
+    parse_http_response(&buffer)
+}
+
+fn parse_http_response(buffer: &[u8]) -> anyhow::Result<HttpResponse> {
+    let header_end = find_header_end(buffer)
+        .ok_or_else(|| anyhow::anyhow!("HTTP response missing header terminator"))?;
+    let header_text = std::str::from_utf8(&buffer[..header_end])?;
+    let mut lines = header_text.split("\r\n");
+    let status_line = lines
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("HTTP response missing status line"))?;
+    let mut parts = status_line.split_whitespace();
+    let _ = parts.next();
+    let status: u16 = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("HTTP response missing status code"))?
+        .parse()?;
+    let body = buffer[header_end + 4..].to_vec();
+    Ok(HttpResponse { status, body })
+}
+
+fn find_header_end(buffer: &[u8]) -> Option<usize> {
+    buffer.windows(4).position(|w| w == b"\r\n\r\n")
+}
+
+/// Schema tag for keys produced by `keys new` after S13a. v2 carries the
+/// ed25519 secret seed (`sk`) alongside the public key so `keys sign` can
+/// load and use the key without a separate KMS lookup. v1 envelopes (which
+/// stored only `pk`) remain readable by `keys list`/`keys show` but are
+/// refused by `keys sign` with `legacy_v1_key`.
+const KEYS_SCHEMA_V2: &str = "boole.keys.v2";
+
+/// Resolve the local keys directory. Tests set BOOLE_KEYS_DIR to an isolated
+/// tempdir so they never touch the user's real `~/.boole/keys`. Production
+/// runs fall back to `$HOME/.boole/keys`. If $HOME is unset (uncommon), we
+/// use the working directory as a last resort — better to write to a known
+/// location and surface the path in the envelope than to crash.
+fn keys_dir() -> PathBuf {
+    if let Ok(explicit) = std::env::var("BOOLE_KEYS_DIR") {
+        return PathBuf::from(explicit);
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".boole").join("keys")
+}
+
+fn key_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}.json"))
+}
+
+/// Return Err with a human-readable detail when `id` does not match
+/// `[a-zA-Z0-9_-]+`. Path-shape ids (`a/b`, `..`) are explicitly rejected so
+/// `key_path` can never escape the keys directory.
+fn validate_key_id(id: &str) -> Result<(), String> {
+    if id.is_empty() {
+        return Err("id must not be empty".to_string());
+    }
+    if !id
+        .bytes()
+        .all(|b| matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-'))
+    {
+        return Err(format!(
+            "id must match [a-zA-Z0-9_-]+ (got {id:?})"
+        ));
+    }
+    Ok(())
+}
+
+/// ISO 8601 UTC timestamp with second precision. Hand-rolled so we don't pull
+/// in chrono/time for one format string. Implements Howard Hinnant's
+/// civil-from-days algorithm; correct for the full range of i64 days.
+fn now_iso8601_utc() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format_iso8601_utc(secs)
+}
+
+fn format_iso8601_utc(unix_secs: u64) -> String {
+    let days = (unix_secs / 86_400) as i64;
+    let remainder = unix_secs % 86_400;
+    let hour = remainder / 3600;
+    let minute = (remainder % 3600) / 60;
+    let second = remainder % 60;
+    let (year, month, day) = days_to_civil(days);
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+// Howard Hinnant, "chrono-Compatible Low-Level Date Algorithms" — converts
+// days-since-1970-01-01 to (year, month, day). Civil-from-days; correct for
+// any i64 input the timestamp arithmetic above can produce.
+fn days_to_civil(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
+}
+
+/// Atomic write at mode 0600: tmp file in the same directory → fsync →
+/// rename. Same-directory tmp guarantees the rename is atomic on POSIX
+/// filesystems (no cross-device move). The mode is set at open time via
+/// `OpenOptionsExt::mode` so the file is never world-readable, even
+/// transiently.
+fn atomic_write_0600(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension(format!("json.tmp.{}", std::process::id()));
+    {
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+    }
+    if let Err(err) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(err.into());
+    }
+    Ok(())
+}
+
+/// Print a typed error envelope (`{ok:false, reason, ...fields}`) to stderr
+/// and exit. Mirrors the server-side `boole-node::http_error` envelope shape
+/// so CLI-originated and HTTP-forwarded errors look identical to consumers.
+/// Never returns; exit_code follows the pof contract (2 = bad usage,
+/// 3 = operation refused).
+fn emit_typed_error(reason: &str, exit_code: i32, fields: serde_json::Value) -> ! {
+    let mut envelope = serde_json::json!({ "ok": false, "reason": reason });
+    if let Some(map) = fields.as_object() {
+        let obj = envelope.as_object_mut().expect("envelope is an object");
+        for (k, v) in map {
+            obj.insert(k.clone(), v.clone());
+        }
+    }
+    eprintln!("{envelope}");
+    std::process::exit(exit_code);
+}
+
+fn keys_new(id: &str, dev: bool, dry_run: bool) -> anyhow::Result<()> {
+    if let Err(detail) = validate_key_id(id) {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({ "detail": detail, "field": "id" }),
+        );
+    }
+    let dir = keys_dir();
+    let path = key_path(&dir, id);
+    if !dry_run && path.exists() {
+        emit_typed_error(
+            "key_already_exists",
+            3,
+            serde_json::json!({ "id": id, "path": path.to_string_lossy() }),
+        );
+    }
+
+    let signing_key = if dev {
+        boole_core::SigningKeyV2::from_dev_id(id)
+    } else {
+        boole_core::SigningKeyV2::from_random()
+            .map_err(|err| anyhow::anyhow!("failed to generate ed25519 key: {err}"))?
+    };
+    let envelope_key = serde_json::json!({
+        "id": id,
+        "pk": signing_key.pk_hex(),
+        "sk": signing_key.sk_seed_hex(),
+        "createdAt": now_iso8601_utc(),
+        "schema": KEYS_SCHEMA_V2,
+    });
+    let stdout_envelope = if dry_run {
+        serde_json::json!({ "ok": true, "key": envelope_key, "dryRun": true })
+    } else {
+        let bytes = serde_json::to_vec_pretty(&envelope_key)?;
+        atomic_write_0600(&path, &bytes)?;
+        serde_json::json!({ "ok": true, "key": envelope_key, "path": path.to_string_lossy() })
+    };
+    println!("{stdout_envelope}");
+    Ok(())
+}
+
+fn keys_list() -> anyhow::Result<()> {
+    let dir = keys_dir();
+    let mut keys: Vec<serde_json::Value> = Vec::new();
+    if dir.is_dir() {
+        // Read every `*.json` entry. Anything that doesn't parse as a key
+        // envelope surfaces as `internal_error` rather than being silently
+        // skipped — a corrupt file in the keys dir is the user's signal that
+        // something is wrong, not a thing we paper over.
+        let mut entries: Vec<_> = std::fs::read_dir(&dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext == "json")
+                    .unwrap_or(false)
+            })
+            .collect();
+        entries.sort_by_key(|e| e.path());
+        for entry in entries {
+            let path = entry.path();
+            let raw = std::fs::read_to_string(&path)?;
+            let value: serde_json::Value = serde_json::from_str(&raw)?;
+            keys.push(value);
+        }
+    }
+    println!(
+        "{}",
+        serde_json::json!({ "ok": true, "keys": keys })
+    );
+    Ok(())
+}
+
+fn keys_show(id: &str) -> anyhow::Result<()> {
+    if let Err(detail) = validate_key_id(id) {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({ "detail": detail, "field": "id" }),
+        );
+    }
+    let dir = keys_dir();
+    let path = key_path(&dir, id);
+    if !path.exists() {
+        emit_typed_error(
+            "key_not_found",
+            3,
+            serde_json::json!({ "id": id, "path": path.to_string_lossy() }),
+        );
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let value: serde_json::Value = serde_json::from_str(&raw)?;
+    println!(
+        "{}",
+        serde_json::json!({ "ok": true, "key": value })
+    );
+    Ok(())
+}
+
+/// Sign a JSON payload with the v2 key stored at `id`. v1 keys (no `sk`)
+/// are refused with `legacy_v1_key` exit 3 — there is no implicit upgrade
+/// path because pk rotation is not safe to do for the operator. Default
+/// stdout is the bare hex64 ed25519 signature; `--json` emits the full
+/// `boole.signed.v1` envelope wrapped in `{ok:true, envelope:...}`.
+fn keys_sign(id: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
+    if let Err(detail) = validate_key_id(id) {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({ "detail": detail, "field": "id" }),
+        );
+    }
+    let dir = keys_dir();
+    let path = key_path(&dir, id);
+    if !path.exists() {
+        emit_typed_error(
+            "key_not_found",
+            3,
+            serde_json::json!({ "id": id, "path": path.to_string_lossy() }),
+        );
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let key_envelope: serde_json::Value = serde_json::from_str(&raw)?;
+    let schema = key_envelope
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if schema != KEYS_SCHEMA_V2 {
+        emit_typed_error(
+            "legacy_v1_key",
+            3,
+            serde_json::json!({
+                "id": id,
+                "schema": schema,
+                "detail": "key was created before S13a and has no secret seed; rotate by creating a new key with a different id",
+            }),
+        );
+    }
+    let sk_hex = key_envelope
+        .get("sk")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("v2 key envelope missing required `sk` field"))?;
+    let signing_key = boole_core::SigningKeyV2::from_seed_hex(sk_hex)
+        .map_err(|err| anyhow::anyhow!("stored sk is not a valid ed25519 seed: {err}"))?;
+    let payload = read_json_arg(payload_arg, "payload")?;
+    let signed = signing_key
+        .sign(&payload)
+        .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "envelope": {
+                    "schema": signed.schema,
+                    "payload": signed.payload,
+                    "pk": signed.pk,
+                    "signature": signed.signature,
+                }
+            })
+        );
+    } else {
+        println!("{}", signed.signature);
+    }
+    Ok(())
+}
+
+/// Verify a hex64 ed25519 signature against a hex32 public key and a JSON
+/// payload. Stateless — never touches the keys directory. Wire-malformed
+/// inputs (bad hex shape) emit a typed `bad_pk` / `bad_signature` envelope
+/// on stderr with exit 2; cryptographically wrong signatures are NOT errors
+/// — they print `invalid` to stdout and exit 0 because verification ran
+/// successfully.
+fn keys_verify(pk: &str, signature: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
+    if !is_well_formed_hex32(pk) {
+        emit_typed_error(
+            "bad_pk",
+            2,
+            serde_json::json!({
+                "detail": "expected 64 lowercase hex chars",
+                "pk": pk,
+            }),
+        );
+    }
+    if !is_well_formed_hex64(signature) {
+        emit_typed_error(
+            "bad_signature",
+            2,
+            serde_json::json!({
+                "detail": "expected 128 lowercase hex chars",
+            }),
+        );
+    }
+    let payload = read_json_arg(payload_arg, "payload")?;
+    let valid = match boole_core::verify_signature(pk, signature, &payload) {
+        Ok(v) => v,
+        Err(detail) => {
+            // Defensive: shape checks above should have caught wire-malformed
+            // hex. If `verify_signature` still rejects (e.g. ed25519 point
+            // not on the curve), surface the same `bad_pk` envelope.
+            emit_typed_error("bad_pk", 2, serde_json::json!({ "detail": detail }));
+        }
+    };
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({ "ok": true, "valid": valid })
+        );
+    } else if valid {
+        println!("valid");
+    } else {
+        println!("invalid");
+    }
+    Ok(())
+}
+
+fn is_well_formed_hex64(s: &str) -> bool {
+    s.len() == 128 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }

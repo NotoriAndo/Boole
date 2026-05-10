@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use num_bigint::BigUint;
 
+use crate::block_builder::PromotedBountyCredit;
 use crate::{difficulty_weight, parse_biguint_hex, Hex32};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +39,12 @@ pub struct PersistedBlock {
     pub dropped_kernel_reject: u64,
     pub truncated_by_kmax: u64,
     pub ts: u64,
+    /// S23b — bounty credits accrued by this block. Empty for base-only
+    /// blocks (the default), so old persisted blocks deserialize with
+    /// `Vec::new()`. `validate_shape` enforces hex-32 prover keys and
+    /// non-negative `u128` amounts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub promoted_bounty_credits: Vec<PromotedBountyCredit>,
 }
 
 fn is_zero(value: &u64) -> bool {
@@ -75,6 +82,16 @@ impl PersistedBlock {
                 self.difficulty_weight,
                 expected_weight
             );
+        }
+        for credit in &self.promoted_bounty_credits {
+            Hex32::from_hex(&credit.prover)?;
+            if credit.amount.parse::<u128>().is_err() {
+                anyhow::bail!(
+                    "promotedBountyCredits[{}].amount must be u128 decimal, got {}",
+                    credit.bounty_id,
+                    credit.amount
+                );
+            }
         }
         Ok(())
     }

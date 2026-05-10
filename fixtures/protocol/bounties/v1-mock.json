@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "source": "boole-node N5 bounty mock-verifier fixture v1 (S12 proof flow tests)",
+  "generatedAt": "2026-05-09T00:00:00Z",
+  "bounties": [
+    {
+      "id": "gamma-1",
+      "domain": "test.mock-accept",
+      "problemHash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "verifier": {
+        "kind": "mock-accept",
+        "metadata": {
+          "verifierHash": "2222222222222222222222222222222222222222222222222222222222222222",
+          "profile": "stub"
+        }
+      },
+      "reward": "100",
+      "deadline": 1900000000000,
+      "status": "open",
+      "createdAt": 1800000000000,
+      "updatedAt": 1800000000000
+    },
+    {
+      "id": "delta-1",
+      "domain": "test.mock-reject",
+      "problemHash": "3333333333333333333333333333333333333333333333333333333333333333",
+      "verifier": {
+        "kind": "mock-reject",
+        "metadata": {
+          "verifierHash": "4444444444444444444444444444444444444444444444444444444444444444",
+          "profile": "stub"
+        }
+      },
+      "reward": "50",
+      "deadline": 1900000000000,
+      "status": "open",
+      "createdAt": 1800000000000,
+      "updatedAt": 1800000000000
+    },
+    {
+      "id": "epsilon-1",
+      "domain": "test.mock-accept",
+      "problemHash": "5555555555555555555555555555555555555555555555555555555555555555",
+      "verifier": {
+        "kind": "mock-accept",
+        "metadata": {
+          "verifierHash": "6666666666666666666666666666666666666666666666666666666666666666",
+          "profile": "stub"
+        }
+      },
+      "reward": "25",
+      "deadline": 1900000000000,
+      "status": "withdrawn",
+      "createdAt": 1800000000000,
+      "updatedAt": 1800000010000
+    },
+    {
+      "id": "zeta-1",
+      "domain": "test.unknown",
+      "problemHash": "7777777777777777777777777777777777777777777777777777777777777777",
+      "verifier": {
+        "kind": "wholly-unknown-kind",
+        "metadata": {
+          "verifierHash": "8888888888888888888888888888888888888888888888888888888888888888"
+        }
+      },
+      "reward": "10",
+      "deadline": 1900000000000,
+      "status": "open",
+      "createdAt": 1800000000000,
+      "updatedAt": 1800000000000
+    }
+  ]
+}

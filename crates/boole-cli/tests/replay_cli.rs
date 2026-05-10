@@ -51,7 +51,11 @@ fn cli_runtime_error_json_goes_to_stderr_and_leaves_stdout_empty() {
     );
     let parsed: serde_json::Value = serde_json::from_slice(&output.stderr).expect("stderr json");
     assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["error"], "runtime");
+    // Typed envelope shape adopted in S3: anyhow-bearing top-level errors
+    // surface as `reason: "internal_error"` (the kebab vocabulary the
+    // server speaks at the HTTP boundary). The legacy `error: "runtime"`
+    // shape was retired so CLI and node speak the same dialect.
+    assert_eq!(parsed["reason"], "internal_error");
 }
 
 #[test]

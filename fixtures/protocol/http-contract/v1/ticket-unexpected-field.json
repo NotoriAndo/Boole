@@ -1,0 +1,22 @@
+{
+  "name": "ticket-unexpected-field",
+  "description": "Body containing fields outside pof TicketBody {c,pk,n} must be rejected with HTTP 400 and a typed reason naming the offending field.",
+  "request": {
+    "method": "POST",
+    "path": "/ticket",
+    "body": {
+      "c": "0000000000000000000000000000000000000000000000000000000000000000",
+      "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "n": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "j": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  },
+  "expect": {
+    "status": 400,
+    "bodyEquals": {
+      "ok": false,
+      "reason": "unexpected_field",
+      "field": "j"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "block-by-height-ok",
+  "description": "GET /block/0 after committing the first block returns HTTP 200 with that block plus height:0 and c at the top level.",
+  "request": {
+    "method": "GET",
+    "path": "/block/0"
+  },
+  "expect": {
+    "status": 200,
+    "bodyContains": {
+      "ok": true,
+      "height": 0
+    },
+    "bodyTypes": {
+      "block": "object",
+      "c": "hex64"
+    }
+  }
+}

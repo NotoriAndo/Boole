@@ -8,16 +8,22 @@ pub mod admission_types;
 pub mod block;
 pub mod block_builder;
 pub mod bounty_ledger;
+pub mod bounty_promotion;
+pub mod bounty_proof_verifier;
 pub mod bounty_registry;
+pub mod bounty_side_pool;
+pub mod canonical_json;
 pub mod config;
 pub mod difficulty;
 pub mod family_manifest;
+pub mod family_manifest_registry;
 pub mod hash;
 pub mod rate_limiter;
 pub mod rejection_log;
 pub mod replay;
 pub(crate) mod replay_evidence;
 pub mod share_pool;
+pub mod signed_envelope;
 pub mod submission_pow;
 pub mod validator;
 pub mod work_manifest;
@@ -33,12 +39,19 @@ pub use admission_types::{
 pub use block::{PersistedBlock, SelectedShareEvidence};
 pub use block_builder::{
     build_block_selection, BlockBuilderConfig, BuildSelectionResult, BuiltBlockSelection,
-    CandidateShare,
+    CandidateShare, PromotedBountyCredit, PromotedBountySelection, PromotedBountyShare,
 };
-pub use bounty_ledger::BountyEventLedger;
+pub use bounty_ledger::{BountyEventLedger, FileBountyEventLedger};
+pub use bounty_proof_verifier::BountyProofVerifier;
 pub use bounty_registry::{
-    Bounty, BountyRegistry, BountyVerifier, CreateBountyInput, SubmitProofInput, SubmitProofResult,
-    UpdateStatusInput,
+    load_bounties, Bounty, BountyList, BountyRegistry, BountyVerifier, CreateBountyInput,
+    SubmitProofInput, SubmitProofResult, UpdateStatusInput,
+};
+pub use bounty_promotion::{select_promoted_bounty_selection, select_promoted_bounty_shares};
+pub use bounty_side_pool::{BountyShare, BountySidePool};
+pub use canonical_json::canonicalize;
+pub use signed_envelope::{
+    verify_signature, SignedEnvelope, SigningKeyV2, SIGNED_ENVELOPE_SCHEMA,
 };
 pub use config::{
     calibration_policy, calibration_thresholds, hex_to_biguint, validate_calibration_report,
@@ -48,7 +61,11 @@ pub use difficulty::{
     expected_retarget_difficulty_for_height, retarget_t_block, validate_retargeted_difficulty,
     DifficultyEvidence, DifficultyRetargetPolicy,
 };
-pub use family_manifest::{parse_family_manifest, FamilyManifest, FamilyManifestParseResult};
+pub use family_manifest::{
+    parse_family_manifest, verify_family_manifest_signature, FamilyCaps, FamilyManifest,
+    FamilyManifestParseResult,
+};
+pub use family_manifest_registry::FamilyManifestRegistry;
 pub use hash::{
     block_hash, difficulty_weight, digest_to_biguint, h_protocol, min_share_score,
     parse_biguint_hex, share_hash, share_score, submission_pow_hash, submission_pow_ok, ticket,
@@ -76,7 +93,10 @@ pub use validator::{
     validation_reason_from_json, validation_reason_json, DecodeDetail, ValidationReason,
     ValidationResult,
 };
-pub use work_manifest::{bounty_to_work_manifest, BountyFixture, WorkManifest, WorkVerifier};
+pub use work_manifest::{
+    bounty_to_work_manifest, load_work_manifests, BountyFixture, WorkManifest, WorkManifestList,
+    WorkVerifier,
+};
 
 #[cfg(test)]
 mod tests {

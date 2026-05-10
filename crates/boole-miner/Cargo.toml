@@ -1,0 +1,35 @@
+[package]
+name = "boole-miner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+boole-core = { path = "../boole-core" }
+anyhow.workspace = true
+clap.workspace = true
+ed25519-dalek.workspace = true
+hex.workspace = true
+libc.workspace = true
+num-bigint.workspace = true
+num-traits.workspace = true
+rand_core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[features]
+default = []
+# Production canonicalizer: invokes `lake exec boole_emit`. Requires Lean
+# toolchain. Off by default in CI.
+lake-canon = []
+# Production target emitter: invokes `lake exec gen_target_emit`.
+lake-target = []
+# Production verifier: invokes `lake exec verify_emit` + `lake env lean`.
+lake-verify = []
+
+[[bin]]
+name = "boole-miner"
+path = "src/bin/boole-miner.rs"

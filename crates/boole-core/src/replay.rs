@@ -25,7 +25,15 @@ pub struct PersistedRewardEvent {
 pub struct ReplayResult {
     pub latest_c: String,
     pub height: u64,
+    /// Per-pk balances. Folds in BOTH base-lane proposer/share credits
+    /// (one unit per credit row) AND bounty-lane promoted credits
+    /// (`PromotedBountyCredit.amount` for each row in the block).
     pub balances: BTreeMap<String, u128>,
+    /// S23b — per-family bounty credit totals across all replayed
+    /// blocks. Empty for chains with no promoted credits.
+    /// `verify_ledger_matches_replay` cross-checks this against the
+    /// `FileBountyEventLedger` in S23d.
+    pub bounty_credit_by_family: BTreeMap<String, u128>,
 }
 
 pub fn compute_block_credits(
@@ -55,6 +63,7 @@ pub fn replay_blocks(blocks: &[PersistedBlock]) -> anyhow::Result<ReplayResult> 
     let mut latest_c =
         "0000000000000000000000000000000000000000000000000000000000000000".to_string();
     let mut balances: BTreeMap<String, u128> = BTreeMap::new();
+    let mut bounty_credit_by_family: BTreeMap<String, u128> = BTreeMap::new();
 
     for (expected_height, block) in blocks.iter().enumerate() {
         block.validate_shape()?;
@@ -88,6 +97,13 @@ pub fn replay_blocks(blocks: &[PersistedBlock]) -> anyhow::Result<ReplayResult> 
             let amount: u128 = credit.amount.parse()?;
             *balances.entry(credit.pk).or_insert(0) += amount;
         }
+        for credit in &block.promoted_bounty_credits {
+            let amount: u128 = credit.amount.parse()?;
+            *balances.entry(credit.prover.clone()).or_insert(0) += amount;
+            *bounty_credit_by_family
+                .entry(credit.family_id.clone())
+                .or_insert(0) += amount;
+        }
         latest_c = block.c.clone();
     }
 
@@ -95,5 +111,6 @@ pub fn replay_blocks(blocks: &[PersistedBlock]) -> anyhow::Result<ReplayResult> 
         latest_c,
         height: blocks.len() as u64,
         balances,
+        bounty_credit_by_family,
     })
 }

@@ -503,7 +503,7 @@ fn runtime_boots_from_existing_store_and_continues_next_height() {
         .commit_next_block_for_current_c(&block_path, 1_800_000_061_123, &accepted_tags)
         .expect("height1 block committed");
 
-    let mut restarted = RuntimeAdmissionState::boot_from_store(config, &block_path)
+    let mut restarted = RuntimeAdmissionState::boot_from_store(config, &block_path, None)
         .expect("runtime boots from existing store");
     assert_eq!(restarted.current_c(), Some(committed1.block.c.as_str()));
 

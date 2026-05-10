@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
+use std::path::Path;
 
 const HEX32_LEN: usize = 64;
 
@@ -77,6 +78,33 @@ enum BountyEvent {
         accepted: bool,
         ts: u64,
     },
+}
+
+/// On-disk envelope for the static `/bounties` catalog: `{ version: 1,
+/// bounties: [...] }`. Mirrors `WorkManifestList` so the read surface
+/// loader can ship without pulling in the registry's mutation API. When
+/// S12 lands the announce flow, the catalog is replayed through
+/// `BountyRegistry::apply_event_fixture` `create` events instead.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BountyList {
+    pub version: u32,
+    pub bounties: Vec<Bounty>,
+}
+
+/// Read a `BountyList` from disk and validate `version == 1`. Returns
+/// the inner bounty vec. Future format bumps must explicitly rev the
+/// version field; callers should never see a silent shape drift.
+pub fn load_bounties(path: &Path) -> anyhow::Result<Vec<Bounty>> {
+    let raw = std::fs::read_to_string(path)?;
+    let list: BountyList = serde_json::from_str(&raw)?;
+    if list.version != 1 {
+        anyhow::bail!(
+            "unsupported bounty list version {}: expected 1",
+            list.version
+        );
+    }
+    Ok(list.bounties)
 }
 
 #[derive(Debug, Default, Clone)]

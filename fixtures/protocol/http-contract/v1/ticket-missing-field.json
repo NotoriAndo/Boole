@@ -1,0 +1,20 @@
+{
+  "name": "ticket-missing-field",
+  "description": "Body missing one of the required pof TicketBody fields must be rejected with HTTP 400 missing_field naming the absent field.",
+  "request": {
+    "method": "POST",
+    "path": "/ticket",
+    "body": {
+      "c": "0000000000000000000000000000000000000000000000000000000000000000",
+      "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "expect": {
+    "status": 400,
+    "bodyEquals": {
+      "ok": false,
+      "reason": "missing_field",
+      "field": "n"
+    }
+  }
+}

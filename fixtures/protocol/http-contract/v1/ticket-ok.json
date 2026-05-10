@@ -1,0 +1,23 @@
+{
+  "name": "ticket-ok",
+  "description": "Valid pof-shape {c,pk,n} body returns 200 with ticket hash and valid flag.",
+  "request": {
+    "method": "POST",
+    "path": "/ticket",
+    "body": {
+      "c": "0000000000000000000000000000000000000000000000000000000000000000",
+      "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "n": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  },
+  "expect": {
+    "status": 200,
+    "bodyContains": {
+      "ok": true,
+      "valid": true
+    },
+    "bodyTypes": {
+      "hashHex": "hex64"
+    }
+  }
+}

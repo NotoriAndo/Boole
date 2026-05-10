@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +38,32 @@ pub struct BountyFixture {
     pub status: String,
     pub created_at: u64,
     pub updated_at: u64,
+}
+
+/// On-disk envelope for the static `/work` catalog: `{ version: 1, work: [...] }`.
+/// Wrapping the array under `work` (rather than a bare top-level `[]`) keeps the
+/// fixture forward-compatible — fields like `generatedAt` or `source` can join
+/// later without breaking existing parsers.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkManifestList {
+    pub version: u32,
+    pub work: Vec<WorkManifest>,
+}
+
+/// Read a `WorkManifestList` from disk and validate `version == 1`. Returns the
+/// inner manifest list. Future format bumps must explicitly rev the version
+/// field; callers should never see a silent shape drift.
+pub fn load_work_manifests(path: &Path) -> anyhow::Result<Vec<WorkManifest>> {
+    let raw = std::fs::read_to_string(path)?;
+    let list: WorkManifestList = serde_json::from_str(&raw)?;
+    if list.version != 1 {
+        anyhow::bail!(
+            "unsupported work manifest list version {}: expected 1",
+            list.version
+        );
+    }
+    Ok(list.work)
 }
 
 pub fn bounty_to_work_manifest(b: &BountyFixture) -> WorkManifest {

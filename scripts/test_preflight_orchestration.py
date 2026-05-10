@@ -414,6 +414,10 @@ print(json.dumps({{
     "replayMatchesRuntime": True,
     "invalidAccepted": 0,
     "block": {{"height": 1, "hash": "fake-block-hash"}},
+    # Mirrors the v0 entry in fixtures/benchmarks/verifier-hashes.json. If the
+    # fixture's active version is ever bumped past v0 and this echo needs to
+    # match it, switch this fake to read --verifier-hash from argv (see the
+    # fake-submit-lean in test_model_benchmark.py:test_ollama_generated_…).
     "verifierHash": "boole-model-benchmark-ollama-v0",
     "checkerArtifactHash": hashlib.sha256(proof.read_bytes()).hexdigest(),
     "elapsedMs": 1,

@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "source": "boole-node N5 bounty catalog v1 (read-only)",
+  "generatedAt": "2026-05-09T00:00:00Z",
+  "bounties": [
+    {
+      "id": "alpha-1",
+      "domain": "lean.protocol-invariant",
+      "problemHash": "9999999999999999999999999999999999999999999999999999999999999999",
+      "verifier": {
+        "kind": "lean",
+        "metadata": {
+          "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+          "profile": "v1",
+          "maxSteps": 4096
+        }
+      },
+      "reward": "42",
+      "deadline": 1900000000000,
+      "status": "open",
+      "createdAt": 1800000000000,
+      "updatedAt": 1800000001000
+    },
+    {
+      "id": "beta-1",
+      "domain": "code.spec-template",
+      "problemHash": "8181818181818181818181818181818181818181818181818181818181818181",
+      "verifier": {
+        "kind": "wasm",
+        "metadata": {
+          "verifierHash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "template": "parser-roundtrip.v01"
+        }
+      },
+      "reward": "11",
+      "deadline": 1950000000000,
+      "status": "solved",
+      "createdAt": 1800000010000,
+      "updatedAt": 1800000020000
+    }
+  ]
+}

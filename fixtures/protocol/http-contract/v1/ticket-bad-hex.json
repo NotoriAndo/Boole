@@ -1,0 +1,21 @@
+{
+  "name": "ticket-bad-hex",
+  "description": "Body field that is not valid hex32 must be rejected with HTTP 400 bad_hex naming the offending field.",
+  "request": {
+    "method": "POST",
+    "path": "/ticket",
+    "body": {
+      "c": "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+      "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "n": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  },
+  "expect": {
+    "status": 400,
+    "bodyEquals": {
+      "ok": false,
+      "reason": "bad_hex",
+      "field": "c"
+    }
+  }
+}

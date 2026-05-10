@@ -1,0 +1,19 @@
+{
+  "name": "health-ok",
+  "description": "GET /health returns the pof base shape augmented with ok:true. Mirrors pof/dispatcher/src/httpServer.ts:269-277 minus the optional sla snapshot (boole-node has no SlaMetrics provider yet).",
+  "request": {
+    "method": "GET",
+    "path": "/health"
+  },
+  "expect": {
+    "status": 200,
+    "bodyContains": {
+      "ok": true,
+      "status": "ok"
+    },
+    "bodyTypes": {
+      "sharePoolSize": "uint",
+      "provenance": "string"
+    }
+  }
+}
