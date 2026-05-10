@@ -342,6 +342,7 @@ pub struct ClaudeCliDriver {
     binary: String,
     timeout: Duration,
     runner: Box<dyn ProcessRunner>,
+    model: Option<String>,
 }
 
 impl ClaudeCliDriver {
@@ -350,6 +351,7 @@ impl ClaudeCliDriver {
             binary: binary.into(),
             timeout,
             runner: Box::new(StdProcessRunner),
+            model: None,
         }
     }
 
@@ -362,7 +364,13 @@ impl ClaudeCliDriver {
             binary: binary.into(),
             timeout,
             runner,
+            model: None,
         }
+    }
+
+    pub fn with_model(mut self, model: Option<String>) -> Self {
+        self.model = model.filter(|m| !m.is_empty());
+        self
     }
 }
 
@@ -377,7 +385,12 @@ impl ProverDriver for ClaudeCliDriver {
 
     fn generate(&self, prompt: &str) -> GenerateResult {
         let started = Instant::now();
-        let args = vec!["-p".to_string()];
+        let mut args: Vec<String> = Vec::with_capacity(4);
+        if let Some(model) = &self.model {
+            args.push("--model".to_string());
+            args.push(model.clone());
+        }
+        args.push("-p".to_string());
         match self
             .runner
             .run(&self.binary, &args, Some(prompt.as_bytes()), self.timeout)
@@ -966,7 +979,9 @@ pub fn create_driver(cfg: &LLMDriverConfig) -> Result<Box<dyn ProverDriver>, Dri
                 .claude_binary
                 .clone()
                 .unwrap_or_else(|| "claude".to_string());
-            Ok(Box::new(ClaudeCliDriver::new(binary, cfg.timeout)))
+            Ok(Box::new(
+                ClaudeCliDriver::new(binary, cfg.timeout).with_model(cfg.model.clone()),
+            ))
         }
         LLMBackend::AgentCli => {
             let command = cfg

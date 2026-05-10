@@ -507,9 +507,10 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
         let backend = ensure_backend(&state.config.llm.backend)?;
         match backend {
             LLMBackend::Mock => Box::new(MockDriver::new(Vec::new())),
-            LLMBackend::ClaudeCli => {
-                Box::new(ClaudeCliDriver::new("claude", Duration::from_secs(120)))
-            }
+            LLMBackend::ClaudeCli => Box::new(
+                ClaudeCliDriver::new("claude", Duration::from_secs(120))
+                    .with_model(state.config.llm.model.clone()),
+            ),
             LLMBackend::AgentCli => {
                 let cmd =
                     state.config.llm.agent_command.clone().ok_or_else(|| {
@@ -728,6 +729,16 @@ fn event_to_json(e: &MiningEvent) -> serde_json::Value {
         MiningEvent::SubmitOutcome { result } => {
             serde_json::json!({"kind":"submit_outcome","result":format!("{:?}",result)})
         }
+        MiningEvent::HeadAdvancedMidCycle {
+            old_c_hex,
+            new_c_hex,
+            reason,
+        } => serde_json::json!({
+            "kind":"head_advanced_mid_cycle",
+            "oldC":old_c_hex,
+            "newC":new_c_hex,
+            "reason":reason.as_str(),
+        }),
         MiningEvent::CycleComplete { cycle } => {
             serde_json::json!({"kind":"cycle_complete","cycle":cycle})
         }

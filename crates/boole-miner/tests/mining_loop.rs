@@ -291,6 +291,7 @@ fn test_loop_records_cycle_complete_and_head_fetched_events() {
             MiningEvent::SubmitPowFound { .. } => "submit_pow_found",
             MiningEvent::SubmitPowExhausted { .. } => "submit_pow_exhausted",
             MiningEvent::SubmitOutcome { .. } => "submit_outcome",
+            MiningEvent::HeadAdvancedMidCycle { .. } => "head_advanced_mid_cycle",
             MiningEvent::CycleComplete { .. } => "cycle_complete",
             MiningEvent::HeadFetchFailed { .. } => "head_fetch_failed",
         };
@@ -466,4 +467,190 @@ fn test_loop_aborts_when_announce_rejected() {
     assert_eq!(summary.network_errors, 1);
     assert_eq!(summary.shares_accepted, 0);
     assert_eq!(submitter.submit_calls.lock().unwrap().len(), 0);
+}
+
+// Returns one ChainHead the first N fetches and a different one (advanced
+// `c`) afterwards. Lets the test simulate the dispatcher promoting an
+// accepted share to a block mid-cycle, which advances the chain head.
+struct AdvanceAfterChainHead {
+    pre_advance: ChainHead,
+    post_advance: ChainHead,
+    advance_after: u32,
+    fetches: Mutex<u32>,
+}
+
+impl boole_miner::ChainHeadFetcher for AdvanceAfterChainHead {
+    fn fetch_head(&self) -> Result<ChainHead, boole_miner::ChainHeadError> {
+        let mut n = self.fetches.lock().unwrap();
+        *n += 1;
+        let count = *n;
+        Ok(if count <= self.advance_after {
+            self.pre_advance.clone()
+        } else {
+            self.post_advance.clone()
+        })
+    }
+}
+
+#[test]
+fn test_loop_breaks_inner_when_head_advances_after_accept() {
+    // M=4 cycle, all submits Accepted. After the *first* fetch (cycle start)
+    // the head advances. The loop should observe this on the post-submit
+    // re-fetch, log HeadAdvancedMidCycle, and break out of the j loop —
+    // i.e. exactly one LLM call instead of four.
+    let mut head_a = easy_head();
+    head_a.m = 4;
+    let mut head_b = head_a.clone();
+    head_b.c = Hex32::from_bytes([7u8; 32]);
+
+    let submitter = Arc::new(RecordingSubmitter::with_results(
+        SubmitResult::Accepted {
+            share_hash_hex: "abc".to_string(),
+        },
+        AnnounceTicketResult::Observed {
+            hash_hex: "def".to_string(),
+        },
+    ));
+    struct ArcSubmitter(Arc<RecordingSubmitter>);
+    impl Submitter for ArcSubmitter {
+        fn announce_ticket(&self, inputs: AnnounceTicketInputs<'_>) -> AnnounceTicketResult {
+            self.0.announce_ticket(inputs)
+        }
+        fn submit(&self, inputs: SubmitInputs<'_>) -> SubmitResult {
+            self.0.submit(inputs)
+        }
+    }
+
+    let events: Arc<Mutex<Vec<MiningEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = Arc::clone(&events);
+    let log_fn: Box<dyn Fn(&MiningEvent) + Send + Sync> =
+        Box::new(move |e: &MiningEvent| events_clone.lock().unwrap().push(e.clone()));
+
+    let deps = MiningLoopDeps {
+        pk: pk32(),
+        chain_head: Box::new(AdvanceAfterChainHead {
+            pre_advance: head_a,
+            post_advance: head_b,
+            advance_after: 1,
+            fetches: Mutex::new(0),
+        }),
+        emitter: Box::new(StubTargetEmitter::new("render")),
+        driver: make_canned_proof_driver(),
+        verifier: Box::new(AcceptingVerifier),
+        canonicalizer: Box::new(StructuralCanonicalizer),
+        submit_client: Box::new(ArcSubmitter(Arc::clone(&submitter))),
+        prompt_builder: None,
+        log: Some(log_fn),
+        sleeper: None,
+    };
+    let opts = MiningLoopOptions {
+        max_cycles: Some(1),
+        deterministic_nonces: true,
+        ticket_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        share_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        submit_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        ..Default::default()
+    };
+    let summary = run_mining_loop(deps, opts);
+
+    assert_eq!(summary.shares_accepted, 1, "exactly one share accepted");
+    assert_eq!(summary.llm_calls, 1, "inner j loop broke after first accept");
+    assert_eq!(submitter.submit_calls.lock().unwrap().len(), 1);
+    let evs = events.lock().unwrap();
+    let advance_count = evs
+        .iter()
+        .filter(|e| matches!(e, MiningEvent::HeadAdvancedMidCycle { .. }))
+        .count();
+    assert_eq!(
+        advance_count, 1,
+        "exactly one HeadAdvancedMidCycle event was emitted"
+    );
+}
+
+#[test]
+fn test_loop_breaks_inner_when_submit_returns_stale_c() {
+    // Even without a live re-fetch, an explicit StaleC rejection should
+    // trip the inner break (and emit HeadAdvancedMidCycle{StaleCRejection}).
+    let mut head = easy_head();
+    head.m = 4;
+
+    let submitter = Arc::new(RecordingSubmitter::with_results(
+        SubmitResult::Rejected {
+            status: 422,
+            error: "not_accepted".to_string(),
+            reason: Some(
+                "Rejected { status: UnprocessableEntity, error: SharePool { reason: StaleC }, \
+                 rejection: SharePool { detail: StaleC } }"
+                    .to_string(),
+            ),
+            field: None,
+            detail: None,
+        },
+        AnnounceTicketResult::Observed {
+            hash_hex: "def".to_string(),
+        },
+    ));
+    struct ArcSubmitter(Arc<RecordingSubmitter>);
+    impl Submitter for ArcSubmitter {
+        fn announce_ticket(&self, inputs: AnnounceTicketInputs<'_>) -> AnnounceTicketResult {
+            self.0.announce_ticket(inputs)
+        }
+        fn submit(&self, inputs: SubmitInputs<'_>) -> SubmitResult {
+            self.0.submit(inputs)
+        }
+    }
+
+    let events: Arc<Mutex<Vec<MiningEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = Arc::clone(&events);
+    let log_fn: Box<dyn Fn(&MiningEvent) + Send + Sync> =
+        Box::new(move |e: &MiningEvent| events_clone.lock().unwrap().push(e.clone()));
+
+    let deps = MiningLoopDeps {
+        pk: pk32(),
+        chain_head: Box::new(FixedChainHead { head }),
+        emitter: Box::new(StubTargetEmitter::new("render")),
+        driver: make_canned_proof_driver(),
+        verifier: Box::new(AcceptingVerifier),
+        canonicalizer: Box::new(StructuralCanonicalizer),
+        submit_client: Box::new(ArcSubmitter(Arc::clone(&submitter))),
+        prompt_builder: None,
+        log: Some(log_fn),
+        sleeper: None,
+    };
+    let opts = MiningLoopOptions {
+        max_cycles: Some(1),
+        deterministic_nonces: true,
+        ticket_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        share_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        submit_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        ..Default::default()
+    };
+    let summary = run_mining_loop(deps, opts);
+
+    assert_eq!(summary.shares_rejected, 1);
+    assert_eq!(summary.llm_calls, 1, "broke after first stale_c rejection");
+    let evs = events.lock().unwrap();
+    let advance_count = evs
+        .iter()
+        .filter(|e| matches!(e, MiningEvent::HeadAdvancedMidCycle { .. }))
+        .count();
+    assert_eq!(advance_count, 1);
 }

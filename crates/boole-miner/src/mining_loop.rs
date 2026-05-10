@@ -243,12 +243,34 @@ pub enum MiningEvent {
     SubmitOutcome {
         result: SubmitResult,
     },
+    HeadAdvancedMidCycle {
+        old_c_hex: String,
+        new_c_hex: String,
+        reason: HeadAdvanceReason,
+    },
     CycleComplete {
         cycle: u64,
     },
     HeadFetchFailed {
         error: String,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeadAdvanceReason {
+    /// `/head` re-fetched after an Accepted submit reported a different `c`.
+    SubmitAccepted,
+    /// Dispatcher rejected with a StaleC-flavored reason mid-cycle.
+    StaleCRejection,
+}
+
+impl HeadAdvanceReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            HeadAdvanceReason::SubmitAccepted => "submit_accepted",
+            HeadAdvanceReason::StaleCRejection => "stale_c_rejection",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -554,11 +576,49 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
             log(&MiningEvent::SubmitOutcome {
                 result: submit_result.clone(),
             });
-            match submit_result {
-                SubmitResult::Accepted { .. } => summary.shares_accepted += 1,
-                SubmitResult::Rejected { .. } => summary.shares_rejected += 1,
+            let mut head_advanced: Option<HeadAdvanceReason> = None;
+            match &submit_result {
+                SubmitResult::Accepted { .. } => {
+                    summary.shares_accepted += 1;
+                    // The dispatcher may have promoted this share to a block,
+                    // advancing `c`. Re-fetch /head; if `c` changed, the
+                    // remaining j's in this cycle would all submit against a
+                    // stale `c` (StaleC). Break out and start a fresh cycle.
+                    if let Ok(fresh) = deps.chain_head.fetch_head() {
+                        if fresh.c != head.c {
+                            head_advanced = Some(HeadAdvanceReason::SubmitAccepted);
+                            log(&MiningEvent::HeadAdvancedMidCycle {
+                                old_c_hex: head.c.to_hex(),
+                                new_c_hex: fresh.c.to_hex(),
+                                reason: HeadAdvanceReason::SubmitAccepted,
+                            });
+                        }
+                    }
+                }
+                SubmitResult::Rejected { reason, detail, .. } => {
+                    summary.shares_rejected += 1;
+                    let mentions_stale_c = reason
+                        .as_deref()
+                        .map(|r| r.contains("StaleC"))
+                        .unwrap_or(false)
+                        || detail
+                            .as_deref()
+                            .map(|d| d.contains("StaleC"))
+                            .unwrap_or(false);
+                    if mentions_stale_c {
+                        head_advanced = Some(HeadAdvanceReason::StaleCRejection);
+                        log(&MiningEvent::HeadAdvancedMidCycle {
+                            old_c_hex: head.c.to_hex(),
+                            new_c_hex: String::new(),
+                            reason: HeadAdvanceReason::StaleCRejection,
+                        });
+                    }
+                }
                 SubmitResult::RateLimited { .. } => summary.rate_limited += 1,
                 SubmitResult::NetworkError { .. } => summary.network_errors += 1,
+            }
+            if head_advanced.is_some() {
+                break;
             }
         }
 
