@@ -532,6 +532,13 @@ fn node_start(
 ) -> anyhow::Result<()> {
     std::fs::create_dir_all(data_dir)?;
     let block_path = data_dir.join("blocks.ndjson");
+    // Anchor the reward ledger inside `data_dir` instead of inheriting the
+    // boole-node default at `/tmp/boole-node-rewards.ndjson`. The default is
+    // a process-global path; concurrent `node start` invocations (e.g., the
+    // boole-cli integration suite) would race on it and the second one would
+    // see a stale `ledger=N replay=0` divergence at boot. Per-data-dir
+    // isolation makes `node start` self-contained and reproducible.
+    let reward_path = data_dir.join("rewards.ndjson");
     let node_bin = resolve_node_binary()?;
 
     let mut command = std::process::Command::new(&node_bin);
@@ -540,6 +547,7 @@ fn node_start(
         command.arg("--port").arg(port.to_string());
     }
     command.arg("--block-store").arg(block_path.as_os_str());
+    command.arg("--reward-store").arg(reward_path.as_os_str());
     if let Some(scenario) = scenario {
         command.arg("--scenario").arg(scenario.as_os_str());
     }
