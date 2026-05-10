@@ -24,8 +24,11 @@ use crate::state::{
     default_state_path, generate_miner_state, load_state, save_state, signing_key_from_state,
     state_exists, update_config, ConfigPatch, DispatcherConfig, LlmConfig, MinerStateConfig,
 };
+use crate::family_v031::Profile as FamilyProfile;
 use crate::submit_client::{SubmitClient, Submitter};
-use crate::target_emitter::{FixedSeedTargetEmitter, StubTargetEmitter, TargetEmitter};
+use crate::target_emitter::{
+    FamilyV031TargetEmitter, FixedSeedTargetEmitter, StubTargetEmitter, TargetEmitter,
+};
 use boole_core::Hex32;
 
 #[derive(Debug, Subcommand)]
@@ -145,6 +148,11 @@ pub struct StartArgs {
     /// Per-grind attempt cap (applies to ticket / share / submit grinders).
     #[arg(long = "grind-max-attempts")]
     pub grind_max_attempts: Option<u64>,
+    /// Lean checker project root (e.g. `lean/checker`). Required by the
+    /// real Lean verifier when `--mock-verify-accept` is not passed.
+    /// Falls back to the `BOOLE_LEAN_DIR` env var.
+    #[arg(long = "lean-dir")]
+    pub lean_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -481,11 +489,9 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
     let pk_bytes = signing.verifying_key().to_bytes();
     let pk = Hex32::from_bytes(pk_bytes);
 
-    if args.fixed_target_seed_hex.is_some() != args.fixed_target_render.is_some() {
-        anyhow::bail!(
-            "--fixed-target-seed-hex and --fixed-target-render must be provided together"
-        );
-    }
+    // Validation lives in the emitter match below — `--fixed-target-render`
+    // alone is invalid; `--fixed-target-seed-hex` alone is valid only for
+    // a family profile.
 
     let chain_head = HttpChainHeadFetcher::with_timeout(
         state.config.dispatcher.url.clone(),
@@ -533,30 +539,60 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
         }
     };
 
-    let emitter: Box<dyn TargetEmitter> = if let (Some(seed), Some(render)) = (
+    let family_profile = match args.profile.as_str() {
+        "v031-lp" => Some(FamilyProfile::V031Lp),
+        "v031" => Some(FamilyProfile::V031),
+        _ => None,
+    };
+
+    let emitter: Box<dyn TargetEmitter> = match (
+        family_profile,
         args.fixed_target_seed_hex.clone(),
         args.fixed_target_render.clone(),
     ) {
-        Box::new(FixedSeedTargetEmitter {
+        (_, None, Some(_)) => {
+            anyhow::bail!("--fixed-target-render requires --fixed-target-seed-hex")
+        }
+        // Legacy v01-style: caller hand-writes both seed and render.
+        (_, Some(seed), Some(render)) => Box::new(FixedSeedTargetEmitter {
             seed_hex: seed,
             render,
             d: args.difficulty,
             profile: args.profile.clone(),
             n: args.n,
-        })
-    } else {
-        Box::new(StubTargetEmitter::new(
-            "synthetic target — replace with LakeTargetEmitter for real generator",
-        ))
+        }),
+        // Family-derived render with a pinned seed (smoke determinism).
+        (Some(profile), Some(seed), None) => {
+            Box::new(FamilyV031TargetEmitter::new(profile).with_pinned_seed(seed))
+        }
+        // Production: family-derived seed + render.
+        (Some(profile), None, None) => Box::new(FamilyV031TargetEmitter::new(profile)),
+        (None, Some(_), None) => anyhow::bail!(
+            "--fixed-target-seed-hex without --fixed-target-render requires a family \
+             profile (v031-lp | v031)"
+        ),
+        (None, None, None) => Box::new(StubTargetEmitter::new(
+            "synthetic target — supply --fixed-target-render or use a family profile",
+        )),
     };
 
     let verifier: Box<dyn Verifier> = if args.mock_verify_accept {
         Box::new(AcceptingVerifier)
+    } else if let Some(lean_dir) = args
+        .lean_dir
+        .clone()
+        .or_else(|| std::env::var_os("BOOLE_LEAN_DIR").map(PathBuf::from))
+    {
+        Box::new(crate::local_verify::LeanVerifier::new(
+            lean_dir,
+            args.profile.clone(),
+        ))
     } else {
-        // Without `lake-verify` we cannot run the real verifier; fall back
-        // to the accepting stub but warn.
-        eprintln!("warning: lake-verify feature not enabled; defaulting to AcceptingVerifier");
-        Box::new(AcceptingVerifier)
+        anyhow::bail!(
+            "real Lean verification requires --lean-dir <PATH> \
+             (or BOOLE_LEAN_DIR env var); pass --mock-verify-accept \
+             to bypass for smoke tests"
+        );
     };
 
     let canonicalizer = Box::new(StructuralCanonicalizer);

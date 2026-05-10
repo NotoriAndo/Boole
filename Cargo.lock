@@ -225,6 +225,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "boole-core",
+ "boole-lean-runner",
  "clap",
  "ed25519-dalek",
  "hex",

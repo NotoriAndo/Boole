@@ -2,6 +2,7 @@ pub mod bounty_client;
 pub mod canonicalizer;
 pub mod chain_head;
 pub mod cli;
+pub mod family_v031;
 pub mod grinder;
 pub mod http_client;
 pub mod http_runner;
@@ -33,7 +34,7 @@ pub use llm_driver::{
     OPENAI_DEFAULT_BASE_URL, OPENAI_DEFAULT_MAX_TOKENS,
 };
 pub use local_verify::{
-    AcceptingVerifier, RejectingVerifier, Verifier, VerifyReason, VerifyResult,
+    AcceptingVerifier, LeanVerifier, RejectingVerifier, Verifier, VerifyReason, VerifyResult,
 };
 pub use mining_loop::{
     run_mining_loop, DefaultPromptBuilder, FixedChainHead, LlmOutcomeKind, MiningEvent,
@@ -52,11 +53,6 @@ pub use submit_client::{
     AnnounceTicketInputs, AnnounceTicketResult, SubmitClient, SubmitInputs, SubmitResult, Submitter,
 };
 pub use target_emitter::{
-    target_seed, FixedSeedTargetEmitter, StubTargetEmitter, TargetEmitArgs, TargetEmitter,
+    target_seed, FamilyV031TargetEmitter, FixedSeedTargetEmitter, StubTargetEmitter,
+    TargetEmitArgs, TargetEmitter,
 };
-
-#[cfg(feature = "lake-target")]
-pub use target_emitter::LakeTargetEmitter;
-
-#[cfg(feature = "lake-verify")]
-pub use local_verify::LeanVerifier;

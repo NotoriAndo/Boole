@@ -12,13 +12,15 @@
 //
 // Three implementations:
 //   - `StubTargetEmitter` — synthetic in-memory render for tests.
-//   - `FixedSeedTargetEmitter` — pin a known seed/render pair (for
-//     deterministic real-verifier smoke runs).
-//   - `LakeTargetEmitter` (feature `lake-target`) — production path that
-//     shells out to `lake exec gen_target_emit`.
+//   - `FixedSeedTargetEmitter` — pin a known seed/render pair (legacy
+//     compatibility for v01-style smoke tests).
+//   - `FamilyV031TargetEmitter` — production path. Derives the seed via
+//     `target_seed(...)`, generates the family-v031 instance, and renders
+//     the theorem statement directly. No external Lake call required.
 use boole_core::{h_protocol, Hex32};
 
 use crate::canonicalizer::Target;
+use crate::family_v031::{generate_from_hex, render_text, Profile};
 
 const DOMAIN_TARGET: &[u8] = b"target";
 
@@ -76,9 +78,9 @@ impl TargetEmitter for StubTargetEmitter {
     }
 }
 
-/// Pin a single (seed, render) pair regardless of `(c, pk, n, j)`. Used for
-/// deterministic smoke runs against the real verifier where the proof is
-/// known in advance.
+/// Pin a single (seed, render) pair regardless of `(c, pk, n, j)`. Used
+/// for v01-style smoke runs where the proof and render text are
+/// hand-written.
 #[derive(Debug, Clone)]
 pub struct FixedSeedTargetEmitter {
     pub seed_hex: String,
@@ -100,75 +102,116 @@ impl TargetEmitter for FixedSeedTargetEmitter {
     }
 }
 
-#[cfg(feature = "lake-target")]
-mod lake {
-    use std::path::PathBuf;
-    use std::process::Command;
-    use std::time::Duration;
+/// Production target emitter for the v031-lp / v031 profiles. Derives
+/// the seed from `target_seed(c, pk, n, j_index)` and the render from
+/// the family-v031 generator (Rust port of pof's
+/// `Boole.Family.GenTargetCatalogV031`). If `pinned_seed_hex` is set,
+/// that seed is used instead — useful for deterministic smoke runs.
+#[derive(Debug, Clone)]
+pub struct FamilyV031TargetEmitter {
+    pub profile: Profile,
+    pub pinned_seed_hex: Option<String>,
+}
 
-    use super::{target_seed, Target, TargetEmitArgs, TargetEmitter};
-
-    /// Production target emitter. Invokes:
-    ///   lake exec gen_target_emit <seed_hex> <D> <out_path> <profile> [<N>]
-    /// in `lean_dir` and reads the produced render text from `out_path`.
-    pub struct LakeTargetEmitter {
-        pub lean_dir: PathBuf,
-        pub timeout: Duration,
-    }
-
-    impl LakeTargetEmitter {
-        pub fn new(lean_dir: PathBuf) -> Self {
-            Self {
-                lean_dir,
-                timeout: Duration::from_secs(60),
-            }
+impl FamilyV031TargetEmitter {
+    pub fn new(profile: Profile) -> Self {
+        Self {
+            profile,
+            pinned_seed_hex: None,
         }
     }
 
-    impl TargetEmitter for LakeTargetEmitter {
-        fn emit(&self, args: &TargetEmitArgs<'_>) -> anyhow::Result<Target> {
-            let tmp = std::env::temp_dir().join(format!(
-                "boole-target-{}-{}.txt",
-                std::process::id(),
-                args.j_index,
-            ));
-            let seed = target_seed(args.c, args.pk, args.n, args.j_index);
-            let seed_hex = seed.to_hex();
-            let mut cmd = Command::new("lake");
-            cmd.arg("exec")
-                .arg("gen_target_emit")
-                .arg(&seed_hex)
-                .arg(args.d.to_string())
-                .arg(&tmp)
-                .arg(&args.profile);
-            if matches!(args.profile.as_str(), "v03" | "v031" | "v031-lp") {
-                cmd.arg(args.n_param.unwrap_or(1).to_string());
-            }
-            cmd.current_dir(&self.lean_dir);
-            let out = cmd
-                .output()
-                .map_err(|e| anyhow::anyhow!("lake exec failed: {e}"))?;
-            if !out.status.success() {
-                let _ = std::fs::remove_file(&tmp);
-                return Err(anyhow::anyhow!(
-                    "lake exec gen_target_emit exited {}: {}",
-                    out.status,
-                    String::from_utf8_lossy(&out.stderr)
-                ));
-            }
-            let render = std::fs::read_to_string(&tmp)?;
-            let _ = std::fs::remove_file(&tmp);
-            let _ = self.timeout; // reserved for a future timeout-aware spawner
-            Ok(Target {
-                seed_hex,
-                d: args.d,
-                profile: args.profile.clone(),
-                n: args.n_param.unwrap_or(1),
-                render,
-            })
-        }
+    pub fn with_pinned_seed(mut self, seed_hex: impl Into<String>) -> Self {
+        self.pinned_seed_hex = Some(seed_hex.into());
+        self
     }
 }
 
-#[cfg(feature = "lake-target")]
-pub use lake::LakeTargetEmitter;
+impl TargetEmitter for FamilyV031TargetEmitter {
+    fn emit(&self, args: &TargetEmitArgs<'_>) -> anyhow::Result<Target> {
+        let seed_hex = match &self.pinned_seed_hex {
+            Some(s) => s.clone(),
+            None => target_seed(args.c, args.pk, args.n, args.j_index).to_hex(),
+        };
+        let instance = generate_from_hex(&seed_hex, self.profile)
+            .map_err(|e| anyhow::anyhow!("decode seed_hex: {e}"))?;
+        let render = render_text(&instance);
+        Ok(Target {
+            seed_hex,
+            d: args.d,
+            profile: self.profile.as_str().to_string(),
+            n: args.n_param.unwrap_or(1),
+            render,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_args() -> (Hex32, Hex32, Hex32) {
+        (Hex32::from_bytes([0u8; 32]), Hex32::from_bytes([1u8; 32]), Hex32::from_bytes([2u8; 32]))
+    }
+
+    #[test]
+    fn family_emitter_derives_seed_and_render() {
+        let (c, pk, n) = dummy_args();
+        let emitter = FamilyV031TargetEmitter::new(Profile::V031Lp);
+        let args = TargetEmitArgs {
+            c: &c,
+            pk: &pk,
+            n: &n,
+            j_index: 0,
+            d: 1,
+            profile: "v031-lp".to_string(),
+            n_param: Some(1),
+        };
+        let target = emitter.emit(&args).expect("emit");
+        assert_eq!(target.profile, "v031-lp");
+        assert_eq!(target.seed_hex.len(), 64);
+        assert!(target.render.starts_with("theorem instance_thm : ∀ (xs : List Int),"));
+    }
+
+    #[test]
+    fn family_emitter_pinned_seed_overrides_derivation() {
+        let (c, pk, n) = dummy_args();
+        let pinned = "b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764";
+        let emitter = FamilyV031TargetEmitter::new(Profile::V031Lp).with_pinned_seed(pinned);
+        let args = TargetEmitArgs {
+            c: &c,
+            pk: &pk,
+            n: &n,
+            j_index: 5,
+            d: 0,
+            profile: "v031-lp".to_string(),
+            n_param: None,
+        };
+        let target = emitter.emit(&args).expect("emit");
+        assert_eq!(target.seed_hex, pinned);
+    }
+
+    #[test]
+    fn family_emitter_rejects_bad_hex() {
+        let (c, pk, n) = dummy_args();
+        let emitter = FamilyV031TargetEmitter::new(Profile::V031Lp).with_pinned_seed("not-hex");
+        let args = TargetEmitArgs {
+            c: &c,
+            pk: &pk,
+            n: &n,
+            j_index: 0,
+            d: 0,
+            profile: "v031-lp".to_string(),
+            n_param: None,
+        };
+        assert!(emitter.emit(&args).is_err());
+    }
+
+    #[test]
+    fn target_seed_changes_with_j() {
+        let (c, pk, n) = dummy_args();
+        let s0 = target_seed(&c, &pk, &n, 0);
+        let s1 = target_seed(&c, &pk, &n, 1);
+        assert_ne!(s0.to_hex(), s1.to_hex());
+    }
+}

@@ -7,15 +7,16 @@ cd "$ROOT"
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18096}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-ollama-gemma-smoke.ndjson}"
+REWARD_LEDGER="${REWARD_LEDGER:-${TMPDIR:-/tmp}/boole-node-ollama-gemma-smoke-rewards.ndjson}"
 TRIALS="${TRIALS:-1}"
-OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434/v1}"
+OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-gemma4:26b}"
+PROFILE="${PROFILE:-v031-lp}"
 FIXED_SEED="${FIXED_SEED:-b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764}"
-FIXED_RENDER="${FIXED_RENDER:-Given xs : List Int with |xs| = 7 and 1 library distractors, apply [multiply each element by 2]; prove: the result equals (xs.filter (x is odd), xs.filter (not (x is odd))).}"
 STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-ollama-gemma-state.XXXXXX")"
 STATE="$STATE_DIR/state.json"
 RESULTS_JSONL="$STATE_DIR/results.jsonl"
-rm -f "$BLOCK_STORE"
+rm -f "$BLOCK_STORE" "$REWARD_LEDGER"
 
 command -v ollama >/dev/null 2>&1 || {
   printf 'boole-miner-ollama-gemma-smoke: SKIP ollama not found on PATH\n' >&2
@@ -24,7 +25,7 @@ command -v ollama >/dev/null 2>&1 || {
   exit 0
 }
 
-if ! curl -fsS "${OLLAMA_BASE_URL%/}/models" >/dev/null 2>&1; then
+if ! curl -fsS "${OLLAMA_BASE_URL%/}/v1/models" >/dev/null 2>&1; then
   printf 'boole-miner-ollama-gemma-smoke: SKIP ollama OpenAI-compatible endpoint not ready\n' >&2
   printf '{"ok":true,"kind":"boole-miner-ollama-gemma-smoke","skipped":true,"reason":"ollama_endpoint_not_ready","model":"%s"}\n' "$OLLAMA_MODEL"
   rm -rf "$STATE_DIR"
@@ -35,11 +36,12 @@ cargo run -q -p boole-node -- run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
+  --reward-store "$REWARD_LEDGER" \
   --max-requests 80 \
   >/tmp/boole-node-ollama-gemma-smoke.out \
   2>/tmp/boole-node-ollama-gemma-smoke.err &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-ollama-gemma-smoke.out /tmp/boole-node-ollama-gemma-smoke.err /tmp/boole-miner-ollama-gemma-smoke-init.out /tmp/boole-miner-ollama-gemma-smoke-start.*.out' EXIT
+trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-ollama-gemma-smoke.out /tmp/boole-node-ollama-gemma-smoke.err /tmp/boole-miner-ollama-gemma-smoke-init.out /tmp/boole-miner-ollama-gemma-smoke-start.*.out "$REWARD_LEDGER"' EXIT
 
 python3 - "$ADDR" <<'PY'
 import http.client, sys, time
@@ -74,10 +76,10 @@ for trial in $(seq 1 "$TRIALS"); do
     --state "$STATE" \
     --max-shares 1 \
     --max-cycles 1 \
-    --profile v01 \
+    --profile "$PROFILE" \
     --difficulty 0 \
     --fixed-target-seed-hex "$FIXED_SEED" \
-    --fixed-target-render "$FIXED_RENDER" \
+    --mock-verify-accept \
     >"$out"
   code=$?
   set -e
@@ -114,7 +116,7 @@ res = conn.getresponse(); status = json.loads(res.read().decode())
 verify_accepted = sum(1 for r in rows if (r.get("summary") or {}).get("verifyAccepted") == 1)
 shares_accepted = sum(1 for r in rows if (r.get("summary") or {}).get("sharesAccepted") == 1)
 ok = success_raw == "1" and status.get("height", 0) >= 1 and status.get("replayMatchesRuntime") is True
-out = {"ok": ok, "kind": "boole-miner-ollama-gemma-smoke", "provider": "ollama-openai-compatible", "model": model, "miner": "boole-miner openai_compat + StructuralCanonicalizer (placeholder POFP canon) + accepting verifier", "node": "boole-node run-local", "trials": len(rows), "aggregate": {"verifyAccepted": verify_accepted, "sharesAccepted": shares_accepted}, "rows": rows, "status": status}
+out = {"ok": ok, "kind": "boole-miner-ollama-gemma-smoke", "provider": "ollama-openai-compatible", "model": model, "miner": "boole-miner openai_compat + FamilyV031TargetEmitter + StructuralCanonicalizer (placeholder POFP canon) + AcceptingVerifier (--mock-verify-accept)", "node": "boole-node run-local", "trials": len(rows), "aggregate": {"verifyAccepted": verify_accepted, "sharesAccepted": shares_accepted}, "rows": rows, "status": status}
 print(json.dumps(out, separators=(",", ":")))
 if not ok:
     raise SystemExit("boole-miner-ollama-gemma-smoke: no proof-to-block success")

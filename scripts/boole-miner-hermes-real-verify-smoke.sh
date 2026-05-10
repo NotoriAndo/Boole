@@ -7,13 +7,18 @@ cd "$ROOT"
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18094}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-hermes-real-verify-smoke.ndjson}"
+# Pin the reward ledger to a smoke-specific path so a stale
+# `/tmp/boole-node-rewards.ndjson` from another self-test cannot trip
+# `reward ledger divergence` at node boot.
+REWARD_LEDGER="${REWARD_LEDGER:-${TMPDIR:-/tmp}/boole-node-hermes-real-verify-smoke-rewards.ndjson}"
 TRIALS="${TRIALS:-3}"
+PROFILE="${PROFILE:-v031-lp}"
+LEAN_DIR="${LEAN_DIR:-$ROOT/lean/checker}"
 FIXED_SEED="${FIXED_SEED:-b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764}"
-FIXED_RENDER="${FIXED_RENDER:-Given xs : List Int with |xs| = 7 and 1 library distractors, apply [multiply each element by 2]; prove: the result equals (xs.filter (x is odd), xs.filter (not (x is odd))).}"
 STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-hermes-real-verify-state.XXXXXX")"
 STATE="$STATE_DIR/state.json"
 RESULTS_JSONL="$STATE_DIR/results.jsonl"
-rm -f "$BLOCK_STORE"
+rm -f "$BLOCK_STORE" "$REWARD_LEDGER"
 
 command -v hermes >/dev/null 2>&1 || {
   printf 'boole-miner-hermes-real-verify-smoke: SKIP hermes not found on PATH\n' >&2
@@ -25,11 +30,12 @@ cargo run -q -p boole-node -- run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
+  --reward-store "$REWARD_LEDGER" \
   --max-requests 80 \
   >/tmp/boole-node-hermes-real-verify-smoke.out \
   2>/tmp/boole-node-hermes-real-verify-smoke.err &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-hermes-real-verify-smoke.out /tmp/boole-node-hermes-real-verify-smoke.err /tmp/boole-miner-hermes-real-verify-smoke-init.out /tmp/boole-miner-hermes-real-verify-smoke-start.*.out' EXIT
+trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-hermes-real-verify-smoke.out /tmp/boole-node-hermes-real-verify-smoke.err /tmp/boole-miner-hermes-real-verify-smoke-init.out /tmp/boole-miner-hermes-real-verify-smoke-start.*.out "$REWARD_LEDGER"' EXIT
 
 python3 - "$ADDR" <<'PY'
 import http.client
@@ -68,10 +74,10 @@ for trial in $(seq 1 "$TRIALS"); do
     --state "$STATE" \
     --max-shares 1 \
     --max-cycles 1 \
-    --profile v01 \
+    --profile "$PROFILE" \
     --difficulty 0 \
+    --lean-dir "$LEAN_DIR" \
     --fixed-target-seed-hex "$FIXED_SEED" \
-    --fixed-target-render "$FIXED_RENDER" \
     >"$out"
   code=$?
   set -e
@@ -119,7 +125,7 @@ ok = success_raw == "1" and status.get("height", 0) >= 1 and status.get("replayM
 out = {
     "ok": ok,
     "kind": "boole-miner-hermes-real-verify-smoke",
-    "miner": "boole-miner agent_cli hermes chat + StructuralCanonicalizer (placeholder POFP canon) + accepting verifier",
+    "miner": "boole-miner agent_cli hermes chat + StructuralCanonicalizer (placeholder POFP canon) + LeanVerifier (boole-lean-runner)",
     "node": "boole-node run-local",
     "trials": len(rows),
     "aggregate": {"verifyAccepted": verify_accepted, "sharesAccepted": shares_accepted},

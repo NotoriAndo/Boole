@@ -7,18 +7,19 @@ cd "$ROOT"
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18120}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-provider-model-smoke.ndjson}"
+REWARD_LEDGER="${REWARD_LEDGER:-${TMPDIR:-/tmp}/boole-node-provider-model-smoke-rewards.ndjson}"
 TRIALS="${TRIALS:-1}"
 LLM_BACKEND="${LLM_BACKEND:-mock}"
 LLM_MODEL="${LLM_MODEL:-}"
 LLM_BASE_URL="${LLM_BASE_URL:-}"
 LLM_API_KEY_ENV="${LLM_API_KEY_ENV:-}"
 LLM_PROVIDER_LABEL="${LLM_PROVIDER_LABEL:-$LLM_BACKEND}"
+PROFILE="${PROFILE:-v031-lp}"
 FIXED_SEED="${FIXED_SEED:-b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764}"
-FIXED_RENDER="${FIXED_RENDER:-Given xs : List Int with |xs| = 7 and 1 library distractors, apply [multiply each element by 2]; prove: the result equals (xs.filter (x is odd), xs.filter (not (x is odd))).}"
 STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-provider-model-smoke.XXXXXX")"
 STATE="$STATE_DIR/state.json"
 RESULTS_JSONL="$STATE_DIR/results.jsonl"
-rm -f "$BLOCK_STORE"
+rm -f "$BLOCK_STORE" "$REWARD_LEDGER"
 
 json_skip() {
   local reason="$1"
@@ -75,11 +76,12 @@ cargo run -q -p boole-node -- run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
+  --reward-store "$REWARD_LEDGER" \
   --max-requests 120 \
   >/tmp/boole-node-provider-model-smoke.out \
   2>/tmp/boole-node-provider-model-smoke.err &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-provider-model-smoke.out /tmp/boole-node-provider-model-smoke.err /tmp/boole-provider-model-smoke-init.out /tmp/boole-provider-model-smoke-start.*.out' EXIT
+trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-provider-model-smoke.out /tmp/boole-node-provider-model-smoke.err /tmp/boole-provider-model-smoke-init.out /tmp/boole-provider-model-smoke-start.*.out "$REWARD_LEDGER"' EXIT
 
 python3 - "$ADDR" <<'PY'
 import http.client, sys, time
@@ -113,10 +115,10 @@ for trial in $(seq 1 "$TRIALS"); do
     --state "$STATE" \
     --max-shares 1 \
     --max-cycles 1 \
-    --profile v01 \
+    --profile "$PROFILE" \
     --difficulty 0 \
     --fixed-target-seed-hex "$FIXED_SEED" \
-    --fixed-target-render "$FIXED_RENDER" \
+    --mock-verify-accept \
     >"$out"
   code=$?
   set -e
@@ -160,7 +162,7 @@ out = {
     "provider": provider,
     "backend": backend,
     "model": model,
-    "miner": "boole-miner provider/model + StructuralCanonicalizer (placeholder POFP canon) + accepting verifier",
+    "miner": "boole-miner provider/model + FamilyV031TargetEmitter + StructuralCanonicalizer (placeholder POFP canon) + AcceptingVerifier (--mock-verify-accept)",
     "node": "boole-node run-local",
     "trials": len(rows),
     "aggregate": {"verifyAccepted": verify_accepted, "sharesAccepted": shares_accepted},
