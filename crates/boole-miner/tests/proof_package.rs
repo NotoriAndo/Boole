@@ -44,7 +44,10 @@ fn test_canonicalizer_starts_with_magic_and_version() {
         .expect("canonicalize");
     assert_eq!(&bytes[..4], &MAGIC);
     let ver_le = &bytes[4..8];
-    assert_eq!(u32::from_le_bytes(ver_le.try_into().unwrap()), FORMAT_VERSION);
+    assert_eq!(
+        u32::from_le_bytes(ver_le.try_into().unwrap()),
+        FORMAT_VERSION
+    );
 }
 
 #[test]
@@ -86,10 +89,11 @@ fn test_canonicalizer_carries_proof_source_in_str_val_lit() {
     let proof = "exact List.nodup_dedup _";
     let bytes = encode_placeholder_bppk(proof, &target_a());
     let proof_bytes = proof.as_bytes();
-    let found = bytes
-        .windows(proof_bytes.len())
-        .any(|w| w == proof_bytes);
-    assert!(found, "proof source must appear verbatim inside the strVal lit");
+    let found = bytes.windows(proof_bytes.len()).any(|w| w == proof_bytes);
+    assert!(
+        found,
+        "proof source must appear verbatim inside the strVal lit"
+    );
 }
 
 #[test]
@@ -120,7 +124,10 @@ fn test_walk_bppk_rejects_truncated_input() {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&MAGIC);
     bytes.extend_from_slice(&[0x01, 0x00, 0x00]); // missing 1 byte of version
-    assert!(matches!(walk_bppk(&bytes), Err(BppkDecodeError::UnexpectedEof)));
+    assert!(matches!(
+        walk_bppk(&bytes),
+        Err(BppkDecodeError::UnexpectedEof)
+    ));
 }
 
 #[test]
@@ -141,7 +148,10 @@ fn test_walk_bppk_rejects_deeply_nested_succ_with_recursion_limit() {
     let err = walk_bppk(&bytes).unwrap_err();
     assert!(matches!(
         err,
-        BppkDecodeError::RecursionLimit { where_tag: "CanonLevel", .. }
+        BppkDecodeError::RecursionLimit {
+            where_tag: "CanonLevel",
+            ..
+        }
     ));
 }
 

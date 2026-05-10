@@ -68,12 +68,7 @@ fn mine_address_prints_pk_hex() {
     ]);
     assert!(out.status.success());
 
-    let out = run_cli(&[
-        "mine",
-        "address",
-        "--state",
-        state_path.to_str().unwrap(),
-    ]);
+    let out = run_cli(&["mine", "address", "--state", state_path.to_str().unwrap()]);
     assert!(
         out.status.success(),
         "stderr={}",
@@ -110,7 +105,10 @@ fn mine_init_refuses_to_overwrite_without_force() {
         "--llm-backend",
         "mock",
     ]);
-    assert!(!out.status.success(), "should reject overwrite without --force");
+    assert!(
+        !out.status.success(),
+        "should reject overwrite without --force"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("already exists"), "stderr: {stderr}");
 }

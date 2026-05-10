@@ -5,8 +5,8 @@ use boole_core::{
     compute_block_credits, expected_retarget_difficulty_for_height, parse_submission_body,
     replay_blocks, share_score, AdmissionDecision, AdmissionParsedDeps, BlockBuilderConfig,
     BuildSelectionResult, CalibrationPolicy, CalibrationReport, CandidateShare,
-    DifficultyRetargetPolicy, Hex32, PersistedBlock, PersistedRewardEvent, PoolShare,
-    RateLimiter, SelectedShareEvidence, SharePool,
+    DifficultyRetargetPolicy, Hex32, PersistedBlock, PersistedRewardEvent, PoolShare, RateLimiter,
+    SelectedShareEvidence, SharePool,
 };
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -128,10 +128,8 @@ impl RuntimeAdmissionState {
                 // re-derived ledger matches what live commit will produce.
                 let mut ledger = FileRewardLedger::default();
                 for block in recovered.blocks() {
-                    let mut credits = compute_block_credits(
-                        &block.proposer_pk,
-                        &block.selected_share_pks,
-                    )?;
+                    let mut credits =
+                        compute_block_credits(&block.proposer_pk, &block.selected_share_pks)?;
                     for bounty_credit in &block.promoted_bounty_credits {
                         credits.push(boole_core::PersistedCredit {
                             pk: bounty_credit.prover.clone(),
@@ -472,9 +470,10 @@ impl RuntimeAdmissionState {
         // still leaves the on-disk store and the in-memory state in agreement.
         self.check_block_applicable(&block)?;
         FileBlockStore::append(block_path, &block)?;
-        if let (Some(ledger_path), Some(ledger)) =
-            (self.reward_ledger_path.as_ref(), self.reward_ledger.as_mut())
-        {
+        if let (Some(ledger_path), Some(ledger)) = (
+            self.reward_ledger_path.as_ref(),
+            self.reward_ledger.as_mut(),
+        ) {
             let mut credits = compute_block_credits(&block.proposer_pk, &block.selected_share_pks)?;
             // S23c — fold bounty credits into the same reward event so
             // `verify_ledger_matches_replay` sees one unified balance map.

@@ -48,13 +48,7 @@ pub struct VerifyResult {
 }
 
 pub trait Verifier: Send + Sync {
-    fn verify(
-        &self,
-        seed_hex: &str,
-        d: u32,
-        proof_source: &str,
-        n: Option<u32>,
-    ) -> VerifyResult;
+    fn verify(&self, seed_hex: &str, d: u32, proof_source: &str, n: Option<u32>) -> VerifyResult;
 }
 
 /// Always-accept stub. Used by `--mock-verify-accept` and by the integration
@@ -112,7 +106,7 @@ mod lake {
     use std::process::Command;
     use std::time::{Duration, Instant};
 
-    use super::{VerifyReason, VerifyResult, Verifier};
+    use super::{Verifier, VerifyReason, VerifyResult};
 
     const STDERR_TAIL_LIMIT: usize = 800;
 
@@ -149,8 +143,7 @@ mod lake {
             n: Option<u32>,
         ) -> VerifyResult {
             let started = Instant::now();
-            let tmp_dir =
-                std::env::temp_dir().join(format!("boole-verify-{}", std::process::id()));
+            let tmp_dir = std::env::temp_dir().join(format!("boole-verify-{}", std::process::id()));
             if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
                 return VerifyResult {
                     accepted: false,

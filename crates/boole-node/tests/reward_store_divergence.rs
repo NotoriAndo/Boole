@@ -197,7 +197,10 @@ fn verify_bails_on_per_family_credit_mismatch() {
         msg.contains("bounty ledger family-credit divergence"),
         "expected typed prefix, got: {msg}"
     );
-    assert!(msg.contains(FAMILY_GAMMA), "diverging family must appear: {msg}");
+    assert!(
+        msg.contains(FAMILY_GAMMA),
+        "diverging family must appear: {msg}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

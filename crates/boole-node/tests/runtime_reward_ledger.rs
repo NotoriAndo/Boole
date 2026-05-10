@@ -7,11 +7,11 @@
 
 use std::path::{Path, PathBuf};
 
+use boole_core::CalibrationReport;
 use boole_core::{PersistedBlock, PersistedRewardEvent};
 use boole_node::block_store::FileBlockStore;
 use boole_node::reward_store::FileRewardLedger;
 use boole_node::runtime::{RuntimeAdmissionState, RuntimeConfig};
-use boole_core::CalibrationReport;
 use serde::Deserialize;
 
 const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -150,11 +150,7 @@ fn boot_bails_on_ledger_divergence() {
     // Tamper: increase block-0 share owner credit so the ledger over-counts PK_1.
     let mut tampered = fix.reward_events.clone();
     if let Some(event) = tampered.first_mut() {
-        if let Some(credit) = event
-            .credits
-            .iter_mut()
-            .find(|c| c.pk == PK_1)
-        {
+        if let Some(credit) = event.credits.iter_mut().find(|c| c.pk == PK_1) {
             credit.amount = "99".to_string();
         }
     }

@@ -104,12 +104,12 @@ fn submit_lean_admission_nonce_default_uses_fixture_value() {
     }
     let parsed = run_submit_lean_with_nonce("admission-nonce-default-fixture", None);
     assert_eq!(parsed["ok"], true);
-    let fixture_text = std::fs::read_to_string(repo_root().join("fixtures/protocol/admission/v1.json"))
-        .expect("read admission fixture");
+    let fixture_text =
+        std::fs::read_to_string(repo_root().join("fixtures/protocol/admission/v1.json"))
+            .expect("read admission fixture");
     let fixture: Value = serde_json::from_str(&fixture_text).expect("admission fixture json");
     assert_eq!(
-        parsed["submissionBody"]["n"],
-        fixture["constants"]["n"],
+        parsed["submissionBody"]["n"], fixture["constants"]["n"],
         "no override → submissionBody.n must match fixture.constants.n byte-for-byte"
     );
 }

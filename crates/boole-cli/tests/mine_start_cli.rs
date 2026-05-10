@@ -69,7 +69,11 @@ fn mine_start_exits_after_max_cycles_when_head_fetch_fails() {
         "--llm-backend",
         "mock",
     ]);
-    assert!(init.status.success(), "init failed: {}", String::from_utf8_lossy(&init.stderr));
+    assert!(
+        init.status.success(),
+        "init failed: {}",
+        String::from_utf8_lossy(&init.stderr)
+    );
 
     let out = run_cli(&[
         "mine",
@@ -124,7 +128,10 @@ fn mine_start_rejects_unpaired_fixed_target_flags() {
         "--max-cycles",
         "0",
     ]);
-    assert!(!out.status.success(), "should reject unpaired fixed-target flags");
+    assert!(
+        !out.status.success(),
+        "should reject unpaired fixed-target flags"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         stderr.contains("must be provided together"),

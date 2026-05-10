@@ -114,7 +114,7 @@ fn test_fixed_seed_emitter_returns_pinned_pair() {
             pk: &pk,
             n: &n,
             j_index: 99,
-            d: 7,        // ignored
+            d: 7, // ignored
             profile: "ignored".to_string(),
             n_param: None,
         })

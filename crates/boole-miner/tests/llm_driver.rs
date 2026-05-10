@@ -172,11 +172,8 @@ impl ProcessRunner for FakeRunner {
 #[test]
 fn test_claude_cli_driver_pipes_prompt_via_stdin_with_dash_p() {
     let runner = FakeRunner::new(vec![Ok(b"```lean\nby trivial\n```".to_vec())]);
-    let driver = ClaudeCliDriver::with_runner(
-        "claude",
-        Duration::from_secs(60),
-        Box::new(runner.clone()),
-    );
+    let driver =
+        ClaudeCliDriver::with_runner("claude", Duration::from_secs(60), Box::new(runner.clone()));
     let r = driver.generate("PROMPT");
     assert!(matches!(r, GenerateResult::Solved { .. }));
     assert_eq!(driver.name(), "claude_cli");
@@ -191,8 +188,7 @@ fn test_claude_cli_driver_pipes_prompt_via_stdin_with_dash_p() {
 #[test]
 fn test_claude_cli_driver_returns_error_when_runner_fails() {
     let runner = FakeRunner::new(vec![Err(ProcessError::NotFound("claude".to_string()))]);
-    let driver =
-        ClaudeCliDriver::with_runner("claude", Duration::from_secs(5), Box::new(runner));
+    let driver = ClaudeCliDriver::with_runner("claude", Duration::from_secs(5), Box::new(runner));
     match driver.generate("p") {
         GenerateResult::Error { cause, .. } => assert!(cause.contains("not found"), "got {cause}"),
         other => panic!("expected Error, got {other:?}"),
@@ -230,12 +226,8 @@ fn test_agent_cli_driver_appends_prompt_as_final_argv_no_stdin() {
 #[test]
 fn test_agent_cli_driver_classifies_empty_stdout_as_rejected() {
     let runner = FakeRunner::new(vec![Ok(b"".to_vec())]);
-    let driver = AgentCliDriver::with_runner(
-        "hermes",
-        vec![],
-        Duration::from_secs(5),
-        Box::new(runner),
-    );
+    let driver =
+        AgentCliDriver::with_runner("hermes", vec![], Duration::from_secs(5), Box::new(runner));
     match driver.generate("p") {
         GenerateResult::Rejected { reason, .. } => {
             assert_eq!(reason, RejectionReason::EmptyResponse);
@@ -434,7 +426,12 @@ fn test_std_process_runner_reports_not_found_for_missing_binary() {
 fn test_std_process_runner_kills_long_running_child_on_timeout() {
     let runner = StdProcessRunner;
     let err = runner
-        .run("/bin/sleep", &["5".to_string()], None, Duration::from_millis(200))
+        .run(
+            "/bin/sleep",
+            &["5".to_string()],
+            None,
+            Duration::from_millis(200),
+        )
         .unwrap_err();
     assert!(matches!(err, ProcessError::Timeout { .. }), "got {err:?}");
 }

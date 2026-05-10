@@ -42,17 +42,14 @@ pub use block_builder::{
     CandidateShare, PromotedBountyCredit, PromotedBountySelection, PromotedBountyShare,
 };
 pub use bounty_ledger::{BountyEventLedger, FileBountyEventLedger};
+pub use bounty_promotion::{select_promoted_bounty_selection, select_promoted_bounty_shares};
 pub use bounty_proof_verifier::BountyProofVerifier;
 pub use bounty_registry::{
     load_bounties, Bounty, BountyList, BountyRegistry, BountyVerifier, CreateBountyInput,
     SubmitProofInput, SubmitProofResult, UpdateStatusInput,
 };
-pub use bounty_promotion::{select_promoted_bounty_selection, select_promoted_bounty_shares};
 pub use bounty_side_pool::{BountyShare, BountySidePool};
 pub use canonical_json::canonicalize;
-pub use signed_envelope::{
-    verify_signature, SignedEnvelope, SigningKeyV2, SIGNED_ENVELOPE_SCHEMA,
-};
 pub use config::{
     calibration_policy, calibration_thresholds, hex_to_biguint, validate_calibration_report,
     CalibrationPolicy, CalibrationReport, CalibrationThresholds,
@@ -83,6 +80,7 @@ pub use replay::{
     compute_block_credits, replay_blocks, PersistedCredit, PersistedRewardEvent, ReplayResult,
 };
 pub use share_pool::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
+pub use signed_envelope::{verify_signature, SignedEnvelope, SigningKeyV2, SIGNED_ENVELOPE_SCHEMA};
 pub use submission_pow::{
     check_submission_pow, check_submission_pow_json, check_submission_pow_with_policy,
     SubmissionPowRejectReason, SubmissionPowResult,

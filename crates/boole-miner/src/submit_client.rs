@@ -35,14 +35,18 @@ pub struct SubmitInputs<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnnounceTicketResult {
-    Observed { hash_hex: String },
+    Observed {
+        hash_hex: String,
+    },
     Replay,
     Rejected {
         status: u16,
         error: String,
         reason: Option<String>,
     },
-    NetworkError { cause: String },
+    NetworkError {
+        cause: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,7 +100,11 @@ impl SubmitClient {
         });
         let res = match self.http.post_json("/ticket", &body) {
             Ok(r) => r,
-            Err(err) => return AnnounceTicketResult::NetworkError { cause: render_http_error(&err) },
+            Err(err) => {
+                return AnnounceTicketResult::NetworkError {
+                    cause: render_http_error(&err),
+                }
+            }
         };
         let payload = parse_json_object(&res.body);
         if res.status == 200 {
@@ -125,7 +133,11 @@ impl SubmitClient {
         });
         let res = match self.http.post_json("/submit", &body) {
             Ok(r) => r,
-            Err(err) => return SubmitResult::NetworkError { cause: render_http_error(&err) },
+            Err(err) => {
+                return SubmitResult::NetworkError {
+                    cause: render_http_error(&err),
+                }
+            }
         };
         let payload = parse_json_object(&res.body);
         if res.status == 200 {
@@ -134,8 +146,10 @@ impl SubmitClient {
             if accepted_false {
                 return SubmitResult::Rejected {
                     status: 422,
-                    error: take_string(&payload, "error").unwrap_or_else(|| "not_accepted".to_string()),
-                    reason: take_string(&payload, "decision").or_else(|| take_string(&payload, "reason")),
+                    error: take_string(&payload, "error")
+                        .unwrap_or_else(|| "not_accepted".to_string()),
+                    reason: take_string(&payload, "decision")
+                        .or_else(|| take_string(&payload, "reason")),
                     field: None,
                     detail: None,
                 };
@@ -146,7 +160,8 @@ impl SubmitClient {
         }
         if res.status == 429 {
             return SubmitResult::RateLimited {
-                reason: take_string(&payload, "reason").unwrap_or_else(|| "rate_limited".to_string()),
+                reason: take_string(&payload, "reason")
+                    .unwrap_or_else(|| "rate_limited".to_string()),
             };
         }
         if res.status == 400 || res.status == 422 {
@@ -181,7 +196,9 @@ fn parse_json_object(body: &[u8]) -> serde_json::Map<String, Value> {
 }
 
 fn take_string(payload: &serde_json::Map<String, Value>, key: &str) -> Option<String> {
-    payload.get(key).and_then(|v| v.as_str().map(|s| s.to_string()))
+    payload
+        .get(key)
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
 }
 
 fn render_http_error(err: &HttpError) -> String {

@@ -122,9 +122,7 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
         .unwrap_or_default();
     for pk in &operator_signer_pks {
         if pk.len() != 64 || !pk.bytes().all(|b| b.is_ascii_hexdigit()) {
-            anyhow::bail!(
-                "--operator-signer-pks entry {pk:?} is not 64 hex chars"
-            );
+            anyhow::bail!("--operator-signer-pks entry {pk:?} is not 64 hex chars");
         }
     }
     let lean_checker_dir: Option<PathBuf> =

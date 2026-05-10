@@ -23,13 +23,11 @@ use boole_core::Hex32;
 
 use crate::canonicalizer::{Canonicalizer, Target};
 use crate::chain_head::{ChainHead, ChainHeadError, ChainHeadFetcher};
-use crate::grinder::{
-    grind_share, grind_submission_pow, CounterNonce, GrinderConfig, OsRngNonce,
-};
+use crate::grinder::{grind_share, grind_submission_pow, CounterNonce, GrinderConfig, OsRngNonce};
 use crate::llm_driver::{
     with_retry, GenerateResult, ProverDriver, RetryConfig, Sleeper, ThreadSleeper,
 };
-use crate::local_verify::{VerifyResult, Verifier};
+use crate::local_verify::{Verifier, VerifyResult};
 use crate::proof_package::bppk_canon_hash;
 use crate::submit_client::{
     AnnounceTicketInputs, AnnounceTicketResult, SubmitInputs, SubmitResult, Submitter,
@@ -288,17 +286,12 @@ pub struct MiningLoopSummary {
 }
 
 fn aborted(cancel: Option<&Arc<AtomicBool>>) -> bool {
-    cancel
-        .map(|c| c.load(Ordering::SeqCst))
-        .unwrap_or(false)
+    cancel.map(|c| c.load(Ordering::SeqCst)).unwrap_or(false)
 }
 
 /// Drive one cycle of the mining loop: head → ticket → M targets → submit.
 /// Returns `None` if the run should stop (cancel / max-shares / max-cycles).
-pub fn run_mining_loop(
-    deps: MiningLoopDeps,
-    opts: MiningLoopOptions,
-) -> MiningLoopSummary {
+pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningLoopSummary {
     let log: Box<dyn Fn(&MiningEvent)> = match deps.log {
         Some(l) => Box::new(move |e: &MiningEvent| l(e)),
         None => Box::new(|_| {}),
@@ -421,9 +414,18 @@ pub fn run_mining_loop(
             // LLM with retry.
             let prompt = prompt_builder.build_prompt(&target);
             summary.llm_calls += 1;
-            let llm = with_retry(deps.driver.as_ref(), &prompt, &opts.llm_retry, sleeper.as_ref());
+            let llm = with_retry(
+                deps.driver.as_ref(),
+                &prompt,
+                &opts.llm_retry,
+                sleeper.as_ref(),
+            );
             let proof_source = match &llm {
-                GenerateResult::Solved { proof_source, elapsed, .. } => {
+                GenerateResult::Solved {
+                    proof_source,
+                    elapsed,
+                    ..
+                } => {
                     summary.llm_solved += 1;
                     log(&MiningEvent::LlmOutcome {
                         j_index,
@@ -456,9 +458,9 @@ pub fn run_mining_loop(
             };
 
             // Verify.
-            let verify: VerifyResult = deps
-                .verifier
-                .verify(&target.seed_hex, target.d, &proof_source, head.n);
+            let verify: VerifyResult =
+                deps.verifier
+                    .verify(&target.seed_hex, target.d, &proof_source, head.n);
             log(&MiningEvent::VerifyOutcome {
                 j_index,
                 accepted: verify.accepted,
@@ -622,10 +624,30 @@ fn grind_share_with_source(
 ) -> Option<crate::grinder::GrindShareOutcome> {
     if deterministic {
         let mut src = CounterNonce::new(0);
-        grind_share(c, pk, n, canon_hash, min_share_score, t_block, &mut src, config, None)
+        grind_share(
+            c,
+            pk,
+            n,
+            canon_hash,
+            min_share_score,
+            t_block,
+            &mut src,
+            config,
+            None,
+        )
     } else {
         let mut src = OsRngNonce;
-        grind_share(c, pk, n, canon_hash, min_share_score, t_block, &mut src, config, None)
+        grind_share(
+            c,
+            pk,
+            n,
+            canon_hash,
+            min_share_score,
+            t_block,
+            &mut src,
+            config,
+            None,
+        )
     }
 }
 

@@ -189,7 +189,10 @@ impl ProverDriver for MockDriver {
             thread::sleep(self.latency);
         }
         let mut cursor = self.cursor.lock().expect("MockDriver cursor poisoned");
-        let responses = self.responses.lock().expect("MockDriver responses poisoned");
+        let responses = self
+            .responses
+            .lock()
+            .expect("MockDriver responses poisoned");
         let i = *cursor;
         *cursor += 1;
         if i >= responses.len() {
@@ -266,7 +269,10 @@ impl ProcessRunner for StdProcessRunner {
         }
         let deadline = Instant::now() + timeout;
         loop {
-            match child.try_wait().map_err(|e| ProcessError::Io(e.to_string()))? {
+            match child
+                .try_wait()
+                .map_err(|e| ProcessError::Io(e.to_string()))?
+            {
                 Some(status) => {
                     let output = child
                         .wait_with_output()

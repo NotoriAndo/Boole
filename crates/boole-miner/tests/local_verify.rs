@@ -1,4 +1,4 @@
-use boole_miner::{AcceptingVerifier, RejectingVerifier, VerifyReason, Verifier};
+use boole_miner::{AcceptingVerifier, RejectingVerifier, Verifier, VerifyReason};
 
 #[test]
 fn test_accepting_verifier_returns_accepted_for_any_input() {

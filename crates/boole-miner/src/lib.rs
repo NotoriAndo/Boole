@@ -13,9 +13,7 @@ pub mod submit_client;
 pub mod target_emitter;
 
 pub use bounty_client::{BountyClient, BountyProofInputs, BountyProofResult};
-pub use canonicalizer::{
-    encode_placeholder_bppk, Canonicalizer, StructuralCanonicalizer, Target,
-};
+pub use canonicalizer::{encode_placeholder_bppk, Canonicalizer, StructuralCanonicalizer, Target};
 pub use chain_head::{ChainHead, ChainHeadError, ChainHeadFetcher, HttpChainHeadFetcher};
 pub use grinder::{
     grind_share, grind_submission_pow, grind_ticket, CounterNonce, GrindProgress,
@@ -29,7 +27,9 @@ pub use llm_driver::{
     ProcessError, ProcessRunner, ProverDriver, RejectionReason, RetryConfig, Sleeper,
     StdProcessRunner, Strategy, ThreadSleeper,
 };
-pub use local_verify::{AcceptingVerifier, RejectingVerifier, VerifyReason, VerifyResult, Verifier};
+pub use local_verify::{
+    AcceptingVerifier, RejectingVerifier, Verifier, VerifyReason, VerifyResult,
+};
 pub use mining_loop::{
     run_mining_loop, DefaultPromptBuilder, FixedChainHead, LlmOutcomeKind, MiningEvent,
     MiningLoopDeps, MiningLoopOptions, MiningLoopSummary, PromptBuilder,

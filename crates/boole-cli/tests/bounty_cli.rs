@@ -134,14 +134,7 @@ fn bounty_list_json_prints_full_envelope() {
 fn bounty_get_default_prints_verifier_hash() {
     let (addr, handle, dir) = boot_node_with_bounties(1);
     let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
-        .args([
-            "bounty",
-            "get",
-            "--id",
-            "alpha-1",
-            "--node",
-            &cli_url(addr),
-        ])
+        .args(["bounty", "get", "--id", "alpha-1", "--node", &cli_url(addr)])
         .output()
         .expect("run cli");
     assert!(

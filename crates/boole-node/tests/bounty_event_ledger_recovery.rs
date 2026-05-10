@@ -207,7 +207,10 @@ fn recovered_event_is_byte_equal_to_appended_event() {
     assert_eq!(ev["accepted"], true);
     assert_eq!(ev["reward"], "100");
     assert_eq!(ev["credit"], "100");
-    assert!(ev["ts"].is_u64() || ev["ts"].is_i64(), "ts must be number: {ev}");
+    assert!(
+        ev["ts"].is_u64() || ev["ts"].is_i64(),
+        "ts must be number: {ev}"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

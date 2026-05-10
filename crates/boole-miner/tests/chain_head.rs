@@ -79,13 +79,8 @@ fn test_fetch_head_min_share_score_uses_t_share_and_multiplier() {
 #[test]
 fn test_fetch_head_reports_non_200_status() {
     let (url, handle) = one_shot_get_responder(503, br#"{"error":"down"}"#.to_vec());
-    let f = HttpChainHeadFetcher::with_timeout(
-        url,
-        Duration::from_secs(5),
-        1,
-        "v01".to_string(),
-        None,
-    );
+    let f =
+        HttpChainHeadFetcher::with_timeout(url, Duration::from_secs(5), 1, "v01".to_string(), None);
     let err = f.fetch_head().unwrap_err();
     assert!(matches!(err, ChainHeadError::Status(503)));
     handle.join().unwrap();
@@ -104,18 +99,10 @@ fn test_fetch_head_rejects_missing_field() {
     }"#
     .to_vec();
     let (url, handle) = one_shot_get_responder(200, body);
-    let f = HttpChainHeadFetcher::with_timeout(
-        url,
-        Duration::from_secs(5),
-        1,
-        "v01".to_string(),
-        None,
-    );
+    let f =
+        HttpChainHeadFetcher::with_timeout(url, Duration::from_secs(5), 1, "v01".to_string(), None);
     let err = f.fetch_head().unwrap_err();
-    assert!(matches!(
-        err,
-        ChainHeadError::MissingField("T_ticket")
-    ));
+    assert!(matches!(err, ChainHeadError::MissingField("T_ticket")));
     handle.join().unwrap();
 }
 
@@ -132,14 +119,12 @@ fn test_fetch_head_rejects_invalid_c_hex() {
     }"#
     .to_vec();
     let (url, handle) = one_shot_get_responder(200, body);
-    let f = HttpChainHeadFetcher::with_timeout(
-        url,
-        Duration::from_secs(5),
-        1,
-        "v01".to_string(),
-        None,
-    );
+    let f =
+        HttpChainHeadFetcher::with_timeout(url, Duration::from_secs(5), 1, "v01".to_string(), None);
     let err = f.fetch_head().unwrap_err();
-    assert!(matches!(err, ChainHeadError::InvalidField { field: "c", .. }));
+    assert!(matches!(
+        err,
+        ChainHeadError::InvalidField { field: "c", .. }
+    ));
     handle.join().unwrap();
 }

@@ -31,8 +31,7 @@ struct ReplayFixture {
 }
 
 fn replay_fixture() -> ReplayFixture {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/protocol/replay/v1.json");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/protocol/replay/v1.json");
     let text = std::fs::read_to_string(&path).expect("read replay fixture");
     serde_json::from_str(&text).expect("fixture parses")
 }
@@ -143,14 +142,7 @@ fn account_balance_cli_prints_json_envelope_with_flag() {
 fn account_balance_cli_prints_bare_balance_without_json_flag() {
     let (addr, handle, dir) = boot_node_with_seeded_ledger(1);
     let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
-        .args([
-            "account",
-            "balance",
-            "--pk",
-            PK_2,
-            "--node",
-            &cli_url(addr),
-        ])
+        .args(["account", "balance", "--pk", PK_2, "--node", &cli_url(addr)])
         .output()
         .expect("run cli");
     assert!(

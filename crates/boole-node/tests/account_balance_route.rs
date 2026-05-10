@@ -101,9 +101,7 @@ fn boot_with_seeded_ledger(
 }
 
 fn http_get(addr: SocketAddr, path: &str) -> (u16, Value) {
-    let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-    );
+    let request = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     let mut stream = TcpStream::connect(addr).expect("connect");
     stream.write_all(request.as_bytes()).expect("write");
     let mut buf = Vec::new();

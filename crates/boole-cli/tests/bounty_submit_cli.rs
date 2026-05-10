@@ -174,7 +174,10 @@ fn submit_default_reject_prints_bare_status_open() {
     let out = run_submit(addr, "delta-1", PROOF_HASH_A, PROVER_X, "{}", false);
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    assert_eq!(stdout, "open", "rejected proof keeps bounty open: {stdout:?}");
+    assert_eq!(
+        stdout, "open",
+        "rejected proof keeps bounty open: {stdout:?}"
+    );
     handle.join().expect("server").expect("server ok");
     let _ = std::fs::remove_dir_all(&dir);
 }

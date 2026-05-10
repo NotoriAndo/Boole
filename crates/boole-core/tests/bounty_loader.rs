@@ -25,7 +25,11 @@ fn loads_v1_bounties_fixture_with_two_entries() {
     assert_eq!(bounties[0].status, "open");
     assert_eq!(bounties[0].reward, "42");
     assert_eq!(
-        bounties[0].verifier.metadata.get("verifierHash").and_then(|v| v.as_str()),
+        bounties[0]
+            .verifier
+            .metadata
+            .get("verifierHash")
+            .and_then(|v| v.as_str()),
         Some("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd")
     );
     assert_eq!(bounties[1].id, "beta-1");

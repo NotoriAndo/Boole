@@ -131,8 +131,8 @@ fn http_post(addr: SocketAddr, path: &str, body: &Value) -> (u16, Value) {
     let (_, body_text) = raw
         .split_once("\r\n\r\n")
         .unwrap_or_else(|| panic!("no body break in: {raw}"));
-    let parsed: Value = serde_json::from_str(body_text)
-        .unwrap_or_else(|_| panic!("body not json: {body_text}"));
+    let parsed: Value =
+        serde_json::from_str(body_text).unwrap_or_else(|_| panic!("body not json: {body_text}"));
     (status, parsed)
 }
 
@@ -192,7 +192,10 @@ fn dedup_returns_cached_outcome_without_revisiting_verifier() {
     let (s2, r2) = http_post(addr, "/bounties/gamma-1/proof", &body);
     assert_eq!(s2, 200, "second POST must still be 200, got {s2}: {r2}");
     assert_eq!(r2["accepted"], true);
-    assert_eq!(r2["duplicate"], true, "second post must be marked duplicate: {r2}");
+    assert_eq!(
+        r2["duplicate"], true,
+        "second post must be marked duplicate: {r2}"
+    );
     assert_eq!(r2["bounty"]["status"], "solved");
 
     handle.join().expect("server thread").expect("server exits");

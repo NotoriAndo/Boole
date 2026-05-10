@@ -90,15 +90,9 @@ pub enum BppkDecodeError {
     #[error("unexpected EOF")]
     UnexpectedEof,
     #[error("unknown tag {tag:#x} at {where_tag}")]
-    UnknownTag {
-        where_tag: &'static str,
-        tag: u8,
-    },
+    UnknownTag { where_tag: &'static str, tag: u8 },
     #[error("recursion limit at {where_tag}: {limit}")]
-    RecursionLimit {
-        where_tag: &'static str,
-        limit: u32,
-    },
+    RecursionLimit { where_tag: &'static str, limit: u32 },
     #[error("trailing bytes at {at} of {size}")]
     TrailingBytes { at: usize, size: usize },
 }

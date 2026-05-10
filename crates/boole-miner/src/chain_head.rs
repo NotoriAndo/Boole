@@ -44,10 +44,7 @@ pub enum ChainHeadError {
     #[error("/head response missing field {0}")]
     MissingField(&'static str),
     #[error("/head response field {field} has invalid value: {detail}")]
-    InvalidField {
-        field: &'static str,
-        detail: String,
-    },
+    InvalidField { field: &'static str, detail: String },
 }
 
 /// Trait the mining loop consumes. Lets tests stub out network without

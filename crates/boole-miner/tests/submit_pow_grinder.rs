@@ -1,7 +1,5 @@
 use boole_core::{submission_pow_ok, Hex32};
-use boole_miner::{
-    grind_submission_pow, CounterNonce, GrindProgress, GrinderConfig,
-};
+use boole_miner::{grind_submission_pow, CounterNonce, GrindProgress, GrinderConfig};
 use num_bigint::BigUint;
 use num_traits::One;
 

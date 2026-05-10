@@ -75,7 +75,9 @@ fn sign_inline_payload_emits_hex64_signature_that_verifies_against_pk() {
     let sig_hex = stdout.trim();
     assert_eq!(sig_hex.len(), 128, "ed25519 sig hex64: {sig_hex}");
     assert!(
-        sig_hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+        sig_hex
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
         "lowercase hex only: {sig_hex}"
     );
 

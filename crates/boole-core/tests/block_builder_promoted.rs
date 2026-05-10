@@ -141,7 +141,10 @@ fn promoted_does_not_alter_base_lane_fields() {
         with_promoted.dropped_kernel_reject
     );
     assert_eq!(baseline.truncated_by_kmax, with_promoted.truncated_by_kmax);
-    assert_eq!(baseline.kernel_checked_tags, with_promoted.kernel_checked_tags);
+    assert_eq!(
+        baseline.kernel_checked_tags,
+        with_promoted.kernel_checked_tags
+    );
     assert_eq!(baseline.kernel_accepted, with_promoted.kernel_accepted);
 }
 

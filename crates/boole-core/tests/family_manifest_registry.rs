@@ -61,8 +61,14 @@ fn load_from_dir_reads_all_manifest_files() {
     write_manifest(&dir, "beta.json", "beta");
     let registry = FamilyManifestRegistry::load_from_dir(&dir).expect("load");
     assert_eq!(registry.len(), 2);
-    assert_eq!(registry.get("alpha").map(|m| m.family_id.as_str()), Some("alpha"));
-    assert_eq!(registry.get("beta").map(|m| m.family_id.as_str()), Some("beta"));
+    assert_eq!(
+        registry.get("alpha").map(|m| m.family_id.as_str()),
+        Some("alpha")
+    );
+    assert_eq!(
+        registry.get("beta").map(|m| m.family_id.as_str()),
+        Some("beta")
+    );
 }
 
 #[test]

@@ -69,10 +69,7 @@ fn boot(
     max_requests: usize,
     bounty_event_path: PathBuf,
 ) -> (SocketAddr, thread::JoinHandle<anyhow::Result<()>>) {
-    let dir = bounty_event_path
-        .parent()
-        .expect("parent")
-        .to_path_buf();
+    let dir = bounty_event_path.parent().expect("parent").to_path_buf();
     std::fs::create_dir_all(&dir).expect("tmp dir");
     let block_path = dir.join("blocks.ndjson");
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
@@ -249,8 +246,7 @@ fn v1_key_is_refused_with_legacy_v1_key_typed_envelope() {
         .expect("run announce");
     assert!(!out.status.success(), "v1 keys cannot sign");
     assert_eq!(out.status.code(), Some(3), "refused operation exits 3");
-    let envelope: Value =
-        serde_json::from_slice(&out.stderr).expect("stderr typed envelope");
+    let envelope: Value = serde_json::from_slice(&out.stderr).expect("stderr typed envelope");
     assert_eq!(envelope["ok"], false);
     assert_eq!(envelope["reason"], "legacy_v1_key");
     assert_eq!(envelope["id"], "old-bob");
@@ -282,8 +278,7 @@ fn malformed_problem_hash_exits_2_without_network_call() {
         .expect("run announce");
     assert!(!out.status.success());
     assert_eq!(out.status.code(), Some(2), "bad usage exits 2");
-    let envelope: Value =
-        serde_json::from_slice(&out.stderr).expect("stderr typed envelope");
+    let envelope: Value = serde_json::from_slice(&out.stderr).expect("stderr typed envelope");
     assert_eq!(envelope["ok"], false);
     assert_eq!(envelope["reason"], "malformed-problem-hash");
     let _ = std::fs::remove_dir_all(&dir);
@@ -323,8 +318,7 @@ fn server_duplicate_is_forwarded_to_stderr_with_exit_1() {
         "stdout empty on rejection: {}",
         String::from_utf8_lossy(&second.stdout)
     );
-    let envelope: Value =
-        serde_json::from_slice(&second.stderr).expect("stderr typed envelope");
+    let envelope: Value = serde_json::from_slice(&second.stderr).expect("stderr typed envelope");
     assert_eq!(envelope["ok"], false);
     assert_eq!(envelope["reason"], "bounty_already_exists");
     assert_eq!(envelope["id"], "cli-bounty-dup");

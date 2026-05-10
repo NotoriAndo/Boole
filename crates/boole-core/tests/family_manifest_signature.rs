@@ -153,8 +153,7 @@ fn verify_returns_true_for_well_signed_manifest() {
     let FamilyManifestParseResult::Ok(manifest) = parse_family_manifest(&manifest_value) else {
         panic!("parse");
     };
-    let verified =
-        verify_family_manifest_signature(&key.pk_hex(), &manifest).expect("verify ran");
+    let verified = verify_family_manifest_signature(&key.pk_hex(), &manifest).expect("verify ran");
     assert!(verified, "signature should verify against signing key");
 }
 
@@ -170,8 +169,7 @@ fn verify_returns_false_for_tampered_payload() {
     let FamilyManifestParseResult::Ok(manifest) = parse_family_manifest(&manifest_value) else {
         panic!("parse");
     };
-    let verified =
-        verify_family_manifest_signature(&key.pk_hex(), &manifest).expect("verify ran");
+    let verified = verify_family_manifest_signature(&key.pk_hex(), &manifest).expect("verify ran");
     assert!(!verified, "tampered manifest should fail verification");
 }
 

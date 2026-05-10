@@ -9,11 +9,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
-    load_bounties, load_work_manifests, replay_blocks, ticket, verify_signature,
-    AdmissionDecision, BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool,
-    CalibrationReport, CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry,
-    FileBountyEventLedger, Hex32, PersistedBlock, SubmitProofInput, UpdateStatusInput,
-    WorkManifest, SIGNED_ENVELOPE_SCHEMA,
+    load_bounties, load_work_manifests, replay_blocks, ticket, verify_signature, AdmissionDecision,
+    BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool, CalibrationReport,
+    CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry, FileBountyEventLedger,
+    Hex32, PersistedBlock, SubmitProofInput, UpdateStatusInput, WorkManifest,
+    SIGNED_ENVELOPE_SCHEMA,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -462,10 +462,7 @@ fn replay_proof_event(registry: &mut BountyRegistry, event: &Value) -> Result<()
         .map(|_| ())
 }
 
-fn replay_status_change_event(
-    registry: &mut BountyRegistry,
-    event: &Value,
-) -> Result<(), String> {
+fn replay_status_change_event(registry: &mut BountyRegistry, event: &Value) -> Result<(), String> {
     let work_id = event
         .get("workId")
         .and_then(Value::as_str)
@@ -530,19 +527,16 @@ fn replay_create_event(registry: &mut BountyRegistry, event: &Value) -> Result<(
 // but would leave those test clients blocked indefinitely.
 async fn connection_close_middleware(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
-    response
-        .headers_mut()
-        .insert(axum::http::header::CONNECTION, HeaderValue::from_static("close"));
+    response.headers_mut().insert(
+        axum::http::header::CONNECTION,
+        HeaderValue::from_static("close"),
+    );
     response
 }
 
 async fn body_cap_middleware(headers: HeaderMap, request: Request, next: Next) -> Response {
     if let Some(value) = headers.get(axum::http::header::CONTENT_LENGTH) {
-        if let Some(len) = value
-            .to_str()
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-        {
+        if let Some(len) = value.to_str().ok().and_then(|s| s.parse::<usize>().ok()) {
             if len > MAX_HTTP_BODY_BYTES {
                 return error_response(HttpError::body_too_large(MAX_HTTP_BODY_BYTES, len));
             }
@@ -808,8 +802,8 @@ fn work_by_id_json(state: &LocalNodeState, id: &str) -> Result<Value, HttpError>
         .iter()
         .find(|m| m.work_id == id)
         .ok_or_else(|| HttpError::work_not_found(id))?;
-    let manifest_json = serde_json::to_value(manifest)
-        .expect("WorkManifest serializes to JSON via serde");
+    let manifest_json =
+        serde_json::to_value(manifest).expect("WorkManifest serializes to JSON via serde");
     Ok(json!({
         "ok": true,
         "work": manifest_json,
@@ -818,8 +812,7 @@ fn work_by_id_json(state: &LocalNodeState, id: &str) -> Result<Value, HttpError>
 
 fn bounty_list_json(state: &LocalNodeState) -> Value {
     let listing = state.bounty_registry.list();
-    let bounties =
-        serde_json::to_value(&listing).expect("Bounty serializes to JSON via serde");
+    let bounties = serde_json::to_value(&listing).expect("Bounty serializes to JSON via serde");
     json!({
         "ok": true,
         "bounties": bounties,
@@ -831,8 +824,7 @@ fn bounty_by_id_json(state: &LocalNodeState, id: &str) -> Result<Value, HttpErro
         .bounty_registry
         .get(id)
         .ok_or_else(|| HttpError::bounty_not_found(id))?;
-    let bounty_json =
-        serde_json::to_value(&bounty).expect("Bounty serializes to JSON via serde");
+    let bounty_json = serde_json::to_value(&bounty).expect("Bounty serializes to JSON via serde");
     Ok(json!({
         "ok": true,
         "bounty": bounty_json,
@@ -851,10 +843,7 @@ async fn bounty_proof_handler(
     }
 }
 
-async fn bounty_announce_handler(
-    State(state): State<AppState>,
-    body: Bytes,
-) -> Response {
+async fn bounty_announce_handler(State(state): State<AppState>, body: Bytes) -> Response {
     let mut guard = state.inner.write().await;
     match bounty_announce_json(&mut guard, &body) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
@@ -980,8 +969,7 @@ fn bounty_announce_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value
     // 6) Audit-log append. Same fatal-on-failure stance as the proof
     //    handler — once the registry mutated, dropping the durability
     //    promise silently is worse than a 500 the operator can retry.
-    let bounty_value = serde_json::to_value(&bounty)
-        .expect("Bounty serializes to JSON via serde");
+    let bounty_value = serde_json::to_value(&bounty).expect("Bounty serializes to JSON via serde");
     let event = json!({
         "schemaVersion": 1,
         "kind": "create",
@@ -1143,8 +1131,7 @@ fn bounty_status_json(
             .map_err(|err| HttpError::internal(format!("bounty audit append: {err}")))?;
     }
 
-    let bounty_value = serde_json::to_value(&updated)
-        .expect("Bounty serializes to JSON via serde");
+    let bounty_value = serde_json::to_value(&updated).expect("Bounty serializes to JSON via serde");
     Ok(json!({
         "ok": true,
         "bounty": bounty_value,

@@ -181,7 +181,11 @@ fn iso_now() -> String {
     let s = (seconds_of_day % 60) as u32;
 
     let z = days + 719_468;
-    let era = if z >= 0 { z / 146_097 } else { (z - 146_096) / 146_097 };
+    let era = if z >= 0 {
+        z / 146_097
+    } else {
+        (z - 146_096) / 146_097
+    };
     let doe = (z - era * 146_097) as u32;
     let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
     let mut y = yoe as i64 + era * 400;
@@ -297,16 +301,13 @@ pub fn run_config_get(
     Ok(())
 }
 
-pub fn run_config_set(
-    state_args: StateArgs,
-    key: String,
-    value: String,
-) -> anyhow::Result<()> {
+pub fn run_config_set(state_args: StateArgs, key: String, value: String) -> anyhow::Result<()> {
     let path = resolve_state_path(&state_args)?;
     let state = load_state(&path)?;
     let mut llm = state.config.llm.clone();
     let mut patch = ConfigPatch::default();
-    let normalized = key.replace("api_key", "apiKey")
+    let normalized = key
+        .replace("api_key", "apiKey")
         .replace("base_url", "baseUrl")
         .replace("agent_command", "agentCommand")
         .replace("agent_args", "agentArgs");
@@ -467,16 +468,20 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
         let backend = ensure_backend(&state.config.llm.backend)?;
         match backend {
             LLMBackend::Mock => Box::new(MockDriver::new(Vec::new())),
-            LLMBackend::ClaudeCli => Box::new(ClaudeCliDriver::new("claude", Duration::from_secs(120))),
+            LLMBackend::ClaudeCli => {
+                Box::new(ClaudeCliDriver::new("claude", Duration::from_secs(120)))
+            }
             LLMBackend::AgentCli => {
-                let cmd = state
-                    .config
-                    .llm
-                    .agent_command
-                    .clone()
-                    .ok_or_else(|| anyhow::anyhow!("agent_command not set in state.config.llm"))?;
+                let cmd =
+                    state.config.llm.agent_command.clone().ok_or_else(|| {
+                        anyhow::anyhow!("agent_command not set in state.config.llm")
+                    })?;
                 let agent_args = state.config.llm.agent_args.clone().unwrap_or_default();
-                Box::new(AgentCliDriver::new(cmd, agent_args, Duration::from_secs(300)))
+                Box::new(AgentCliDriver::new(
+                    cmd,
+                    agent_args,
+                    Duration::from_secs(300),
+                ))
             }
         }
     };
@@ -510,9 +515,7 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
     } else {
         // Without `lake-verify` we cannot run the real verifier; fall back
         // to the accepting stub but warn.
-        eprintln!(
-            "warning: lake-verify feature not enabled; defaulting to AcceptingVerifier"
-        );
+        eprintln!("warning: lake-verify feature not enabled; defaulting to AcceptingVerifier");
         Box::new(AcceptingVerifier)
     };
 

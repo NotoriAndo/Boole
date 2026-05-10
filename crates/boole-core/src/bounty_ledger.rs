@@ -17,8 +17,7 @@ pub struct FileBountyEventLedger;
 
 impl FileBountyEventLedger {
     pub fn append(path: impl AsRef<Path>, event: &Value) -> anyhow::Result<()> {
-        validate_event(event)
-            .map_err(|err| anyhow::anyhow!("bountyEventLedger: {err}"))?;
+        validate_event(event).map_err(|err| anyhow::anyhow!("bountyEventLedger: {err}"))?;
         if let Some(parent) = path.as_ref().parent() {
             fs::create_dir_all(parent)?;
         }
@@ -121,15 +120,15 @@ fn validate_event(event: &Value) -> Result<(), String> {
     // the workId/problemHash/verifierKind/ts shape used by the other
     // three event kinds, so dispatch validation by kind here.
     if kind == "credit" {
-        if event
-            .get("height")
-            .and_then(Value::as_u64)
-            .is_none()
-        {
-            return Err("bountyLedger: credit event requires height (unsigned integer)".to_string());
+        if event.get("height").and_then(Value::as_u64).is_none() {
+            return Err(
+                "bountyLedger: credit event requires height (unsigned integer)".to_string(),
+            );
         }
         if !string_field(event, "c").is_some_and(is_hex32) {
-            return Err("bountyLedger: credit event requires c (32-byte lowercase hex)".to_string());
+            return Err(
+                "bountyLedger: credit event requires c (32-byte lowercase hex)".to_string(),
+            );
         }
         if string_field(event, "familyId").is_none_or(str::is_empty) {
             return Err("bountyLedger: credit event requires familyId".to_string());

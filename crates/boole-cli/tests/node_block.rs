@@ -27,13 +27,7 @@ fn rand_suffix() -> u64 {
         .unwrap_or(0)
 }
 
-fn boot_node(
-    max_requests: usize,
-) -> (
-    SocketAddr,
-    thread::JoinHandle<anyhow::Result<()>>,
-    PathBuf,
-) {
+fn boot_node(max_requests: usize) -> (SocketAddr, thread::JoinHandle<anyhow::Result<()>>, PathBuf) {
     let tmp = std::env::temp_dir().join(format!(
         "boole-cli-node-block-{}-{}.ndjson",
         std::process::id(),

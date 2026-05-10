@@ -107,9 +107,7 @@ fn test_base_url_with_path_prefix_is_prepended() {
         (200, br#"{}"#.to_vec())
     });
     let client = HttpClient::new(format!("{url}/v1/"), Duration::from_secs(5));
-    let res = client
-        .post_json("/submit", &serde_json::json!({}))
-        .unwrap();
+    let res = client.post_json("/submit", &serde_json::json!({})).unwrap();
     assert_eq!(res.status, 200);
     handle.join().unwrap();
 }

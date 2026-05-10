@@ -539,9 +539,7 @@ fn node_start(
     if let Some(port) = port {
         command.arg("--port").arg(port.to_string());
     }
-    command
-        .arg("--block-store")
-        .arg(block_path.as_os_str());
+    command.arg("--block-store").arg(block_path.as_os_str());
     if let Some(scenario) = scenario {
         command.arg("--scenario").arg(scenario.as_os_str());
     }
@@ -1082,11 +1080,7 @@ struct HttpResponse {
     body: Vec<u8>,
 }
 
-fn http_post(
-    base_url: &str,
-    path: &str,
-    body: &serde_json::Value,
-) -> anyhow::Result<HttpResponse> {
+fn http_post(base_url: &str, path: &str, body: &serde_json::Value) -> anyhow::Result<HttpResponse> {
     let stripped = base_url
         .strip_prefix("http://")
         .ok_or_else(|| anyhow::anyhow!("only http:// URLs are supported, got {base_url}"))?;
@@ -1131,9 +1125,8 @@ fn http_get(base_url: &str, path: &str) -> anyhow::Result<HttpResponse> {
     let mut stream = TcpStream::connect(host_port)?;
     stream.set_read_timeout(Some(std::time::Duration::from_secs(15)))?;
     stream.set_write_timeout(Some(std::time::Duration::from_secs(15)))?;
-    let request = format!(
-        "GET {full_path} HTTP/1.1\r\nHost: {host_for_header}\r\nConnection: close\r\n\r\n"
-    );
+    let request =
+        format!("GET {full_path} HTTP/1.1\r\nHost: {host_for_header}\r\nConnection: close\r\n\r\n");
     stream.write_all(request.as_bytes())?;
     let mut buffer = Vec::new();
     stream.read_to_end(&mut buffer)?;
@@ -1197,9 +1190,7 @@ fn validate_key_id(id: &str) -> Result<(), String> {
         .bytes()
         .all(|b| matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-'))
     {
-        return Err(format!(
-            "id must match [a-zA-Z0-9_-]+ (got {id:?})"
-        ));
+        return Err(format!("id must match [a-zA-Z0-9_-]+ (got {id:?})"));
     }
     Ok(())
 }
@@ -1352,10 +1343,7 @@ fn keys_list() -> anyhow::Result<()> {
             keys.push(value);
         }
     }
-    println!(
-        "{}",
-        serde_json::json!({ "ok": true, "keys": keys })
-    );
+    println!("{}", serde_json::json!({ "ok": true, "keys": keys }));
     Ok(())
 }
 
@@ -1378,10 +1366,7 @@ fn keys_show(id: &str) -> anyhow::Result<()> {
     }
     let raw = std::fs::read_to_string(&path)?;
     let value: serde_json::Value = serde_json::from_str(&raw)?;
-    println!(
-        "{}",
-        serde_json::json!({ "ok": true, "key": value })
-    );
+    println!("{}", serde_json::json!({ "ok": true, "key": value }));
     Ok(())
 }
 
@@ -1490,10 +1475,7 @@ fn keys_verify(pk: &str, signature: &str, payload_arg: &str, json: bool) -> anyh
         }
     };
     if json {
-        println!(
-            "{}",
-            serde_json::json!({ "ok": true, "valid": valid })
-        );
+        println!("{}", serde_json::json!({ "ok": true, "valid": valid }));
     } else if valid {
         println!("valid");
     } else {

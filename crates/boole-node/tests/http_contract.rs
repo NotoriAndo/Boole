@@ -26,11 +26,7 @@ fn fixture_path(name: &str) -> PathBuf {
 
 fn boot_server(
     max_requests: usize,
-) -> (
-    SocketAddr,
-    thread::JoinHandle<anyhow::Result<()>>,
-    PathBuf,
-) {
+) -> (SocketAddr, thread::JoinHandle<anyhow::Result<()>>, PathBuf) {
     let tmp = std::env::temp_dir().join(format!(
         "boole-http-contract-{}-{}.ndjson",
         std::process::id(),
@@ -146,13 +142,11 @@ fn assert_fixture(addr: SocketAddr, fixture_name: &str) {
         response.body
     );
 
-    if let Some(equals) = expect.get("bodyEquals").and_then(|v| {
-        if v.is_null() {
-            None
-        } else {
-            Some(v)
-        }
-    }) {
+    if let Some(equals) =
+        expect
+            .get("bodyEquals")
+            .and_then(|v| if v.is_null() { None } else { Some(v) })
+    {
         assert_eq!(
             &response.body, equals,
             "fixture {fixture_name}: bodyEquals mismatch"

@@ -54,7 +54,11 @@ fn keys_new_writes_file_with_envelope_and_mode_0600() {
         "stderr={}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(out.stderr.is_empty(), "stderr={}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.stderr.is_empty(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let envelope = parse_json(&out.stdout);
     assert_eq!(envelope["ok"], true);
@@ -112,7 +116,11 @@ fn keys_new_dev_is_deterministic_from_id() {
             .args(["keys", "new", "--id", "alice", "--dev"])
             .output()
             .expect("run boole-cli");
-        assert!(out.status.success(), "stderr={}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         parse_json(&out.stdout)["key"]["pk"]
             .as_str()
             .expect("pk hex")
@@ -138,7 +146,10 @@ fn keys_new_dev_is_deterministic_from_id() {
         .as_str()
         .expect("pk hex")
         .to_string();
-    assert_ne!(pk_a, pk_random, "dev pk must differ from random pk for same id");
+    assert_ne!(
+        pk_a, pk_random,
+        "dev pk must differ from random pk for same id"
+    );
 }
 
 #[test]
@@ -162,17 +173,19 @@ fn keys_new_duplicate_id_emits_key_already_exists_typed_error() {
         .expect("run boole-cli");
     assert!(!second.status.success(), "duplicate id must fail");
     assert_eq!(second.status.code(), Some(3), "key_already_exists exits 3");
-    assert!(second.stdout.is_empty(), "typed error must not pollute stdout");
+    assert!(
+        second.stdout.is_empty(),
+        "typed error must not pollute stdout"
+    );
     let envelope = parse_json(&second.stderr);
     assert_eq!(envelope["ok"], false);
     assert_eq!(envelope["reason"], "key_already_exists");
     assert_eq!(envelope["id"], "alice");
 
     // The original file must NOT have been overwritten.
-    let on_disk: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("alice.json")).expect("read"),
-    )
-    .expect("disk json");
+    let on_disk: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("alice.json")).expect("read"))
+            .expect("disk json");
     assert_eq!(on_disk["pk"], original_pk);
 }
 
@@ -184,11 +197,18 @@ fn keys_new_dry_run_does_not_write_to_disk() {
         .args(["keys", "new", "--id", "alice", "--dry-run"])
         .output()
         .expect("run boole-cli");
-    assert!(out.status.success(), "stderr={}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let envelope = parse_json(&out.stdout);
     assert_eq!(envelope["ok"], true);
     assert_eq!(envelope["key"]["id"], "alice");
-    assert_eq!(envelope["dryRun"], true, "dry-run envelope must self-identify");
+    assert_eq!(
+        envelope["dryRun"], true,
+        "dry-run envelope must self-identify"
+    );
 
     assert!(!dir.join("alice.json").exists(), "dry-run must not write");
     // Directory itself may or may not exist — both are acceptable, but if
@@ -233,7 +253,11 @@ fn keys_list_returns_sorted_keys_array() {
             .args(["keys", "new", "--id", id])
             .output()
             .expect("run boole-cli");
-        assert!(out.status.success(), "stderr={}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
     let listed = cli()
         .env("BOOLE_KEYS_DIR", &dir)
@@ -293,7 +317,10 @@ fn keys_list_includes_legacy_v1_envelope_unchanged() {
     assert_eq!(keys.len(), 1);
     assert_eq!(keys[0]["schema"], "boole.keys.v1");
     assert_eq!(keys[0]["id"], "ancient");
-    assert!(keys[0].get("sk").is_none(), "v1 envelope must not synthesize sk");
+    assert!(
+        keys[0].get("sk").is_none(),
+        "v1 envelope must not synthesize sk"
+    );
 }
 
 #[test]
@@ -348,7 +375,10 @@ fn keys_show_returns_key_envelope_for_existing_id() {
     assert!(show_out.status.success());
     let shown = parse_json(&show_out.stdout);
     assert_eq!(shown["ok"], true);
-    assert_eq!(shown["key"], original["key"], "show must echo the stored envelope");
+    assert_eq!(
+        shown["key"], original["key"],
+        "show must echo the stored envelope"
+    );
 }
 
 #[test]

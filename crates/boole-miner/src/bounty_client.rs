@@ -81,10 +81,17 @@ impl BountyClient {
             "prover": hex::encode(inputs.prover_pk),
             "envelope": inputs.envelope,
         });
-        let path = format!("/bounties/{}/proof", percent_encode_component(inputs.bounty_id));
+        let path = format!(
+            "/bounties/{}/proof",
+            percent_encode_component(inputs.bounty_id)
+        );
         let res = match self.http.post_json(&path, &body) {
             Ok(r) => r,
-            Err(err) => return BountyProofResult::NetworkError { cause: render_http_error(&err) },
+            Err(err) => {
+                return BountyProofResult::NetworkError {
+                    cause: render_http_error(&err),
+                }
+            }
         };
         let payload = parse_json_object(&res.body);
         match res.status {
@@ -100,7 +107,8 @@ impl BountyClient {
                 status: take_string(&payload, "status").unwrap_or_else(|| "unknown".to_string()),
             },
             501 => BountyProofResult::NoVerifier {
-                verifier_kind: take_string(&payload, "kind").unwrap_or_else(|| "unknown".to_string()),
+                verifier_kind: take_string(&payload, "kind")
+                    .unwrap_or_else(|| "unknown".to_string()),
             },
             400 => BountyProofResult::BadRequest {
                 error: take_string(&payload, "error").unwrap_or_else(|| "unknown".to_string()),
@@ -121,7 +129,9 @@ fn parse_json_object(body: &[u8]) -> serde_json::Map<String, Value> {
 }
 
 fn take_string(payload: &serde_json::Map<String, Value>, key: &str) -> Option<String> {
-    payload.get(key).and_then(|v| v.as_str().map(|s| s.to_string()))
+    payload
+        .get(key)
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
 }
 
 fn render_http_error(err: &HttpError) -> String {

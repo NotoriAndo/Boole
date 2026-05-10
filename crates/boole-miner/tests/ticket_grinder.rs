@@ -1,7 +1,5 @@
 use boole_core::{ticket, Hex32};
-use boole_miner::{
-    grind_ticket, CounterNonce, GrindProgress, GrinderConfig, NonceSource,
-};
+use boole_miner::{grind_ticket, CounterNonce, GrindProgress, GrinderConfig, NonceSource};
 use num_bigint::BigUint;
 use num_traits::One;
 
@@ -32,7 +30,10 @@ fn test_grind_ticket_returns_first_valid_nonce_with_easy_threshold() {
     .expect("grind ticket succeeds with easy threshold");
     assert_eq!(outcome.hashes_attempted, 1);
     let re = ticket(&c, &pk, &outcome.nonce, &two_to_256());
-    assert!(re.valid, "returned nonce must satisfy threshold on re-check");
+    assert!(
+        re.valid,
+        "returned nonce must satisfy threshold on re-check"
+    );
 }
 
 #[test]

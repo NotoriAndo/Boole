@@ -60,7 +60,11 @@ fn parse(value: &Value) -> FamilyManifest {
     }
 }
 
-fn signed_manifest(family_id: &str, activation_height: u64, max_shares: u64) -> (FamilyManifest, String) {
+fn signed_manifest(
+    family_id: &str,
+    activation_height: u64,
+    max_shares: u64,
+) -> (FamilyManifest, String) {
     signed_manifest_with_credit(family_id, activation_height, max_shares, "0")
 }
 
@@ -287,8 +291,7 @@ fn selection_back_compat_shares_match_shares_only_helper() {
     let mut registry = FamilyManifestRegistry::new();
     registry.register(manifest);
 
-    let legacy =
-        select_promoted_bounty_shares(&pool, &registry, 100, std::slice::from_ref(&pk));
+    let legacy = select_promoted_bounty_shares(&pool, &registry, 100, std::slice::from_ref(&pk));
     let selection = select_promoted_bounty_selection(&pool, &registry, 100, &[pk]);
     assert_eq!(legacy, selection.shares);
 }
@@ -330,7 +333,11 @@ fn credit_budget_exhaustion_drops_zero_credit_rows_but_keeps_promoted_shares() {
 
     let selection = select_promoted_bounty_selection(&pool, &registry, 100, &[pk]);
     assert_eq!(selection.shares.len(), 3, "all three shares are promoted");
-    assert_eq!(selection.credits.len(), 2, "third share gets 0 credit, dropped");
+    assert_eq!(
+        selection.credits.len(),
+        2,
+        "third share gets 0 credit, dropped"
+    );
     assert_eq!(selection.credits[0].amount, "100");
     assert_eq!(selection.credits[1].amount, "20");
 }

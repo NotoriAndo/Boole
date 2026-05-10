@@ -97,10 +97,7 @@ fn signature_matches_any_operator(
     manifest: &crate::family_manifest::FamilyManifest,
     operator_pks: &[String],
 ) -> bool {
-    operator_pks.iter().any(|pk| {
-        matches!(
-            verify_family_manifest_signature(pk, manifest),
-            Ok(true)
-        )
-    })
+    operator_pks
+        .iter()
+        .any(|pk| matches!(verify_family_manifest_signature(pk, manifest), Ok(true)))
 }

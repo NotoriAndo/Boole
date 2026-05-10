@@ -69,10 +69,7 @@ fn boot(
     bounties_path: Option<PathBuf>,
     bounty_event_path: PathBuf,
 ) -> BootResult {
-    let dir = bounty_event_path
-        .parent()
-        .expect("parent")
-        .to_path_buf();
+    let dir = bounty_event_path.parent().expect("parent").to_path_buf();
     std::fs::create_dir_all(&dir).expect("tmp dir");
     let block_path = dir.join("blocks.ndjson");
 
@@ -137,8 +134,8 @@ fn http_post(addr: SocketAddr, path: &str, body: &Value) -> (u16, Value) {
     let (_, body_text) = raw
         .split_once("\r\n\r\n")
         .unwrap_or_else(|| panic!("no body break in: {raw}"));
-    let parsed: Value = serde_json::from_str(body_text)
-        .unwrap_or_else(|_| panic!("body not json: {body_text}"));
+    let parsed: Value =
+        serde_json::from_str(body_text).unwrap_or_else(|_| panic!("body not json: {body_text}"));
     (status, parsed)
 }
 
@@ -206,7 +203,10 @@ fn valid_signed_envelope_creates_bounty_and_appears_in_list() {
     assert_eq!(resp["bounty"]["reward"], "100");
 
     let (status, list) = http_get(booted.addr, "/bounties/new-bounty-1");
-    assert_eq!(status, 200, "GET /bounties/new-bounty-1 must succeed: {list}");
+    assert_eq!(
+        status, 200,
+        "GET /bounties/new-bounty-1 must succeed: {list}"
+    );
     assert_eq!(list["bounty"]["id"], "new-bounty-1");
 
     booted.handle.join().expect("server").expect("server ok");
@@ -228,11 +228,7 @@ fn audit_log_contains_create_kind_with_announcer_pk() {
     booted.handle.join().expect("server").expect("server ok");
 
     let recovered = FileBountyEventLedger::recover(&event_path).expect("recover");
-    assert_eq!(
-        recovered.len(),
-        1,
-        "expected 1 audit event: {recovered:?}"
-    );
+    assert_eq!(recovered.len(), 1, "expected 1 audit event: {recovered:?}");
     let ev = &recovered[0];
     assert_eq!(ev["kind"], "create");
     assert_eq!(ev["workId"], "audit-bounty");
@@ -258,7 +254,11 @@ fn boot_replay_restores_announced_bounty_from_audit_log() {
     let envelope = signed_envelope(&payload, &key);
     let (status, _r) = http_post(booted1.addr, "/bounties", &envelope);
     assert_eq!(status, 200);
-    booted1.handle.join().expect("server 1").expect("server 1 ok");
+    booted1
+        .handle
+        .join()
+        .expect("server 1")
+        .expect("server 1 ok");
 
     // Boot 2: same audit log path, no in-process state. GET must surface
     // the bounty solely from audit-log replay.
@@ -267,7 +267,11 @@ fn boot_replay_restores_announced_bounty_from_audit_log() {
     assert_eq!(status, 200, "replay must restore bounty: {resp}");
     assert_eq!(resp["bounty"]["id"], "replayed-bounty");
     assert_eq!(resp["bounty"]["status"], "open");
-    booted2.handle.join().expect("server 2").expect("server 2 ok");
+    booted2
+        .handle
+        .join()
+        .expect("server 2")
+        .expect("server 2 ok");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

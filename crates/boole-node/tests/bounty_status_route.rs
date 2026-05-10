@@ -66,10 +66,7 @@ fn boot(
     bounties_path: Option<PathBuf>,
     bounty_event_path: PathBuf,
 ) -> BootResult {
-    let dir = bounty_event_path
-        .parent()
-        .expect("parent")
-        .to_path_buf();
+    let dir = bounty_event_path.parent().expect("parent").to_path_buf();
     std::fs::create_dir_all(&dir).expect("tmp dir");
     let block_path = dir.join("blocks.ndjson");
 
@@ -134,8 +131,8 @@ fn http_post(addr: SocketAddr, path: &str, body: &Value) -> (u16, Value) {
     let (_, body_text) = raw
         .split_once("\r\n\r\n")
         .unwrap_or_else(|| panic!("no body break in: {raw}"));
-    let parsed: Value = serde_json::from_str(body_text)
-        .unwrap_or_else(|_| panic!("body not json: {body_text}"));
+    let parsed: Value =
+        serde_json::from_str(body_text).unwrap_or_else(|_| panic!("body not json: {body_text}"));
     (status, parsed)
 }
 
@@ -279,7 +276,11 @@ fn boot_replay_restores_post_transition_status() {
     let envelope = signed_envelope(&payload, &key);
     let (status, _r) = http_post(booted1.addr, "/bounties/gamma-1/status", &envelope);
     assert_eq!(status, 200);
-    booted1.handle.join().expect("server 1").expect("server 1 ok");
+    booted1
+        .handle
+        .join()
+        .expect("server 1")
+        .expect("server 1 ok");
 
     // Boot 2: same audit log path + same static catalog. Replay must apply
     // the status_change on top of the static gamma-1 record so GET surfaces
@@ -291,7 +292,11 @@ fn boot_replay_restores_post_transition_status() {
         resp["bounty"]["status"], "withdrawn",
         "replay must apply status_change: {resp}"
     );
-    booted2.handle.join().expect("server 2").expect("server 2 ok");
+    booted2
+        .handle
+        .join()
+        .expect("server 2")
+        .expect("server 2 ok");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

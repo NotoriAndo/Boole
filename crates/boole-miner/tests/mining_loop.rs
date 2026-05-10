@@ -67,10 +67,11 @@ impl Submitter for RecordingSubmitter {
     }
 
     fn submit(&self, inputs: SubmitInputs<'_>) -> SubmitResult {
-        self.submit_calls
-            .lock()
-            .unwrap()
-            .push(format!("j={} bytes={}B", inputs.j_hex, inputs.canon_bytes.len()));
+        self.submit_calls.lock().unwrap().push(format!(
+            "j={} bytes={}B",
+            inputs.j_hex,
+            inputs.canon_bytes.len()
+        ));
         self.submit_result
             .lock()
             .unwrap()

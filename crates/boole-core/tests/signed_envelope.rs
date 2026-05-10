@@ -16,7 +16,9 @@ fn sign_verify_round_trip_returns_true_for_random_key() {
     assert_eq!(envelope.pk, key.pk_hex());
     assert_eq!(envelope.signature.len(), 128, "ed25519 sig is 64 bytes hex");
 
-    let valid = envelope.verify().expect("verify must not error on well-formed envelope");
+    let valid = envelope
+        .verify()
+        .expect("verify must not error on well-formed envelope");
     assert!(valid, "round-trip sign+verify must accept");
 }
 

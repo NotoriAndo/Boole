@@ -136,7 +136,10 @@ fn append_then_recover_round_trips_create_event_byte_equal() {
 
     let recovered = FileBountyEventLedger::recover(&path).expect("recover");
     assert_eq!(recovered.len(), 1, "expected 1 event: {recovered:?}");
-    assert_eq!(recovered[0], event, "create event must round-trip byte-equal");
+    assert_eq!(
+        recovered[0], event,
+        "create event must round-trip byte-equal"
+    );
 
     let _ = std::fs::remove_dir_all(path.parent().expect("parent"));
 }

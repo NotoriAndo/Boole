@@ -243,15 +243,13 @@ fn http_post(addr: SocketAddr, path: &str, body: &Value) -> (u16, Value) {
     let (_, body_text) = raw
         .split_once("\r\n\r\n")
         .unwrap_or_else(|| panic!("no body break in: {raw}"));
-    let parsed: Value = serde_json::from_str(body_text)
-        .unwrap_or_else(|_| panic!("body not json: {body_text}"));
+    let parsed: Value =
+        serde_json::from_str(body_text).unwrap_or_else(|_| panic!("body not json: {body_text}"));
     (status, parsed)
 }
 
 fn http_get(addr: SocketAddr, path: &str) -> (u16, Value) {
-    let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-    );
+    let request = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     let mut stream = TcpStream::connect(addr).expect("connect");
     stream.write_all(request.as_bytes()).expect("write");
     let mut buf = Vec::new();
@@ -275,12 +273,7 @@ fn submit_proof_body(proof_hash: &str, prover: &str, envelope: Value) -> Value {
 /// `/status` fields whose values must be byte-identical between baseline
 /// and bounty-active. Excludes `bountySidePoolTotal` (the side-pool count
 /// is the one field that legitimately changes) and clock-derived fields.
-const HARD_GUARD_STATUS_FIELDS: &[&str] = &[
-    "height",
-    "c",
-    "sharePoolSize",
-    "replayMatchesRuntime",
-];
+const HARD_GUARD_STATUS_FIELDS: &[&str] = &["height", "c", "sharePoolSize", "replayMatchesRuntime"];
 
 fn extract_hard_guard_view(status: &Value) -> Value {
     let mut view = serde_json::Map::new();
@@ -435,11 +428,7 @@ fn promotion_active_does_not_alter_base_lane_status() {
         &signing_key,
     );
 
-    let boot = boot_with_operator_pks(
-        Some(manifest_dir.clone()),
-        vec![signing_key.pk_hex()],
-        3,
-    );
+    let boot = boot_with_operator_pks(Some(manifest_dir.clone()), vec![signing_key.pk_hex()], 3);
 
     // 1) Baseline before any bounty traffic — promoted slice must be
     //    empty (side-pool is empty).
@@ -511,10 +500,17 @@ fn promoted_credit_lands_in_balance_and_preserves_hard_guard() {
     let baseline = boot_with_reward_ledger_and_operator(None, vec![], 2);
     let (s_sub_a, r_sub_a) = http_post(baseline.addr, "/submit", &smoke_step0_submit_payload());
     assert_eq!(s_sub_a, 200, "baseline submit: {r_sub_a}");
-    assert_eq!(r_sub_a["accepted"], true, "baseline submit must accept: {r_sub_a}");
+    assert_eq!(
+        r_sub_a["accepted"], true,
+        "baseline submit must accept: {r_sub_a}"
+    );
     let (_, baseline_status) = http_get(baseline.addr, "/status");
     let baseline_view = extract_hard_guard_view(&baseline_status);
-    baseline.handle.join().expect("baseline thread").expect("ok");
+    baseline
+        .handle
+        .join()
+        .expect("baseline thread")
+        .expect("ok");
     let _ = std::fs::remove_dir_all(&baseline.dir);
 
     // ---------- Boot B: promoted, signed manifest with non-zero credit cap
@@ -555,7 +551,10 @@ fn promoted_credit_lands_in_balance_and_preserves_hard_guard() {
     //    and folds gamma-1's credit into the same reward event.
     let (s_sub_b, r_sub_b) = http_post(promoted.addr, "/submit", &smoke_step0_submit_payload());
     assert_eq!(s_sub_b, 200, "promoted submit: {r_sub_b}");
-    assert_eq!(r_sub_b["accepted"], true, "promoted submit must accept: {r_sub_b}");
+    assert_eq!(
+        r_sub_b["accepted"], true,
+        "promoted submit must accept: {r_sub_b}"
+    );
 
     // 3) Balance route surfaces the credit (budget 100, share reward 100,
     //    min(100,100) = 100).
@@ -575,7 +574,11 @@ fn promoted_credit_lands_in_balance_and_preserves_hard_guard() {
          baseline={baseline_view}\npromoted={promoted_view}"
     );
 
-    promoted.handle.join().expect("promoted thread").expect("ok");
+    promoted
+        .handle
+        .join()
+        .expect("promoted thread")
+        .expect("ok");
     let _ = std::fs::remove_dir_all(&promoted.dir);
     let _ = std::fs::remove_dir_all(&manifest_dir);
 }
