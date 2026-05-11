@@ -3,6 +3,7 @@ pub mod canonicalizer;
 pub mod chain_head;
 pub mod cli;
 pub mod family_v031;
+pub mod family_v1_lenbound;
 pub mod grinder;
 pub mod http_client;
 pub mod http_runner;
@@ -54,6 +55,6 @@ pub use submit_client::{
     AnnounceTicketInputs, AnnounceTicketResult, SubmitClient, SubmitInputs, SubmitResult, Submitter,
 };
 pub use target_emitter::{
-    target_seed, FamilyV031TargetEmitter, FixedSeedTargetEmitter, StubTargetEmitter,
-    TargetEmitArgs, TargetEmitter,
+    target_seed, FamilyV031TargetEmitter, FamilyV1LengthBoundTargetEmitter, FixedSeedTargetEmitter,
+    StubTargetEmitter, TargetEmitArgs, TargetEmitter,
 };

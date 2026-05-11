@@ -21,6 +21,9 @@ use boole_core::{h_protocol, Hex32};
 
 use crate::canonicalizer::Target;
 use crate::family_v031::{generate_from_hex, render_text, Profile};
+use crate::family_v1_lenbound::{
+    generate_from_hex as generate_v1_lenbound_from_hex, render_text as render_v1_lenbound_text,
+};
 
 const DOMAIN_TARGET: &[u8] = b"target";
 
@@ -146,6 +149,49 @@ impl TargetEmitter for FamilyV031TargetEmitter {
     }
 }
 
+/// Production target emitter for the v1-lenbound capability calibration profile.
+pub struct FamilyV1LengthBoundTargetEmitter {
+    pub pinned_seed_hex: Option<String>,
+}
+
+impl FamilyV1LengthBoundTargetEmitter {
+    pub fn new() -> Self {
+        Self {
+            pinned_seed_hex: None,
+        }
+    }
+
+    pub fn with_pinned_seed(mut self, seed_hex: impl Into<String>) -> Self {
+        self.pinned_seed_hex = Some(seed_hex.into());
+        self
+    }
+}
+
+impl Default for FamilyV1LengthBoundTargetEmitter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TargetEmitter for FamilyV1LengthBoundTargetEmitter {
+    fn emit(&self, args: &TargetEmitArgs<'_>) -> anyhow::Result<Target> {
+        let seed_hex = match &self.pinned_seed_hex {
+            Some(s) => s.clone(),
+            None => target_seed(args.c, args.pk, args.n, args.j_index).to_hex(),
+        };
+        let instance = generate_v1_lenbound_from_hex(&seed_hex)
+            .map_err(|e| anyhow::anyhow!("decode seed_hex: {e}"))?;
+        let render = render_v1_lenbound_text(&instance);
+        Ok(Target {
+            seed_hex,
+            d: args.d,
+            profile: "v1-lenbound".to_string(),
+            n: args.n_param.unwrap_or(1),
+            render,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,6 +223,34 @@ mod tests {
         assert!(target
             .render
             .starts_with("theorem instance_thm : ∀ (xs : List Int),"));
+    }
+
+    #[test]
+    fn v1_length_bound_emitter_generates_capability_family_target() {
+        let (c, pk, n) = dummy_args();
+        let emitter = crate::target_emitter::FamilyV1LengthBoundTargetEmitter::new();
+        let args = TargetEmitArgs {
+            c: &c,
+            pk: &pk,
+            n: &n,
+            j_index: 0,
+            d: 1,
+            profile: "v1-lenbound".to_string(),
+            n_param: Some(1),
+        };
+        let target = emitter.emit(&args).expect("emit v1 length-bound target");
+        assert_eq!(target.profile, "v1-lenbound");
+        assert_eq!(target.seed_hex.len(), 64);
+        assert!(target
+            .render
+            .starts_with("theorem instance_thm : ∀ (xs : List Int),"));
+        assert!(target.render.contains(".length ≤ xs.length"));
+        assert!(target.render.contains("filterByPred") || target.render.contains("dedup"));
+        assert!(
+            target.render.contains("mapAdd")
+                || target.render.contains("mapMul")
+                || target.render.contains("sortAsc")
+        );
     }
 
     #[test]

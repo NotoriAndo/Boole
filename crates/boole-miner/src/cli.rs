@@ -28,7 +28,8 @@ use crate::state::{
 };
 use crate::submit_client::{SubmitClient, Submitter};
 use crate::target_emitter::{
-    FamilyV031TargetEmitter, FixedSeedTargetEmitter, StubTargetEmitter, TargetEmitter,
+    FamilyV031TargetEmitter, FamilyV1LengthBoundTargetEmitter, FixedSeedTargetEmitter,
+    StubTargetEmitter, TargetEmitter,
 };
 use boole_core::Hex32;
 
@@ -112,7 +113,7 @@ pub enum ConfigCommand {
 pub struct StartArgs {
     #[command(flatten)]
     pub state_args: StateArgs,
-    /// Profile (v01 | v02 | v03 | v031 | v031-lp).
+    /// Profile (v01 | v02 | v03 | v031 | v031-lp | v1-lenbound).
     #[arg(long, default_value = "v01")]
     pub profile: String,
     /// Difficulty parameter D.
@@ -483,6 +484,43 @@ fn is_well_formed_hex32(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+#[derive(Debug, Clone, Copy)]
+enum FamilyTargetProfile {
+    V031(FamilyProfile),
+    V1Lenbound,
+}
+
+fn parse_family_target_profile(profile: &str) -> Option<FamilyTargetProfile> {
+    match profile {
+        "v031-lp" => Some(FamilyTargetProfile::V031(FamilyProfile::V031Lp)),
+        "v031" => Some(FamilyTargetProfile::V031(FamilyProfile::V031)),
+        "v1-lenbound" => Some(FamilyTargetProfile::V1Lenbound),
+        _ => None,
+    }
+}
+
+fn family_target_emitter(
+    profile: FamilyTargetProfile,
+    pinned_seed: Option<String>,
+) -> Box<dyn TargetEmitter> {
+    match profile {
+        FamilyTargetProfile::V031(profile) => {
+            let emitter = FamilyV031TargetEmitter::new(profile);
+            match pinned_seed {
+                Some(seed) => Box::new(emitter.with_pinned_seed(seed)),
+                None => Box::new(emitter),
+            }
+        }
+        FamilyTargetProfile::V1Lenbound => {
+            let emitter = FamilyV1LengthBoundTargetEmitter::new();
+            match pinned_seed {
+                Some(seed) => Box::new(emitter.with_pinned_seed(seed)),
+                None => Box::new(emitter),
+            }
+        }
+    }
+}
+
 pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
     let path = resolve_state_path(&args.state_args)?;
     let state = load_state(&path)?;
@@ -549,11 +587,7 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
         }
     };
 
-    let family_profile = match args.profile.as_str() {
-        "v031-lp" => Some(FamilyProfile::V031Lp),
-        "v031" => Some(FamilyProfile::V031),
-        _ => None,
-    };
+    let family_profile = parse_family_target_profile(&args.profile);
 
     let target_mode = match (
         family_profile,
@@ -584,14 +618,12 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
             n: args.n,
         }),
         // Family-derived render with a pinned seed (smoke determinism).
-        (Some(profile), Some(seed), None) => {
-            Box::new(FamilyV031TargetEmitter::new(profile).with_pinned_seed(seed))
-        }
+        (Some(profile), Some(seed), None) => family_target_emitter(profile, Some(seed)),
         // Production: family-derived seed + render.
-        (Some(profile), None, None) => Box::new(FamilyV031TargetEmitter::new(profile)),
+        (Some(profile), None, None) => family_target_emitter(profile, None),
         (None, Some(_), None) => anyhow::bail!(
             "--fixed-target-seed-hex without --fixed-target-render requires a family \
-             profile (v031-lp | v031)"
+             profile (v031-lp | v031 | v1-lenbound)"
         ),
         (None, None, None) => Box::new(StubTargetEmitter::new(
             "synthetic target — supply --fixed-target-render or use a family profile",
