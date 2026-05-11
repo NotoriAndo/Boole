@@ -33,7 +33,6 @@ pub enum Op {
 #[derive(Debug, Clone)]
 pub struct Instance {
     pub d: u32,
-    pub chain_len: u32,
     pub chain: Vec<Op>,
 }
 
@@ -124,11 +123,7 @@ pub fn generate_v1_lenbound(seed: &[u8]) -> Instance {
         }
     }
 
-    Instance {
-        d: d_raw,
-        chain_len,
-        chain,
-    }
+    Instance { d: d_raw, chain }
 }
 
 /// Convenience: generate an instance from a hex seed (32 bytes / 64 hex chars).
@@ -191,37 +186,26 @@ pub fn theorem_rhs(instance: &Instance) -> String {
     format!("({result_expr}).length ≤ xs.length")
 }
 
-fn render_step_lemma(op: &Op, input_expr: &str) -> (String, String) {
+// Lift each per-op length lemma to the `≤` relation so the calc block below
+// only ever chains `≤ → ≤ → …`. Mixed `=`/`≤` calc steps would require a
+// `Trans (· ≤ ·) (· = ·) (· ≤ ·)` instance that V0Helpers does not export;
+// `Nat.le_of_eq` keeps the proof under the standard `≤` Trans instance.
+fn render_step_lemma_le(op: &Op, input_expr: &str) -> String {
     match op {
-        Op::FilterP(p) => (
-            "≤".to_string(),
-            format!(
-                "Boole.Family.V0Helpers.length_filterByPred_le {} {input_expr}",
-                render_pred_to_bool(p)
-            ),
+        Op::FilterP(p) => format!(
+            "Boole.Family.V0Helpers.length_filterByPred_le {} {input_expr}",
+            render_pred_to_bool(p)
         ),
-        Op::MapAdd(k) => (
-            "=".to_string(),
-            format!(
-                "Boole.Family.V0Helpers.length_mapAdd {} {input_expr}",
-                render_int(*k)
-            ),
+        Op::MapAdd(k) => format!(
+            "Nat.le_of_eq (Boole.Family.V0Helpers.length_mapAdd {} {input_expr})",
+            render_int(*k)
         ),
-        Op::MapMul(k) => (
-            "=".to_string(),
-            format!(
-                "Boole.Family.V0Helpers.length_mapMul {} {input_expr}",
-                render_int(*k)
-            ),
+        Op::MapMul(k) => format!(
+            "Nat.le_of_eq (Boole.Family.V0Helpers.length_mapMul {} {input_expr})",
+            render_int(*k)
         ),
-        Op::Dedup => (
-            "≤".to_string(),
-            format!("Boole.Family.V0Helpers.length_dedup_le {input_expr}"),
-        ),
-        Op::SortAsc => (
-            "=".to_string(),
-            format!("Boole.Family.V0Helpers.length_sortAsc {input_expr}"),
-        ),
+        Op::Dedup => format!("Boole.Family.V0Helpers.length_dedup_le {input_expr}"),
+        Op::SortAsc => format!("Nat.le_of_eq (Boole.Family.V0Helpers.length_sortAsc {input_expr})"),
     }
 }
 
@@ -242,13 +226,13 @@ pub fn render_canonical_proof(instance: &Instance) -> String {
         let op = &instance.chain[idx];
         let input_expr = &exprs[idx];
         let output_expr = &exprs[idx + 1];
-        let (rel, lemma) = render_step_lemma(op, input_expr);
+        let lemma = render_step_lemma_le(op, input_expr);
         let prefix = if idx == instance.chain.len() - 1 {
             format!("    ({output_expr}).length")
         } else {
             "    _".to_string()
         };
-        lines.push(format!("{prefix} {rel} ({input_expr}).length := by"));
+        lines.push(format!("{prefix} ≤ ({input_expr}).length := by"));
         lines.push(format!("      exact {lemma}"));
     }
     lines.join("\n")
@@ -310,8 +294,7 @@ mod tests {
         for byte in 0u8..=64 {
             let seed = [byte; 32];
             let inst = generate_v1_lenbound(&seed);
-            assert!((2..=6).contains(&inst.chain_len));
-            assert_eq!(inst.chain_len as usize, inst.chain.len());
+            assert!((2..=6).contains(&inst.chain.len()));
             assert!(
                 has_reducer(&inst.chain),
                 "missing reducer: {:?}",
@@ -361,7 +344,6 @@ mod tests {
     fn canonical_v1_proof_uses_length_bound_helpers() {
         let inst = Instance {
             d: 0,
-            chain_len: 2,
             chain: vec![Op::FilterP(Pred::Even), Op::Dedup],
         };
         let proof = render_canonical_proof(&inst);
@@ -369,5 +351,36 @@ mod tests {
         assert!(proof.contains("length_dedup_le"));
         assert!(!proof.contains("sorry"));
         assert!(!proof.contains("admit"));
+    }
+
+    #[test]
+    fn canonical_v1_proof_lifts_equalities_to_le_for_mixed_chains() {
+        // Mixed-op chain (≤ + = + ≤ in original lemma signatures) must render
+        // a calc block that only uses `≤` so it composes via the standard
+        // `Nat.le_trans` Trans instance. Each `=` lemma is wrapped in
+        // `Nat.le_of_eq`; no raw `=` step survives in the calc body.
+        let inst = Instance {
+            d: 0,
+            chain: vec![Op::FilterP(Pred::Even), Op::MapAdd(3), Op::Dedup],
+        };
+        let proof = render_canonical_proof(&inst);
+        assert!(
+            proof.contains("Nat.le_of_eq"),
+            "expected `=` lemma to be lifted via Nat.le_of_eq, got:\n{proof}"
+        );
+        assert!(
+            !proof.contains(" = ("),
+            "calc body must not emit `_ = (...)` steps, got:\n{proof}"
+        );
+        for line in proof.lines() {
+            let trimmed = line.trim_start();
+            let is_calc_step = trimmed.starts_with('_') || trimmed.starts_with('(');
+            if is_calc_step && trimmed.ends_with(":= by") {
+                assert!(
+                    trimmed.contains(" ≤ "),
+                    "calc step must use `≤`, got: {trimmed}"
+                );
+            }
+        }
     }
 }

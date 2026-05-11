@@ -495,20 +495,38 @@ mod tests {
                 let manifest = env!("CARGO_MANIFEST_DIR");
                 PathBuf::from(manifest).join("../../lean/checker")
             });
-        let seed_hex = "0000000000000000000000000000000000000000000000000000000000000000";
-        let inst = family_v1_lenbound::generate_from_hex(seed_hex).unwrap();
-        let canonical = family_v1_lenbound::render_canonical_proof(&inst);
-        assert!(canonical.starts_with("by\n  intro xs\n  calc"));
-        assert!(
-            canonical.contains("length_filterByPred_le") || canonical.contains("length_dedup_le")
-        );
 
-        let v = LeanVerifier::new(lean_dir, "v1-lenbound").with_timeout(Duration::from_secs(120));
-        let r = v.verify(seed_hex, 0, &canonical, None);
+        // Sweep several deterministic seeds so the calc-chain fix is exercised
+        // across many op shapes (mixed `≤`/`=`, all-`≤`, ≥3-op chains). Each
+        // proof is rendered from the same instance the verifier derives, so
+        // the theorem rhs and proof body always agree.
+        let seed_hexes = [
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+            "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+            "deadbeefcafebabe0123456789abcdef0123456789abcdeffeedfacecafe0001",
+        ];
+        let mut seen_mixed = false;
+        for seed_hex in seed_hexes {
+            let inst = family_v1_lenbound::generate_from_hex(seed_hex).unwrap();
+            let canonical = family_v1_lenbound::render_canonical_proof(&inst);
+            assert!(canonical.starts_with("by\n  intro xs\n  calc"));
+            if canonical.contains("Nat.le_of_eq") {
+                seen_mixed = true;
+            }
+            let v = LeanVerifier::new(lean_dir.clone(), "v1-lenbound")
+                .with_timeout(Duration::from_secs(120));
+            let r = v.verify(seed_hex, 0, &canonical, None);
+            assert!(
+                r.accepted,
+                "v1 canonical proof rejected for seed {seed_hex}: \
+                 chain={:?} reason={:?} stderr={}",
+                inst.chain, r.reason, r.stderr_tail
+            );
+        }
         assert!(
-            r.accepted,
-            "v1 canonical proof rejected: reason={:?} stderr={}",
-            r.reason, r.stderr_tail
+            seen_mixed,
+            "test sweep did not cover any mixed `=`/`≤` chain — broaden the seed list"
         );
     }
 }
