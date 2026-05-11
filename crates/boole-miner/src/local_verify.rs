@@ -13,7 +13,7 @@
 // previous (lake-verify-feature-gated) signature byte-for-byte so nothing
 // downstream has to change.
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::family_v031::{
     generate_from_hex as generate_v031_from_hex, lean_module as lean_v031_module, Profile,
@@ -49,6 +49,7 @@ pub struct VerifyResult {
     pub reason: VerifyReason,
     pub elapsed: Duration,
     pub stderr_tail: String,
+    pub attempt_artifact_path: Option<PathBuf>,
 }
 
 pub trait Verifier: Send + Sync {
@@ -72,6 +73,7 @@ impl Verifier for AcceptingVerifier {
             reason: VerifyReason::Accepted,
             elapsed: Duration::ZERO,
             stderr_tail: String::new(),
+            attempt_artifact_path: None,
         }
     }
 }
@@ -100,6 +102,7 @@ impl Verifier for RejectingVerifier {
             reason: self.reason.clone(),
             elapsed: Duration::ZERO,
             stderr_tail: String::new(),
+            attempt_artifact_path: None,
         }
     }
 }
@@ -164,6 +167,7 @@ impl Verifier for LeanVerifier {
                     "LeanVerifier does not support profile {:?}; supported: v031-lp, v031, v1-lenbound",
                     self.profile
                 ),
+                attempt_artifact_path: None,
             };
         };
         let module_text = match profile {
@@ -176,6 +180,7 @@ impl Verifier for LeanVerifier {
                             reason: VerifyReason::EmitFailed,
                             elapsed: started.elapsed(),
                             stderr_tail: format!("decode seed_hex failed: {e}"),
+                            attempt_artifact_path: None,
                         };
                     }
                 };
@@ -190,6 +195,7 @@ impl Verifier for LeanVerifier {
                             reason: VerifyReason::EmitFailed,
                             elapsed: started.elapsed(),
                             stderr_tail: format!("decode seed_hex failed: {e}"),
+                            attempt_artifact_path: None,
                         };
                     }
                 };
@@ -198,9 +204,13 @@ impl Verifier for LeanVerifier {
         };
 
         let tmp_dir = std::env::temp_dir().join(format!(
-            "boole-verify-{}-{}",
+            "boole-verify-{}-{}-{}",
             std::process::id(),
             seed_hex_short(seed_hex),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
         ));
         if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
             return VerifyResult {
@@ -208,9 +218,20 @@ impl Verifier for LeanVerifier {
                 reason: VerifyReason::EmitFailed,
                 elapsed: started.elapsed(),
                 stderr_tail: format!("mkdir failed: {e}"),
+                attempt_artifact_path: None,
             };
         }
-        let proof_path = tmp_dir.join("VerifyMod.lean");
+        let proof_path = tmp_dir.join("generated_module.lean");
+        if let Err(e) = std::fs::write(tmp_dir.join("extracted_proof.lean"), proof_source) {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            return VerifyResult {
+                accepted: false,
+                reason: VerifyReason::EmitFailed,
+                elapsed: started.elapsed(),
+                stderr_tail: format!("write extracted proof failed: {e}"),
+                attempt_artifact_path: None,
+            };
+        }
         if let Err(e) = std::fs::write(&proof_path, &module_text) {
             let _ = std::fs::remove_dir_all(&tmp_dir);
             return VerifyResult {
@@ -218,6 +239,7 @@ impl Verifier for LeanVerifier {
                 reason: VerifyReason::EmitFailed,
                 elapsed: started.elapsed(),
                 stderr_tail: format!("write proof failed: {e}"),
+                attempt_artifact_path: None,
             };
         }
 
@@ -227,32 +249,64 @@ impl Verifier for LeanVerifier {
         let runner = boole_lean_runner::LeanRunner::new(cfg);
 
         let result = runner.check_file(&proof_path);
-        let _ = std::fs::remove_dir_all(&tmp_dir);
+
+        let write_diagnostics =
+            |stdout: &str, stderr: &str, reason: VerifyReason, elapsed: Duration| {
+                let _ = std::fs::write(tmp_dir.join("lean_stdout.txt"), stdout);
+                let _ = std::fs::write(tmp_dir.join("lean_stderr.txt"), stderr);
+                let result_json = serde_json::json!({
+                    "accepted": false,
+                    "reason": reason.as_str(),
+                    "elapsedMs": elapsed.as_millis(),
+                    "stderrTail": tail(&format!("{stdout}{stderr}"), STDERR_TAIL_LIMIT),
+                });
+                let _ = std::fs::write(
+                    tmp_dir.join("verify_result.json"),
+                    serde_json::to_string_pretty(&result_json).unwrap_or_else(|_| "{}".to_string()),
+                );
+            };
 
         match result {
-            Ok(r) if r.accepted => VerifyResult {
-                accepted: true,
-                reason: VerifyReason::Accepted,
-                elapsed: started.elapsed(),
-                stderr_tail: String::new(),
-            },
-            Ok(r) if r.timed_out => VerifyResult {
-                accepted: false,
-                reason: VerifyReason::ElaborateTimeout,
-                elapsed: started.elapsed(),
-                stderr_tail: tail(&r.stderr, STDERR_TAIL_LIMIT),
-            },
+            Ok(r) if r.accepted => {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                VerifyResult {
+                    accepted: true,
+                    reason: VerifyReason::Accepted,
+                    elapsed: started.elapsed(),
+                    stderr_tail: String::new(),
+                    attempt_artifact_path: None,
+                }
+            }
+            Ok(r) if r.timed_out => {
+                let elapsed = started.elapsed();
+                write_diagnostics(
+                    &r.stdout,
+                    &r.stderr,
+                    VerifyReason::ElaborateTimeout,
+                    elapsed,
+                );
+                VerifyResult {
+                    accepted: false,
+                    reason: VerifyReason::ElaborateTimeout,
+                    elapsed,
+                    stderr_tail: tail(&r.stderr, STDERR_TAIL_LIMIT),
+                    attempt_artifact_path: Some(tmp_dir.clone()),
+                }
+            }
             Ok(r) => {
-                let mut diag = r.stdout;
+                let mut diag = r.stdout.clone();
                 if !diag.is_empty() && !diag.ends_with('\n') {
                     diag.push('\n');
                 }
                 diag.push_str(&r.stderr);
+                let elapsed = started.elapsed();
+                write_diagnostics(&r.stdout, &r.stderr, VerifyReason::ElaborateFailed, elapsed);
                 VerifyResult {
                     accepted: false,
                     reason: VerifyReason::ElaborateFailed,
-                    elapsed: started.elapsed(),
+                    elapsed,
                     stderr_tail: tail(&diag, STDERR_TAIL_LIMIT),
+                    attempt_artifact_path: Some(tmp_dir.clone()),
                 }
             }
             Err(e) => {
@@ -265,11 +319,14 @@ impl Verifier for LeanVerifier {
                 } else {
                     VerifyReason::ElaborateFailed
                 };
+                let elapsed = started.elapsed();
+                write_diagnostics("", &msg, reason.clone(), elapsed);
                 VerifyResult {
                     accepted: false,
                     reason,
-                    elapsed: started.elapsed(),
+                    elapsed,
                     stderr_tail: tail(&msg, STDERR_TAIL_LIMIT),
+                    attempt_artifact_path: Some(tmp_dir.clone()),
                 }
             }
         }
@@ -338,6 +395,50 @@ mod tests {
         assert!(!r.accepted);
         assert_ne!(r.reason, VerifyReason::EmitFailed);
         assert!(!r.stderr_tail.contains("does not support profile"));
+    }
+
+    #[test]
+    fn lean_verifier_preserves_rejected_attempt_artifact() {
+        let missing_package_dir = std::env::temp_dir().join(format!(
+            "boole-miner-missing-lean-package-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&missing_package_dir);
+        let proof_term = "by intro xs; exact by simp";
+        let v = LeanVerifier::new(missing_package_dir, "v031-lp");
+        let r = v.verify(
+            "b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764",
+            0,
+            proof_term,
+            None,
+        );
+
+        assert!(!r.accepted);
+        let artifact_path = r
+            .attempt_artifact_path
+            .as_ref()
+            .expect("rejected Lean attempts keep artifact directory");
+        assert!(
+            artifact_path.is_dir(),
+            "artifact directory should still exist"
+        );
+        let generated_module = std::fs::read_to_string(artifact_path.join("generated_module.lean"))
+            .expect("read preserved generated module");
+        assert!(generated_module.contains("namespace BooleVerifyMod"));
+        assert!(generated_module.contains(proof_term));
+        let extracted_proof = std::fs::read_to_string(artifact_path.join("extracted_proof.lean"))
+            .expect("read preserved extracted proof");
+        assert_eq!(extracted_proof, proof_term);
+        assert!(artifact_path.join("lean_stdout.txt").is_file());
+        assert!(artifact_path.join("lean_stderr.txt").is_file());
+        let verify_result = std::fs::read_to_string(artifact_path.join("verify_result.json"))
+            .expect("read preserved verify result");
+        assert!(
+            verify_result.contains("binary_not_found")
+                || verify_result.contains("elaborate_failed")
+        );
+
+        let _ = std::fs::remove_dir_all(artifact_path);
     }
 
     /// End-to-end: drive `lake exec boole_check` against a real-life

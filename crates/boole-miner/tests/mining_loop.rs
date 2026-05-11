@@ -1,4 +1,6 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use boole_core::{parse_biguint_hex, Hex32};
 
@@ -7,7 +9,7 @@ use boole_miner::{
     FixedChainHead, GrinderConfig, MiningEvent, MiningLoopDeps, MiningLoopOptions,
     MiningRunContext, MiningRunDriverMode, MiningRunTargetMode, MiningRunVerifierMode, MockDriver,
     MockResponse, RejectingVerifier, StructuralCanonicalizer, StubTargetEmitter, SubmitInputs,
-    SubmitResult, Submitter, VerifyReason,
+    SubmitResult, Submitter, Verifier, VerifyReason, VerifyResult,
 };
 
 fn pk32() -> Hex32 {
@@ -735,4 +737,88 @@ fn test_loop_breaks_inner_when_submit_returns_stale_c() {
         .filter(|e| matches!(e, MiningEvent::HeadAdvancedMidCycle { .. }))
         .count();
     assert_eq!(advance_count, 1);
+}
+
+struct ArtifactRejectingVerifier {
+    artifact_path: PathBuf,
+}
+
+impl Verifier for ArtifactRejectingVerifier {
+    fn verify(
+        &self,
+        _seed_hex: &str,
+        _d: u32,
+        _proof_source: &str,
+        _n: Option<u32>,
+    ) -> VerifyResult {
+        VerifyResult {
+            accepted: false,
+            reason: VerifyReason::ElaborateFailed,
+            elapsed: Duration::from_millis(7),
+            stderr_tail: "synthetic lean error".to_string(),
+            attempt_artifact_path: Some(self.artifact_path.clone()),
+        }
+    }
+}
+
+#[test]
+fn test_verify_outcome_threads_attempt_artifact_path() {
+    let artifact_path = PathBuf::from("/tmp/boole-test-attempt-artifact");
+    let events: Arc<Mutex<Vec<MiningEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = Arc::clone(&events);
+    let log_fn: Box<dyn Fn(&MiningEvent) + Send + Sync> =
+        Box::new(move |e: &MiningEvent| events_clone.lock().unwrap().push(e.clone()));
+    let submitter = RecordingSubmitter::with_results(
+        SubmitResult::Accepted {
+            share_hash_hex: "abc".to_string(),
+        },
+        AnnounceTicketResult::Observed {
+            hash_hex: "def".to_string(),
+        },
+    );
+
+    let deps = MiningLoopDeps {
+        pk: pk32(),
+        chain_head: Box::new(FixedChainHead { head: easy_head() }),
+        emitter: Box::new(StubTargetEmitter::new("render")),
+        driver: make_canned_proof_driver(),
+        verifier: Box::new(ArtifactRejectingVerifier {
+            artifact_path: artifact_path.clone(),
+        }),
+        canonicalizer: Box::new(StructuralCanonicalizer),
+        submit_client: Box::new(submitter),
+        prompt_builder: None,
+        log: Some(log_fn),
+        sleeper: None,
+    };
+    let opts = MiningLoopOptions {
+        max_cycles: Some(1),
+        deterministic_nonces: true,
+        ticket_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        share_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        submit_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        ..Default::default()
+    };
+
+    let summary = run_mining_loop(deps, opts);
+
+    assert_eq!(summary.verify_rejected, 1);
+    let evs = events.lock().unwrap();
+    assert!(evs.iter().any(|event| matches!(
+        event,
+        MiningEvent::VerifyOutcome {
+            accepted: false,
+            attempt_artifact_path: Some(path),
+            ..
+        } if path == &artifact_path
+    )));
 }

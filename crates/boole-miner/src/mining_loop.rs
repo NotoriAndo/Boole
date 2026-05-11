@@ -16,6 +16,7 @@
 //   - `opts.max_shares` accepted shares submitted
 //   - `opts.max_cycles` ticket cycles completed
 //   - `opts.cancel.load()` flips to `true`
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -276,6 +277,7 @@ pub enum MiningEvent {
         accepted: bool,
         reason: String,
         elapsed_ms: u128,
+        attempt_artifact_path: Option<PathBuf>,
     },
     ShareFound {
         j_hex: String,
@@ -608,6 +610,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                 accepted: verify.accepted,
                 reason: verify.reason.as_str().to_string(),
                 elapsed_ms: verify.elapsed.as_millis(),
+                attempt_artifact_path: verify.attempt_artifact_path.clone(),
             });
             if !verify.accepted {
                 summary.verify_rejected += 1;

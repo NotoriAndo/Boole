@@ -774,10 +774,18 @@ fn event_to_json(e: &MiningEvent) -> serde_json::Value {
             accepted,
             reason,
             elapsed_ms,
-        } => serde_json::json!({
-            "kind":"verify_outcome","j":j_index,"accepted":accepted,
-            "reason":reason,"elapsedMs":elapsed_ms,
-        }),
+            attempt_artifact_path,
+        } => {
+            let mut value = serde_json::json!({
+                "kind":"verify_outcome","j":j_index,"accepted":accepted,
+                "reason":reason,"elapsedMs":elapsed_ms,
+            });
+            if let Some(path) = attempt_artifact_path {
+                value["attemptArtifactPath"] =
+                    serde_json::Value::String(path.display().to_string());
+            }
+            value
+        }
         MiningEvent::ShareFound {
             j_hex,
             is_proposer,
@@ -843,5 +851,30 @@ pub fn run_mine(cmd: MineCommand) -> anyhow::Result<()> {
         },
         MineCommand::Start(args) => run_start(args).map(|_| ()),
         MineCommand::Bounty(args) => run_bounty(args),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verify_outcome_ndjson_emits_attempt_artifact_path_only() {
+        let event = MiningEvent::VerifyOutcome {
+            j_index: 3,
+            accepted: false,
+            reason: "elaborate_failed".to_string(),
+            elapsed_ms: 12,
+            attempt_artifact_path: Some(PathBuf::from("/tmp/boole-attempt-artifact")),
+        };
+
+        let json = event_to_json(&event);
+
+        assert_eq!(json["kind"], "verify_outcome");
+        assert_eq!(json["attemptArtifactPath"], "/tmp/boole-attempt-artifact");
+        assert!(json.get("proofSource").is_none());
+        assert!(json.get("generatedModule").is_none());
+        assert!(json.get("leanStdout").is_none());
+        assert!(json.get("leanStderr").is_none());
     }
 }
