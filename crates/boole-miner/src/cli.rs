@@ -717,6 +717,7 @@ fn summary_for_log(s: &MiningLoopSummary) -> serde_json::Value {
         "sharesRejected": s.shares_rejected,
         "rateLimited": s.rate_limited,
         "networkErrors": s.network_errors,
+        "announceRejected": s.announce_rejected,
         "proposerShares": s.proposer_shares,
         "loopClass": s.loop_class,
         "publicScoringEligible": s.public_scoring_eligible,

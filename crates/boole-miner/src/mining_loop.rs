@@ -320,7 +320,10 @@ pub enum MiningEvent {
     },
     HeadAdvancedMidCycle {
         old_c_hex: String,
-        new_c_hex: String,
+        /// Fresh `c` from a successful re-fetch after `SubmitAccepted`. `None`
+        /// for `StaleCRejection` since the dispatcher only signaled staleness
+        /// without surfacing the new head.
+        new_c_hex: Option<String>,
         reason: HeadAdvanceReason,
     },
     CycleComplete {
@@ -379,6 +382,11 @@ pub struct MiningLoopSummary {
     pub shares_rejected: u64,
     pub rate_limited: u64,
     pub network_errors: u64,
+    /// Dispatcher returned a protocol rejection on `announce_ticket`
+    /// (e.g. 4xx). Distinct from `network_errors`, which tracks transport
+    /// failures, so operational alerts on transport health can ignore
+    /// protocol-level rejections.
+    pub announce_rejected: u64,
     pub proposer_shares: u64,
     pub loop_class: String,
     pub public_scoring_eligible: bool,
@@ -483,11 +491,12 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
             m: head.m,
         });
         let classification = classify_loop(&head, &opts.run_context);
-        if summary.loop_class.is_empty() {
-            summary.loop_class = classification.loop_class.clone();
-            summary.public_scoring_eligible = classification.public_scoring_eligible;
-            summary.ineligibility_reasons = classification.ineligibility_reasons.clone();
-        }
+        // The summary always reflects the classification of the most recent
+        // cycle so it agrees with the per-cycle `LoopClassified` event stream;
+        // consumers that need per-cycle history should diff the events.
+        summary.loop_class = classification.loop_class.clone();
+        summary.public_scoring_eligible = classification.public_scoring_eligible;
+        summary.ineligibility_reasons = classification.ineligibility_reasons.clone();
         log(&MiningEvent::LoopClassified {
             loop_class: classification.loop_class,
             public_scoring_eligible: classification.public_scoring_eligible,
@@ -531,7 +540,15 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
             result: announce.clone(),
         });
         match &announce {
-            AnnounceTicketResult::Rejected { .. } | AnnounceTicketResult::NetworkError { .. } => {
+            AnnounceTicketResult::Rejected { .. } => {
+                summary.announce_rejected += 1;
+                summary.cycles_run += 1;
+                log(&MiningEvent::CycleComplete {
+                    cycle: summary.cycles_run,
+                });
+                continue;
+            }
+            AnnounceTicketResult::NetworkError { .. } => {
                 summary.network_errors += 1;
                 summary.cycles_run += 1;
                 log(&MiningEvent::CycleComplete {
@@ -732,7 +749,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                             head_advanced = Some(HeadAdvanceReason::SubmitAccepted);
                             log(&MiningEvent::HeadAdvancedMidCycle {
                                 old_c_hex: head.c.to_hex(),
-                                new_c_hex: fresh.c.to_hex(),
+                                new_c_hex: Some(fresh.c.to_hex()),
                                 reason: HeadAdvanceReason::SubmitAccepted,
                             });
                         }
@@ -752,7 +769,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                         head_advanced = Some(HeadAdvanceReason::StaleCRejection);
                         log(&MiningEvent::HeadAdvancedMidCycle {
                             old_c_hex: head.c.to_hex(),
-                            new_c_hex: String::new(),
+                            new_c_hex: None,
                             reason: HeadAdvanceReason::StaleCRejection,
                         });
                     }

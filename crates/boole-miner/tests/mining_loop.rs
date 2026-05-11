@@ -602,7 +602,8 @@ fn test_loop_aborts_when_announce_rejected() {
         ..Default::default()
     };
     let summary = run_mining_loop(deps, opts);
-    assert_eq!(summary.network_errors, 1);
+    assert_eq!(summary.announce_rejected, 1);
+    assert_eq!(summary.network_errors, 0);
     assert_eq!(summary.shares_accepted, 0);
     assert_eq!(submitter.submit_calls.lock().unwrap().len(), 0);
 }
@@ -707,13 +708,26 @@ fn test_loop_breaks_inner_when_head_advances_after_accept() {
     );
     assert_eq!(submitter.submit_calls.lock().unwrap().len(), 1);
     let evs = events.lock().unwrap();
-    let advance_count = evs
+    let advances: Vec<_> = evs
         .iter()
-        .filter(|e| matches!(e, MiningEvent::HeadAdvancedMidCycle { .. }))
-        .count();
+        .filter_map(|e| match e {
+            MiningEvent::HeadAdvancedMidCycle {
+                new_c_hex, reason, ..
+            } => Some((new_c_hex.clone(), *reason)),
+            _ => None,
+        })
+        .collect();
     assert_eq!(
-        advance_count, 1,
+        advances.len(),
+        1,
         "exactly one HeadAdvancedMidCycle event was emitted"
+    );
+    let (new_c, reason) = &advances[0];
+    assert_eq!(*reason, boole_miner::HeadAdvanceReason::SubmitAccepted);
+    assert_eq!(
+        new_c.as_deref(),
+        Some("0707070707070707070707070707070707070707070707070707070707070707"),
+        "SubmitAccepted re-fetch surfaces the new c"
     );
 }
 
@@ -789,11 +803,22 @@ fn test_loop_breaks_inner_when_submit_returns_stale_c() {
     assert_eq!(summary.shares_rejected, 1);
     assert_eq!(summary.llm_calls, 1, "broke after first stale_c rejection");
     let evs = events.lock().unwrap();
-    let advance_count = evs
+    let advances: Vec<_> = evs
         .iter()
-        .filter(|e| matches!(e, MiningEvent::HeadAdvancedMidCycle { .. }))
-        .count();
-    assert_eq!(advance_count, 1);
+        .filter_map(|e| match e {
+            MiningEvent::HeadAdvancedMidCycle {
+                new_c_hex, reason, ..
+            } => Some((new_c_hex.clone(), *reason)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(advances.len(), 1);
+    let (new_c, reason) = &advances[0];
+    assert_eq!(*reason, boole_miner::HeadAdvanceReason::StaleCRejection);
+    assert!(
+        new_c.is_none(),
+        "StaleCRejection has no fresh c to surface, got {new_c:?}"
+    );
 }
 
 struct ArtifactRejectingVerifier {
