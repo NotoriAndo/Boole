@@ -1,0 +1,22 @@
+[
+  {
+    "kind": "llm_outcome",
+    "j": 0,
+    "outcome": "answered",
+    "elapsedMs": 42,
+    "reason": null,
+    "proofContractVersion": "boole-proof-body-v1",
+    "canonicalizerVersion": "boole-proof-canonicalizer-v1",
+    "modelSpecificOverrides": false
+  },
+  {
+    "kind": "llm_outcome",
+    "j": 1,
+    "outcome": "intake_rejected",
+    "elapsedMs": 7,
+    "reason": "expected theorem body only",
+    "proofContractVersion": "boole-proof-body-v1",
+    "canonicalizerVersion": "boole-proof-canonicalizer-v1",
+    "modelSpecificOverrides": false
+  }
+]

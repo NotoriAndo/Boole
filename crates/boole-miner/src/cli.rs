@@ -947,6 +947,46 @@ mod tests {
     }
 
     #[test]
+    fn mining_report_summary_matches_v1_artifact_contract_fixture() {
+        let summary = MiningLoopSummary {
+            agent: crate::mining_loop::AgentRuntimeReport {
+                driver_calls: 4,
+                driver_answered: 3,
+                driver_rejected: 1,
+                driver_errored: 0,
+                proof_intake_accepted: 2,
+                proof_intake_rejected: 1,
+            },
+            protocol: crate::mining_loop::ProtocolReport {
+                cycles_run: 4,
+                tickets_found: 4,
+                verify_accepted: 1,
+                verify_rejected: 1,
+                shares_accepted: 1,
+                shares_rejected: 0,
+                rate_limited: 0,
+                network_errors: 0,
+                announce_rejected: 0,
+                proposer_shares: 1,
+                loop_class: "smoke".to_string(),
+                public_scoring_eligible: false,
+                ineligibility_reasons: vec!["controlled_local_smoke".to_string()],
+            },
+        };
+        let actual = summary_for_log(&summary);
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/protocol/mining-report/v1-summary.json"
+        ))
+        .expect("mining report fixture is valid JSON");
+
+        assert_eq!(actual, expected);
+        assert!(actual.get("llmSolved").is_none());
+        assert_ne!(actual["driverAnswered"], actual["verifyAccepted"]);
+        assert_ne!(actual["proofIntakeAccepted"], actual["sharesAccepted"]);
+        assert_eq!(actual["publicScoringEligible"], false);
+    }
+
+    #[test]
     fn verify_outcome_ndjson_emits_attempt_artifact_path_only() {
         let event = MiningEvent::VerifyOutcome {
             j_index: 3,
@@ -987,5 +1027,38 @@ mod tests {
         assert_eq!(json["canonicalizerVersion"], "boole-proof-canonicalizer-v1");
         assert_eq!(json["modelSpecificOverrides"], false);
         assert!(json.get("proofSource").is_none());
+    }
+
+    #[test]
+    fn mining_report_llm_outcome_events_match_v1_artifact_contract_fixture() {
+        let events = serde_json::Value::Array(vec![
+            event_to_json(&MiningEvent::LlmOutcome {
+                j_index: 0,
+                outcome: crate::mining_loop::LlmOutcomeKind::Answered,
+                elapsed_ms: 42,
+                reason: None,
+                proof_contract_version: crate::proof_intake::PROOF_BODY_CONTRACT_VERSION,
+                canonicalizer_version: crate::proof_intake::PROOF_CANONICALIZER_VERSION,
+                model_specific_overrides: false,
+            }),
+            event_to_json(&MiningEvent::LlmOutcome {
+                j_index: 1,
+                outcome: crate::mining_loop::LlmOutcomeKind::IntakeRejected,
+                elapsed_ms: 7,
+                reason: Some("expected theorem body only".to_string()),
+                proof_contract_version: crate::proof_intake::PROOF_BODY_CONTRACT_VERSION,
+                canonicalizer_version: crate::proof_intake::PROOF_CANONICALIZER_VERSION,
+                model_specific_overrides: false,
+            }),
+        ]);
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/protocol/mining-report/v1-llm-outcomes.json"
+        ))
+        .expect("mining report event fixture is valid JSON");
+
+        assert_eq!(events, expected);
+        assert!(events.to_string().contains("answered"));
+        assert!(events.to_string().contains("intake_rejected"));
+        assert!(!events.to_string().contains("solved"));
     }
 }

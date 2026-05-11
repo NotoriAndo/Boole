@@ -1,0 +1,48 @@
+{
+  "agent": {
+    "driverCalls": 4,
+    "driverAnswered": 3,
+    "driverRejected": 1,
+    "driverErrored": 0,
+    "proofIntakeAccepted": 2,
+    "proofIntakeRejected": 1
+  },
+  "protocol": {
+    "cyclesRun": 4,
+    "ticketsFound": 4,
+    "verifyAccepted": 1,
+    "verifyRejected": 1,
+    "sharesAccepted": 1,
+    "sharesRejected": 0,
+    "rateLimited": 0,
+    "networkErrors": 0,
+    "announceRejected": 0,
+    "proposerShares": 1,
+    "loopClass": "smoke",
+    "publicScoringEligible": false,
+    "ineligibilityReasons": [
+      "controlled_local_smoke"
+    ]
+  },
+  "cyclesRun": 4,
+  "ticketsFound": 4,
+  "verifyAccepted": 1,
+  "verifyRejected": 1,
+  "sharesAccepted": 1,
+  "sharesRejected": 0,
+  "rateLimited": 0,
+  "networkErrors": 0,
+  "announceRejected": 0,
+  "proposerShares": 1,
+  "loopClass": "smoke",
+  "publicScoringEligible": false,
+  "ineligibilityReasons": [
+    "controlled_local_smoke"
+  ],
+  "driverCalls": 4,
+  "driverAnswered": 3,
+  "driverRejected": 1,
+  "driverErrored": 0,
+  "proofIntakeAccepted": 2,
+  "proofIntakeRejected": 1
+}

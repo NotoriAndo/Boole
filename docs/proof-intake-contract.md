@@ -105,6 +105,13 @@ Agent/runtime counters use transport and intake terms:
 
 Protocol counters remain separate, for example `verifyAccepted`, `sharesAccepted`, and block-production evidence. `driverAnswered` is not a public mining or proof success claim.
 
+Tracked artifact fixtures freeze this report contract:
+
+- `fixtures/protocol/mining-report/v1-summary.json` fixes the nested `agent`/`protocol` report plus flat stdout mirror.
+- `fixtures/protocol/mining-report/v1-llm-outcomes.json` fixes `llm_outcome` event wording for `answered` and `intake_rejected`.
+
+These fixtures are local controlled-smoke artifacts. They are not public mining, paid/API benchmark, or model leaderboard evidence.
+
 ## ProofIntake syntax-envelope scope
 
 `ProofIntakeV1` may do shared syntax-envelope normalization before verifier/canonicalizer admission. It must not change proof meaning.
