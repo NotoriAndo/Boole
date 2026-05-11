@@ -706,10 +706,12 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
 fn summary_for_log(s: &MiningLoopSummary) -> serde_json::Value {
     serde_json::json!({
         "agent": {
-            "llmCalls": s.agent.llm_calls,
-            "llmSolved": s.agent.llm_solved,
-            "llmRejected": s.agent.llm_rejected,
-            "llmErrored": s.agent.llm_errored,
+            "driverCalls": s.agent.driver_calls,
+            "driverAnswered": s.agent.driver_answered,
+            "driverRejected": s.agent.driver_rejected,
+            "driverErrored": s.agent.driver_errored,
+            "proofIntakeAccepted": s.agent.proof_intake_accepted,
+            "proofIntakeRejected": s.agent.proof_intake_rejected,
         },
         "protocol": {
             "cyclesRun": s.protocol.cycles_run,
@@ -726,8 +728,8 @@ fn summary_for_log(s: &MiningLoopSummary) -> serde_json::Value {
             "publicScoringEligible": s.protocol.public_scoring_eligible,
             "ineligibilityReasons": s.protocol.ineligibility_reasons,
         },
-        // Temporary compatibility surface for existing CLI consumers. The nested
-        // `agent`/`protocol` objects are canonical for new code.
+        // Flat mirror for stdout-line scrapers. The nested `agent`/`protocol`
+        // objects remain canonical for new code.
         "cyclesRun": s.protocol.cycles_run,
         "ticketsFound": s.protocol.tickets_found,
         "verifyAccepted": s.protocol.verify_accepted,
@@ -741,10 +743,12 @@ fn summary_for_log(s: &MiningLoopSummary) -> serde_json::Value {
         "loopClass": s.protocol.loop_class,
         "publicScoringEligible": s.protocol.public_scoring_eligible,
         "ineligibilityReasons": s.protocol.ineligibility_reasons,
-        "llmCalls": s.agent.llm_calls,
-        "llmSolved": s.agent.llm_solved,
-        "llmRejected": s.agent.llm_rejected,
-        "llmErrored": s.agent.llm_errored,
+        "driverCalls": s.agent.driver_calls,
+        "driverAnswered": s.agent.driver_answered,
+        "driverRejected": s.agent.driver_rejected,
+        "driverErrored": s.agent.driver_errored,
+        "proofIntakeAccepted": s.agent.proof_intake_accepted,
+        "proofIntakeRejected": s.agent.proof_intake_rejected,
     })
 }
 
@@ -892,10 +896,12 @@ mod tests {
     fn summary_for_log_emits_nested_agent_and_protocol_reports() {
         let summary = MiningLoopSummary {
             agent: crate::mining_loop::AgentRuntimeReport {
-                llm_calls: 3,
-                llm_solved: 2,
-                llm_rejected: 1,
-                llm_errored: 0,
+                driver_calls: 3,
+                driver_answered: 2,
+                driver_rejected: 1,
+                driver_errored: 0,
+                proof_intake_accepted: 2,
+                proof_intake_rejected: 0,
             },
             protocol: crate::mining_loop::ProtocolReport {
                 cycles_run: 4,
@@ -916,9 +922,11 @@ mod tests {
 
         let json = summary_for_log(&summary);
 
-        assert_eq!(json["agent"]["llmCalls"], 3);
-        assert_eq!(json["agent"]["llmSolved"], 2);
-        assert_eq!(json["protocol"]["cyclesRun"], 4);
+        assert_eq!(json["agent"]["driverCalls"], 3);
+        assert_eq!(json["agent"]["driverAnswered"], 2);
+        assert_eq!(json["agent"]["proofIntakeAccepted"], 2);
+        assert_eq!(json["agent"]["proofIntakeRejected"], 0);
+        assert!(json["agent"].get("llmSolved").is_none());
         assert_eq!(json["protocol"]["verifyAccepted"], 6);
         assert_eq!(json["protocol"]["sharesAccepted"], 8);
         assert_eq!(json["protocol"]["publicScoringEligible"], false);
@@ -926,8 +934,11 @@ mod tests {
             json["protocol"]["ineligibilityReasons"][0],
             "open_thresholds"
         );
-        assert_eq!(json["llmCalls"], 3);
-        assert_eq!(json["llmSolved"], 2);
+        assert_eq!(json["driverCalls"], 3);
+        assert_eq!(json["driverAnswered"], 2);
+        assert_eq!(json["proofIntakeAccepted"], 2);
+        assert_eq!(json["proofIntakeRejected"], 0);
+        assert!(json.get("llmSolved").is_none());
         assert_eq!(json["cyclesRun"], 4);
         assert_eq!(json["verifyAccepted"], 6);
         assert_eq!(json["sharesAccepted"], 8);
@@ -959,7 +970,7 @@ mod tests {
     fn llm_outcome_ndjson_emits_proof_intake_policy_metadata() {
         let event = MiningEvent::LlmOutcome {
             j_index: 7,
-            outcome: crate::mining_loop::LlmOutcomeKind::Solved,
+            outcome: crate::mining_loop::LlmOutcomeKind::Answered,
             elapsed_ms: 42,
             reason: None,
             proof_contract_version: crate::proof_intake::PROOF_BODY_CONTRACT_VERSION,
@@ -970,6 +981,8 @@ mod tests {
         let json = event_to_json(&event);
 
         assert_eq!(json["kind"], "llm_outcome");
+        assert_eq!(json["outcome"], "answered");
+        assert_ne!(json["outcome"], "solved");
         assert_eq!(json["proofContractVersion"], "boole-proof-body-v1");
         assert_eq!(json["canonicalizerVersion"], "boole-proof-canonicalizer-v1");
         assert_eq!(json["modelSpecificOverrides"], false);

@@ -90,6 +90,21 @@ driver.generate → ProofIntakeV1 → Canonicalizer → Verifier
 
 Driver adapters return raw answer-channel text. They do not produce a `proof_source`, unwrap fences, classify theorem/prose shapes, or repair candidate Lean. `ProofIntakeV1` is the only boundary that turns an answer into a `ProofCandidate`.
 
+## Report terminology
+
+Runtime reports must not collapse answer generation, proof intake, verifier success, share acceptance, or block production into one "solved" counter.
+
+Agent/runtime counters use transport and intake terms:
+
+- `driverCalls`: driver invocations attempted
+- `driverAnswered`: driver returned a non-empty answer channel
+- `driverRejected`: driver had no usable answer channel
+- `driverErrored`: transport/process/API failure
+- `proofIntakeAccepted`: shared ProofIntake accepted the answer as a proof candidate
+- `proofIntakeRejected`: shared ProofIntake rejected the answered candidate before canonicalizer/verifier
+
+Protocol counters remain separate, for example `verifyAccepted`, `sharesAccepted`, and block-production evidence. `driverAnswered` is not a public mining or proof success claim.
+
 ## ProofIntake syntax-envelope scope
 
 `ProofIntakeV1` may do shared syntax-envelope normalization before verifier/canonicalizer admission. It must not change proof meaning.

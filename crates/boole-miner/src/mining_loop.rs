@@ -360,7 +360,8 @@ impl HeadAdvanceReason {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmOutcomeKind {
-    Solved,
+    Answered,
+    IntakeRejected,
     Rejected,
     Error,
 }
@@ -368,7 +369,8 @@ pub enum LlmOutcomeKind {
 impl LlmOutcomeKind {
     pub fn as_str(&self) -> &'static str {
         match self {
-            LlmOutcomeKind::Solved => "solved",
+            LlmOutcomeKind::Answered => "answered",
+            LlmOutcomeKind::IntakeRejected => "intake_rejected",
             LlmOutcomeKind::Rejected => "rejected",
             LlmOutcomeKind::Error => "error",
         }
@@ -377,10 +379,12 @@ impl LlmOutcomeKind {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentRuntimeReport {
-    pub llm_calls: u64,
-    pub llm_solved: u64,
-    pub llm_rejected: u64,
-    pub llm_errored: u64,
+    pub driver_calls: u64,
+    pub driver_answered: u64,
+    pub driver_rejected: u64,
+    pub driver_errored: u64,
+    pub proof_intake_accepted: u64,
+    pub proof_intake_rejected: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -598,7 +602,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
             }) {
                 Ok(t) => t,
                 Err(err) => {
-                    summary.agent.llm_errored += 1;
+                    summary.agent.driver_errored += 1;
                     log(&MiningEvent::LlmOutcome {
                         j_index,
                         outcome: LlmOutcomeKind::Error,
@@ -618,7 +622,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
 
             // LLM with retry.
             let prompt = prompt_builder.build_prompt(&target);
-            summary.agent.llm_calls += 1;
+            summary.agent.driver_calls += 1;
             let llm = with_retry(
                 deps.driver.as_ref(),
                 &prompt,
@@ -629,16 +633,17 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                 GenerateResult::Answered {
                     answer, elapsed, ..
                 } => {
+                    summary.agent.driver_answered += 1;
                     let candidate = match ProofTransport::PlainText(answer.clone())
                         .into_envelope()
                         .and_then(ProofIntakeV1::extract)
                     {
                         Ok(candidate) => candidate,
                         Err(reason) => {
-                            summary.agent.llm_rejected += 1;
+                            summary.agent.proof_intake_rejected += 1;
                             log(&MiningEvent::LlmOutcome {
                                 j_index,
-                                outcome: LlmOutcomeKind::Rejected,
+                                outcome: LlmOutcomeKind::IntakeRejected,
                                 elapsed_ms: elapsed.as_millis(),
                                 reason: Some(reason.as_str().to_string()),
                                 proof_contract_version: PROOF_BODY_CONTRACT_VERSION,
@@ -648,10 +653,10 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                             continue;
                         }
                     };
-                    summary.agent.llm_solved += 1;
+                    summary.agent.proof_intake_accepted += 1;
                     log(&MiningEvent::LlmOutcome {
                         j_index,
-                        outcome: LlmOutcomeKind::Solved,
+                        outcome: LlmOutcomeKind::Answered,
                         elapsed_ms: elapsed.as_millis(),
                         reason: None,
                         proof_contract_version: candidate.contract_version,
@@ -661,7 +666,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                     candidate.proof_source
                 }
                 GenerateResult::Rejected { reason, elapsed } => {
-                    summary.agent.llm_rejected += 1;
+                    summary.agent.driver_rejected += 1;
                     log(&MiningEvent::LlmOutcome {
                         j_index,
                         outcome: LlmOutcomeKind::Rejected,
@@ -674,7 +679,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                     continue;
                 }
                 GenerateResult::Error { cause, elapsed } => {
-                    summary.agent.llm_errored += 1;
+                    summary.agent.driver_errored += 1;
                     log(&MiningEvent::LlmOutcome {
                         j_index,
                         outcome: LlmOutcomeKind::Error,

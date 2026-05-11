@@ -100,11 +100,11 @@ fn mine_start_exits_after_max_cycles_when_head_fetch_fails() {
     );
     assert_eq!(summary["protocol"]["sharesAccepted"], 0);
     assert_eq!(summary["protocol"]["ticketsFound"], 0);
-    assert_eq!(summary["agent"]["llmCalls"], 0);
-    assert_eq!(summary["cyclesRun"], 1, "legacy summary={summary}");
+    assert_eq!(summary["agent"]["driverCalls"], 0);
+    assert_eq!(summary["cyclesRun"], 1, "flat summary={summary}");
     assert!(
         summary["networkErrors"].as_u64().unwrap_or(0) >= 1,
-        "expected at least one legacy networkError: {summary}"
+        "expected at least one flat networkError: {summary}"
     );
     assert_eq!(summary["sharesAccepted"], 0);
     assert_eq!(summary["ticketsFound"], 0);

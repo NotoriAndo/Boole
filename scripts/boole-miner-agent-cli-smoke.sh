@@ -92,7 +92,7 @@ match = re.search(r"summary:\s*(\{[\s\S]*\})\s*$", raw)
 if not match:
     raise SystemExit(f"missing miner summary:\n{raw}")
 summary = json.loads(match.group(1))
-if summary.get("sharesAccepted") != 1 or summary.get("verifyAccepted") != 1 or summary.get("llmSolved") != 1 or summary.get("networkErrors") != 0:
+if summary.get("sharesAccepted") != 1 or summary.get("verifyAccepted") != 1 or summary.get("driverAnswered") != 1 or summary.get("proofIntakeAccepted") != 1 or summary.get("networkErrors") != 0:
     raise SystemExit(f"bad miner summary: {summary}\n{raw}")
 agent = json.load(open(agent_log_path))
 if agent.get("argPrefix") != ["--mode", "boole-proof"] or not agent.get("promptHasBoole") or agent.get("promptLen", 0) <= 0:

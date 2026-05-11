@@ -76,7 +76,7 @@ match = re.search(r"summary:\s*(\{[\s\S]*\})\s*$", raw)
 if not match:
     raise SystemExit(f"missing miner summary:\n{raw}")
 summary = json.loads(match.group(1))
-if summary.get("sharesAccepted") != 1 or summary.get("verifyAccepted") != 1 or summary.get("llmSolved") != 1 or summary.get("networkErrors") != 0:
+if summary.get("sharesAccepted") != 1 or summary.get("verifyAccepted") != 1 or summary.get("driverAnswered") != 1 or summary.get("proofIntakeAccepted") != 1 or summary.get("networkErrors") != 0:
     raise SystemExit(f"bad miner summary: {summary}\n{raw}")
 host, port_raw = addr.rsplit(":", 1)
 conn = http.client.HTTPConnection(host, int(port_raw), timeout=2)
