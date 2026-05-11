@@ -372,14 +372,18 @@ impl LlmOutcomeKind {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct MiningLoopSummary {
-    pub cycles_run: u64,
-    pub tickets_found: u64,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentRuntimeReport {
     pub llm_calls: u64,
     pub llm_solved: u64,
     pub llm_rejected: u64,
     pub llm_errored: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProtocolReport {
+    pub cycles_run: u64,
+    pub tickets_found: u64,
     pub verify_accepted: u64,
     pub verify_rejected: u64,
     pub shares_accepted: u64,
@@ -396,6 +400,15 @@ pub struct MiningLoopSummary {
     pub public_scoring_eligible: bool,
     pub ineligibility_reasons: Vec<String>,
 }
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MiningLoopOutcome {
+    pub agent: AgentRuntimeReport,
+    pub protocol: ProtocolReport,
+}
+
+/// Compatibility alias for callers while the report split is adopted.
+pub type MiningLoopSummary = MiningLoopOutcome;
 
 fn aborted(cancel: Option<&Arc<AtomicBool>>) -> bool {
     cancel.map(|c| c.load(Ordering::SeqCst)).unwrap_or(false)
@@ -471,7 +484,8 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
 
     let mut summary = MiningLoopSummary::default();
 
-    while summary.cycles_run < max_cycles && summary.shares_accepted < max_shares {
+    while summary.protocol.cycles_run < max_cycles && summary.protocol.shares_accepted < max_shares
+    {
         if aborted(opts.cancel.as_ref()) {
             break;
         }
@@ -482,10 +496,10 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                 log(&MiningEvent::HeadFetchFailed {
                     error: render_chain_head_error(&err),
                 });
-                summary.network_errors += 1;
-                summary.cycles_run += 1;
+                summary.protocol.network_errors += 1;
+                summary.protocol.cycles_run += 1;
                 log(&MiningEvent::CycleComplete {
-                    cycle: summary.cycles_run,
+                    cycle: summary.protocol.cycles_run,
                 });
                 continue;
             }
@@ -498,9 +512,9 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
         // The summary always reflects the classification of the most recent
         // cycle so it agrees with the per-cycle `LoopClassified` event stream;
         // consumers that need per-cycle history should diff the events.
-        summary.loop_class = classification.loop_class.clone();
-        summary.public_scoring_eligible = classification.public_scoring_eligible;
-        summary.ineligibility_reasons = classification.ineligibility_reasons.clone();
+        summary.protocol.loop_class = classification.loop_class.clone();
+        summary.protocol.public_scoring_eligible = classification.public_scoring_eligible;
+        summary.protocol.ineligibility_reasons = classification.ineligibility_reasons.clone();
         log(&MiningEvent::LoopClassified {
             loop_class: classification.loop_class,
             public_scoring_eligible: classification.public_scoring_eligible,
@@ -520,14 +534,14 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                 log(&MiningEvent::TicketExhausted {
                     hashes_attempted: opts.ticket_grind.max_attempts.unwrap_or(0),
                 });
-                summary.cycles_run += 1;
+                summary.protocol.cycles_run += 1;
                 log(&MiningEvent::CycleComplete {
-                    cycle: summary.cycles_run,
+                    cycle: summary.protocol.cycles_run,
                 });
                 break;
             }
         };
-        summary.tickets_found += 1;
+        summary.protocol.tickets_found += 1;
         log(&MiningEvent::TicketFound {
             n_hex: ticket.nonce.to_hex(),
             hashes_attempted: ticket.hashes_attempted,
@@ -545,18 +559,18 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
         });
         match &announce {
             AnnounceTicketResult::Rejected { .. } => {
-                summary.announce_rejected += 1;
-                summary.cycles_run += 1;
+                summary.protocol.announce_rejected += 1;
+                summary.protocol.cycles_run += 1;
                 log(&MiningEvent::CycleComplete {
-                    cycle: summary.cycles_run,
+                    cycle: summary.protocol.cycles_run,
                 });
                 continue;
             }
             AnnounceTicketResult::NetworkError { .. } => {
-                summary.network_errors += 1;
-                summary.cycles_run += 1;
+                summary.protocol.network_errors += 1;
+                summary.protocol.cycles_run += 1;
                 log(&MiningEvent::CycleComplete {
-                    cycle: summary.cycles_run,
+                    cycle: summary.protocol.cycles_run,
                 });
                 continue;
             }
@@ -565,7 +579,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
 
         let m = head.m;
         for j_index in 0..m {
-            if aborted(opts.cancel.as_ref()) || summary.shares_accepted >= max_shares {
+            if aborted(opts.cancel.as_ref()) || summary.protocol.shares_accepted >= max_shares {
                 break;
             }
 
@@ -581,7 +595,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
             }) {
                 Ok(t) => t,
                 Err(err) => {
-                    summary.llm_errored += 1;
+                    summary.agent.llm_errored += 1;
                     log(&MiningEvent::LlmOutcome {
                         j_index,
                         outcome: LlmOutcomeKind::Error,
@@ -601,7 +615,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
 
             // LLM with retry.
             let prompt = prompt_builder.build_prompt(&target);
-            summary.llm_calls += 1;
+            summary.agent.llm_calls += 1;
             let llm = with_retry(
                 deps.driver.as_ref(),
                 &prompt,
@@ -614,7 +628,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                     elapsed,
                     ..
                 } => {
-                    summary.llm_solved += 1;
+                    summary.agent.llm_solved += 1;
                     log(&MiningEvent::LlmOutcome {
                         j_index,
                         outcome: LlmOutcomeKind::Solved,
@@ -627,7 +641,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                     proof_source.clone()
                 }
                 GenerateResult::Rejected { reason, elapsed } => {
-                    summary.llm_rejected += 1;
+                    summary.agent.llm_rejected += 1;
                     log(&MiningEvent::LlmOutcome {
                         j_index,
                         outcome: LlmOutcomeKind::Rejected,
@@ -640,7 +654,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                     continue;
                 }
                 GenerateResult::Error { cause, elapsed } => {
-                    summary.llm_errored += 1;
+                    summary.agent.llm_errored += 1;
                     log(&MiningEvent::LlmOutcome {
                         j_index,
                         outcome: LlmOutcomeKind::Error,
@@ -666,16 +680,16 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                 attempt_artifact_path: verify.attempt_artifact_path.clone(),
             });
             if !verify.accepted {
-                summary.verify_rejected += 1;
+                summary.protocol.verify_rejected += 1;
                 continue;
             }
-            summary.verify_accepted += 1;
+            summary.protocol.verify_accepted += 1;
 
             // Canonicalize.
             let canon_bytes = match deps.canonicalizer.canonicalize(&proof_source, &target) {
                 Ok(b) => b,
                 Err(err) => {
-                    summary.network_errors += 1; // track as generic failure
+                    summary.protocol.network_errors += 1; // track as generic failure
                     log(&MiningEvent::LlmOutcome {
                         j_index,
                         outcome: LlmOutcomeKind::Error,
@@ -717,7 +731,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                 hashes_attempted: share.hashes_attempted,
             });
             if share.is_proposer {
-                summary.proposer_shares += 1;
+                summary.protocol.proposer_shares += 1;
             }
 
             // Grind submission PoW.
@@ -758,7 +772,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
             let mut head_advanced: Option<HeadAdvanceReason> = None;
             match &submit_result {
                 SubmitResult::Accepted { .. } => {
-                    summary.shares_accepted += 1;
+                    summary.protocol.shares_accepted += 1;
                     // The dispatcher may have promoted this share to a block,
                     // advancing `c`. Re-fetch /head; if `c` changed, the
                     // remaining j's in this cycle would all submit against a
@@ -775,7 +789,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                     }
                 }
                 SubmitResult::Rejected { reason, detail, .. } => {
-                    summary.shares_rejected += 1;
+                    summary.protocol.shares_rejected += 1;
                     let mentions_stale_c = reason
                         .as_deref()
                         .map(|r| r.contains("StaleC"))
@@ -793,17 +807,17 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                         });
                     }
                 }
-                SubmitResult::RateLimited { .. } => summary.rate_limited += 1,
-                SubmitResult::NetworkError { .. } => summary.network_errors += 1,
+                SubmitResult::RateLimited { .. } => summary.protocol.rate_limited += 1,
+                SubmitResult::NetworkError { .. } => summary.protocol.network_errors += 1,
             }
             if head_advanced.is_some() {
                 break;
             }
         }
 
-        summary.cycles_run += 1;
+        summary.protocol.cycles_run += 1;
         log(&MiningEvent::CycleComplete {
-            cycle: summary.cycles_run,
+            cycle: summary.protocol.cycles_run,
         });
     }
 

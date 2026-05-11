@@ -5,12 +5,13 @@ use std::time::Duration;
 use boole_core::{parse_biguint_hex, Hex32};
 
 use boole_miner::{
-    family_v1_lenbound, run_mining_loop, AcceptingVerifier, AnnounceTicketInputs,
-    AnnounceTicketResult, ChainHead, DefaultPromptBuilder, FixedChainHead, GrinderConfig,
-    MiningEvent, MiningLoopDeps, MiningLoopOptions, MiningRunContext, MiningRunDriverMode,
-    MiningRunTargetMode, MiningRunVerifierMode, MockDriver, MockResponse, PromptBuilder,
-    RejectingVerifier, StructuralCanonicalizer, StubTargetEmitter, SubmitInputs, SubmitResult,
-    Submitter, Target, Verifier, VerifyReason, VerifyResult,
+    family_v1_lenbound, run_mining_loop, AcceptingVerifier, AgentRuntimeReport,
+    AnnounceTicketInputs, AnnounceTicketResult, ChainHead, DefaultPromptBuilder, FixedChainHead,
+    GrinderConfig, MiningEvent, MiningLoopDeps, MiningLoopOptions, MiningLoopOutcome,
+    MiningRunContext, MiningRunDriverMode, MiningRunTargetMode, MiningRunVerifierMode, MockDriver,
+    MockResponse, PromptBuilder, ProtocolReport, RejectingVerifier, StructuralCanonicalizer,
+    StubTargetEmitter, SubmitInputs, SubmitResult, Submitter, Target, Verifier, VerifyReason,
+    VerifyResult,
 };
 
 fn pk32() -> Hex32 {
@@ -149,6 +150,100 @@ fn default_prompt_builder_embeds_exact_v1_helper_manifest() {
 }
 
 #[test]
+fn mining_loop_outcome_splits_agent_runtime_from_protocol_report() {
+    let agent = AgentRuntimeReport {
+        llm_calls: 3,
+        llm_solved: 2,
+        llm_rejected: 1,
+        llm_errored: 0,
+    };
+    let protocol = ProtocolReport {
+        cycles_run: 1,
+        tickets_found: 1,
+        verify_accepted: 1,
+        verify_rejected: 1,
+        shares_accepted: 1,
+        shares_rejected: 0,
+        rate_limited: 0,
+        network_errors: 0,
+        announce_rejected: 0,
+        proposer_shares: 1,
+        loop_class: "smoke".to_string(),
+        public_scoring_eligible: false,
+        ineligibility_reasons: vec!["open_thresholds".to_string()],
+    };
+    let outcome = MiningLoopOutcome { agent, protocol };
+
+    assert_eq!(outcome.agent.llm_calls, 3);
+    assert_eq!(outcome.agent.llm_solved, 2);
+    assert_eq!(outcome.protocol.verify_accepted, 1);
+    assert_eq!(outcome.protocol.shares_accepted, 1);
+    assert!(!outcome.protocol.public_scoring_eligible);
+}
+
+#[test]
+fn run_mining_loop_returns_split_outcome_reports() {
+    let head = easy_head();
+    let submitter = Arc::new(RecordingSubmitter::with_results(
+        SubmitResult::Accepted {
+            share_hash_hex: "abc".to_string(),
+        },
+        AnnounceTicketResult::Observed {
+            hash_hex: "def".to_string(),
+        },
+    ));
+
+    struct ArcSubmitter(Arc<RecordingSubmitter>);
+    impl Submitter for ArcSubmitter {
+        fn announce_ticket(&self, inputs: AnnounceTicketInputs<'_>) -> AnnounceTicketResult {
+            self.0.announce_ticket(inputs)
+        }
+        fn submit(&self, inputs: SubmitInputs<'_>) -> SubmitResult {
+            self.0.submit(inputs)
+        }
+    }
+
+    let deps = MiningLoopDeps {
+        pk: pk32(),
+        chain_head: Box::new(FixedChainHead { head }),
+        emitter: Box::new(StubTargetEmitter::new("synthetic invariant render")),
+        driver: make_canned_proof_driver(),
+        verifier: Box::new(AcceptingVerifier),
+        canonicalizer: Box::new(StructuralCanonicalizer),
+        submit_client: Box::new(ArcSubmitter(Arc::clone(&submitter))),
+        prompt_builder: None,
+        log: None,
+        sleeper: None,
+    };
+    let opts = MiningLoopOptions {
+        max_cycles: Some(1),
+        deterministic_nonces: true,
+        ticket_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        share_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        submit_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        ..Default::default()
+    };
+
+    let outcome = run_mining_loop(deps, opts);
+
+    assert_eq!(outcome.agent.llm_calls, 1);
+    assert_eq!(outcome.agent.llm_solved, 1);
+    assert_eq!(outcome.protocol.cycles_run, 1);
+    assert_eq!(outcome.protocol.tickets_found, 1);
+    assert_eq!(outcome.protocol.verify_accepted, 1);
+    assert_eq!(outcome.protocol.shares_accepted, 1);
+}
+
+#[test]
 fn test_one_cycle_one_share_pipeline_with_easy_thresholds() {
     let head = easy_head();
     let submitter = Arc::new(RecordingSubmitter::with_results(
@@ -200,12 +295,12 @@ fn test_one_cycle_one_share_pipeline_with_easy_thresholds() {
         ..Default::default()
     };
     let summary = run_mining_loop(deps, opts);
-    assert_eq!(summary.cycles_run, 1);
-    assert_eq!(summary.tickets_found, 1);
-    assert_eq!(summary.llm_calls, 1);
-    assert_eq!(summary.llm_solved, 1);
-    assert_eq!(summary.verify_accepted, 1);
-    assert_eq!(summary.shares_accepted, 1);
+    assert_eq!(summary.protocol.cycles_run, 1);
+    assert_eq!(summary.protocol.tickets_found, 1);
+    assert_eq!(summary.agent.llm_calls, 1);
+    assert_eq!(summary.agent.llm_solved, 1);
+    assert_eq!(summary.protocol.verify_accepted, 1);
+    assert_eq!(summary.protocol.shares_accepted, 1);
     assert_eq!(*submitter.announce_calls.lock().unwrap(), 1);
     assert_eq!(submitter.submit_calls.lock().unwrap().len(), 1);
 }
@@ -266,12 +361,12 @@ fn test_loop_skips_to_next_j_when_verify_rejects() {
         ..Default::default()
     };
     let summary = run_mining_loop(deps, opts);
-    assert_eq!(summary.cycles_run, 1);
-    assert_eq!(summary.llm_calls, 3);
-    assert_eq!(summary.llm_solved, 3);
-    assert_eq!(summary.verify_accepted, 0);
-    assert_eq!(summary.verify_rejected, 3);
-    assert_eq!(summary.shares_accepted, 0);
+    assert_eq!(summary.protocol.cycles_run, 1);
+    assert_eq!(summary.agent.llm_calls, 3);
+    assert_eq!(summary.agent.llm_solved, 3);
+    assert_eq!(summary.protocol.verify_accepted, 0);
+    assert_eq!(summary.protocol.verify_rejected, 3);
+    assert_eq!(summary.protocol.shares_accepted, 0);
     assert_eq!(submitter.submit_calls.lock().unwrap().len(), 0);
 }
 
@@ -326,9 +421,9 @@ fn test_loop_counts_llm_rejected_when_response_has_no_proof_block() {
         ..Default::default()
     };
     let summary = run_mining_loop(deps, opts);
-    assert_eq!(summary.llm_rejected, 1);
-    assert_eq!(summary.llm_solved, 0);
-    assert_eq!(summary.shares_accepted, 0);
+    assert_eq!(summary.agent.llm_rejected, 1);
+    assert_eq!(summary.agent.llm_solved, 0);
+    assert_eq!(summary.protocol.shares_accepted, 0);
     assert_eq!(*submitter.announce_calls.lock().unwrap(), 1);
     assert_eq!(submitter.submit_calls.lock().unwrap().len(), 0);
 }
@@ -462,18 +557,22 @@ fn test_open_mock_fixed_loop_is_labeled_smoke_and_not_public_scoring_eligible() 
 
     let summary = run_mining_loop(deps, opts);
 
-    assert_eq!(summary.loop_class, "smoke");
-    assert!(!summary.public_scoring_eligible);
+    assert_eq!(summary.protocol.loop_class, "smoke");
+    assert!(!summary.protocol.public_scoring_eligible);
     assert!(summary
+        .protocol
         .ineligibility_reasons
         .contains(&"mock_verifier".to_string()));
     assert!(summary
+        .protocol
         .ineligibility_reasons
         .contains(&"mock_llm".to_string()));
     assert!(summary
+        .protocol
         .ineligibility_reasons
         .contains(&"fixed_target_seed".to_string()));
     assert!(summary
+        .protocol
         .ineligibility_reasons
         .contains(&"open_thresholds".to_string()));
     assert!(events.lock().unwrap().iter().any(|event| matches!(
@@ -546,8 +645,8 @@ fn test_loop_stops_at_max_shares() {
         ..Default::default()
     };
     let summary = run_mining_loop(deps, opts);
-    assert_eq!(summary.shares_accepted, 2);
-    assert!(summary.cycles_run >= 1);
+    assert_eq!(summary.protocol.shares_accepted, 2);
+    assert!(summary.protocol.cycles_run >= 1);
 }
 
 #[test]
@@ -602,9 +701,9 @@ fn test_loop_aborts_when_announce_rejected() {
         ..Default::default()
     };
     let summary = run_mining_loop(deps, opts);
-    assert_eq!(summary.announce_rejected, 1);
-    assert_eq!(summary.network_errors, 0);
-    assert_eq!(summary.shares_accepted, 0);
+    assert_eq!(summary.protocol.announce_rejected, 1);
+    assert_eq!(summary.protocol.network_errors, 0);
+    assert_eq!(summary.protocol.shares_accepted, 0);
     assert_eq!(submitter.submit_calls.lock().unwrap().len(), 0);
 }
 
@@ -701,9 +800,12 @@ fn test_loop_breaks_inner_when_head_advances_after_accept() {
     };
     let summary = run_mining_loop(deps, opts);
 
-    assert_eq!(summary.shares_accepted, 1, "exactly one share accepted");
     assert_eq!(
-        summary.llm_calls, 1,
+        summary.protocol.shares_accepted, 1,
+        "exactly one share accepted"
+    );
+    assert_eq!(
+        summary.agent.llm_calls, 1,
         "inner j loop broke after first accept"
     );
     assert_eq!(submitter.submit_calls.lock().unwrap().len(), 1);
@@ -800,8 +902,11 @@ fn test_loop_breaks_inner_when_submit_returns_stale_c() {
     };
     let summary = run_mining_loop(deps, opts);
 
-    assert_eq!(summary.shares_rejected, 1);
-    assert_eq!(summary.llm_calls, 1, "broke after first stale_c rejection");
+    assert_eq!(summary.protocol.shares_rejected, 1);
+    assert_eq!(
+        summary.agent.llm_calls, 1,
+        "broke after first stale_c rejection"
+    );
     let evs = events.lock().unwrap();
     let advances: Vec<_> = evs
         .iter()
@@ -893,7 +998,7 @@ fn test_verify_outcome_threads_attempt_artifact_path() {
 
     let summary = run_mining_loop(deps, opts);
 
-    assert_eq!(summary.verify_rejected, 1);
+    assert_eq!(summary.protocol.verify_rejected, 1);
     let evs = events.lock().unwrap();
     assert!(evs.iter().any(|event| matches!(
         event,

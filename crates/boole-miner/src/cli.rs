@@ -705,23 +705,46 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
 
 fn summary_for_log(s: &MiningLoopSummary) -> serde_json::Value {
     serde_json::json!({
-        "cyclesRun": s.cycles_run,
-        "ticketsFound": s.tickets_found,
-        "llmCalls": s.llm_calls,
-        "llmSolved": s.llm_solved,
-        "llmRejected": s.llm_rejected,
-        "llmErrored": s.llm_errored,
-        "verifyAccepted": s.verify_accepted,
-        "verifyRejected": s.verify_rejected,
-        "sharesAccepted": s.shares_accepted,
-        "sharesRejected": s.shares_rejected,
-        "rateLimited": s.rate_limited,
-        "networkErrors": s.network_errors,
-        "announceRejected": s.announce_rejected,
-        "proposerShares": s.proposer_shares,
-        "loopClass": s.loop_class,
-        "publicScoringEligible": s.public_scoring_eligible,
-        "ineligibilityReasons": s.ineligibility_reasons,
+        "agent": {
+            "llmCalls": s.agent.llm_calls,
+            "llmSolved": s.agent.llm_solved,
+            "llmRejected": s.agent.llm_rejected,
+            "llmErrored": s.agent.llm_errored,
+        },
+        "protocol": {
+            "cyclesRun": s.protocol.cycles_run,
+            "ticketsFound": s.protocol.tickets_found,
+            "verifyAccepted": s.protocol.verify_accepted,
+            "verifyRejected": s.protocol.verify_rejected,
+            "sharesAccepted": s.protocol.shares_accepted,
+            "sharesRejected": s.protocol.shares_rejected,
+            "rateLimited": s.protocol.rate_limited,
+            "networkErrors": s.protocol.network_errors,
+            "announceRejected": s.protocol.announce_rejected,
+            "proposerShares": s.protocol.proposer_shares,
+            "loopClass": s.protocol.loop_class,
+            "publicScoringEligible": s.protocol.public_scoring_eligible,
+            "ineligibilityReasons": s.protocol.ineligibility_reasons,
+        },
+        // Temporary compatibility surface for existing CLI consumers. The nested
+        // `agent`/`protocol` objects are canonical for new code.
+        "cyclesRun": s.protocol.cycles_run,
+        "ticketsFound": s.protocol.tickets_found,
+        "verifyAccepted": s.protocol.verify_accepted,
+        "verifyRejected": s.protocol.verify_rejected,
+        "sharesAccepted": s.protocol.shares_accepted,
+        "sharesRejected": s.protocol.shares_rejected,
+        "rateLimited": s.protocol.rate_limited,
+        "networkErrors": s.protocol.network_errors,
+        "announceRejected": s.protocol.announce_rejected,
+        "proposerShares": s.protocol.proposer_shares,
+        "loopClass": s.protocol.loop_class,
+        "publicScoringEligible": s.protocol.public_scoring_eligible,
+        "ineligibilityReasons": s.protocol.ineligibility_reasons,
+        "llmCalls": s.agent.llm_calls,
+        "llmSolved": s.agent.llm_solved,
+        "llmRejected": s.agent.llm_rejected,
+        "llmErrored": s.agent.llm_errored,
     })
 }
 
@@ -864,6 +887,53 @@ pub fn run_mine(cmd: MineCommand) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn summary_for_log_emits_nested_agent_and_protocol_reports() {
+        let summary = MiningLoopSummary {
+            agent: crate::mining_loop::AgentRuntimeReport {
+                llm_calls: 3,
+                llm_solved: 2,
+                llm_rejected: 1,
+                llm_errored: 0,
+            },
+            protocol: crate::mining_loop::ProtocolReport {
+                cycles_run: 4,
+                tickets_found: 5,
+                verify_accepted: 6,
+                verify_rejected: 7,
+                shares_accepted: 8,
+                shares_rejected: 9,
+                rate_limited: 10,
+                network_errors: 11,
+                announce_rejected: 12,
+                proposer_shares: 13,
+                loop_class: "smoke".to_string(),
+                public_scoring_eligible: false,
+                ineligibility_reasons: vec!["open_thresholds".to_string()],
+            },
+        };
+
+        let json = summary_for_log(&summary);
+
+        assert_eq!(json["agent"]["llmCalls"], 3);
+        assert_eq!(json["agent"]["llmSolved"], 2);
+        assert_eq!(json["protocol"]["cyclesRun"], 4);
+        assert_eq!(json["protocol"]["verifyAccepted"], 6);
+        assert_eq!(json["protocol"]["sharesAccepted"], 8);
+        assert_eq!(json["protocol"]["publicScoringEligible"], false);
+        assert_eq!(
+            json["protocol"]["ineligibilityReasons"][0],
+            "open_thresholds"
+        );
+        assert_eq!(json["llmCalls"], 3);
+        assert_eq!(json["llmSolved"], 2);
+        assert_eq!(json["cyclesRun"], 4);
+        assert_eq!(json["verifyAccepted"], 6);
+        assert_eq!(json["sharesAccepted"], 8);
+        assert_eq!(json["publicScoringEligible"], false);
+        assert_eq!(json["ineligibilityReasons"][0], "open_thresholds");
+    }
 
     #[test]
     fn verify_outcome_ndjson_emits_attempt_artifact_path_only() {

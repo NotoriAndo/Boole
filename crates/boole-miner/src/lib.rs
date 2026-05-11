@@ -39,9 +39,10 @@ pub use local_verify::{
     AcceptingVerifier, LeanVerifier, RejectingVerifier, Verifier, VerifyReason, VerifyResult,
 };
 pub use mining_loop::{
-    run_mining_loop, DefaultPromptBuilder, FixedChainHead, HeadAdvanceReason, LlmOutcomeKind,
-    MiningEvent, MiningLoopDeps, MiningLoopOptions, MiningLoopSummary, MiningRunContext,
-    MiningRunDriverMode, MiningRunTargetMode, MiningRunVerifierMode, PromptBuilder,
+    run_mining_loop, AgentRuntimeReport, DefaultPromptBuilder, FixedChainHead, HeadAdvanceReason,
+    LlmOutcomeKind, MiningEvent, MiningLoopDeps, MiningLoopOptions, MiningLoopOutcome,
+    MiningLoopSummary, MiningRunContext, MiningRunDriverMode, MiningRunTargetMode,
+    MiningRunVerifierMode, PromptBuilder, ProtocolReport,
 };
 pub use proof_intake::{
     extract_proof_source, ProofCandidate, ProofEnvelope, ProofIntakeV1, ProofTransport,
