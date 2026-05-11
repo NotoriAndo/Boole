@@ -18,4 +18,4 @@ Report only safe summary fields:
 - `status.height`
 - `status.replayMatchesRuntime`
 
-Do not expose private prompts, keys, credentials, or full agent logs. The Codex runtime is only a candidate proof producer; deterministic verifier/canonicalizer/node replay decides acceptance.
+Do not expose private prompts, keys, credentials, or full agent logs. The Codex runtime is only a candidate proof producer; deterministic verifier/canonicalizer/node replay decides acceptance. This is local controlled-smoke UX, not public mining evidence.

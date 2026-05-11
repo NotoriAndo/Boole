@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "kind": "boole-agent-mine",
+  "skipped": true,
+  "reason": "agent_runtime_not_found",
+  "runtime": "codex"
+}

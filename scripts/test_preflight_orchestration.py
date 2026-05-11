@@ -50,6 +50,32 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertEqual(plan[-1][0], "./scripts/phase7-solo-preflight.sh")
         self.assertIn("--skip-hardening-checks", plan[-1])
 
+    def test_agent_mine_missing_runtime_skip_matches_contract_fixture(self) -> None:
+        proc = subprocess.run(
+            ["./scripts/boole-agent-mine.sh", "--runtime", "codex", "--agent-command", "/tmp/boole-missing-codex-runtime"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        actual = json.loads(proc.stdout)
+        expected = json.loads((ROOT / "fixtures" / "protocol" / "agent-slash-mine" / "v1-missing-runtime-skip.json").read_text())
+        self.assertEqual(actual, expected)
+
+    def test_slash_command_templates_preserve_thin_safe_claim_boundary(self) -> None:
+        template_paths = [
+            ROOT / "templates" / "agent-slash-commands" / "claude" / "boole" / "mine.md",
+            ROOT / "templates" / "agent-slash-commands" / "codex" / "boole-mine.md",
+        ]
+        for path in template_paths:
+            text = path.read_text()
+            self.assertIn("scripts/boole-agent-mine.sh", text)
+            self.assertIn("deterministic verifier/canonicalizer/node replay decides acceptance", text)
+            self.assertIn("not public mining", text)
+            self.assertNotIn("wallet key", text.lower())
+
     def test_phase7_preflight_has_named_s7_5_hardening_gate(self) -> None:
         text = PREFLIGHT_PATH.read_text()
         self.assertIn("s7.5-hardening", text)
