@@ -12,6 +12,7 @@ use clap::{Args, Subcommand};
 use crate::bounty_client::{BountyClient, BountyProofInputs, BountyProofResult};
 use crate::canonicalizer::StructuralCanonicalizer;
 use crate::chain_head::HttpChainHeadFetcher;
+use crate::family_v031::Profile as FamilyProfile;
 use crate::llm_driver::{
     create_driver, AgentCliDriver, ClaudeCliDriver, LLMBackend, LLMDriverConfig, MockDriver,
     MockResponse, ProverDriver,
@@ -19,12 +20,12 @@ use crate::llm_driver::{
 use crate::local_verify::{AcceptingVerifier, Verifier};
 use crate::mining_loop::{
     run_mining_loop, MiningEvent, MiningLoopDeps, MiningLoopOptions, MiningLoopSummary,
+    MiningRunContext, MiningRunDriverMode, MiningRunTargetMode, MiningRunVerifierMode,
 };
 use crate::state::{
     default_state_path, generate_miner_state, load_state, save_state, signing_key_from_state,
     state_exists, update_config, ConfigPatch, DispatcherConfig, LlmConfig, MinerStateConfig,
 };
-use crate::family_v031::Profile as FamilyProfile;
 use crate::submit_client::{SubmitClient, Submitter};
 use crate::target_emitter::{
     FamilyV031TargetEmitter, FixedSeedTargetEmitter, StubTargetEmitter, TargetEmitter,
@@ -501,6 +502,14 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
         args.n,
     );
 
+    let driver_mode = if args.mock_llm_response.is_some()
+        || matches!(ensure_backend(&state.config.llm.backend)?, LLMBackend::Mock)
+    {
+        MiningRunDriverMode::MockLlmResponse
+    } else {
+        MiningRunDriverMode::RealLlmOrAgent
+    };
+
     let driver: Box<dyn ProverDriver> = if let Some(canned) = args.mock_llm_response.clone() {
         Box::new(MockDriver::new(vec![MockResponse::Text(canned)]))
     } else {
@@ -546,6 +555,18 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
         _ => None,
     };
 
+    let target_mode = match (
+        family_profile,
+        args.fixed_target_seed_hex.as_ref(),
+        args.fixed_target_render.as_ref(),
+    ) {
+        (_, Some(_), Some(_)) => MiningRunTargetMode::FixedSeed,
+        (Some(_), Some(_), None) => MiningRunTargetMode::FixedSeed,
+        (Some(_), None, None) => MiningRunTargetMode::ChainDerived,
+        (None, None, None) => MiningRunTargetMode::Stub,
+        _ => MiningRunTargetMode::Stub,
+    };
+
     let emitter: Box<dyn TargetEmitter> = match (
         family_profile,
         args.fixed_target_seed_hex.clone(),
@@ -575,6 +596,12 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
         (None, None, None) => Box::new(StubTargetEmitter::new(
             "synthetic target — supply --fixed-target-render or use a family profile",
         )),
+    };
+
+    let verifier_mode = if args.mock_verify_accept {
+        MiningRunVerifierMode::MockAccept
+    } else {
+        MiningRunVerifierMode::RealVerifier
     };
 
     let verifier: Box<dyn Verifier> = if args.mock_verify_accept {
@@ -612,6 +639,11 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
         share_grind: grind_cfg,
         submit_grind: grind_cfg,
         llm_retry: Default::default(),
+        run_context: MiningRunContext {
+            verifier_mode,
+            driver_mode,
+            target_mode,
+        },
         cancel: None,
         deterministic_nonces: args.deterministic_nonces,
     };
@@ -654,6 +686,9 @@ fn summary_for_log(s: &MiningLoopSummary) -> serde_json::Value {
         "rateLimited": s.rate_limited,
         "networkErrors": s.network_errors,
         "proposerShares": s.proposer_shares,
+        "loopClass": s.loop_class,
+        "publicScoringEligible": s.public_scoring_eligible,
+        "ineligibilityReasons": s.ineligibility_reasons,
     })
 }
 
@@ -666,6 +701,16 @@ fn event_to_json(e: &MiningEvent) -> serde_json::Value {
         MiningEvent::HeadFetched { c_hex, m } => {
             serde_json::json!({"kind":"head_fetched","c":c_hex,"M":m})
         }
+        MiningEvent::LoopClassified {
+            loop_class,
+            public_scoring_eligible,
+            ineligibility_reasons,
+        } => serde_json::json!({
+            "kind":"loop_classified",
+            "loopClass":loop_class,
+            "publicScoringEligible":public_scoring_eligible,
+            "ineligibilityReasons":ineligibility_reasons,
+        }),
         MiningEvent::TicketFound {
             n_hex,
             hashes_attempted,

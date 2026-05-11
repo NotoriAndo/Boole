@@ -151,7 +151,11 @@ mod tests {
     use super::*;
 
     fn dummy_args() -> (Hex32, Hex32, Hex32) {
-        (Hex32::from_bytes([0u8; 32]), Hex32::from_bytes([1u8; 32]), Hex32::from_bytes([2u8; 32]))
+        (
+            Hex32::from_bytes([0u8; 32]),
+            Hex32::from_bytes([1u8; 32]),
+            Hex32::from_bytes([2u8; 32]),
+        )
     }
 
     #[test]
@@ -170,7 +174,9 @@ mod tests {
         let target = emitter.emit(&args).expect("emit");
         assert_eq!(target.profile, "v031-lp");
         assert_eq!(target.seed_hex.len(), 64);
-        assert!(target.render.starts_with("theorem instance_thm : ∀ (xs : List Int),"));
+        assert!(target
+            .render
+            .starts_with("theorem instance_thm : ∀ (xs : List Int),"));
     }
 
     #[test]

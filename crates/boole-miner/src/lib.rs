@@ -38,7 +38,8 @@ pub use local_verify::{
 };
 pub use mining_loop::{
     run_mining_loop, DefaultPromptBuilder, FixedChainHead, LlmOutcomeKind, MiningEvent,
-    MiningLoopDeps, MiningLoopOptions, MiningLoopSummary, PromptBuilder,
+    MiningLoopDeps, MiningLoopOptions, MiningLoopSummary, MiningRunContext, MiningRunDriverMode,
+    MiningRunTargetMode, MiningRunVerifierMode, PromptBuilder,
 };
 pub use proof_package::{
     bppk_canon_hash, walk_bppk, BppkBuilder, BppkDecodeError, BppkWalkResult, FORMAT_VERSION,

@@ -142,13 +142,7 @@ impl LeanVerifier {
 }
 
 impl Verifier for LeanVerifier {
-    fn verify(
-        &self,
-        seed_hex: &str,
-        _d: u32,
-        proof_source: &str,
-        _n: Option<u32>,
-    ) -> VerifyResult {
+    fn verify(&self, seed_hex: &str, _d: u32, proof_source: &str, _n: Option<u32>) -> VerifyResult {
         let started = Instant::now();
         let Some(profile) = parse_profile(&self.profile) else {
             return VerifyResult {

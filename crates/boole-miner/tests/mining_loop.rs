@@ -4,7 +4,8 @@ use boole_core::{parse_biguint_hex, Hex32};
 
 use boole_miner::{
     run_mining_loop, AcceptingVerifier, AnnounceTicketInputs, AnnounceTicketResult, ChainHead,
-    FixedChainHead, GrinderConfig, MiningEvent, MiningLoopDeps, MiningLoopOptions, MockDriver,
+    FixedChainHead, GrinderConfig, MiningEvent, MiningLoopDeps, MiningLoopOptions,
+    MiningRunContext, MiningRunDriverMode, MiningRunTargetMode, MiningRunVerifierMode, MockDriver,
     MockResponse, RejectingVerifier, StructuralCanonicalizer, StubTargetEmitter, SubmitInputs,
     SubmitResult, Submitter, VerifyReason,
 };
@@ -280,6 +281,7 @@ fn test_loop_records_cycle_complete_and_head_fetched_events() {
     let log_fn: Box<dyn Fn(&MiningEvent) + Send + Sync> = Box::new(move |e: &MiningEvent| {
         let kind = match e {
             MiningEvent::HeadFetched { .. } => "head_fetched",
+            MiningEvent::LoopClassified { .. } => "loop_classified",
             MiningEvent::TicketFound { .. } => "ticket_found",
             MiningEvent::TicketAnnounced { .. } => "ticket_announced",
             MiningEvent::TicketExhausted { .. } => "ticket_exhausted",
@@ -347,6 +349,83 @@ fn test_loop_records_cycle_complete_and_head_fetched_events() {
     assert!(events.contains(&"submit_pow_found".to_string()));
     assert!(events.contains(&"submit_outcome".to_string()));
     assert!(events.contains(&"cycle_complete".to_string()));
+}
+
+#[test]
+fn test_open_mock_fixed_loop_is_labeled_smoke_and_not_public_scoring_eligible() {
+    let head = easy_head();
+    let submitter = RecordingSubmitter::with_results(
+        SubmitResult::Accepted {
+            share_hash_hex: "abc".to_string(),
+        },
+        AnnounceTicketResult::Observed {
+            hash_hex: "def".to_string(),
+        },
+    );
+    let events: Arc<Mutex<Vec<MiningEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = Arc::clone(&events);
+    let log_fn: Box<dyn Fn(&MiningEvent) + Send + Sync> =
+        Box::new(move |e: &MiningEvent| events_clone.lock().unwrap().push(e.clone()));
+    let deps = MiningLoopDeps {
+        pk: pk32(),
+        chain_head: Box::new(FixedChainHead { head }),
+        emitter: Box::new(StubTargetEmitter::new("render")),
+        driver: make_canned_proof_driver(),
+        verifier: Box::new(AcceptingVerifier),
+        canonicalizer: Box::new(StructuralCanonicalizer),
+        submit_client: Box::new(submitter),
+        prompt_builder: None,
+        log: Some(log_fn),
+        sleeper: None,
+    };
+    let opts = MiningLoopOptions {
+        max_cycles: Some(1),
+        deterministic_nonces: true,
+        run_context: MiningRunContext {
+            verifier_mode: MiningRunVerifierMode::MockAccept,
+            driver_mode: MiningRunDriverMode::MockLlmResponse,
+            target_mode: MiningRunTargetMode::FixedSeed,
+        },
+        ticket_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        share_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        submit_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        ..Default::default()
+    };
+
+    let summary = run_mining_loop(deps, opts);
+
+    assert_eq!(summary.loop_class, "smoke");
+    assert!(!summary.public_scoring_eligible);
+    assert!(summary
+        .ineligibility_reasons
+        .contains(&"mock_verifier".to_string()));
+    assert!(summary
+        .ineligibility_reasons
+        .contains(&"mock_llm".to_string()));
+    assert!(summary
+        .ineligibility_reasons
+        .contains(&"fixed_target_seed".to_string()));
+    assert!(summary
+        .ineligibility_reasons
+        .contains(&"open_thresholds".to_string()));
+    assert!(events.lock().unwrap().iter().any(|event| matches!(
+        event,
+        MiningEvent::LoopClassified {
+            loop_class,
+            public_scoring_eligible: false,
+            ineligibility_reasons,
+        } if loop_class == "smoke"
+            && ineligibility_reasons.contains(&"open_thresholds".to_string())
+    )));
 }
 
 #[test]
@@ -563,7 +642,10 @@ fn test_loop_breaks_inner_when_head_advances_after_accept() {
     let summary = run_mining_loop(deps, opts);
 
     assert_eq!(summary.shares_accepted, 1, "exactly one share accepted");
-    assert_eq!(summary.llm_calls, 1, "inner j loop broke after first accept");
+    assert_eq!(
+        summary.llm_calls, 1,
+        "inner j loop broke after first accept"
+    );
     assert_eq!(submitter.submit_calls.lock().unwrap().len(), 1);
     let evs = events.lock().unwrap();
     let advance_count = evs

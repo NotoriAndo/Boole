@@ -796,10 +796,7 @@ fn ok_anthropic(content: &str, output_tokens: Option<u64>) -> HttpRunnerResponse
 
 #[test]
 fn test_anthropic_driver_posts_to_v1_messages_with_x_api_key() {
-    let http = FakeHttpRunner::new(vec![Ok(ok_anthropic(
-        "```lean\nby trivial\n```",
-        Some(57),
-    ))]);
+    let http = FakeHttpRunner::new(vec![Ok(ok_anthropic("```lean\nby trivial\n```", Some(57)))]);
     let driver = AnthropicDriver::with_runner(
         "https://api.anthropic.com",
         "sk-ant-secret",
@@ -972,13 +969,8 @@ fn test_openai_driver_returns_error_on_5xx() {
         status: 500,
         body: b"server boom".to_vec(),
     })]);
-    let driver = OpenAiDriver::with_runner(
-        "sk",
-        "gpt-5",
-        2048,
-        Duration::from_secs(10),
-        Box::new(http),
-    );
+    let driver =
+        OpenAiDriver::with_runner("sk", "gpt-5", 2048, Duration::from_secs(10), Box::new(http));
     match driver.generate("p") {
         GenerateResult::Error { cause, .. } => {
             assert!(cause.contains("500"), "got {cause}");

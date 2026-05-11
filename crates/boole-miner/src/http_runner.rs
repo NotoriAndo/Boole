@@ -76,4 +76,3 @@ impl HttpRunner for ReqwestHttpRunner {
         Ok(HttpRunnerResponse { status, body })
     }
 }
-

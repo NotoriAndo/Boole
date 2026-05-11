@@ -19,7 +19,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use boole_core::Hex32;
+use boole_core::{difficulty_weight, Hex32};
+use num_traits::One;
 
 use crate::canonicalizer::{Canonicalizer, Target};
 use crate::chain_head::{ChainHead, ChainHeadError, ChainHeadFetcher};
@@ -174,6 +175,52 @@ pub struct MiningLoopDeps {
 /// async-style boundary inside `run_mining_loop`, so it must be `Send + Sync`.
 pub type LogSink = Box<dyn Fn(&MiningEvent) + Send + Sync>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MiningRunVerifierMode {
+    #[default]
+    RealVerifier,
+    MockAccept,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MiningRunDriverMode {
+    #[default]
+    RealLlmOrAgent,
+    MockLlmResponse,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MiningRunTargetMode {
+    #[default]
+    ChainDerived,
+    FixedSeed,
+    Stub,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MiningRunContext {
+    pub verifier_mode: MiningRunVerifierMode,
+    pub driver_mode: MiningRunDriverMode,
+    pub target_mode: MiningRunTargetMode,
+}
+
+impl MiningRunContext {
+    fn is_mock_verifier(&self) -> bool {
+        self.verifier_mode == MiningRunVerifierMode::MockAccept
+    }
+
+    fn is_mock_driver(&self) -> bool {
+        self.driver_mode == MiningRunDriverMode::MockLlmResponse
+    }
+
+    fn is_fixed_or_stub_target(&self) -> bool {
+        matches!(
+            self.target_mode,
+            MiningRunTargetMode::FixedSeed | MiningRunTargetMode::Stub
+        )
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct MiningLoopOptions {
     pub max_shares: Option<u64>,
@@ -182,6 +229,7 @@ pub struct MiningLoopOptions {
     pub share_grind: GrinderConfig,
     pub submit_grind: GrinderConfig,
     pub llm_retry: RetryConfig,
+    pub run_context: MiningRunContext,
     /// Optional cancel flag — flip to `true` to stop the loop after the
     /// next checkpoint.
     pub cancel: Option<Arc<AtomicBool>>,
@@ -196,6 +244,11 @@ pub enum MiningEvent {
     HeadFetched {
         c_hex: String,
         m: u32,
+    },
+    LoopClassified {
+        loop_class: String,
+        public_scoring_eligible: bool,
+        ineligibility_reasons: Vec<String>,
     },
     TicketFound {
         n_hex: String,
@@ -305,10 +358,66 @@ pub struct MiningLoopSummary {
     pub rate_limited: u64,
     pub network_errors: u64,
     pub proposer_shares: u64,
+    pub loop_class: String,
+    pub public_scoring_eligible: bool,
+    pub ineligibility_reasons: Vec<String>,
 }
 
 fn aborted(cancel: Option<&Arc<AtomicBool>>) -> bool {
     cancel.map(|c| c.load(Ordering::SeqCst)).unwrap_or(false)
+}
+
+#[derive(Debug, Clone)]
+struct LoopClassification {
+    loop_class: String,
+    public_scoring_eligible: bool,
+    ineligibility_reasons: Vec<String>,
+}
+
+fn classify_loop(head: &ChainHead, context: &MiningRunContext) -> LoopClassification {
+    let mut reasons = Vec::new();
+    if context.is_mock_verifier() {
+        reasons.push("mock_verifier".to_string());
+    }
+    if context.is_mock_driver() {
+        reasons.push("mock_llm".to_string());
+    }
+    if context.is_fixed_or_stub_target() {
+        reasons.push(if context.target_mode == MiningRunTargetMode::Stub {
+            "stub_target".to_string()
+        } else {
+            "fixed_target_seed".to_string()
+        });
+    }
+    if has_open_thresholds(head) {
+        reasons.push("open_thresholds".to_string());
+    }
+    if head.min_share_score == num_bigint::BigUint::default() {
+        reasons.push("open_min_share_score".to_string());
+    }
+
+    let public_scoring_eligible = reasons.is_empty();
+    let loop_class = if !public_scoring_eligible {
+        "smoke"
+    } else {
+        "public_mining"
+    };
+
+    LoopClassification {
+        loop_class: loop_class.to_string(),
+        public_scoring_eligible,
+        ineligibility_reasons: reasons,
+    }
+}
+
+fn has_open_thresholds(head: &ChainHead) -> bool {
+    [&head.t_ticket, &head.t_share, &head.t_block, &head.t_submit]
+        .iter()
+        .any(|threshold| {
+            difficulty_weight(threshold)
+                .map(|w| w <= num_bigint::BigUint::one())
+                .unwrap_or(true)
+        })
 }
 
 /// Drive one cycle of the mining loop: head → ticket → M targets → submit.
@@ -350,6 +459,17 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
         log(&MiningEvent::HeadFetched {
             c_hex: head.c.to_hex(),
             m: head.m,
+        });
+        let classification = classify_loop(&head, &opts.run_context);
+        if summary.loop_class.is_empty() {
+            summary.loop_class = classification.loop_class.clone();
+            summary.public_scoring_eligible = classification.public_scoring_eligible;
+            summary.ineligibility_reasons = classification.ineligibility_reasons.clone();
+        }
+        log(&MiningEvent::LoopClassified {
+            loop_class: classification.loop_class,
+            public_scoring_eligible: classification.public_scoring_eligible,
+            ineligibility_reasons: classification.ineligibility_reasons,
         });
 
         let ticket_outcome = grind_ticket_with_source(

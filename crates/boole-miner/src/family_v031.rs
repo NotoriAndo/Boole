@@ -288,9 +288,7 @@ pub fn benchmark_cursor_seed(
     target_family: &str,
     domain: &str,
 ) -> [u8; 32] {
-    let inner = format!(
-        "{run_id}|{target}|{attempt_index}|{benchmark_mode}|{target_family}"
-    );
+    let inner = format!("{run_id}|{target}|{attempt_index}|{benchmark_mode}|{target_family}");
     let mut h = Sha256::new();
     h.update(inner.as_bytes());
     h.update(b"|");
