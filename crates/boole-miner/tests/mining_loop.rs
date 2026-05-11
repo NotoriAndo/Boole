@@ -6,12 +6,12 @@ use boole_core::{parse_biguint_hex, Hex32};
 
 use boole_miner::{
     family_v1_lenbound, run_mining_loop, AcceptingVerifier, AgentRuntimeReport,
-    AnnounceTicketInputs, AnnounceTicketResult, ChainHead, DefaultPromptBuilder, FixedChainHead,
-    GrinderConfig, MiningEvent, MiningLoopDeps, MiningLoopOptions, MiningLoopOutcome,
-    MiningRunContext, MiningRunDriverMode, MiningRunTargetMode, MiningRunVerifierMode, MockDriver,
-    MockResponse, PromptBuilder, ProtocolReport, RejectingVerifier, StructuralCanonicalizer,
-    StubTargetEmitter, SubmitInputs, SubmitResult, Submitter, Target, Verifier, VerifyReason,
-    VerifyResult,
+    AnnounceTicketInputs, AnnounceTicketResult, Canonicalizer, ChainHead, DefaultPromptBuilder,
+    FixedChainHead, GenerateResult, GrinderConfig, MiningEvent, MiningLoopDeps, MiningLoopOptions,
+    MiningLoopOutcome, MiningRunContext, MiningRunDriverMode, MiningRunTargetMode,
+    MiningRunVerifierMode, MockDriver, MockResponse, PromptBuilder, ProtocolReport, ProverDriver,
+    RejectingVerifier, Strategy, StructuralCanonicalizer, StubTargetEmitter, SubmitInputs,
+    SubmitResult, Submitter, Target, Verifier, VerifyReason, VerifyResult,
 };
 
 fn pk32() -> Hex32 {
@@ -91,6 +91,162 @@ fn make_canned_proof_driver() -> Box<MockDriver> {
     Box::new(MockDriver::new(vec![MockResponse::Text(
         "```lean\nfun xs => nodup_dedup _\n```".to_string(),
     )]))
+}
+
+struct RawSolvedDriver {
+    raw_answer: String,
+}
+
+impl ProverDriver for RawSolvedDriver {
+    fn name(&self) -> &str {
+        "raw-solved"
+    }
+
+    fn strategy(&self) -> Strategy {
+        Strategy::Frontier
+    }
+
+    fn generate(&self, _prompt: &str) -> GenerateResult {
+        GenerateResult::Solved {
+            proof_source: self.raw_answer.clone(),
+            elapsed: Duration::ZERO,
+            tokens_used: None,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct BoundaryRecorder {
+    calls: Arc<Mutex<Vec<String>>>,
+    canonicalized_sources: Arc<Mutex<Vec<String>>>,
+    verified_sources: Arc<Mutex<Vec<String>>>,
+}
+
+impl BoundaryRecorder {
+    fn new() -> Self {
+        Self {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            canonicalized_sources: Arc::new(Mutex::new(Vec::new())),
+            verified_sources: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+struct RecordingCanonicalizer {
+    recorder: BoundaryRecorder,
+}
+
+impl Canonicalizer for RecordingCanonicalizer {
+    fn canonicalize(&self, proof_source: &str, _target: &Target) -> anyhow::Result<Vec<u8>> {
+        self.recorder
+            .calls
+            .lock()
+            .unwrap()
+            .push("canonicalizer".to_string());
+        self.recorder
+            .canonicalized_sources
+            .lock()
+            .unwrap()
+            .push(proof_source.to_string());
+        Ok(vec![1, 2, 3])
+    }
+}
+
+struct RecordingVerifier {
+    recorder: BoundaryRecorder,
+}
+
+impl Verifier for RecordingVerifier {
+    fn verify(
+        &self,
+        _seed_hex: &str,
+        _d: u32,
+        proof_source: &str,
+        _n: Option<u32>,
+    ) -> VerifyResult {
+        self.recorder
+            .calls
+            .lock()
+            .unwrap()
+            .push("verifier".to_string());
+        self.recorder
+            .verified_sources
+            .lock()
+            .unwrap()
+            .push(proof_source.to_string());
+        VerifyResult {
+            accepted: true,
+            reason: VerifyReason::Accepted,
+            elapsed: Duration::ZERO,
+            stderr_tail: String::new(),
+            attempt_artifact_path: None,
+        }
+    }
+}
+
+#[test]
+fn mining_loop_routes_generated_answer_through_intake_and_canonicalizer_before_verify() {
+    let recorder = BoundaryRecorder::new();
+    let submitter = RecordingSubmitter::with_results(
+        SubmitResult::Accepted {
+            share_hash_hex: "abc".to_string(),
+        },
+        AnnounceTicketResult::Observed {
+            hash_hex: "def".to_string(),
+        },
+    );
+    let deps = MiningLoopDeps {
+        pk: pk32(),
+        chain_head: Box::new(FixedChainHead { head: easy_head() }),
+        emitter: Box::new(StubTargetEmitter::new("render")),
+        driver: Box::new(RawSolvedDriver {
+            raw_answer: "```lean\nby trivial\n```".to_string(),
+        }),
+        verifier: Box::new(RecordingVerifier {
+            recorder: recorder.clone(),
+        }),
+        canonicalizer: Box::new(RecordingCanonicalizer {
+            recorder: recorder.clone(),
+        }),
+        submit_client: Box::new(submitter),
+        prompt_builder: None,
+        log: None,
+        sleeper: None,
+    };
+    let opts = MiningLoopOptions {
+        max_cycles: Some(1),
+        deterministic_nonces: true,
+        ticket_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        share_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        submit_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        ..Default::default()
+    };
+
+    let outcome = run_mining_loop(deps, opts);
+
+    assert_eq!(outcome.agent.llm_solved, 1);
+    assert_eq!(outcome.protocol.verify_accepted, 1);
+    assert_eq!(
+        recorder.calls.lock().unwrap().as_slice(),
+        ["canonicalizer".to_string(), "verifier".to_string()]
+    );
+    assert_eq!(
+        recorder.canonicalized_sources.lock().unwrap().as_slice(),
+        ["by trivial".to_string()]
+    );
+    assert_eq!(
+        recorder.verified_sources.lock().unwrap().as_slice(),
+        ["by trivial".to_string()]
+    );
 }
 
 #[test]

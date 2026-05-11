@@ -2,8 +2,9 @@
 //
 //   fetch_head → grind_ticket → announce_ticket → for j ∈ [0, M):
 //       emitter.emit  → driver.generate (with_retry)
-//                     → verifier.verify
+//                     → ProofIntakeV1
 //                     → canonicalizer.canonicalize
+//                     → verifier.verify
 //                     → grind_share         (until score ≥ MinShareScore)
 //                     → grind_submission_pow (until hash < T_submit)
 //                     → submit_client.submit
@@ -31,7 +32,9 @@ use crate::llm_driver::{
     with_retry, GenerateResult, ProverDriver, RetryConfig, Sleeper, ThreadSleeper,
 };
 use crate::local_verify::{Verifier, VerifyResult};
-use crate::proof_intake::{PROOF_BODY_CONTRACT_VERSION, PROOF_CANONICALIZER_VERSION};
+use crate::proof_intake::{
+    ProofIntakeV1, ProofTransport, PROOF_BODY_CONTRACT_VERSION, PROOF_CANONICALIZER_VERSION,
+};
 use crate::proof_package::bppk_canon_hash;
 use crate::submit_client::{
     AnnounceTicketInputs, AnnounceTicketResult, SubmitInputs, SubmitResult, Submitter,
@@ -628,17 +631,36 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                     elapsed,
                     ..
                 } => {
+                    let candidate = match ProofTransport::PlainText(proof_source.clone())
+                        .into_envelope()
+                        .and_then(ProofIntakeV1::extract)
+                    {
+                        Ok(candidate) => candidate,
+                        Err(reason) => {
+                            summary.agent.llm_rejected += 1;
+                            log(&MiningEvent::LlmOutcome {
+                                j_index,
+                                outcome: LlmOutcomeKind::Rejected,
+                                elapsed_ms: elapsed.as_millis(),
+                                reason: Some(reason.as_str().to_string()),
+                                proof_contract_version: PROOF_BODY_CONTRACT_VERSION,
+                                canonicalizer_version: PROOF_CANONICALIZER_VERSION,
+                                model_specific_overrides: false,
+                            });
+                            continue;
+                        }
+                    };
                     summary.agent.llm_solved += 1;
                     log(&MiningEvent::LlmOutcome {
                         j_index,
                         outcome: LlmOutcomeKind::Solved,
                         elapsed_ms: elapsed.as_millis(),
                         reason: None,
-                        proof_contract_version: PROOF_BODY_CONTRACT_VERSION,
-                        canonicalizer_version: PROOF_CANONICALIZER_VERSION,
+                        proof_contract_version: candidate.contract_version,
+                        canonicalizer_version: candidate.canonicalizer_version,
                         model_specific_overrides: false,
                     });
-                    proof_source.clone()
+                    candidate.proof_source
                 }
                 GenerateResult::Rejected { reason, elapsed } => {
                     summary.agent.llm_rejected += 1;
@@ -668,24 +690,8 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                 }
             };
 
-            // Verify.
-            let verify: VerifyResult =
-                deps.verifier
-                    .verify(&target.seed_hex, target.d, &proof_source, head.n);
-            log(&MiningEvent::VerifyOutcome {
-                j_index,
-                accepted: verify.accepted,
-                reason: verify.reason.as_str().to_string(),
-                elapsed_ms: verify.elapsed.as_millis(),
-                attempt_artifact_path: verify.attempt_artifact_path.clone(),
-            });
-            if !verify.accepted {
-                summary.protocol.verify_rejected += 1;
-                continue;
-            }
-            summary.protocol.verify_accepted += 1;
-
-            // Canonicalize.
+            // Canonicalize before verifier admission so verifier and share
+            // hashing are downstream of the same intake-normalized proof body.
             let canon_bytes = match deps.canonicalizer.canonicalize(&proof_source, &target) {
                 Ok(b) => b,
                 Err(err) => {
@@ -703,6 +709,23 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                 }
             };
             let canon_hash = bppk_canon_hash(&canon_bytes);
+
+            // Verify.
+            let verify: VerifyResult =
+                deps.verifier
+                    .verify(&target.seed_hex, target.d, &proof_source, head.n);
+            log(&MiningEvent::VerifyOutcome {
+                j_index,
+                accepted: verify.accepted,
+                reason: verify.reason.as_str().to_string(),
+                elapsed_ms: verify.elapsed.as_millis(),
+                attempt_artifact_path: verify.attempt_artifact_path.clone(),
+            });
+            if !verify.accepted {
+                summary.protocol.verify_rejected += 1;
+                continue;
+            }
+            summary.protocol.verify_accepted += 1;
 
             // Grind share.
             let share = grind_share_with_source(
