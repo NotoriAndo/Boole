@@ -82,6 +82,37 @@ fn test_extract_proof_source_accepts_by_tactic_body() {
     assert_eq!(extract_proof_source(raw).unwrap(), raw);
 }
 
+#[test]
+fn test_extract_proof_source_rejects_sorry_in_any_tactic_position() {
+    let cases = [
+        "by exact sorry",
+        "by\n  intro xs\n  exact sorry",
+        "by simp [sorry]",
+        "by cases h with | _ => sorry",
+        "fun xs => sorry",
+        "by exact admit",
+        "by skip; admit",
+    ];
+    for raw in cases {
+        assert_eq!(
+            extract_proof_source(raw),
+            Err(RejectionReason::ContractFailed),
+            "expected ContractFailed for: {raw:?}"
+        );
+    }
+}
+
+#[test]
+fn test_extract_proof_source_does_not_misclassify_identifiers_containing_sorry() {
+    // Identifiers like `notsorry`, `decide_sorry`, or `Sorry` (different case)
+    // share substring with `sorry` but are not the keyword. The contract check
+    // must use word-boundary matching to avoid false positives.
+    let raw = "by exact notsorry_lemma xs";
+    assert_eq!(extract_proof_source(raw).unwrap(), raw);
+    let raw2 = "by exact decide_sorry_helper";
+    assert_eq!(extract_proof_source(raw2).unwrap(), raw2);
+}
+
 // --- MockDriver -----------------------------------------------------------
 
 #[test]

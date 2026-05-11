@@ -172,13 +172,8 @@ fn violates_proof_body_contract(source: &str) -> bool {
     }
 
     source.lines().any(|line| {
-        let line = line.trim();
-        line == "sorry"
-            || line == "admit"
-            || line.contains(" by sorry")
-            || line.contains(" by admit")
-            || line.contains(":= by sorry")
-            || line.contains(":= by admit")
+        line.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .any(|tok| tok == "sorry" || tok == "admit")
     })
 }
 
