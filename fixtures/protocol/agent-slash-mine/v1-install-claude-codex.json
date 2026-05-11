@@ -1,0 +1,12 @@
+{
+  "claudeMineHasBooleRoot": true,
+  "codexMineHasBooleRoot": true,
+  "placeholdersRemaining": [],
+  "claimBoundaryPresent": true,
+  "writtenBasenames": [
+    "boole-mine.md",
+    "boole-status.md",
+    "mine.md",
+    "status.md"
+  ]
+}

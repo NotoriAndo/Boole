@@ -7,6 +7,7 @@ cd "$ROOT"
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18095}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-opencode-cli-smoke.ndjson}"
+REWARD_STORE="${REWARD_STORE:-${TMPDIR:-/tmp}/boole-node-opencode-cli-smoke-rewards.ndjson}"
 STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-opencode-cli-state.XXXXXX")"
 STATE="$STATE_DIR/state.json"
 RUNTIME_NAME="${AGENT_RUNTIME_NAME:-opencode-compatible}"
@@ -25,17 +26,18 @@ else
 fi
 
 AGENT_ARGS_JSON="${AGENT_RUNTIME_ARGS:-["'"'"run"'"'","'"'"--print"'"'"]}"
-rm -f "$BLOCK_STORE"
+rm -f "$BLOCK_STORE" "$REWARD_STORE"
 
 cargo run -q -p boole-node -- run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
-  --max-requests 5 \
+  --reward-store "$REWARD_STORE" \
+  --max-requests 10 \
   >/tmp/boole-node-opencode-cli-smoke.out \
   2>/tmp/boole-node-opencode-cli-smoke.err &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-opencode-cli-smoke.out /tmp/boole-node-opencode-cli-smoke.err /tmp/boole-miner-opencode-cli-smoke-start.out /tmp/boole-miner-opencode-cli-smoke-init.out' EXIT
+trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f "$REWARD_STORE" /tmp/boole-node-opencode-cli-smoke.out /tmp/boole-node-opencode-cli-smoke.err /tmp/boole-miner-opencode-cli-smoke-start.out /tmp/boole-miner-opencode-cli-smoke-init.out' EXIT
 
 python3 - "$ADDR" <<'PY'
 import http.client
@@ -108,5 +110,6 @@ print(json.dumps({
 }, separators=(",", ":")))
 PY
 
-wait "$PID"
+kill "$PID" >/dev/null 2>&1 || true
+wait "$PID" >/dev/null 2>&1 || true
 printf 'boole-miner-opencode-cli-smoke: PASS\n' >&2

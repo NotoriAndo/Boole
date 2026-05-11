@@ -7,11 +7,12 @@ cd "$ROOT"
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18092}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-agent-cli-smoke.ndjson}"
+REWARD_STORE="${REWARD_STORE:-${TMPDIR:-/tmp}/boole-node-agent-cli-smoke-rewards.ndjson}"
 STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-agent-cli-state.XXXXXX")"
 STATE="$STATE_DIR/state.json"
 FAKE_AGENT="$STATE_DIR/fake-agent-cli.sh"
 AGENT_CALL_LOG="$STATE_DIR/agent-call.json"
-rm -f "$BLOCK_STORE"
+rm -f "$BLOCK_STORE" "$REWARD_STORE"
 
 cat >"$FAKE_AGENT" <<'SH'
 #!/usr/bin/env bash
@@ -37,11 +38,12 @@ cargo run -q -p boole-node -- run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
-  --max-requests 5 \
+  --reward-store "$REWARD_STORE" \
+  --max-requests 10 \
   >/tmp/boole-node-agent-cli-smoke.out \
   2>/tmp/boole-node-agent-cli-smoke.err &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-agent-cli-smoke.out /tmp/boole-node-agent-cli-smoke.err /tmp/boole-miner-agent-cli-smoke-start.out /tmp/boole-miner-agent-cli-smoke-init.out' EXIT
+trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f "$REWARD_STORE" /tmp/boole-node-agent-cli-smoke.out /tmp/boole-node-agent-cli-smoke.err /tmp/boole-miner-agent-cli-smoke-start.out /tmp/boole-miner-agent-cli-smoke-init.out' EXIT
 
 python3 - "$ADDR" <<'PY'
 import http.client
@@ -115,5 +117,6 @@ print(json.dumps({
 }, separators=(",", ":")))
 PY
 
-wait "$PID"
+kill "$PID" >/dev/null 2>&1 || true
+wait "$PID" >/dev/null 2>&1 || true
 printf 'boole-miner-agent-cli-smoke: PASS\n' >&2

@@ -76,6 +76,85 @@ class PreflightOrchestrationTests(unittest.TestCase):
             self.assertIn("not public mining", text)
             self.assertNotIn("wallet key", text.lower())
 
+    def test_agent_slash_installer_writes_rendered_templates_and_refuses_overwrite(self) -> None:
+        expected = json.loads((ROOT / "fixtures" / "protocol" / "agent-slash-mine" / "v1-install-claude-codex.json").read_text())
+        with tempfile.TemporaryDirectory(dir="/tmp") as td:
+            tmp = Path(td)
+            claude_dir = tmp / "claude-commands"
+            codex_dir = tmp / "codex-prompts"
+            claude = subprocess.run(
+                [
+                    "./scripts/install-agent-slash-commands.sh",
+                    "--profile",
+                    "claude",
+                    "--target-dir",
+                    str(claude_dir),
+                    "--boole-root",
+                    str(ROOT),
+                    "--force",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+            self.assertEqual(claude.returncode, 0, claude.stdout + claude.stderr)
+            codex = subprocess.run(
+                [
+                    "./scripts/install-agent-slash-commands.sh",
+                    "--profile",
+                    "codex",
+                    "--target-dir",
+                    str(codex_dir),
+                    "--boole-root",
+                    str(ROOT),
+                    "--codex-args",
+                    "--verify mock",
+                    "--force",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+            self.assertEqual(codex.returncode, 0, codex.stdout + codex.stderr)
+
+            claude_mine = (claude_dir / "boole" / "mine.md").read_text()
+            codex_mine = (codex_dir / "boole-mine.md").read_text()
+            actual = {
+                "claudeMineHasBooleRoot": f"{ROOT}/scripts/boole-agent-mine.sh --runtime claude-code" in claude_mine,
+                "codexMineHasBooleRoot": f"{ROOT}/scripts/boole-agent-mine.sh --runtime codex --verify mock" in codex_mine,
+                "placeholdersRemaining": [token for token in ["__BOOLE_ROOT__", "__BOOLE_ARGS__"] if token in claude_mine + codex_mine],
+                "claimBoundaryPresent": "not public mining" in claude_mine and "not public mining" in codex_mine,
+                "writtenBasenames": sorted(Path(path).name for path in json.loads(claude.stdout)["written"] + json.loads(codex.stdout)["written"]),
+            }
+            self.assertEqual(actual, expected)
+
+            refuse = subprocess.run(
+                ["./scripts/install-agent-slash-commands.sh", "--profile", "claude", "--target-dir", str(claude_dir), "--boole-root", str(ROOT)],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+            self.assertEqual(refuse.returncode, 73)
+            self.assertIn("refusing to overwrite", refuse.stderr)
+
+    def test_agent_smoke_scripts_use_isolated_reward_stores(self) -> None:
+        for script in [
+            ROOT / "scripts" / "boole-miner-agent-cli-smoke.sh",
+            ROOT / "scripts" / "boole-miner-hermes-cli-smoke.sh",
+            ROOT / "scripts" / "boole-miner-opencode-cli-smoke.sh",
+        ]:
+            text = script.read_text()
+            self.assertIn("REWARD_STORE", text, script.name)
+            self.assertIn("--reward-store", text, script.name)
+            self.assertIn("--max-requests 10", text, script.name)
+            self.assertIn("wait \"$PID\" >/dev/null 2>&1 || true", text, script.name)
+
     def test_phase7_preflight_has_named_s7_5_hardening_gate(self) -> None:
         text = PREFLIGHT_PATH.read_text()
         self.assertIn("s7.5-hardening", text)

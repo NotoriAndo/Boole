@@ -7,9 +7,10 @@ cd "$ROOT"
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18093}"
 SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-hermes-cli-smoke.ndjson}"
+REWARD_STORE="${REWARD_STORE:-${TMPDIR:-/tmp}/boole-node-hermes-cli-smoke-rewards.ndjson}"
 STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-hermes-cli-state.XXXXXX")"
 STATE="$STATE_DIR/state.json"
-rm -f "$BLOCK_STORE"
+rm -f "$BLOCK_STORE" "$REWARD_STORE"
 
 command -v hermes >/dev/null 2>&1 || {
   printf 'boole-miner-hermes-cli-smoke: SKIP hermes not found on PATH\n' >&2
@@ -21,11 +22,12 @@ cargo run -q -p boole-node -- run-local \
   --addr "$ADDR" \
   --scenario "$SCENARIO" \
   --block-store "$BLOCK_STORE" \
-  --max-requests 5 \
+  --reward-store "$REWARD_STORE" \
+  --max-requests 10 \
   >/tmp/boole-node-hermes-cli-smoke.out \
   2>/tmp/boole-node-hermes-cli-smoke.err &
 PID=$!
-trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f /tmp/boole-node-hermes-cli-smoke.out /tmp/boole-node-hermes-cli-smoke.err /tmp/boole-miner-hermes-cli-smoke-start.out /tmp/boole-miner-hermes-cli-smoke-init.out' EXIT
+trap 'kill "$PID" >/dev/null 2>&1 || true; rm -rf "$STATE_DIR"; rm -f "$REWARD_STORE" /tmp/boole-node-hermes-cli-smoke.out /tmp/boole-node-hermes-cli-smoke.err /tmp/boole-miner-hermes-cli-smoke-start.out /tmp/boole-miner-hermes-cli-smoke-init.out' EXIT
 
 python3 - "$ADDR" <<'PY'
 import http.client
@@ -95,5 +97,6 @@ print(json.dumps({
 }, separators=(",", ":")))
 PY
 
-wait "$PID"
+kill "$PID" >/dev/null 2>&1 || true
+wait "$PID" >/dev/null 2>&1 || true
 printf 'boole-miner-hermes-cli-smoke: PASS\n' >&2
