@@ -116,14 +116,13 @@ fn test_extract_proof_source_does_not_misclassify_identifiers_containing_sorry()
 // --- MockDriver -----------------------------------------------------------
 
 #[test]
-fn test_mock_driver_returns_solved_for_text_response() {
-    let driver = MockDriver::new(vec![MockResponse::Text(
-        "```lean\nby trivial\n```".to_string(),
-    )]);
+fn test_mock_driver_returns_answered_raw_text_without_proof_intake() {
+    let raw = "```lean\nby trivial\n```";
+    let driver = MockDriver::new(vec![MockResponse::Text(raw.to_string())]);
     let r = driver.generate("prompt");
     match r {
-        GenerateResult::Solved { proof_source, .. } => assert_eq!(proof_source, "by trivial"),
-        other => panic!("expected Solved, got {other:?}"),
+        GenerateResult::Answered { answer, .. } => assert_eq!(answer, raw),
+        other => panic!("expected Answered, got {other:?}"),
     }
 }
 
@@ -143,7 +142,7 @@ fn test_mock_driver_advances_through_responses() {
     let r1 = driver.generate("p");
     assert!(matches!(r1, GenerateResult::Error { .. }));
     let r2 = driver.generate("p");
-    assert!(matches!(r2, GenerateResult::Solved { .. }));
+    assert!(matches!(r2, GenerateResult::Answered { .. }));
 }
 
 #[test]
@@ -231,7 +230,7 @@ fn test_claude_cli_driver_pipes_prompt_via_stdin_with_dash_p() {
     let driver =
         ClaudeCliDriver::with_runner("claude", Duration::from_secs(60), Box::new(runner.clone()));
     let r = driver.generate("PROMPT");
-    assert!(matches!(r, GenerateResult::Solved { .. }));
+    assert!(matches!(r, GenerateResult::Answered { .. }));
     assert_eq!(driver.name(), "claude_cli");
     assert_eq!(driver.strategy(), Strategy::Frontier);
     let cap = runner.captured();
@@ -263,7 +262,7 @@ fn test_agent_cli_driver_appends_prompt_as_final_argv_no_stdin() {
         Box::new(runner.clone()),
     );
     let r = driver.generate("PROMPT");
-    assert!(matches!(r, GenerateResult::Solved { .. }));
+    assert!(matches!(r, GenerateResult::Answered { .. }));
     assert_eq!(driver.strategy(), Strategy::Hybrid);
     let cap = runner.captured();
     assert_eq!(cap.len(), 1);
@@ -500,7 +499,7 @@ fn test_with_retry_returns_first_success_without_sleeping() {
         },
         &sleeper,
     );
-    assert!(matches!(r, GenerateResult::Solved { .. }));
+    assert!(matches!(r, GenerateResult::Answered { .. }));
     assert!(sleeper.durations().is_empty());
 }
 
@@ -522,8 +521,8 @@ fn test_with_retry_retries_on_error_with_exponential_backoff() {
         &sleeper,
     );
     match r {
-        GenerateResult::Solved { proof_source, .. } => assert_eq!(proof_source, "by rfl"),
-        other => panic!("expected Solved, got {other:?}"),
+        GenerateResult::Answered { answer, .. } => assert_eq!(answer, "```lean\nby rfl\n```"),
+        other => panic!("expected Answered, got {other:?}"),
     }
     assert_eq!(
         sleeper.durations(),
@@ -699,15 +698,15 @@ fn test_openai_compat_driver_posts_to_v1_chat_completions_with_bearer_auth() {
     assert_eq!(driver.name(), "openai_compat");
     assert_eq!(driver.strategy(), Strategy::OpenWeight);
     match r {
-        GenerateResult::Solved {
-            proof_source,
+        GenerateResult::Answered {
+            answer,
             tokens_used,
             ..
         } => {
-            assert_eq!(proof_source, "by trivial");
+            assert_eq!(answer, "```lean\nby trivial\n```");
             assert_eq!(tokens_used, Some(42));
         }
-        other => panic!("expected Solved, got {other:?}"),
+        other => panic!("expected Answered, got {other:?}"),
     }
     let cap = http.captured();
     assert_eq!(cap.len(), 1);
@@ -826,15 +825,15 @@ fn test_openai_compat_driver_falls_back_to_legacy_choice_text() {
         Box::new(http),
     );
     match driver.generate("p") {
-        GenerateResult::Solved {
-            proof_source,
+        GenerateResult::Answered {
+            answer,
             tokens_used,
             ..
         } => {
-            assert_eq!(proof_source, "by rfl");
+            assert_eq!(answer, "```lean\nby rfl\n```");
             assert_eq!(tokens_used, Some(7));
         }
-        other => panic!("expected Solved, got {other:?}"),
+        other => panic!("expected Answered, got {other:?}"),
     }
 }
 
@@ -861,15 +860,15 @@ fn test_openai_compat_driver_falls_back_to_ollama_reasoning_when_content_empty()
         Box::new(http),
     );
     match driver.generate("p") {
-        GenerateResult::Solved {
-            proof_source,
+        GenerateResult::Answered {
+            answer,
             tokens_used,
             ..
         } => {
-            assert_eq!(proof_source, "by trivial");
+            assert_eq!(answer, "scratchpad before answer\n```lean\nby trivial\n```");
             assert_eq!(tokens_used, Some(99));
         }
-        other => panic!("expected Solved, got {other:?}"),
+        other => panic!("expected Answered, got {other:?}"),
     }
 }
 
@@ -930,15 +929,15 @@ fn test_anthropic_driver_posts_to_v1_messages_with_x_api_key() {
     assert_eq!(driver.name(), "anthropic");
     assert_eq!(driver.strategy(), Strategy::Frontier);
     match r {
-        GenerateResult::Solved {
-            proof_source,
+        GenerateResult::Answered {
+            answer,
             tokens_used,
             ..
         } => {
-            assert_eq!(proof_source, "by trivial");
+            assert_eq!(answer, "```lean\nby trivial\n```");
             assert_eq!(tokens_used, Some(57));
         }
-        other => panic!("expected Solved, got {other:?}"),
+        other => panic!("expected Answered, got {other:?}"),
     }
     let cap = http.captured();
     assert_eq!(cap.len(), 1);
@@ -987,8 +986,8 @@ fn test_anthropic_driver_concatenates_multiple_text_blocks() {
         Box::new(http),
     );
     match driver.generate("p") {
-        GenerateResult::Solved { proof_source, .. } => assert_eq!(proof_source, "by rfl"),
-        other => panic!("expected Solved, got {other:?}"),
+        GenerateResult::Answered { answer, .. } => assert_eq!(answer, "```lean\nby rfl\n```"),
+        other => panic!("expected Answered, got {other:?}"),
     }
 }
 
@@ -1060,15 +1059,15 @@ fn test_openai_driver_pins_to_api_openai_com_with_bearer_auth() {
     assert_eq!(driver.name(), "openai");
     assert_eq!(driver.strategy(), Strategy::Frontier);
     match r {
-        GenerateResult::Solved {
-            proof_source,
+        GenerateResult::Answered {
+            answer,
             tokens_used,
             ..
         } => {
-            assert_eq!(proof_source, "by trivial");
+            assert_eq!(answer, "```lean\nby trivial\n```");
             assert_eq!(tokens_used, Some(31));
         }
-        other => panic!("expected Solved, got {other:?}"),
+        other => panic!("expected Answered, got {other:?}"),
     }
     let cap = http.captured();
     assert_eq!(cap.len(), 1);
@@ -1142,15 +1141,15 @@ fn test_google_driver_posts_to_generate_content_with_x_goog_api_key() {
     assert_eq!(driver.name(), "google");
     assert_eq!(driver.strategy(), Strategy::Frontier);
     match r {
-        GenerateResult::Solved {
-            proof_source,
+        GenerateResult::Answered {
+            answer,
             tokens_used,
             ..
         } => {
-            assert_eq!(proof_source, "by trivial");
+            assert_eq!(answer, "```lean\nby trivial\n```");
             assert_eq!(tokens_used, Some(64));
         }
-        other => panic!("expected Solved, got {other:?}"),
+        other => panic!("expected Answered, got {other:?}"),
     }
     let cap = http.captured();
     assert_eq!(cap.len(), 1);
@@ -1185,8 +1184,8 @@ fn test_google_driver_concatenates_multiple_parts() {
         Box::new(http),
     );
     match driver.generate("p") {
-        GenerateResult::Solved { proof_source, .. } => assert_eq!(proof_source, "by rfl"),
-        other => panic!("expected Solved, got {other:?}"),
+        GenerateResult::Answered { answer, .. } => assert_eq!(answer, "```lean\nby rfl\n```"),
+        other => panic!("expected Answered, got {other:?}"),
     }
 }
 

@@ -626,12 +626,10 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                 sleeper.as_ref(),
             );
             let proof_source = match &llm {
-                GenerateResult::Solved {
-                    proof_source,
-                    elapsed,
-                    ..
+                GenerateResult::Answered {
+                    answer, elapsed, ..
                 } => {
-                    let candidate = match ProofTransport::PlainText(proof_source.clone())
+                    let candidate = match ProofTransport::PlainText(answer.clone())
                         .into_envelope()
                         .and_then(ProofIntakeV1::extract)
                     {

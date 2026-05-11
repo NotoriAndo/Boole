@@ -24,14 +24,15 @@
 //                     with `x-goog-api-key`. Parses
 //                     `candidates[0].content.parts[*].text`.
 //
-// Each driver accepts a constructed prompt and returns either a candidate
-// proof source string or a typed failure (rejected vs error). The retry
-// policy lives in `with_retry` rather than each driver, so swapping
+// Each driver accepts a constructed prompt and returns raw answer-channel text
+// or a typed transport failure. Proof-body extraction is intentionally owned by
+// `proof_intake::ProofIntakeV1` in the mining loop, not provider adapters. The
+// retry policy lives in `with_retry` rather than each driver, so swapping
 // providers does not duplicate retry logic.
 //
-// Retries fire only on `Error` outcomes; `Rejected` (model returned but
-// the response was unusable) is surfaced to the caller without retry —
-// retrying with the same prompt will not change the outcome.
+// Retries fire only on `Error` outcomes; `Rejected` (no usable answer channel)
+// is surfaced to the caller without retry — retrying with the same prompt will
+// not change the outcome.
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -108,8 +109,8 @@ impl RejectionReason {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GenerateResult {
-    Solved {
-        proof_source: String,
+    Answered {
+        answer: String,
         elapsed: Duration,
         tokens_used: Option<u64>,
     },
@@ -140,7 +141,7 @@ pub fn extract_proof_source(raw: &str) -> Result<String, RejectionReason> {
 
 #[derive(Debug, Clone)]
 pub enum MockResponse {
-    /// Raw text — passes through `extract_proof_source` to classify.
+    /// Raw answer-channel text. It is not proof-intake classified here.
     Text(String),
     /// Force an `Error` outcome with this cause string.
     Error(String),
@@ -202,7 +203,7 @@ impl ProverDriver for MockDriver {
                 cause: cause.clone(),
                 elapsed: started.elapsed(),
             },
-            MockResponse::Text(text) => classify_response(text, started.elapsed(), None),
+            MockResponse::Text(text) => answer_response(text, started.elapsed(), None),
         }
     }
 }
@@ -367,7 +368,7 @@ impl ProverDriver for ClaudeCliDriver {
         {
             Ok(stdout) => {
                 let text = String::from_utf8_lossy(&stdout).into_owned();
-                classify_response(&text, started.elapsed(), None)
+                answer_response(&text, started.elapsed(), None)
             }
             Err(err) => GenerateResult::Error {
                 cause: err.to_string(),
@@ -427,7 +428,7 @@ impl ProverDriver for AgentCliDriver {
         match self.runner.run(&self.command, &argv, None, self.timeout) {
             Ok(stdout) => {
                 let text = String::from_utf8_lossy(&stdout).into_owned();
-                classify_response(&text, started.elapsed(), None)
+                answer_response(&text, started.elapsed(), None)
             }
             Err(err) => GenerateResult::Error {
                 cause: err.to_string(),
@@ -555,7 +556,7 @@ impl ProverDriver for OpenAiCompatDriver {
             .get("usage")
             .and_then(|u| u.get("completion_tokens"))
             .and_then(|n| n.as_u64());
-        classify_response(&text, started.elapsed(), tokens)
+        answer_response(&text, started.elapsed(), tokens)
     }
 }
 
@@ -687,7 +688,7 @@ impl ProverDriver for AnthropicDriver {
             .get("usage")
             .and_then(|u| u.get("output_tokens"))
             .and_then(|n| n.as_u64());
-        classify_response(&text, started.elapsed(), tokens)
+        answer_response(&text, started.elapsed(), tokens)
     }
 }
 
@@ -897,7 +898,7 @@ impl ProverDriver for GoogleDriver {
             .get("usageMetadata")
             .and_then(|u| u.get("candidatesTokenCount"))
             .and_then(|n| n.as_u64());
-        classify_response(&text, started.elapsed(), tokens)
+        answer_response(&text, started.elapsed(), tokens)
     }
 }
 
@@ -1119,13 +1120,16 @@ fn extract_openai_compat_text(payload: &serde_json::Value) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn classify_response(text: &str, elapsed: Duration, tokens_used: Option<u64>) -> GenerateResult {
-    match extract_proof_source(text) {
-        Ok(proof_source) => GenerateResult::Solved {
-            proof_source,
+fn answer_response(text: &str, elapsed: Duration, tokens_used: Option<u64>) -> GenerateResult {
+    if text.trim().is_empty() {
+        return GenerateResult::Rejected {
+            reason: RejectionReason::EmptyResponse,
             elapsed,
-            tokens_used,
-        },
-        Err(reason) => GenerateResult::Rejected { reason, elapsed },
+        };
+    }
+    GenerateResult::Answered {
+        answer: text.to_string(),
+        elapsed,
+        tokens_used,
     }
 }

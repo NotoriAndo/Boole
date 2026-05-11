@@ -93,11 +93,11 @@ fn make_canned_proof_driver() -> Box<MockDriver> {
     )]))
 }
 
-struct RawSolvedDriver {
+struct RawAnsweredDriver {
     raw_answer: String,
 }
 
-impl ProverDriver for RawSolvedDriver {
+impl ProverDriver for RawAnsweredDriver {
     fn name(&self) -> &str {
         "raw-solved"
     }
@@ -107,8 +107,8 @@ impl ProverDriver for RawSolvedDriver {
     }
 
     fn generate(&self, _prompt: &str) -> GenerateResult {
-        GenerateResult::Solved {
-            proof_source: self.raw_answer.clone(),
+        GenerateResult::Answered {
+            answer: self.raw_answer.clone(),
             elapsed: Duration::ZERO,
             tokens_used: None,
         }
@@ -199,7 +199,7 @@ fn mining_loop_routes_generated_answer_through_intake_and_canonicalizer_before_v
         pk: pk32(),
         chain_head: Box::new(FixedChainHead { head: easy_head() }),
         emitter: Box::new(StubTargetEmitter::new("render")),
-        driver: Box::new(RawSolvedDriver {
+        driver: Box::new(RawAnsweredDriver {
             raw_answer: "```lean\nby trivial\n```".to_string(),
         }),
         verifier: Box::new(RecordingVerifier {

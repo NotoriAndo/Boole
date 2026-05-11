@@ -80,9 +80,19 @@ by
 
 Contract failures are classified before Lean verification as `contract_failed` when the candidate is clearly not a proof body.
 
-## Canonicalizer scope
+## Boundary order
 
-The canonicalizer is syntax-envelope normalization only. It may trim whitespace and unwrap a whole Lean fenced block. It must not change proof meaning.
+The mining loop enforces this order:
+
+```text
+driver.generate → ProofIntakeV1 → Canonicalizer → Verifier
+```
+
+Driver adapters return raw answer-channel text. They do not produce a `proof_source`, unwrap fences, classify theorem/prose shapes, or repair candidate Lean. `ProofIntakeV1` is the only boundary that turns an answer into a `ProofCandidate`.
+
+## ProofIntake syntax-envelope scope
+
+`ProofIntakeV1` may do shared syntax-envelope normalization before verifier/canonicalizer admission. It must not change proof meaning.
 
 Allowed:
 
