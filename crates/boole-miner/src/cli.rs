@@ -622,8 +622,8 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
         // Production: family-derived seed + render.
         (Some(profile), None, None) => family_target_emitter(profile, None),
         (None, Some(_), None) => anyhow::bail!(
-            "--fixed-target-seed-hex without --fixed-target-render requires a family \
-             profile (v031-lp | v031 | v1-lenbound)"
+            "--fixed-target-seed-hex and --fixed-target-render must be provided together \
+             unless a family profile is selected (v031-lp | v031 | v1-lenbound)"
         ),
         (None, None, None) => Box::new(StubTargetEmitter::new(
             "synthetic target — supply --fixed-target-render or use a family profile",
@@ -766,9 +766,15 @@ fn event_to_json(e: &MiningEvent) -> serde_json::Value {
             outcome,
             elapsed_ms,
             reason,
+            proof_contract_version,
+            canonicalizer_version,
+            model_specific_overrides,
         } => serde_json::json!({
             "kind":"llm_outcome","j":j_index,"outcome":outcome.as_str(),
             "elapsedMs":elapsed_ms,"reason":reason,
+            "proofContractVersion":proof_contract_version,
+            "canonicalizerVersion":canonicalizer_version,
+            "modelSpecificOverrides":model_specific_overrides,
         }),
         MiningEvent::VerifyOutcome {
             j_index,
@@ -877,5 +883,26 @@ mod tests {
         assert!(json.get("generatedModule").is_none());
         assert!(json.get("leanStdout").is_none());
         assert!(json.get("leanStderr").is_none());
+    }
+
+    #[test]
+    fn llm_outcome_ndjson_emits_proof_intake_policy_metadata() {
+        let event = MiningEvent::LlmOutcome {
+            j_index: 7,
+            outcome: crate::mining_loop::LlmOutcomeKind::Solved,
+            elapsed_ms: 42,
+            reason: None,
+            proof_contract_version: crate::proof_intake::PROOF_BODY_CONTRACT_VERSION,
+            canonicalizer_version: crate::proof_intake::PROOF_CANONICALIZER_VERSION,
+            model_specific_overrides: false,
+        };
+
+        let json = event_to_json(&event);
+
+        assert_eq!(json["kind"], "llm_outcome");
+        assert_eq!(json["proofContractVersion"], "boole-proof-body-v1");
+        assert_eq!(json["canonicalizerVersion"], "boole-proof-canonicalizer-v1");
+        assert_eq!(json["modelSpecificOverrides"], false);
+        assert!(json.get("proofSource").is_none());
     }
 }

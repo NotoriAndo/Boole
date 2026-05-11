@@ -10,6 +10,7 @@ pub mod http_runner;
 pub mod llm_driver;
 pub mod local_verify;
 pub mod mining_loop;
+pub mod proof_intake;
 pub mod proof_package;
 pub mod state;
 pub mod submit_client;
@@ -26,13 +27,13 @@ pub use grinder::{
 pub use http_client::{percent_encode_component, HttpClient, HttpError, HttpResponse};
 pub use http_runner::{HttpRunner, HttpRunnerError, HttpRunnerResponse, ReqwestHttpRunner};
 pub use llm_driver::{
-    create_driver, extract_proof_source, with_retry, AgentCliDriver, AnthropicDriver,
-    ClaudeCliDriver, DriverConfigError, GenerateResult, GoogleDriver, LLMBackend, LLMDriverConfig,
-    MockDriver, MockResponse, OpenAiCompatDriver, OpenAiDriver, ProcessError, ProcessRunner,
-    ProverDriver, RejectionReason, RetryConfig, Sleeper, StdProcessRunner, Strategy, ThreadSleeper,
-    ANTHROPIC_API_VERSION, ANTHROPIC_DEFAULT_BASE_URL, ANTHROPIC_DEFAULT_MAX_TOKENS,
-    GOOGLE_DEFAULT_BASE_URL, GOOGLE_DEFAULT_MAX_TOKENS, OPENAI_COMPAT_DEFAULT_MAX_TOKENS,
-    OPENAI_DEFAULT_BASE_URL, OPENAI_DEFAULT_MAX_TOKENS,
+    create_driver, with_retry, AgentCliDriver, AnthropicDriver, ClaudeCliDriver, DriverConfigError,
+    GenerateResult, GoogleDriver, LLMBackend, LLMDriverConfig, MockDriver, MockResponse,
+    OpenAiCompatDriver, OpenAiDriver, ProcessError, ProcessRunner, ProverDriver, RejectionReason,
+    RetryConfig, Sleeper, StdProcessRunner, Strategy, ThreadSleeper, ANTHROPIC_API_VERSION,
+    ANTHROPIC_DEFAULT_BASE_URL, ANTHROPIC_DEFAULT_MAX_TOKENS, GOOGLE_DEFAULT_BASE_URL,
+    GOOGLE_DEFAULT_MAX_TOKENS, OPENAI_COMPAT_DEFAULT_MAX_TOKENS, OPENAI_DEFAULT_BASE_URL,
+    OPENAI_DEFAULT_MAX_TOKENS,
 };
 pub use local_verify::{
     AcceptingVerifier, LeanVerifier, RejectingVerifier, Verifier, VerifyReason, VerifyResult,
@@ -41,6 +42,10 @@ pub use mining_loop::{
     run_mining_loop, DefaultPromptBuilder, FixedChainHead, HeadAdvanceReason, LlmOutcomeKind,
     MiningEvent, MiningLoopDeps, MiningLoopOptions, MiningLoopSummary, MiningRunContext,
     MiningRunDriverMode, MiningRunTargetMode, MiningRunVerifierMode, PromptBuilder,
+};
+pub use proof_intake::{
+    extract_proof_source, ProofCandidate, ProofEnvelope, ProofIntakeV1, ProofTransport,
+    PROOF_BODY_CONTRACT_VERSION, PROOF_CANONICALIZER_VERSION,
 };
 pub use proof_package::{
     bppk_canon_hash, walk_bppk, BppkBuilder, BppkDecodeError, BppkWalkResult, FORMAT_VERSION,

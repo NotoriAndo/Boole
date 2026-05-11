@@ -129,72 +129,11 @@ pub trait ProverDriver: Send + Sync {
     fn generate(&self, prompt: &str) -> GenerateResult;
 }
 
-/// Strip a Lean fenced code block if present, otherwise return the raw text.
-/// Empty / whitespace-only is treated as `EmptyResponse`. A fenced block
-/// with no body is `NoProofBlock`. Mirrors pof's `extractProofSource`
-/// (only `lean` / `lean4` are recognized as language tags).
+/// Compatibility wrapper for callers that still pass a plain answer string.
+/// All providers route through `proof_intake::ProofIntakeV1`; this wrapper is
+/// intentionally not a model-specific cleanup path.
 pub fn extract_proof_source(raw: &str) -> Result<String, RejectionReason> {
-    if raw.trim().is_empty() {
-        return Err(RejectionReason::EmptyResponse);
-    }
-    let body: &str = match find_lean_fenced_block(raw) {
-        Some(inner) => inner,
-        None => raw,
-    };
-    let trimmed = body.trim();
-    if trimmed.is_empty() {
-        return Err(RejectionReason::NoProofBlock);
-    }
-    if violates_proof_body_contract(trimmed) {
-        return Err(RejectionReason::ContractFailed);
-    }
-    Ok(trimmed.to_string())
-}
-
-fn violates_proof_body_contract(source: &str) -> bool {
-    let first_non_empty = source.lines().find(|line| !line.trim().is_empty());
-    if first_non_empty
-        .map(|line| {
-            let line = line.trim_start();
-            line.starts_with("theorem ")
-                || line.starts_with("lemma ")
-                || line.starts_with("def ")
-                || line.starts_with("import ")
-                || line.starts_with("namespace ")
-                || line.starts_with("end ")
-                || line.starts_with("#")
-                || line.starts_with("* ")
-                || line.starts_with("- ")
-        })
-        .unwrap_or(false)
-    {
-        return true;
-    }
-
-    source.lines().any(|line| {
-        line.split(|c: char| !(c.is_alphanumeric() || c == '_'))
-            .any(|tok| tok == "sorry" || tok == "admit")
-    })
-}
-
-fn find_lean_fenced_block(raw: &str) -> Option<&str> {
-    let start = raw.find("```")?;
-    let after_open = &raw[start + 3..];
-    let after_lang = if let Some(rest) = after_open.strip_prefix("lean4") {
-        rest
-    } else if let Some(rest) = after_open.strip_prefix("lean") {
-        rest
-    } else {
-        after_open
-    };
-    let body_start = after_lang
-        .char_indices()
-        .find(|(_, c)| !c.is_whitespace())
-        .map(|(i, _)| i)
-        .unwrap_or(after_lang.len());
-    let after_ws = &after_lang[body_start..];
-    let close_rel = after_ws.find("```")?;
-    Some(&after_ws[..close_rel])
+    crate::proof_intake::extract_proof_source(raw)
 }
 
 // --- Mock driver ----------------------------------------------------------

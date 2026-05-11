@@ -31,6 +31,7 @@ use crate::llm_driver::{
     with_retry, GenerateResult, ProverDriver, RetryConfig, Sleeper, ThreadSleeper,
 };
 use crate::local_verify::{Verifier, VerifyResult};
+use crate::proof_intake::{PROOF_BODY_CONTRACT_VERSION, PROOF_CANONICALIZER_VERSION};
 use crate::proof_package::bppk_canon_hash;
 use crate::submit_client::{
     AnnounceTicketInputs, AnnounceTicketResult, SubmitInputs, SubmitResult, Submitter,
@@ -291,6 +292,9 @@ pub enum MiningEvent {
         outcome: LlmOutcomeKind,
         elapsed_ms: u128,
         reason: Option<String>,
+        proof_contract_version: &'static str,
+        canonicalizer_version: &'static str,
+        model_specific_overrides: bool,
     },
     VerifyOutcome {
         j_index: u32,
@@ -583,6 +587,9 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                         outcome: LlmOutcomeKind::Error,
                         elapsed_ms: 0,
                         reason: Some(format!("emitter: {err}")),
+                        proof_contract_version: PROOF_BODY_CONTRACT_VERSION,
+                        canonicalizer_version: PROOF_CANONICALIZER_VERSION,
+                        model_specific_overrides: false,
                     });
                     continue;
                 }
@@ -613,6 +620,9 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                         outcome: LlmOutcomeKind::Solved,
                         elapsed_ms: elapsed.as_millis(),
                         reason: None,
+                        proof_contract_version: PROOF_BODY_CONTRACT_VERSION,
+                        canonicalizer_version: PROOF_CANONICALIZER_VERSION,
+                        model_specific_overrides: false,
                     });
                     proof_source.clone()
                 }
@@ -623,6 +633,9 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                         outcome: LlmOutcomeKind::Rejected,
                         elapsed_ms: elapsed.as_millis(),
                         reason: Some(reason.as_str().to_string()),
+                        proof_contract_version: PROOF_BODY_CONTRACT_VERSION,
+                        canonicalizer_version: PROOF_CANONICALIZER_VERSION,
+                        model_specific_overrides: false,
                     });
                     continue;
                 }
@@ -633,6 +646,9 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                         outcome: LlmOutcomeKind::Error,
                         elapsed_ms: elapsed.as_millis(),
                         reason: Some(cause.clone()),
+                        proof_contract_version: PROOF_BODY_CONTRACT_VERSION,
+                        canonicalizer_version: PROOF_CANONICALIZER_VERSION,
+                        model_specific_overrides: false,
                     });
                     continue;
                 }
@@ -665,6 +681,9 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                         outcome: LlmOutcomeKind::Error,
                         elapsed_ms: 0,
                         reason: Some(format!("canonicalize: {err}")),
+                        proof_contract_version: PROOF_BODY_CONTRACT_VERSION,
+                        canonicalizer_version: PROOF_CANONICALIZER_VERSION,
+                        model_specific_overrides: false,
                     });
                     continue;
                 }
