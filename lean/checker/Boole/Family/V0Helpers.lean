@@ -135,4 +135,28 @@ theorem length_sortAsc (xs : List Int) :
     (sortAsc xs).length = xs.length := by
   unfold sortAsc; exact List.length_mergeSort _
 
+/-- `filterByPred` can only remove elements, so v1 length-bound proofs may
+compose this helper with the length-preserving op helpers above. -/
+theorem length_filterByPred_le (p : Int → Bool) (xs : List Int) :
+    (filterByPred p xs).length ≤ xs.length := by
+  unfold filterByPred
+  exact List.length_filter_le p xs
+
+/-- `dedup` can only remove elements, so v1 length-bound proofs may compose
+this helper with the length-preserving op helpers above. -/
+theorem length_dedup_le : ∀ (xs : List Int), (dedup xs).length ≤ xs.length
+  | [] => by simp [dedup, List.eraseDups_nil]
+  | a :: as => by
+      unfold dedup
+      rw [List.eraseDups_cons]
+      simp
+      have ih : (dedup (as.filter (fun b => !b == a))).length ≤
+          (as.filter (fun b => !b == a)).length := length_dedup_le _
+      unfold dedup at ih
+      exact Nat.le_trans ih (List.length_filter_le _ as)
+termination_by xs => xs.length
+decreasing_by
+  simp_wf
+  exact Nat.lt_succ_of_le (List.length_filter_le _ as)
+
 end Boole.Family.V0Helpers

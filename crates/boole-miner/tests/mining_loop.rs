@@ -5,11 +5,12 @@ use std::time::Duration;
 use boole_core::{parse_biguint_hex, Hex32};
 
 use boole_miner::{
-    run_mining_loop, AcceptingVerifier, AnnounceTicketInputs, AnnounceTicketResult, ChainHead,
-    FixedChainHead, GrinderConfig, MiningEvent, MiningLoopDeps, MiningLoopOptions,
-    MiningRunContext, MiningRunDriverMode, MiningRunTargetMode, MiningRunVerifierMode, MockDriver,
-    MockResponse, RejectingVerifier, StructuralCanonicalizer, StubTargetEmitter, SubmitInputs,
-    SubmitResult, Submitter, Verifier, VerifyReason, VerifyResult,
+    family_v1_lenbound, run_mining_loop, AcceptingVerifier, AnnounceTicketInputs,
+    AnnounceTicketResult, ChainHead, DefaultPromptBuilder, FixedChainHead, GrinderConfig,
+    MiningEvent, MiningLoopDeps, MiningLoopOptions, MiningRunContext, MiningRunDriverMode,
+    MiningRunTargetMode, MiningRunVerifierMode, MockDriver, MockResponse, PromptBuilder,
+    RejectingVerifier, StructuralCanonicalizer, StubTargetEmitter, SubmitInputs, SubmitResult,
+    Submitter, Target, Verifier, VerifyReason, VerifyResult,
 };
 
 fn pk32() -> Hex32 {
@@ -89,6 +90,62 @@ fn make_canned_proof_driver() -> Box<MockDriver> {
     Box::new(MockDriver::new(vec![MockResponse::Text(
         "```lean\nfun xs => nodup_dedup _\n```".to_string(),
     )]))
+}
+
+#[test]
+fn default_prompt_builder_uses_v1_lenbound_contract_for_v1_profile() {
+    let target = Target {
+        seed_hex: "00".repeat(32),
+        d: 1,
+        profile: "v1-lenbound".to_string(),
+        n: 1,
+        render: "the result length is ≤ input length".to_string(),
+    };
+
+    let prompt = DefaultPromptBuilder.build_prompt(&target);
+
+    assert!(prompt.contains("Boole v1 length-bound"));
+    assert!(prompt.contains("length_filterByPred_le"));
+    assert!(prompt.contains("length_dedup_le"));
+    assert!(prompt.contains("proof body only"));
+    assert!(prompt.contains("`by` tactic blocks are allowed"));
+    assert!(!prompt.contains("ListInvariantsV0 family"));
+}
+
+#[test]
+fn default_prompt_builder_keeps_v0_contract_for_v031_profiles() {
+    let target = Target {
+        seed_hex: "11".repeat(32),
+        d: 1,
+        profile: "v031-lp".to_string(),
+        n: 1,
+        render: "synthetic invariant render".to_string(),
+    };
+
+    let prompt = DefaultPromptBuilder.build_prompt(&target);
+
+    assert!(prompt.contains("ListInvariantsV0 family"));
+    assert!(prompt.contains("fun xs => nodup_dedup _"));
+}
+
+#[test]
+fn default_prompt_builder_embeds_exact_v1_helper_manifest() {
+    let target = Target {
+        seed_hex: "22".repeat(32),
+        d: 3,
+        profile: "v1-lenbound".to_string(),
+        n: 2,
+        render: "theorem instance_thm : ∀ (xs : List Int), (dedup xs).length ≤ xs.length"
+            .to_string(),
+    };
+
+    let prompt = DefaultPromptBuilder.build_prompt(&target);
+    let manifest = family_v1_lenbound::helper_manifest();
+
+    assert!(prompt.contains(manifest));
+    assert!(prompt.contains("Respond with one Lean proof body only"));
+    assert!(prompt.contains("`by` tactic blocks are allowed"));
+    assert!(!prompt.contains("Respond with a single fenced ```lean block"));
 }
 
 #[test]

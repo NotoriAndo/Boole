@@ -92,6 +92,7 @@ pub enum RejectionReason {
     EmptyResponse,
     NoProofBlock,
     NonStringResponse,
+    ContractFailed,
 }
 
 impl RejectionReason {
@@ -100,6 +101,7 @@ impl RejectionReason {
             RejectionReason::EmptyResponse => "empty_response",
             RejectionReason::NoProofBlock => "no_proof_block",
             RejectionReason::NonStringResponse => "non_string_response",
+            RejectionReason::ContractFailed => "contract_failed",
         }
     }
 }
@@ -143,7 +145,41 @@ pub fn extract_proof_source(raw: &str) -> Result<String, RejectionReason> {
     if trimmed.is_empty() {
         return Err(RejectionReason::NoProofBlock);
     }
+    if violates_proof_body_contract(trimmed) {
+        return Err(RejectionReason::ContractFailed);
+    }
     Ok(trimmed.to_string())
+}
+
+fn violates_proof_body_contract(source: &str) -> bool {
+    let first_non_empty = source.lines().find(|line| !line.trim().is_empty());
+    if first_non_empty
+        .map(|line| {
+            let line = line.trim_start();
+            line.starts_with("theorem ")
+                || line.starts_with("lemma ")
+                || line.starts_with("def ")
+                || line.starts_with("import ")
+                || line.starts_with("namespace ")
+                || line.starts_with("end ")
+                || line.starts_with("#")
+                || line.starts_with("* ")
+                || line.starts_with("- ")
+        })
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    source.lines().any(|line| {
+        let line = line.trim();
+        line == "sorry"
+            || line == "admit"
+            || line.contains(" by sorry")
+            || line.contains(" by admit")
+            || line.contains(":= by sorry")
+            || line.contains(":= by admit")
+    })
 }
 
 fn find_lean_fenced_block(raw: &str) -> Option<&str> {

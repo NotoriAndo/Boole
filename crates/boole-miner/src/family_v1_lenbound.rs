@@ -156,6 +156,15 @@ fn render_pred_to_bool(pred: &Pred) -> String {
     }
 }
 
+pub fn helper_manifest() -> &'static str {
+    "Available v1 length-bound helpers:\n\
+     - length_filterByPred_le (p : Int → Bool) (xs : List Int)\n\
+     - length_dedup_le (xs : List Int)\n\
+     - length_mapAdd (k : Int) (xs : List Int)\n\
+     - length_mapMul (k : Int) (xs : List Int)\n\
+     - length_sortAsc (xs : List Int)"
+}
+
 fn render_op_apply(op: &Op, inner: &str) -> String {
     match op {
         Op::FilterP(p) => {
@@ -180,6 +189,69 @@ pub fn render_chain_expr(chain: &[Op], var: &str) -> String {
 pub fn theorem_rhs(instance: &Instance) -> String {
     let result_expr = render_chain_expr(&instance.chain, "xs");
     format!("({result_expr}).length ≤ xs.length")
+}
+
+fn render_step_lemma(op: &Op, input_expr: &str) -> (String, String) {
+    match op {
+        Op::FilterP(p) => (
+            "≤".to_string(),
+            format!(
+                "Boole.Family.V0Helpers.length_filterByPred_le {} {input_expr}",
+                render_pred_to_bool(p)
+            ),
+        ),
+        Op::MapAdd(k) => (
+            "=".to_string(),
+            format!(
+                "Boole.Family.V0Helpers.length_mapAdd {} {input_expr}",
+                render_int(*k)
+            ),
+        ),
+        Op::MapMul(k) => (
+            "=".to_string(),
+            format!(
+                "Boole.Family.V0Helpers.length_mapMul {} {input_expr}",
+                render_int(*k)
+            ),
+        ),
+        Op::Dedup => (
+            "≤".to_string(),
+            format!("Boole.Family.V0Helpers.length_dedup_le {input_expr}"),
+        ),
+        Op::SortAsc => (
+            "=".to_string(),
+            format!("Boole.Family.V0Helpers.length_sortAsc {input_expr}"),
+        ),
+    }
+}
+
+pub fn render_canonical_proof(instance: &Instance) -> String {
+    let mut exprs = Vec::with_capacity(instance.chain.len() + 1);
+    exprs.push("xs".to_string());
+    for op in &instance.chain {
+        let prev = exprs.last().expect("exprs has xs").clone();
+        exprs.push(render_op_apply(op, &prev));
+    }
+
+    let mut lines = vec![
+        "by".to_string(),
+        "  intro xs".to_string(),
+        "  calc".to_string(),
+    ];
+    for idx in (0..instance.chain.len()).rev() {
+        let op = &instance.chain[idx];
+        let input_expr = &exprs[idx];
+        let output_expr = &exprs[idx + 1];
+        let (rel, lemma) = render_step_lemma(op, input_expr);
+        let prefix = if idx == instance.chain.len() - 1 {
+            format!("    ({output_expr}).length")
+        } else {
+            "    _".to_string()
+        };
+        lines.push(format!("{prefix} {rel} ({input_expr}).length := by"));
+        lines.push(format!("      exact {lemma}"));
+    }
+    lines.join("\n")
 }
 
 const VERIFY_NAMESPACE: &str = "BooleVerifyMod";
@@ -273,5 +345,29 @@ mod tests {
         assert!(module.contains("theorem instance_thm"));
         assert!(module.contains(".length ≤ xs.length"));
         assert!(module.ends_with("end BooleVerifyMod\n"));
+    }
+
+    #[test]
+    fn v1_helper_manifest_exposes_length_bound_surface() {
+        let manifest = helper_manifest();
+        assert!(manifest.contains("length_filterByPred_le"));
+        assert!(manifest.contains("length_dedup_le"));
+        assert!(manifest.contains("length_mapAdd"));
+        assert!(manifest.contains("length_mapMul"));
+        assert!(manifest.contains("length_sortAsc"));
+    }
+
+    #[test]
+    fn canonical_v1_proof_uses_length_bound_helpers() {
+        let inst = Instance {
+            d: 0,
+            chain_len: 2,
+            chain: vec![Op::FilterP(Pred::Even), Op::Dedup],
+        };
+        let proof = render_canonical_proof(&inst);
+        assert!(proof.contains("length_filterByPred_le"));
+        assert!(proof.contains("length_dedup_le"));
+        assert!(!proof.contains("sorry"));
+        assert!(!proof.contains("admit"));
     }
 }

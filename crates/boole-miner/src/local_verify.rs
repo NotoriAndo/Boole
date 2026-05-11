@@ -478,4 +478,37 @@ mod tests {
             );
         }
     }
+
+    /// End-to-end v1 helper-surface sync: the Rust v1 canonical proof renderer
+    /// must compose only lemmas provided by `Boole.Family.V0Helpers`, and the
+    /// Lean verifier must accept that proof body in the v1 theorem slot.
+    /// Ignored by default because it requires the Lean toolchain and checker.
+    /// Run with: `cargo test -p boole-miner --lib -- --ignored
+    /// lean_verifier_accepts_v1_lenbound_canonical_proof`.
+    #[test]
+    #[ignore]
+    fn lean_verifier_accepts_v1_lenbound_canonical_proof() {
+        use crate::family_v1_lenbound;
+        let lean_dir = std::env::var("BOOLE_LEAN_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                let manifest = env!("CARGO_MANIFEST_DIR");
+                PathBuf::from(manifest).join("../../lean/checker")
+            });
+        let seed_hex = "0000000000000000000000000000000000000000000000000000000000000000";
+        let inst = family_v1_lenbound::generate_from_hex(seed_hex).unwrap();
+        let canonical = family_v1_lenbound::render_canonical_proof(&inst);
+        assert!(canonical.starts_with("by\n  intro xs\n  calc"));
+        assert!(
+            canonical.contains("length_filterByPred_le") || canonical.contains("length_dedup_le")
+        );
+
+        let v = LeanVerifier::new(lean_dir, "v1-lenbound").with_timeout(Duration::from_secs(120));
+        let r = v.verify(seed_hex, 0, &canonical, None);
+        assert!(
+            r.accepted,
+            "v1 canonical proof rejected: reason={:?} stderr={}",
+            r.reason, r.stderr_tail
+        );
+    }
 }

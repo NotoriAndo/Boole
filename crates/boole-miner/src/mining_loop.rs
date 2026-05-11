@@ -25,6 +25,7 @@ use num_traits::One;
 
 use crate::canonicalizer::{Canonicalizer, Target};
 use crate::chain_head::{ChainHead, ChainHeadError, ChainHeadFetcher};
+use crate::family_v1_lenbound;
 use crate::grinder::{grind_share, grind_submission_pow, CounterNonce, GrinderConfig, OsRngNonce};
 use crate::llm_driver::{
     with_retry, GenerateResult, ProverDriver, RetryConfig, Sleeper, ThreadSleeper,
@@ -151,6 +152,25 @@ pub struct DefaultPromptBuilder;
 
 impl PromptBuilder for DefaultPromptBuilder {
     fn build_prompt(&self, target: &Target) -> String {
+        if target.profile == "v1-lenbound" {
+            return format!(
+                "## Boole v1 length-bound proof task\n\
+                 You are proving a Boole calibration length-bound target.\n\
+                 Contract: prove that the rendered chain never increases list length.\n\n\
+                 ## Official helper surface\n{}\n\n\
+                 ## Output format — STRICT\n\
+                 Respond with one Lean proof body only for the theorem body slot.\n\
+                 `by` tactic blocks are allowed. Do not restate the theorem.\n\
+                 Do not include Markdown fences, prose, imports, namespace declarations, `sorry`, or `admit`.\n\n\
+                 ## This instance\nProfile: {}, D={}, N={}.\nRendered description:\n{}",
+                family_v1_lenbound::helper_manifest(),
+                target.profile,
+                target.d,
+                target.n,
+                target.render
+            );
+        }
+
         format!(
             "{COOKBOOK}\n## This instance\nProfile: {}, D={}, N={}.\nRendered description:\n{}",
             target.profile, target.d, target.n, target.render

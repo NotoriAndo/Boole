@@ -58,6 +58,30 @@ fn test_extract_proof_source_empty_fence_yields_no_proof_block() {
     );
 }
 
+#[test]
+fn test_extract_proof_source_rejects_full_theorem_contract_shape() {
+    let raw = "```lean\ntheorem BooleVerifyMod.instance_thm : True := by\n  trivial\n```";
+    assert_eq!(
+        extract_proof_source(raw),
+        Err(RejectionReason::ContractFailed)
+    );
+}
+
+#[test]
+fn test_extract_proof_source_rejects_markdown_prose_contract_shape() {
+    let raw = "* We need induction.\n* Then use length_dedup_le.";
+    assert_eq!(
+        extract_proof_source(raw),
+        Err(RejectionReason::ContractFailed)
+    );
+}
+
+#[test]
+fn test_extract_proof_source_accepts_by_tactic_body() {
+    let raw = "by\n  intro xs\n  exact length_dedup_le xs";
+    assert_eq!(extract_proof_source(raw).unwrap(), raw);
+}
+
 // --- MockDriver -----------------------------------------------------------
 
 #[test]
