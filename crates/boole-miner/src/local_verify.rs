@@ -15,7 +15,12 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::family_v031::{generate_from_hex, lean_module, Profile};
+use crate::family_v031::{
+    generate_from_hex as generate_v031_from_hex, lean_module as lean_v031_module, Profile,
+};
+use crate::family_v1_lenbound::{
+    generate_from_hex as generate_v1_lenbound_from_hex, lean_module as lean_v1_lenbound_module,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyReason {
@@ -109,10 +114,16 @@ fn tail(s: &str, limit: usize) -> String {
     }
 }
 
-fn parse_profile(s: &str) -> Option<Profile> {
+enum LeanProfile {
+    V031(Profile),
+    V1Lenbound,
+}
+
+fn parse_profile(s: &str) -> Option<LeanProfile> {
     match s {
-        "v031-lp" => Some(Profile::V031Lp),
-        "v031" => Some(Profile::V031),
+        "v031-lp" => Some(LeanProfile::V031(Profile::V031Lp)),
+        "v031" => Some(LeanProfile::V031(Profile::V031)),
+        "v1-lenbound" => Some(LeanProfile::V1Lenbound),
         _ => None,
     }
 }
@@ -150,23 +161,41 @@ impl Verifier for LeanVerifier {
                 reason: VerifyReason::EmitFailed,
                 elapsed: started.elapsed(),
                 stderr_tail: format!(
-                    "LeanVerifier does not support profile {:?}; supported: v031-lp, v031",
+                    "LeanVerifier does not support profile {:?}; supported: v031-lp, v031, v1-lenbound",
                     self.profile
                 ),
             };
         };
-        let instance = match generate_from_hex(seed_hex, profile) {
-            Ok(i) => i,
-            Err(e) => {
-                return VerifyResult {
-                    accepted: false,
-                    reason: VerifyReason::EmitFailed,
-                    elapsed: started.elapsed(),
-                    stderr_tail: format!("decode seed_hex failed: {e}"),
+        let module_text = match profile {
+            LeanProfile::V031(profile) => {
+                let instance = match generate_v031_from_hex(seed_hex, profile) {
+                    Ok(i) => i,
+                    Err(e) => {
+                        return VerifyResult {
+                            accepted: false,
+                            reason: VerifyReason::EmitFailed,
+                            elapsed: started.elapsed(),
+                            stderr_tail: format!("decode seed_hex failed: {e}"),
+                        };
+                    }
                 };
+                lean_v031_module(&instance, proof_source)
+            }
+            LeanProfile::V1Lenbound => {
+                let instance = match generate_v1_lenbound_from_hex(seed_hex) {
+                    Ok(i) => i,
+                    Err(e) => {
+                        return VerifyResult {
+                            accepted: false,
+                            reason: VerifyReason::EmitFailed,
+                            elapsed: started.elapsed(),
+                            stderr_tail: format!("decode seed_hex failed: {e}"),
+                        };
+                    }
+                };
+                lean_v1_lenbound_module(&instance, proof_source)
             }
         };
-        let module_text = lean_module(&instance, proof_source);
 
         let tmp_dir = std::env::temp_dir().join(format!(
             "boole-verify-{}-{}",
@@ -297,6 +326,20 @@ mod tests {
         assert_eq!(r.reason, VerifyReason::EmitFailed);
     }
 
+    #[test]
+    fn lean_verifier_routes_v1_lenbound_profile_to_lean_runner() {
+        let v = LeanVerifier::new(PathBuf::from("/nonexistent"), "v1-lenbound");
+        let r = v.verify(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            0,
+            "by intro xs; simp",
+            None,
+        );
+        assert!(!r.accepted);
+        assert_ne!(r.reason, VerifyReason::EmitFailed);
+        assert!(!r.stderr_tail.contains("does not support profile"));
+    }
+
     /// End-to-end: drive `lake exec boole_check` against a real-life
     /// canonical proof produced by `family_v031`. Validates that the
     /// module text shape, BooleVerifyMod namespace, and family helpers
@@ -317,7 +360,10 @@ mod tests {
         // Use a fixed seed so the test is deterministic.
         let seed_hex = "b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764";
         for profile_str in ["v031-lp", "v031"] {
-            let profile = parse_profile(profile_str).unwrap();
+            let profile = match parse_profile(profile_str).unwrap() {
+                LeanProfile::V031(profile) => profile,
+                LeanProfile::V1Lenbound => unreachable!("v031-only canonical proof test"),
+            };
             let inst = family_v031::generate_from_hex(seed_hex, profile).unwrap();
             let canonical = family_v031::render_canonical_proof(&inst);
             let v = LeanVerifier::new(lean_dir.clone(), profile_str)

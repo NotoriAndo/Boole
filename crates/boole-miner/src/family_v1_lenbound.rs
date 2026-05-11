@@ -182,7 +182,31 @@ pub fn theorem_rhs(instance: &Instance) -> String {
     format!("({result_expr}).length ≤ xs.length")
 }
 
+const VERIFY_NAMESPACE: &str = "BooleVerifyMod";
 const VERIFY_THEOREM: &str = "instance_thm";
+
+/// Wrap a proof term into the full Lean module the verifier elaborates.
+///
+/// This mirrors the v031 verifier contract but renders the v1 length-bound
+/// theorem body. The supplied proof is inserted verbatim after `:=`.
+pub fn lean_module(instance: &Instance, proof_term: &str) -> String {
+    let rhs = theorem_rhs(instance);
+    format!(
+        "import Boole.Family.V0Helpers\n\
+         \n\
+         namespace {ns}\n\
+         \n\
+         open Boole.Family.V0Helpers\n\
+         \n\
+         theorem {thm} : ∀ (xs : List Int),\n    \
+         {rhs} :=\n\
+         {proof_term}\n\
+         \n\
+         end {ns}\n",
+        ns = VERIFY_NAMESPACE,
+        thm = VERIFY_THEOREM,
+    )
+}
 
 /// Render a deterministic theorem-statement description suitable for the LLM prompt.
 pub fn render_text(instance: &Instance) -> String {
@@ -237,5 +261,17 @@ mod tests {
         assert!(text.contains(".length ≤ xs.length"));
         assert!(text.contains("filterByPred") || text.contains("dedup"));
         assert!(text.contains("mapAdd") || text.contains("mapMul") || text.contains("sortAsc"));
+    }
+
+    #[test]
+    fn lean_module_has_required_shape() {
+        let inst = generate_v1_lenbound(&[0u8; 32]);
+        let module = lean_module(&inst, "by intro xs; simp");
+        assert!(module.contains("import Boole.Family.V0Helpers"));
+        assert!(module.contains("namespace BooleVerifyMod"));
+        assert!(module.contains("open Boole.Family.V0Helpers"));
+        assert!(module.contains("theorem instance_thm"));
+        assert!(module.contains(".length ≤ xs.length"));
+        assert!(module.ends_with("end BooleVerifyMod\n"));
     }
 }

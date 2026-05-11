@@ -753,6 +753,72 @@ fn test_openai_compat_driver_classifies_empty_content_as_rejected() {
 }
 
 #[test]
+fn test_openai_compat_driver_falls_back_to_legacy_choice_text() {
+    let payload = serde_json::json!({
+        "choices": [{"text": "```lean\nby rfl\n```"}],
+        "usage": {"completion_tokens": 7},
+    });
+    let http = FakeHttpRunner::new(vec![Ok(HttpRunnerResponse {
+        status: 200,
+        body: serde_json::to_vec(&payload).unwrap(),
+    })]);
+    let driver = OpenAiCompatDriver::with_runner(
+        "http://localhost:11434",
+        "sk",
+        "m",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Solved {
+            proof_source,
+            tokens_used,
+            ..
+        } => {
+            assert_eq!(proof_source, "by rfl");
+            assert_eq!(tokens_used, Some(7));
+        }
+        other => panic!("expected Solved, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_openai_compat_driver_falls_back_to_ollama_reasoning_when_content_empty() {
+    let payload = serde_json::json!({
+        "choices": [{"message": {
+            "role": "assistant",
+            "content": "",
+            "reasoning": "scratchpad before answer\n```lean\nby trivial\n```"
+        }}],
+        "usage": {"completion_tokens": 99},
+    });
+    let http = FakeHttpRunner::new(vec![Ok(HttpRunnerResponse {
+        status: 200,
+        body: serde_json::to_vec(&payload).unwrap(),
+    })]);
+    let driver = OpenAiCompatDriver::with_runner(
+        "http://localhost:11434",
+        "sk",
+        "m",
+        2048,
+        Duration::from_secs(10),
+        Box::new(http),
+    );
+    match driver.generate("p") {
+        GenerateResult::Solved {
+            proof_source,
+            tokens_used,
+            ..
+        } => {
+            assert_eq!(proof_source, "by trivial");
+            assert_eq!(tokens_used, Some(99));
+        }
+        other => panic!("expected Solved, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_openai_compat_driver_returns_error_on_malformed_json() {
     let http = FakeHttpRunner::new(vec![Ok(HttpRunnerResponse {
         status: 200,

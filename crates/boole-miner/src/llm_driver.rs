@@ -580,14 +580,7 @@ impl ProverDriver for OpenAiCompatDriver {
                 }
             }
         };
-        let text = payload
-            .get("choices")
-            .and_then(|c| c.get(0))
-            .and_then(|c| c.get("message"))
-            .and_then(|m| m.get("content"))
-            .and_then(|s| s.as_str())
-            .unwrap_or("")
-            .to_string();
+        let text = extract_openai_compat_text(&payload).unwrap_or_default();
         let tokens = payload
             .get("usage")
             .and_then(|u| u.get("completion_tokens"))
@@ -1135,6 +1128,26 @@ pub fn with_retry(
 }
 
 // --- Helpers --------------------------------------------------------------
+
+fn extract_openai_compat_text(payload: &serde_json::Value) -> Option<String> {
+    let choice = payload.get("choices")?.get(0)?;
+    let message = choice.get("message");
+
+    let candidates = [
+        message.and_then(|m| m.get("content")),
+        choice.get("text"),
+        message.and_then(|m| m.get("reasoning")),
+        message.and_then(|m| m.get("reasoning_content")),
+        message.and_then(|m| m.get("thinking")),
+    ];
+
+    candidates
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_str())
+        .find(|s| !s.trim().is_empty())
+        .map(ToString::to_string)
+}
 
 fn classify_response(text: &str, elapsed: Duration, tokens_used: Option<u64>) -> GenerateResult {
     match extract_proof_source(text) {
