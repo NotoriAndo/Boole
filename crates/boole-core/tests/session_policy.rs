@@ -1,0 +1,84 @@
+use boole_core::{SessionPolicy, SessionState};
+
+const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const PK_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const PK_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+const ROOT: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+
+#[test]
+fn session_state_accepts_minimal_consensus_fields() {
+    let state = SessionState {
+        session_pk: PK_A.to_string(),
+        owner_pk: PK_B.to_string(),
+        agent_pk: PK_C.to_string(),
+        fixed_reward_recipient: PK_B.to_string(),
+        allowed_family_root: ROOT.to_string(),
+        max_fee_per_request: "12".to_string(),
+        activation_height: 10,
+        expiry_height: 100,
+        revoked: false,
+        policy_hash: ROOT.to_string(),
+    };
+    state.validate_at_height(10).expect("valid at activation");
+    state.validate_at_height(99).expect("valid before expiry");
+}
+
+#[test]
+fn session_state_rejects_revoked_or_expired_or_malformed() {
+    let mut revoked = SessionState::test_fixture();
+    revoked.revoked = true;
+    assert!(revoked
+        .validate_at_height(10)
+        .unwrap_err()
+        .to_string()
+        .contains("revoked"));
+
+    let expired = SessionState::test_fixture();
+    assert!(expired
+        .validate_at_height(expired.expiry_height)
+        .unwrap_err()
+        .to_string()
+        .contains("expired"));
+
+    let mut malformed = SessionState::test_fixture();
+    malformed.session_pk = "not-hex".to_string();
+    assert!(malformed
+        .validate_at_height(10)
+        .unwrap_err()
+        .to_string()
+        .contains("sessionPk"));
+}
+
+#[test]
+fn session_policy_forbids_withdraw_and_transfer() {
+    let mut policy = SessionPolicy::test_fixture();
+    policy.can_withdraw = true;
+    assert!(policy
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("canWithdraw=false"));
+
+    let mut policy = SessionPolicy::test_fixture();
+    policy.can_transfer = true;
+    assert!(policy
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("canTransfer=false"));
+}
+
+#[test]
+fn session_state_rejects_lifetime_exceeding_max() {
+    // Gap G4: a session that is "active for too long" must be refused at
+    // register-time so a compromised session's revocation-propagation window
+    // is bounded.
+    let mut state = SessionState::test_fixture();
+    state.activation_height = 0;
+    state.expiry_height = boole_core::session_policy::MAX_SESSION_LIFETIME_BLOCKS + 1;
+    assert!(state
+        .validate_at_height(0)
+        .unwrap_err()
+        .to_string()
+        .contains("lifetime exceeds"));
+}

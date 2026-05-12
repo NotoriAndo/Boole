@@ -22,6 +22,7 @@ pub mod rate_limiter;
 pub mod rejection_log;
 pub mod replay;
 pub(crate) mod replay_evidence;
+pub mod session_policy;
 pub mod share_pool;
 pub mod signed_envelope;
 pub mod submission_pow;
@@ -79,6 +80,7 @@ pub use rejection_log::{
 pub use replay::{
     compute_block_credits, replay_blocks, PersistedCredit, PersistedRewardEvent, ReplayResult,
 };
+pub use session_policy::{SessionPolicy, SessionState};
 pub use share_pool::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
 pub use signed_envelope::{verify_signature, SignedEnvelope, SigningKeyV2, SIGNED_ENVELOPE_SCHEMA};
 pub use submission_pow::{
