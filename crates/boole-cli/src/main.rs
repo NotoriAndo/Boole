@@ -57,6 +57,15 @@ enum Command {
         #[command(subcommand)]
         command: KeysCommand,
     },
+    /// Local agent session-key policy management. Storage at
+    /// `$BOOLE_SESSIONS_DIR` (env override) or `$HOME/.boole/sessions`
+    /// (default), mode 0600 per file. The on-disk envelope carries the
+    /// ed25519 session secret seed; stdout never echoes it (W0 redaction
+    /// invariant).
+    SessionKey {
+        #[command(subcommand)]
+        command: SessionKeyCommand,
+    },
     /// Boole-v3.1.1 miner: state init/inspection, mining loop, and bounty
     /// submission. Delegates to the `boole-miner` library so the standalone
     /// `boole-miner` binary and `boole mine ...` share the same code paths.
@@ -165,6 +174,45 @@ enum KeysCommand {
         /// Id of the key whose secret seed to export.
         #[arg(long)]
         id: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SessionKeyCommand {
+    /// Create a new local agent session-key policy. The session signing key
+    /// is freshly generated; the secret seed is persisted to disk under
+    /// `$BOOLE_SESSIONS_DIR` and never printed to stdout.
+    Create {
+        /// Local-only session (no node registration). Required in this
+        /// slice — the node-backed path lands in N1.x.
+        #[arg(long)]
+        local: bool,
+        /// Stable id for the session policy file (filename and lookup key).
+        #[arg(long)]
+        id: String,
+        /// Owner key id (resolved against `$BOOLE_KEYS_DIR`). The owner pk
+        /// is also used as the fixed reward recipient in this slice.
+        #[arg(long = "owner-id")]
+        owner_id: String,
+        /// Agent key id (resolved against `$BOOLE_KEYS_DIR`). The agent pk
+        /// is the on-chain identity the session works on behalf of.
+        #[arg(long = "agent-id")]
+        agent_id: String,
+        /// Family id the session may submit work for.
+        #[arg(long = "allowed-family")]
+        allowed_family: String,
+        /// Verifier id the session may pay verification fees to.
+        #[arg(long = "allowed-verifier")]
+        allowed_verifier: String,
+        /// Maximum fee per request (decimal u128 string).
+        #[arg(long = "max-fee")]
+        max_fee: String,
+        /// Daily fee cap (decimal u128 string).
+        #[arg(long = "daily-fee-cap")]
+        daily_fee_cap: String,
+        /// Expiry height (`activation_height` defaults to 0 in this slice).
+        #[arg(long = "expiry-height")]
+        expiry_height: u64,
     },
 }
 
@@ -473,6 +521,29 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 json,
             } => keys_verify(&pk, &signature, &payload, json),
             KeysCommand::ExportSecret { id } => keys_export_secret(&id),
+        },
+        Some(Command::SessionKey { command }) => match command {
+            SessionKeyCommand::Create {
+                local,
+                id,
+                owner_id,
+                agent_id,
+                allowed_family,
+                allowed_verifier,
+                max_fee,
+                daily_fee_cap,
+                expiry_height,
+            } => session_key_create(
+                local,
+                &id,
+                &owner_id,
+                &agent_id,
+                &allowed_family,
+                &allowed_verifier,
+                &max_fee,
+                &daily_fee_cap,
+                expiry_height,
+            ),
         },
         None => print_version(false),
     }
@@ -1457,6 +1528,177 @@ fn keys_export_secret(id: &str) -> anyhow::Result<()> {
             "unsafe": true,
             "warning": "secret key export: do not paste into prompts, logs, or agent runtimes",
             "key": value,
+        })
+    );
+    Ok(())
+}
+
+/// Schema tag for the local agent session-key envelope shipped in W2.1. The
+/// envelope is local-only in this slice — node-side session state lands in
+/// N1.x of the agent wallet plan.
+const SESSION_SCHEMA_V1: &str = "boole.session.v1";
+
+/// Resolve the local sessions directory. Mirrors `keys_dir()`: tests set
+/// BOOLE_SESSIONS_DIR to a tempdir; production falls back to
+/// `$HOME/.boole/sessions`, then the working directory if $HOME is unset.
+fn sessions_dir() -> PathBuf {
+    if let Ok(explicit) = std::env::var("BOOLE_SESSIONS_DIR") {
+        return PathBuf::from(explicit);
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".boole").join("sessions")
+}
+
+fn session_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}.json"))
+}
+
+/// Read the `pk` field from a stored key envelope. Used to resolve
+/// `--owner-id` / `--agent-id` arguments into the hex32 public keys that go
+/// into the SessionState. Validation reuses `validate_key_id` so a path-shape
+/// id can never escape the keys directory.
+fn read_key_pk(dir: &Path, id: &str, field: &str) -> anyhow::Result<String> {
+    if let Err(detail) = validate_key_id(id) {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({ "detail": detail, "field": field }),
+        );
+    }
+    let path = key_path(dir, id);
+    if !path.exists() {
+        emit_typed_error(
+            "key_not_found",
+            3,
+            serde_json::json!({ "id": id, "field": field, "path": path.to_string_lossy() }),
+        );
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let value: serde_json::Value = serde_json::from_str(&raw)?;
+    let pk = value
+        .get("pk")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    match pk {
+        Some(pk) => Ok(pk),
+        None => emit_typed_error(
+            "key_missing_pk",
+            3,
+            serde_json::json!({ "id": id, "field": field, "path": path.to_string_lossy() }),
+        ),
+    }
+}
+
+/// Create a local session-key policy file under `$BOOLE_SESSIONS_DIR/<id>.json`.
+/// The session signing key is freshly generated via `SigningKeyV2::from_random`;
+/// the on-disk envelope keeps the secret seed (`sessionSk`) so the W3 signer
+/// can load it, but stdout carries only public metadata. `--local` is required
+/// in this slice — node registration lands in N1.x of the agent wallet plan.
+#[allow(clippy::too_many_arguments)]
+fn session_key_create(
+    local: bool,
+    id: &str,
+    owner_id: &str,
+    agent_id: &str,
+    allowed_family: &str,
+    allowed_verifier: &str,
+    max_fee: &str,
+    daily_fee_cap: &str,
+    expiry_height: u64,
+) -> anyhow::Result<()> {
+    if !local {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({
+                "detail": "only --local sessions are supported in this slice",
+                "field": "local",
+            }),
+        );
+    }
+    if let Err(detail) = validate_key_id(id) {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({ "detail": detail, "field": "id" }),
+        );
+    }
+    if let Err(e) = max_fee.parse::<u128>() {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({ "detail": e.to_string(), "field": "max-fee" }),
+        );
+    }
+    if let Err(e) = daily_fee_cap.parse::<u128>() {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({ "detail": e.to_string(), "field": "daily-fee-cap" }),
+        );
+    }
+
+    let kdir = keys_dir();
+    let owner_pk = read_key_pk(&kdir, owner_id, "owner-id")?;
+    let agent_pk = read_key_pk(&kdir, agent_id, "agent-id")?;
+
+    let sdir = sessions_dir();
+    let path = session_path(&sdir, id);
+    if path.exists() {
+        emit_typed_error(
+            "session_already_exists",
+            3,
+            serde_json::json!({ "id": id, "path": path.to_string_lossy() }),
+        );
+    }
+
+    let session_key = boole_core::SigningKeyV2::from_random()
+        .map_err(|e| anyhow::anyhow!("session signing key generation failed: {e}"))?;
+    let session_pk = session_key.pk_hex();
+    let session_sk = session_key.sk_seed_hex();
+    let created_at = now_iso8601_utc();
+
+    let disk_envelope = serde_json::json!({
+        "id": id,
+        "sessionPk": session_pk,
+        "sessionSk": session_sk,
+        "ownerPk": owner_pk,
+        "agentPk": agent_pk,
+        "fixedRewardRecipient": owner_pk,
+        "allowedFamily": allowed_family,
+        "allowedVerifier": allowed_verifier,
+        "maxFee": max_fee,
+        "dailyFeeCap": daily_fee_cap,
+        "activationHeight": 0,
+        "expiryHeight": expiry_height,
+        "revoked": false,
+        "createdAt": created_at,
+        "schema": SESSION_SCHEMA_V1,
+    });
+    let bytes = serde_json::to_vec_pretty(&disk_envelope)?;
+    atomic_write_0600(&path, &bytes)?;
+
+    let public_view = serde_json::json!({
+        "id": id,
+        "sessionPk": session_pk,
+        "ownerPk": owner_pk,
+        "agentPk": agent_pk,
+        "fixedRewardRecipient": owner_pk,
+        "allowedFamily": allowed_family,
+        "allowedVerifier": allowed_verifier,
+        "maxFee": max_fee,
+        "dailyFeeCap": daily_fee_cap,
+        "activationHeight": 0,
+        "expiryHeight": expiry_height,
+        "revoked": false,
+        "schema": SESSION_SCHEMA_V1,
+    });
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "session": public_view,
+            "path": path.to_string_lossy(),
         })
     );
     Ok(())
