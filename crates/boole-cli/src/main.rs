@@ -66,6 +66,14 @@ enum Command {
         #[command(subcommand)]
         command: SessionKeyCommand,
     },
+    /// Local policy-bound signer. Authorizes a request against a stored
+    /// session policy, checks nonce reuse, then ed25519-signs the payload
+    /// with the session secret seed loaded from `$BOOLE_SESSIONS_DIR`.
+    /// The session secret seed never leaves disk and is never echoed.
+    Signer {
+        #[command(subcommand)]
+        command: SignerCommand,
+    },
     /// Boole-v3.1.1 miner: state init/inspection, mining loop, and bounty
     /// submission. Delegates to the `boole-miner` library so the standalone
     /// `boole-miner` binary and `boole mine ...` share the same code paths.
@@ -233,6 +241,45 @@ enum SessionKeyCommand {
         /// Session id (filename stem under `$BOOLE_SESSIONS_DIR`).
         #[arg(long)]
         id: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SignerCommand {
+    /// Sign a work payload with a local session key after authorizing the
+    /// request against the session's policy. Refuses on policy violation,
+    /// duplicate nonce, missing session, or malformed inputs.
+    SignWork {
+        /// Session id (filename stem under `$BOOLE_SESSIONS_DIR`).
+        #[arg(long = "session-id")]
+        session_id: String,
+        /// Route the request will hit (must match policy `allowed_routes`).
+        #[arg(long)]
+        route: String,
+        /// Family id (must match policy `allowed_family_ids`).
+        #[arg(long)]
+        family: String,
+        /// Verifier id (must match policy `allowed_verifier_ids`).
+        #[arg(long)]
+        verifier: String,
+        /// Fee for this request (decimal u128 string; must be <= policy max).
+        #[arg(long)]
+        fee: String,
+        /// 32-byte lowercase hex request hash (the payload pre-image
+        /// commitment the caller binds to this signature).
+        #[arg(long = "request-hash")]
+        request_hash: String,
+        /// Per-session nonce; must not have been seen by this signer before.
+        #[arg(long)]
+        nonce: String,
+        /// JSON payload to sign (literal JSON or `@path` to load from file,
+        /// matching `keys sign`).
+        #[arg(long)]
+        payload: String,
+        /// Emit the full `boole.signed.v1` envelope as JSON. Without this
+        /// flag, only the bare hex64 signature prints to stdout.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -566,6 +613,29 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             ),
             SessionKeyCommand::Inspect { id } => session_key_inspect(&id),
             SessionKeyCommand::Revoke { local, id } => session_key_revoke(local, &id),
+        },
+        Some(Command::Signer { command }) => match command {
+            SignerCommand::SignWork {
+                session_id,
+                route,
+                family,
+                verifier,
+                fee,
+                request_hash,
+                nonce,
+                payload,
+                json,
+            } => signer_sign_work(
+                &session_id,
+                &route,
+                &family,
+                &verifier,
+                &fee,
+                &request_hash,
+                &nonce,
+                &payload,
+                json,
+            ),
         },
         None => print_version(false),
     }
@@ -1809,6 +1879,190 @@ fn session_key_revoke(local: bool, id: &str) -> anyhow::Result<()> {
             "note": "local revocation; remote revocation pending — call `boole session-key revoke --node URL ...` once N1.x ships",
         })
     );
+    Ok(())
+}
+
+/// Resolve the per-session nonce ledger directory. Tests point this at a
+/// tempdir; production falls back to `$HOME/.boole/signer-nonces`.
+fn signer_nonces_dir() -> PathBuf {
+    if let Ok(p) = std::env::var("BOOLE_SIGNER_NONCE_DIR") {
+        return PathBuf::from(p);
+    }
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".boole").join("signer-nonces")
+}
+
+fn signer_nonce_path(session_id: &str) -> PathBuf {
+    signer_nonces_dir().join(format!("{session_id}.txt"))
+}
+
+/// Has `nonce` already been used for this session? The file is a flat
+/// newline-delimited ledger; one byte per nonce per session keeps recovery
+/// trivial and matches the "first MVP" scope from the agent wallet plan.
+fn nonce_already_used(path: &Path, nonce: &str) -> anyhow::Result<bool> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let raw = std::fs::read_to_string(path)?;
+    Ok(raw.lines().any(|line| line.trim() == nonce))
+}
+
+/// Append `nonce` to the per-session ledger with 0600 perms. The append
+/// happens only after a successful sign so a mid-flight error (bad payload,
+/// disk failure) cannot lock the operator out of retrying with the same
+/// nonce — replay safety still holds because no signature was emitted.
+fn record_nonce(path: &Path, nonce: &str) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)?;
+    f.write_all(nonce.as_bytes())?;
+    f.write_all(b"\n")?;
+    f.sync_all()?;
+    Ok(())
+}
+
+/// Authorize a `SignerRequest` against the stored session policy, then
+/// ed25519-sign the payload with the session secret seed loaded from disk.
+///
+/// The session envelope is the source of truth for policy: `allowedFamily`,
+/// `allowedVerifier`, `maxFee`, `dailyFeeCap`, and `revoked` come from the
+/// W2.1 create envelope. `allowedRoutes` is not yet a CLI argument on
+/// `session-key create`, so this slice falls back to the W3.1 fixture
+/// defaults (`/verify-answer`, `/submit`) when the envelope omits it; a
+/// follow-up slice will plumb routes through `session-key create` once
+/// N1.x defines the registered set.
+#[allow(clippy::too_many_arguments)]
+fn signer_sign_work(
+    session_id: &str,
+    route: &str,
+    family: &str,
+    verifier: &str,
+    fee: &str,
+    request_hash: &str,
+    nonce: &str,
+    payload_arg: &str,
+    json: bool,
+) -> anyhow::Result<()> {
+    let (_path, envelope) = load_session_envelope(session_id)?;
+
+    if envelope
+        .get("revoked")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        emit_typed_error(
+            "session_revoked",
+            3,
+            serde_json::json!({ "sessionId": session_id }),
+        );
+    }
+
+    let allowed_family = envelope
+        .get("allowedFamily")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let allowed_verifier = envelope
+        .get("allowedVerifier")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let max_fee = envelope
+        .get("maxFee")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0")
+        .to_string();
+    let daily_fee_cap = envelope
+        .get("dailyFeeCap")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0")
+        .to_string();
+    let allowed_routes = envelope
+        .get("allowedRoutes")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|| vec!["/verify-answer".to_string(), "/submit".to_string()]);
+
+    let policy = boole_core::SessionPolicy {
+        can_submit_work: true,
+        can_pay_verification_fee: true,
+        can_withdraw: false,
+        can_transfer: false,
+        allowed_routes,
+        allowed_family_ids: vec![allowed_family],
+        allowed_verifier_ids: vec![allowed_verifier],
+        max_fee_per_request: max_fee,
+        daily_fee_cap,
+    };
+    let req = boole_core::SignerRequest {
+        route: route.to_string(),
+        family_id: family.to_string(),
+        verifier_id: verifier.to_string(),
+        fee: fee.to_string(),
+        request_hash: request_hash.to_string(),
+        nonce: nonce.to_string(),
+    };
+    if let Err(err) = policy.authorize(&req) {
+        emit_typed_error(
+            "policy_denied",
+            3,
+            serde_json::json!({
+                "sessionId": session_id,
+                "detail": err.to_string(),
+            }),
+        );
+    }
+
+    let nonce_path = signer_nonce_path(session_id);
+    if nonce_already_used(&nonce_path, nonce)? {
+        emit_typed_error(
+            "nonce_reuse",
+            3,
+            serde_json::json!({
+                "sessionId": session_id,
+                "nonce": nonce,
+            }),
+        );
+    }
+
+    let session_sk = envelope
+        .get("sessionSk")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("session envelope missing required `sessionSk` field"))?;
+    let signing_key = boole_core::SigningKeyV2::from_seed_hex(session_sk)
+        .map_err(|err| anyhow::anyhow!("stored sessionSk is not a valid ed25519 seed: {err}"))?;
+    let payload = read_json_arg(payload_arg, "payload")?;
+    let signed = signing_key
+        .sign(&payload)
+        .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
+
+    record_nonce(&nonce_path, nonce)?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "envelope": {
+                    "schema": signed.schema,
+                    "payload": signed.payload,
+                    "pk": signed.pk,
+                    "signature": signed.signature,
+                }
+            })
+        );
+    } else {
+        println!("{}", signed.signature);
+    }
     Ok(())
 }
 
