@@ -214,6 +214,26 @@ enum SessionKeyCommand {
         #[arg(long = "expiry-height")]
         expiry_height: u64,
     },
+    /// Print the public policy view for an existing local session-key file.
+    /// Mirrors `session-key create` stdout — the secret seed (`sessionSk`)
+    /// is never emitted.
+    Inspect {
+        /// Session id (filename stem under `$BOOLE_SESSIONS_DIR`).
+        #[arg(long)]
+        id: String,
+    },
+    /// Mark a local session-key file as revoked. Rewrites the envelope in
+    /// place via `atomic_write_0600` with `revoked: true`. This is local
+    /// only — the authoritative on-chain revocation lands with N1.x.
+    Revoke {
+        /// Local-only revocation. Required in this slice — the node-backed
+        /// path lands in N1.x.
+        #[arg(long)]
+        local: bool,
+        /// Session id (filename stem under `$BOOLE_SESSIONS_DIR`).
+        #[arg(long)]
+        id: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -544,6 +564,8 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 &daily_fee_cap,
                 expiry_height,
             ),
+            SessionKeyCommand::Inspect { id } => session_key_inspect(&id),
+            SessionKeyCommand::Revoke { local, id } => session_key_revoke(local, &id),
         },
         None => print_version(false),
     }
@@ -1678,27 +1700,113 @@ fn session_key_create(
     let bytes = serde_json::to_vec_pretty(&disk_envelope)?;
     atomic_write_0600(&path, &bytes)?;
 
-    let public_view = serde_json::json!({
-        "id": id,
-        "sessionPk": session_pk,
-        "ownerPk": owner_pk,
-        "agentPk": agent_pk,
-        "fixedRewardRecipient": owner_pk,
-        "allowedFamily": allowed_family,
-        "allowedVerifier": allowed_verifier,
-        "maxFee": max_fee,
-        "dailyFeeCap": daily_fee_cap,
-        "activationHeight": 0,
-        "expiryHeight": expiry_height,
-        "revoked": false,
-        "schema": SESSION_SCHEMA_V1,
-    });
+    let public_view = session_public_view(&disk_envelope);
     println!(
         "{}",
         serde_json::json!({
             "ok": true,
             "session": public_view,
             "path": path.to_string_lossy(),
+        })
+    );
+    Ok(())
+}
+
+/// Strip the secret seed (`sessionSk`) from a session envelope so the
+/// remaining object can safely be printed to stdout. The W0 sk-redaction
+/// invariant requires every stdout view to drop secret material; centralizing
+/// that filter here keeps create/inspect/revoke in lockstep.
+fn session_public_view(envelope: &serde_json::Value) -> serde_json::Value {
+    let mut view = envelope.clone();
+    if let Some(obj) = view.as_object_mut() {
+        obj.remove("sessionSk");
+    }
+    view
+}
+
+/// Load the session envelope at `BOOLE_SESSIONS_DIR/<id>.json`. Emits
+/// `bad_request` for malformed ids and `session_not_found` when the file is
+/// absent so the operator gets a typed exit code rather than a panic.
+fn load_session_envelope(id: &str) -> anyhow::Result<(PathBuf, serde_json::Value)> {
+    if let Err(detail) = validate_key_id(id) {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({ "detail": detail, "field": "id" }),
+        );
+    }
+    let dir = sessions_dir();
+    let path = session_path(&dir, id);
+    if !path.exists() {
+        emit_typed_error(
+            "session_not_found",
+            3,
+            serde_json::json!({ "id": id, "path": path.to_string_lossy() }),
+        );
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let envelope: serde_json::Value = serde_json::from_str(&raw)?;
+    Ok((path, envelope))
+}
+
+/// Print the public policy view for an existing local session-key file.
+fn session_key_inspect(id: &str) -> anyhow::Result<()> {
+    let (path, envelope) = load_session_envelope(id)?;
+    let public_view = session_public_view(&envelope);
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "session": public_view,
+            "path": path.to_string_lossy(),
+        })
+    );
+    Ok(())
+}
+
+/// Mark a local session-key file as revoked. Rewrites the envelope in place
+/// via `atomic_write_0600` with `revoked: true`.
+///
+/// Gap G4 — revocation propagation: this only touches the local file. The
+/// authoritative on-chain revocation lives on the node and lands in N1.x;
+/// until then `MAX_SESSION_LIFETIME_BLOCKS` bounds worst-case exposure. The
+/// stdout `note` field surfaces this so the operator does not assume local
+/// revoke is final.
+fn session_key_revoke(local: bool, id: &str) -> anyhow::Result<()> {
+    if !local {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({
+                "detail": "only --local revocations are supported in this slice",
+                "field": "local",
+            }),
+        );
+    }
+    let (path, mut envelope) = load_session_envelope(id)?;
+    if let Some(obj) = envelope.as_object_mut() {
+        obj.insert("revoked".to_string(), serde_json::Value::Bool(true));
+    } else {
+        emit_typed_error(
+            "session_not_found",
+            3,
+            serde_json::json!({
+                "id": id,
+                "path": path.to_string_lossy(),
+                "detail": "stored envelope is not a JSON object",
+            }),
+        );
+    }
+    let bytes = serde_json::to_vec_pretty(&envelope)?;
+    atomic_write_0600(&path, &bytes)?;
+    let public_view = session_public_view(&envelope);
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "session": public_view,
+            "path": path.to_string_lossy(),
+            "note": "local revocation; remote revocation pending — call `boole session-key revoke --node URL ...` once N1.x ships",
         })
     );
     Ok(())
