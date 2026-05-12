@@ -25,6 +25,28 @@ def load_benchmark():
 
 
 class ModelBenchmarkArtifactTests(unittest.TestCase):
+    def test_closed_mining_productivity_v1_scenario_uses_calibrated_difficulty_without_rate_limits(self) -> None:
+        scenario_path = ROOT / "fixtures" / "benchmarks" / "closed-mining-productivity-v1" / "scenario.json"
+        scenario = json.loads(scenario_path.read_text())
+        config_fixture = json.loads((ROOT / "fixtures" / "protocol" / "config" / "v1.json").read_text())
+        valid_report = next(case["report"] for case in config_fixture["cases"] if case["name"] == "valid")
+
+        self.assertEqual(scenario["version"], 1)
+        self.assertEqual(scenario["source"]["claimBoundary"], "closed local mining productivity benchmark; not public-network mining")
+        self.assertEqual(scenario["source"]["difficultySource"], "fixtures/protocol/config/v1.json#cases[name=valid]")
+        self.assertNotIn("runtime-smoke", scenario["source"].get("difficultySource", ""))
+        self.assertEqual(scenario["genesisC"], "0000000000000000000000000000000000000000000000000000000000000000")
+        self.assertEqual(scenario["steps"], [])
+
+        cfg = scenario["cfg"]
+        for key in ["T_submit", "T_share", "T_block", "T_ticket"]:
+            self.assertEqual(cfg[key], valid_report[key])
+        for key in ["MinShareScoreMultiplier", "K_max", "L", "D_max", "EMAWindow", "M"]:
+            self.assertEqual(cfg[key], valid_report[key])
+        self.assertEqual(cfg["ShareCapPerPK_Block"], 100000)
+        self.assertEqual(cfg["perIpRateLimitPer60s"], 100000)
+        self.assertEqual(cfg["provenance"], "closed-mining-productivity-v1")
+
     def test_controlled_model_mining_fixture_freezes_public_safe_schema(self) -> None:
         fixture = json.loads((ROOT / "fixtures" / "benchmarks" / "controlled-model-mining" / "v1-summary.json").read_text())
         self.assertEqual(fixture["benchmark"], "controlled-local-model-mining-v1")

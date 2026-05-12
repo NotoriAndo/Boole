@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "source": {
+    "note": "Boole closed mining productivity v1 scenario",
+    "claimBoundary": "closed local mining productivity benchmark; not public-network mining",
+    "difficultySource": "fixtures/protocol/config/v1.json#cases[name=valid]",
+    "rateLimitPolicy": "anti-spam limits are effectively disabled for model mining productivity measurement",
+    "notForAdmissionPolicyValidation": true
+  },
+  "cfg": {
+    "T_submit": "0x1010101010101010101010101010101010101010101010101010101010101010",
+    "T_share": "0x2020202020202020202020202020202020202020202020202020202020202020",
+    "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
+    "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
+    "MinShareScoreMultiplier": 2,
+    "K_max": 16,
+    "ShareCapPerPK_Block": 100000,
+    "L": 16384,
+    "D_max": 1024,
+    "EMAWindow": 32,
+    "M": 8,
+    "perIpRateLimitPer60s": 100000,
+    "provenance": "closed-mining-productivity-v1"
+  },
+  "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",
+  "steps": []
+}
