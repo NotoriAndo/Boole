@@ -49,6 +49,8 @@ Slot-level rules:
 - the answer is inserted literally after the theorem's `:=`
 - return one Lean theorem-body expression only
 - tactic scripts must be inside a top-level `by` block
+- do not include explanations, reasoning text, commentary, greetings, labels, bullets, or natural-language prefaces such as `Here is the proof` / `Looking at the chain`
+- inline backtick-wrapped proof bodies are rejected; the answer channel must be the proof body itself
 - full Lean files, declarations, Markdown, prose, `sorry`, and `admit` are rejected
 
 Allowed shape examples:

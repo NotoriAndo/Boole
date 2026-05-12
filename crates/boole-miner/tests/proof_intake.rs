@@ -100,3 +100,32 @@ fn proof_intake_v1_accepts_slot_level_by_and_fun_shapes() {
         Ok("fun xs => length_dedup_le xs".to_string())
     );
 }
+
+#[test]
+fn proof_intake_v1_rejects_natural_language_before_proof_body() {
+    for source in [
+        "Looking at the chain, we can use the helper lemmas.\n\nby\n  intro xs\n  exact length_dedup_le xs",
+        "Here is the proof:\nby\n  intro xs\n  exact length_dedup_le xs",
+        "체인을 안쪽부터 분석하면 helper를 적용하면 됩니다.\n\nby\n  intro xs\n  exact length_dedup_le xs",
+    ] {
+        assert_eq!(
+            extract_proof_source(source),
+            Err(RejectionReason::ContractFailed),
+            "natural-language commentary must not reach the verifier: {source:?}"
+        );
+    }
+}
+
+#[test]
+fn proof_intake_v1_rejects_inline_backtick_wrapped_proof_bodies() {
+    for source in [
+        "`fun xs => length_dedup_le xs`",
+        "`by\n  intro xs\n  exact length_dedup_le xs`",
+    ] {
+        assert_eq!(
+            extract_proof_source(source),
+            Err(RejectionReason::ContractFailed),
+            "inline-code wrapped proof body must not reach the verifier: {source:?}"
+        );
+    }
+}

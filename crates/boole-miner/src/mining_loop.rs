@@ -54,7 +54,10 @@ Allowed top-level answer shapes:
 - another Lean term expression proving the theorem
 
 If you use tactics, they must be inside a `by` block.
-Do not return a Lean file, imports, namespaces, theorem/lemma/def/example declarations, Markdown, prose, `sorry`, or `admit`."#;
+Your entire answer must be exactly one Lean theorem-body expression.
+Do not include explanations, reasoning text, analysis, commentary, greetings, labels, bullets, Markdown, code fences, inline backticks, `sorry`, or `admit`.
+Do not write natural-language phrases such as "Here is the proof", "We need", or "Looking at the chain" before or after the proof body.
+Do not return a Lean file, imports, namespaces, or theorem/lemma/def/example declarations."#;
 
 /// Default prompt cookbook — ports pof's `solver_frontier.py` SYSTEM_PROMPT.
 /// The verifier emits a module that imports `Boole.Family.V0Helpers` and

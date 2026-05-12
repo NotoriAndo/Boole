@@ -81,6 +81,10 @@ fn canonicalize_answer_channel(raw: &str) -> Result<String, RejectionReason> {
 }
 
 fn violates_proof_body_contract(source: &str) -> bool {
+    if source.contains('`') {
+        return true;
+    }
+
     let first_non_empty = source.lines().find(|line| !line.trim().is_empty());
     if first_non_empty
         .map(|line| {
@@ -101,6 +105,7 @@ fn violates_proof_body_contract(source: &str) -> bool {
                 || line.starts_with("error:")
                 || line.starts_with("stderr:")
                 || line.starts_with("stdout:")
+                || looks_like_natural_language_preface(line)
                 || starts_with_bare_tactic_or_calc(line)
         })
         .unwrap_or(false)
@@ -112,6 +117,19 @@ fn violates_proof_body_contract(source: &str) -> bool {
         line.split(|c: char| !(c.is_alphanumeric() || c == '_'))
             .any(|tok| tok == "sorry" || tok == "admit")
     })
+}
+
+fn looks_like_natural_language_preface(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    lower.starts_with("here ")
+        || lower.starts_with("here's ")
+        || lower.starts_with("looking ")
+        || lower.starts_with("we ")
+        || lower.starts_with("i ")
+        || lower.starts_with("the proof")
+        || lower.starts_with("proof:")
+        || lower.starts_with("answer:")
+        || line.chars().any(|c| ('\u{AC00}'..='\u{D7A3}').contains(&c))
 }
 
 fn starts_with_bare_tactic_or_calc(line: &str) -> bool {
