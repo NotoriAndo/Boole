@@ -84,6 +84,81 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
 }
 
 #[test]
+fn local_node_submit_accepts_share_without_block_when_no_proposer() {
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "boole-local-node-no-proposer-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).expect("tmp dir");
+    let block_path = tmp_dir.join("blocks.ndjson");
+    let scenario_path = tmp_dir.join("scenario.json");
+
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("repo root");
+    let base_scenario_path = repo_root.join("fixtures/protocol/runtime-smoke/v1.json");
+    let mut scenario: Value =
+        serde_json::from_str(&fs::read_to_string(&base_scenario_path).expect("scenario fixture"))
+            .expect("scenario json");
+    scenario["cfg"]["T_block"] = Value::String(format!("0x{:064x}", 1));
+    fs::write(
+        &scenario_path,
+        serde_json::to_string_pretty(&scenario).expect("scenario json"),
+    )
+    .expect("write scenario");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind local listener");
+    let addr = listener.local_addr().expect("local addr");
+    let (tx, rx) = mpsc::channel();
+    let server_scenario_path = scenario_path.clone();
+    let server_block_path = block_path.clone();
+    let handle = thread::spawn(move || {
+        tx.send(()).expect("signal ready");
+        serve_local_node(
+            listener,
+            LocalNodeConfig {
+                scenario_path: server_scenario_path,
+                block_path: server_block_path,
+                reward_ledger_path: None,
+                work_manifests_path: None,
+                bounties_path: None,
+                bounty_event_ledger_path: None,
+                bounty_verifiers: None,
+                family_manifests_dir: None,
+                max_requests: Some(2),
+                operator_signer_pks: vec![],
+                genesis_override: None,
+            },
+        )
+    });
+    rx.recv().expect("server ready");
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let body = &scenario["steps"][0]["body"];
+    let submit = request_json_with_body(addr, "/submit", body);
+    assert_eq!(submit["accepted"], true);
+    assert_eq!(submit["shareAccepted"], true);
+    assert_eq!(submit["blockProduced"], false);
+    assert_eq!(submit["decision"], "NoProposer");
+    assert_eq!(submit["height"], 0);
+    assert!(
+        !block_path.exists(),
+        "non-proposer share must not append a block"
+    );
+
+    let status = request_json(addr, "GET /status HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    assert_eq!(status["height"], 0);
+
+    handle
+        .join()
+        .expect("server thread joined")
+        .expect("server exits cleanly");
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
 fn local_node_submit_uses_tcp_peer_ip_not_spoofed_body_ip_for_rate_limit() {
     let tmp = std::env::temp_dir().join(format!(
         "boole-local-node-peer-ip-boundary-{}.ndjson",

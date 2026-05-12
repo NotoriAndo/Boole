@@ -10,10 +10,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
     load_bounties, load_work_manifests, replay_blocks, ticket, verify_signature, AdmissionDecision,
-    BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool, CalibrationReport,
-    CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry, FileBountyEventLedger,
-    Hex32, PersistedBlock, SubmitProofInput, UpdateStatusInput, WorkManifest,
-    SIGNED_ENVELOPE_SCHEMA,
+    BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult,
+    CalibrationReport, CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry,
+    FileBountyEventLedger, Hex32, PersistedBlock, SubmitProofInput, UpdateStatusInput,
+    WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -1452,6 +1452,37 @@ fn submit_json(state: &mut LocalNodeState, body: &[u8], peer_ip: &str) -> anyhow
         }));
     };
     let accepted_tags = BTreeSet::from([canon_tag]);
+    match state
+        .runtime
+        .build_block_selection_for_current_c(&accepted_tags)?
+    {
+        BuildSelectionResult::Ok(_) => {}
+        BuildSelectionResult::NoProposer { .. } => {
+            return Ok(json!({
+                "ok": true,
+                "accepted": true,
+                "shareAccepted": true,
+                "blockProduced": false,
+                "decision": "NoProposer",
+                "shareHash": share_hash.to_hex(),
+                "height": state.runtime.cached_block_count(),
+                "c": current_head(state),
+            }));
+        }
+        BuildSelectionResult::AmbiguousProposer { count, .. } => {
+            return Ok(json!({
+                "ok": true,
+                "accepted": true,
+                "shareAccepted": true,
+                "blockProduced": false,
+                "decision": "AmbiguousProposer",
+                "proposerCount": count,
+                "shareHash": share_hash.to_hex(),
+                "height": state.runtime.cached_block_count(),
+                "c": current_head(state),
+            }));
+        }
+    }
     let block_path = state.block_path.clone();
     // S23c — compute the promoted bounty selection at the latest known
     // height (`block_cache.len()` is the about-to-be-committed block's
