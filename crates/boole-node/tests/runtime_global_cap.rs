@@ -107,6 +107,58 @@ fn runtime_admission_rejects_before_candidate_vec_exceeds_global_cap() {
     assert_eq!(runtime.candidate_shares_for_current_c().len(), 2);
 }
 
+#[test]
+fn runtime_admission_uses_explicit_global_share_cap_separate_from_k_max() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    let mut report = fixture.cfg;
+    report.K_max = 2;
+    report.ShareCapPerPK_Block = 100;
+    report.SharePoolGlobalCap = Some(100);
+    report.M = 100;
+
+    let valid_op = fixture
+        .operations
+        .iter()
+        .find(|op| op.name == "valid_after_bad_not_rate_limited")
+        .expect("valid op");
+    let mut runtime = RuntimeAdmissionState::new(
+        RuntimeConfig::from_calibration_report(report, 60_000).expect("runtime config boots"),
+    );
+    runtime.set_current_c(fixture.constants.c.clone());
+
+    for idx in 0..3 {
+        let mut body = body_for(&fixture.constants, &valid_op.body_patch);
+        body.insert(
+            "pk".to_string(),
+            Value::String(hex32_from_byte((idx + 1) as u8)),
+        );
+        body.insert(
+            "n".to_string(),
+            Value::String(hex32_from_byte((idx + 11) as u8)),
+        );
+        body.insert(
+            "j".to_string(),
+            Value::String(hex32_from_byte((idx + 21) as u8)),
+        );
+        runtime
+            .observe_ticket_from_body(&body)
+            .expect("observe ticket");
+        let decision = runtime.admit_body(
+            1_800_000_000_000 + idx as i64,
+            &format!("198.51.100.{}", idx + 1),
+            &body,
+        );
+        assert!(
+            matches!(decision, AdmissionDecision::Accepted { .. }),
+            "explicit global cap should let admission {idx} exceed K_max: {decision:?}"
+        );
+    }
+    assert_eq!(runtime.pool_size(), 3);
+    assert_eq!(runtime.candidate_shares_for_current_c().len(), 3);
+}
+
 fn body_for(constants: &Constants, patch: &Map<String, Value>) -> Map<String, Value> {
     let mut body = Map::new();
     body.insert("c".to_string(), Value::String(constants.c.clone()));

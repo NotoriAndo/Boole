@@ -76,6 +76,7 @@ fn share_pool_from_calibration_report_uses_policy_cap() {
         MinShareScoreMultiplier: serde_json::Number::from(2),
         K_max: 16,
         ShareCapPerPK_Block: 1,
+        SharePoolGlobalCap: None,
         L: 4096,
         D_max: 8,
         EMAWindow: 32,

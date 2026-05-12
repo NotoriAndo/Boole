@@ -52,6 +52,7 @@ fn calibration_policy_types_numeric_runtime_fields() {
         calibration_thresholds(&valid.report).unwrap()
     );
     assert_eq!(policy.k_max, valid.report.K_max as usize);
+    assert_eq!(policy.global_share_cap, valid.report.K_max as usize);
     assert_eq!(
         policy.share_cap_per_pk_block,
         valid.report.ShareCapPerPK_Block as usize
@@ -64,6 +65,34 @@ fn calibration_policy_types_numeric_runtime_fields() {
         valid.report.perIpRateLimitPer60s as usize
     );
     assert_eq!(policy.min_share_score_multiplier_nanos, 2_000_000_000);
+}
+
+#[test]
+fn calibration_policy_uses_explicit_share_pool_global_cap_without_changing_k_max() {
+    let report: CalibrationReport = serde_json::from_str(
+        r#"{
+          "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "T_share": "0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "T_block": "0x00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "T_ticket": "0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "MinShareScoreMultiplier": 1,
+          "K_max": 4,
+          "ShareCapPerPK_Block": 2,
+          "SharePoolGlobalCap": 100,
+          "L": 5,
+          "D_max": 8,
+          "EMAWindow": 16,
+          "M": 2,
+          "perIpRateLimitPer60s": 10,
+          "provenance": "global-cap-test"
+        }"#,
+    )
+    .expect("report parses");
+
+    let policy = calibration_policy(&report).expect("policy parses");
+
+    assert_eq!(policy.k_max, 4);
+    assert_eq!(policy.global_share_cap, 100);
 }
 
 #[test]

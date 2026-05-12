@@ -8,8 +8,9 @@
     "targetEmitter": "FamilyV1LengthBoundTargetEmitter",
     "requiresBooleMinerStartProfile": true,
     "forBooleModelBenchmarkDefaultMining": false,
-    "rateLimitPolicy": "anti-spam limits are effectively disabled for model mining productivity measurement",
-    "notForAdmissionPolicyValidation": true
+    "rateLimitPolicy": "anti-spam and admission caps are lifted for model mining productivity measurement",
+    "notForAdmissionPolicyValidation": true,
+    "capPolicy": "K_max and SharePoolGlobalCap are lifted so long runs measure model productivity rather than selection/admission caps"
   },
   "cfg": {
     "T_submit": "0x1010101010101010101010101010101010101010101010101010101010101010",
@@ -17,8 +18,9 @@
     "T_block": "0x0101010101010101010101010101010101010101010101010101010101010101",
     "T_ticket": "0x3030303030303030303030303030303030303030303030303030303030303030",
     "MinShareScoreMultiplier": 2,
-    "K_max": 16,
+    "K_max": 100000,
     "ShareCapPerPK_Block": 100000,
+    "SharePoolGlobalCap": 100000,
     "L": 16384,
     "D_max": 1024,
     "EMAWindow": 32,

@@ -13,6 +13,8 @@ pub struct CalibrationReport {
     pub MinShareScoreMultiplier: Number,
     pub K_max: i64,
     pub ShareCapPerPK_Block: i64,
+    #[serde(default, rename = "SharePoolGlobalCap", alias = "GlobalShareCap")]
+    pub SharePoolGlobalCap: Option<i64>,
     pub L: i64,
     pub D_max: i64,
     pub EMAWindow: i64,
@@ -121,7 +123,7 @@ pub fn calibration_policy(report: &CalibrationReport) -> Result<CalibrationPolic
         thresholds: calibration_thresholds(report)?,
         k_max: report.K_max as usize,
         share_cap_per_pk_block: report.ShareCapPerPK_Block as usize,
-        global_share_cap: report.K_max as usize,
+        global_share_cap: report.SharePoolGlobalCap.unwrap_or(report.K_max) as usize,
         l: report.L as usize,
         d_max: report.D_max as usize,
         m: report.M,
@@ -150,6 +152,11 @@ pub fn validate_calibration_report(report: &CalibrationReport) -> Result<(), Str
     }
     if report.K_max <= 0 {
         return Err("K_max must be > 0".to_string());
+    }
+    if let Some(global_cap) = report.SharePoolGlobalCap {
+        if global_cap <= 0 {
+            return Err("SharePoolGlobalCap must be > 0".to_string());
+        }
     }
     if report.L <= 0 {
         return Err("L must be > 0".to_string());

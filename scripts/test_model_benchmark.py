@@ -45,8 +45,10 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
         cfg = scenario["cfg"]
         for key in ["T_submit", "T_share", "T_block", "T_ticket"]:
             self.assertEqual(cfg[key], valid_report[key])
-        for key in ["MinShareScoreMultiplier", "K_max", "L", "D_max", "EMAWindow", "M"]:
+        for key in ["MinShareScoreMultiplier", "L", "D_max", "EMAWindow", "M"]:
             self.assertEqual(cfg[key], valid_report[key])
+        self.assertEqual(cfg["K_max"], 100000)
+        self.assertEqual(cfg["SharePoolGlobalCap"], 100000)
         self.assertEqual(cfg["ShareCapPerPK_Block"], 100000)
         self.assertEqual(cfg["perIpRateLimitPer60s"], 100000)
         self.assertEqual(cfg["provenance"], "closed-mining-productivity-v1")
