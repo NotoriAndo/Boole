@@ -40,7 +40,10 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             "replayPassed",
         ])
         models = fixture["models"]
-        self.assertEqual({model["model"] for model in models}, {"ollama:gemma4:26b", "claude-code"})
+        self.assertEqual(
+            {model["model"] for model in models},
+            {"ollama:gemma4:26b", "claude-cli:claude-sonnet-4-6", "claude-cli:claude-opus-4-7"},
+        )
         for model in models:
             self.assertIn("generatedAttempts", model)
             self.assertIn("proofIntakeAccepted", model)
@@ -932,7 +935,7 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
                     "python3",
                     str(BENCHMARK_PATH),
                     "--target",
-                    "claude-cli:sonnet",
+                    "claude-cli:claude-sonnet-4-6",
                     "--claude-command",
                     str(fake_claude),
                     "--attempts",
@@ -962,14 +965,14 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
             self.assertEqual(summary["totals"]["rejected"], 2)
             self.assertEqual(summary["safety"]["invalidAccepted"], 0)
             self.assertEqual({row["provider"] for row in rows}, {"claude-cli"})
-            self.assertEqual({row["model"] for row in rows}, {"sonnet"})
+            self.assertEqual({row["model"] for row in rows}, {"claude-sonnet-4-6"})
             self.assertTrue(all(row["generatedAttempt"] is True for row in rows))
             self.assertTrue(all(row["status"] == "REJECTED" for row in rows))
             self.assertTrue(all(row["accepted"] is False for row in rows))
             self.assertTrue(all(row["candidateSha256"] for row in rows))
             self.assertIn("-p", invocation)
             self.assertIn("--model", invocation)
-            self.assertIn("sonnet", invocation)
+            self.assertIn("claude-sonnet-4-6", invocation)
 
     def test_extractor_handles_thinking_prompt_echo_and_final_proof_line(self) -> None:
         benchmark = load_benchmark()

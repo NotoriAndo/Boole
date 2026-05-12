@@ -10,6 +10,7 @@ LEADERBOARD_MD="${LEADERBOARD_MD:-}"
 ATTEMPTS_PER_MODEL="${ATTEMPTS_PER_MODEL:-}"
 BENCHMARK_COMMAND="${MODEL_BENCHMARK_COMMAND:-}"
 OLLAMA_COMMAND="${BOOLE_OLLAMA_COMMAND:-}"
+CLAUDE_COMMAND="${BOOLE_CLAUDE_COMMAND:-}"
 SUBMIT_LEAN_COMMAND="${BOOLE_SUBMIT_LEAN_COMMAND:-}"
 NODE_URL="${BOOLE_NODE_URL:-}"
 USE_NODE_TICKET="${BOOLE_USE_NODE_TICKET:-0}"
@@ -20,7 +21,7 @@ OLLAMA_MODELS=()
 
 usage() {
   cat <<'EOF'
-Usage: preflight-model-benchmark.sh [--preset mock|frontier|oauth|ollama|all] [--include TERM] [--ollama-model MODEL] [--output-spec PATH] [--leaderboard-md PATH] [--attempts-per-model N] [--benchmark-command CMD] [--ollama-command CMD] [--submit-lean-command CMD] [--node-url URL] [--use-node-ticket]
+Usage: preflight-model-benchmark.sh [--preset mock|frontier|oauth|ollama|all] [--include TERM] [--ollama-model MODEL] [--output-spec PATH] [--leaderboard-md PATH] [--attempts-per-model N] [--benchmark-command CMD] [--ollama-command CMD] [--claude-command CMD] [--submit-lean-command CMD] [--node-url URL] [--use-node-ticket]
 
 Generates a provider/model benchmark spec from available frontier API envs,
 local OAuth CLIs, and Ollama models, then runs provider-model-benchmark.sh.
@@ -64,6 +65,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --ollama-command)
       OLLAMA_COMMAND="${2:?missing --ollama-command value}"
+      shift 2
+      ;;
+    --claude-command)
+      CLAUDE_COMMAND="${2:?missing --claude-command value}"
       shift 2
       ;;
     --submit-lean-command)
@@ -132,6 +137,9 @@ if [[ -n "$BENCHMARK_COMMAND" ]]; then
 fi
 if [[ -n "$OLLAMA_COMMAND" ]]; then
   SETUP_ARGS+=(--ollama-command "$OLLAMA_COMMAND")
+fi
+if [[ -n "$CLAUDE_COMMAND" ]]; then
+  SETUP_ARGS+=(--claude-command "$CLAUDE_COMMAND")
 fi
 if [[ -n "$SUBMIT_LEAN_COMMAND" ]]; then
   SETUP_ARGS+=(--submit-lean-command "$SUBMIT_LEAN_COMMAND")

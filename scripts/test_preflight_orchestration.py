@@ -457,6 +457,70 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:8765", preflight)
         self.assertIn("--use-node-ticket", preflight)
 
+    def test_oauth_benchmark_command_expands_claude_sonnet_and_opus_cli_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            spec_path = tmp_path / "oauth-spec.json"
+            proc = subprocess.run(
+                [
+                    "./scripts/preflight-model-benchmark-setup.py",
+                    "--preset",
+                    "oauth",
+                    "--benchmark-command",
+                    "python3 scripts/boole-model-benchmark.py",
+                    "--claude-command",
+                    "/tmp/fake-claude",
+                    "--artifact-root",
+                    str(tmp_path / "artifacts"),
+                    "--output",
+                    str(spec_path),
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            rows = json.loads(spec_path.read_text())
+            targets = [row["command"][row["command"].index("--target") + 1] for row in rows]
+            self.assertEqual(targets, ["claude-cli:claude-sonnet-4-6", "claude-cli:claude-opus-4-7"])
+            for row in rows:
+                self.assertIn("--claude-command", row["command"])
+                self.assertIn("/tmp/fake-claude", row["command"])
+                self.assertEqual(row["metadata"]["provider"], "claude-cli")
+                self.assertEqual(row["metadata"]["credential"], "oauth_or_subscription")
+
+    def test_preflight_shell_forwards_claude_command_to_oauth_benchmark_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            spec_path = tmp_path / "oauth-shell-spec.json"
+            proc = subprocess.run(
+                [
+                    "./scripts/preflight-model-benchmark.sh",
+                    "--preset",
+                    "oauth",
+                    "--benchmark-command",
+                    "python3 scripts/boole-model-benchmark.py",
+                    "--claude-command",
+                    "/tmp/fake-claude",
+                    "--output-spec",
+                    str(spec_path),
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            rows = json.loads(spec_path.read_text())
+            self.assertEqual(
+                [row["command"][row["command"].index("--target") + 1] for row in rows],
+                ["claude-cli:claude-sonnet-4-6", "claude-cli:claude-opus-4-7"],
+            )
+            self.assertTrue(all("--claude-command" in row["command"] for row in rows))
+
     def test_frontier_or_everything_requires_explicit_paid_api_confirmation(self) -> None:
         wizard = load_wizard()
         safe_args = argparse.Namespace(model_preset=None, target=[], allow_paid_api=False)

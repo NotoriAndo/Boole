@@ -41,6 +41,10 @@ To select a broader model matrix for solo preflight, generate a spec first. The 
 # Generate all known frontier API + OAuth + installed Ollama rows.
 ./scripts/preflight-model-benchmark-setup.py --preset all --output /tmp/boole-model-spec.json
 
+# Generate local Claude CLI rows for both pinned Claude models.
+./scripts/preflight-model-benchmark-setup.py --preset oauth --output /tmp/boole-claude-cli-spec.json
+# Includes: claude-cli:claude-sonnet-4-6 and claude-cli:claude-opus-4-7.
+
 # Generate only Ollama rows, auto-detected from `ollama list`.
 ./scripts/preflight-model-benchmark-setup.py --preset ollama --output /tmp/boole-ollama-spec.json
 
@@ -88,7 +92,7 @@ This runner does not auto-pull Ollama models, start daemons, or bypass paid/API 
 
 By default, generated model runs use `benchmarkMode: mining` and `targetFamily: boole.calibration.pow.v1`. Each attempt receives its own deterministic lottery sample derived from `(runId, target, attemptIndex, benchmarkMode, targetFamily)`, and rows expose that sample under `lotterySample`. The `True.intro` / `theorem ... : True` contract is now isolated behind explicit `--benchmark-mode smoke` for pipeline smoke only; it is not a public model score.
 
-The public-safe controlled local mining schema is frozen at `fixtures/benchmarks/controlled-model-mining/v1-summary.json`. It ranks models by `blocksProduced` first, keeps `verifiedShares`/`verifierAccepted` as diagnostics, and preserves the hierarchy `generatedAttempts → proofIntakeAccepted → verifierAccepted → verifiedShares → blocksProduced → replayPassed`. The fixture is an example schema contract, not a measured leaderboard.
+The public-safe controlled local mining schema is frozen at `fixtures/benchmarks/controlled-model-mining/v1-summary.json`. It ranks models by `blocksProduced` first, keeps `verifiedShares`/`verifierAccepted` as diagnostics, and preserves the hierarchy `generatedAttempts → proofIntakeAccepted → verifierAccepted → verifiedShares → blocksProduced → replayPassed`. The fixture is an example schema contract, not a measured leaderboard. The Claude CLI schema rows are pinned separately as `claude-cli:claude-sonnet-4-6` and `claude-cli:claude-opus-4-7` so future controlled runs do not collapse Claude evidence into a vague `claude-code` bucket.
 
 Or let the preflight runner collect it into the evidence bundle:
 

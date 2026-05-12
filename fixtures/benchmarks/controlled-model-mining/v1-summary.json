@@ -21,16 +21,16 @@
     "invalidAcceptedMustBeZero": true
   },
   "totals": {
-    "models": 2,
-    "generatedAttempts": 10,
-    "proofIntakeAccepted": 7,
-    "verifierAccepted": 3,
-    "verifiedShares": 2,
+    "models": 3,
+    "generatedAttempts": 15,
+    "proofIntakeAccepted": 10,
+    "verifierAccepted": 4,
+    "verifiedShares": 3,
     "blocksProduced": 1,
     "replayFailures": 0,
     "invalidAccepted": 0,
-    "timeouts": 2,
-    "blockProductionRatePct": 10.0
+    "timeouts": 3,
+    "blockProductionRatePct": 6.67
   },
   "models": [
     {
@@ -48,16 +48,30 @@
       "notes": "Example schema row only; not a measured leaderboard result."
     },
     {
-      "model": "claude-code",
-      "runtime": "agent_cli",
+      "model": "claude-cli:claude-sonnet-4-6",
+      "runtime": "claude-cli",
       "generatedAttempts": 5,
-      "proofIntakeAccepted": 3,
+      "proofIntakeAccepted": 4,
       "verifierAccepted": 1,
       "verifiedShares": 1,
       "blocksProduced": 0,
       "replayFailures": 0,
       "invalidAccepted": 0,
-      "timeouts": 2,
+      "timeouts": 0,
+      "blockProductionRatePct": 0.0,
+      "notes": "Example schema row only; not a measured leaderboard result."
+    },
+    {
+      "model": "claude-cli:claude-opus-4-7",
+      "runtime": "claude-cli",
+      "generatedAttempts": 5,
+      "proofIntakeAccepted": 2,
+      "verifierAccepted": 1,
+      "verifiedShares": 1,
+      "blocksProduced": 0,
+      "replayFailures": 0,
+      "invalidAccepted": 0,
+      "timeouts": 3,
       "blockProductionRatePct": 0.0,
       "notes": "Example schema row only; not a measured leaderboard result."
     }

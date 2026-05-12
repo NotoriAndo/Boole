@@ -27,7 +27,7 @@ class ModelRow:
     kind: str = "provider-model"
     timeout_sec: int = 900
 
-    def to_benchmark_row(self, *, benchmark_command: str = "", ollama_command: str = "", submit_lean_command: str = "", node_url: str = "", use_node_ticket: bool = False, artifact_root: str = "") -> dict[str, Any]:
+    def to_benchmark_row(self, *, benchmark_command: str = "", ollama_command: str = "", claude_command: str = "", submit_lean_command: str = "", node_url: str = "", use_node_ticket: bool = False, artifact_root: str = "") -> dict[str, Any]:
         if self.backend == "mock":
             return {
                 "name": self.name,
@@ -73,6 +73,40 @@ class ModelRow:
                     "backend": "ollama",
                     "model": self.model,
                     "credential": "none_local",
+                },
+            }
+
+        if self.provider == "claude-cli" and benchmark_command:
+            row_name = f"claude-cli-{slug(self.model)}"
+            artifact_dir = os.path.join(artifact_root or os.path.join("artifacts", "model-benchmarks"), row_name)
+            command = shlex.split(benchmark_command) + [
+                "--target",
+                f"claude-cli:{self.model}",
+                "--attempts",
+                os.environ.get("TRIALS", "1"),
+                "--output-dir",
+                artifact_dir,
+                "--run-id",
+                row_name,
+            ]
+            if claude_command:
+                command.extend(["--claude-command", claude_command])
+            if submit_lean_command:
+                command.extend(["--submit-lean-command", submit_lean_command])
+            if node_url:
+                command.extend(["--node-url", node_url])
+            if use_node_ticket:
+                command.append("--use-node-ticket")
+            return {
+                "name": row_name,
+                "kind": self.kind,
+                "command": command,
+                "timeoutSec": self.timeout_sec,
+                "metadata": {
+                    "provider": "claude-cli",
+                    "backend": "claude_cli",
+                    "model": self.model,
+                    "credential": "oauth_or_subscription",
                 },
             }
 
@@ -125,12 +159,10 @@ def frontier_rows() -> list[ModelRow]:
 
 
 def oauth_rows() -> list[ModelRow]:
-    rows = []
-    if shutil.which("claude"):
-        rows.append(ModelRow("claude-cli-oauth-default", "claude-cli-oauth", "claude_cli", "claude-cli-default", timeout_sec=600))
-    else:
-        rows.append(ModelRow("claude-cli-oauth-default", "claude-cli-oauth", "claude_cli", "claude-cli-default", timeout_sec=600))
-    return rows
+    return [
+        ModelRow("claude-cli-sonnet-4-6", "claude-cli", "claude_cli", "claude-sonnet-4-6", timeout_sec=900),
+        ModelRow("claude-cli-opus-4-7", "claude-cli", "claude_cli", "claude-opus-4-7", timeout_sec=900),
+    ]
 
 
 def ollama_models() -> list[str]:
@@ -186,7 +218,8 @@ def main() -> None:
     parser.add_argument("--output", help="Write benchmark spec JSON to this path.")
     parser.add_argument("--benchmark-command", default="", help="Override Ollama rows with this runner command, e.g. python3 scripts/boole-model-benchmark.py.")
     parser.add_argument("--ollama-command", default="", help="Ollama command override forwarded to benchmark-command Ollama rows.")
-    parser.add_argument("--submit-lean-command", default="", help="submit-lean command override forwarded to benchmark-command Ollama rows.")
+    parser.add_argument("--claude-command", default="", help="Claude CLI command override forwarded to benchmark-command Claude CLI rows.")
+    parser.add_argument("--submit-lean-command", default="", help="submit-lean command override forwarded to benchmark-command Ollama/Claude CLI rows.")
     parser.add_argument("--node-url", default="", help="Local node URL forwarded to benchmark-command Ollama rows for controlled node HTTP submit evidence.")
     parser.add_argument("--use-node-ticket", action="store_true", help="Forward --use-node-ticket to benchmark-command Ollama rows when --node-url is set.")
     parser.add_argument("--artifact-root", default="", help="Artifact root for benchmark-command per-model outputs.")
@@ -202,6 +235,7 @@ def main() -> None:
         row.to_benchmark_row(
             benchmark_command=args.benchmark_command,
             ollama_command=args.ollama_command,
+            claude_command=args.claude_command,
             submit_lean_command=args.submit_lean_command,
             node_url=args.node_url,
             use_node_ticket=args.use_node_ticket,
