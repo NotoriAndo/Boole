@@ -4,6 +4,10 @@
     "note": "Boole closed mining productivity v1 scenario",
     "claimBoundary": "closed local mining productivity benchmark; not public-network mining",
     "difficultySource": "fixtures/protocol/config/v1.json#cases[name=valid]",
+    "intendedMinerProfile": "v1-lenbound",
+    "targetEmitter": "FamilyV1LengthBoundTargetEmitter",
+    "requiresBooleMinerStartProfile": true,
+    "forBooleModelBenchmarkDefaultMining": false,
     "rateLimitPolicy": "anti-spam limits are effectively disabled for model mining productivity measurement",
     "notForAdmissionPolicyValidation": true
   },
