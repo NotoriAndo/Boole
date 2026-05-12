@@ -22,6 +22,18 @@ fn parse_json(bytes: &[u8]) -> serde_json::Value {
     serde_json::from_slice(bytes).expect("json")
 }
 
+fn payload() -> serde_json::Value {
+    serde_json::json!({"artifactHash":"abc"})
+}
+
+fn payload_text() -> &'static str {
+    "{\"artifactHash\":\"abc\"}"
+}
+
+fn payload_hash() -> String {
+    boole_core::canonical_payload_hash_hex(&payload())
+}
+
 fn setup_session(keys: &Path, sessions: &Path, id: &str) -> String {
     let owner = cli()
         .env("BOOLE_KEYS_DIR", keys)
@@ -56,6 +68,10 @@ fn setup_session(keys: &Path, sessions: &Path, id: &str) -> String {
             "owner",
             "--agent-id",
             "agent",
+            "--allowed-route",
+            "/submit",
+            "--allowed-route",
+            "/verify-answer",
             "--allowed-family",
             "boole.protocol-invariant.v01",
             "--allowed-verifier",
@@ -81,14 +97,13 @@ fn setup_session(keys: &Path, sessions: &Path, id: &str) -> String {
         .to_string()
 }
 
-const HEX32: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
-
 #[test]
-fn signer_sign_work_allowed_by_policy_emits_signed_v1_without_secret() {
+fn signer_sign_work_allowed_by_policy_emits_bound_signed_v1_without_secret() {
     let keys = fresh_tmp("keys-allow");
     let sessions = fresh_tmp("sessions-allow");
     let nonces = fresh_tmp("nonces-allow");
     let session_pk = setup_session(&keys, &sessions, "claude-allow");
+    let request_hash = payload_hash();
 
     let out = cli()
         .env("BOOLE_KEYS_DIR", &keys)
@@ -108,11 +123,11 @@ fn signer_sign_work_allowed_by_policy_emits_signed_v1_without_secret() {
             "--fee",
             "1",
             "--request-hash",
-            HEX32,
+            &request_hash,
             "--nonce",
             "n1",
             "--payload",
-            "{\"artifactHash\":\"abc\"}",
+            payload_text(),
             "--json",
         ])
         .output()
@@ -128,6 +143,15 @@ fn signer_sign_work_allowed_by_policy_emits_signed_v1_without_secret() {
     let envelope = parse_json(&out.stdout);
     assert_eq!(envelope["ok"], true);
     assert_eq!(envelope["envelope"]["pk"], session_pk);
+    let signed_payload = &envelope["envelope"]["payload"];
+    assert_eq!(signed_payload["schema"], "boole.signer.work.v1");
+    assert_eq!(signed_payload["route"], "/submit");
+    assert_eq!(signed_payload["familyId"], "boole.protocol-invariant.v01");
+    assert_eq!(signed_payload["verifierId"], "lean-runner-v01");
+    assert_eq!(signed_payload["fee"], "1");
+    assert_eq!(signed_payload["requestHash"], request_hash);
+    assert_eq!(signed_payload["nonce"], "n1");
+    assert_eq!(signed_payload["workPayload"], payload());
     assert!(
         !stdout_text.contains("\"sk\""),
         "stdout must not contain `sk`; got {stdout_text}"
@@ -139,11 +163,94 @@ fn signer_sign_work_allowed_by_policy_emits_signed_v1_without_secret() {
 }
 
 #[test]
+fn signer_sign_work_rejects_request_hash_mismatch() {
+    let keys = fresh_tmp("keys-mismatch");
+    let sessions = fresh_tmp("sessions-mismatch");
+    let nonces = fresh_tmp("nonces-mismatch");
+    let _ = setup_session(&keys, &sessions, "claude-mismatch");
+
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &keys)
+        .env("BOOLE_SESSIONS_DIR", &sessions)
+        .env("BOOLE_SIGNER_NONCE_DIR", &nonces)
+        .args([
+            "signer",
+            "sign-work",
+            "--session-id",
+            "claude-mismatch",
+            "--route",
+            "/submit",
+            "--family",
+            "boole.protocol-invariant.v01",
+            "--verifier",
+            "lean-runner-v01",
+            "--fee",
+            "1",
+            "--request-hash",
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "--nonce",
+            "n1",
+            "--payload",
+            payload_text(),
+            "--json",
+        ])
+        .output()
+        .expect("signer sign-work");
+    assert_eq!(out.status.code(), Some(3));
+    let envelope = parse_json(&out.stderr);
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["reason"], "request_hash_mismatch");
+}
+
+#[test]
+fn signer_sign_work_denies_route_not_in_session_envelope() {
+    let keys = fresh_tmp("keys-route");
+    let sessions = fresh_tmp("sessions-route");
+    let nonces = fresh_tmp("nonces-route");
+    let _ = setup_session(&keys, &sessions, "claude-route");
+    let request_hash = payload_hash();
+
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &keys)
+        .env("BOOLE_SESSIONS_DIR", &sessions)
+        .env("BOOLE_SIGNER_NONCE_DIR", &nonces)
+        .args([
+            "signer",
+            "sign-work",
+            "--session-id",
+            "claude-route",
+            "--route",
+            "/withdraw",
+            "--family",
+            "boole.protocol-invariant.v01",
+            "--verifier",
+            "lean-runner-v01",
+            "--fee",
+            "1",
+            "--request-hash",
+            &request_hash,
+            "--nonce",
+            "n1",
+            "--payload",
+            payload_text(),
+            "--json",
+        ])
+        .output()
+        .expect("signer sign-work");
+    assert_eq!(out.status.code(), Some(3));
+    let envelope = parse_json(&out.stderr);
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["reason"], "policy_denied");
+    assert!(envelope["detail"].as_str().unwrap_or("").contains("route"));
+}
+
+#[test]
 fn signer_sign_work_denies_over_fee_with_policy_denied() {
     let keys = fresh_tmp("keys-deny");
     let sessions = fresh_tmp("sessions-deny");
     let nonces = fresh_tmp("nonces-deny");
     let _ = setup_session(&keys, &sessions, "claude-deny");
+    let request_hash = payload_hash();
 
     let out = cli()
         .env("BOOLE_KEYS_DIR", &keys)
@@ -163,11 +270,11 @@ fn signer_sign_work_denies_over_fee_with_policy_denied() {
             "--fee",
             "999",
             "--request-hash",
-            HEX32,
+            &request_hash,
             "--nonce",
             "n1",
             "--payload",
-            "{\"artifactHash\":\"abc\"}",
+            payload_text(),
             "--json",
         ])
         .output()
@@ -189,6 +296,7 @@ fn signer_sign_work_rejects_duplicate_nonce() {
     let sessions = fresh_tmp("sessions-nonce");
     let nonces = fresh_tmp("nonces-nonce");
     let _ = setup_session(&keys, &sessions, "claude-nonce");
+    let request_hash = payload_hash();
 
     let common_args = [
         "signer",
@@ -204,11 +312,11 @@ fn signer_sign_work_rejects_duplicate_nonce() {
         "--fee",
         "1",
         "--request-hash",
-        HEX32,
+        &request_hash,
         "--nonce",
         "n-dup",
         "--payload",
-        "{\"artifactHash\":\"abc\"}",
+        payload_text(),
         "--json",
     ];
 

@@ -134,6 +134,37 @@ fn signer_request_denies_unknown_route_or_verifier_or_bad_request_hash_or_empty_
 }
 
 #[test]
+fn signer_request_denies_unsafe_policy_capabilities_and_uppercase_hash() {
+    let req = SignerRequest::test_fixture();
+
+    let mut policy = SessionPolicy::test_fixture();
+    policy.can_withdraw = true;
+    assert!(policy
+        .authorize(&req)
+        .unwrap_err()
+        .to_string()
+        .contains("canWithdraw=false"));
+
+    let mut policy = SessionPolicy::test_fixture();
+    policy.can_transfer = true;
+    assert!(policy
+        .authorize(&req)
+        .unwrap_err()
+        .to_string()
+        .contains("canTransfer=false"));
+
+    let policy = SessionPolicy::test_fixture();
+    let mut req = SignerRequest::test_fixture();
+    req.request_hash =
+        "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD".to_string();
+    assert!(policy
+        .authorize(&req)
+        .unwrap_err()
+        .to_string()
+        .contains("requestHash"));
+}
+
+#[test]
 fn session_state_rejects_lifetime_exceeding_max() {
     // Gap G4: a session that is "active for too long" must be refused at
     // register-time so a compromised session's revocation-propagation window

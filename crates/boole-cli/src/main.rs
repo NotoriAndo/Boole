@@ -206,6 +206,9 @@ enum SessionKeyCommand {
         /// is the on-chain identity the session works on behalf of.
         #[arg(long = "agent-id")]
         agent_id: String,
+        /// Route the session may sign requests for. Repeat for multiple routes.
+        #[arg(long = "allowed-route")]
+        allowed_routes: Vec<String>,
         /// Family id the session may submit work for.
         #[arg(long = "allowed-family")]
         allowed_family: String,
@@ -595,6 +598,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 id,
                 owner_id,
                 agent_id,
+                allowed_routes,
                 allowed_family,
                 allowed_verifier,
                 max_fee,
@@ -605,6 +609,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 &id,
                 &owner_id,
                 &agent_id,
+                &allowed_routes,
                 &allowed_family,
                 &allowed_verifier,
                 &max_fee,
@@ -1692,6 +1697,7 @@ fn session_key_create(
     id: &str,
     owner_id: &str,
     agent_id: &str,
+    allowed_routes: &[String],
     allowed_family: &str,
     allowed_verifier: &str,
     max_fee: &str,
@@ -1730,6 +1736,17 @@ fn session_key_create(
         );
     }
 
+    if allowed_routes.is_empty() {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({
+                "detail": "at least one --allowed-route is required",
+                "field": "allowed-route",
+            }),
+        );
+    }
+
     let kdir = keys_dir();
     let owner_pk = read_key_pk(&kdir, owner_id, "owner-id")?;
     let agent_pk = read_key_pk(&kdir, agent_id, "agent-id")?;
@@ -1757,6 +1774,7 @@ fn session_key_create(
         "ownerPk": owner_pk,
         "agentPk": agent_pk,
         "fixedRewardRecipient": owner_pk,
+        "allowedRoutes": allowed_routes,
         "allowedFamily": allowed_family,
         "allowedVerifier": allowed_verifier,
         "maxFee": max_fee,
@@ -1982,15 +2000,32 @@ fn signer_sign_work(
         .and_then(|v| v.as_str())
         .unwrap_or("0")
         .to_string();
-    let allowed_routes = envelope
-        .get("allowedRoutes")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_else(|| vec!["/verify-answer".to_string(), "/submit".to_string()]);
+    let allowed_routes = match envelope.get("allowedRoutes").and_then(|v| v.as_array()) {
+        Some(arr) => arr
+            .iter()
+            .filter_map(|x| x.as_str().map(|s| s.to_string()))
+            .collect::<Vec<_>>(),
+        None => emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({
+                "sessionId": session_id,
+                "field": "allowedRoutes",
+                "detail": "stored session envelope missing explicit allowedRoutes",
+            }),
+        ),
+    };
+    if allowed_routes.is_empty() {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({
+                "sessionId": session_id,
+                "field": "allowedRoutes",
+                "detail": "stored session envelope has no allowed routes",
+            }),
+        );
+    }
 
     let policy = boole_core::SessionPolicy {
         can_submit_work: true,
@@ -2041,8 +2076,30 @@ fn signer_sign_work(
     let signing_key = boole_core::SigningKeyV2::from_seed_hex(session_sk)
         .map_err(|err| anyhow::anyhow!("stored sessionSk is not a valid ed25519 seed: {err}"))?;
     let payload = read_json_arg(payload_arg, "payload")?;
+    let computed_request_hash = boole_core::canonical_payload_hash_hex(&payload);
+    if computed_request_hash != request_hash {
+        emit_typed_error(
+            "request_hash_mismatch",
+            3,
+            serde_json::json!({
+                "sessionId": session_id,
+                "expected": computed_request_hash,
+                "provided": request_hash,
+            }),
+        );
+    }
+    let work_request_payload = serde_json::json!({
+        "schema": "boole.signer.work.v1",
+        "route": route,
+        "familyId": family,
+        "verifierId": verifier,
+        "fee": fee,
+        "requestHash": request_hash,
+        "nonce": nonce,
+        "workPayload": payload,
+    });
     let signed = signing_key
-        .sign(&payload)
+        .sign(&work_request_payload)
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
 
     record_nonce(&nonce_path, nonce)?;

@@ -78,6 +78,15 @@ impl SigningKeyV2 {
     }
 }
 
+/// Return the hex-encoded SHA-256 digest of Boole canonical JSON payload bytes.
+///
+/// This is the same digest surface used by `boole.signed.v1`. CLI signers use
+/// it to bind a caller-provided `requestHash` to the exact work payload before
+/// producing a session-key signature.
+pub fn canonical_payload_hash_hex(payload: &Value) -> String {
+    hex::encode(sha256_canonical(payload))
+}
+
 /// Wire shape of a signed envelope. `signature` is hex64 (32-byte ed25519
 /// signature × 2). `pk` is hex32 (32-byte verifying key × 2).
 #[derive(Debug, Clone, PartialEq, Eq)]

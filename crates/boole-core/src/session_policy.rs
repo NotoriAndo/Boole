@@ -119,6 +119,7 @@ impl SessionPolicy {
     /// the W3.2 CLI can map them to typed exit codes without re-parsing the
     /// message.
     pub fn authorize(&self, req: &SignerRequest) -> anyhow::Result<()> {
+        self.validate()?;
         if !self.allowed_routes.iter().any(|r| r == &req.route) {
             anyhow::bail!("route {:?} not in allowed_routes", req.route);
         }
@@ -178,7 +179,8 @@ impl SessionPolicy {
 }
 
 fn validate_hex32(field: &str, value: &str) -> anyhow::Result<()> {
-    if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+    let is_lower_hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
+    if value.len() != 64 || !value.bytes().all(is_lower_hex) {
         anyhow::bail!("{field} must be 32-byte lowercase hex");
     }
     Ok(())

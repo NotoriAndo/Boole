@@ -56,6 +56,10 @@ fn setup_session(keys: &Path, sessions: &Path, id: &str) {
             "owner",
             "--agent-id",
             "agent",
+            "--allowed-route",
+            "/submit",
+            "--allowed-route",
+            "/verify-answer",
             "--allowed-family",
             "boole.protocol-invariant.v01",
             "--allowed-verifier",
@@ -115,6 +119,10 @@ fn session_key_create_local_writes_policy_without_secret_in_stdout() {
             "owner",
             "--agent-id",
             "agent",
+            "--allowed-route",
+            "/submit",
+            "--allowed-route",
+            "/verify-answer",
             "--allowed-family",
             "boole.protocol-invariant.v01",
             "--allowed-verifier",
@@ -138,6 +146,8 @@ fn session_key_create_local_writes_policy_without_secret_in_stdout() {
     let envelope = parse_json(&out.stdout);
     assert_eq!(envelope["ok"], true);
     assert_eq!(envelope["session"]["id"], "claude-local");
+    assert_eq!(envelope["session"]["allowedRoutes"][0], "/submit");
+    assert_eq!(envelope["session"]["allowedRoutes"][1], "/verify-answer");
     let stdout_text = String::from_utf8(out.stdout.clone()).expect("utf8");
     assert!(
         !stdout_text.contains("\"sk\""),
@@ -223,4 +233,55 @@ fn session_key_revoke_local_sets_revoked_true() {
     );
     let inspect_envelope = parse_json(&inspect.stdout);
     assert_eq!(inspect_envelope["session"]["revoked"], true);
+}
+
+#[test]
+fn session_key_create_requires_explicit_allowed_route() {
+    let keys = fresh_tmp("keys-missing-route");
+    let sessions = fresh_tmp("sessions-missing-route");
+
+    let owner = cli()
+        .env("BOOLE_KEYS_DIR", &keys)
+        .args(["keys", "new", "--id", "owner", "--dev"])
+        .output()
+        .expect("owner");
+    assert!(owner.status.success());
+    let agent = cli()
+        .env("BOOLE_KEYS_DIR", &keys)
+        .args(["keys", "new", "--id", "agent", "--dev"])
+        .output()
+        .expect("agent");
+    assert!(agent.status.success());
+
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &keys)
+        .env("BOOLE_SESSIONS_DIR", &sessions)
+        .args([
+            "session-key",
+            "create",
+            "--local",
+            "--id",
+            "claude-no-route",
+            "--owner-id",
+            "owner",
+            "--agent-id",
+            "agent",
+            "--allowed-family",
+            "boole.protocol-invariant.v01",
+            "--allowed-verifier",
+            "lean-runner-v01",
+            "--max-fee",
+            "12",
+            "--daily-fee-cap",
+            "100",
+            "--expiry-height",
+            "1000",
+        ])
+        .output()
+        .expect("session-key create");
+    assert_eq!(out.status.code(), Some(2));
+    let envelope = parse_json(&out.stderr);
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["reason"], "bad_request");
+    assert_eq!(envelope["field"], "allowed-route");
 }
