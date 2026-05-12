@@ -222,7 +222,7 @@ The shared `/boole mine` foundation is a thin wrapper around the existing `boole
 ./scripts/boole-agent-mine.sh --runtime fake
 ./scripts/boole-agent-mine.sh --runtime hermes --verify mock
 ./scripts/boole-agent-mine.sh --runtime hermes --verify real
-./scripts/boole-agent-mine.sh --runtime claude-code --agent-command claude --agent-args '["-p"]'
+./scripts/boole-agent-mine.sh --runtime claude-code --agent-command claude --agent-args '["-p"]' --evidence-dir /tmp/boole-claude-evidence
 ./scripts/boole-agent-mine.sh --runtime codex --agent-command codex --agent-args '["exec"]'
 ```
 

@@ -100,6 +100,18 @@ The Claude template is written as a project/user command file under `boole/mine.
 
 The expected user-facing result is the underlying smoke JSON plus stderr PASS/SKIP line. A successful run must include node `height >= 1` and `replayMatchesRuntime: true`; miner counters alone are not sufficient.
 
+For local evidence capture, pass `--evidence-dir`:
+
+```bash
+./scripts/boole-agent-mine.sh \
+  --runtime claude-code \
+  --agent-command claude \
+  --agent-args '["-p"]' \
+  --evidence-dir /tmp/boole-claude-evidence
+```
+
+The wrapper writes `stdout.json`, `stderr.txt`, and `summary.json`. `summary.json` redacts the local evidence path and always labels the artifact as `local controlled-smoke UX artifact, not public mining evidence`.
+
 ## Current support level
 
 - `fake`: deterministic transport path, mock verifier, expected to PASS.

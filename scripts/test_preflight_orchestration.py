@@ -155,6 +155,35 @@ class PreflightOrchestrationTests(unittest.TestCase):
             self.assertIn("--max-requests 10", text, script.name)
             self.assertIn("wait \"$PID\" >/dev/null 2>&1 || true", text, script.name)
 
+    def test_agent_mine_evidence_dir_writes_redacted_local_claim_boundary(self) -> None:
+        expected = json.loads((ROOT / "fixtures" / "protocol" / "agent-slash-mine" / "v1-evidence-summary.json").read_text())
+        with tempfile.TemporaryDirectory(dir="/tmp") as td:
+            evidence_dir = Path(td) / "slash-evidence"
+            proc = subprocess.run(
+                [
+                    "./scripts/boole-agent-mine.sh",
+                    "--runtime",
+                    "codex",
+                    "--agent-command",
+                    "/tmp/boole-missing-codex-runtime",
+                    "--evidence-dir",
+                    str(evidence_dir),
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertTrue((evidence_dir / "stdout.json").is_file())
+            self.assertTrue((evidence_dir / "stderr.txt").is_file())
+            summary = json.loads((evidence_dir / "summary.json").read_text())
+            self.assertEqual(summary["evidenceDir"], "[REDACTED_LOCAL_PATH]")
+            summary["generatedAt"] = "deterministic-test"
+            self.assertEqual(summary, expected)
+            self.assertEqual(json.loads(proc.stdout), json.loads((evidence_dir / "stdout.json").read_text()))
+
     def test_phase7_preflight_has_named_s7_5_hardening_gate(self) -> None:
         text = PREFLIGHT_PATH.read_text()
         self.assertIn("s7.5-hardening", text)

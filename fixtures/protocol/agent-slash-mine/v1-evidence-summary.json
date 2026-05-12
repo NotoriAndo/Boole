@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "kind": "boole-agent-mine-evidence",
+  "schemaVersion": 1,
+  "generatedAt": "deterministic-test",
+  "evidenceDir": "[REDACTED_LOCAL_PATH]",
+  "claimBoundary": "local controlled-smoke UX artifact, not public mining evidence",
+  "publicMiningEvidence": false,
+  "paidApiBenchmark": false,
+  "redaction": {
+    "localPaths": "redacted in summary only; raw stdout/stderr stay local under evidenceDir"
+  },
+  "result": {
+    "ok": true,
+    "kind": "boole-agent-mine",
+    "skipped": true,
+    "reason": "agent_runtime_not_found",
+    "runtime": "codex"
+  }
+}

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ORIGINAL_ARGS=("$@")
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -9,10 +10,11 @@ VERIFY="${BOOLE_AGENT_VERIFY:-mock}"
 ADDR="${BOOLE_NODE_ADDR:-}"
 RUNTIME_COMMAND="${AGENT_RUNTIME_COMMAND:-}"
 RUNTIME_ARGS="${AGENT_RUNTIME_ARGS:-}"
+EVIDENCE_DIR="${BOOLE_AGENT_MINE_EVIDENCE_DIR:-}"
 
 usage() {
   cat <<'EOF'
-Usage: boole-agent-mine.sh [--runtime fake|hermes|opencode|openclaw|claude-code|codex] [--verify mock|real] [--addr HOST:PORT] [--agent-command CMD] [--agent-args JSON]
+Usage: boole-agent-mine.sh [--runtime fake|hermes|opencode|openclaw|claude-code|codex] [--verify mock|real] [--addr HOST:PORT] [--agent-command CMD] [--agent-args JSON] [--evidence-dir DIR]
 
 Slash-command foundation for agent-native Boole mining. The script is a thin UX
 wrapper around boole-miner + boole-node smoke paths; consensus acceptance still
@@ -64,6 +66,10 @@ while [[ $# -gt 0 ]]; do
       RUNTIME_ARGS="${2:?missing --agent-args value}"
       shift 2
       ;;
+    --evidence-dir)
+      EVIDENCE_DIR="${2:?missing --evidence-dir value}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -83,6 +89,52 @@ case "$VERIFY" in
     exit 64
     ;;
 esac
+
+if [[ -n "$EVIDENCE_DIR" && -z "${BOOLE_AGENT_MINE_CAPTURED:-}" ]]; then
+  mkdir -p "$EVIDENCE_DIR"
+  set +e
+  BOOLE_AGENT_MINE_CAPTURED=1 "$0" "${ORIGINAL_ARGS[@]}" >"$EVIDENCE_DIR/stdout.json" 2>"$EVIDENCE_DIR/stderr.txt"
+  code=$?
+  set -e
+  python3 - "$EVIDENCE_DIR" "$code" <<'PY'
+import datetime
+import json
+import pathlib
+import sys
+
+evidence_dir = pathlib.Path(sys.argv[1])
+exit_code = int(sys.argv[2])
+stdout_path = evidence_dir / "stdout.json"
+stderr_path = evidence_dir / "stderr.txt"
+raw_stdout = stdout_path.read_text(encoding="utf-8") if stdout_path.exists() else ""
+raw_stderr = stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else ""
+try:
+    result = json.loads(raw_stdout)
+except json.JSONDecodeError:
+    result = {"ok": False, "parseError": "stdout_not_json", "stdoutTail": raw_stdout[-1200:]}
+summary = {
+    "ok": exit_code == 0 and bool(result.get("ok")),
+    "kind": "boole-agent-mine-evidence",
+    "schemaVersion": 1,
+    "generatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+    "evidenceDir": "[REDACTED_LOCAL_PATH]",
+    "claimBoundary": "local controlled-smoke UX artifact, not public mining evidence",
+    "publicMiningEvidence": False,
+    "paidApiBenchmark": False,
+    "redaction": {
+        "localPaths": "redacted in summary only; raw stdout/stderr stay local under evidenceDir",
+    },
+    "result": result,
+}
+if exit_code != 0:
+    summary["exitCode"] = exit_code
+if raw_stderr.strip():
+    summary["stderrTail"] = raw_stderr[-1200:]
+(evidence_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+  cat "$EVIDENCE_DIR/stdout.json"
+  exit "$code"
+fi
 
 run_with_addr() {
   if [[ -n "$ADDR" ]]; then
