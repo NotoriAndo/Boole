@@ -85,3 +85,16 @@
 The terminal output is invisible to the user. Re-asking "should I do X or Y?" via terminal stalls the conversation indefinitely. Treat the Telegram chat as the sole channel for the entire task lifecycle, not just the final report.
 
 **Self-check before sending any text response:** if the most recent inbound message has a `<channel source="telegram">` tag, my next user-facing response goes through `reply`, not bare text. Bare terminal text in a Telegram-initiated session = silent message from the user's perspective.
+
+## 2026-05-12 — Pre-existing test failures must be verified against clean main before blaming a slice
+
+**Pattern:** W0.2 (`wallet: redact local key secrets from default output`) green-checked `boole-cli` (13/13), `keys_sign` (5/5), `keys_verify` (5/5). The wider `cargo test --workspace --all-targets` then failed on `boole-lean-runner::canonical_checker_artifact_hash_matches_readme_pin` with a SHA-256 drift between the recomputed `BooleCheck/Main.lean + lakefile.lean` hash and the README-pinned value. My edits touched only `crates/boole-cli/src/main.rs` and `crates/boole-cli/tests/keys.rs` — nothing under `lean/` or `boole-lean-runner` — so the failure was suspicious on its face. `git stash && cargo test ... canonical_checker_artifact_hash_matches_readme_pin` against unmodified `main` reproduced the same failure with the same hashes, confirming it as a pre-existing drift independent of W0.
+
+**Rule:** when a workspace test fails *after* a focused slice whose diff is confined to unrelated crates:
+
+1. Run `git diff --stat` to confirm the slice touched none of the failing test's source paths.
+2. `git stash && cargo test -p <failing-crate> --test <failing-test> <failing-fn>` against clean `main`.
+3. If the test fails identically on clean `main`, it is pre-existing drift, not regression. Document it in the slice's review note ("workspace tests: <list> pre-existing, unrelated to this slice — green gate is per-crate") and proceed.
+4. If it fails differently or only after your changes, treat it as a real regression and `git stash pop` to debug.
+
+This matters for the wallet plan specifically: the Global verification commands at the top of `local-docs/boole-agent-wallet-node-integration-implementation-plan.md` say "workspace tests PASS" as a final-condition gate. The practical interpretation is "no new failures vs clean main", not "no failures at all" — otherwise an unrelated lean checker drift would block every wallet slice indefinitely. Fix unrelated drift in its own slice; do not entangle.
