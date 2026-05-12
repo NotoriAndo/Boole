@@ -167,6 +167,21 @@ For controlled local-node evidence, provide a local node URL and opt into ticket
 
 With `--use-node-ticket`, model candidates that pass verifier/canonicalization can be observed through local `/ticket` before `/submit`. Rejected attempts without a canonical submission body are recorded before node submission; they must not be described as mined blocks or public-network mining.
 
+For model comparison, add `--isolated-node-per-row` so each model row gets a fresh local node, block store, reward store, port, and quota state:
+
+```bash
+./scripts/phase7-solo-preflight.sh \
+  --run-model-benchmark \
+  --model-preset oauth \
+  --model-benchmark-command "python3 scripts/boole-model-benchmark.py" \
+  --submit-lean-command /path/to/submit-lean-wrapper \
+  --use-node-ticket \
+  --isolated-node-per-row \
+  --isolated-node-base-port 18140
+```
+
+Do not use one shared local node for model ranking evidence; earlier rows can advance the head or consume quota and contaminate later rows.
+
 The setup script supports Anthropic/OpenAI/Google/xAI API rows, Claude CLI OAuth, and all installed Ollama models. It records whether credentials are present but never prints credential values. Missing API envs become `SKIP`; selected live rows may fail if the model cannot produce a verifier-accepted proof.
 
 ## Config

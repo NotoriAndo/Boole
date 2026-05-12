@@ -14,6 +14,8 @@ CLAUDE_COMMAND="${BOOLE_CLAUDE_COMMAND:-}"
 SUBMIT_LEAN_COMMAND="${BOOLE_SUBMIT_LEAN_COMMAND:-}"
 NODE_URL="${BOOLE_NODE_URL:-}"
 USE_NODE_TICKET="${BOOLE_USE_NODE_TICKET:-0}"
+ISOLATED_NODE_PER_ROW="${BOOLE_ISOLATED_NODE_PER_ROW:-0}"
+ISOLATED_NODE_BASE_PORT="${BOOLE_ISOLATED_NODE_BASE_PORT:-18140}"
 PROVER_PK="${BOOLE_PROVER_PK:-}"
 BOUNTY_ID="${BOOLE_BOUNTY_ID:-}"
 INCLUDES=()
@@ -21,7 +23,7 @@ OLLAMA_MODELS=()
 
 usage() {
   cat <<'EOF'
-Usage: preflight-model-benchmark.sh [--preset mock|frontier|oauth|ollama|all] [--include TERM] [--ollama-model MODEL] [--output-spec PATH] [--leaderboard-md PATH] [--attempts-per-model N] [--benchmark-command CMD] [--ollama-command CMD] [--claude-command CMD] [--submit-lean-command CMD] [--node-url URL] [--use-node-ticket]
+Usage: preflight-model-benchmark.sh [--preset mock|frontier|oauth|ollama|all] [--include TERM] [--ollama-model MODEL] [--output-spec PATH] [--leaderboard-md PATH] [--attempts-per-model N] [--benchmark-command CMD] [--ollama-command CMD] [--claude-command CMD] [--submit-lean-command CMD] [--node-url URL] [--use-node-ticket] [--isolated-node-per-row] [--isolated-node-base-port PORT]
 
 Generates a provider/model benchmark spec from available frontier API envs,
 local OAuth CLIs, and Ollama models, then runs provider-model-benchmark.sh.
@@ -83,6 +85,14 @@ while [[ $# -gt 0 ]]; do
       USE_NODE_TICKET=1
       shift
       ;;
+    --isolated-node-per-row)
+      ISOLATED_NODE_PER_ROW=1
+      shift
+      ;;
+    --isolated-node-base-port)
+      ISOLATED_NODE_BASE_PORT="${2:?missing --isolated-node-base-port value}"
+      shift 2
+      ;;
     --prover-pk)
       PROVER_PK="${2:?missing --prover-pk value}"
       shift 2
@@ -119,7 +129,7 @@ fi
 # silently records empty reward fields if any of these 404, so a misconfigured
 # node would otherwise produce a green run with no economic signal. Failing
 # fast here is cheap and surfaces the failing route to the operator.
-if [[ -n "$NODE_URL" ]]; then
+if [[ -n "$NODE_URL" && "$ISOLATED_NODE_PER_ROW" != "1" ]]; then
   PREFLIGHT_ARGS=(--preflight-node --node-url "$NODE_URL")
   if [[ -n "$PROVER_PK" ]]; then
     PREFLIGHT_ARGS+=(--prover-pk "$PROVER_PK")
@@ -150,6 +160,11 @@ fi
 case "$USE_NODE_TICKET" in
   1|true|TRUE|yes|YES)
     SETUP_ARGS+=(--use-node-ticket)
+    ;;
+esac
+case "$ISOLATED_NODE_PER_ROW" in
+  1|true|TRUE|yes|YES)
+    SETUP_ARGS+=(--isolated-node-per-row --isolated-node-base-port "$ISOLATED_NODE_BASE_PORT")
     ;;
 esac
 if [[ -n "$OUTPUT_SPEC" ]]; then

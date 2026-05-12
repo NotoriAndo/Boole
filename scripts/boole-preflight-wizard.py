@@ -632,6 +632,10 @@ def reproduce_command(args: argparse.Namespace, preset_name: str) -> str:
         cmd += ["--node-url", args.node_url]
     if getattr(args, "use_node_ticket", False):
         cmd.append("--use-node-ticket")
+    if getattr(args, "isolated_node_per_row", False):
+        cmd.append("--isolated-node-per-row")
+    if getattr(args, "isolated_node_base_port", None) is not None:
+        cmd += ["--isolated-node-base-port", str(args.isolated_node_base_port)]
     model_preset = getattr(args, "model_preset", None)
     if model_preset:
         cmd += ["--model-preset", model_preset]
@@ -871,6 +875,10 @@ def build_plan(args: argparse.Namespace, preset_name: str) -> list[list[str]]:
         preflight += ["--node-url", args.node_url]
     if getattr(args, "use_node_ticket", False):
         preflight.append("--use-node-ticket")
+    if getattr(args, "isolated_node_per_row", False):
+        preflight.append("--isolated-node-per-row")
+    if getattr(args, "isolated_node_base_port", None) is not None:
+        preflight += ["--isolated-node-base-port", str(args.isolated_node_base_port)]
     if getattr(args, "skip_hardening_checks", False):
         preflight.append("--skip-hardening-checks")
     if preset["run_hermes_real"] or args.run_hermes_real:
@@ -952,6 +960,8 @@ def main() -> None:
     parser.add_argument("--submit-lean-command", help="Override submit-lean verifier command for local/fake generated proof verification.")
     parser.add_argument("--node-url", help="Forward local node URL to optional controlled model benchmark /submit path.")
     parser.add_argument("--use-node-ticket", action="store_true", help="Forward local node /ticket observation before /submit in the optional controlled model benchmark path.")
+    parser.add_argument("--isolated-node-per-row", action="store_true", help="Run each optional model benchmark row against a fresh local boole-node/block store/reward store/port.")
+    parser.add_argument("--isolated-node-base-port", type=int, help="First TCP port for --isolated-node-per-row; each model row increments by one.")
     parser.add_argument("--install-claude", action="store_true", help="Install Claude Code command templates regardless of preset.")
     parser.add_argument("--install-codex", action="store_true", help="Install Codex prompt templates regardless of preset.")
     parser.add_argument("--run-hermes-real", action="store_true", help="Include Hermes real proof-to-block row regardless of preset.")

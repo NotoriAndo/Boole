@@ -17,11 +17,13 @@ OLLAMA_COMMAND="${BOOLE_OLLAMA_COMMAND:-}"
 SUBMIT_LEAN_COMMAND="${BOOLE_SUBMIT_LEAN_COMMAND:-}"
 NODE_URL="${BOOLE_NODE_URL:-}"
 USE_NODE_TICKET="${BOOLE_USE_NODE_TICKET:-0}"
+ISOLATED_NODE_PER_ROW="${BOOLE_ISOLATED_NODE_PER_ROW:-0}"
+ISOLATED_NODE_BASE_PORT="${BOOLE_ISOLATED_NODE_BASE_PORT:-18140}"
 SKIP_HARDENING_CHECKS="${SKIP_HARDENING_CHECKS:-0}"
 
 usage() {
   cat <<'EOF'
-Usage: phase7-solo-preflight.sh [--config PATH] [--evidence-dir DIR] [--run-hermes-real] [--run-model-benchmark] [--model-preset mock|frontier|oauth|ollama|all] [--model-include TERM] [--ollama-model MODEL] [--model-benchmark-command CMD] [--ollama-command CMD] [--submit-lean-command CMD] [--node-url URL] [--use-node-ticket] [--genesis-benchmark] [--attempts-per-model N] [--skip-hardening-checks]
+Usage: phase7-solo-preflight.sh [--config PATH] [--evidence-dir DIR] [--run-hermes-real] [--run-model-benchmark] [--model-preset mock|frontier|oauth|ollama|all] [--model-include TERM] [--ollama-model MODEL] [--model-benchmark-command CMD] [--ollama-command CMD] [--submit-lean-command CMD] [--node-url URL] [--use-node-ticket] [--isolated-node-per-row] [--isolated-node-base-port PORT] [--genesis-benchmark] [--attempts-per-model N] [--skip-hardening-checks]
 
 Runs the local Phase 7.0 solo preflight evidence gate and writes captured JSON,
 stderr, and git metadata into an evidence directory. The summary JSON is printed
@@ -79,6 +81,14 @@ while [[ $# -gt 0 ]]; do
     --use-node-ticket)
       USE_NODE_TICKET=1
       shift
+      ;;
+    --isolated-node-per-row)
+      ISOLATED_NODE_PER_ROW=1
+      shift
+      ;;
+    --isolated-node-base-port)
+      ISOLATED_NODE_BASE_PORT="${2:?missing --isolated-node-base-port value}"
+      shift 2
       ;;
     --genesis-benchmark)
       GENESIS_BENCHMARK=1
@@ -257,6 +267,11 @@ if [[ "$RUN_MODEL_BENCHMARK" == "1" ]]; then
   case "$USE_NODE_TICKET" in
     1|true|TRUE|yes|YES)
       MODEL_BENCHMARK_ARGS+=(--use-node-ticket)
+      ;;
+  esac
+  case "$ISOLATED_NODE_PER_ROW" in
+    1|true|TRUE|yes|YES)
+      MODEL_BENCHMARK_ARGS+=(--isolated-node-per-row --isolated-node-base-port "$ISOLATED_NODE_BASE_PORT")
       ;;
   esac
   if [[ -n "$ATTEMPTS_PER_MODEL" ]]; then

@@ -27,7 +27,7 @@ class ModelRow:
     kind: str = "provider-model"
     timeout_sec: int = 900
 
-    def to_benchmark_row(self, *, benchmark_command: str = "", ollama_command: str = "", claude_command: str = "", submit_lean_command: str = "", node_url: str = "", use_node_ticket: bool = False, artifact_root: str = "") -> dict[str, Any]:
+    def to_benchmark_row(self, *, benchmark_command: str = "", ollama_command: str = "", claude_command: str = "", submit_lean_command: str = "", node_url: str = "", use_node_ticket: bool = False, artifact_root: str = "", isolated_node_per_row: bool = False, isolated_node_port: int | None = None) -> dict[str, Any]:
         if self.backend == "mock":
             return {
                 "name": self.name,
@@ -45,24 +45,47 @@ class ModelRow:
         if self.provider == "ollama-openai-compatible" and benchmark_command:
             row_name = f"ollama-{slug(self.model)}"
             artifact_dir = os.path.join(artifact_root or os.path.join("artifacts", "model-benchmarks"), row_name)
-            command = shlex.split(benchmark_command) + [
-                "--target",
-                f"ollama:{self.model}",
-                "--attempts",
-                os.environ.get("TRIALS", "1"),
-                "--output-dir",
-                artifact_dir,
-                "--run-id",
-                row_name,
-            ]
-            if ollama_command:
-                command.extend(["--ollama-command", ollama_command])
-            if submit_lean_command:
-                command.extend(["--submit-lean-command", submit_lean_command])
-            if node_url:
-                command.extend(["--node-url", node_url])
-            if use_node_ticket:
-                command.append("--use-node-ticket")
+            if isolated_node_per_row:
+                command = [
+                    "./scripts/isolated-node-model-row.sh",
+                    "--benchmark-command",
+                    benchmark_command,
+                    "--target",
+                    f"ollama:{self.model}",
+                    "--attempts",
+                    os.environ.get("TRIALS", "1"),
+                    "--output-dir",
+                    artifact_dir,
+                    "--run-id",
+                    row_name,
+                    "--node-port",
+                    str(isolated_node_port if isolated_node_port is not None else 18140),
+                ]
+                if ollama_command:
+                    command.extend(["--ollama-command", ollama_command])
+                if submit_lean_command:
+                    command.extend(["--submit-lean-command", submit_lean_command])
+                if use_node_ticket:
+                    command.append("--use-node-ticket")
+            else:
+                command = shlex.split(benchmark_command) + [
+                    "--target",
+                    f"ollama:{self.model}",
+                    "--attempts",
+                    os.environ.get("TRIALS", "1"),
+                    "--output-dir",
+                    artifact_dir,
+                    "--run-id",
+                    row_name,
+                ]
+                if ollama_command:
+                    command.extend(["--ollama-command", ollama_command])
+                if submit_lean_command:
+                    command.extend(["--submit-lean-command", submit_lean_command])
+                if node_url:
+                    command.extend(["--node-url", node_url])
+                if use_node_ticket:
+                    command.append("--use-node-ticket")
             return {
                 "name": row_name,
                 "kind": self.kind,
@@ -79,24 +102,47 @@ class ModelRow:
         if self.provider == "claude-cli" and benchmark_command:
             row_name = f"claude-cli-{slug(self.model)}"
             artifact_dir = os.path.join(artifact_root or os.path.join("artifacts", "model-benchmarks"), row_name)
-            command = shlex.split(benchmark_command) + [
-                "--target",
-                f"claude-cli:{self.model}",
-                "--attempts",
-                os.environ.get("TRIALS", "1"),
-                "--output-dir",
-                artifact_dir,
-                "--run-id",
-                row_name,
-            ]
-            if claude_command:
-                command.extend(["--claude-command", claude_command])
-            if submit_lean_command:
-                command.extend(["--submit-lean-command", submit_lean_command])
-            if node_url:
-                command.extend(["--node-url", node_url])
-            if use_node_ticket:
-                command.append("--use-node-ticket")
+            if isolated_node_per_row:
+                command = [
+                    "./scripts/isolated-node-model-row.sh",
+                    "--benchmark-command",
+                    benchmark_command,
+                    "--target",
+                    f"claude-cli:{self.model}",
+                    "--attempts",
+                    os.environ.get("TRIALS", "1"),
+                    "--output-dir",
+                    artifact_dir,
+                    "--run-id",
+                    row_name,
+                    "--node-port",
+                    str(isolated_node_port if isolated_node_port is not None else 18140),
+                ]
+                if claude_command:
+                    command.extend(["--claude-command", claude_command])
+                if submit_lean_command:
+                    command.extend(["--submit-lean-command", submit_lean_command])
+                if use_node_ticket:
+                    command.append("--use-node-ticket")
+            else:
+                command = shlex.split(benchmark_command) + [
+                    "--target",
+                    f"claude-cli:{self.model}",
+                    "--attempts",
+                    os.environ.get("TRIALS", "1"),
+                    "--output-dir",
+                    artifact_dir,
+                    "--run-id",
+                    row_name,
+                ]
+                if claude_command:
+                    command.extend(["--claude-command", claude_command])
+                if submit_lean_command:
+                    command.extend(["--submit-lean-command", submit_lean_command])
+                if node_url:
+                    command.extend(["--node-url", node_url])
+                if use_node_ticket:
+                    command.append("--use-node-ticket")
             return {
                 "name": row_name,
                 "kind": self.kind,
@@ -222,6 +268,8 @@ def main() -> None:
     parser.add_argument("--submit-lean-command", default="", help="submit-lean command override forwarded to benchmark-command Ollama/Claude CLI rows.")
     parser.add_argument("--node-url", default="", help="Local node URL forwarded to benchmark-command Ollama rows for controlled node HTTP submit evidence.")
     parser.add_argument("--use-node-ticket", action="store_true", help="Forward --use-node-ticket to benchmark-command Ollama rows when --node-url is set.")
+    parser.add_argument("--isolated-node-per-row", action="store_true", help="Wrap each benchmark-command row in a fresh local boole-node with isolated block/reward stores and quota state.")
+    parser.add_argument("--isolated-node-base-port", type=int, default=18140, help="First TCP port used by --isolated-node-per-row; each generated row increments by one.")
     parser.add_argument("--artifact-root", default="", help="Artifact root for benchmark-command per-model outputs.")
     parser.add_argument("--print-spec", action="store_true", help="Print the benchmark spec JSON array.")
     parser.add_argument("--list", action="store_true", help="Print a safe human-readable model list with credential presence only.")
@@ -240,8 +288,10 @@ def main() -> None:
             node_url=args.node_url,
             use_node_ticket=args.use_node_ticket,
             artifact_root=args.artifact_root,
+            isolated_node_per_row=args.isolated_node_per_row,
+            isolated_node_port=args.isolated_node_base_port + index,
         )
-        for row in rows
+        for index, row in enumerate(rows)
     ]
 
     if args.list:

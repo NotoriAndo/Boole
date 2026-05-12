@@ -433,6 +433,8 @@ class PreflightOrchestrationTests(unittest.TestCase):
             submit_lean_command="/tmp/fake-submit-lean.py",
             node_url="http://127.0.0.1:8765",
             use_node_ticket=True,
+            isolated_node_per_row=True,
+            isolated_node_base_port=19200,
         )
         wizard.env_status = lambda: {
             "commands": {"ollama": True},
@@ -456,6 +458,9 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertIn("--node-url", preflight)
         self.assertIn("http://127.0.0.1:8765", preflight)
         self.assertIn("--use-node-ticket", preflight)
+        self.assertIn("--isolated-node-per-row", preflight)
+        self.assertIn("--isolated-node-base-port", preflight)
+        self.assertIn("19200", preflight)
 
     def test_oauth_benchmark_command_expands_claude_sonnet_and_opus_cli_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -491,6 +496,55 @@ class PreflightOrchestrationTests(unittest.TestCase):
                 self.assertEqual(row["metadata"]["provider"], "claude-cli")
                 self.assertEqual(row["metadata"]["credential"], "oauth_or_subscription")
 
+    def test_setup_generates_isolated_node_rows_for_claude_oauth_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            spec_path = tmp_path / "isolated-spec.json"
+            proc = subprocess.run(
+                [
+                    "./scripts/preflight-model-benchmark-setup.py",
+                    "--preset",
+                    "oauth",
+                    "--benchmark-command",
+                    "python3 scripts/boole-model-benchmark.py",
+                    "--claude-command",
+                    "/tmp/fake-claude",
+                    "--submit-lean-command",
+                    "/tmp/fake-submit-lean",
+                    "--use-node-ticket",
+                    "--isolated-node-per-row",
+                    "--isolated-node-base-port",
+                    "19000",
+                    "--artifact-root",
+                    str(tmp_path / "artifacts"),
+                    "--output",
+                    str(spec_path),
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            rows = json.loads(spec_path.read_text())
+            self.assertEqual([row["command"][0] for row in rows], ["./scripts/isolated-node-model-row.sh", "./scripts/isolated-node-model-row.sh"])
+            self.assertEqual(
+                [row["command"][row["command"].index("--target") + 1] for row in rows],
+                ["claude-cli:claude-sonnet-4-6", "claude-cli:claude-opus-4-7"],
+            )
+            self.assertEqual(
+                [row["command"][row["command"].index("--node-port") + 1] for row in rows],
+                ["19000", "19001"],
+            )
+            for row in rows:
+                self.assertIn("--claude-command", row["command"])
+                self.assertIn("/tmp/fake-claude", row["command"])
+                self.assertIn("--submit-lean-command", row["command"])
+                self.assertIn("/tmp/fake-submit-lean", row["command"])
+                self.assertIn("--use-node-ticket", row["command"])
+                self.assertNotIn("--node-url", row["command"])
+
     def test_preflight_shell_forwards_claude_command_to_oauth_benchmark_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -520,6 +574,39 @@ class PreflightOrchestrationTests(unittest.TestCase):
                 ["claude-cli:claude-sonnet-4-6", "claude-cli:claude-opus-4-7"],
             )
             self.assertTrue(all("--claude-command" in row["command"] for row in rows))
+
+    def test_preflight_shell_forwards_isolated_node_per_row_to_generated_spec(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            spec_path = tmp_path / "isolated-shell-spec.json"
+            proc = subprocess.run(
+                [
+                    "./scripts/preflight-model-benchmark.sh",
+                    "--preset",
+                    "oauth",
+                    "--benchmark-command",
+                    "python3 scripts/boole-model-benchmark.py",
+                    "--claude-command",
+                    "/tmp/fake-claude",
+                    "--submit-lean-command",
+                    "/tmp/fake-submit-lean",
+                    "--use-node-ticket",
+                    "--isolated-node-per-row",
+                    "--isolated-node-base-port",
+                    "19100",
+                    "--output-spec",
+                    str(spec_path),
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            rows = json.loads(spec_path.read_text())
+            self.assertEqual([row["command"][0] for row in rows], ["./scripts/isolated-node-model-row.sh", "./scripts/isolated-node-model-row.sh"])
+            self.assertEqual([row["command"][row["command"].index("--node-port") + 1] for row in rows], ["19100", "19101"])
 
     def test_frontier_or_everything_requires_explicit_paid_api_confirmation(self) -> None:
         wizard = load_wizard()
