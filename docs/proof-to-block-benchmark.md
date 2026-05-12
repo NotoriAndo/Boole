@@ -88,6 +88,8 @@ This runner does not auto-pull Ollama models, start daemons, or bypass paid/API 
 
 By default, generated model runs use `benchmarkMode: mining` and `targetFamily: boole.calibration.pow.v1`. Each attempt receives its own deterministic lottery sample derived from `(runId, target, attemptIndex, benchmarkMode, targetFamily)`, and rows expose that sample under `lotterySample`. The `True.intro` / `theorem ... : True` contract is now isolated behind explicit `--benchmark-mode smoke` for pipeline smoke only; it is not a public model score.
 
+The public-safe controlled local mining schema is frozen at `fixtures/benchmarks/controlled-model-mining/v1-summary.json`. It ranks models by `blocksProduced` first, keeps `verifiedShares`/`verifierAccepted` as diagnostics, and preserves the hierarchy `generatedAttempts → proofIntakeAccepted → verifierAccepted → verifiedShares → blocksProduced → replayPassed`. The fixture is an example schema contract, not a measured leaderboard.
+
 Or let the preflight runner collect it into the evidence bundle:
 
 ```bash

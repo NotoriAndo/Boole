@@ -25,6 +25,38 @@ def load_benchmark():
 
 
 class ModelBenchmarkArtifactTests(unittest.TestCase):
+    def test_controlled_model_mining_fixture_freezes_public_safe_schema(self) -> None:
+        fixture = json.loads((ROOT / "fixtures" / "benchmarks" / "controlled-model-mining" / "v1-summary.json").read_text())
+        self.assertEqual(fixture["benchmark"], "controlled-local-model-mining-v1")
+        self.assertEqual(fixture["claimBoundary"], "controlled local mining benchmark, not public-network mining")
+        self.assertFalse(fixture["publicMiningEvidence"])
+        self.assertEqual(fixture["primaryMetric"], "blocksProduced")
+        self.assertEqual(fixture["attemptHierarchy"], [
+            "generatedAttempts",
+            "proofIntakeAccepted",
+            "verifierAccepted",
+            "verifiedShares",
+            "blocksProduced",
+            "replayPassed",
+        ])
+        models = fixture["models"]
+        self.assertEqual({model["model"] for model in models}, {"ollama:gemma4:26b", "claude-code"})
+        for model in models:
+            self.assertIn("generatedAttempts", model)
+            self.assertIn("proofIntakeAccepted", model)
+            self.assertIn("verifierAccepted", model)
+            self.assertIn("verifiedShares", model)
+            self.assertIn("blocksProduced", model)
+            self.assertIn("replayFailures", model)
+            self.assertIn("invalidAccepted", model)
+            self.assertIn("timeouts", model)
+            self.assertLessEqual(model["blocksProduced"], model["verifiedShares"])
+            self.assertLessEqual(model["verifiedShares"], model["verifierAccepted"])
+            self.assertLessEqual(model["verifierAccepted"], model["proofIntakeAccepted"])
+            self.assertLessEqual(model["proofIntakeAccepted"], model["generatedAttempts"])
+        self.assertEqual(fixture["totals"]["invalidAccepted"], 0)
+        self.assertEqual(fixture["totals"]["replayFailures"], 0)
+
     def test_runner_writes_summary_rows_leaderboard_and_replay_report(self) -> None:
         benchmark = load_benchmark()
         with tempfile.TemporaryDirectory() as tmp:

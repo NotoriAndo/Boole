@@ -1,0 +1,65 @@
+{
+  "benchmark": "controlled-local-model-mining-v1",
+  "schemaVersion": 1,
+  "claimBoundary": "controlled local mining benchmark, not public-network mining",
+  "publicMiningEvidence": false,
+  "paidApiBenchmark": false,
+  "primaryMetric": "blocksProduced",
+  "ranking": "Rank by blocksProduced first, then blockProductionRatePct; verifiedShares and verifierAccepted are diagnostics.",
+  "attemptHierarchy": [
+    "generatedAttempts",
+    "proofIntakeAccepted",
+    "verifierAccepted",
+    "verifiedShares",
+    "blocksProduced",
+    "replayPassed"
+  ],
+  "controlledConditions": {
+    "network": "local single-node",
+    "difficulty": "calibrated fixture or explicitly labeled open-threshold smoke",
+    "replayRequired": true,
+    "invalidAcceptedMustBeZero": true
+  },
+  "totals": {
+    "models": 2,
+    "generatedAttempts": 10,
+    "proofIntakeAccepted": 7,
+    "verifierAccepted": 3,
+    "verifiedShares": 2,
+    "blocksProduced": 1,
+    "replayFailures": 0,
+    "invalidAccepted": 0,
+    "timeouts": 2,
+    "blockProductionRatePct": 10.0
+  },
+  "models": [
+    {
+      "model": "ollama:gemma4:26b",
+      "runtime": "ollama-openai-compatible",
+      "generatedAttempts": 5,
+      "proofIntakeAccepted": 4,
+      "verifierAccepted": 2,
+      "verifiedShares": 1,
+      "blocksProduced": 1,
+      "replayFailures": 0,
+      "invalidAccepted": 0,
+      "timeouts": 0,
+      "blockProductionRatePct": 20.0,
+      "notes": "Example schema row only; not a measured leaderboard result."
+    },
+    {
+      "model": "claude-code",
+      "runtime": "agent_cli",
+      "generatedAttempts": 5,
+      "proofIntakeAccepted": 3,
+      "verifierAccepted": 1,
+      "verifiedShares": 1,
+      "blocksProduced": 0,
+      "replayFailures": 0,
+      "invalidAccepted": 0,
+      "timeouts": 2,
+      "blockProductionRatePct": 0.0,
+      "notes": "Example schema row only; not a measured leaderboard result."
+    }
+  ]
+}
