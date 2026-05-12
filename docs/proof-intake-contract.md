@@ -40,23 +40,27 @@ stdout/logs/stderr/telemetry: diagnostics only, never proof body
 
 If an integration cannot distinguish the answer channel from process stdout yet, that path is treated as a legacy plain-answer envelope and must still pass the same contract classifier. Runtime logs, warnings, stderr, shell banners, gateway notices, and telemetry must not be mixed into the answer string.
 
-## Proof body contract
+## Global proof submission contract
 
-The candidate is a Lean proof body for a Boole-generated theorem, not a standalone Lean file.
+The candidate is a Lean theorem-body expression for a Boole-generated theorem, not a standalone Lean file. This global contract is stable across families; family manifests may describe verifier environment and allowed helper APIs, but Boole must not add per-instance solution hints.
 
-Allowed examples:
+Slot-level rules:
+
+- the answer is inserted literally after the theorem's `:=`
+- return one Lean theorem-body expression only
+- tactic scripts must be inside a top-level `by` block
+- full Lean files, declarations, Markdown, prose, `sorry`, and `admit` are rejected
+
+Allowed shape examples:
 
 ```lean
 by
-  intro xs
-  exact length_dedup_le _
+  ...
 ```
 
 ```lean
-```
-by
-  trivial
-```
+fun xs =>
+  ...
 ```
 
 Rejected examples:
@@ -79,6 +83,12 @@ by
 ```
 
 Contract failures are classified before Lean verification as `contract_failed` when the candidate is clearly not a proof body.
+
+## Family manifest boundary
+
+A family prompt may expose only stable verifier context, such as family id/version, goal shape, opened helper module, and allowed helper API names/types. It must not include per-instance solution strategy, helper application order, canonical proof templates, or model-specific repair advice.
+
+The concrete rendered theorem statement is still the work item. It should not be accompanied by instance-specific proof hints.
 
 ## Boundary order
 

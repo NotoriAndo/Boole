@@ -12,6 +12,7 @@ use boole_miner::{
     MiningRunVerifierMode, MockDriver, MockResponse, PromptBuilder, ProtocolReport, ProverDriver,
     RejectingVerifier, Strategy, StructuralCanonicalizer, StubTargetEmitter, SubmitInputs,
     SubmitResult, Submitter, Target, Verifier, VerifyReason, VerifyResult,
+    BOOLE_PROOF_SUBMISSION_CONTRACT_V1,
 };
 
 fn pk32() -> Hex32 {
@@ -322,12 +323,37 @@ fn default_prompt_builder_uses_v1_lenbound_contract_for_v1_profile() {
 
     let prompt = DefaultPromptBuilder.build_prompt(&target);
 
+    assert!(prompt.contains(BOOLE_PROOF_SUBMISSION_CONTRACT_V1));
     assert!(prompt.contains("Boole v1 length-bound"));
     assert!(prompt.contains("length_filterByPred_le"));
     assert!(prompt.contains("length_dedup_le"));
-    assert!(prompt.contains("proof body only"));
-    assert!(prompt.contains("`by` tactic blocks are allowed"));
+    assert!(prompt.contains("one Lean theorem-body expression"));
+    assert!(prompt.contains("If you use tactics, they must be inside a `by` block"));
     assert!(!prompt.contains("ListInvariantsV0 family"));
+}
+
+#[test]
+fn global_submission_contract_is_slot_level_not_instance_hinting() {
+    let contract = BOOLE_PROOF_SUBMISSION_CONTRACT_V1;
+
+    assert!(contract.contains("inserted literally after the theorem's `:=`"));
+    assert!(contract.contains("one Lean theorem-body expression"));
+    assert!(contract.contains("If you use tactics, they must be inside a `by` block"));
+    assert!(contract.contains("Do not return a Lean file"));
+
+    for forbidden_hint in [
+        "outermost",
+        "peel",
+        "Nat.le_of_eq",
+        "use length_",
+        "helper order",
+        "solution strategy",
+    ] {
+        assert!(
+            !contract.contains(forbidden_hint),
+            "global contract must not contain per-instance or family solution hint: {forbidden_hint}"
+        );
+    }
 }
 
 #[test]
@@ -362,7 +388,7 @@ fn default_prompt_builder_embeds_exact_v1_helper_manifest() {
 
     assert!(prompt.contains(manifest));
     assert!(prompt.contains("Respond with one Lean proof body only"));
-    assert!(prompt.contains("`by` tactic blocks are allowed"));
+    assert!(prompt.contains("If you use tactics, they must be inside a `by` block"));
     assert!(!prompt.contains("Respond with a single fenced ```lean block"));
 }
 

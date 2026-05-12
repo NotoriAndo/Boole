@@ -70,3 +70,33 @@ fn extract_proof_source_uses_common_intake_versions() {
         Ok("by trivial".to_string())
     );
 }
+
+#[test]
+fn proof_intake_v1_rejects_bare_top_level_tactic_shapes() {
+    for source in [
+        "apply length_dedup_le",
+        "rw [length_sortAsc]",
+        "intro xs",
+        "have h := length_dedup_le xs",
+        "exact length_dedup_le xs",
+        "calc\n  xs.length ≤ xs.length := by exact Nat.le_refl _",
+    ] {
+        assert_eq!(
+            extract_proof_source(source),
+            Err(RejectionReason::ContractFailed),
+            "bare top-level theorem-body tactic should be rejected: {source:?}"
+        );
+    }
+}
+
+#[test]
+fn proof_intake_v1_accepts_slot_level_by_and_fun_shapes() {
+    assert_eq!(
+        extract_proof_source("by\n  intro xs\n  exact length_dedup_le xs"),
+        Ok("by\n  intro xs\n  exact length_dedup_le xs".to_string())
+    );
+    assert_eq!(
+        extract_proof_source("fun xs => length_dedup_le xs"),
+        Ok("fun xs => length_dedup_le xs".to_string())
+    );
+}

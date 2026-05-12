@@ -41,6 +41,21 @@ use crate::submit_client::{
 };
 use crate::target_emitter::{TargetEmitArgs, TargetEmitter};
 
+/// Stable Boole proof-submission interface. This is deliberately slot-level:
+/// it explains where the answer is inserted and what syntactic shapes are
+/// admissible, but it does not describe any family-specific solution strategy.
+pub const BOOLE_PROOF_SUBMISSION_CONTRACT_V1: &str = r#"## Boole proof submission contract v1
+You are submitting one Lean theorem-body expression, not a full Lean file.
+Your answer is inserted literally after the theorem's `:=`.
+
+Allowed top-level answer shapes:
+- `by ...`
+- `fun ... => ...`
+- another Lean term expression proving the theorem
+
+If you use tactics, they must be inside a `by` block.
+Do not return a Lean file, imports, namespaces, theorem/lemma/def/example declarations, Markdown, prose, `sorry`, or `admit`."#;
+
 /// Default prompt cookbook — ports pof's `solver_frontier.py` SYSTEM_PROMPT.
 /// The verifier emits a module that imports `Boole.Family.V0Helpers` and
 /// inserts the model's response verbatim after `:=`, so the model must
@@ -158,20 +173,22 @@ impl PromptBuilder for DefaultPromptBuilder {
     fn build_prompt(&self, target: &Target) -> String {
         if target.profile == "v1-lenbound" {
             return format!(
-                "## Boole v1 length-bound proof task\n\
-                 You are proving a Boole calibration length-bound target.\n\
-                 Contract: prove that the rendered chain never increases list length.\n\n\
-                 ## Official helper surface\n{}\n\n\
+                "{contract}\n\n\
+                 ## Boole v1 length-bound family manifest\n\
+                 Family: v1-lenbound.\n\
+                 Goal shape: prove that the rendered chain never increases list length.\n\n\
+                 ## Official helper surface\n{manifest}\n\n\
                  ## Output format — STRICT\n\
                  Respond with one Lean proof body only for the theorem body slot.\n\
-                 `by` tactic blocks are allowed. Do not restate the theorem.\n\
+                 Follow the global submission contract above; do not restate the theorem.\n\
                  Do not include Markdown fences, prose, imports, namespace declarations, `sorry`, or `admit`.\n\n\
                  ## This instance\nProfile: {}, D={}, N={}.\nRendered description:\n{}",
-                family_v1_lenbound::helper_manifest(),
                 target.profile,
                 target.d,
                 target.n,
-                target.render
+                target.render,
+                contract = BOOLE_PROOF_SUBMISSION_CONTRACT_V1,
+                manifest = family_v1_lenbound::helper_manifest(),
             );
         }
 

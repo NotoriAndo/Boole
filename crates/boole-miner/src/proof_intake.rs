@@ -88,6 +88,7 @@ fn violates_proof_body_contract(source: &str) -> bool {
             line.starts_with("theorem ")
                 || line.starts_with("lemma ")
                 || line.starts_with("def ")
+                || line.starts_with("example ")
                 || line.starts_with("import ")
                 || line.starts_with("namespace ")
                 || line.starts_with("end ")
@@ -100,6 +101,7 @@ fn violates_proof_body_contract(source: &str) -> bool {
                 || line.starts_with("error:")
                 || line.starts_with("stderr:")
                 || line.starts_with("stdout:")
+                || starts_with_bare_tactic_or_calc(line)
         })
         .unwrap_or(false)
     {
@@ -110,6 +112,16 @@ fn violates_proof_body_contract(source: &str) -> bool {
         line.split(|c: char| !(c.is_alphanumeric() || c == '_'))
             .any(|tok| tok == "sorry" || tok == "admit")
     })
+}
+
+fn starts_with_bare_tactic_or_calc(line: &str) -> bool {
+    let first = line
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .find(|tok| !tok.is_empty());
+    matches!(
+        first,
+        Some("apply" | "rw" | "intro" | "have" | "exact" | "calc")
+    )
 }
 
 fn find_lean_fenced_block(raw: &str) -> Option<&str> {

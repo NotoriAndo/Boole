@@ -42,7 +42,7 @@ pub use mining_loop::{
     run_mining_loop, AgentRuntimeReport, DefaultPromptBuilder, FixedChainHead, HeadAdvanceReason,
     LlmOutcomeKind, MiningEvent, MiningLoopDeps, MiningLoopOptions, MiningLoopOutcome,
     MiningLoopSummary, MiningRunContext, MiningRunDriverMode, MiningRunTargetMode,
-    MiningRunVerifierMode, PromptBuilder, ProtocolReport,
+    MiningRunVerifierMode, PromptBuilder, ProtocolReport, BOOLE_PROOF_SUBMISSION_CONTRACT_V1,
 };
 pub use proof_intake::{
     extract_proof_source, ProofCandidate, ProofEnvelope, ProofIntakeV1, ProofTransport,

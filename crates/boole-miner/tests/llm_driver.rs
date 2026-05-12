@@ -13,11 +13,8 @@ use boole_miner::{
 
 #[test]
 fn test_extract_proof_source_strips_lean_fence() {
-    let raw = "```lean\nexample : True := trivial\n```";
-    assert_eq!(
-        extract_proof_source(raw).unwrap(),
-        "example : True := trivial"
-    );
+    let raw = "```lean\nby trivial\n```";
+    assert_eq!(extract_proof_source(raw).unwrap(), "by trivial");
 }
 
 #[test]
@@ -28,8 +25,8 @@ fn test_extract_proof_source_strips_lean4_fence() {
 
 #[test]
 fn test_extract_proof_source_strips_unlabeled_fence() {
-    let raw = "```\nexact rfl\n```";
-    assert_eq!(extract_proof_source(raw).unwrap(), "exact rfl");
+    let raw = "```\nby\n  exact rfl\n```";
+    assert_eq!(extract_proof_source(raw).unwrap(), "by\n  exact rfl");
 }
 
 #[test]
