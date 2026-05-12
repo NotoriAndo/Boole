@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ORIGINAL_ARGS=("$@")
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -13,6 +14,78 @@ OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-gemma4:26b}"
 PROFILE="${PROFILE:-v031-lp}"
 FIXED_SEED="${FIXED_SEED:-b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764}"
+EVIDENCE_DIR="${BOOLE_OLLAMA_GEMMA_EVIDENCE_DIR:-}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --evidence-dir)
+      EVIDENCE_DIR="${2:?missing --evidence-dir value}"
+      shift 2
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: boole-miner-ollama-gemma-smoke.sh [--evidence-dir DIR]
+
+Runs a local controlled Ollama Gemma smoke through boole-miner and boole-node.
+This is mock-verifier local smoke evidence, not public mining evidence.
+EOF
+      exit 0
+      ;;
+    *)
+      printf 'boole-miner-ollama-gemma-smoke: unknown argument: %s\n' "$1" >&2
+      exit 64
+      ;;
+  esac
+done
+
+if [[ -n "$EVIDENCE_DIR" && -z "${BOOLE_OLLAMA_GEMMA_CAPTURED:-}" ]]; then
+  mkdir -p "$EVIDENCE_DIR"
+  set +e
+  BOOLE_OLLAMA_GEMMA_CAPTURED=1 "$0" "${ORIGINAL_ARGS[@]}" >"$EVIDENCE_DIR/stdout.json" 2>"$EVIDENCE_DIR/stderr.txt"
+  code=$?
+  set -e
+  python3 - "$EVIDENCE_DIR" "$code" <<'PY'
+import datetime
+import json
+import pathlib
+import sys
+
+evidence_dir = pathlib.Path(sys.argv[1])
+exit_code = int(sys.argv[2])
+stdout_path = evidence_dir / "stdout.json"
+stderr_path = evidence_dir / "stderr.txt"
+raw_stdout = stdout_path.read_text(encoding="utf-8") if stdout_path.exists() else ""
+raw_stderr = stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else ""
+try:
+    result = json.loads(raw_stdout)
+except json.JSONDecodeError:
+    result = {"ok": False, "parseError": "stdout_not_json", "stdoutTail": raw_stdout[-1200:]}
+summary = {
+    "ok": exit_code == 0 and bool(result.get("ok")),
+    "kind": "boole-miner-ollama-gemma-evidence",
+    "schemaVersion": 1,
+    "generatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+    "evidenceDir": "[REDACTED_LOCAL_PATH]",
+    "claimBoundary": "local controlled-smoke UX artifact, not public mining evidence",
+    "publicMiningEvidence": False,
+    "paidApiBenchmark": False,
+    "mockVerifier": True,
+    "openThresholds": True,
+    "redaction": {
+        "localPaths": "redacted in summary only; raw stdout/stderr stay local under evidenceDir",
+    },
+    "result": result,
+}
+if exit_code != 0:
+    summary["exitCode"] = exit_code
+if raw_stderr.strip():
+    summary["stderrTail"] = raw_stderr[-1200:]
+(evidence_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+  cat "$EVIDENCE_DIR/stdout.json"
+  exit "$code"
+fi
+
 STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-ollama-gemma-state.XXXXXX")"
 STATE="$STATE_DIR/state.json"
 RESULTS_JSONL="$STATE_DIR/results.jsonl"

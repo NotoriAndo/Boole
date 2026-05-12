@@ -51,6 +51,17 @@ Run one generated proof attempt through the local wizard path:
   --yes
 ```
 
+For the Gemma smoke helper specifically, capture a local evidence bundle with:
+
+```bash
+RUN_OLLAMA_BENCHMARK=1 \
+OLLAMA_MODEL=gemma4:26b \
+TRIALS=1 \
+./scripts/boole-miner-ollama-gemma-smoke.sh --evidence-dir /tmp/boole-gemma-evidence
+```
+
+The helper writes `stdout.json`, `stderr.txt`, and `summary.json`. The summary labels the run as local controlled-smoke evidence with `mockVerifier: true`, `publicMiningEvidence: false`, and `paidApiBenchmark: false`.
+
 The wizard writes these evidence files next to the preflight evidence directory:
 
 - `wizard-report.md`

@@ -184,6 +184,17 @@ class PreflightOrchestrationTests(unittest.TestCase):
             self.assertEqual(summary, expected)
             self.assertEqual(json.loads(proc.stdout), json.loads((evidence_dir / "stdout.json").read_text()))
 
+    def test_ollama_gemma_smoke_evidence_capture_has_local_claim_boundary(self) -> None:
+        text = (ROOT / "scripts" / "boole-miner-ollama-gemma-smoke.sh").read_text()
+        self.assertIn("--evidence-dir", text)
+        self.assertIn("BOOLE_OLLAMA_GEMMA_EVIDENCE_DIR", text)
+        self.assertIn("stdout.json", text)
+        self.assertIn("stderr.txt", text)
+        self.assertIn("summary.json", text)
+        self.assertIn("local controlled-smoke UX artifact, not public mining evidence", text)
+        self.assertIn("publicMiningEvidence", text)
+        self.assertIn("mockVerifier", text)
+
     def test_phase7_preflight_has_named_s7_5_hardening_gate(self) -> None:
         text = PREFLIGHT_PATH.read_text()
         self.assertIn("s7.5-hardening", text)
