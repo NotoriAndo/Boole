@@ -1,4 +1,4 @@
-use boole_core::{SessionPolicy, SessionState};
+use boole_core::{SessionPolicy, SessionState, SignerRequest};
 
 const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const PK_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -66,6 +66,71 @@ fn session_policy_forbids_withdraw_and_transfer() {
         .unwrap_err()
         .to_string()
         .contains("canTransfer=false"));
+}
+
+#[test]
+fn signer_request_allowed_by_policy_passes() {
+    let policy = SessionPolicy::test_fixture();
+    let req = SignerRequest::test_fixture();
+    policy.authorize(&req).expect("authorized");
+}
+
+#[test]
+fn signer_request_denies_unknown_family_or_over_fee() {
+    let policy = SessionPolicy::test_fixture();
+    let mut req = SignerRequest::test_fixture();
+    req.family_id = "unknown.family".to_string();
+    assert!(policy
+        .authorize(&req)
+        .unwrap_err()
+        .to_string()
+        .contains("family"));
+
+    let policy = SessionPolicy::test_fixture();
+    let mut req = SignerRequest::test_fixture();
+    req.fee = "999".to_string();
+    assert!(policy
+        .authorize(&req)
+        .unwrap_err()
+        .to_string()
+        .contains("fee"));
+}
+
+#[test]
+fn signer_request_denies_unknown_route_or_verifier_or_bad_request_hash_or_empty_nonce() {
+    let policy = SessionPolicy::test_fixture();
+
+    let mut req = SignerRequest::test_fixture();
+    req.route = "/withdraw".to_string();
+    assert!(policy
+        .authorize(&req)
+        .unwrap_err()
+        .to_string()
+        .contains("route"));
+
+    let mut req = SignerRequest::test_fixture();
+    req.verifier_id = "unknown-verifier".to_string();
+    assert!(policy
+        .authorize(&req)
+        .unwrap_err()
+        .to_string()
+        .contains("verifier"));
+
+    let mut req = SignerRequest::test_fixture();
+    req.request_hash = "not-hex".to_string();
+    assert!(policy
+        .authorize(&req)
+        .unwrap_err()
+        .to_string()
+        .contains("requestHash"));
+
+    let mut req = SignerRequest::test_fixture();
+    req.nonce = "   ".to_string();
+    assert!(policy
+        .authorize(&req)
+        .unwrap_err()
+        .to_string()
+        .contains("nonce"));
 }
 
 #[test]

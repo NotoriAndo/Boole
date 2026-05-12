@@ -22,6 +22,38 @@ pub struct SessionState {
     pub policy_hash: String,
 }
 
+/// A signature request handed to the local W3 signer before it commits to
+/// signing a work or x402 payment payload. The signer authorizes the request
+/// against the session's policy (route / family / verifier / fee) and against
+/// invariants the protocol expects (requestHash hex32, non-empty nonce).
+///
+/// The type lives in `boole-core` so the node can later validate the same
+/// shape when N1.x/N2.x ship; today only the local signer consumes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignerRequest {
+    pub route: String,
+    pub family_id: String,
+    pub verifier_id: String,
+    pub fee: String,
+    pub request_hash: String,
+    pub nonce: String,
+}
+
+impl SignerRequest {
+    pub fn test_fixture() -> Self {
+        let d = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string();
+        Self {
+            route: "/verify-answer".to_string(),
+            family_id: "boole.protocol-invariant.v01".to_string(),
+            verifier_id: "lean-runner-v01".to_string(),
+            fee: "10".to_string(),
+            request_hash: d,
+            nonce: "n-1".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionPolicy {
@@ -81,6 +113,43 @@ impl SessionState {
 }
 
 impl SessionPolicy {
+    /// Check that a signer request matches this session's policy and the
+    /// invariants the protocol requires of a signed payload. Returned errors
+    /// surface a short reason key (e.g. `"route"`, `"family"`, `"fee"`) so
+    /// the W3.2 CLI can map them to typed exit codes without re-parsing the
+    /// message.
+    pub fn authorize(&self, req: &SignerRequest) -> anyhow::Result<()> {
+        if !self.allowed_routes.iter().any(|r| r == &req.route) {
+            anyhow::bail!("route {:?} not in allowed_routes", req.route);
+        }
+        if !self.allowed_family_ids.iter().any(|f| f == &req.family_id) {
+            anyhow::bail!("family {:?} not in allowed_family_ids", req.family_id);
+        }
+        if !self
+            .allowed_verifier_ids
+            .iter()
+            .any(|v| v == &req.verifier_id)
+        {
+            anyhow::bail!("verifier {:?} not in allowed_verifier_ids", req.verifier_id);
+        }
+        let fee = req
+            .fee
+            .parse::<u128>()
+            .map_err(|e| anyhow::anyhow!("fee parse: {e}"))?;
+        let max = self
+            .max_fee_per_request
+            .parse::<u128>()
+            .map_err(|e| anyhow::anyhow!("max_fee_per_request parse: {e}"))?;
+        if fee > max {
+            anyhow::bail!("fee {} exceeds max_fee_per_request {}", fee, max);
+        }
+        validate_hex32("requestHash", &req.request_hash)?;
+        if req.nonce.trim().is_empty() {
+            anyhow::bail!("nonce must be non-empty");
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         if self.can_withdraw {
             anyhow::bail!("session policy requires canWithdraw=false");

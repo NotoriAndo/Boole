@@ -80,7 +80,7 @@ pub use rejection_log::{
 pub use replay::{
     compute_block_credits, replay_blocks, PersistedCredit, PersistedRewardEvent, ReplayResult,
 };
-pub use session_policy::{SessionPolicy, SessionState};
+pub use session_policy::{SessionPolicy, SessionState, SignerRequest};
 pub use share_pool::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
 pub use signed_envelope::{verify_signature, SignedEnvelope, SigningKeyV2, SIGNED_ENVELOPE_SCHEMA};
 pub use submission_pow::{
