@@ -64,9 +64,9 @@ fn keys_new_writes_file_with_envelope_and_mode_0600() {
     assert_eq!(envelope["ok"], true);
     let key = &envelope["key"];
     assert_eq!(key["id"], "alice");
-    // S13a: keys new defaults to schema v2, which adds the ed25519 secret
-    // seed `sk` alongside the existing `pk` so `boole keys sign` can use
-    // the stored key without a separate KMS lookup.
+    // S13a: keys new defaults to schema v2. W0.2: stdout carries the public
+    // view only — `pk`, `createdAt`, `schema`, `id`. The secret `sk` lives
+    // exclusively on disk (asserted below).
     assert_eq!(key["schema"], "boole.keys.v2");
     let pk = key["pk"].as_str().expect("pk hex");
     assert_eq!(pk.len(), 64, "pk={pk}");
@@ -74,11 +74,9 @@ fn keys_new_writes_file_with_envelope_and_mode_0600() {
         pk.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
         "pk must be lowercase hex32: {pk}"
     );
-    let sk = key["sk"].as_str().expect("sk hex (v2)");
-    assert_eq!(sk.len(), 64, "sk={sk}");
     assert!(
-        sk.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
-        "sk must be lowercase hex32: {sk}"
+        key.get("sk").is_none(),
+        "W0.2: stdout must not carry sk: {envelope}"
     );
     let created = key["createdAt"].as_str().expect("createdAt");
     assert!(
@@ -94,15 +92,22 @@ fn keys_new_writes_file_with_envelope_and_mode_0600() {
     // owner read+write, no group, no world.
     assert_eq!(mode & 0o777, 0o600, "expected 0600, got {:o}", mode & 0o777);
 
-    // The file's contents must round-trip the stdout envelope's `key`
-    // sub-object — disk and stdout speak the same JSON shape.
+    // The disk envelope keeps `sk` so `keys sign` can load it; the four
+    // public fields round-trip byte-equal with stdout.
     let on_disk: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("disk json");
     assert_eq!(on_disk["id"], "alice");
     assert_eq!(on_disk["pk"], pk);
-    assert_eq!(on_disk["sk"], sk);
     assert_eq!(on_disk["createdAt"], created);
     assert_eq!(on_disk["schema"], "boole.keys.v2");
+    let disk_sk = on_disk["sk"].as_str().expect("disk sk hex (v2)");
+    assert_eq!(disk_sk.len(), 64, "disk sk={disk_sk}");
+    assert!(
+        disk_sk
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+        "disk sk must be lowercase hex32: {disk_sk}"
+    );
 }
 
 #[test]
@@ -275,11 +280,24 @@ fn keys_list_returns_sorted_keys_array() {
         // Default schema is v2 after S13a. Existing v1 keys on disk are
         // still listable (regression covered in
         // `keys_list_includes_legacy_v1_envelope_unchanged`).
+        // W0.2: stdout carries the public view only — `sk` is disk-only.
         assert_eq!(k["schema"], "boole.keys.v2");
         let pk = k["pk"].as_str().expect("pk");
         assert_eq!(pk.len(), 64);
-        let sk = k["sk"].as_str().expect("sk (v2)");
-        assert_eq!(sk.len(), 64);
+        assert!(
+            k.get("sk").is_none(),
+            "W0.2: list stdout must not carry sk: {k}"
+        );
+    }
+
+    // Disk envelopes still carry `sk` so `keys sign` works.
+    for id in ["alice", "bob", "carol"] {
+        let path = dir.join(format!("{id}.json"));
+        let on_disk: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read"))
+                .expect("disk json");
+        let disk_sk = on_disk["sk"].as_str().expect("disk sk hex (v2)");
+        assert_eq!(disk_sk.len(), 64);
     }
 }
 
@@ -375,9 +393,24 @@ fn keys_show_returns_key_envelope_for_existing_id() {
     assert!(show_out.status.success());
     let shown = parse_json(&show_out.stdout);
     assert_eq!(shown["ok"], true);
+    // W0.2: both `keys new` and `keys show` now emit the public view, so
+    // their `key` sub-objects must still match byte-equal.
     assert_eq!(
         shown["key"], original["key"],
-        "show must echo the stored envelope"
+        "show must echo the public view emitted by new"
+    );
+    assert!(
+        shown["key"].get("sk").is_none(),
+        "W0.2: show stdout must not carry sk: {shown}"
+    );
+
+    // The disk envelope retains `sk` so `keys sign` keeps working.
+    let on_disk: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("alice.json")).expect("read"))
+            .expect("disk json");
+    assert!(
+        on_disk["sk"].as_str().is_some(),
+        "disk envelope must keep sk"
     );
 }
 
@@ -397,4 +430,249 @@ fn keys_show_emits_key_not_found_for_missing_id() {
     assert_eq!(envelope["ok"], false);
     assert_eq!(envelope["reason"], "key_not_found");
     assert_eq!(envelope["id"], "nope");
+}
+
+// ---------------------------------------------------------------------------
+// W0 — Secret-output safety cleanup (RED tests authored in W0.1, made GREEN
+// in W0.2 / W0.3). The contract: `boole keys new/list/show` must never echo
+// the ed25519 secret seed `sk` to stdout. The on-disk JSON keeps `sk` so
+// `boole keys sign` continues to work; an explicit `keys export-secret`
+// command (W0.3) is the only path that re-exposes `sk`.
+//
+// Rationale: agent runtimes shell out to `boole keys ...` and pipe stdout
+// through prompts/logs. Any `sk` in stdout is one prompt-injection or one
+// log upload away from compromise. The disk file is mode 0600 and stays
+// under the operator's control; stdout is not.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn keys_new_does_not_print_sk_by_default() {
+    let dir = fresh_tmp("new-redacted");
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args(["keys", "new", "--id", "alice", "--dev"])
+        .output()
+        .expect("run keys new");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let envelope = parse_json(&out.stdout);
+    assert_eq!(envelope["ok"], true);
+    let key = &envelope["key"];
+    assert_eq!(key["id"], "alice");
+    assert_eq!(key["schema"], "boole.keys.v2");
+    assert!(
+        key.get("pk").and_then(|v| v.as_str()).is_some(),
+        "public key must still be printed: envelope={envelope}"
+    );
+    assert!(
+        key.get("sk").is_none(),
+        "secret key must not be printed: envelope={envelope}"
+    );
+
+    // The on-disk file must still carry `sk` so that `boole keys sign`
+    // continues to work without a separate KMS lookup. Disk is 0600; stdout
+    // is the prompt-injection surface.
+    let on_disk: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("alice.json")).expect("read key file"),
+    )
+    .expect("disk json");
+    assert!(
+        on_disk.get("sk").is_some(),
+        "MVP disk envelope must keep sk until an encrypted keystore slice replaces it"
+    );
+}
+
+#[test]
+fn keys_show_does_not_print_sk_by_default() {
+    let dir = fresh_tmp("show-redacted");
+    let create = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args(["keys", "new", "--id", "alice", "--dev"])
+        .output()
+        .expect("run keys new");
+    assert!(
+        create.status.success(),
+        "create stderr={}",
+        String::from_utf8_lossy(&create.stderr)
+    );
+
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args(["keys", "show", "--id", "alice"])
+        .output()
+        .expect("run keys show");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let envelope = parse_json(&out.stdout);
+    assert_eq!(envelope["ok"], true);
+    let key = &envelope["key"];
+    assert_eq!(key["id"], "alice");
+    assert!(key.get("pk").and_then(|v| v.as_str()).is_some());
+    assert!(
+        key.get("sk").is_none(),
+        "secret key must not be printed: envelope={envelope}"
+    );
+}
+
+#[test]
+fn keys_list_does_not_print_sk_by_default() {
+    let dir = fresh_tmp("list-redacted");
+    let create = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args(["keys", "new", "--id", "alice", "--dev"])
+        .output()
+        .expect("run keys new");
+    assert!(create.status.success());
+
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args(["keys", "list"])
+        .output()
+        .expect("run keys list");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let envelope = parse_json(&out.stdout);
+    assert_eq!(envelope["ok"], true);
+    let keys = envelope["keys"].as_array().expect("keys array");
+    assert_eq!(keys.len(), 1);
+    assert!(keys[0].get("pk").and_then(|v| v.as_str()).is_some());
+    assert!(
+        keys[0].get("sk").is_none(),
+        "secret key must not be printed: envelope={envelope}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// W0.3 — `boole keys export-secret --id <id>` is the ONLY path that prints
+// `sk` to stdout. The contract:
+//   - explicit subcommand (no flag-on-show shortcut),
+//   - envelope is marked `"unsafe": true`,
+//   - envelope carries a `"warning"` string that mentions "secret",
+//   - exit 0 on success,
+//   - missing key returns typed `key_not_found` with exit 3 and empty stdout,
+//   - bad id returns typed `bad_request` with exit 2,
+//   - v1 envelopes (no `sk`) cannot be exported as a secret — typed
+//     `no_secret_to_export` exit 3.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn keys_export_secret_requires_explicit_command_and_prints_warning() {
+    let dir = fresh_tmp("export-secret");
+    let create = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args(["keys", "new", "--id", "alice", "--dev"])
+        .output()
+        .expect("run keys new");
+    assert!(create.status.success());
+
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args(["keys", "export-secret", "--id", "alice"])
+        .output()
+        .expect("run keys export-secret");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let envelope = parse_json(&out.stdout);
+    assert_eq!(envelope["ok"], true);
+    assert_eq!(envelope["unsafe"], true, "envelope must self-mark unsafe");
+    let warning = envelope["warning"]
+        .as_str()
+        .expect("warning must be a string");
+    assert!(
+        warning.contains("secret"),
+        "warning must mention 'secret': {warning}"
+    );
+    let key = &envelope["key"];
+    assert_eq!(key["id"], "alice");
+    let sk = key["sk"].as_str().expect("sk hex");
+    assert_eq!(sk.len(), 64, "sk={sk}");
+    assert!(
+        sk.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+        "sk must be lowercase hex32: {sk}"
+    );
+}
+
+#[test]
+fn keys_export_secret_missing_id_emits_key_not_found() {
+    let dir = fresh_tmp("export-missing");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args(["keys", "export-secret", "--id", "ghost"])
+        .output()
+        .expect("run keys export-secret");
+    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(3));
+    assert!(out.stdout.is_empty(), "typed error must not pollute stdout");
+    let envelope = parse_json(&out.stderr);
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["reason"], "key_not_found");
+    assert_eq!(envelope["id"], "ghost");
+}
+
+#[test]
+fn keys_export_secret_bad_id_emits_bad_request() {
+    let dir = fresh_tmp("export-bad-id");
+    for bad_id in ["", "a/b", "../oops", "white space"] {
+        let out = cli()
+            .env("BOOLE_KEYS_DIR", &dir)
+            .args(["keys", "export-secret", "--id", bad_id])
+            .output()
+            .unwrap_or_else(|_| panic!("run for id={bad_id:?}"));
+        assert!(!out.status.success(), "id {bad_id:?} should be rejected");
+        assert_eq!(out.status.code(), Some(2), "id={bad_id:?}");
+        let envelope = parse_json(&out.stderr);
+        assert_eq!(envelope["ok"], false, "id={bad_id:?}");
+        assert_eq!(envelope["reason"], "bad_request", "id={bad_id:?}");
+    }
+}
+
+#[test]
+fn keys_export_secret_refuses_v1_envelope_without_sk() {
+    // Stage a v1 envelope by hand (no `sk` on disk). `export-secret` must
+    // refuse rather than emit `sk:null` or empty-string, because callers
+    // typically pipe `sk` straight into another tool.
+    let dir = fresh_tmp("export-v1");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let v1_envelope = serde_json::json!({
+        "schema": "boole.keys.v1",
+        "id": "ancient",
+        "pk": "00".repeat(32),
+        "createdAt": "2025-01-01T00:00:00Z",
+    });
+    std::fs::write(
+        dir.join("ancient.json"),
+        serde_json::to_string_pretty(&v1_envelope).expect("serialize v1"),
+    )
+    .expect("write v1 file");
+
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args(["keys", "export-secret", "--id", "ancient"])
+        .output()
+        .expect("run keys export-secret");
+    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(3));
+    assert!(out.stdout.is_empty());
+    let envelope = parse_json(&out.stderr);
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["reason"], "no_secret_to_export");
+    assert_eq!(envelope["id"], "ancient");
+    assert_eq!(envelope["schema"], "boole.keys.v1");
 }

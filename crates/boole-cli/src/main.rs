@@ -157,6 +157,15 @@ enum KeysCommand {
         #[arg(long)]
         json: bool,
     },
+    /// **UNSAFE** — print the full stored envelope including the ed25519
+    /// secret seed `sk`. The only path that re-exposes the secret after
+    /// W0.2's redaction. Use for explicit backup / dev workflows only.
+    /// Output carries `"unsafe": true` and a warning string.
+    ExportSecret {
+        /// Id of the key whose secret seed to export.
+        #[arg(long)]
+        id: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -463,6 +472,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 payload,
                 json,
             } => keys_verify(&pk, &signature, &payload, json),
+            KeysCommand::ExportSecret { id } => keys_export_secret(&id),
         },
         None => print_version(false),
     }
@@ -1315,12 +1325,13 @@ fn keys_new(id: &str, dev: bool, dry_run: bool) -> anyhow::Result<()> {
         "createdAt": now_iso8601_utc(),
         "schema": KEYS_SCHEMA_V2,
     });
+    let public_view = public_key_view(&envelope_key);
     let stdout_envelope = if dry_run {
-        serde_json::json!({ "ok": true, "key": envelope_key, "dryRun": true })
+        serde_json::json!({ "ok": true, "key": public_view, "dryRun": true })
     } else {
         let bytes = serde_json::to_vec_pretty(&envelope_key)?;
         atomic_write_0600(&path, &bytes)?;
-        serde_json::json!({ "ok": true, "key": envelope_key, "path": path.to_string_lossy() })
+        serde_json::json!({ "ok": true, "key": public_view, "path": path.to_string_lossy() })
     };
     println!("{stdout_envelope}");
     Ok(())
@@ -1348,7 +1359,7 @@ fn keys_list() -> anyhow::Result<()> {
             let path = entry.path();
             let raw = std::fs::read_to_string(&path)?;
             let value: serde_json::Value = serde_json::from_str(&raw)?;
-            keys.push(value);
+            keys.push(public_key_view(&value));
         }
     }
     println!("{}", serde_json::json!({ "ok": true, "keys": keys }));
@@ -1374,7 +1385,80 @@ fn keys_show(id: &str) -> anyhow::Result<()> {
     }
     let raw = std::fs::read_to_string(&path)?;
     let value: serde_json::Value = serde_json::from_str(&raw)?;
-    println!("{}", serde_json::json!({ "ok": true, "key": value }));
+    println!(
+        "{}",
+        serde_json::json!({ "ok": true, "key": public_key_view(&value) })
+    );
+    Ok(())
+}
+
+/// Strip `sk` (and any future secret field) from a stored key envelope before
+/// printing to stdout. Disk keeps the full envelope so `boole keys sign` can
+/// load `sk`; stdout is the prompt-injection / log-upload surface and must
+/// stay public-only.
+///
+/// Whitelists the four public fields shared by `boole.keys.v1` and
+/// `boole.keys.v2` envelopes: `id`, `pk`, `createdAt`, `schema`. Missing
+/// fields are echoed as JSON `null` so the caller can still detect schema
+/// drift (`schema:null` is a clearer signal than a silently-absent key).
+fn public_key_view(value: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "id": value.get("id").cloned().unwrap_or(serde_json::Value::Null),
+        "pk": value.get("pk").cloned().unwrap_or(serde_json::Value::Null),
+        "createdAt": value.get("createdAt").cloned().unwrap_or(serde_json::Value::Null),
+        "schema": value.get("schema").cloned().unwrap_or(serde_json::Value::Null),
+    })
+}
+
+/// **UNSAFE**: print the full stored envelope including the ed25519 secret
+/// seed `sk`. The output is wrapped with `"unsafe": true` and a `"warning"`
+/// string so any downstream tool (or human reader) sees the secret-export
+/// context, not just the bare key. Use for backup / dev workflows only.
+///
+/// Behaviour mirrors the redacted `keys_show` so missing/invalid keys flow
+/// through the same typed-error surface (`bad_request`, `key_not_found`).
+/// v1 envelopes lack `sk` on disk; refusing them with `no_secret_to_export`
+/// is safer than printing `sk:null` because callers typically pipe `sk`
+/// straight into another tool that would silently accept the null.
+fn keys_export_secret(id: &str) -> anyhow::Result<()> {
+    if let Err(detail) = validate_key_id(id) {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({ "detail": detail, "field": "id" }),
+        );
+    }
+    let dir = keys_dir();
+    let path = key_path(&dir, id);
+    if !path.exists() {
+        emit_typed_error(
+            "key_not_found",
+            3,
+            serde_json::json!({ "id": id, "path": path.to_string_lossy() }),
+        );
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let value: serde_json::Value = serde_json::from_str(&raw)?;
+    if value.get("sk").and_then(|v| v.as_str()).is_none() {
+        emit_typed_error(
+            "no_secret_to_export",
+            3,
+            serde_json::json!({
+                "id": id,
+                "schema": value.get("schema").cloned().unwrap_or(serde_json::Value::Null),
+                "detail": "stored envelope has no `sk` (likely a pre-S13a v1 key)",
+            }),
+        );
+    }
+    println!(
+        "{}",
+        serde_json::json!({
+            "ok": true,
+            "unsafe": true,
+            "warning": "secret key export: do not paste into prompts, logs, or agent runtimes",
+            "key": value,
+        })
+    );
     Ok(())
 }
 
