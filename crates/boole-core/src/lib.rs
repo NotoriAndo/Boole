@@ -5,6 +5,7 @@
 
 pub mod admission;
 pub mod admission_types;
+pub mod agent_events;
 pub mod block;
 pub mod block_builder;
 pub mod bounty_ledger;
@@ -38,6 +39,9 @@ pub use admission::{
 pub use admission_types::{
     AdmissionDecision, AdmissionError, AdmissionStatus, ParsedSubmission, RejectionReason,
     SubmitPowRejectReason, TicketAdmissionResult, TicketRejectReason,
+};
+pub use agent_events::{
+    agent_passport_events_for_receipt, AgentPassportEvent, AGENT_PASSPORT_EVENT_SCHEMA,
 };
 pub use block::{PersistedBlock, SelectedShareEvidence};
 pub use block_builder::{

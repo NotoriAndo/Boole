@@ -55,6 +55,24 @@ When configured, the node serves:
 
 Unknown receipts return a typed `receipt_not_found` 404. Unsupported mock x402 versions return `x402_version_unsupported`. Raw answer fields such as `humanAnswer` are rejected and are not appended to the ledger.
 
+## Agent passport primitive events
+
+`ReceiptCommitment` rows can be projected into replayable primitive facts for a future agent passport indexer. This remains an event surface, not rich on-chain passport state.
+
+Primitive event schema:
+
+```text
+boole.agent.event.v1
+```
+
+Current event kinds:
+
+- `workAccepted` — `{ agentPk, familyId, receiptId }` for an accepted verified-answer receipt.
+- `workRejected` — `{ agentPk, familyId, receiptId }` for a rejected verified-answer receipt.
+- `rewardCredited` — `{ rewardRecipient, amount, reason }` for the accepted mock verify-answer fee credit.
+
+`rewardCredited.rewardRecipient` is the receipt's pinned `rewardRecipient`, not a session key or caller-supplied temporary key. The mock `/verify-answer` response returns these primitive `agentEvents`, and the same event list can be reconstructed from the local `ReceiptCommitment` ledger.
+
 ## Claim boundary
 
 This type and route surface are local replayable evidence plumbing only. The `/verify-answer` flow is mock/local only and is not real x402 settlement. They do not mutate reward or reputation ledgers, verify signed-work lineage, or provide public-network mining evidence. It is not public-network mining evidence. Follow-on work should bind this commitment to audited receipts.

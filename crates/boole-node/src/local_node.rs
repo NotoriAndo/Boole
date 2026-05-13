@@ -12,12 +12,12 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
-    canonical_payload_hash_hex, compute_block_reward_credits, load_bounties, load_work_manifests,
-    replay_blocks, ticket, verify_signature, AdmissionDecision, BountyProofVerifier,
-    BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport,
-    CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry, FileBountyEventLedger,
-    Hex32, PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput, SessionState,
-    SubmitProofInput, UpdateStatusInput, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
+    agent_passport_events_for_receipt, canonical_payload_hash_hex, compute_block_reward_credits,
+    load_bounties, load_work_manifests, replay_blocks, ticket, verify_signature, AdmissionDecision,
+    BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult,
+    CalibrationReport, CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry,
+    FileBountyEventLedger, Hex32, PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput,
+    SessionState, SubmitProofInput, UpdateStatusInput, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -865,6 +865,8 @@ struct VerifyAnswerRequest {
     verifier_hash_version: String,
     answer: String,
     pay_to: String,
+    #[allow(dead_code)]
+    session_pk: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -925,6 +927,11 @@ fn verify_answer_json(
         Some(_) => {}
     }
 
+    let result = if request.answer == "reject" {
+        "rejected"
+    } else {
+        "accepted"
+    };
     let artifact_hash = hex::encode(Sha256::digest(request.answer.as_bytes()));
     let mut receipt = ReceiptCommitment::new(ReceiptCommitmentInput {
         agent_pk: request.agent_pk,
@@ -933,7 +940,7 @@ fn verify_answer_json(
         verifier_hash_version: request.verifier_hash_version,
         artifact_hash,
         request_hash: request_hash.clone(),
-        result: "accepted".to_string(),
+        result: result.to_string(),
         fee_charged: VERIFY_ANSWER_AMOUNT.to_string(),
         reward_recipient: pay_to,
     })
@@ -954,10 +961,11 @@ fn verify_answer_json(
     store
         .apply(receipt.clone())
         .map_err(|err| HttpError::bad_request(err.to_string()))?;
+    let agent_events = agent_passport_events_for_receipt(&receipt);
 
     Ok(json!({
         "ok": true,
-        "verified": true,
+        "verified": result == "accepted",
         "scheme": VERIFY_ANSWER_SCHEME,
         "x402Version": x402_version,
         "familyId": request.family_id,
@@ -965,6 +973,7 @@ fn verify_answer_json(
         "requestHash": request_hash,
         "receiptId": receipt.receipt_id,
         "receiptCommitment": receipt,
+        "agentEvents": agent_events,
     }))
 }
 

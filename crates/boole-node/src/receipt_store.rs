@@ -3,7 +3,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 
-use boole_core::{Hex32, ReceiptCommitment};
+use boole_core::{agent_passport_events_for_receipt, AgentPassportEvent, Hex32, ReceiptCommitment};
 
 #[derive(Debug, Default)]
 pub struct FileReceiptStore {
@@ -51,6 +51,13 @@ impl FileReceiptStore {
 
     pub fn size(&self) -> usize {
         self.receipts.len()
+    }
+
+    pub fn agent_events(&self) -> Vec<AgentPassportEvent> {
+        self.receipts
+            .values()
+            .flat_map(agent_passport_events_for_receipt)
+            .collect()
     }
 }
 
