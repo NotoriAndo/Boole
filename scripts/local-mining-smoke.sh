@@ -103,6 +103,14 @@ if status.get("height") != len(steps) or not status.get("replayMatchesRuntime"):
 print(json.dumps({
     "ok": True,
     "kind": "local-mining-smoke",
+    "claimBoundary": "controlled local smoke; not public-network mining",
+    "publicMiningEvidence": False,
+    "publicScoringEligible": False,
+    "ineligibilityReasons": [
+        "single local boole-node process",
+        "mock fixture miner only",
+        "no public network admission",
+    ],
     "miner": "mock-fixture-miner",
     "node": "boole-node run-local",
     "blocksMined": len(mined),

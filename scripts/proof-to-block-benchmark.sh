@@ -294,7 +294,15 @@ out = {
     "ok": smoke.get("ok") is True and replay_failures == 0 and chain_divergence == 0 and invalid_accepted == 0,
     "benchmark": "proof-to-block",
     "version": 0,
-    "description": "Seed benchmark derived from checked local runtime-smoke cases plus a real Lean-backed submit-lean proof-to-block case; not a model leaderboard yet.",
+    "claimBoundary": "closed local/fixture validation; not public-network mining",
+    "publicMiningEvidence": False,
+    "publicScoringEligible": False,
+    "ineligibilityReasons": [
+        "closed local fixtures only",
+        "no public network admission",
+        "not a paid/API model benchmark",
+    ],
+    "description": "Seed benchmark derived from checked local runtime-smoke cases plus a real Lean-backed submit-lean proof-to-block case; closed local/fixture validation only, not public-network mining and not a model leaderboard yet.",
     "source": {
         "harness": "scripts/runtime-smoke-all.sh + boole-node submit-lean",
         "manifest": smoke.get("manifest"),

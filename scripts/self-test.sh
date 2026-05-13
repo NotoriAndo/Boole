@@ -102,6 +102,10 @@ checks = [
     {
         "name": "proof-to-block-benchmark",
         "ok": benchmark.get("ok") is True,
+        "claimBoundary": benchmark.get("claimBoundary"),
+        "publicMiningEvidence": benchmark.get("publicMiningEvidence"),
+        "publicScoringEligible": benchmark.get("publicScoringEligible"),
+        "ineligibilityReasons": benchmark.get("ineligibilityReasons"),
         "casesPassed": summary.get("casesPassed"),
         "blocksProduced": summary.get("blocksProduced"),
         "replayFailures": summary.get("replayFailures"),
@@ -111,6 +115,10 @@ checks = [
     {
         "name": "local-mining-smoke",
         "ok": mining.get("ok") is True,
+        "claimBoundary": mining.get("claimBoundary"),
+        "publicMiningEvidence": mining.get("publicMiningEvidence"),
+        "publicScoringEligible": mining.get("publicScoringEligible"),
+        "ineligibilityReasons": mining.get("ineligibilityReasons"),
         "miner": mining.get("miner"),
         "blocksMined": mining.get("blocksMined"),
         "finalHeight": mining.get("finalHead", {}).get("height"),

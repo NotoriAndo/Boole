@@ -88,6 +88,26 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
         self.assertEqual(fixture["totals"]["invalidAccepted"], 0)
         self.assertEqual(fixture["totals"]["replayFailures"], 0)
 
+    def test_self_test_smoke_artifacts_freeze_public_claim_boundary(self) -> None:
+        proof_script = (ROOT / "scripts" / "proof-to-block-benchmark.sh").read_text(encoding="utf-8")
+        mining_script = (ROOT / "scripts" / "local-mining-smoke.sh").read_text(encoding="utf-8")
+        self_test = (ROOT / "scripts" / "self-test.sh").read_text(encoding="utf-8")
+
+        self.assertIn('"claimBoundary": "closed local/fixture validation; not public-network mining"', proof_script)
+        self.assertIn('"publicMiningEvidence": False', proof_script)
+        self.assertIn('"publicScoringEligible": False', proof_script)
+        self.assertIn('"ineligibilityReasons": [', proof_script)
+
+        self.assertIn('"claimBoundary": "controlled local smoke; not public-network mining"', mining_script)
+        self.assertIn('"publicMiningEvidence": False', mining_script)
+        self.assertIn('"publicScoringEligible": False', mining_script)
+        self.assertIn('"ineligibilityReasons": [', mining_script)
+
+        self.assertIn('"claimBoundary": benchmark.get("claimBoundary")', self_test)
+        self.assertIn('"publicMiningEvidence": benchmark.get("publicMiningEvidence")', self_test)
+        self.assertIn('"claimBoundary": mining.get("claimBoundary")', self_test)
+        self.assertIn('"publicMiningEvidence": mining.get("publicMiningEvidence")', self_test)
+
     def test_runner_writes_summary_rows_leaderboard_and_replay_report(self) -> None:
         benchmark = load_benchmark()
         with tempfile.TemporaryDirectory() as tmp:
