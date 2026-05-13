@@ -71,6 +71,7 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
     let operator_signer_pks_env = std::env::var("OPERATOR_SIGNER_PKS").ok();
     let session_registry_env = std::env::var("BOOLE_SESSION_REGISTRY_PATH").ok();
     let submit_nonce_ledger_env = std::env::var("BOOLE_SUBMIT_NONCE_LEDGER_PATH").ok();
+    let submit_receipt_ledger_env = std::env::var("BOOLE_SUBMIT_RECEIPT_LEDGER_PATH").ok();
     let lean_checker_env = std::env::var("LEAN_CHECKER_DIR").ok();
     let genesis_env = std::env::var("GENESIS_C").ok();
     let addr_flag = take_optional_flag_value(&mut args, "--addr")?;
@@ -86,6 +87,8 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
     let operator_signer_pks_flag = take_optional_flag_value(&mut args, "--operator-signer-pks")?;
     let session_registry_flag = take_optional_flag_value(&mut args, "--session-registry")?;
     let submit_nonce_ledger_flag = take_optional_flag_value(&mut args, "--submit-nonce-ledger")?;
+    let submit_receipt_ledger_flag =
+        take_optional_flag_value(&mut args, "--submit-receipt-ledger")?;
     let lean_checker_flag = take_optional_flag_value(&mut args, "--lean-checker-dir")?;
     let max_requests = take_optional_flag_value(&mut args, "--max-requests")?
         .map(|value| value.parse::<usize>())
@@ -136,6 +139,9 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
         .map(PathBuf::from);
     let submit_nonce_ledger_path: Option<PathBuf> = submit_nonce_ledger_flag
         .or(submit_nonce_ledger_env)
+        .map(PathBuf::from);
+    let submit_receipt_ledger_path: Option<PathBuf> = submit_receipt_ledger_flag
+        .or(submit_receipt_ledger_env)
         .map(PathBuf::from);
     let genesis_override = genesis_flag.or(genesis_env);
     let listener = TcpListener::bind(&addr)?;
@@ -196,6 +202,7 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
             operator_signer_pks,
             session_registry_path,
             submit_nonce_ledger_path,
+            submit_receipt_ledger_path,
             genesis_override,
         },
     )

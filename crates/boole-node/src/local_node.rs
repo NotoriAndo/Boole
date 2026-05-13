@@ -11,17 +11,20 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
-    canonical_payload_hash_hex, load_bounties, load_work_manifests, replay_blocks, ticket,
-    verify_signature, AdmissionDecision, BountyProofVerifier, BountyRegistry, BountyShare,
-    BountySidePool, BuildSelectionResult, CalibrationReport, CreateBountyInput,
-    DifficultyRetargetPolicy, FamilyManifestRegistry, FileBountyEventLedger, Hex32, PersistedBlock,
-    SessionState, SubmitProofInput, UpdateStatusInput, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
+    canonical_payload_hash_hex, compute_block_reward_credits, load_bounties, load_work_manifests,
+    replay_blocks, ticket, verify_signature, AdmissionDecision, BountyProofVerifier,
+    BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport,
+    CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry, FileBountyEventLedger,
+    Hex32, PersistedBlock, SessionState, SubmitProofInput, UpdateStatusInput, WorkManifest,
+    SIGNED_ENVELOPE_SCHEMA,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap};
 use std::convert::Infallible;
+use std::fs::OpenOptions;
 use std::future::Future;
+use std::io::Write;
 use std::net::{SocketAddr, TcpListener as StdTcpListener};
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -97,6 +100,11 @@ pub struct LocalNodeConfig {
     /// session-gated path returns `session_registry_disabled` — the
     /// ledger and the session registry are opted in together.
     pub submit_nonce_ledger_path: Option<PathBuf>,
+    /// Optional NDJSON receipt ledger for accepted session-bound `/submit`
+    /// work. When configured, accepted session submits append the exact
+    /// receipt returned in the HTTP response so agents can later prove the
+    /// requestHash/nonce/sessionPk/block/reward credit tuple.
+    pub submit_receipt_ledger_path: Option<PathBuf>,
     pub max_requests: Option<usize>,
     /// When `Some`, replaces the scenario's `genesis_c`. Surfaced so the
     /// CLI wrapper (`boole node start --genesis HEX32`) can override the
@@ -177,6 +185,9 @@ struct LocalNodeState {
     /// `submit_nonce_ledger_path` is `Some`; required for the gate to
     /// answer dedup queries without re-reading the ledger on every call.
     nonce_ledger: Option<FileNonceLedger>,
+    /// Optional append-only receipt ledger for accepted session-bound submit
+    /// artifacts. The response receipt and ledger line intentionally match.
+    submit_receipt_ledger_path: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -475,6 +486,7 @@ impl LocalNodeState {
             session_store,
             submit_nonce_ledger_path: config.submit_nonce_ledger_path,
             nonce_ledger,
+            submit_receipt_ledger_path: config.submit_receipt_ledger_path,
         })
     }
 }
@@ -882,6 +894,14 @@ struct CheckedSubmitSession {
     submitted_by: String,
     nonce: String,
     reward_recipient: String,
+    request_hash: String,
+    route: String,
+}
+
+#[derive(Debug, Clone)]
+struct VerifiedSubmitWork {
+    request_hash: String,
+    route: String,
 }
 
 fn submit_session_gate(
@@ -949,7 +969,7 @@ fn submit_session_gate(
         ));
     }
 
-    verify_signed_submit_work(
+    let verified_work = verify_signed_submit_work(
         envelope_obj.get("body"),
         session_obj,
         submitted_by,
@@ -971,6 +991,8 @@ fn submit_session_gate(
         submitted_by: submitted_by.to_string(),
         nonce: nonce.to_string(),
         reward_recipient: reward_recipient.to_string(),
+        request_hash: verified_work.request_hash,
+        route: verified_work.route,
     }))
 }
 
@@ -1004,7 +1026,7 @@ fn verify_signed_submit_work(
     submitted_by: &str,
     nonce: &str,
     session: &SessionState,
-) -> Result<(), HttpError> {
+) -> Result<VerifiedSubmitWork, HttpError> {
     let work_body = body_value.ok_or_else(|| HttpError::missing_field("body"))?;
     let signed_work = session_obj
         .get("signedWork")
@@ -1114,7 +1136,10 @@ fn verify_signed_submit_work(
             "fee exceeds session.maxFeePerRequest",
         ));
     }
-    Ok(())
+    Ok(VerifiedSubmitWork {
+        request_hash: request_hash.to_string(),
+        route: route.to_string(),
+    })
 }
 
 async fn fallback_handler(method: Method, uri: Uri) -> Response {
@@ -1994,18 +2019,74 @@ fn submit_json(
     // already verified linkage and updated runtime head.
     let new_height = committed.block.height + 1;
     let runtime_head = current_head(state);
-    Ok(json!({
+    let block_value = block_json(&committed.block);
+    let receipt = match checked_session {
+        Some(session) => Some(submit_receipt_json(
+            session,
+            &committed.block,
+            &share_hash.to_hex(),
+        )?),
+        None => None,
+    };
+    if let (Some(path), Some(receipt)) =
+        (state.submit_receipt_ledger_path.as_ref(), receipt.as_ref())
+    {
+        append_submit_receipt(path, receipt)?;
+    }
+    let mut response = json!({
         "ok": true,
         "accepted": true,
         "shareHash": share_hash.to_hex(),
-        "block": block_json(&committed.block),
+        "block": block_value,
         "height": new_height,
         "c": runtime_head,
         "replayHeight": new_height,
         "replayLatestC": runtime_head,
         "replayMatchesRuntime": state.replay_matches_runtime_at_boot,
         "droppedStaleShares": committed.dropped_stale_shares,
+    });
+    if let Some(receipt) = receipt {
+        response["receipt"] = receipt;
+    }
+    Ok(response)
+}
+
+fn submit_receipt_json(
+    session: &CheckedSubmitSession,
+    block: &PersistedBlock,
+    share_hash: &str,
+) -> anyhow::Result<Value> {
+    let reward_amount = compute_block_reward_credits(block)?
+        .into_iter()
+        .find(|credit| credit.pk == session.reward_recipient)
+        .map(|credit| credit.amount)
+        .unwrap_or_else(|| "0".to_string());
+    Ok(json!({
+        "schema": "boole.submit.receipt.v1",
+        "accepted": true,
+        "route": session.route,
+        "sessionPk": session.submitted_by,
+        "submittedBy": session.submitted_by,
+        "nonce": session.nonce,
+        "requestHash": session.request_hash,
+        "blockHeight": block.height,
+        "blockC": block.c,
+        "shareHash": share_hash,
+        "proposerPk": block.proposer_pk,
+        "rewardRecipient": session.reward_recipient,
+        "rewardAmount": reward_amount,
     }))
+}
+
+fn append_submit_receipt(path: &PathBuf, receipt: &Value) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    serde_json::to_writer(&mut file, receipt)?;
+    file.write_all(b"\n")?;
+    file.flush()?;
+    Ok(())
 }
 
 fn current_head(state: &LocalNodeState) -> String {

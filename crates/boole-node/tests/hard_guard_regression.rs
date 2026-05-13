@@ -216,6 +216,7 @@ fn boot_full(
                 operator_signer_pks,
                 session_registry_path: None,
                 submit_nonce_ledger_path: None,
+                submit_receipt_ledger_path: None,
                 genesis_override: None,
             },
         )

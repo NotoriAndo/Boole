@@ -89,6 +89,7 @@ struct BootPaths {
     sessions: PathBuf,
     nonces: PathBuf,
     rewards: PathBuf,
+    receipts: PathBuf,
 }
 
 impl BootPaths {
@@ -97,11 +98,13 @@ impl BootPaths {
         let sessions = dir.join("sessions.ndjson");
         let nonces = dir.join("submit-nonces.ndjson");
         let rewards = dir.join("rewards.ndjson");
+        let receipts = dir.join("submit-receipts.ndjson");
         Self {
             dir,
             sessions,
             nonces,
             rewards,
+            receipts,
         }
     }
 }
@@ -115,6 +118,7 @@ fn boot_with(paths: &BootPaths, max_requests: usize) -> Boot {
     let sessions = paths.sessions.clone();
     let nonces = paths.nonces.clone();
     let rewards = paths.rewards.clone();
+    let receipts = paths.receipts.clone();
     let handle = thread::spawn(move || {
         tx.send(()).expect("ready");
         serve_local_node(
@@ -130,6 +134,7 @@ fn boot_with(paths: &BootPaths, max_requests: usize) -> Boot {
                 family_manifests_dir: None,
                 session_registry_path: Some(sessions),
                 submit_nonce_ledger_path: Some(nonces),
+                submit_receipt_ledger_path: Some(receipts),
                 max_requests: Some(max_requests),
                 operator_signer_pks: vec![],
                 genesis_override: None,
@@ -279,6 +284,13 @@ fn signed_work_session(
             "signature": signed.signature,
         }
     })
+}
+
+fn read_receipt_lines(path: &PathBuf) -> Vec<Value> {
+    let text = fs::read_to_string(path).expect("receipt ledger should exist");
+    text.lines()
+        .map(|line| serde_json::from_str(line).expect("receipt line should be valid JSON"))
+        .collect()
 }
 
 #[test]
@@ -665,6 +677,7 @@ fn session_bound_submit_credits_fixed_reward_recipient_not_body_pk() {
     register_session(boot.addr, &session_pk, PK_OTHER);
 
     let body = scenario_body();
+    let request_hash = canonical_payload_hash_hex(&body);
     assert_eq!(body["pk"], PK_OWNER, "fixture body should mine as PK_OWNER");
     let session = signed_work_session(&key, &body, "n-reward-recipient", PK_OTHER);
     let (submit_status, submit_value) =
@@ -688,6 +701,30 @@ fn session_bound_submit_credits_fixed_reward_recipient_not_body_pk() {
     assert_eq!(
         submit_value["block"]["selectedShareRewardPks"][0], PK_OTHER,
         "block audit artifact must expose the session reward recipient for selected share credit"
+    );
+
+    let receipt = &submit_value["receipt"];
+    assert_eq!(receipt["schema"], "boole.submit.receipt.v1");
+    assert_eq!(receipt["accepted"], true);
+    assert_eq!(receipt["route"], "/submit");
+    assert_eq!(receipt["sessionPk"], session_pk);
+    assert_eq!(receipt["nonce"], "n-reward-recipient");
+    assert_eq!(receipt["requestHash"], request_hash);
+    assert_eq!(receipt["blockHeight"], submit_value["block"]["height"]);
+    assert_eq!(receipt["blockC"], submit_value["block"]["c"]);
+    assert_eq!(receipt["proposerPk"], PK_OWNER);
+    assert_eq!(receipt["rewardRecipient"], PK_OTHER);
+    assert_eq!(receipt["rewardAmount"], "2");
+
+    let receipt_lines = read_receipt_lines(&paths.receipts);
+    assert_eq!(
+        receipt_lines.len(),
+        1,
+        "one accepted session-bound submit should append one receipt"
+    );
+    assert_eq!(
+        receipt_lines[0], *receipt,
+        "ledger receipt must match response receipt exactly"
     );
 
     let (recipient_status, recipient_balance) =
