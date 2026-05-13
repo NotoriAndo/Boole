@@ -50,6 +50,18 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertEqual(plan[-1][0], "./scripts/phase7-solo-preflight.sh")
         self.assertIn("--skip-hardening-checks", plan[-1])
 
+    def test_wallet_session_receipt_gate_covers_current_surface(self) -> None:
+        gate = ROOT / "scripts" / "wallet-session-receipt-gate.sh"
+        text = gate.read_text()
+        expected_fragments = [
+            "cargo test -q -p boole-core --test session_policy --test receipt",
+            "cargo test -q -p boole-cli --test keys --test keys_sign --test keys_verify --test session_key --test signer",
+            "cargo test -q -p boole-node --test session_store --test session_route --test submit_session_policy --test receipt_route --test verify_answer_route --test agent_passport_events",
+            "wallet-session-receipt-gate: PASS",
+        ]
+        for fragment in expected_fragments:
+            self.assertIn(fragment, text)
+
     def test_agent_mine_missing_runtime_skip_matches_contract_fixture(self) -> None:
         proc = subprocess.run(
             ["./scripts/boole-agent-mine.sh", "--runtime", "codex", "--agent-command", "/tmp/boole-missing-codex-runtime"],

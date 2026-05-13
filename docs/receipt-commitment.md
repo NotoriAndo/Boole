@@ -73,6 +73,16 @@ Current event kinds:
 
 `rewardCredited.rewardRecipient` is the receipt's pinned `rewardRecipient`, not a session key or caller-supplied temporary key. The mock `/verify-answer` response returns these primitive `agentEvents`, and the same event list can be reconstructed from the local `ReceiptCommitment` ledger.
 
+## Focused local gate
+
+The implemented wallet/session/receipt surface is covered by:
+
+```bash
+./scripts/wallet-session-receipt-gate.sh
+```
+
+The gate runs the focused `session_policy`, receipt, key/signing/session CLI, session store/route, submit session policy, receipt route, verify-answer route, and agent passport event tests. `./scripts/self-test.sh` also runs this gate before the workspace-wide clippy/test checks.
+
 ## Claim boundary
 
 This type and route surface are local replayable evidence plumbing only. The `/verify-answer` flow is mock/local only and is not real x402 settlement. They do not mutate reward or reputation ledgers, verify signed-work lineage, or provide public-network mining evidence. It is not public-network mining evidence. Follow-on work should bind this commitment to audited receipts.
