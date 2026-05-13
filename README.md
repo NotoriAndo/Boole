@@ -166,7 +166,7 @@ This is not real x402 settlement, not public-network mining evidence, and not a 
 ./scripts/wallet-session-receipt-gate.sh
 ```
 
-See [`docs/receipt-commitment.md`](docs/receipt-commitment.md).
+See [`docs/receipt-commitment.md`](docs/receipt-commitment.md) and the local MVP closeout record [`docs/verified-answer-local-mvp-closeout.md`](docs/verified-answer-local-mvp-closeout.md).
 
 ## Runtime smoke
 

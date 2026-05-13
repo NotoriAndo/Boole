@@ -32,12 +32,14 @@ require_file fixtures/benchmarks/proof-to-block-v0.1/sample-leaderboard.md
 require_file docs/replay-consensus.md
 require_file docs/settlement-report.md
 require_file docs/receipt-commitment.md
+require_file docs/verified-answer-local-mvp-closeout.md
 require_file docs/adr/0001-pofp-v2-canonical-widening.md
 
 require_text README.md "docs/install.md"
 require_text README.md "docs/replay-consensus.md"
 require_text README.md "docs/settlement-report.md"
 require_text README.md "docs/receipt-commitment.md"
+require_text README.md "docs/verified-answer-local-mvp-closeout.md"
 require_text README.md "Verified-answer local receipt surface"
 require_text README.md "Boole can return a local verified-answer receipt commitment for machine-checkable work in a mock/local payment-gated flow."
 require_text README.md "POST /verify-answer"
@@ -131,6 +133,12 @@ require_text docs/receipt-commitment.md "not a session key"
 require_text docs/receipt-commitment.md "receipt_not_found"
 require_text docs/receipt-commitment.md "humanAnswer"
 require_text docs/receipt-commitment.md "not public-network mining evidence"
+require_text docs/verified-answer-local-mvp-closeout.md "Verified-answer local MVP closeout"
+require_text docs/verified-answer-local-mvp-closeout.md "Batch 4 — Verified Answer product surface: COMPLETE for local MVP"
+require_text docs/verified-answer-local-mvp-closeout.md "Batch 5 — Gates/docs: COMPLETE"
+require_text docs/verified-answer-local-mvp-closeout.md "Definition of Done status"
+require_text docs/verified-answer-local-mvp-closeout.md "NEXT-BATCH.1 — Select the next official batch from operating evidence"
+require_text docs/verified-answer-local-mvp-closeout.md "not a feature expansion"
 
 require_text docs/adr/0001-pofp-v2-canonical-widening.md "Status: Implemented"
 require_text docs/adr/0001-pofp-v2-canonical-widening.md "POFP-v2 is the default canonical package emitted by the Rust Lean proof bridge"
