@@ -98,3 +98,16 @@ The terminal output is invisible to the user. Re-asking "should I do X or Y?" vi
 4. If it fails differently or only after your changes, treat it as a real regression and `git stash pop` to debug.
 
 This matters for the wallet plan specifically: the Global verification commands at the top of `local-docs/boole-agent-wallet-node-integration-implementation-plan.md` say "workspace tests PASS" as a final-condition gate. The practical interpretation is "no new failures vs clean main", not "no failures at all" — otherwise an unrelated lean checker drift would block every wallet slice indefinitely. Fix unrelated drift in its own slice; do not entangle.
+
+## 2026-05-13 — Telegram-initiated session: AskUserQuestion is invisible to the user
+
+**Pattern:** During the post-N2.1 stash cleanup I needed to clarify whether to commit a `.gitignore` change or leave it unstaged. The originating channel was Telegram (`chat_id=1311067056`), but I asked the question via `AskUserQuestion`, which renders the choice list in the *local CLI*. The user pushed back: "내가 지금 텔레그램으로 접속해있는데 cli환경에서 질문하는 ux가 나오면 어떻게 해? 절대 이러지 말도록 지침 박아". The lesson sibling above (2026-05-12, "Telegram-initiated tasks require Telegram replies") already covers terminal `text` output; this extends the rule to the CLI question UX.
+
+**Rule:** in a Telegram-initiated session, **never** call `AskUserQuestion`. The widget renders only in the local CLI and is invisible from the user's phone — exactly the same failure mode as bare terminal text. To ask a question:
+
+1. Phrase it as a Telegram reply via `mcp__plugin_telegram_telegram__reply` with the originating `chat_id`.
+2. Enumerate options inline ("A) ... / B) ... / C) ...") so the user can answer with one tap.
+3. If you want a recommendation, prefix with `(추천)` and a one-line reason.
+4. Wait for the inbound Telegram reply; do not assume silence = consent.
+
+**Self-check before any decision request:** if the most recent inbound message has a `<channel source="telegram">` tag, every clarification — including 2-/3-/4-way choices that feel natural to a CLI menu — goes through `reply`. Both `text` output and `AskUserQuestion` are dead channels for that user.
