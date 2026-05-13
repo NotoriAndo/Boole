@@ -60,6 +60,7 @@ pub fn audit_submit_receipts(
 ) -> anyhow::Result<SubmitReceiptAuditReport> {
     let blocks_by_height: BTreeMap<u64, &PersistedBlock> =
         blocks.iter().map(|block| (block.height, block)).collect();
+    validate_block_chain(&blocks_by_height)?;
 
     for (idx, receipt) in receipts.iter().enumerate() {
         validate_receipt_shape(idx, receipt)?;
@@ -97,8 +98,14 @@ pub fn audit_submit_receipts(
         let expected_amount = compute_block_reward_credits(block)?
             .into_iter()
             .find(|credit| credit.pk == receipt.reward_recipient)
-            .map(|credit| credit.amount)
-            .unwrap_or_else(|| "0".to_string());
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "receipt {} rewardRecipient not credited by replay: {}",
+                    idx,
+                    receipt.reward_recipient
+                )
+            })?
+            .amount;
         if receipt.reward_amount != expected_amount {
             anyhow::bail!(
                 "receipt {} rewardAmount mismatch for rewardRecipient {}: got {}, expected {}",
@@ -115,6 +122,35 @@ pub fn audit_submit_receipts(
         blocks_checked: blocks.len() as u64,
         receipts_checked: receipts.len() as u64,
     })
+}
+
+fn validate_block_chain(blocks_by_height: &BTreeMap<u64, &PersistedBlock>) -> anyhow::Result<()> {
+    for (&height, block) in blocks_by_height {
+        block
+            .validate_shape()
+            .map_err(|err| anyhow::anyhow!("block {} shape invalid: {}", height, err))?;
+        if height == 0 {
+            if block.prev_c != "0000000000000000000000000000000000000000000000000000000000000000" {
+                anyhow::bail!(
+                    "block c mismatch at genesis height: prevC got {}",
+                    block.prev_c
+                );
+            }
+            continue;
+        }
+        let parent = blocks_by_height.get(&(height - 1)).ok_or_else(|| {
+            anyhow::anyhow!("block c mismatch at height {}: parent missing", height)
+        })?;
+        if block.prev_c != parent.c {
+            anyhow::bail!(
+                "block c mismatch at height {}: prevC got {}, expected parent c {}",
+                height,
+                block.prev_c,
+                parent.c
+            );
+        }
+    }
+    Ok(())
 }
 
 fn validate_signed_work_lineage(idx: usize, lineage: &SubmitReceiptLineage) -> anyhow::Result<()> {

@@ -193,3 +193,35 @@ fn audit_rejects_receipt_for_share_not_selected_in_block() {
         "unexpected error: {err}"
     );
 }
+
+#[test]
+fn audit_rejects_receipt_when_block_ledger_hash_is_tampered_to_match_receipt() {
+    let fixture = replay_fixture();
+    let mut blocks = fixture.blocks;
+    let mut receipt = valid_receipt();
+    let tampered_c = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+    blocks[0].c = tampered_c.to_string();
+    receipt.block_c = tampered_c.to_string();
+
+    let err = audit_submit_receipts(&blocks, &[receipt]).expect_err("tampered block ledger fails");
+    assert!(
+        err.to_string().contains("block c mismatch"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn audit_rejects_receipt_when_reward_recipient_is_uncredited_even_with_zero_amount() {
+    let fixture = replay_fixture();
+    let mut receipt = valid_receipt();
+    receipt.reward_recipient =
+        "4444444444444444444444444444444444444444444444444444444444444444".to_string();
+    receipt.reward_amount = "0".to_string();
+
+    let err = audit_submit_receipts(&fixture.blocks, &[receipt])
+        .expect_err("uncredited reward recipient fails");
+    assert!(
+        err.to_string().contains("rewardRecipient not credited"),
+        "unexpected error: {err}"
+    );
+}
