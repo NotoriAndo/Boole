@@ -26,6 +26,7 @@ pub mod session_policy;
 pub mod share_pool;
 pub mod signed_envelope;
 pub mod submission_pow;
+pub mod submit_receipt_audit;
 pub mod validator;
 pub mod work_manifest;
 
@@ -91,6 +92,7 @@ pub use submission_pow::{
     check_submission_pow, check_submission_pow_json, check_submission_pow_with_policy,
     SubmissionPowRejectReason, SubmissionPowResult,
 };
+pub use submit_receipt_audit::{audit_submit_receipts, SubmitReceipt, SubmitReceiptAuditReport};
 pub use validator::{
     decode_detail_from_json, decode_detail_json, validate_proof_package,
     validate_proof_package_json, validate_proof_package_shape, validate_proof_package_with_policy,

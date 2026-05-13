@@ -94,6 +94,18 @@ enum ChainCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Audit submit receipt ledger against a persisted block NDJSON log.
+    AuditReceipts {
+        /// Path to persisted blocks NDJSON.
+        #[arg(long)]
+        blocks: PathBuf,
+        /// Path to submit receipt ledger NDJSON.
+        #[arg(long)]
+        receipts: PathBuf,
+        /// Emit JSON output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -497,6 +509,11 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::Version { json }) => print_version(json),
         Some(Command::Chain { command }) => match command {
             ChainCommand::Replay { fixture, json } => replay_fixture(&fixture, json),
+            ChainCommand::AuditReceipts {
+                blocks,
+                receipts,
+                json,
+            } => audit_receipts(&blocks, &receipts, json),
         },
         Some(Command::Node { command }) => match command {
             NodeCommand::Start {
@@ -681,6 +698,44 @@ fn replay_fixture(path: &Path, json: bool) -> anyhow::Result<()> {
         println!("latestC={} height={}", replay.latest_c, replay.height);
     }
     Ok(())
+}
+
+fn audit_receipts(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyhow::Result<()> {
+    let blocks = read_ndjson::<boole_core::PersistedBlock>(blocks_path)?;
+    let receipts = read_ndjson::<boole_core::SubmitReceipt>(receipts_path)?;
+    let report = boole_core::audit_submit_receipts(&blocks, &receipts)?;
+    if json {
+        println!("{}", serde_json::to_string(&report)?);
+    } else {
+        println!(
+            "ok={} blocksChecked={} receiptsChecked={}",
+            report.ok, report.blocks_checked, report.receipts_checked
+        );
+    }
+    Ok(())
+}
+
+fn read_ndjson<T>(path: &Path) -> anyhow::Result<Vec<T>>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let raw = std::fs::read_to_string(path)?;
+    raw.lines()
+        .enumerate()
+        .filter_map(|(idx, line)| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some((idx, trimmed))
+            }
+        })
+        .map(|(idx, line)| {
+            serde_json::from_str(line).map_err(|err| {
+                anyhow::anyhow!("{}:{} invalid ndjson: {}", path.display(), idx + 1, err)
+            })
+        })
+        .collect()
 }
 
 /// Resolve the boole-node binary used by `node start`. Tests set

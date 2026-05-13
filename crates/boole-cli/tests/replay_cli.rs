@@ -1,3 +1,4 @@
+use std::io::Write as _;
 use std::process::Command;
 
 use serde::Deserialize;
@@ -13,6 +14,7 @@ struct CliReplayOutput {
 
 #[derive(Debug, Deserialize)]
 struct Fixture {
+    blocks: Vec<serde_json::Value>,
     expected: Expected,
 }
 
@@ -58,6 +60,14 @@ fn cli_runtime_error_json_goes_to_stderr_and_leaves_stdout_empty() {
     assert_eq!(parsed["reason"], "internal_error");
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CliAuditReceiptsOutput {
+    ok: bool,
+    blocks_checked: u64,
+    receipts_checked: u64,
+}
+
 #[test]
 fn cli_replay_json_matches_replay_fixture() {
     let fixture_path = format!(
@@ -82,4 +92,59 @@ fn cli_replay_json_matches_replay_fixture() {
     assert_eq!(parsed.latest_c, fixture.expected.latest_c);
     assert_eq!(parsed.height, fixture.expected.height);
     assert_eq!(parsed.balances, fixture.expected.balances);
+}
+
+#[test]
+fn cli_audit_receipts_json_accepts_ledger_matching_blocks() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
+            .expect("fixture parses");
+    let dir = std::env::temp_dir().join(format!("boole-cli-audit-receipts-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let blocks_path = dir.join("blocks.ndjson");
+    let receipts_path = dir.join("submit-receipts.ndjson");
+
+    let mut blocks_file = std::fs::File::create(&blocks_path).expect("create blocks");
+    for block in &fixture.blocks {
+        writeln!(
+            blocks_file,
+            "{}",
+            serde_json::to_string(block).expect("block json")
+        )
+        .expect("write block");
+    }
+    std::fs::write(
+        &receipts_path,
+        concat!(
+            r#"{"schema":"boole.submit.receipt.v1","accepted":true,"route":"/submit","sessionPk":"9999999999999999999999999999999999999999999999999999999999999999","submittedBy":"9999999999999999999999999999999999999999999999999999999999999999","nonce":"n-audit-1","requestHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","blockHeight":0,"blockC":"4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d","shareHash":"0101010101010101010101010101010101010101010101010101010101010101","proposerPk":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rewardRecipient":"1111111111111111111111111111111111111111111111111111111111111111","rewardAmount":"1"}"#,
+            "\n"
+        ),
+    )
+    .expect("write receipts");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "chain",
+            "audit-receipts",
+            "--blocks",
+            blocks_path.to_str().expect("utf8 blocks path"),
+            "--receipts",
+            receipts_path.to_str().expect("utf8 receipts path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: CliAuditReceiptsOutput =
+        serde_json::from_slice(&output.stdout).expect("json output");
+    assert!(parsed.ok);
+    assert_eq!(parsed.blocks_checked, fixture.blocks.len() as u64);
+    assert_eq!(parsed.receipts_checked, 1);
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
