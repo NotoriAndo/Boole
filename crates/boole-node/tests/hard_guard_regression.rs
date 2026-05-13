@@ -214,6 +214,7 @@ fn boot_full(
                 family_manifests_dir: family_dir,
                 max_requests: Some(max_requests),
                 operator_signer_pks,
+                session_registry_path: None,
                 genesis_override: None,
             },
         )

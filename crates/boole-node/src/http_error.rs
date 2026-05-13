@@ -41,6 +41,20 @@ impl HttpError {
         Self::new(400, "malformed-pk")
     }
 
+    /// Returned by `/sessions*` routes when the node was booted without
+    /// `LocalNodeConfig.session_registry_path`. The agent-wallet plan
+    /// keeps the registry opt-in so legacy embeddings can stay quiet.
+    pub fn session_registry_disabled() -> Self {
+        Self::new(400, "session_registry_disabled")
+    }
+
+    /// `GET /sessions/{pk}` / `POST /sessions/{pk}/revoke` when the
+    /// session registry is enabled but the key was never registered.
+    pub fn session_not_found(session_pk: impl Into<String>) -> Self {
+        Self::new(404, "session_not_found")
+            .with_extra("sessionPk", Value::String(session_pk.into()))
+    }
+
     pub fn work_not_found(id: impl Into<String>) -> Self {
         Self::new(404, "work_not_found").with_extra("id", Value::String(id.into()))
     }

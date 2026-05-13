@@ -69,6 +69,7 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
     let bounty_events_env = std::env::var("BOUNTY_EVENT_LEDGER_PATH").ok();
     let family_manifests_env = std::env::var("FAMILY_MANIFESTS_DIR").ok();
     let operator_signer_pks_env = std::env::var("OPERATOR_SIGNER_PKS").ok();
+    let session_registry_env = std::env::var("BOOLE_SESSION_REGISTRY_PATH").ok();
     let lean_checker_env = std::env::var("LEAN_CHECKER_DIR").ok();
     let genesis_env = std::env::var("GENESIS_C").ok();
     let addr_flag = take_optional_flag_value(&mut args, "--addr")?;
@@ -82,6 +83,7 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
     let bounty_events_flag = take_optional_flag_value(&mut args, "--bounty-events")?;
     let family_manifests_flag = take_optional_flag_value(&mut args, "--family-manifests")?;
     let operator_signer_pks_flag = take_optional_flag_value(&mut args, "--operator-signer-pks")?;
+    let session_registry_flag = take_optional_flag_value(&mut args, "--session-registry")?;
     let lean_checker_flag = take_optional_flag_value(&mut args, "--lean-checker-dir")?;
     let max_requests = take_optional_flag_value(&mut args, "--max-requests")?
         .map(|value| value.parse::<usize>())
@@ -127,6 +129,9 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
     }
     let lean_checker_dir: Option<PathBuf> =
         lean_checker_flag.or(lean_checker_env).map(PathBuf::from);
+    let session_registry_path: Option<PathBuf> = session_registry_flag
+        .or(session_registry_env)
+        .map(PathBuf::from);
     let genesis_override = genesis_flag.or(genesis_env);
     let listener = TcpListener::bind(&addr)?;
     let bound = listener.local_addr()?;
@@ -184,6 +189,7 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
             family_manifests_dir,
             max_requests,
             operator_signer_pks,
+            session_registry_path,
             genesis_override,
         },
     )

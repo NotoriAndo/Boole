@@ -1,6 +1,7 @@
 use crate::block_store::FileBlockStore;
 use crate::http_error::HttpError;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
+use crate::session_store::FileSessionStore;
 use axum::body::Bytes;
 use axum::extract::{ConnectInfo, Path as AxumPath, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
@@ -12,8 +13,8 @@ use boole_core::{
     load_bounties, load_work_manifests, replay_blocks, ticket, verify_signature, AdmissionDecision,
     BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult,
     CalibrationReport, CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry,
-    FileBountyEventLedger, Hex32, PersistedBlock, SubmitProofInput, UpdateStatusInput,
-    WorkManifest, SIGNED_ENVELOPE_SCHEMA,
+    FileBountyEventLedger, Hex32, PersistedBlock, SessionState, SubmitProofInput,
+    UpdateStatusInput, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -78,6 +79,14 @@ pub struct LocalNodeConfig {
     /// to `build_block_selection`. This is the safe default; operators
     /// opt in with `--operator-signer-pks <hex,hex,…>`.
     pub operator_signer_pks: Vec<String>,
+    /// Optional NDJSON ledger path for the agent-wallet session registry.
+    /// When `Some`, the node mounts `POST /sessions`, `GET /sessions/{pk}`,
+    /// and `POST /sessions/{pk}/revoke`, recovers the in-memory
+    /// `FileSessionStore` at boot, and persists every register/revoke
+    /// event on append. When `None`, the routes still resolve but every
+    /// call returns `session_registry_disabled` — the agent-wallet stack
+    /// is opt-in so legacy embeddings keep their pre-N1.2 behavior.
+    pub session_registry_path: Option<PathBuf>,
     pub max_requests: Option<usize>,
     /// When `Some`, replaces the scenario's `genesis_c`. Surfaced so the
     /// CLI wrapper (`boole node start --genesis HEX32`) can override the
@@ -137,6 +146,17 @@ struct LocalNodeState {
     /// or below the runtime height.
     bounty_side_pool: BountySidePool,
     operator_signer_pks: Vec<String>,
+    /// On-disk NDJSON ledger for the session registry. `Some` whenever
+    /// the agent-wallet stack is opted in via
+    /// `LocalNodeConfig.session_registry_path`. Kept here so the three
+    /// session handlers can persist register/revoke events with the same
+    /// {recover → append-then-apply} flow the bounty audit log uses.
+    session_registry_path: Option<PathBuf>,
+    /// In-memory mirror of the session ledger. `Some` iff
+    /// `session_registry_path` is `Some`; `None` keeps the agent-wallet
+    /// routes disabled so legacy callers can't observe a partially-wired
+    /// surface.
+    session_store: Option<FileSessionStore>,
 }
 
 #[derive(Clone)]
@@ -208,6 +228,12 @@ fn build_router(state: AppState) -> Router {
         .route("/bounties/{id}/status", post(bounty_status_handler))
         .route("/ticket", post(ticket_handler))
         .route("/submit", post(submit_handler))
+        .route("/sessions", post(session_register_handler))
+        .route("/sessions/{session_pk}", get(session_get_handler))
+        .route(
+            "/sessions/{session_pk}/revoke",
+            post(session_revoke_handler),
+        )
         .fallback(fallback_handler)
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
@@ -404,6 +430,10 @@ impl LocalNodeState {
             })?,
             None => FamilyManifestRegistry::new(),
         };
+        let session_store = match config.session_registry_path.as_ref() {
+            Some(path) => Some(FileSessionStore::recover(path)?),
+            None => None,
+        };
         Ok(Self {
             runtime,
             genesis_c: scenario.genesis_c,
@@ -417,6 +447,8 @@ impl LocalNodeState {
             family_manifest_registry,
             bounty_side_pool: BountySidePool::new(),
             operator_signer_pks: config.operator_signer_pks,
+            session_registry_path: config.session_registry_path,
+            session_store,
         })
     }
 }
@@ -659,6 +691,122 @@ async fn submit_handler(
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(anyhow_to_internal(err)),
     }
+}
+
+async fn session_register_handler(State(state): State<AppState>, body: Bytes) -> Response {
+    let mut guard = state.inner.write().await;
+    match session_register_json(&mut guard, &body) {
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+async fn session_get_handler(
+    State(state): State<AppState>,
+    AxumPath(session_pk): AxumPath<String>,
+) -> Response {
+    let guard = state.inner.read().await;
+    match session_get_json(&guard, &session_pk) {
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+async fn session_revoke_handler(
+    State(state): State<AppState>,
+    AxumPath(session_pk): AxumPath<String>,
+    body: Bytes,
+) -> Response {
+    let mut guard = state.inner.write().await;
+    match session_revoke_json(&mut guard, &session_pk, &body) {
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+fn session_public_view(session: &SessionState) -> Value {
+    serde_json::to_value(session).expect("SessionState serializes via serde")
+}
+
+fn session_register_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, HttpError> {
+    let path = state
+        .session_registry_path
+        .clone()
+        .ok_or_else(HttpError::session_registry_disabled)?;
+    let store = state
+        .session_store
+        .as_mut()
+        .ok_or_else(HttpError::session_registry_disabled)?;
+    let envelope: Value = serde_json::from_slice(body)
+        .map_err(|err| HttpError::bad_request(format!("body is not valid JSON: {err}")))?;
+    let envelope_obj = envelope
+        .as_object()
+        .ok_or_else(|| HttpError::bad_request("body must be a JSON object"))?;
+    let session_value = envelope_obj
+        .get("session")
+        .ok_or_else(|| HttpError::missing_field("session"))?;
+    let session: SessionState = serde_json::from_value(session_value.clone())
+        .map_err(|err| HttpError::bad_payload("session", err.to_string()))?;
+    let current_height = envelope_obj
+        .get("currentHeight")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| HttpError::missing_field("currentHeight"))?;
+    store
+        .append_register(&path, &session, current_height)
+        .map_err(|err| HttpError::bad_request(err.to_string()))?;
+    let stored = store
+        .get(&session.session_pk)
+        .ok_or_else(|| HttpError::internal("session vanished after register"))?;
+    Ok(json!({"ok": true, "session": session_public_view(stored)}))
+}
+
+fn session_get_json(state: &LocalNodeState, session_pk: &str) -> Result<Value, HttpError> {
+    if !is_well_formed_hex32(session_pk) {
+        return Err(HttpError::malformed_pk());
+    }
+    let store = state
+        .session_store
+        .as_ref()
+        .ok_or_else(HttpError::session_registry_disabled)?;
+    let session = store
+        .get(session_pk)
+        .ok_or_else(|| HttpError::session_not_found(session_pk.to_string()))?;
+    Ok(json!({"ok": true, "session": session_public_view(session)}))
+}
+
+fn session_revoke_json(
+    state: &mut LocalNodeState,
+    session_pk: &str,
+    body: &[u8],
+) -> Result<Value, HttpError> {
+    if !is_well_formed_hex32(session_pk) {
+        return Err(HttpError::malformed_pk());
+    }
+    let path = state
+        .session_registry_path
+        .clone()
+        .ok_or_else(HttpError::session_registry_disabled)?;
+    let store = state
+        .session_store
+        .as_mut()
+        .ok_or_else(HttpError::session_registry_disabled)?;
+    if !store.sessions().contains_key(session_pk) {
+        return Err(HttpError::session_not_found(session_pk.to_string()));
+    }
+    let envelope: Value = serde_json::from_slice(body)
+        .map_err(|err| HttpError::bad_request(format!("body is not valid JSON: {err}")))?;
+    let height = envelope
+        .as_object()
+        .and_then(|m| m.get("height"))
+        .and_then(Value::as_u64)
+        .ok_or_else(|| HttpError::missing_field("height"))?;
+    store
+        .append_revoke(&path, session_pk, height)
+        .map_err(|err| HttpError::bad_request(err.to_string()))?;
+    let stored = store
+        .get(session_pk)
+        .ok_or_else(|| HttpError::internal("session vanished after revoke"))?;
+    Ok(json!({"ok": true, "session": session_public_view(stored)}))
 }
 
 async fn fallback_handler(method: Method, uri: Uri) -> Response {

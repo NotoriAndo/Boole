@@ -89,6 +89,7 @@ fn concurrent_submits_serialize_through_admission() {
                 family_manifests_dir: None,
                 max_requests: Some(CONCURRENT_SUBMITS),
                 operator_signer_pks: vec![],
+                session_registry_path: None,
                 genesis_override: None,
             },
         )

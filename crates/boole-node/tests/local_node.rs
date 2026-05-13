@@ -36,6 +36,7 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
                 family_manifests_dir: None,
                 max_requests: Some(4),
                 operator_signer_pks: vec![],
+                session_registry_path: None,
                 genesis_override: None,
             },
         );
@@ -129,6 +130,7 @@ fn local_node_submit_accepts_share_without_block_when_no_proposer() {
                 family_manifests_dir: None,
                 max_requests: Some(2),
                 operator_signer_pks: vec![],
+                session_registry_path: None,
                 genesis_override: None,
             },
         )
@@ -191,6 +193,7 @@ fn local_node_submit_uses_tcp_peer_ip_not_spoofed_body_ip_for_rate_limit() {
                 family_manifests_dir: None,
                 max_requests: Some(2),
                 operator_signer_pks: vec![],
+                session_registry_path: None,
                 genesis_override: None,
             },
         )
@@ -259,6 +262,7 @@ fn local_node_rejects_oversized_http_body_before_json_parsing() {
                 family_manifests_dir: None,
                 max_requests: Some(1),
                 operator_signer_pks: vec![],
+                session_registry_path: None,
                 genesis_override: None,
             },
         )

@@ -70,6 +70,7 @@ fn boot_node_with_work(
                 family_manifests_dir: None,
                 max_requests: Some(max_requests),
                 operator_signer_pks: vec![],
+                session_registry_path: None,
                 genesis_override: None,
             },
         )
