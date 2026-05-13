@@ -15,6 +15,7 @@ Use it when you already have a persisted block NDJSON log and a submit receipt N
 boole chain settlement-report \
   --blocks <blocks.ndjson> \
   --receipts <submit-receipts.ndjson> \
+  --export-reputation-events <reputation-events.ndjson> \
   --json
 ```
 
@@ -30,6 +31,8 @@ The command first runs the same receipt/block/replay shape checks as `boole chai
   "lineageRequired": false,
   "blocksChecked": 2,
   "receiptsChecked": 1,
+  "reputationEventsExported": 1,
+  "reputationEventsPath": "<reputation-events.ndjson>",
   "settlement": {
     "rewardCredits": [
       { "pk": "<rewardRecipient>", "amount": "1" }
@@ -59,6 +62,25 @@ Keep these identities separate:
 
 This matters for session-bound work where the accepted proof/mining identity can differ from the fixed reward recipient.
 
+## Reputation event export
+
+`--export-reputation-events <path>` writes a read-only NDJSON export derived from `settlement.reputationDeltas`. This is an explicit artifact conversion, not a durable ledger append.
+
+Each row has this shape:
+
+```json
+{
+  "schema": "boole.reputation.event.v1",
+  "agentPk": "<submittedBy>",
+  "acceptedSubmits": 1,
+  "verifiedRewardAmount": "1",
+  "source": "settlement-report-shape-only",
+  "lineageVerified": false
+}
+```
+
+`lineageVerified: false` is intentional: the current CLI path is shape-only and does not verify signed-work lineage, requestHash ownership, or nonce binding. A future lineage-aware command may emit `lineageVerified: true` only after it verifies signed work.
+
 ## Failure behavior
 
 `settlement-report` is fail-closed.
@@ -79,7 +101,7 @@ Example failure detail includes both the suppression marker and the underlying a
 
 ## Non-mutation guarantee
 
-This command does not mutate reward or reputation ledgers. It only summarizes settlement deltas implied by already-audited local artifacts.
+This command does not mutate reward or reputation ledgers. It only summarizes settlement deltas implied by already-audited local artifacts. The optional reputation event export writes a standalone artifact file; it does not append to any durable reputation ledger.
 
 Use future durable ledger commands for actual settlement writes; do not treat this read-only report as a ledger mutation.
 

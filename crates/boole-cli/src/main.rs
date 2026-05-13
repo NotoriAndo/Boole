@@ -119,6 +119,9 @@ enum ChainCommand {
         /// Path to submit receipt ledger NDJSON.
         #[arg(long)]
         receipts: PathBuf,
+        /// Export read-only reputation event NDJSON rows derived from settlement.reputationDeltas.
+        #[arg(long)]
+        export_reputation_events: Option<PathBuf>,
         /// Emit JSON output.
         #[arg(long)]
         json: bool,
@@ -550,8 +553,14 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             ChainCommand::SettlementReport {
                 blocks,
                 receipts,
+                export_reputation_events,
                 json,
-            } => settlement_report(&blocks, &receipts, json),
+            } => settlement_report(
+                &blocks,
+                &receipts,
+                export_reputation_events.as_deref(),
+                json,
+            ),
         },
         Some(Command::Node { command }) => match command {
             NodeCommand::Start {
@@ -771,11 +780,21 @@ fn audit_receipts(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyho
     Ok(())
 }
 
-fn settlement_report(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyhow::Result<()> {
+fn settlement_report(
+    blocks_path: &Path,
+    receipts_path: &Path,
+    export_reputation_events: Option<&Path>,
+    json: bool,
+) -> anyhow::Result<()> {
     let blocks = read_ndjson::<boole_core::PersistedBlock>(blocks_path)?;
     let receipts = read_ndjson::<boole_core::SubmitReceipt>(receipts_path)?;
     let report = boole_core::audit_submit_receipts(&blocks, &receipts)
         .map_err(|err| anyhow::anyhow!("settlement suppressed: {err}"))?;
+    let reputation_events_exported = if let Some(path) = export_reputation_events {
+        export_reputation_event_rows(path, &report.settlement.reputation_deltas)?
+    } else {
+        0
+    };
     if json {
         println!(
             "{}",
@@ -786,18 +805,43 @@ fn settlement_report(blocks_path: &Path, receipts_path: &Path, json: bool) -> an
                 "lineageRequired": false,
                 "blocksChecked": report.blocks_checked,
                 "receiptsChecked": report.receipts_checked,
+                "reputationEventsExported": reputation_events_exported,
+                "reputationEventsPath": export_reputation_events.map(|path| path.to_string_lossy().to_string()),
                 "settlement": report.settlement,
             }))?
         );
     } else {
         println!(
-            "ok={} source=audit-receipts rewardCredits={} reputationDeltas={}",
+            "ok={} source=audit-receipts-shape-only rewardCredits={} reputationDeltas={} reputationEventsExported={}",
             report.ok,
             report.settlement.reward_credits.len(),
-            report.settlement.reputation_deltas.len()
+            report.settlement.reputation_deltas.len(),
+            reputation_events_exported
         );
     }
     Ok(())
+}
+
+fn export_reputation_event_rows(
+    path: &Path,
+    deltas: &[boole_core::SubmitReceiptReputationDelta],
+) -> anyhow::Result<u64> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut file = std::fs::File::create(path)?;
+    for delta in deltas {
+        let event = serde_json::json!({
+            "schema": boole_node::reputation_store::REPUTATION_EVENT_SCHEMA,
+            "agentPk": delta.agent_pk,
+            "acceptedSubmits": delta.accepted_submits,
+            "verifiedRewardAmount": delta.verified_reward_amount,
+            "source": "settlement-report-shape-only",
+            "lineageVerified": false,
+        });
+        writeln!(file, "{}", serde_json::to_string(&event)?)?;
+    }
+    Ok(deltas.len() as u64)
 }
 
 fn read_ndjson<T>(path: &Path) -> anyhow::Result<Vec<T>>

@@ -283,6 +283,111 @@ fn cli_settlement_report_json_exposes_settlement_only_surface() {
 }
 
 #[test]
+fn cli_settlement_report_exports_reputation_events_without_mutating_ledger() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
+            .expect("fixture parses");
+    let dir = std::env::temp_dir().join(format!(
+        "boole-cli-settlement-reputation-export-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let blocks_path = dir.join("blocks.ndjson");
+    let receipts_path = dir.join("submit-receipts.ndjson");
+    let events_path = dir.join("reputation-events.ndjson");
+    write_audit_fixture(&fixture, &blocks_path, &receipts_path);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "chain",
+            "settlement-report",
+            "--blocks",
+            blocks_path.to_str().expect("utf8 blocks path"),
+            "--receipts",
+            receipts_path.to_str().expect("utf8 receipts path"),
+            "--export-reputation-events",
+            events_path.to_str().expect("utf8 events path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json output");
+    assert_eq!(parsed["reputationEventsExported"], 1);
+    assert_eq!(
+        parsed["reputationEventsPath"],
+        events_path.to_str().expect("utf8 events path")
+    );
+
+    let exported = std::fs::read_to_string(&events_path).expect("reputation events written");
+    let lines: Vec<_> = exported.lines().collect();
+    assert_eq!(lines.len(), 1, "expected one event row: {exported}");
+    let event: serde_json::Value = serde_json::from_str(lines[0]).expect("event json");
+    assert_eq!(event["schema"], "boole.reputation.event.v1");
+    assert_eq!(
+        event["agentPk"],
+        "9999999999999999999999999999999999999999999999999999999999999999"
+    );
+    assert_eq!(event["acceptedSubmits"], 1);
+    assert_eq!(event["verifiedRewardAmount"], "1");
+    assert_eq!(event["source"], "settlement-report-shape-only");
+    assert_eq!(event["lineageVerified"], false);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cli_settlement_report_does_not_export_reputation_events_on_audit_failure() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
+            .expect("fixture parses");
+    let dir = std::env::temp_dir().join(format!(
+        "boole-cli-settlement-reputation-export-fail-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let blocks_path = dir.join("blocks.ndjson");
+    let receipts_path = dir.join("submit-receipts.ndjson");
+    let events_path = dir.join("reputation-events.ndjson");
+    write_audit_fixture_with_receipt(
+        &fixture,
+        &blocks_path,
+        &receipts_path,
+        r#"{"schema":"boole.submit.receipt.v1","accepted":true,"route":"/submit","sessionPk":"9999999999999999999999999999999999999999999999999999999999999999","submittedBy":"9999999999999999999999999999999999999999999999999999999999999999","nonce":"n-audit-1","requestHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","blockHeight":0,"blockC":"4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d","shareHash":"0101010101010101010101010101010101010101010101010101010101010101","proposerPk":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rewardRecipient":"1111111111111111111111111111111111111111111111111111111111111111","rewardAmount":"2"}"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "chain",
+            "settlement-report",
+            "--blocks",
+            blocks_path.to_str().expect("utf8 blocks path"),
+            "--receipts",
+            receipts_path.to_str().expect("utf8 receipts path"),
+            "--export-reputation-events",
+            events_path.to_str().expect("utf8 events path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+
+    assert!(!output.status.success(), "tampered receipt must fail");
+    assert!(
+        !events_path.exists(),
+        "audit failure must not write reputation export rows"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn cli_settlement_report_rejects_tampered_receipt_without_settlement_stdout() {
     let fixture: Fixture =
         serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
