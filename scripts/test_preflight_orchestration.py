@@ -62,6 +62,17 @@ class PreflightOrchestrationTests(unittest.TestCase):
         for fragment in expected_fragments:
             self.assertIn(fragment, text)
 
+    def test_smoke_entrypoints_default_to_v1_lenbound_not_v031_lp(self) -> None:
+        script_paths = [
+            ROOT / "scripts" / "boole-miner-hermes-real-verify-smoke.sh",
+            ROOT / "scripts" / "provider-model-smoke.sh",
+            ROOT / "scripts" / "boole-miner-ollama-gemma-smoke.sh",
+        ]
+        for path in script_paths:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn('PROFILE="${PROFILE:-v1-lenbound}"', text, path)
+            self.assertNotIn('PROFILE="${PROFILE:-v031-lp}"', text, path)
+
     def test_agent_mine_missing_runtime_skip_matches_contract_fixture(self) -> None:
         proc = subprocess.run(
             ["./scripts/boole-agent-mine.sh", "--runtime", "codex", "--agent-command", "/tmp/boole-missing-codex-runtime"],

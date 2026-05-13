@@ -98,6 +98,12 @@ class PublicBenchmarkArtifactTests(unittest.TestCase):
         for phrase in forbidden_claims:
             self.assertNotIn(phrase, readme)
 
+    def test_readme_crates_section_lists_all_workspace_crates(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        crates_section = readme.split("## Crates", 1)[1].split("## Self-test gate", 1)[0]
+        for crate in ["boole-core", "boole-cli", "boole-node", "boole-lean-runner", "boole-miner"]:
+            self.assertIn(f"`{crate}`", crates_section)
+
     def test_local_ollama_manual_smoke_guide_is_safe_and_optional(self) -> None:
         guide_path = ROOT / "docs" / "local-ollama-benchmark.md"
         self.assertTrue(guide_path.exists(), "missing docs/local-ollama-benchmark.md")

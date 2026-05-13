@@ -12,7 +12,7 @@ BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-hermes-real-verify-smoke.
 # `reward ledger divergence` at node boot.
 REWARD_LEDGER="${REWARD_LEDGER:-${TMPDIR:-/tmp}/boole-node-hermes-real-verify-smoke-rewards.ndjson}"
 TRIALS="${TRIALS:-3}"
-PROFILE="${PROFILE:-v031-lp}"
+PROFILE="${PROFILE:-v1-lenbound}"
 LEAN_DIR="${LEAN_DIR:-$ROOT/lean/checker}"
 FIXED_SEED="${FIXED_SEED:-b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764}"
 STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-miner-hermes-real-verify-state.XXXXXX")"

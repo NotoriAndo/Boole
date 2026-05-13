@@ -88,6 +88,7 @@ Rust boole-core can replay TypeScript-produced block/reward fixtures and produce
 - `boole-cli`: native CLI with stable JSON output and exit codes.
 - `boole-node`: Rust local node/runtime server, smoke runner, and future network daemon/RPC layer.
 - `boole-lean-runner`: Rust wrapper around Lean verifier artifacts/toolchain.
+- `boole-miner`: Rust miner runtime with proof-intake, canonicalizer, verifier, local/agent driver mining loop, and thin `boole-miner` binary.
 
 ## Self-test gate
 

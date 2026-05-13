@@ -73,6 +73,8 @@ require_text README.md "Which AI agents can create verified work that becomes bl
 require_text README.md "fake-command CI path: PASS"
 require_text README.md "docs/benchmarks/proof-to-block-v0.1-sample.md"
 require_text README.md "docs/local-ollama-benchmark.md"
+require_text README.md "boole-miner"
+require_text README.md "proof-intake, canonicalizer, verifier"
 require_text docs/phase7-solo-preflight.md "seven-step guided plan"
 require_text docs/phase7-solo-preflight.md "wizard-summary.redacted.json"
 require_text docs/phase7-solo-preflight.md "--target hermes:configured"
