@@ -30,10 +30,12 @@ require_file docs/benchmarks/proof-to-block-v0.1-sample.md
 require_file fixtures/benchmarks/proof-to-block-v0.1/sample-summary.json
 require_file fixtures/benchmarks/proof-to-block-v0.1/sample-leaderboard.md
 require_file docs/replay-consensus.md
+require_file docs/settlement-report.md
 require_file docs/adr/0001-pofp-v2-canonical-widening.md
 
 require_text README.md "docs/install.md"
 require_text README.md "docs/replay-consensus.md"
+require_text README.md "docs/settlement-report.md"
 require_text install.sh "installs required dependencies"
 require_text install.sh "never prints API key values"
 require_text docs/install.md 'Rust `1.95.0`'
@@ -83,6 +85,13 @@ require_text docs/replay-consensus.md "fixtures/protocol/replay/v2.json"
 require_text docs/replay-consensus.md "legacy/no-evidence replay compatibility"
 require_text docs/replay-consensus.md "selected share evidence minShareScore mismatch"
 require_text docs/replay-consensus.md "selected share evidence requires minShareScoreMultiplierNanos"
+
+require_text docs/settlement-report.md "boole chain settlement-report"
+require_text docs/settlement-report.md "audit-receipts = full auditor report"
+require_text docs/settlement-report.md "settlement-report = read-only reward/reputation summary"
+require_text docs/settlement-report.md "does not mutate reward or reputation ledgers"
+require_text docs/settlement-report.md "audit failure suppresses settlement output"
+require_text docs/settlement-report.md "not public-network mining"
 
 require_text docs/adr/0001-pofp-v2-canonical-widening.md "Status: Implemented"
 require_text docs/adr/0001-pofp-v2-canonical-widening.md "POFP-v2 is the default canonical package emitted by the Rust Lean proof bridge"
