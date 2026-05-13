@@ -1,5 +1,9 @@
-use boole_core::{audit_submit_receipts, SubmitReceipt};
+use boole_core::{
+    audit_submit_receipt_lineages, audit_submit_receipts, canonical_payload_hash_hex,
+    SignedEnvelope, SigningKeyV2, SubmitReceipt, SubmitReceiptLineage,
+};
 use serde::Deserialize;
+use serde_json::{json, Value};
 
 #[derive(Debug, Deserialize)]
 struct Fixture {
@@ -32,6 +36,35 @@ fn valid_receipt() -> SubmitReceipt {
     }
 }
 
+fn work_payload() -> Value {
+    json!({
+        "schema": "boole.test.work.v1",
+        "shareHash": "0101010101010101010101010101010101010101010101010101010101010101"
+    })
+}
+
+fn signed_work_for_receipt(receipt: &mut SubmitReceipt, nonce: &str) -> SignedEnvelope {
+    let key = SigningKeyV2::from_dev_id("submit-receipt-lineage-test");
+    let work_payload = work_payload();
+    let request_hash = canonical_payload_hash_hex(&work_payload);
+    receipt.session_pk = key.pk_hex();
+    receipt.submitted_by = key.pk_hex();
+    receipt.nonce = nonce.to_string();
+    receipt.request_hash = request_hash.clone();
+
+    key.sign(&json!({
+        "schema": "boole.signer.work.v1",
+        "route": "/submit",
+        "familyId": "boole.protocol-invariant.v01",
+        "verifierId": "lean-runner-v01",
+        "fee": "0",
+        "requestHash": request_hash,
+        "nonce": nonce,
+        "workPayload": work_payload,
+    }))
+    .expect("signed work envelope")
+}
+
 #[test]
 fn audit_accepts_receipt_bound_to_replayed_block_credit() {
     let fixture = replay_fixture();
@@ -40,6 +73,96 @@ fn audit_accepts_receipt_bound_to_replayed_block_credit() {
     assert_eq!(report.receipts_checked, 1);
     assert_eq!(report.blocks_checked, fixture.blocks.len() as u64);
     assert!(report.ok);
+}
+
+#[test]
+fn audit_accepts_signed_work_receipt_lineage_bound_to_replayed_block_credit() {
+    let fixture = replay_fixture();
+    let mut receipt = valid_receipt();
+    let signed_work = signed_work_for_receipt(&mut receipt, "n-lineage-1");
+
+    let report = audit_submit_receipt_lineages(
+        &fixture.blocks,
+        &[SubmitReceiptLineage {
+            receipt,
+            signed_work,
+        }],
+    )
+    .expect("lineage audit passes");
+
+    assert!(report.ok);
+    assert_eq!(report.receipts_checked, 1);
+    assert_eq!(report.blocks_checked, fixture.blocks.len() as u64);
+}
+
+#[test]
+fn audit_rejects_lineage_when_signed_work_nonce_differs_from_receipt() {
+    let fixture = replay_fixture();
+    let mut receipt = valid_receipt();
+    let signed_work = signed_work_for_receipt(&mut receipt, "n-lineage-1");
+    receipt.nonce = "n-lineage-2".to_string();
+
+    let err = audit_submit_receipt_lineages(
+        &fixture.blocks,
+        &[SubmitReceiptLineage {
+            receipt,
+            signed_work,
+        }],
+    )
+    .expect_err("nonce mismatch fails");
+
+    assert!(
+        err.to_string().contains("nonce mismatch"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn audit_rejects_lineage_when_work_payload_hash_differs_from_request_hash() {
+    let fixture = replay_fixture();
+    let mut receipt = valid_receipt();
+    let mut signed_work = signed_work_for_receipt(&mut receipt, "n-lineage-1");
+    signed_work.payload["workPayload"]["shareHash"] =
+        json!("0202020202020202020202020202020202020202020202020202020202020202");
+    signed_work = SigningKeyV2::from_dev_id("submit-receipt-lineage-test")
+        .sign(&signed_work.payload)
+        .expect("resigned tampered payload");
+
+    let err = audit_submit_receipt_lineages(
+        &fixture.blocks,
+        &[SubmitReceiptLineage {
+            receipt,
+            signed_work,
+        }],
+    )
+    .expect_err("work payload hash mismatch fails");
+
+    assert!(
+        err.to_string().contains("workPayload hash mismatch"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn audit_rejects_lineage_when_signed_work_signature_invalid() {
+    let fixture = replay_fixture();
+    let mut receipt = valid_receipt();
+    let mut signed_work = signed_work_for_receipt(&mut receipt, "n-lineage-1");
+    signed_work.signature = format!("00{}", &signed_work.signature[2..]);
+
+    let err = audit_submit_receipt_lineages(
+        &fixture.blocks,
+        &[SubmitReceiptLineage {
+            receipt,
+            signed_work,
+        }],
+    )
+    .expect_err("invalid signature fails");
+
+    assert!(
+        err.to_string().contains("signature invalid"),
+        "unexpected error: {err}"
+    );
 }
 
 #[test]

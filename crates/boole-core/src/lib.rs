@@ -92,7 +92,10 @@ pub use submission_pow::{
     check_submission_pow, check_submission_pow_json, check_submission_pow_with_policy,
     SubmissionPowRejectReason, SubmissionPowResult,
 };
-pub use submit_receipt_audit::{audit_submit_receipts, SubmitReceipt, SubmitReceiptAuditReport};
+pub use submit_receipt_audit::{
+    audit_submit_receipt_lineages, audit_submit_receipts, SubmitReceipt, SubmitReceiptAuditReport,
+    SubmitReceiptLineage,
+};
 pub use validator::{
     decode_detail_from_json, decode_detail_json, validate_proof_package,
     validate_proof_package_json, validate_proof_package_shape, validate_proof_package_with_policy,

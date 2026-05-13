@@ -1,8 +1,12 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use crate::{compute_block_reward_credits, Hex32, PersistedBlock};
+use crate::{
+    canonical_payload_hash_hex, compute_block_reward_credits, Hex32, PersistedBlock,
+    SignedEnvelope, SIGNED_ENVELOPE_SCHEMA,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +32,26 @@ pub struct SubmitReceiptAuditReport {
     pub ok: bool,
     pub blocks_checked: u64,
     pub receipts_checked: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubmitReceiptLineage {
+    pub receipt: SubmitReceipt,
+    pub signed_work: SignedEnvelope,
+}
+
+pub fn audit_submit_receipt_lineages(
+    blocks: &[PersistedBlock],
+    lineages: &[SubmitReceiptLineage],
+) -> anyhow::Result<SubmitReceiptAuditReport> {
+    for (idx, lineage) in lineages.iter().enumerate() {
+        validate_signed_work_lineage(idx, lineage)?;
+    }
+    let receipts: Vec<SubmitReceipt> = lineages
+        .iter()
+        .map(|lineage| lineage.receipt.clone())
+        .collect();
+    audit_submit_receipts(blocks, &receipts)
 }
 
 pub fn audit_submit_receipts(
@@ -90,6 +114,105 @@ pub fn audit_submit_receipts(
         ok: true,
         blocks_checked: blocks.len() as u64,
         receipts_checked: receipts.len() as u64,
+    })
+}
+
+fn validate_signed_work_lineage(idx: usize, lineage: &SubmitReceiptLineage) -> anyhow::Result<()> {
+    let receipt = &lineage.receipt;
+    let signed_work = &lineage.signed_work;
+
+    if signed_work.schema != SIGNED_ENVELOPE_SCHEMA {
+        anyhow::bail!(
+            "lineage {} signedWork schema mismatch: got {}, expected {}",
+            idx,
+            signed_work.schema,
+            SIGNED_ENVELOPE_SCHEMA
+        );
+    }
+    if signed_work.pk != receipt.submitted_by {
+        anyhow::bail!(
+            "lineage {} signedWork pk mismatch: got {}, expected submittedBy {}",
+            idx,
+            signed_work.pk,
+            receipt.submitted_by
+        );
+    }
+    if receipt.submitted_by != receipt.session_pk {
+        anyhow::bail!(
+            "lineage {} submittedBy/sessionPk mismatch: submittedBy {}, sessionPk {}",
+            idx,
+            receipt.submitted_by,
+            receipt.session_pk
+        );
+    }
+    match signed_work.verify() {
+        Ok(true) => {}
+        Ok(false) => anyhow::bail!("lineage {} signedWork signature invalid", idx),
+        Err(err) => anyhow::bail!("lineage {} signedWork verification failed: {}", idx, err),
+    }
+
+    let payload = &signed_work.payload;
+    require_payload_str(idx, payload, "schema", "boole.signer.work.v1")?;
+    require_payload_str(idx, payload, "route", "/submit")?;
+    let nonce = payload_str(idx, payload, "nonce")?;
+    if nonce != receipt.nonce {
+        anyhow::bail!(
+            "lineage {} nonce mismatch: signedWork {}, receipt {}",
+            idx,
+            nonce,
+            receipt.nonce
+        );
+    }
+    let request_hash = payload_str(idx, payload, "requestHash")?;
+    if request_hash != receipt.request_hash {
+        anyhow::bail!(
+            "lineage {} requestHash mismatch: signedWork {}, receipt {}",
+            idx,
+            request_hash,
+            receipt.request_hash
+        );
+    }
+    let work_payload = payload
+        .get("workPayload")
+        .ok_or_else(|| anyhow::anyhow!("lineage {} missing signedWork payload.workPayload", idx))?;
+    let computed_request_hash = canonical_payload_hash_hex(work_payload);
+    if computed_request_hash != receipt.request_hash {
+        anyhow::bail!(
+            "lineage {} workPayload hash mismatch: got {}, expected {}",
+            idx,
+            computed_request_hash,
+            receipt.request_hash
+        );
+    }
+    Ok(())
+}
+
+fn require_payload_str(
+    idx: usize,
+    payload: &Value,
+    field: &str,
+    expected: &str,
+) -> anyhow::Result<()> {
+    let got = payload_str(idx, payload, field)?;
+    if got != expected {
+        anyhow::bail!(
+            "lineage {} signedWork payload.{} mismatch: got {}, expected {}",
+            idx,
+            field,
+            got,
+            expected
+        );
+    }
+    Ok(())
+}
+
+fn payload_str<'a>(idx: usize, payload: &'a Value, field: &str) -> anyhow::Result<&'a str> {
+    payload.get(field).and_then(Value::as_str).ok_or_else(|| {
+        anyhow::anyhow!(
+            "lineage {} signedWork payload.{} must be a string",
+            idx,
+            field
+        )
     })
 }
 
