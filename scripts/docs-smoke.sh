@@ -87,8 +87,11 @@ require_text docs/replay-consensus.md "selected share evidence minShareScore mis
 require_text docs/replay-consensus.md "selected share evidence requires minShareScoreMultiplierNanos"
 
 require_text docs/settlement-report.md "boole chain settlement-report"
-require_text docs/settlement-report.md "audit-receipts = full auditor report"
+require_text docs/settlement-report.md "audit-receipts = full shape-only auditor report"
 require_text docs/settlement-report.md "settlement-report = read-only reward/reputation summary"
+require_text docs/settlement-report.md "auditMode"
+require_text docs/settlement-report.md "lineageRequired"
+require_text docs/settlement-report.md "does not verify signed-work lineage"
 require_text docs/settlement-report.md "does not mutate reward or reputation ledgers"
 require_text docs/settlement-report.md "audit failure suppresses settlement output"
 require_text docs/settlement-report.md "not public-network mining"

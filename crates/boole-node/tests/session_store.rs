@@ -19,13 +19,14 @@ const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const PK_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const PK_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 const ROOT: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+const PK_D: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
 fn fixture_session(session_pk: &str) -> SessionState {
     SessionState {
         session_pk: session_pk.to_string(),
         owner_pk: PK_B.to_string(),
         agent_pk: PK_C.to_string(),
-        fixed_reward_recipient: PK_B.to_string(),
+        fixed_reward_recipient: PK_D.to_string(),
         allowed_family_root: ROOT.to_string(),
         max_fee_per_request: "12".to_string(),
         activation_height: 0,

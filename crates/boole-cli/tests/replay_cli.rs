@@ -64,6 +64,8 @@ fn cli_runtime_error_json_goes_to_stderr_and_leaves_stdout_empty() {
 #[serde(rename_all = "camelCase")]
 struct CliAuditReceiptsOutput {
     ok: bool,
+    audit_mode: String,
+    lineage_required: bool,
     blocks_checked: u64,
     receipts_checked: u64,
     evidence: CliAuditReceiptsEvidence,
@@ -75,6 +77,8 @@ struct CliAuditReceiptsOutput {
 struct CliSettlementReportOutput {
     ok: bool,
     source: String,
+    audit_mode: String,
+    lineage_required: bool,
     blocks_checked: u64,
     receipts_checked: u64,
     settlement: CliAuditReceiptsSettlement,
@@ -171,6 +175,8 @@ fn cli_audit_receipts_json_accepts_ledger_matching_blocks() {
     let parsed: CliAuditReceiptsOutput =
         serde_json::from_slice(&output.stdout).expect("json output");
     assert!(parsed.ok);
+    assert_eq!(parsed.audit_mode, "shape-only");
+    assert!(!parsed.lineage_required);
     assert_eq!(parsed.blocks_checked, fixture.blocks.len() as u64);
     assert_eq!(parsed.receipts_checked, 1);
     assert_eq!(parsed.evidence.block_heights, vec![0, 1]);
@@ -246,7 +252,9 @@ fn cli_settlement_report_json_exposes_settlement_only_surface() {
     let parsed: CliSettlementReportOutput =
         serde_json::from_slice(&output.stdout).expect("json output");
     assert!(parsed.ok);
-    assert_eq!(parsed.source, "audit-receipts");
+    assert_eq!(parsed.source, "audit-receipts-shape-only");
+    assert_eq!(parsed.audit_mode, "shape-only");
+    assert!(!parsed.lineage_required);
     assert_eq!(parsed.blocks_checked, fixture.blocks.len() as u64);
     assert_eq!(parsed.receipts_checked, 1);
     assert_eq!(parsed.settlement.reward_credits.len(), 1);

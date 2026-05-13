@@ -29,6 +29,7 @@ const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const PK_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const PK_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 const ROOT: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+const PK_D: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
 fn rand_suffix() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -150,7 +151,7 @@ fn fixture_session() -> Value {
         "sessionPk": PK_A,
         "ownerPk": PK_B,
         "agentPk": PK_C,
-        "fixedRewardRecipient": PK_B,
+        "fixedRewardRecipient": PK_D,
         "allowedFamilyRoot": ROOT,
         "maxFeePerRequest": "12",
         "activationHeight": 0,

@@ -3,7 +3,8 @@ use boole_core::{SessionPolicy, SessionState, SignerRequest};
 const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const PK_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const PK_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-const ROOT: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+const PK_D: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+const ROOT: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
 #[test]
 fn session_state_accepts_minimal_consensus_fields() {
@@ -11,7 +12,7 @@ fn session_state_accepts_minimal_consensus_fields() {
         session_pk: PK_A.to_string(),
         owner_pk: PK_B.to_string(),
         agent_pk: PK_C.to_string(),
-        fixed_reward_recipient: PK_B.to_string(),
+        fixed_reward_recipient: PK_D.to_string(),
         allowed_family_root: ROOT.to_string(),
         max_fee_per_request: "12".to_string(),
         activation_height: 10,
@@ -47,6 +48,25 @@ fn session_state_rejects_revoked_or_expired_or_malformed() {
         .unwrap_err()
         .to_string()
         .contains("sessionPk"));
+}
+
+#[test]
+fn session_state_rejects_collapsed_role_keys() {
+    let mut same = SessionState::test_fixture();
+    same.owner_pk = same.session_pk.clone();
+    assert!(same
+        .validate_at_height(10)
+        .unwrap_err()
+        .to_string()
+        .contains("role keys must be unique"));
+
+    let mut same = SessionState::test_fixture();
+    same.agent_pk = same.fixed_reward_recipient.clone();
+    assert!(same
+        .validate_at_height(10)
+        .unwrap_err()
+        .to_string()
+        .contains("role keys must be unique"));
 }
 
 #[test]

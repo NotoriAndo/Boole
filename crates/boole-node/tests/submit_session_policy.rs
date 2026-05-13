@@ -42,6 +42,7 @@ const PK_OWNER: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 const PK_AGENT_RAW: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 const ROOT_HEX: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 const PK_OTHER: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+const PK_REWARD: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -321,7 +322,7 @@ fn submit_with_unknown_session_pk_returns_session_unknown() {
     let body = scenario_body();
     let session = json!({
         "submittedBy": PK_AGENT,
-        "rewardRecipient": PK_OWNER,
+        "rewardRecipient": PK_REWARD,
         "nonce": "n-unknown",
     });
     let (status, value) = http_post(boot.addr, "/submit", &submit_envelope(body, Some(session)));
@@ -338,13 +339,13 @@ fn submit_with_revoked_session_returns_session_revoked() {
     let paths = BootPaths::new("revoked");
     let boot = boot_with(&paths, 3);
 
-    register_session(boot.addr, PK_AGENT, PK_OWNER);
+    register_session(boot.addr, PK_AGENT, PK_REWARD);
     revoke_session(boot.addr, PK_AGENT);
 
     let body = scenario_body();
     let session = json!({
         "submittedBy": PK_AGENT,
-        "rewardRecipient": PK_OWNER,
+        "rewardRecipient": PK_REWARD,
         "nonce": "n-revoked",
     });
     let (status, value) = http_post(boot.addr, "/submit", &submit_envelope(body, Some(session)));
@@ -361,7 +362,7 @@ fn submit_with_reward_recipient_mismatch_is_rejected() {
     let paths = BootPaths::new("recipient");
     let boot = boot_with(&paths, 2);
 
-    register_session(boot.addr, PK_AGENT, PK_OWNER);
+    register_session(boot.addr, PK_AGENT, PK_REWARD);
 
     let body = scenario_body();
     let session = json!({
@@ -385,10 +386,10 @@ fn submit_replayed_nonce_returns_nonce_replayed() {
 
     let key = SigningKeyV2::from_dev_id("n21-replay");
     let session_pk = key.pk_hex();
-    register_session(boot.addr, &session_pk, PK_OWNER);
+    register_session(boot.addr, &session_pk, PK_REWARD);
 
     let body = scenario_body();
-    let session = signed_work_session(&key, &body, "n-replay", PK_OWNER);
+    let session = signed_work_session(&key, &body, "n-replay", PK_REWARD);
 
     let (status_first, value_first) = http_post(
         boot.addr,
@@ -427,9 +428,9 @@ fn submit_nonce_dedup_survives_restart() {
     let first = boot_with(&paths, 2);
     let key = SigningKeyV2::from_dev_id("n21-restart");
     let session_pk = key.pk_hex();
-    register_session(first.addr, &session_pk, PK_OWNER);
+    register_session(first.addr, &session_pk, PK_REWARD);
     let body = scenario_body();
-    let session = signed_work_session(&key, &body, "n-restart", PK_OWNER);
+    let session = signed_work_session(&key, &body, "n-restart", PK_REWARD);
     let (status_first, value_first) = http_post(
         first.addr,
         "/submit",
@@ -469,11 +470,11 @@ fn submit_with_active_session_requires_signed_work_envelope() {
     let paths = BootPaths::new("requires-signed-work");
     let boot = boot_with(&paths, 2);
 
-    register_session(boot.addr, PK_AGENT, PK_OWNER);
+    register_session(boot.addr, PK_AGENT, PK_REWARD);
     let body = scenario_body();
     let session = json!({
         "submittedBy": PK_AGENT,
-        "rewardRecipient": PK_OWNER,
+        "rewardRecipient": PK_REWARD,
         "nonce": "n-missing-signed-work",
     });
 
@@ -496,9 +497,9 @@ fn submit_rejects_tampered_signed_work_payload() {
 
     let key = SigningKeyV2::from_dev_id("n21-tampered");
     let session_pk = key.pk_hex();
-    register_session(boot.addr, &session_pk, PK_OWNER);
+    register_session(boot.addr, &session_pk, PK_REWARD);
     let body = scenario_body();
-    let mut session = signed_work_session(&key, &body, "n-tamper", PK_OWNER);
+    let mut session = signed_work_session(&key, &body, "n-tamper", PK_REWARD);
     session["signedWork"]["payload"]["workPayload"]["nonceS"] =
         json!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
@@ -520,7 +521,7 @@ fn submit_rejects_request_hash_mismatch() {
 
     let key = SigningKeyV2::from_dev_id("n21-request-hash");
     let session_pk = key.pk_hex();
-    register_session(boot.addr, &session_pk, PK_OWNER);
+    register_session(boot.addr, &session_pk, PK_REWARD);
     let body = scenario_body();
     let payload = json!({
         "schema": "boole.signer.work.v1",
@@ -537,7 +538,7 @@ fn submit_rejects_request_hash_mismatch() {
         .expect("sign mismatched requestHash payload");
     let session = json!({
         "submittedBy": session_pk,
-        "rewardRecipient": PK_OWNER,
+        "rewardRecipient": PK_REWARD,
         "nonce": "n-bad-request-hash",
         "signedWork": {
             "schema": signed.schema,
@@ -574,7 +575,7 @@ fn submit_rejects_session_expired_at_current_node_height() {
         "sessionPk": session_pk,
         "ownerPk": PK_OWNER,
         "agentPk": PK_AGENT_RAW,
-        "fixedRewardRecipient": PK_OWNER,
+        "fixedRewardRecipient": PK_REWARD,
         "allowedFamilyRoot": ROOT_HEX,
         "maxFeePerRequest": "12",
         "activationHeight": 0,
@@ -605,7 +606,7 @@ fn submit_rejects_session_expired_at_current_node_height() {
     );
 
     let body = scenario_body();
-    let session_submit = signed_work_session(&key, &body, "n-expired-at-submit", PK_OWNER);
+    let session_submit = signed_work_session(&key, &body, "n-expired-at-submit", PK_REWARD);
     let (status, value) = http_post(
         boot.addr,
         "/submit",
@@ -628,11 +629,11 @@ fn rejected_admission_does_not_burn_submit_nonce() {
 
     let key = SigningKeyV2::from_dev_id("n21-rejected-does-not-burn");
     let session_pk = key.pk_hex();
-    register_session(boot.addr, &session_pk, PK_OWNER);
+    register_session(boot.addr, &session_pk, PK_REWARD);
 
     let mut bad_body = scenario_body();
     bad_body["c"] = json!(ROOT_HEX);
-    let bad_session = signed_work_session(&key, &bad_body, "n-retry-after-reject", PK_OWNER);
+    let bad_session = signed_work_session(&key, &bad_body, "n-retry-after-reject", PK_REWARD);
     let (bad_status, bad_value) = http_post(
         boot.addr,
         "/submit",
@@ -648,7 +649,7 @@ fn rejected_admission_does_not_burn_submit_nonce() {
     );
 
     let good_body = scenario_body();
-    let good_session = signed_work_session(&key, &good_body, "n-retry-after-reject", PK_OWNER);
+    let good_session = signed_work_session(&key, &good_body, "n-retry-after-reject", PK_REWARD);
     let (good_status, good_value) = http_post(
         boot.addr,
         "/submit",

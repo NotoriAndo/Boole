@@ -750,7 +750,18 @@ fn audit_receipts(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyho
     let receipts = read_ndjson::<boole_core::SubmitReceipt>(receipts_path)?;
     let report = boole_core::audit_submit_receipts(&blocks, &receipts)?;
     if json {
-        println!("{}", serde_json::to_string(&report)?);
+        println!(
+            "{}",
+            serde_json::to_string(&serde_json::json!({
+                "ok": report.ok,
+                "auditMode": "shape-only",
+                "lineageRequired": false,
+                "blocksChecked": report.blocks_checked,
+                "receiptsChecked": report.receipts_checked,
+                "evidence": report.evidence,
+                "settlement": report.settlement,
+            }))?
+        );
     } else {
         println!(
             "ok={} blocksChecked={} receiptsChecked={}",
@@ -770,7 +781,9 @@ fn settlement_report(blocks_path: &Path, receipts_path: &Path, json: bool) -> an
             "{}",
             serde_json::to_string(&serde_json::json!({
                 "ok": report.ok,
-                "source": "audit-receipts",
+                "source": "audit-receipts-shape-only",
+                "auditMode": "shape-only",
+                "lineageRequired": false,
                 "blocksChecked": report.blocks_checked,
                 "receiptsChecked": report.receipts_checked,
                 "settlement": report.settlement,

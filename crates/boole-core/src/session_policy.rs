@@ -77,6 +77,17 @@ impl SessionState {
         validate_hex32("allowedFamilyRoot", &self.allowed_family_root)?;
         validate_hex32("policyHash", &self.policy_hash)?;
         let _ = self.max_fee_per_request.parse::<u128>()?;
+        let mut role_keys = std::collections::BTreeSet::new();
+        for key in [
+            &self.session_pk,
+            &self.owner_pk,
+            &self.agent_pk,
+            &self.fixed_reward_recipient,
+        ] {
+            if !role_keys.insert(key) {
+                anyhow::bail!("session role keys must be unique");
+            }
+        }
         if self.revoked {
             anyhow::bail!("session revoked");
         }
@@ -97,17 +108,18 @@ impl SessionState {
         let b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string();
         let c = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string();
         let d = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd".to_string();
+        let e = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
         Self {
             session_pk: a,
-            owner_pk: b.clone(),
+            owner_pk: b,
             agent_pk: c,
-            fixed_reward_recipient: b,
-            allowed_family_root: d.clone(),
+            fixed_reward_recipient: d.clone(),
+            allowed_family_root: e.clone(),
             max_fee_per_request: "12".to_string(),
             activation_height: 0,
             expiry_height: 100,
             revoked: false,
-            policy_hash: d,
+            policy_hash: e,
         }
     }
 }

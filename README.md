@@ -150,7 +150,7 @@ See [`docs/replay-consensus.md`](docs/replay-consensus.md).
 
 ## Settlement report
 
-`boole chain settlement-report --blocks <blocks.ndjson> --receipts <submit-receipts.ndjson> --json` exposes the read-only reward/reputation summary implied by submit receipts that pass the same block/replay audit as `audit-receipts`. It does not mutate reward or reputation ledgers, and audit failure suppresses settlement output.
+`boole chain settlement-report --blocks <blocks.ndjson> --receipts <submit-receipts.ndjson> --json` exposes the read-only reward/reputation summary implied by submit receipts that pass the same shape-only block/replay audit as `audit-receipts`. It does not verify signed-work lineage, does not mutate reward or reputation ledgers, and audit failure suppresses settlement output.
 
 See [`docs/settlement-report.md`](docs/settlement-report.md).
 

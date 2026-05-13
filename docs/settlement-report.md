@@ -4,7 +4,7 @@
 
 It answers a narrower question than the full receipt auditor:
 
-- `audit-receipts = full auditor report`
+- `audit-receipts = full shape-only auditor report`
 - `settlement-report = read-only reward/reputation summary`
 
 Use it when you already have a persisted block NDJSON log and a submit receipt NDJSON ledger, and you want the reward/reputation deltas implied by receipts that pass the same block/replay audit.
@@ -18,14 +18,16 @@ boole chain settlement-report \
   --json
 ```
 
-The command first runs the same receipt/block/replay checks as `boole chain audit-receipts`. It does not bypass audit logic.
+The command first runs the same receipt/block/replay shape checks as `boole chain audit-receipts`. It does not bypass audit logic, but this CLI path is intentionally `shape-only`: it does not verify signed-work lineage, requestHash ownership, or nonce binding unless a future lineage input is added.
 
 ## Output shape
 
 ```json
 {
   "ok": true,
-  "source": "audit-receipts",
+  "source": "audit-receipts-shape-only",
+  "auditMode": "shape-only",
+  "lineageRequired": false,
   "blocksChecked": 2,
   "receiptsChecked": 1,
   "settlement": {

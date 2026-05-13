@@ -2059,8 +2059,13 @@ fn submit_receipt_json(
     let reward_amount = compute_block_reward_credits(block)?
         .into_iter()
         .find(|credit| credit.pk == session.reward_recipient)
-        .map(|credit| credit.amount)
-        .unwrap_or_else(|| "0".to_string());
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "rewardRecipient not credited by replay: {}",
+                session.reward_recipient
+            )
+        })?
+        .amount;
     Ok(json!({
         "schema": "boole.submit.receipt.v1",
         "accepted": true,
@@ -2129,4 +2134,55 @@ fn block_json(block: &PersistedBlock) -> Value {
         }
     }
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const PK_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const HASH_0: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+    const HASH_1: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+
+    #[test]
+    fn submit_receipt_json_fails_when_reward_recipient_is_not_replay_credited() {
+        let session = CheckedSubmitSession {
+            submitted_by: PK_A.to_string(),
+            nonce: "n-missing-credit".to_string(),
+            reward_recipient: PK_B.to_string(),
+            request_hash: HASH_1.to_string(),
+            route: "/submit".to_string(),
+        };
+        let block = PersistedBlock {
+            height: 0,
+            prev_c: HASH_0.to_string(),
+            c: HASH_1.to_string(),
+            proposer_pk: PK_A.to_string(),
+            selected_share_hashes: vec![HASH_1.to_string()],
+            selected_share_pks: vec![PK_A.to_string()],
+            selected_share_reward_pks: vec![PK_A.to_string()],
+            proposer_reward_pk: PK_A.to_string(),
+            selected_share_evidence: Vec::new(),
+            min_share_score: "0".to_string(),
+            min_share_score_multiplier_nanos: 0,
+            kmax_applied: 1,
+            difficulty_epoch: 0,
+            t_block: "ff".to_string(),
+            t_share: "ff".to_string(),
+            difficulty_weight: "1".to_string(),
+            dropped_below_min_score: 0,
+            dropped_kernel_reject: 0,
+            truncated_by_kmax: 0,
+            ts: 0,
+            promoted_bounty_credits: Vec::new(),
+        };
+
+        let err = submit_receipt_json(&session, &block, HASH_1)
+            .expect_err("missing replay credit must fail receipt creation");
+        assert!(
+            err.to_string().contains("rewardRecipient not credited"),
+            "unexpected error: {err}"
+        );
+    }
 }
