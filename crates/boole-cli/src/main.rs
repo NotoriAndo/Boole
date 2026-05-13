@@ -41,6 +41,11 @@ enum Command {
         #[command(subcommand)]
         command: AccountCommand,
     },
+    /// Read-only reputation ledger inspection.
+    Reputation {
+        #[command(subcommand)]
+        command: ReputationCommand,
+    },
     /// Work manifest catalog queries against a running boole-node.
     Work {
         #[command(subcommand)]
@@ -327,6 +332,22 @@ enum AccountCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum ReputationCommand {
+    /// Inspect a file-backed reputation ledger for an agent key without mutating it.
+    Inspect {
+        /// Path to reputation NDJSON ledger.
+        #[arg(long)]
+        ledger: PathBuf,
+        /// 32-byte agent public key hex (64 lowercase hex chars).
+        #[arg(long = "agent-pk")]
+        agent_pk: String,
+        /// Emit JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum WorkCommand {
     /// List the static work manifests served by `/work`.
     List {
@@ -553,6 +574,13 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             AccountCommand::Balance { pk, node, json } => {
                 account_balance(&pk, node.as_deref(), json)
             }
+        },
+        Some(Command::Reputation { command }) => match command {
+            ReputationCommand::Inspect {
+                ledger,
+                agent_pk,
+                json,
+            } => reputation_inspect(&ledger, &agent_pk, json),
         },
         Some(Command::Work { command }) => match command {
             WorkCommand::List { node, json } => work_list(node.as_deref(), json),
@@ -874,6 +902,35 @@ fn account_balance(pk: &str, node: Option<&str>, json: bool) -> anyhow::Result<(
 
 fn is_well_formed_hex32(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn reputation_inspect(ledger: &Path, agent_pk: &str, json: bool) -> anyhow::Result<()> {
+    if !is_well_formed_hex32(agent_pk) {
+        emit_typed_error(
+            "malformed-agent-pk",
+            2,
+            serde_json::json!({ "agentPk": agent_pk }),
+        );
+    }
+    let ledger = boole_node::reputation_store::FileReputationLedger::recover(ledger)?;
+    let stats = ledger.stats_for(agent_pk);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&serde_json::json!({
+                "ok": true,
+                "source": "reputation-ledger",
+                "ledgerEvents": ledger.size(),
+                "stats": stats,
+            }))?
+        );
+    } else {
+        println!(
+            "agentPk={} acceptedSubmits={} verifiedRewardAmount={} eventCount={}",
+            stats.agent_pk, stats.accepted_submits, stats.verified_reward_amount, stats.event_count
+        );
+    }
+    Ok(())
 }
 
 /// Fetch `/work` and print one line per manifest by default. Each line is
