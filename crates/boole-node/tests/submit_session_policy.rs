@@ -136,6 +136,7 @@ fn boot_with(paths: &BootPaths, max_requests: usize) -> Boot {
                 session_registry_path: Some(sessions),
                 submit_nonce_ledger_path: Some(nonces),
                 submit_receipt_ledger_path: Some(receipts),
+                receipt_commitment_ledger_path: None,
                 max_requests: Some(max_requests),
                 operator_signer_pks: vec![],
                 genesis_override: None,

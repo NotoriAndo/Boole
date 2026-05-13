@@ -103,8 +103,10 @@ require_text docs/settlement-report.md "not public-network mining"
 
 require_text docs/receipt-commitment.md "ReceiptCommitment"
 require_text docs/receipt-commitment.md "verifierHashVersion"
+require_text docs/receipt-commitment.md "--receipt-commitment-ledger"
+require_text docs/receipt-commitment.md "GET /receipts/{receiptId}"
+require_text docs/receipt-commitment.md "receipt_not_found"
 require_text docs/receipt-commitment.md "humanAnswer"
-require_text docs/receipt-commitment.md "does not by itself persist receipts"
 require_text docs/receipt-commitment.md "not public-network mining evidence"
 
 require_text docs/adr/0001-pofp-v2-canonical-widening.md "Status: Implemented"

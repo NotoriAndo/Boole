@@ -30,6 +30,28 @@ Required fields:
 - `agentPk`, `artifactHash`, `requestHash`, and `rewardRecipient` must be lowercase hex32 strings.
 - Unknown fields are rejected. In particular, fields such as `humanAnswer`, `rawAnswer`, `prompt`, or raw artifact bodies do not belong in this core commitment.
 
+## Node storage/read surface
+
+`boole-node run-local` can opt into a local ReceiptCommitment NDJSON store with either:
+
+```bash
+boole-node run-local \
+  --receipt-commitment-ledger <receipt-commitments.ndjson>
+```
+
+or:
+
+```bash
+BOOLE_RECEIPT_COMMITMENT_LEDGER_PATH=<receipt-commitments.ndjson> boole-node run-local
+```
+
+When configured, the node serves:
+
+- `GET /receipts/{receiptId}` — returns `{ "ok": true, "receiptCommitment": ... }` for a stored commitment.
+- `POST /receipts` — local MVP append path for a `ReceiptCommitment` JSON object.
+
+Unknown receipts return a typed `receipt_not_found` 404. Raw answer fields such as `humanAnswer` are rejected and are not appended to the ledger.
+
 ## Claim boundary
 
-This type is a core data contract only. It does not by itself persist receipts, mutate ledgers, verify signed-work lineage, or provide public-network mining evidence. It is not public-network mining evidence. Follow-on work should add node storage/read routes and bind this commitment to audited receipts.
+This type and route surface are local replayable evidence plumbing only. They do not mutate reward or reputation ledgers, verify signed-work lineage, or provide public-network mining evidence. It is not public-network mining evidence. Follow-on work should bind this commitment to audited receipts.

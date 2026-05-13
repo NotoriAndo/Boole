@@ -1,6 +1,7 @@
 use crate::block_store::FileBlockStore;
 use crate::http_error::HttpError;
 use crate::nonce_ledger::FileNonceLedger;
+use crate::receipt_store::FileReceiptStore;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use crate::session_store::FileSessionStore;
 use axum::body::Bytes;
@@ -15,8 +16,8 @@ use boole_core::{
     replay_blocks, ticket, verify_signature, AdmissionDecision, BountyProofVerifier,
     BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport,
     CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry, FileBountyEventLedger,
-    Hex32, PersistedBlock, SessionState, SubmitProofInput, UpdateStatusInput, WorkManifest,
-    SIGNED_ENVELOPE_SCHEMA,
+    Hex32, PersistedBlock, ReceiptCommitment, SessionState, SubmitProofInput, UpdateStatusInput,
+    WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -105,6 +106,11 @@ pub struct LocalNodeConfig {
     /// receipt returned in the HTTP response so agents can later prove the
     /// requestHash/nonce/sessionPk/block/reward credit tuple.
     pub submit_receipt_ledger_path: Option<PathBuf>,
+    /// Optional NDJSON ledger path for verified-answer `ReceiptCommitment` rows.
+    /// When `Some`, the node serves `GET /receipts/{receiptId}` and local
+    /// MVP `POST /receipts`; when `None`, these routes return
+    /// `receipt_store_disabled`.
+    pub receipt_commitment_ledger_path: Option<PathBuf>,
     pub max_requests: Option<usize>,
     /// When `Some`, replaces the scenario's `genesis_c`. Surfaced so the
     /// CLI wrapper (`boole node start --genesis HEX32`) can override the
@@ -188,6 +194,9 @@ struct LocalNodeState {
     /// Optional append-only receipt ledger for accepted session-bound submit
     /// artifacts. The response receipt and ledger line intentionally match.
     submit_receipt_ledger_path: Option<PathBuf>,
+    /// Optional append-only `ReceiptCommitment` ledger plus recovered index.
+    receipt_commitment_ledger_path: Option<PathBuf>,
+    receipt_store: Option<FileReceiptStore>,
 }
 
 #[derive(Clone)]
@@ -261,6 +270,8 @@ fn build_router(state: AppState) -> Router {
         .route("/submit", post(submit_handler))
         .route("/sessions", post(session_register_handler))
         .route("/sessions/{session_pk}", get(session_get_handler))
+        .route("/receipts", post(receipt_post_handler))
+        .route("/receipts/{receipt_id}", get(receipt_get_handler))
         .route(
             "/sessions/{session_pk}/revoke",
             post(session_revoke_handler),
@@ -469,6 +480,10 @@ impl LocalNodeState {
             Some(path) => Some(FileNonceLedger::recover(path)?),
             None => None,
         };
+        let receipt_store = match config.receipt_commitment_ledger_path.as_ref() {
+            Some(path) => Some(FileReceiptStore::recover(path)?),
+            None => None,
+        };
         Ok(Self {
             runtime,
             genesis_c: scenario.genesis_c,
@@ -487,6 +502,8 @@ impl LocalNodeState {
             submit_nonce_ledger_path: config.submit_nonce_ledger_path,
             nonce_ledger,
             submit_receipt_ledger_path: config.submit_receipt_ledger_path,
+            receipt_commitment_ledger_path: config.receipt_commitment_ledger_path,
+            receipt_store,
         })
     }
 }
@@ -778,6 +795,58 @@ async fn session_revoke_handler(
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(err),
     }
+}
+
+async fn receipt_get_handler(
+    State(state): State<AppState>,
+    AxumPath(receipt_id): AxumPath<String>,
+) -> Response {
+    let guard = state.inner.read().await;
+    match receipt_get_json(&guard, &receipt_id) {
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+async fn receipt_post_handler(State(state): State<AppState>, body: Bytes) -> Response {
+    let mut guard = state.inner.write().await;
+    match receipt_post_json(&mut guard, &body) {
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+fn receipt_get_json(state: &LocalNodeState, receipt_id: &str) -> Result<Value, HttpError> {
+    if !is_well_formed_hex32(receipt_id) {
+        return Err(HttpError::bad_hex("receiptId"));
+    }
+    let store = state
+        .receipt_store
+        .as_ref()
+        .ok_or_else(HttpError::receipt_store_disabled)?;
+    let receipt = store
+        .get(receipt_id)
+        .ok_or_else(|| HttpError::receipt_not_found(receipt_id.to_string()))?;
+    Ok(json!({"ok": true, "receiptCommitment": receipt}))
+}
+
+fn receipt_post_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, HttpError> {
+    let path = state
+        .receipt_commitment_ledger_path
+        .clone()
+        .ok_or_else(HttpError::receipt_store_disabled)?;
+    let store = state
+        .receipt_store
+        .as_mut()
+        .ok_or_else(HttpError::receipt_store_disabled)?;
+    let receipt: ReceiptCommitment = serde_json::from_slice(body)
+        .map_err(|err| HttpError::bad_payload("receiptCommitment", err.to_string()))?;
+    FileReceiptStore::append(&path, &receipt)
+        .map_err(|err| HttpError::bad_request(err.to_string()))?;
+    store
+        .apply(receipt.clone())
+        .map_err(|err| HttpError::bad_request(err.to_string()))?;
+    Ok(json!({"ok": true, "receiptCommitment": receipt}))
 }
 
 fn session_public_view(session: &SessionState) -> Value {

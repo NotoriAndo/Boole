@@ -72,6 +72,7 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
     let session_registry_env = std::env::var("BOOLE_SESSION_REGISTRY_PATH").ok();
     let submit_nonce_ledger_env = std::env::var("BOOLE_SUBMIT_NONCE_LEDGER_PATH").ok();
     let submit_receipt_ledger_env = std::env::var("BOOLE_SUBMIT_RECEIPT_LEDGER_PATH").ok();
+    let receipt_commitment_ledger_env = std::env::var("BOOLE_RECEIPT_COMMITMENT_LEDGER_PATH").ok();
     let lean_checker_env = std::env::var("LEAN_CHECKER_DIR").ok();
     let genesis_env = std::env::var("GENESIS_C").ok();
     let addr_flag = take_optional_flag_value(&mut args, "--addr")?;
@@ -89,6 +90,8 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
     let submit_nonce_ledger_flag = take_optional_flag_value(&mut args, "--submit-nonce-ledger")?;
     let submit_receipt_ledger_flag =
         take_optional_flag_value(&mut args, "--submit-receipt-ledger")?;
+    let receipt_commitment_ledger_flag =
+        take_optional_flag_value(&mut args, "--receipt-commitment-ledger")?;
     let lean_checker_flag = take_optional_flag_value(&mut args, "--lean-checker-dir")?;
     let max_requests = take_optional_flag_value(&mut args, "--max-requests")?
         .map(|value| value.parse::<usize>())
@@ -142,6 +145,9 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
         .map(PathBuf::from);
     let submit_receipt_ledger_path: Option<PathBuf> = submit_receipt_ledger_flag
         .or(submit_receipt_ledger_env)
+        .map(PathBuf::from);
+    let receipt_commitment_ledger_path: Option<PathBuf> = receipt_commitment_ledger_flag
+        .or(receipt_commitment_ledger_env)
         .map(PathBuf::from);
     let genesis_override = genesis_flag.or(genesis_env);
     let listener = TcpListener::bind(&addr)?;
@@ -203,6 +209,7 @@ fn run_local_command(mut args: Vec<String>) -> anyhow::Result<()> {
             session_registry_path,
             submit_nonce_ledger_path,
             submit_receipt_ledger_path,
+            receipt_commitment_ledger_path,
             genesis_override,
         },
     )
@@ -485,8 +492,8 @@ fn run_agent_proof_command(mut args: Vec<String>) -> anyhow::Result<()> {
 
 fn print_help() {
     println!(
-        "boole-node\n\ncommands:\n  runtime-smoke --scenario <path>|--fixture <path> --block-store <path>\n  run-local [--addr 127.0.0.1:8080] [--port <n>] [--scenario <path>] [--block-store <path>] [--reward-store <path>] [--work-manifests <path>] [--bounties <path>] [--bounty-events <path>] [--family-manifests <dir>] [--operator-signer-pks <hex,hex,...>] [--lean-checker-dir <path>] [--genesis <64-hex>] [--max-requests <n>]\n  submit-lean --proof <path> --block-store <path> [--checker-dir <path>] [--fixture <path>] [--verifier-hash <hash>] [--head-c <64-hex>] [--admission-nonce <64-hex>] [--difficulty-mode fixture|preflight-easy]\n  agent-proof --backend fixture-valid|fixture-invalid --out-dir <path>\n\nenvironment (mirrors pof booleCli wrapper):\n  PORT                  default port for run-local (overridden by --port/--addr)\n  BLOCKSTORE_PATH       default block store path (overridden by --block-store)\n  REWARDLEDGER_PATH     default reward ledger path (overridden by --reward-store)\n  WORK_MANIFESTS_PATH   optional work-manifest catalog path (overridden by --work-manifests)\n  BOUNTIES_PATH         optional bounty catalog path (overridden by --bounties)\n  BOUNTY_EVENT_LEDGER_PATH  optional bounty audit log path (overridden by --bounty-events)
-  FAMILY_MANIFESTS_DIR  optional directory of FamilyManifest *.json files (overridden by --family-manifests)\n  OPERATOR_SIGNER_PKS   comma-separated hex32 pks trusted to sign FamilyManifests; empty disables promotion (overridden by --operator-signer-pks)\n  LEAN_CHECKER_DIR      lake/lean checker directory; enables `lean` verifier (overridden by --lean-checker-dir)\n  GENESIS_C             scenario genesis_c override (overridden by --genesis)"
+        "boole-node\n\ncommands:\n  runtime-smoke --scenario <path>|--fixture <path> --block-store <path>\n  run-local [--addr 127.0.0.1:8080] [--port <n>] [--scenario <path>] [--block-store <path>] [--reward-store <path>] [--work-manifests <path>] [--bounties <path>] [--bounty-events <path>] [--family-manifests <dir>] [--operator-signer-pks <hex,hex,...>] [--receipt-commitment-ledger <path>] [--lean-checker-dir <path>] [--genesis <64-hex>] [--max-requests <n>]\n  submit-lean --proof <path> --block-store <path> [--checker-dir <path>] [--fixture <path>] [--verifier-hash <hash>] [--head-c <64-hex>] [--admission-nonce <64-hex>] [--difficulty-mode fixture|preflight-easy]\n  agent-proof --backend fixture-valid|fixture-invalid --out-dir <path>\n\nenvironment (mirrors pof booleCli wrapper):\n  PORT                  default port for run-local (overridden by --port/--addr)\n  BLOCKSTORE_PATH       default block store path (overridden by --block-store)\n  REWARDLEDGER_PATH     default reward ledger path (overridden by --reward-store)\n  WORK_MANIFESTS_PATH   optional work-manifest catalog path (overridden by --work-manifests)\n  BOUNTIES_PATH         optional bounty catalog path (overridden by --bounties)\n  BOUNTY_EVENT_LEDGER_PATH  optional bounty audit log path (overridden by --bounty-events)
+  FAMILY_MANIFESTS_DIR  optional directory of FamilyManifest *.json files (overridden by --family-manifests)\n  OPERATOR_SIGNER_PKS   comma-separated hex32 pks trusted to sign FamilyManifests; empty disables promotion (overridden by --operator-signer-pks)\n  BOOLE_RECEIPT_COMMITMENT_LEDGER_PATH optional ReceiptCommitment NDJSON ledger (overridden by --receipt-commitment-ledger)\n  LEAN_CHECKER_DIR      lake/lean checker directory; enables `lean` verifier (overridden by --lean-checker-dir)\n  GENESIS_C             scenario genesis_c override (overridden by --genesis)"
     );
 }
 

@@ -100,6 +100,15 @@ impl HttpError {
             .with_extra("nonce", Value::String(nonce.into()))
     }
 
+    pub fn receipt_store_disabled() -> Self {
+        Self::new(400, "receipt_store_disabled")
+    }
+
+    pub fn receipt_not_found(receipt_id: impl Into<String>) -> Self {
+        Self::new(404, "receipt_not_found")
+            .with_extra("receiptId", Value::String(receipt_id.into()))
+    }
+
     pub fn work_not_found(id: impl Into<String>) -> Self {
         Self::new(404, "work_not_found").with_extra("id", Value::String(id.into()))
     }

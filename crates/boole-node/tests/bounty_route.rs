@@ -76,6 +76,7 @@ fn boot_with_bounties(
                 session_registry_path: None,
                 submit_nonce_ledger_path: None,
                 submit_receipt_ledger_path: None,
+                receipt_commitment_ledger_path: None,
                 genesis_override: None,
             },
         )

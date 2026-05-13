@@ -4,6 +4,7 @@ pub mod lean_bounty_verifier;
 pub mod local_node;
 pub mod nonce_ledger;
 pub mod proof_bridge;
+pub mod receipt_store;
 pub mod reputation_store;
 pub mod reward_store;
 pub mod runtime;
