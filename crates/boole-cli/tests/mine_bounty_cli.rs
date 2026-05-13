@@ -11,7 +11,7 @@ use std::thread;
 use std::time::Duration;
 
 use boole_core::{Bounty, BountyProofVerifier};
-use boole_node::local_node::{serve_local_node, LocalNodeConfig};
+use boole_node::{serve_local_node, LocalNodeConfig};
 use serde_json::Value;
 
 const PROVER_X: &str = "1100000000000000000000000000000000000000000000000000000000000000";

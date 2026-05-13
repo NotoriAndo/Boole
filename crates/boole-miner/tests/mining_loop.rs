@@ -5,7 +5,7 @@ use std::time::Duration;
 use boole_core::{parse_biguint_hex, Hex32};
 
 use boole_miner::{
-    family_v1_lenbound, run_mining_loop, AcceptingVerifier, AgentRuntimeReport,
+    run_mining_loop, v1_lenbound_helper_manifest, AcceptingVerifier, AgentRuntimeReport,
     AnnounceTicketInputs, AnnounceTicketResult, Canonicalizer, ChainHead, DefaultPromptBuilder,
     FixedChainHead, GenerateResult, GrinderConfig, MiningEvent, MiningLoopDeps, MiningLoopOptions,
     MiningLoopOutcome, MiningRunContext, MiningRunDriverMode, MiningRunTargetMode,
@@ -384,7 +384,7 @@ fn default_prompt_builder_embeds_exact_v1_helper_manifest() {
     };
 
     let prompt = DefaultPromptBuilder.build_prompt(&target);
-    let manifest = family_v1_lenbound::helper_manifest();
+    let manifest = v1_lenbound_helper_manifest();
 
     assert!(prompt.contains(manifest));
     assert!(prompt.contains("Respond with one Lean proof body only"));

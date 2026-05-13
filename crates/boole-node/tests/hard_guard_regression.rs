@@ -25,7 +25,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use boole_core::{
     parse_family_manifest, Bounty, BountyProofVerifier, FamilyManifestParseResult, SigningKeyV2,
 };
-use boole_node::local_node::{serve_local_node, LocalNodeConfig};
+use boole_node::{serve_local_node, LocalNodeConfig};
 use serde_json::{json, Value};
 
 const PROOF_HASH_A: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";

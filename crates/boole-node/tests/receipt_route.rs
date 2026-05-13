@@ -8,8 +8,8 @@ use std::thread;
 use std::time::Duration;
 
 use boole_core::{ReceiptCommitment, ReceiptCommitmentInput};
-use boole_node::local_node::{serve_local_node, LocalNodeConfig};
-use boole_node::receipt_store::FileReceiptStore;
+use boole_node::FileReceiptStore;
+use boole_node::{serve_local_node, LocalNodeConfig};
 use serde_json::{json, Value};
 
 const AGENT_PK: &str = "1111111111111111111111111111111111111111111111111111111111111111";

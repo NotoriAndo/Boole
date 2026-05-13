@@ -2,12 +2,12 @@ use boole_core::{
     replay_blocks, validate_proof_package, AdmissionDecision, CalibrationReport, ValidationResult,
 };
 use boole_lean_runner::{LeanCheckResult, LeanRunner, LeanRunnerConfig, LeanRunnerEvidence};
-use boole_node::block_store::FileBlockStore;
-use boole_node::proof_bridge::{
+use boole_node::FileBlockStore;
+use boole_node::{
     canonical_pofp_package_from_lean_result, LeanProofBridge, LeanProofBridgePolicy,
     ProofSubmissionTemplate,
 };
-use boole_node::runtime::{RuntimeAdmissionState, RuntimeConfig};
+use boole_node::{RuntimeAdmissionState, RuntimeConfig};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeSet;

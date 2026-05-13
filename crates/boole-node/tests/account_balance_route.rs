@@ -13,9 +13,9 @@ use std::thread;
 use std::time::Duration;
 
 use boole_core::{PersistedBlock, PersistedRewardEvent};
-use boole_node::block_store::FileBlockStore;
-use boole_node::local_node::{serve_local_node, LocalNodeConfig};
-use boole_node::reward_store::FileRewardLedger;
+use boole_node::FileBlockStore;
+use boole_node::FileRewardLedger;
+use boole_node::{serve_local_node, LocalNodeConfig};
 use serde::Deserialize;
 use serde_json::Value;
 

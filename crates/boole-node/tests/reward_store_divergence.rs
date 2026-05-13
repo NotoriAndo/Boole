@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use boole_core::{PersistedCredit, PersistedRewardEvent};
-use boole_node::reward_store::{verify_ledger_matches_replay, FileRewardLedger};
+use boole_node::{verify_ledger_matches_replay, FileRewardLedger};
 
 const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const PK_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

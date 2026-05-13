@@ -2,14 +2,12 @@ use boole_core::{
     replay_blocks, AdmissionDecision, BountyProofVerifier, BuildSelectionResult, CalibrationReport,
 };
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
-use boole_node::block_store::FileBlockStore;
-use boole_node::lean_bounty_verifier::LeanBountyVerifier;
-use boole_node::local_node::{serve_local_node, LocalNodeConfig};
-use boole_node::proof_bridge::{LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate};
-use boole_node::runtime::{RuntimeAdmissionState, RuntimeConfig};
-use boole_node::runtime_smoke::{
-    run_runtime_smoke, run_runtime_smoke_scenario_file, RuntimeSmokeInput,
-};
+use boole_node::FileBlockStore;
+use boole_node::LeanBountyVerifier;
+use boole_node::{run_runtime_smoke, run_runtime_smoke_scenario_file, RuntimeSmokeInput};
+use boole_node::{serve_local_node, LocalNodeConfig};
+use boole_node::{LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate};
+use boole_node::{RuntimeAdmissionState, RuntimeConfig};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::{BTreeSet, HashMap};

@@ -832,7 +832,7 @@ fn export_reputation_event_rows(
     let mut file = std::fs::File::create(path)?;
     for delta in deltas {
         let event = serde_json::json!({
-            "schema": boole_node::reputation_store::REPUTATION_EVENT_SCHEMA,
+            "schema": boole_node::REPUTATION_EVENT_SCHEMA,
             "agentPk": delta.agent_pk,
             "acceptedSubmits": delta.accepted_submits,
             "verifiedRewardAmount": delta.verified_reward_amount,
@@ -969,7 +969,7 @@ fn reputation_inspect(ledger: &Path, agent_pk: &str, json: bool) -> anyhow::Resu
             serde_json::json!({ "agentPk": agent_pk }),
         );
     }
-    let ledger = boole_node::reputation_store::FileReputationLedger::recover(ledger)?;
+    let ledger = boole_node::FileReputationLedger::recover(ledger)?;
     let stats = ledger.stats_for(agent_pk);
     if json {
         println!(

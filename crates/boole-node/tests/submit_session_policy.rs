@@ -34,7 +34,7 @@ use std::thread;
 use std::time::Duration;
 
 use boole_core::{canonical_payload_hash_hex, SigningKeyV2};
-use boole_node::local_node::{serve_local_node, LocalNodeConfig};
+use boole_node::{serve_local_node, LocalNodeConfig};
 use serde_json::{json, Value};
 
 const PK_AGENT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

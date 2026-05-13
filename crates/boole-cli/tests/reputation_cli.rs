@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use boole_node::reputation_store::{FileReputationLedger, PersistedReputationEvent};
+use boole_node::{FileReputationLedger, PersistedReputationEvent};
 use serde::Deserialize;
 
 const AGENT_PK: &str = "9999999999999999999999999999999999999999999999999999999999999999";

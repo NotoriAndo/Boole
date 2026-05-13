@@ -1,6 +1,6 @@
 use boole_core::CalibrationReport;
-use boole_node::runtime::RuntimeConfig;
-use boole_node::runtime_smoke::{
+use boole_node::RuntimeConfig;
+use boole_node::{
     run_runtime_smoke, run_runtime_smoke_scenario, RuntimeSmokeInput, RuntimeSmokeScenario,
 };
 use serde::Deserialize;

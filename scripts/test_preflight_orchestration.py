@@ -91,6 +91,20 @@ class PreflightOrchestrationTests(unittest.TestCase):
             [("crates/boole-miner/Cargo.toml", "reqwest.workspace = true")],
         )
 
+    def test_node_and_miner_libs_do_not_export_internal_modules(self) -> None:
+        expected_pub_mods = {
+            "crates/boole-miner/src/lib.rs": {"cli"},
+            "crates/boole-node/src/lib.rs": set(),
+        }
+        for relative, allowed in expected_pub_mods.items():
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            actual = {
+                line.strip().removeprefix("pub mod ").removesuffix(";")
+                for line in text.splitlines()
+                if line.strip().startswith("pub mod ")
+            }
+            self.assertEqual(actual, allowed, relative)
+
     def test_agent_mine_missing_runtime_skip_matches_contract_fixture(self) -> None:
         proc = subprocess.run(
             ["./scripts/boole-agent-mine.sh", "--runtime", "codex", "--agent-command", "/tmp/boole-missing-codex-runtime"],

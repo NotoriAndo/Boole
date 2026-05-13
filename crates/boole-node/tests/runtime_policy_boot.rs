@@ -3,8 +3,8 @@ use boole_core::{
     BuildSelectionResult, CalibrationReport, RateLimitRejectReason, RejectionReason,
     SharePoolRejectReason,
 };
-use boole_node::block_store::FileBlockStore;
-use boole_node::runtime::{RuntimeAdmissionState, RuntimeConfig};
+use boole_node::FileBlockStore;
+use boole_node::{RuntimeAdmissionState, RuntimeConfig};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;

@@ -12,7 +12,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use boole_node::local_node::{serve_local_node, LocalNodeConfig};
+use boole_node::{serve_local_node, LocalNodeConfig};
 use serde_json::Value;
 
 fn rand_suffix() -> u64 {

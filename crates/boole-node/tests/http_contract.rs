@@ -1,4 +1,4 @@
-use boole_node::local_node::{serve_local_node, LocalNodeConfig};
+use boole_node::{serve_local_node, LocalNodeConfig};
 use serde_json::Value;
 use std::fs;
 use std::io::{ErrorKind, Read, Write};

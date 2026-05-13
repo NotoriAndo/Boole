@@ -1,24 +1,28 @@
-pub mod bounty_client;
-pub mod canonicalizer;
-pub mod chain_head;
+mod bounty_client;
+mod canonicalizer;
+mod chain_head;
 pub mod cli;
-pub mod family_v031;
-pub mod family_v1_lenbound;
-pub mod grinder;
-pub mod http_client;
-pub mod http_runner;
-pub mod llm_driver;
-pub mod local_verify;
-pub mod mining_loop;
-pub mod proof_intake;
-pub mod proof_package;
-pub mod state;
-pub mod submit_client;
-pub mod target_emitter;
+#[allow(dead_code)]
+mod family_v031;
+#[allow(dead_code)]
+mod family_v1_lenbound;
+mod grinder;
+mod http_client;
+mod http_runner;
+#[allow(dead_code)]
+mod llm_driver;
+mod local_verify;
+mod mining_loop;
+mod proof_intake;
+mod proof_package;
+mod state;
+mod submit_client;
+mod target_emitter;
 
 pub use bounty_client::{BountyClient, BountyProofInputs, BountyProofResult};
 pub use canonicalizer::{encode_placeholder_bppk, Canonicalizer, StructuralCanonicalizer, Target};
 pub use chain_head::{ChainHead, ChainHeadError, ChainHeadFetcher, HttpChainHeadFetcher};
+pub use family_v1_lenbound::helper_manifest as v1_lenbound_helper_manifest;
 pub use grinder::{
     grind_share, grind_submission_pow, grind_ticket, CounterNonce, GrindProgress,
     GrindShareOutcome, GrindSubmitOutcome, GrindTicketOutcome, GrinderConfig, NonceSource,
@@ -49,8 +53,8 @@ pub use proof_intake::{
     PROOF_BODY_CONTRACT_VERSION, PROOF_CANONICALIZER_VERSION,
 };
 pub use proof_package::{
-    bppk_canon_hash, walk_bppk, BppkBuilder, BppkDecodeError, BppkWalkResult, FORMAT_VERSION,
-    MAGIC, MAX_WALK_DEPTH,
+    bppk_canon_hash, expr_tag, level_tag, lit_tag, walk_bppk, BppkBuilder, BppkDecodeError,
+    BppkWalkResult, FORMAT_VERSION, MAGIC, MAX_WALK_DEPTH,
 };
 pub use state::{
     default_state_path, generate_miner_state, load_state, pubkey_to_address, save_state,

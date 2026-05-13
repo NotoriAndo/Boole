@@ -1,5 +1,5 @@
 use boole_core::SessionState;
-use boole_node::session_store::FileSessionStore;
+use boole_node::FileSessionStore;
 
 fn fresh_tmp(label: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(

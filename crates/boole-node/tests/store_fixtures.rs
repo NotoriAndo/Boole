@@ -1,8 +1,8 @@
 use std::io::Write;
 
 use boole_core::{PersistedBlock, PersistedRewardEvent};
-use boole_node::block_store::FileBlockStore;
-use boole_node::reward_store::FileRewardLedger;
+use boole_node::FileBlockStore;
+use boole_node::FileRewardLedger;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

@@ -1,8 +1,8 @@
-use boole_miner::proof_package::{expr_tag, level_tag, lit_tag};
 use boole_miner::{
     bppk_canon_hash, encode_placeholder_bppk, walk_bppk, BppkDecodeError, Canonicalizer,
     StructuralCanonicalizer, Target, FORMAT_VERSION, MAGIC,
 };
+use boole_miner::{expr_tag, level_tag, lit_tag};
 use sha2::{Digest, Sha256};
 
 fn target_a() -> Target {

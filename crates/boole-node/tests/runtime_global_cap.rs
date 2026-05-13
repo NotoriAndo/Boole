@@ -1,7 +1,7 @@
 use boole_core::{
     AdmissionDecision, AdmissionError, CalibrationReport, RejectionReason, SharePoolRejectReason,
 };
-use boole_node::runtime::{RuntimeAdmissionState, RuntimeConfig};
+use boole_node::{RuntimeAdmissionState, RuntimeConfig};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 

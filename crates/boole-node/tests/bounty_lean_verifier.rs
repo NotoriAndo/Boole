@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use boole_core::{Bounty, BountyProofVerifier, BountyVerifier};
-use boole_node::lean_bounty_verifier::LeanBountyVerifier;
+use boole_node::LeanBountyVerifier;
 use serde_json::{json, Map, Value};
 
 fn rand_suffix() -> u64 {
