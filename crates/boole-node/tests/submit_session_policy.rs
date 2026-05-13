@@ -16,6 +16,14 @@
 //!   - Replayed `(submittedBy, nonce)` pair is rejected with
 //!     `nonce_replayed` (409), and the dedup state survives a process
 //!     restart by replaying the NDJSON ledger.
+//!   - Active session-bound submit requires a valid W3 `signedWork`
+//!     (`boole.signed.v1` around `boole.signer.work.v1`) whose pk,
+//!     route, nonce, requestHash, and workPayload bind to the submitted
+//!     body.
+//!   - Session activation/expiry is checked again at submit-time height.
+//!   - A nonce is burned only after the underlying admission returns
+//!     `accepted: true`; rejected admission can be retried with the same
+//!     signed nonce.
 
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
@@ -25,6 +33,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use boole_core::{canonical_payload_hash_hex, SigningKeyV2};
 use boole_node::local_node::{serve_local_node, LocalNodeConfig};
 use serde_json::{json, Value};
 
@@ -208,6 +217,36 @@ fn submit_envelope(body: Value, session: Option<Value>) -> Value {
     envelope
 }
 
+fn signed_work_session(
+    key: &SigningKeyV2,
+    body: &Value,
+    nonce: &str,
+    reward_recipient: &str,
+) -> Value {
+    let payload = json!({
+        "schema": "boole.signer.work.v1",
+        "route": "/submit",
+        "familyId": "boole.protocol-invariant.v01",
+        "verifierId": "lean-runner-v01",
+        "fee": "0",
+        "requestHash": canonical_payload_hash_hex(body),
+        "nonce": nonce,
+        "workPayload": body,
+    });
+    let signed = key.sign(&payload).expect("sign work payload");
+    json!({
+        "submittedBy": key.pk_hex(),
+        "rewardRecipient": reward_recipient,
+        "nonce": nonce,
+        "signedWork": {
+            "schema": signed.schema,
+            "payload": signed.payload,
+            "pk": signed.pk,
+            "signature": signed.signature,
+        }
+    })
+}
+
 #[test]
 fn submit_without_session_metadata_uses_legacy_path() {
     let paths = BootPaths::new("legacy");
@@ -298,14 +337,12 @@ fn submit_replayed_nonce_returns_nonce_replayed() {
     let paths = BootPaths::new("replay");
     let boot = boot_with(&paths, 3);
 
-    register_session(boot.addr, PK_AGENT, PK_OWNER);
+    let key = SigningKeyV2::from_dev_id("n21-replay");
+    let session_pk = key.pk_hex();
+    register_session(boot.addr, &session_pk, PK_OWNER);
 
     let body = scenario_body();
-    let session = json!({
-        "submittedBy": PK_AGENT,
-        "rewardRecipient": PK_OWNER,
-        "nonce": "n-replay",
-    });
+    let session = signed_work_session(&key, &body, "n-replay", PK_OWNER);
 
     let (status_first, value_first) = http_post(
         boot.addr,
@@ -315,6 +352,10 @@ fn submit_replayed_nonce_returns_nonce_replayed() {
     assert_eq!(
         status_first, 200,
         "first submit must reach admission: status={status_first}, body={value_first}"
+    );
+    assert_eq!(
+        value_first["accepted"], true,
+        "first submit must be accepted before nonce is burned: {value_first}"
     );
 
     let (status_second, value_second) =
@@ -338,13 +379,11 @@ fn submit_nonce_dedup_survives_restart() {
     // session registry and nonce ledger paths so the second boot can
     // replay the same NDJSON files.
     let first = boot_with(&paths, 2);
-    register_session(first.addr, PK_AGENT, PK_OWNER);
-    let session = json!({
-        "submittedBy": PK_AGENT,
-        "rewardRecipient": PK_OWNER,
-        "nonce": "n-restart",
-    });
+    let key = SigningKeyV2::from_dev_id("n21-restart");
+    let session_pk = key.pk_hex();
+    register_session(first.addr, &session_pk, PK_OWNER);
     let body = scenario_body();
+    let session = signed_work_session(&key, &body, "n-restart", PK_OWNER);
     let (status_first, value_first) = http_post(
         first.addr,
         "/submit",
@@ -353,6 +392,10 @@ fn submit_nonce_dedup_survives_restart() {
     assert_eq!(
         status_first, 200,
         "first submit must reach admission: status={status_first}, body={value_first}"
+    );
+    assert_eq!(
+        value_first["accepted"], true,
+        "first submit must be accepted before nonce is persisted: {value_first}"
     );
     first.handle.join().expect("server thread").expect("exits");
 
@@ -372,5 +415,208 @@ fn submit_nonce_dedup_survives_restart() {
     assert_eq!(value_second["reason"], "nonce_replayed");
     second.handle.join().expect("server thread").expect("exits");
 
+    let _ = fs::remove_dir_all(&paths.dir);
+}
+
+#[test]
+fn submit_with_active_session_requires_signed_work_envelope() {
+    let paths = BootPaths::new("requires-signed-work");
+    let boot = boot_with(&paths, 2);
+
+    register_session(boot.addr, PK_AGENT, PK_OWNER);
+    let body = scenario_body();
+    let session = json!({
+        "submittedBy": PK_AGENT,
+        "rewardRecipient": PK_OWNER,
+        "nonce": "n-missing-signed-work",
+    });
+
+    let (status, value) = http_post(boot.addr, "/submit", &submit_envelope(body, Some(session)));
+    assert_eq!(
+        status, 400,
+        "missing signedWork must be rejected: status={status}, body={value}"
+    );
+    assert_eq!(value["reason"], "missing_field");
+    assert_eq!(value["field"], "session.signedWork");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = fs::remove_dir_all(&paths.dir);
+}
+
+#[test]
+fn submit_rejects_tampered_signed_work_payload() {
+    let paths = BootPaths::new("tampered-signed-work");
+    let boot = boot_with(&paths, 2);
+
+    let key = SigningKeyV2::from_dev_id("n21-tampered");
+    let session_pk = key.pk_hex();
+    register_session(boot.addr, &session_pk, PK_OWNER);
+    let body = scenario_body();
+    let mut session = signed_work_session(&key, &body, "n-tamper", PK_OWNER);
+    session["signedWork"]["payload"]["workPayload"]["nonceS"] =
+        json!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+    let (status, value) = http_post(boot.addr, "/submit", &submit_envelope(body, Some(session)));
+    assert_eq!(
+        status, 401,
+        "tampered signed payload must fail signature verification: status={status}, body={value}"
+    );
+    assert_eq!(value["reason"], "signature_invalid");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = fs::remove_dir_all(&paths.dir);
+}
+
+#[test]
+fn submit_rejects_request_hash_mismatch() {
+    let paths = BootPaths::new("request-hash-mismatch");
+    let boot = boot_with(&paths, 2);
+
+    let key = SigningKeyV2::from_dev_id("n21-request-hash");
+    let session_pk = key.pk_hex();
+    register_session(boot.addr, &session_pk, PK_OWNER);
+    let body = scenario_body();
+    let payload = json!({
+        "schema": "boole.signer.work.v1",
+        "route": "/submit",
+        "familyId": "boole.protocol-invariant.v01",
+        "verifierId": "lean-runner-v01",
+        "fee": "0",
+        "requestHash": ROOT_HEX,
+        "nonce": "n-bad-request-hash",
+        "workPayload": body,
+    });
+    let signed = key
+        .sign(&payload)
+        .expect("sign mismatched requestHash payload");
+    let session = json!({
+        "submittedBy": session_pk,
+        "rewardRecipient": PK_OWNER,
+        "nonce": "n-bad-request-hash",
+        "signedWork": {
+            "schema": signed.schema,
+            "payload": signed.payload,
+            "pk": signed.pk,
+            "signature": signed.signature,
+        }
+    });
+
+    let (status, value) = http_post(
+        boot.addr,
+        "/submit",
+        &submit_envelope(scenario_body(), Some(session)),
+    );
+    assert_eq!(
+        status, 400,
+        "requestHash mismatch must be rejected: status={status}, body={value}"
+    );
+    assert_eq!(value["reason"], "bad_payload");
+    assert_eq!(value["field"], "session.signedWork.payload.requestHash");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = fs::remove_dir_all(&paths.dir);
+}
+
+#[test]
+fn submit_rejects_session_expired_at_current_node_height() {
+    let paths = BootPaths::new("expired-at-submit");
+    let boot = boot_with(&paths, 3);
+
+    let key = SigningKeyV2::from_dev_id("n21-expired-at-submit");
+    let session_pk = key.pk_hex();
+    let session = json!({
+        "sessionPk": session_pk,
+        "ownerPk": PK_OWNER,
+        "agentPk": PK_AGENT_RAW,
+        "fixedRewardRecipient": PK_OWNER,
+        "allowedFamilyRoot": ROOT_HEX,
+        "maxFeePerRequest": "12",
+        "activationHeight": 0,
+        "expiryHeight": 1,
+        "revoked": false,
+        "policyHash": ROOT_HEX,
+    });
+    let (register_status, register_value) = http_post(
+        boot.addr,
+        "/sessions",
+        &json!({"session": session, "currentHeight": 0}),
+    );
+    assert_eq!(
+        register_status, 200,
+        "register must succeed before expiry: {register_value}"
+    );
+
+    let legacy_body = scenario_body();
+    let (legacy_status, legacy_value) =
+        http_post(boot.addr, "/submit", &submit_envelope(legacy_body, None));
+    assert_eq!(
+        legacy_status, 200,
+        "legacy submit should advance node height: {legacy_value}"
+    );
+    assert_eq!(
+        legacy_value["accepted"], true,
+        "legacy submit fixture must be accepted: {legacy_value}"
+    );
+
+    let body = scenario_body();
+    let session_submit = signed_work_session(&key, &body, "n-expired-at-submit", PK_OWNER);
+    let (status, value) = http_post(
+        boot.addr,
+        "/submit",
+        &submit_envelope(body, Some(session_submit)),
+    );
+    assert_eq!(
+        status, 403,
+        "expired session must be denied at submit-time height: {value}"
+    );
+    assert_eq!(value["reason"], "session_denied");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = fs::remove_dir_all(&paths.dir);
+}
+
+#[test]
+fn rejected_admission_does_not_burn_submit_nonce() {
+    let paths = BootPaths::new("rejected-does-not-burn");
+    let boot = boot_with(&paths, 3);
+
+    let key = SigningKeyV2::from_dev_id("n21-rejected-does-not-burn");
+    let session_pk = key.pk_hex();
+    register_session(boot.addr, &session_pk, PK_OWNER);
+
+    let mut bad_body = scenario_body();
+    bad_body["c"] = json!(ROOT_HEX);
+    let bad_session = signed_work_session(&key, &bad_body, "n-retry-after-reject", PK_OWNER);
+    let (bad_status, bad_value) = http_post(
+        boot.addr,
+        "/submit",
+        &submit_envelope(bad_body, Some(bad_session)),
+    );
+    assert_eq!(
+        bad_status, 200,
+        "bad admission should reach legacy admission: {bad_value}"
+    );
+    assert_eq!(
+        bad_value["accepted"], false,
+        "bad admission must be rejected by admission, not session gate: {bad_value}"
+    );
+
+    let good_body = scenario_body();
+    let good_session = signed_work_session(&key, &good_body, "n-retry-after-reject", PK_OWNER);
+    let (good_status, good_value) = http_post(
+        boot.addr,
+        "/submit",
+        &submit_envelope(good_body, Some(good_session)),
+    );
+    assert_eq!(
+        good_status, 200,
+        "same nonce must be reusable after rejected admission: {good_value}"
+    );
+    assert_eq!(
+        good_value["accepted"], true,
+        "same nonce should burn only after accepted admission: {good_value}"
+    );
+
+    boot.handle.join().expect("server thread").expect("exits");
     let _ = fs::remove_dir_all(&paths.dir);
 }

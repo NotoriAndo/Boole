@@ -11,11 +11,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
-    load_bounties, load_work_manifests, replay_blocks, ticket, verify_signature, AdmissionDecision,
-    BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult,
-    CalibrationReport, CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry,
-    FileBountyEventLedger, Hex32, PersistedBlock, SessionState, SubmitProofInput,
-    UpdateStatusInput, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
+    canonical_payload_hash_hex, load_bounties, load_work_manifests, replay_blocks, ticket,
+    verify_signature, AdmissionDecision, BountyProofVerifier, BountyRegistry, BountyShare,
+    BountySidePool, BuildSelectionResult, CalibrationReport, CreateBountyInput,
+    DifficultyRetargetPolicy, FamilyManifestRegistry, FileBountyEventLedger, Hex32, PersistedBlock,
+    SessionState, SubmitProofInput, UpdateStatusInput, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -718,11 +718,21 @@ async fn submit_handler(
     // `reward_recipient_mismatch` / `nonce_replayed`) can surface with
     // the right HTTP status. Envelopes without a `session` block fall
     // through to the legacy path so pre-wallet callers stay unaffected.
-    if let Err(err) = submit_session_gate(&mut guard, &body) {
-        return error_response(err);
-    }
+    let checked_session = match submit_session_gate(&mut guard, &body) {
+        Ok(session) => session,
+        Err(err) => return error_response(err),
+    };
     match submit_json(&mut guard, &body, &peer_ip) {
-        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Ok(value) => {
+            if value.get("accepted").and_then(Value::as_bool) == Some(true) {
+                if let Some(session) = checked_session {
+                    if let Err(err) = burn_submit_nonce(&mut guard, &session) {
+                        return error_response(err);
+                    }
+                }
+            }
+            (StatusCode::OK, Json(value)).into_response()
+        }
         Err(err) => error_response(anyhow_to_internal(err)),
     }
 }
@@ -848,28 +858,48 @@ fn session_revoke_json(
 /// no-op so pre-wallet callers keep their existing semantics. When the
 /// block is present the gate enforces:
 ///
-///   1. `submittedBy` is a well-formed hex32 (`malformed-pk` otherwise).
+///   1. `submittedBy` is a well-formed lowercase hex32 (`malformed-pk`
+///      otherwise).
 ///   2. The session registry is configured; otherwise
 ///      `session_registry_disabled` so the wallet stack is opted in or
 ///      out atomically.
 ///   3. The registry knows the key (`session_unknown` else).
-///   4. The session is not revoked (`session_revoked` else).
+///   4. The session is not revoked and is active at the current node
+///      height (`session_revoked` / `session_denied` else).
 ///   5. `rewardRecipient` matches the registered
 ///      `fixedRewardRecipient` (`reward_recipient_mismatch` else).
-///   6. The `(submittedBy, nonce)` pair has not been burned before; on
-///      success the pair is appended to the persistent ledger so a
-///      replay (in-process or post-restart) is rejected with
-///      `nonce_replayed`.
-fn submit_session_gate(state: &mut LocalNodeState, body: &[u8]) -> Result<(), HttpError> {
+///   6. `signedWork` is a valid `boole.signed.v1` envelope whose pk
+///      equals `submittedBy`, whose payload schema is
+///      `boole.signer.work.v1`, whose route is `/submit`, whose nonce
+///      equals `session.nonce`, and whose requestHash matches the
+///      canonical hash of the submitted work body.
+///   7. The `(submittedBy, nonce)` pair has not been burned before;
+///      after the underlying admission returns `accepted: true`, the
+///      pair is appended to the persistent ledger so replay (in-process
+///      or post-restart) is rejected with `nonce_replayed`.
+#[derive(Debug, Clone)]
+struct CheckedSubmitSession {
+    submitted_by: String,
+    nonce: String,
+}
+
+fn submit_session_gate(
+    state: &mut LocalNodeState,
+    body: &[u8],
+) -> Result<Option<CheckedSubmitSession>, HttpError> {
     let envelope: Value = match serde_json::from_slice(body) {
         Ok(value) => value,
         // Malformed JSON is reported by the legacy `submit_json` path so
         // the gate stays out of the way for non-wallet callers.
-        Err(_) => return Ok(()),
+        Err(_) => return Ok(None),
     };
-    let session_value = match envelope.as_object().and_then(|m| m.get("session")) {
+    let envelope_obj = match envelope.as_object() {
+        Some(obj) => obj,
+        None => return Ok(None),
+    };
+    let session_value = match envelope_obj.get("session") {
         Some(value) if value.is_object() => value,
-        _ => return Ok(()),
+        _ => return Ok(None),
     };
     let session_obj = session_value
         .as_object()
@@ -890,9 +920,9 @@ fn submit_session_gate(state: &mut LocalNodeState, body: &[u8]) -> Result<(), Ht
         return Err(HttpError::malformed_pk());
     }
 
-    let nonce_path = state
+    state
         .submit_nonce_ledger_path
-        .clone()
+        .as_ref()
         .ok_or_else(HttpError::session_registry_disabled)?;
     let session_store = state
         .session_store
@@ -904,6 +934,13 @@ fn submit_session_gate(state: &mut LocalNodeState, body: &[u8]) -> Result<(), Ht
     if session.revoked {
         return Err(HttpError::session_revoked(submitted_by.to_string()));
     }
+    let current_height = state.runtime.cached_block_count() as u64;
+    if let Err(err) = session.validate_at_height(current_height) {
+        return Err(HttpError::session_denied(
+            submitted_by.to_string(),
+            err.to_string(),
+        ));
+    }
     if session.fixed_reward_recipient != reward_recipient {
         return Err(HttpError::reward_recipient_mismatch(
             session.fixed_reward_recipient.clone(),
@@ -911,9 +948,17 @@ fn submit_session_gate(state: &mut LocalNodeState, body: &[u8]) -> Result<(), Ht
         ));
     }
 
+    verify_signed_submit_work(
+        envelope_obj.get("body"),
+        session_obj,
+        submitted_by,
+        nonce,
+        session,
+    )?;
+
     let ledger = state
         .nonce_ledger
-        .as_mut()
+        .as_ref()
         .ok_or_else(HttpError::session_registry_disabled)?;
     if ledger.contains(submitted_by, nonce) {
         return Err(HttpError::nonce_replayed(
@@ -921,13 +966,150 @@ fn submit_session_gate(state: &mut LocalNodeState, body: &[u8]) -> Result<(), Ht
             nonce.to_string(),
         ));
     }
+    Ok(Some(CheckedSubmitSession {
+        submitted_by: submitted_by.to_string(),
+        nonce: nonce.to_string(),
+    }))
+}
+
+fn burn_submit_nonce(
+    state: &mut LocalNodeState,
+    session: &CheckedSubmitSession,
+) -> Result<(), HttpError> {
+    let nonce_path = state
+        .submit_nonce_ledger_path
+        .clone()
+        .ok_or_else(HttpError::session_registry_disabled)?;
+    let ledger = state
+        .nonce_ledger
+        .as_mut()
+        .ok_or_else(HttpError::session_registry_disabled)?;
     let appended = ledger
-        .append_burn(&nonce_path, submitted_by, nonce)
+        .append_burn(&nonce_path, &session.submitted_by, &session.nonce)
         .map_err(|err| HttpError::internal(err.to_string()))?;
     if !appended {
         return Err(HttpError::nonce_replayed(
-            submitted_by.to_string(),
-            nonce.to_string(),
+            session.submitted_by.clone(),
+            session.nonce.clone(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_signed_submit_work(
+    body_value: Option<&Value>,
+    session_obj: &serde_json::Map<String, Value>,
+    submitted_by: &str,
+    nonce: &str,
+    session: &SessionState,
+) -> Result<(), HttpError> {
+    let work_body = body_value.ok_or_else(|| HttpError::missing_field("body"))?;
+    let signed_work = session_obj
+        .get("signedWork")
+        .ok_or_else(|| HttpError::missing_field("session.signedWork"))?;
+    let signed_obj = signed_work
+        .as_object()
+        .ok_or_else(|| HttpError::bad_envelope("session.signedWork must be an object"))?;
+    let schema = signed_obj
+        .get("schema")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.signedWork.schema"))?;
+    if schema != SIGNED_ENVELOPE_SCHEMA {
+        return Err(HttpError::bad_envelope(format!(
+            "expected schema {SIGNED_ENVELOPE_SCHEMA}, got {schema}"
+        )));
+    }
+    let payload = signed_obj
+        .get("payload")
+        .ok_or_else(|| HttpError::missing_field("session.signedWork.payload"))?;
+    let pk = signed_obj
+        .get("pk")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.signedWork.pk"))?;
+    let signature = signed_obj
+        .get("signature")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.signedWork.signature"))?;
+    if pk != submitted_by {
+        return Err(HttpError::bad_payload(
+            "session.signedWork.pk",
+            "signed envelope pk must equal session.submittedBy",
+        ));
+    }
+    match verify_signature(pk, signature, payload) {
+        Ok(true) => {}
+        Ok(false) => return Err(HttpError::signature_invalid()),
+        Err(err) => return Err(HttpError::bad_envelope(err)),
+    }
+
+    let payload_obj = payload.as_object().ok_or_else(|| {
+        HttpError::bad_payload("session.signedWork.payload", "payload must be an object")
+    })?;
+    let payload_schema = payload_obj
+        .get("schema")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.signedWork.payload.schema"))?;
+    if payload_schema != "boole.signer.work.v1" {
+        return Err(HttpError::bad_payload(
+            "session.signedWork.payload.schema",
+            "expected boole.signer.work.v1",
+        ));
+    }
+    let route = payload_obj
+        .get("route")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.signedWork.payload.route"))?;
+    if route != "/submit" {
+        return Err(HttpError::bad_payload(
+            "session.signedWork.payload.route",
+            "route must be /submit",
+        ));
+    }
+    let signed_nonce = payload_obj
+        .get("nonce")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.signedWork.payload.nonce"))?;
+    if signed_nonce != nonce {
+        return Err(HttpError::bad_payload(
+            "session.signedWork.payload.nonce",
+            "signed nonce must equal session.nonce",
+        ));
+    }
+    let work_payload = payload_obj
+        .get("workPayload")
+        .ok_or_else(|| HttpError::missing_field("session.signedWork.payload.workPayload"))?;
+    if work_payload != work_body {
+        return Err(HttpError::bad_payload(
+            "session.signedWork.payload.workPayload",
+            "signed workPayload must equal submitted body",
+        ));
+    }
+    let request_hash = payload_obj
+        .get("requestHash")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.signedWork.payload.requestHash"))?;
+    let computed_hash = canonical_payload_hash_hex(work_payload);
+    if request_hash != computed_hash {
+        return Err(HttpError::bad_payload(
+            "session.signedWork.payload.requestHash",
+            "requestHash must equal canonical hash of workPayload",
+        ));
+    }
+    let fee = payload_obj
+        .get("fee")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.signedWork.payload.fee"))?;
+    let fee = fee
+        .parse::<u128>()
+        .map_err(|err| HttpError::bad_payload("session.signedWork.payload.fee", err.to_string()))?;
+    let max_fee = session
+        .max_fee_per_request
+        .parse::<u128>()
+        .map_err(|err| HttpError::bad_payload("session.maxFeePerRequest", err.to_string()))?;
+    if fee > max_fee {
+        return Err(HttpError::bad_payload(
+            "session.signedWork.payload.fee",
+            "fee exceeds session.maxFeePerRequest",
         ));
     }
     Ok(())
@@ -1056,7 +1238,9 @@ fn account_balance_json(state: &LocalNodeState, pk: &str) -> Result<Value, HttpE
 }
 
 fn is_well_formed_hex32(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn work_list_json(state: &LocalNodeState) -> Value {

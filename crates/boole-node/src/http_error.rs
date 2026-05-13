@@ -69,6 +69,15 @@ impl HttpError {
         Self::new(403, "session_revoked").with_extra("sessionPk", Value::String(session_pk.into()))
     }
 
+    /// `POST /submit` when the named session exists but is outside its
+    /// activation/expiry window or otherwise fails policy validation at the
+    /// current node height.
+    pub fn session_denied(session_pk: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self::new(403, "session_denied")
+            .with_extra("sessionPk", Value::String(session_pk.into()))
+            .with_detail(detail)
+    }
+
     /// `POST /submit` when the envelope's `rewardRecipient` does not match
     /// the registered session's `fixedRewardRecipient`. The plan binds
     /// the reward sink to the session at register-time so a compromised
