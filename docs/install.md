@@ -78,6 +78,19 @@ Override with either `--dir` or `BOOLE_HOME`:
 BOOLE_HOME=~/projects/Boole bash install.sh
 ```
 
+## Optional cargo-audit security scan
+
+`cargo-audit` is an optional local security scan for Rust dependency advisories. It is not part of the default installer or self-test gate because the first-pass safe preflight should remain reproducible even when optional security tools are not installed.
+
+To run it manually:
+
+```bash
+cargo install cargo-audit
+cargo audit
+```
+
+Treat any advisory as a dependency/security triage item. Do not interpret this scan as public mining evidence, paid/API benchmark evidence, or proof that runtime protocol invariants are correct.
+
 ## After install
 
 ```bash
