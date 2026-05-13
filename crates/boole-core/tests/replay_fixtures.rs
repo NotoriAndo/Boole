@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use boole_core::{
-    block_hash, compute_block_credits, replay_blocks, share_hash, Hex32, PersistedBlock,
+    block_hash, compute_block_reward_credits, replay_blocks, share_hash, Hex32, PersistedBlock,
     PersistedRewardEvent, SelectedShareEvidence,
 };
 use serde::Deserialize;
@@ -52,8 +52,7 @@ fn assert_replay_fixture_matches(raw: &str) {
 
 fn assert_replay_fixture(fixture: Fixture) {
     for (block, event) in fixture.blocks.iter().zip(fixture.reward_events.iter()) {
-        let credits = compute_block_credits(&block.proposer_pk, &block.selected_share_pks)
-            .expect("credits compute");
+        let credits = compute_block_reward_credits(block).expect("credits compute");
         assert_eq!(
             credits, event.credits,
             "reward event height {}",
@@ -72,6 +71,38 @@ fn assert_replay_fixture(fixture: Fixture) {
         .map(|(pk, amount)| (pk, amount.to_string()))
         .collect::<BTreeMap<_, _>>();
     assert_eq!(got_balances, fixture.expected.balances);
+}
+
+#[test]
+fn replay_credits_reward_override_fields_not_mining_identity_fields() {
+    let mut block = evidence_backed_block();
+    let reward_pk = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    block.selected_share_reward_pks = vec![reward_pk.to_string()];
+    block.proposer_reward_pk = reward_pk.to_string();
+
+    let credits = compute_block_reward_credits(&block).expect("reward override credits compute");
+    assert_eq!(credits.len(), 1);
+    assert_eq!(credits[0].pk, reward_pk);
+    assert_eq!(credits[0].amount, "2");
+
+    let replay = replay_blocks(&[block]).expect("reward override block replays");
+    assert_eq!(replay.balances.get(reward_pk).copied(), Some(2));
+    assert_eq!(
+        replay
+            .balances
+            .get("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            .copied(),
+        None,
+        "proposer identity must not receive reward when proposerRewardPk is set"
+    );
+    assert_eq!(
+        replay
+            .balances
+            .get("1111111111111111111111111111111111111111111111111111111111111111")
+            .copied(),
+        None,
+        "share mining identity must not receive reward when selectedShareRewardPks is set"
+    );
 }
 
 #[test]

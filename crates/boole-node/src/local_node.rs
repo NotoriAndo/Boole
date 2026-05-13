@@ -2017,7 +2017,7 @@ fn current_head(state: &LocalNodeState) -> String {
 }
 
 fn block_json(block: &PersistedBlock) -> Value {
-    json!({
+    let mut value = json!({
         "height": block.height,
         "prevC": block.prev_c,
         "c": block.c,
@@ -2031,5 +2031,21 @@ fn block_json(block: &PersistedBlock) -> Value {
         "tShare": block.t_share,
         "difficultyWeight": block.difficulty_weight,
         "ts": block.ts,
-    })
+    });
+    if let Some(obj) = value.as_object_mut() {
+        if !block.proposer_reward_pk.is_empty() {
+            obj.insert(
+                "proposerRewardPk".to_string(),
+                Value::String(block.proposer_reward_pk.clone()),
+            );
+        }
+        if !block.selected_share_reward_pks.is_empty() {
+            obj.insert(
+                "selectedShareRewardPks".to_string(),
+                serde_json::to_value(&block.selected_share_reward_pks)
+                    .expect("selected share reward pks serialize"),
+            );
+        }
+    }
+    value
 }

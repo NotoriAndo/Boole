@@ -681,6 +681,14 @@ fn session_bound_submit_credits_fixed_reward_recipient_not_body_pk() {
         submit_value["block"]["proposerPk"], PK_OWNER,
         "block proposer identity remains the proof/mining pk"
     );
+    assert_eq!(
+        submit_value["block"]["proposerRewardPk"], PK_OTHER,
+        "block audit artifact must expose the session reward recipient for proposer bonus"
+    );
+    assert_eq!(
+        submit_value["block"]["selectedShareRewardPks"][0], PK_OTHER,
+        "block audit artifact must expose the session reward recipient for selected share credit"
+    );
 
     let (recipient_status, recipient_balance) =
         http_get(boot.addr, &format!("/account/{PK_OTHER}/balance"));
