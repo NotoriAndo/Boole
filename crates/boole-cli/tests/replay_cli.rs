@@ -67,6 +67,7 @@ struct CliAuditReceiptsOutput {
     blocks_checked: u64,
     receipts_checked: u64,
     evidence: CliAuditReceiptsEvidence,
+    settlement: CliAuditReceiptsSettlement,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,6 +78,29 @@ struct CliAuditReceiptsEvidence {
     request_hashes: Vec<String>,
     signed_work_checked: u64,
     checks: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CliAuditReceiptsSettlement {
+    reward_credits: Vec<CliPersistedCredit>,
+    reputation_deltas: Vec<CliReputationDelta>,
+    checks: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CliPersistedCredit {
+    pk: String,
+    amount: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CliReputationDelta {
+    agent_pk: String,
+    accepted_submits: u64,
+    verified_reward_amount: String,
 }
 
 #[test]
@@ -169,6 +193,27 @@ fn cli_audit_receipts_json_accepts_ledger_matching_blocks() {
     assert_eq!(parsed.evidence.checks["blockChainContinuity"], true);
     assert_eq!(parsed.evidence.checks["rewardCreditBinding"], true);
     assert_eq!(parsed.evidence.checks["signedWorkLineage"], false);
+    assert_eq!(parsed.settlement.reward_credits.len(), 1);
+    assert_eq!(
+        parsed.settlement.reward_credits[0].pk,
+        "1111111111111111111111111111111111111111111111111111111111111111"
+    );
+    assert_eq!(parsed.settlement.reward_credits[0].amount, "1");
+    assert_eq!(parsed.settlement.reputation_deltas.len(), 1);
+    assert_eq!(
+        parsed.settlement.reputation_deltas[0].agent_pk,
+        "9999999999999999999999999999999999999999999999999999999999999999"
+    );
+    assert_eq!(parsed.settlement.reputation_deltas[0].accepted_submits, 1);
+    assert_eq!(
+        parsed.settlement.reputation_deltas[0].verified_reward_amount,
+        "1"
+    );
+    assert_eq!(parsed.settlement.checks["rewardCreditsReplayBound"], true);
+    assert_eq!(
+        parsed.settlement.checks["reputationBoundToSubmittedBy"],
+        true
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

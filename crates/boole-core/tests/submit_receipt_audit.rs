@@ -89,6 +89,22 @@ fn audit_accepts_receipt_bound_to_replayed_block_credit() {
     assert!(report.evidence.checks.selected_share_binding);
     assert!(report.evidence.checks.reward_credit_binding);
     assert!(!report.evidence.checks.signed_work_lineage);
+    assert_eq!(
+        report.settlement.reward_credits[0].pk,
+        valid_receipt().reward_recipient
+    );
+    assert_eq!(report.settlement.reward_credits[0].amount, "1");
+    assert_eq!(
+        report.settlement.reputation_deltas[0].agent_pk,
+        valid_receipt().submitted_by
+    );
+    assert_eq!(report.settlement.reputation_deltas[0].accepted_submits, 1);
+    assert_eq!(
+        report.settlement.reputation_deltas[0].verified_reward_amount,
+        "1"
+    );
+    assert!(report.settlement.checks.reward_credits_replay_bound);
+    assert!(report.settlement.checks.reputation_bound_to_submitted_by);
 }
 
 #[test]

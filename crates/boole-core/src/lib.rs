@@ -94,7 +94,8 @@ pub use submission_pow::{
 };
 pub use submit_receipt_audit::{
     audit_submit_receipt_lineages, audit_submit_receipts, SubmitReceipt, SubmitReceiptAuditReport,
-    SubmitReceiptLineage,
+    SubmitReceiptLineage, SubmitReceiptReputationDelta, SubmitReceiptSettlementChecks,
+    SubmitReceiptSettlementReport,
 };
 pub use validator::{
     decode_detail_from_json, decode_detail_json, validate_proof_package,

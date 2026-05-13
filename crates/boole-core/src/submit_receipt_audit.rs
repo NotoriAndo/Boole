@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::{
     canonical_payload_hash_hex, compute_block_reward_credits, Hex32, PersistedBlock,
-    SignedEnvelope, SIGNED_ENVELOPE_SCHEMA,
+    PersistedCredit, SignedEnvelope, SIGNED_ENVELOPE_SCHEMA,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,6 +33,30 @@ pub struct SubmitReceiptAuditReport {
     pub blocks_checked: u64,
     pub receipts_checked: u64,
     pub evidence: SubmitReceiptAuditEvidence,
+    pub settlement: SubmitReceiptSettlementReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmitReceiptSettlementReport {
+    pub reward_credits: Vec<PersistedCredit>,
+    pub reputation_deltas: Vec<SubmitReceiptReputationDelta>,
+    pub checks: SubmitReceiptSettlementChecks,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmitReceiptReputationDelta {
+    pub agent_pk: String,
+    pub accepted_submits: u64,
+    pub verified_reward_amount: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmitReceiptSettlementChecks {
+    pub reward_credits_replay_bound: bool,
+    pub reputation_bound_to_submitted_by: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +171,8 @@ fn audit_submit_receipts_with_signed_work_count(
         }
     }
 
+    let settlement = settlement_report(receipts)?;
+
     Ok(SubmitReceiptAuditReport {
         ok: true,
         blocks_checked: blocks.len() as u64,
@@ -170,6 +196,44 @@ fn audit_submit_receipts_with_signed_work_count(
                 reward_credit_binding: true,
                 signed_work_lineage: signed_work_checked > 0,
             },
+        },
+        settlement,
+    })
+}
+
+fn settlement_report(receipts: &[SubmitReceipt]) -> anyhow::Result<SubmitReceiptSettlementReport> {
+    let mut rewards: BTreeMap<String, u128> = BTreeMap::new();
+    let mut reputation: BTreeMap<String, (u64, u128)> = BTreeMap::new();
+    for receipt in receipts {
+        let amount: u128 = receipt.reward_amount.parse()?;
+        *rewards.entry(receipt.reward_recipient.clone()).or_insert(0) += amount;
+        let entry = reputation
+            .entry(receipt.submitted_by.clone())
+            .or_insert((0, 0));
+        entry.0 += 1;
+        entry.1 += amount;
+    }
+    Ok(SubmitReceiptSettlementReport {
+        reward_credits: rewards
+            .into_iter()
+            .map(|(pk, amount)| PersistedCredit {
+                pk,
+                amount: amount.to_string(),
+            })
+            .collect(),
+        reputation_deltas: reputation
+            .into_iter()
+            .map(|(agent_pk, (accepted_submits, verified_reward_amount))| {
+                SubmitReceiptReputationDelta {
+                    agent_pk,
+                    accepted_submits,
+                    verified_reward_amount: verified_reward_amount.to_string(),
+                }
+            })
+            .collect(),
+        checks: SubmitReceiptSettlementChecks {
+            reward_credits_replay_bound: true,
+            reputation_bound_to_submitted_by: true,
         },
     })
 }
