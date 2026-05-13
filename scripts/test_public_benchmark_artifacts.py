@@ -74,6 +74,30 @@ class PublicBenchmarkArtifactTests(unittest.TestCase):
         self.assertIn("not real model performance", readme)
         self.assertNotIn("Ollama mined", readme)
         self.assertNotIn("real network mined", readme)
+
+    def test_readme_describes_verified_answer_surface_without_overclaiming(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("## Verified-answer local receipt surface", readme)
+        self.assertIn(
+            "Boole can return a local verified-answer receipt commitment for machine-checkable work in a mock/local payment-gated flow.",
+            readme,
+        )
+        self.assertIn("POST /verify-answer", readme)
+        self.assertIn("ReceiptCommitment", readme)
+        self.assertIn("boole-native-test", readme)
+        self.assertIn("x402.draft-2", readme)
+        self.assertIn("wallet-session-receipt-gate.sh", readme)
+        self.assertIn("not real x402 settlement", readme)
+        self.assertIn("not public-network mining evidence", readme)
+        forbidden_claims = [
+            "public live x402 settlement",
+            "agents have autonomous wallets",
+            "Boole verifies all AI answers",
+            "real network mining rewards",
+        ]
+        for phrase in forbidden_claims:
+            self.assertNotIn(phrase, readme)
+
     def test_local_ollama_manual_smoke_guide_is_safe_and_optional(self) -> None:
         guide_path = ROOT / "docs" / "local-ollama-benchmark.md"
         self.assertTrue(guide_path.exists(), "missing docs/local-ollama-benchmark.md")

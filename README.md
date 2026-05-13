@@ -97,7 +97,7 @@ Run the local core health gate before publishing changes:
 ./scripts/self-test.sh
 ```
 
-The gate runs Rust formatting, strict clippy, TypeScript-to-Rust parity, runtime smoke cases, Proof-to-Block Benchmark v0, local mock mining smoke, diff whitespace checks, and gitleaks when available. It emits machine-readable JSON on stdout and progress/PASS lines on stderr.
+The gate runs Rust formatting, strict clippy, the focused wallet/session/receipt gate, TypeScript-to-Rust parity, runtime smoke cases, Proof-to-Block Benchmark v0, local mock mining smoke, diff whitespace checks, and gitleaks when available. It emits machine-readable JSON on stdout and progress/PASS lines on stderr.
 
 ## Local node
 
@@ -153,6 +153,20 @@ See [`docs/replay-consensus.md`](docs/replay-consensus.md).
 `boole chain settlement-report --blocks <blocks.ndjson> --receipts <submit-receipts.ndjson> --json` exposes the read-only reward/reputation summary implied by submit receipts that pass the same shape-only block/replay audit as `audit-receipts`. It does not verify signed-work lineage, does not mutate reward or reputation ledgers, and audit failure suppresses settlement output.
 
 See [`docs/settlement-report.md`](docs/settlement-report.md).
+
+## Verified-answer local receipt surface
+
+Boole can return a local verified-answer receipt commitment for machine-checkable work in a mock/local payment-gated flow.
+
+The local node exposes `POST /verify-answer` as a prototype pay-before-verification surface. Without the fake local payment header, it returns a typed `payment_required` response for `boole-native-test` with `x402.draft-2`. With the valid fake payment header, it writes a `ReceiptCommitment` row and returns primitive `agentEvents` for future passport indexing.
+
+This is not real x402 settlement, not public-network mining evidence, and not a universal AI-answer verification claim. The repeatable local regression gate is:
+
+```bash
+./scripts/wallet-session-receipt-gate.sh
+```
+
+See [`docs/receipt-commitment.md`](docs/receipt-commitment.md).
 
 ## Runtime smoke
 
