@@ -16,11 +16,12 @@ use boole_core::{
     replay_blocks, ticket, verify_signature, AdmissionDecision, BountyProofVerifier,
     BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport,
     CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry, FileBountyEventLedger,
-    Hex32, PersistedBlock, ReceiptCommitment, SessionState, SubmitProofInput, UpdateStatusInput,
-    WorkManifest, SIGNED_ENVELOPE_SCHEMA,
+    Hex32, PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput, SessionState,
+    SubmitProofInput, UpdateStatusInput, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap};
 use std::convert::Infallible;
 use std::fs::OpenOptions;
@@ -40,6 +41,11 @@ use tower_http::timeout::TimeoutLayer;
 
 const MAX_HTTP_BODY_BYTES: usize = 1_048_576;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const VERIFY_ANSWER_SCHEME: &str = "boole-native-test";
+const VERIFY_ANSWER_AMOUNT: &str = "1";
+const VERIFY_ANSWER_PAYMENT_SIGNATURE: &str = "boole-native-test:paid";
+const DEFAULT_X402_VERSION: &str = "x402.draft-2";
+const X402_VERSIONS_FIXTURE: &str = include_str!("../../../fixtures/protocol/x402/versions.json");
 
 pub struct LocalNodeConfig {
     pub scenario_path: PathBuf,
@@ -268,6 +274,7 @@ fn build_router(state: AppState) -> Router {
         .route("/bounties/{id}/status", post(bounty_status_handler))
         .route("/ticket", post(ticket_handler))
         .route("/submit", post(submit_handler))
+        .route("/verify-answer", post(verify_answer_handler))
         .route("/sessions", post(session_register_handler))
         .route("/sessions/{session_pk}", get(session_get_handler))
         .route("/receipts", post(receipt_post_handler))
@@ -847,6 +854,128 @@ fn receipt_post_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, H
         .apply(receipt.clone())
         .map_err(|err| HttpError::bad_request(err.to_string()))?;
     Ok(json!({"ok": true, "receiptCommitment": receipt}))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct VerifyAnswerRequest {
+    agent_pk: String,
+    family_id: String,
+    verifier_id: String,
+    verifier_hash_version: String,
+    answer: String,
+    pay_to: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct X402VersionsFixture {
+    accepted_versions: Vec<String>,
+}
+
+async fn verify_answer_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let mut guard = state.inner.write().await;
+    match verify_answer_json(&mut guard, &headers, &body) {
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+fn verify_answer_json(
+    state: &mut LocalNodeState,
+    headers: &HeaderMap,
+    body: &[u8],
+) -> Result<Value, HttpError> {
+    let body_value: Value = serde_json::from_slice(body)
+        .map_err(|err| HttpError::bad_request(format!("body is not valid JSON: {err}")))?;
+    let request_hash = canonical_payload_hash_hex(&body_value);
+    let request: VerifyAnswerRequest = serde_json::from_value(body_value)
+        .map_err(|err| HttpError::bad_payload("verifyAnswer", err.to_string()))?;
+    let x402_version = header_str(headers, "X-Boole-X402-Version")
+        .unwrap_or(DEFAULT_X402_VERSION)
+        .to_string();
+    let accepted_versions = accepted_x402_versions()?;
+    if !accepted_versions.iter().any(|v| v == &x402_version) {
+        return Err(HttpError::x402_version_unsupported(
+            x402_version,
+            accepted_versions,
+        ));
+    }
+    let pay_to = request.pay_to.clone();
+    match header_str(headers, "Payment-Signature") {
+        None => {
+            return Err(HttpError::payment_required(
+                VERIFY_ANSWER_SCHEME,
+                VERIFY_ANSWER_AMOUNT,
+                request_hash,
+                pay_to,
+                x402_version,
+            ));
+        }
+        Some(signature) if signature != VERIFY_ANSWER_PAYMENT_SIGNATURE => {
+            return Err(HttpError::payment_invalid(
+                VERIFY_ANSWER_SCHEME,
+                x402_version,
+            ));
+        }
+        Some(_) => {}
+    }
+
+    let artifact_hash = hex::encode(Sha256::digest(request.answer.as_bytes()));
+    let mut receipt = ReceiptCommitment::new(ReceiptCommitmentInput {
+        agent_pk: request.agent_pk,
+        family_id: request.family_id.clone(),
+        verifier_id: request.verifier_id,
+        verifier_hash_version: request.verifier_hash_version,
+        artifact_hash,
+        request_hash: request_hash.clone(),
+        result: "accepted".to_string(),
+        fee_charged: VERIFY_ANSWER_AMOUNT.to_string(),
+        reward_recipient: pay_to,
+    })
+    .map_err(|err| HttpError::bad_payload("verifyAnswer", err.to_string()))?;
+    receipt.x402_version = Some(x402_version.clone());
+    receipt.receipt_id = receipt.compute_id();
+
+    let path = state
+        .receipt_commitment_ledger_path
+        .clone()
+        .ok_or_else(HttpError::receipt_store_disabled)?;
+    let store = state
+        .receipt_store
+        .as_mut()
+        .ok_or_else(HttpError::receipt_store_disabled)?;
+    FileReceiptStore::append(&path, &receipt)
+        .map_err(|err| HttpError::bad_request(err.to_string()))?;
+    store
+        .apply(receipt.clone())
+        .map_err(|err| HttpError::bad_request(err.to_string()))?;
+
+    Ok(json!({
+        "ok": true,
+        "verified": true,
+        "scheme": VERIFY_ANSWER_SCHEME,
+        "x402Version": x402_version,
+        "familyId": request.family_id,
+        "verifierScope": "declared_family_only",
+        "requestHash": request_hash,
+        "receiptId": receipt.receipt_id,
+        "receiptCommitment": receipt,
+    }))
+}
+
+fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers.get(name).and_then(|value| value.to_str().ok())
+}
+
+fn accepted_x402_versions() -> Result<Vec<String>, HttpError> {
+    let fixture: X402VersionsFixture = serde_json::from_str(X402_VERSIONS_FIXTURE)
+        .map_err(|err| HttpError::internal(format!("x402 versions fixture invalid: {err}")))?;
+    Ok(fixture.accepted_versions)
 }
 
 fn session_public_view(session: &SessionState) -> Value {

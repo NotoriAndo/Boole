@@ -109,6 +109,36 @@ impl HttpError {
             .with_extra("receiptId", Value::String(receipt_id.into()))
     }
 
+    pub fn payment_required(
+        scheme: impl Into<String>,
+        amount: impl Into<String>,
+        request_hash: impl Into<String>,
+        pay_to: impl Into<String>,
+        x402_version: impl Into<String>,
+    ) -> Self {
+        Self::new(402, "payment_required")
+            .with_extra("scheme", Value::String(scheme.into()))
+            .with_extra("amount", Value::String(amount.into()))
+            .with_extra("requestHash", Value::String(request_hash.into()))
+            .with_extra("payTo", Value::String(pay_to.into()))
+            .with_extra("x402Version", Value::String(x402_version.into()))
+    }
+
+    pub fn payment_invalid(scheme: impl Into<String>, x402_version: impl Into<String>) -> Self {
+        Self::new(403, "payment_invalid")
+            .with_extra("scheme", Value::String(scheme.into()))
+            .with_extra("x402Version", Value::String(x402_version.into()))
+    }
+
+    pub fn x402_version_unsupported(
+        x402_version: impl Into<String>,
+        accepted_versions: Vec<String>,
+    ) -> Self {
+        Self::new(400, "x402_version_unsupported")
+            .with_extra("x402Version", Value::String(x402_version.into()))
+            .with_extra("acceptedVersions", json!(accepted_versions))
+    }
+
     pub fn work_not_found(id: impl Into<String>) -> Self {
         Self::new(404, "work_not_found").with_extra("id", Value::String(id.into()))
     }

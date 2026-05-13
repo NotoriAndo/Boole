@@ -19,7 +19,8 @@ Required fields:
   "requestHash": "<hex32>",
   "result": "accepted",
   "feeCharged": "1",
-  "rewardRecipient": "<hex32>"
+  "rewardRecipient": "<hex32>",
+  "x402Version": "x402.draft-2"
 }
 ```
 
@@ -27,6 +28,7 @@ Required fields:
 
 - `receiptId` is computed from canonical JSON over the commitment fields except `receiptId` itself.
 - `verifierHashVersion` is part of the ID preimage, so receipts created under verifier hash `v0` remain distinct from receipts created under `v1`.
+- `x402Version` is optional for non-payment receipts and is part of the ID preimage when present. The mock `/verify-answer` flow pins `x402.draft-2` from `fixtures/protocol/x402/versions.json`; adding a new accepted version requires a fixture change, not silent code drift.
 - `agentPk`, `artifactHash`, `requestHash`, and `rewardRecipient` must be lowercase hex32 strings.
 - Unknown fields are rejected. In particular, fields such as `humanAnswer`, `rawAnswer`, `prompt`, or raw artifact bodies do not belong in this core commitment.
 
@@ -49,9 +51,10 @@ When configured, the node serves:
 
 - `GET /receipts/{receiptId}` — returns `{ "ok": true, "receiptCommitment": ... }` for a stored commitment.
 - `POST /receipts` — local MVP append path for a `ReceiptCommitment` JSON object.
+- `POST /verify-answer` — mock/local pay-before-verification path. Without `Payment-Signature: boole-native-test:paid`, it returns HTTP 402 `payment_required` with `scheme: "boole-native-test"`, `amount: "1"`, `requestHash`, `payTo`, and `x402Version: "x402.draft-2"`. With the valid fake payment header it returns a mock verified result and appends only the `ReceiptCommitment` row.
 
-Unknown receipts return a typed `receipt_not_found` 404. Raw answer fields such as `humanAnswer` are rejected and are not appended to the ledger.
+Unknown receipts return a typed `receipt_not_found` 404. Unsupported mock x402 versions return `x402_version_unsupported`. Raw answer fields such as `humanAnswer` are rejected and are not appended to the ledger.
 
 ## Claim boundary
 
-This type and route surface are local replayable evidence plumbing only. They do not mutate reward or reputation ledgers, verify signed-work lineage, or provide public-network mining evidence. It is not public-network mining evidence. Follow-on work should bind this commitment to audited receipts.
+This type and route surface are local replayable evidence plumbing only. The `/verify-answer` flow is mock/local only and is not real x402 settlement. They do not mutate reward or reputation ledgers, verify signed-work lineage, or provide public-network mining evidence. It is not public-network mining evidence. Follow-on work should bind this commitment to audited receipts.
