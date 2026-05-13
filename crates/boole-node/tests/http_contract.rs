@@ -54,6 +54,7 @@ fn boot_server(
                 max_requests: Some(max_requests),
                 operator_signer_pks: vec![],
                 session_registry_path: None,
+                submit_nonce_ledger_path: None,
                 genesis_override: None,
             },
         )

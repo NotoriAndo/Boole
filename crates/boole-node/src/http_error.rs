@@ -55,6 +55,42 @@ impl HttpError {
             .with_extra("sessionPk", Value::String(session_pk.into()))
     }
 
+    /// `POST /submit` when the envelope names a `submittedBy` that the
+    /// session registry has never seen. The agent-wallet plan binds the
+    /// submitter to a registered `SessionState`, so an unknown key cannot
+    /// pass admission even if the POW body is otherwise valid.
+    pub fn session_unknown(session_pk: impl Into<String>) -> Self {
+        Self::new(404, "session_unknown").with_extra("sessionPk", Value::String(session_pk.into()))
+    }
+
+    /// `POST /submit` when the named session exists in the registry but
+    /// has been revoked. Revocation is sticky once recorded.
+    pub fn session_revoked(session_pk: impl Into<String>) -> Self {
+        Self::new(403, "session_revoked").with_extra("sessionPk", Value::String(session_pk.into()))
+    }
+
+    /// `POST /submit` when the envelope's `rewardRecipient` does not match
+    /// the registered session's `fixedRewardRecipient`. The plan binds
+    /// the reward sink to the session at register-time so a compromised
+    /// agent cannot redirect rewards.
+    pub fn reward_recipient_mismatch(
+        expected: impl Into<String>,
+        actual: impl Into<String>,
+    ) -> Self {
+        Self::new(403, "reward_recipient_mismatch")
+            .with_extra("expected", Value::String(expected.into()))
+            .with_extra("actual", Value::String(actual.into()))
+    }
+
+    /// `POST /submit` when the `(submittedBy, nonce)` pair has already
+    /// been admitted. Dedup state is persistent (NDJSON ledger) so
+    /// restart-replay still rejects.
+    pub fn nonce_replayed(session_pk: impl Into<String>, nonce: impl Into<String>) -> Self {
+        Self::new(409, "nonce_replayed")
+            .with_extra("sessionPk", Value::String(session_pk.into()))
+            .with_extra("nonce", Value::String(nonce.into()))
+    }
+
     pub fn work_not_found(id: impl Into<String>) -> Self {
         Self::new(404, "work_not_found").with_extra("id", Value::String(id.into()))
     }

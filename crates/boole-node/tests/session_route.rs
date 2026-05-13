@@ -85,6 +85,7 @@ fn boot_with_registry(max_requests: usize, registry: Option<PathBuf>) -> Boot {
                 bounty_verifiers: None,
                 family_manifests_dir: None,
                 session_registry_path: registry_for_thread,
+                submit_nonce_ledger_path: None,
                 max_requests: Some(max_requests),
                 operator_signer_pks: vec![],
                 genesis_override: None,

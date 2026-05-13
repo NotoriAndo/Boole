@@ -1,5 +1,6 @@
 use crate::block_store::FileBlockStore;
 use crate::http_error::HttpError;
+use crate::nonce_ledger::FileNonceLedger;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use crate::session_store::FileSessionStore;
 use axum::body::Bytes;
@@ -87,6 +88,15 @@ pub struct LocalNodeConfig {
     /// call returns `session_registry_disabled` — the agent-wallet stack
     /// is opt-in so legacy embeddings keep their pre-N1.2 behavior.
     pub session_registry_path: Option<PathBuf>,
+    /// Optional NDJSON ledger path for the session-bound `/submit` nonce
+    /// dedup set. When `Some`, `submit` envelopes that carry a `session`
+    /// block burn `(submittedBy, nonce)` into the ledger before reaching
+    /// the admission path; a replayed pair is rejected with
+    /// `nonce_replayed` (HTTP 409). Recovery rehydrates the dedup set so
+    /// the rejection survives process restarts. When `None`, the
+    /// session-gated path returns `session_registry_disabled` — the
+    /// ledger and the session registry are opted in together.
+    pub submit_nonce_ledger_path: Option<PathBuf>,
     pub max_requests: Option<usize>,
     /// When `Some`, replaces the scenario's `genesis_c`. Surfaced so the
     /// CLI wrapper (`boole node start --genesis HEX32`) can override the
@@ -157,6 +167,16 @@ struct LocalNodeState {
     /// routes disabled so legacy callers can't observe a partially-wired
     /// surface.
     session_store: Option<FileSessionStore>,
+    /// On-disk NDJSON ledger for the session-bound `/submit` nonce dedup
+    /// set. `Some` whenever the agent-wallet stack is opted in via
+    /// `LocalNodeConfig.submit_nonce_ledger_path`. Kept here so the
+    /// session gate can burn `(submittedBy, nonce)` events with the same
+    /// {append-then-apply} flow the session store uses.
+    submit_nonce_ledger_path: Option<PathBuf>,
+    /// In-memory mirror of the submit-nonce ledger. `Some` iff
+    /// `submit_nonce_ledger_path` is `Some`; required for the gate to
+    /// answer dedup queries without re-reading the ledger on every call.
+    nonce_ledger: Option<FileNonceLedger>,
 }
 
 #[derive(Clone)]
@@ -434,6 +454,10 @@ impl LocalNodeState {
             Some(path) => Some(FileSessionStore::recover(path)?),
             None => None,
         };
+        let nonce_ledger = match config.submit_nonce_ledger_path.as_ref() {
+            Some(path) => Some(FileNonceLedger::recover(path)?),
+            None => None,
+        };
         Ok(Self {
             runtime,
             genesis_c: scenario.genesis_c,
@@ -449,6 +473,8 @@ impl LocalNodeState {
             operator_signer_pks: config.operator_signer_pks,
             session_registry_path: config.session_registry_path,
             session_store,
+            submit_nonce_ledger_path: config.submit_nonce_ledger_path,
+            nonce_ledger,
         })
     }
 }
@@ -687,6 +713,14 @@ async fn submit_handler(
 ) -> Response {
     let mut guard = state.inner.write().await;
     let peer_ip = addr.ip().to_string();
+    // N2.1 — agent-wallet session gate runs before the legacy admission
+    // path so typed envelopes (`session_unknown` / `session_revoked` /
+    // `reward_recipient_mismatch` / `nonce_replayed`) can surface with
+    // the right HTTP status. Envelopes without a `session` block fall
+    // through to the legacy path so pre-wallet callers stay unaffected.
+    if let Err(err) = submit_session_gate(&mut guard, &body) {
+        return error_response(err);
+    }
     match submit_json(&mut guard, &body, &peer_ip) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(anyhow_to_internal(err)),
@@ -807,6 +841,96 @@ fn session_revoke_json(
         .get(session_pk)
         .ok_or_else(|| HttpError::internal("session vanished after revoke"))?;
     Ok(json!({"ok": true, "session": session_public_view(stored)}))
+}
+
+/// N2.1 — session-bound `/submit` gate. Runs before the legacy admission
+/// path. If the envelope does not carry a `session` block the gate is a
+/// no-op so pre-wallet callers keep their existing semantics. When the
+/// block is present the gate enforces:
+///
+///   1. `submittedBy` is a well-formed hex32 (`malformed-pk` otherwise).
+///   2. The session registry is configured; otherwise
+///      `session_registry_disabled` so the wallet stack is opted in or
+///      out atomically.
+///   3. The registry knows the key (`session_unknown` else).
+///   4. The session is not revoked (`session_revoked` else).
+///   5. `rewardRecipient` matches the registered
+///      `fixedRewardRecipient` (`reward_recipient_mismatch` else).
+///   6. The `(submittedBy, nonce)` pair has not been burned before; on
+///      success the pair is appended to the persistent ledger so a
+///      replay (in-process or post-restart) is rejected with
+///      `nonce_replayed`.
+fn submit_session_gate(state: &mut LocalNodeState, body: &[u8]) -> Result<(), HttpError> {
+    let envelope: Value = match serde_json::from_slice(body) {
+        Ok(value) => value,
+        // Malformed JSON is reported by the legacy `submit_json` path so
+        // the gate stays out of the way for non-wallet callers.
+        Err(_) => return Ok(()),
+    };
+    let session_value = match envelope.as_object().and_then(|m| m.get("session")) {
+        Some(value) if value.is_object() => value,
+        _ => return Ok(()),
+    };
+    let session_obj = session_value
+        .as_object()
+        .expect("session value checked to be object above");
+    let submitted_by = session_obj
+        .get("submittedBy")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.submittedBy"))?;
+    let reward_recipient = session_obj
+        .get("rewardRecipient")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.rewardRecipient"))?;
+    let nonce = session_obj
+        .get("nonce")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.nonce"))?;
+    if !is_well_formed_hex32(submitted_by) {
+        return Err(HttpError::malformed_pk());
+    }
+
+    let nonce_path = state
+        .submit_nonce_ledger_path
+        .clone()
+        .ok_or_else(HttpError::session_registry_disabled)?;
+    let session_store = state
+        .session_store
+        .as_ref()
+        .ok_or_else(HttpError::session_registry_disabled)?;
+    let session = session_store
+        .get(submitted_by)
+        .ok_or_else(|| HttpError::session_unknown(submitted_by.to_string()))?;
+    if session.revoked {
+        return Err(HttpError::session_revoked(submitted_by.to_string()));
+    }
+    if session.fixed_reward_recipient != reward_recipient {
+        return Err(HttpError::reward_recipient_mismatch(
+            session.fixed_reward_recipient.clone(),
+            reward_recipient.to_string(),
+        ));
+    }
+
+    let ledger = state
+        .nonce_ledger
+        .as_mut()
+        .ok_or_else(HttpError::session_registry_disabled)?;
+    if ledger.contains(submitted_by, nonce) {
+        return Err(HttpError::nonce_replayed(
+            submitted_by.to_string(),
+            nonce.to_string(),
+        ));
+    }
+    let appended = ledger
+        .append_burn(&nonce_path, submitted_by, nonce)
+        .map_err(|err| HttpError::internal(err.to_string()))?;
+    if !appended {
+        return Err(HttpError::nonce_replayed(
+            submitted_by.to_string(),
+            nonce.to_string(),
+        ));
+    }
+    Ok(())
 }
 
 async fn fallback_handler(method: Method, uri: Uri) -> Response {
