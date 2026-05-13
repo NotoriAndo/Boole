@@ -38,7 +38,7 @@ impl HttpError {
     }
 
     pub fn malformed_pk() -> Self {
-        Self::new(400, "malformed-pk")
+        Self::new(400, "malformed_pk")
     }
 
     /// Returned by `/sessions*` routes when the node was booted without

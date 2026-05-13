@@ -163,7 +163,7 @@ fn account_balance_rejects_malformed_pk_with_400() {
     let (status, body) = http_get(addr, "/account/notalongenoughhex/balance");
     assert_eq!(status, 400, "malformed pk must be 400: {body}");
     assert_eq!(body["ok"], false);
-    assert_eq!(body["reason"], "malformed-pk");
+    assert_eq!(body["reason"], "malformed_pk");
 
     handle.join().expect("server thread").expect("server exits");
     let _ = std::fs::remove_dir_all(&dir);

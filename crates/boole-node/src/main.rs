@@ -274,7 +274,7 @@ fn run_submit_lean_command(mut args: Vec<String>) -> anyhow::Result<()> {
     }
     // Validate `--admission-nonce` shape *before* fixture parse + Lean spawn so
     // a malformed value fails fast and never pays for `lake exec boole_check`.
-    // Reason kebab parallels S9's `malformed-pk` so downstream tooling can
+    // The reason code mirrors account/session malformed public-key rejections so downstream tooling can
     // pattern-match across both surfaces.
     if let Some(value) = admission_nonce_override.as_deref() {
         if !is_well_formed_hex32(value) {

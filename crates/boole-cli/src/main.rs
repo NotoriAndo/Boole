@@ -929,11 +929,11 @@ fn node_start(
 
 /// Fetch `/account/{pk}/balance` from `node`. Validates `pk` locally first so
 /// a malformed input never reaches the wire — matches the typed-rejection
-/// shape (`{ok:false, reason:"malformed-pk"}`) the server itself emits, which
+/// shape (`{ok:false, reason:"malformed_pk"}`) the server itself emits, which
 /// keeps CLI/server contracts consistent for downstream automation.
 fn account_balance(pk: &str, node: Option<&str>, json: bool) -> anyhow::Result<()> {
     if !is_well_formed_hex32(pk) {
-        emit_typed_error("malformed-pk", 2, serde_json::json!({ "pk": pk }));
+        emit_typed_error("malformed_pk", 2, serde_json::json!({ "pk": pk }));
     }
     let url = node.unwrap_or("http://127.0.0.1:8080");
     let path = format!("/account/{pk}/balance");

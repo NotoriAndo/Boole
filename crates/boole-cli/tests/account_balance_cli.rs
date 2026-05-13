@@ -207,5 +207,5 @@ fn account_balance_cli_rejects_malformed_pk_locally() {
     let _ = writeln!(std::io::stderr(), "stderr was: {stderr}");
     let parsed: Value = serde_json::from_slice(&output.stderr).expect("stderr json");
     assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "malformed-pk");
+    assert_eq!(parsed["reason"], "malformed_pk");
 }

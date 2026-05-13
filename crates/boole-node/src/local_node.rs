@@ -1077,7 +1077,7 @@ fn session_revoke_json(
 /// no-op so pre-wallet callers keep their existing semantics. When the
 /// block is present the gate enforces:
 ///
-///   1. `submittedBy` is a well-formed lowercase hex32 (`malformed-pk`
+///   1. `submittedBy` is a well-formed lowercase hex32 (`malformed_pk`
 ///      otherwise).
 ///   2. The session registry is configured; otherwise
 ///      `session_registry_disabled` so the wallet stack is opted in or

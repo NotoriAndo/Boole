@@ -10,7 +10,7 @@
 //!   - `POST /sessions/{sessionPk}/revoke` marks the session revoked
 //!     and a subsequent `GET` reflects the new state.
 //!   - Malformed or non-canonical uppercase `sessionPk` is rejected with
-//!     `malformed-pk` (mirrors `account_balance_json` so the vocabulary is
+//!     `malformed_pk` (mirrors `account_balance_json` so the vocabulary is
 //!     consistent).
 //!   - When `session_registry_path` is `None`, the routes return
 //!     `session_registry_disabled` instead of silently succeeding.
@@ -248,7 +248,7 @@ fn session_route_rejects_malformed_session_pk() {
     let (status, value) = http_get(boot.addr, "/sessions/not-hex");
     assert_eq!(status, 400, "got {status}: {value}");
     assert_eq!(value["ok"], false);
-    assert_eq!(value["reason"], "malformed-pk");
+    assert_eq!(value["reason"], "malformed_pk");
 
     boot.handle.join().expect("server thread").expect("exits");
     let _ = std::fs::remove_dir_all(&boot.dir);
@@ -268,7 +268,7 @@ fn session_route_rejects_uppercase_session_pk_as_noncanonical() {
         "uppercase sessionPk must be noncanonical: {value}"
     );
     assert_eq!(value["ok"], false);
-    assert_eq!(value["reason"], "malformed-pk");
+    assert_eq!(value["reason"], "malformed_pk");
 
     boot.handle.join().expect("server thread").expect("exits");
     let _ = std::fs::remove_dir_all(&boot.dir);
