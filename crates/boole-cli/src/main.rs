@@ -106,6 +106,18 @@ enum ChainCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Summarize audited receipt settlement/reputation deltas without mutating ledgers.
+    SettlementReport {
+        /// Path to persisted blocks NDJSON.
+        #[arg(long)]
+        blocks: PathBuf,
+        /// Path to submit receipt ledger NDJSON.
+        #[arg(long)]
+        receipts: PathBuf,
+        /// Emit JSON output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -514,6 +526,11 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 receipts,
                 json,
             } => audit_receipts(&blocks, &receipts, json),
+            ChainCommand::SettlementReport {
+                blocks,
+                receipts,
+                json,
+            } => settlement_report(&blocks, &receipts, json),
         },
         Some(Command::Node { command }) => match command {
             NodeCommand::Start {
@@ -710,6 +727,32 @@ fn audit_receipts(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyho
         println!(
             "ok={} blocksChecked={} receiptsChecked={}",
             report.ok, report.blocks_checked, report.receipts_checked
+        );
+    }
+    Ok(())
+}
+
+fn settlement_report(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyhow::Result<()> {
+    let blocks = read_ndjson::<boole_core::PersistedBlock>(blocks_path)?;
+    let receipts = read_ndjson::<boole_core::SubmitReceipt>(receipts_path)?;
+    let report = boole_core::audit_submit_receipts(&blocks, &receipts)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&serde_json::json!({
+                "ok": report.ok,
+                "source": "audit-receipts",
+                "blocksChecked": report.blocks_checked,
+                "receiptsChecked": report.receipts_checked,
+                "settlement": report.settlement,
+            }))?
+        );
+    } else {
+        println!(
+            "ok={} source=audit-receipts rewardCredits={} reputationDeltas={}",
+            report.ok,
+            report.settlement.reward_credits.len(),
+            report.settlement.reputation_deltas.len()
         );
     }
     Ok(())

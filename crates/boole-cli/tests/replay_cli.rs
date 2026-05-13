@@ -72,6 +72,16 @@ struct CliAuditReceiptsOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct CliSettlementReportOutput {
+    ok: bool,
+    source: String,
+    blocks_checked: u64,
+    receipts_checked: u64,
+    settlement: CliAuditReceiptsSettlement,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CliAuditReceiptsEvidence {
     block_heights: Vec<u64>,
     reward_recipients: Vec<String>,
@@ -139,24 +149,7 @@ fn cli_audit_receipts_json_accepts_ledger_matching_blocks() {
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let blocks_path = dir.join("blocks.ndjson");
     let receipts_path = dir.join("submit-receipts.ndjson");
-
-    let mut blocks_file = std::fs::File::create(&blocks_path).expect("create blocks");
-    for block in &fixture.blocks {
-        writeln!(
-            blocks_file,
-            "{}",
-            serde_json::to_string(block).expect("block json")
-        )
-        .expect("write block");
-    }
-    std::fs::write(
-        &receipts_path,
-        concat!(
-            r#"{"schema":"boole.submit.receipt.v1","accepted":true,"route":"/submit","sessionPk":"9999999999999999999999999999999999999999999999999999999999999999","submittedBy":"9999999999999999999999999999999999999999999999999999999999999999","nonce":"n-audit-1","requestHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","blockHeight":0,"blockC":"4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d","shareHash":"0101010101010101010101010101010101010101010101010101010101010101","proposerPk":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rewardRecipient":"1111111111111111111111111111111111111111111111111111111111111111","rewardAmount":"1"}"#,
-            "\n"
-        ),
-    )
-    .expect("write receipts");
+    write_audit_fixture(&fixture, &blocks_path, &receipts_path);
 
     let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
         .args([
@@ -216,4 +209,91 @@ fn cli_audit_receipts_json_accepts_ledger_matching_blocks() {
     );
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cli_settlement_report_json_exposes_settlement_only_surface() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
+            .expect("fixture parses");
+    let dir = std::env::temp_dir().join(format!(
+        "boole-cli-settlement-report-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let blocks_path = dir.join("blocks.ndjson");
+    let receipts_path = dir.join("submit-receipts.ndjson");
+    write_audit_fixture(&fixture, &blocks_path, &receipts_path);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "chain",
+            "settlement-report",
+            "--blocks",
+            blocks_path.to_str().expect("utf8 blocks path"),
+            "--receipts",
+            receipts_path.to_str().expect("utf8 receipts path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: CliSettlementReportOutput =
+        serde_json::from_slice(&output.stdout).expect("json output");
+    assert!(parsed.ok);
+    assert_eq!(parsed.source, "audit-receipts");
+    assert_eq!(parsed.blocks_checked, fixture.blocks.len() as u64);
+    assert_eq!(parsed.receipts_checked, 1);
+    assert_eq!(parsed.settlement.reward_credits.len(), 1);
+    assert_eq!(
+        parsed.settlement.reward_credits[0].pk,
+        "1111111111111111111111111111111111111111111111111111111111111111"
+    );
+    assert_eq!(parsed.settlement.reward_credits[0].amount, "1");
+    assert_eq!(parsed.settlement.reputation_deltas.len(), 1);
+    assert_eq!(
+        parsed.settlement.reputation_deltas[0].agent_pk,
+        "9999999999999999999999999999999999999999999999999999999999999999"
+    );
+    assert_eq!(parsed.settlement.reputation_deltas[0].accepted_submits, 1);
+    assert_eq!(
+        parsed.settlement.reputation_deltas[0].verified_reward_amount,
+        "1"
+    );
+    assert_eq!(parsed.settlement.checks["rewardCreditsReplayBound"], true);
+    assert_eq!(
+        parsed.settlement.checks["reputationBoundToSubmittedBy"],
+        true
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn write_audit_fixture(
+    fixture: &Fixture,
+    blocks_path: &std::path::Path,
+    receipts_path: &std::path::Path,
+) {
+    let mut blocks_file = std::fs::File::create(blocks_path).expect("create blocks");
+    for block in &fixture.blocks {
+        writeln!(
+            blocks_file,
+            "{}",
+            serde_json::to_string(block).expect("block json")
+        )
+        .expect("write block");
+    }
+    std::fs::write(
+        receipts_path,
+        concat!(
+            r#"{"schema":"boole.submit.receipt.v1","accepted":true,"route":"/submit","sessionPk":"9999999999999999999999999999999999999999999999999999999999999999","submittedBy":"9999999999999999999999999999999999999999999999999999999999999999","nonce":"n-audit-1","requestHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","blockHeight":0,"blockC":"4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d","shareHash":"0101010101010101010101010101010101010101010101010101010101010101","proposerPk":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rewardRecipient":"1111111111111111111111111111111111111111111111111111111111111111","rewardAmount":"1"}"#,
+            "\n"
+        ),
+    )
+    .expect("write receipts");
 }
