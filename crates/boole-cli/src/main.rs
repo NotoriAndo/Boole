@@ -735,7 +735,8 @@ fn audit_receipts(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyho
 fn settlement_report(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyhow::Result<()> {
     let blocks = read_ndjson::<boole_core::PersistedBlock>(blocks_path)?;
     let receipts = read_ndjson::<boole_core::SubmitReceipt>(receipts_path)?;
-    let report = boole_core::audit_submit_receipts(&blocks, &receipts)?;
+    let report = boole_core::audit_submit_receipts(&blocks, &receipts)
+        .map_err(|err| anyhow::anyhow!("settlement suppressed: {err}"))?;
     if json {
         println!(
             "{}",
