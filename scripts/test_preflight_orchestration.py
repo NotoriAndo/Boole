@@ -73,6 +73,24 @@ class PreflightOrchestrationTests(unittest.TestCase):
             self.assertIn('PROFILE="${PROFILE:-v1-lenbound}"', text, path)
             self.assertNotIn('PROFILE="${PROFILE:-v031-lp}"', text, path)
 
+    def test_reqwest_is_declared_once_as_workspace_dependency(self) -> None:
+        root_manifest = (ROOT / "Cargo.toml").read_text(encoding="utf-8")
+        self.assertIn("\n[workspace.dependencies]\n", root_manifest)
+        workspace_deps = root_manifest.split("\n[workspace.dependencies]\n", 1)[1]
+        self.assertIn("reqwest = {", workspace_deps)
+
+        crate_manifests = sorted((ROOT / "crates").glob("*/Cargo.toml"))
+        reqwest_lines = []
+        for manifest in crate_manifests:
+            for line in manifest.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if stripped.startswith("reqwest =") or stripped.startswith("reqwest.workspace"):
+                    reqwest_lines.append((manifest.relative_to(ROOT).as_posix(), stripped))
+        self.assertEqual(
+            reqwest_lines,
+            [("crates/boole-miner/Cargo.toml", "reqwest.workspace = true")],
+        )
+
     def test_agent_mine_missing_runtime_skip_matches_contract_fixture(self) -> None:
         proc = subprocess.run(
             ["./scripts/boole-agent-mine.sh", "--runtime", "codex", "--agent-command", "/tmp/boole-missing-codex-runtime"],
