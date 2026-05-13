@@ -32,6 +32,28 @@ pub struct SubmitReceiptAuditReport {
     pub ok: bool,
     pub blocks_checked: u64,
     pub receipts_checked: u64,
+    pub evidence: SubmitReceiptAuditEvidence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmitReceiptAuditEvidence {
+    pub block_heights: Vec<u64>,
+    pub reward_recipients: Vec<String>,
+    pub request_hashes: Vec<String>,
+    pub signed_work_checked: u64,
+    pub checks: SubmitReceiptAuditChecks,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubmitReceiptAuditChecks {
+    pub block_chain_continuity: bool,
+    pub receipt_shape: bool,
+    pub block_binding: bool,
+    pub selected_share_binding: bool,
+    pub reward_credit_binding: bool,
+    pub signed_work_lineage: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,12 +73,20 @@ pub fn audit_submit_receipt_lineages(
         .iter()
         .map(|lineage| lineage.receipt.clone())
         .collect();
-    audit_submit_receipts(blocks, &receipts)
+    audit_submit_receipts_with_signed_work_count(blocks, &receipts, lineages.len() as u64)
 }
 
 pub fn audit_submit_receipts(
     blocks: &[PersistedBlock],
     receipts: &[SubmitReceipt],
+) -> anyhow::Result<SubmitReceiptAuditReport> {
+    audit_submit_receipts_with_signed_work_count(blocks, receipts, 0)
+}
+
+fn audit_submit_receipts_with_signed_work_count(
+    blocks: &[PersistedBlock],
+    receipts: &[SubmitReceipt],
+    signed_work_checked: u64,
 ) -> anyhow::Result<SubmitReceiptAuditReport> {
     let blocks_by_height: BTreeMap<u64, &PersistedBlock> =
         blocks.iter().map(|block| (block.height, block)).collect();
@@ -121,7 +151,34 @@ pub fn audit_submit_receipts(
         ok: true,
         blocks_checked: blocks.len() as u64,
         receipts_checked: receipts.len() as u64,
+        evidence: SubmitReceiptAuditEvidence {
+            block_heights: blocks_by_height.keys().copied().collect(),
+            reward_recipients: unique_sorted(
+                receipts
+                    .iter()
+                    .map(|receipt| receipt.reward_recipient.clone()),
+            ),
+            request_hashes: unique_sorted(
+                receipts.iter().map(|receipt| receipt.request_hash.clone()),
+            ),
+            signed_work_checked,
+            checks: SubmitReceiptAuditChecks {
+                block_chain_continuity: true,
+                receipt_shape: true,
+                block_binding: true,
+                selected_share_binding: true,
+                reward_credit_binding: true,
+                signed_work_lineage: signed_work_checked > 0,
+            },
+        },
     })
+}
+
+fn unique_sorted(values: impl Iterator<Item = String>) -> Vec<String> {
+    values
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 fn validate_block_chain(blocks_by_height: &BTreeMap<u64, &PersistedBlock>) -> anyhow::Result<()> {

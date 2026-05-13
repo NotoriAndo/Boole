@@ -66,6 +66,17 @@ struct CliAuditReceiptsOutput {
     ok: bool,
     blocks_checked: u64,
     receipts_checked: u64,
+    evidence: CliAuditReceiptsEvidence,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CliAuditReceiptsEvidence {
+    block_heights: Vec<u64>,
+    reward_recipients: Vec<String>,
+    request_hashes: Vec<String>,
+    signed_work_checked: u64,
+    checks: serde_json::Value,
 }
 
 #[test]
@@ -145,6 +156,19 @@ fn cli_audit_receipts_json_accepts_ledger_matching_blocks() {
     assert!(parsed.ok);
     assert_eq!(parsed.blocks_checked, fixture.blocks.len() as u64);
     assert_eq!(parsed.receipts_checked, 1);
+    assert_eq!(parsed.evidence.block_heights, vec![0, 1]);
+    assert_eq!(
+        parsed.evidence.reward_recipients,
+        vec!["1111111111111111111111111111111111111111111111111111111111111111"]
+    );
+    assert_eq!(
+        parsed.evidence.request_hashes,
+        vec!["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+    );
+    assert_eq!(parsed.evidence.signed_work_checked, 0);
+    assert_eq!(parsed.evidence.checks["blockChainContinuity"], true);
+    assert_eq!(parsed.evidence.checks["rewardCreditBinding"], true);
+    assert_eq!(parsed.evidence.checks["signedWorkLineage"], false);
 
     let _ = std::fs::remove_dir_all(&dir);
 }

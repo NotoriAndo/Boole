@@ -73,6 +73,22 @@ fn audit_accepts_receipt_bound_to_replayed_block_credit() {
     assert_eq!(report.receipts_checked, 1);
     assert_eq!(report.blocks_checked, fixture.blocks.len() as u64);
     assert!(report.ok);
+    assert_eq!(report.evidence.block_heights, vec![0, 1]);
+    assert_eq!(
+        report.evidence.reward_recipients,
+        vec![valid_receipt().reward_recipient]
+    );
+    assert_eq!(
+        report.evidence.request_hashes,
+        vec![valid_receipt().request_hash]
+    );
+    assert_eq!(report.evidence.signed_work_checked, 0);
+    assert!(report.evidence.checks.block_chain_continuity);
+    assert!(report.evidence.checks.receipt_shape);
+    assert!(report.evidence.checks.block_binding);
+    assert!(report.evidence.checks.selected_share_binding);
+    assert!(report.evidence.checks.reward_credit_binding);
+    assert!(!report.evidence.checks.signed_work_lineage);
 }
 
 #[test]
@@ -93,6 +109,17 @@ fn audit_accepts_signed_work_receipt_lineage_bound_to_replayed_block_credit() {
     assert!(report.ok);
     assert_eq!(report.receipts_checked, 1);
     assert_eq!(report.blocks_checked, fixture.blocks.len() as u64);
+    assert_eq!(report.evidence.signed_work_checked, 1);
+    assert!(report.evidence.checks.signed_work_lineage);
+    assert_eq!(report.evidence.block_heights, vec![0, 1]);
+    assert_eq!(
+        report.evidence.reward_recipients,
+        vec![receipt_reward_recipient()]
+    );
+}
+
+fn receipt_reward_recipient() -> String {
+    valid_receipt().reward_recipient
 }
 
 #[test]
