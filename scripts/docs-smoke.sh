@@ -31,6 +31,7 @@ require_file fixtures/benchmarks/proof-to-block-v0.1/sample-summary.json
 require_file fixtures/benchmarks/proof-to-block-v0.1/sample-leaderboard.md
 require_file docs/replay-consensus.md
 require_file docs/settlement-report.md
+require_file docs/receipt-commitment.md
 require_file docs/adr/0001-pofp-v2-canonical-widening.md
 
 require_text README.md "docs/install.md"
@@ -99,6 +100,12 @@ require_text docs/settlement-report.md "lineageVerified"
 require_text docs/settlement-report.md "does not mutate reward or reputation ledgers"
 require_text docs/settlement-report.md "audit failure suppresses settlement output"
 require_text docs/settlement-report.md "not public-network mining"
+
+require_text docs/receipt-commitment.md "ReceiptCommitment"
+require_text docs/receipt-commitment.md "verifierHashVersion"
+require_text docs/receipt-commitment.md "humanAnswer"
+require_text docs/receipt-commitment.md "does not by itself persist receipts"
+require_text docs/receipt-commitment.md "not public-network mining evidence"
 
 require_text docs/adr/0001-pofp-v2-canonical-widening.md "Status: Implemented"
 require_text docs/adr/0001-pofp-v2-canonical-widening.md "POFP-v2 is the default canonical package emitted by the Rust Lean proof bridge"

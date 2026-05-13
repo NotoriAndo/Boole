@@ -19,6 +19,7 @@ pub mod family_manifest;
 pub mod family_manifest_registry;
 pub mod hash;
 pub mod rate_limiter;
+pub mod receipt;
 pub mod rejection_log;
 pub mod replay;
 pub(crate) mod replay_evidence;
@@ -73,6 +74,7 @@ pub use hash::{
 pub use rate_limiter::{
     rate_limit_result_json, RateLimitRejectReason, RateLimitResult, RateLimiter,
 };
+pub use receipt::{ReceiptCommitment, ReceiptCommitmentInput};
 pub use rejection_log::{
     json_rejection_line, reason_key, reason_key_typed, rejection_event_from_json,
     rejection_event_json, rejection_event_line, LoggedRejectionReason, RejectionEvent,
