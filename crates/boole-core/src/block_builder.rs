@@ -56,6 +56,9 @@ pub struct PromotedBountySelection {
 pub struct CandidateShare {
     pub label: String,
     pub pk: String,
+    /// Reward sink for this share. Empty means legacy behavior: credit `pk`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reward_pk: String,
     pub n: String,
     pub j: String,
     pub c: String,

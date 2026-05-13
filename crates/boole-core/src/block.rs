@@ -25,6 +25,14 @@ pub struct PersistedBlock {
     pub proposer_pk: String,
     pub selected_share_hashes: Vec<String>,
     pub selected_share_pks: Vec<String>,
+    /// Reward recipients for selected base-lane shares. Empty on legacy
+    /// blocks means reward each corresponding `selectedSharePks` owner.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_share_reward_pks: Vec<String>,
+    /// Reward recipient for the proposer bonus. Empty on legacy blocks means
+    /// reward `proposerPk`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub proposer_reward_pk: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub selected_share_evidence: Vec<SelectedShareEvidence>,
     pub min_share_score: String,
@@ -62,10 +70,25 @@ impl PersistedBlock {
         for pk in &self.selected_share_pks {
             Hex32::from_hex(pk)?;
         }
+        for pk in &self.selected_share_reward_pks {
+            Hex32::from_hex(pk)?;
+        }
+        if !self.proposer_reward_pk.is_empty() {
+            Hex32::from_hex(&self.proposer_reward_pk)?;
+        }
         if self.selected_share_hashes.len() != self.selected_share_pks.len() {
             anyhow::bail!(
                 "selectedSharePks length ({}) must equal selectedShareHashes length ({})",
                 self.selected_share_pks.len(),
+                self.selected_share_hashes.len()
+            );
+        }
+        if !self.selected_share_reward_pks.is_empty()
+            && self.selected_share_reward_pks.len() != self.selected_share_hashes.len()
+        {
+            anyhow::bail!(
+                "selectedShareRewardPks length ({}) must equal selectedShareHashes length ({})",
+                self.selected_share_reward_pks.len(),
                 self.selected_share_hashes.len()
             );
         }

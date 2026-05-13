@@ -2,7 +2,7 @@ use crate::block_store::FileBlockStore;
 use crate::reward_store::{verify_ledger_matches_replay, FileRewardLedger};
 use boole_core::{
     admit_parsed_submission_typed, block_hash, build_block_selection, calibration_policy,
-    compute_block_credits, expected_retarget_difficulty_for_height, parse_submission_body,
+    compute_block_reward_credits, expected_retarget_difficulty_for_height, parse_submission_body,
     replay_blocks, share_score, AdmissionDecision, AdmissionParsedDeps, BlockBuilderConfig,
     BuildSelectionResult, CalibrationPolicy, CalibrationReport, CandidateShare,
     DifficultyRetargetPolicy, Hex32, PersistedBlock, PersistedRewardEvent, PoolShare, RateLimiter,
@@ -128,8 +128,7 @@ impl RuntimeAdmissionState {
                 // re-derived ledger matches what live commit will produce.
                 let mut ledger = FileRewardLedger::default();
                 for block in recovered.blocks() {
-                    let mut credits =
-                        compute_block_credits(&block.proposer_pk, &block.selected_share_pks)?;
+                    let mut credits = compute_block_reward_credits(block)?;
                     for bounty_credit in &block.promoted_bounty_credits {
                         credits.push(boole_core::PersistedCredit {
                             pk: bounty_credit.prover.clone(),
@@ -338,6 +337,25 @@ impl RuntimeAdmissionState {
             .iter()
             .map(|share| share.pk.clone())
             .collect::<Vec<_>>();
+        let selected_share_reward_pks = if selection
+            .selected
+            .iter()
+            .any(|share| !share.reward_pk.is_empty())
+        {
+            selection
+                .selected
+                .iter()
+                .map(|share| {
+                    if share.reward_pk.is_empty() {
+                        share.pk.clone()
+                    } else {
+                        share.reward_pk.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         let selected_share_evidence = selection
             .selected
             .iter()
@@ -360,6 +378,7 @@ impl RuntimeAdmissionState {
             .selected
             .get(selection.proposer_index)
             .ok_or_else(|| anyhow::anyhow!("proposer index out of range"))?;
+        let proposer_reward_pk = proposer.reward_pk.clone();
 
         Ok(PersistedBlock {
             height,
@@ -368,6 +387,8 @@ impl RuntimeAdmissionState {
             proposer_pk: proposer.pk.clone(),
             selected_share_hashes,
             selected_share_pks,
+            selected_share_reward_pks,
+            proposer_reward_pk,
             selected_share_evidence,
             min_share_score: config.min_share_score.to_string(),
             min_share_score_multiplier_nanos: config.min_share_score_multiplier_nanos,
@@ -474,7 +495,7 @@ impl RuntimeAdmissionState {
             self.reward_ledger_path.as_ref(),
             self.reward_ledger.as_mut(),
         ) {
-            let mut credits = compute_block_credits(&block.proposer_pk, &block.selected_share_pks)?;
+            let mut credits = compute_block_reward_credits(&block)?;
             // S23c — fold bounty credits into the same reward event so
             // `verify_ledger_matches_replay` sees one unified balance map.
             // Empty `promoted_bounty_credits` means base-only blocks
@@ -524,6 +545,17 @@ impl RuntimeAdmissionState {
         body: &Map<String, Value>,
         canon_tag: u8,
     ) -> AdmissionDecision {
+        self.admit_body_with_canon_tag_and_reward_pk(now, ip, body, canon_tag, None)
+    }
+
+    pub fn admit_body_with_canon_tag_and_reward_pk(
+        &mut self,
+        now: i64,
+        ip: &str,
+        body: &Map<String, Value>,
+        canon_tag: u8,
+        reward_pk: Option<&str>,
+    ) -> AdmissionDecision {
         let submission = match parse_submission_body(body) {
             Ok(submission) => submission,
             Err(decision) => return decision,
@@ -549,6 +581,7 @@ impl RuntimeAdmissionState {
             self.candidates.push(CandidateShare {
                 label: "runtime-admission".to_string(),
                 pk: submission.pk_hex,
+                reward_pk: reward_pk.unwrap_or("").to_string(),
                 n: submission.n_hex,
                 j: submission.j_hex,
                 c: submission.c_hex,

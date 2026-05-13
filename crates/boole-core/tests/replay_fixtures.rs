@@ -216,6 +216,8 @@ fn evidence_backed_block() -> PersistedBlock {
         proposer_pk: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
         selected_share_hashes: vec![share_hash],
         selected_share_pks: vec![pk.to_string()],
+        selected_share_reward_pks: vec![],
+        proposer_reward_pk: String::new(),
         selected_share_evidence: vec![SelectedShareEvidence {
             pk: pk.to_string(),
             n: n.to_string(),

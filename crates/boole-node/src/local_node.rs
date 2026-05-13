@@ -722,7 +722,7 @@ async fn submit_handler(
         Ok(session) => session,
         Err(err) => return error_response(err),
     };
-    match submit_json(&mut guard, &body, &peer_ip) {
+    match submit_json(&mut guard, &body, &peer_ip, checked_session.as_ref()) {
         Ok(value) => {
             if value.get("accepted").and_then(Value::as_bool) == Some(true) {
                 if let Some(session) = checked_session {
@@ -881,6 +881,7 @@ fn session_revoke_json(
 struct CheckedSubmitSession {
     submitted_by: String,
     nonce: String,
+    reward_recipient: String,
 }
 
 fn submit_session_gate(
@@ -969,6 +970,7 @@ fn submit_session_gate(
     Ok(Some(CheckedSubmitSession {
         submitted_by: submitted_by.to_string(),
         nonce: nonce.to_string(),
+        reward_recipient: reward_recipient.to_string(),
     }))
 }
 
@@ -1852,7 +1854,12 @@ fn normalize_pow_fields(body: &mut serde_json::Map<String, Value>) {
     }
 }
 
-fn submit_json(state: &mut LocalNodeState, body: &[u8], peer_ip: &str) -> anyhow::Result<Value> {
+fn submit_json(
+    state: &mut LocalNodeState,
+    body: &[u8],
+    peer_ip: &str,
+    checked_session: Option<&CheckedSubmitSession>,
+) -> anyhow::Result<Value> {
     let body_value: Value = serde_json::from_slice(body)?;
     let submit_body = body_value
         .as_object()
@@ -1896,9 +1903,13 @@ fn submit_json(state: &mut LocalNodeState, body: &[u8], peer_ip: &str) -> anyhow
         .runtime
         .observe_ticket_from_body(&body)
         .map_err(|err| anyhow::anyhow!(err))?;
-    let decision = state
-        .runtime
-        .admit_body_with_canon_tag(ts_i64, peer_ip, &body, canon_tag);
+    let decision = state.runtime.admit_body_with_canon_tag_and_reward_pk(
+        ts_i64,
+        peer_ip,
+        &body,
+        canon_tag,
+        checked_session.map(|session| session.reward_recipient.as_str()),
+    );
     let AdmissionDecision::Accepted { share_hash } = decision else {
         return Ok(json!({
             "ok": false,

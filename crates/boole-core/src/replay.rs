@@ -40,16 +40,23 @@ pub fn compute_block_credits(
     proposer_pk: &str,
     share_owners: &[String],
 ) -> anyhow::Result<Vec<PersistedCredit>> {
-    if share_owners.is_empty() {
+    compute_block_credits_for_reward_pks(proposer_pk, share_owners)
+}
+
+pub fn compute_block_credits_for_reward_pks(
+    proposer_reward_pk: &str,
+    share_reward_pks: &[String],
+) -> anyhow::Result<Vec<PersistedCredit>> {
+    if share_reward_pks.is_empty() {
         anyhow::bail!("computeBlockCredits: share owners list must not be empty");
     }
-    Hex32::from_hex(proposer_pk)?;
+    Hex32::from_hex(proposer_reward_pk)?;
     let mut totals: BTreeMap<String, u128> = BTreeMap::new();
-    for pk in share_owners {
+    for pk in share_reward_pks {
         Hex32::from_hex(pk)?;
         *totals.entry(pk.clone()).or_insert(0) += 1;
     }
-    *totals.entry(proposer_pk.to_string()).or_insert(0) += 1;
+    *totals.entry(proposer_reward_pk.to_string()).or_insert(0) += 1;
     Ok(totals
         .into_iter()
         .map(|(pk, amount)| PersistedCredit {
@@ -57,6 +64,22 @@ pub fn compute_block_credits(
             amount: amount.to_string(),
         })
         .collect())
+}
+
+pub fn compute_block_reward_credits(
+    block: &PersistedBlock,
+) -> anyhow::Result<Vec<PersistedCredit>> {
+    let proposer_reward_pk = if block.proposer_reward_pk.is_empty() {
+        block.proposer_pk.as_str()
+    } else {
+        block.proposer_reward_pk.as_str()
+    };
+    let share_reward_pks = if block.selected_share_reward_pks.is_empty() {
+        &block.selected_share_pks
+    } else {
+        &block.selected_share_reward_pks
+    };
+    compute_block_credits_for_reward_pks(proposer_reward_pk, share_reward_pks)
 }
 
 pub fn replay_blocks(blocks: &[PersistedBlock]) -> anyhow::Result<ReplayResult> {
@@ -93,7 +116,7 @@ pub fn replay_blocks(blocks: &[PersistedBlock]) -> anyhow::Result<ReplayResult> 
         }
         verify_selected_share_evidence(block)?;
 
-        for credit in compute_block_credits(&block.proposer_pk, &block.selected_share_pks)? {
+        for credit in compute_block_reward_credits(block)? {
             let amount: u128 = credit.amount.parse()?;
             *balances.entry(credit.pk).or_insert(0) += amount;
         }

@@ -97,6 +97,8 @@ fn block(height: u64, ts: u64, t_block: &str, difficulty_epoch: u64) -> Persiste
         selected_share_pks: vec![
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
         ],
+        selected_share_reward_pks: vec![],
+        proposer_reward_pk: String::new(),
         selected_share_evidence: vec![],
         min_share_score: "1".to_string(),
         min_share_score_multiplier_nanos: 0,

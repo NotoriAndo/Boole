@@ -88,6 +88,7 @@ struct BootPaths {
     dir: PathBuf,
     sessions: PathBuf,
     nonces: PathBuf,
+    rewards: PathBuf,
 }
 
 impl BootPaths {
@@ -95,10 +96,12 @@ impl BootPaths {
         let dir = fresh_dir(label);
         let sessions = dir.join("sessions.ndjson");
         let nonces = dir.join("submit-nonces.ndjson");
+        let rewards = dir.join("rewards.ndjson");
         Self {
             dir,
             sessions,
             nonces,
+            rewards,
         }
     }
 }
@@ -111,6 +114,7 @@ fn boot_with(paths: &BootPaths, max_requests: usize) -> Boot {
     let scenario = scenario_path();
     let sessions = paths.sessions.clone();
     let nonces = paths.nonces.clone();
+    let rewards = paths.rewards.clone();
     let handle = thread::spawn(move || {
         tx.send(()).expect("ready");
         serve_local_node(
@@ -118,7 +122,7 @@ fn boot_with(paths: &BootPaths, max_requests: usize) -> Boot {
             LocalNodeConfig {
                 scenario_path: scenario,
                 block_path,
-                reward_ledger_path: None,
+                reward_ledger_path: Some(rewards),
                 work_manifests_path: None,
                 bounties_path: None,
                 bounty_event_ledger_path: None,
@@ -143,6 +147,36 @@ fn http_post(addr: SocketAddr, path: &str, body: &Value) -> (u16, Value) {
         "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body_str}",
         body_str.len()
     );
+    let mut stream = TcpStream::connect(addr).expect("connect");
+    stream
+        .set_write_timeout(Some(Duration::from_secs(10)))
+        .expect("write timeout");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .expect("read timeout");
+    stream.write_all(request.as_bytes()).expect("write");
+    let mut buf = Vec::new();
+    match stream.read_to_end(&mut buf) {
+        Ok(_) => {}
+        Err(err) if err.kind() == ErrorKind::ConnectionReset && !buf.is_empty() => {}
+        Err(err) => panic!("read response: {err}"),
+    }
+    let raw = String::from_utf8(buf).expect("utf8 response");
+    let status = raw
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or_else(|| panic!("status not parseable: {raw}"));
+    let (_, body_text) = raw
+        .split_once("\r\n\r\n")
+        .unwrap_or_else(|| panic!("response missing body: {raw}"));
+    let body: Value = serde_json::from_str(body_text)
+        .unwrap_or_else(|err| panic!("body not JSON: {err}, raw={body_text}"));
+    (status, body)
+}
+
+fn http_get(addr: SocketAddr, path: &str) -> (u16, Value) {
+    let request = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     let mut stream = TcpStream::connect(addr).expect("connect");
     stream
         .set_write_timeout(Some(Duration::from_secs(10)))
@@ -615,6 +649,59 @@ fn rejected_admission_does_not_burn_submit_nonce() {
     assert_eq!(
         good_value["accepted"], true,
         "same nonce should burn only after accepted admission: {good_value}"
+    );
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = fs::remove_dir_all(&paths.dir);
+}
+
+#[test]
+fn session_bound_submit_credits_fixed_reward_recipient_not_body_pk() {
+    let paths = BootPaths::new("reward-recipient-credit");
+    let boot = boot_with(&paths, 4);
+
+    let key = SigningKeyV2::from_dev_id("r11-reward-recipient");
+    let session_pk = key.pk_hex();
+    register_session(boot.addr, &session_pk, PK_OTHER);
+
+    let body = scenario_body();
+    assert_eq!(body["pk"], PK_OWNER, "fixture body should mine as PK_OWNER");
+    let session = signed_work_session(&key, &body, "n-reward-recipient", PK_OTHER);
+    let (submit_status, submit_value) =
+        http_post(boot.addr, "/submit", &submit_envelope(body, Some(session)));
+    assert_eq!(
+        submit_status, 200,
+        "submit must reach admission: {submit_value}"
+    );
+    assert_eq!(
+        submit_value["accepted"], true,
+        "session-bound submit must be accepted: {submit_value}"
+    );
+    assert_eq!(
+        submit_value["block"]["proposerPk"], PK_OWNER,
+        "block proposer identity remains the proof/mining pk"
+    );
+
+    let (recipient_status, recipient_balance) =
+        http_get(boot.addr, &format!("/account/{PK_OTHER}/balance"));
+    assert_eq!(
+        recipient_status, 200,
+        "recipient balance route failed: {recipient_balance}"
+    );
+    assert_eq!(
+        recipient_balance["balance"], "2",
+        "fixedRewardRecipient should receive share credit plus proposer bonus"
+    );
+
+    let (body_pk_status, body_pk_balance) =
+        http_get(boot.addr, &format!("/account/{PK_OWNER}/balance"));
+    assert_eq!(
+        body_pk_status, 200,
+        "body pk balance route failed: {body_pk_balance}"
+    );
+    assert_eq!(
+        body_pk_balance["balance"], "0",
+        "session-bound reward must not be credited to the raw submit body pk"
     );
 
     boot.handle.join().expect("server thread").expect("exits");

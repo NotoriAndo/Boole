@@ -48,6 +48,7 @@ fn block_selection_orders_scores_above_u128_without_truncation() {
         CandidateShare {
             label: "larger-than-u128".to_string(),
             pk: "20".to_string(),
+            reward_pk: String::new(),
             n: "00".to_string(),
             j: "00".to_string(),
             c: chain_head.to_string(),
@@ -61,6 +62,7 @@ fn block_selection_orders_scores_above_u128_without_truncation() {
         CandidateShare {
             label: "also-larger-than-u128-but-smaller".to_string(),
             pk: "10".to_string(),
+            reward_pk: String::new(),
             n: "00".to_string(),
             j: "00".to_string(),
             c: chain_head.to_string(),
@@ -96,6 +98,8 @@ fn persisted_block_shape_accepts_large_decimal_min_share_score() {
         selected_share_pks: vec![
             "2222222222222222222222222222222222222222222222222222222222222222".to_string(),
         ],
+        selected_share_reward_pks: vec![],
+        proposer_reward_pk: String::new(),
         selected_share_evidence: vec![],
         min_share_score: "340282366920938463463374607431768211456".to_string(),
         min_share_score_multiplier_nanos: 0,

@@ -43,6 +43,7 @@ fn make_share(pk_byte: u8, score: u64) -> CandidateShare {
     CandidateShare {
         label: format!("share-{pk_byte:02x}"),
         pk: format!("{:064x}", pk_byte as u128),
+        reward_pk: String::new(),
         n: "0000000000000000000000000000000000000000000000000000000000000001".to_string(),
         j: format!("{:08x}", pk_byte),
         c: CHAIN.to_string(),
