@@ -1,9 +1,9 @@
 use std::collections::HashSet;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+
+use crate::durability::{append_ndjson_line_durable, read_stable_prefix};
 
 /// Append-only NDJSON ledger of accepted `(sessionPk, nonce)` pairs for
 /// session-bound `/submit` envelopes. The store keeps a `HashSet` of
@@ -37,10 +37,9 @@ impl FileNonceLedger {
     /// Returns an empty ledger if the file does not yet exist.
     pub fn recover(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let path = path.as_ref();
-        if !path.exists() {
+        let Some(raw) = read_stable_prefix(path)? else {
             return Ok(Self::default());
-        }
-        let raw = fs::read_to_string(path)?;
+        };
         let mut ledger = Self::default();
         for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
             let event: NonceEvent = serde_json::from_str(line).map_err(|err| {
@@ -78,12 +77,7 @@ impl FileNonceLedger {
     }
 
     fn append(path: impl AsRef<Path>, event: &NonceEvent) -> anyhow::Result<()> {
-        if let Some(parent) = path.as_ref().parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-        writeln!(file, "{}", serde_json::to_string(event)?)?;
-        Ok(())
+        append_ndjson_line_durable(path.as_ref(), &serde_json::to_string(event)?)
     }
 
     fn apply(&mut self, event: NonceEvent) {
@@ -100,5 +94,79 @@ impl FileNonceLedger {
 
     pub fn size(&self) -> usize {
         self.seen.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, OpenOptions};
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    fn tmp_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "boole-node-nonce-ledger-{}-{}",
+            label,
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("tmp dir");
+        dir
+    }
+
+    #[test]
+    fn nonce_ledger_recovers_and_truncates_partial_trailing_line_after_crash() {
+        let dir = tmp_dir("partial-recovery");
+        let path = dir.join("nonceledger.ndjson");
+
+        let mut writer = FileNonceLedger::default();
+        writer
+            .append_burn(&path, "session-1", "nonce-1")
+            .expect("append complete burn");
+
+        let stable_len = fs::metadata(&path).expect("metadata").len();
+        OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("open ledger")
+            .write_all(br#"{"kind":"burn","sessionPk":"truncated"#)
+            .expect("write partial trailing line");
+
+        let recovered = FileNonceLedger::recover(&path).expect("recover ignores torn tail");
+        assert!(recovered.contains("session-1", "nonce-1"));
+        assert_eq!(recovered.size(), 1);
+        assert_eq!(
+            fs::metadata(&path).expect("post-recover").len(),
+            stable_len,
+            "recovery must truncate the torn trailing line so restart is idempotent"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nonce_ledger_rejects_complete_corrupt_line_instead_of_truncating_history() {
+        let dir = tmp_dir("complete-corrupt-line");
+        let path = dir.join("nonceledger.ndjson");
+
+        let mut writer = FileNonceLedger::default();
+        writer
+            .append_burn(&path, "session-1", "nonce-1")
+            .expect("append complete burn");
+        OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .expect("open ledger")
+            .write_all(b"not-json\n")
+            .expect("write complete corrupt line");
+
+        let err = FileNonceLedger::recover(&path).expect_err("complete corrupt lines must fail");
+        assert!(
+            err.to_string().contains("invalid JSON"),
+            "unexpected error: {err}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
