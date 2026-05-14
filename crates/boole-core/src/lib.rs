@@ -73,7 +73,7 @@ pub use family_manifest_registry::FamilyManifestRegistry;
 pub use hash::{
     block_hash, difficulty_weight, digest_to_biguint, h_protocol, min_share_score,
     parse_biguint_hex, share_hash, share_score, submission_pow_hash, submission_pow_ok, ticket,
-    Hex32, TicketResult,
+    Hex32, Hex64, TicketResult,
 };
 pub use rate_limiter::{
     rate_limit_result_json, RateLimitRejectReason, RateLimitResult, RateLimiter,
@@ -123,5 +123,13 @@ mod tests {
         let input = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
         let parsed = Hex32::from_hex(input).expect("valid hex32");
         assert_eq!(parsed.to_hex(), input);
+    }
+
+    #[test]
+    fn hex64_roundtrip_accepts_lowercase_64_bytes_and_rejects_uppercase() {
+        let input = "00".repeat(64);
+        let parsed = Hex64::from_hex(&input).expect("valid hex64");
+        assert_eq!(parsed.to_hex(), input);
+        assert!(Hex64::from_hex(&"A".repeat(128)).is_err());
     }
 }

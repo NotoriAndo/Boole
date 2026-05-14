@@ -14,8 +14,19 @@ pub enum Hex32Error {
     DecodeFailed,
 }
 
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum Hex64Error {
+    #[error("hex64 must be 128 lowercase hex characters")]
+    InvalidShape,
+    #[error("hex64 decode failed")]
+    DecodeFailed,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Hex32([u8; 32]);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Hex64([u8; 64]);
 
 impl Hex32 {
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
@@ -36,6 +47,33 @@ impl Hex32 {
     }
 
     pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    pub fn to_hex(&self) -> String {
+        hex::encode(self.0)
+    }
+}
+
+impl Hex64 {
+    pub fn from_bytes(bytes: [u8; 64]) -> Self {
+        Self(bytes)
+    }
+
+    pub fn from_hex(value: &str) -> Result<Self, Hex64Error> {
+        if value.len() != 128
+            || !value
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        {
+            return Err(Hex64Error::InvalidShape);
+        }
+        let mut out = [0u8; 64];
+        hex::decode_to_slice(value, &mut out).map_err(|_| Hex64Error::DecodeFailed)?;
+        Ok(Self(out))
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 64] {
         &self.0
     }
 

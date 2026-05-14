@@ -2451,5 +2451,5 @@ fn keys_verify(pk: &str, signature: &str, payload_arg: &str, json: bool) -> anyh
 }
 
 fn is_well_formed_hex64(s: &str) -> bool {
-    s.len() == 128 && s.bytes().all(|b| b.is_ascii_hexdigit())
+    boole_core::Hex64::from_hex(s).is_ok()
 }

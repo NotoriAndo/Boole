@@ -138,22 +138,24 @@ fn verify_malformed_pk_emits_bad_pk_typed_error() {
 #[test]
 fn verify_malformed_signature_emits_bad_signature_typed_error() {
     let payload = serde_json::json!({"k": "v"});
-    let out = cli()
-        .args([
-            "keys",
-            "verify",
-            "--pk",
-            &"0".repeat(64),
-            "--signature",
-            "way-too-short",
-            "--payload",
-            &payload.to_string(),
-        ])
-        .output()
-        .expect("run keys verify");
-    assert!(!out.status.success());
-    assert_eq!(out.status.code(), Some(2));
-    let envelope = parse_json(&out.stderr);
-    assert_eq!(envelope["ok"], false);
-    assert_eq!(envelope["reason"], "bad_signature");
+    for signature in ["way-too-short".to_string(), "A".repeat(128)] {
+        let out = cli()
+            .args([
+                "keys",
+                "verify",
+                "--pk",
+                &"0".repeat(64),
+                "--signature",
+                &signature,
+                "--payload",
+                &payload.to_string(),
+            ])
+            .output()
+            .expect("run keys verify");
+        assert!(!out.status.success());
+        assert_eq!(out.status.code(), Some(2));
+        let envelope = parse_json(&out.stderr);
+        assert_eq!(envelope["ok"], false);
+        assert_eq!(envelope["reason"], "bad_signature");
+    }
 }

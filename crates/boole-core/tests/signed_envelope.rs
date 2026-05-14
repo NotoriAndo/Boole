@@ -83,3 +83,18 @@ fn signing_key_seed_rejects_uppercase_noncanonical_hex32() {
         "stored sk seed hex must use canonical lowercase Hex32"
     );
 }
+
+#[test]
+fn verify_signature_rejects_uppercase_noncanonical_signature_hex64() {
+    let payload = json!({"msg": "x"});
+    let key = SigningKeyV2::from_dev_id("uppercase-sig-policy");
+    let envelope = key.sign(&payload).expect("sign");
+    let uppercase_sig = envelope.signature.to_uppercase();
+
+    let result = verify_signature(&envelope.pk, &uppercase_sig, &payload);
+
+    assert!(
+        result.is_err(),
+        "uppercase signature hex must be wire-malformed, not Ok(false): {result:?}"
+    );
+}

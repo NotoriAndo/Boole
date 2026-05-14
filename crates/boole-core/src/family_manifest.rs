@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{signed_envelope::verify_signature, Hex32};
+use crate::{signed_envelope::verify_signature, Hex32, Hex64};
 
 const HEX32_FIELDS: &[&str] = &[
     "generatorHash",
@@ -243,7 +243,7 @@ fn parse_signature(value: Option<&Value>) -> Result<Option<String>, String> {
     let Some(s) = raw.as_str() else {
         return Err("bad_signature".to_string());
     };
-    if s.len() != 128 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if Hex64::from_hex(s).is_err() {
         return Err("bad_signature".to_string());
     }
     Ok(Some(s.to_string()))
