@@ -52,7 +52,7 @@ pub use bounty_ledger::{validate_bounty_ledger_event, BountyEventLedger};
 pub use bounty_promotion::{select_promoted_bounty_selection, select_promoted_bounty_shares};
 pub use bounty_proof_verifier::BountyProofVerifier;
 pub use bounty_registry::{
-    load_bounties, Bounty, BountyList, BountyRegistry, BountyVerifier, CreateBountyInput,
+    bounties_from_list, Bounty, BountyList, BountyRegistry, BountyVerifier, CreateBountyInput,
     SubmitProofInput, SubmitProofResult, UpdateStatusInput,
 };
 pub use bounty_side_pool::{BountyShare, BountySidePool};

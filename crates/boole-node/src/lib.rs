@@ -1,4 +1,5 @@
 mod block_store;
+mod bounty_catalog_store;
 mod bounty_event_store;
 mod family_manifest_store;
 mod http_error;
@@ -16,6 +17,7 @@ mod session_store;
 mod work_manifest_store;
 
 pub use block_store::FileBlockStore;
+pub use bounty_catalog_store::load_bounties_from_path;
 pub use bounty_event_store::FileBountyEventLedger;
 pub use family_manifest_store::load_family_manifest_registry_from_dir;
 pub use lean_bounty_verifier::LeanBountyVerifier;

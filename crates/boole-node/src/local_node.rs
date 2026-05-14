@@ -1,4 +1,5 @@
 use crate::block_store::FileBlockStore;
+use crate::bounty_catalog_store::load_bounties_from_path;
 use crate::bounty_event_store::FileBountyEventLedger;
 use crate::family_manifest_store::load_family_manifest_registry_from_dir;
 use crate::http_error::HttpError;
@@ -16,7 +17,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
     agent_passport_events_for_receipt, canonical_payload_hash_hex, compute_block_reward_credits,
-    load_bounties, replay_blocks, ticket, verify_signature, AdmissionDecision, BountyProofVerifier,
+    replay_blocks, ticket, verify_signature, AdmissionDecision, BountyProofVerifier,
     BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport,
     CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry, Hex32, Hex64,
     PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput, SessionState, SubmitProofInput,
@@ -454,7 +455,7 @@ impl LocalNodeState {
             None => Vec::new(),
         };
         let bounties = match config.bounties_path.as_ref() {
-            Some(path) => load_bounties(path)?,
+            Some(path) => load_bounties_from_path(path)?,
             None => Vec::new(),
         };
         let mut bounty_registry = BountyRegistry::new();

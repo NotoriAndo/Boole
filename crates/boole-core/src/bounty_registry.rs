@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-use std::path::Path;
 
 const HEX32_LEN: usize = 64;
 
@@ -92,12 +91,11 @@ pub struct BountyList {
     pub bounties: Vec<Bounty>,
 }
 
-/// Read a `BountyList` from disk and validate `version == 1`. Returns
-/// the inner bounty vec. Future format bumps must explicitly rev the
-/// version field; callers should never see a silent shape drift.
-pub fn load_bounties(path: &Path) -> anyhow::Result<Vec<Bounty>> {
-    let raw = std::fs::read_to_string(path)?;
-    let list: BountyList = serde_json::from_str(&raw)?;
+/// Validate a decoded `BountyList` envelope and return the inner bounty vec.
+///
+/// Runtime crates own file IO. Core owns the schema contract: format bumps must
+/// explicitly rev `version`, and callers should never see a silent shape drift.
+pub fn bounties_from_list(list: BountyList) -> anyhow::Result<Vec<Bounty>> {
     if list.version != 1 {
         anyhow::bail!(
             "unsupported bounty list version {}: expected 1",

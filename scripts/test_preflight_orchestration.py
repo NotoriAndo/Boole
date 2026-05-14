@@ -176,6 +176,22 @@ class PreflightOrchestrationTests(unittest.TestCase):
         self.assertNotIn("load_work_manifests", core_lib)
         self.assertIn("load_work_manifests_from_path", node_lib)
 
+    def test_bounty_catalog_file_loader_is_node_owned_not_core_runtime_io(self) -> None:
+        core_registry = (
+            ROOT / "crates" / "boole-core" / "src" / "bounty_registry.rs"
+        ).read_text(encoding="utf-8")
+        core_lib = (ROOT / "crates" / "boole-core" / "src" / "lib.rs").read_text(
+            encoding="utf-8"
+        )
+        node_lib = (ROOT / "crates" / "boole-node" / "src" / "lib.rs").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("load_bounties", core_registry)
+        self.assertNotIn("std::fs::read_to_string", core_registry)
+        self.assertNotIn("std::path::Path", core_registry)
+        self.assertNotIn("load_bounties", core_lib)
+        self.assertIn("load_bounties_from_path", node_lib)
+
     def test_core_hex32_validators_use_canonical_hex32_type(self) -> None:
         targets = [
             "crates/boole-core/src/receipt.rs",
