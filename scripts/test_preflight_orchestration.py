@@ -105,6 +105,17 @@ class PreflightOrchestrationTests(unittest.TestCase):
             }
             self.assertEqual(actual, allowed, relative)
 
+    def test_core_hex32_validators_use_canonical_hex32_type(self) -> None:
+        targets = [
+            "crates/boole-core/src/receipt.rs",
+            "crates/boole-core/src/family_manifest.rs",
+        ]
+        for relative in targets:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertIn("Hex32::from_hex", text, relative)
+            self.assertNotIn("fn is_lower_hex32", text, relative)
+            self.assertNotIn("is_ascii_hexdigit() && !b.is_ascii_uppercase()", text, relative)
+
     def test_agent_mine_missing_runtime_skip_matches_contract_fixture(self) -> None:
         proc = subprocess.run(
             ["./scripts/boole-agent-mine.sh", "--runtime", "codex", "--agent-command", "/tmp/boole-missing-codex-runtime"],

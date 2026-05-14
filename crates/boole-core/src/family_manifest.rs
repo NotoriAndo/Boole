@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::signed_envelope::verify_signature;
+use crate::{signed_envelope::verify_signature, Hex32};
 
 const HEX32_FIELDS: &[&str] = &[
     "generatorHash",
@@ -96,7 +96,7 @@ pub fn parse_family_manifest(input: &Value) -> FamilyManifestParseResult {
         let Some(s) = v.as_str() else {
             return FamilyManifestParseResult::Err(format!("missing_field:{field}"));
         };
-        if !is_lower_hex32(s) {
+        if Hex32::from_hex(s).is_err() {
             return FamilyManifestParseResult::Err(format!("bad_hex32:{field}"));
         }
     }
@@ -247,13 +247,6 @@ fn parse_signature(value: Option<&Value>) -> Result<Option<String>, String> {
         return Err("bad_signature".to_string());
     }
     Ok(Some(s.to_string()))
-}
-
-fn is_lower_hex32(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 fn positive_u64(value: Option<&Value>) -> Option<u64> {

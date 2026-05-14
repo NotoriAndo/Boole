@@ -125,6 +125,16 @@ fn rejects_signature_with_bad_hex_length() {
 }
 
 #[test]
+fn rejects_uppercase_noncanonical_hex32_manifest_field() {
+    let mut v = base_manifest_value();
+    v["generatorHash"] = json!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    let FamilyManifestParseResult::Err(reason) = parse_family_manifest(&v) else {
+        panic!("expected err");
+    };
+    assert_eq!(reason, "bad_hex32:generatorHash");
+}
+
+#[test]
 fn manifest_serialization_skips_unset_optionals() {
     let v = base_manifest_value();
     let FamilyManifestParseResult::Ok(manifest) = parse_family_manifest(&v) else {

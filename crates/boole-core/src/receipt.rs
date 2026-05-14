@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
-use crate::canonicalize;
+use crate::{canonicalize, Hex32};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -113,11 +113,7 @@ fn validate_non_empty(field: &str, value: &str) -> anyhow::Result<()> {
 }
 
 fn validate_hex32(field: &str, value: &str) -> anyhow::Result<()> {
-    if value.len() != 64
-        || !value
-            .bytes()
-            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-    {
+    if Hex32::from_hex(value).is_err() {
         anyhow::bail!("{field} must be hex32 lowercase hex");
     }
     Ok(())

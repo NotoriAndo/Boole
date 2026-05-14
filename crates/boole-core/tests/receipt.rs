@@ -72,3 +72,16 @@ fn receipt_commitment_validates_hex_commitment_fields() {
         "unexpected error: {err}"
     );
 }
+
+#[test]
+fn receipt_commitment_rejects_uppercase_noncanonical_hex32_fields() {
+    let mut input = fixture_input();
+    input.artifact_hash =
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string();
+    let err = ReceiptCommitment::new(input).expect_err("artifact hash must be lowercase hex32");
+
+    assert!(
+        err.to_string().contains("artifactHash") && err.to_string().contains("hex32"),
+        "unexpected error: {err}"
+    );
+}
