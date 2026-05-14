@@ -14,7 +14,8 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
-use boole_core::{Bounty, BountyProofVerifier, FileBountyEventLedger, SigningKeyV2};
+use boole_core::{Bounty, BountyProofVerifier, SigningKeyV2};
+use boole_node::FileBountyEventLedger;
 use boole_node::{serve_local_node, LocalNodeConfig};
 use serde_json::{json, Value};
 

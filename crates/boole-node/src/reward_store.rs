@@ -3,7 +3,8 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 
-use boole_core::{FileBountyEventLedger, PersistedCredit, PersistedRewardEvent};
+use crate::bounty_event_store::FileBountyEventLedger;
+use boole_core::{PersistedCredit, PersistedRewardEvent};
 
 #[derive(Debug, Default)]
 pub struct FileRewardLedger {

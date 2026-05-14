@@ -48,7 +48,7 @@ pub use block_builder::{
     build_block_selection, BlockBuilderConfig, BuildSelectionResult, BuiltBlockSelection,
     CandidateShare, PromotedBountyCredit, PromotedBountySelection, PromotedBountyShare,
 };
-pub use bounty_ledger::{BountyEventLedger, FileBountyEventLedger};
+pub use bounty_ledger::{validate_bounty_ledger_event, BountyEventLedger};
 pub use bounty_promotion::{select_promoted_bounty_selection, select_promoted_bounty_shares};
 pub use bounty_proof_verifier::BountyProofVerifier;
 pub use bounty_registry::{

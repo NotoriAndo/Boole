@@ -1,53 +1,7 @@
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::Path;
 
 const HEX32_LEN: usize = 64;
-
-/// NDJSON file-backed audit log for bounty events.
-///
-/// Mirrors `FileRewardLedger` (`crates/boole-node/src/reward_store.rs`):
-/// one JSON object per line, append-only, recovery is an idempotent fold
-/// over the file. Schema validation reuses `validate_event` so every line
-/// admitted to the file is also admissible to the in-memory
-/// `BountyEventLedger`.
-pub struct FileBountyEventLedger;
-
-impl FileBountyEventLedger {
-    pub fn append(path: impl AsRef<Path>, event: &Value) -> anyhow::Result<()> {
-        validate_event(event).map_err(|err| anyhow::anyhow!("bountyEventLedger: {err}"))?;
-        if let Some(parent) = path.as_ref().parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path.as_ref())?;
-        writeln!(file, "{}", serde_json::to_string(event)?)?;
-        Ok(())
-    }
-
-    pub fn recover(path: impl AsRef<Path>) -> anyhow::Result<Vec<Value>> {
-        let path = path.as_ref();
-        if !path.exists() {
-            return Ok(Vec::new());
-        }
-        let raw = fs::read_to_string(path)?;
-        let mut events = Vec::new();
-        for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
-            let event: Value = serde_json::from_str(line).map_err(|err| {
-                anyhow::anyhow!("bountyEventLedger: line {} invalid JSON: {}", i + 1, err)
-            })?;
-            validate_event(&event).map_err(|err| {
-                anyhow::anyhow!("bountyEventLedger: line {} schema invalid: {}", i + 1, err)
-            })?;
-            events.push(event);
-        }
-        Ok(events)
-    }
-}
 
 #[derive(Debug, Default, Clone)]
 pub struct BountyEventLedger {
@@ -63,7 +17,7 @@ impl BountyEventLedger {
     }
 
     pub fn append(&mut self, event: Value) -> Result<(), String> {
-        validate_event(&event)?;
+        validate_bounty_ledger_event(&event)?;
         let work_id = string_field(&event, "workId").expect("validated workId");
         let verifier_kind = string_field(&event, "verifierKind").expect("validated verifierKind");
         push_or_create(&mut self.by_work_id, work_id, event.clone());
@@ -98,7 +52,7 @@ impl BountyEventLedger {
     }
 }
 
-fn validate_event(event: &Value) -> Result<(), String> {
+pub fn validate_bounty_ledger_event(event: &Value) -> Result<(), String> {
     let schema = event.get("schemaVersion").and_then(Value::as_i64);
     if schema != Some(1) {
         let rendered = event

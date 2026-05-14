@@ -32,7 +32,7 @@ pub struct ReplayResult {
     /// S23b — per-family bounty credit totals across all replayed
     /// blocks. Empty for chains with no promoted credits.
     /// `verify_ledger_matches_replay` cross-checks this against the
-    /// `FileBountyEventLedger` in S23d.
+    /// node runtime store.
     pub bounty_credit_by_family: BTreeMap<String, u128>,
 }
 

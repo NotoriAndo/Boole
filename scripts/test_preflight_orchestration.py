@@ -131,6 +131,22 @@ class PreflightOrchestrationTests(unittest.TestCase):
             }
             self.assertEqual(actual, allowed, relative)
 
+    def test_file_bounty_event_ledger_is_node_owned_not_core_runtime_io(self) -> None:
+        core_lib = (ROOT / "crates" / "boole-core" / "src" / "lib.rs").read_text(
+            encoding="utf-8"
+        )
+        core_ledger = (ROOT / "crates" / "boole-core" / "src" / "bounty_ledger.rs").read_text(
+            encoding="utf-8"
+        )
+        node_lib = (ROOT / "crates" / "boole-node" / "src" / "lib.rs").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("FileBountyEventLedger", core_lib)
+        self.assertNotIn("pub struct FileBountyEventLedger", core_ledger)
+        self.assertNotIn("OpenOptions", core_ledger)
+        self.assertNotIn("std::io::Write", core_ledger)
+        self.assertIn("FileBountyEventLedger", node_lib)
+
     def test_core_hex32_validators_use_canonical_hex32_type(self) -> None:
         targets = [
             "crates/boole-core/src/receipt.rs",

@@ -44,7 +44,7 @@ pub struct PromotedBountyCredit {
 
 /// Bundled output of the activation/caps gate. Shares feed
 /// `build_block_selection`'s bounty slot; credits feed `RewardLedger`
-/// + `FileBountyEventLedger` at commit time.
+/// + the node-owned bounty event ledger at commit time.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PromotedBountySelection {
     pub shares: Vec<PromotedBountyShare>,

@@ -1,4 +1,5 @@
 mod block_store;
+mod bounty_event_store;
 mod http_error;
 mod lean_bounty_verifier;
 mod local_node;
@@ -13,6 +14,7 @@ mod runtime_smoke;
 mod session_store;
 
 pub use block_store::FileBlockStore;
+pub use bounty_event_store::FileBountyEventLedger;
 pub use lean_bounty_verifier::LeanBountyVerifier;
 pub use local_node::{serve_local_node, LocalNodeConfig};
 pub use proof_bridge::{

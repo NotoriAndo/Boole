@@ -149,7 +149,7 @@ fn write_credit_event(
         "prover": prover,
         "amount": amount,
     });
-    boole_core::FileBountyEventLedger::append(&path, &event).expect("append credit");
+    boole_node::FileBountyEventLedger::append(&path, &event).expect("append credit");
     path
 }
 
