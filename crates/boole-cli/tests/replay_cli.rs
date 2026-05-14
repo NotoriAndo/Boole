@@ -249,8 +249,18 @@ fn cli_settlement_report_json_exposes_settlement_only_surface() {
         "stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let parsed: CliSettlementReportOutput =
-        serde_json::from_slice(&output.stdout).expect("json output");
+    let raw: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json output");
+    assert_eq!(
+        raw["claimBoundary"],
+        "shape-only local audit; no ledger mutation"
+    );
+    assert_eq!(raw["lineageVerified"], false);
+    assert_eq!(raw["rewardLedgerMutated"], false);
+    assert_eq!(raw["reputationLedgerMutated"], false);
+    assert!(raw.get("rewardCredited").is_none());
+    assert!(raw.get("reputationCredited").is_none());
+
+    let parsed: CliSettlementReportOutput = serde_json::from_value(raw).expect("typed json output");
     assert!(parsed.ok);
     assert_eq!(parsed.source, "audit-receipts-shape-only");
     assert_eq!(parsed.audit_mode, "shape-only");

@@ -802,7 +802,11 @@ fn settlement_report(
                 "ok": report.ok,
                 "source": "audit-receipts-shape-only",
                 "auditMode": "shape-only",
+                "claimBoundary": "shape-only local audit; no ledger mutation",
                 "lineageRequired": false,
+                "lineageVerified": false,
+                "rewardLedgerMutated": false,
+                "reputationLedgerMutated": false,
                 "blocksChecked": report.blocks_checked,
                 "receiptsChecked": report.receipts_checked,
                 "reputationEventsExported": reputation_events_exported,
@@ -812,7 +816,7 @@ fn settlement_report(
         );
     } else {
         println!(
-            "ok={} source=audit-receipts-shape-only rewardCredits={} reputationDeltas={} reputationEventsExported={}",
+            "ok={} source=audit-receipts-shape-only claimBoundary=shape-only-local-audit-no-ledger-mutation lineageVerified=false rewardLedgerMutated=false reputationLedgerMutated=false rewardCredits={} reputationDeltas={} reputationEventsExported={}",
             report.ok,
             report.settlement.reward_credits.len(),
             report.settlement.reputation_deltas.len(),

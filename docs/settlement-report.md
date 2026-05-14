@@ -28,7 +28,11 @@ The command first runs the same receipt/block/replay shape checks as `boole chai
   "ok": true,
   "source": "audit-receipts-shape-only",
   "auditMode": "shape-only",
+  "claimBoundary": "shape-only local audit; no ledger mutation",
   "lineageRequired": false,
+  "lineageVerified": false,
+  "rewardLedgerMutated": false,
+  "reputationLedgerMutated": false,
   "blocksChecked": 2,
   "receiptsChecked": 1,
   "reputationEventsExported": 1,
@@ -101,7 +105,14 @@ Example failure detail includes both the suppression marker and the underlying a
 
 ## Non-mutation guarantee
 
-This command does not mutate reward or reputation ledgers. It only summarizes settlement deltas implied by already-audited local artifacts. The optional reputation event export writes a standalone artifact file; it does not append to any durable reputation ledger.
+This command does not mutate reward or reputation ledgers. The JSON boundary fields make that explicit:
+
+- `claimBoundary: "shape-only local audit; no ledger mutation"`
+- `lineageVerified: false`
+- `rewardLedgerMutated: false`
+- `reputationLedgerMutated: false`
+
+It only summarizes settlement deltas implied by already-audited local artifacts. The optional reputation event export writes a standalone artifact file; it does not append to any durable reputation ledger.
 
 Use future durable ledger commands for actual settlement writes; do not treat this read-only report as a ledger mutation.
 

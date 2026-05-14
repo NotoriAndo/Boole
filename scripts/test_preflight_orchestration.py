@@ -133,6 +133,18 @@ class PreflightOrchestrationTests(unittest.TestCase):
             self.assertNotIn("fn is_well_formed_hex64", text, relative)
             self.assertNotIn("s.len() == 128 && s.bytes().all(|b| b.is_ascii_hexdigit())", text, relative)
 
+    def test_settlement_report_claim_boundary_terms_stay_explicit(self) -> None:
+        cli_text = (ROOT / "crates/boole-cli/src/main.rs").read_text(encoding="utf-8")
+        docs_text = (ROOT / "docs" / "settlement-report.md").read_text(encoding="utf-8")
+        for text, label in [(cli_text, "cli"), (docs_text, "docs")]:
+            self.assertIn("claimBoundary", text, label)
+            self.assertIn("lineageVerified", text, label)
+            self.assertIn("rewardLedgerMutated", text, label)
+            self.assertIn("reputationLedgerMutated", text, label)
+            self.assertIn("shape-only local audit; no ledger mutation", text, label)
+        self.assertNotIn("rewardCredited", cli_text)
+        self.assertNotIn("reputationCredited", cli_text)
+
     def test_agent_mine_missing_runtime_skip_matches_contract_fixture(self) -> None:
         proc = subprocess.run(
             ["./scripts/boole-agent-mine.sh", "--runtime", "codex", "--agent-command", "/tmp/boole-missing-codex-runtime"],
