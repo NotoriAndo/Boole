@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::path::Path;
 
 use boole_core::SessionState;
 use serde::{Deserialize, Serialize};
+
+use crate::durability::{append_ndjson_line_durable, read_stable_prefix};
 
 /// Append-only NDJSON ledger of session registry events. The store keeps a
 /// `BTreeMap<sessionPk, SessionState>` in memory so the node can authorize
@@ -39,10 +39,9 @@ impl FileSessionStore {
     /// Returns an empty store if the file does not yet exist.
     pub fn recover(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let path = path.as_ref();
-        if !path.exists() {
+        let Some(raw) = read_stable_prefix(path)? else {
             return Ok(Self::default());
-        }
-        let raw = fs::read_to_string(path)?;
+        };
         let mut store = Self::default();
         for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
             let event: SessionEvent = serde_json::from_str(line).map_err(|err| {
@@ -102,12 +101,7 @@ impl FileSessionStore {
     }
 
     fn append(path: impl AsRef<Path>, event: &SessionEvent) -> anyhow::Result<()> {
-        if let Some(parent) = path.as_ref().parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-        writeln!(file, "{}", serde_json::to_string(event)?)?;
-        Ok(())
+        append_ndjson_line_durable(path.as_ref(), &serde_json::to_string(event)?)
     }
 
     /// Apply an event against the in-memory map. Used by `recover` and by
