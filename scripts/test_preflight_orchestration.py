@@ -147,6 +147,22 @@ class PreflightOrchestrationTests(unittest.TestCase):
         for needle in required:
             self.assertIn(needle, doc)
 
+    def test_node_runtime_responsibility_inventory_is_documented(self) -> None:
+        doc = (ROOT / "docs" / "node-runtime-responsibility-inventory.md").read_text(
+            encoding="utf-8"
+        )
+        required = [
+            "D5 candidate: node runtime route boundary inventory",
+            "local_node.rs",
+            "submit_json",
+            "bounty_proof_json",
+            "bounty_announce_json",
+            "verify_answer_json",
+            "Do not start D5 by splitting runtime IO loaders",
+        ]
+        for needle in required:
+            self.assertIn(needle, doc)
+
     def test_file_bounty_event_ledger_is_node_owned_not_core_runtime_io(self) -> None:
         core_lib = (ROOT / "crates" / "boole-core" / "src" / "lib.rs").read_text(
             encoding="utf-8"
