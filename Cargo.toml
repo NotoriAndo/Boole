@@ -13,6 +13,10 @@ edition = "2021"
 license = "Apache-2.0"
 version = "0.1.0"
 authors = ["Boole contributors"]
+# P0.6 — pin MSRV to the toolchain CI installs (see rust-toolchain.toml and
+# .github/workflows/ci.yml). Bumps require a CI matrix update so the gate
+# remains the source of truth.
+rust-version = "1.95.0"
 
 [workspace.dependencies]
 anyhow = "1"
@@ -33,3 +37,18 @@ thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["timeout"] }
+
+# P0.6 — workspace-wide lint policy. Member crates opt in via
+# `[lints] workspace = true` in their own Cargo.toml. boole-lean-runner is
+# the only crate that needs `unsafe` (libc rlimit syscalls) and therefore
+# overrides this with `unsafe_code = "allow"` in its own [lints.rust]
+# block when it opts in.
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+# P0.6 — release builds abort on panic so a `panic!` becomes a process
+# exit (captured by the panic_total metric and supervisor restart) rather
+# than an unwind that can leave ledgers half-written. Dev/test profiles
+# stay on unwind so `#[should_panic]` tests keep working.
+[profile.release]
+panic = "abort"
