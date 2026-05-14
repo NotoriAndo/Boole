@@ -20,6 +20,6 @@ npx tsx scripts/export-rate-limiter-fixtures.ts
 # admission/v1.json is Rust-native improved policy fixture (not TS-exported)
 
 cargo fmt --all --check
-cargo test --workspace
+cargo test --workspace --locked
 
 echo "rust-parity: PASS"

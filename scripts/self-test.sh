@@ -4,6 +4,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# P0.3 invariant: every cargo invocation in this gate runs with a single test
+# thread so determinism-sensitive integration tests (durability, replay,
+# ledger ordering) cannot interleave. Exported here so child processes inherit
+# regardless of how the caller invoked self-test.sh.
+export RUST_TEST_THREADS=1
+
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/boole-self-test.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -41,11 +47,11 @@ run_capture_json() {
 }
 
 run_logged cargo-fmt cargo fmt --all --check
-run_logged python-script-tests python3 -m unittest scripts/test_install_script.py scripts/test_preflight_orchestration.py scripts/test_model_benchmark.py
+run_logged python-script-tests python3 -m unittest scripts/test_install_script.py scripts/test_preflight_orchestration.py scripts/test_model_benchmark.py scripts/test_self_test_contract.py
 run_logged docs-smoke ./scripts/docs-smoke.sh
 run_logged wallet-session-receipt-gate ./scripts/wallet-session-receipt-gate.sh
-run_logged cargo-clippy cargo clippy --workspace --all-targets -- -D warnings
-run_logged cargo-test cargo test --workspace --all-targets
+run_logged cargo-clippy cargo clippy --workspace --all-targets --locked -- -D warnings
+run_logged cargo-test cargo test --workspace --all-targets --locked
 LEGACY_POF_ROOT="${BOOLE_LEGACY_POF_ROOT:-$ROOT/../pof}"
 LEGACY_CHAIN_TS="$LEGACY_POF_ROOT/dispatcher/src/chain.ts"
 RUST_PARITY_STATUS="pass"
