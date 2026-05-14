@@ -131,6 +131,21 @@ class PreflightOrchestrationTests(unittest.TestCase):
             }
             self.assertEqual(actual, allowed, relative)
 
+    def test_core_node_runtime_boundary_closeout_is_documented(self) -> None:
+        doc = (ROOT / "docs" / "core-node-runtime-boundary.md").read_text(
+            encoding="utf-8"
+        )
+        required = [
+            "boole-core owns deterministic domain contracts",
+            "boole-node owns local runtime IO",
+            "FileBountyEventLedger",
+            "load_family_manifest_registry_from_dir",
+            "load_work_manifests_from_path",
+            "load_bounties_from_path",
+        ]
+        for needle in required:
+            self.assertIn(needle, doc)
+
     def test_file_bounty_event_ledger_is_node_owned_not_core_runtime_io(self) -> None:
         core_lib = (ROOT / "crates" / "boole-core" / "src" / "lib.rs").read_text(
             encoding="utf-8"
