@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,12 +50,11 @@ pub struct WorkManifestList {
     pub work: Vec<WorkManifest>,
 }
 
-/// Read a `WorkManifestList` from disk and validate `version == 1`. Returns the
-/// inner manifest list. Future format bumps must explicitly rev the version
-/// field; callers should never see a silent shape drift.
-pub fn load_work_manifests(path: &Path) -> anyhow::Result<Vec<WorkManifest>> {
-    let raw = std::fs::read_to_string(path)?;
-    let list: WorkManifestList = serde_json::from_str(&raw)?;
+/// Validate a decoded `WorkManifestList` envelope and return the inner list.
+///
+/// Runtime crates own file IO. Core owns the schema contract: format bumps must
+/// explicitly rev `version`, and callers should never see a silent shape drift.
+pub fn work_manifests_from_list(list: WorkManifestList) -> anyhow::Result<Vec<WorkManifest>> {
     if list.version != 1 {
         anyhow::bail!(
             "unsupported work manifest list version {}: expected 1",

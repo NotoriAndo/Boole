@@ -1,20 +1,18 @@
-//! S10 — `WorkManifestList` loader for the static `/work` catalog.
+//! Work manifest file loading is node-owned runtime IO.
 //!
-//! pof's dispatcher exposes a static work-manifest list to clients. The
-//! Rust port stores the same shape on disk as `fixtures/protocol/work/v1.json`
-//! and loads it once at boot. Loader contract:
-//!   - Validates the envelope `{ version: 1, work: [<WorkManifest>...] }`.
-//!   - Returns the inner `Vec<WorkManifest>`.
-//!   - Rejects non-1 versions so the format can evolve via explicit
-//!     bump rather than silent drift.
+//! Core owns the `WorkManifest` and `WorkManifestList` data contracts. Node owns
+//! reading a local catalog file at boot and validating the supported envelope
+//! version before serving `/work`.
 
-use boole_core::{load_work_manifests, WorkManifest};
+use boole_core::WorkManifest;
+use boole_node::load_work_manifests_from_path;
 use std::path::PathBuf;
 
 #[test]
-fn loads_v1_work_fixture_with_two_manifests() {
+fn node_work_manifest_store_loads_v1_fixture_with_two_manifests() {
     let path = repo_root().join("fixtures/protocol/work/v1.json");
-    let manifests = load_work_manifests(&path).expect("load v1 work manifests");
+    let manifests = load_work_manifests_from_path(&path).expect("load v1 work manifests");
+
     assert_eq!(manifests.len(), 2, "fixture contains 2 manifests");
     let first: &WorkManifest = &manifests[0];
     assert_eq!(first.version, "1");
@@ -31,37 +29,49 @@ fn loads_v1_work_fixture_with_two_manifests() {
 }
 
 #[test]
-fn load_work_manifests_rejects_bad_version() {
+fn node_work_manifest_store_rejects_bad_version() {
     let dir = std::env::temp_dir().join(format!(
-        "boole-work-loader-bad-version-{}-{}",
+        "boole-work-store-bad-version-{}-{}",
         std::process::id(),
         unique_nanos()
     ));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let path = dir.join("bad.json");
     std::fs::write(&path, r#"{"version": 2, "work": []}"#).expect("write bad fixture");
-    let err = load_work_manifests(&path).expect_err("non-1 version must error");
+
+    let err = load_work_manifests_from_path(&path).expect_err("non-1 version must error");
     let message = format!("{err:#}");
     assert!(
         message.contains("version") && message.contains("1"),
         "error must mention expected version: {message}"
     );
+
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn load_work_manifests_accepts_empty_list() {
+fn node_work_manifest_store_accepts_empty_list() {
     let dir = std::env::temp_dir().join(format!(
-        "boole-work-loader-empty-{}-{}",
+        "boole-work-store-empty-{}-{}",
         std::process::id(),
         unique_nanos()
     ));
     std::fs::create_dir_all(&dir).expect("create temp dir");
     let path = dir.join("empty.json");
     std::fs::write(&path, r#"{"version": 1, "work": []}"#).expect("write empty fixture");
-    let manifests = load_work_manifests(&path).expect("empty list parses");
+
+    let manifests = load_work_manifests_from_path(&path).expect("empty list parses");
+
     assert!(manifests.is_empty(), "empty list returned as empty Vec");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn node_work_manifest_store_returns_err_for_missing_file() {
+    let path = std::env::temp_dir().join("boole-work-store-missing-xyz-1234567890.json");
+    let _ = std::fs::remove_file(&path);
+
+    assert!(load_work_manifests_from_path(&path).is_err());
 }
 
 fn repo_root() -> PathBuf {

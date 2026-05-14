@@ -6,6 +6,7 @@ use crate::nonce_ledger::FileNonceLedger;
 use crate::receipt_store::FileReceiptStore;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use crate::session_store::FileSessionStore;
+use crate::work_manifest_store::load_work_manifests_from_path;
 use axum::body::Bytes;
 use axum::extract::{ConnectInfo, Path as AxumPath, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
@@ -15,11 +16,11 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
     agent_passport_events_for_receipt, canonical_payload_hash_hex, compute_block_reward_credits,
-    load_bounties, load_work_manifests, replay_blocks, ticket, verify_signature, AdmissionDecision,
-    BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult,
-    CalibrationReport, CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry, Hex32,
-    Hex64, PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput, SessionState,
-    SubmitProofInput, UpdateStatusInput, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
+    load_bounties, replay_blocks, ticket, verify_signature, AdmissionDecision, BountyProofVerifier,
+    BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport,
+    CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry, Hex32, Hex64,
+    PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput, SessionState, SubmitProofInput,
+    UpdateStatusInput, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -449,7 +450,7 @@ impl LocalNodeState {
                 && Some(replay.latest_c.as_str()) == runtime.current_c()
         };
         let work_manifests = match config.work_manifests_path.as_ref() {
-            Some(path) => load_work_manifests(path)?,
+            Some(path) => load_work_manifests_from_path(path)?,
             None => Vec::new(),
         };
         let bounties = match config.bounties_path.as_ref() {

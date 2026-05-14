@@ -13,6 +13,7 @@ mod reward_store;
 mod runtime;
 mod runtime_smoke;
 mod session_store;
+mod work_manifest_store;
 
 pub use block_store::FileBlockStore;
 pub use bounty_event_store::FileBountyEventLedger;
@@ -35,3 +36,4 @@ pub use runtime_smoke::{
     RuntimeSmokeMultiScenario, RuntimeSmokeOutput, RuntimeSmokeScenario, RuntimeSmokeStep,
 };
 pub use session_store::FileSessionStore;
+pub use work_manifest_store::load_work_manifests_from_path;

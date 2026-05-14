@@ -110,8 +110,8 @@ pub use validator::{
     ValidationResult,
 };
 pub use work_manifest::{
-    bounty_to_work_manifest, load_work_manifests, BountyFixture, WorkManifest, WorkManifestList,
-    WorkVerifier,
+    bounty_to_work_manifest, work_manifests_from_list, BountyFixture, WorkManifest,
+    WorkManifestList, WorkVerifier,
 };
 
 #[cfg(test)]
