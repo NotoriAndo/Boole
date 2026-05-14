@@ -136,6 +136,7 @@ class PreflightOrchestrationTests(unittest.TestCase):
             encoding="utf-8"
         )
         required = [
+            "D4 status: CLOSED",
             "boole-core owns deterministic domain contracts",
             "boole-node owns local runtime IO",
             "FileBountyEventLedger",

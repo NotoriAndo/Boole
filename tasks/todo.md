@@ -220,7 +220,7 @@ Close the Hard-Guard gap: bounty proofs feed a side-pool that affects block sele
 
 ### Slice S21 — Family-manifest boot loader + bounty side-pool wiring (Hard-Guard regression) ✅
 
-- [x] D4 core/node runtime boundary closeout documented in `docs/core-node-runtime-boundary.md`; core keeps pure contracts/registries while node owns local file/directory IO loaders.
+- [x] D4 CLOSED: core/node runtime boundary closeout documented in `docs/core-node-runtime-boundary.md`; core keeps pure contracts/registries while node owns local file/directory IO loaders.
 - [x] Node-owned family manifest directory loader with skip-and-warn policy; core `FamilyManifestRegistry` remains an in-memory registry only.
 - [x] `BountySidePool` per-family share buffer keyed by `(family_id, proof_hash)` with dedup.
 - [x] `LocalNodeConfig.family_manifests_dir` + `--family-manifests` CLI flag wired through `from_config`.

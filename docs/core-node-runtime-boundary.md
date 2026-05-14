@@ -2,6 +2,10 @@
 
 This document records the D4 boundary closeout for local runtime IO in Boole.
 
+D4 status: CLOSED
+
+D4 is closed when `boole-core` has no production runtime file/directory loader ownership for the moved stores/catalogs, `boole-node` owns those runtime loaders, and the preflight guards plus full self-test pass. New runtime-boundary work should start as a new slice rather than reopening D4 unless a regression reintroduces core-owned runtime IO.
+
 ## Ownership rule
 
 - boole-core owns deterministic domain contracts, typed decisions, pure replay, schema/domain validation, and in-memory registries.
