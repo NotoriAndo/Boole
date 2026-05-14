@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+# P0.7 — workspace-internal application crate. `publish = false` blocks an
+# accidental `cargo publish` of in-flight code and tells cargo-deny that
+# the path dependencies on sibling crates are not a wildcard violation.
+publish = false
 
 [dependencies]
 boole-core = { path = "../boole-core" }

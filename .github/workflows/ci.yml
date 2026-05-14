@@ -39,3 +39,36 @@ jobs:
 
       - name: Run Boole self-test
         run: ./scripts/self-test.sh
+
+  supply-chain:
+    name: supply-chain
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.95.0
+
+      - name: Install cargo-deny
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSfL https://github.com/EmbarkStudios/cargo-deny/releases/download/0.16.4/cargo-deny-0.16.4-x86_64-unknown-linux-musl.tar.gz -o /tmp/cargo-deny.tar.gz
+          tar -xzf /tmp/cargo-deny.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/cargo-deny-0.16.4-x86_64-unknown-linux-musl/cargo-deny /usr/local/bin/cargo-deny
+
+      - name: Install cargo-audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install --locked cargo-audit
+
+      - name: cargo deny check
+        run: cargo deny --all-features check advisories bans licenses sources
+
+      - name: cargo audit
+        run: cargo audit --deny warnings
