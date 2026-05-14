@@ -17,7 +17,7 @@ use rand_core::OsRng;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::canonical_json::canonicalize;
+use crate::{canonical_json::canonicalize, Hex32};
 
 pub const SIGNED_ENVELOPE_SCHEMA: &str = "boole.signed.v1";
 
@@ -133,12 +133,9 @@ fn decode_hex32(input: &str, field: &str) -> Result<[u8; 32], String> {
             input.len()
         ));
     }
-    if !input.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(format!("bad_{field}: non-hex characters"));
-    }
-    let mut out = [0u8; 32];
-    hex::decode_to_slice(input, &mut out).map_err(|err| format!("bad_{field}: {err}"))?;
-    Ok(out)
+    let parsed = Hex32::from_hex(input)
+        .map_err(|_| format!("bad_{field}: expected 64 lowercase hex chars"))?;
+    Ok(*parsed.as_bytes())
 }
 
 fn decode_hex64(input: &str, field: &str) -> Result<[u8; 64], String> {

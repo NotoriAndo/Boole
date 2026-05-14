@@ -61,14 +61,25 @@ fn verify_with_tampered_payload_returns_ok_false() {
 #[test]
 fn verify_signature_with_malformed_pk_returns_err() {
     let payload = json!({"msg": "x"});
-    let result = verify_signature(
-        "not-hex-at-all",
-        // 64 hex chars = 32 bytes; needs 128 chars for an ed25519 signature.
-        &"00".repeat(64),
-        &payload,
-    );
+    for pk in ["not-hex-at-all".to_string(), "A".repeat(64)] {
+        let result = verify_signature(
+            &pk,
+            // 64 hex chars = 32 bytes; needs 128 chars for an ed25519 signature.
+            &"00".repeat(64),
+            &payload,
+        );
+        assert!(
+            result.is_err(),
+            "malformed/noncanonical pk hex must surface as Err, not Ok(false): {result:?}",
+        );
+    }
+}
+
+#[test]
+fn signing_key_seed_rejects_uppercase_noncanonical_hex32() {
+    let result = SigningKeyV2::from_seed_hex(&"A".repeat(64));
     assert!(
         result.is_err(),
-        "malformed pk hex must surface as Err, not Ok(false): {result:?}",
+        "stored sk seed hex must use canonical lowercase Hex32"
     );
 }
