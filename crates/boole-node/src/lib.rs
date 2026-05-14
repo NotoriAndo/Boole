@@ -1,6 +1,7 @@
 mod block_store;
 mod bounty_catalog_store;
 mod bounty_event_store;
+mod durability;
 mod family_manifest_store;
 mod http_error;
 mod lean_bounty_verifier;

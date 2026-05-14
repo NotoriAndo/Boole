@@ -5,8 +5,7 @@ use boole_node::FileReceiptStore;
 
 fn fixture_receipt() -> ReceiptCommitment {
     ReceiptCommitment::new(ReceiptCommitmentInput {
-        agent_pk: "1111111111111111111111111111111111111111111111111111111111111111"
-            .to_string(),
+        agent_pk: "1111111111111111111111111111111111111111111111111111111111111111".to_string(),
         family_id: "v1-lenbound".to_string(),
         verifier_id: "lean-runner-v01".to_string(),
         verifier_hash_version: "v0".to_string(),
@@ -55,8 +54,7 @@ fn receipt_store_recovers_and_truncates_partial_trailing_line_after_crash() {
         "recovery must truncate the torn trailing line so restart is idempotent"
     );
 
-    let recovered_again =
-        FileReceiptStore::recover(&path).expect("second recover stays clean");
+    let recovered_again = FileReceiptStore::recover(&path).expect("second recover stays clean");
     assert_eq!(recovered_again.size(), 1);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -82,8 +80,7 @@ fn receipt_store_rejects_complete_corrupt_line_instead_of_truncating_history() {
         .write_all(b"not-json\n")
         .expect("write complete corrupt line");
 
-    let err =
-        FileReceiptStore::recover(&path).expect_err("complete corrupt lines must fail");
+    let err = FileReceiptStore::recover(&path).expect_err("complete corrupt lines must fail");
     assert!(
         err.to_string().contains("invalid JSON"),
         "unexpected error: {err}"
