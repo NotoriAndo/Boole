@@ -13,6 +13,7 @@
 //   $BOOLE_MINER_HOME/state.json
 //   $XDG_CONFIG_HOME/boole-miner/state.json
 //   $HOME/.config/boole-miner/state.json
+use std::fmt;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
@@ -27,7 +28,7 @@ const SCHEMA_VERSION: u32 = 1;
 const ED25519_SK_BYTES: usize = 32;
 const ED25519_PK_BYTES: usize = 32;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LlmConfig {
     pub backend: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -42,6 +43,22 @@ pub struct LlmConfig {
     pub agent_args: Option<Vec<String>>,
 }
 
+// P0.8: hand-written `Debug` so api_key never reaches logs/panic messages.
+// The presence of a key is still observable as `Some("<redacted>")` vs
+// `None`, so missing-config diagnostics remain useful.
+impl fmt::Debug for LlmConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LlmConfig")
+            .field("backend", &self.backend)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("model", &self.model)
+            .field("base_url", &self.base_url)
+            .field("agent_command", &self.agent_command)
+            .field("agent_args", &self.agent_args)
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DispatcherConfig {
     pub url: String,
@@ -53,7 +70,7 @@ pub struct MinerStateConfig {
     pub llm: LlmConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MinerState {
     #[serde(rename = "schemaVersion")]
     pub schema_version: u32,
@@ -67,6 +84,21 @@ pub struct MinerState {
     #[serde(rename = "createdAt")]
     pub created_at: String,
     pub config: MinerStateConfig,
+}
+
+// P0.8: hand-written `Debug` so the ed25519 secret seed `sk` never reaches
+// logs/panic messages. `pk` and `address` are public-by-design.
+impl fmt::Debug for MinerState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MinerState")
+            .field("schema_version", &self.schema_version)
+            .field("sk", &"<redacted>")
+            .field("pk", &self.pk)
+            .field("address", &self.address)
+            .field("created_at", &self.created_at)
+            .field("config", &self.config)
+            .finish()
+    }
 }
 
 #[derive(Debug, Error)]
