@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::path::Path;
 
 use boole_core::Hex32;
 use serde::{Deserialize, Serialize};
+
+use crate::durability::{append_ndjson_line_durable, read_stable_prefix};
 
 pub const REPUTATION_EVENT_SCHEMA: &str = "boole.reputation.event.v1";
 
@@ -43,10 +43,9 @@ struct ReputationAccumulator {
 impl FileReputationLedger {
     pub fn recover(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let path = path.as_ref();
-        if !path.exists() {
+        let Some(raw) = read_stable_prefix(path)? else {
             return Ok(Self::default());
-        }
-        let raw = fs::read_to_string(path)?;
+        };
         let mut ledger = Self::default();
         for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
             let event: PersistedReputationEvent = serde_json::from_str(line).map_err(|err| {
@@ -61,12 +60,7 @@ impl FileReputationLedger {
 
     pub fn append(path: impl AsRef<Path>, event: &PersistedReputationEvent) -> anyhow::Result<()> {
         validate_event(event)?;
-        if let Some(parent) = path.as_ref().parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-        writeln!(file, "{}", serde_json::to_string(event)?)?;
-        Ok(())
+        append_ndjson_line_durable(path.as_ref(), &serde_json::to_string(event)?)
     }
 
     pub fn apply(&mut self, event: PersistedReputationEvent) -> anyhow::Result<()> {

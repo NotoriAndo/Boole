@@ -1,9 +1,9 @@
-use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::path::Path;
 
 use boole_core::validate_bounty_ledger_event;
 use serde_json::Value;
+
+use crate::durability::{append_ndjson_line_durable, read_stable_prefix};
 
 /// Node-owned NDJSON file-backed audit log for bounty events.
 ///
@@ -15,23 +15,14 @@ impl FileBountyEventLedger {
     pub fn append(path: impl AsRef<Path>, event: &Value) -> anyhow::Result<()> {
         validate_bounty_ledger_event(event)
             .map_err(|err| anyhow::anyhow!("bountyEventLedger: {err}"))?;
-        if let Some(parent) = path.as_ref().parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path.as_ref())?;
-        writeln!(file, "{}", serde_json::to_string(event)?)?;
-        Ok(())
+        append_ndjson_line_durable(path.as_ref(), &serde_json::to_string(event)?)
     }
 
     pub fn recover(path: impl AsRef<Path>) -> anyhow::Result<Vec<Value>> {
         let path = path.as_ref();
-        if !path.exists() {
+        let Some(raw) = read_stable_prefix(path)? else {
             return Ok(Vec::new());
-        }
-        let raw = fs::read_to_string(path)?;
+        };
         let mut events = Vec::new();
         for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
             let event: Value = serde_json::from_str(line).map_err(|err| {
