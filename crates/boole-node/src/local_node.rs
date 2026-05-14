@@ -1,5 +1,6 @@
 use crate::block_store::FileBlockStore;
 use crate::bounty_event_store::FileBountyEventLedger;
+use crate::family_manifest_store::load_family_manifest_registry_from_dir;
 use crate::http_error::HttpError;
 use crate::nonce_ledger::FileNonceLedger;
 use crate::receipt_store::FileReceiptStore;
@@ -472,7 +473,7 @@ impl LocalNodeState {
             }
         }
         let family_manifest_registry = match config.family_manifests_dir.as_ref() {
-            Some(dir) => FamilyManifestRegistry::load_from_dir(dir).map_err(|err| {
+            Some(dir) => load_family_manifest_registry_from_dir(dir).map_err(|err| {
                 anyhow::anyhow!(
                     "load family manifests from {}: {err}",
                     dir.to_string_lossy()

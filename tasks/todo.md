@@ -220,7 +220,7 @@ Close the Hard-Guard gap: bounty proofs feed a side-pool that affects block sele
 
 ### Slice S21 — Family-manifest boot loader + bounty side-pool wiring (Hard-Guard regression) ✅
 
-- [x] `FamilyManifestRegistry::load_from_dir(&Path)` skip-and-warn boot loader (8 unit tests).
+- [x] Node-owned family manifest directory loader with skip-and-warn policy; core `FamilyManifestRegistry` remains an in-memory registry only.
 - [x] `BountySidePool` per-family share buffer keyed by `(family_id, proof_hash)` with dedup.
 - [x] `LocalNodeConfig.family_manifests_dir` + `--family-manifests` CLI flag wired through `from_config`.
 - [x] `bounty_proof_json` step 7b inserts `BountyShare` into side-pool on `accepted=true` only — base `SharePool` untouched.
