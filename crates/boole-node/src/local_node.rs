@@ -16,7 +16,7 @@ use boole_core::{
     load_bounties, load_work_manifests, replay_blocks, ticket, verify_signature, AdmissionDecision,
     BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult,
     CalibrationReport, CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry,
-    FileBountyEventLedger, Hex32, PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput,
+    FileBountyEventLedger, Hex32, Hex64, PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput,
     SessionState, SubmitProofInput, UpdateStatusInput, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
 use serde::Deserialize;
@@ -1576,7 +1576,7 @@ fn bounty_announce_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value
     if !is_well_formed_hex32(pk) {
         return Err(HttpError::bad_envelope("pk must be 64 lowercase hex chars"));
     }
-    if !is_well_formed_hex64(signature) {
+    if Hex64::from_hex(signature).is_err() {
         return Err(HttpError::bad_envelope(
             "signature must be 128 lowercase hex chars",
         ));
@@ -1727,7 +1727,7 @@ fn bounty_status_json(
     if !is_well_formed_hex32(pk) {
         return Err(HttpError::bad_envelope("pk must be 64 lowercase hex chars"));
     }
-    if !is_well_formed_hex64(signature) {
+    if Hex64::from_hex(signature).is_err() {
         return Err(HttpError::bad_envelope(
             "signature must be 128 lowercase hex chars",
         ));
@@ -1840,10 +1840,6 @@ fn required_payload_string<'a>(
         .ok_or_else(|| HttpError::bad_payload(field, format!("payload missing string {field}")))
 }
 
-fn is_well_formed_hex64(s: &str) -> bool {
-    s.len() == 128 && s.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
 fn bounty_proof_json(
     state: &mut LocalNodeState,
     id: &str,
@@ -1866,7 +1862,7 @@ fn bounty_proof_json(
         .and_then(Value::as_str)
         .ok_or_else(HttpError::bad_proof_hash)?
         .to_string();
-    if !is_lowercase_hex32(&proof_hash) {
+    if Hex32::from_hex(&proof_hash).is_err() {
         return Err(HttpError::bad_proof_hash());
     }
     let prover = body_obj
@@ -1874,7 +1870,7 @@ fn bounty_proof_json(
         .and_then(Value::as_str)
         .ok_or_else(HttpError::bad_prover)?
         .to_string();
-    if !is_lowercase_hex32(&prover) {
+    if Hex32::from_hex(&prover).is_err() {
         return Err(HttpError::bad_prover());
     }
     let envelope = body_obj.get("envelope").cloned().unwrap_or(Value::Null);
@@ -1988,13 +1984,6 @@ fn bounty_proof_json(
         "bounty": serde_json::to_value(&outcome.bounty)
             .expect("Bounty serializes to JSON via serde"),
     }))
-}
-
-fn is_lowercase_hex32(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn config_json(state: &LocalNodeState) -> Value {

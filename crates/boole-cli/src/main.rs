@@ -2421,7 +2421,7 @@ fn keys_verify(pk: &str, signature: &str, payload_arg: &str, json: bool) -> anyh
             }),
         );
     }
-    if !is_well_formed_hex64(signature) {
+    if boole_core::Hex64::from_hex(signature).is_err() {
         emit_typed_error(
             "bad_signature",
             2,
@@ -2448,8 +2448,4 @@ fn keys_verify(pk: &str, signature: &str, payload_arg: &str, json: bool) -> anyh
         println!("invalid");
     }
     Ok(())
-}
-
-fn is_well_formed_hex64(s: &str) -> bool {
-    boole_core::Hex64::from_hex(s).is_ok()
 }

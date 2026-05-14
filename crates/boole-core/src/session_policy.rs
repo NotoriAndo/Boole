@@ -1,3 +1,4 @@
+use crate::Hex32;
 use serde::{Deserialize, Serialize};
 
 /// Maximum number of blocks a session can remain active without an explicit
@@ -191,8 +192,7 @@ impl SessionPolicy {
 }
 
 fn validate_hex32(field: &str, value: &str) -> anyhow::Result<()> {
-    let is_lower_hex = |b: u8| b.is_ascii_digit() || (b'a'..=b'f').contains(&b);
-    if value.len() != 64 || !value.bytes().all(is_lower_hex) {
+    if Hex32::from_hex(value).is_err() {
         anyhow::bail!("{field} must be 32-byte lowercase hex");
     }
     Ok(())

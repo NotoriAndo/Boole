@@ -109,12 +109,29 @@ class PreflightOrchestrationTests(unittest.TestCase):
         targets = [
             "crates/boole-core/src/receipt.rs",
             "crates/boole-core/src/family_manifest.rs",
+            "crates/boole-core/src/session_policy.rs",
+            "crates/boole-node/src/local_node.rs",
+            "crates/boole-node/src/main.rs",
         ]
         for relative in targets:
             text = (ROOT / relative).read_text(encoding="utf-8")
             self.assertIn("Hex32::from_hex", text, relative)
             self.assertNotIn("fn is_lower_hex32", text, relative)
+            self.assertNotIn("fn is_lowercase_hex32", text, relative)
             self.assertNotIn("is_ascii_hexdigit() && !b.is_ascii_uppercase()", text, relative)
+
+    def test_signature_hex64_validators_use_canonical_hex64_type(self) -> None:
+        targets = [
+            "crates/boole-core/src/signed_envelope.rs",
+            "crates/boole-core/src/family_manifest.rs",
+            "crates/boole-cli/src/main.rs",
+            "crates/boole-node/src/local_node.rs",
+        ]
+        for relative in targets:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertIn("Hex64::from_hex", text, relative)
+            self.assertNotIn("fn is_well_formed_hex64", text, relative)
+            self.assertNotIn("s.len() == 128 && s.bytes().all(|b| b.is_ascii_hexdigit())", text, relative)
 
     def test_agent_mine_missing_runtime_skip_matches_contract_fixture(self) -> None:
         proc = subprocess.run(
