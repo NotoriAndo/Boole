@@ -19,7 +19,7 @@ fn target_b() -> Target {
     Target {
         seed_hex: "22".repeat(32),
         d: 3,
-        profile: "v031".to_string(),
+        profile: "v1-lenbound".to_string(),
         n: 4,
         render: "[stub] target B".to_string(),
     }

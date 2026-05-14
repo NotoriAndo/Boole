@@ -1,29 +1,13 @@
 /-!
-# Boole.Family.V0Helpers — list operations and witness lemmas for
-the v031 benchmark families
+# Boole.Family.V0Helpers — list operations and witness lemmas for active length-bound proofs
 
-Ported from `projects/pof/lean/Boole/Family/V0Helpers.lean`.
+This module provides the helper definitions and lemmas used by the active
+`v1-lenbound` proof family. The module name is kept stable because generated
+Lean proof packages import it directly.
 
-Two op families coexist:
-
-* The **lp-only subset** — `mapAdd k`, `mapMul k`, `sortAsc` —
-  consumed by `boole.calibration.pow.v2` (Slice S8) for chains where
-  `lengthPreserved` is the only invariant.
-* The **full v0.2 subset** — adds `filterByPred p` and `dedup` — used
-  by `boole.calibration.pow.v3` (Slice S8b) for the four "truthy"
-  invariant branches (`allSatisfy`, `sortedAsc`, `dedupFirst`,
-  `partitionEq`) plus the lp branch within the 5-way mixed family.
-
-Each `theorem` below is the canonical witness for one branch's
-goal. Proof bodies copy verbatim from pof against Lean 4.29.1; the
-shared toolchain plus identical stdlib lemma surface (`List.all_filter`,
-`Bool.not_or_self`, `List.eraseDups_cons`, `List.pairwise_mergeSort`,
-`List.partition_eq_filter_filter`, `List.length_map`,
-`List.length_mergeSort`) means the elaboration is byte-equivalent.
-
-The `@[reducible]` annotation on each op definition matches pof's
-convention so unfolding plays well with definitional reduction during
-proof elaboration.
+The helpers cover list filters, maps, deduplication, sorting, equality
+witnesses, and length-bound witnesses needed by deterministic local verifier
+checks.
 -/
 
 namespace Boole.Family.V0Helpers
@@ -48,7 +32,7 @@ namespace Boole.Family.V0Helpers
 /-! ## Witness lemmas (truthy-by-construction profile, v0.2 + v0.3 + v0.3.1) -/
 
 /-- `allSatisfy p` witness: every element of `filterByPred p xs`
-satisfies `p`. Closes any v3 instance whose last op is `filterByPred p`. -/
+satisfies `p`. Closes instances whose last op is `filterByPred p`. -/
 theorem all_filterByPred_self (p : Int → Bool) (xs : List Int) :
     (filterByPred p xs).all p = true := by
   unfold filterByPred
@@ -56,8 +40,7 @@ theorem all_filterByPred_self (p : Int → Bool) (xs : List Int) :
   -- `Bool.not_or_self`; `simp` then reduces `xs.all (fun _ => true)` to `true`.
   simp [List.all_filter, Bool.not_or_self]
 
-/-- `dedupFirst` witness: `dedup xs` has no duplicates. Closes any v3
-instance whose last op is `dedup`. -/
+/-- `dedupFirst` witness: `dedup xs` has no duplicates. Closes instances whose last op is `dedup`. -/
 theorem nodup_dedup : ∀ (xs : List Int), List.Nodup (dedup xs)
   | [] => by simp [dedup, List.eraseDups_nil, List.Nodup, List.Pairwise.nil]
   | a :: as => by

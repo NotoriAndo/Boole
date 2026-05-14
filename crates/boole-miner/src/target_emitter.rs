@@ -12,15 +12,13 @@
 //
 // Three implementations:
 //   - `StubTargetEmitter` — synthetic in-memory render for tests.
-//   - `FixedSeedTargetEmitter` — pin a known seed/render pair (legacy
-//     compatibility for v01-style smoke tests).
-//   - `FamilyV031TargetEmitter` — production path. Derives the seed via
-//     `target_seed(...)`, generates the family-v031 instance, and renders
-//     the theorem statement directly. No external Lake call required.
+//   - `FixedSeedTargetEmitter` — pin a known seed/render pair for smoke tests.
+//   - `FamilyV1LengthBoundTargetEmitter` — active production path. Derives
+//     the seed via `target_seed(...)`, generates the v1 length-bound instance,
+//     and renders the theorem statement directly. No external Lake call required.
 use boole_core::{h_protocol, Hex32};
 
 use crate::canonicalizer::Target;
-use crate::family_v031::{generate_from_hex, render_text, Profile};
 use crate::family_v1_lenbound::{
     generate_from_hex as generate_v1_lenbound_from_hex, render_text as render_v1_lenbound_text,
 };
@@ -105,50 +103,6 @@ impl TargetEmitter for FixedSeedTargetEmitter {
     }
 }
 
-/// Production target emitter for the v031-lp / v031 profiles. Derives
-/// the seed from `target_seed(c, pk, n, j_index)` and the render from
-/// the family-v031 generator (Rust port of pof's
-/// `Boole.Family.GenTargetCatalogV031`). If `pinned_seed_hex` is set,
-/// that seed is used instead — useful for deterministic smoke runs.
-#[derive(Debug, Clone)]
-pub struct FamilyV031TargetEmitter {
-    pub profile: Profile,
-    pub pinned_seed_hex: Option<String>,
-}
-
-impl FamilyV031TargetEmitter {
-    pub fn new(profile: Profile) -> Self {
-        Self {
-            profile,
-            pinned_seed_hex: None,
-        }
-    }
-
-    pub fn with_pinned_seed(mut self, seed_hex: impl Into<String>) -> Self {
-        self.pinned_seed_hex = Some(seed_hex.into());
-        self
-    }
-}
-
-impl TargetEmitter for FamilyV031TargetEmitter {
-    fn emit(&self, args: &TargetEmitArgs<'_>) -> anyhow::Result<Target> {
-        let seed_hex = match &self.pinned_seed_hex {
-            Some(s) => s.clone(),
-            None => target_seed(args.c, args.pk, args.n, args.j_index).to_hex(),
-        };
-        let instance = generate_from_hex(&seed_hex, self.profile)
-            .map_err(|e| anyhow::anyhow!("decode seed_hex: {e}"))?;
-        let render = render_text(&instance);
-        Ok(Target {
-            seed_hex,
-            d: args.d,
-            profile: self.profile.as_str().to_string(),
-            n: args.n_param.unwrap_or(1),
-            render,
-        })
-    }
-}
-
 /// Production target emitter for the v1-lenbound capability calibration profile.
 pub struct FamilyV1LengthBoundTargetEmitter {
     pub pinned_seed_hex: Option<String>,
@@ -207,28 +161,7 @@ mod tests {
     #[test]
     fn family_emitter_derives_seed_and_render() {
         let (c, pk, n) = dummy_args();
-        let emitter = FamilyV031TargetEmitter::new(Profile::V031Lp);
-        let args = TargetEmitArgs {
-            c: &c,
-            pk: &pk,
-            n: &n,
-            j_index: 0,
-            d: 1,
-            profile: "v031-lp".to_string(),
-            n_param: Some(1),
-        };
-        let target = emitter.emit(&args).expect("emit");
-        assert_eq!(target.profile, "v031-lp");
-        assert_eq!(target.seed_hex.len(), 64);
-        assert!(target
-            .render
-            .starts_with("theorem instance_thm : ∀ (xs : List Int),"));
-    }
-
-    #[test]
-    fn v1_length_bound_emitter_generates_capability_family_target() {
-        let (c, pk, n) = dummy_args();
-        let emitter = crate::target_emitter::FamilyV1LengthBoundTargetEmitter::new();
+        let emitter = FamilyV1LengthBoundTargetEmitter::new();
         let args = TargetEmitArgs {
             c: &c,
             pk: &pk,
@@ -238,33 +171,26 @@ mod tests {
             profile: "v1-lenbound".to_string(),
             n_param: Some(1),
         };
-        let target = emitter.emit(&args).expect("emit v1 length-bound target");
+        let target = emitter.emit(&args).expect("emit");
         assert_eq!(target.profile, "v1-lenbound");
         assert_eq!(target.seed_hex.len(), 64);
         assert!(target
             .render
             .starts_with("theorem instance_thm : ∀ (xs : List Int),"));
-        assert!(target.render.contains(".length ≤ xs.length"));
-        assert!(target.render.contains("filterByPred") || target.render.contains("dedup"));
-        assert!(
-            target.render.contains("mapAdd")
-                || target.render.contains("mapMul")
-                || target.render.contains("sortAsc")
-        );
     }
 
     #[test]
     fn family_emitter_pinned_seed_overrides_derivation() {
         let (c, pk, n) = dummy_args();
         let pinned = "b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764";
-        let emitter = FamilyV031TargetEmitter::new(Profile::V031Lp).with_pinned_seed(pinned);
+        let emitter = FamilyV1LengthBoundTargetEmitter::new().with_pinned_seed(pinned);
         let args = TargetEmitArgs {
             c: &c,
             pk: &pk,
             n: &n,
             j_index: 5,
             d: 0,
-            profile: "v031-lp".to_string(),
+            profile: "v1-lenbound".to_string(),
             n_param: None,
         };
         let target = emitter.emit(&args).expect("emit");
@@ -274,14 +200,14 @@ mod tests {
     #[test]
     fn family_emitter_rejects_bad_hex() {
         let (c, pk, n) = dummy_args();
-        let emitter = FamilyV031TargetEmitter::new(Profile::V031Lp).with_pinned_seed("not-hex");
+        let emitter = FamilyV1LengthBoundTargetEmitter::new().with_pinned_seed("not-hex");
         let args = TargetEmitArgs {
             c: &c,
             pk: &pk,
             n: &n,
             j_index: 0,
             d: 0,
-            profile: "v031-lp".to_string(),
+            profile: "v1-lenbound".to_string(),
             n_param: None,
         };
         assert!(emitter.emit(&args).is_err());

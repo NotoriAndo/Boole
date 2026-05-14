@@ -162,7 +162,7 @@ out = {
     "provider": provider,
     "backend": backend,
     "model": model,
-    "miner": "boole-miner provider/model + FamilyV031TargetEmitter + StructuralCanonicalizer (placeholder POFP canon) + AcceptingVerifier (--mock-verify-accept)",
+    "miner": "boole-miner provider/model + FamilyV1LenboundTargetEmitter + StructuralCanonicalizer (proof-intake canonicalization) + AcceptingVerifier (--mock-verify-accept)",
     "node": "boole-node run-local",
     "trials": len(rows),
     "aggregate": {"verifyAccepted": verify_accepted, "sharesAccepted": shares_accepted},

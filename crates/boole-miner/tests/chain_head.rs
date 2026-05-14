@@ -65,7 +65,7 @@ fn test_fetch_head_min_share_score_uses_t_share_and_multiplier() {
         url,
         Duration::from_secs(5),
         2,
-        "v031".to_string(),
+        "v1-lenbound".to_string(),
         None,
     );
     let head = f.fetch_head().unwrap();

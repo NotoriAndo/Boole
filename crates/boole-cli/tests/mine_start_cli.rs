@@ -132,9 +132,12 @@ fn mine_start_rejects_unpaired_fixed_target_flags() {
         state_path.to_str().unwrap(),
         "--fixed-target-seed-hex",
         "deadbeef",
-        // intentionally omit --fixed-target-render
+        // intentionally omit --fixed-target-render on a non-family profile
+        "--profile",
+        "smoke",
         "--max-cycles",
         "0",
+        "--mock-verify-accept",
     ]);
     assert!(
         !out.status.success(),

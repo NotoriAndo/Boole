@@ -5,8 +5,8 @@
 //
 // `Verifier` is the trait the mining loop consumes. `AcceptingVerifier` /
 // `RejectingVerifier` are in-process stubs for tests; `LeanVerifier` is
-// the production path: it generates the family-v031 instance from the
-// target seed, wraps the LLM-supplied proof term in a `BooleVerifyMod`
+// the production path: it generates the active v1 length-bound instance from
+// the target seed, wraps the LLM-supplied proof term in a `BooleVerifyMod`
 // module, and shells out to `lake exec boole_check` via boole-lean-runner.
 //
 // The seam `Verifier::verify(seed_hex, d, proof_source, n)` matches the
@@ -15,9 +15,6 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::family_v031::{
-    generate_from_hex as generate_v031_from_hex, lean_module as lean_v031_module, Profile,
-};
 use crate::family_v1_lenbound::{
     generate_from_hex as generate_v1_lenbound_from_hex, lean_module as lean_v1_lenbound_module,
 };
@@ -118,20 +115,17 @@ fn tail(s: &str, limit: usize) -> String {
 }
 
 enum LeanProfile {
-    V031(Profile),
     V1Lenbound,
 }
 
 fn parse_profile(s: &str) -> Option<LeanProfile> {
     match s {
-        "v031-lp" => Some(LeanProfile::V031(Profile::V031Lp)),
-        "v031" => Some(LeanProfile::V031(Profile::V031)),
         "v1-lenbound" => Some(LeanProfile::V1Lenbound),
         _ => None,
     }
 }
 
-/// Production verifier. Regenerates the family-v031 instance from the
+/// Production verifier. Regenerates the active family instance from the
 /// target seed, wraps the LLM-supplied proof term in a BooleVerifyMod
 /// module, and runs `lake exec boole_check` via boole-lean-runner.
 pub struct LeanVerifier {
@@ -164,28 +158,13 @@ impl Verifier for LeanVerifier {
                 reason: VerifyReason::EmitFailed,
                 elapsed: started.elapsed(),
                 stderr_tail: format!(
-                    "LeanVerifier does not support profile {:?}; supported: v031-lp, v031, v1-lenbound",
+                    "LeanVerifier does not support profile {:?}; supported: v1-lenbound",
                     self.profile
                 ),
                 attempt_artifact_path: None,
             };
         };
         let module_text = match profile {
-            LeanProfile::V031(profile) => {
-                let instance = match generate_v031_from_hex(seed_hex, profile) {
-                    Ok(i) => i,
-                    Err(e) => {
-                        return VerifyResult {
-                            accepted: false,
-                            reason: VerifyReason::EmitFailed,
-                            elapsed: started.elapsed(),
-                            stderr_tail: format!("decode seed_hex failed: {e}"),
-                            attempt_artifact_path: None,
-                        };
-                    }
-                };
-                lean_v031_module(&instance, proof_source)
-            }
             LeanProfile::V1Lenbound => {
                 let instance = match generate_v1_lenbound_from_hex(seed_hex) {
                     Ok(i) => i,
@@ -377,7 +356,7 @@ mod tests {
 
     #[test]
     fn lean_verifier_reports_emit_failed_on_bad_seed() {
-        let v = LeanVerifier::new(PathBuf::from("/nonexistent"), "v031-lp");
+        let v = LeanVerifier::new(PathBuf::from("/nonexistent"), "v1-lenbound");
         let r = v.verify("not-hex", 0, "rfl", None);
         assert!(!r.accepted);
         assert_eq!(r.reason, VerifyReason::EmitFailed);
@@ -405,7 +384,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&missing_package_dir);
         let proof_term = "by intro xs; exact by simp";
-        let v = LeanVerifier::new(missing_package_dir, "v031-lp");
+        let v = LeanVerifier::new(missing_package_dir, "v1-lenbound");
         let r = v.verify(
             "b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764",
             0,
@@ -439,44 +418,6 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(artifact_path);
-    }
-
-    /// End-to-end: drive `lake exec boole_check` against a real-life
-    /// canonical proof produced by `family_v031`. Validates that the
-    /// module text shape, BooleVerifyMod namespace, and family helpers
-    /// are all in sync with `Boole.Family.V0Helpers`. Ignored by default
-    /// because it requires the Lean toolchain and a built checker.
-    /// Run with: `cargo test -p boole-miner --lib -- --ignored
-    /// lean_verifier_accepts_canonical_proof`.
-    #[test]
-    #[ignore]
-    fn lean_verifier_accepts_canonical_proof() {
-        use crate::family_v031;
-        let lean_dir = std::env::var("BOOLE_LEAN_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                let manifest = env!("CARGO_MANIFEST_DIR");
-                PathBuf::from(manifest).join("../../lean/checker")
-            });
-        // Use a fixed seed so the test is deterministic.
-        let seed_hex = "b606f7037936d8191ded73d7051fb423e72d2b442b0e868da9e3b11e72c7f764";
-        for profile_str in ["v031-lp", "v031"] {
-            let profile = match parse_profile(profile_str).unwrap() {
-                LeanProfile::V031(profile) => profile,
-                LeanProfile::V1Lenbound => unreachable!("v031-only canonical proof test"),
-            };
-            let inst = family_v031::generate_from_hex(seed_hex, profile).unwrap();
-            let canonical = family_v031::render_canonical_proof(&inst);
-            let v = LeanVerifier::new(lean_dir.clone(), profile_str)
-                .with_timeout(Duration::from_secs(120));
-            let r = v.verify(seed_hex, 0, &canonical, None);
-            assert!(
-                r.accepted,
-                "canonical proof rejected for {profile_str}: \
-                 reason={:?} stderr={}",
-                r.reason, r.stderr_tail
-            );
-        }
     }
 
     /// End-to-end v1 helper-surface sync: the Rust v1 canonical proof renderer

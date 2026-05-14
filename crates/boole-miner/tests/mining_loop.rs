@@ -357,22 +357,6 @@ fn global_submission_contract_is_slot_level_not_instance_hinting() {
 }
 
 #[test]
-fn default_prompt_builder_keeps_v0_contract_for_v031_profiles() {
-    let target = Target {
-        seed_hex: "11".repeat(32),
-        d: 1,
-        profile: "v031-lp".to_string(),
-        n: 1,
-        render: "synthetic invariant render".to_string(),
-    };
-
-    let prompt = DefaultPromptBuilder.build_prompt(&target);
-
-    assert!(prompt.contains("ListInvariantsV0 family"));
-    assert!(prompt.contains("fun xs => nodup_dedup _"));
-}
-
-#[test]
 fn default_prompt_builder_embeds_exact_v1_helper_manifest() {
     let target = Target {
         seed_hex: "22".repeat(32),

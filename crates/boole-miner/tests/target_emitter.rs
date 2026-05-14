@@ -88,12 +88,12 @@ fn test_stub_emitter_passes_through_n_param() {
             n: &n,
             j_index: 0,
             d: 4,
-            profile: "v031".to_string(),
+            profile: "v1-lenbound".to_string(),
             n_param: Some(3),
         })
         .unwrap();
     assert_eq!(t.n, 3);
-    assert_eq!(t.profile, "v031");
+    assert_eq!(t.profile, "v1-lenbound");
 }
 
 #[test]

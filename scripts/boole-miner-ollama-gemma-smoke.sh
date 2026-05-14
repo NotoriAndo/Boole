@@ -189,7 +189,7 @@ res = conn.getresponse(); status = json.loads(res.read().decode())
 verify_accepted = sum(1 for r in rows if (r.get("summary") or {}).get("verifyAccepted") == 1)
 shares_accepted = sum(1 for r in rows if (r.get("summary") or {}).get("sharesAccepted") == 1)
 ok = success_raw == "1" and status.get("height", 0) >= 1 and status.get("replayMatchesRuntime") is True
-out = {"ok": ok, "kind": "boole-miner-ollama-gemma-smoke", "provider": "ollama-openai-compatible", "model": model, "miner": "boole-miner openai_compat + FamilyV031TargetEmitter + StructuralCanonicalizer (placeholder POFP canon) + AcceptingVerifier (--mock-verify-accept)", "node": "boole-node run-local", "trials": len(rows), "aggregate": {"verifyAccepted": verify_accepted, "sharesAccepted": shares_accepted}, "rows": rows, "status": status}
+out = {"ok": ok, "kind": "boole-miner-ollama-gemma-smoke", "provider": "ollama-openai-compatible", "model": model, "miner": "boole-miner openai_compat + FamilyV1LenboundTargetEmitter + StructuralCanonicalizer (proof-intake canonicalization) + AcceptingVerifier (--mock-verify-accept)", "node": "boole-node run-local", "trials": len(rows), "aggregate": {"verifyAccepted": verify_accepted, "sharesAccepted": shares_accepted}, "rows": rows, "status": status}
 print(json.dumps(out, separators=(",", ":")))
 if not ok:
     raise SystemExit("boole-miner-ollama-gemma-smoke: no proof-to-block success")

@@ -62,7 +62,8 @@ class PreflightOrchestrationTests(unittest.TestCase):
         for fragment in expected_fragments:
             self.assertIn(fragment, text)
 
-    def test_smoke_entrypoints_default_to_v1_lenbound_not_v031_lp(self) -> None:
+    def test_smoke_entrypoints_default_to_v1_lenbound_not_deprecated_family(self) -> None:
+        deprecated_profile = "v" + "031" + "-lp"
         script_paths = [
             ROOT / "scripts" / "boole-miner-hermes-real-verify-smoke.sh",
             ROOT / "scripts" / "provider-model-smoke.sh",
@@ -71,7 +72,32 @@ class PreflightOrchestrationTests(unittest.TestCase):
         for path in script_paths:
             text = path.read_text(encoding="utf-8")
             self.assertIn('PROFILE="${PROFILE:-v1-lenbound}"', text, path)
-            self.assertNotIn('PROFILE="${PROFILE:-v031-lp}"', text, path)
+            self.assertNotIn(f'PROFILE="${{PROFILE:-{deprecated_profile}}}"', text, path)
+
+    def test_deprecated_v0_family_terms_are_absent_from_tracked_repo(self) -> None:
+        deprecated_terms = [
+            "v" + "031" + suffix for suffix in ("", "-lp", "-mixed")
+        ] + [
+            "mining-v" + suffix for suffix in ("2", "3")
+        ] + [
+            "pow.v" + suffix for suffix in ("2", "3")
+        ]
+        tracked_files = subprocess.check_output(
+            ["git", "ls-files"], cwd=ROOT, text=True
+        ).splitlines()
+        offenders = []
+        for relative in tracked_files:
+            path = ROOT / relative
+            if not path.exists():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            hits = sorted(term for term in deprecated_terms if term in text)
+            if hits:
+                offenders.append(f"{relative}: {', '.join(hits)}")
+        self.assertEqual(offenders, [])
 
     def test_reqwest_is_declared_once_as_workspace_dependency(self) -> None:
         root_manifest = (ROOT / "Cargo.toml").read_text(encoding="utf-8")

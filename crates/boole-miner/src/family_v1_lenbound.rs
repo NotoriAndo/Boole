@@ -1,7 +1,6 @@
 // Family v1 deterministic length-bound instance generator.
 //
-// v1 is the first public-facing capability calibration family after the
-// v031/v0 pipeline bring-up families. It intentionally breaks the pure
+// v1 is the first public-facing capability calibration family for the active mining path. It intentionally uses the
 // length-preservation helper-chain pattern by requiring at least one
 // length-reducing/non-expanding op (`filterByPred` or `dedup`) and renders a
 // theorem of the shape:
@@ -243,8 +242,8 @@ const VERIFY_THEOREM: &str = "instance_thm";
 
 /// Wrap a proof term into the full Lean module the verifier elaborates.
 ///
-/// This mirrors the v031 verifier contract but renders the v1 length-bound
-/// theorem body. The supplied proof is inserted verbatim after `:=`.
+/// This renders the v1 length-bound theorem body. The supplied proof is
+/// inserted verbatim after `:=`.
 pub fn lean_module(instance: &Instance, proof_term: &str) -> String {
     let rhs = theorem_rhs(instance);
     format!(
