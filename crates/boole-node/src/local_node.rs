@@ -1472,9 +1472,7 @@ fn account_balance_json(state: &LocalNodeState, pk: &str) -> Result<Value, HttpE
 }
 
 fn is_well_formed_hex32(s: &str) -> bool {
-    s.len() == 64
-        && s.bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    Hex32::from_hex(s).is_ok()
 }
 
 fn work_list_json(state: &LocalNodeState) -> Value {

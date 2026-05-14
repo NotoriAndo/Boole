@@ -535,7 +535,7 @@ fn submit_lean_fixture(path: &Path, difficulty_mode: &str) -> anyhow::Result<Sub
 }
 
 fn is_well_formed_hex32(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+    boole_core::Hex32::from_hex(s).is_ok()
 }
 
 fn take_optional_flag_value(args: &mut Vec<String>, flag: &str) -> anyhow::Result<Option<String>> {

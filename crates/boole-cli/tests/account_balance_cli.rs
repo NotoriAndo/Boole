@@ -189,23 +189,26 @@ fn account_balance_cli_returns_zero_for_unknown_pk() {
 
 #[test]
 fn account_balance_cli_rejects_malformed_pk_locally() {
-    // No node hit at all — clap-level validation prefers exit 2 (user error).
-    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
-        .args([
-            "account",
-            "balance",
-            "--pk",
-            "tooshort",
-            "--node",
-            "http://127.0.0.1:1",
-            "--json",
-        ])
-        .output()
-        .expect("run cli");
-    assert!(!output.status.success(), "must exit non-zero");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let _ = writeln!(std::io::stderr(), "stderr was: {stderr}");
-    let parsed: Value = serde_json::from_slice(&output.stderr).expect("stderr json");
-    assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "malformed_pk");
+    // No node hit at all — local validation prefers exit 2 (user error),
+    // including uppercase noncanonical hex that `Hex32::from_hex` rejects.
+    for pk in ["tooshort", &"A".repeat(64)] {
+        let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+            .args([
+                "account",
+                "balance",
+                "--pk",
+                pk,
+                "--node",
+                "http://127.0.0.1:1",
+                "--json",
+            ])
+            .output()
+            .expect("run cli");
+        assert!(!output.status.success(), "must exit non-zero for {pk}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let _ = writeln!(std::io::stderr(), "stderr was: {stderr}");
+        let parsed: Value = serde_json::from_slice(&output.stderr).expect("stderr json");
+        assert_eq!(parsed["ok"], false);
+        assert_eq!(parsed["reason"], "malformed_pk");
+    }
 }

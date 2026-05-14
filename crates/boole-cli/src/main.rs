@@ -958,7 +958,7 @@ fn account_balance(pk: &str, node: Option<&str>, json: bool) -> anyhow::Result<(
 }
 
 fn is_well_formed_hex32(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+    boole_core::Hex32::from_hex(s).is_ok()
 }
 
 fn reputation_inspect(ledger: &Path, agent_pk: &str, json: bool) -> anyhow::Result<()> {

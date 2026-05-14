@@ -481,7 +481,7 @@ pub fn run_bounty(args: BountyArgs) -> anyhow::Result<()> {
 }
 
 fn is_well_formed_hex32(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+    Hex32::from_hex(s).is_ok()
 }
 
 #[derive(Debug, Clone, Copy)]

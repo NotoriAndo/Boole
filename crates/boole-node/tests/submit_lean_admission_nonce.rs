@@ -25,40 +25,45 @@ fn submit_lean_rejects_malformed_admission_nonce_before_lean() {
     let block_path = workspace.root.join("blockstore.ndjson");
     let fixture_path = repo_root().join("fixtures/protocol/admission/v1.json");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
-        .args([
-            "submit-lean",
-            "--proof",
-            proof.to_str().expect("proof path utf8"),
-            "--checker-dir",
-            workspace.root.to_str().expect("checker dir utf8"),
-            "--fixture",
-            fixture_path.to_str().expect("fixture path utf8"),
-            "--block-store",
-            block_path.to_str().expect("block path utf8"),
-            "--require-checker-artifact-hash",
-            "ignored-because-validation-runs-first",
-            "--admission-nonce",
-            "tooshort",
-        ])
-        .output()
-        .expect("run boole-node submit-lean");
-    assert!(!output.status.success(), "expected non-zero exit");
-    assert!(
-        output.stdout.is_empty(),
-        "rejected submit-lean must keep stdout empty: {}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let parsed: Value = serde_json::from_str(stderr.trim())
-        .unwrap_or_else(|err| panic!("expected stderr JSON, got {stderr:?} ({err})"));
-    assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["command"], "submit-lean");
-    assert_eq!(parsed["accepted"], false);
-    assert_eq!(parsed["error"], "malformed-admission-nonce");
-    assert_eq!(parsed["shareAccepted"], false);
-    assert_eq!(parsed["blockProduced"], false);
-    assert_eq!(parsed["invalidAccepted"], 0);
+    for nonce in ["tooshort", &"A".repeat(64)] {
+        let output = Command::new(env!("CARGO_BIN_EXE_boole-node"))
+            .args([
+                "submit-lean",
+                "--proof",
+                proof.to_str().expect("proof path utf8"),
+                "--checker-dir",
+                workspace.root.to_str().expect("checker dir utf8"),
+                "--fixture",
+                fixture_path.to_str().expect("fixture path utf8"),
+                "--block-store",
+                block_path.to_str().expect("block path utf8"),
+                "--require-checker-artifact-hash",
+                "ignored-because-validation-runs-first",
+                "--admission-nonce",
+                nonce,
+            ])
+            .output()
+            .expect("run boole-node submit-lean");
+        assert!(
+            !output.status.success(),
+            "expected non-zero exit for {nonce}"
+        );
+        assert!(
+            output.stdout.is_empty(),
+            "rejected submit-lean must keep stdout empty: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let parsed: Value = serde_json::from_str(stderr.trim())
+            .unwrap_or_else(|err| panic!("expected stderr JSON, got {stderr:?} ({err})"));
+        assert_eq!(parsed["ok"], false);
+        assert_eq!(parsed["command"], "submit-lean");
+        assert_eq!(parsed["accepted"], false);
+        assert_eq!(parsed["error"], "malformed-admission-nonce");
+        assert_eq!(parsed["shareAccepted"], false);
+        assert_eq!(parsed["blockProduced"], false);
+        assert_eq!(parsed["invalidAccepted"], 0);
+    }
     // The block store must NOT exist — we bailed before any I/O.
     assert!(
         !block_path.exists(),
