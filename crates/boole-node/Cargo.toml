@@ -15,6 +15,7 @@ axum.workspace = true
 blake3.workspace = true
 boole-core = { path = "../boole-core" }
 boole-lean-runner = { path = "../boole-lean-runner" }
+clap.workspace = true
 hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true

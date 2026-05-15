@@ -251,6 +251,7 @@ dependencies = [
  "boole-core",
  "boole-lean-runner",
  "boole-testkit",
+ "clap",
  "hex",
  "serde",
  "serde_json",
