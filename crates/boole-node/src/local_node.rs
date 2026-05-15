@@ -809,17 +809,11 @@ async fn submit_handler(
         Ok(session) => session,
         Err(err) => return error_response(err),
     };
+    // P1.3a — burn moved INTO submit_json before block append. Do not
+    // re-burn here on accepted=true; that would double-append the same
+    // (pk, nonce) and surface a spurious nonce_replayed envelope.
     match submit_json(&mut guard, &body, &peer_ip, checked_session.as_ref()) {
-        Ok(value) => {
-            if value.get("accepted").and_then(Value::as_bool) == Some(true) {
-                if let Some(session) = checked_session {
-                    if let Err(err) = burn_submit_nonce(&mut guard, &session) {
-                        return error_response(err);
-                    }
-                }
-            }
-            (StatusCode::OK, Json(value)).into_response()
-        }
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(anyhow_to_internal(err)),
     }
 }
@@ -2188,6 +2182,17 @@ fn submit_json(
             "c": current_head(state),
         }));
     };
+    // P1.3a (L7) — burn (submittedBy, nonce) to disk BEFORE any block
+    // disk write. A crash that lands the block but not the burn leaves
+    // an irrecoverable replay window because recovery cannot tell that
+    // the nonce was already consumed. The reverse — a burn with no
+    // block — is recoverable: replay sees a burned nonce and rejects a
+    // future submit with the same pair (correct behavior). The session
+    // gate already serialized this admission under the write-lock so
+    // `append_burn` cannot race with itself here.
+    if let Some(session) = checked_session {
+        burn_submit_nonce(state, session).map_err(|err| anyhow::anyhow!("{err:?}"))?;
+    }
     let accepted_tags = BTreeSet::from([canon_tag]);
     match state
         .runtime
