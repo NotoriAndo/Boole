@@ -29,9 +29,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap};
 use std::convert::Infallible;
-use std::fs::OpenOptions;
 use std::future::Future;
-use std::io::Write;
 use std::net::{SocketAddr, TcpListener as StdTcpListener};
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -2330,15 +2328,8 @@ fn submit_receipt_json(
     }))
 }
 
-fn append_submit_receipt(path: &PathBuf, receipt: &Value) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    serde_json::to_writer(&mut file, receipt)?;
-    file.write_all(b"\n")?;
-    file.flush()?;
-    Ok(())
+fn append_submit_receipt(path: &std::path::Path, receipt: &Value) -> anyhow::Result<()> {
+    crate::durability::append_ndjson_line_durable(path, &serde_json::to_string(receipt)?)
 }
 
 fn current_head(state: &LocalNodeState) -> String {
