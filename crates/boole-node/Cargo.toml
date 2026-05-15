@@ -9,6 +9,15 @@ authors.workspace = true
 # the path dependencies on sibling crates are not a wildcard violation.
 publish = false
 
+# P1.8 — `dev-mock-payment` gates the magic test-payment string
+# `boole-native-test:paid` accepted by the `/verify-answer` route.
+# OFF by default so a release build (`--no-default-features`) does
+# not even compile the constant into the binary; tests opt in via
+# `cargo test --features boole-node/dev-mock-payment`.
+[features]
+default = []
+dev-mock-payment = []
+
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true

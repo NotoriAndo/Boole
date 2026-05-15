@@ -46,7 +46,64 @@ const MAX_HTTP_BODY_BYTES: usize = 1_048_576;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const VERIFY_ANSWER_SCHEME: &str = "boole-native-test";
 const VERIFY_ANSWER_AMOUNT: &str = "1";
+// P1.8 — magic test-payment string accepted by `/verify-answer`. Hidden
+// behind the `dev-mock-payment` feature so a release build with the
+// feature off (`--no-default-features`) never compiles the constant
+// into the binary; `enforce_verify_answer_payment` below uniformly
+// returns `payment_invalid` instead of comparing against any
+// allowlist.
+#[cfg(feature = "dev-mock-payment")]
 const VERIFY_ANSWER_PAYMENT_SIGNATURE: &str = "boole-native-test:paid";
+
+/// P1.8 — split-bodies signature gate so the no-feature build does not
+/// generate `unreachable_code` warnings inside the route handler. With
+/// `dev-mock-payment` the helper compares against the magic string and
+/// admits matches; without it every header is rejected with
+/// `payment_invalid` and the constant is not referenced at all.
+#[cfg(feature = "dev-mock-payment")]
+fn enforce_verify_answer_payment(
+    signature: Option<&str>,
+    request_hash: String,
+    pay_to: String,
+    x402_version: String,
+) -> Result<(), HttpError> {
+    match signature {
+        None => Err(HttpError::payment_required(
+            VERIFY_ANSWER_SCHEME,
+            VERIFY_ANSWER_AMOUNT,
+            request_hash,
+            pay_to,
+            x402_version,
+        )),
+        Some(value) if value != VERIFY_ANSWER_PAYMENT_SIGNATURE => Err(HttpError::payment_invalid(
+            VERIFY_ANSWER_SCHEME,
+            x402_version,
+        )),
+        Some(_) => Ok(()),
+    }
+}
+
+#[cfg(not(feature = "dev-mock-payment"))]
+fn enforce_verify_answer_payment(
+    signature: Option<&str>,
+    request_hash: String,
+    pay_to: String,
+    x402_version: String,
+) -> Result<(), HttpError> {
+    match signature {
+        None => Err(HttpError::payment_required(
+            VERIFY_ANSWER_SCHEME,
+            VERIFY_ANSWER_AMOUNT,
+            request_hash,
+            pay_to,
+            x402_version,
+        )),
+        Some(_) => Err(HttpError::payment_invalid(
+            VERIFY_ANSWER_SCHEME,
+            x402_version,
+        )),
+    }
+}
 const DEFAULT_X402_VERSION: &str = "x402.draft-2";
 const X402_VERSIONS_FIXTURE: &str = include_str!("../../../fixtures/protocol/x402/versions.json");
 /// Default network id stamped into `state.manifest.json` when the caller
@@ -953,24 +1010,12 @@ fn verify_answer_json(
         ));
     }
     let pay_to = request.pay_to.clone();
-    match header_str(headers, "Payment-Signature") {
-        None => {
-            return Err(HttpError::payment_required(
-                VERIFY_ANSWER_SCHEME,
-                VERIFY_ANSWER_AMOUNT,
-                request_hash,
-                pay_to,
-                x402_version,
-            ));
-        }
-        Some(signature) if signature != VERIFY_ANSWER_PAYMENT_SIGNATURE => {
-            return Err(HttpError::payment_invalid(
-                VERIFY_ANSWER_SCHEME,
-                x402_version,
-            ));
-        }
-        Some(_) => {}
-    }
+    enforce_verify_answer_payment(
+        header_str(headers, "Payment-Signature"),
+        request_hash.clone(),
+        pay_to.clone(),
+        x402_version.clone(),
+    )?;
 
     let result = if request.answer == "reject" {
         "rejected"

@@ -56,7 +56,7 @@ class PreflightOrchestrationTests(unittest.TestCase):
         expected_fragments = [
             "cargo test -q -p boole-core --test session_policy --test receipt",
             "cargo test -q -p boole-cli --test keys --test keys_sign --test keys_verify --test session_key --test signer",
-            "cargo test -q -p boole-node --test session_store --test session_route --test submit_session_policy --test receipt_route --test verify_answer_route --test agent_passport_events",
+            "cargo test -q -p boole-node --features dev-mock-payment --test session_store --test session_route --test submit_session_policy --test receipt_route --test verify_answer_route --test agent_passport_events",
             "wallet-session-receipt-gate: PASS",
         ]
         for fragment in expected_fragments:

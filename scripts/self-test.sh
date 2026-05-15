@@ -47,10 +47,17 @@ run_capture_json() {
 }
 
 run_logged cargo-fmt cargo fmt --all --check
-run_logged python-script-tests python3 -m unittest scripts/test_install_script.py scripts/test_preflight_orchestration.py scripts/test_model_benchmark.py scripts/test_self_test_contract.py scripts/test_workspace_invariants_contract.py scripts/test_supply_chain_contract.py scripts/test_state_dir_contract.py scripts/test_state_dir_runtime_contract.py scripts/test_storage_durability_contract.py scripts/test_nonce_burn_before_block_contract.py
+run_logged python-script-tests python3 -m unittest scripts/test_install_script.py scripts/test_preflight_orchestration.py scripts/test_model_benchmark.py scripts/test_self_test_contract.py scripts/test_workspace_invariants_contract.py scripts/test_supply_chain_contract.py scripts/test_state_dir_contract.py scripts/test_state_dir_runtime_contract.py scripts/test_storage_durability_contract.py scripts/test_nonce_burn_before_block_contract.py scripts/test_verify_answer_payment_gate_contract.py
 run_logged docs-smoke ./scripts/docs-smoke.sh
 run_logged wallet-session-receipt-gate ./scripts/wallet-session-receipt-gate.sh
+# P1.8 — clippy must verify both feature configurations of boole-node:
+# the default no-feature build (no magic-string code path) and the
+# `dev-mock-payment` build (test-payment helper present). Splitting the
+# clippy stage keeps the no-feature production surface honest; otherwise
+# a regression that re-introduces unconditional access to the magic
+# string would only fail the dev-feature build.
 run_logged cargo-clippy cargo clippy --workspace --all-targets --locked -- -D warnings
+run_logged cargo-clippy-dev-mock-payment cargo clippy --workspace --all-targets --locked --features boole-node/dev-mock-payment -- -D warnings
 # Pre-build the cargo-test target set so the next stage can warm the
 # macOS dyld codesign cache before any test binary is executed. On
 # macOS, cargo's atomic-rename-on-build invalidates the kernel's
@@ -62,7 +69,11 @@ run_logged cargo-clippy cargo clippy --workspace --all-targets --locked -- -D wa
 # the verification cost concurrently so `cargo-test` runs at the
 # expected speed. The split is a no-op on Linux (no codesign cache,
 # `--help` returns instantly).
-run_logged cargo-test-build cargo test --workspace --all-targets --locked --no-run
+# P1.8 — cargo test runs with `dev-mock-payment` enabled so the
+# verify-answer integration tests can exercise the magic test-payment
+# header. The no-feature production build is covered by `cargo-clippy`
+# above; the cargo-test stage's job is to exercise full test coverage.
+run_logged cargo-test-build cargo test --workspace --all-targets --locked --features boole-node/dev-mock-payment --no-run
 run_logged cargo-test-prewarm bash -c '
   set -u
   find target/debug/deps -maxdepth 1 -type f -perm -u+x -newer Cargo.lock \
@@ -70,7 +81,7 @@ run_logged cargo-test-prewarm bash -c '
     ! -name "*.so" 2>/dev/null \
     | xargs -P 8 -I {} sh -c '"'"'"$1" --help >/dev/null 2>&1 || true'"'"' _ {}
 '
-run_logged cargo-test cargo test --workspace --all-targets --locked
+run_logged cargo-test cargo test --workspace --all-targets --locked --features boole-node/dev-mock-payment
 LEGACY_POF_ROOT="${BOOLE_LEGACY_POF_ROOT:-$ROOT/../pof}"
 LEGACY_CHAIN_TS="$LEGACY_POF_ROOT/dispatcher/src/chain.ts"
 RUST_PARITY_STATUS="pass"
