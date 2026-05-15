@@ -29,6 +29,7 @@ pub mod share_pool;
 pub mod signed_envelope;
 pub mod submission_pow;
 pub mod submit_receipt_audit;
+pub mod telemetry;
 pub mod validator;
 pub mod work_manifest;
 

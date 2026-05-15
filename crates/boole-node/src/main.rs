@@ -143,6 +143,7 @@ struct AgentProofArgs {
 }
 
 fn main() -> anyhow::Result<()> {
+    boole_core::telemetry::init(boole_core::telemetry::BinaryName::Node);
     let cli = Cli::parse();
     match cli.command {
         Command::RuntimeSmoke(args) => run_runtime_smoke_command(args),
