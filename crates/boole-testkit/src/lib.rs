@@ -13,6 +13,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Return the workspace root as an absolute path.
@@ -29,17 +30,22 @@ pub fn repo_root() -> PathBuf {
 }
 
 /// Return a nanosecond-resolution monotonic-ish suffix suitable for naming
-/// tempdirs and per-test state directories. Not cryptographically random;
-/// callers that need collision-free names under parallel execution should
-/// pair this with `tempfile::TempDir` or a process-id prefix.
+/// tempdirs and per-test state directories. Wall-clock nanos are mixed with
+/// a process-local atomic counter so two successive calls inside the same
+/// test binary cannot collide even when wall-clock resolution is coarser
+/// than nanoseconds (this happened on macOS — see history of
+/// `tests/reward_store_divergence.rs`).
 ///
-/// With `RUST_TEST_THREADS=1` (enforced by `scripts/self-test.sh`) two
-/// successive calls inside a single test cannot collide.
+/// Not cryptographically random; callers that need collision-free names
+/// across processes should still pair this with a process-id prefix.
 pub fn rand_suffix() -> u64 {
-    SystemTime::now()
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+        .unwrap_or(0);
+    let bump = COUNTER.fetch_add(1, Ordering::Relaxed);
+    nanos.wrapping_add(bump.wrapping_mul(0x9E37_79B9_7F4A_7C15))
 }
 
 /// True iff both `lake` and `lean` are on `PATH` and respond to `--version`.
@@ -82,12 +88,11 @@ mod tests {
     }
 
     #[test]
-    fn rand_suffix_is_monotonic_per_call() {
+    fn rand_suffix_two_calls_never_collide_in_same_process() {
+        // The atomic-counter mix guarantees inequality even when wall-clock
+        // resolution would otherwise duplicate the value.
         let a = rand_suffix();
-        // sleep one ns equivalent; consecutive calls on a fast machine can
-        // collide at nanosecond resolution. Assert non-decreasing rather
-        // than strictly greater so the test is stable on every host.
         let b = rand_suffix();
-        assert!(b >= a, "rand_suffix should be non-decreasing: {a} then {b}");
+        assert_ne!(a, b, "rand_suffix must not return duplicates: {a} == {b}");
     }
 }

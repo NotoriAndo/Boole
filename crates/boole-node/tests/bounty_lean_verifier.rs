@@ -12,15 +12,8 @@ use std::process::Command;
 
 use boole_core::{Bounty, BountyProofVerifier, BountyVerifier};
 use boole_node::LeanBountyVerifier;
+use boole_testkit::rand_suffix;
 use serde_json::{json, Map, Value};
-
-fn rand_suffix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
 
 fn lake_and_lean_available() -> bool {
     let lake_ok = Command::new("lake")

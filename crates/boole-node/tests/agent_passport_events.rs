@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use boole_node::FileReceiptStore;
 use boole_node::{serve_local_node, LocalNodeConfig};
+use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
 const AGENT_PK: &str = "1111111111111111111111111111111111111111111111111111111111111111";
@@ -16,14 +17,6 @@ const REWARD_RECIPIENT: &str = "444444444444444444444444444444444444444444444444
 const SESSION_PK_SHOULD_NOT_RECEIVE_REWARD: &str =
     "5555555555555555555555555555555555555555555555555555555555555555";
 const ACCEPTED_X402_VERSION: &str = "x402.draft-2";
-
-fn rand_suffix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
 
 fn scenario_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

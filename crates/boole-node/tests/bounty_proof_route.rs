@@ -18,19 +18,12 @@ use boole_core::{Bounty, BountyProofVerifier};
 // BountyProofVerifier trait lives in boole-core; the existing struct
 // `BountyVerifier { kind, metadata }` keeps its name in the bounty schema.
 use boole_node::{serve_local_node, LocalNodeConfig};
+use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
 const PROOF_HASH_A: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
 const PROOF_HASH_B: &str = "bbbb000000000000000000000000000000000000000000000000000000000000";
 const PROVER_X: &str = "1100000000000000000000000000000000000000000000000000000000000000";
-
-fn rand_suffix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
 
 fn scenario_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

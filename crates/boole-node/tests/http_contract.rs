@@ -1,4 +1,5 @@
 use boole_node::{serve_local_node, LocalNodeConfig};
+use boole_testkit::rand_suffix;
 use serde_json::Value;
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
@@ -64,14 +65,6 @@ fn boot_server(
     rx.recv().expect("server ready");
     std::thread::sleep(std::time::Duration::from_millis(50));
     (addr, handle, tmp)
-}
-
-fn rand_suffix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
 }
 
 struct RawResponse {

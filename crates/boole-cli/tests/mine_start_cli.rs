@@ -9,15 +9,8 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Command;
 
+use boole_testkit::rand_suffix;
 use serde_json::Value;
-
-fn rand_suffix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
 
 fn fresh_state_path(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(

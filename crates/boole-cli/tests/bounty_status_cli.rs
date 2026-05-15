@@ -15,15 +15,8 @@ use std::time::Duration;
 
 use boole_core::{Bounty, BountyProofVerifier};
 use boole_node::{serve_local_node, LocalNodeConfig};
+use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
-
-fn rand_suffix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
 
 fn cli() -> Command {
     Command::new(env!("CARGO_BIN_EXE_boole-cli"))

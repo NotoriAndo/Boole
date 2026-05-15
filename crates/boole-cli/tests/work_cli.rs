@@ -13,15 +13,8 @@ use std::thread;
 use std::time::Duration;
 
 use boole_node::{serve_local_node, LocalNodeConfig};
+use boole_testkit::rand_suffix;
 use serde_json::Value;
-
-fn rand_suffix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
 
 fn scenario_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

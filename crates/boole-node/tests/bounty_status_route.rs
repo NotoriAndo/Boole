@@ -17,17 +17,10 @@ use std::time::Duration;
 use boole_core::{Bounty, BountyProofVerifier, SigningKeyV2};
 use boole_node::FileBountyEventLedger;
 use boole_node::{serve_local_node, LocalNodeConfig};
+use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
 const STATUS_SCHEMA: &str = "boole.bounty.status.v1";
-
-fn rand_suffix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
 
 fn scenario_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

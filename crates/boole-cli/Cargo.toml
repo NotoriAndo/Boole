@@ -20,3 +20,6 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+# P0.1b — shared test helpers (rand_suffix). Path-only, dev-only so the
+# release graph never links boole-testkit.
+boole-testkit = { path = "../boole-testkit" }

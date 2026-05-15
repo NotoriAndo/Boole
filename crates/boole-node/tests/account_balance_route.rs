@@ -16,6 +16,7 @@ use boole_core::{PersistedBlock, PersistedRewardEvent};
 use boole_node::FileBlockStore;
 use boole_node::FileRewardLedger;
 use boole_node::{serve_local_node, LocalNodeConfig};
+use boole_testkit::rand_suffix;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -33,14 +34,6 @@ struct ReplayFixture {
 fn replay_fixture() -> ReplayFixture {
     serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
         .expect("fixture parses")
-}
-
-fn rand_suffix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
 }
 
 fn scenario_path() -> PathBuf {

@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 use boole_core::{PersistedCredit, PersistedRewardEvent};
 use boole_node::{verify_ledger_matches_replay, FileRewardLedger};
+use boole_testkit::rand_suffix;
 
 const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const PK_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -42,23 +43,6 @@ fn seed_ledger_with_two_credits() -> FileRewardLedger {
     let ledger = FileRewardLedger::recover(&path).expect("recover");
     let _ = std::fs::remove_dir_all(&dir);
     ledger
-}
-
-fn rand_suffix() -> u64 {
-    // Combine wall-clock nanos with a process-local atomic counter so two
-    // tests running concurrently in the same test binary cannot collide on
-    // the same temp directory. Nanos alone collide at sub-microsecond
-    // intervals on macOS, which manifested as a ~60% flake where two seed
-    // calls would share `rewards.ndjson` and corrupt each other's writes.
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-    let bump = COUNTER.fetch_add(1, Ordering::Relaxed);
-    nanos.wrapping_add(bump.wrapping_mul(0x9E37_79B9_7F4A_7C15))
 }
 
 #[test]

@@ -10,20 +10,13 @@ use std::time::Duration;
 use boole_core::{ReceiptCommitment, ReceiptCommitmentInput};
 use boole_node::FileReceiptStore;
 use boole_node::{serve_local_node, LocalNodeConfig};
+use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
 const AGENT_PK: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 const ARTIFACT_HASH: &str = "2222222222222222222222222222222222222222222222222222222222222222";
 const REQUEST_HASH: &str = "3333333333333333333333333333333333333333333333333333333333333333";
 const REWARD_RECIPIENT: &str = "4444444444444444444444444444444444444444444444444444444444444444";
-
-fn rand_suffix() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
 
 fn scenario_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

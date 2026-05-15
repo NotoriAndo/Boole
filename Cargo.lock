@@ -183,6 +183,7 @@ dependencies = [
  "boole-core",
  "boole-miner",
  "boole-node",
+ "boole-testkit",
  "clap",
  "serde",
  "serde_json",
