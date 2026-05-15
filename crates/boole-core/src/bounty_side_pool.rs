@@ -14,6 +14,8 @@
 
 use std::collections::HashMap;
 
+use crate::block_builder::PromotedBountyShare;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BountyShare {
     pub bounty_id: String,
@@ -61,5 +63,30 @@ impl BountySidePool {
 
     pub fn total_share_count(&self) -> usize {
         self.by_family.values().map(Vec::len).sum()
+    }
+
+    /// P1.5a — drop shares that have been promoted into a committed
+    /// block. Matching is by `(family_id, bounty_id, proof_hash)`, the
+    /// same identity carried into `PromotedBountyShare`. Returns the
+    /// number of shares actually removed; callers can use the count to
+    /// log / metric the drop and to assert against the size of the
+    /// promotion batch. Families whose bucket empties are dropped from
+    /// the map so `family_count()` reflects the live set.
+    pub fn remove_promoted(&mut self, promoted: &[PromotedBountyShare]) -> usize {
+        let mut removed = 0usize;
+        for entry in promoted {
+            let Some(bucket) = self.by_family.get_mut(&entry.family_id) else {
+                continue;
+            };
+            let before = bucket.len();
+            bucket.retain(|share| {
+                !(share.bounty_id == entry.bounty_id && share.proof_hash == entry.proof_hash)
+            });
+            removed += before - bucket.len();
+            if bucket.is_empty() {
+                self.by_family.remove(&entry.family_id);
+            }
+        }
+        removed
     }
 }

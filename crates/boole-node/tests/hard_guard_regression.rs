@@ -574,6 +574,15 @@ fn promoted_credit_lands_in_balance_and_preserves_hard_guard() {
          baseline={baseline_view}\npromoted={promoted_view}"
     );
 
+    // 5) P1.5a — once a share has been promoted into a committed block,
+    //    the side-pool MUST drop it so the next block commit does not
+    //    re-promote the same proof and double-credit the prover.
+    assert_eq!(
+        promoted_status["bountySidePoolTotal"], 0,
+        "promoted share must be drained from side-pool after block commit \
+         to prevent re-promotion / double credit: {promoted_status}"
+    );
+
     promoted
         .handle
         .join()

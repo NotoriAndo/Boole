@@ -2308,6 +2308,14 @@ fn submit_json(
             FileBountyEventLedger::append(bounty_event_path, &event)?;
         }
     }
+    // P1.5a — drop shares already promoted into a committed block so the
+    // next block does not re-promote the same proof and double-credit the
+    // prover. We drain by the full `selection.shares` slice (not by the
+    // narrower `promoted_bounty_credits`) because zero-credit shares
+    // still count as "promoted into this block" — they have flowed
+    // through the selection gate and consumed the family's per-block
+    // share quota.
+    state.bounty_side_pool.remove_promoted(&selection.shares);
     // After commit_next_block: the runtime head is the new block's c, and the
     // store size is committed.block.height + 1 by construction. We do not need
     // to read the store again or re-replay the chain — apply_produced_block has
