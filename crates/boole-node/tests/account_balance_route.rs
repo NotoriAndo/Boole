@@ -89,6 +89,8 @@ fn boot_with_seeded_ledger(
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
                 genesis_override: None,
+                state_dir: None,
+                network_id: None,
             },
         )
     });

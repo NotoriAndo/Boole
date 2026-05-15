@@ -74,6 +74,12 @@ SH
 fi
 
 cargo build -q -p boole-node
+# Prime macOS dyld codesign cache: cargo's atomic-rename-on-build replaces the
+# binary's inode/mtime even on no-op builds, which makes the next launch hang
+# in _dyld_start while the kernel re-verifies the signature. A throwaway
+# --version invocation pays that cost up front instead of inside the polling
+# window.
+target/debug/boole-node --version >/dev/null
 EXISTING="$(lsof -tiTCP:${NODE_PORT} -sTCP:LISTEN || true)"
 if [[ -n "$EXISTING" ]]; then
   printf 'isolated-node-model-row: port %s already in use\n' "$NODE_PORT" >&2

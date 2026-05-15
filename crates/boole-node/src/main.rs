@@ -99,6 +99,20 @@ struct RunLocalArgs {
     max_requests: Option<usize>,
     #[arg(long, env = "GENESIS_C")]
     genesis: Option<String>,
+    /// L7 state directory (P1.1). Opt-in. When set, the runtime acquires
+    /// an exclusive `flock` on `<dir>/state.lock` before opening any
+    /// ledger and writes/verifies `<dir>/state.manifest.json`. A second
+    /// `boole-node run-local` against the same `--state-dir` exits with
+    /// a typed `state-dir-locked` envelope (exit 74) before binding a
+    /// port.
+    #[arg(long = "state-dir", env = "BOOLE_STATE_DIR")]
+    state_dir: Option<PathBuf>,
+    /// Network identifier pinned into `state.manifest.json` on first
+    /// boot of `--state-dir`. Default `boole-mvp`. Subsequent boots
+    /// that pass a different value are rejected by the manifest
+    /// contract. Ignored when `--state-dir` is unset.
+    #[arg(long = "network-id", env = "BOOLE_NETWORK_ID")]
+    network_id: Option<String>,
 }
 
 #[derive(Args)]
@@ -243,7 +257,10 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             );
             m
         });
-    serve_local_node(
+    if let Some(dir) = args.state_dir.as_ref() {
+        eprintln!("boole-node local stateDir={}", dir.display());
+    }
+    let result = serve_local_node(
         listener,
         LocalNodeConfig {
             scenario_path: args.scenario.into(),
@@ -261,8 +278,31 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             submit_receipt_ledger_path: args.submit_receipt_ledger,
             receipt_commitment_ledger_path: args.receipt_commitment_ledger,
             genesis_override: args.genesis,
+            state_dir: args.state_dir,
+            network_id: args.network_id,
         },
-    )
+    );
+    match result {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            if let Some(state_err) = err.downcast_ref::<boole_node::StateDirError>() {
+                if let boole_node::StateDirError::Locked(dir) = state_err {
+                    eprintln!(
+                        "{}",
+                        serde_json::to_string(&json!({
+                            "ok": false,
+                            "command": "run-local",
+                            "error": "state-dir-locked",
+                            "stateDir": dir.display().to_string(),
+                            "message": state_err.to_string(),
+                        }))?,
+                    );
+                    std::process::exit(74);
+                }
+            }
+            Err(err)
+        }
+    }
 }
 
 fn run_submit_lean_command(args: SubmitLeanArgs) -> anyhow::Result<()> {

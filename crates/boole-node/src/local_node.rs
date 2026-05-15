@@ -7,6 +7,7 @@ use crate::nonce_ledger::FileNonceLedger;
 use crate::receipt_store::FileReceiptStore;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use crate::session_store::FileSessionStore;
+use crate::state_dir::{self, StateDirGuard, StateManifest};
 use crate::work_manifest_store::load_work_manifests_from_path;
 use axum::body::Bytes;
 use axum::extract::{ConnectInfo, Path as AxumPath, Request, State};
@@ -50,6 +51,18 @@ const VERIFY_ANSWER_AMOUNT: &str = "1";
 const VERIFY_ANSWER_PAYMENT_SIGNATURE: &str = "boole-native-test:paid";
 const DEFAULT_X402_VERSION: &str = "x402.draft-2";
 const X402_VERSIONS_FIXTURE: &str = include_str!("../../../fixtures/protocol/x402/versions.json");
+/// Default network id stamped into `state.manifest.json` when the caller
+/// did not pin one via `LocalNodeConfig::network_id`. P2.10 will graduate
+/// `--network testnet` presets to a richer surface; for P1.1b the
+/// default keeps legacy embeddings on a single named network so the
+/// manifest's network-id verification has something to check against.
+const DEFAULT_NETWORK_ID: &str = "boole-mvp";
+/// Coarse binary identifier persisted into `state.manifest.json`. Pinned
+/// at build time so a re-boot can detect that the running binary's
+/// version differs from the one that created the directory. A finer
+/// SHA-256 over `current_exe()` is the eventual goal but `CARGO_PKG_VERSION`
+/// is the lowest-cost identifier that survives a release rebuild.
+const BINARY_SHA: &str = env!("CARGO_PKG_VERSION");
 
 pub struct LocalNodeConfig {
     pub scenario_path: PathBuf,
@@ -128,6 +141,20 @@ pub struct LocalNodeConfig {
     /// is applied during `LocalNodeState::from_config`, before the runtime
     /// adopts the head, so `replay_matches_runtime_at_boot` still matches.
     pub genesis_override: Option<String>,
+    /// Optional L7 state directory (P1.1). When `Some`, the runtime
+    /// acquires an exclusive `flock` on `<dir>/state.lock` before opening
+    /// any ledger and writes/verifies `<dir>/state.manifest.json`. A
+    /// second `boole-node` pointed at the same directory is rejected with
+    /// `state-dir-locked` before it touches any payload file. When
+    /// `None`, the legacy embedding semantics are preserved (per-store
+    /// paths only, no cross-process lock).
+    pub state_dir: Option<PathBuf>,
+    /// Network identifier persisted into `state.manifest.json`. Pinned at
+    /// first boot and verified on every subsequent boot so a directory
+    /// built for one network cannot be silently re-used on another. When
+    /// `None`, the runtime defaults to `"boole-mvp"`. Ignored unless
+    /// `state_dir` is set.
+    pub network_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -207,6 +234,12 @@ struct LocalNodeState {
     /// Optional append-only `ReceiptCommitment` ledger plus recovered index.
     receipt_commitment_ledger_path: Option<PathBuf>,
     receipt_store: Option<FileReceiptStore>,
+    /// RAII guard for the L7 state-directory `flock`. `Some` whenever the
+    /// caller passed a `state_dir` in `LocalNodeConfig`; held for the
+    /// lifetime of the node so a second process at the same directory
+    /// cannot race for the lock. Field is `_`-prefixed because it is
+    /// never read directly — drop semantics are the entire contract.
+    _state_dir_guard: Option<StateDirGuard>,
 }
 
 #[derive(Clone)]
@@ -406,6 +439,21 @@ where
 
 impl LocalNodeState {
     fn from_config(config: LocalNodeConfig) -> anyhow::Result<Self> {
+        // L7 state-dir lock + manifest must run first — every per-store
+        // open below this line is guarded by the flock, so refusing the
+        // lock guarantees a losing process never appends to a peer's
+        // ledger and never half-writes its own.
+        let state_dir_guard: Option<StateDirGuard> = if let Some(dir) = config.state_dir.as_ref() {
+            let guard = state_dir::acquire(dir)?;
+            let manifest = StateManifest::now(
+                config.network_id.as_deref().unwrap_or(DEFAULT_NETWORK_ID),
+                BINARY_SHA,
+            );
+            state_dir::ensure_manifest(dir, &manifest)?;
+            Some(guard)
+        } else {
+            None
+        };
         let raw = std::fs::read_to_string(&config.scenario_path)?;
         let mut scenario: LocalNodeScenarioConfig = serde_json::from_str(&raw)?;
         if let Some(genesis) = config.genesis_override.as_ref() {
@@ -515,6 +563,7 @@ impl LocalNodeState {
             submit_receipt_ledger_path: config.submit_receipt_ledger_path,
             receipt_commitment_ledger_path: config.receipt_commitment_ledger_path,
             receipt_store,
+            _state_dir_guard: state_dir_guard,
         })
     }
 }

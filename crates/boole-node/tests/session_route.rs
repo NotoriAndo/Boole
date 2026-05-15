@@ -86,6 +86,8 @@ fn boot_with_registry(max_requests: usize, registry: Option<PathBuf>) -> Boot {
                 max_requests: Some(max_requests),
                 operator_signer_pks: vec![],
                 genesis_override: None,
+                state_dir: None,
+                network_id: None,
             },
         )
     });

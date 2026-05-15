@@ -6,3 +6,4 @@
 .env
 .env.*
 CLAUDE.md
+.claude/

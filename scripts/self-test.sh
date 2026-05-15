@@ -47,10 +47,29 @@ run_capture_json() {
 }
 
 run_logged cargo-fmt cargo fmt --all --check
-run_logged python-script-tests python3 -m unittest scripts/test_install_script.py scripts/test_preflight_orchestration.py scripts/test_model_benchmark.py scripts/test_self_test_contract.py scripts/test_workspace_invariants_contract.py scripts/test_supply_chain_contract.py
+run_logged python-script-tests python3 -m unittest scripts/test_install_script.py scripts/test_preflight_orchestration.py scripts/test_model_benchmark.py scripts/test_self_test_contract.py scripts/test_workspace_invariants_contract.py scripts/test_supply_chain_contract.py scripts/test_state_dir_contract.py scripts/test_state_dir_runtime_contract.py
 run_logged docs-smoke ./scripts/docs-smoke.sh
 run_logged wallet-session-receipt-gate ./scripts/wallet-session-receipt-gate.sh
 run_logged cargo-clippy cargo clippy --workspace --all-targets --locked -- -D warnings
+# Pre-build the cargo-test target set so the next stage can warm the
+# macOS dyld codesign cache before any test binary is executed. On
+# macOS, cargo's atomic-rename-on-build invalidates the kernel's
+# signature cache for every fresh binary; the first `execve` then
+# blocks for 30–60s inside `_dyld_start` while the kernel re-verifies
+# the signature. With ~80 freshly built integration test binaries the
+# serial dyld stall dominates the cargo-test stage. Splitting the
+# build out and running every test binary's `--help` in parallel pays
+# the verification cost concurrently so `cargo-test` runs at the
+# expected speed. The split is a no-op on Linux (no codesign cache,
+# `--help` returns instantly).
+run_logged cargo-test-build cargo test --workspace --all-targets --locked --no-run
+run_logged cargo-test-prewarm bash -c '
+  set -u
+  find target/debug/deps -maxdepth 1 -type f -perm -u+x -newer Cargo.lock \
+    ! -name "*.d" ! -name "*.rlib" ! -name "*.rmeta" ! -name "*.dylib" \
+    ! -name "*.so" 2>/dev/null \
+    | xargs -P 8 -I {} sh -c '"'"'"$1" --help >/dev/null 2>&1 || true'"'"' _ {}
+'
 run_logged cargo-test cargo test --workspace --all-targets --locked
 LEGACY_POF_ROOT="${BOOLE_LEGACY_POF_ROOT:-$ROOT/../pof}"
 LEGACY_CHAIN_TS="$LEGACY_POF_ROOT/dispatcher/src/chain.ts"

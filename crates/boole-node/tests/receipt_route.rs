@@ -90,6 +90,8 @@ fn boot_with_receipt_store(max_requests: usize, receipt_store: Option<PathBuf>) 
                 max_requests: Some(max_requests),
                 operator_signer_pks: vec![],
                 genesis_override: None,
+                state_dir: None,
+                network_id: None,
             },
         )
     });

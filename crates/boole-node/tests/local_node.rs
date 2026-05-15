@@ -41,6 +41,8 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
                 genesis_override: None,
+                state_dir: None,
+                network_id: None,
             },
         );
         if let Err(err) = &result {
@@ -138,6 +140,8 @@ fn local_node_submit_accepts_share_without_block_when_no_proposer() {
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
                 genesis_override: None,
+                state_dir: None,
+                network_id: None,
             },
         )
     });
@@ -204,6 +208,8 @@ fn local_node_submit_uses_tcp_peer_ip_not_spoofed_body_ip_for_rate_limit() {
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
                 genesis_override: None,
+                state_dir: None,
+                network_id: None,
             },
         )
     });
@@ -276,6 +282,8 @@ fn local_node_rejects_oversized_http_body_before_json_parsing() {
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
                 genesis_override: None,
+                state_dir: None,
+                network_id: None,
             },
         )
     });

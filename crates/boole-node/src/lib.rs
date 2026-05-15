@@ -15,6 +15,7 @@ mod reward_store;
 mod runtime;
 mod runtime_smoke;
 mod session_store;
+mod state_dir;
 mod work_manifest_store;
 
 pub use block_store::FileBlockStore;
@@ -39,4 +40,7 @@ pub use runtime_smoke::{
     RuntimeSmokeMultiScenario, RuntimeSmokeOutput, RuntimeSmokeScenario, RuntimeSmokeStep,
 };
 pub use session_store::FileSessionStore;
+pub use state_dir::{
+    acquire as acquire_state_dir, ensure_manifest, StateDirError, StateDirGuard, StateManifest,
+};
 pub use work_manifest_store::load_work_manifests_from_path;
