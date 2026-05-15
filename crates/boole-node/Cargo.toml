@@ -23,3 +23,9 @@ thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true
 tower-http.workspace = true
+
+# P0.1a — shared test helpers (rand_suffix / repo_root /
+# lake_and_lean_available). dev-dependencies so the release build does not
+# link the mock surface; production crates must never depend on it.
+[dev-dependencies]
+boole-testkit = { path = "../boole-testkit" }

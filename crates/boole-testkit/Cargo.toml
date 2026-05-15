@@ -1,0 +1,13 @@
+[package]
+name = "boole-testkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+# P0.1a — shared dev helpers crate. publish = false so cargo refuses to push
+# this to crates.io (it is a workspace-internal mock surface that production
+# crates must not link against). Member crates depend on it via
+# [dev-dependencies] so a release build never sees the helper graph.
+publish = false
+
+[dependencies]

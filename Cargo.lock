@@ -249,6 +249,7 @@ dependencies = [
  "blake3",
  "boole-core",
  "boole-lean-runner",
+ "boole-testkit",
  "hex",
  "serde",
  "serde_json",
@@ -258,6 +259,10 @@ dependencies = [
  "tower",
  "tower-http",
 ]
+
+[[package]]
+name = "boole-testkit"
+version = "0.1.0"
 
 [[package]]
 name = "bumpalo"

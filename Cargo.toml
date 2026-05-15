@@ -5,6 +5,7 @@ members = [
   "crates/boole-node",
   "crates/boole-lean-runner",
   "crates/boole-miner",
+  "crates/boole-testkit",
 ]
 resolver = "2"
 
