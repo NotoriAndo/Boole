@@ -37,9 +37,12 @@ pub use llm_driver::{
     GOOGLE_DEFAULT_MAX_TOKENS, OPENAI_COMPAT_DEFAULT_MAX_TOKENS, OPENAI_DEFAULT_BASE_URL,
     OPENAI_DEFAULT_MAX_TOKENS,
 };
-pub use local_verify::{
-    AcceptingVerifier, LeanVerifier, RejectingVerifier, Verifier, VerifyReason, VerifyResult,
-};
+pub use local_verify::{LeanVerifier, RejectingVerifier, Verifier, VerifyReason, VerifyResult};
+// P1.9 — `AcceptingVerifier` is the always-accept bypass stub. Public
+// re-export only when `dev-tools` is enabled so a release-mode
+// downstream cannot link against the bypass.
+#[cfg(feature = "dev-tools")]
+pub use local_verify::AcceptingVerifier;
 pub use mining_loop::{
     run_mining_loop, AgentRuntimeReport, DefaultPromptBuilder, FixedChainHead, HeadAdvanceReason,
     LlmOutcomeKind, MiningEvent, MiningLoopDeps, MiningLoopOptions, MiningLoopOutcome,

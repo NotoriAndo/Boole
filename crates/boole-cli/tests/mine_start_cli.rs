@@ -5,6 +5,13 @@
 //! that the CLI binary parses arguments, runs the loop, and prints the
 //! summary envelope.
 
+// P1.9 — both tests below pass `--mock-verify-accept` to the built
+// `boole-cli` binary. The flag is feature-gated behind
+// `boole-miner/dev-tools` (cascaded via `boole-cli`'s own `dev-tools`
+// feature), so cargo must build the binary with the feature on for
+// these tests to find the flag. Gate the whole file accordingly.
+#![cfg(feature = "dev-tools")]
+
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Command;

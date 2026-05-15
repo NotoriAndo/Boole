@@ -55,8 +55,15 @@ pub trait Verifier: Send + Sync {
 
 /// Always-accept stub. Used by `--mock-verify-accept` and by the integration
 /// tests that don't need to exercise Lean.
+///
+/// P1.9 — gated behind `dev-tools` so a release `boole-miner` build
+/// cannot link the bypass. The flag and the verifier selection in
+/// `cli.rs` are gated together; this is the leaf and must stay in
+/// lockstep with them.
+#[cfg(feature = "dev-tools")]
 pub struct AcceptingVerifier;
 
+#[cfg(feature = "dev-tools")]
 impl Verifier for AcceptingVerifier {
     fn verify(
         &self,
@@ -324,6 +331,7 @@ fn seed_hex_short(seed_hex: &str) -> &str {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "dev-tools")]
     #[test]
     fn accepting_verifier_returns_accepted() {
         let v = AcceptingVerifier;

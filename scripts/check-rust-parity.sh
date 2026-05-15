@@ -20,9 +20,11 @@ npx tsx scripts/export-rate-limiter-fixtures.ts
 # admission/v1.json is Rust-native improved policy fixture (not TS-exported)
 
 cargo fmt --all --check
-# P1.8 — `dev-mock-payment` enables the magic test-payment string the
-# verify-answer route + passport-event tests rely on; without it those
-# tests fail with 403 payment_invalid.
-cargo test --workspace --locked --features boole-node/dev-mock-payment
+# P1.8 + P1.9 — `dev-mock-payment` enables the magic test-payment string
+# the verify-answer route + passport-event tests rely on; `dev-tools`
+# enables the `--mock-verify-accept` miner bypass that mining-loop /
+# mine_start_cli tests rely on. Without these flags those tests
+# either fail with 403 payment_invalid or fail to find the flag.
+cargo test --workspace --locked --features boole-node/dev-mock-payment,boole-miner/dev-tools
 
 echo "rust-parity: PASS"

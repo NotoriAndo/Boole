@@ -1,3 +1,9 @@
+// P1.9 — this test file exercises `AcceptingVerifier`, which is gated
+// behind the `dev-tools` feature. Building it without the feature
+// would fail at the import; gate the whole file so cargo test
+// excludes it on the no-feature build.
+#![cfg(feature = "dev-tools")]
+
 use boole_miner::{AcceptingVerifier, RejectingVerifier, Verifier, VerifyReason};
 
 #[test]

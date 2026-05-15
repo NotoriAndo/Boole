@@ -9,6 +9,14 @@ authors.workspace = true
 # the path dependencies on sibling crates are not a wildcard violation.
 publish = false
 
+# P1.9 — `dev-tools` cascades to `boole-miner/dev-tools` so the
+# `--mock-verify-accept` flag and the `AcceptingVerifier` bypass are
+# present in the boole binary built for tests. Release builds with
+# the default feature set never reach the bypass.
+[features]
+default = []
+dev-tools = ["boole-miner/dev-tools"]
+
 [dependencies]
 anyhow.workspace = true
 boole-core = { path = "../boole-core" }

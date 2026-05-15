@@ -16,7 +16,12 @@ use crate::llm_driver::{
     create_driver, AgentCliDriver, ClaudeCliDriver, LLMBackend, LLMDriverConfig, MockDriver,
     MockResponse, ProverDriver,
 };
-use crate::local_verify::{AcceptingVerifier, Verifier};
+use crate::local_verify::Verifier;
+// P1.9 — `AcceptingVerifier` import is feature-gated together with the
+// `--mock-verify-accept` flag below; the no-feature build never
+// references the bypass.
+#[cfg(feature = "dev-tools")]
+use crate::local_verify::AcceptingVerifier;
 use crate::mining_loop::{
     run_mining_loop, MiningEvent, MiningLoopDeps, MiningLoopOptions, MiningLoopSummary,
     MiningRunContext, MiningRunDriverMode, MiningRunTargetMode, MiningRunVerifierMode,
@@ -133,6 +138,11 @@ pub struct StartArgs {
     #[arg(long = "mock-llm-response")]
     pub mock_llm_response: Option<String>,
     /// Bypass Lean verification and accept any generated proof source.
+    ///
+    /// P1.9 — feature-gated so a release build does not expose the
+    /// bypass on the CLI surface; tests opt in via
+    /// `cargo test --features boole-miner/dev-tools`.
+    #[cfg(feature = "dev-tools")]
     #[arg(long = "mock-verify-accept")]
     pub mock_verify_accept: bool,
     /// Use a fixed seed for the target (smoke-test reproducibility).
@@ -494,6 +504,50 @@ fn parse_family_target_profile(profile: &str) -> Option<FamilyTargetProfile> {
     }
 }
 
+/// P1.9 — split-bodies verifier builder so the no-feature build does
+/// not even reference `AcceptingVerifier`. With `dev-tools`,
+/// `mock_verify_accept` may select the bypass; without it the only
+/// way to verify is the real Lean verifier and the parameter is
+/// always `false`.
+#[cfg(feature = "dev-tools")]
+fn build_proof_verifier(
+    mock_verify_accept: bool,
+    lean_dir: Option<PathBuf>,
+    profile: String,
+) -> anyhow::Result<Box<dyn Verifier>> {
+    if mock_verify_accept {
+        return Ok(Box::new(AcceptingVerifier));
+    }
+    build_real_lean_verifier(lean_dir, profile)
+}
+
+#[cfg(not(feature = "dev-tools"))]
+fn build_proof_verifier(
+    _mock_verify_accept: bool,
+    lean_dir: Option<PathBuf>,
+    profile: String,
+) -> anyhow::Result<Box<dyn Verifier>> {
+    build_real_lean_verifier(lean_dir, profile)
+}
+
+fn build_real_lean_verifier(
+    lean_dir: Option<PathBuf>,
+    profile: String,
+) -> anyhow::Result<Box<dyn Verifier>> {
+    let Some(dir) = lean_dir.or_else(|| std::env::var_os("BOOLE_LEAN_DIR").map(PathBuf::from))
+    else {
+        anyhow::bail!(
+            "real Lean verification requires --lean-dir <PATH> \
+             (or BOOLE_LEAN_DIR env var); enable the boole-miner \
+             `dev-tools` feature and pass --mock-verify-accept to \
+             bypass for smoke tests"
+        );
+    };
+    Ok(Box::new(crate::local_verify::LeanVerifier::new(
+        dir, profile,
+    )))
+}
+
 fn family_target_emitter(
     profile: FamilyTargetProfile,
     pinned_seed: Option<String>,
@@ -618,30 +672,26 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
         )),
     };
 
-    let verifier_mode = if args.mock_verify_accept {
+    // P1.9 — feature-gated bypass selection. With `dev-tools` the
+    // `--mock-verify-accept` flag exists and may short-circuit Lean;
+    // without it the flag does not compile and only the real Lean
+    // verifier is reachable.
+    #[cfg(feature = "dev-tools")]
+    let mock_verify_accept = args.mock_verify_accept;
+    #[cfg(not(feature = "dev-tools"))]
+    let mock_verify_accept = false;
+
+    let verifier_mode = if mock_verify_accept {
         MiningRunVerifierMode::MockAccept
     } else {
         MiningRunVerifierMode::RealVerifier
     };
 
-    let verifier: Box<dyn Verifier> = if args.mock_verify_accept {
-        Box::new(AcceptingVerifier)
-    } else if let Some(lean_dir) = args
-        .lean_dir
-        .clone()
-        .or_else(|| std::env::var_os("BOOLE_LEAN_DIR").map(PathBuf::from))
-    {
-        Box::new(crate::local_verify::LeanVerifier::new(
-            lean_dir,
-            args.profile.clone(),
-        ))
-    } else {
-        anyhow::bail!(
-            "real Lean verification requires --lean-dir <PATH> \
-             (or BOOLE_LEAN_DIR env var); pass --mock-verify-accept \
-             to bypass for smoke tests"
-        );
-    };
+    let verifier: Box<dyn Verifier> = build_proof_verifier(
+        mock_verify_accept,
+        args.lean_dir.clone(),
+        args.profile.clone(),
+    )?;
 
     let canonicalizer = Box::new(StructuralCanonicalizer);
     let submit_client: Box<dyn Submitter> =

@@ -1,3 +1,8 @@
+// P1.9 — this file uses `AcceptingVerifier`, which lives behind the
+// `dev-tools` feature. Gate the whole file so cargo test excludes it
+// when the feature is off.
+#![cfg(feature = "dev-tools")]
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

@@ -9,6 +9,15 @@ authors.workspace = true
 # the path dependencies on sibling crates are not a wildcard violation.
 publish = false
 
+# P1.9 — `dev-tools` gates the `--mock-verify-accept` flag and the
+# `AcceptingVerifier` stub that lets smoke tests bypass real Lean
+# verification. OFF by default so a release miner cannot forge shares
+# by passing the flag; tests opt in via
+# `cargo test --features boole-miner/dev-tools`.
+[features]
+default = []
+dev-tools = []
+
 [dependencies]
 boole-core = { path = "../boole-core" }
 boole-lean-runner = { path = "../boole-lean-runner" }
