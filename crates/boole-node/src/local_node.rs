@@ -241,6 +241,12 @@ struct LocalNodeState {
     /// so operators see the real boot-time invariant rather than a hardcoded
     /// constant.
     replay_matches_runtime_at_boot: bool,
+    /// P2.6 — Unix epoch millis captured the moment the runtime hand-off
+    /// completes (post-replay, pre-`axum::serve`). Surfaced through
+    /// `/status` as `nodeStartedAt` so orchestrators and dashboards can
+    /// compute `uptime = now - nodeStartedAt` without scraping process
+    /// metrics. The value never mutates during the process lifetime.
+    started_at_ms: u64,
     /// Static catalog of `WorkManifest`s loaded once at boot from
     /// `LocalNodeConfig.work_manifests_path` (empty when unconfigured).
     /// Served read-only via `GET /work` and `GET /work/:id`.
@@ -627,6 +633,10 @@ impl LocalNodeState {
             block_path: config.block_path,
             report: scenario.cfg,
             replay_matches_runtime_at_boot,
+            started_at_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
             work_manifests,
             bounty_registry,
             bounty_event_ledger_path: config.bounty_event_ledger_path,
@@ -1623,6 +1633,7 @@ fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
         "familyManifestCount": state.family_manifest_registry.len(),
         "bountySidePoolTotal": state.bounty_side_pool.total_share_count(),
         "promotedBountySharesCount": promoted.len(),
+        "nodeStartedAt": state.started_at_ms,
     }))
 }
 
