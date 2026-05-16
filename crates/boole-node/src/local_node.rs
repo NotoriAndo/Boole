@@ -360,6 +360,8 @@ fn build_router(state: AppState) -> Router {
         .route("/head", get(head_handler))
         .route("/config", get(config_handler))
         .route("/health", get(health_handler))
+        .route("/live", get(live_handler))
+        .route("/ready", get(ready_handler))
         .route("/block/latest", get(block_latest_handler))
         .route("/block/{height}", get(block_by_height_handler))
         .route("/account/{pk}/balance", get(account_balance_handler))
@@ -904,6 +906,29 @@ async fn config_handler(State(state): State<AppState>) -> Response {
 async fn health_handler(State(state): State<AppState>) -> Response {
     let guard = state.inner.read().await;
     (StatusCode::OK, Json(health_json(&guard))).into_response()
+}
+
+/// P2.6 — `/live` is the orchestrator liveness probe. It must never
+/// acquire the runtime `RwLock` or touch IO so a stuck verify path
+/// cannot mask a healthy process as dead. A static `200 OK` envelope
+/// is the right answer: if the route returns at all the process is
+/// reachable and its async runtime is scheduling work.
+async fn live_handler() -> Response {
+    (StatusCode::OK, Json(json!({ "ok": true, "probe": "live" }))).into_response()
+}
+
+/// P2.6 — `/ready` is the orchestrator readiness probe. Today the boot
+/// path is synchronous: `serve_local_node` only starts accepting
+/// connections after the runtime, registries, and ledger replays have
+/// finished, so a reachable route equals a ready node. A future slice
+/// (graceful shutdown, P2.7) can flip this to `503` once a drain has
+/// begun.
+async fn ready_handler() -> Response {
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "probe": "ready" })),
+    )
+        .into_response()
 }
 
 async fn block_latest_handler(State(state): State<AppState>) -> Response {
