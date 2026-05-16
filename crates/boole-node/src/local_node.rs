@@ -10,6 +10,7 @@ use crate::session_store::FileSessionStore;
 use crate::state_dir::{self, StateDirGuard, StateManifest};
 use crate::work_manifest_store::load_work_manifests_from_path;
 use axum::body::Bytes;
+use axum::extract::DefaultBodyLimit;
 use axum::extract::{ConnectInfo, Path as AxumPath, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::middleware::{from_fn, Next};
@@ -426,6 +427,14 @@ fn build_router(state: AppState) -> Router {
             REQUEST_TIMEOUT,
         ))
         .layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_REQUESTS))
+        // P1.7 — stream-counting body cap. `body_cap_middleware` below
+        // catches honest Content-Length requests and returns the same
+        // typed JSON envelope as other 4xx responses. `DefaultBodyLimit`
+        // catches the chunked-transfer path, where there is no header
+        // to inspect at middleware time; the extractor enforces the cap
+        // as the body streams in and short-circuits with HTTP 413
+        // before the handler observes the truncated bytes.
+        .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
         .layer(from_fn(body_cap_middleware))
         .layer(from_fn(connection_close_middleware))
         .with_state(state)
