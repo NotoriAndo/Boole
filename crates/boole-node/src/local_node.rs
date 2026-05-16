@@ -368,6 +368,7 @@ fn build_router(state: AppState) -> Router {
         .route("/health", get(health_handler))
         .route("/live", get(live_handler))
         .route("/ready", get(ready_handler))
+        .route("/metrics", get(metrics_handler))
         .route("/block/latest", get(block_latest_handler))
         .route("/block/{height}", get(block_by_height_handler))
         .route("/account/{pk}/balance", get(account_balance_handler))
@@ -939,6 +940,52 @@ async fn ready_handler() -> Response {
         Json(json!({ "ok": true, "probe": "ready" })),
     )
         .into_response()
+}
+
+/// P2.6 — `/metrics` exposes a Prometheus text-format scrape surface
+/// (exposition v0.0.4). The body lists each gauge with a `# HELP` /
+/// `# TYPE` header followed by `<name> <value>` samples. The slice
+/// surfaces immediately-available state gauges (height, share-pool
+/// size, bounty side-pool total, boot timestamp); follow-on slices
+/// can attach mutating counters (requests served, panic count) as
+/// instrumentation lands.
+async fn metrics_handler(State(state): State<AppState>) -> Response {
+    let guard = state.inner.read().await;
+    let body = render_prometheus_metrics(&guard);
+    (
+        StatusCode::OK,
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        body,
+    )
+        .into_response()
+}
+
+fn render_prometheus_metrics(state: &LocalNodeState) -> String {
+    let height = state.runtime.cached_block_count();
+    let share_pool = state.runtime.pool_size();
+    let bounty_side_pool = state.bounty_side_pool.total_share_count();
+    let started_at = state.started_at_ms;
+    let mut out = String::new();
+    out.push_str("# HELP boole_node_height Current block chain height.\n");
+    out.push_str("# TYPE boole_node_height gauge\n");
+    out.push_str(&format!("boole_node_height {height}\n"));
+    out.push_str("# HELP boole_node_share_pool_size Current admission share-pool size.\n");
+    out.push_str("# TYPE boole_node_share_pool_size gauge\n");
+    out.push_str(&format!("boole_node_share_pool_size {share_pool}\n"));
+    out.push_str(
+        "# HELP boole_node_bounty_side_pool_total Unpromoted bounty shares in the side-pool.\n",
+    );
+    out.push_str("# TYPE boole_node_bounty_side_pool_total gauge\n");
+    out.push_str(&format!(
+        "boole_node_bounty_side_pool_total {bounty_side_pool}\n"
+    ));
+    out.push_str("# HELP boole_node_started_at_ms Unix epoch ms when the node booted.\n");
+    out.push_str("# TYPE boole_node_started_at_ms gauge\n");
+    out.push_str(&format!("boole_node_started_at_ms {started_at}\n"));
+    out
 }
 
 async fn block_latest_handler(State(state): State<AppState>) -> Response {
