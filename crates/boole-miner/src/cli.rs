@@ -232,6 +232,58 @@ fn ensure_backend(s: &str) -> anyhow::Result<LLMBackend> {
     LLMBackend::parse(s).ok_or_else(|| anyhow::anyhow!("unknown llm backend: {s}"))
 }
 
+/// P2.4 — env var that an operator must set to opt in to spending real
+/// money on a paid LLM backend. The name is deliberately verbose so a
+/// stray export in a parent shell does not silently re-enable billing.
+pub const PAID_LLM_ALLOW_ENV: &str = "BOOLE_ALLOW_PAID_LLM";
+
+/// P2.4 — backends that bill against an upstream paid API. ClaudeCli
+/// and AgentCli shell out to a locally configured CLI whose billing
+/// terms the operator already accepted by installing it. OpenAiCompat
+/// is the local-proxy slot (Ollama, vLLM, LM Studio); operators that
+/// point it at a paid hosted endpoint are responsible for that
+/// disclosure themselves. The three named here are the unambiguous
+/// hosted paid APIs.
+pub fn is_paid_llm_backend(backend: LLMBackend) -> bool {
+    matches!(
+        backend,
+        LLMBackend::Anthropic | LLMBackend::OpenAi | LLMBackend::Google
+    )
+}
+
+/// P2.4 — pure paid-LLM gate. Splits the env read out of the policy so
+/// tests can cover every (backend, env) combination without racing on
+/// the global process environment. The wrapper
+/// `enforce_paid_llm_gate_from_env` is the thin call site used by
+/// `run_init` and `run_start`.
+pub fn enforce_paid_llm_gate(
+    backend: LLMBackend,
+    allow_env_value: Option<&str>,
+) -> anyhow::Result<()> {
+    if !is_paid_llm_backend(backend) {
+        return Ok(());
+    }
+    let allowed = matches!(
+        allow_env_value.map(str::trim),
+        Some("1") | Some("true") | Some("TRUE") | Some("True")
+    );
+    if allowed {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "refusing to run paid LLM backend `{}` without explicit opt-in. \
+         Set {}=1 to acknowledge that this backend bills against a real \
+         hosted API key.",
+        backend.as_str(),
+        PAID_LLM_ALLOW_ENV
+    )
+}
+
+fn enforce_paid_llm_gate_from_env(backend: LLMBackend) -> anyhow::Result<()> {
+    let raw = std::env::var(PAID_LLM_ALLOW_ENV).ok();
+    enforce_paid_llm_gate(backend, raw.as_deref())
+}
+
 fn parse_agent_args(s: &str) -> anyhow::Result<Vec<String>> {
     let parsed: serde_json::Value = serde_json::from_str(s)
         .map_err(|_| anyhow::anyhow!("--agent-args must be a JSON string array"))?;
@@ -257,6 +309,9 @@ pub fn run_init(args: InitArgs) -> anyhow::Result<()> {
         );
     }
     let backend = ensure_backend(&args.llm_backend)?;
+    // P2.4 — gate before any state is materialized so a paid backend
+    // cannot be persisted onto disk and then trivially started later.
+    enforce_paid_llm_gate_from_env(backend)?;
     if backend == LLMBackend::AgentCli && args.agent_command.is_none() {
         anyhow::bail!("--agent-command required when --llm-backend=agent_cli");
     }
@@ -566,6 +621,13 @@ fn family_target_emitter(
 pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
     let path = resolve_state_path(&args.state_args)?;
     let state = load_state(&path)?;
+    // P2.4 — re-gate at start time. A state file may have been produced
+    // before this binary version learned about the gate, or `init` may
+    // have been run under an environment that carried the opt-in but
+    // the operator now wants to start the loop without it. Either way,
+    // the loop itself must not begin calling a paid backend unless the
+    // current process environment still asserts the opt-in.
+    enforce_paid_llm_gate_from_env(ensure_backend(&state.config.llm.backend)?)?;
     let signing = signing_key_from_state(&state)?;
     let pk_bytes = signing.verifying_key().to_bytes();
     let pk = Hex32::from_bytes(pk_bytes);
@@ -929,6 +991,62 @@ pub fn run_mine(cmd: MineCommand) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // P2.4 — paid-LLM gate. Splitting the pure function `enforce_paid_llm_gate`
+    // from `enforce_paid_llm_gate_from_env` keeps the policy testable without
+    // mutating the global process environment, which would race against
+    // every other parallel test in the binary.
+
+    #[test]
+    fn paid_llm_gate_rejects_anthropic_without_opt_in() {
+        let err = enforce_paid_llm_gate(LLMBackend::Anthropic, None).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("BOOLE_ALLOW_PAID_LLM"),
+            "error message must name the opt-in env var, got: {msg}"
+        );
+        assert!(
+            msg.contains("anthropic"),
+            "error message must name the rejected backend, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn paid_llm_gate_accepts_anthropic_with_explicit_opt_in() {
+        enforce_paid_llm_gate(LLMBackend::Anthropic, Some("1")).expect("opt-in 1 allows");
+        enforce_paid_llm_gate(LLMBackend::Anthropic, Some("true")).expect("opt-in true allows");
+    }
+
+    #[test]
+    fn paid_llm_gate_rejects_anthropic_with_unrelated_env_value() {
+        enforce_paid_llm_gate(LLMBackend::Anthropic, Some("0")).unwrap_err();
+        enforce_paid_llm_gate(LLMBackend::Anthropic, Some("yes")).unwrap_err();
+        enforce_paid_llm_gate(LLMBackend::Anthropic, Some("")).unwrap_err();
+    }
+
+    #[test]
+    fn paid_llm_gate_lets_local_backends_through_unconditionally() {
+        for backend in [
+            LLMBackend::Mock,
+            LLMBackend::ClaudeCli,
+            LLMBackend::AgentCli,
+            LLMBackend::OpenAiCompat,
+        ] {
+            enforce_paid_llm_gate(backend, None)
+                .unwrap_or_else(|_| panic!("local backend {:?} must not require opt-in", backend));
+        }
+    }
+
+    #[test]
+    fn paid_llm_gate_classifies_paid_backends() {
+        assert!(is_paid_llm_backend(LLMBackend::Anthropic));
+        assert!(is_paid_llm_backend(LLMBackend::OpenAi));
+        assert!(is_paid_llm_backend(LLMBackend::Google));
+        assert!(!is_paid_llm_backend(LLMBackend::Mock));
+        assert!(!is_paid_llm_backend(LLMBackend::ClaudeCli));
+        assert!(!is_paid_llm_backend(LLMBackend::AgentCli));
+        assert!(!is_paid_llm_backend(LLMBackend::OpenAiCompat));
+    }
 
     #[test]
     fn summary_for_log_emits_nested_agent_and_protocol_reports() {

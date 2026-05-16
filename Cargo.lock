@@ -227,6 +227,7 @@ dependencies = [
  "anyhow",
  "boole-core",
  "boole-lean-runner",
+ "boole-testkit",
  "clap",
  "ed25519-dalek",
  "hex",
