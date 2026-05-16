@@ -245,6 +245,7 @@ impl BountyRegistry {
                     .get(&id)
                     .cloned()
                     .ok_or_else(|| format!("updates unknown id {id}"))?;
+                validate_status_transition(&existing.status, &status)?;
                 self.bounties.insert(
                     id,
                     Bounty {

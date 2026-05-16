@@ -263,3 +263,59 @@ fn hex2() -> String {
 fn hex3() -> String {
     "33".repeat(32)
 }
+
+// P1.5d — `apply_event_fixture` must enforce the same status-transition
+// guard as the live `update_status` path. Without unification, a
+// fixture or audit-log replay could swing a bounty from a terminal
+// status (`solved`, `expired`, `withdrawn`) back to `open`, drifting
+// the registry from what the live HTTP route would have allowed.
+
+#[test]
+fn apply_event_fixture_rejects_terminal_to_open_transition() {
+    let mut registry = BountyRegistry::new();
+    let _ = registry.create(create_alpha()).expect("seed alpha");
+
+    let solve = json!({
+        "kind": "status",
+        "id": "alpha-1",
+        "status": "solved",
+        "ts": 1_800_000_001_000u64,
+    });
+    registry
+        .apply_event_fixture(solve)
+        .expect("solved is a legal first transition from open");
+
+    let revert = json!({
+        "kind": "status",
+        "id": "alpha-1",
+        "status": "open",
+        "ts": 1_800_000_002_000u64,
+    });
+    let err = registry
+        .apply_event_fixture(revert)
+        .expect_err("solved->open must be rejected");
+    assert!(
+        err.contains("terminal status solved"),
+        "error must name the terminal status: {err}"
+    );
+}
+
+#[test]
+fn apply_event_fixture_rejects_unknown_status_value() {
+    let mut registry = BountyRegistry::new();
+    let _ = registry.create(create_alpha()).expect("seed alpha");
+
+    let bad = json!({
+        "kind": "status",
+        "id": "alpha-1",
+        "status": "bogus",
+        "ts": 1_800_000_001_000u64,
+    });
+    let err = registry
+        .apply_event_fixture(bad)
+        .expect_err("unknown status must be rejected");
+    assert!(
+        err.contains("invalid status: bogus"),
+        "error must name the invalid status: {err}"
+    );
+}
