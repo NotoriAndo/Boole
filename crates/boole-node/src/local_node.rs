@@ -233,14 +233,6 @@ struct LocalNodeState {
     genesis_c: String,
     block_path: PathBuf,
     report: CalibrationReport,
-    /// Set at boot from the disk replay. The block_cache mirror is updated in
-    /// lockstep with FileBlockStore::append (see runtime::commit_using_cache),
-    /// so once boot agrees, `cached_block_count() / current_c` and
-    /// `replay_blocks(disk).{height, latest_c}` cannot diverge during this
-    /// process's lifetime. Surfaced through /status as `replayMatchesRuntime`
-    /// so operators see the real boot-time invariant rather than a hardcoded
-    /// constant.
-    replay_matches_runtime_at_boot: bool,
     /// P2.6 — Unix epoch millis captured the moment the runtime hand-off
     /// completes (post-replay, pre-`axum::serve`). Surfaced through
     /// `/status` as `nodeStartedAt` so orchestrators and dashboards can
@@ -594,19 +586,6 @@ impl LocalNodeState {
         if runtime.current_c().is_none() {
             runtime.set_current_c(scenario.genesis_c.clone());
         }
-        // Independently verify that the runtime mirrors what the disk replays
-        // to. This is a paranoid second pass — boot_from_store already feeds
-        // replay_blocks output into the runtime — but it lets /status report
-        // a real boot-time observation rather than a hardcoded `true`. Once
-        // commit_using_cache enforces {check, append, apply_unchecked}, the
-        // boot value remains valid for the lifetime of the process.
-        let replay_matches_runtime_at_boot = if recovered.size() == 0 {
-            runtime.cached_block_count() == 0 && runtime.current_c().is_some()
-        } else {
-            let replay = replay_blocks(recovered.blocks())?;
-            (replay.height as usize) == runtime.cached_block_count()
-                && Some(replay.latest_c.as_str()) == runtime.current_c()
-        };
         let work_manifests = match config.work_manifests_path.as_ref() {
             Some(path) => load_work_manifests_from_path(path)?,
             None => Vec::new(),
@@ -669,7 +648,6 @@ impl LocalNodeState {
             genesis_c: scenario.genesis_c,
             block_path: config.block_path,
             report: scenario.cfg,
-            replay_matches_runtime_at_boot,
             started_at_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
@@ -1688,12 +1666,32 @@ async fn fallback_handler(method: Method, uri: Uri) -> Response {
     )))
 }
 
+/// P2.6 - recompute disk-vs-runtime agreement at request time so the
+/// `/status.replayMatchesRuntime` field detects post-boot drift (file
+/// tampering, partial truncation, future refactor regressions) instead
+/// of merely reporting the boot snapshot. Returns `false` on any
+/// recover/replay error or shape mismatch.
+fn compute_replay_matches_runtime(state: &LocalNodeState) -> bool {
+    let Ok(recovered) = FileBlockStore::recover(&state.block_path) else {
+        return false;
+    };
+    if recovered.size() == 0 {
+        return state.runtime.cached_block_count() == 0 && state.runtime.current_c().is_some();
+    }
+    let Ok(replay) = replay_blocks(recovered.blocks()) else {
+        return false;
+    };
+    (replay.height as usize) == state.runtime.cached_block_count()
+        && Some(replay.latest_c.as_str()) == state.runtime.current_c()
+}
+
 fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
     // Serve from the in-memory block cache. After boot the cache is
     // authoritative; commits update it synchronously via {check, append,
-    // apply_unchecked}, and replay invariants (chain linkage, latest_c) are
-    // checked at boot via replay_blocks. The boot-time match is captured in
-    // replay_matches_runtime_at_boot rather than asserted here as a constant.
+    // apply_unchecked}, and replay invariants (chain linkage, latest_c)
+    // are checked at boot via replay_blocks. `replayMatchesRuntime` is
+    // recomputed per request via `compute_replay_matches_runtime` so the
+    // field detects post-boot drift (e.g., external file tampering).
     let height = state.runtime.cached_block_count();
     let head = current_head(state);
     let promoted = boole_core::select_promoted_bounty_shares(
@@ -1710,7 +1708,7 @@ fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
         "genesisC": state.genesis_c,
         "replayHeight": height,
         "replayLatestC": head,
-        "replayMatchesRuntime": state.replay_matches_runtime_at_boot,
+        "replayMatchesRuntime": compute_replay_matches_runtime(state),
         "blockStorePath": state.block_path.to_string_lossy(),
         "sharePoolSize": state.runtime.pool_size(),
         "familyManifestCount": state.family_manifest_registry.len(),
@@ -2603,7 +2601,7 @@ fn submit_json(
         "c": runtime_head,
         "replayHeight": new_height,
         "replayLatestC": runtime_head,
-        "replayMatchesRuntime": state.replay_matches_runtime_at_boot,
+        "replayMatchesRuntime": compute_replay_matches_runtime(state),
         "droppedStaleShares": committed.dropped_stale_shares,
     });
     if let Some(receipt) = receipt {
