@@ -65,8 +65,45 @@ pub fn validate_bounty_ledger_event(event: &Value) -> Result<(), String> {
     }
 
     let kind = string_field(event, "kind").unwrap_or("");
-    if !matches!(kind, "create" | "status_change" | "proof" | "credit") {
+    if !matches!(
+        kind,
+        "create" | "status_change" | "proof" | "credit" | "share_promoted"
+    ) {
         return Err(format!("bountyLedger: unknown event kind: {kind}"));
+    }
+
+    // P1.5b — `share_promoted` is the durable mirror of `BountySidePool::
+    // remove_promoted`. The boot loader uses (familyId, bountyId, proofHash)
+    // to subtract already-committed shares from the rebuild set so a node
+    // restart never re-inserts a share that has already been credited
+    // into a block. Unlike `credit`, this event covers zero-credit
+    // shares too — they consumed a share quota and must not be replayed
+    // back into the live side-pool.
+    if kind == "share_promoted" {
+        if event.get("height").and_then(Value::as_u64).is_none() {
+            return Err(
+                "bountyLedger: share_promoted event requires height (unsigned integer)".to_string(),
+            );
+        }
+        if string_field(event, "familyId").is_none_or(str::is_empty) {
+            return Err("bountyLedger: share_promoted event requires familyId".to_string());
+        }
+        if string_field(event, "bountyId").is_none_or(str::is_empty) {
+            return Err("bountyLedger: share_promoted event requires bountyId".to_string());
+        }
+        if !string_field(event, "proofHash").is_some_and(is_hex32) {
+            return Err(
+                "bountyLedger: share_promoted event requires proofHash (32-byte lowercase hex)"
+                    .to_string(),
+            );
+        }
+        if !string_field(event, "prover").is_some_and(is_hex32) {
+            return Err(
+                "bountyLedger: share_promoted event requires prover (32-byte lowercase hex)"
+                    .to_string(),
+            );
+        }
+        return Ok(());
     }
 
     // S23c — credit events carry block-level identifiers (height, c) and

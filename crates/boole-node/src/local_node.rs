@@ -571,11 +571,23 @@ impl LocalNodeState {
                 .apply_event_fixture(create_event)
                 .map_err(|err| anyhow::anyhow!("seed bounty registry: {err}"))?;
         }
+        // P1.5b — `bounty_side_pool` is in-memory only. We rebuild it
+        // here from the durable bounty audit log: each accepted `proof`
+        // event maps to a side-pool insert; each `share_promoted` event
+        // marks a (familyId, bountyId, proofHash) triple that has
+        // already been committed into a block and must NOT be reinserted.
+        // Without this, a node restart silently drops every accepted
+        // bounty share that had not yet been promoted, deleting pending
+        // credit the verifier already accepted.
+        let mut bounty_side_pool = BountySidePool::new();
         if let Some(path) = config.bounty_event_ledger_path.as_ref() {
-            for event in FileBountyEventLedger::recover(path)? {
-                replay_bounty_audit_event(&mut bounty_registry, &event)
+            let events = FileBountyEventLedger::recover(path)?;
+            for event in &events {
+                replay_bounty_audit_event(&mut bounty_registry, event)
                     .map_err(|err| anyhow::anyhow!("replay bounty audit log: {err}"))?;
             }
+            rebuild_bounty_side_pool(&mut bounty_side_pool, &bounty_registry, &events)
+                .map_err(|err| anyhow::anyhow!("rebuild bounty side-pool: {err}"))?;
         }
         let family_manifest_registry = match config.family_manifests_dir.as_ref() {
             Some(dir) => load_family_manifest_registry_from_dir(dir).map_err(|err| {
@@ -609,7 +621,7 @@ impl LocalNodeState {
             bounty_event_ledger_path: config.bounty_event_ledger_path,
             bounty_verifiers: config.bounty_verifiers.unwrap_or_default(),
             family_manifest_registry,
-            bounty_side_pool: BountySidePool::new(),
+            bounty_side_pool,
             operator_signer_pks: config.operator_signer_pks,
             session_registry_path: config.session_registry_path,
             session_store,
@@ -695,6 +707,108 @@ fn replay_status_change_event(registry: &mut BountyRegistry, event: &Value) -> R
             Ok(())
         }
     }
+}
+
+/// P1.5b — rebuild `BountySidePool` from the durable bounty audit log.
+///
+/// Walks the recovered events twice:
+///   1. Collect the set of `(familyId, bountyId, proofHash)` triples
+///      that appear in `share_promoted` events. Those shares have
+///      already been folded into a committed block and must NOT
+///      reappear in the live side-pool.
+///   2. For each `proof` event with `accepted=true` that is not in
+///      the promoted set, look up the bounty in the (now-replayed)
+///      registry to recover `family_id` (= `bounty.domain`) and the
+///      reward stamp, and re-insert the share.
+///
+/// Bounties missing from the registry (e.g., dropped from the static
+/// catalog after the audit log was written) emit a stderr warning and
+/// are skipped — the in-memory `BountyShare` cannot be reconstructed
+/// without the registry record, and there is no consensus consequence
+/// because the share also cannot be promoted into a future block.
+fn rebuild_bounty_side_pool(
+    pool: &mut BountySidePool,
+    registry: &BountyRegistry,
+    events: &[Value],
+) -> Result<(), String> {
+    use std::collections::HashSet;
+
+    let mut promoted: HashSet<(String, String, String)> = HashSet::new();
+    for event in events {
+        if event.get("kind").and_then(Value::as_str) != Some("share_promoted") {
+            continue;
+        }
+        let family_id = event
+            .get("familyId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "share_promoted event missing familyId".to_string())?
+            .to_string();
+        let bounty_id = event
+            .get("bountyId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "share_promoted event missing bountyId".to_string())?
+            .to_string();
+        let proof_hash = event
+            .get("proofHash")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "share_promoted event missing proofHash".to_string())?
+            .to_string();
+        promoted.insert((family_id, bounty_id, proof_hash));
+    }
+
+    for event in events {
+        if event.get("kind").and_then(Value::as_str) != Some("proof") {
+            continue;
+        }
+        if !event
+            .get("accepted")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let bounty_id = event
+            .get("workId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "proof event missing workId".to_string())?
+            .to_string();
+        let proof_hash = event
+            .get("proofHash")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "proof event missing proofHash".to_string())?
+            .to_string();
+        let prover = event
+            .get("solverPk")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "proof event missing solverPk".to_string())?
+            .to_string();
+        let ts = event
+            .get("ts")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "proof event missing ts".to_string())?;
+
+        let Some(bounty) = registry.get(&bounty_id) else {
+            eprintln!(
+                "[boole-node] audit log proof for unknown bounty {bounty_id} skipped during \
+                 side-pool rebuild"
+            );
+            continue;
+        };
+        let key = (bounty.domain.clone(), bounty_id.clone(), proof_hash.clone());
+        if promoted.contains(&key) {
+            continue;
+        }
+        let reward: u128 = bounty.reward.parse().unwrap_or(0);
+        pool.insert(BountyShare {
+            bounty_id,
+            proof_hash,
+            prover,
+            family_id: bounty.domain,
+            ts,
+            reward,
+        });
+    }
+    Ok(())
 }
 
 fn replay_create_event(registry: &mut BountyRegistry, event: &Value) -> Result<(), String> {
@@ -2293,6 +2407,10 @@ fn submit_json(
         )?;
     // S23c — mirror the credit rows into the bounty event ledger so the
     // divergence sweep (S23d) has a parallel source to compare against.
+    // P1.5b — additionally emit one `share_promoted` event per promoted
+    // share (including zero-credit shares) so the boot loader can
+    // subtract already-committed shares from the durable audit replay
+    // and avoid silently re-inserting them into the live side-pool.
     if let Some(bounty_event_path) = state.bounty_event_ledger_path.as_ref() {
         for credit in &committed.block.promoted_bounty_credits {
             let event = json!({
@@ -2304,6 +2422,18 @@ fn submit_json(
                 "bountyId": credit.bounty_id,
                 "prover": credit.prover,
                 "amount": credit.amount,
+            });
+            FileBountyEventLedger::append(bounty_event_path, &event)?;
+        }
+        for share in &selection.shares {
+            let event = json!({
+                "schemaVersion": 1,
+                "kind": "share_promoted",
+                "height": committed.block.height,
+                "familyId": share.family_id,
+                "bountyId": share.bounty_id,
+                "proofHash": share.proof_hash,
+                "prover": share.prover,
             });
             FileBountyEventLedger::append(bounty_event_path, &event)?;
         }

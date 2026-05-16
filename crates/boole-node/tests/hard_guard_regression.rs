@@ -177,6 +177,25 @@ fn boot_full(
     ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("tmp dir");
+    boot_full_at_dir(
+        dir,
+        family_dir,
+        operator_signer_pks,
+        with_reward_ledger,
+        max_requests,
+    )
+}
+
+/// P1.5b — boot helper variant that reuses a caller-supplied state
+/// directory. Lets a test simulate a node restart by booting twice
+/// against the same `bounty-events.ndjson` / `blocks.ndjson` files.
+fn boot_full_at_dir(
+    dir: PathBuf,
+    family_dir: Option<PathBuf>,
+    operator_signer_pks: Vec<String>,
+    with_reward_ledger: bool,
+    max_requests: usize,
+) -> Boot {
     let block_path = dir.join("blocks.ndjson");
     let bounty_event_path = dir.join("bounty-events.ndjson");
     let reward_ledger_path = if with_reward_ledger {
@@ -589,5 +608,83 @@ fn promoted_credit_lands_in_balance_and_preserves_hard_guard() {
         .expect("promoted thread")
         .expect("ok");
     let _ = std::fs::remove_dir_all(&promoted.dir);
+    let _ = std::fs::remove_dir_all(&manifest_dir);
+}
+
+// P1.5b — `BountySidePool` is in-memory only. On boot, the runtime
+// rebuilds the registry from the durable bounty event ledger but
+// silently drops every accepted share that had not yet been promoted
+// into a committed block. After a restart those shares would never
+// pay out, even though the verifier already accepted them and the
+// audit log records them as accepted. A node restart must not silently
+// erase pending bounty credit.
+//
+// This test is the post-commit twin of P1.5a: P1.5a pinned that
+// promoted shares are drained; P1.5b pins that NON-promoted shares
+// survive a restart by being rebuilt from the durable audit log.
+
+#[test]
+fn boot_restores_unpromoted_bounty_shares_from_durable_audit_log() {
+    let manifest_dir = std::env::temp_dir().join(format!(
+        "boole-p15b-fmr-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    let _ = std::fs::remove_dir_all(&manifest_dir);
+    std::fs::create_dir_all(&manifest_dir).expect("tmp manifest dir");
+    write_family_manifest(&manifest_dir, "accept.json", "test.mock-accept");
+
+    let state_dir = std::env::temp_dir().join(format!(
+        "boole-p15b-state-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    let _ = std::fs::remove_dir_all(&state_dir);
+    std::fs::create_dir_all(&state_dir).expect("tmp state dir");
+
+    // ---------- First boot: accept one bounty proof, then shut down.
+    let first = boot_full_at_dir(
+        state_dir.clone(),
+        Some(manifest_dir.clone()),
+        vec![],
+        false,
+        2,
+    );
+    let (s_a, r_a) = http_post(
+        first.addr,
+        "/bounties/gamma-1/proof",
+        &submit_proof_body(PROOF_HASH_A, PROVER_X, json!({})),
+    );
+    assert_eq!(s_a, 200, "first-boot accept must succeed: {r_a}");
+    assert_eq!(r_a["accepted"], true, "first-boot accept: {r_a}");
+    let (_, first_status) = http_get(first.addr, "/status");
+    assert_eq!(
+        first_status["bountySidePoolTotal"], 1,
+        "first boot must record the accepted share in the side-pool: {first_status}"
+    );
+    first.handle.join().expect("first thread").expect("ok");
+
+    // ---------- Second boot: same state dir, no traffic that touches
+    // the side-pool. The accepted share has not been committed into
+    // any block (no /submit was issued), so it must be rebuilt from
+    // the durable bounty event ledger.
+    let second = boot_full_at_dir(
+        state_dir.clone(),
+        Some(manifest_dir.clone()),
+        vec![],
+        false,
+        1,
+    );
+    let (s_status, restored) = http_get(second.addr, "/status");
+    assert_eq!(s_status, 200, "second-boot status: {restored}");
+    assert_eq!(
+        restored["bountySidePoolTotal"], 1,
+        "second boot must rebuild the unpromoted share from the durable \
+         audit log; an empty side-pool would silently drop accepted bounty \
+         credit on every restart: {restored}"
+    );
+
+    second.handle.join().expect("second thread").expect("ok");
+    let _ = std::fs::remove_dir_all(&state_dir);
     let _ = std::fs::remove_dir_all(&manifest_dir);
 }
