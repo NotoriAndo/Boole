@@ -36,7 +36,7 @@ serde_json = "1"
 sha2 = "0.10"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
-tower = "0.5"
+tower = { version = "0.5", features = ["limit"] }
 tower-http = { version = "0.6", features = ["timeout"] }
 
 # P0.6 — workspace-wide lint policy. Member crates opt in via

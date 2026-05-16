@@ -39,11 +39,19 @@ use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, RwLock};
+use tower::limit::ConcurrencyLimitLayer;
 use tower::Service;
 use tower_http::timeout::TimeoutLayer;
 
 const MAX_HTTP_BODY_BYTES: usize = 1_048_576;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+/// P1.7 — workspace-wide cap on simultaneously in-flight HTTP requests.
+/// `tower::limit::ConcurrencyLimitLayer` queues additional callers on a
+/// semaphore so a flood of expensive routes (Lean verify, registry
+/// scans) cannot exhaust file descriptors, threads, or `RwLock`
+/// contention slots. Pinned at 256 by the production-readiness master
+/// plan; raising it requires the same plan slice to be revised.
+pub const MAX_CONCURRENT_REQUESTS: usize = 256;
 const VERIFY_ANSWER_SCHEME: &str = "boole-native-test";
 const VERIFY_ANSWER_AMOUNT: &str = "1";
 // P1.8 — magic test-payment string accepted by `/verify-answer`. Hidden
@@ -380,6 +388,7 @@ fn build_router(state: AppState) -> Router {
             StatusCode::REQUEST_TIMEOUT,
             REQUEST_TIMEOUT,
         ))
+        .layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_REQUESTS))
         .layer(from_fn(body_cap_middleware))
         .layer(from_fn(connection_close_middleware))
         .with_state(state)
