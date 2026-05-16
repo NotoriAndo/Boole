@@ -322,13 +322,38 @@ pub fn serve_local_node(listener: StdTcpListener, config: LocalNodeConfig) -> an
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(serve_local_node_async(listener, state, max_requests))
+    runtime.block_on(serve_local_node_async(listener, state, max_requests, None))
+}
+
+/// P2.7 — Same as [`serve_local_node`] but with an externally-owned
+/// shutdown trigger. Calling `external_shutdown.notify_one()` unblocks
+/// `axum::serve`'s graceful-shutdown future, lets in-flight requests
+/// drain, and returns `Ok(())`. Used by orchestrators that already own
+/// a process-supervision channel and by tests that need deterministic
+/// shutdown without raising real signals.
+pub fn serve_local_node_with_shutdown(
+    listener: StdTcpListener,
+    config: LocalNodeConfig,
+    external_shutdown: Arc<Notify>,
+) -> anyhow::Result<()> {
+    let max_requests = config.max_requests;
+    let state = LocalNodeState::from_config(config)?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(serve_local_node_async(
+        listener,
+        state,
+        max_requests,
+        Some(external_shutdown),
+    ))
 }
 
 async fn serve_local_node_async(
     listener: StdTcpListener,
     state: LocalNodeState,
     max_requests: Option<usize>,
+    external_shutdown: Option<Arc<Notify>>,
 ) -> anyhow::Result<()> {
     listener.set_nonblocking(true)?;
     let tokio_listener = TcpListener::from_std(listener)?;
@@ -336,6 +361,17 @@ async fn serve_local_node_async(
         inner: Arc::new(RwLock::new(state)),
     };
     let shutdown_notify = Arc::new(Notify::new());
+    // P2.7 — forward external trigger fires to the internal shutdown_notify
+    // so the `max_requests` path and the external path use the same wake
+    // signal. Spawn the forwarder only when the caller supplied a trigger;
+    // otherwise the task is pure overhead.
+    if let Some(external) = external_shutdown {
+        let internal = shutdown_notify.clone();
+        tokio::spawn(async move {
+            external.notified().await;
+            internal.notify_one();
+        });
+    }
     let app = build_router(app_state);
     // Mirror the raw-TCP server's `--max-requests N` semantics: count an
     // event per *accepted-and-closed* TCP connection, regardless of whether

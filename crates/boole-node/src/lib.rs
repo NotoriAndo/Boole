@@ -23,7 +23,9 @@ pub use bounty_catalog_store::load_bounties_from_path;
 pub use bounty_event_store::FileBountyEventLedger;
 pub use family_manifest_store::load_family_manifest_registry_from_dir;
 pub use lean_bounty_verifier::LeanBountyVerifier;
-pub use local_node::{serve_local_node, LocalNodeConfig, MAX_CONCURRENT_REQUESTS};
+pub use local_node::{
+    serve_local_node, serve_local_node_with_shutdown, LocalNodeConfig, MAX_CONCURRENT_REQUESTS,
+};
 pub use proof_bridge::{
     canonical_pofp_package_from_lean_result, LeanProofBridge, LeanProofBridgePolicy,
     ProofSubmissionTemplate,

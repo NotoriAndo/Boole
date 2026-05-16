@@ -59,28 +59,41 @@ run_logged wallet-session-receipt-gate ./scripts/wallet-session-receipt-gate.sh
 run_logged cargo-clippy cargo clippy --workspace --all-targets --locked -- -D warnings
 run_logged cargo-clippy-dev-features cargo clippy --workspace --all-targets --locked --features boole-node/dev-mock-payment,boole-miner/dev-tools -- -D warnings
 # Pre-build the cargo-test target set so the next stage can warm the
-# macOS dyld codesign cache before any test binary is executed. On
+# macOS dyld codesign cache before the CLI binaries are executed. On
 # macOS, cargo's atomic-rename-on-build invalidates the kernel's
 # signature cache for every fresh binary; the first `execve` then
-# blocks for 30–60s inside `_dyld_start` while the kernel re-verifies
-# the signature. With ~80 freshly built integration test binaries the
-# serial dyld stall dominates the cargo-test stage. Splitting the
-# build out and running every test binary's `--help` in parallel pays
-# the verification cost concurrently so `cargo-test` runs at the
-# expected speed. The split is a no-op on Linux (no codesign cache,
-# `--help` returns instantly).
-# P1.8 + P1.9 — cargo test runs with the dev features enabled so the
+# blocks for 30-60s inside `_dyld_start` while the kernel re-verifies
+# the signature. Prewarming each CLI binary's `--help` once pays that
+# verification cost before downstream stages depend on the binaries.
+# Scope is limited to the production CLI surface (`boole-node`,
+# `boole-cli`, `boole-miner`); the test harness binaries under
+# `target/debug/deps/` are not prewarmed because their startup cost is
+# amortized inside `cargo test` itself and the open-ended list of
+# integration test binaries is full of hang-prone entry points that
+# break the prewarm budget without speeding anything up. The
+# `timeout 60` is a hard safety net: a CLI binary that cannot answer
+# `--help` in 60s indicates a regression (default behavior accidentally
+# starts long-running work, signal handler swallows the request, etc.)
+# and fails the gate rather than being silently ignored.
+# P1.8 + P1.9 - cargo test runs with the dev features enabled so the
 # verify-answer integration tests (magic test-payment header) and the
 # boole-miner mining-loop tests (`AcceptingVerifier` bypass) can build
 # and run. The no-feature production build is covered by `cargo-clippy`
 # above; the cargo-test stage's job is to exercise full test coverage.
 run_logged cargo-test-build cargo test --workspace --all-targets --locked --features boole-node/dev-mock-payment,boole-miner/dev-tools --no-run
 run_logged cargo-test-prewarm bash -c '
-  set -u
-  find target/debug/deps -maxdepth 1 -type f -perm -u+x -newer Cargo.lock \
-    ! -name "*.d" ! -name "*.rlib" ! -name "*.rmeta" ! -name "*.dylib" \
-    ! -name "*.so" 2>/dev/null \
-    | xargs -P 8 -I {} sh -c '"'"'"$1" --help >/dev/null 2>&1 || true'"'"' _ {}
+  set -euo pipefail
+  for bin in target/debug/boole-node target/debug/boole-cli target/debug/boole-miner; do
+    if [[ ! -x "$bin" ]]; then
+      printf "prewarm: %s is missing or not executable\n" "$bin" >&2
+      exit 1
+    fi
+    if ! /usr/bin/env timeout 60 "$bin" --help >/dev/null 2>&1; then
+      status=$?
+      printf "prewarm: %s --help failed (exit %d)\n" "$bin" "$status" >&2
+      exit "$status"
+    fi
+  done
 '
 run_logged cargo-test cargo test --workspace --all-targets --locked --features boole-node/dev-mock-payment,boole-miner/dev-tools
 LEGACY_POF_ROOT="${BOOLE_LEGACY_POF_ROOT:-$ROOT/../pof}"
