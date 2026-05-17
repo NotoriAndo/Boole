@@ -822,9 +822,39 @@ fn state_verify(blocks_path: &Path, json: bool) -> anyhow::Result<()> {
 }
 
 fn replay_fixture(path: &Path, json: bool) -> anyhow::Result<()> {
-    let raw = std::fs::read_to_string(path)?;
-    let fixture: ReplayFixture = serde_json::from_str(&raw)?;
-    let replay = boole_core::replay_blocks(&fixture.blocks)?;
+    // P2.5 follow-up — distinguish operator typos (exit 2, bad usage)
+    // from chain corruption (exit 3, operation refused) so automation
+    // can route the failure without parsing free-form anyhow detail.
+    let raw = std::fs::read_to_string(path).unwrap_or_else(|err| {
+        emit_typed_error(
+            "fixture_unreadable",
+            2,
+            serde_json::json!({
+                "fixturePath": path.to_string_lossy(),
+                "detail": err.to_string(),
+            }),
+        );
+    });
+    let fixture: ReplayFixture = serde_json::from_str(&raw).unwrap_or_else(|err| {
+        emit_typed_error(
+            "fixture_invalid",
+            2,
+            serde_json::json!({
+                "fixturePath": path.to_string_lossy(),
+                "detail": err.to_string(),
+            }),
+        );
+    });
+    let replay = boole_core::replay_blocks(&fixture.blocks).unwrap_or_else(|err| {
+        emit_typed_error(
+            "replay_mismatch",
+            3,
+            serde_json::json!({
+                "fixturePath": path.to_string_lossy(),
+                "detail": err.to_string(),
+            }),
+        );
+    });
     if json {
         println!(
             "{}",

@@ -27,7 +27,10 @@ struct Expected {
 }
 
 #[test]
-fn cli_runtime_error_json_goes_to_stderr_and_leaves_stdout_empty() {
+fn cli_chain_replay_rejects_missing_fixture_with_typed_bad_request() {
+    // P2.5 follow-up — missing --fixture path is a usage error, exit 2
+    // with reason="fixture_unreadable" so automation can distinguish
+    // operator typos from chain corruption (which exits 3).
     let missing_fixture = std::env::temp_dir().join(format!(
         "boole-cli-missing-fixture-{}.json",
         std::process::id()
@@ -45,19 +48,125 @@ fn cli_runtime_error_json_goes_to_stderr_and_leaves_stdout_empty() {
         .output()
         .expect("run boole-cli");
 
-    assert!(!output.status.success(), "missing fixture should fail");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "missing fixture must exit 2; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(
         output.stdout.is_empty(),
         "runtime error JSON must not pollute stdout: {}",
         String::from_utf8_lossy(&output.stdout)
     );
-    let parsed: serde_json::Value = serde_json::from_slice(&output.stderr).expect("stderr json");
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
     assert_eq!(parsed["ok"], false);
-    // Typed envelope shape adopted in S3: anyhow-bearing top-level errors
-    // surface as `reason: "internal_error"` (the kebab vocabulary the
-    // server speaks at the HTTP boundary). The legacy `error: "runtime"`
-    // shape was retired so CLI and node speak the same dialect.
-    assert_eq!(parsed["reason"], "internal_error");
+    assert_eq!(parsed["reason"], "fixture_unreadable");
+}
+
+#[test]
+fn cli_chain_replay_rejects_malformed_fixture_with_typed_bad_request() {
+    // P2.5 follow-up — malformed JSON in --fixture is a usage error
+    // (operator handed the wrong file), exit 2 with reason="fixture_invalid".
+    let dir = std::env::temp_dir().join(format!(
+        "boole-cli-malformed-fixture-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let fixture_path = dir.join("fixture.json");
+    std::fs::write(&fixture_path, b"{not valid json").expect("write malformed fixture");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "chain",
+            "replay",
+            "--fixture",
+            fixture_path.to_str().expect("utf8 path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "malformed fixture must exit 2; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["reason"], "fixture_invalid");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cli_chain_replay_rejects_tampered_blocks_with_replay_mismatch() {
+    // P2.5 follow-up — chain break inside the fixture is a corruption
+    // (operation refused), exit 3 with reason="replay_mismatch", same
+    // vocabulary as `state verify` so downstream tools share a dialect.
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
+            .expect("fixture parses");
+    // Drop block 0 — replay starts at the genesis successor, breaking
+    // the chain-continuity invariant.
+    let only_second = fixture
+        .blocks
+        .get(1)
+        .expect("fixture has at least two blocks")
+        .clone();
+    let tampered = serde_json::json!({
+        "blocks": [only_second],
+        "expected": {
+            "latestC": fixture.expected.latest_c,
+            "height": fixture.expected.height,
+            "balances": fixture.expected.balances,
+        }
+    });
+
+    let dir =
+        std::env::temp_dir().join(format!("boole-cli-tampered-fixture-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let fixture_path = dir.join("fixture.json");
+    std::fs::write(
+        &fixture_path,
+        serde_json::to_vec_pretty(&tampered).expect("serialize tampered"),
+    )
+    .expect("write tampered fixture");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "chain",
+            "replay",
+            "--fixture",
+            fixture_path.to_str().expect("utf8 path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "tampered fixture must exit 3; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["reason"], "replay_mismatch");
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[derive(Debug, Deserialize)]
