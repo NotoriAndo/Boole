@@ -19,6 +19,7 @@ pub mod difficulty;
 pub mod family_manifest;
 pub mod family_manifest_registry;
 pub mod hash;
+pub mod paths;
 pub mod rate_limiter;
 pub mod receipt;
 pub mod rejection_log;

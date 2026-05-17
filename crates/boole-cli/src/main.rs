@@ -1629,8 +1629,7 @@ fn keys_dir() -> PathBuf {
     if let Ok(explicit) = std::env::var("BOOLE_KEYS_DIR") {
         return PathBuf::from(explicit);
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".boole").join("keys")
+    boole_core::paths::boole_home_root().join("keys")
 }
 
 fn key_path(dir: &Path, id: &str) -> PathBuf {
@@ -1914,8 +1913,7 @@ fn sessions_dir() -> PathBuf {
     if let Ok(explicit) = std::env::var("BOOLE_SESSIONS_DIR") {
         return PathBuf::from(explicit);
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".boole").join("sessions")
+    boole_core::paths::boole_home_root().join("sessions")
 }
 
 fn session_path(dir: &Path, id: &str) -> PathBuf {
@@ -2178,8 +2176,7 @@ fn signer_nonces_dir() -> PathBuf {
     if let Ok(p) = std::env::var("BOOLE_SIGNER_NONCE_DIR") {
         return PathBuf::from(p);
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".boole").join("signer-nonces")
+    boole_core::paths::boole_home_root().join("signer-nonces")
 }
 
 fn signer_nonce_path(session_id: &str) -> PathBuf {
