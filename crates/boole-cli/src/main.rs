@@ -86,6 +86,13 @@ enum Command {
         #[command(subcommand)]
         command: boole_miner::cli::MineCommand,
     },
+    /// Offline durable-state inspection. Replays the durable block log via
+    /// the same recovery path the node uses at boot, without acquiring the
+    /// state-dir lock. Safe to run while a node is up.
+    State {
+        #[command(subcommand)]
+        command: StateCommand,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -496,6 +503,22 @@ enum BountyCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum StateCommand {
+    /// Replay a durable block NDJSON log and report height + latest c.
+    /// Same recovery shape `boole-node` uses at boot, but read-only:
+    /// no lock is acquired and the file is never written.
+    Verify {
+        /// Path to the durable blocks NDJSON file (typically
+        /// `<state-dir>/blocks.ndjson`).
+        #[arg(long)]
+        blocks: PathBuf,
+        /// Emit JSON output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum BlockCommand {
     /// Fetch the latest block envelope from a node.
     Latest {
@@ -650,6 +673,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             ),
         },
         Some(Command::Mine { command }) => boole_miner::cli::run_mine(command),
+        Some(Command::State { command }) => match command {
+            StateCommand::Verify { blocks, json } => state_verify(&blocks, json),
+        },
         Some(Command::Keys { command }) => match command {
             KeysCommand::New { id, dev, dry_run } => keys_new(&id, dev, dry_run),
             KeysCommand::List => keys_list(),
@@ -732,6 +758,35 @@ fn print_version(json: bool) -> anyhow::Result<()> {
 #[derive(Debug, serde::Deserialize)]
 struct ReplayFixture {
     blocks: Vec<boole_core::PersistedBlock>,
+}
+
+/// P2.8 — `boole state verify --blocks <ndjson>`. Reuses
+/// `FileBlockStore::recover` and `replay_blocks` so the offline check
+/// exercises the exact same shape contract the node enforces at boot.
+/// No state-dir lock is acquired; the file is opened read-only so this
+/// is safe to run against a live node's blocks file.
+fn state_verify(blocks_path: &Path, json: bool) -> anyhow::Result<()> {
+    let store = boole_node::FileBlockStore::recover(blocks_path)?;
+    let replay = boole_core::replay_blocks(store.blocks())?;
+    let block_count = store.size() as u64;
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "height": replay.height,
+                "latestC": replay.latest_c,
+                "blockCount": block_count,
+                "blocksPath": blocks_path.to_string_lossy(),
+            })
+        );
+    } else {
+        println!(
+            "ok=true height={} latestC={} blockCount={}",
+            replay.height, replay.latest_c, block_count
+        );
+    }
+    Ok(())
 }
 
 fn replay_fixture(path: &Path, json: bool) -> anyhow::Result<()> {
