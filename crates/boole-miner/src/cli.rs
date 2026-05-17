@@ -237,6 +237,26 @@ fn ensure_backend(s: &str) -> anyhow::Result<LLMBackend> {
 /// stray export in a parent shell does not silently re-enable billing.
 pub const PAID_LLM_ALLOW_ENV: &str = "BOOLE_ALLOW_PAID_LLM";
 
+/// P1.10 — env-var fallback for the LLM API key so operators can avoid
+/// passing the secret on argv where it shows up in `ps -ef` output.
+/// `--llm-api-key` (when set) wins over the env so existing CI scripts
+/// continue to work unchanged.
+pub const LLM_API_KEY_ENV: &str = "BOOLE_LLM_API_KEY";
+
+/// P1.10 — pure resolver split from the env read so unit tests cover
+/// every precedence branch without mutating the global process
+/// environment.
+pub fn resolve_llm_api_key(arg_value: Option<&str>, env_value: Option<&str>) -> Option<String> {
+    arg_value
+        .map(str::to_owned)
+        .or_else(|| env_value.map(str::to_owned))
+}
+
+fn resolve_llm_api_key_from_env(arg_value: Option<&str>) -> Option<String> {
+    let env_value = std::env::var(LLM_API_KEY_ENV).ok();
+    resolve_llm_api_key(arg_value, env_value.as_deref())
+}
+
 /// P2.4 — backends that bill against an upstream paid API. ClaudeCli
 /// and AgentCli shell out to a locally configured CLI whose billing
 /// terms the operator already accepted by installing it. OpenAiCompat
@@ -329,13 +349,18 @@ pub fn run_init(args: InitArgs) -> anyhow::Result<()> {
             );
         }
     }
+    // P1.10 — prefer BOOLE_LLM_API_KEY env over the argv flag so
+    // operators can keep the secret off the process command line. The
+    // argv flag still wins when both are set, preserving back-compat.
+    let resolved_api_key = resolve_llm_api_key_from_env(args.llm_api_key.as_deref());
     if matches!(
         backend,
         LLMBackend::Anthropic | LLMBackend::OpenAi | LLMBackend::Google
     ) {
-        if args.llm_api_key.is_none() {
+        if resolved_api_key.is_none() {
             anyhow::bail!(
-                "--llm-api-key required when --llm-backend={}",
+                "--llm-api-key or {} env var required when --llm-backend={}",
+                LLM_API_KEY_ENV,
                 backend.as_str()
             );
         }
@@ -349,7 +374,7 @@ pub fn run_init(args: InitArgs) -> anyhow::Result<()> {
     }
     let llm = LlmConfig {
         backend: backend.as_str().to_string(),
-        api_key: args.llm_api_key,
+        api_key: resolved_api_key,
         model: args.llm_model,
         base_url: args.llm_base_url,
         agent_command: args.agent_command,
@@ -1046,6 +1071,38 @@ mod tests {
         assert!(!is_paid_llm_backend(LLMBackend::ClaudeCli));
         assert!(!is_paid_llm_backend(LLMBackend::AgentCli));
         assert!(!is_paid_llm_backend(LLMBackend::OpenAiCompat));
+    }
+
+    // P1.10 — pure resolver lets us exercise every (argv, env)
+    // precedence branch without serializing on global env mutation.
+
+    #[test]
+    fn llm_api_key_resolver_prefers_argv_when_both_set() {
+        assert_eq!(
+            resolve_llm_api_key(Some("from-argv"), Some("from-env")),
+            Some("from-argv".to_string())
+        );
+    }
+
+    #[test]
+    fn llm_api_key_resolver_falls_back_to_env_when_argv_absent() {
+        assert_eq!(
+            resolve_llm_api_key(None, Some("from-env")),
+            Some("from-env".to_string())
+        );
+    }
+
+    #[test]
+    fn llm_api_key_resolver_returns_none_when_neither_set() {
+        assert_eq!(resolve_llm_api_key(None, None), None);
+    }
+
+    #[test]
+    fn llm_api_key_resolver_uses_argv_when_only_argv_set() {
+        assert_eq!(
+            resolve_llm_api_key(Some("from-argv"), None),
+            Some("from-argv".to_string())
+        );
     }
 
     #[test]
