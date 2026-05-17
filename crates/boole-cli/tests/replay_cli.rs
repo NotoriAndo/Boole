@@ -725,25 +725,122 @@ fn cli_settlement_report_rejects_tampered_receipt_without_settlement_stdout() {
         .output()
         .expect("run boole-cli");
 
-    assert!(!output.status.success(), "tampered receipt must fail");
+    // P2.5 follow-up — tampered receipt is now an audit refusal (exit 3,
+    // reason="audit_mismatch"), matching the dialect adopted by
+    // `chain audit-receipts` and `state verify`. settlement-report still
+    // suppresses settlement stdout on audit failure.
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "tampered receipt must exit 3; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(
         output.stdout.is_empty(),
         "settlement stdout must be suppressed on audit failure: {}",
         String::from_utf8_lossy(&output.stdout)
     );
-    let parsed: serde_json::Value = serde_json::from_slice(&output.stderr).expect("stderr json");
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
     assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "internal_error");
+    assert_eq!(parsed["reason"], "audit_mismatch");
     let detail = parsed["detail"].as_str().expect("detail string");
-    assert!(
-        detail.contains("settlement suppressed"),
-        "unexpected detail: {detail}"
-    );
     assert!(
         detail.contains("rewardAmount mismatch"),
         "unexpected detail: {detail}"
     );
     assert!(parsed.get("settlement").is_none());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cli_chain_settlement_report_rejects_missing_blocks_with_typed_bad_request() {
+    // P2.5 follow-up — settlement-report shares blocks/receipts inputs
+    // with audit-receipts; align the missing-input envelope so operators
+    // get the same operator-typo signal across both commands.
+    let missing = std::env::temp_dir().join(format!(
+        "boole-cli-settlement-missing-blocks-{}.ndjson",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&missing);
+    let receipts_dummy = std::env::temp_dir().join(format!(
+        "boole-cli-settlement-missing-blocks-receipts-{}.ndjson",
+        std::process::id()
+    ));
+    std::fs::write(&receipts_dummy, b"").expect("write empty receipts");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "chain",
+            "settlement-report",
+            "--blocks",
+            missing.to_str().expect("utf8 blocks path"),
+            "--receipts",
+            receipts_dummy.to_str().expect("utf8 receipts path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "missing blocks must exit 2; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["reason"], "blocks_unreadable");
+
+    let _ = std::fs::remove_file(&receipts_dummy);
+}
+
+#[test]
+fn cli_chain_settlement_report_rejects_missing_receipts_with_typed_bad_request() {
+    // P2.5 follow-up — same dialect as missing blocks, this time for
+    // the receipts input. Exit 2 reason="receipts_unreadable" mirrors
+    // chain audit-receipts.
+    let dir = std::env::temp_dir().join(format!(
+        "boole-cli-settlement-missing-receipts-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let blocks_dummy = dir.join("blocks.ndjson");
+    std::fs::write(&blocks_dummy, b"").expect("write empty blocks");
+    let missing_receipts = dir.join("receipts-missing.ndjson");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "chain",
+            "settlement-report",
+            "--blocks",
+            blocks_dummy.to_str().expect("utf8 blocks path"),
+            "--receipts",
+            missing_receipts.to_str().expect("utf8 receipts path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "missing receipts must exit 2; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["reason"], "receipts_unreadable");
 
     let _ = std::fs::remove_dir_all(&dir);
 }

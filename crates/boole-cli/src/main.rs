@@ -918,10 +918,26 @@ fn settlement_report(
     export_reputation_events: Option<&Path>,
     json: bool,
 ) -> anyhow::Result<()> {
-    let blocks = read_ndjson::<boole_core::PersistedBlock>(blocks_path)?;
-    let receipts = read_ndjson::<boole_core::SubmitReceipt>(receipts_path)?;
-    let report = boole_core::audit_submit_receipts(&blocks, &receipts)
-        .map_err(|err| anyhow::anyhow!("settlement suppressed: {err}"))?;
+    // P2.5 follow-up — settlement-report shares inputs with audit-receipts;
+    // emit the same typed envelope dialect (blocks_unreadable / blocks_invalid
+    // / receipts_unreadable / receipts_invalid for usage errors,
+    // audit_mismatch for refusal) so both commands fail the same way for
+    // the same root cause.
+    let blocks =
+        read_ndjson_or_emit_typed_error::<boole_core::PersistedBlock>(blocks_path, "blocks");
+    let receipts =
+        read_ndjson_or_emit_typed_error::<boole_core::SubmitReceipt>(receipts_path, "receipts");
+    let report = boole_core::audit_submit_receipts(&blocks, &receipts).unwrap_or_else(|err| {
+        emit_typed_error(
+            "audit_mismatch",
+            3,
+            serde_json::json!({
+                "blocksPath": blocks_path.to_string_lossy(),
+                "receiptsPath": receipts_path.to_string_lossy(),
+                "detail": err.to_string(),
+            }),
+        );
+    });
     let reputation_events_exported = if let Some(path) = export_reputation_events {
         export_reputation_event_rows(path, &report.settlement.reputation_deltas)?
     } else {
@@ -980,34 +996,12 @@ fn export_reputation_event_rows(
     Ok(deltas.len() as u64)
 }
 
-fn read_ndjson<T>(path: &Path) -> anyhow::Result<Vec<T>>
-where
-    T: serde::de::DeserializeOwned,
-{
-    let raw = std::fs::read_to_string(path)?;
-    raw.lines()
-        .enumerate()
-        .filter_map(|(idx, line)| {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some((idx, trimmed))
-            }
-        })
-        .map(|(idx, line)| {
-            serde_json::from_str(line).map_err(|err| {
-                anyhow::anyhow!("{}:{} invalid ndjson: {}", path.display(), idx + 1, err)
-            })
-        })
-        .collect()
-}
-
 /// NDJSON reader that emits typed error envelopes directly via
 /// [`emit_typed_error`] (exit 2 with `reason="{resource}_unreadable"`
 /// for I/O and `"{resource}_invalid"` for parse errors), so command
 /// surfaces using it do not have to translate anyhow into the typed
-/// dialect themselves. Used by `chain audit-receipts` (P2.5).
+/// dialect themselves. Used by `chain audit-receipts` and
+/// `chain settlement-report` (P2.5).
 fn read_ndjson_or_emit_typed_error<T>(path: &Path, resource: &str) -> Vec<T>
 where
     T: serde::de::DeserializeOwned,
