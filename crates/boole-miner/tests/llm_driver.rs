@@ -590,6 +590,30 @@ fn test_std_process_runner_kills_long_running_child_on_timeout() {
     assert!(matches!(err, ProcessError::Timeout { .. }), "got {err:?}");
 }
 
+// P1.10 — every spawned LLM agent CLI runs in a wiped environment so
+// the miner's parent secrets (LLM API keys via env, AWS_* tokens, ssh
+// agent sockets, etc.) cannot leak into an opaque third-party process.
+// Mirrors the `configure_child_environment` discipline already enforced
+// in `boole-lean-runner` for the Lean checker child.
+#[test]
+fn test_std_process_runner_clears_parent_env_before_spawn() {
+    let runner = StdProcessRunner;
+    let out = runner
+        .run("/usr/bin/env", &[], None, Duration::from_secs(5))
+        .expect("/usr/bin/env must exist on macOS and Linux dev hosts");
+    let env_text = String::from_utf8_lossy(&out);
+    // cargo always exports CARGO=* and RUST_* into the test process. If
+    // either appears in the child's env, env_clear has not run.
+    assert!(
+        !env_text.lines().any(|l| l.starts_with("CARGO=")),
+        "child env must not inherit CARGO=*; saw:\n{env_text}"
+    );
+    assert!(
+        !env_text.lines().any(|l| l.starts_with("RUST_")),
+        "child env must not inherit RUST_*; saw:\n{env_text}"
+    );
+}
+
 // --- HttpRunner mock + OpenAiCompatDriver --------------------------------
 
 #[derive(Default, Debug)]

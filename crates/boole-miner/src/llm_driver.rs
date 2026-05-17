@@ -238,6 +238,21 @@ pub trait ProcessRunner: Send + Sync {
 
 pub struct StdProcessRunner;
 
+// P1.10 — every spawned LLM agent CLI runs in a wiped environment so
+// miner parent secrets (LLM API keys held in env, AWS_* tokens, ssh
+// agent sockets, etc.) cannot leak into an opaque third-party process.
+// Mirrors the `configure_child_environment` discipline already enforced
+// in `boole-lean-runner` for the Lean checker child.
+fn configure_child_environment(command: &mut Command) {
+    command.env_clear();
+    let path = std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".to_string());
+    command.env("PATH", path);
+    if let Ok(home) = std::env::var("HOME") {
+        command.env("HOME", home);
+    }
+    command.env("LANG", "C.UTF-8");
+}
+
 impl ProcessRunner for StdProcessRunner {
     fn run(
         &self,
@@ -248,6 +263,7 @@ impl ProcessRunner for StdProcessRunner {
     ) -> Result<Vec<u8>, ProcessError> {
         let mut cmd = Command::new(binary);
         cmd.args(args);
+        configure_child_environment(&mut cmd);
         if stdin_input.is_some() {
             cmd.stdin(Stdio::piped());
         }
