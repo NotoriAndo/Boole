@@ -872,9 +872,24 @@ fn replay_fixture(path: &Path, json: bool) -> anyhow::Result<()> {
 }
 
 fn audit_receipts(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyhow::Result<()> {
-    let blocks = read_ndjson::<boole_core::PersistedBlock>(blocks_path)?;
-    let receipts = read_ndjson::<boole_core::SubmitReceipt>(receipts_path)?;
-    let report = boole_core::audit_submit_receipts(&blocks, &receipts)?;
+    // P2.5 follow-up — split operator typos (exit 2, reason="*_unreadable"
+    // or "*_invalid") from audit refusal (exit 3, reason="audit_mismatch")
+    // so automation does not have to parse free-form anyhow detail.
+    let blocks =
+        read_ndjson_or_emit_typed_error::<boole_core::PersistedBlock>(blocks_path, "blocks");
+    let receipts =
+        read_ndjson_or_emit_typed_error::<boole_core::SubmitReceipt>(receipts_path, "receipts");
+    let report = boole_core::audit_submit_receipts(&blocks, &receipts).unwrap_or_else(|err| {
+        emit_typed_error(
+            "audit_mismatch",
+            3,
+            serde_json::json!({
+                "blocksPath": blocks_path.to_string_lossy(),
+                "receiptsPath": receipts_path.to_string_lossy(),
+                "detail": err.to_string(),
+            }),
+        );
+    });
     if json {
         println!(
             "{}",
@@ -983,6 +998,51 @@ where
         .map(|(idx, line)| {
             serde_json::from_str(line).map_err(|err| {
                 anyhow::anyhow!("{}:{} invalid ndjson: {}", path.display(), idx + 1, err)
+            })
+        })
+        .collect()
+}
+
+/// NDJSON reader that emits typed error envelopes directly via
+/// [`emit_typed_error`] (exit 2 with `reason="{resource}_unreadable"`
+/// for I/O and `"{resource}_invalid"` for parse errors), so command
+/// surfaces using it do not have to translate anyhow into the typed
+/// dialect themselves. Used by `chain audit-receipts` (P2.5).
+fn read_ndjson_or_emit_typed_error<T>(path: &Path, resource: &str) -> Vec<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let raw = std::fs::read_to_string(path).unwrap_or_else(|err| {
+        emit_typed_error(
+            &format!("{resource}_unreadable"),
+            2,
+            serde_json::json!({
+                "path": path.to_string_lossy(),
+                "detail": err.to_string(),
+            }),
+        );
+    });
+    raw.lines()
+        .enumerate()
+        .filter_map(|(idx, line)| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some((idx, trimmed))
+            }
+        })
+        .map(|(idx, line)| {
+            serde_json::from_str(line).unwrap_or_else(|err| {
+                emit_typed_error(
+                    &format!("{resource}_invalid"),
+                    2,
+                    serde_json::json!({
+                        "path": path.to_string_lossy(),
+                        "line": idx + 1,
+                        "detail": err.to_string(),
+                    }),
+                );
             })
         })
         .collect()

@@ -169,6 +169,192 @@ fn cli_chain_replay_rejects_tampered_blocks_with_replay_mismatch() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn cli_chain_audit_receipts_rejects_missing_blocks_with_typed_bad_request() {
+    // P2.5 follow-up — missing --blocks path is a usage error; exit 2
+    // with reason="blocks_unreadable" mirrors the `state verify` dialect
+    // so automation can distinguish operator typos from corruption.
+    let missing = std::env::temp_dir().join(format!(
+        "boole-cli-audit-missing-blocks-{}.ndjson",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&missing);
+    let receipts_dummy = std::env::temp_dir().join(format!(
+        "boole-cli-audit-missing-blocks-receipts-{}.ndjson",
+        std::process::id()
+    ));
+    std::fs::write(&receipts_dummy, b"").expect("write empty receipts");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "chain",
+            "audit-receipts",
+            "--blocks",
+            missing.to_str().expect("utf8 blocks path"),
+            "--receipts",
+            receipts_dummy.to_str().expect("utf8 receipts path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "missing blocks must exit 2; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["reason"], "blocks_unreadable");
+
+    let _ = std::fs::remove_file(&receipts_dummy);
+}
+
+#[test]
+fn cli_chain_audit_receipts_rejects_missing_receipts_with_typed_bad_request() {
+    // P2.5 follow-up — missing --receipts path is a usage error; exit 2
+    // with reason="receipts_unreadable". Same dialect as blocks_unreadable
+    // so operators get an immediately-recognizable failure mode.
+    let dir = std::env::temp_dir().join(format!(
+        "boole-cli-audit-missing-receipts-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let blocks_dummy = dir.join("blocks.ndjson");
+    std::fs::write(&blocks_dummy, b"").expect("write empty blocks");
+    let missing_receipts = dir.join("receipts-missing.ndjson");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "chain",
+            "audit-receipts",
+            "--blocks",
+            blocks_dummy.to_str().expect("utf8 blocks path"),
+            "--receipts",
+            missing_receipts.to_str().expect("utf8 receipts path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "missing receipts must exit 2; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["reason"], "receipts_unreadable");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cli_chain_audit_receipts_rejects_malformed_blocks_with_typed_bad_request() {
+    // P2.5 follow-up — invalid JSON inside --blocks is also a usage
+    // error (operator handed the wrong file); exit 2 with
+    // reason="blocks_invalid" so it stays distinct from corruption (3).
+    let dir = std::env::temp_dir().join(format!(
+        "boole-cli-audit-malformed-blocks-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let blocks_path = dir.join("blocks.ndjson");
+    std::fs::write(&blocks_path, b"{not valid json}\n").expect("write malformed blocks");
+    let receipts_path = dir.join("receipts.ndjson");
+    std::fs::write(&receipts_path, b"").expect("write empty receipts");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "chain",
+            "audit-receipts",
+            "--blocks",
+            blocks_path.to_str().expect("utf8 blocks path"),
+            "--receipts",
+            receipts_path.to_str().expect("utf8 receipts path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "malformed blocks must exit 2; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["reason"], "blocks_invalid");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cli_chain_audit_receipts_rejects_mismatched_audit_with_typed_audit_mismatch() {
+    // P2.5 follow-up — a receipt that doesn't line up with the block log
+    // is a verifier refusal (chain says one thing, receipt says another).
+    // Exit 3 with reason="audit_mismatch" so it sits in the same family
+    // as state verify's replay_mismatch (corruption / operation refused).
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
+            .expect("fixture parses");
+    let dir = std::env::temp_dir().join(format!("boole-cli-audit-mismatch-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let blocks_path = dir.join("blocks.ndjson");
+    let receipts_path = dir.join("receipts.ndjson");
+    // Same write_audit_fixture_with_receipt tamper used by settlement
+    // tests: claim rewardAmount=2 while block credits amount=1.
+    write_audit_fixture_with_receipt(
+        &fixture,
+        &blocks_path,
+        &receipts_path,
+        r#"{"schema":"boole.submit.receipt.v1","accepted":true,"route":"/submit","sessionPk":"9999999999999999999999999999999999999999999999999999999999999999","submittedBy":"9999999999999999999999999999999999999999999999999999999999999999","nonce":"n-audit-1","requestHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","blockHeight":0,"blockC":"4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d","shareHash":"0101010101010101010101010101010101010101010101010101010101010101","proposerPk":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rewardRecipient":"1111111111111111111111111111111111111111111111111111111111111111","rewardAmount":"2"}"#,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "chain",
+            "audit-receipts",
+            "--blocks",
+            blocks_path.to_str().expect("utf8 blocks path"),
+            "--receipts",
+            receipts_path.to_str().expect("utf8 receipts path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "mismatched audit must exit 3; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["reason"], "audit_mismatch");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CliAuditReceiptsOutput {
