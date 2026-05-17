@@ -129,11 +129,68 @@ fn cli_state_verify_rejects_a_tampered_block_log_with_nonzero_exit() {
         .output()
         .expect("run boole-cli");
 
-    assert!(
-        !output.status.success(),
-        "tampered block log must produce nonzero exit; stdout={}",
-        String::from_utf8_lossy(&output.stdout)
+    // P2.5 — replay failure is an operation refusal, not a usage error;
+    // exit code 3 mirrors the rest of the CLI surface so automation can
+    // distinguish "bad invocation" (2) from "state is corrupt" (3).
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "tampered block log must exit with code 3; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // P2.5 — error envelope on stderr mirrors emit_typed_error: a
+    // structured `{ok:false, reason, ...}` shape so downstream tools
+    // don't have to parse free-form messages.
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let envelope: serde_json::Value =
+        serde_json::from_str(stderr_text.trim()).expect("stderr is a JSON envelope");
+    assert_eq!(envelope.get("ok"), Some(&serde_json::Value::Bool(false)));
+    assert_eq!(
+        envelope.get("reason").and_then(|v| v.as_str()),
+        Some("replay_mismatch")
     );
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn cli_state_verify_rejects_missing_block_log_with_typed_bad_request() {
+    // --blocks pointing at a nonexistent path is a usage error from
+    // the operator's perspective, not a state corruption. Exit code 2
+    // (bad invocation) keeps it distinct from replay failures.
+    let nonexistent = std::env::temp_dir().join(format!(
+        "boole-cli-state-verify-missing-{}.ndjson",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&nonexistent);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "state",
+            "verify",
+            "--blocks",
+            nonexistent.to_str().expect("utf8 path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "missing blocks file must exit with code 2; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr_text = String::from_utf8_lossy(&output.stderr);
+    let envelope: serde_json::Value =
+        serde_json::from_str(stderr_text.trim()).expect("stderr is a JSON envelope");
+    assert_eq!(envelope.get("ok"), Some(&serde_json::Value::Bool(false)));
+    assert_eq!(
+        envelope.get("reason").and_then(|v| v.as_str()),
+        Some("blocks_unreadable")
+    );
 }

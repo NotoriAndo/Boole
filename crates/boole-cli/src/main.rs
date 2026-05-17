@@ -765,9 +765,41 @@ struct ReplayFixture {
 /// exercises the exact same shape contract the node enforces at boot.
 /// No state-dir lock is acquired; the file is opened read-only so this
 /// is safe to run against a live node's blocks file.
+///
+/// P2.5 — failures emit a typed `{ok:false, reason, ...}` envelope on
+/// stderr and exit with the rest-of-CLI contract: 2 for operator/usage
+/// errors (missing file), 3 for replay/state corruption.
 fn state_verify(blocks_path: &Path, json: bool) -> anyhow::Result<()> {
-    let store = boole_node::FileBlockStore::recover(blocks_path)?;
-    let replay = boole_core::replay_blocks(store.blocks())?;
+    if !blocks_path.exists() {
+        emit_typed_error(
+            "blocks_unreadable",
+            2,
+            serde_json::json!({
+                "blocksPath": blocks_path.to_string_lossy(),
+                "detail": "blocks file does not exist",
+            }),
+        );
+    }
+    let store = boole_node::FileBlockStore::recover(blocks_path).unwrap_or_else(|err| {
+        emit_typed_error(
+            "replay_mismatch",
+            3,
+            serde_json::json!({
+                "blocksPath": blocks_path.to_string_lossy(),
+                "detail": err.to_string(),
+            }),
+        );
+    });
+    let replay = boole_core::replay_blocks(store.blocks()).unwrap_or_else(|err| {
+        emit_typed_error(
+            "replay_mismatch",
+            3,
+            serde_json::json!({
+                "blocksPath": blocks_path.to_string_lossy(),
+                "detail": err.to_string(),
+            }),
+        );
+    });
     let block_count = store.size() as u64;
     if json {
         println!(
