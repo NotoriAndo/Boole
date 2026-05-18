@@ -157,13 +157,13 @@ impl LeanRunner {
         configure_child_environment(&mut command);
         configure_child_sandbox(&mut command, &self.config);
 
-        let mut child = command.spawn().with_context(|| {
+        let mut child = ChildKillOnDrop::new(command.spawn().with_context(|| {
             format!(
                 "failed to run lake exec {} in {}",
                 self.config.checker_exe,
                 self.config.package_dir.display()
             )
-        })?;
+        })?);
 
         let output_limit = self.config.output_limit_bytes;
         let stdout_pipe = child
@@ -502,6 +502,60 @@ fn kill_child_group(child: &mut Child) {
     let _ = child.kill();
 }
 
+// P1.7 — defense-in-depth wrapper that SIGKILLs and reaps the wrapped
+// child if the guard is dropped while the child is still running. This
+// closes the leak window between `Command::spawn` and the normal
+// `child.wait()` path in `check_proof`: an early `?` propagation, a
+// panic, or an upstream task cancellation (axum TimeoutLayer dropping
+// the future before our own timeout loop fires) would otherwise leave
+// the lake/lean subprocess alive until its RLIMIT_CPU cap eventually
+// trips minutes later.
+//
+// `Deref`/`DerefMut` proxy to the inner `Child` so the existing
+// timeout-loop code (`child.stdout.take()`, `child.try_wait()`,
+// `child.wait()`) compiles unchanged. The Drop path is a no-op once
+// the child has been reaped normally: `try_wait` returns
+// `Ok(Some(_))` and the SIGKILL branch is skipped.
+pub(crate) struct ChildKillOnDrop(Option<Child>);
+
+impl ChildKillOnDrop {
+    pub(crate) fn new(child: Child) -> Self {
+        Self(Some(child))
+    }
+}
+
+impl std::ops::Deref for ChildKillOnDrop {
+    type Target = Child;
+    fn deref(&self) -> &Child {
+        self.0
+            .as_ref()
+            .expect("child already taken from ChildKillOnDrop")
+    }
+}
+
+impl std::ops::DerefMut for ChildKillOnDrop {
+    fn deref_mut(&mut self) -> &mut Child {
+        self.0
+            .as_mut()
+            .expect("child already taken from ChildKillOnDrop")
+    }
+}
+
+impl Drop for ChildKillOnDrop {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            // try_wait surfaces the same status the caller's wait()
+            // returned earlier; only SIGKILL when the child is still
+            // unreaped (Ok(None)) or its state is unreadable.
+            let still_running = matches!(child.try_wait(), Ok(None) | Err(_));
+            if still_running {
+                kill_child_group(&mut child);
+                let _ = child.wait();
+            }
+        }
+    }
+}
+
 // Files the artifact hash always pins, in order. Anything outside this list
 // must come from the recursive `BooleCheck/**` walk below.
 const CHECKER_PINNED_FILES: &[&str] = &["lean-toolchain", "lakefile.lean", "lake-manifest.json"];
@@ -633,5 +687,69 @@ mod tests {
     #[test]
     fn ignores_sorry_in_line_comment() {
         assert!(!contains_sorry_token(strip_line_comment("foo -- sorry")));
+    }
+
+    // P1.7 — `ChildKillOnDrop` is the defense-in-depth backstop that
+    // prevents a lake/lean subprocess from leaking when the calling
+    // function returns early — e.g., axum's `TimeoutLayer` drops the
+    // future before the timeout-loop reaches `kill_child_group`, or a
+    // mid-function `?` propagates an unrelated error. Without it, the
+    // child stays alive until its `RLIMIT_CPU` cap fires (could be
+    // minutes); with it, dropping the guard SIGKILLs the whole process
+    // group and reaps the zombie.
+    //
+    // We test the guard by spawning `/bin/sleep 60`, dropping the
+    // guard, and confirming the pid is gone (`kill(pid, 0)` returns
+    // ESRCH). The 60-second sleep gives the test plenty of slack on a
+    // slow CI box without relying on wall-clock timing.
+    #[cfg(unix)]
+    #[test]
+    fn child_kill_on_drop_kills_orphaned_unix_child() {
+        let mut cmd = Command::new("/bin/sleep");
+        cmd.arg("60");
+        let child = cmd.spawn().expect("spawn sleep child");
+        let pid = child.id() as libc::pid_t;
+        {
+            let _guard = ChildKillOnDrop::new(child);
+            // guard dropped at end of scope -> SIGKILL + wait
+        }
+        // Give the kernel a few ms to deliver SIGKILL and update the
+        // process table. Polling is bounded to ~500ms so a regression
+        // (drop did not kill) surfaces as a real failure, not a hang.
+        let mut still_alive = true;
+        for _ in 0..50 {
+            let rc = unsafe { libc::kill(pid, 0) };
+            if rc == -1 {
+                let err = std::io::Error::last_os_error().raw_os_error();
+                if err == Some(libc::ESRCH) {
+                    still_alive = false;
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            !still_alive,
+            "ChildKillOnDrop must SIGKILL+reap the child on Drop; pid \
+             {pid} still exists"
+        );
+    }
+
+    // If the caller drains the child normally via `wait()`, dropping
+    // the guard afterward must be a no-op — try_wait should observe
+    // the already-reaped status and skip the kill path so we don't
+    // double-wait on a zombie that no longer exists.
+    #[cfg(unix)]
+    #[test]
+    fn child_kill_on_drop_is_noop_after_wait() {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c").arg("exit 0");
+        let child = cmd.spawn().expect("spawn /bin/sh");
+        let mut guard = ChildKillOnDrop::new(child);
+        let status = guard.wait().expect("wait child");
+        assert!(status.success());
+        // Drop runs at end of scope; the assertion is simply that we
+        // don't panic or hang. Drop's `try_wait` returns
+        // `Ok(Some(status))` so the SIGKILL branch never fires.
     }
 }
