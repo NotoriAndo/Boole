@@ -77,6 +77,35 @@ class WorkspaceInvariantsContractTests(unittest.TestCase):
             "contract, not dead declaration",
         )
 
+    def test_every_member_opts_into_workspace_lints(self) -> None:
+        """P0.6b: with the workspace deny set live, every member crate
+        must inherit it. A new crate that forgets `[lints] workspace =
+        true` would silently opt out of `unsafe_code = "deny"` and any
+        future workspace-wide policy (clippy.too_many_lines, etc.), so
+        the gate must enumerate members rather than trust convention.
+
+        boole-lean-runner needs `unsafe` for libc rlimit syscalls used
+        in Lean child sandboxing; rather than carve out a per-crate
+        manifest exception (which would skip the workspace opt-in
+        entirely), it inherits `[lints] workspace = true` and locally
+        relaxes the deny set via a crate-root `#![allow(unsafe_code)]`
+        attribute. That keeps the manifest gate uniform while still
+        documenting the unsafe boundary in code."""
+        missing: list[str] = []
+        for cargo_toml in sorted((ROOT / "crates").glob("*/Cargo.toml")):
+            body = _read(cargo_toml)
+            if not re.search(
+                r"\[lints\]\s*\n[^\[]*?workspace\s*=\s*true", body, flags=re.DOTALL
+            ):
+                missing.append(cargo_toml.parent.name)
+        self.assertEqual(
+            missing,
+            [],
+            "P0.6b: every member crate must declare `[lints] workspace "
+            "= true` so the workspace deny set is enforced uniformly; "
+            f"missing: {missing}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

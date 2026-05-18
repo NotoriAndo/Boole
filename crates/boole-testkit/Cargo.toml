@@ -10,4 +10,9 @@ authors.workspace = true
 # [dev-dependencies] so a release build never sees the helper graph.
 publish = false
 
+# P0.6b — inherit `[workspace.lints]` so the workspace-wide deny set
+# (currently `unsafe_code = "deny"`) is enforced uniformly on this crate.
+[lints]
+workspace = true
+
 [dependencies]

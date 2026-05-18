@@ -40,3 +40,8 @@ tower-http.workspace = true
 # link the mock surface; production crates must never depend on it.
 [dev-dependencies]
 boole-testkit = { path = "../boole-testkit" }
+
+# P0.6b — inherit `[workspace.lints]` so the workspace-wide deny set
+# (currently `unsafe_code = "deny"`) is enforced uniformly on this crate.
+[lints]
+workspace = true

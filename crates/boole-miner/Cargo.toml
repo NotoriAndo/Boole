@@ -41,3 +41,8 @@ boole-testkit = { path = "../boole-testkit" }
 [[bin]]
 name = "boole-miner"
 path = "src/bin/boole-miner.rs"
+
+# P0.6b — inherit `[workspace.lints]` so the workspace-wide deny set
+# (currently `unsafe_code = "deny"`) is enforced uniformly on this crate.
+[lints]
+workspace = true

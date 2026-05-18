@@ -20,6 +20,15 @@
 //!   the checker runs; Lean's checker compiles `sorry` as a warning and would
 //!   otherwise return success.
 
+// P0.6b — boole-lean-runner is the trusted OS-syscall boundary: configuring
+// rlimits via `pre_exec` and killing process groups requires `unsafe` libc
+// calls. Every other workspace member inherits `[workspace.lints.rust]
+// unsafe_code = "deny"` via `[lints] workspace = true`; this crate inherits
+// the same opt-in for forward compatibility with future workspace lints but
+// locally relaxes the unsafe deny here, keeping the carve-out documented in
+// code rather than hidden in a manifest exception.
+#![allow(unsafe_code)]
+
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

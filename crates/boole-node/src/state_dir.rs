@@ -202,6 +202,11 @@ pub fn ensure_manifest(dir: &Path, expected: &StateManifest) -> Result<(), State
 }
 
 #[cfg(unix)]
+// P0.6b — boole-node inherits the workspace `unsafe_code = "deny"` lint.
+// The advisory state-dir lock requires a single libc::flock syscall that
+// has no safe wrapper in std; scoping the allow to this one function
+// keeps the rest of the crate under the deny gate.
+#[allow(unsafe_code)]
 fn flock_exclusive_nonblocking(file: &File) -> std::io::Result<()> {
     use std::os::unix::io::AsRawFd;
     let fd = file.as_raw_fd();

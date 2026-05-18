@@ -15,3 +15,10 @@ thiserror.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+# P0.6b — inherit the workspace deny set. `unsafe_code` is locally relaxed
+# via a crate-root `#![allow(unsafe_code)]` attribute in src/lib.rs so the
+# carve-out for libc rlimit/setpgid/killpg syscalls is documented in code
+# rather than via a manifest exception.
+[lints]
+workspace = true

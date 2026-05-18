@@ -31,3 +31,8 @@ thiserror.workspace = true
 # P0.1b — shared test helpers (rand_suffix). Path-only, dev-only so the
 # release graph never links boole-testkit.
 boole-testkit = { path = "../boole-testkit" }
+
+# P0.6b — inherit `[workspace.lints]` so the workspace-wide deny set
+# (currently `unsafe_code = "deny"`) is enforced uniformly on this crate.
+[lints]
+workspace = true
