@@ -951,16 +951,48 @@ async fn live_handler() -> Response {
     (StatusCode::OK, Json(json!({ "ok": true, "probe": "live" }))).into_response()
 }
 
-/// P2.6 — `/ready` is the orchestrator readiness probe. Today the boot
-/// path is synchronous: `serve_local_node` only starts accepting
-/// connections after the runtime, registries, and ledger replays have
-/// finished, so a reachable route equals a ready node. A future slice
-/// (graceful shutdown, P2.7) can flip this to `503` once a drain has
-/// begun.
-async fn ready_handler() -> Response {
+/// P2.6 — `/ready` is the orchestrator readiness probe. It must
+/// evaluate the real readiness preconditions on every request and
+/// surface a structured `503 Service Unavailable` envelope when any
+/// precondition fails. A static `200 OK` would let orchestrators
+/// route traffic to a divergent node — the 2026-05-18 design review
+/// (concern #4) flagged exactly that gap (endpoint existence ≠
+/// readiness correctness).
+///
+/// The body always carries a `checks` object naming each precondition
+/// individually, so future slices can add more preconditions
+/// (state-dir lock held, Lean checker configured-or-explicitly-disabled,
+/// ledgers loaded) without breaking the response shape. The top-level
+/// `reason` field names the first failing precondition so operators
+/// can diagnose without scraping logs.
+async fn ready_handler(State(state): State<AppState>) -> Response {
+    let guard = state.inner.read().await;
+    let replay_matches_runtime = compute_replay_matches_runtime(&guard);
+    drop(guard);
+
+    if !replay_matches_runtime {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "probe": "ready",
+                "reason": "replay_runtime_mismatch",
+                "checks": {
+                    "replay_matches_runtime": false,
+                },
+            })),
+        )
+            .into_response();
+    }
     (
         StatusCode::OK,
-        Json(json!({ "ok": true, "probe": "ready" })),
+        Json(json!({
+            "ok": true,
+            "probe": "ready",
+            "checks": {
+                "replay_matches_runtime": true,
+            },
+        })),
     )
         .into_response()
 }
