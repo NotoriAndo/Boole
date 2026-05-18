@@ -1060,6 +1060,44 @@ fn resolve_node_binary() -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from("boole-node"))
 }
 
+// P1.10 — wipe the parent process env before spawning `boole-node` so
+// secrets the operator may keep in shell env (LLM API keys, AWS_*
+// tokens, SSH agent sockets, x402 payment keys, etc.) cannot leak into
+// the spawned node. We forward PATH/HOME/LANG for basic POSIX hygiene
+// and the entire `BOOLE_*` prefix because the node reads its own knobs
+// (BOOLE_NETWORK_ID, BOOLE_STATE_DIR, etc.) from env via clap's `env`
+// attribute and wiping them would silently change `boole node start`
+// behavior. The pure variant takes a parent-env iterator so the policy
+// is unit-testable without touching the real process env.
+fn configure_node_child_environment_from<I, K, V>(
+    command: &mut std::process::Command,
+    parent_env: I,
+) where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    command.env_clear();
+    let mut had_lang = false;
+    for (key, value) in parent_env {
+        let key = key.as_ref();
+        let value = value.as_ref();
+        if key == "PATH" || key == "HOME" || key.starts_with("BOOLE_") {
+            command.env(key, value);
+        } else if key == "LANG" {
+            command.env(key, value);
+            had_lang = true;
+        }
+    }
+    if !had_lang {
+        command.env("LANG", "C.UTF-8");
+    }
+}
+
+fn configure_node_child_environment(command: &mut std::process::Command) {
+    configure_node_child_environment_from(command, std::env::vars());
+}
+
 fn node_start(
     port: Option<u16>,
     data_dir: &Path,
@@ -1079,6 +1117,7 @@ fn node_start(
     let node_bin = resolve_node_binary()?;
 
     let mut command = std::process::Command::new(&node_bin);
+    configure_node_child_environment(&mut command);
     command.arg("run-local");
     if let Some(port) = port {
         command.arg("--port").arg(port.to_string());
@@ -2620,4 +2659,141 @@ fn keys_verify(pk: &str, signature: &str, payload_arg: &str, json: bool) -> anyh
         println!("invalid");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::process::Command;
+
+    fn collect_envs(cmd: &Command) -> HashMap<String, Option<String>> {
+        cmd.get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|s| s.to_string_lossy().into_owned()),
+                )
+            })
+            .collect()
+    }
+
+    // P1.10 — every subprocess spawn in the production CLI must wipe the
+    // parent process environment so secrets that the operator may keep in
+    // shell env (LLM API keys, AWS_* tokens, SSH agent sockets, x402
+    // payment keys) do not leak into a spawned `boole-node`. The
+    // operator's own `BOOLE_*` config namespace is the one exception: the
+    // node reads its own knobs (BOOLE_NETWORK_ID, BOOLE_STATE_DIR, etc.)
+    // from env via clap's `env` attribute, so wiping them would silently
+    // change `boole node start` behavior. We forward the BOOLE_* prefix
+    // by-policy rather than by-name allowlist so a future operator knob
+    // does not have to be re-added to a list.
+    #[test]
+    fn configure_node_child_environment_wipes_secrets_and_forwards_boole_prefix() {
+        let parent = vec![
+            ("AWS_SECRET_ACCESS_KEY", "leakage-bait"),
+            ("SSH_AUTH_SOCK", "/tmp/ssh.sock"),
+            ("OPENAI_API_KEY", "sk-leak"),
+            ("BOOLE_NETWORK_ID", "testnet-local"),
+            ("BOOLE_LLM_API_KEY", "miner-secret-stays-with-operator"),
+            ("PATH", "/usr/local/bin:/usr/bin"),
+            ("HOME", "/home/operator"),
+            ("LANG", "en_US.UTF-8"),
+        ];
+        let mut cmd = Command::new("/bin/true");
+        configure_node_child_environment_from(&mut cmd, parent);
+        let envs = collect_envs(&cmd);
+
+        assert!(
+            !envs.contains_key("AWS_SECRET_ACCESS_KEY"),
+            "non-BOOLE secrets must not leak to the spawned node"
+        );
+        assert!(
+            !envs.contains_key("SSH_AUTH_SOCK"),
+            "non-BOOLE infra sockets must not leak"
+        );
+        assert!(
+            !envs.contains_key("OPENAI_API_KEY"),
+            "third-party API keys must not leak"
+        );
+
+        assert_eq!(
+            envs.get("BOOLE_NETWORK_ID"),
+            Some(&Some("testnet-local".to_string())),
+            "BOOLE_* operator config must be forwarded"
+        );
+        assert_eq!(
+            envs.get("BOOLE_LLM_API_KEY"),
+            Some(&Some("miner-secret-stays-with-operator".to_string())),
+            "BOOLE_* prefix is forwarded by-policy, including operator's \
+             own secrets; the operator owns this namespace"
+        );
+
+        assert_eq!(
+            envs.get("PATH").and_then(|v| v.as_deref()),
+            Some("/usr/local/bin:/usr/bin"),
+            "PATH must be forwarded so the child can resolve helpers"
+        );
+        assert_eq!(
+            envs.get("HOME").and_then(|v| v.as_deref()),
+            Some("/home/operator"),
+            "HOME must be forwarded so the child can resolve config paths"
+        );
+        assert_eq!(
+            envs.get("LANG").and_then(|v| v.as_deref()),
+            Some("en_US.UTF-8"),
+            "LANG must be forwarded for deterministic locale handling"
+        );
+    }
+
+    #[test]
+    fn configure_node_child_environment_supplies_lang_default_when_parent_omits_it() {
+        let parent: Vec<(&str, &str)> = vec![("PATH", "/usr/bin")];
+        let mut cmd = Command::new("/bin/true");
+        configure_node_child_environment_from(&mut cmd, parent);
+        let envs = collect_envs(&cmd);
+        assert_eq!(
+            envs.get("LANG").and_then(|v| v.as_deref()),
+            Some("C.UTF-8"),
+            "LANG must default to C.UTF-8 if the parent did not set it, \
+             matching the `configure_child_environment` policy used by \
+             boole-miner and boole-lean-runner",
+        );
+    }
+
+    #[test]
+    fn configure_node_child_environment_does_not_set_path_when_parent_omits_it() {
+        // PATH absence is a degenerate operator setup; we do not invent
+        // a default because the wrong default could mask a missing
+        // BOOLE_NODE_BIN sibling. The child's `execvp` will fail loudly
+        // instead, which is the right behavior.
+        let parent: Vec<(&str, &str)> = vec![];
+        let mut cmd = Command::new("/bin/true");
+        configure_node_child_environment_from(&mut cmd, parent);
+        let envs = collect_envs(&cmd);
+        assert!(
+            !envs.contains_key("PATH"),
+            "PATH is not synthesized when parent omits it; child execvp \
+             surfaces the missing PATH as a real failure",
+        );
+        // Sanity: LANG still defaults so downstream locale-sensitive
+        // parsing stays deterministic.
+        assert_eq!(envs.get("LANG").and_then(|v| v.as_deref()), Some("C.UTF-8"));
+    }
+
+    #[test]
+    fn configure_node_child_environment_calls_env_clear_so_real_parent_env_is_invisible() {
+        // Smoke: even without a synthesized parent iterator, the helper
+        // must call `env_clear` so when the real CLI invokes it in
+        // `node_start`, std::process inherits *nothing* by default and
+        // only the policy-forwarded keys reach the child.
+        let mut cmd = Command::new("/bin/true");
+        cmd.env("DOES_NOT_MATTER", "before");
+        configure_node_child_environment_from(&mut cmd, std::iter::empty::<(&str, &str)>());
+        let envs = collect_envs(&cmd);
+        assert!(
+            !envs.contains_key("DOES_NOT_MATTER"),
+            "env_clear must wipe any prior override on the Command",
+        );
+    }
 }
