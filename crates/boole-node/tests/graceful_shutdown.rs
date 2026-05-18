@@ -94,6 +94,8 @@ fn external_shutdown_trigger_drains_and_returns_within_bounded_time() {
                 genesis_override: None,
                 state_dir: None,
                 network_id: None,
+                lean_checker_dir: None,
+                lean_checker_disabled: true,
             },
             trigger_for_thread,
         )

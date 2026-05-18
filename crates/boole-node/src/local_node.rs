@@ -219,6 +219,22 @@ pub struct LocalNodeConfig {
     /// `None`, the runtime defaults to `"boole-mvp"`. Ignored unless
     /// `state_dir` is set.
     pub network_id: Option<String>,
+    /// P2.6 b — Lean checker directory the operator selected at boot.
+    /// `Some(path)` means the proof-verification path is wired up via
+    /// `LeanBountyVerifier`; `None` means it was not configured at the
+    /// CLI. `/status` exposes this as `lean_checker_dir: <string|null>`
+    /// and `/ready` returns 503 when neither this nor
+    /// `lean_checker_disabled` is set — the master plan refuses to
+    /// silently accept a node that cannot verify proofs.
+    pub lean_checker_dir: Option<PathBuf>,
+    /// P2.6 b — Explicit opt-out of the Lean checker requirement, set by
+    /// the operator at boot via `--lean-checker-disabled` (testnet
+    /// only). When `true`, `/ready` does not 503 on a missing
+    /// `lean_checker_dir`; the operator is acknowledging that
+    /// submissions arriving at this node will not be Lean-verified.
+    /// When `false`, the boot-time choice must be `lean_checker_dir =
+    /// Some(_)` instead.
+    pub lean_checker_disabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -296,6 +312,16 @@ struct LocalNodeState {
     /// Optional append-only `ReceiptCommitment` ledger plus recovered index.
     receipt_commitment_ledger_path: Option<PathBuf>,
     receipt_store: Option<FileReceiptStore>,
+    /// P2.6 b — Lean checker directory the operator passed at boot, or
+    /// `None` if `--lean-checker-dir` was not supplied. Surfaced through
+    /// `/status.lean_checker_dir` and used by the `/ready` predicate.
+    lean_checker_dir: Option<PathBuf>,
+    /// P2.6 b — Explicit operator opt-out of the Lean checker
+    /// requirement (`--lean-checker-disabled`). When `true`, the
+    /// readiness predicate accepts a missing `lean_checker_dir` as an
+    /// acknowledged testnet configuration; when `false`, `/ready`
+    /// returns 503 until the operator picks one of the two options.
+    lean_checker_disabled: bool,
     /// RAII guard for the L7 state-directory `flock`. `Some` whenever the
     /// caller passed a `state_dir` in `LocalNodeConfig`; held for the
     /// lifetime of the node so a second process at the same directory
@@ -675,6 +701,8 @@ impl LocalNodeState {
             submit_receipt_ledger_path: config.submit_receipt_ledger_path,
             receipt_commitment_ledger_path: config.receipt_commitment_ledger_path,
             receipt_store,
+            lean_checker_dir: config.lean_checker_dir,
+            lean_checker_disabled: config.lean_checker_disabled,
             _state_dir_guard: state_dir_guard,
         })
     }
@@ -968,8 +996,20 @@ async fn live_handler() -> Response {
 async fn ready_handler(State(state): State<AppState>) -> Response {
     let guard = state.inner.read().await;
     let replay_matches_runtime = compute_replay_matches_runtime(&guard);
+    let lean_checker_configured = guard.lean_checker_dir.is_some() || guard.lean_checker_disabled;
     drop(guard);
 
+    let checks = json!({
+        "replay_matches_runtime": replay_matches_runtime,
+        "lean_checker_configured": lean_checker_configured,
+    });
+
+    // First failing precondition names the reason. Boot-time invariants
+    // (replay) take precedence over operator-config invariants (lean)
+    // so a divergent on-disk state is surfaced before the operator
+    // sees a "fix your CLI" message. The `checks` object always
+    // reports every precondition's individual status — operators get
+    // the full picture, not just the first failure.
     if !replay_matches_runtime {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -977,9 +1017,19 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
                 "ok": false,
                 "probe": "ready",
                 "reason": "replay_runtime_mismatch",
-                "checks": {
-                    "replay_matches_runtime": false,
-                },
+                "checks": checks,
+            })),
+        )
+            .into_response();
+    }
+    if !lean_checker_configured {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "probe": "ready",
+                "reason": "lean_checker_not_configured",
+                "checks": checks,
             })),
         )
             .into_response();
@@ -989,9 +1039,7 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
         Json(json!({
             "ok": true,
             "probe": "ready",
-            "checks": {
-                "replay_matches_runtime": true,
-            },
+            "checks": checks,
         })),
     )
         .into_response()
@@ -1756,6 +1804,14 @@ fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
         "bountySidePoolTotal": state.bounty_side_pool.total_share_count(),
         "promotedBountySharesCount": promoted.len(),
         "nodeStartedAt": state.started_at_ms,
+        // P2.6 b — Surface the operator's Lean-checker choice so a
+        // 503 on `/ready` (reason: lean_checker_not_configured) is
+        // diagnosable purely from HTTP without scraping logs.
+        "lean_checker_dir": state
+            .lean_checker_dir
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string()),
+        "lean_checker_disabled": state.lean_checker_disabled,
     }))
 }
 

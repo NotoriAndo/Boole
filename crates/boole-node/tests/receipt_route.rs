@@ -92,6 +92,8 @@ fn boot_with_receipt_store(max_requests: usize, receipt_store: Option<PathBuf>) 
                 genesis_override: None,
                 state_dir: None,
                 network_id: None,
+                lean_checker_dir: None,
+                lean_checker_disabled: true,
             },
         )
     });

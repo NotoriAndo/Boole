@@ -95,6 +95,17 @@ struct RunLocalArgs {
     receipt_commitment_ledger: Option<PathBuf>,
     #[arg(long = "lean-checker-dir", env = "LEAN_CHECKER_DIR")]
     lean_checker_dir: Option<PathBuf>,
+    /// P2.6 b — Explicit operator acknowledgement that proofs arriving
+    /// at this node will not be Lean-verified (testnet only). Without
+    /// either `--lean-checker-dir` or this flag, `/ready` returns 503
+    /// (`reason: "lean_checker_not_configured"`). The two flags are
+    /// mutually exclusive; supplying both is a misconfiguration.
+    #[arg(
+        long = "lean-checker-disabled",
+        default_value_t = false,
+        conflicts_with = "lean_checker_dir"
+    )]
+    lean_checker_disabled: bool,
     #[arg(long = "max-requests")]
     max_requests: Option<usize>,
     #[arg(long, env = "GENESIS_C")]
@@ -257,6 +268,12 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             );
             m
         });
+    if args.lean_checker_dir.is_none() {
+        eprintln!(
+            "boole-node local leanCheckerDir=<none> leanCheckerDisabled={}",
+            args.lean_checker_disabled
+        );
+    }
     if let Some(dir) = args.state_dir.as_ref() {
         eprintln!("boole-node local stateDir={}", dir.display());
     }
@@ -280,6 +297,8 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             genesis_override: args.genesis,
             state_dir: args.state_dir,
             network_id: args.network_id,
+            lean_checker_dir: args.lean_checker_dir,
+            lean_checker_disabled: args.lean_checker_disabled,
         },
     );
     match result {

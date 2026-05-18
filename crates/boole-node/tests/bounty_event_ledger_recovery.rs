@@ -85,6 +85,8 @@ fn boot_at(
                 genesis_override: None,
                 state_dir: None,
                 network_id: None,
+                lean_checker_dir: None,
+                lean_checker_disabled: true,
             },
         )
     });

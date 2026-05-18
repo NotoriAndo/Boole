@@ -1,15 +1,22 @@
-//! P2.6 — `/status.replayMatchesRuntime` must reflect the **current**
-//! disk-vs-runtime consistency state, not a static boot-time snapshot.
+//! P2.6 b (2026-05-18 design review concern #4 follow-on).
 //!
-//! Operators rely on the field to detect post-boot drift such as:
-//!   * Process-external tampering of the block file
-//!   * Filesystem rollback or partial truncation
-//!   * Disk-runtime divergence introduced by a future refactor
+//! Master plan line 297: "`--lean-checker-dir` missing is surfaced in
+//! `/status` as `lean_checker_dir: null` and in `/ready` as a 503.
+//! The node does not silently accept 'no proofs'."
 //!
-//! Contract: after the field has been observed `true` against an empty
-//! chain, writing a *new, runtime-bypassed* block to the durable file
-//! must flip the next /status read to `false`. A static boot-time value
-//! cannot satisfy this — only a per-request recomputation can.
+//! Operators must make an explicit choice at boot:
+//!   1. `--lean-checker-dir <path>`  — production / proof-required
+//!   2. `--lean-checker-disabled`    — testnet / proof-not-required
+//!
+//! A node booted without either flag is a misconfiguration: it would
+//! silently accept submissions that cannot be verified. `/ready`
+//! must return `503 Service Unavailable` with `reason:
+//! "lean_checker_not_configured"` so an orchestrator never routes
+//! traffic to such a node.
+//!
+//! This test boots a node with `lean_checker_dir: None` and
+//! `lean_checker_disabled: false` (the misconfigured combination)
+//! and asserts the structured envelope.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -18,8 +25,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use boole_core::PersistedBlock;
-use boole_node::{serve_local_node, FileBlockStore, LocalNodeConfig};
+use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::Value;
 
@@ -28,21 +34,6 @@ fn scenario_path() -> PathBuf {
         .join("../../fixtures/protocol/runtime-smoke/v1.json")
         .canonicalize()
         .expect("scenario path")
-}
-
-fn replay_fixture_block() -> PersistedBlock {
-    #[derive(serde::Deserialize)]
-    struct Fixture {
-        blocks: Vec<PersistedBlock>,
-    }
-    let fixture: Fixture =
-        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
-            .expect("replay fixture parses");
-    fixture
-        .blocks
-        .into_iter()
-        .next()
-        .expect("replay fixture has at least one block")
 }
 
 fn http_get(addr: SocketAddr, path: &str) -> (u16, Value) {
@@ -73,9 +64,9 @@ fn http_get(addr: SocketAddr, path: &str) -> (u16, Value) {
 }
 
 #[test]
-fn status_replay_matches_runtime_recomputes_on_each_request() {
+fn ready_returns_503_when_lean_checker_neither_configured_nor_explicitly_disabled() {
     let dir = std::env::temp_dir().join(format!(
-        "boole-node-replay-live-{}-{}",
+        "boole-ready-lean-{}-{}",
         std::process::id(),
         rand_suffix()
     ));
@@ -101,7 +92,7 @@ fn status_replay_matches_runtime_recomputes_on_each_request() {
                 bounty_event_ledger_path: None,
                 bounty_verifiers: None,
                 family_manifests_dir: None,
-                max_requests: Some(2),
+                max_requests: Some(1),
                 operator_signer_pks: vec![],
                 session_registry_path: None,
                 submit_nonce_ledger_path: None,
@@ -111,33 +102,51 @@ fn status_replay_matches_runtime_recomputes_on_each_request() {
                 state_dir: None,
                 network_id: None,
                 lean_checker_dir: None,
-                lean_checker_disabled: true,
+                lean_checker_disabled: false,
             },
         )
     });
     ready_rx.recv().expect("server ready");
     thread::sleep(Duration::from_millis(50));
 
-    let (status, body) = http_get(addr, "/status");
-    assert_eq!(status, 200, "first GET /status must return 200");
+    let (status, body) = http_get(addr, "/ready");
     assert_eq!(
-        body.get("replayMatchesRuntime"),
-        Some(&Value::Bool(true)),
-        "with no blocks committed, replay and runtime trivially agree, got {body}"
+        status, 503,
+        "GET /ready on a node booted without --lean-checker-dir and \
+         without --lean-checker-disabled must return 503; a 200 would \
+         let an orchestrator route traffic to a node that silently \
+         accepts unverifiable submissions. Body: {body}"
     );
-
-    let phantom = replay_fixture_block();
-    FileBlockStore::append(&block_path, &phantom)
-        .expect("bypass-append a phantom block to durable disk");
-
-    let (status2, body2) = http_get(addr, "/status");
-    assert_eq!(status2, 200, "second GET /status must return 200");
     assert_eq!(
-        body2.get("replayMatchesRuntime"),
+        body.get("ok"),
         Some(&Value::Bool(false)),
-        "after bypass-appending a phantom block to disk, the live check \
-         must report mismatch; a static boot-time value would still be true. \
-         Body: {body2}"
+        "/ready failure body must report ok=false, got {body}"
+    );
+    assert_eq!(
+        body.get("probe").and_then(Value::as_str),
+        Some("ready"),
+        "/ready failure body must still tag probe=\"ready\", got {body}"
+    );
+    assert_eq!(
+        body.get("reason").and_then(Value::as_str),
+        Some("lean_checker_not_configured"),
+        "/ready failure body must name the failure class so operators \
+         can diagnose without scraping logs, got {body}"
+    );
+    assert_eq!(
+        body.pointer("/checks/lean_checker_configured"),
+        Some(&Value::Bool(false)),
+        "/ready failure body must expose checks.lean_checker_configured \
+         = false so this precondition appears alongside future ones \
+         without breaking the shape, got {body}"
+    );
+    assert_eq!(
+        body.pointer("/checks/replay_matches_runtime"),
+        Some(&Value::Bool(true)),
+        "/ready must continue to report the replay precondition's \
+         status (true on a clean boot here) so the envelope conveys \
+         the full readiness picture, not just the first failure. \
+         Got {body}"
     );
 
     handle

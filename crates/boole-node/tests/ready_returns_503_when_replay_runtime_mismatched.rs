@@ -117,6 +117,8 @@ fn ready_returns_503_when_replay_runtime_diverges_post_boot() {
                 genesis_override: None,
                 state_dir: None,
                 network_id: None,
+                lean_checker_dir: None,
+                lean_checker_disabled: true,
             },
         )
     });
