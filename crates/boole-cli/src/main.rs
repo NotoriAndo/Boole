@@ -1060,15 +1060,39 @@ fn resolve_node_binary() -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from("boole-node"))
 }
 
-// P1.10 — wipe the parent process env before spawning `boole-node` so
-// secrets the operator may keep in shell env (LLM API keys, AWS_*
-// tokens, SSH agent sockets, x402 payment keys, etc.) cannot leak into
-// the spawned node. We forward PATH/HOME/LANG for basic POSIX hygiene
-// and the entire `BOOLE_*` prefix because the node reads its own knobs
-// (BOOLE_NETWORK_ID, BOOLE_STATE_DIR, etc.) from env via clap's `env`
-// attribute and wiping them would silently change `boole node start`
-// behavior. The pure variant takes a parent-env iterator so the policy
-// is unit-testable without touching the real process env.
+// P1.10c (follow-up, 2026-05-18 design review) — wipe the parent
+// process env before spawning `boole-node` so secrets the operator may
+// keep in shell env (LLM API keys, AWS_* tokens, SSH agent sockets,
+// x402 payment keys, etc.) cannot leak into the spawned node.
+//
+// The original P1.10 cut forwarded the entire `BOOLE_*` prefix, but
+// that prefix is shared across miner/wallet/signer surfaces. Keys like
+// `BOOLE_LLM_API_KEY`, `BOOLE_ALLOW_PAID_LLM`, `BOOLE_KEYS_DIR`,
+// `BOOLE_SESSIONS_DIR`, and `BOOLE_SIGNER_NONCE_DIR` are *not* node
+// knobs; forwarding them widens the leak surface env_clear was meant
+// to close. We instead apply a strict by-name allowlist of node-owned
+// env vars (those that `boole-node`'s `RunLocalArgs` reads via clap's
+// `env` attribute) plus the POSIX minimum (PATH, HOME, LANG). Adding a
+// new node-owned env var becomes an explicit edit to
+// `is_node_child_env_allowed`, which is the review gate.
+//
+// The pure variant takes a parent-env iterator so the policy is
+// unit-testable without touching the real process env.
+fn is_node_child_env_allowed(key: &str) -> bool {
+    matches!(
+        key,
+        "PATH"
+            | "HOME"
+            | "LANG"
+            | "BOOLE_STATE_DIR"
+            | "BOOLE_NETWORK_ID"
+            | "BOOLE_SESSION_REGISTRY_PATH"
+            | "BOOLE_SUBMIT_NONCE_LEDGER_PATH"
+            | "BOOLE_SUBMIT_RECEIPT_LEDGER_PATH"
+            | "BOOLE_RECEIPT_COMMITMENT_LEDGER_PATH"
+    )
+}
+
 fn configure_node_child_environment_from<I, K, V>(
     command: &mut std::process::Command,
     parent_env: I,
@@ -1082,10 +1106,11 @@ fn configure_node_child_environment_from<I, K, V>(
     for (key, value) in parent_env {
         let key = key.as_ref();
         let value = value.as_ref();
-        if key == "PATH" || key == "HOME" || key.starts_with("BOOLE_") {
-            command.env(key, value);
-        } else if key == "LANG" {
-            command.env(key, value);
+        if !is_node_child_env_allowed(key) {
+            continue;
+        }
+        command.env(key, value);
+        if key == "LANG" {
             had_lang = true;
         }
     }
@@ -2678,24 +2703,60 @@ mod tests {
             .collect()
     }
 
-    // P1.10 — every subprocess spawn in the production CLI must wipe the
-    // parent process environment so secrets that the operator may keep in
-    // shell env (LLM API keys, AWS_* tokens, SSH agent sockets, x402
-    // payment keys) do not leak into a spawned `boole-node`. The
-    // operator's own `BOOLE_*` config namespace is the one exception: the
-    // node reads its own knobs (BOOLE_NETWORK_ID, BOOLE_STATE_DIR, etc.)
-    // from env via clap's `env` attribute, so wiping them would silently
-    // change `boole node start` behavior. We forward the BOOLE_* prefix
-    // by-policy rather than by-name allowlist so a future operator knob
-    // does not have to be re-added to a list.
+    // P1.10c — every subprocess spawn in the production CLI must wipe
+    // the parent process environment so secrets the operator may keep
+    // in shell env (LLM API keys, AWS_* tokens, SSH agent sockets,
+    // x402 payment keys) do not leak into a spawned `boole-node`.
+    //
+    // The earlier slice (commit bc26562) forwarded the entire `BOOLE_*`
+    // prefix by-policy. The 2026-05-18 design review flagged that as
+    // too broad: `BOOLE_LLM_API_KEY`, `BOOLE_ALLOW_PAID_LLM`,
+    // `BOOLE_KEYS_DIR`, `BOOLE_SESSIONS_DIR`, `BOOLE_SIGNER_NONCE_DIR`
+    // all sit inside that prefix and belong to the miner/wallet/signer
+    // sides, not to a spawned node. Forwarding them widens the
+    // secret-leak surface that env_clear was supposed to close.
+    //
+    // The fix is a strict by-name allowlist of *node-owned* env vars
+    // (those that `boole-node`'s `RunLocalArgs` reads via clap's `env`
+    // attribute) plus the POSIX minimum (PATH, HOME, LANG). Anything
+    // else — including unrecognized `BOOLE_*` keys — is dropped.
     #[test]
-    fn configure_node_child_environment_wipes_secrets_and_forwards_boole_prefix() {
+    fn configure_node_child_environment_forwards_only_node_owned_env_allowlist() {
         let parent = vec![
+            // Non-BOOLE secrets — must never reach the child.
             ("AWS_SECRET_ACCESS_KEY", "leakage-bait"),
             ("SSH_AUTH_SOCK", "/tmp/ssh.sock"),
             ("OPENAI_API_KEY", "sk-leak"),
+            // BOOLE_ secrets that belong to miner/wallet/signer surfaces,
+            // not to a spawned node.
+            ("BOOLE_LLM_API_KEY", "miner-secret"),
+            ("BOOLE_ALLOW_PAID_LLM", "1"),
+            ("BOOLE_KEYS_DIR", "/op/keys"),
+            ("BOOLE_SESSIONS_DIR", "/op/sessions"),
+            ("BOOLE_SIGNER_NONCE_DIR", "/op/signer-nonces"),
+            // Unrecognized future BOOLE_ key — must also be dropped under
+            // strict allowlist so a new env var cannot bypass review.
+            ("BOOLE_FUTURE_KNOB", "speculative"),
+            // Node-owned env vars — must be forwarded.
             ("BOOLE_NETWORK_ID", "testnet-local"),
-            ("BOOLE_LLM_API_KEY", "miner-secret-stays-with-operator"),
+            ("BOOLE_STATE_DIR", "/var/boole/state"),
+            (
+                "BOOLE_SESSION_REGISTRY_PATH",
+                "/var/boole/state/sessions.ndjson",
+            ),
+            (
+                "BOOLE_SUBMIT_NONCE_LEDGER_PATH",
+                "/var/boole/state/submit-nonces.ndjson",
+            ),
+            (
+                "BOOLE_SUBMIT_RECEIPT_LEDGER_PATH",
+                "/var/boole/state/receipts.ndjson",
+            ),
+            (
+                "BOOLE_RECEIPT_COMMITMENT_LEDGER_PATH",
+                "/var/boole/state/receipt-commitments.ndjson",
+            ),
+            // POSIX minimum — must be forwarded.
             ("PATH", "/usr/local/bin:/usr/bin"),
             ("HOME", "/home/operator"),
             ("LANG", "en_US.UTF-8"),
@@ -2704,45 +2765,90 @@ mod tests {
         configure_node_child_environment_from(&mut cmd, parent);
         let envs = collect_envs(&cmd);
 
+        // Non-BOOLE secrets blocked.
+        assert!(!envs.contains_key("AWS_SECRET_ACCESS_KEY"));
+        assert!(!envs.contains_key("SSH_AUTH_SOCK"));
+        assert!(!envs.contains_key("OPENAI_API_KEY"));
+
+        // BOOLE_-prefixed secrets that belong to miner/wallet/signer,
+        // not to a spawned node — must also be blocked.
         assert!(
-            !envs.contains_key("AWS_SECRET_ACCESS_KEY"),
-            "non-BOOLE secrets must not leak to the spawned node"
+            !envs.contains_key("BOOLE_LLM_API_KEY"),
+            "BOOLE_LLM_API_KEY is a miner/LLM driver secret; the spawned \
+             node has no use for it and forwarding it widens the leak \
+             surface env_clear was supposed to close"
         );
         assert!(
-            !envs.contains_key("SSH_AUTH_SOCK"),
-            "non-BOOLE infra sockets must not leak"
+            !envs.contains_key("BOOLE_ALLOW_PAID_LLM"),
+            "BOOLE_ALLOW_PAID_LLM is a miner-side opt-in gate; the node \
+             does not consult it"
         );
         assert!(
-            !envs.contains_key("OPENAI_API_KEY"),
-            "third-party API keys must not leak"
+            !envs.contains_key("BOOLE_KEYS_DIR"),
+            "BOOLE_KEYS_DIR points at wallet/key material; the node has \
+             no business reading it"
+        );
+        assert!(
+            !envs.contains_key("BOOLE_SESSIONS_DIR"),
+            "BOOLE_SESSIONS_DIR is wallet-session-side state, not node \
+             state"
+        );
+        assert!(
+            !envs.contains_key("BOOLE_SIGNER_NONCE_DIR"),
+            "BOOLE_SIGNER_NONCE_DIR is signer-side nonce state, not node \
+             state"
         );
 
-        assert_eq!(
-            envs.get("BOOLE_NETWORK_ID"),
-            Some(&Some("testnet-local".to_string())),
-            "BOOLE_* operator config must be forwarded"
-        );
-        assert_eq!(
-            envs.get("BOOLE_LLM_API_KEY"),
-            Some(&Some("miner-secret-stays-with-operator".to_string())),
-            "BOOLE_* prefix is forwarded by-policy, including operator's \
-             own secrets; the operator owns this namespace"
+        // Strict allowlist: unrecognized BOOLE_ keys are also dropped so
+        // a new env var cannot silently bypass review.
+        assert!(
+            !envs.contains_key("BOOLE_FUTURE_KNOB"),
+            "unknown BOOLE_-prefixed env keys must be dropped under \
+             strict allowlist; promotion happens via explicit list edit"
         );
 
+        // Node-owned env vars forwarded.
+        assert_eq!(
+            envs.get("BOOLE_NETWORK_ID").and_then(|v| v.as_deref()),
+            Some("testnet-local")
+        );
+        assert_eq!(
+            envs.get("BOOLE_STATE_DIR").and_then(|v| v.as_deref()),
+            Some("/var/boole/state")
+        );
+        assert_eq!(
+            envs.get("BOOLE_SESSION_REGISTRY_PATH")
+                .and_then(|v| v.as_deref()),
+            Some("/var/boole/state/sessions.ndjson")
+        );
+        assert_eq!(
+            envs.get("BOOLE_SUBMIT_NONCE_LEDGER_PATH")
+                .and_then(|v| v.as_deref()),
+            Some("/var/boole/state/submit-nonces.ndjson")
+        );
+        assert_eq!(
+            envs.get("BOOLE_SUBMIT_RECEIPT_LEDGER_PATH")
+                .and_then(|v| v.as_deref()),
+            Some("/var/boole/state/receipts.ndjson")
+        );
+        assert_eq!(
+            envs.get("BOOLE_RECEIPT_COMMITMENT_LEDGER_PATH")
+                .and_then(|v| v.as_deref()),
+            Some("/var/boole/state/receipt-commitments.ndjson")
+        );
+
+        // POSIX minimum forwarded.
         assert_eq!(
             envs.get("PATH").and_then(|v| v.as_deref()),
             Some("/usr/local/bin:/usr/bin"),
-            "PATH must be forwarded so the child can resolve helpers"
         );
         assert_eq!(
             envs.get("HOME").and_then(|v| v.as_deref()),
             Some("/home/operator"),
-            "HOME must be forwarded so the child can resolve config paths"
         );
         assert_eq!(
             envs.get("LANG").and_then(|v| v.as_deref()),
             Some("en_US.UTF-8"),
-            "LANG must be forwarded for deterministic locale handling"
         );
     }
 
