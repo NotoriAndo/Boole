@@ -27,7 +27,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-const STATE_LOCK_FILE: &str = "state.lock";
+/// File name of the advisory `flock` target written under the operator's
+/// state directory. Exposed so the `/ready` predicate can confirm the
+/// lock file is still present at the expected path on every request.
+pub const STATE_LOCK_FILE: &str = "state.lock";
 const STATE_MANIFEST_FILE: &str = "state.manifest.json";
 
 /// Failures from the state-directory contract. Distinct variants so the

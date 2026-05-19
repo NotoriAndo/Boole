@@ -1005,12 +1005,14 @@ async fn live_handler() -> Response {
 async fn ready_handler(State(state): State<AppState>) -> Response {
     let guard = state.inner.read().await;
     let replay_matches_runtime = compute_replay_matches_runtime(&guard);
+    let state_dir_lock_held = compute_state_dir_lock_held(&guard);
     let lean_checker_configured = guard.lean_checker_dir.is_some() || guard.lean_checker_disabled;
     let ledgers_loaded = compute_ledgers_loaded(&guard);
     drop(guard);
 
     let checks = json!({
         "replay_matches_runtime": replay_matches_runtime,
+        "state_dir_lock_held": state_dir_lock_held,
         "lean_checker_configured": lean_checker_configured,
         "ledgers_loaded": ledgers_loaded,
     });
@@ -1018,13 +1020,16 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
     // First failing precondition names the reason. Boot-time invariants
     // (replay) take precedence over operator-config invariants (lean,
     // ledgers) so a divergent on-disk state is surfaced before the
-    // operator sees a "fix your CLI" message. Operator-config failures
-    // are ordered by how visible the symptom is on the wire: a missing
-    // lean checker means proofs get rejected (loud), a missing ledger
-    // means session-bound submits silently lose their audit row
-    // (quiet) — so lean is named first, then ledgers. The `checks`
-    // object always reports every precondition's individual status so
-    // operators get the full picture, not just the first failure.
+    // operator sees a "fix your CLI" message. Live runtime drift on
+    // the state-dir lock (the lock file disappearing while we still
+    // hold the FD) is checked second — a second boole-node could now
+    // attach to the same state, so traffic must stop before the
+    // operator-config issues. Within operator-config invariants the
+    // loud failure (missing lean checker -> proofs rejected) is named
+    // before the quiet one (missing ledger -> rows silently dropped).
+    // The `checks` object always reports every precondition's
+    // individual status so operators get the full picture, not just
+    // the first failure.
     if !replay_matches_runtime {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -1032,6 +1037,18 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
                 "ok": false,
                 "probe": "ready",
                 "reason": "replay_runtime_mismatch",
+                "checks": checks,
+            })),
+        )
+            .into_response();
+    }
+    if !state_dir_lock_held {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "probe": "ready",
+                "reason": "state_dir_lock_lost",
                 "checks": checks,
             })),
         )
@@ -1070,6 +1087,27 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
         })),
     )
         .into_response()
+}
+
+/// P2.6 d — `state_dir_lock_held` predicate for `/ready`.
+///
+/// Legacy embedding (`state_dir: None`) trivially returns `true` —
+/// the operator never asked for an advisory lock.
+///
+/// Production embedding (`state_dir: Some(dir)`) verifies that the
+/// advisory `<dir>/state.lock` file still exists at the expected
+/// path. We hold the file's flock through an open FD inside
+/// `_state_dir_guard`, so the kernel will not release our exclusive
+/// lock if the directory entry is removed, but a peer `boole-node`
+/// could then create a fresh `state.lock` at the same path and
+/// acquire its own exclusive lock — breaking the contract. The
+/// existence check catches that drift without re-issuing flock(),
+/// which would race with our own held lock on the underlying inode.
+fn compute_state_dir_lock_held(state: &LocalNodeState) -> bool {
+    match state.state_dir.as_ref() {
+        None => true,
+        Some(dir) => dir.join(state_dir::STATE_LOCK_FILE).is_file(),
+    }
 }
 
 /// P2.6 c — `ledgers_loaded` predicate for `/ready`.
