@@ -118,6 +118,7 @@ fn ready_returns_503_when_state_dir_lock_file_removed_at_runtime() {
                 network_id: None,
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
             },
         )
     });

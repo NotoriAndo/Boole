@@ -115,6 +115,7 @@ fn ready_returns_503_when_state_dir_set_but_an_agent_wallet_ledger_missing() {
                 network_id: None,
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
             },
         )
     });

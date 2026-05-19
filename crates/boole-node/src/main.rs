@@ -299,6 +299,7 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             network_id: args.network_id,
             lean_checker_dir: args.lean_checker_dir,
             lean_checker_disabled: args.lean_checker_disabled,
+            http_rate_limit_per_60s: None,
         },
     );
     match result {

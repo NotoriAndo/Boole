@@ -101,6 +101,7 @@ fn concurrency_limit_layer_serves_burst_without_dropping_responses() {
                 network_id: None,
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
             },
         )
     });

@@ -13,7 +13,7 @@ use axum::body::Bytes;
 use axum::extract::DefaultBodyLimit;
 use axum::extract::{ConnectInfo, Path as AxumPath, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
-use axum::middleware::{from_fn, Next};
+use axum::middleware::{from_fn, from_fn_with_state, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -28,14 +28,15 @@ use boole_core::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::convert::Infallible;
 use std::future::Future;
-use std::net::{SocketAddr, TcpListener as StdTcpListener};
+use std::net::{IpAddr, SocketAddr, TcpListener as StdTcpListener};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::net::TcpListener;
@@ -235,6 +236,18 @@ pub struct LocalNodeConfig {
     /// When `false`, the boot-time choice must be `lean_checker_dir =
     /// Some(_)` instead.
     pub lean_checker_disabled: bool,
+    /// P1.7 — per-source-IP HTTP rate limit applied to every route except
+    /// `/live` and `/ready`. The limit is a fixed 60-second sliding
+    /// window measured in HTTP requests per source IP, evaluated at
+    /// middleware time before the handler observes the request. When
+    /// `Some(n)`, requests beyond `n` within any 60s window are short-
+    /// circuited with a typed `429 rate_limited` envelope. When `None`
+    /// (the default for legacy embeddings and existing tests), the
+    /// middleware is not installed and the routes behave as before.
+    /// Readiness probes are intentionally excluded so an orchestrator
+    /// flooding /ready or /live during incident response cannot self-
+    /// blackhole the node.
+    pub http_rate_limit_per_60s: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -341,15 +354,103 @@ struct LocalNodeState {
 #[derive(Clone)]
 struct AppState {
     inner: Arc<RwLock<LocalNodeState>>,
+    /// P1.7 — per-source-IP HTTP rate limiter. `Some` whenever the
+    /// caller passed `LocalNodeConfig.http_rate_limit_per_60s = Some(_)`;
+    /// `None` keeps the middleware off so legacy embeddings and
+    /// existing tests retain their pre-P1.7 wire behavior.
+    rate_limiter: Option<Arc<HttpRateLimiter>>,
+}
+
+/// P1.7 — fixed-window per-IP HTTP rate limiter shared across the
+/// router. The window is a sliding 60s bucket of monotonic timestamps;
+/// admission is `count(ts in [now-window, now]) < quota`. The data
+/// structure is small (one `VecDeque` per active source IP, each bounded
+/// at `quota`), and the contention surface is a single `std::sync::Mutex`
+/// — middleware critical sections are <10 µs even at high QPS, so a
+/// tokio-aware lock is not warranted here.
+struct HttpRateLimiter {
+    quota: usize,
+    window_ms: u128,
+    state: StdMutex<HashMap<IpAddr, VecDeque<u128>>>,
+}
+
+impl HttpRateLimiter {
+    fn new(quota: usize, window_ms: u128) -> Self {
+        Self {
+            quota,
+            window_ms,
+            state: StdMutex::new(HashMap::new()),
+        }
+    }
+
+    fn admit(&self, ip: IpAddr, now_ms: u128) -> bool {
+        let mut guard = self.state.lock().expect("rate-limit state mutex poisoned");
+        let bucket = guard.entry(ip).or_default();
+        let cutoff = now_ms.saturating_sub(self.window_ms);
+        while bucket.front().is_some_and(|ts| *ts < cutoff) {
+            bucket.pop_front();
+        }
+        if bucket.len() >= self.quota {
+            return false;
+        }
+        bucket.push_back(now_ms);
+        true
+    }
+}
+
+fn now_unix_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
+}
+
+async fn rate_limit_middleware(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let Some(limiter) = state.rate_limiter.as_ref() else {
+        return next.run(request).await;
+    };
+    let path = request.uri().path();
+    if path == "/live" || path == "/ready" {
+        return next.run(request).await;
+    }
+    let Some(ConnectInfo(addr)) = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .copied()
+    else {
+        return next.run(request).await;
+    };
+    if limiter.admit(addr.ip(), now_unix_ms()) {
+        next.run(request).await
+    } else {
+        error_response(HttpError::rate_limited(limiter.quota, limiter.window_ms))
+    }
 }
 
 pub fn serve_local_node(listener: StdTcpListener, config: LocalNodeConfig) -> anyhow::Result<()> {
     let max_requests = config.max_requests;
+    let rate_limiter = build_rate_limiter(config.http_rate_limit_per_60s);
     let state = LocalNodeState::from_config(config)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(serve_local_node_async(listener, state, max_requests, None))
+    runtime.block_on(serve_local_node_async(
+        listener,
+        state,
+        max_requests,
+        rate_limiter,
+        None,
+    ))
+}
+
+fn build_rate_limiter(quota: Option<usize>) -> Option<Arc<HttpRateLimiter>> {
+    quota
+        .filter(|n| *n > 0)
+        .map(|n| Arc::new(HttpRateLimiter::new(n, 60_000)))
 }
 
 /// P2.7 — Same as [`serve_local_node`] but with an externally-owned
@@ -364,6 +465,7 @@ pub fn serve_local_node_with_shutdown(
     external_shutdown: Arc<Notify>,
 ) -> anyhow::Result<()> {
     let max_requests = config.max_requests;
+    let rate_limiter = build_rate_limiter(config.http_rate_limit_per_60s);
     let state = LocalNodeState::from_config(config)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -372,6 +474,7 @@ pub fn serve_local_node_with_shutdown(
         listener,
         state,
         max_requests,
+        rate_limiter,
         Some(external_shutdown),
     ))
 }
@@ -380,12 +483,14 @@ async fn serve_local_node_async(
     listener: StdTcpListener,
     state: LocalNodeState,
     max_requests: Option<usize>,
+    rate_limiter: Option<Arc<HttpRateLimiter>>,
     external_shutdown: Option<Arc<Notify>>,
 ) -> anyhow::Result<()> {
     listener.set_nonblocking(true)?;
     let tokio_listener = TcpListener::from_std(listener)?;
     let app_state = AppState {
         inner: Arc::new(RwLock::new(state)),
+        rate_limiter,
     };
     let shutdown_notify = Arc::new(Notify::new());
     // P2.7 — forward external trigger fires to the internal shutdown_notify
@@ -471,6 +576,13 @@ fn build_router(state: AppState) -> Router {
         .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
         .layer(from_fn(body_cap_middleware))
         .layer(from_fn(connection_close_middleware))
+        // P1.7 — per-source-IP HTTP rate limiter. Installed last so the
+        // typed `429 rate_limited` envelope short-circuits before
+        // body-cap, timeout, and concurrency-limit layers wake the
+        // handler; readiness probes (`/live`, `/ready`) are exempted
+        // inside `rate_limit_middleware` itself so an orchestrator
+        // flood cannot self-blackhole the node.
+        .layer(from_fn_with_state(state.clone(), rate_limit_middleware))
         .with_state(state)
 }
 

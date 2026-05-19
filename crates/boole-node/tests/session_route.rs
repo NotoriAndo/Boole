@@ -90,6 +90,7 @@ fn boot_with_registry(max_requests: usize, registry: Option<PathBuf>) -> Boot {
                 network_id: None,
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
             },
         )
     });

@@ -209,6 +209,16 @@ impl HttpError {
             .with_extra("actualBytes", json!(actual))
     }
 
+    /// P1.7 — per-source-IP HTTP rate limit breach. Mirrors the wire
+    /// shape every other 4xx envelope uses (`reason` is the typed key,
+    /// `quota` and `windowMs` describe the policy so callers can back
+    /// off without scraping logs).
+    pub fn rate_limited(quota: usize, window_ms: u128) -> Self {
+        Self::new(429, "rate_limited")
+            .with_extra("quota", json!(quota))
+            .with_extra("windowMs", json!(window_ms as u64))
+    }
+
     pub fn not_found(detail: impl Into<String>) -> Self {
         Self::new(404, "not_found").with_detail(detail)
     }

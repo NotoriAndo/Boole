@@ -201,6 +201,7 @@ fn bounty_proof_verify_does_not_block_ready_probe() {
                 network_id: None,
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
             },
         )
     });

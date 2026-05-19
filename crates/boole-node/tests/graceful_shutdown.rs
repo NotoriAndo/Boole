@@ -96,6 +96,7 @@ fn external_shutdown_trigger_drains_and_returns_within_bounded_time() {
                 network_id: None,
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
             },
             trigger_for_thread,
         )

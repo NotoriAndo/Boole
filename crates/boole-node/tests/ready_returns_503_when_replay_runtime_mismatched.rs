@@ -119,6 +119,7 @@ fn ready_returns_503_when_replay_runtime_diverges_post_boot() {
                 network_id: None,
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
             },
         )
     });

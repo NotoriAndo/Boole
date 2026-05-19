@@ -103,6 +103,7 @@ fn ready_returns_503_when_lean_checker_neither_configured_nor_explicitly_disable
                 network_id: None,
                 lean_checker_dir: None,
                 lean_checker_disabled: false,
+                http_rate_limit_per_60s: None,
             },
         )
     });
