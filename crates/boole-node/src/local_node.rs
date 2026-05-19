@@ -2036,13 +2036,54 @@ fn bounty_by_id_json(state: &LocalNodeState, id: &str) -> Result<Value, HttpErro
     }))
 }
 
+/// P1.7 — bounty proof submission must not hold the write lock while
+/// the verifier runs. The handler splits the request into three phases:
+///
+///   1. **Phase 1 (read lock)**: parse the body, look up the bounty +
+///      verifier, peek the dedup table, reject terminal bounties. Read
+///      lock only, so concurrent `/ready`, `/status`, and other reader
+///      handlers stay responsive.
+///   2. **Phase 2 (no locks)**: run `BountyProofVerifier::verify`. This
+///      is the call that can sleep for hundreds of milliseconds (Lean
+///      child invocation, network-bound mock verifier, etc.). Pre-P1.7
+///      it ran inside the write lock and starved every other handler;
+///      now it runs with no `LocalNodeState` lock held at all.
+///   3. **Phase 3 (write lock)**: mutate registry, side-pool, and the
+///      bounty event ledger. `BountyRegistry::submit_proof` re-checks
+///      dedup and terminal status internally, so a racing submitter
+///      that resolved the bounty during phase 2 is surfaced through
+///      `outcome.duplicate` (we skip the side-pool insert and ledger
+///      append to avoid double-credit) instead of stomping the prior
+///      result.
 async fn bounty_proof_handler(
     State(state): State<AppState>,
     AxumPath(id): AxumPath<String>,
     body: Bytes,
 ) -> Response {
+    let prep = {
+        let guard = state.inner.read().await;
+        match bounty_proof_prepare(&guard, &id, &body) {
+            Ok(p) => p,
+            Err(err) => return error_response(err),
+        }
+    };
+    let prepared = match prep {
+        PreparedProof::Duplicate(value) => {
+            return (StatusCode::OK, Json(value)).into_response();
+        }
+        PreparedProof::RunVerifier(p) => *p,
+    };
+
+    let accepted = match prepared
+        .verifier
+        .verify(&prepared.bounty, &prepared.envelope)
+    {
+        Ok(b) => b,
+        Err(e) => return error_response(HttpError::verifier_error(e)),
+    };
+
     let mut guard = state.inner.write().await;
-    match bounty_proof_json(&mut guard, &id, &body) {
+    match bounty_proof_finalize(&mut guard, &id, prepared, accepted) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(err),
     }
@@ -2357,11 +2398,42 @@ fn required_payload_string<'a>(
         .ok_or_else(|| HttpError::bad_payload(field, format!("payload missing string {field}")))
 }
 
-fn bounty_proof_json(
-    state: &mut LocalNodeState,
+/// Phase 1 outcome of the bounty proof handler split. Either the dedup
+/// table answers the request without spending verifier time, or we
+/// have a fully validated request ready to enter the unlocked verify
+/// phase.
+enum PreparedProof {
+    /// Idempotent re-post — the dedup table already remembers this
+    /// `(bounty_id, proof_hash)` from a prior accept/reject. Return the
+    /// canonical envelope verbatim; no write lock and no verifier
+    /// dispatch needed.
+    Duplicate(Value),
+    /// First-seen proof. Phase 2 still needs to run the verifier with
+    /// no locks held, then phase 3 applies the mutation under the
+    /// write lock. Boxed because the prepared struct is ~288 bytes
+    /// (largely the cloned `Bounty`); without indirection the enum
+    /// payload alignment would balloon the `Duplicate` arm too.
+    RunVerifier(Box<PreparedProofToVerify>),
+}
+
+struct PreparedProofToVerify {
+    bounty: boole_core::Bounty,
+    proof_hash: String,
+    prover: String,
+    envelope: Value,
+    verifier: Arc<dyn BountyProofVerifier>,
+}
+
+/// Phase 1 of the P1.7 bounty proof flow. Runs under a read lock: parse
+/// the body, look up the bounty + verifier, peek the dedup table, and
+/// reject terminal bounties. Mirrors the validation order of the
+/// pre-P1.7 monolithic helper so callers see identical 4xx/5xx envelopes
+/// for the same inputs.
+fn bounty_proof_prepare(
+    state: &LocalNodeState,
     id: &str,
     body: &[u8],
-) -> Result<Value, HttpError> {
+) -> Result<PreparedProof, HttpError> {
     // 1) 404 — bounty must exist (catalog or registry-replayed).
     let bounty = state
         .bounty_registry
@@ -2395,13 +2467,14 @@ fn bounty_proof_json(
     // 3) Dedup peek — wins over terminal status and verifier dispatch so
     //    a re-post is idempotent and does not pay for `lake exec`.
     if let Some(accepted) = state.bounty_registry.has_proof(id, &proof_hash) {
-        return Ok(json!({
+        let value = json!({
             "ok": true,
             "accepted": accepted,
             "duplicate": true,
             "bounty": serde_json::to_value(&bounty)
                 .expect("Bounty serializes to JSON via serde"),
-        }));
+        });
+        return Ok(PreparedProof::Duplicate(value));
     }
 
     // 4) 501 — unknown verifier kind. Caller knows to retry with a node
@@ -2418,20 +2491,48 @@ fn bounty_proof_json(
         return Err(HttpError::bounty_terminal(&bounty.status));
     }
 
-    // 6) Run verifier. `Err` → 502 verifier_error; `Ok(false)` is a
-    //    valid reject signal that we still record so downstream tooling
-    //    can audit and dedup against rejected hashes.
-    let accepted = verifier
-        .verify(&bounty, &envelope)
-        .map_err(HttpError::verifier_error)?;
+    Ok(PreparedProof::RunVerifier(Box::new(
+        PreparedProofToVerify {
+            bounty,
+            proof_hash,
+            prover,
+            envelope,
+            verifier,
+        },
+    )))
+}
+
+/// Phase 3 of the P1.7 bounty proof flow. Runs under the write lock
+/// once phase 2's verifier call has returned. `BountyRegistry::submit_proof`
+/// re-checks dedup and terminal status, so a racing submitter that
+/// resolved the bounty during the unlocked verify window is surfaced
+/// through `outcome.duplicate` instead of double-mutating.
+fn bounty_proof_finalize(
+    state: &mut LocalNodeState,
+    id: &str,
+    prepared: PreparedProofToVerify,
+    accepted: bool,
+) -> Result<Value, HttpError> {
+    let PreparedProofToVerify {
+        bounty,
+        proof_hash,
+        prover,
+        envelope: _,
+        verifier: _,
+    } = prepared;
 
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
 
-    // 7) Mutate registry. submit_proof both records the dedup entry and
-    //    flips status to "solved" on accepted=true.
+    // submit_proof internally re-checks dedup and terminal status, so a
+    // concurrent submitter that landed the same proof hash during the
+    // unlocked verify phase is surfaced as `outcome.duplicate = true`
+    // (we skip the side-pool insert and ledger append below to avoid
+    // double-credit), and a concurrent submitter that solved the bounty
+    // with a different hash is surfaced as Err("cannot submit proof to
+    // terminal bounty ...") which we map to a 5xx for the caller.
     let outcome = state
         .bounty_registry
         .submit_proof(SubmitProofInput {
@@ -2443,17 +2544,19 @@ fn bounty_proof_json(
         })
         .map_err(|err| HttpError::internal(format!("bounty registry: {err}")))?;
 
-    // 7b) On accept, route the share into the per-family side-pool. The
-    //     Hard Guard holds because (a) this writes to `bounty_side_pool`,
-    //     never to `runtime` or `share_pool`, and (b) `build_block_selection`
-    //     does not consume from the side-pool. S22 adds the gated read path.
-    //     `family_id == bounty.domain` per the bounty/manifest fixture
-    //     convention; if the domain has no registered manifest we still
-    //     record the share so S22 can audit "would have promoted but no
-    //     manifest" cases.
-    if accepted {
-        // S23a — stamp the matching bounty's reward onto the share so the
-        // promotion gate can compute capped credit without a second
+    // On a first-seen accept, route the share into the per-family
+    // side-pool. The Hard Guard holds because (a) this writes to
+    // `bounty_side_pool`, never to `runtime` or `share_pool`, and (b)
+    // `build_block_selection` does not consume from the side-pool.
+    // `family_id == bounty.domain` per the bounty/manifest fixture
+    // convention; if the domain has no registered manifest we still
+    // record the share so S22 can audit "would have promoted but no
+    // manifest" cases. The `!outcome.duplicate` guard means a racing
+    // submitter that already recorded this proof keeps its credit and
+    // we do not insert again.
+    if outcome.accepted && !outcome.duplicate {
+        // S23a — stamp the matching bounty's reward onto the share so
+        // the promotion gate can compute capped credit without a second
         // registry lookup. Malformed reward strings (which the registry
         // already validates as `u128` decimal) collapse to 0 here so the
         // share is still tracked but no credit ever issues.
@@ -2468,30 +2571,33 @@ fn bounty_proof_json(
         });
     }
 
-    // 8) Audit-log append. Failure here is fatal — the in-memory state
-    //    has already mutated; surfacing a 500 at this point is preferable
-    //    to silently dropping the durability promise.
-    let credit = if accepted {
-        bounty.reward.clone()
-    } else {
-        "0".to_string()
-    };
-    let event = json!({
-        "schemaVersion": 1,
-        "kind": "proof",
-        "workId": id,
-        "problemHash": bounty.problem_hash,
-        "verifierKind": bounty.verifier.kind,
-        "ts": now_ms,
-        "proofHash": proof_hash,
-        "solverPk": prover,
-        "accepted": accepted,
-        "reward": bounty.reward,
-        "credit": credit,
-    });
-    if let Some(path) = state.bounty_event_ledger_path.as_ref() {
-        FileBountyEventLedger::append(path, &event)
-            .map_err(|err| HttpError::internal(format!("bounty audit append: {err}")))?;
+    // Audit-log append. Skipped on duplicates so a concurrent submitter's
+    // ledger row is not double-written. Failure here is fatal — the
+    // in-memory state has already mutated; surfacing a 500 at this point
+    // is preferable to silently dropping the durability promise.
+    if !outcome.duplicate {
+        let credit = if accepted {
+            bounty.reward.clone()
+        } else {
+            "0".to_string()
+        };
+        let event = json!({
+            "schemaVersion": 1,
+            "kind": "proof",
+            "workId": id,
+            "problemHash": bounty.problem_hash,
+            "verifierKind": bounty.verifier.kind,
+            "ts": now_ms,
+            "proofHash": proof_hash,
+            "solverPk": prover,
+            "accepted": accepted,
+            "reward": bounty.reward,
+            "credit": credit,
+        });
+        if let Some(path) = state.bounty_event_ledger_path.as_ref() {
+            FileBountyEventLedger::append(path, &event)
+                .map_err(|err| HttpError::internal(format!("bounty audit append: {err}")))?;
+        }
     }
 
     Ok(json!({
