@@ -322,6 +322,14 @@ struct LocalNodeState {
     /// acknowledged testnet configuration; when `false`, `/ready`
     /// returns 503 until the operator picks one of the two options.
     lean_checker_disabled: bool,
+    /// P2.6 c — Directory path the operator passed via `--state-dir`,
+    /// or `None` for the legacy single-store embedding. Production
+    /// nodes opt into the state-dir layout to get an exclusive lock and
+    /// a single root for every ledger; the `/ready` predicate treats a
+    /// `Some(_)` value as a signal that the four agent-wallet ledger
+    /// paths must also be set, so the node never silently loses
+    /// session-bound submissions because one ledger was missing.
+    state_dir: Option<PathBuf>,
     /// RAII guard for the L7 state-directory `flock`. `Some` whenever the
     /// caller passed a `state_dir` in `LocalNodeConfig`; held for the
     /// lifetime of the node so a second process at the same directory
@@ -703,6 +711,7 @@ impl LocalNodeState {
             receipt_store,
             lean_checker_dir: config.lean_checker_dir,
             lean_checker_disabled: config.lean_checker_disabled,
+            state_dir: config.state_dir,
             _state_dir_guard: state_dir_guard,
         })
     }
@@ -997,19 +1006,25 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
     let guard = state.inner.read().await;
     let replay_matches_runtime = compute_replay_matches_runtime(&guard);
     let lean_checker_configured = guard.lean_checker_dir.is_some() || guard.lean_checker_disabled;
+    let ledgers_loaded = compute_ledgers_loaded(&guard);
     drop(guard);
 
     let checks = json!({
         "replay_matches_runtime": replay_matches_runtime,
         "lean_checker_configured": lean_checker_configured,
+        "ledgers_loaded": ledgers_loaded,
     });
 
     // First failing precondition names the reason. Boot-time invariants
-    // (replay) take precedence over operator-config invariants (lean)
-    // so a divergent on-disk state is surfaced before the operator
-    // sees a "fix your CLI" message. The `checks` object always
-    // reports every precondition's individual status — operators get
-    // the full picture, not just the first failure.
+    // (replay) take precedence over operator-config invariants (lean,
+    // ledgers) so a divergent on-disk state is surfaced before the
+    // operator sees a "fix your CLI" message. Operator-config failures
+    // are ordered by how visible the symptom is on the wire: a missing
+    // lean checker means proofs get rejected (loud), a missing ledger
+    // means session-bound submits silently lose their audit row
+    // (quiet) — so lean is named first, then ledgers. The `checks`
+    // object always reports every precondition's individual status so
+    // operators get the full picture, not just the first failure.
     if !replay_matches_runtime {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -1034,6 +1049,18 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
         )
             .into_response();
     }
+    if !ledgers_loaded {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "probe": "ready",
+                "reason": "ledgers_not_loaded",
+                "checks": checks,
+            })),
+        )
+            .into_response();
+    }
     (
         StatusCode::OK,
         Json(json!({
@@ -1043,6 +1070,31 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
         })),
     )
         .into_response()
+}
+
+/// P2.6 c — `ledgers_loaded` predicate for `/ready`.
+///
+/// Legacy embedding (`state_dir: None`) is unaffected: the four
+/// agent-wallet ledgers remain individually opt-in, so the predicate
+/// returns `true` regardless of which of them are configured.
+///
+/// Production embedding (`state_dir: Some(_)`) requires all four
+/// agent-wallet ledgers — `session_registry`, `submit_nonce_ledger`,
+/// `submit_receipt_ledger`, `receipt_commitment_ledger` — to be loaded.
+/// The runtime holds an in-memory handle for each one when its path
+/// is configured (`session_store`, `nonce_ledger`,
+/// `submit_receipt_ledger_path`, `receipt_store`), so this predicate
+/// reads those handle fields rather than reaching back into the
+/// `LocalNodeConfig` — a future post-boot tear-down that nulls a
+/// handle flips this to `false` without further plumbing.
+fn compute_ledgers_loaded(state: &LocalNodeState) -> bool {
+    if state.state_dir.is_none() {
+        return true;
+    }
+    state.session_store.is_some()
+        && state.nonce_ledger.is_some()
+        && state.submit_receipt_ledger_path.is_some()
+        && state.receipt_store.is_some()
 }
 
 /// P2.6 — `/metrics` exposes a Prometheus text-format scrape surface
