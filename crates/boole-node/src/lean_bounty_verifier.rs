@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use boole_core::{Bounty, BountyProofVerifier};
+use boole_core::{Bounty, BountyProofVerifier, VerifyOutcome};
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 /// Adapter that wires the existing `LeanRunner` shell-out into the
 /// `BountyProofVerifier` trait. Envelope shape: `{leanSource: "<utf8>"}`.
@@ -24,6 +24,15 @@ impl LeanBountyVerifier {
 
 impl BountyProofVerifier for LeanBountyVerifier {
     fn verify(&self, bounty: &Bounty, envelope: &Value) -> Result<bool, String> {
+        self.verify_with_evidence(bounty, envelope)
+            .map(|outcome| outcome.accepted)
+    }
+
+    fn verify_with_evidence(
+        &self,
+        bounty: &Bounty,
+        envelope: &Value,
+    ) -> Result<VerifyOutcome, String> {
         let lean_source = envelope
             .get("leanSource")
             .and_then(Value::as_str)
@@ -50,7 +59,22 @@ impl BountyProofVerifier for LeanBountyVerifier {
             LeanRunnerConfig::new(verifier_hash).with_package_dir(self.checker_dir.clone()),
         );
         let outcome = match runner.check_file(&proof_path) {
-            Ok(result) => Ok(result.accepted),
+            Ok(result) => {
+                // P1.4 — surface the LeanRunner's `checker_artifact_hash`
+                // so the bounty audit ledger pins the physical checker
+                // identity that adjudicated this proof. `verifierHash` is
+                // already covered by slice 19 from the bounty record;
+                // here we only add evidence the verifier alone can know.
+                let mut evidence: Map<String, Value> = Map::new();
+                evidence.insert(
+                    "checkerArtifactHash".to_string(),
+                    Value::String(result.evidence.checker_artifact_hash.clone()),
+                );
+                Ok(VerifyOutcome {
+                    accepted: result.accepted,
+                    evidence,
+                })
+            }
             Err(err) => Err(err.to_string()),
         };
         let _ = std::fs::remove_dir_all(&tmp_dir);

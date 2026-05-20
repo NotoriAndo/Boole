@@ -23,7 +23,7 @@ use boole_core::{
     BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport,
     CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry, Hex32, Hex64,
     PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput, SessionState, SubmitProofInput,
-    UpdateStatusInput, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
+    UpdateStatusInput, VerifyOutcome, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -2186,16 +2186,16 @@ async fn bounty_proof_handler(
         PreparedProof::RunVerifier(p) => *p,
     };
 
-    let accepted = match prepared
+    let outcome = match prepared
         .verifier
-        .verify(&prepared.bounty, &prepared.envelope)
+        .verify_with_evidence(&prepared.bounty, &prepared.envelope)
     {
-        Ok(b) => b,
+        Ok(o) => o,
         Err(e) => return error_response(HttpError::verifier_error(e)),
     };
 
     let mut guard = state.inner.write().await;
-    match bounty_proof_finalize(&mut guard, &id, prepared, accepted) {
+    match bounty_proof_finalize(&mut guard, &id, prepared, outcome) {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(err) => error_response(err),
     }
@@ -2623,7 +2623,7 @@ fn bounty_proof_finalize(
     state: &mut LocalNodeState,
     id: &str,
     prepared: PreparedProofToVerify,
-    accepted: bool,
+    outcome: VerifyOutcome,
 ) -> Result<Value, HttpError> {
     let PreparedProofToVerify {
         bounty,
@@ -2632,6 +2632,7 @@ fn bounty_proof_finalize(
         envelope,
         verifier: _,
     } = prepared;
+    let VerifyOutcome { accepted, evidence } = outcome;
 
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2734,6 +2735,17 @@ fn bounty_proof_finalize(
                         "verifierHash".to_string(),
                         Value::String(verifier_hash.to_string()),
                     );
+                }
+                // P1.4 slice-20 — merge verifier-side evidence (e.g.
+                // `checkerArtifactHash` from `LeanRunner`). The verifier
+                // is the only source for these fields because they are
+                // derived from the physical checker artifact, not from
+                // the bounty record or the submitter's envelope. Slice-19
+                // keys (`leanSource`, `verifierHash`) win on collision so
+                // a misbehaving verifier cannot overwrite the audit log's
+                // canonical input echoes.
+                for (k, v) in evidence.into_iter() {
+                    obj.entry(k).or_insert(v);
                 }
             }
         }
