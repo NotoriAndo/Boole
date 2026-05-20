@@ -19,9 +19,13 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use boole_core::validate_bounty_ledger_event;
+use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use serde_json::Value;
+
+static REVERIFY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Outcome of a deep verification pass over a bounty event ledger.
 #[derive(Debug, Clone, Default)]
@@ -127,15 +131,143 @@ pub fn deep_verify_bounty_events(
             && event.get("accepted").and_then(Value::as_bool) == Some(true)
         {
             report.lean_proofs_accepted += 1;
-            // The follow-up sub-slice will branch on `lean_checker_dir`
-            // and call into `LeanRunner` here. Today, every eligible
-            // event is skipped — `lean_checker_dir` is accepted but
-            // never used so the CLI surface is already stable.
-            let _ = lean_checker_dir;
-            report.lean_proofs_skipped += 1;
+            match lean_checker_dir {
+                None => report.lean_proofs_skipped += 1,
+                Some(dir) => {
+                    let event_divergences = reverify_lean_event(&event, dir);
+                    if event_divergences.is_empty() {
+                        report.lean_proofs_reverified += 1;
+                    } else {
+                        report.divergences.extend(event_divergences);
+                    }
+                }
+            }
         }
     }
     Ok(report)
+}
+
+/// Re-run Lean for a single accepted-lean proof event and produce zero
+/// or more divergences. An empty return means every recorded field
+/// reproduced byte-identically (or, for `accepted`, structurally) under
+/// the offline re-execution.
+fn reverify_lean_event(event: &Value, checker_dir: &Path) -> Vec<DeepVerifyDivergence> {
+    let mut divergences = Vec::new();
+    let work_id = event
+        .get("workId")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let proof_hash = event
+        .get("proofHash")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    let lean_source = match event.get("leanSource").and_then(Value::as_str) {
+        Some(s) => s,
+        None => {
+            divergences.push(DeepVerifyDivergence {
+                work_id,
+                proof_hash,
+                field: "leanSource".to_string(),
+                expected: "present".to_string(),
+                actual: "missing".to_string(),
+            });
+            return divergences;
+        }
+    };
+    let verifier_hash = match event.get("verifierHash").and_then(Value::as_str) {
+        Some(s) => s,
+        None => {
+            divergences.push(DeepVerifyDivergence {
+                work_id,
+                proof_hash,
+                field: "verifierHash".to_string(),
+                expected: "present".to_string(),
+                actual: "missing".to_string(),
+            });
+            return divergences;
+        }
+    };
+    let recorded_checker_hash = match event.get("checkerArtifactHash").and_then(Value::as_str) {
+        Some(s) => s.to_string(),
+        None => {
+            divergences.push(DeepVerifyDivergence {
+                work_id,
+                proof_hash,
+                field: "checkerArtifactHash".to_string(),
+                expected: "present".to_string(),
+                actual: "missing".to_string(),
+            });
+            return divergences;
+        }
+    };
+
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "boole-deep-verify-{}-{}",
+        std::process::id(),
+        REVERIFY_COUNTER.fetch_add(1, Ordering::Relaxed),
+    ));
+    if let Err(err) = std::fs::create_dir_all(&tmp_dir) {
+        divergences.push(DeepVerifyDivergence {
+            work_id,
+            proof_hash,
+            field: "tmpDir".to_string(),
+            expected: "writable".to_string(),
+            actual: err.to_string(),
+        });
+        return divergences;
+    }
+    let proof_path = tmp_dir.join("Proof.lean");
+    if let Err(err) = std::fs::write(&proof_path, lean_source) {
+        divergences.push(DeepVerifyDivergence {
+            work_id,
+            proof_hash,
+            field: "proofFile".to_string(),
+            expected: "writable".to_string(),
+            actual: err.to_string(),
+        });
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return divergences;
+    }
+
+    let runner = LeanRunner::new(
+        LeanRunnerConfig::new(verifier_hash).with_package_dir(checker_dir.to_path_buf()),
+    );
+    match runner.check_file(&proof_path) {
+        Ok(result) => {
+            if !result.accepted {
+                divergences.push(DeepVerifyDivergence {
+                    work_id: work_id.clone(),
+                    proof_hash: proof_hash.clone(),
+                    field: "accepted".to_string(),
+                    expected: "true".to_string(),
+                    actual: "false".to_string(),
+                });
+            }
+            if result.evidence.checker_artifact_hash != recorded_checker_hash {
+                divergences.push(DeepVerifyDivergence {
+                    work_id,
+                    proof_hash,
+                    field: "checkerArtifactHash".to_string(),
+                    expected: recorded_checker_hash,
+                    actual: result.evidence.checker_artifact_hash,
+                });
+            }
+        }
+        Err(err) => {
+            divergences.push(DeepVerifyDivergence {
+                work_id,
+                proof_hash,
+                field: "runner".to_string(),
+                expected: "ok".to_string(),
+                actual: err.to_string(),
+            });
+        }
+    }
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    divergences
 }
 
 #[cfg(test)]
