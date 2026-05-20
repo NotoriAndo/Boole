@@ -2629,7 +2629,7 @@ fn bounty_proof_finalize(
         bounty,
         proof_hash,
         prover,
-        envelope: _,
+        envelope,
         verifier: _,
     } = prepared;
 
@@ -2693,7 +2693,7 @@ fn bounty_proof_finalize(
         } else {
             "0".to_string()
         };
-        let event = json!({
+        let mut event = json!({
             "schemaVersion": 1,
             "kind": "proof",
             "workId": id,
@@ -2706,6 +2706,37 @@ fn bounty_proof_finalize(
             "reward": bounty.reward,
             "credit": credit,
         });
+        // P1.4 — for Lean-verified bounties, persist the inputs needed
+        // to re-run `lake exec boole_check` from the audit log alone:
+        // the verbatim `leanSource` from the envelope and the bounty's
+        // pinned `verifierHash`. `boole state verify --deep` (master plan
+        // line 110-141) reads the ledger and re-checks acceptance offline;
+        // without these two fields the audit log cannot reproduce the
+        // verdict and the node has to be trusted across restarts. The
+        // branch is keyed on `verifier.kind == "lean"` because other
+        // verifier kinds carry different evidence shapes and adding
+        // null/empty placeholders would muddy schema migration later.
+        if bounty.verifier.kind == "lean" {
+            if let Some(obj) = event.as_object_mut() {
+                if let Some(lean_source) = envelope.get("leanSource").and_then(Value::as_str) {
+                    obj.insert(
+                        "leanSource".to_string(),
+                        Value::String(lean_source.to_string()),
+                    );
+                }
+                if let Some(verifier_hash) = bounty
+                    .verifier
+                    .metadata
+                    .get("verifierHash")
+                    .and_then(Value::as_str)
+                {
+                    obj.insert(
+                        "verifierHash".to_string(),
+                        Value::String(verifier_hash.to_string()),
+                    );
+                }
+            }
+        }
         if let Some(path) = state.bounty_event_ledger_path.as_ref() {
             FileBountyEventLedger::append(path, &event)
                 .map_err(|err| HttpError::internal(format!("bounty audit append: {err}")))?;
