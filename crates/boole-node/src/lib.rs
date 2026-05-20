@@ -1,6 +1,7 @@
 mod block_store;
 mod bounty_catalog_store;
 mod bounty_event_store;
+mod deep_verify;
 mod durability;
 mod family_manifest_store;
 mod http_error;
@@ -21,6 +22,9 @@ mod work_manifest_store;
 pub use block_store::FileBlockStore;
 pub use bounty_catalog_store::load_bounties_from_path;
 pub use bounty_event_store::FileBountyEventLedger;
+pub use deep_verify::{
+    deep_verify_bounty_events, DeepVerifyDivergence, DeepVerifyError, DeepVerifyReport,
+};
 pub use family_manifest_store::load_family_manifest_registry_from_dir;
 pub use lean_bounty_verifier::LeanBountyVerifier;
 pub use local_node::{

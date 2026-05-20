@@ -507,11 +507,33 @@ enum StateCommand {
     /// Replay a durable block NDJSON log and report height + latest c.
     /// Same recovery shape `boole-node` uses at boot, but read-only:
     /// no lock is acquired and the file is never written.
+    ///
+    /// With `--deep`, instead of (or in addition to) the block-store
+    /// replay, stream the bounty audit ledger (`--bounty-events`) and
+    /// report how many accepted-lean proof events are eligible for
+    /// offline Lean re-execution. The actual re-run wiring lands in a
+    /// follow-up sub-slice; today every eligible event is reported under
+    /// `leanProofsSkipped`.
     Verify {
         /// Path to the durable blocks NDJSON file (typically
-        /// `<state-dir>/blocks.ndjson`).
+        /// `<state-dir>/blocks.ndjson`). Required unless `--deep` is set.
         #[arg(long)]
-        blocks: PathBuf,
+        blocks: Option<PathBuf>,
+        /// Run the P1.4 deep verification pass over the bounty audit
+        /// ledger. Requires `--bounty-events`.
+        #[arg(long)]
+        deep: bool,
+        /// Path to the bounty audit ledger NDJSON file (typically
+        /// `<state-dir>/bounty-events.ndjson`). Required when `--deep`
+        /// is set.
+        #[arg(long)]
+        bounty_events: Option<PathBuf>,
+        /// Lean checker package directory used by the follow-up
+        /// sub-slice to re-execute accepted-lean proof events. Accepted
+        /// today but unused; supplying it does not yet flip events into
+        /// `leanProofsReverified`.
+        #[arg(long)]
+        lean_checker_dir: Option<PathBuf>,
         /// Emit JSON output.
         #[arg(long)]
         json: bool,
@@ -674,7 +696,19 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         },
         Some(Command::Mine { command }) => boole_miner::cli::run_mine(command),
         Some(Command::State { command }) => match command {
-            StateCommand::Verify { blocks, json } => state_verify(&blocks, json),
+            StateCommand::Verify {
+                blocks,
+                deep,
+                bounty_events,
+                lean_checker_dir,
+                json,
+            } => state_verify_dispatch(
+                blocks.as_deref(),
+                deep,
+                bounty_events.as_deref(),
+                lean_checker_dir.as_deref(),
+                json,
+            ),
         },
         Some(Command::Keys { command }) => match command {
             KeysCommand::New { id, dev, dry_run } => keys_new(&id, dev, dry_run),
@@ -758,6 +792,122 @@ fn print_version(json: bool) -> anyhow::Result<()> {
 #[derive(Debug, serde::Deserialize)]
 struct ReplayFixture {
     blocks: Vec<boole_core::PersistedBlock>,
+}
+
+fn state_verify_dispatch(
+    blocks_path: Option<&Path>,
+    deep: bool,
+    bounty_events_path: Option<&Path>,
+    lean_checker_dir: Option<&Path>,
+    json: bool,
+) -> anyhow::Result<()> {
+    if deep {
+        let events = bounty_events_path.unwrap_or_else(|| {
+            emit_typed_error(
+                "bad_request",
+                2,
+                serde_json::json!({
+                    "detail": "--deep requires --bounty-events",
+                    "field": "bounty-events",
+                }),
+            );
+        });
+        return state_verify_deep(events, lean_checker_dir, json);
+    }
+    let blocks = blocks_path.unwrap_or_else(|| {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({
+                "detail": "state verify requires --blocks (or --deep with --bounty-events)",
+                "field": "blocks",
+            }),
+        );
+    });
+    state_verify(blocks, json)
+}
+
+/// P1.4 — `boole state verify --deep --bounty-events <ndjson>`.
+/// Streams the bounty audit ledger via `boole_node::deep_verify_bounty_events`
+/// and emits a `{ok, eventsScanned, leanProofsAccepted, leanProofsReverified,
+/// leanProofsSkipped, divergences}` envelope. Today every accepted-lean
+/// proof event is reported under `leanProofsSkipped`; the follow-up
+/// sub-slice wires the actual Lean re-execution behind the existing
+/// `--lean-checker-dir` flag.
+fn state_verify_deep(
+    events_path: &Path,
+    lean_checker_dir: Option<&Path>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let report = boole_node::deep_verify_bounty_events(events_path, lean_checker_dir)
+        .unwrap_or_else(|err| match err {
+            boole_node::DeepVerifyError::EventsUnreadable { path, detail } => {
+                emit_typed_error(
+                    "bounty_events_unreadable",
+                    2,
+                    serde_json::json!({
+                        "bountyEventsPath": path.to_string_lossy(),
+                        "detail": detail,
+                    }),
+                );
+            }
+            boole_node::DeepVerifyError::LedgerInvalid {
+                path,
+                line_number,
+                detail,
+            } => {
+                emit_typed_error(
+                    "ledger_invalid",
+                    3,
+                    serde_json::json!({
+                        "bountyEventsPath": path.to_string_lossy(),
+                        "lineNumber": line_number,
+                        "detail": detail,
+                    }),
+                );
+            }
+        });
+    let divergences: Vec<serde_json::Value> = report
+        .divergences
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "workId": d.work_id,
+                "proofHash": d.proof_hash,
+                "field": d.field,
+                "expected": d.expected,
+                "actual": d.actual,
+            })
+        })
+        .collect();
+    let envelope = serde_json::json!({
+        "ok": divergences.is_empty(),
+        "eventsScanned": report.events_scanned,
+        "leanProofsAccepted": report.lean_proofs_accepted,
+        "leanProofsReverified": report.lean_proofs_reverified,
+        "leanProofsSkipped": report.lean_proofs_skipped,
+        "divergences": divergences,
+        "bountyEventsPath": events_path.to_string_lossy(),
+    });
+    if !divergences.is_empty() {
+        // A divergence here means the recorded `checkerArtifactHash` did
+        // not match the re-execution. Mirror the rest-of-CLI contract:
+        // operation refused → exit 3 with the report on stderr.
+        eprintln!("{envelope}");
+        std::process::exit(3);
+    }
+    if json {
+        println!("{envelope}");
+    } else {
+        println!(
+            "ok=true eventsScanned={} leanProofsAccepted={} leanProofsReverified={} leanProofsSkipped={}",
+            report.events_scanned,
+            report.lean_proofs_accepted,
+            report.lean_proofs_reverified,
+            report.lean_proofs_skipped,
+        );
+    }
+    Ok(())
 }
 
 /// P2.8 — `boole state verify --blocks <ndjson>`. Reuses
