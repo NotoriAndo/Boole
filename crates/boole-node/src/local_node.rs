@@ -1657,7 +1657,86 @@ fn session_public_view(session: &SessionState) -> Value {
     serde_json::to_value(session).expect("SessionState serializes via serde")
 }
 
+const SESSIONS_REGISTER_PAYLOAD_SCHEMA: &str = "boole.sessions.register.v1";
+
 fn session_register_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, HttpError> {
+    // 0) Short-circuit when the registry is not configured. Operators who
+    //    have opted out should get the explicit `session_registry_disabled`
+    //    reason regardless of whether the caller bothered to sign the
+    //    body — wallet UX should not require a signing key just to
+    //    discover that the route is off.
+    if state.session_registry_path.is_none() || state.session_store.is_none() {
+        return Err(HttpError::session_registry_disabled());
+    }
+
+    // 1) Parse outer `boole.signed.v1` envelope.
+    let envelope: Value = serde_json::from_slice(body)
+        .map_err(|err| HttpError::bad_envelope(format!("body is not valid JSON: {err}")))?;
+    let envelope_obj = envelope
+        .as_object()
+        .ok_or_else(|| HttpError::bad_envelope("envelope must be a JSON object"))?;
+    let schema = envelope_obj
+        .get("schema")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing schema"))?;
+    if schema != SIGNED_ENVELOPE_SCHEMA {
+        return Err(HttpError::bad_envelope(format!(
+            "expected schema {SIGNED_ENVELOPE_SCHEMA}, got {schema}"
+        )));
+    }
+    let pk = envelope_obj
+        .get("pk")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing pk"))?;
+    let signature = envelope_obj
+        .get("signature")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing signature"))?;
+    let payload = envelope_obj
+        .get("payload")
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing payload"))?;
+
+    if !is_well_formed_hex32(pk) {
+        return Err(HttpError::bad_envelope("pk must be 64 lowercase hex chars"));
+    }
+    if Hex64::from_hex(signature).is_err() {
+        return Err(HttpError::bad_envelope(
+            "signature must be 128 lowercase hex chars",
+        ));
+    }
+
+    // 2) Crypto: signature must verify against payload bytes.
+    match verify_signature(pk, signature, payload) {
+        Ok(true) => {}
+        Ok(false) => return Err(HttpError::signature_invalid()),
+        Err(detail) => return Err(HttpError::bad_envelope(detail)),
+    }
+
+    // 3) Inner payload validation.
+    let payload_obj = payload
+        .as_object()
+        .ok_or_else(|| HttpError::bad_payload("payload", "payload must be a JSON object"))?;
+    let payload_schema = payload_obj
+        .get("schema")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_payload("schema", "payload missing schema"))?;
+    if payload_schema != SESSIONS_REGISTER_PAYLOAD_SCHEMA {
+        return Err(HttpError::bad_payload(
+            "schema",
+            format!("expected {SESSIONS_REGISTER_PAYLOAD_SCHEMA}, got {payload_schema}"),
+        ));
+    }
+    let session_value = payload_obj
+        .get("session")
+        .ok_or_else(|| HttpError::missing_field("session"))?;
+    let session: SessionState = serde_json::from_value(session_value.clone())
+        .map_err(|err| HttpError::bad_payload("session", err.to_string()))?;
+    let current_height = payload_obj
+        .get("currentHeight")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| HttpError::missing_field("currentHeight"))?;
+
+    // 4) Existing durability + in-memory store mutation.
     let path = state
         .session_registry_path
         .clone()
@@ -1666,20 +1745,6 @@ fn session_register_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Valu
         .session_store
         .as_mut()
         .ok_or_else(HttpError::session_registry_disabled)?;
-    let envelope: Value = serde_json::from_slice(body)
-        .map_err(|err| HttpError::bad_request(format!("body is not valid JSON: {err}")))?;
-    let envelope_obj = envelope
-        .as_object()
-        .ok_or_else(|| HttpError::bad_request("body must be a JSON object"))?;
-    let session_value = envelope_obj
-        .get("session")
-        .ok_or_else(|| HttpError::missing_field("session"))?;
-    let session: SessionState = serde_json::from_value(session_value.clone())
-        .map_err(|err| HttpError::bad_payload("session", err.to_string()))?;
-    let current_height = envelope_obj
-        .get("currentHeight")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| HttpError::missing_field("currentHeight"))?;
     store
         .append_register(&path, &session, current_height)
         .map_err(|err| HttpError::bad_request(err.to_string()))?;

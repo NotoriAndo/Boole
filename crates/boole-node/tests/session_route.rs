@@ -22,9 +22,30 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use boole_core::SigningKeyV2;
 use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
+
+const SESSIONS_REGISTER_PAYLOAD_SCHEMA: &str = "boole.sessions.register.v1";
+
+fn signed_register_envelope(payload: &Value, key: &SigningKeyV2) -> Value {
+    let signed = key.sign(payload).expect("sign register payload");
+    json!({
+        "schema": signed.schema,
+        "payload": signed.payload,
+        "pk": signed.pk,
+        "signature": signed.signature,
+    })
+}
+
+fn register_payload(session: Value, current_height: u64) -> Value {
+    json!({
+        "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
+        "session": session,
+        "currentHeight": current_height,
+    })
+}
 
 const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const PK_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -166,7 +187,8 @@ fn session_route_register_returns_ok_for_valid_session() {
     let registry = dir.join("sessions.ndjson");
     let boot = boot_with_registry(1, Some(registry));
 
-    let body = json!({"session": fixture_session(), "currentHeight": 0});
+    let key = SigningKeyV2::from_dev_id("session-route-register-happy");
+    let body = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
     let (status, value) = http_post(boot.addr, "/sessions", &body);
     assert_eq!(status, 200, "expected 200, got {status}: {value}");
     assert_eq!(value["ok"], true);
@@ -184,7 +206,8 @@ fn session_route_get_returns_public_state_no_secret() {
     let registry = dir.join("sessions.ndjson");
     let boot = boot_with_registry(2, Some(registry));
 
-    let body = json!({"session": fixture_session(), "currentHeight": 0});
+    let key = SigningKeyV2::from_dev_id("session-route-get-public-state");
+    let body = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
     let (status_post, _) = http_post(boot.addr, "/sessions", &body);
     assert_eq!(status_post, 200);
 
@@ -215,7 +238,8 @@ fn session_route_revoke_sets_revoked_true() {
     let registry = dir.join("sessions.ndjson");
     let boot = boot_with_registry(3, Some(registry));
 
-    let body = json!({"session": fixture_session(), "currentHeight": 0});
+    let key = SigningKeyV2::from_dev_id("session-route-revoke-flow");
+    let body = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
     let (status_post, _) = http_post(boot.addr, "/sessions", &body);
     assert_eq!(status_post, 200);
 

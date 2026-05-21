@@ -225,12 +225,27 @@ fn fixture_session(session_pk: &str, fixed_reward_recipient: &str) -> Value {
     })
 }
 
+const SESSIONS_REGISTER_PAYLOAD_SCHEMA: &str = "boole.sessions.register.v1";
+
+fn signed_register_envelope(payload: &Value, key: &SigningKeyV2) -> Value {
+    let signed = key.sign(payload).expect("sign register payload");
+    json!({
+        "schema": signed.schema,
+        "payload": signed.payload,
+        "pk": signed.pk,
+        "signature": signed.signature,
+    })
+}
+
 fn register_session(addr: SocketAddr, session_pk: &str, fixed_reward_recipient: &str) {
-    let body = json!({
+    let key = SigningKeyV2::from_dev_id("session-registrar-helper");
+    let payload = json!({
+        "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
         "session": fixture_session(session_pk, fixed_reward_recipient),
         "currentHeight": 0,
     });
-    let (status, value) = http_post(addr, "/sessions", &body);
+    let envelope = signed_register_envelope(&payload, &key);
+    let (status, value) = http_post(addr, "/sessions", &envelope);
     assert_eq!(
         status, 200,
         "register failed: status={status}, body={value}"
@@ -582,11 +597,14 @@ fn submit_rejects_session_expired_at_current_node_height() {
         "revoked": false,
         "policyHash": ROOT_HEX,
     });
-    let (register_status, register_value) = http_post(
-        boot.addr,
-        "/sessions",
-        &json!({"session": session, "currentHeight": 0}),
-    );
+    let register_key = SigningKeyV2::from_dev_id("session-registrar-expiry-inline");
+    let register_payload = json!({
+        "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
+        "session": session,
+        "currentHeight": 0,
+    });
+    let register_envelope = signed_register_envelope(&register_payload, &register_key);
+    let (register_status, register_value) = http_post(boot.addr, "/sessions", &register_envelope);
     assert_eq!(
         register_status, 200,
         "register must succeed before expiry: {register_value}"
@@ -747,6 +765,119 @@ fn session_bound_submit_credits_fixed_reward_recipient_not_body_pk() {
     assert_eq!(
         body_pk_balance["balance"], "0",
         "session-bound reward must not be credited to the raw submit body pk"
+    );
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = fs::remove_dir_all(&paths.dir);
+}
+
+// ------------------------------------------------------------------
+// P1.6b — POST /sessions wire-rejection coverage. These tests pin the
+// `boole.signed.v1` envelope contract on the registration route so that
+// callers cannot bypass signature verification or inner-schema gating
+// by reverting to the legacy plain-JSON body.
+// ------------------------------------------------------------------
+
+const PK_REGISTER_HAPPY: &str = "1010101010101010101010101010101010101010101010101010101010101010";
+const PK_REGISTER_TAMPER: &str = "2020202020202020202020202020202020202020202020202020202020202020";
+const PK_REGISTER_BADENV: &str = "3030303030303030303030303030303030303030303030303030303030303030";
+const PK_REGISTER_BADPAYLOAD: &str =
+    "4040404040404040404040404040404040404040404040404040404040404040";
+
+#[test]
+fn sessions_register_with_valid_signed_envelope_accepts_and_persists() {
+    let paths = BootPaths::new("register-signed-ok");
+    let boot = boot_with(&paths, 1);
+    let key = SigningKeyV2::from_dev_id("session-registrar-happy");
+    let payload = json!({
+        "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
+        "session": fixture_session(PK_REGISTER_HAPPY, PK_REWARD),
+        "currentHeight": 0,
+    });
+    let envelope = signed_register_envelope(&payload, &key);
+
+    let (status, value) = http_post(boot.addr, "/sessions", &envelope);
+    assert_eq!(status, 200, "expected 200, got {status}: {value}");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["session"]["sessionPk"], PK_REGISTER_HAPPY);
+    assert!(paths.sessions.exists(), "register must persist ledger line");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = fs::remove_dir_all(&paths.dir);
+}
+
+#[test]
+fn sessions_register_tampered_payload_returns_401_signature_invalid() {
+    let paths = BootPaths::new("register-tampered");
+    let boot = boot_with(&paths, 1);
+    let key = SigningKeyV2::from_dev_id("session-registrar-tampered");
+    let payload = json!({
+        "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
+        "session": fixture_session(PK_REGISTER_TAMPER, PK_REWARD),
+        "currentHeight": 0,
+    });
+    let mut envelope = signed_register_envelope(&payload, &key);
+    envelope["payload"]["currentHeight"] = json!(99);
+
+    let (status, value) = http_post(boot.addr, "/sessions", &envelope);
+    assert_eq!(status, 401, "tampered payload → 401: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "signature_invalid");
+    assert!(
+        !paths.sessions.exists(),
+        "tampered envelope must not write session ledger"
+    );
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = fs::remove_dir_all(&paths.dir);
+}
+
+#[test]
+fn sessions_register_wrong_outer_envelope_schema_returns_400_bad_envelope() {
+    let paths = BootPaths::new("register-bad-envelope");
+    let boot = boot_with(&paths, 1);
+    let key = SigningKeyV2::from_dev_id("session-registrar-bad-envelope");
+    let payload = json!({
+        "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
+        "session": fixture_session(PK_REGISTER_BADENV, PK_REWARD),
+        "currentHeight": 0,
+    });
+    let mut envelope = signed_register_envelope(&payload, &key);
+    envelope["schema"] = json!("not.signed.v1");
+
+    let (status, value) = http_post(boot.addr, "/sessions", &envelope);
+    assert_eq!(status, 400, "wrong outer schema → 400: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "bad_envelope");
+    assert!(
+        !paths.sessions.exists(),
+        "bad envelope must not write session ledger"
+    );
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = fs::remove_dir_all(&paths.dir);
+}
+
+#[test]
+fn sessions_register_wrong_inner_payload_schema_returns_400_bad_payload() {
+    let paths = BootPaths::new("register-bad-payload-schema");
+    let boot = boot_with(&paths, 1);
+    let key = SigningKeyV2::from_dev_id("session-registrar-bad-payload-schema");
+    let payload = json!({
+        "schema": "not.sessions.register.v1",
+        "session": fixture_session(PK_REGISTER_BADPAYLOAD, PK_REWARD),
+        "currentHeight": 0,
+    });
+    let envelope = signed_register_envelope(&payload, &key);
+
+    let (status, value) = http_post(boot.addr, "/sessions", &envelope);
+    assert_eq!(status, 400, "wrong inner schema → 400: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "bad_payload");
+    assert_eq!(value["field"], "schema");
+    assert!(
+        !paths.sessions.exists(),
+        "wrong inner schema must not write session ledger"
     );
 
     boot.handle.join().expect("server thread").expect("exits");
