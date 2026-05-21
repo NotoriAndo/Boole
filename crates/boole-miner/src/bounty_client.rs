@@ -1,12 +1,18 @@
 // Bounty mode: submit a bounty proof to the dispatcher.
 //
-// Wire format mirrors dispatcher/src/httpServer.ts:
+// Wire format (P1.6d): `boole.signed.v1` envelope around a
+// `boole.bounty.proof.v1` payload. The signer pk is the prover; the
+// node rejects mismatches.
+//
 //   POST /bounties/:id/proof
-//   Body: { proofHash, prover, envelope }  (proofHash + prover are hex32)
+//   Body: { schema: "boole.signed.v1", payload: <inner>, pk, signature }
+//   inner = { schema: "boole.bounty.proof.v1", bountyId, proofHash,
+//             prover, envelope }
 //
 // Status mapping (typed result kinds, no panics on HTTP errors):
 //   200            -> Ok{accepted, duplicate, bounty}
 //   400            -> BadRequest{error, detail}
+//   401            -> BadRequest{error: "signature_invalid", ...}
 //   404            -> NotFound{id}
 //   409            -> Terminal{status}
 //   501            -> NoVerifier{verifier_kind}
@@ -18,17 +24,19 @@
 // proof_hash is computed locally as SHA-256(envelope_bytes).
 use std::time::Duration;
 
+use boole_core::SigningKeyV2;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::http_client::{percent_encode_component, HttpClient, HttpError};
 
-const ED25519_PK_BYTES: usize = 32;
+pub const BOUNTY_PROOF_PAYLOAD_SCHEMA: &str = "boole.bounty.proof.v1";
 
-#[derive(Debug, Clone)]
 pub struct BountyProofInputs<'a> {
     pub bounty_id: &'a str,
-    pub prover_pk: &'a [u8; ED25519_PK_BYTES],
+    /// Ed25519 signing key. The miner derives the prover pk from this
+    /// key; the node requires `envelope.pk == payload.prover`.
+    pub signing_key: &'a SigningKeyV2,
     pub envelope: Value,
     pub envelope_bytes: &'a [u8],
 }
@@ -76,10 +84,27 @@ impl BountyClient {
 
     pub fn submit_proof(&self, inputs: BountyProofInputs<'_>) -> BountyProofResult {
         let proof_hash = hex::encode(Sha256::digest(inputs.envelope_bytes));
-        let body = serde_json::json!({
+        let prover = inputs.signing_key.pk_hex();
+        let payload = serde_json::json!({
+            "schema": BOUNTY_PROOF_PAYLOAD_SCHEMA,
+            "bountyId": inputs.bounty_id,
             "proofHash": proof_hash,
-            "prover": hex::encode(inputs.prover_pk),
+            "prover": prover,
             "envelope": inputs.envelope,
+        });
+        let signed = match inputs.signing_key.sign(&payload) {
+            Ok(s) => s,
+            Err(detail) => {
+                return BountyProofResult::NetworkError {
+                    cause: format!("sign proof payload: {detail}"),
+                }
+            }
+        };
+        let body = serde_json::json!({
+            "schema": signed.schema,
+            "payload": signed.payload,
+            "pk": signed.pk,
+            "signature": signed.signature,
         });
         let path = format!(
             "/bounties/{}/proof",

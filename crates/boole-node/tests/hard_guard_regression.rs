@@ -32,7 +32,10 @@ use serde_json::{json, Value};
 const PROOF_HASH_A: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
 const PROOF_HASH_B: &str = "bbbb000000000000000000000000000000000000000000000000000000000000";
 const PROOF_HASH_C: &str = "cccc000000000000000000000000000000000000000000000000000000000000";
-const PROVER_X: &str = "1100000000000000000000000000000000000000000000000000000000000000";
+
+fn test_prover_key() -> SigningKeyV2 {
+    SigningKeyV2::from_dev_id("hard-guard-test-prover")
+}
 
 fn scenario_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -288,8 +291,26 @@ fn http_get(addr: SocketAddr, path: &str) -> (u16, Value) {
     (status, parsed)
 }
 
-fn submit_proof_body(proof_hash: &str, prover: &str, envelope: Value) -> Value {
-    json!({ "proofHash": proof_hash, "prover": prover, "envelope": envelope })
+fn signed_proof_body(
+    key: &SigningKeyV2,
+    bounty_id: &str,
+    proof_hash: &str,
+    envelope: Value,
+) -> Value {
+    let payload = json!({
+        "schema": "boole.bounty.proof.v1",
+        "bountyId": bounty_id,
+        "proofHash": proof_hash,
+        "prover": key.pk_hex(),
+        "envelope": envelope,
+    });
+    let signed = key.sign(&payload).expect("sign proof payload");
+    json!({
+        "schema": signed.schema,
+        "payload": signed.payload,
+        "pk": signed.pk,
+        "signature": signed.signature,
+    })
 }
 
 /// `/status` fields whose values must be byte-identical between baseline
@@ -363,10 +384,11 @@ fn bounty_proofs_do_not_mutate_base_lane_status() {
     // 2) Drive bounty traffic: 1 accept (gamma-1, mock-accept) → side-pool +1.
     //    1 reject (delta-1, mock-reject) → side-pool unchanged. 1 dedup of
     //    the accept → side-pool unchanged.
+    let prover = test_prover_key();
     let (s_a, r_a) = http_post(
         boot.addr,
         "/bounties/gamma-1/proof",
-        &submit_proof_body(PROOF_HASH_A, PROVER_X, json!({})),
+        &signed_proof_body(&prover, "gamma-1", PROOF_HASH_A, json!({})),
     );
     assert_eq!(s_a, 200, "gamma-1 accept: {r_a}");
     assert_eq!(r_a["accepted"], true);
@@ -374,7 +396,7 @@ fn bounty_proofs_do_not_mutate_base_lane_status() {
     let (s_b, r_b) = http_post(
         boot.addr,
         "/bounties/delta-1/proof",
-        &submit_proof_body(PROOF_HASH_B, PROVER_X, json!({})),
+        &signed_proof_body(&prover, "delta-1", PROOF_HASH_B, json!({})),
     );
     assert_eq!(s_b, 200, "delta-1 reject: {r_b}");
     assert_eq!(r_b["accepted"], false);
@@ -382,7 +404,7 @@ fn bounty_proofs_do_not_mutate_base_lane_status() {
     let (s_c, r_c) = http_post(
         boot.addr,
         "/bounties/gamma-1/proof",
-        &submit_proof_body(PROOF_HASH_A, PROVER_X, json!({})),
+        &signed_proof_body(&prover, "gamma-1", PROOF_HASH_A, json!({})),
     );
     assert_eq!(s_c, 200, "gamma-1 dedup: {r_c}");
     assert_eq!(r_c["duplicate"], true);
@@ -409,7 +431,7 @@ fn bounty_proofs_do_not_mutate_base_lane_status() {
     let (s_d, r_d) = http_post(
         boot.addr,
         "/bounties/epsilon-1/proof",
-        &submit_proof_body(PROOF_HASH_C, PROVER_X, json!({})),
+        &signed_proof_body(&prover, "epsilon-1", PROOF_HASH_C, json!({})),
     );
     assert_eq!(s_d, 409, "epsilon-1 must hit terminal: {r_d}");
     let (_, final_status) = http_get(boot.addr, "/status");
@@ -464,10 +486,11 @@ fn promotion_active_does_not_alter_base_lane_status() {
 
     // 2) Submit one accepted proof for `gamma-1` (domain
     //    `test.mock-accept`, matching the signed manifest's family_id).
+    let prover = test_prover_key();
     let (s_a, r_a) = http_post(
         boot.addr,
         "/bounties/gamma-1/proof",
-        &submit_proof_body(PROOF_HASH_A, PROVER_X, json!({})),
+        &signed_proof_body(&prover, "gamma-1", PROOF_HASH_A, json!({})),
     );
     assert_eq!(s_a, 200, "gamma-1 accept: {r_a}");
     assert_eq!(r_a["accepted"], true);
@@ -561,10 +584,12 @@ fn promoted_credit_lands_in_balance_and_preserves_hard_guard() {
     );
 
     // 1) Accepted bounty proof → side-pool entry with reward=100.
+    let prover = test_prover_key();
+    let prover_pk = prover.pk_hex();
     let (s_proof, r_proof) = http_post(
         promoted.addr,
         "/bounties/gamma-1/proof",
-        &submit_proof_body(PROOF_HASH_A, PROVER_X, json!({})),
+        &signed_proof_body(&prover, "gamma-1", PROOF_HASH_A, json!({})),
     );
     assert_eq!(s_proof, 200, "gamma-1 accept: {r_proof}");
     assert_eq!(r_proof["accepted"], true);
@@ -580,7 +605,7 @@ fn promoted_credit_lands_in_balance_and_preserves_hard_guard() {
 
     // 3) Balance route surfaces the credit (budget 100, share reward 100,
     //    min(100,100) = 100).
-    let (s_bal, balance) = http_get(promoted.addr, &format!("/account/{PROVER_X}/balance"));
+    let (s_bal, balance) = http_get(promoted.addr, &format!("/account/{prover_pk}/balance"));
     assert_eq!(s_bal, 200, "balance status: {balance}");
     assert_eq!(
         balance["balance"], "100",
@@ -653,10 +678,11 @@ fn boot_restores_unpromoted_bounty_shares_from_durable_audit_log() {
         false,
         2,
     );
+    let prover = test_prover_key();
     let (s_a, r_a) = http_post(
         first.addr,
         "/bounties/gamma-1/proof",
-        &submit_proof_body(PROOF_HASH_A, PROVER_X, json!({})),
+        &signed_proof_body(&prover, "gamma-1", PROOF_HASH_A, json!({})),
     );
     assert_eq!(s_a, 200, "first-boot accept must succeed: {r_a}");
     assert_eq!(r_a["accepted"], true, "first-boot accept: {r_a}");

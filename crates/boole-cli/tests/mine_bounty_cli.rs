@@ -1,6 +1,8 @@
 //! S19 — `boole mine bounty --node URL --id <id> --prover <hex32>
-//! [--envelope-path <path>]`. Boots a local node with the mock-verifier
-//! fixture and drives the CLI binary against it.
+//! --prover-sk-hex <hex32> [--envelope-path <path>]`. Boots a local node
+//! with the mock-verifier fixture and drives the CLI binary against it.
+//! P1.6d wires a `boole.signed.v1` envelope around the inner proof payload,
+//! so the miner CLI now requires the ed25519 seed via `--prover-sk-hex`.
 
 use std::collections::HashMap;
 use std::net::{SocketAddr, TcpListener};
@@ -10,12 +12,16 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
-use boole_core::{Bounty, BountyProofVerifier};
+use boole_core::{Bounty, BountyProofVerifier, SigningKeyV2};
 use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::Value;
 
-const PROVER_X: &str = "1100000000000000000000000000000000000000000000000000000000000000";
+fn test_key() -> SigningKeyV2 {
+    SigningKeyV2::from_dev_id("mine-bounty-cli-test")
+}
+
+const DUMMY_SEED_HEX: &str = "1100000000000000000000000000000000000000000000000000000000000000";
 
 fn scenario_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -103,6 +109,9 @@ fn mine_bounty_submits_envelope_and_prints_ok_envelope() {
     let envelope = dir.join("envelope.bin");
     std::fs::write(&envelope, b"{}").expect("write envelope");
 
+    let key = test_key();
+    let pk = key.pk_hex();
+    let sk = key.sk_seed_hex();
     let out = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
         .args([
             "mine",
@@ -112,7 +121,9 @@ fn mine_bounty_submits_envelope_and_prints_ok_envelope() {
             "--id",
             "gamma-1",
             "--prover",
-            PROVER_X,
+            pk.as_str(),
+            "--prover-sk-hex",
+            sk.as_str(),
             "--envelope-path",
             envelope.to_str().unwrap(),
         ])
@@ -137,6 +148,8 @@ fn mine_bounty_submits_envelope_and_prints_ok_envelope() {
 
 #[test]
 fn mine_bounty_rejects_malformed_prover_locally() {
+    // `--prover-sk-hex` is required by clap; supply a valid hex32 seed so the
+    // arg parser is satisfied and run_bounty's bad_prover check fires first.
     let out = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
         .args([
             "mine",
@@ -147,6 +160,8 @@ fn mine_bounty_rejects_malformed_prover_locally() {
             "gamma-1",
             "--prover",
             "not-hex",
+            "--prover-sk-hex",
+            DUMMY_SEED_HEX,
         ])
         .output()
         .expect("run cli");

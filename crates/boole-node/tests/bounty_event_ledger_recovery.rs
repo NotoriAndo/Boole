@@ -10,7 +10,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
-use boole_core::{Bounty, BountyProofVerifier};
+use boole_core::{Bounty, BountyProofVerifier, SigningKeyV2};
 use boole_node::FileBountyEventLedger;
 use boole_node::{serve_local_node, LocalNodeConfig};
 // P0.1a — first proven call site for boole_testkit. The local rand_suffix()
@@ -20,7 +20,10 @@ use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
 const PROOF_HASH_A: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
-const PROVER_X: &str = "1100000000000000000000000000000000000000000000000000000000000000";
+
+fn prover_key() -> SigningKeyV2 {
+    SigningKeyV2::from_dev_id("bounty-recovery-test-prover")
+}
 
 fn scenario_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -136,6 +139,30 @@ fn http_get(addr: SocketAddr, path: &str) -> (u16, Value) {
     (status, parsed)
 }
 
+/// Build a `boole.signed.v1` envelope around a `boole.bounty.proof.v1`
+/// payload signed by `key`.
+fn signed_proof_body(
+    key: &SigningKeyV2,
+    bounty_id: &str,
+    proof_hash: &str,
+    envelope: Value,
+) -> Value {
+    let payload = json!({
+        "schema": "boole.bounty.proof.v1",
+        "bountyId": bounty_id,
+        "proofHash": proof_hash,
+        "prover": key.pk_hex(),
+        "envelope": envelope,
+    });
+    let signed = key.sign(&payload).expect("sign proof payload");
+    json!({
+        "schema": signed.schema,
+        "payload": signed.payload,
+        "pk": signed.pk,
+        "signature": signed.signature,
+    })
+}
+
 #[test]
 fn second_boot_replays_audit_log_to_restore_solved_status() {
     let dir = std::env::temp_dir().join(format!(
@@ -145,15 +172,12 @@ fn second_boot_replays_audit_log_to_restore_solved_status() {
     ));
     std::fs::create_dir_all(&dir).expect("tmp dir");
     let bounty_event_path = dir.join("bounty-events.ndjson");
+    let key = prover_key();
 
     // Boot 1: submit accepted proof against gamma-1 → status flips to solved
     // and audit event is appended to the file.
     let (addr1, handle1) = boot_at(bounty_event_path.clone(), 1);
-    let body = json!({
-        "proofHash": PROOF_HASH_A,
-        "prover": PROVER_X,
-        "envelope": {},
-    });
+    let body = signed_proof_body(&key, "gamma-1", PROOF_HASH_A, json!({}));
     let (s1, r1) = http_post(addr1, "/bounties/gamma-1/proof", &body);
     assert_eq!(s1, 200);
     assert_eq!(r1["bounty"]["status"], "solved");
@@ -186,13 +210,10 @@ fn recovered_event_is_byte_equal_to_appended_event() {
     ));
     std::fs::create_dir_all(&dir).expect("tmp dir");
     let bounty_event_path = dir.join("bounty-events.ndjson");
+    let key = prover_key();
 
     let (addr, handle) = boot_at(bounty_event_path.clone(), 1);
-    let body = json!({
-        "proofHash": PROOF_HASH_A,
-        "prover": PROVER_X,
-        "envelope": {},
-    });
+    let body = signed_proof_body(&key, "gamma-1", PROOF_HASH_A, json!({}));
     let (status, _) = http_post(addr, "/bounties/gamma-1/proof", &body);
     assert_eq!(status, 200);
     handle.join().expect("server").expect("server ok");
@@ -209,7 +230,7 @@ fn recovered_event_is_byte_equal_to_appended_event() {
     );
     assert_eq!(ev["verifierKind"], "mock-accept");
     assert_eq!(ev["proofHash"], PROOF_HASH_A);
-    assert_eq!(ev["solverPk"], PROVER_X);
+    assert_eq!(ev["solverPk"], key.pk_hex());
     assert_eq!(ev["accepted"], true);
     assert_eq!(ev["reward"], "100");
     assert_eq!(ev["credit"], "100");

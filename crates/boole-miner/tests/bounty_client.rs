@@ -3,6 +3,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
+use boole_core::{verify_signature, SigningKeyV2};
 use boole_miner::{BountyClient, BountyProofInputs, BountyProofResult};
 
 type CapturedRequest = Arc<Mutex<Option<(String, Vec<u8>)>>>;
@@ -83,17 +84,13 @@ impl Drop for CannedServer {
     }
 }
 
-fn pk32() -> [u8; 32] {
-    let mut x = [0u8; 32];
-    for (i, b) in x.iter_mut().enumerate() {
-        *b = i as u8;
-    }
-    x
+fn test_key() -> SigningKeyV2 {
+    SigningKeyV2::from_dev_id("bounty-client-test")
 }
 
 #[test]
 fn test_submit_proof_ok_on_200_returns_accepted_duplicate_bounty() {
-    let pk = pk32();
+    let key = test_key();
     let srv = CannedServer::new(
         200,
         br#"{"accepted":true,"duplicate":false,"bounty":{"id":"abc","status":"open"}}"#.to_vec(),
@@ -101,7 +98,7 @@ fn test_submit_proof_ok_on_200_returns_accepted_duplicate_bounty() {
     let client = BountyClient::new(srv.url());
     let res = client.submit_proof(BountyProofInputs {
         bounty_id: "abc",
-        prover_pk: &pk,
+        signing_key: &key,
         envelope: serde_json::json!({"proof": "x"}),
         envelope_bytes: b"envelope-bytes",
     });
@@ -120,22 +117,31 @@ fn test_submit_proof_ok_on_200_returns_accepted_duplicate_bounty() {
     let (headers, body) = srv.captured().unwrap();
     assert!(headers.starts_with("POST /bounties/abc/proof HTTP/1.1\r\n"));
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["prover"], hex::encode(pk));
-    // proofHash = sha256("envelope-bytes") hex
+    // boole.signed.v1 outer envelope.
+    assert_eq!(json["schema"], "boole.signed.v1");
+    assert_eq!(json["pk"], key.pk_hex());
+    let signature = json["signature"].as_str().expect("signature str");
+    let payload = &json["payload"];
+    // Outer signature must verify against the inner payload.
+    assert!(verify_signature(&key.pk_hex(), signature, payload).is_ok());
+    // Inner payload shape.
+    assert_eq!(payload["schema"], "boole.bounty.proof.v1");
+    assert_eq!(payload["bountyId"], "abc");
+    assert_eq!(payload["prover"], key.pk_hex());
     use sha2::{Digest, Sha256};
     let expected = hex::encode(Sha256::digest(b"envelope-bytes"));
-    assert_eq!(json["proofHash"], expected);
-    assert_eq!(json["envelope"]["proof"], "x");
+    assert_eq!(payload["proofHash"], expected);
+    assert_eq!(payload["envelope"]["proof"], "x");
 }
 
 #[test]
 fn test_submit_proof_not_found_on_404() {
-    let pk = pk32();
+    let key = test_key();
     let srv = CannedServer::new(404, br#"{"error":"missing"}"#.to_vec());
     let client = BountyClient::new(srv.url());
     let res = client.submit_proof(BountyProofInputs {
         bounty_id: "missing-id",
-        prover_pk: &pk,
+        signing_key: &key,
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
     });
@@ -149,12 +155,12 @@ fn test_submit_proof_not_found_on_404() {
 
 #[test]
 fn test_submit_proof_terminal_on_409() {
-    let pk = pk32();
+    let key = test_key();
     let srv = CannedServer::new(409, br#"{"status":"solved"}"#.to_vec());
     let client = BountyClient::new(srv.url());
     let res = client.submit_proof(BountyProofInputs {
         bounty_id: "abc",
-        prover_pk: &pk,
+        signing_key: &key,
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
     });
@@ -168,12 +174,12 @@ fn test_submit_proof_terminal_on_409() {
 
 #[test]
 fn test_submit_proof_no_verifier_on_501() {
-    let pk = pk32();
+    let key = test_key();
     let srv = CannedServer::new(501, br#"{"kind":"lean-checker"}"#.to_vec());
     let client = BountyClient::new(srv.url());
     let res = client.submit_proof(BountyProofInputs {
         bounty_id: "abc",
-        prover_pk: &pk,
+        signing_key: &key,
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
     });
@@ -187,7 +193,7 @@ fn test_submit_proof_no_verifier_on_501() {
 
 #[test]
 fn test_submit_proof_bad_request_on_400() {
-    let pk = pk32();
+    let key = test_key();
     let srv = CannedServer::new(
         400,
         br#"{"error":"shape","detail":"prover not hex32"}"#.to_vec(),
@@ -195,7 +201,7 @@ fn test_submit_proof_bad_request_on_400() {
     let client = BountyClient::new(srv.url());
     let res = client.submit_proof(BountyProofInputs {
         bounty_id: "abc",
-        prover_pk: &pk,
+        signing_key: &key,
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
     });
@@ -210,12 +216,12 @@ fn test_submit_proof_bad_request_on_400() {
 
 #[test]
 fn test_submit_proof_url_percent_encodes_bounty_id() {
-    let pk = pk32();
+    let key = test_key();
     let srv = CannedServer::new(200, br#"{"accepted":true}"#.to_vec());
     let client = BountyClient::new(srv.url());
     let _ = client.submit_proof(BountyProofInputs {
         bounty_id: "weird id/with:slash",
-        prover_pk: &pk,
+        signing_key: &key,
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
     });

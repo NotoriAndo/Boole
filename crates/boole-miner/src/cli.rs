@@ -173,9 +173,15 @@ pub struct BountyArgs {
     /// Bounty id.
     #[arg(long)]
     pub id: String,
-    /// Prover ed25519 public key (32-byte lowercase hex).
+    /// Prover ed25519 public key (32-byte lowercase hex). Must match
+    /// the pk derived from `--prover-sk-hex`.
     #[arg(long)]
     pub prover: String,
+    /// Prover ed25519 signing-key seed (32-byte lowercase hex). The
+    /// node requires `boole.signed.v1` envelopes on POST
+    /// `/bounties/{id}/proof`, so this is required for any real submit.
+    #[arg(long = "prover-sk-hex")]
+    pub prover_sk_hex: String,
     /// Path to a file holding the canonical envelope bytes (default: empty).
     #[arg(long = "envelope-path")]
     pub envelope_path: Option<PathBuf>,
@@ -517,14 +523,32 @@ pub fn run_bounty(args: BountyArgs) -> anyhow::Result<()> {
         Some(p) => std::fs::read(p)?,
         None => Vec::new(),
     };
-    let mut prover_pk = [0u8; 32];
-    hex::decode_to_slice(&args.prover, &mut prover_pk)
-        .map_err(|e| anyhow::anyhow!("decode prover: {e}"))?;
+    let signing_key =
+        boole_core::SigningKeyV2::from_seed_hex(&args.prover_sk_hex).map_err(|err| {
+            anyhow::anyhow!(
+                "{}",
+                serde_json::json!({
+                    "ok": false,
+                    "reason": "bad_prover_sk_hex",
+                    "detail": err,
+                })
+            )
+        })?;
+    if signing_key.pk_hex() != args.prover {
+        anyhow::bail!(
+            "{}",
+            serde_json::json!({
+                "ok": false,
+                "reason": "prover_sk_pk_mismatch",
+                "detail": "--prover-sk-hex derives a pk that does not match --prover"
+            })
+        );
+    }
     let client =
         BountyClient::with_timeout(args.node.clone(), Duration::from_millis(args.timeout_ms));
     let result = client.submit_proof(BountyProofInputs {
         bounty_id: &args.id,
-        prover_pk: &prover_pk,
+        signing_key: &signing_key,
         envelope: serde_json::json!({"bytes": hex::encode(&envelope_bytes)}),
         envelope_bytes: &envelope_bytes,
     });

@@ -405,7 +405,12 @@ enum BountyCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Submit a proof envelope to `POST /bounties/{id}/proof`.
+    /// Submit a proof envelope to `POST /bounties/{id}/proof`. P1.6d —
+    /// the route requires a `boole.signed.v1` outer envelope around a
+    /// `boole.bounty.proof.v1` payload; the prover pk is derived from
+    /// `--signing-key` (the envelope signer must equal the claimed
+    /// prover, so a separate `--prover` flag would be redundant and a
+    /// foot-gun if mismatched).
     Submit {
         /// Bounty id whose verifier will judge the envelope.
         #[arg(long)]
@@ -414,9 +419,11 @@ enum BountyCommand {
         /// payload (used for dedup).
         #[arg(long = "proof-hash")]
         proof_hash: String,
-        /// 32-byte lowercase hex prover public key.
-        #[arg(long)]
-        prover: String,
+        /// Id of the stored v2 key used to sign the proof envelope. The
+        /// derived ed25519 public key becomes the payload `prover` and
+        /// envelope `pk`.
+        #[arg(long = "signing-key")]
+        signing_key: String,
         /// Path to a JSON envelope file or an inline JSON string. The
         /// envelope shape is verifier-specific (e.g. `{"leanSource": "..."}`
         /// for the Lean verifier).
@@ -646,11 +653,18 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             BountyCommand::Submit {
                 id,
                 proof_hash,
-                prover,
+                signing_key,
                 envelope,
                 node,
                 json,
-            } => bounty_submit(&id, &proof_hash, &prover, &envelope, node.as_deref(), json),
+            } => bounty_submit(
+                &id,
+                &proof_hash,
+                &signing_key,
+                &envelope,
+                node.as_deref(),
+                json,
+            ),
             BountyCommand::Announce {
                 id,
                 domain,
@@ -1536,18 +1550,69 @@ fn bounty_get(id: &str, node: Option<&str>, json: bool) -> anyhow::Result<()> {
 fn bounty_submit(
     id: &str,
     proof_hash: &str,
-    prover: &str,
+    signing_key: &str,
     envelope: &str,
     node: Option<&str>,
     json: bool,
 ) -> anyhow::Result<()> {
+    if let Err(detail) = validate_key_id(signing_key) {
+        emit_typed_error(
+            "bad_request",
+            2,
+            serde_json::json!({ "detail": detail, "field": "signing-key" }),
+        );
+    }
+    let dir = keys_dir();
+    let key_path_buf = key_path(&dir, signing_key);
+    if !key_path_buf.exists() {
+        emit_typed_error(
+            "key_not_found",
+            3,
+            serde_json::json!({ "id": signing_key, "path": key_path_buf.to_string_lossy() }),
+        );
+    }
+    let raw = std::fs::read_to_string(&key_path_buf)?;
+    let key_envelope: serde_json::Value = serde_json::from_str(&raw)?;
+    let schema = key_envelope
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if schema != KEYS_SCHEMA_V2 {
+        emit_typed_error(
+            "legacy_v1_key",
+            3,
+            serde_json::json!({
+                "id": signing_key,
+                "schema": schema,
+                "detail": "key was created before S13a and has no secret seed; rotate by creating a new key with a different id",
+            }),
+        );
+    }
+    let sk_hex = key_envelope
+        .get("sk")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("v2 key envelope missing required `sk` field"))?;
+    let signing = boole_core::SigningKeyV2::from_seed_hex(sk_hex)
+        .map_err(|err| anyhow::anyhow!("stored sk is not a valid ed25519 seed: {err}"))?;
+
     let envelope_value = read_json_arg(envelope, "envelope")?;
     let url = node.unwrap_or("http://127.0.0.1:8080");
     let path = format!("/bounties/{id}/proof");
-    let body = serde_json::json!({
+    let payload = serde_json::json!({
+        "schema": "boole.bounty.proof.v1",
+        "bountyId": id,
         "proofHash": proof_hash,
-        "prover": prover,
+        "prover": signing.pk_hex(),
         "envelope": envelope_value,
+    });
+    let signed = signing
+        .sign(&payload)
+        .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
+    let body = serde_json::json!({
+        "schema": signed.schema,
+        "payload": signed.payload,
+        "pk": signed.pk,
+        "signature": signed.signature,
     });
     let response = http_post(url, &path, &body)?;
     let body_text =

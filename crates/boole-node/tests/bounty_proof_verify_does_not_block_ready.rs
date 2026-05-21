@@ -33,13 +33,34 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use boole_core::{Bounty, BountyProofVerifier};
+use boole_core::{Bounty, BountyProofVerifier, SigningKeyV2};
 use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
 const PROOF_HASH_A: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
-const PROVER_X: &str = "1100000000000000000000000000000000000000000000000000000000000000";
+
+fn signed_proof_body(
+    key: &SigningKeyV2,
+    bounty_id: &str,
+    proof_hash: &str,
+    envelope: Value,
+) -> Value {
+    let payload = json!({
+        "schema": "boole.bounty.proof.v1",
+        "bountyId": bounty_id,
+        "proofHash": proof_hash,
+        "prover": key.pk_hex(),
+        "envelope": envelope,
+    });
+    let signed = key.sign(&payload).expect("sign proof payload");
+    json!({
+        "schema": signed.schema,
+        "payload": signed.payload,
+        "pk": signed.pk,
+        "signature": signed.signature,
+    })
+}
 
 fn scenario_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -210,11 +231,8 @@ fn bounty_proof_verify_does_not_block_ready_probe() {
 
     let (proof_tx, proof_rx) = mpsc::channel::<(u16, Value)>();
     let worker = thread::spawn(move || {
-        let body = json!({
-            "proofHash": PROOF_HASH_A,
-            "prover": PROVER_X,
-            "envelope": {},
-        });
+        let key = SigningKeyV2::from_dev_id("bounty-verify-block-ready-test");
+        let body = signed_proof_body(&key, "slow-1", PROOF_HASH_A, json!({}));
         let (status, value) = http_post(addr, "/bounties/slow-1/proof", &body);
         proof_tx.send((status, value)).expect("proof channel");
     });

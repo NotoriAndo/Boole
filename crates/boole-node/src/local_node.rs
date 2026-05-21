@@ -1659,6 +1659,7 @@ fn session_public_view(session: &SessionState) -> Value {
 
 const SESSIONS_REGISTER_PAYLOAD_SCHEMA: &str = "boole.sessions.register.v1";
 const SESSIONS_REVOKE_PAYLOAD_SCHEMA: &str = "boole.sessions.revoke.v1";
+const BOUNTY_PROOF_PAYLOAD_SCHEMA: &str = "boole.bounty.proof.v1";
 
 fn session_register_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, HttpError> {
     // 0) Short-circuit when the registry is not configured. Operators who
@@ -2753,19 +2754,83 @@ fn bounty_proof_prepare(
     id: &str,
     body: &[u8],
 ) -> Result<PreparedProof, HttpError> {
-    // 1) 404 — bounty must exist (catalog or registry-replayed).
+    // 1) 404 — bounty must exist (catalog or registry-replayed). Bounty
+    //    existence is public catalog data so this gate runs before
+    //    envelope parsing to keep the error surface aligned with the
+    //    pre-P1.6d contract.
     let bounty = state
         .bounty_registry
         .get(id)
         .ok_or_else(|| HttpError::bounty_not_found(id))?;
 
-    // 2) 400 — body must be JSON object with proofHash/prover/envelope.
-    let body_value: Value = serde_json::from_slice(body)
-        .map_err(|err| HttpError::bad_request(format!("body is not valid JSON: {err}")))?;
-    let body_obj = body_value
+    // 2) Parse the outer `boole.signed.v1` envelope.
+    let outer: Value = serde_json::from_slice(body)
+        .map_err(|err| HttpError::bad_envelope(format!("body is not valid JSON: {err}")))?;
+    let outer_obj = outer
         .as_object()
-        .ok_or_else(|| HttpError::bad_request("proof body must be a JSON object"))?;
-    let proof_hash = body_obj
+        .ok_or_else(|| HttpError::bad_envelope("envelope must be a JSON object"))?;
+    let schema = outer_obj
+        .get("schema")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing schema"))?;
+    if schema != SIGNED_ENVELOPE_SCHEMA {
+        return Err(HttpError::bad_envelope(format!(
+            "expected schema {SIGNED_ENVELOPE_SCHEMA}, got {schema}"
+        )));
+    }
+    let pk = outer_obj
+        .get("pk")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing pk"))?;
+    let signature = outer_obj
+        .get("signature")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing signature"))?;
+    let payload = outer_obj
+        .get("payload")
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing payload"))?;
+
+    if !is_well_formed_hex32(pk) {
+        return Err(HttpError::bad_envelope("pk must be 64 lowercase hex chars"));
+    }
+    if Hex64::from_hex(signature).is_err() {
+        return Err(HttpError::bad_envelope(
+            "signature must be 128 lowercase hex chars",
+        ));
+    }
+
+    // 3) Crypto: signature must verify against payload bytes.
+    match verify_signature(pk, signature, payload) {
+        Ok(true) => {}
+        Ok(false) => return Err(HttpError::signature_invalid()),
+        Err(detail) => return Err(HttpError::bad_envelope(detail)),
+    }
+
+    // 4) Inner payload validation.
+    let payload_obj = payload
+        .as_object()
+        .ok_or_else(|| HttpError::bad_payload("payload", "payload must be a JSON object"))?;
+    let payload_schema = payload_obj
+        .get("schema")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_payload("schema", "payload missing schema"))?;
+    if payload_schema != BOUNTY_PROOF_PAYLOAD_SCHEMA {
+        return Err(HttpError::bad_payload(
+            "schema",
+            format!("expected {BOUNTY_PROOF_PAYLOAD_SCHEMA}, got {payload_schema}"),
+        ));
+    }
+    let payload_bounty_id = payload_obj
+        .get("bountyId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_payload("bountyId", "payload missing bountyId"))?;
+    if payload_bounty_id != id {
+        return Err(HttpError::bad_payload(
+            "bountyId",
+            "URL bountyId does not match payload bountyId",
+        ));
+    }
+    let proof_hash = payload_obj
         .get("proofHash")
         .and_then(Value::as_str)
         .ok_or_else(HttpError::bad_proof_hash)?
@@ -2773,7 +2838,7 @@ fn bounty_proof_prepare(
     if Hex32::from_hex(&proof_hash).is_err() {
         return Err(HttpError::bad_proof_hash());
     }
-    let prover = body_obj
+    let prover = payload_obj
         .get("prover")
         .and_then(Value::as_str)
         .ok_or_else(HttpError::bad_prover)?
@@ -2781,7 +2846,15 @@ fn bounty_proof_prepare(
     if Hex32::from_hex(&prover).is_err() {
         return Err(HttpError::bad_prover());
     }
-    let envelope = body_obj.get("envelope").cloned().unwrap_or(Value::Null);
+    if prover != pk {
+        // Envelope signer must match the claimed prover so a third
+        // party cannot post a proof crediting somebody else's reward.
+        return Err(HttpError::bad_payload(
+            "prover",
+            "envelope pk does not match payload prover",
+        ));
+    }
+    let envelope = payload_obj.get("envelope").cloned().unwrap_or(Value::Null);
 
     // 3) Dedup peek — wins over terminal status and verifier dispatch so
     //    a re-post is idempotent and does not pay for `lake exec`.
