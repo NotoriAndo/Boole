@@ -1449,7 +1449,75 @@ fn receipt_get_json(state: &LocalNodeState, receipt_id: &str) -> Result<Value, H
     Ok(json!({"ok": true, "receiptCommitment": receipt}))
 }
 
+const RECEIPTS_POST_PAYLOAD_SCHEMA: &str = "boole.receipts.commit.v1";
+
 fn receipt_post_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, HttpError> {
+    // 1) Parse outer `boole.signed.v1` envelope.
+    let envelope: Value = serde_json::from_slice(body)
+        .map_err(|err| HttpError::bad_envelope(format!("body is not valid JSON: {err}")))?;
+    let envelope_obj = envelope
+        .as_object()
+        .ok_or_else(|| HttpError::bad_envelope("envelope must be a JSON object"))?;
+    let schema = envelope_obj
+        .get("schema")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing schema"))?;
+    if schema != SIGNED_ENVELOPE_SCHEMA {
+        return Err(HttpError::bad_envelope(format!(
+            "expected schema {SIGNED_ENVELOPE_SCHEMA}, got {schema}"
+        )));
+    }
+    let pk = envelope_obj
+        .get("pk")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing pk"))?;
+    let signature = envelope_obj
+        .get("signature")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing signature"))?;
+    let payload = envelope_obj
+        .get("payload")
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing payload"))?;
+
+    // 2) Wire-shape hex checks — keep `keys verify` vocabulary aligned.
+    if !is_well_formed_hex32(pk) {
+        return Err(HttpError::bad_envelope("pk must be 64 lowercase hex chars"));
+    }
+    if Hex64::from_hex(signature).is_err() {
+        return Err(HttpError::bad_envelope(
+            "signature must be 128 lowercase hex chars",
+        ));
+    }
+
+    // 3) Crypto verification: structural envelope intact but wrong sig is
+    //    401, not 400.
+    match verify_signature(pk, signature, payload) {
+        Ok(true) => {}
+        Ok(false) => return Err(HttpError::signature_invalid()),
+        Err(detail) => return Err(HttpError::bad_envelope(detail)),
+    }
+
+    // 4) Inner payload schema gate.
+    let payload_obj = payload
+        .as_object()
+        .ok_or_else(|| HttpError::bad_payload("payload", "payload must be a JSON object"))?;
+    let payload_schema = payload_obj
+        .get("schema")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_payload("schema", "payload missing schema"))?;
+    if payload_schema != RECEIPTS_POST_PAYLOAD_SCHEMA {
+        return Err(HttpError::bad_payload(
+            "schema",
+            format!("expected {RECEIPTS_POST_PAYLOAD_SCHEMA}, got {payload_schema}"),
+        ));
+    }
+    let receipt_value = payload_obj.get("receiptCommitment").ok_or_else(|| {
+        HttpError::bad_payload("receiptCommitment", "payload missing receiptCommitment")
+    })?;
+    let receipt: ReceiptCommitment = serde_json::from_value(receipt_value.clone())
+        .map_err(|err| HttpError::bad_payload("receiptCommitment", err.to_string()))?;
+
+    // 5) Existing durability + in-memory store mutation.
     let path = state
         .receipt_commitment_ledger_path
         .clone()
@@ -1458,8 +1526,6 @@ fn receipt_post_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, H
         .receipt_store
         .as_mut()
         .ok_or_else(HttpError::receipt_store_disabled)?;
-    let receipt: ReceiptCommitment = serde_json::from_slice(body)
-        .map_err(|err| HttpError::bad_payload("receiptCommitment", err.to_string()))?;
     FileReceiptStore::append(&path, &receipt)
         .map_err(|err| HttpError::bad_request(err.to_string()))?;
     store

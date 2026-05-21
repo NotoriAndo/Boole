@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use boole_core::{ReceiptCommitment, ReceiptCommitmentInput};
+use boole_core::{ReceiptCommitment, ReceiptCommitmentInput, SigningKeyV2};
 use boole_node::FileReceiptStore;
 use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
@@ -17,6 +17,7 @@ const AGENT_PK: &str = "11111111111111111111111111111111111111111111111111111111
 const ARTIFACT_HASH: &str = "2222222222222222222222222222222222222222222222222222222222222222";
 const REQUEST_HASH: &str = "3333333333333333333333333333333333333333333333333333333333333333";
 const REWARD_RECIPIENT: &str = "4444444444444444444444444444444444444444444444444444444444444444";
+const RECEIPTS_POST_PAYLOAD_SCHEMA: &str = "boole.receipts.commit.v1";
 
 fn scenario_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -117,6 +118,23 @@ fn http_post(addr: SocketAddr, path: &str, body: &Value) -> (u16, Value) {
     http_request(addr, request)
 }
 
+fn receipt_payload(commitment: &ReceiptCommitment) -> Value {
+    json!({
+        "schema": RECEIPTS_POST_PAYLOAD_SCHEMA,
+        "receiptCommitment": commitment,
+    })
+}
+
+fn signed_envelope(payload: &Value, key: &SigningKeyV2) -> Value {
+    let signed = key.sign(payload).expect("sign");
+    json!({
+        "schema": signed.schema,
+        "payload": signed.payload,
+        "pk": signed.pk,
+        "signature": signed.signature,
+    })
+}
+
 fn http_request(addr: SocketAddr, request: String) -> (u16, Value) {
     let mut stream = TcpStream::connect(addr).expect("connect");
     stream.write_all(request.as_bytes()).expect("write");
@@ -205,10 +223,17 @@ fn receipt_route_post_rejects_raw_human_answer_field() {
     let dir = fresh_dir("post-rejects-raw");
     let path = dir.join("receipts.ndjson");
     let boot = boot_with_receipt_store(1, Some(path.clone()));
-    let mut body = serde_json::to_value(fixture_commitment()).expect("commitment json");
-    body["humanAnswer"] = json!("raw model/proof text must not enter node receipt state");
+    let key = SigningKeyV2::from_dev_id("receipt-poster-human-answer");
+    let mut commitment_value = serde_json::to_value(fixture_commitment()).expect("commitment json");
+    commitment_value["humanAnswer"] =
+        json!("raw model/proof text must not enter node receipt state");
+    let payload = json!({
+        "schema": RECEIPTS_POST_PAYLOAD_SCHEMA,
+        "receiptCommitment": commitment_value,
+    });
+    let envelope = signed_envelope(&payload, &key);
 
-    let (status, value) = http_post(boot.addr, "/receipts", &body);
+    let (status, value) = http_post(boot.addr, "/receipts", &envelope);
     assert_eq!(status, 400, "expected 400, got {status}: {value}");
     assert_eq!(value["ok"], false);
     assert_eq!(value["reason"], "bad_payload");
@@ -216,6 +241,107 @@ fn receipt_route_post_rejects_raw_human_answer_field() {
     assert!(
         !path.exists(),
         "rejected raw answer payload must not create receipt ledger"
+    );
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn receipt_route_post_with_valid_signed_envelope_accepts_and_stores() {
+    let dir = fresh_dir("post-signed-ok");
+    let path = dir.join("receipts.ndjson");
+    let boot = boot_with_receipt_store(1, Some(path.clone()));
+    let key = SigningKeyV2::from_dev_id("receipt-poster-happy");
+    let commitment = fixture_commitment();
+    let payload = receipt_payload(&commitment);
+    let envelope = signed_envelope(&payload, &key);
+
+    let (status, value) = http_post(boot.addr, "/receipts", &envelope);
+    assert_eq!(status, 200, "expected 200, got {status}: {value}");
+    assert_eq!(value["ok"], true);
+    assert_eq!(
+        value["receiptCommitment"]["receiptId"],
+        commitment.receipt_id
+    );
+    assert!(path.exists(), "signed receipt must be persisted to ledger");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn receipt_route_post_tampered_payload_returns_401_signature_invalid() {
+    let dir = fresh_dir("post-tampered");
+    let path = dir.join("receipts.ndjson");
+    let boot = boot_with_receipt_store(1, Some(path.clone()));
+    let key = SigningKeyV2::from_dev_id("receipt-poster-tampered");
+    let commitment = fixture_commitment();
+    let payload = receipt_payload(&commitment);
+    let mut envelope = signed_envelope(&payload, &key);
+    envelope["payload"]["receiptCommitment"]["feeCharged"] = json!("999");
+
+    let (status, value) = http_post(boot.addr, "/receipts", &envelope);
+    assert_eq!(status, 401, "tampered payload → 401: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "signature_invalid");
+    assert!(
+        !path.exists(),
+        "tampered envelope must not create receipt ledger"
+    );
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn receipt_route_post_wrong_outer_envelope_schema_returns_400_bad_envelope() {
+    let dir = fresh_dir("post-bad-envelope");
+    let path = dir.join("receipts.ndjson");
+    let boot = boot_with_receipt_store(1, Some(path.clone()));
+    let key = SigningKeyV2::from_dev_id("receipt-poster-bad-envelope");
+    let payload = receipt_payload(&fixture_commitment());
+    let mut envelope = signed_envelope(&payload, &key);
+    envelope["schema"] = json!("not.signed.v1");
+
+    let (status, value) = http_post(boot.addr, "/receipts", &envelope);
+    assert_eq!(status, 400, "wrong outer schema → 400: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "bad_envelope");
+    assert!(
+        !path.exists(),
+        "bad envelope must not create receipt ledger"
+    );
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn receipt_route_post_wrong_inner_payload_schema_returns_400_bad_payload() {
+    let dir = fresh_dir("post-bad-payload-schema");
+    let path = dir.join("receipts.ndjson");
+    let boot = boot_with_receipt_store(1, Some(path.clone()));
+    let key = SigningKeyV2::from_dev_id("receipt-poster-bad-payload-schema");
+    let commitment = fixture_commitment();
+    let payload = json!({
+        "schema": "not.receipts.commit.v1",
+        "receiptCommitment": commitment,
+    });
+    let envelope = signed_envelope(&payload, &key);
+
+    let (status, value) = http_post(boot.addr, "/receipts", &envelope);
+    assert_eq!(status, 400, "wrong inner schema → 400: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "bad_payload");
+    assert_eq!(value["field"], "schema");
+    assert!(
+        !path.exists(),
+        "wrong inner schema must not create receipt ledger"
     );
 
     boot.handle.join().expect("server thread").expect("exits");
