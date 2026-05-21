@@ -254,11 +254,20 @@ fn register_session(addr: SocketAddr, session_pk: &str, fixed_reward_recipient: 
 }
 
 fn revoke_session(addr: SocketAddr, session_pk: &str) {
-    let (status, value) = http_post(
-        addr,
-        &format!("/sessions/{session_pk}/revoke"),
-        &json!({"height": 1}),
-    );
+    let key = SigningKeyV2::from_dev_id("session-revoker-helper");
+    let payload = json!({
+        "schema": "boole.sessions.revoke.v1",
+        "sessionPk": session_pk,
+        "height": 1,
+    });
+    let signed = key.sign(&payload).expect("sign revoke");
+    let envelope = json!({
+        "schema": signed.schema,
+        "payload": signed.payload,
+        "pk": signed.pk,
+        "signature": signed.signature,
+    });
+    let (status, value) = http_post(addr, &format!("/sessions/{session_pk}/revoke"), &envelope);
     assert_eq!(status, 200, "revoke failed: status={status}, body={value}");
     assert_eq!(value["session"]["revoked"], true);
 }

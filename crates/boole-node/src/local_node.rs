@@ -1658,6 +1658,7 @@ fn session_public_view(session: &SessionState) -> Value {
 }
 
 const SESSIONS_REGISTER_PAYLOAD_SCHEMA: &str = "boole.sessions.register.v1";
+const SESSIONS_REVOKE_PAYLOAD_SCHEMA: &str = "boole.sessions.revoke.v1";
 
 fn session_register_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, HttpError> {
     // 0) Short-circuit when the registry is not configured. Operators who
@@ -1773,9 +1774,91 @@ fn session_revoke_json(
     session_pk: &str,
     body: &[u8],
 ) -> Result<Value, HttpError> {
+    // 0) URL-shape gate + operator-config gate run before envelope
+    //    parsing so wallets receive the precise reason without having to
+    //    sign a request just to learn the route is unusable.
     if !is_well_formed_hex32(session_pk) {
         return Err(HttpError::malformed_pk());
     }
+    if state.session_registry_path.is_none() || state.session_store.is_none() {
+        return Err(HttpError::session_registry_disabled());
+    }
+
+    // 1) Parse outer `boole.signed.v1` envelope.
+    let envelope: Value = serde_json::from_slice(body)
+        .map_err(|err| HttpError::bad_envelope(format!("body is not valid JSON: {err}")))?;
+    let envelope_obj = envelope
+        .as_object()
+        .ok_or_else(|| HttpError::bad_envelope("envelope must be a JSON object"))?;
+    let schema = envelope_obj
+        .get("schema")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing schema"))?;
+    if schema != SIGNED_ENVELOPE_SCHEMA {
+        return Err(HttpError::bad_envelope(format!(
+            "expected schema {SIGNED_ENVELOPE_SCHEMA}, got {schema}"
+        )));
+    }
+    let pk = envelope_obj
+        .get("pk")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing pk"))?;
+    let signature = envelope_obj
+        .get("signature")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing signature"))?;
+    let payload = envelope_obj
+        .get("payload")
+        .ok_or_else(|| HttpError::bad_envelope("envelope missing payload"))?;
+
+    if !is_well_formed_hex32(pk) {
+        return Err(HttpError::bad_envelope("pk must be 64 lowercase hex chars"));
+    }
+    if Hex64::from_hex(signature).is_err() {
+        return Err(HttpError::bad_envelope(
+            "signature must be 128 lowercase hex chars",
+        ));
+    }
+
+    // 2) Crypto: signature must verify against payload bytes.
+    match verify_signature(pk, signature, payload) {
+        Ok(true) => {}
+        Ok(false) => return Err(HttpError::signature_invalid()),
+        Err(detail) => return Err(HttpError::bad_envelope(detail)),
+    }
+
+    // 3) Inner payload validation.
+    let payload_obj = payload
+        .as_object()
+        .ok_or_else(|| HttpError::bad_payload("payload", "payload must be a JSON object"))?;
+    let payload_schema = payload_obj
+        .get("schema")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_payload("schema", "payload missing schema"))?;
+    if payload_schema != SESSIONS_REVOKE_PAYLOAD_SCHEMA {
+        return Err(HttpError::bad_payload(
+            "schema",
+            format!("expected {SESSIONS_REVOKE_PAYLOAD_SCHEMA}, got {payload_schema}"),
+        ));
+    }
+    let payload_session_pk = payload_obj
+        .get("sessionPk")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_payload("sessionPk", "payload missing sessionPk"))?;
+    if payload_session_pk != session_pk {
+        // URL sessionPk binds the signed payload so a valid signature
+        // cannot be replayed against a different session's URL.
+        return Err(HttpError::bad_payload(
+            "sessionPk",
+            "URL sessionPk does not match payload sessionPk",
+        ));
+    }
+    let height = payload_obj
+        .get("height")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| HttpError::bad_payload("height", "payload missing height"))?;
+
+    // 4) Existing mutation path.
     let path = state
         .session_registry_path
         .clone()
@@ -1787,13 +1870,6 @@ fn session_revoke_json(
     if !store.sessions().contains_key(session_pk) {
         return Err(HttpError::session_not_found(session_pk.to_string()));
     }
-    let envelope: Value = serde_json::from_slice(body)
-        .map_err(|err| HttpError::bad_request(format!("body is not valid JSON: {err}")))?;
-    let height = envelope
-        .as_object()
-        .and_then(|m| m.get("height"))
-        .and_then(Value::as_u64)
-        .ok_or_else(|| HttpError::missing_field("height"))?;
     store
         .append_revoke(&path, session_pk, height)
         .map_err(|err| HttpError::bad_request(err.to_string()))?;

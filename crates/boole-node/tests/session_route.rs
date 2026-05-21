@@ -28,9 +28,20 @@ use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
 const SESSIONS_REGISTER_PAYLOAD_SCHEMA: &str = "boole.sessions.register.v1";
+const SESSIONS_REVOKE_PAYLOAD_SCHEMA: &str = "boole.sessions.revoke.v1";
 
 fn signed_register_envelope(payload: &Value, key: &SigningKeyV2) -> Value {
     let signed = key.sign(payload).expect("sign register payload");
+    json!({
+        "schema": signed.schema,
+        "payload": signed.payload,
+        "pk": signed.pk,
+        "signature": signed.signature,
+    })
+}
+
+fn signed_revoke_envelope(payload: &Value, key: &SigningKeyV2) -> Value {
+    let signed = key.sign(payload).expect("sign revoke payload");
     json!({
         "schema": signed.schema,
         "payload": signed.payload,
@@ -44,6 +55,14 @@ fn register_payload(session: Value, current_height: u64) -> Value {
         "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
         "session": session,
         "currentHeight": current_height,
+    })
+}
+
+fn revoke_payload(session_pk: &str, height: u64) -> Value {
+    json!({
+        "schema": SESSIONS_REVOKE_PAYLOAD_SCHEMA,
+        "sessionPk": session_pk,
+        "height": height,
     })
 }
 
@@ -243,10 +262,11 @@ fn session_route_revoke_sets_revoked_true() {
     let (status_post, _) = http_post(boot.addr, "/sessions", &body);
     assert_eq!(status_post, 200);
 
+    let revoke_envelope = signed_revoke_envelope(&revoke_payload(PK_A, 42), &key);
     let (status_revoke, value_revoke) = http_post(
         boot.addr,
         &format!("/sessions/{PK_A}/revoke"),
-        &json!({"height": 42}),
+        &revoke_envelope,
     );
     assert_eq!(status_revoke, 200, "got {status_revoke}: {value_revoke}");
     assert_eq!(value_revoke["ok"], true);
@@ -309,4 +329,148 @@ fn session_route_returns_disabled_when_registry_unconfigured() {
 
     boot.handle.join().expect("server thread").expect("exits");
     let _ = std::fs::remove_dir_all(&boot.dir);
+}
+
+// ------------------------------------------------------------------
+// P1.6c — signed envelope on POST /sessions/{sessionPk}/revoke.
+//
+// Mirrors slice 23 (/receipts) and slice 24 (/sessions): the route
+// requires a `boole.signed.v1` outer envelope whose inner payload is
+// `boole.sessions.revoke.v1` and binds `sessionPk` so a signed payload
+// cannot be replayed against a different session's URL.
+// ------------------------------------------------------------------
+
+#[test]
+fn session_route_revoke_with_valid_signed_envelope_accepts_and_persists() {
+    let dir = fresh_dir("revoke-signed-ok");
+    let registry = dir.join("sessions.ndjson");
+    let boot = boot_with_registry(2, Some(registry));
+
+    let key = SigningKeyV2::from_dev_id("session-route-revoke-happy");
+    let register_envelope = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
+    assert_eq!(status_register, 200);
+
+    let revoke_envelope = signed_revoke_envelope(&revoke_payload(PK_A, 7), &key);
+    let (status, value) = http_post(
+        boot.addr,
+        &format!("/sessions/{PK_A}/revoke"),
+        &revoke_envelope,
+    );
+    assert_eq!(status, 200, "expected 200, got {status}: {value}");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["session"]["revoked"], true);
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn session_route_revoke_tampered_payload_returns_401_signature_invalid() {
+    let dir = fresh_dir("revoke-tampered");
+    let registry = dir.join("sessions.ndjson");
+    let boot = boot_with_registry(2, Some(registry));
+
+    let key = SigningKeyV2::from_dev_id("session-route-revoke-tampered");
+    let register_envelope = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
+    assert_eq!(status_register, 200);
+
+    let mut revoke_envelope = signed_revoke_envelope(&revoke_payload(PK_A, 7), &key);
+    // Tamper height post-signing — sig was computed for height=7 but the
+    // wire now claims height=99; signature verification must fail.
+    revoke_envelope["payload"]["height"] = json!(99);
+    let (status, value) = http_post(
+        boot.addr,
+        &format!("/sessions/{PK_A}/revoke"),
+        &revoke_envelope,
+    );
+    assert_eq!(status, 401, "expected 401, got {status}: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "signature_invalid");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn session_route_revoke_wrong_outer_envelope_schema_returns_400_bad_envelope() {
+    let dir = fresh_dir("revoke-bad-env");
+    let registry = dir.join("sessions.ndjson");
+    let boot = boot_with_registry(2, Some(registry));
+
+    let key = SigningKeyV2::from_dev_id("session-route-revoke-bad-env");
+    let register_envelope = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
+    assert_eq!(status_register, 200);
+
+    let mut revoke_envelope = signed_revoke_envelope(&revoke_payload(PK_A, 7), &key);
+    revoke_envelope["schema"] = json!("boole.signed.v0");
+    let (status, value) = http_post(
+        boot.addr,
+        &format!("/sessions/{PK_A}/revoke"),
+        &revoke_envelope,
+    );
+    assert_eq!(status, 400, "expected 400, got {status}: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "bad_envelope");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn session_route_revoke_wrong_inner_payload_schema_returns_400_bad_payload() {
+    let dir = fresh_dir("revoke-bad-payload");
+    let registry = dir.join("sessions.ndjson");
+    let boot = boot_with_registry(2, Some(registry));
+
+    let key = SigningKeyV2::from_dev_id("session-route-revoke-bad-payload");
+    let register_envelope = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
+    assert_eq!(status_register, 200);
+
+    let payload = json!({
+        "schema": "boole.sessions.revoke.v0",
+        "sessionPk": PK_A,
+        "height": 7,
+    });
+    let envelope = signed_revoke_envelope(&payload, &key);
+    let (status, value) = http_post(boot.addr, &format!("/sessions/{PK_A}/revoke"), &envelope);
+    assert_eq!(status, 400, "expected 400, got {status}: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "bad_payload");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn session_route_revoke_rejects_session_pk_url_payload_mismatch() {
+    let dir = fresh_dir("revoke-pk-mismatch");
+    let registry = dir.join("sessions.ndjson");
+    let boot = boot_with_registry(2, Some(registry));
+
+    let key = SigningKeyV2::from_dev_id("session-route-revoke-pk-mismatch");
+    let register_envelope = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
+    assert_eq!(status_register, 200);
+
+    // Payload binds sessionPk=PK_B but URL targets PK_A. The handler must
+    // refuse so an attacker cannot replay a payload signed for one
+    // session against a different one.
+    let payload = revoke_payload(PK_B, 7);
+    let envelope = signed_revoke_envelope(&payload, &key);
+    let (status, value) = http_post(boot.addr, &format!("/sessions/{PK_A}/revoke"), &envelope);
+    assert_eq!(status, 400, "expected 400, got {status}: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "bad_payload");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
 }
