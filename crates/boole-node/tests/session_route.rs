@@ -55,6 +55,7 @@ fn register_payload(session: Value, current_height: u64) -> Value {
         "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
         "session": session,
         "currentHeight": current_height,
+        "validBefore": valid_before_far_future(),
     })
 }
 
@@ -63,7 +64,15 @@ fn revoke_payload(session_pk: &str, height: u64) -> Value {
         "schema": SESSIONS_REVOKE_PAYLOAD_SCHEMA,
         "sessionPk": session_pk,
         "height": height,
+        "validBefore": valid_before_far_future(),
     })
+}
+
+fn valid_before_far_future() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() + 3600)
+        .unwrap_or(u64::MAX / 2)
 }
 
 const PK_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -437,12 +446,71 @@ fn session_route_revoke_wrong_inner_payload_schema_returns_400_bad_payload() {
         "schema": "boole.sessions.revoke.v0",
         "sessionPk": PK_A,
         "height": 7,
+        "validBefore": valid_before_far_future(),
     });
     let envelope = signed_revoke_envelope(&payload, &key);
     let (status, value) = http_post(boot.addr, &format!("/sessions/{PK_A}/revoke"), &envelope);
     assert_eq!(status, 400, "expected 400, got {status}: {value}");
     assert_eq!(value["ok"], false);
     assert_eq!(value["reason"], "bad_payload");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// P1.6a — register/revoke inner payloads must carry `validBefore` so a
+// leaked signed envelope cannot be replayed against a freshly booted
+// node. Missing → 400 bad_payload field=validBefore; expired → 401
+// envelope_expired with both `validBefore` and `now` extras.
+#[test]
+fn session_route_register_missing_valid_before_returns_400_bad_payload() {
+    let dir = fresh_dir("register-missing-valid-before");
+    let registry = dir.join("sessions.ndjson");
+    let boot = boot_with_registry(1, Some(registry));
+
+    let key = SigningKeyV2::from_dev_id("session-route-register-missing-valid-before");
+    let payload = json!({
+        "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
+        "session": fixture_session(),
+        "currentHeight": 0,
+    });
+    let envelope = signed_register_envelope(&payload, &key);
+    let (status, value) = http_post(boot.addr, "/sessions", &envelope);
+    assert_eq!(status, 400, "missing validBefore → 400: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "bad_payload");
+    assert_eq!(value["field"], "validBefore");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn session_route_revoke_expired_valid_before_returns_401_envelope_expired() {
+    let dir = fresh_dir("revoke-expired-valid-before");
+    let registry = dir.join("sessions.ndjson");
+    let boot = boot_with_registry(2, Some(registry));
+
+    let key = SigningKeyV2::from_dev_id("session-route-revoke-expired-valid-before");
+    let register_envelope = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
+    assert_eq!(status_register, 200);
+
+    let payload = json!({
+        "schema": SESSIONS_REVOKE_PAYLOAD_SCHEMA,
+        "sessionPk": PK_A,
+        "height": 7,
+        "validBefore": 1_u64,
+    });
+    let envelope = signed_revoke_envelope(&payload, &key);
+    let (status, value) = http_post(boot.addr, &format!("/sessions/{PK_A}/revoke"), &envelope);
+    assert_eq!(status, 401, "expired validBefore → 401: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "envelope_expired");
+    assert_eq!(value["validBefore"], 1);
+    assert!(value["now"].as_u64().is_some());
 
     boot.handle.join().expect("server thread").expect("exits");
     let _ = std::fs::remove_dir_all(&boot.dir);

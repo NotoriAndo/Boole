@@ -1604,6 +1604,7 @@ fn bounty_submit(
         "proofHash": proof_hash,
         "prover": signing.pk_hex(),
         "envelope": envelope_value,
+        "validBefore": signed_payload_valid_before(),
     });
     let signed = signing
         .sign(&payload)
@@ -1736,6 +1737,7 @@ fn bounty_announce(
         "reward": reward,
         "deadline": deadline,
         "ts": ts_value,
+        "validBefore": signed_payload_valid_before(),
     });
     let signed = signing
         .sign(&payload)
@@ -1839,6 +1841,10 @@ fn bounty_status(
         "ts".to_string(),
         serde_json::Value::Number(serde_json::Number::from(ts_value)),
     );
+    payload.insert(
+        "validBefore".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(signed_payload_valid_before())),
+    );
     let payload_value = serde_json::Value::Object(payload);
     let signed = signing
         .sign(&payload_value)
@@ -1878,6 +1884,20 @@ fn unix_ms_now() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// P1.6a — Unix-second deadline stamped onto outgoing signed payloads.
+/// 300s window aligns with the node's clock-skew leeway and miner sender,
+/// giving operator-visible "submit and walk away" latency without leaving
+/// captured envelopes replay-able indefinitely.
+const SIGNED_PAYLOAD_VALID_BEFORE_WINDOW_SECS: u64 = 300;
+
+fn signed_payload_valid_before() -> u64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    now.saturating_add(SIGNED_PAYLOAD_VALID_BEFORE_WINDOW_SECS)
 }
 
 /// JSON-bearing CLI flags accept either an inline JSON string or a path to

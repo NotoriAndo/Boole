@@ -22,7 +22,7 @@
 // those are terminal for the (bounty_id, proof_hash) attempt.
 //
 // proof_hash is computed locally as SHA-256(envelope_bytes).
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use boole_core::SigningKeyV2;
 use serde_json::Value;
@@ -31,6 +31,19 @@ use sha2::{Digest, Sha256};
 use crate::http_client::{percent_encode_component, HttpClient, HttpError};
 
 pub const BOUNTY_PROOF_PAYLOAD_SCHEMA: &str = "boole.bounty.proof.v1";
+
+/// P1.6a — window between local stamp time and the node's clock-skew
+/// leeway. 300s is wide enough to absorb queueing, retries, and modest
+/// host clock drift, while staying well under the operator-visible
+/// "submit and walk away" expectation.
+const BOUNTY_PROOF_VALID_BEFORE_WINDOW_SECS: u64 = 300;
+
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 pub struct BountyProofInputs<'a> {
     pub bounty_id: &'a str,
@@ -85,12 +98,14 @@ impl BountyClient {
     pub fn submit_proof(&self, inputs: BountyProofInputs<'_>) -> BountyProofResult {
         let proof_hash = hex::encode(Sha256::digest(inputs.envelope_bytes));
         let prover = inputs.signing_key.pk_hex();
+        let valid_before = now_unix_secs().saturating_add(BOUNTY_PROOF_VALID_BEFORE_WINDOW_SECS);
         let payload = serde_json::json!({
             "schema": BOUNTY_PROOF_PAYLOAD_SCHEMA,
             "bountyId": inputs.bounty_id,
             "proofHash": proof_hash,
             "prover": prover,
             "envelope": inputs.envelope,
+            "validBefore": valid_before,
         });
         let signed = match inputs.signing_key.sign(&payload) {
             Ok(s) => s,

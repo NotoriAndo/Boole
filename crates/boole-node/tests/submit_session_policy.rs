@@ -227,6 +227,13 @@ fn fixture_session(session_pk: &str, fixed_reward_recipient: &str) -> Value {
 
 const SESSIONS_REGISTER_PAYLOAD_SCHEMA: &str = "boole.sessions.register.v1";
 
+fn valid_before_far_future() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() + 3600)
+        .unwrap_or(u64::MAX / 2)
+}
+
 fn signed_register_envelope(payload: &Value, key: &SigningKeyV2) -> Value {
     let signed = key.sign(payload).expect("sign register payload");
     json!({
@@ -243,6 +250,7 @@ fn register_session(addr: SocketAddr, session_pk: &str, fixed_reward_recipient: 
         "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
         "session": fixture_session(session_pk, fixed_reward_recipient),
         "currentHeight": 0,
+        "validBefore": valid_before_far_future(),
     });
     let envelope = signed_register_envelope(&payload, &key);
     let (status, value) = http_post(addr, "/sessions", &envelope);
@@ -259,6 +267,7 @@ fn revoke_session(addr: SocketAddr, session_pk: &str) {
         "schema": "boole.sessions.revoke.v1",
         "sessionPk": session_pk,
         "height": 1,
+        "validBefore": valid_before_far_future(),
     });
     let signed = key.sign(&payload).expect("sign revoke");
     let envelope = json!({
@@ -611,6 +620,7 @@ fn submit_rejects_session_expired_at_current_node_height() {
         "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
         "session": session,
         "currentHeight": 0,
+        "validBefore": valid_before_far_future(),
     });
     let register_envelope = signed_register_envelope(&register_payload, &register_key);
     let (register_status, register_value) = http_post(boot.addr, "/sessions", &register_envelope);
@@ -802,6 +812,7 @@ fn sessions_register_with_valid_signed_envelope_accepts_and_persists() {
         "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
         "session": fixture_session(PK_REGISTER_HAPPY, PK_REWARD),
         "currentHeight": 0,
+        "validBefore": valid_before_far_future(),
     });
     let envelope = signed_register_envelope(&payload, &key);
 

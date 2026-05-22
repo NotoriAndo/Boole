@@ -153,6 +153,7 @@ fn signed_proof_body(
         "proofHash": proof_hash,
         "prover": key.pk_hex(),
         "envelope": envelope,
+        "validBefore": valid_before_far_future(),
     });
     let signed = key.sign(&payload).expect("sign proof payload");
     json!({
@@ -161,6 +162,13 @@ fn signed_proof_body(
         "pk": signed.pk,
         "signature": signed.signature,
     })
+}
+
+fn valid_before_far_future() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() + 3600)
+        .unwrap_or(u64::MAX / 2)
 }
 
 #[test]

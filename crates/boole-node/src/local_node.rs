@@ -405,6 +405,41 @@ fn now_unix_ms() -> u128 {
         .unwrap_or(0)
 }
 
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// P1.6a — clock-skew leeway in seconds applied to `validBefore` so a
+/// modest client/server skew does not bounce a legitimately-fresh
+/// envelope. The window is short enough that a leaked signed envelope
+/// has a bounded replay surface but long enough to absorb NTP jitter
+/// and queue/transport delay.
+const VALID_BEFORE_LEEWAY_SECS: u64 = 60;
+
+/// P1.6a — every signed inner payload must carry `validBefore`
+/// (u64 Unix seconds). Returns `bad_payload` for missing/non-u64 values
+/// so wallets see the same vocabulary as the rest of the inner-payload
+/// gates, and `envelope_expired` once the leeway window has elapsed.
+fn check_payload_valid_before(payload: &serde_json::Map<String, Value>) -> Result<(), HttpError> {
+    let valid_before = payload
+        .get("validBefore")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| {
+            HttpError::bad_payload(
+                "validBefore",
+                "payload must include u64 unix-seconds validBefore",
+            )
+        })?;
+    let now = now_unix_secs();
+    if now > valid_before.saturating_add(VALID_BEFORE_LEEWAY_SECS) {
+        return Err(HttpError::envelope_expired(valid_before, now));
+    }
+    Ok(())
+}
+
 async fn rate_limit_middleware(
     State(state): State<AppState>,
     request: Request,
@@ -1511,6 +1546,7 @@ fn receipt_post_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, H
             format!("expected {RECEIPTS_POST_PAYLOAD_SCHEMA}, got {payload_schema}"),
         ));
     }
+    check_payload_valid_before(payload_obj)?;
     let receipt_value = payload_obj.get("receiptCommitment").ok_or_else(|| {
         HttpError::bad_payload("receiptCommitment", "payload missing receiptCommitment")
     })?;
@@ -1728,6 +1764,7 @@ fn session_register_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Valu
             format!("expected {SESSIONS_REGISTER_PAYLOAD_SCHEMA}, got {payload_schema}"),
         ));
     }
+    check_payload_valid_before(payload_obj)?;
     let session_value = payload_obj
         .get("session")
         .ok_or_else(|| HttpError::missing_field("session"))?;
@@ -1842,6 +1879,7 @@ fn session_revoke_json(
             format!("expected {SESSIONS_REVOKE_PAYLOAD_SCHEMA}, got {payload_schema}"),
         ));
     }
+    check_payload_valid_before(payload_obj)?;
     let payload_session_pk = payload_obj
         .get("sessionPk")
         .and_then(Value::as_str)
@@ -2482,6 +2520,7 @@ fn bounty_announce_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value
             format!("expected {ANNOUNCE_PAYLOAD_SCHEMA}, got {payload_schema}"),
         ));
     }
+    check_payload_valid_before(payload_obj)?;
     let id = required_payload_string(payload_obj, "id")?.to_string();
     let domain = required_payload_string(payload_obj, "domain")?.to_string();
     let problem_hash = required_payload_string(payload_obj, "problemHash")?.to_string();
@@ -2630,6 +2669,7 @@ fn bounty_status_json(
             format!("expected {STATUS_PAYLOAD_SCHEMA}, got {payload_schema}"),
         ));
     }
+    check_payload_valid_before(payload_obj)?;
     let payload_id = required_payload_string(payload_obj, "id")?.to_string();
     if payload_id != url_id {
         return Err(HttpError::bounty_id_mismatch(url_id, payload_id));
@@ -2820,6 +2860,7 @@ fn bounty_proof_prepare(
             format!("expected {BOUNTY_PROOF_PAYLOAD_SCHEMA}, got {payload_schema}"),
         ));
     }
+    check_payload_valid_before(payload_obj)?;
     let payload_bounty_id = payload_obj
         .get("bountyId")
         .and_then(Value::as_str)

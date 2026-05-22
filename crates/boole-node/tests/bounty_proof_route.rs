@@ -149,6 +149,8 @@ fn http_post(addr: SocketAddr, path: &str, body: &Value) -> (u16, Value) {
 /// Build a `boole.signed.v1` envelope around a
 /// `boole.bounty.proof.v1` payload signed by `key`. `prover` is filled
 /// from the key's pk_hex so the inner prover-vs-pk check passes.
+/// `validBefore` is stamped one hour into the future so the freshness
+/// gate (P1.6a) admits the request.
 fn signed_proof_body(
     key: &SigningKeyV2,
     bounty_id: &str,
@@ -163,6 +165,7 @@ fn signed_proof_body(
             "proofHash": proof_hash,
             "prover": key.pk_hex(),
             "envelope": envelope,
+            "validBefore": valid_before_far_future(),
         }),
     )
 }
@@ -287,6 +290,7 @@ fn bad_prover_returns_400_typed() {
         "proofHash": PROOF_HASH_A,
         "prover": "not-a-hex32",
         "envelope": {},
+        "validBefore": valid_before_far_future(),
     });
     let body = proof_envelope_with_payload(&key, payload);
     let (status, resp) = http_post(addr, "/bounties/gamma-1/proof", &body);
@@ -398,6 +402,7 @@ fn prover_pk_mismatch_returns_400_bad_payload() {
         "proofHash": PROOF_HASH_A,
         "prover": other.pk_hex(),
         "envelope": {},
+        "validBefore": valid_before_far_future(),
     });
     let body = proof_envelope_with_payload(&signer, payload);
     let (status, resp) = http_post(addr, "/bounties/gamma-1/proof", &body);
@@ -408,4 +413,67 @@ fn prover_pk_mismatch_returns_400_bad_payload() {
 
     handle.join().expect("server thread").expect("server exits");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// P1.6a — every signed inner payload must carry `validBefore` (u64 Unix
+// seconds) so a replay of a previously-leaked signed envelope cannot be
+// posted to a fresh node hours/days later. Missing → 400 bad_payload;
+// expired (beyond the configured leeway) → 401 envelope_expired. The
+// check runs after the inner schema gate so wire-shape errors keep
+// taking precedence over freshness.
+#[test]
+fn missing_valid_before_returns_400_bad_payload_field_valid_before() {
+    let (addr, handle, dir) = boot_with_mock_verifiers(1);
+    let signer = prover_key();
+    let payload = json!({
+        "schema": "boole.bounty.proof.v1",
+        "bountyId": "gamma-1",
+        "proofHash": PROOF_HASH_A,
+        "prover": signer.pk_hex(),
+        "envelope": {},
+    });
+    let body = proof_envelope_with_payload(&signer, payload);
+    let (status, resp) = http_post(addr, "/bounties/gamma-1/proof", &body);
+    assert_eq!(status, 400, "expected 400, got {status}: {resp}");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["reason"], "bad_payload");
+    assert_eq!(resp["field"], "validBefore");
+
+    handle.join().expect("server thread").expect("server exits");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn expired_valid_before_returns_401_envelope_expired() {
+    let (addr, handle, dir) = boot_with_mock_verifiers(1);
+    let signer = prover_key();
+    let payload = json!({
+        "schema": "boole.bounty.proof.v1",
+        "bountyId": "gamma-1",
+        "proofHash": PROOF_HASH_A,
+        "prover": signer.pk_hex(),
+        "envelope": {},
+        // validBefore well in the past (Unix second 1).
+        "validBefore": 1_u64,
+    });
+    let body = proof_envelope_with_payload(&signer, payload);
+    let (status, resp) = http_post(addr, "/bounties/gamma-1/proof", &body);
+    assert_eq!(status, 401, "expected 401, got {status}: {resp}");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["reason"], "envelope_expired");
+    assert_eq!(resp["validBefore"], 1);
+    assert!(
+        resp["now"].as_u64().is_some(),
+        "envelope_expired must carry `now` so callers see the server clock"
+    );
+
+    handle.join().expect("server thread").expect("server exits");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn valid_before_far_future() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() + 3600)
+        .unwrap_or(u64::MAX / 2)
 }

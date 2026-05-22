@@ -173,7 +173,15 @@ fn announce_payload(id: &str, problem_hash: &str, ts: u64) -> Value {
         "reward": "100",
         "deadline": 1900000000000_u64,
         "ts": ts,
+        "validBefore": valid_before_far_future(),
     })
+}
+
+fn valid_before_far_future() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() + 3600)
+        .unwrap_or(u64::MAX / 2)
 }
 
 fn signed_envelope(payload: &Value, key: &SigningKeyV2) -> Value {
@@ -380,6 +388,59 @@ fn wrong_inner_payload_schema_returns_400_bad_payload() {
     assert_eq!(status, 400, "wrong inner schema → 400: {resp}");
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["reason"], "bad_payload");
+    booted.handle.join().expect("server").expect("server ok");
+    let _ = std::fs::remove_dir_all(&booted.dir);
+}
+
+#[test]
+fn missing_valid_before_returns_400_bad_payload() {
+    // P1.6a freshness gate: inner payload must declare u64 validBefore.
+    let dir = fresh_dir("missing-valid-before");
+    let event_path = dir.join("bounty-events.ndjson");
+    let booted = boot(1, None, event_path);
+    let key = SigningKeyV2::from_dev_id("announcer-missing-valid-before");
+    let payload = json!({
+        "schema": ANNOUNCE_SCHEMA,
+        "id": "missing-valid-before",
+        "domain": "code.spec-template",
+        "problemHash": PROBLEM_HASH,
+        "verifier": {
+            "kind": "mock-accept",
+            "metadata": {
+                "verifierHash": "2222222222222222222222222222222222222222222222222222222222222222"
+            }
+        },
+        "reward": "100",
+        "deadline": 1900000000000_u64,
+        "ts": 1800000300000_u64,
+    });
+    let envelope = signed_envelope(&payload, &key);
+
+    let (status, resp) = http_post(booted.addr, "/bounties", &envelope);
+    assert_eq!(status, 400, "missing validBefore → 400: {resp}");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["reason"], "bad_payload");
+    assert_eq!(resp["field"], "validBefore");
+    booted.handle.join().expect("server").expect("server ok");
+    let _ = std::fs::remove_dir_all(&booted.dir);
+}
+
+#[test]
+fn expired_valid_before_returns_401_envelope_expired() {
+    let dir = fresh_dir("expired-valid-before");
+    let event_path = dir.join("bounty-events.ndjson");
+    let booted = boot(1, None, event_path);
+    let key = SigningKeyV2::from_dev_id("announcer-expired-valid-before");
+    let mut payload = announce_payload("expired-valid-before", PROBLEM_HASH, 1800001100000);
+    payload["validBefore"] = json!(1_u64);
+    let envelope = signed_envelope(&payload, &key);
+
+    let (status, resp) = http_post(booted.addr, "/bounties", &envelope);
+    assert_eq!(status, 401, "expired validBefore → 401: {resp}");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["reason"], "envelope_expired");
+    assert_eq!(resp["validBefore"], 1);
+    assert!(resp["now"].as_u64().is_some());
     booted.handle.join().expect("server").expect("server ok");
     let _ = std::fs::remove_dir_all(&booted.dir);
 }

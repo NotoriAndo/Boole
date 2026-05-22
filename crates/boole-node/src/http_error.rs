@@ -167,6 +167,16 @@ impl HttpError {
         Self::new(401, "signature_invalid")
     }
 
+    /// P1.6a — signed inner payload's `validBefore` has slipped past the
+    /// server's clock. Carries both `validBefore` (what the signer claimed)
+    /// and `now` (the server's current Unix-second view) so the caller can
+    /// distinguish stale envelope from skewed clock without log-scraping.
+    pub fn envelope_expired(valid_before: u64, now: u64) -> Self {
+        Self::new(401, "envelope_expired")
+            .with_extra("validBefore", json!(valid_before))
+            .with_extra("now", json!(now))
+    }
+
     pub fn bad_payload(field: impl Into<String>, detail: impl Into<String>) -> Self {
         Self::new(400, "bad_payload")
             .with_field(field)
@@ -285,6 +295,21 @@ mod tests {
                 "reason": "body_too_large",
                 "limitBytes": 1024,
                 "actualBytes": 4096,
+            })
+        );
+    }
+
+    #[test]
+    fn envelope_expired_carries_valid_before_and_now() {
+        let err = HttpError::envelope_expired(100, 1_000_000);
+        assert_eq!(err.status, 401);
+        assert_eq!(
+            err.into_json(),
+            json!({
+                "ok": false,
+                "reason": "envelope_expired",
+                "validBefore": 100,
+                "now": 1_000_000,
             })
         );
     }

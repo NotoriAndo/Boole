@@ -122,7 +122,15 @@ fn receipt_payload(commitment: &ReceiptCommitment) -> Value {
     json!({
         "schema": RECEIPTS_POST_PAYLOAD_SCHEMA,
         "receiptCommitment": commitment,
+        "validBefore": valid_before_far_future(),
     })
+}
+
+fn valid_before_far_future() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() + 3600)
+        .unwrap_or(u64::MAX / 2)
 }
 
 fn signed_envelope(payload: &Value, key: &SigningKeyV2) -> Value {
@@ -230,6 +238,7 @@ fn receipt_route_post_rejects_raw_human_answer_field() {
     let payload = json!({
         "schema": RECEIPTS_POST_PAYLOAD_SCHEMA,
         "receiptCommitment": commitment_value,
+        "validBefore": valid_before_far_future(),
     });
     let envelope = signed_envelope(&payload, &key);
 
@@ -314,6 +323,71 @@ fn receipt_route_post_wrong_outer_envelope_schema_returns_400_bad_envelope() {
     assert!(
         !path.exists(),
         "bad envelope must not create receipt ledger"
+    );
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn receipt_route_post_missing_valid_before_returns_400_bad_payload() {
+    // P1.6a — inner payload must declare a u64 unix-seconds `validBefore`
+    // so a leaked signed envelope cannot be replayed against a freshly
+    // booted node hours/days later. Schema gate passes (correct inner
+    // schema) so we land squarely on the freshness check.
+    let dir = fresh_dir("post-missing-valid-before");
+    let path = dir.join("receipts.ndjson");
+    let boot = boot_with_receipt_store(1, Some(path.clone()));
+    let key = SigningKeyV2::from_dev_id("receipt-poster-missing-valid-before");
+    let commitment = fixture_commitment();
+    let payload = json!({
+        "schema": RECEIPTS_POST_PAYLOAD_SCHEMA,
+        "receiptCommitment": commitment,
+    });
+    let envelope = signed_envelope(&payload, &key);
+
+    let (status, value) = http_post(boot.addr, "/receipts", &envelope);
+    assert_eq!(status, 400, "missing validBefore → 400: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "bad_payload");
+    assert_eq!(value["field"], "validBefore");
+    assert!(
+        !path.exists(),
+        "missing validBefore must not create receipt ledger"
+    );
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn receipt_route_post_expired_valid_before_returns_401_envelope_expired() {
+    let dir = fresh_dir("post-expired-valid-before");
+    let path = dir.join("receipts.ndjson");
+    let boot = boot_with_receipt_store(1, Some(path.clone()));
+    let key = SigningKeyV2::from_dev_id("receipt-poster-expired-valid-before");
+    let commitment = fixture_commitment();
+    let payload = json!({
+        "schema": RECEIPTS_POST_PAYLOAD_SCHEMA,
+        "receiptCommitment": commitment,
+        "validBefore": 1_u64,
+    });
+    let envelope = signed_envelope(&payload, &key);
+
+    let (status, value) = http_post(boot.addr, "/receipts", &envelope);
+    assert_eq!(status, 401, "expired validBefore → 401: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "envelope_expired");
+    assert_eq!(value["validBefore"], 1);
+    assert!(
+        value["now"].as_u64().is_some(),
+        "envelope_expired must include server `now`: {value}"
+    );
+    assert!(
+        !path.exists(),
+        "expired validBefore must not create receipt ledger"
     );
 
     boot.handle.join().expect("server thread").expect("exits");
