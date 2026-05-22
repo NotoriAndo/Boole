@@ -132,13 +132,12 @@ for _ in range(80):
 raise SystemExit(f"boole-node did not become ready: {last}")
 PY
 
-cargo run -q -p boole-miner -- init \
+BOOLE_LLM_API_KEY=sk-no-key cargo run -q -p boole-miner -- init \
   --state "$STATE" \
   --dispatcher-url "http://$ADDR" \
   --llm-backend openai_compat \
   --llm-base-url "$OLLAMA_BASE_URL" \
   --llm-model "$OLLAMA_MODEL" \
-  --llm-api-key sk-no-key \
   --force >/tmp/boole-miner-ollama-gemma-smoke-init.out
 
 success=0

@@ -155,18 +155,19 @@ fn mine_config_get_set_round_trips() {
 #[test]
 fn mine_config_get_redacts_secret_by_default() {
     let state_path = fresh_state_path("redact");
-    let _ = run_cli(&[
-        "mine",
-        "init",
-        "--state",
-        state_path.to_str().unwrap(),
-        "--dispatcher-url",
-        "http://example.invalid",
-        "--llm-backend",
-        "mock",
-        "--llm-api-key",
-        "shh-secret-token",
-    ]);
+    let _ = run_cli_with_env(
+        &[
+            "mine",
+            "init",
+            "--state",
+            state_path.to_str().unwrap(),
+            "--dispatcher-url",
+            "http://example.invalid",
+            "--llm-backend",
+            "mock",
+        ],
+        &[("BOOLE_LLM_API_KEY", "shh-secret-token")],
+    );
     let out = run_cli(&[
         "mine",
         "config",
@@ -191,6 +192,40 @@ fn mine_config_get_redacts_secret_by_default() {
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     assert_eq!(stdout, "shh-secret-token");
+}
+
+// P1.10d — the legacy `--llm-api-key` argv flag was removed so the
+// secret cannot leak via `/proc/<pid>/cmdline`. Passing it must now
+// fail with clap's "unexpected argument" surface, regardless of what
+// value is supplied or what backend is selected.
+#[test]
+fn mine_init_rejects_llm_api_key_argv_flag() {
+    let state_path = fresh_state_path("argv-rejected");
+    let out = run_cli(&[
+        "mine",
+        "init",
+        "--state",
+        state_path.to_str().unwrap(),
+        "--dispatcher-url",
+        "http://example.invalid",
+        "--llm-backend",
+        "mock",
+        "--llm-api-key",
+        "should-not-be-accepted",
+    ]);
+    assert!(
+        !out.status.success(),
+        "the --llm-api-key flag must be rejected after P1.10d removal"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("unexpected argument") || stderr.contains("--llm-api-key"),
+        "clap should explicitly name the rejected argument; stderr={stderr}"
+    );
+    assert!(
+        !state_path.exists(),
+        "no state file should be created when the argv flag is rejected"
+    );
 }
 
 // P1.10 — mine init must accept the LLM API key from BOOLE_LLM_API_KEY

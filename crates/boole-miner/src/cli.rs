@@ -73,9 +73,6 @@ pub struct InitArgs {
     /// Override the model id (forwarded to the backend if applicable).
     #[arg(long = "llm-model")]
     pub llm_model: Option<String>,
-    /// API key (required for anthropic / openai / google; optional for openai_compat).
-    #[arg(long = "llm-api-key")]
-    pub llm_api_key: Option<String>,
     /// Base URL override. Required for openai_compat (e.g. http://localhost:11434).
     /// Optional for anthropic / openai / google (Azure proxy / Vertex / etc.).
     #[arg(long = "llm-base-url")]
@@ -243,24 +240,13 @@ fn ensure_backend(s: &str) -> anyhow::Result<LLMBackend> {
 /// stray export in a parent shell does not silently re-enable billing.
 pub const PAID_LLM_ALLOW_ENV: &str = "BOOLE_ALLOW_PAID_LLM";
 
-/// P1.10 — env-var fallback for the LLM API key so operators can avoid
-/// passing the secret on argv where it shows up in `ps -ef` output.
-/// `--llm-api-key` (when set) wins over the env so existing CI scripts
-/// continue to work unchanged.
+/// P1.10d — the only ingress for the LLM API key. The legacy
+/// `--llm-api-key` argv flag was removed so the secret cannot leak via
+/// `/proc/<pid>/cmdline`; callers must set this env var instead.
 pub const LLM_API_KEY_ENV: &str = "BOOLE_LLM_API_KEY";
 
-/// P1.10 — pure resolver split from the env read so unit tests cover
-/// every precedence branch without mutating the global process
-/// environment.
-pub fn resolve_llm_api_key(arg_value: Option<&str>, env_value: Option<&str>) -> Option<String> {
-    arg_value
-        .map(str::to_owned)
-        .or_else(|| env_value.map(str::to_owned))
-}
-
-fn resolve_llm_api_key_from_env(arg_value: Option<&str>) -> Option<String> {
-    let env_value = std::env::var(LLM_API_KEY_ENV).ok();
-    resolve_llm_api_key(arg_value, env_value.as_deref())
+fn read_llm_api_key_from_env() -> Option<String> {
+    std::env::var(LLM_API_KEY_ENV).ok()
 }
 
 /// P2.4 — backends that bill against an upstream paid API. ClaudeCli
@@ -355,17 +341,16 @@ pub fn run_init(args: InitArgs) -> anyhow::Result<()> {
             );
         }
     }
-    // P1.10 — prefer BOOLE_LLM_API_KEY env over the argv flag so
-    // operators can keep the secret off the process command line. The
-    // argv flag still wins when both are set, preserving back-compat.
-    let resolved_api_key = resolve_llm_api_key_from_env(args.llm_api_key.as_deref());
+    // P1.10d — the API key only enters through the env var; the legacy
+    // argv flag was removed to keep the secret out of /proc/<pid>/cmdline.
+    let resolved_api_key = read_llm_api_key_from_env();
     if matches!(
         backend,
         LLMBackend::Anthropic | LLMBackend::OpenAi | LLMBackend::Google
     ) {
         if resolved_api_key.is_none() {
             anyhow::bail!(
-                "--llm-api-key or {} env var required when --llm-backend={}",
+                "{} env var required when --llm-backend={}",
                 LLM_API_KEY_ENV,
                 backend.as_str()
             );
@@ -1095,38 +1080,6 @@ mod tests {
         assert!(!is_paid_llm_backend(LLMBackend::ClaudeCli));
         assert!(!is_paid_llm_backend(LLMBackend::AgentCli));
         assert!(!is_paid_llm_backend(LLMBackend::OpenAiCompat));
-    }
-
-    // P1.10 — pure resolver lets us exercise every (argv, env)
-    // precedence branch without serializing on global env mutation.
-
-    #[test]
-    fn llm_api_key_resolver_prefers_argv_when_both_set() {
-        assert_eq!(
-            resolve_llm_api_key(Some("from-argv"), Some("from-env")),
-            Some("from-argv".to_string())
-        );
-    }
-
-    #[test]
-    fn llm_api_key_resolver_falls_back_to_env_when_argv_absent() {
-        assert_eq!(
-            resolve_llm_api_key(None, Some("from-env")),
-            Some("from-env".to_string())
-        );
-    }
-
-    #[test]
-    fn llm_api_key_resolver_returns_none_when_neither_set() {
-        assert_eq!(resolve_llm_api_key(None, None), None);
-    }
-
-    #[test]
-    fn llm_api_key_resolver_uses_argv_when_only_argv_set() {
-        assert_eq!(
-            resolve_llm_api_key(Some("from-argv"), None),
-            Some("from-argv".to_string())
-        );
     }
 
     #[test]

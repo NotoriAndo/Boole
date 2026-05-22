@@ -102,10 +102,17 @@ PY
 init_args=(init --state "$STATE" --dispatcher-url "http://$ADDR" --llm-backend "$LLM_BACKEND" --force)
 if [[ -n "$LLM_MODEL" ]]; then init_args+=(--llm-model "$LLM_MODEL"); fi
 if [[ -n "$LLM_BASE_URL" ]]; then init_args+=(--llm-base-url "$LLM_BASE_URL"); fi
-if [[ -n "$LLM_API_KEY_ENV" ]]; then init_args+=(--llm-api-key "${!LLM_API_KEY_ENV}"); fi
-if [[ "$LLM_BACKEND" == "openai_compat" && -z "$LLM_API_KEY_ENV" ]]; then init_args+=(--llm-api-key sk-no-key); fi
 
-cargo run -q -p boole-miner -- "${init_args[@]}" >/tmp/boole-provider-model-smoke-init.out
+# P1.10d — the `--llm-api-key` argv flag was removed. Pass the secret
+# via the BOOLE_LLM_API_KEY env var so it never lands in argv.
+init_env=()
+if [[ -n "$LLM_API_KEY_ENV" ]]; then
+  init_env+=(BOOLE_LLM_API_KEY="${!LLM_API_KEY_ENV}")
+elif [[ "$LLM_BACKEND" == "openai_compat" ]]; then
+  init_env+=(BOOLE_LLM_API_KEY=sk-no-key)
+fi
+
+env "${init_env[@]}" cargo run -q -p boole-miner -- "${init_args[@]}" >/tmp/boole-provider-model-smoke-init.out
 
 success=0
 for trial in $(seq 1 "$TRIALS"); do

@@ -28,7 +28,6 @@ fn anthropic_init_args(path: PathBuf) -> InitArgs {
         dispatcher_url: "http://127.0.0.1:8080".to_string(),
         llm_backend: "anthropic".to_string(),
         llm_model: Some("claude-opus-4-7".to_string()),
-        llm_api_key: Some("test-key".to_string()),
         llm_base_url: None,
         agent_command: None,
         agent_args: None,
