@@ -8,7 +8,9 @@
 //!     `boole-mcp listening on http://<addr>` so a launcher invoking
 //!     with `:0` can grab the ephemeral port.
 //!   * `GET /healthz` -> 200 with body `boole-mcp.v0`.
-//!   * `GET /mcp/tools` -> 404 (placeholder; wired up in P2.2).
+//!   * `GET /mcp/tools` -> 200 once P2.2 wires the tool registry. The
+//!     scaffold test asserts the route is reachable; tests/tool_surface.rs
+//!     pins the registry body shape.
 //!   * `serve` without `--node-url` exits non-zero and the error mentions
 //!     the missing flag.
 
@@ -130,10 +132,13 @@ fn healthz_returns_boole_mcp_v0() {
 }
 
 #[test]
-fn mcp_tools_endpoint_not_yet_wired_returns_404() {
+fn mcp_tools_endpoint_is_reachable() {
+    // P2.1 stood up a 404 placeholder; P2.2 wired the real registry.
+    // The scaffold test only asserts the route exists and is not the
+    // generic 404 fallback. tests/tool_surface.rs pins the body shape.
     let (_guard, addr) = spawn_serve("http://127.0.0.1:9");
     let (status, _body) = http_get(addr, "/mcp/tools");
-    assert_eq!(status, 404, "P2.2 will wire this; P2.1 keeps it 404");
+    assert_eq!(status, 200, "tools registry must be wired");
 }
 
 #[test]
