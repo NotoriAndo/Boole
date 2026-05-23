@@ -1,13 +1,14 @@
-//! P1.10f — `boole-wallet-agent` integration tests. Boots the compiled
-//! binary, drives subcommands via stdin+args, verifies on-disk vault
-//! shape and round-trippable signatures.
+//! P1.10f / P1.10g — `boole-wallet-agent` integration tests. Boots the
+//! compiled binary, drives subcommands via stdin+args, verifies on-disk
+//! vault shape, round-trippable signatures, and plaintext-key migration.
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, SigningKey, Verifier, VerifyingKey};
+use rand_core::{OsRng, RngCore};
 use serde_json::Value;
 
 const PASSPHRASE: &str = "correct-horse-battery-staple";
@@ -221,6 +222,181 @@ fn sign_rejects_non_hex_message_with_typed_error() {
         stderr.contains("hex-encoded bytes") || stderr.contains("Invalid character"),
         "stderr must mention hex decode failure: {stderr}"
     );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+// ---- P1.10g migrate-from-hex tests ----------------------------------------
+
+fn random_seed_hex() -> String {
+    let mut seed = [0_u8; 32];
+    OsRng.fill_bytes(&mut seed);
+    hex::encode(seed)
+}
+
+fn migrate_input(passphrase: &str, seed_hex: &str) -> String {
+    format!("{passphrase}\n{seed_hex}\n")
+}
+
+#[test]
+fn migrate_from_hex_seals_provided_seed_and_pubkey_matches_native_derivation() {
+    let dir = tmp_dir("migrate-seal");
+    let vault = dir.join("migrated.vault.json");
+    let seed_hex = random_seed_hex();
+    let seed_bytes: [u8; 32] = hex::decode(&seed_hex)
+        .expect("decode seed")
+        .try_into()
+        .expect("32 bytes");
+    let expected_pubkey = hex::encode(
+        SigningKey::from_bytes(&seed_bytes)
+            .verifying_key()
+            .to_bytes(),
+    );
+
+    let (code, stdout, stderr) = run_agent(
+        &["migrate-from-hex", "--vault", vault.to_str().expect("path")],
+        &migrate_input(PASSPHRASE, &seed_hex),
+    );
+    assert_eq!(code, 0, "migrate-from-hex failed: stderr={stderr}");
+    assert_eq!(stdout.trim(), expected_pubkey);
+
+    assert!(vault.exists(), "vault file must exist after migrate");
+    let mode = std::os::unix::fs::PermissionsExt::mode(
+        &fs::metadata(&vault).expect("metadata").permissions(),
+    );
+    assert_eq!(mode & 0o777, 0o600, "vault must be 0600");
+    let json: Value = serde_json::from_slice(&fs::read(&vault).expect("read")).expect("json");
+    assert_eq!(json["version"], 1);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn migrate_from_hex_then_sign_round_trips_signature_under_migrated_pubkey() {
+    let dir = tmp_dir("migrate-then-sign");
+    let vault = dir.join("migrated.vault.json");
+    let seed_hex = random_seed_hex();
+
+    let (init_code, pubkey_line, init_stderr) = run_agent(
+        &["migrate-from-hex", "--vault", vault.to_str().expect("path")],
+        &migrate_input(PASSPHRASE, &seed_hex),
+    );
+    assert_eq!(init_code, 0, "migrate failed: stderr={init_stderr}");
+    let pubkey_hex = pubkey_line.trim().to_string();
+
+    let message = b"post-migration payload";
+    let (sign_code, sign_stdout, sign_stderr) = run_agent(
+        &[
+            "sign",
+            "--vault",
+            vault.to_str().expect("path"),
+            "--message",
+            &hex::encode(message),
+        ],
+        &format!("{PASSPHRASE}\n"),
+    );
+    assert_eq!(
+        sign_code, 0,
+        "sign after migrate failed: stderr={sign_stderr}"
+    );
+
+    let pubkey_bytes: [u8; 32] = hex::decode(&pubkey_hex)
+        .expect("pubkey hex")
+        .try_into()
+        .expect("32 bytes");
+    let sig_bytes: [u8; 64] = hex::decode(sign_stdout.trim())
+        .expect("sig hex")
+        .try_into()
+        .expect("64 bytes");
+    VerifyingKey::from_bytes(&pubkey_bytes)
+        .expect("valid pubkey")
+        .verify(message, &Signature::from_bytes(&sig_bytes))
+        .expect("signature must verify under migrated pubkey");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn migrate_from_hex_refuses_to_overwrite_existing_vault() {
+    let dir = tmp_dir("migrate-no-overwrite");
+    let vault = dir.join("existing.vault.json");
+    let _ = init_vault(&vault);
+
+    let seed_hex = random_seed_hex();
+    let (code, _stdout, stderr) = run_agent(
+        &["migrate-from-hex", "--vault", vault.to_str().expect("path")],
+        &migrate_input(PASSPHRASE, &seed_hex),
+    );
+    assert_ne!(code, 0, "migrate over existing vault must fail");
+    assert!(
+        stderr.contains("already exists"),
+        "stderr must mention overwrite refusal: {stderr}"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn migrate_from_hex_rejects_short_seed_with_typed_error_before_writing_vault() {
+    let dir = tmp_dir("migrate-short-seed");
+    let vault = dir.join("rejected.vault.json");
+    let short = "deadbeef";
+
+    let (code, _stdout, stderr) = run_agent(
+        &["migrate-from-hex", "--vault", vault.to_str().expect("path")],
+        &migrate_input(PASSPHRASE, short),
+    );
+    assert_ne!(code, 0, "short seed must fail");
+    assert!(
+        stderr.contains("32-byte") || stderr.contains("seed length"),
+        "stderr must mention seed length: {stderr}"
+    );
+    assert!(
+        !vault.exists(),
+        "vault file must not be written on rejected input"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn migrate_from_hex_rejects_non_hex_seed_with_typed_error() {
+    let dir = tmp_dir("migrate-non-hex");
+    let vault = dir.join("rejected.vault.json");
+
+    let (code, _stdout, stderr) = run_agent(
+        &["migrate-from-hex", "--vault", vault.to_str().expect("path")],
+        &migrate_input(
+            PASSPHRASE,
+            "not-hex-but-64-characters-long-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ),
+    );
+    assert_ne!(code, 0, "non-hex seed must fail");
+    assert!(
+        stderr.contains("hex") || stderr.contains("Invalid character"),
+        "stderr must mention hex failure: {stderr}"
+    );
+    assert!(!vault.exists(), "no vault on rejection");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn migrate_from_hex_rejects_empty_passphrase_before_consuming_seed_line() {
+    let dir = tmp_dir("migrate-empty-pass");
+    let vault = dir.join("rejected.vault.json");
+    let seed_hex = random_seed_hex();
+
+    let (code, _stdout, stderr) = run_agent(
+        &["migrate-from-hex", "--vault", vault.to_str().expect("path")],
+        &format!("\n{seed_hex}\n"),
+    );
+    assert_ne!(code, 0, "empty passphrase must fail");
+    assert!(
+        stderr.contains("passphrase must not be empty"),
+        "stderr must mention empty passphrase: {stderr}"
+    );
+    assert!(!vault.exists(), "no vault on rejection");
 
     let _ = fs::remove_dir_all(&dir);
 }

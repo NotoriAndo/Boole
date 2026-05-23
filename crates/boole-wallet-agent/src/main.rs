@@ -1,4 +1,5 @@
-//! P1.10f — `boole-wallet-agent` signing isolation binary.
+//! P1.10f / P1.10g — `boole-wallet-agent` signing isolation binary and
+//! plaintext-key migration tool.
 //!
 //! Owns one encrypted wallet vault (P1.10e `EncryptedVault`) on disk and
 //! exposes a minimal subcommand surface:
@@ -8,6 +9,11 @@
 //! - `pubkey --vault <path>` — open the vault and print the public key.
 //! - `sign   --vault <path> --message <hex>` — open the vault, sign the
 //!   message bytes (raw ed25519), print the signature (hex).
+//! - `migrate-from-hex --vault <path>` — read a passphrase + 32-byte
+//!   hex seed from stdin (two lines) and seal the seed into a new
+//!   vault. Converts the existing plaintext miner `state.json` /
+//!   `~/.boole/keys/<id>.json` / `~/.boole/sessions/<id>.json` files
+//!   when piped through `jq -r .sk`. Never accepts secrets on argv.
 //!
 //! Passphrase input: first line of stdin. This keeps the binary
 //! invocation pattern identical for interactive shells (`read -s` +
@@ -56,6 +62,10 @@ enum Command {
         #[arg(long)]
         message: String,
     },
+    MigrateFromHex {
+        #[arg(long)]
+        vault: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -64,6 +74,7 @@ fn main() -> ExitCode {
         Command::Init { vault } => cmd_init(&vault),
         Command::Pubkey { vault } => cmd_pubkey(&vault),
         Command::Sign { vault, message } => cmd_sign(&vault, &message),
+        Command::MigrateFromHex { vault } => cmd_migrate_from_hex(&vault),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -75,11 +86,7 @@ fn main() -> ExitCode {
 }
 
 fn read_passphrase() -> Result<Vec<u8>> {
-    let mut line = String::new();
-    io::stdin()
-        .lock()
-        .read_line(&mut line)
-        .context("read passphrase from stdin")?;
+    let line = read_stdin_line().context("read passphrase from stdin")?;
     let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
     if trimmed.is_empty() {
         bail!("passphrase must not be empty");
@@ -121,6 +128,48 @@ fn cmd_sign(vault_path: &Path, message_hex: &str) -> Result<()> {
     let signature = signing_key.sign(&message);
     println!("{}", hex::encode(signature.to_bytes()));
     Ok(())
+}
+
+fn cmd_migrate_from_hex(vault_path: &Path) -> Result<()> {
+    if vault_path.exists() {
+        bail!(
+            "vault already exists at {}; refusing to overwrite",
+            vault_path.display()
+        );
+    }
+    let passphrase = read_passphrase()?;
+    let seed_line = read_stdin_line().context("read seed hex line from stdin")?;
+    let seed_hex = seed_line
+        .trim_end_matches('\n')
+        .trim_end_matches('\r')
+        .trim();
+    let seed_bytes = hex::decode(seed_hex).context("seed must be hex-encoded bytes")?;
+    if seed_bytes.len() != SECRET_KEY_LENGTH {
+        bail!(
+            "seed length {} bytes; expected {SECRET_KEY_LENGTH}-byte ed25519 seed",
+            seed_bytes.len()
+        );
+    }
+    let seed_array: [u8; SECRET_KEY_LENGTH] = seed_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow!("seed slice -> array conversion"))?;
+    let signing_key = SigningKey::from_bytes(&seed_array);
+    let pubkey_hex = hex::encode(signing_key.verifying_key().to_bytes());
+    let vault = EncryptedVault::seal(&passphrase, &seed_array, VAULT_AAD, VaultParams::default())
+        .map_err(|e| anyhow!("seal vault: {e}"))?;
+    let bytes = vault
+        .to_json_bytes()
+        .map_err(|e| anyhow!("serialize vault: {e}"))?;
+    write_file_atomic_0600(vault_path, &bytes)?;
+    println!("{pubkey_hex}");
+    Ok(())
+}
+
+fn read_stdin_line() -> Result<String> {
+    let mut line = String::new();
+    io::stdin().lock().read_line(&mut line)?;
+    Ok(line)
 }
 
 fn open_signing_key(vault_path: &Path) -> Result<SigningKey> {
