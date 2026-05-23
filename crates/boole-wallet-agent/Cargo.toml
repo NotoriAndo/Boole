@@ -1,0 +1,25 @@
+[package]
+name = "boole-wallet-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "boole-wallet-agent"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+boole-core = { path = "../boole-core" }
+clap.workspace = true
+ed25519-dalek.workspace = true
+hex.workspace = true
+libc.workspace = true
+rand_core.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

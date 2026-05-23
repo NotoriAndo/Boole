@@ -6,6 +6,7 @@ members = [
   "crates/boole-lean-runner",
   "crates/boole-miner",
   "crates/boole-testkit",
+  "crates/boole-wallet-agent",
 ]
 resolver = "2"
 

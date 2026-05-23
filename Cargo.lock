@@ -304,6 +304,20 @@ name = "boole-testkit"
 version = "0.1.0"
 
 [[package]]
+name = "boole-wallet-agent"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "boole-core",
+ "clap",
+ "ed25519-dalek",
+ "hex",
+ "libc",
+ "rand_core 0.6.4",
+ "serde_json",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
