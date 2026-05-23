@@ -9,10 +9,18 @@
 // (bech32("boole", sha256(pk)[:20])) but matches every other Boole crate
 // and avoids pulling in a bech32 dependency.
 //
-// State file location precedence:
-//   $BOOLE_MINER_HOME/state.json
-//   $XDG_CONFIG_HOME/boole-miner/state.json
-//   $HOME/.config/boole-miner/state.json
+// State file location precedence (P2.3):
+//   $BOOLE_MINER_HOME/state.json               (per-subsystem override)
+//   $BOOLE_HOME/miner/state.json               (workspace-wide root,
+//                                               matches boole-cli's
+//                                               keys/sessions/signer-nonces
+//                                               layout under BOOLE_HOME)
+//   $XDG_CONFIG_HOME/boole-miner/state.json    (legacy XDG-style location,
+//                                               kept as a fallback so
+//                                               operators on the pre-
+//                                               BOOLE_HOME layout don't
+//                                               see their miner state move)
+//   $HOME/.config/boole-miner/state.json       (final fallback)
 use std::fmt;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -126,11 +134,14 @@ pub fn pubkey_to_address(pk: &[u8; ED25519_PK_BYTES]) -> String {
 
 /// Resolve the path of the miner state file.
 ///
-/// Precedence: `$BOOLE_MINER_HOME` > `$XDG_CONFIG_HOME/boole-miner` >
-/// `$HOME/.config/boole-miner`.
+/// Precedence: `$BOOLE_MINER_HOME` > `$BOOLE_HOME/miner` >
+/// `$XDG_CONFIG_HOME/boole-miner` > `$HOME/.config/boole-miner`.
 pub fn default_state_path() -> Result<PathBuf, StateError> {
     if let Ok(p) = std::env::var("BOOLE_MINER_HOME") {
         return Ok(PathBuf::from(p).join("state.json"));
+    }
+    if let Ok(p) = std::env::var("BOOLE_HOME") {
+        return Ok(PathBuf::from(p).join("miner").join("state.json"));
     }
     if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
         return Ok(PathBuf::from(xdg).join("boole-miner").join("state.json"));

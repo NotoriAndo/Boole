@@ -76,7 +76,9 @@ fn test_default_state_path_falls_back_to_xdg_config_home() {
     let _g = ENV_LOCK.lock().unwrap();
     let old_home = std::env::var("BOOLE_MINER_HOME").ok();
     let old_xdg = std::env::var("XDG_CONFIG_HOME").ok();
+    let old_boole = std::env::var("BOOLE_HOME").ok();
     std::env::remove_var("BOOLE_MINER_HOME");
+    std::env::remove_var("BOOLE_HOME");
     std::env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
     let p = default_state_path().unwrap();
     assert_eq!(p, PathBuf::from("/tmp/xdg/boole-miner/state.json"));
@@ -87,6 +89,96 @@ fn test_default_state_path_falls_back_to_xdg_config_home() {
         std::env::set_var("XDG_CONFIG_HOME", v);
     } else {
         std::env::remove_var("XDG_CONFIG_HOME");
+    }
+    if let Some(v) = old_boole {
+        std::env::set_var("BOOLE_HOME", v);
+    }
+}
+
+// P2.3 — BOOLE_HOME is the workspace-wide root that boole-cli already
+// honors via boole_core::paths::boole_home_root() for keys/sessions/
+// signer-nonces dirs. boole-miner gets the same layer so an operator
+// who sets `BOOLE_HOME=/var/lib/boole` finds the miner state under that
+// root without needing a separate `BOOLE_MINER_HOME` override.
+//
+// Precedence (most specific wins):
+//   1. BOOLE_MINER_HOME              -> $BOOLE_MINER_HOME/state.json
+//   2. BOOLE_HOME                    -> $BOOLE_HOME/miner/state.json
+//   3. XDG_CONFIG_HOME               -> $XDG_CONFIG_HOME/boole-miner/state.json
+//   4. $HOME                         -> $HOME/.config/boole-miner/state.json
+#[test]
+fn test_default_state_path_uses_boole_home_when_no_more_specific_override() {
+    let _g = ENV_LOCK.lock().unwrap();
+    let old_miner = std::env::var("BOOLE_MINER_HOME").ok();
+    let old_xdg = std::env::var("XDG_CONFIG_HOME").ok();
+    let old_boole = std::env::var("BOOLE_HOME").ok();
+    std::env::remove_var("BOOLE_MINER_HOME");
+    std::env::remove_var("XDG_CONFIG_HOME");
+    std::env::set_var("BOOLE_HOME", "/srv/boole");
+    let p = default_state_path().unwrap();
+    assert_eq!(p, PathBuf::from("/srv/boole/miner/state.json"));
+    if let Some(v) = old_miner {
+        std::env::set_var("BOOLE_MINER_HOME", v);
+    }
+    if let Some(v) = old_xdg {
+        std::env::set_var("XDG_CONFIG_HOME", v);
+    }
+    if let Some(v) = old_boole {
+        std::env::set_var("BOOLE_HOME", v);
+    } else {
+        std::env::remove_var("BOOLE_HOME");
+    }
+}
+
+#[test]
+fn test_default_state_path_boole_miner_home_wins_over_boole_home() {
+    let _g = ENV_LOCK.lock().unwrap();
+    let old_miner = std::env::var("BOOLE_MINER_HOME").ok();
+    let old_xdg = std::env::var("XDG_CONFIG_HOME").ok();
+    let old_boole = std::env::var("BOOLE_HOME").ok();
+    std::env::set_var("BOOLE_MINER_HOME", "/explicit");
+    std::env::set_var("BOOLE_HOME", "/srv/boole");
+    std::env::remove_var("XDG_CONFIG_HOME");
+    let p = default_state_path().unwrap();
+    assert_eq!(p, PathBuf::from("/explicit/state.json"));
+    if let Some(v) = old_miner {
+        std::env::set_var("BOOLE_MINER_HOME", v);
+    } else {
+        std::env::remove_var("BOOLE_MINER_HOME");
+    }
+    if let Some(v) = old_xdg {
+        std::env::set_var("XDG_CONFIG_HOME", v);
+    }
+    if let Some(v) = old_boole {
+        std::env::set_var("BOOLE_HOME", v);
+    } else {
+        std::env::remove_var("BOOLE_HOME");
+    }
+}
+
+#[test]
+fn test_default_state_path_boole_home_wins_over_xdg_config_home() {
+    let _g = ENV_LOCK.lock().unwrap();
+    let old_miner = std::env::var("BOOLE_MINER_HOME").ok();
+    let old_xdg = std::env::var("XDG_CONFIG_HOME").ok();
+    let old_boole = std::env::var("BOOLE_HOME").ok();
+    std::env::remove_var("BOOLE_MINER_HOME");
+    std::env::set_var("BOOLE_HOME", "/srv/boole");
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
+    let p = default_state_path().unwrap();
+    assert_eq!(p, PathBuf::from("/srv/boole/miner/state.json"));
+    if let Some(v) = old_miner {
+        std::env::set_var("BOOLE_MINER_HOME", v);
+    }
+    if let Some(v) = old_xdg {
+        std::env::set_var("XDG_CONFIG_HOME", v);
+    } else {
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+    if let Some(v) = old_boole {
+        std::env::set_var("BOOLE_HOME", v);
+    } else {
+        std::env::remove_var("BOOLE_HOME");
     }
 }
 
