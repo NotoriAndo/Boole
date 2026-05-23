@@ -256,6 +256,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "boole-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "boole-miner"
 version = "0.1.0"
 dependencies = [

@@ -4,6 +4,7 @@ members = [
   "crates/boole-cli",
   "crates/boole-node",
   "crates/boole-lean-runner",
+  "crates/boole-mcp",
   "crates/boole-miner",
   "crates/boole-testkit",
   "crates/boole-wallet-agent",
