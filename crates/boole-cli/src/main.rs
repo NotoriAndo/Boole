@@ -793,10 +793,15 @@ fn run(cli: Cli) -> anyhow::Result<()> {
 
 fn print_version(json: bool) -> anyhow::Result<()> {
     if json {
-        println!(
-            "{}",
-            serde_json::json!({ "ok": true, "name": "boole", "version": env!("CARGO_PKG_VERSION") })
-        );
+        // P2.5 — unified envelope. The package version moves inside
+        // `result.version`; the top-level `version` field becomes the
+        // envelope schema version. See `boole_cli::cli_envelope` for the
+        // contract and the inventory matrix tracking migration coverage.
+        let result = serde_json::json!({
+            "name": "boole",
+            "version": env!("CARGO_PKG_VERSION"),
+        });
+        println!("{}", boole_cli::cli_envelope::encode_ok("version", result));
     } else {
         println!("boole {}", env!("CARGO_PKG_VERSION"));
     }
