@@ -21,8 +21,10 @@ rust-version = "1.95.0"
 
 [workspace.dependencies]
 anyhow = "1"
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "password-hash"] }
 axum = "0.8"
 blake3 = "1"
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 clap = { version = "4", features = ["derive", "env"] }
 ed25519-dalek = { version = "2.1", default-features = false, features = ["std", "rand_core"] }
 hex = "0.4"

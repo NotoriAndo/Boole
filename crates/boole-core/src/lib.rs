@@ -32,6 +32,7 @@ pub mod submission_pow;
 pub mod submit_receipt_audit;
 pub mod telemetry;
 pub mod validator;
+pub mod vault;
 pub mod work_manifest;
 
 pub use admission::{
@@ -111,6 +112,7 @@ pub use validator::{
     validation_reason_from_json, validation_reason_json, DecodeDetail, ValidationReason,
     ValidationResult,
 };
+pub use vault::{EncryptedVault, VaultError, VaultParams};
 pub use work_manifest::{
     bounty_to_work_manifest, work_manifests_from_list, BountyFixture, WorkManifest,
     WorkManifestList, WorkVerifier,
