@@ -13,6 +13,10 @@ use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
+fn fresh_nonce() -> String {
+    format!("nonce-{}", rand_suffix())
+}
+
 const AGENT_PK: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 const ARTIFACT_HASH: &str = "2222222222222222222222222222222222222222222222222222222222222222";
 const REQUEST_HASH: &str = "3333333333333333333333333333333333333333333333333333333333333333";
@@ -86,6 +90,7 @@ fn boot_with_receipt_store(max_requests: usize, receipt_store: Option<PathBuf>) 
                 family_manifests_dir: None,
                 session_registry_path: None,
                 submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: receipt_store_for_thread,
                 max_requests: Some(max_requests),
@@ -123,6 +128,7 @@ fn receipt_payload(commitment: &ReceiptCommitment) -> Value {
         "schema": RECEIPTS_POST_PAYLOAD_SCHEMA,
         "receiptCommitment": commitment,
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     })
 }
 
@@ -239,6 +245,7 @@ fn receipt_route_post_rejects_raw_human_answer_field() {
         "schema": RECEIPTS_POST_PAYLOAD_SCHEMA,
         "receiptCommitment": commitment_value,
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     });
     let envelope = signed_envelope(&payload, &key);
 
@@ -373,6 +380,7 @@ fn receipt_route_post_expired_valid_before_returns_401_envelope_expired() {
         "schema": RECEIPTS_POST_PAYLOAD_SCHEMA,
         "receiptCommitment": commitment,
         "validBefore": 1_u64,
+        "nonce": fresh_nonce(),
     });
     let envelope = signed_envelope(&payload, &key);
 

@@ -20,6 +20,10 @@ use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
+fn fresh_nonce() -> String {
+    format!("nonce-{}", rand_suffix())
+}
+
 const STATUS_SCHEMA: &str = "boole.bounty.status.v1";
 
 fn scenario_path() -> PathBuf {
@@ -87,6 +91,7 @@ fn boot(
                 operator_signer_pks: vec![],
                 session_registry_path: None,
                 submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
                 genesis_override: None,
@@ -164,6 +169,7 @@ fn status_payload(id: &str, new_status: &str, ts: u64) -> Value {
         "newStatus": new_status,
         "ts": ts,
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     })
 }
 

@@ -1605,6 +1605,7 @@ fn bounty_submit(
         "prover": signing.pk_hex(),
         "envelope": envelope_value,
         "validBefore": signed_payload_valid_before(),
+        "nonce": fresh_signed_envelope_nonce(),
     });
     let signed = signing
         .sign(&payload)
@@ -1738,6 +1739,7 @@ fn bounty_announce(
         "deadline": deadline,
         "ts": ts_value,
         "validBefore": signed_payload_valid_before(),
+        "nonce": fresh_signed_envelope_nonce(),
     });
     let signed = signing
         .sign(&payload)
@@ -1845,6 +1847,10 @@ fn bounty_status(
         "validBefore".to_string(),
         serde_json::Value::Number(serde_json::Number::from(signed_payload_valid_before())),
     );
+    payload.insert(
+        "nonce".to_string(),
+        serde_json::Value::String(fresh_signed_envelope_nonce()),
+    );
     let payload_value = serde_json::Value::Object(payload);
     let signed = signing
         .sign(&payload_value)
@@ -1898,6 +1904,17 @@ fn signed_payload_valid_before() -> u64 {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     now.saturating_add(SIGNED_PAYLOAD_VALID_BEFORE_WINDOW_SECS)
+}
+
+/// P1.6b — per-envelope nonce stamped into every signed payload. The node
+/// persists `(signerPk, nonce)` into the per-signer ledger and rejects
+/// replays with 409 `nonce_replayed`. 16 cryptographic bytes from the OS RNG
+/// — collision-free across synchronized clocks.
+fn fresh_signed_envelope_nonce() -> String {
+    use rand_core::{OsRng, RngCore};
+    let mut bytes = [0_u8; 16];
+    OsRng.fill_bytes(&mut bytes);
+    hex::encode(bytes)
 }
 
 /// JSON-bearing CLI flags accept either an inline JSON string or a path to

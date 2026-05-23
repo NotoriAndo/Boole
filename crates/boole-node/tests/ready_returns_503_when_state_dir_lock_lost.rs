@@ -111,6 +111,7 @@ fn ready_returns_503_when_state_dir_lock_file_removed_at_runtime() {
                 operator_signer_pks: vec![],
                 session_registry_path: Some(session_registry),
                 submit_nonce_ledger_path: Some(submit_nonce_ledger),
+                signed_nonce_ledger_path: None,
                 submit_receipt_ledger_path: Some(submit_receipt_ledger),
                 receipt_commitment_ledger_path: Some(receipt_commitment_ledger),
                 genesis_override: None,

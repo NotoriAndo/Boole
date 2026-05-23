@@ -20,6 +20,10 @@ use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Map, Value};
 
+fn fresh_nonce() -> String {
+    format!("nonce-{}", rand_suffix())
+}
+
 const ANNOUNCE_SCHEMA: &str = "boole.bounty.announce.v1";
 const PROBLEM_HASH: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 
@@ -61,6 +65,15 @@ fn boot(
     bounties_path: Option<PathBuf>,
     bounty_event_path: PathBuf,
 ) -> BootResult {
+    boot_with_signed_nonce_ledger(max_requests, bounties_path, bounty_event_path, None)
+}
+
+fn boot_with_signed_nonce_ledger(
+    max_requests: usize,
+    bounties_path: Option<PathBuf>,
+    bounty_event_path: PathBuf,
+    signed_nonce_ledger_path: Option<PathBuf>,
+) -> BootResult {
     let dir = bounty_event_path.parent().expect("parent").to_path_buf();
     std::fs::create_dir_all(&dir).expect("tmp dir");
     let block_path = dir.join("blocks.ndjson");
@@ -88,6 +101,7 @@ fn boot(
                 operator_signer_pks: vec![],
                 session_registry_path: None,
                 submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path,
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
                 genesis_override: None,
@@ -174,6 +188,7 @@ fn announce_payload(id: &str, problem_hash: &str, ts: u64) -> Value {
         "deadline": 1900000000000_u64,
         "ts": ts,
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     })
 }
 
@@ -462,6 +477,114 @@ fn duplicate_id_returns_409_bounty_already_exists() {
     assert_eq!(resp["ok"], false);
     assert_eq!(resp["reason"], "bounty_already_exists");
     assert_eq!(resp["id"], "dup-bounty");
+    booted.handle.join().expect("server").expect("server ok");
+    let _ = std::fs::remove_dir_all(&booted.dir);
+}
+
+#[test]
+fn missing_nonce_returns_400_bad_payload_field_nonce() {
+    let dir = fresh_dir("missing-nonce");
+    let event_path = dir.join("bounty-events.ndjson");
+    let booted = boot(1, None, event_path);
+    let key = SigningKeyV2::from_dev_id("announcer-missing-nonce");
+    let mut payload = announce_payload("missing-nonce-bounty", PROBLEM_HASH, 1800001100000);
+    payload
+        .as_object_mut()
+        .expect("payload obj")
+        .remove("nonce");
+    let envelope = signed_envelope(&payload, &key);
+
+    let (status, resp) = http_post(booted.addr, "/bounties", &envelope);
+    assert_eq!(status, 400, "missing nonce → 400: {resp}");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["reason"], "bad_payload");
+    assert_eq!(resp["field"], "nonce");
+    booted.handle.join().expect("server").expect("server ok");
+    let _ = std::fs::remove_dir_all(&booted.dir);
+}
+
+#[test]
+fn empty_nonce_returns_400_bad_payload_field_nonce() {
+    let dir = fresh_dir("empty-nonce");
+    let event_path = dir.join("bounty-events.ndjson");
+    let booted = boot(1, None, event_path);
+    let key = SigningKeyV2::from_dev_id("announcer-empty-nonce");
+    let mut payload = announce_payload("empty-nonce-bounty", PROBLEM_HASH, 1800001100000);
+    payload["nonce"] = json!("");
+    let envelope = signed_envelope(&payload, &key);
+
+    let (status, resp) = http_post(booted.addr, "/bounties", &envelope);
+    assert_eq!(status, 400, "empty nonce → 400: {resp}");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["reason"], "bad_payload");
+    assert_eq!(resp["field"], "nonce");
+    booted.handle.join().expect("server").expect("server ok");
+    let _ = std::fs::remove_dir_all(&booted.dir);
+}
+
+#[test]
+fn replayed_nonce_from_same_signer_returns_409_nonce_replayed() {
+    let dir = fresh_dir("replayed-nonce");
+    let event_path = dir.join("bounty-events.ndjson");
+    let signed_nonce_path = dir.join("signed-nonces.ndjson");
+    let booted =
+        boot_with_signed_nonce_ledger(2, None, event_path, Some(signed_nonce_path.clone()));
+    let key = SigningKeyV2::from_dev_id("announcer-replay");
+    let pk_hex = key.pk_hex();
+
+    let mut first = announce_payload("replay-bounty-a", PROBLEM_HASH, 1800001200000);
+    let reused_nonce = "ffffffffffffffffffffffffffffffff";
+    first["nonce"] = json!(reused_nonce);
+    let env_a = signed_envelope(&first, &key);
+    let (s1, resp1) = http_post(booted.addr, "/bounties", &env_a);
+    assert_eq!(s1, 200, "first announce must succeed: {resp1}");
+
+    let mut second = announce_payload("replay-bounty-b", PROBLEM_HASH, 1800001300000);
+    second["nonce"] = json!(reused_nonce);
+    let env_b = signed_envelope(&second, &key);
+    let (s2, resp2) = http_post(booted.addr, "/bounties", &env_b);
+    assert_eq!(s2, 409, "second announce with reused nonce → 409: {resp2}");
+    assert_eq!(resp2["ok"], false);
+    assert_eq!(resp2["reason"], "nonce_replayed");
+    assert_eq!(resp2["signerPk"], pk_hex);
+    assert_eq!(resp2["nonce"], reused_nonce);
+    booted.handle.join().expect("server").expect("server ok");
+    let _ = std::fs::remove_dir_all(&booted.dir);
+}
+
+#[test]
+fn replayed_nonce_survives_reboot_via_ledger_recovery() {
+    let dir = fresh_dir("nonce-reboot");
+    let event_path = dir.join("bounty-events.ndjson");
+    let signed_nonce_path = dir.join("signed-nonces.ndjson");
+    let key = SigningKeyV2::from_dev_id("announcer-reboot");
+    let pk_hex = key.pk_hex();
+    let reused_nonce = "abababababababababababababababab";
+
+    {
+        let booted = boot_with_signed_nonce_ledger(
+            1,
+            None,
+            event_path.clone(),
+            Some(signed_nonce_path.clone()),
+        );
+        let mut first = announce_payload("reboot-bounty-a", PROBLEM_HASH, 1800001400000);
+        first["nonce"] = json!(reused_nonce);
+        let env_a = signed_envelope(&first, &key);
+        let (s1, _) = http_post(booted.addr, "/bounties", &env_a);
+        assert_eq!(s1, 200, "first announce must succeed");
+        booted.handle.join().expect("server").expect("server ok");
+    }
+
+    let booted =
+        boot_with_signed_nonce_ledger(1, None, event_path, Some(signed_nonce_path.clone()));
+    let mut second = announce_payload("reboot-bounty-b", PROBLEM_HASH, 1800001500000);
+    second["nonce"] = json!(reused_nonce);
+    let env_b = signed_envelope(&second, &key);
+    let (s2, resp2) = http_post(booted.addr, "/bounties", &env_b);
+    assert_eq!(s2, 409, "post-reboot replay → 409: {resp2}");
+    assert_eq!(resp2["reason"], "nonce_replayed");
+    assert_eq!(resp2["signerPk"], pk_hex);
     booted.handle.join().expect("server").expect("server ok");
     let _ = std::fs::remove_dir_all(&booted.dir);
 }

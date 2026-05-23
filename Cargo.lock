@@ -185,6 +185,8 @@ dependencies = [
  "boole-node",
  "boole-testkit",
  "clap",
+ "hex",
+ "rand_core 0.6.4",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

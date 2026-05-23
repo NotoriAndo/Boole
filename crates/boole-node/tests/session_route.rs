@@ -27,6 +27,10 @@ use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
+fn fresh_nonce() -> String {
+    format!("nonce-{}", rand_suffix())
+}
+
 const SESSIONS_REGISTER_PAYLOAD_SCHEMA: &str = "boole.sessions.register.v1";
 const SESSIONS_REVOKE_PAYLOAD_SCHEMA: &str = "boole.sessions.revoke.v1";
 
@@ -56,6 +60,7 @@ fn register_payload(session: Value, current_height: u64) -> Value {
         "session": session,
         "currentHeight": current_height,
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     })
 }
 
@@ -65,6 +70,7 @@ fn revoke_payload(session_pk: &str, height: u64) -> Value {
         "sessionPk": session_pk,
         "height": height,
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     })
 }
 
@@ -106,6 +112,14 @@ struct Boot {
 }
 
 fn boot_with_registry(max_requests: usize, registry: Option<PathBuf>) -> Boot {
+    boot_with_signed_nonce_ledger(max_requests, registry, None)
+}
+
+fn boot_with_signed_nonce_ledger(
+    max_requests: usize,
+    registry: Option<PathBuf>,
+    signed_nonce_ledger_path: Option<PathBuf>,
+) -> Boot {
     let dir = fresh_dir("boot");
     let block_path = dir.join("blocks.ndjson");
 
@@ -130,6 +144,7 @@ fn boot_with_registry(max_requests: usize, registry: Option<PathBuf>) -> Boot {
                 family_manifests_dir: None,
                 session_registry_path: registry_for_thread,
                 submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path,
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
                 max_requests: Some(max_requests),
@@ -447,6 +462,7 @@ fn session_route_revoke_wrong_inner_payload_schema_returns_400_bad_payload() {
         "sessionPk": PK_A,
         "height": 7,
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     });
     let envelope = signed_revoke_envelope(&payload, &key);
     let (status, value) = http_post(boot.addr, &format!("/sessions/{PK_A}/revoke"), &envelope);
@@ -503,6 +519,7 @@ fn session_route_revoke_expired_valid_before_returns_401_envelope_expired() {
         "sessionPk": PK_A,
         "height": 7,
         "validBefore": 1_u64,
+        "nonce": fresh_nonce(),
     });
     let envelope = signed_revoke_envelope(&payload, &key);
     let (status, value) = http_post(boot.addr, &format!("/sessions/{PK_A}/revoke"), &envelope);
@@ -537,6 +554,70 @@ fn session_route_revoke_rejects_session_pk_url_payload_mismatch() {
     assert_eq!(status, 400, "expected 400, got {status}: {value}");
     assert_eq!(value["ok"], false);
     assert_eq!(value["reason"], "bad_payload");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn session_route_register_missing_nonce_returns_400_bad_payload_field_nonce() {
+    let dir = fresh_dir("register-missing-nonce");
+    let registry = dir.join("sessions.ndjson");
+    let boot = boot_with_registry(1, Some(registry));
+    let key = SigningKeyV2::from_dev_id("session-route-register-missing-nonce");
+    let mut payload = register_payload(fixture_session(), 0);
+    payload.as_object_mut().expect("obj").remove("nonce");
+    let envelope = signed_register_envelope(&payload, &key);
+
+    let (status, value) = http_post(boot.addr, "/sessions", &envelope);
+    assert_eq!(status, 400, "missing nonce → 400: {value}");
+    assert_eq!(value["reason"], "bad_payload");
+    assert_eq!(value["field"], "nonce");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn session_route_register_replayed_nonce_returns_409_nonce_replayed() {
+    let dir = fresh_dir("register-replay");
+    let registry = dir.join("sessions.ndjson");
+    let signed_nonce_path = dir.join("signed-nonces.ndjson");
+    let boot = boot_with_signed_nonce_ledger(2, Some(registry), Some(signed_nonce_path));
+    let key = SigningKeyV2::from_dev_id("session-route-register-replay");
+    let pk_hex = key.pk_hex();
+
+    let mut payload_a = register_payload(fixture_session(), 0);
+    let reused_nonce = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+    payload_a["nonce"] = json!(reused_nonce);
+    let env_a = signed_register_envelope(&payload_a, &key);
+    let (s1, resp1) = http_post(boot.addr, "/sessions", &env_a);
+    assert_eq!(s1, 200, "first register must succeed: {resp1}");
+
+    // Different session payload (different sessionPk), reused nonce → must
+    // be rejected as nonce_replayed before the inner-session handler runs.
+    let alt_session = json!({
+        "sessionPk": PK_C,
+        "ownerPk": PK_A,
+        "agentPk": PK_B,
+        "fixedRewardRecipient": PK_A,
+        "allowedFamilyRoot": ROOT,
+        "maxFeePerRequest": "12",
+        "activationHeight": 0,
+        "expiryHeight": 100,
+        "revoked": false,
+        "policyHash": ROOT,
+    });
+    let mut payload_b = register_payload(alt_session, 0);
+    payload_b["nonce"] = json!(reused_nonce);
+    let env_b = signed_register_envelope(&payload_b, &key);
+    let (s2, resp2) = http_post(boot.addr, "/sessions", &env_b);
+    assert_eq!(s2, 409, "reused nonce → 409: {resp2}");
+    assert_eq!(resp2["reason"], "nonce_replayed");
+    assert_eq!(resp2["signerPk"], pk_hex);
+    assert_eq!(resp2["nonce"], reused_nonce);
 
     boot.handle.join().expect("server thread").expect("exits");
     let _ = std::fs::remove_dir_all(&boot.dir);

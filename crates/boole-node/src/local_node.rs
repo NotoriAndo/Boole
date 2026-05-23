@@ -7,6 +7,7 @@ use crate::nonce_ledger::FileNonceLedger;
 use crate::receipt_store::FileReceiptStore;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use crate::session_store::FileSessionStore;
+use crate::signed_nonce_ledger::FileSignedNonceLedger;
 use crate::state_dir::{self, StateDirGuard, StateManifest};
 use crate::work_manifest_store::load_work_manifests_from_path;
 use axum::body::Bytes;
@@ -189,6 +190,19 @@ pub struct LocalNodeConfig {
     /// session-gated path returns `session_registry_disabled` — the
     /// ledger and the session registry are opted in together.
     pub submit_nonce_ledger_path: Option<PathBuf>,
+    /// P1.6b — Optional NDJSON ledger path for the per-signer signed
+    /// envelope nonce dedup set covering the six non-session signed
+    /// routes (`/sessions`, `/sessions/{pk}/revoke`, `/bounties`,
+    /// `/bounties/{id}/status`, `/bounties/{id}/proof`, `/receipts`).
+    /// When `Some`, each accepted envelope burns `(signerPk, nonce)`
+    /// into the ledger; replays surface as `nonce_replayed` (HTTP 409).
+    /// Sibling of `submit_nonce_ledger_path` (which keys on `sessionPk`
+    /// for the session-bound `/submit` flow); the two stores live in
+    /// separate files so a per-signer envelope replay cannot mask a
+    /// session-bound replay or vice versa. When `None`, the freshness
+    /// gate stops at `validBefore` and the routes accept previously-seen
+    /// `(signerPk, nonce)` pairs — legacy embedding behavior.
+    pub signed_nonce_ledger_path: Option<PathBuf>,
     /// Optional NDJSON receipt ledger for accepted session-bound `/submit`
     /// work. When configured, accepted session submits append the exact
     /// receipt returned in the HTTP response so agents can later prove the
@@ -319,6 +333,17 @@ struct LocalNodeState {
     /// `submit_nonce_ledger_path` is `Some`; required for the gate to
     /// answer dedup queries without re-reading the ledger on every call.
     nonce_ledger: Option<FileNonceLedger>,
+    /// P1.6b — on-disk path for the per-signer signed-envelope nonce
+    /// ledger, mirroring `submit_nonce_ledger_path`. `Some` whenever the
+    /// caller passed `LocalNodeConfig.signed_nonce_ledger_path = Some(_)`;
+    /// kept here so the six signed-envelope handlers can burn
+    /// `(signerPk, nonce)` events with the same {append-then-apply} flow.
+    signed_nonce_ledger_path: Option<PathBuf>,
+    /// P1.6b — in-memory mirror of the signed-envelope nonce ledger.
+    /// `Some` iff `signed_nonce_ledger_path` is `Some`; absent when the
+    /// operator has not opted in, in which case the six signed routes
+    /// only enforce `validBefore` and accept previously-seen pairs.
+    signed_nonce_ledger: Option<FileSignedNonceLedger>,
     /// Optional append-only receipt ledger for accepted session-bound submit
     /// artifacts. The response receipt and ledger line intentionally match.
     submit_receipt_ledger_path: Option<PathBuf>,
@@ -436,6 +461,80 @@ fn check_payload_valid_before(payload: &serde_json::Map<String, Value>) -> Resul
     let now = now_unix_secs();
     if now > valid_before.saturating_add(VALID_BEFORE_LEEWAY_SECS) {
         return Err(HttpError::envelope_expired(valid_before, now));
+    }
+    Ok(())
+}
+
+/// P1.6b — every signed inner payload on the six non-session routes
+/// must carry a non-empty string `nonce`. Nonces are opaque to the
+/// server; uniqueness is enforced against the per-signer ledger, not by
+/// parsing the bytes. Missing or non-string → 400 `bad_payload` with
+/// `field: "nonce"` so wallets see the same vocabulary as the other
+/// inner-payload gates.
+fn check_payload_nonce(payload: &serde_json::Map<String, Value>) -> Result<&str, HttpError> {
+    let nonce = payload
+        .get("nonce")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::bad_payload("nonce", "payload must include string nonce"))?;
+    if nonce.is_empty() {
+        return Err(HttpError::bad_payload(
+            "nonce",
+            "payload nonce must be a non-empty string",
+        ));
+    }
+    Ok(nonce)
+}
+
+/// P1.6b — soft per-signer dedup probe. When the operator opted into the
+/// signed-envelope nonce ledger, reject any `(signer_pk, nonce)` already
+/// burned with 409 `nonce_replayed` before the handler does any
+/// state-mutating work. The atomic check-and-burn happens via
+/// `burn_signed_envelope_nonce` once the handler is about to persist; this
+/// probe is purely a fast-path so replays never reach the verifier or
+/// ledger-mutation paths.
+fn check_signed_envelope_nonce_not_replayed(
+    state: &LocalNodeState,
+    signer_pk: &str,
+    nonce: &str,
+) -> Result<(), HttpError> {
+    let Some(ledger) = state.signed_nonce_ledger.as_ref() else {
+        return Ok(());
+    };
+    if ledger.contains(signer_pk, nonce) {
+        return Err(HttpError::signed_envelope_nonce_replayed(
+            signer_pk.to_string(),
+            nonce.to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// P1.6b — atomic burn of the `(signer_pk, nonce)` pair into the
+/// per-signer signed-envelope nonce ledger. Returns 409 `nonce_replayed`
+/// if the pair was already burned (covers the case where two concurrent
+/// handlers raced past the soft probe). When the ledger is not
+/// configured, this is a no-op so legacy embeddings retain their pre-
+/// P1.6b semantics.
+fn burn_signed_envelope_nonce(
+    state: &mut LocalNodeState,
+    signer_pk: &str,
+    nonce: &str,
+) -> Result<(), HttpError> {
+    let Some(path) = state.signed_nonce_ledger_path.clone() else {
+        return Ok(());
+    };
+    let ledger = state
+        .signed_nonce_ledger
+        .as_mut()
+        .ok_or_else(|| HttpError::internal("signed_nonce_ledger unavailable"))?;
+    let appended = ledger
+        .append_burn(&path, signer_pk, nonce)
+        .map_err(|err| HttpError::internal(err.to_string()))?;
+    if !appended {
+        return Err(HttpError::signed_envelope_nonce_replayed(
+            signer_pk.to_string(),
+            nonce.to_string(),
+        ));
     }
     Ok(())
 }
@@ -829,6 +928,10 @@ impl LocalNodeState {
             Some(path) => Some(FileNonceLedger::recover(path)?),
             None => None,
         };
+        let signed_nonce_ledger = match config.signed_nonce_ledger_path.as_ref() {
+            Some(path) => Some(FileSignedNonceLedger::recover(path)?),
+            None => None,
+        };
         let receipt_store = match config.receipt_commitment_ledger_path.as_ref() {
             Some(path) => Some(FileReceiptStore::recover(path)?),
             None => None,
@@ -853,6 +956,8 @@ impl LocalNodeState {
             session_store,
             submit_nonce_ledger_path: config.submit_nonce_ledger_path,
             nonce_ledger,
+            signed_nonce_ledger_path: config.signed_nonce_ledger_path,
+            signed_nonce_ledger,
             submit_receipt_ledger_path: config.submit_receipt_ledger_path,
             receipt_commitment_ledger_path: config.receipt_commitment_ledger_path,
             receipt_store,
@@ -1547,13 +1652,20 @@ fn receipt_post_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, H
         ));
     }
     check_payload_valid_before(payload_obj)?;
+    let nonce = check_payload_nonce(payload_obj)?.to_string();
+    check_signed_envelope_nonce_not_replayed(state, pk, &nonce)?;
     let receipt_value = payload_obj.get("receiptCommitment").ok_or_else(|| {
         HttpError::bad_payload("receiptCommitment", "payload missing receiptCommitment")
     })?;
     let receipt: ReceiptCommitment = serde_json::from_value(receipt_value.clone())
         .map_err(|err| HttpError::bad_payload("receiptCommitment", err.to_string()))?;
+    let signer_pk = pk.to_string();
 
-    // 5) Existing durability + in-memory store mutation.
+    // 5) Existing durability + in-memory store mutation. The nonce burn
+    //    runs before the receipt append so a crash mid-write cannot
+    //    leave a replay window: a burned nonce without a persisted
+    //    receipt safely rejects a retry as `nonce_replayed`.
+    burn_signed_envelope_nonce(state, &signer_pk, &nonce)?;
     let path = state
         .receipt_commitment_ledger_path
         .clone()
@@ -1765,6 +1877,8 @@ fn session_register_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Valu
         ));
     }
     check_payload_valid_before(payload_obj)?;
+    let nonce = check_payload_nonce(payload_obj)?.to_string();
+    check_signed_envelope_nonce_not_replayed(state, pk, &nonce)?;
     let session_value = payload_obj
         .get("session")
         .ok_or_else(|| HttpError::missing_field("session"))?;
@@ -1774,8 +1888,12 @@ fn session_register_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Valu
         .get("currentHeight")
         .and_then(Value::as_u64)
         .ok_or_else(|| HttpError::missing_field("currentHeight"))?;
+    let signer_pk = pk.to_string();
 
-    // 4) Existing durability + in-memory store mutation.
+    // 4) Burn the per-signer nonce before the session-ledger append so a
+    //    crash mid-write rejects a retry with the same `(signerPk, nonce)`
+    //    pair instead of silently re-registering the session.
+    burn_signed_envelope_nonce(state, &signer_pk, &nonce)?;
     let path = state
         .session_registry_path
         .clone()
@@ -1880,6 +1998,8 @@ fn session_revoke_json(
         ));
     }
     check_payload_valid_before(payload_obj)?;
+    let nonce = check_payload_nonce(payload_obj)?.to_string();
+    check_signed_envelope_nonce_not_replayed(state, pk, &nonce)?;
     let payload_session_pk = payload_obj
         .get("sessionPk")
         .and_then(Value::as_str)
@@ -1896,8 +2016,11 @@ fn session_revoke_json(
         .get("height")
         .and_then(Value::as_u64)
         .ok_or_else(|| HttpError::bad_payload("height", "payload missing height"))?;
+    let signer_pk = pk.to_string();
 
-    // 4) Existing mutation path.
+    // 4) Burn per-signer nonce before the revoke append so a crash
+    //    mid-write rejects a retry instead of double-revoking.
+    burn_signed_envelope_nonce(state, &signer_pk, &nonce)?;
     let path = state
         .session_registry_path
         .clone()
@@ -2521,6 +2644,8 @@ fn bounty_announce_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value
         ));
     }
     check_payload_valid_before(payload_obj)?;
+    let nonce = check_payload_nonce(payload_obj)?.to_string();
+    check_signed_envelope_nonce_not_replayed(state, pk, &nonce)?;
     let id = required_payload_string(payload_obj, "id")?.to_string();
     let domain = required_payload_string(payload_obj, "domain")?.to_string();
     let problem_hash = required_payload_string(payload_obj, "problemHash")?.to_string();
@@ -2550,8 +2675,14 @@ fn bounty_announce_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value
         .get("ts")
         .and_then(Value::as_u64)
         .ok_or_else(|| HttpError::bad_payload("ts", "ts must be u64 unix ms"))?;
+    let signer_pk = pk.to_string();
 
-    // 5) Acquire registry mutation. validate_create surfaces field-level
+    // 5) Burn the per-signer nonce before the registry mutates so a
+    //    crash during create leaves the nonce burned and the retry is
+    //    rejected with `nonce_replayed` rather than re-attempting the
+    //    same announce under a stale signing intent.
+    burn_signed_envelope_nonce(state, &signer_pk, &nonce)?;
+    // 6) Acquire registry mutation. validate_create surfaces field-level
     //    rejections; map duplicates to 409 so operators can distinguish
     //    "wire bad" (400) from "logically already there" (409).
     let bounty = match state.bounty_registry.create(CreateBountyInput {
@@ -2670,6 +2801,8 @@ fn bounty_status_json(
         ));
     }
     check_payload_valid_before(payload_obj)?;
+    let nonce = check_payload_nonce(payload_obj)?.to_string();
+    check_signed_envelope_nonce_not_replayed(state, pk, &nonce)?;
     let payload_id = required_payload_string(payload_obj, "id")?.to_string();
     if payload_id != url_id {
         return Err(HttpError::bounty_id_mismatch(url_id, payload_id));
@@ -2697,8 +2830,13 @@ fn bounty_status_json(
     let prev_status = existing.status.clone();
     let problem_hash = existing.problem_hash.clone();
     let verifier_kind = existing.verifier.kind.clone();
+    let signer_pk = pk.to_string();
 
-    // 4) Apply the transition. The registry enforces transition rules; map
+    // 4) Burn the per-signer nonce before the status mutation so a
+    //    crash during update_status leaves the nonce burned and the
+    //    retry is rejected with `nonce_replayed`.
+    burn_signed_envelope_nonce(state, &signer_pk, &nonce)?;
+    // 5) Apply the transition. The registry enforces transition rules; map
     //    terminal-state errors to 409 and any other rule failure to 400 so
     //    a future stricter rule set doesn't need a wire-contract bump.
     let updated = match state.bounty_registry.update_status(UpdateStatusInput {
@@ -2782,6 +2920,12 @@ struct PreparedProofToVerify {
     prover: String,
     envelope: Value,
     verifier: Arc<dyn BountyProofVerifier>,
+    /// P1.6b — `(signer_pk, nonce)` pair captured during phase 1 so the
+    /// write-lock phase can atomically burn the pair before the registry
+    /// mutation. Set to `(pk, payload.nonce)` once phase 1 has validated
+    /// the freshness gates.
+    signer_pk: String,
+    nonce: String,
 }
 
 /// Phase 1 of the P1.7 bounty proof flow. Runs under a read lock: parse
@@ -2861,6 +3005,7 @@ fn bounty_proof_prepare(
         ));
     }
     check_payload_valid_before(payload_obj)?;
+    let nonce = check_payload_nonce(payload_obj)?.to_string();
     let payload_bounty_id = payload_obj
         .get("bountyId")
         .and_then(Value::as_str)
@@ -2897,8 +3042,10 @@ fn bounty_proof_prepare(
     }
     let envelope = payload_obj.get("envelope").cloned().unwrap_or(Value::Null);
 
-    // 3) Dedup peek — wins over terminal status and verifier dispatch so
-    //    a re-post is idempotent and does not pay for `lake exec`.
+    // 3) Dedup peek — wins over terminal status, nonce-replay, and
+    //    verifier dispatch so an HTTP retry of the same envelope (same
+    //    proofHash, same nonce) idempotently returns the cached
+    //    outcome instead of failing with `nonce_replayed`.
     if let Some(accepted) = state.bounty_registry.has_proof(id, &proof_hash) {
         let value = json!({
             "ok": true,
@@ -2910,7 +3057,15 @@ fn bounty_proof_prepare(
         return Ok(PreparedProof::Duplicate(value));
     }
 
-    // 4) 501 — unknown verifier kind. Caller knows to retry with a node
+    // 4) P1.6b — soft per-signer replay probe. Runs after the dedup
+    //    peek so HTTP idempotency wins over freshness, but before the
+    //    verifier and terminal gates so a stolen envelope re-aimed at a
+    //    fresh proofHash never reaches `lake exec`. The atomic
+    //    `(signer_pk, nonce)` burn happens in phase 3 once the verifier
+    //    has accepted the proof.
+    check_signed_envelope_nonce_not_replayed(state, pk, &nonce)?;
+
+    // 5) 501 — unknown verifier kind. Caller knows to retry with a node
     //    that has the verifier wired in.
     let verifier = state
         .bounty_verifiers
@@ -2918,12 +3073,13 @@ fn bounty_proof_prepare(
         .cloned()
         .ok_or_else(|| HttpError::no_verifier(&bounty.verifier.kind))?;
 
-    // 5) 409 — terminal bounty. Comes after dedup so a duplicate post on
+    // 6) 409 — terminal bounty. Comes after dedup so a duplicate post on
     //    a now-solved bounty short-circuits with `duplicate=true`.
     if bounty.status != "open" {
         return Err(HttpError::bounty_terminal(&bounty.status));
     }
 
+    let signer_pk = pk.to_string();
     Ok(PreparedProof::RunVerifier(Box::new(
         PreparedProofToVerify {
             bounty,
@@ -2931,6 +3087,8 @@ fn bounty_proof_prepare(
             prover,
             envelope,
             verifier,
+            signer_pk,
+            nonce,
         },
     )))
 }
@@ -2952,6 +3110,8 @@ fn bounty_proof_finalize(
         prover,
         envelope,
         verifier: _,
+        signer_pk,
+        nonce,
     } = prepared;
     let VerifyOutcome { accepted, evidence } = outcome;
 
@@ -2959,6 +3119,14 @@ fn bounty_proof_finalize(
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
+
+    // P1.6b — atomic burn under the write lock. Two concurrent
+    // submitters that raced past phase 1's soft probe with the same
+    // `(signer_pk, nonce)` will see one Ok(true) and one 409 here; the
+    // burn writes to the ledger before submit_proof so a crash mid-call
+    // leaves the nonce consumed and a retry is rejected as
+    // `nonce_replayed`.
+    burn_signed_envelope_nonce(state, &signer_pk, &nonce)?;
 
     // submit_proof internally re-checks dedup and terminal status, so a
     // concurrent submitter that landed the same proof hash during the

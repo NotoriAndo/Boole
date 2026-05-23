@@ -29,6 +29,10 @@ use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
+fn fresh_nonce() -> String {
+    format!("nonce-{}", rand_suffix())
+}
+
 const PROOF_HASH_A: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
 const PROOF_HASH_B: &str = "bbbb000000000000000000000000000000000000000000000000000000000000";
 const PROOF_HASH_C: &str = "cccc000000000000000000000000000000000000000000000000000000000000";
@@ -232,6 +236,7 @@ fn boot_full_at_dir(
                 operator_signer_pks,
                 session_registry_path: None,
                 submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
                 genesis_override: None,
@@ -304,6 +309,7 @@ fn signed_proof_body(
         "prover": key.pk_hex(),
         "envelope": envelope,
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     });
     let signed = key.sign(&payload).expect("sign proof payload");
     json!({

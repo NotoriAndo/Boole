@@ -38,6 +38,10 @@ use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
+fn fresh_nonce() -> String {
+    format!("nonce-{}", rand_suffix())
+}
+
 const PK_AGENT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const PK_OWNER: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const PK_AGENT_RAW: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
@@ -128,6 +132,7 @@ fn boot_with(paths: &BootPaths, max_requests: usize) -> Boot {
                 family_manifests_dir: None,
                 session_registry_path: Some(sessions),
                 submit_nonce_ledger_path: Some(nonces),
+                signed_nonce_ledger_path: None,
                 submit_receipt_ledger_path: Some(receipts),
                 receipt_commitment_ledger_path: None,
                 max_requests: Some(max_requests),
@@ -251,6 +256,7 @@ fn register_session(addr: SocketAddr, session_pk: &str, fixed_reward_recipient: 
         "session": fixture_session(session_pk, fixed_reward_recipient),
         "currentHeight": 0,
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     });
     let envelope = signed_register_envelope(&payload, &key);
     let (status, value) = http_post(addr, "/sessions", &envelope);
@@ -268,6 +274,7 @@ fn revoke_session(addr: SocketAddr, session_pk: &str) {
         "sessionPk": session_pk,
         "height": 1,
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     });
     let signed = key.sign(&payload).expect("sign revoke");
     let envelope = json!({
@@ -621,6 +628,7 @@ fn submit_rejects_session_expired_at_current_node_height() {
         "session": session,
         "currentHeight": 0,
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     });
     let register_envelope = signed_register_envelope(&register_payload, &register_key);
     let (register_status, register_value) = http_post(boot.addr, "/sessions", &register_envelope);
@@ -813,6 +821,7 @@ fn sessions_register_with_valid_signed_envelope_accepts_and_persists() {
         "session": fixture_session(PK_REGISTER_HAPPY, PK_REWARD),
         "currentHeight": 0,
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     });
     let envelope = signed_register_envelope(&payload, &key);
 

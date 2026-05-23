@@ -34,7 +34,7 @@ enum Command {
     /// Replay a runtime-smoke fixture or scenario into a fresh block store.
     RuntimeSmoke(RuntimeSmokeArgs),
     /// Run the local HTTP node. Flags override the matching env vars.
-    RunLocal(RunLocalArgs),
+    RunLocal(Box<RunLocalArgs>),
     /// Submit a Lean proof to the deterministic verifier and (optionally)
     /// commit a block on success.
     SubmitLean(SubmitLeanArgs),
@@ -83,6 +83,15 @@ struct RunLocalArgs {
     session_registry: Option<PathBuf>,
     #[arg(long = "submit-nonce-ledger", env = "BOOLE_SUBMIT_NONCE_LEDGER_PATH")]
     submit_nonce_ledger: Option<PathBuf>,
+    /// P1.6b — NDJSON ledger for per-signer signed-envelope nonces
+    /// across the six non-session signed routes (`/sessions`,
+    /// `/sessions/{pk}/revoke`, `/bounties`, `/bounties/{id}/status`,
+    /// `/bounties/{id}/proof`, `/receipts`). When set, each accepted
+    /// envelope burns `(signerPk, nonce)` so a replay surfaces as 409
+    /// `nonce_replayed`. Independent of `--submit-nonce-ledger`, which
+    /// keys on `sessionPk` for the session-bound `/submit` path.
+    #[arg(long = "signed-nonce-ledger", env = "BOOLE_SIGNED_NONCE_LEDGER_PATH")]
+    signed_nonce_ledger: Option<PathBuf>,
     #[arg(
         long = "submit-receipt-ledger",
         env = "BOOLE_SUBMIT_RECEIPT_LEDGER_PATH"
@@ -172,7 +181,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::RuntimeSmoke(args) => run_runtime_smoke_command(args),
-        Command::RunLocal(args) => run_local_command(args),
+        Command::RunLocal(args) => run_local_command(*args),
         Command::SubmitLean(args) => run_submit_lean_command(args),
         Command::AgentProof(args) => run_agent_proof_command(args),
     }
@@ -292,6 +301,7 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             operator_signer_pks,
             session_registry_path: args.session_registry,
             submit_nonce_ledger_path: args.submit_nonce_ledger,
+            signed_nonce_ledger_path: args.signed_nonce_ledger,
             submit_receipt_ledger_path: args.submit_receipt_ledger,
             receipt_commitment_ledger_path: args.receipt_commitment_ledger,
             genesis_override: args.genesis,

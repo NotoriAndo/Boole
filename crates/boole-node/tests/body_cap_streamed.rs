@@ -92,6 +92,7 @@ fn chunked_post_exceeding_body_cap_returns_413() {
                 operator_signer_pks: vec![],
                 session_registry_path: None,
                 submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
                 genesis_override: None,

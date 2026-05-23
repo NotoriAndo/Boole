@@ -72,6 +72,7 @@ fn boot_verify_answer_node(max_requests: usize) -> Boot {
                 family_manifests_dir: None,
                 session_registry_path: None,
                 submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: Some(receipt_path_for_thread),
                 max_requests: Some(max_requests),

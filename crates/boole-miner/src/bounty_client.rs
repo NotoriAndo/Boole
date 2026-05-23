@@ -45,6 +45,18 @@ fn now_unix_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// P1.6b — opaque per-envelope nonce stamped into every
+/// `boole.bounty.proof.v1` payload. The node persists `(signerPk,
+/// nonce)` into the per-signer signed-envelope ledger and rejects
+/// replays with 409 `nonce_replayed`. Uses 16 cryptographic bytes from
+/// the OS RNG so two miners with synchronized clocks cannot collide.
+fn fresh_signed_envelope_nonce() -> String {
+    use rand_core::{OsRng, RngCore};
+    let mut bytes = [0_u8; 16];
+    OsRng.fill_bytes(&mut bytes);
+    hex::encode(bytes)
+}
+
 pub struct BountyProofInputs<'a> {
     pub bounty_id: &'a str,
     /// Ed25519 signing key. The miner derives the prover pk from this
@@ -99,6 +111,7 @@ impl BountyClient {
         let proof_hash = hex::encode(Sha256::digest(inputs.envelope_bytes));
         let prover = inputs.signing_key.pk_hex();
         let valid_before = now_unix_secs().saturating_add(BOUNTY_PROOF_VALID_BEFORE_WINDOW_SECS);
+        let nonce = fresh_signed_envelope_nonce();
         let payload = serde_json::json!({
             "schema": BOUNTY_PROOF_PAYLOAD_SCHEMA,
             "bountyId": inputs.bounty_id,
@@ -106,6 +119,7 @@ impl BountyClient {
             "prover": prover,
             "envelope": inputs.envelope,
             "validBefore": valid_before,
+            "nonce": nonce,
         });
         let signed = match inputs.signing_key.sign(&payload) {
             Ok(s) => s,

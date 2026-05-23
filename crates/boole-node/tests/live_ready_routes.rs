@@ -90,6 +90,7 @@ fn live_and_ready_routes_return_distinct_probe_envelopes() {
                 operator_signer_pks: vec![],
                 session_registry_path: None,
                 submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
                 genesis_override: None,

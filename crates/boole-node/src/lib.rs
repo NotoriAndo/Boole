@@ -16,6 +16,7 @@ mod reward_store;
 mod runtime;
 mod runtime_smoke;
 mod session_store;
+mod signed_nonce_ledger;
 mod state_dir;
 mod work_manifest_store;
 

@@ -108,6 +108,7 @@ fn ready_returns_503_when_state_dir_set_but_an_agent_wallet_ledger_missing() {
                 operator_signer_pks: vec![],
                 session_registry_path: Some(session_registry),
                 submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
                 submit_receipt_ledger_path: Some(submit_receipt_ledger),
                 receipt_commitment_ledger_path: Some(receipt_commitment_ledger),
                 genesis_override: None,

@@ -26,6 +26,10 @@ use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
+fn fresh_nonce() -> String {
+    format!("nonce-{}", rand_suffix())
+}
+
 const PROOF_HASH_A: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
 const PROOF_HASH_B: &str = "bbbb000000000000000000000000000000000000000000000000000000000000";
 
@@ -71,6 +75,13 @@ fn default_mock_verifiers() -> HashMap<String, Arc<dyn BountyProofVerifier>> {
 fn boot_with_mock_verifiers(
     max_requests: usize,
 ) -> (SocketAddr, thread::JoinHandle<anyhow::Result<()>>, PathBuf) {
+    boot_with_signed_nonce_ledger(max_requests, None)
+}
+
+fn boot_with_signed_nonce_ledger(
+    max_requests: usize,
+    signed_nonce_ledger_filename: Option<&str>,
+) -> (SocketAddr, thread::JoinHandle<anyhow::Result<()>>, PathBuf) {
     let dir = std::env::temp_dir().join(format!(
         "boole-s12-bounty-proof-{}-{}",
         std::process::id(),
@@ -80,6 +91,7 @@ fn boot_with_mock_verifiers(
     std::fs::create_dir_all(&dir).expect("tmp dir");
     let block_path = dir.join("blocks.ndjson");
     let bounty_event_path = dir.join("bounty-events.ndjson");
+    let signed_nonce_path = signed_nonce_ledger_filename.map(|name| dir.join(name));
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().expect("addr");
@@ -105,6 +117,7 @@ fn boot_with_mock_verifiers(
                 operator_signer_pks: vec![],
                 session_registry_path: None,
                 submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: signed_nonce_path,
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
                 genesis_override: None,
@@ -166,6 +179,7 @@ fn signed_proof_body(
             "prover": key.pk_hex(),
             "envelope": envelope,
             "validBefore": valid_before_far_future(),
+            "nonce": fresh_nonce(),
         }),
     )
 }
@@ -291,6 +305,7 @@ fn bad_prover_returns_400_typed() {
         "prover": "not-a-hex32",
         "envelope": {},
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     });
     let body = proof_envelope_with_payload(&key, payload);
     let (status, resp) = http_post(addr, "/bounties/gamma-1/proof", &body);
@@ -403,6 +418,7 @@ fn prover_pk_mismatch_returns_400_bad_payload() {
         "prover": other.pk_hex(),
         "envelope": {},
         "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
     });
     let body = proof_envelope_with_payload(&signer, payload);
     let (status, resp) = http_post(addr, "/bounties/gamma-1/proof", &body);
@@ -455,6 +471,7 @@ fn expired_valid_before_returns_401_envelope_expired() {
         "envelope": {},
         // validBefore well in the past (Unix second 1).
         "validBefore": 1_u64,
+        "nonce": fresh_nonce(),
     });
     let body = proof_envelope_with_payload(&signer, payload);
     let (status, resp) = http_post(addr, "/bounties/gamma-1/proof", &body);
@@ -466,6 +483,79 @@ fn expired_valid_before_returns_401_envelope_expired() {
         resp["now"].as_u64().is_some(),
         "envelope_expired must carry `now` so callers see the server clock"
     );
+
+    handle.join().expect("server thread").expect("server exits");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn replayed_nonce_with_distinct_proof_hash_returns_409_nonce_replayed() {
+    // P1.6b — once a signer burns a nonce on the per-signer signed-envelope
+    // ledger, a second envelope from the same signer reusing that nonce is
+    // rejected even if the proofHash differs (dedup peek misses). This is
+    // the "stolen nonce, fabricated envelope" attack path that dedup alone
+    // does not cover.
+    let (addr, handle, dir) = boot_with_signed_nonce_ledger(2, Some("signed-nonces.ndjson"));
+    let key = prover_key();
+    let pk_hex = key.pk_hex();
+    let reused_nonce = "deadbeefdeadbeefdeadbeefdeadbeef";
+
+    let payload_a = json!({
+        "schema": "boole.bounty.proof.v1",
+        "bountyId": "gamma-1",
+        "proofHash": PROOF_HASH_A,
+        "prover": pk_hex,
+        "envelope": json!({}),
+        "validBefore": valid_before_far_future(),
+        "nonce": reused_nonce,
+    });
+    let env_a = proof_envelope_with_payload(&key, payload_a);
+    let (s1, r1) = http_post(addr, "/bounties/gamma-1/proof", &env_a);
+    assert_eq!(s1, 200, "first proof must succeed: {r1}");
+    assert_eq!(r1["accepted"], true);
+
+    let payload_b = json!({
+        "schema": "boole.bounty.proof.v1",
+        "bountyId": "gamma-1",
+        "proofHash": PROOF_HASH_B,
+        "prover": pk_hex,
+        "envelope": json!({"different": "envelope"}),
+        "validBefore": valid_before_far_future(),
+        "nonce": reused_nonce,
+    });
+    let env_b = proof_envelope_with_payload(&key, payload_b);
+    let (s2, r2) = http_post(addr, "/bounties/gamma-1/proof", &env_b);
+    assert_eq!(
+        s2, 409,
+        "different proof envelope reusing the same nonce → 409: {r2}"
+    );
+    assert_eq!(r2["reason"], "nonce_replayed");
+    assert_eq!(r2["signerPk"], pk_hex);
+    assert_eq!(r2["nonce"], reused_nonce);
+
+    handle.join().expect("server thread").expect("server exits");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn identical_proof_envelope_retry_returns_200_duplicate_not_nonce_replayed() {
+    // HTTP idempotency invariant: the SAME envelope (same proofHash + same
+    // nonce) re-POSTed must hit dedup, not the nonce-replay gate. Network
+    // retries on a 200 should still return 200 duplicate=true.
+    let (addr, handle, dir) = boot_with_signed_nonce_ledger(2, Some("signed-nonces.ndjson"));
+    let key = prover_key();
+    let body = signed_proof_body(&key, "gamma-1", PROOF_HASH_A, json!({}));
+    let (s1, r1) = http_post(addr, "/bounties/gamma-1/proof", &body);
+    assert_eq!(s1, 200, "first proof must succeed: {r1}");
+    assert_eq!(r1["duplicate"], false);
+
+    let (s2, r2) = http_post(addr, "/bounties/gamma-1/proof", &body);
+    assert_eq!(
+        s2, 200,
+        "identical envelope retry must be 200 duplicate, not 409 replay: {r2}"
+    );
+    assert_eq!(r2["accepted"], true);
+    assert_eq!(r2["duplicate"], true);
 
     handle.join().expect("server thread").expect("server exits");
     let _ = std::fs::remove_dir_all(&dir);

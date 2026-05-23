@@ -177,6 +177,22 @@ impl HttpError {
             .with_extra("now", json!(now))
     }
 
+    /// P1.6b — a `(signerPk, nonce)` pair the inner payload claims has
+    /// already been burned by the per-signer signed-envelope nonce ledger.
+    /// Sibling of `nonce_replayed` (which uses `sessionPk` for the
+    /// session-bound `/submit` flow) but carries `signerPk` so a single
+    /// signer cannot rebind a stolen envelope to a different request.
+    /// The 409 mirrors the existing dedup-rejection precedent so clients
+    /// can route both kinds through one branch.
+    pub fn signed_envelope_nonce_replayed(
+        signer_pk: impl Into<String>,
+        nonce: impl Into<String>,
+    ) -> Self {
+        Self::new(409, "nonce_replayed")
+            .with_extra("signerPk", Value::String(signer_pk.into()))
+            .with_extra("nonce", Value::String(nonce.into()))
+    }
+
     pub fn bad_payload(field: impl Into<String>, detail: impl Into<String>) -> Self {
         Self::new(400, "bad_payload")
             .with_field(field)
@@ -310,6 +326,21 @@ mod tests {
                 "reason": "envelope_expired",
                 "validBefore": 100,
                 "now": 1_000_000,
+            })
+        );
+    }
+
+    #[test]
+    fn signed_envelope_nonce_replayed_carries_signer_pk_and_nonce() {
+        let err = HttpError::signed_envelope_nonce_replayed("aabb", "n-1");
+        assert_eq!(err.status, 409);
+        assert_eq!(
+            err.into_json(),
+            json!({
+                "ok": false,
+                "reason": "nonce_replayed",
+                "signerPk": "aabb",
+                "nonce": "n-1",
             })
         );
     }
