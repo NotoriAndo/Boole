@@ -35,6 +35,7 @@ fn verify_with_wrong_pk_returns_ok_false_not_err() {
         payload: payload.clone(),
         pk: key_b.pk_hex(),
         signature: envelope_a.signature.clone(),
+        network_id: None,
     };
     let result = forged
         .verify()
@@ -53,6 +54,7 @@ fn verify_with_tampered_payload_returns_ok_false() {
         payload: json!({"msg": "tampered", "n": 1}),
         pk: envelope.pk.clone(),
         signature: envelope.signature.clone(),
+        network_id: None,
     };
     let result = tampered.verify().expect("hex shapes well-formed");
     assert!(!result, "tampered payload must reject (Ok(false))");

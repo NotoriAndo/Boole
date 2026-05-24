@@ -333,4 +333,14 @@ pub const COMMAND_INVENTORY: &[CommandSurface] = &[
         output_with_json: OutputKind::Unified,
         output_default: OutputKind::RawServerForward,
     },
+    // P2.10 — `boole faucet claim`. Non-json mode forwards the faucet
+    // server's response body verbatim (so a faucet that returns text or
+    // bespoke JSON is not mangled); `--json` wraps the parsed response
+    // under the unified envelope's `result` field.
+    CommandSurface {
+        path: &["faucet", "claim"],
+        has_json_flag: true,
+        output_with_json: OutputKind::Unified,
+        output_default: OutputKind::RawServerForward,
+    },
 ];

@@ -101,6 +101,15 @@ enum Command {
         #[command(subcommand)]
         command: WalletCommand,
     },
+    /// Faucet client. POSTs a fund-request body to a configurable faucet
+    /// URL. `--network testnet|dev|mainnet` resolves both the default
+    /// faucet URL (overridable via `--faucet-url`) and the canonical
+    /// `network_id` stamped into the body so a faucet operator can
+    /// refuse cross-network claims.
+    Faucet {
+        #[command(subcommand)]
+        command: FaucetCommand,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -622,6 +631,81 @@ enum WalletCommand {
     },
 }
 
+/// Canonical Boole network presets the CLI recognises. Each preset maps
+/// to a stable `network_id` string that the protocol signs / verifies
+/// against (see `boole_core::SignedEnvelope::sign_for_network`) AND to a
+/// default faucet URL for `faucet claim`. `mainnet` has no default
+/// faucet URL — operator must pass `--faucet-url` explicitly.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum NetworkPreset {
+    Testnet,
+    Dev,
+    Mainnet,
+}
+
+impl NetworkPreset {
+    /// Canonical network_id stamped into signed envelopes and faucet
+    /// request bodies. Stable strings — changing them would invalidate
+    /// every signature already produced against that network.
+    fn network_id(self) -> &'static str {
+        match self {
+            NetworkPreset::Testnet => "boole-testnet",
+            NetworkPreset::Dev => "boole-dev",
+            NetworkPreset::Mainnet => "boole-mainnet",
+        }
+    }
+
+    /// Default faucet URL for the preset, or `None` if no canonical
+    /// URL exists (mainnet). When `None`, the CLI errors loudly so
+    /// the operator never accidentally targets a placeholder URL.
+    fn default_faucet_url(self) -> Option<&'static str> {
+        match self {
+            NetworkPreset::Testnet => Some("http://127.0.0.1:8090/claim"),
+            NetworkPreset::Dev => Some("http://127.0.0.1:8081/claim"),
+            NetworkPreset::Mainnet => None,
+        }
+    }
+
+    /// Human-readable network name as the operator typed it on the
+    /// command line — used in error messages so a "no default faucet
+    /// URL for network <name>" message echoes back the exact token.
+    fn name(self) -> &'static str {
+        match self {
+            NetworkPreset::Testnet => "testnet",
+            NetworkPreset::Dev => "dev",
+            NetworkPreset::Mainnet => "mainnet",
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+enum FaucetCommand {
+    /// Request funds for `--address` from the network preset's faucet.
+    /// The request body carries the canonical `network_id` derived from
+    /// `--network` so a faucet operator can refuse cross-network claims
+    /// (a testnet body posted at a mainnet faucet, for instance). Use
+    /// `--faucet-url` to override the preset's default URL.
+    Claim {
+        /// Network preset: testnet | dev | mainnet. Resolves both the
+        /// default faucet URL and the canonical `network_id` stamped
+        /// into the request body.
+        #[arg(long, value_enum)]
+        network: NetworkPreset,
+        /// 32-byte ed25519 address (64 lowercase hex chars) to fund.
+        #[arg(long)]
+        address: String,
+        /// Override the network preset's default faucet URL. Required
+        /// for `--network mainnet` (no default URL ships).
+        #[arg(long = "faucet-url")]
+        faucet_url: Option<String>,
+        /// Emit the unified P2.5 JSON envelope around the server's
+        /// response body. Without this, the server response is
+        /// forwarded verbatim to stdout (or stderr on non-2xx).
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 fn main() {
     let cli = Cli::parse();
     let result = run(cli);
@@ -783,6 +867,14 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 json,
             } => wallet_sign(&vault, &message, json),
             WalletCommand::Migrate { vault, json } => wallet_migrate(&vault, json),
+        },
+        Some(Command::Faucet { command }) => match command {
+            FaucetCommand::Claim {
+                network,
+                address,
+                faucet_url,
+                json,
+            } => faucet_claim(network, &address, faucet_url.as_deref(), json),
         },
         Some(Command::Keys { command }) => match command {
             KeysCommand::New { id, dev, dry_run } => keys_new(&id, dev, dry_run),
@@ -1511,6 +1603,94 @@ fn wallet_sign(vault: &Path, message: &str, json: bool) -> anyhow::Result<()> {
 
 fn wallet_migrate(vault: &Path, json: bool) -> anyhow::Result<()> {
     wallet_pubkey_envelope(vault, json, "wallet.migrate", "migrate-from-hex", &[])
+}
+
+/// `boole faucet claim` — POST a fund request to the network's faucet URL.
+///
+/// The request body is `{"address": <hex>, "network_id": <canonical>}`.
+/// Stamping `network_id` server-side lets a faucet operator refuse a
+/// claim that's targeted at the wrong network (e.g. a body crafted for
+/// `boole-testnet` arriving at a `boole-mainnet` faucet endpoint) — a
+/// cheap first line of defense against cross-network replay before
+/// touching any signature logic.
+///
+/// Mainnet has no canonical default faucet URL: operators must pass
+/// `--faucet-url` explicitly. Silently routing mainnet claims to a
+/// placeholder URL would be a foot gun, so we fail loudly instead.
+fn faucet_claim(
+    network: NetworkPreset,
+    address: &str,
+    faucet_url_override: Option<&str>,
+    json: bool,
+) -> anyhow::Result<()> {
+    if !is_well_formed_hex32(address) {
+        emit_typed_error(
+            "malformed-address",
+            2,
+            serde_json::json!({ "address": address }),
+        );
+    }
+    let resolved_url = match faucet_url_override {
+        Some(u) => u.to_string(),
+        None => match network.default_faucet_url() {
+            Some(u) => u.to_string(),
+            None => {
+                let msg = format!(
+                    "no default faucet URL for network {}; pass --faucet-url explicitly",
+                    network.name()
+                );
+                if json {
+                    let body = boole_cli::cli_envelope::encode_err(
+                        "faucet.claim",
+                        "no-default-faucet-url",
+                        serde_json::json!({
+                            "network": network.name(),
+                            "hint": "pass --faucet-url",
+                        }),
+                    );
+                    eprintln!("{body}");
+                } else {
+                    eprintln!("{msg}");
+                }
+                std::process::exit(1);
+            }
+        },
+    };
+
+    let body = serde_json::json!({
+        "address": address,
+        "network_id": network.network_id(),
+    });
+    let response = http_post(&resolved_url, "", &body)?;
+    let body_text =
+        std::str::from_utf8(&response.body).map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    if !(200..300).contains(&response.status) {
+        if json {
+            let extras = serde_json::from_str::<serde_json::Value>(body_text)
+                .unwrap_or_else(|_| serde_json::json!({ "raw": body_text }));
+            let envelope = boole_cli::cli_envelope::encode_err(
+                "faucet.claim",
+                "faucet-rejected",
+                serde_json::json!({
+                    "status": response.status,
+                    "body": extras,
+                }),
+            );
+            eprintln!("{envelope}");
+        } else {
+            eprintln!("{body_text}");
+        }
+        std::process::exit(1);
+    }
+    if json {
+        let result: serde_json::Value = serde_json::from_str(body_text)
+            .unwrap_or_else(|_| serde_json::json!({ "raw": body_text }));
+        let envelope = boole_cli::cli_envelope::encode_ok("faucet.claim", result);
+        println!("{envelope}");
+    } else {
+        println!("{body_text}");
+    }
+    Ok(())
 }
 
 /// Fetch `/account/{pk}/balance` from `node`. Validates `pk` locally first so
