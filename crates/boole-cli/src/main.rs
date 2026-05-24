@@ -93,6 +93,14 @@ enum Command {
         #[command(subcommand)]
         command: StateCommand,
     },
+    /// Wallet vault management. Façade over the `boole-wallet-agent`
+    /// binary so a wallet operator only has to know the umbrella `boole`
+    /// CLI. Passphrase is read from stdin (first line). The vault file
+    /// path is free-form — wallet state is independent of miner state.
+    Wallet {
+        #[command(subcommand)]
+        command: WalletCommand,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -572,6 +580,48 @@ enum BlockCommand {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum WalletCommand {
+    /// Create a fresh ed25519 wallet vault at `--vault`. Passphrase is
+    /// read from the first line of stdin. Prints the address (hex
+    /// ed25519 pubkey); use `--json` for the unified envelope.
+    Init {
+        #[arg(long)]
+        vault: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print the wallet address (hex ed25519 pubkey) stored in the
+    /// vault at `--vault`. Passphrase is read from the first line of
+    /// stdin (vault decryption is required to surface the pubkey).
+    Address {
+        #[arg(long)]
+        vault: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Sign `--message` (hex-encoded bytes) with the vault key.
+    /// Passphrase is read from the first line of stdin. Prints the
+    /// signature (hex, 64 bytes).
+    Sign {
+        #[arg(long)]
+        vault: PathBuf,
+        #[arg(long)]
+        message: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Migrate an existing ed25519 32-byte seed (hex) into a new vault
+    /// at `--vault`. stdin must contain two lines: passphrase, then
+    /// seed-hex. Prints the resulting address.
+    Migrate {
+        #[arg(long)]
+        vault: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 fn main() {
     let cli = Cli::parse();
     let result = run(cli);
@@ -723,6 +773,16 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 lean_checker_dir.as_deref(),
                 json,
             ),
+        },
+        Some(Command::Wallet { command }) => match command {
+            WalletCommand::Init { vault, json } => wallet_init(&vault, json),
+            WalletCommand::Address { vault, json } => wallet_address(&vault, json),
+            WalletCommand::Sign {
+                vault,
+                message,
+                json,
+            } => wallet_sign(&vault, &message, json),
+            WalletCommand::Migrate { vault, json } => wallet_migrate(&vault, json),
         },
         Some(Command::Keys { command }) => match command {
             KeysCommand::New { id, dev, dry_run } => keys_new(&id, dev, dry_run),
@@ -1229,6 +1289,25 @@ fn resolve_node_binary() -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from("boole-node"))
 }
 
+/// P2.9 — sibling-binary discovery for `boole-wallet-agent`. Mirrors
+/// `resolve_node_binary` (same env override pattern, same parent-dir
+/// fallback). `BOOLE_WALLET_AGENT_BIN` is the integration-test escape
+/// hatch so tests can pin the agent path explicitly when the CLI is
+/// invoked from a `target/debug/deps/...` test binary.
+fn resolve_wallet_agent_binary() -> anyhow::Result<PathBuf> {
+    if let Ok(explicit) = std::env::var("BOOLE_WALLET_AGENT_BIN") {
+        return Ok(PathBuf::from(explicit));
+    }
+    let cli_bin = std::env::current_exe()?;
+    if let Some(parent) = cli_bin.parent() {
+        let sibling = parent.join("boole-wallet-agent");
+        if sibling.exists() {
+            return Ok(sibling);
+        }
+    }
+    Ok(PathBuf::from("boole-wallet-agent"))
+}
+
 // P1.10c (follow-up, 2026-05-18 design review) — wipe the parent
 // process env before spawning `boole-node` so secrets the operator may
 // keep in shell env (LLM API keys, AWS_* tokens, SSH agent sockets,
@@ -1333,6 +1412,105 @@ fn node_start(
         anyhow::bail!("boole-node exited with status {status}");
     }
     Ok(())
+}
+
+// P2.9 — `boole wallet ...` façade. Each subcommand is a thin spawn of
+// the corresponding `boole-wallet-agent` subcommand with one extra job:
+// when `--json` is set, capture the agent's plain-text stdout (always
+// either a hex pubkey or hex signature, ending in `\n`) and wrap it
+// inside the unified P2.5 envelope. stdin is inherited so the
+// passphrase (and, for migrate, the seed-hex second line) reaches the
+// agent unmodified — the façade never reads or buffers the passphrase
+// itself, which keeps every byte that touches the secret confined to
+// the agent process boundary.
+//
+// The output kind for these subcommands in `COMMAND_INVENTORY` is
+// `RawServerForward` in non-json mode (forward the agent's stdout
+// verbatim) and `Unified` when `--json` is set. The inventory matrix
+// is updated in lockstep with this slice so the drift gate stays
+// happy.
+
+fn spawn_wallet_agent(args: &[&std::ffi::OsStr]) -> anyhow::Result<std::process::Output> {
+    use std::process::{Command, Stdio};
+    let agent_bin = resolve_wallet_agent_binary()?;
+    let child = Command::new(&agent_bin)
+        .args(args)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("spawn boole-wallet-agent at {}: {e}", agent_bin.display()))?;
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        anyhow::bail!("boole-wallet-agent exited with status {}", output.status);
+    }
+    Ok(output)
+}
+
+fn wallet_pubkey_envelope(
+    vault: &Path,
+    json: bool,
+    command_path: &str,
+    agent_verb: &str,
+    extra_args: &[&std::ffi::OsStr],
+) -> anyhow::Result<()> {
+    use std::ffi::OsStr;
+    let mut args: Vec<&OsStr> = vec![
+        OsStr::new(agent_verb),
+        OsStr::new("--vault"),
+        vault.as_os_str(),
+    ];
+    args.extend_from_slice(extra_args);
+    let output = spawn_wallet_agent(&args)?;
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|_| anyhow::anyhow!("boole-wallet-agent stdout was not UTF-8"))?;
+    let trimmed = stdout.trim();
+    if json {
+        let body = boole_cli::cli_envelope::encode_ok(
+            command_path,
+            serde_json::json!({ "address": trimmed }),
+        );
+        println!("{body}");
+    } else {
+        println!("{trimmed}");
+    }
+    Ok(())
+}
+
+fn wallet_init(vault: &Path, json: bool) -> anyhow::Result<()> {
+    wallet_pubkey_envelope(vault, json, "wallet.init", "init", &[])
+}
+
+fn wallet_address(vault: &Path, json: bool) -> anyhow::Result<()> {
+    wallet_pubkey_envelope(vault, json, "wallet.address", "pubkey", &[])
+}
+
+fn wallet_sign(vault: &Path, message: &str, json: bool) -> anyhow::Result<()> {
+    use std::ffi::OsStr;
+    let output = spawn_wallet_agent(&[
+        OsStr::new("sign"),
+        OsStr::new("--vault"),
+        vault.as_os_str(),
+        OsStr::new("--message"),
+        OsStr::new(message),
+    ])?;
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|_| anyhow::anyhow!("boole-wallet-agent stdout was not UTF-8"))?;
+    let trimmed = stdout.trim();
+    if json {
+        let body = boole_cli::cli_envelope::encode_ok(
+            "wallet.sign",
+            serde_json::json!({ "signature": trimmed }),
+        );
+        println!("{body}");
+    } else {
+        println!("{trimmed}");
+    }
+    Ok(())
+}
+
+fn wallet_migrate(vault: &Path, json: bool) -> anyhow::Result<()> {
+    wallet_pubkey_envelope(vault, json, "wallet.migrate", "migrate-from-hex", &[])
 }
 
 /// Fetch `/account/{pk}/balance` from `node`. Validates `pk` locally first so

@@ -305,4 +305,32 @@ pub const COMMAND_INVENTORY: &[CommandSurface] = &[
         output_with_json: OutputKind::AdHocJson,
         output_default: OutputKind::AdHocJson,
     },
+    // P2.9 — `boole wallet ...` façade subcommands. In non-json mode the
+    // façade forwards the agent's stdout verbatim (hex pubkey for init/
+    // address/migrate, hex signature for sign); in `--json` mode the
+    // façade wraps that scalar in the unified envelope.
+    CommandSurface {
+        path: &["wallet", "init"],
+        has_json_flag: true,
+        output_with_json: OutputKind::Unified,
+        output_default: OutputKind::RawServerForward,
+    },
+    CommandSurface {
+        path: &["wallet", "address"],
+        has_json_flag: true,
+        output_with_json: OutputKind::Unified,
+        output_default: OutputKind::RawServerForward,
+    },
+    CommandSurface {
+        path: &["wallet", "sign"],
+        has_json_flag: true,
+        output_with_json: OutputKind::Unified,
+        output_default: OutputKind::RawServerForward,
+    },
+    CommandSurface {
+        path: &["wallet", "migrate"],
+        has_json_flag: true,
+        output_with_json: OutputKind::Unified,
+        output_default: OutputKind::RawServerForward,
+    },
 ];

@@ -33,11 +33,10 @@ use std::process::ExitCode;
 
 use anyhow::{anyhow, bail, Context, Result};
 use boole_core::vault::{EncryptedVault, VaultParams};
+use boole_wallet_agent::VAULT_AAD;
 use clap::{Parser, Subcommand};
 use ed25519_dalek::{Signer, SigningKey, SECRET_KEY_LENGTH};
 use rand_core::{OsRng, RngCore};
-
-const VAULT_AAD: &[u8] = b"boole-wallet-agent.v1";
 
 #[derive(Parser)]
 #[command(name = "boole-wallet-agent", about = "Boole wallet signing agent")]

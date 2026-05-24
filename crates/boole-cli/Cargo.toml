@@ -33,6 +33,14 @@ thiserror.workspace = true
 # P0.1b — shared test helpers (rand_suffix). Path-only, dev-only so the
 # release graph never links boole-testkit.
 boole-testkit = { path = "../boole-testkit" }
+# P2.9 — `boole wallet ...` integration tests spawn the actual
+# boole-wallet-agent binary via `CARGO_BIN_EXE_boole-wallet-agent`, which
+# cargo only exports when the agent crate is declared as a dev-dep of
+# this crate. Verification of the produced signatures uses ed25519-dalek
+# directly so the test does not have to re-host the agent's verifier
+# logic.
+boole-wallet-agent = { path = "../boole-wallet-agent" }
+ed25519-dalek.workspace = true
 
 # P0.6b — inherit `[workspace.lints]` so the workspace-wide deny set
 # (currently `unsafe_code = "deny"`) is enforced uniformly on this crate.
