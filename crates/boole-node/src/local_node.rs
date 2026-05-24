@@ -1258,7 +1258,22 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
     let guard = state.inner.read().await;
     let replay_matches_runtime = compute_replay_matches_runtime(&guard);
     let state_dir_lock_held = compute_state_dir_lock_held(&guard);
-    let lean_checker_configured = guard.lean_checker_dir.is_some() || guard.lean_checker_disabled;
+    // P2.6 audit: "set" alone is not enough — a typoed --lean-checker-dir
+    // would leave the path pointing nowhere and every proof would
+    // silently fail verification. Require either an explicit disable or
+    // a path that actually resolves to a directory on disk at probe
+    // time. The check is per-probe (not boot-time only) so that an
+    // operator who manually removes the dir mid-run also flips /ready
+    // to 503 immediately.
+    let lean_checker_configured = if guard.lean_checker_disabled {
+        true
+    } else {
+        guard
+            .lean_checker_dir
+            .as_ref()
+            .map(|p| p.is_dir())
+            .unwrap_or(false)
+    };
     let ledgers_loaded = compute_ledgers_loaded(&guard);
     drop(guard);
 
@@ -1364,25 +1379,33 @@ fn compute_state_dir_lock_held(state: &LocalNodeState) -> bool {
 
 /// P2.6 c — `ledgers_loaded` predicate for `/ready`.
 ///
-/// Legacy embedding (`state_dir: None`) is unaffected: the four
-/// agent-wallet ledgers remain individually opt-in, so the predicate
-/// returns `true` regardless of which of them are configured.
+/// Legacy embedding (`state_dir: None`) is unaffected: the agent-wallet
+/// ledgers remain individually opt-in, so the predicate returns `true`
+/// regardless of which of them are configured.
 ///
-/// Production embedding (`state_dir: Some(_)`) requires all four
-/// agent-wallet ledgers — `session_registry`, `submit_nonce_ledger`,
+/// Production embedding (`state_dir: Some(_)`) requires every audit-
+/// critical agent-wallet ledger — `session_registry`,
+/// `submit_nonce_ledger`, `signed_nonce_ledger`,
 /// `submit_receipt_ledger`, `receipt_commitment_ledger` — to be loaded.
-/// The runtime holds an in-memory handle for each one when its path
+/// `signed_nonce_ledger` (P1.6b) tracks per-signer nonces for non-
+/// session signed envelopes; a production node without it cannot
+/// detect replay of direct-signed (wallet-agent) submissions across
+/// restarts, so it joins the other four as a hard precondition.
+///
+/// The runtime holds an in-memory handle for each ledger when its path
 /// is configured (`session_store`, `nonce_ledger`,
-/// `submit_receipt_ledger_path`, `receipt_store`), so this predicate
-/// reads those handle fields rather than reaching back into the
-/// `LocalNodeConfig` — a future post-boot tear-down that nulls a
-/// handle flips this to `false` without further plumbing.
+/// `signed_nonce_ledger`, `submit_receipt_ledger_path`,
+/// `receipt_store`), so this predicate reads those handle fields rather
+/// than reaching back into the `LocalNodeConfig` — a future post-boot
+/// tear-down that nulls a handle flips this to `false` without further
+/// plumbing.
 fn compute_ledgers_loaded(state: &LocalNodeState) -> bool {
     if state.state_dir.is_none() {
         return true;
     }
     state.session_store.is_some()
         && state.nonce_ledger.is_some()
+        && state.signed_nonce_ledger.is_some()
         && state.submit_receipt_ledger_path.is_some()
         && state.receipt_store.is_some()
 }

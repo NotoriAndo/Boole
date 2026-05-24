@@ -1,30 +1,24 @@
-//! P2.6 d (2026-05-18 design review concern #4 closer).
+//! P2.6 c (2026-05-18 design review concern #4 follow-on, second gap).
 //!
-//! Master plan line 299: "`/ready` returns 503 unless ... state-dir
-//! lock is held."
+//! Master plan line 298: "`/ready` returns 503 unless every ledger is
+//! loaded." The pre-audit predicate enumerated four agent-wallet ledgers
+//! (`session_registry`, `submit_nonce_ledger`, `submit_receipt_ledger`,
+//! `receipt_commitment_ledger`) but silently ignored a fifth audit-
+//! critical ledger introduced in P1.6b: `signed_nonce_ledger`, which
+//! tracks per-signer nonces for non-session signed envelopes. A
+//! production node holding the state-dir lock without that ledger
+//! cannot detect replay of direct-signed (wallet-agent) submissions
+//! across restarts.
 //!
-//! The state-dir advisory lock (`<dir>/state.lock` flock) prevents a
-//! second `boole-node` from attaching to the same on-disk state. Boot
-//! acquires the lock and holds the file handle for the lifetime of the
-//! process; the kernel keeps our exclusive flock as long as the file
-//! descriptor stays open.
+//! This test boots a node with `state_dir: Some(_)`, all four legacy
+//! agent-wallet ledgers configured, but `signed_nonce_ledger_path: None`.
+//! `/ready` must return `503 Service Unavailable` with
+//! `reason: "ledgers_not_loaded"` and `checks.ledgers_loaded: false`
+//! so an orchestrator never routes traffic to a node whose non-session
+//! signed routes cannot persist replay-protection state.
 //!
-//! Runtime drift case: an operator (or a misbehaving cleanup script,
-//! or an `rm -rf <state-dir>`) removes the lock file out from under
-//! the running node. Our flock is still held by the open FD, but the
-//! contract is broken — a fresh `boole-node` at the same path can now
-//! create a new `state.lock` and acquire its own exclusive lock,
-//! letting two processes race on every ledger. `/ready` must surface
-//! this as `503 Service Unavailable` with `reason:
-//! "state_dir_lock_lost"` so an orchestrator stops routing traffic
-//! before the second process can latch on.
-//!
-//! This test boots a node with `state_dir` configured, asserts the
-//! first `/ready` returns 200 (lock file present), deletes
-//! `<state_dir>/state.lock` to simulate the drift, and asserts the
-//! second `/ready` returns the structured failure envelope. Replay,
-//! lean, and ledgers preconditions all pass here so the body must
-//! name the state-dir failure as the first-failing reason.
+//! Legacy embedding (`state_dir: None`) remains unaffected; this slice
+//! only tightens the production-mode contract.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -72,9 +66,9 @@ fn http_get(addr: SocketAddr, path: &str) -> (u16, Value) {
 }
 
 #[test]
-fn ready_returns_503_when_state_dir_lock_file_removed_at_runtime() {
+fn ready_returns_503_when_state_dir_set_but_signed_nonce_ledger_missing() {
     let dir = std::env::temp_dir().join(format!(
-        "boole-ready-lock-{}-{}",
+        "boole-ready-signed-nonce-missing-{}-{}",
         std::process::id(),
         rand_suffix()
     ));
@@ -91,7 +85,6 @@ fn ready_returns_503_when_state_dir_lock_file_removed_at_runtime() {
     let state_dir_for_thread = state_dir.clone();
     let session_registry = dir.join("sessions.ndjson");
     let submit_nonce_ledger = dir.join("submit-nonces.ndjson");
-    let signed_nonce_ledger = dir.join("signed-nonces.ndjson");
     let submit_receipt_ledger = dir.join("submit-receipts.ndjson");
     let receipt_commitment_ledger = dir.join("receipt-commitments.ndjson");
 
@@ -108,11 +101,11 @@ fn ready_returns_503_when_state_dir_lock_file_removed_at_runtime() {
                 bounty_event_ledger_path: None,
                 bounty_verifiers: None,
                 family_manifests_dir: None,
-                max_requests: Some(2),
+                max_requests: Some(1),
                 operator_signer_pks: vec![],
                 session_registry_path: Some(session_registry),
                 submit_nonce_ledger_path: Some(submit_nonce_ledger),
-                signed_nonce_ledger_path: Some(signed_nonce_ledger),
+                signed_nonce_ledger_path: None,
                 submit_receipt_ledger_path: Some(submit_receipt_ledger),
                 receipt_commitment_ledger_path: Some(receipt_commitment_ledger),
                 genesis_override: None,
@@ -127,87 +120,52 @@ fn ready_returns_503_when_state_dir_lock_file_removed_at_runtime() {
     ready_rx.recv().expect("server ready");
     thread::sleep(Duration::from_millis(50));
 
-    let lock_path = state_dir.join("state.lock");
-    assert!(
-        lock_path.is_file(),
-        "boot must create the advisory lock file at {} so the drift \
-         test below has something to remove",
-        lock_path.display()
-    );
-
     let (status, body) = http_get(addr, "/ready");
     assert_eq!(
-        status, 200,
-        "first GET /ready on a clean state-dir boot must return 200 \
-         (lock file present, every other precondition satisfied; \
-         body: {body})"
+        status, 503,
+        "GET /ready on a state-dir node with all four legacy ledgers but \
+         no signed_nonce_ledger must return 503; a 200 would let an \
+         orchestrator route traffic to a node whose direct-signed routes \
+         cannot persist nonces across restarts. Body: {body}"
     );
     assert_eq!(
         body.get("ok"),
-        Some(&Value::Bool(true)),
-        "/ready body must report ok=true on a healthy state-dir boot, \
+        Some(&Value::Bool(false)),
+        "/ready failure body must report ok=false, got {body}"
+    );
+    assert_eq!(
+        body.get("probe").and_then(Value::as_str),
+        Some("ready"),
+        "/ready failure body must still tag probe=\"ready\", got {body}"
+    );
+    assert_eq!(
+        body.get("reason").and_then(Value::as_str),
+        Some("ledgers_not_loaded"),
+        "/ready failure body must reuse the existing ledger reason slug \
+         so dashboards keyed on it surface the fifth-ledger-missing \
+         shape uniformly with the four-ledger cases, got {body}"
+    );
+    assert_eq!(
+        body.pointer("/checks/ledgers_loaded"),
+        Some(&Value::Bool(false)),
+        "/ready failure body must expose checks.ledgers_loaded = false \
+         when the signed_nonce_ledger is missing in production mode so \
+         the envelope shape stays identical to the four-ledger cases, \
          got {body}"
     );
     assert_eq!(
-        body.pointer("/checks/state_dir_lock_held"),
-        Some(&Value::Bool(true)),
-        "/ready body must expose checks.state_dir_lock_held=true on a \
-         healthy boot so operators can audit which preconditions \
-         passed, got {body}"
-    );
-
-    std::fs::remove_file(&lock_path).expect("remove state.lock to simulate drift");
-
-    let (status2, body2) = http_get(addr, "/ready");
-    assert_eq!(
-        status2, 503,
-        "after removing <state-dir>/state.lock at runtime, /ready \
-         must return 503; a 200 would let a second boole-node attach \
-         to the same state and race on every ledger. Body: {body2}"
-    );
-    assert_eq!(
-        body2.get("ok"),
-        Some(&Value::Bool(false)),
-        "/ready failure body must report ok=false, got {body2}"
-    );
-    assert_eq!(
-        body2.get("probe").and_then(Value::as_str),
-        Some("ready"),
-        "/ready failure body must still tag probe=\"ready\", got {body2}"
-    );
-    assert_eq!(
-        body2.get("reason").and_then(Value::as_str),
-        Some("state_dir_lock_lost"),
-        "/ready failure body must name the failure class so operators \
-         can diagnose without scraping logs, got {body2}"
-    );
-    assert_eq!(
-        body2.pointer("/checks/state_dir_lock_held"),
-        Some(&Value::Bool(false)),
-        "/ready failure body must expose checks.state_dir_lock_held \
-         = false so this precondition appears alongside the others \
-         without breaking the shape, got {body2}"
-    );
-    assert_eq!(
-        body2.pointer("/checks/replay_matches_runtime"),
+        body.pointer("/checks/replay_matches_runtime"),
         Some(&Value::Bool(true)),
         "/ready must continue to report the replay precondition's \
-         status (true here — only the lock file was removed) so the \
-         envelope conveys the full readiness picture. Got {body2}"
+         status (true on a clean boot here) so the envelope conveys \
+         the full readiness picture, got {body}"
     );
     assert_eq!(
-        body2.pointer("/checks/lean_checker_configured"),
+        body.pointer("/checks/lean_checker_configured"),
         Some(&Value::Bool(true)),
         "/ready must continue to report the lean precondition's \
-         status (true here since --lean-checker-disabled was set), \
-         got {body2}"
-    );
-    assert_eq!(
-        body2.pointer("/checks/ledgers_loaded"),
-        Some(&Value::Bool(true)),
-        "/ready must continue to report the ledgers precondition's \
-         status (true here since all four agent-wallet ledgers were \
-         configured), got {body2}"
+         status (true here since --lean-checker-disabled was set) so \
+         the envelope conveys the full readiness picture, got {body}"
     );
 
     handle
