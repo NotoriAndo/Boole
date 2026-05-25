@@ -166,8 +166,18 @@ fn sign_payload_from_file_path_matches_inline_signature() {
     assert!(valid, "file-loaded payload must verify");
 }
 
+// P2.5 — `keys sign --json` migrates from the ad-hoc
+// `{"ok":true,"envelope":{..}}` shape to the unified envelope shape
+// `{"ok":true,"version":"v1","command":"keys.sign","result":{"envelope":{..}}}`.
+// The signed envelope is nested under `result.envelope` (not flattened
+// into `result`) so the unified envelope's `version: "v1"` describes the
+// CLI schema while the nested `envelope.schema: "boole.signed.v1"`
+// describes the signed payload — two distinct schemas, never confused.
+// Failures under `--json` also flip to the unified shape on stderr with
+// kebab-case `reason` tokens.
+
 #[test]
-fn sign_json_flag_emits_full_signed_envelope() {
+fn sign_json_flag_emits_unified_envelope_with_signed_envelope_under_result() {
     let dir = fresh_tmp("sign-json");
     let key = make_v2_key(&dir, "alice");
     let pk_hex = key["pk"].as_str().expect("pk").to_string();
@@ -191,9 +201,11 @@ fn sign_json_flag_emits_full_signed_envelope() {
         "stderr={}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let envelope = parse_json(&out.stdout);
-    assert_eq!(envelope["ok"], true);
-    let signed = &envelope["envelope"];
+    let env = parse_json(&out.stdout);
+    assert_eq!(env["ok"], true);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "keys.sign");
+    let signed = &env["result"]["envelope"];
     assert_eq!(signed["schema"], "boole.signed.v1");
     assert_eq!(signed["payload"], payload);
     assert_eq!(signed["pk"], pk_hex);
@@ -201,4 +213,95 @@ fn sign_json_flag_emits_full_signed_envelope() {
     assert_eq!(sig.len(), 128);
     let valid = verify_signature(&pk_hex, sig, &payload).expect("verify");
     assert!(valid);
+    assert!(
+        env.get("error").is_none(),
+        "success envelope must not carry an error field"
+    );
+}
+
+#[test]
+fn sign_against_v1_key_under_json_emits_unified_error_envelope() {
+    let dir = fresh_tmp("legacy-sign-json");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let v1 = serde_json::json!({
+        "schema": "boole.keys.v1",
+        "id": "old-bob",
+        "pk": "00".repeat(32),
+        "createdAt": "2025-01-01T00:00:00Z",
+    });
+    std::fs::write(dir.join("old-bob.json"), v1.to_string()).expect("write v1");
+
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args([
+            "keys",
+            "sign",
+            "--id",
+            "old-bob",
+            "--payload",
+            "{}",
+            "--json",
+        ])
+        .output()
+        .expect("run keys sign --json");
+    assert!(!out.status.success(), "v1 keys cannot sign");
+    assert_eq!(out.status.code(), Some(3));
+    assert!(out.stdout.is_empty());
+    let env = parse_json(&out.stderr);
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "keys.sign");
+    assert_eq!(env["error"]["reason"], "legacy-v1-key");
+    assert_eq!(env["error"]["id"], "old-bob");
+    assert!(
+        env.get("result").is_none(),
+        "failure envelope must not carry a result field"
+    );
+}
+
+#[test]
+fn sign_with_unknown_id_under_json_emits_unified_error_envelope() {
+    let dir = fresh_tmp("missing-sign-json");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args(["keys", "sign", "--id", "ghost", "--payload", "{}", "--json"])
+        .output()
+        .expect("run keys sign --json");
+    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(3));
+    let env = parse_json(&out.stderr);
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "keys.sign");
+    assert_eq!(env["error"]["reason"], "key-not-found");
+    assert_eq!(env["error"]["id"], "ghost");
+}
+
+#[test]
+fn sign_with_bad_id_under_json_emits_unified_error_envelope() {
+    let dir = fresh_tmp("bad-id-sign-json");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    // `/` is rejected by validate_key_id (path-traversal guard).
+    let out = cli()
+        .env("BOOLE_KEYS_DIR", &dir)
+        .args([
+            "keys",
+            "sign",
+            "--id",
+            "../escape",
+            "--payload",
+            "{}",
+            "--json",
+        ])
+        .output()
+        .expect("run keys sign --json");
+    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(2));
+    let env = parse_json(&out.stderr);
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "keys.sign");
+    assert_eq!(env["error"]["reason"], "bad-request");
+    assert_eq!(env["error"]["field"], "id");
 }

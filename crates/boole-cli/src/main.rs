@@ -3193,7 +3193,17 @@ fn signer_sign_work(
 /// stdout is the bare hex64 ed25519 signature; `--json` emits the full
 /// `boole.signed.v1` envelope wrapped in `{ok:true, envelope:...}`.
 fn keys_sign(id: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
+    // P2.5: `--json` mode emits the unified envelope; default mode keeps
+    // the bare hex64 signature on stdout and snake_case typed errors on
+    // stderr so callers parsing the PlainText shape are unaffected.
     if let Err(detail) = validate_key_id(id) {
+        if json {
+            keys_sign_emit_err(
+                "bad-request",
+                2,
+                serde_json::json!({ "detail": detail, "field": "id" }),
+            );
+        }
         emit_typed_error(
             "bad_request",
             2,
@@ -3203,6 +3213,13 @@ fn keys_sign(id: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
     let dir = keys_dir();
     let path = key_path(&dir, id);
     if !path.exists() {
+        if json {
+            keys_sign_emit_err(
+                "key-not-found",
+                3,
+                serde_json::json!({ "id": id, "path": path.to_string_lossy() }),
+            );
+        }
         emit_typed_error(
             "key_not_found",
             3,
@@ -3216,6 +3233,17 @@ fn keys_sign(id: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if schema != KEYS_SCHEMA_V2 {
+        if json {
+            keys_sign_emit_err(
+                "legacy-v1-key",
+                3,
+                serde_json::json!({
+                    "id": id,
+                    "schema": schema,
+                    "detail": "key was created before S13a and has no secret seed; rotate by creating a new key with a different id",
+                }),
+            );
+        }
         emit_typed_error(
             "legacy_v1_key",
             3,
@@ -3237,22 +3265,29 @@ fn keys_sign(id: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
         .sign(&payload)
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
     if json {
-        println!(
-            "{}",
+        let envelope = boole_cli::cli_envelope::encode_ok(
+            "keys.sign",
             serde_json::json!({
-                "ok": true,
                 "envelope": {
                     "schema": signed.schema,
                     "payload": signed.payload,
                     "pk": signed.pk,
                     "signature": signed.signature,
                 }
-            })
+            }),
         );
+        println!("{envelope}");
     } else {
         println!("{}", signed.signature);
     }
     Ok(())
+}
+
+/// Emit a `keys.sign` unified-envelope error to stderr and exit `code`.
+fn keys_sign_emit_err(reason: &str, code: i32, extras: serde_json::Value) -> ! {
+    let envelope = boole_cli::cli_envelope::encode_err("keys.sign", reason, extras);
+    eprintln!("{envelope}");
+    std::process::exit(code);
 }
 
 /// Verify a hex64 ed25519 signature against a hex32 public key and a JSON
