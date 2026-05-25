@@ -1342,16 +1342,36 @@ fn settlement_report(
     export_reputation_events: Option<&Path>,
     json: bool,
 ) -> anyhow::Result<()> {
-    // P2.5 follow-up — settlement-report shares inputs with audit-receipts;
-    // emit the same typed envelope dialect (blocks_unreadable / blocks_invalid
-    // / receipts_unreadable / receipts_invalid for usage errors,
-    // audit_mismatch for refusal) so both commands fail the same way for
-    // the same root cause.
+    // P2.5: `--json` routes every exit path through the unified envelope
+    // (`{"ok":..,"version":"v1","command":"chain.settlement-report",..}`)
+    // with kebab-case `reason` tokens (blocks-unreadable, blocks-invalid,
+    // receipts-unreadable, receipts-invalid, audit-mismatch). Default-mode
+    // (PlainText) keeps the `ok=.. rewardCredits=..` line and the
+    // snake_case typed-error envelope on stderr so existing scripts are
+    // unaffected.
+    let json_command = if json {
+        Some("chain.settlement-report")
+    } else {
+        None
+    };
     let blocks =
-        read_ndjson_or_emit_typed_error::<boole_core::PersistedBlock>(blocks_path, "blocks");
+        read_ndjson_or_emit::<boole_core::PersistedBlock>(blocks_path, "blocks", json_command);
     let receipts =
-        read_ndjson_or_emit_typed_error::<boole_core::SubmitReceipt>(receipts_path, "receipts");
+        read_ndjson_or_emit::<boole_core::SubmitReceipt>(receipts_path, "receipts", json_command);
     let report = boole_core::audit_submit_receipts(&blocks, &receipts).unwrap_or_else(|err| {
+        if json {
+            let envelope = boole_cli::cli_envelope::encode_err(
+                "chain.settlement-report",
+                "audit-mismatch",
+                serde_json::json!({
+                    "blocksPath": blocks_path.to_string_lossy(),
+                    "receiptsPath": receipts_path.to_string_lossy(),
+                    "detail": err.to_string(),
+                }),
+            );
+            eprintln!("{envelope}");
+            std::process::exit(3);
+        }
         emit_typed_error(
             "audit_mismatch",
             3,
@@ -1368,9 +1388,9 @@ fn settlement_report(
         0
     };
     if json {
-        println!(
-            "{}",
-            serde_json::to_string(&serde_json::json!({
+        let envelope = boole_cli::cli_envelope::encode_ok(
+            "chain.settlement-report",
+            serde_json::json!({
                 "ok": report.ok,
                 "source": "audit-receipts-shape-only",
                 "auditMode": "shape-only",
@@ -1384,8 +1404,9 @@ fn settlement_report(
                 "reputationEventsExported": reputation_events_exported,
                 "reputationEventsPath": export_reputation_events.map(|path| path.to_string_lossy().to_string()),
                 "settlement": report.settlement,
-            }))?
+            }),
         );
+        println!("{envelope}");
     } else {
         println!(
             "ok={} source=audit-receipts-shape-only claimBoundary=shape-only-local-audit-no-ledger-mutation lineageVerified=false rewardLedgerMutated=false reputationLedgerMutated=false rewardCredits={} reputationDeltas={} reputationEventsExported={}",
@@ -1418,19 +1439,6 @@ fn export_reputation_event_rows(
         writeln!(file, "{}", serde_json::to_string(&event)?)?;
     }
     Ok(deltas.len() as u64)
-}
-
-/// NDJSON reader that emits typed error envelopes directly via
-/// [`emit_typed_error`] (exit 2 with `reason="{resource}_unreadable"`
-/// for I/O and `"{resource}_invalid"` for parse errors), so command
-/// surfaces using it do not have to translate anyhow into the typed
-/// dialect themselves. Used by `chain audit-receipts` and
-/// `chain settlement-report` (P2.5).
-fn read_ndjson_or_emit_typed_error<T>(path: &Path, resource: &str) -> Vec<T>
-where
-    T: serde::de::DeserializeOwned,
-{
-    read_ndjson_or_emit::<T>(path, resource, None)
 }
 
 /// P2.5: shared NDJSON loader for chain audit/settlement handlers. When

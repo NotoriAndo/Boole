@@ -582,7 +582,15 @@ fn cli_settlement_report_json_exposes_settlement_only_surface() {
         "stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let raw: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json output");
+    // P2.5 — `--json` success path is the unified envelope; settlement
+    // payload lives under `result` so the top-level `version`/`command`
+    // describe the CLI schema rather than the settlement shape.
+    let env: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("json envelope on stdout");
+    assert_eq!(env["ok"], true);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "chain.settlement-report");
+    let raw = env["result"].clone();
     assert_eq!(
         raw["claimBoundary"],
         "shape-only local audit; no ledger mutation"
@@ -661,7 +669,14 @@ fn cli_settlement_report_exports_reputation_events_without_mutating_ledger() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json output");
+    // P2.5 — settlement-report `--json` now wraps under the unified
+    // envelope; the export bookkeeping fields live under `result`.
+    let env: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("json envelope on stdout");
+    assert_eq!(env["ok"], true);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "chain.settlement-report");
+    let parsed = &env["result"];
     assert_eq!(parsed["reputationEventsExported"], 1);
     assert_eq!(
         parsed["reputationEventsPath"],
@@ -763,10 +778,11 @@ fn cli_settlement_report_rejects_tampered_receipt_without_settlement_stdout() {
         .output()
         .expect("run boole-cli");
 
-    // P2.5 follow-up — tampered receipt is now an audit refusal (exit 3,
-    // reason="audit_mismatch"), matching the dialect adopted by
-    // `chain audit-receipts` and `state verify`. settlement-report still
-    // suppresses settlement stdout on audit failure.
+    // P2.5 — tampered receipt is an audit refusal (exit 3, reason
+    // kebab-case `audit-mismatch`) routed through the unified envelope
+    // on `--json`, matching `chain audit-receipts` and `state verify`.
+    // settlement-report still suppresses settlement stdout on audit
+    // failure (the failure envelope goes to stderr, stdout stays empty).
     assert_eq!(
         output.status.code(),
         Some(3),
@@ -783,13 +799,16 @@ fn cli_settlement_report_rejects_tampered_receipt_without_settlement_stdout() {
     let parsed: serde_json::Value =
         serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
     assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "audit_mismatch");
-    let detail = parsed["detail"].as_str().expect("detail string");
+    assert_eq!(parsed["version"], "v1");
+    assert_eq!(parsed["command"], "chain.settlement-report");
+    assert_eq!(parsed["error"]["reason"], "audit-mismatch");
+    let detail = parsed["error"]["detail"].as_str().expect("detail string");
     assert!(
         detail.contains("rewardAmount mismatch"),
         "unexpected detail: {detail}"
     );
     assert!(parsed.get("settlement").is_none());
+    assert!(parsed["error"].get("settlement").is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -834,7 +853,9 @@ fn cli_chain_settlement_report_rejects_missing_blocks_with_typed_bad_request() {
     let parsed: serde_json::Value =
         serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
     assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "blocks_unreadable");
+    assert_eq!(parsed["version"], "v1");
+    assert_eq!(parsed["command"], "chain.settlement-report");
+    assert_eq!(parsed["error"]["reason"], "blocks-unreadable");
 
     let _ = std::fs::remove_file(&receipts_dummy);
 }
@@ -878,7 +899,9 @@ fn cli_chain_settlement_report_rejects_missing_receipts_with_typed_bad_request()
     let parsed: serde_json::Value =
         serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
     assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "receipts_unreadable");
+    assert_eq!(parsed["version"], "v1");
+    assert_eq!(parsed["command"], "chain.settlement-report");
+    assert_eq!(parsed["error"]["reason"], "receipts-unreadable");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
