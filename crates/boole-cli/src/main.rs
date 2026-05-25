@@ -1091,7 +1091,22 @@ fn state_verify_deep(
 /// stderr and exit with the rest-of-CLI contract: 2 for operator/usage
 /// errors (missing file), 3 for replay/state corruption.
 fn state_verify(blocks_path: &Path, json: bool) -> anyhow::Result<()> {
+    // P2.5: `--json` flips every exit path through the unified envelope
+    // (`{"ok":..,"version":"v1","command":"state.verify",..}`) with
+    // kebab-case `reason` tokens. Default-mode (PlainText) keeps the
+    // `ok=true height=.. latestC=.. blockCount=..` line and the legacy
+    // snake_case typed-error envelope on stderr.
     if !blocks_path.exists() {
+        if json {
+            state_verify_emit_err(
+                "blocks-unreadable",
+                2,
+                serde_json::json!({
+                    "blocksPath": blocks_path.to_string_lossy(),
+                    "detail": "blocks file does not exist",
+                }),
+            );
+        }
         emit_typed_error(
             "blocks_unreadable",
             2,
@@ -1102,6 +1117,16 @@ fn state_verify(blocks_path: &Path, json: bool) -> anyhow::Result<()> {
         );
     }
     let store = boole_node::FileBlockStore::recover(blocks_path).unwrap_or_else(|err| {
+        if json {
+            state_verify_emit_err(
+                "replay-mismatch",
+                3,
+                serde_json::json!({
+                    "blocksPath": blocks_path.to_string_lossy(),
+                    "detail": err.to_string(),
+                }),
+            );
+        }
         emit_typed_error(
             "replay_mismatch",
             3,
@@ -1112,6 +1137,16 @@ fn state_verify(blocks_path: &Path, json: bool) -> anyhow::Result<()> {
         );
     });
     let replay = boole_core::replay_blocks(store.blocks()).unwrap_or_else(|err| {
+        if json {
+            state_verify_emit_err(
+                "replay-mismatch",
+                3,
+                serde_json::json!({
+                    "blocksPath": blocks_path.to_string_lossy(),
+                    "detail": err.to_string(),
+                }),
+            );
+        }
         emit_typed_error(
             "replay_mismatch",
             3,
@@ -1123,16 +1158,16 @@ fn state_verify(blocks_path: &Path, json: bool) -> anyhow::Result<()> {
     });
     let block_count = store.size() as u64;
     if json {
-        println!(
-            "{}",
+        let envelope = boole_cli::cli_envelope::encode_ok(
+            "state.verify",
             serde_json::json!({
-                "ok": true,
                 "height": replay.height,
                 "latestC": replay.latest_c,
                 "blockCount": block_count,
                 "blocksPath": blocks_path.to_string_lossy(),
-            })
+            }),
         );
+        println!("{envelope}");
     } else {
         println!(
             "ok=true height={} latestC={} blockCount={}",
@@ -1140,6 +1175,13 @@ fn state_verify(blocks_path: &Path, json: bool) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+/// Emit a `state.verify` unified-envelope error to stderr and exit `code`.
+fn state_verify_emit_err(reason: &str, code: i32, extras: serde_json::Value) -> ! {
+    let envelope = boole_cli::cli_envelope::encode_err("state.verify", reason, extras);
+    eprintln!("{envelope}");
+    std::process::exit(code);
 }
 
 fn replay_fixture(path: &Path, json: bool) -> anyhow::Result<()> {

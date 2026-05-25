@@ -19,15 +19,7 @@ use std::io::Write as _;
 use std::process::Command;
 
 use serde::Deserialize;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StateVerifyOutput {
-    ok: bool,
-    height: u64,
-    latest_c: String,
-    block_count: u64,
-}
+use serde_json::Value;
 
 #[derive(Debug, Deserialize)]
 struct Fixture {
@@ -79,12 +71,24 @@ fn cli_state_verify_replays_durable_blocks_and_reports_height() {
         "state verify must succeed for a clean block log; stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let parsed: StateVerifyOutput =
-        serde_json::from_slice(&output.stdout).expect("json envelope on stdout");
-    assert!(parsed.ok, "ok=true expected on clean replay");
-    assert_eq!(parsed.height, fixture.expected.height);
-    assert_eq!(parsed.latest_c, fixture.expected.latest_c);
-    assert_eq!(parsed.block_count, fixture.blocks.len() as u64);
+    // P2.5 — `--json` emits the unified envelope; domain payload lives
+    // inside `result`. `version` is the envelope schema, NEVER the
+    // chain height. The drift gate in `tests/cli_envelope.rs` and the
+    // shape contract in `tests/cli_envelope.rs::ok_envelope_has_expected_shape`
+    // pin this together with the field below.
+    let env: Value = serde_json::from_slice(&output.stdout).expect("json envelope on stdout");
+    assert_eq!(env["ok"], true);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "state.verify");
+    let result = &env["result"];
+    assert_eq!(result["height"], fixture.expected.height);
+    assert_eq!(result["latestC"], fixture.expected.latest_c);
+    assert_eq!(result["blockCount"], fixture.blocks.len() as u64);
+    assert!(
+        result["blocksPath"].is_string(),
+        "result carries the resolved blocks path for downstream tooling"
+    );
+    assert!(env.get("error").is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -140,17 +144,17 @@ fn cli_state_verify_rejects_a_tampered_block_log_with_nonzero_exit() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // P2.5 — error envelope on stderr mirrors emit_typed_error: a
-    // structured `{ok:false, reason, ...}` shape so downstream tools
-    // don't have to parse free-form messages.
+    // P2.5 — under `--json` the error envelope is the unified shape
+    // (`{ok, version, command, error:{reason,...}}`) with kebab-case
+    // `reason`, so downstream tooling parses every CLI failure with
+    // one schema.
     let stderr_text = String::from_utf8_lossy(&output.stderr);
-    let envelope: serde_json::Value =
-        serde_json::from_str(stderr_text.trim()).expect("stderr is a JSON envelope");
-    assert_eq!(envelope.get("ok"), Some(&serde_json::Value::Bool(false)));
-    assert_eq!(
-        envelope.get("reason").and_then(|v| v.as_str()),
-        Some("replay_mismatch")
-    );
+    let env: Value = serde_json::from_str(stderr_text.trim()).expect("stderr is a JSON envelope");
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "state.verify");
+    assert_eq!(env["error"]["reason"], "replay-mismatch");
+    assert!(env.get("result").is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -186,11 +190,9 @@ fn cli_state_verify_rejects_missing_block_log_with_typed_bad_request() {
     );
 
     let stderr_text = String::from_utf8_lossy(&output.stderr);
-    let envelope: serde_json::Value =
-        serde_json::from_str(stderr_text.trim()).expect("stderr is a JSON envelope");
-    assert_eq!(envelope.get("ok"), Some(&serde_json::Value::Bool(false)));
-    assert_eq!(
-        envelope.get("reason").and_then(|v| v.as_str()),
-        Some("blocks_unreadable")
-    );
+    let env: Value = serde_json::from_str(stderr_text.trim()).expect("stderr is a JSON envelope");
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "state.verify");
+    assert_eq!(env["error"]["reason"], "blocks-unreadable");
 }
