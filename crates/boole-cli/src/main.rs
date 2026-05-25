@@ -1878,7 +1878,22 @@ fn is_well_formed_hex32(s: &str) -> bool {
 }
 
 fn reputation_inspect(ledger: &Path, agent_pk: &str, json: bool) -> anyhow::Result<()> {
+    // P2.5: `--json` routes every exit path through the unified envelope
+    // (`{"ok":..,"version":"v1","command":"reputation.inspect",..}`)
+    // with kebab-case `reason` tokens (`malformed-agent-pk`). Default-mode
+    // (PlainText) keeps the `agentPk=.. acceptedSubmits=..` line and the
+    // legacy snake_case typed-error envelope on stderr so existing scripts
+    // are unaffected.
     if !is_well_formed_hex32(agent_pk) {
+        if json {
+            let envelope = boole_cli::cli_envelope::encode_err(
+                "reputation.inspect",
+                "malformed-agent-pk",
+                serde_json::json!({ "agentPk": agent_pk }),
+            );
+            eprintln!("{envelope}");
+            std::process::exit(2);
+        }
         emit_typed_error(
             "malformed-agent-pk",
             2,
@@ -1888,15 +1903,16 @@ fn reputation_inspect(ledger: &Path, agent_pk: &str, json: bool) -> anyhow::Resu
     let ledger = boole_node::FileReputationLedger::recover(ledger)?;
     let stats = ledger.stats_for(agent_pk);
     if json {
-        println!(
-            "{}",
-            serde_json::to_string(&serde_json::json!({
+        let envelope = boole_cli::cli_envelope::encode_ok(
+            "reputation.inspect",
+            serde_json::json!({
                 "ok": true,
                 "source": "reputation-ledger",
                 "ledgerEvents": ledger.size(),
                 "stats": stats,
-            }))?
+            }),
         );
+        println!("{envelope}");
     } else {
         println!(
             "agentPk={} acceptedSubmits={} verifiedRewardAmount={} eventCount={}",
