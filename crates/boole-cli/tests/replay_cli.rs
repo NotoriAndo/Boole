@@ -5,8 +5,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CliReplayOutput {
-    ok: bool,
+struct CliReplayResult {
     latest_c: String,
     height: u64,
     balances: std::collections::BTreeMap<String, String>,
@@ -60,11 +59,17 @@ fn cli_chain_replay_rejects_missing_fixture_with_typed_bad_request() {
         "runtime error JSON must not pollute stdout: {}",
         String::from_utf8_lossy(&output.stdout)
     );
+    // P2.5 — `--json` error path is the unified envelope with kebab-case
+    // `reason`. `chain.replay` shares the `fixture-unreadable` /
+    // `fixture-invalid` / `replay-mismatch` vocabulary with the
+    // PlainText snake_case dialect on the default path.
     let stderr_text = String::from_utf8_lossy(&output.stderr);
-    let parsed: serde_json::Value =
+    let env: serde_json::Value =
         serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
-    assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "fixture_unreadable");
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "chain.replay");
+    assert_eq!(env["error"]["reason"], "fixture-unreadable");
 }
 
 #[test]
@@ -99,10 +104,12 @@ fn cli_chain_replay_rejects_malformed_fixture_with_typed_bad_request() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr_text = String::from_utf8_lossy(&output.stderr);
-    let parsed: serde_json::Value =
+    let env: serde_json::Value =
         serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
-    assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "fixture_invalid");
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "chain.replay");
+    assert_eq!(env["error"]["reason"], "fixture-invalid");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -161,10 +168,12 @@ fn cli_chain_replay_rejects_tampered_blocks_with_replay_mismatch() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr_text = String::from_utf8_lossy(&output.stderr);
-    let parsed: serde_json::Value =
+    let env: serde_json::Value =
         serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
-    assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "replay_mismatch");
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "chain.replay");
+    assert_eq!(env["error"]["reason"], "replay-mismatch");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -431,8 +440,16 @@ fn cli_replay_json_matches_replay_fixture() {
         "stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let parsed: CliReplayOutput = serde_json::from_slice(&output.stdout).expect("json output");
-    assert!(parsed.ok);
+    // P2.5 — `--json` success path is the unified envelope; replay
+    // payload lives under `result` so the top-level `version`/`command`
+    // describe the CLI schema rather than the chain state.
+    let env: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("json envelope on stdout");
+    assert_eq!(env["ok"], true);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "chain.replay");
+    let parsed: CliReplayResult =
+        serde_json::from_value(env["result"].clone()).expect("typed replay result");
     assert_eq!(parsed.latest_c, fixture.expected.latest_c);
     assert_eq!(parsed.height, fixture.expected.height);
     assert_eq!(parsed.balances, fixture.expected.balances);

@@ -1185,10 +1185,22 @@ fn state_verify_emit_err(reason: &str, code: i32, extras: serde_json::Value) -> 
 }
 
 fn replay_fixture(path: &Path, json: bool) -> anyhow::Result<()> {
-    // P2.5 follow-up — distinguish operator typos (exit 2, bad usage)
-    // from chain corruption (exit 3, operation refused) so automation
-    // can route the failure without parsing free-form anyhow detail.
+    // P2.5: `--json` flips every exit path through the unified envelope
+    // (`{"ok":..,"version":"v1","command":"chain.replay",..}`) with
+    // kebab-case `reason` tokens. Default-mode (PlainText) keeps the
+    // `latestC=.. height=..` line and the snake_case typed-error
+    // envelope on stderr so existing scripts are unaffected.
     let raw = std::fs::read_to_string(path).unwrap_or_else(|err| {
+        if json {
+            chain_replay_emit_err(
+                "fixture-unreadable",
+                2,
+                serde_json::json!({
+                    "fixturePath": path.to_string_lossy(),
+                    "detail": err.to_string(),
+                }),
+            );
+        }
         emit_typed_error(
             "fixture_unreadable",
             2,
@@ -1199,6 +1211,16 @@ fn replay_fixture(path: &Path, json: bool) -> anyhow::Result<()> {
         );
     });
     let fixture: ReplayFixture = serde_json::from_str(&raw).unwrap_or_else(|err| {
+        if json {
+            chain_replay_emit_err(
+                "fixture-invalid",
+                2,
+                serde_json::json!({
+                    "fixturePath": path.to_string_lossy(),
+                    "detail": err.to_string(),
+                }),
+            );
+        }
         emit_typed_error(
             "fixture_invalid",
             2,
@@ -1209,6 +1231,16 @@ fn replay_fixture(path: &Path, json: bool) -> anyhow::Result<()> {
         );
     });
     let replay = boole_core::replay_blocks(&fixture.blocks).unwrap_or_else(|err| {
+        if json {
+            chain_replay_emit_err(
+                "replay-mismatch",
+                3,
+                serde_json::json!({
+                    "fixturePath": path.to_string_lossy(),
+                    "detail": err.to_string(),
+                }),
+            );
+        }
         emit_typed_error(
             "replay_mismatch",
             3,
@@ -1219,19 +1251,26 @@ fn replay_fixture(path: &Path, json: bool) -> anyhow::Result<()> {
         );
     });
     if json {
-        println!(
-            "{}",
+        let envelope = boole_cli::cli_envelope::encode_ok(
+            "chain.replay",
             serde_json::json!({
-                "ok": true,
                 "latestC": replay.latest_c,
                 "height": replay.height,
-                "balances": replay.balances.into_iter().map(|(pk, amount)| (pk, amount.to_string())).collect::<std::collections::BTreeMap<_, _>>()
-            })
+                "balances": replay.balances.into_iter().map(|(pk, amount)| (pk, amount.to_string())).collect::<std::collections::BTreeMap<_, _>>(),
+            }),
         );
+        println!("{envelope}");
     } else {
         println!("latestC={} height={}", replay.latest_c, replay.height);
     }
     Ok(())
+}
+
+/// Emit a `chain.replay` unified-envelope error to stderr and exit `code`.
+fn chain_replay_emit_err(reason: &str, code: i32, extras: serde_json::Value) -> ! {
+    let envelope = boole_cli::cli_envelope::encode_err("chain.replay", reason, extras);
+    eprintln!("{envelope}");
+    std::process::exit(code);
 }
 
 fn audit_receipts(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyhow::Result<()> {
