@@ -42,8 +42,21 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tokio::net::TcpListener;
 
+/// `boole-mcp --version` text. Captured at build time by `build.rs`
+/// so an operator can pin down exactly which binary is registered into
+/// their IDE config (`mcpServers.boole.command`).
+const VERSION_STRING: &str = concat!(
+    "boole-mcp ",
+    env!("CARGO_PKG_VERSION"),
+    " (sha=",
+    env!("BOOLE_MCP_GIT_SHA"),
+    " build=",
+    env!("BOOLE_MCP_BUILD_UTC"),
+    ")",
+);
+
 #[derive(Parser)]
-#[command(name = "boole-mcp", about = "Boole MCP server")]
+#[command(name = "boole-mcp", about = "Boole MCP server", version = VERSION_STRING)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
