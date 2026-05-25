@@ -25,10 +25,11 @@
 //! boole-cli / boole-wallet-agent path, not here.
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -36,9 +37,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tokio::net::TcpListener;
 
 #[derive(Parser)]
@@ -56,6 +57,46 @@ enum Command {
         #[arg(long, default_value = "127.0.0.1:0")]
         listen: String,
     },
+    /// P2.2 — register `boole-mcp` as an MCP server in the target IDE's
+    /// settings file. Idempotent merge: re-running this is a no-op when
+    /// the entry is already current; other settings are preserved.
+    Install {
+        #[arg(long, value_enum)]
+        target: IdeTarget,
+        /// Show the planned settings JSON on stdout without writing.
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum IdeTarget {
+    Claude,
+    Codex,
+    Cursor,
+    Opencode,
+}
+
+impl IdeTarget {
+    /// Path of the IDE's settings file relative to `$HOME`. The
+    /// install handler creates intermediate directories.
+    fn settings_rel_path(&self) -> &'static [&'static str] {
+        match self {
+            IdeTarget::Claude => &[".claude", "settings.json"],
+            IdeTarget::Codex => &[".codex", "config.json"],
+            IdeTarget::Cursor => &[".cursor", "mcp.json"],
+            IdeTarget::Opencode => &[".config", "opencode", "config.json"],
+        }
+    }
+
+    fn slug(&self) -> &'static str {
+        match self {
+            IdeTarget::Claude => "claude",
+            IdeTarget::Codex => "codex",
+            IdeTarget::Cursor => "cursor",
+            IdeTarget::Opencode => "opencode",
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -76,7 +117,160 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Serve { node_url, listen } => serve(&node_url, &listen).await,
+        Command::Install { target, dry_run } => run_install(target, dry_run),
     }
+}
+
+fn install_envelope_ok(result: Value) -> String {
+    let envelope = json!({
+        "ok": true,
+        "version": "v1",
+        "command": "install",
+        "result": result,
+    });
+    serde_json::to_string(&envelope).expect("install envelope serializes")
+}
+
+fn install_envelope_err(reason: &str, extras: Value) -> String {
+    let mut error = Map::new();
+    error.insert("reason".to_string(), Value::String(reason.to_string()));
+    if let Value::Object(map) = extras {
+        for (k, v) in map {
+            if k == "reason" {
+                continue;
+            }
+            error.insert(k, v);
+        }
+    }
+    let envelope = json!({
+        "ok": false,
+        "version": "v1",
+        "command": "install",
+        "error": Value::Object(error),
+    });
+    serde_json::to_string(&envelope).expect("install envelope serializes")
+}
+
+fn run_install(target: IdeTarget, dry_run: bool) -> Result<()> {
+    let home = match std::env::var_os("HOME") {
+        Some(h) => PathBuf::from(h),
+        None => {
+            eprintln!("{}", install_envelope_err("home-not-set", Value::Null));
+            std::process::exit(1);
+        }
+    };
+    let mut settings_path = home;
+    for seg in target.settings_rel_path() {
+        settings_path.push(seg);
+    }
+    let bin = std::env::current_exe()
+        .context("resolve current executable for mcpServers.boole.command")?;
+    let bin_str = bin.to_string_lossy().to_string();
+
+    // Read existing settings JSON, treating missing/empty as {}. Any
+    // parse error surfaces a typed envelope on stderr so the operator
+    // can repair the file by hand rather than silently overwrite it.
+    let mut settings: Value = if settings_path.exists() {
+        let txt = std::fs::read_to_string(&settings_path)
+            .with_context(|| format!("read {}", settings_path.display()))?;
+        if txt.trim().is_empty() {
+            json!({})
+        } else {
+            match serde_json::from_str::<Value>(&txt) {
+                Ok(v) if v.is_object() => v,
+                Ok(_) => {
+                    eprintln!(
+                        "{}",
+                        install_envelope_err(
+                            "settings-not-object",
+                            json!({"settings_path": settings_path.to_string_lossy()})
+                        )
+                    );
+                    std::process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!(
+                        "{}",
+                        install_envelope_err(
+                            "settings-parse-failed",
+                            json!({
+                                "settings_path": settings_path.to_string_lossy(),
+                                "detail": e.to_string(),
+                            })
+                        )
+                    );
+                    std::process::exit(1);
+                }
+            }
+        }
+    } else {
+        json!({})
+    };
+
+    let entry = json!({
+        "command": bin_str,
+        "args": ["serve", "--node-url", "http://127.0.0.1:8080"],
+    });
+
+    let root = settings
+        .as_object_mut()
+        .expect("settings root is object (checked above)");
+    let mcp_servers = root
+        .entry("mcpServers".to_string())
+        .or_insert_with(|| json!({}));
+    if !mcp_servers.is_object() {
+        eprintln!(
+            "{}",
+            install_envelope_err(
+                "mcp-servers-not-object",
+                json!({"settings_path": settings_path.to_string_lossy()})
+            )
+        );
+        std::process::exit(1);
+    }
+    let mcp_obj = mcp_servers
+        .as_object_mut()
+        .expect("mcpServers is object (checked above)");
+    mcp_obj.insert("boole".to_string(), entry);
+
+    let serialized =
+        serde_json::to_string_pretty(&settings).context("serialize updated settings")?;
+
+    if dry_run {
+        println!(
+            "{}",
+            install_envelope_ok(json!({
+                "dry_run": true,
+                "target": target.slug(),
+                "settings_path": settings_path.to_string_lossy(),
+                "planned_content": settings,
+            }))
+        );
+        return Ok(());
+    }
+
+    if let Some(parent) = settings_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("mkdir -p {}", parent.display()))?;
+    }
+
+    // Atomic write: stage to a sibling .tmp then rename, so a crash
+    // mid-write cannot leave the operator's IDE config truncated.
+    let tmp_path = settings_path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, serialized.as_bytes())
+        .with_context(|| format!("write {}", tmp_path.display()))?;
+    std::fs::rename(&tmp_path, &settings_path)
+        .with_context(|| format!("rename into {}", settings_path.display()))?;
+
+    println!(
+        "{}",
+        install_envelope_ok(json!({
+            "dry_run": false,
+            "target": target.slug(),
+            "settings_path": settings_path.to_string_lossy(),
+        }))
+    );
+    Ok(())
 }
 
 async fn serve(node_url: &str, listen: &str) -> Result<()> {
