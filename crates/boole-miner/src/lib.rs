@@ -58,9 +58,11 @@ pub use proof_package::{
     BppkWalkResult, FORMAT_VERSION, MAGIC, MAX_WALK_DEPTH,
 };
 pub use state::{
-    default_state_path, generate_miner_state, load_state, pubkey_to_address, save_state,
-    signing_key_from_state, state_exists, update_config, verifying_key_from_state, ConfigPatch,
-    DispatcherConfig, LlmConfig, MinerState, MinerStateConfig, StateError,
+    canonical_state_path_with, default_state_path, generate_miner_state, legacy_candidates_with,
+    load_state, pubkey_to_address, save_state, signing_key_from_state, state_exists,
+    try_migrate_legacy_state_with, update_config, verifying_key_from_state, ConfigPatch,
+    DispatcherConfig, LegacyMigration, LlmConfig, MinerState, MinerStateConfig, StateEnv,
+    StateError,
 };
 pub use submit_client::{
     AnnounceTicketInputs, AnnounceTicketResult, SubmitClient, SubmitInputs, SubmitResult, Submitter,

@@ -15,12 +15,19 @@
 //                                               matches boole-cli's
 //                                               keys/sessions/signer-nonces
 //                                               layout under BOOLE_HOME)
+//   $HOME/.boole/miner/state.json              (canonical post-P2.3 default
+//                                               when no env override is set)
 //   $XDG_CONFIG_HOME/boole-miner/state.json    (legacy XDG-style location,
 //                                               kept as a fallback so
 //                                               operators on the pre-
 //                                               BOOLE_HOME layout don't
 //                                               see their miner state move)
 //   $HOME/.config/boole-miner/state.json       (final fallback)
+//
+// The migration helper `try_migrate_legacy_state_with` detects state
+// at one of the two legacy locations, copies it atomically to the
+// canonical modern path, and returns a typed outcome so the caller can
+// print a one-line stderr notice exactly once per migration.
 use std::fmt;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -132,25 +139,151 @@ pub fn pubkey_to_address(pk: &[u8; ED25519_PK_BYTES]) -> String {
     hex::encode(pk)
 }
 
-/// Resolve the path of the miner state file.
+/// Process-level snapshot of the env vars that pin the miner state
+/// path. Built once at CLI startup so the resolver and the migration
+/// helper see a consistent view, and so tests can construct a
+/// deterministic `StateEnv` instead of mutating process-global env
+/// vars (which races under cargo's parallel test runner).
+#[derive(Debug, Clone)]
+pub struct StateEnv {
+    pub boole_miner_home: Option<PathBuf>,
+    pub boole_home: Option<PathBuf>,
+    pub xdg_config_home: Option<PathBuf>,
+    pub home: PathBuf,
+}
+
+impl StateEnv {
+    /// Snapshot from the current process env. Returns `HomeUnset` if
+    /// `$HOME` is not exported.
+    pub fn from_process() -> Result<Self, StateError> {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .ok_or(StateError::HomeUnset)?;
+        Ok(Self {
+            boole_miner_home: std::env::var_os("BOOLE_MINER_HOME").map(PathBuf::from),
+            boole_home: std::env::var_os("BOOLE_HOME").map(PathBuf::from),
+            xdg_config_home: std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
+            home,
+        })
+    }
+}
+
+/// Outcome of a single legacy-state migration check. The caller maps
+/// each variant to a stderr line so the migration notice appears
+/// exactly once per migration (`Migrated`), and a softer warning
+/// surfaces when an operator left the old file lying around
+/// (`BothPresent`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LegacyMigration {
+    Migrated { from: PathBuf, to: PathBuf },
+    BothPresent { legacy: PathBuf, modern: PathBuf },
+}
+
+/// Canonical modern state path: `$BOOLE_MINER_HOME` if set, else
+/// `$BOOLE_HOME/miner`, else `$HOME/.boole/miner`. Crucially this
+/// never falls back to the legacy XDG/`.config` paths — those belong
+/// to `legacy_candidates_with`.
+pub fn canonical_state_path_with(env: &StateEnv) -> Result<PathBuf, StateError> {
+    if let Some(p) = &env.boole_miner_home {
+        return Ok(p.join("state.json"));
+    }
+    if let Some(p) = &env.boole_home {
+        return Ok(p.join("miner").join("state.json"));
+    }
+    Ok(env.home.join(".boole").join("miner").join("state.json"))
+}
+
+/// Ordered legacy state paths to probe when migrating. XDG-style
+/// location first (if `$XDG_CONFIG_HOME` is set), then the
+/// `$HOME/.config/boole-miner` fallback.
+pub fn legacy_candidates_with(env: &StateEnv) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(xdg) = &env.xdg_config_home {
+        out.push(xdg.join("boole-miner").join("state.json"));
+    }
+    out.push(
+        env.home
+            .join(".config")
+            .join("boole-miner")
+            .join("state.json"),
+    );
+    out
+}
+
+/// Probe the legacy state locations and copy to the canonical modern
+/// path when only the legacy file is present. Returns:
 ///
-/// Precedence: `$BOOLE_MINER_HOME` > `$BOOLE_HOME/miner` >
-/// `$XDG_CONFIG_HOME/boole-miner` > `$HOME/.config/boole-miner`.
+///   * `Ok(None)` — neither legacy nor modern present (clean install),
+///     or legacy absent and modern present (post-migration steady state).
+///   * `Ok(Some(Migrated))` — legacy was present and modern was empty;
+///     bytes were copied atomically. Caller prints the one-time notice.
+///   * `Ok(Some(BothPresent))` — both files exist; modern wins and is
+///     not touched. Caller prints a "operator can remove legacy" warning.
+///
+/// The legacy file is left in place after a successful migration so the
+/// operator can verify the copy by hand before deleting the old path.
+pub fn try_migrate_legacy_state_with(
+    env: &StateEnv,
+) -> Result<Option<LegacyMigration>, StateError> {
+    let modern = canonical_state_path_with(env)?;
+    let legacy_present = legacy_candidates_with(env)
+        .into_iter()
+        .find(|p| p != &modern && p.exists());
+
+    if modern.exists() {
+        if let Some(legacy) = legacy_present {
+            return Ok(Some(LegacyMigration::BothPresent { legacy, modern }));
+        }
+        return Ok(None);
+    }
+
+    let Some(legacy) = legacy_present else {
+        return Ok(None);
+    };
+
+    if let Some(parent) = modern.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Atomic copy: read legacy → write tmp at mode 0600 → fsync → rename.
+    let bytes = std::fs::read(&legacy)?;
+    let tmp = modern.with_extension(format!("json.tmp.{}", std::process::id()));
+    {
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)?;
+        f.write_all(&bytes)?;
+        f.sync_all()?;
+    }
+    if let Err(e) = std::fs::rename(&tmp, &modern) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
+
+    Ok(Some(LegacyMigration::Migrated {
+        from: legacy,
+        to: modern,
+    }))
+}
+
+/// Resolve the path of the miner state file. Honours the legacy
+/// fallbacks for read-side compatibility; writers should call
+/// `canonical_state_path_with(&StateEnv::from_process()?)` after the
+/// CLI has driven any one-shot legacy migration.
 pub fn default_state_path() -> Result<PathBuf, StateError> {
-    if let Ok(p) = std::env::var("BOOLE_MINER_HOME") {
-        return Ok(PathBuf::from(p).join("state.json"));
+    let env = StateEnv::from_process()?;
+    let canonical = canonical_state_path_with(&env)?;
+    if canonical.exists() {
+        return Ok(canonical);
     }
-    if let Ok(p) = std::env::var("BOOLE_HOME") {
-        return Ok(PathBuf::from(p).join("miner").join("state.json"));
+    for legacy in legacy_candidates_with(&env) {
+        if legacy.exists() {
+            return Ok(legacy);
+        }
     }
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-        return Ok(PathBuf::from(xdg).join("boole-miner").join("state.json"));
-    }
-    let home = std::env::var("HOME").map_err(|_| StateError::HomeUnset)?;
-    Ok(PathBuf::from(home)
-        .join(".config")
-        .join("boole-miner")
-        .join("state.json"))
+    Ok(canonical)
 }
 
 /// Generate a fresh keypair + state envelope. Caller persists with `save_state`.

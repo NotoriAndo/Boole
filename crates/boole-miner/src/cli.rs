@@ -1032,6 +1032,32 @@ fn event_to_json(e: &MiningEvent) -> serde_json::Value {
 }
 
 pub fn run_mine(cmd: MineCommand) -> anyhow::Result<()> {
+    // P2.3 — drive the legacy-state migration check once per CLI
+    // invocation, before any subcommand reads state. The notice goes to
+    // stderr so JSON-on-stdout subcommands are not polluted; failure to
+    // probe (e.g. HOME unset) is non-fatal — the resolver itself will
+    // surface the same error if it actually needs the path.
+    if let Ok(env) = crate::state::StateEnv::from_process() {
+        match crate::state::try_migrate_legacy_state_with(&env) {
+            Ok(Some(crate::state::LegacyMigration::Migrated { from, to })) => {
+                eprintln!(
+                    "legacy state path migrated from {} to {}",
+                    from.display(),
+                    to.display()
+                );
+            }
+            Ok(Some(crate::state::LegacyMigration::BothPresent { legacy, modern })) => {
+                eprintln!(
+                    "warning: legacy state path {} present alongside modern {}; using modern (remove the legacy file to silence this warning)",
+                    legacy.display(),
+                    modern.display()
+                );
+            }
+            Ok(None) => {}
+            Err(e) => eprintln!("legacy state migration check failed: {e}"),
+        }
+    }
+
     match cmd {
         MineCommand::Init(args) => run_init(args),
         MineCommand::Address(args) => run_address(args),
