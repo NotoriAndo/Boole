@@ -3262,7 +3262,22 @@ fn keys_sign(id: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
 /// — they print `invalid` to stdout and exit 0 because verification ran
 /// successfully.
 fn keys_verify(pk: &str, signature: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
+    // P2.5: under `--json` every exit path emits the unified envelope
+    // (`{"ok":..,"version":"v1","command":"keys.verify",..}`) with
+    // kebab-case `reason` tokens. Default (PlainText) mode keeps the
+    // legacy bare `valid`/`invalid` words and the snake_case typed-error
+    // envelope on stderr so existing scripts that parse the PlainText
+    // shape are unaffected.
     if !is_well_formed_hex32(pk) {
+        if json {
+            keys_verify_emit_err(
+                "bad-pk",
+                serde_json::json!({
+                    "detail": "expected 64 lowercase hex chars",
+                    "pk": pk,
+                }),
+            );
+        }
         emit_typed_error(
             "bad_pk",
             2,
@@ -3273,6 +3288,14 @@ fn keys_verify(pk: &str, signature: &str, payload_arg: &str, json: bool) -> anyh
         );
     }
     if boole_core::Hex64::from_hex(signature).is_err() {
+        if json {
+            keys_verify_emit_err(
+                "bad-signature",
+                serde_json::json!({
+                    "detail": "expected 128 lowercase hex chars",
+                }),
+            );
+        }
         emit_typed_error(
             "bad_signature",
             2,
@@ -3288,17 +3311,35 @@ fn keys_verify(pk: &str, signature: &str, payload_arg: &str, json: bool) -> anyh
             // Defensive: shape checks above should have caught wire-malformed
             // hex. If `verify_signature` still rejects (e.g. ed25519 point
             // not on the curve), surface the same `bad_pk` envelope.
+            if json {
+                keys_verify_emit_err("bad-pk", serde_json::json!({ "detail": detail }));
+            }
             emit_typed_error("bad_pk", 2, serde_json::json!({ "detail": detail }));
         }
     };
     if json {
-        println!("{}", serde_json::json!({ "ok": true, "valid": valid }));
+        let envelope = boole_cli::cli_envelope::encode_ok(
+            "keys.verify",
+            serde_json::json!({ "valid": valid }),
+        );
+        println!("{envelope}");
     } else if valid {
         println!("valid");
     } else {
         println!("invalid");
     }
     Ok(())
+}
+
+/// Emit a `keys.verify` unified-envelope error to stderr and exit 2.
+///
+/// Wire-malformed inputs are still 4xx-equivalent (`exit 2`); only the
+/// envelope shape changes under `--json` so downstream tools can parse
+/// every CLI error with one schema.
+fn keys_verify_emit_err(reason: &str, extras: serde_json::Value) -> ! {
+    let envelope = boole_cli::cli_envelope::encode_err("keys.verify", reason, extras);
+    eprintln!("{envelope}");
+    std::process::exit(2);
 }
 
 #[cfg(test)]

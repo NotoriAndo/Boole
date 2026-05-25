@@ -159,3 +159,136 @@ fn verify_malformed_signature_emits_bad_signature_typed_error() {
         assert_eq!(envelope["reason"], "bad_signature");
     }
 }
+
+// P2.5 — `keys verify --json` migrates from the ad-hoc
+// `{"ok":true,"valid":bool}` shape to the unified envelope
+// `{"ok":true,"version":"v1","command":"keys.verify","result":{"valid":bool}}`.
+// Failures under `--json` also flip to the unified shape on stderr with
+// kebab-case `reason` (`bad-pk`/`bad-signature`). The default-mode
+// (PlainText) behavior is preserved by the four tests above.
+
+#[test]
+fn verify_valid_signature_emits_unified_envelope_when_json_set() {
+    let payload = serde_json::json!({"k": "v"});
+    let (pk, sig) = sign_with_random_key(&payload);
+    let out = cli()
+        .args([
+            "keys",
+            "verify",
+            "--json",
+            "--pk",
+            &pk,
+            "--signature",
+            &sig,
+            "--payload",
+            &payload.to_string(),
+        ])
+        .output()
+        .expect("run keys verify --json");
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let env = parse_json(&out.stdout);
+    assert_eq!(env["ok"], true);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "keys.verify");
+    assert_eq!(env["result"]["valid"], true);
+    assert!(
+        env.get("error").is_none(),
+        "success envelope must not carry an error field"
+    );
+}
+
+#[test]
+fn verify_tampered_payload_emits_unified_envelope_when_json_set() {
+    let original = serde_json::json!({"k": "v", "n": 1});
+    let (pk, sig) = sign_with_random_key(&original);
+    let tampered = serde_json::json!({"k": "v", "n": 2});
+    let out = cli()
+        .args([
+            "keys",
+            "verify",
+            "--json",
+            "--pk",
+            &pk,
+            "--signature",
+            &sig,
+            "--payload",
+            &tampered.to_string(),
+        ])
+        .output()
+        .expect("run keys verify --json");
+    assert!(
+        out.status.success(),
+        "verify ran; result is `valid:false` not an error envelope"
+    );
+    let env = parse_json(&out.stdout);
+    assert_eq!(env["ok"], true);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "keys.verify");
+    assert_eq!(env["result"]["valid"], false);
+}
+
+#[test]
+fn verify_malformed_pk_under_json_emits_unified_error_envelope() {
+    let payload = serde_json::json!({"k": "v"});
+    let out = cli()
+        .args([
+            "keys",
+            "verify",
+            "--json",
+            "--pk",
+            "this-is-not-hex",
+            "--signature",
+            &"0".repeat(128),
+            "--payload",
+            &payload.to_string(),
+        ])
+        .output()
+        .expect("run keys verify --json");
+    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        out.stdout.is_empty(),
+        "error envelope must not leak to stdout: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let env = parse_json(&out.stderr);
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "keys.verify");
+    assert_eq!(env["error"]["reason"], "bad-pk");
+    assert!(
+        env.get("result").is_none(),
+        "failure envelope must not carry a result field"
+    );
+}
+
+#[test]
+fn verify_malformed_signature_under_json_emits_unified_error_envelope() {
+    let payload = serde_json::json!({"k": "v"});
+    let out = cli()
+        .args([
+            "keys",
+            "verify",
+            "--json",
+            "--pk",
+            &"0".repeat(64),
+            "--signature",
+            "way-too-short",
+            "--payload",
+            &payload.to_string(),
+        ])
+        .output()
+        .expect("run keys verify --json");
+    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    let env = parse_json(&out.stderr);
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "keys.verify");
+    assert_eq!(env["error"]["reason"], "bad-signature");
+}

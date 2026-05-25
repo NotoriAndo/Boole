@@ -230,7 +230,7 @@ pub const COMMAND_INVENTORY: &[CommandSurface] = &[
     CommandSurface {
         path: &["keys", "verify"],
         has_json_flag: true,
-        output_with_json: OutputKind::AdHocJson,
+        output_with_json: OutputKind::Unified,
         output_default: OutputKind::PlainText,
     },
     CommandSurface {
