@@ -3072,6 +3072,11 @@ fn signer_sign_work(
     payload_arg: &str,
     json: bool,
 ) -> anyhow::Result<()> {
+    // P2.5: `--json` flips every exit path through the unified envelope
+    // (`{"ok":..,"version":"v1","command":"signer.sign-work",..}`) with
+    // kebab-case `reason` tokens. Default-mode keeps the bare signature
+    // line on stdout and snake_case typed errors on stderr so existing
+    // callers parsing the PlainText shape are unaffected.
     let (_path, envelope) = load_session_envelope(session_id)?;
 
     if envelope
@@ -3079,6 +3084,13 @@ fn signer_sign_work(
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
     {
+        if json {
+            signer_sign_work_emit_err(
+                "session-revoked",
+                3,
+                serde_json::json!({ "sessionId": session_id }),
+            );
+        }
         emit_typed_error(
             "session_revoked",
             3,
@@ -3111,17 +3123,41 @@ fn signer_sign_work(
             .iter()
             .filter_map(|x| x.as_str().map(|s| s.to_string()))
             .collect::<Vec<_>>(),
-        None => emit_typed_error(
-            "bad_request",
-            2,
-            serde_json::json!({
-                "sessionId": session_id,
-                "field": "allowedRoutes",
-                "detail": "stored session envelope missing explicit allowedRoutes",
-            }),
-        ),
+        None => {
+            if json {
+                signer_sign_work_emit_err(
+                    "bad-request",
+                    2,
+                    serde_json::json!({
+                        "sessionId": session_id,
+                        "field": "allowedRoutes",
+                        "detail": "stored session envelope missing explicit allowedRoutes",
+                    }),
+                );
+            }
+            emit_typed_error(
+                "bad_request",
+                2,
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "field": "allowedRoutes",
+                    "detail": "stored session envelope missing explicit allowedRoutes",
+                }),
+            )
+        }
     };
     if allowed_routes.is_empty() {
+        if json {
+            signer_sign_work_emit_err(
+                "bad-request",
+                2,
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "field": "allowedRoutes",
+                    "detail": "stored session envelope has no allowed routes",
+                }),
+            );
+        }
         emit_typed_error(
             "bad_request",
             2,
@@ -3153,6 +3189,16 @@ fn signer_sign_work(
         nonce: nonce.to_string(),
     };
     if let Err(err) = policy.authorize(&req) {
+        if json {
+            signer_sign_work_emit_err(
+                "policy-denied",
+                3,
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "detail": err.to_string(),
+                }),
+            );
+        }
         emit_typed_error(
             "policy_denied",
             3,
@@ -3165,6 +3211,16 @@ fn signer_sign_work(
 
     let nonce_path = signer_nonce_path(session_id);
     if nonce_already_used(&nonce_path, nonce)? {
+        if json {
+            signer_sign_work_emit_err(
+                "nonce-reuse",
+                3,
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "nonce": nonce,
+                }),
+            );
+        }
         emit_typed_error(
             "nonce_reuse",
             3,
@@ -3184,6 +3240,17 @@ fn signer_sign_work(
     let payload = read_json_arg(payload_arg, "payload")?;
     let computed_request_hash = boole_core::canonical_payload_hash_hex(&payload);
     if computed_request_hash != request_hash {
+        if json {
+            signer_sign_work_emit_err(
+                "request-hash-mismatch",
+                3,
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "expected": computed_request_hash,
+                    "provided": request_hash,
+                }),
+            );
+        }
         emit_typed_error(
             "request_hash_mismatch",
             3,
@@ -3211,22 +3278,29 @@ fn signer_sign_work(
     record_nonce(&nonce_path, nonce)?;
 
     if json {
-        println!(
-            "{}",
+        let envelope = boole_cli::cli_envelope::encode_ok(
+            "signer.sign-work",
             serde_json::json!({
-                "ok": true,
                 "envelope": {
                     "schema": signed.schema,
                     "payload": signed.payload,
                     "pk": signed.pk,
                     "signature": signed.signature,
                 }
-            })
+            }),
         );
+        println!("{envelope}");
     } else {
         println!("{}", signed.signature);
     }
     Ok(())
+}
+
+/// Emit a `signer.sign-work` unified-envelope error to stderr and exit `code`.
+fn signer_sign_work_emit_err(reason: &str, code: i32, extras: serde_json::Value) -> ! {
+    let envelope = boole_cli::cli_envelope::encode_err("signer.sign-work", reason, extras);
+    eprintln!("{envelope}");
+    std::process::exit(code);
 }
 
 /// Sign a JSON payload with the v2 key stored at `id`. v1 keys (no `sk`)

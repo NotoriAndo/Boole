@@ -140,10 +140,18 @@ fn signer_sign_work_allowed_by_policy_emits_bound_signed_v1_without_secret() {
 
     let stdout_text = String::from_utf8(out.stdout.clone()).expect("utf8");
     assert!(stdout_text.contains("boole.signed.v1"), "{stdout_text}");
-    let envelope = parse_json(&out.stdout);
-    assert_eq!(envelope["ok"], true);
-    assert_eq!(envelope["envelope"]["pk"], session_pk);
-    let signed_payload = &envelope["envelope"]["payload"];
+    // P2.5 — `--json` flips the signer surface to the unified envelope.
+    // The signed envelope nests under `result.envelope` for the same
+    // reason `keys.sign` does: the unified `version: "v1"` describes
+    // the CLI schema while `envelope.schema: "boole.signed.v1"`
+    // describes the signed payload.
+    let env = parse_json(&out.stdout);
+    assert_eq!(env["ok"], true);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "signer.sign-work");
+    let signed = &env["result"]["envelope"];
+    assert_eq!(signed["pk"], session_pk);
+    let signed_payload = &signed["payload"];
     assert_eq!(signed_payload["schema"], "boole.signer.work.v1");
     assert_eq!(signed_payload["route"], "/submit");
     assert_eq!(signed_payload["familyId"], "boole.protocol-invariant.v01");
@@ -197,9 +205,11 @@ fn signer_sign_work_rejects_request_hash_mismatch() {
         .output()
         .expect("signer sign-work");
     assert_eq!(out.status.code(), Some(3));
-    let envelope = parse_json(&out.stderr);
-    assert_eq!(envelope["ok"], false);
-    assert_eq!(envelope["reason"], "request_hash_mismatch");
+    let env = parse_json(&out.stderr);
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "signer.sign-work");
+    assert_eq!(env["error"]["reason"], "request-hash-mismatch");
 }
 
 #[test]
@@ -238,10 +248,15 @@ fn signer_sign_work_denies_route_not_in_session_envelope() {
         .output()
         .expect("signer sign-work");
     assert_eq!(out.status.code(), Some(3));
-    let envelope = parse_json(&out.stderr);
-    assert_eq!(envelope["ok"], false);
-    assert_eq!(envelope["reason"], "policy_denied");
-    assert!(envelope["detail"].as_str().unwrap_or("").contains("route"));
+    let env = parse_json(&out.stderr);
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "signer.sign-work");
+    assert_eq!(env["error"]["reason"], "policy-denied");
+    assert!(env["error"]["detail"]
+        .as_str()
+        .unwrap_or("")
+        .contains("route"));
 }
 
 #[test]
@@ -285,9 +300,11 @@ fn signer_sign_work_denies_over_fee_with_policy_denied() {
         "expected exit 3; stderr={}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let envelope = parse_json(&out.stderr);
-    assert_eq!(envelope["ok"], false);
-    assert_eq!(envelope["reason"], "policy_denied");
+    let env = parse_json(&out.stderr);
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "signer.sign-work");
+    assert_eq!(env["error"]["reason"], "policy-denied");
 }
 
 #[test]
@@ -346,7 +363,9 @@ fn signer_sign_work_rejects_duplicate_nonce() {
         "expected exit 3 on duplicate nonce; stderr={}",
         String::from_utf8_lossy(&second.stderr)
     );
-    let envelope = parse_json(&second.stderr);
-    assert_eq!(envelope["ok"], false);
-    assert_eq!(envelope["reason"], "nonce_reuse");
+    let env = parse_json(&second.stderr);
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "signer.sign-work");
+    assert_eq!(env["error"]["reason"], "nonce-reuse");
 }
