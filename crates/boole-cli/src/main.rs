@@ -1274,14 +1274,35 @@ fn chain_replay_emit_err(reason: &str, code: i32, extras: serde_json::Value) -> 
 }
 
 fn audit_receipts(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyhow::Result<()> {
-    // P2.5 follow-up — split operator typos (exit 2, reason="*_unreadable"
-    // or "*_invalid") from audit refusal (exit 3, reason="audit_mismatch")
-    // so automation does not have to parse free-form anyhow detail.
+    // P2.5: `--json` routes every exit path through the unified envelope
+    // (`{"ok":..,"version":"v1","command":"chain.audit-receipts",..}`)
+    // with kebab-case `reason` tokens. Default-mode (PlainText) keeps
+    // the `ok=.. blocksChecked=.. receiptsChecked=..` line and the
+    // snake_case typed-error envelope on stderr so existing scripts are
+    // unaffected.
+    let json_command = if json {
+        Some("chain.audit-receipts")
+    } else {
+        None
+    };
     let blocks =
-        read_ndjson_or_emit_typed_error::<boole_core::PersistedBlock>(blocks_path, "blocks");
+        read_ndjson_or_emit::<boole_core::PersistedBlock>(blocks_path, "blocks", json_command);
     let receipts =
-        read_ndjson_or_emit_typed_error::<boole_core::SubmitReceipt>(receipts_path, "receipts");
+        read_ndjson_or_emit::<boole_core::SubmitReceipt>(receipts_path, "receipts", json_command);
     let report = boole_core::audit_submit_receipts(&blocks, &receipts).unwrap_or_else(|err| {
+        if json {
+            let envelope = boole_cli::cli_envelope::encode_err(
+                "chain.audit-receipts",
+                "audit-mismatch",
+                serde_json::json!({
+                    "blocksPath": blocks_path.to_string_lossy(),
+                    "receiptsPath": receipts_path.to_string_lossy(),
+                    "detail": err.to_string(),
+                }),
+            );
+            eprintln!("{envelope}");
+            std::process::exit(3);
+        }
         emit_typed_error(
             "audit_mismatch",
             3,
@@ -1293,9 +1314,9 @@ fn audit_receipts(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyho
         );
     });
     if json {
-        println!(
-            "{}",
-            serde_json::to_string(&serde_json::json!({
+        let envelope = boole_cli::cli_envelope::encode_ok(
+            "chain.audit-receipts",
+            serde_json::json!({
                 "ok": report.ok,
                 "auditMode": "shape-only",
                 "lineageRequired": false,
@@ -1303,8 +1324,9 @@ fn audit_receipts(blocks_path: &Path, receipts_path: &Path, json: bool) -> anyho
                 "receiptsChecked": report.receipts_checked,
                 "evidence": report.evidence,
                 "settlement": report.settlement,
-            }))?
+            }),
         );
+        println!("{envelope}");
     } else {
         println!(
             "ok={} blocksChecked={} receiptsChecked={}",
@@ -1408,7 +1430,33 @@ fn read_ndjson_or_emit_typed_error<T>(path: &Path, resource: &str) -> Vec<T>
 where
     T: serde::de::DeserializeOwned,
 {
+    read_ndjson_or_emit::<T>(path, resource, None)
+}
+
+/// P2.5: shared NDJSON loader for chain audit/settlement handlers. When
+/// `json_command` is `Some(cmd)`, file-read and parse failures are
+/// emitted through the unified envelope on stderr with kebab-case
+/// `reason` tokens (`<resource>-unreadable` / `<resource>-invalid`);
+/// when `None`, the legacy snake_case typed-error envelope is used
+/// (default-mode callers). Exit code is 2 in both branches because
+/// these are operator usage errors, not chain corruption.
+fn read_ndjson_or_emit<T>(path: &Path, resource: &str, json_command: Option<&str>) -> Vec<T>
+where
+    T: serde::de::DeserializeOwned,
+{
     let raw = std::fs::read_to_string(path).unwrap_or_else(|err| {
+        if let Some(cmd) = json_command {
+            let envelope = boole_cli::cli_envelope::encode_err(
+                cmd,
+                &format!("{resource}-unreadable"),
+                serde_json::json!({
+                    "path": path.to_string_lossy(),
+                    "detail": err.to_string(),
+                }),
+            );
+            eprintln!("{envelope}");
+            std::process::exit(2);
+        }
         emit_typed_error(
             &format!("{resource}_unreadable"),
             2,
@@ -1430,6 +1478,19 @@ where
         })
         .map(|(idx, line)| {
             serde_json::from_str(line).unwrap_or_else(|err| {
+                if let Some(cmd) = json_command {
+                    let envelope = boole_cli::cli_envelope::encode_err(
+                        cmd,
+                        &format!("{resource}-invalid"),
+                        serde_json::json!({
+                            "path": path.to_string_lossy(),
+                            "line": idx + 1,
+                            "detail": err.to_string(),
+                        }),
+                    );
+                    eprintln!("{envelope}");
+                    std::process::exit(2);
+                }
                 emit_typed_error(
                     &format!("{resource}_invalid"),
                     2,

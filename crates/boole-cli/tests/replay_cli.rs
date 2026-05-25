@@ -214,11 +214,18 @@ fn cli_chain_audit_receipts_rejects_missing_blocks_with_typed_bad_request() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    // P2.5 — `--json` error path is the unified envelope with kebab-case
+    // `reason`. `chain.audit-receipts` shares the `blocks-unreadable` /
+    // `blocks-invalid` / `receipts-unreadable` / `receipts-invalid` /
+    // `audit-mismatch` vocabulary with the PlainText snake_case dialect
+    // on the default path.
     let stderr_text = String::from_utf8_lossy(&output.stderr);
-    let parsed: serde_json::Value =
+    let env: serde_json::Value =
         serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
-    assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "blocks_unreadable");
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "chain.audit-receipts");
+    assert_eq!(env["error"]["reason"], "blocks-unreadable");
 
     let _ = std::fs::remove_file(&receipts_dummy);
 }
@@ -259,10 +266,12 @@ fn cli_chain_audit_receipts_rejects_missing_receipts_with_typed_bad_request() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr_text = String::from_utf8_lossy(&output.stderr);
-    let parsed: serde_json::Value =
+    let env: serde_json::Value =
         serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
-    assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "receipts_unreadable");
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "chain.audit-receipts");
+    assert_eq!(env["error"]["reason"], "receipts-unreadable");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -304,10 +313,12 @@ fn cli_chain_audit_receipts_rejects_malformed_blocks_with_typed_bad_request() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr_text = String::from_utf8_lossy(&output.stderr);
-    let parsed: serde_json::Value =
+    let env: serde_json::Value =
         serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
-    assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "blocks_invalid");
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "chain.audit-receipts");
+    assert_eq!(env["error"]["reason"], "blocks-invalid");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -356,10 +367,12 @@ fn cli_chain_audit_receipts_rejects_mismatched_audit_with_typed_audit_mismatch()
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr_text = String::from_utf8_lossy(&output.stderr);
-    let parsed: serde_json::Value =
+    let env: serde_json::Value =
         serde_json::from_str(stderr_text.trim()).expect("stderr json envelope");
-    assert_eq!(parsed["ok"], false);
-    assert_eq!(parsed["reason"], "audit_mismatch");
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "chain.audit-receipts");
+    assert_eq!(env["error"]["reason"], "audit-mismatch");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -484,8 +497,16 @@ fn cli_audit_receipts_json_accepts_ledger_matching_blocks() {
         "stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
+    // P2.5 — `--json` success path is the unified envelope; audit
+    // payload lives under `result` so the top-level `version`/`command`
+    // describe the CLI schema rather than the audit shape.
+    let env: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("json envelope on stdout");
+    assert_eq!(env["ok"], true);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "chain.audit-receipts");
     let parsed: CliAuditReceiptsOutput =
-        serde_json::from_slice(&output.stdout).expect("json output");
+        serde_json::from_value(env["result"].clone()).expect("typed audit result");
     assert!(parsed.ok);
     assert_eq!(parsed.audit_mode, "shape-only");
     assert!(!parsed.lineage_required);
