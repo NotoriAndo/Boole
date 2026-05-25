@@ -494,39 +494,43 @@ fn lookup_dotted(cfg: &MinerStateConfig, key: &str) -> anyhow::Result<Option<Str
 }
 
 pub fn run_bounty(args: BountyArgs) -> anyhow::Result<()> {
+    // P2.5: `mine bounty` is the only always-JSON `mine` subcommand;
+    // every exit path emits the unified CLI envelope ({"ok","version",
+    // "command","result"|"error"}) with kebab-case `reason` tokens.
+    // The envelope shape mirrors `boole_cli::cli_envelope::encode_ok`
+    // / `encode_err`; we inline the construction here because boole-cli
+    // depends on boole-miner (so the helper crate is not in scope) and
+    // the COMMAND_INVENTORY drift test already enforces inventory-side
+    // consistency for `mine.bounty`.
     if !is_well_formed_hex32(&args.prover) {
-        anyhow::bail!(
-            "{}",
-            serde_json::json!({
-                "ok": false,
-                "reason": "bad_prover",
-                "detail": "expected 32-byte lowercase hex"
-            })
+        bounty_emit_err(
+            "bad-prover",
+            serde_json::json!({ "detail": "expected 32-byte lowercase hex" }),
         );
     }
     let envelope_bytes: Vec<u8> = match args.envelope_path.as_deref() {
-        Some(p) => std::fs::read(p)?,
+        Some(p) => match std::fs::read(p) {
+            Ok(bytes) => bytes,
+            Err(err) => bounty_emit_err(
+                "envelope-unreadable",
+                serde_json::json!({
+                    "path": p.to_string_lossy(),
+                    "detail": err.to_string(),
+                }),
+            ),
+        },
         None => Vec::new(),
     };
-    let signing_key =
-        boole_core::SigningKeyV2::from_seed_hex(&args.prover_sk_hex).map_err(|err| {
-            anyhow::anyhow!(
-                "{}",
-                serde_json::json!({
-                    "ok": false,
-                    "reason": "bad_prover_sk_hex",
-                    "detail": err,
-                })
-            )
-        })?;
+    let signing_key = match boole_core::SigningKeyV2::from_seed_hex(&args.prover_sk_hex) {
+        Ok(k) => k,
+        Err(err) => bounty_emit_err("bad-prover-sk-hex", serde_json::json!({ "detail": err })),
+    };
     if signing_key.pk_hex() != args.prover {
-        anyhow::bail!(
-            "{}",
+        bounty_emit_err(
+            "prover-sk-pk-mismatch",
             serde_json::json!({
-                "ok": false,
-                "reason": "prover_sk_pk_mismatch",
-                "detail": "--prover-sk-hex derives a pk that does not match --prover"
-            })
+                "detail": "--prover-sk-hex derives a pk that does not match --prover",
+            }),
         );
     }
     let client =
@@ -543,38 +547,64 @@ pub fn run_bounty(args: BountyArgs) -> anyhow::Result<()> {
             duplicate,
             bounty,
         } => {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "ok": true,
+            let envelope = serde_json::json!({
+                "ok": true,
+                "version": "v1",
+                "command": "mine.bounty",
+                "result": {
                     "accepted": accepted,
                     "duplicate": duplicate,
                     "bounty": bounty,
-                })
-            );
+                },
+            });
+            println!("{envelope}");
             Ok(())
         }
-        BountyProofResult::NotFound { id } => Err(anyhow::anyhow!(
-            "{}",
-            serde_json::json!({"ok": false, "reason": "not_found", "id": id})
-        )),
-        BountyProofResult::Terminal { status } => Err(anyhow::anyhow!(
-            "{}",
-            serde_json::json!({"ok": false, "reason": "terminal", "status": status})
-        )),
-        BountyProofResult::NoVerifier { verifier_kind } => Err(anyhow::anyhow!(
-            "{}",
-            serde_json::json!({"ok": false, "reason": "no_verifier", "verifierKind": verifier_kind})
-        )),
-        BountyProofResult::BadRequest { error, detail } => Err(anyhow::anyhow!(
-            "{}",
-            serde_json::json!({"ok": false, "reason": "bad_request", "error": error, "detail": detail})
-        )),
-        BountyProofResult::NetworkError { cause } => Err(anyhow::anyhow!(
-            "{}",
-            serde_json::json!({"ok": false, "reason": "network_error", "error": cause})
-        )),
+        BountyProofResult::NotFound { id } => {
+            bounty_emit_err("not-found", serde_json::json!({ "id": id }))
+        }
+        BountyProofResult::Terminal { status } => {
+            bounty_emit_err("terminal", serde_json::json!({ "status": status }))
+        }
+        BountyProofResult::NoVerifier { verifier_kind } => bounty_emit_err(
+            "no-verifier",
+            serde_json::json!({ "verifierKind": verifier_kind }),
+        ),
+        BountyProofResult::BadRequest { error, detail } => bounty_emit_err(
+            "bad-request",
+            serde_json::json!({ "error": error, "detail": detail }),
+        ),
+        BountyProofResult::NetworkError { cause } => {
+            bounty_emit_err("network-error", serde_json::json!({ "error": cause }))
+        }
     }
+}
+
+/// Emit a `mine.bounty` unified-envelope error to stderr and exit 1.
+/// Inlined here for the same reason as the envelope construction in
+/// [`run_bounty`]: boole-miner cannot depend on boole-cli.
+fn bounty_emit_err(reason: &str, extras: serde_json::Value) -> ! {
+    let mut error = serde_json::Map::new();
+    error.insert(
+        "reason".to_string(),
+        serde_json::Value::String(reason.to_string()),
+    );
+    if let serde_json::Value::Object(map) = extras {
+        for (k, v) in map {
+            if k == "reason" {
+                continue;
+            }
+            error.insert(k, v);
+        }
+    }
+    let envelope = serde_json::json!({
+        "ok": false,
+        "version": "v1",
+        "command": "mine.bounty",
+        "error": serde_json::Value::Object(error),
+    });
+    eprintln!("{envelope}");
+    std::process::exit(1);
 }
 
 fn is_well_formed_hex32(s: &str) -> bool {

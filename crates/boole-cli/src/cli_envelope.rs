@@ -302,8 +302,8 @@ pub const COMMAND_INVENTORY: &[CommandSurface] = &[
     CommandSurface {
         path: &["mine", "bounty"],
         has_json_flag: false,
-        output_with_json: OutputKind::AdHocJson,
-        output_default: OutputKind::AdHocJson,
+        output_with_json: OutputKind::Unified,
+        output_default: OutputKind::Unified,
     },
     // P2.9 — `boole wallet ...` façade subcommands. In non-json mode the
     // façade forwards the agent's stdout verbatim (hex pubkey for init/

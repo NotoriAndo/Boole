@@ -136,12 +136,19 @@ fn mine_bounty_submits_envelope_and_prints_ok_envelope() {
         "stderr={}",
         String::from_utf8_lossy(&out.stderr)
     );
+    // P2.5 — `mine bounty` success path is the unified envelope. The
+    // proof outcome lives under `result` so the top-level
+    // `version`/`command` describe the CLI schema rather than the proof
+    // submission shape.
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let parsed: Value = serde_json::from_str(stdout.trim()).expect("stdout json");
-    assert_eq!(parsed["ok"], true);
-    assert_eq!(parsed["accepted"], true);
-    assert_eq!(parsed["duplicate"], false);
-    assert_eq!(parsed["bounty"]["status"], "solved");
+    let env: Value = serde_json::from_str(stdout.trim()).expect("stdout json envelope");
+    assert_eq!(env["ok"], true);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "mine.bounty");
+    let result = &env["result"];
+    assert_eq!(result["accepted"], true);
+    assert_eq!(result["duplicate"], false);
+    assert_eq!(result["bounty"]["status"], "solved");
 
     handle.join().expect("server").expect("server ok");
     let _ = std::fs::remove_dir_all(&dir);
@@ -167,6 +174,12 @@ fn mine_bounty_rejects_malformed_prover_locally() {
         .output()
         .expect("run cli");
     assert!(!out.status.success(), "should fail on malformed prover");
+    // P2.5 — `mine bounty` failure path now routes through the unified
+    // envelope on stderr with a kebab-case reason token.
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("bad_prover"), "stderr: {stderr}");
+    let env: Value = serde_json::from_str(stderr.trim()).expect("stderr json envelope");
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["version"], "v1");
+    assert_eq!(env["command"], "mine.bounty");
+    assert_eq!(env["error"]["reason"], "bad-prover");
 }
