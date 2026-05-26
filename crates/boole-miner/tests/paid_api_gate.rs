@@ -20,10 +20,17 @@
 //! binary boundary lives in a follow-up slice. Slice 43 is the pure
 //! function + envelope shape that the wiring slice will consume.
 
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+
+use boole_miner::cli::{run_start_with_paid_policy_inputs, StartArgs, StateArgs};
 use boole_miner::{
-    evaluate_paid_api_policy, LLMBackend, PaidApiPolicyOutcome, EXIT_CODE_POLICY_REFUSED,
-    PAID_LLM_ALLOW_ENV,
+    evaluate_paid_api_policy, generate_miner_state, save_state, DispatcherConfig, LLMBackend,
+    LlmConfig, MinerStateConfig, PaidApiPolicyError, PaidApiPolicyOutcome,
+    EXIT_CODE_POLICY_REFUSED, PAID_LLM_ALLOW_ENV,
 };
+use boole_testkit::rand_suffix;
 
 #[test]
 fn paid_backend_no_optin_no_tty_returns_typed_refusal_with_exit_code_3() {
@@ -116,4 +123,161 @@ fn envelope_lists_all_paid_backends_in_extras_hint() {
     // without grepping a human-readable message.
     assert_eq!(err.envelope["error"]["allowEnv"], PAID_LLM_ALLOW_ENV);
     assert_eq!(err.envelope["error"]["backend"], "google");
+}
+
+// ---------- slice 44: wiring into run_start + binary exit code ----------
+
+fn write_paid_backend_state(backend: &str) -> (PathBuf, PathBuf) {
+    let dir = std::env::temp_dir().join(format!(
+        "boole-miner-run-start-{backend}-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    let state_path = dir.join("state.json");
+    let state = generate_miner_state(
+        MinerStateConfig {
+            dispatcher: DispatcherConfig {
+                url: "http://127.0.0.1:8080".to_string(),
+            },
+            llm: LlmConfig {
+                backend: backend.to_string(),
+                api_key: None,
+                model: Some("model-x".to_string()),
+                base_url: None,
+                agent_command: None,
+                agent_args: None,
+            },
+        },
+        "2026-01-01T00:00:00Z",
+    );
+    save_state(&state, &state_path).expect("save state");
+    (dir, state_path)
+}
+
+fn start_args(state_path: PathBuf) -> StartArgs {
+    StartArgs {
+        state_args: StateArgs {
+            state: Some(state_path),
+        },
+        profile: "v1-lenbound".to_string(),
+        difficulty: 1,
+        n: None,
+        max_shares: None,
+        max_cycles: None,
+        head_timeout_ms: 10_000,
+        mock_llm_response: None,
+        #[cfg(feature = "dev-tools")]
+        mock_verify_accept: false,
+        fixed_target_seed_hex: None,
+        fixed_target_render: None,
+        deterministic_nonces: false,
+        grind_max_attempts: None,
+        lean_dir: None,
+    }
+}
+
+#[test]
+fn run_start_with_paid_backend_no_optin_no_tty_returns_typed_refusal() {
+    let (dir, state_path) = write_paid_backend_state("anthropic");
+    let args = start_args(state_path);
+
+    // Pass allow_env=None, is_tty=false explicitly — no process env mutation
+    // so the test is safe under cargo's parallel runner.
+    let err = run_start_with_paid_policy_inputs(args, None, false)
+        .expect_err("paid backend + no opt-in + no TTY must refuse");
+    let refusal: &PaidApiPolicyError = err
+        .downcast_ref::<PaidApiPolicyError>()
+        .unwrap_or_else(|| panic!("err must downcast to PaidApiPolicyError; got: {err:?}"));
+    assert_eq!(refusal.exit_code, EXIT_CODE_POLICY_REFUSED);
+    assert_eq!(refusal.envelope["command"], "mine.start");
+    assert_eq!(refusal.envelope["error"]["reason"], "paid-api-not-opted-in");
+    assert_eq!(refusal.envelope["error"]["backend"], "anthropic");
+    assert_eq!(refusal.envelope["error"]["allowEnv"], PAID_LLM_ALLOW_ENV);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn run_start_with_paid_backend_tty_no_optin_also_refuses_in_slice_44() {
+    // Slice 44 wires the pure function into run_start but does NOT yet
+    // implement the interactive y/N prompt (slice 45). Until then, the
+    // TTY path must refuse with the same typed envelope as the non-TTY
+    // path so an operator sees a clean failure rather than a hang.
+    let (dir, state_path) = write_paid_backend_state("openai");
+    let args = start_args(state_path);
+
+    let err = run_start_with_paid_policy_inputs(args, None, true)
+        .expect_err("TTY + no opt-in must still refuse until slice 45 wires prompt");
+    let refusal: &PaidApiPolicyError = err
+        .downcast_ref::<PaidApiPolicyError>()
+        .unwrap_or_else(|| panic!("err must downcast to PaidApiPolicyError; got: {err:?}"));
+    assert_eq!(refusal.exit_code, EXIT_CODE_POLICY_REFUSED);
+    assert_eq!(refusal.envelope["error"]["backend"], "openai");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn run_start_non_paid_backend_proceeds_past_policy_check() {
+    // A mock backend has no gate. The call still fails (because the test
+    // dispatcher URL is not running), but the failure must NOT downcast
+    // to PaidApiPolicyError — i.e. the policy check let it through.
+    let (dir, state_path) = write_paid_backend_state("mock");
+    let args = start_args(state_path);
+
+    let err = run_start_with_paid_policy_inputs(args, None, false)
+        .expect_err("mock backend will fail past the gate (no live dispatcher)");
+    assert!(
+        err.downcast_ref::<PaidApiPolicyError>().is_none(),
+        "non-paid backend must NOT be refused by the paid-API gate; err: {err:?}"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn boole_miner_start_paid_backend_no_optin_exits_with_code_3_and_envelope_on_stderr() {
+    // Subprocess test: confirms the binary boundary translates the typed
+    // PaidApiPolicyError into the documented exit code (3) and emits the
+    // unified envelope to stderr. This is the operator-facing contract.
+    let (dir, state_path) = write_paid_backend_state("google");
+
+    // Build a clean env: drop the opt-in so the gate fires. Keep HOME
+    // pointing at the per-test dir so the migration-check sidecar does
+    // not race with other tests.
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_boole-miner"));
+    cmd.arg("start")
+        .arg("--state")
+        .arg(&state_path)
+        .env_remove(PAID_LLM_ALLOW_ENV)
+        .env("HOME", &dir);
+    let output = cmd.output().expect("spawn boole-miner");
+
+    assert_eq!(
+        output.status.code(),
+        Some(EXIT_CODE_POLICY_REFUSED),
+        "stderr:\n{}\nstdout:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout),
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let envelope_line = stderr
+        .lines()
+        .rev()
+        .find(|l| l.trim_start().starts_with('{') && l.contains("paid-api-not-opted-in"))
+        .unwrap_or_else(|| {
+            panic!("expected JSON envelope line containing paid-api-not-opted-in; stderr:\n{stderr}")
+        });
+    let parsed: serde_json::Value =
+        serde_json::from_str(envelope_line.trim()).expect("envelope is valid JSON");
+    assert_eq!(parsed["ok"], serde_json::Value::Bool(false));
+    assert_eq!(parsed["version"], "v1");
+    assert_eq!(parsed["command"], "mine.start");
+    assert_eq!(parsed["error"]["reason"], "paid-api-not-opted-in");
+    assert_eq!(parsed["error"]["backend"], "google");
+    assert_eq!(parsed["error"]["allowEnv"], PAID_LLM_ALLOW_ENV);
+
+    let _ = fs::remove_dir_all(&dir);
 }

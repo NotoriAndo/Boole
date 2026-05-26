@@ -322,12 +322,14 @@ pub enum PaidApiPolicyOutcome {
     RequiresInteractiveConfirm,
 }
 
-/// P2.4 (slice 43) — typed refusal carrying everything the binary needs
-/// to terminate cleanly: the documented exit code and the unified CLI
-/// JSON envelope (`ok=false`, `version=v1`, `command=<caller>`,
-/// `error.reason=paid-api-not-opted-in`). The caller prints the
-/// envelope to stderr and calls `std::process::exit(refusal.exit_code)`.
-#[derive(Debug, Clone)]
+/// P2.4 (slice 43/44) — typed refusal carrying everything the binary
+/// needs to terminate cleanly: the documented exit code and the unified
+/// CLI JSON envelope (`ok=false`, `version=v1`, `command=<caller>`,
+/// `error.reason=paid-api-not-opted-in`). The binary catches this via
+/// `err.downcast_ref::<PaidApiPolicyError>()`, prints the envelope to
+/// stderr, and calls `std::process::exit(refusal.exit_code)`.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("paid API gate refused (exit_code={exit_code})")]
 pub struct PaidApiPolicyError {
     pub exit_code: i32,
     pub envelope: serde_json::Value,
@@ -769,6 +771,21 @@ fn family_target_emitter(
 }
 
 pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
+    let allow_env = std::env::var(PAID_LLM_ALLOW_ENV).ok();
+    let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdin());
+    run_start_with_paid_policy_inputs(args, allow_env.as_deref(), is_tty)
+}
+
+/// P2.4 (slice 44) — testable seam over `run_start` that takes the
+/// paid-API policy inputs (env value + TTY presence) explicitly. The
+/// thin `run_start` wrapper above reads them from the process; tests
+/// pass them directly so the matrix is exercised without mutating the
+/// global environment or attaching a real TTY.
+pub fn run_start_with_paid_policy_inputs(
+    args: StartArgs,
+    allow_env_value: Option<&str>,
+    is_tty: bool,
+) -> anyhow::Result<MiningLoopSummary> {
     let path = resolve_state_path(&args.state_args)?;
     let state = load_state(&path)?;
     // P2.4 — re-gate at start time. A state file may have been produced
@@ -777,7 +794,30 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
     // the operator now wants to start the loop without it. Either way,
     // the loop itself must not begin calling a paid backend unless the
     // current process environment still asserts the opt-in.
-    enforce_paid_llm_gate_from_env(ensure_backend(&state.config.llm.backend)?)?;
+    let backend = ensure_backend(&state.config.llm.backend)?;
+    match evaluate_paid_api_policy(backend, allow_env_value, is_tty, "mine.start") {
+        Ok(PaidApiPolicyOutcome::NotPaid) | Ok(PaidApiPolicyOutcome::AllowedByEnv) => {}
+        Ok(PaidApiPolicyOutcome::RequiresInteractiveConfirm) => {
+            // Slice 44 — the interactive y/N prompt is a follow-up
+            // slice. Until then, the TTY-no-opt-in path returns the
+            // same typed refusal as the non-TTY path so an operator
+            // sees a clean exit (code 3 + envelope) instead of a hang.
+            return Err(anyhow::Error::new(PaidApiPolicyError {
+                exit_code: EXIT_CODE_POLICY_REFUSED,
+                envelope: serde_json::json!({
+                    "ok": false,
+                    "version": "v1",
+                    "command": "mine.start",
+                    "error": {
+                        "reason": "paid-api-not-opted-in",
+                        "backend": backend.as_str(),
+                        "allowEnv": PAID_LLM_ALLOW_ENV,
+                    },
+                }),
+            }));
+        }
+        Err(refusal) => return Err(anyhow::Error::new(refusal)),
+    }
     let signing = signing_key_from_state(&state)?;
     let pk_bytes = signing.verifying_key().to_bytes();
     let pk = Hex32::from_bytes(pk_bytes);
