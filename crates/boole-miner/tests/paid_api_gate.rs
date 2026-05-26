@@ -69,8 +69,7 @@ fn paid_backend_with_truthy_optin_passes_in_non_tty() {
 #[test]
 fn paid_backend_with_falsy_or_empty_optin_refuses_in_non_tty() {
     for v in ["0", "false", "no", "", "yes", "True\nfalse"] {
-        let outcome =
-            evaluate_paid_api_policy(LLMBackend::OpenAi, Some(v), false, "mine.start");
+        let outcome = evaluate_paid_api_policy(LLMBackend::OpenAi, Some(v), false, "mine.start");
         assert!(
             outcome.is_err(),
             "value {v:?} must not opt in (got {outcome:?})"
@@ -103,7 +102,11 @@ fn non_paid_backend_passes_silently_in_every_combination() {
 
 #[test]
 fn paid_backend_no_optin_with_tty_defers_to_interactive_confirm() {
-    for backend in [LLMBackend::Anthropic, LLMBackend::OpenAi, LLMBackend::Google] {
+    for backend in [
+        LLMBackend::Anthropic,
+        LLMBackend::OpenAi,
+        LLMBackend::Google,
+    ] {
         let outcome = evaluate_paid_api_policy(backend, None, true, "mine.start")
             .expect("TTY path defers refusal to interactive confirm");
         assert!(
@@ -300,7 +303,10 @@ fn tty_no_optin_with_prompt_io_error_returns_typed_refusal() {
     let (dir, state_path) = write_paid_backend_state("openai");
     let args = start_args(state_path);
     let prompt = Box::new(|| -> std::io::Result<PaidApiConfirmDecision> {
-        Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "stdin closed"))
+        Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "stdin closed",
+        ))
     });
 
     let err = run_start_with_paid_policy_inputs_and_prompt(args, None, true, Some(prompt))
@@ -348,9 +354,8 @@ fn opt_in_env_does_not_invoke_prompt_even_on_tty() {
         Ok(PaidApiConfirmDecision::Refuse)
     });
 
-    let err =
-        run_start_with_paid_policy_inputs_and_prompt(args, Some("1"), true, Some(prompt))
-            .expect_err("post-gate failure expected (no live dispatcher)");
+    let err = run_start_with_paid_policy_inputs_and_prompt(args, Some("1"), true, Some(prompt))
+        .expect_err("post-gate failure expected (no live dispatcher)");
     assert!(
         err.downcast_ref::<PaidApiPolicyError>().is_none(),
         "opt-in env must bypass prompt and the policy gate; err: {err:?}"
@@ -515,7 +520,9 @@ fn boole_miner_start_paid_backend_no_optin_exits_with_code_3_and_envelope_on_std
         .rev()
         .find(|l| l.trim_start().starts_with('{') && l.contains("paid-api-not-opted-in"))
         .unwrap_or_else(|| {
-            panic!("expected JSON envelope line containing paid-api-not-opted-in; stderr:\n{stderr}")
+            panic!(
+                "expected JSON envelope line containing paid-api-not-opted-in; stderr:\n{stderr}"
+            )
         });
     let parsed: serde_json::Value =
         serde_json::from_str(envelope_line.trim()).expect("envelope is valid JSON");

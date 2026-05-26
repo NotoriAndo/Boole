@@ -18,12 +18,12 @@ mod submit_client;
 mod target_emitter;
 
 pub use bounty_client::{BountyClient, BountyProofInputs, BountyProofResult};
+pub use canonicalizer::{encode_placeholder_bppk, Canonicalizer, StructuralCanonicalizer, Target};
+pub use chain_head::{ChainHead, ChainHeadError, ChainHeadFetcher, HttpChainHeadFetcher};
 pub use cli::{
     evaluate_paid_api_policy, paid_api_optin_total, PaidApiOptInCounter, PaidApiPolicyError,
     PaidApiPolicyOutcome, EXIT_CODE_POLICY_REFUSED, PAID_LLM_ALLOW_ENV,
 };
-pub use canonicalizer::{encode_placeholder_bppk, Canonicalizer, StructuralCanonicalizer, Target};
-pub use chain_head::{ChainHead, ChainHeadError, ChainHeadFetcher, HttpChainHeadFetcher};
 pub use family_v1_lenbound::helper_manifest as v1_lenbound_helper_manifest;
 pub use grinder::{
     grind_share, grind_submission_pow, grind_ticket, CounterNonce, GrindProgress,
