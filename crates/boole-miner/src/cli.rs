@@ -5,6 +5,8 @@
 // mine bounty`) can drive the same code paths without duplicating clap
 // argument parsing.
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Args, Subcommand};
@@ -774,7 +776,53 @@ pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
     let allow_env = std::env::var(PAID_LLM_ALLOW_ENV).ok();
     let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdin());
     let prompt: PaidApiConfirmPrompt = Box::new(real_paid_api_confirm_prompt);
-    run_start_with_paid_policy_inputs_and_prompt(args, allow_env.as_deref(), is_tty, Some(prompt))
+    let hooks = PaidPolicyHooks {
+        prompt: Some(prompt),
+        optin_counter: Some(global_paid_api_optin_counter()),
+    };
+    run_start_with_paid_policy_hooks(args, allow_env.as_deref(), is_tty, hooks)
+}
+
+/// P2.4 (slice 46) — typed counter handle for the
+/// `boole_paid_api_optin_total` metric. `Arc<AtomicU64>` so the policy
+/// code, the binary's `run_start`, and an eventual metrics endpoint can
+/// all share the same monotonic stream, and so tests can inject their
+/// own counter via [`PaidPolicyHooks::optin_counter`] to avoid races on
+/// the process-global counter under cargo's parallel runner.
+pub type PaidApiOptInCounter = Arc<AtomicU64>;
+
+/// Process-global `boole_paid_api_optin_total` counter. Lazily
+/// initialised so the static is zero-cost when no paid-LLM run ever
+/// fires. The binary's `run_start` passes a clone into the hook bundle
+/// so every `AllowedByEnv` decision is reflected here.
+fn global_paid_api_optin_counter() -> PaidApiOptInCounter {
+    static GLOBAL: std::sync::OnceLock<PaidApiOptInCounter> = std::sync::OnceLock::new();
+    Arc::clone(GLOBAL.get_or_init(|| Arc::new(AtomicU64::new(0))))
+}
+
+/// P2.4 (slice 46) — read the process-global opt-in counter. Returns
+/// the cumulative number of `AllowedByEnv` decisions taken since the
+/// binary started. Wired by `run_start`'s default hooks; tests that use
+/// the hook-aware seam can read their injected counter directly.
+pub fn paid_api_optin_total() -> u64 {
+    global_paid_api_optin_counter().load(Ordering::SeqCst)
+}
+
+/// P2.4 (slice 46) — bundle of test-friendly hooks for
+/// [`run_start_with_paid_policy_hooks`]. Default = no prompt + no
+/// counter, which preserves slice-44 semantics (TTY-no-opt-in refuses
+/// without consulting any callback, AllowedByEnv proceeds silently).
+#[derive(Default)]
+pub struct PaidPolicyHooks {
+    /// Interactive y/N confirm callback fired iff
+    /// `evaluate_paid_api_policy` returns `RequiresInteractiveConfirm`.
+    pub prompt: Option<PaidApiConfirmPrompt>,
+    /// `boole_paid_api_optin_total` counter. Incremented by exactly
+    /// 1 on every `AllowedByEnv` decision; untouched on every other
+    /// outcome (NotPaid, RequiresInteractiveConfirm with Proceed,
+    /// refusal). Tests inject their own counter so they do not race
+    /// on the process-global counter.
+    pub optin_counter: Option<PaidApiOptInCounter>,
 }
 
 /// P2.4 (slice 45) — operator's response to the paid-API interactive
@@ -826,31 +874,49 @@ fn real_paid_api_confirm_prompt() -> std::io::Result<PaidApiConfirmDecision> {
 }
 
 /// P2.4 (slice 44) — testable seam over `run_start` that takes the
-/// paid-API policy inputs (env value + TTY presence) explicitly. The
-/// thin `run_start` wrapper above reads them from the process; tests
-/// pass them directly so the matrix is exercised without mutating the
-/// global environment or attaching a real TTY. Kept as a thin shim over
-/// the prompt-aware variant below so existing slice-44 tests still pin
-/// the non-prompted behavior.
+/// paid-API policy inputs (env value + TTY presence) explicitly. Kept
+/// as a thin shim over `run_start_with_paid_policy_hooks` with default
+/// (empty) hooks so the slice-44 test matrix stays meaningful.
 pub fn run_start_with_paid_policy_inputs(
     args: StartArgs,
     allow_env_value: Option<&str>,
     is_tty: bool,
 ) -> anyhow::Result<MiningLoopSummary> {
-    run_start_with_paid_policy_inputs_and_prompt(args, allow_env_value, is_tty, None)
+    run_start_with_paid_policy_hooks(args, allow_env_value, is_tty, PaidPolicyHooks::default())
 }
 
-/// P2.4 (slice 45) — full-fat seam: same as
-/// `run_start_with_paid_policy_inputs` plus an explicit `prompt`
-/// callback that fires exactly once when (and only when) the policy
-/// decision is `RequiresInteractiveConfirm`. `prompt = None` preserves
-/// slice-44 semantics (TTY-no-opt-in refuses without consulting any
-/// callback) so the test matrix from slice 44 stays meaningful.
+/// P2.4 (slice 45) — prompt-aware seam preserved as a thin shim over
+/// the slice-46 hook bundle so existing slice-45 tests stay green.
 pub fn run_start_with_paid_policy_inputs_and_prompt(
     args: StartArgs,
     allow_env_value: Option<&str>,
     is_tty: bool,
     prompt: Option<PaidApiConfirmPrompt>,
+) -> anyhow::Result<MiningLoopSummary> {
+    run_start_with_paid_policy_hooks(
+        args,
+        allow_env_value,
+        is_tty,
+        PaidPolicyHooks {
+            prompt,
+            optin_counter: None,
+        },
+    )
+}
+
+/// P2.4 (slice 46) — full-fat seam: same as
+/// `run_start_with_paid_policy_inputs_and_prompt` plus an explicit
+/// `optin_counter` that is incremented by exactly 1 when (and only
+/// when) the policy returns `AllowedByEnv`. Every other outcome
+/// (`NotPaid`, `RequiresInteractiveConfirm` with either Proceed or
+/// Refuse, refusal) leaves the counter alone. The TTY-prompt Proceed
+/// path is deliberately NOT counted because the master plan scopes
+/// `boole_paid_api_optin_total` to the env opt-in path.
+pub fn run_start_with_paid_policy_hooks(
+    args: StartArgs,
+    allow_env_value: Option<&str>,
+    is_tty: bool,
+    hooks: PaidPolicyHooks,
 ) -> anyhow::Result<MiningLoopSummary> {
     let path = resolve_state_path(&args.state_args)?;
     let state = load_state(&path)?;
@@ -875,8 +941,13 @@ pub fn run_start_with_paid_policy_inputs_and_prompt(
         }),
     };
     match evaluate_paid_api_policy(backend, allow_env_value, is_tty, "mine.start") {
-        Ok(PaidApiPolicyOutcome::NotPaid) | Ok(PaidApiPolicyOutcome::AllowedByEnv) => {}
-        Ok(PaidApiPolicyOutcome::RequiresInteractiveConfirm) => match prompt {
+        Ok(PaidApiPolicyOutcome::NotPaid) => {}
+        Ok(PaidApiPolicyOutcome::AllowedByEnv) => {
+            if let Some(counter) = hooks.optin_counter.as_ref() {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        Ok(PaidApiPolicyOutcome::RequiresInteractiveConfirm) => match hooks.prompt {
             Some(cb) => match cb() {
                 Ok(PaidApiConfirmDecision::Proceed) => {}
                 Ok(PaidApiConfirmDecision::Refuse) | Err(_) => {

@@ -24,12 +24,13 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use boole_miner::cli::{
-    run_start_with_paid_policy_inputs, run_start_with_paid_policy_inputs_and_prompt,
-    PaidApiConfirmDecision, StartArgs, StateArgs,
+    run_start_with_paid_policy_hooks, run_start_with_paid_policy_inputs,
+    run_start_with_paid_policy_inputs_and_prompt, PaidApiConfirmDecision, PaidPolicyHooks,
+    StartArgs, StateArgs,
 };
 use boole_miner::{
     evaluate_paid_api_policy, generate_miner_state, save_state, DispatcherConfig, LLMBackend,
@@ -361,6 +362,125 @@ fn opt_in_env_does_not_invoke_prompt_even_on_tty() {
     );
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+// ---------- slice 46: boole_paid_api_optin_total counter ----------
+
+#[test]
+fn env_optin_with_paid_backend_increments_injected_counter_exactly_once() {
+    let (dir, state_path) = write_paid_backend_state("anthropic");
+    let args = start_args(state_path);
+    let counter = Arc::new(AtomicU64::new(0));
+    let hooks = PaidPolicyHooks {
+        prompt: None,
+        optin_counter: Some(Arc::clone(&counter)),
+    };
+
+    // Anthropic + BOOLE_ALLOW_PAID_LLM=1 → AllowedByEnv. The post-gate
+    // run will fail (no live dispatcher) but the counter must have been
+    // incremented before that failure surfaces.
+    let err = run_start_with_paid_policy_hooks(args, Some("1"), false, hooks)
+        .expect_err("post-gate failure expected (no live dispatcher)");
+    assert!(
+        err.downcast_ref::<PaidApiPolicyError>().is_none(),
+        "env opt-in must pass the gate; err: {err:?}"
+    );
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "env opt-in on a paid backend must increment the counter exactly once"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn non_paid_backend_does_not_increment_counter_even_with_env_set() {
+    let (dir, state_path) = write_paid_backend_state("mock");
+    let args = start_args(state_path);
+    let counter = Arc::new(AtomicU64::new(0));
+    let hooks = PaidPolicyHooks {
+        prompt: None,
+        optin_counter: Some(Arc::clone(&counter)),
+    };
+
+    let _ = run_start_with_paid_policy_hooks(args, Some("1"), false, hooks);
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        0,
+        "non-paid backend takes NotPaid path; counter must not move"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn refused_run_does_not_increment_counter() {
+    let (dir, state_path) = write_paid_backend_state("openai");
+    let args = start_args(state_path);
+    let counter = Arc::new(AtomicU64::new(0));
+    let hooks = PaidPolicyHooks {
+        prompt: None,
+        optin_counter: Some(Arc::clone(&counter)),
+    };
+
+    // Paid backend + no env + no TTY → typed refusal.
+    let err = run_start_with_paid_policy_hooks(args, None, false, hooks)
+        .expect_err("non-TTY no opt-in must refuse");
+    assert!(err.downcast_ref::<PaidApiPolicyError>().is_some());
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        0,
+        "refused run must NOT increment the opt-in counter"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn tty_prompt_proceed_does_not_increment_env_optin_counter() {
+    // The counter is specifically scoped to the env opt-in path (per
+    // §6.5 P2.4 criterion: "BOOLE_ALLOW_PAID_LLM=1 set → proceeds, with
+    // a structured boole_paid_api_optin_total counter increment"). An
+    // operator who consented via the TTY prompt did NOT export the env
+    // var, so the counter must stay still.
+    let (dir, state_path) = write_paid_backend_state("anthropic");
+    let args = start_args(state_path);
+    let counter = Arc::new(AtomicU64::new(0));
+    let prompt = Box::new(|| Ok(PaidApiConfirmDecision::Proceed));
+    let hooks = PaidPolicyHooks {
+        prompt: Some(prompt),
+        optin_counter: Some(Arc::clone(&counter)),
+    };
+
+    let _ = run_start_with_paid_policy_hooks(args, None, true, hooks);
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        0,
+        "TTY-prompt Proceed path must NOT increment the env opt-in counter"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn repeated_env_optin_increments_counter_per_call() {
+    let counter = Arc::new(AtomicU64::new(0));
+    for _ in 0..3 {
+        let (dir, state_path) = write_paid_backend_state("google");
+        let args = start_args(state_path);
+        let hooks = PaidPolicyHooks {
+            prompt: None,
+            optin_counter: Some(Arc::clone(&counter)),
+        };
+        let _ = run_start_with_paid_policy_hooks(args, Some("1"), false, hooks);
+        let _ = fs::remove_dir_all(&dir);
+    }
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        3,
+        "each AllowedByEnv decision increments the counter exactly once"
+    );
 }
 
 #[test]

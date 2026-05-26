@@ -19,8 +19,8 @@ mod target_emitter;
 
 pub use bounty_client::{BountyClient, BountyProofInputs, BountyProofResult};
 pub use cli::{
-    evaluate_paid_api_policy, PaidApiPolicyError, PaidApiPolicyOutcome, EXIT_CODE_POLICY_REFUSED,
-    PAID_LLM_ALLOW_ENV,
+    evaluate_paid_api_policy, paid_api_optin_total, PaidApiOptInCounter, PaidApiPolicyError,
+    PaidApiPolicyOutcome, EXIT_CODE_POLICY_REFUSED, PAID_LLM_ALLOW_ENV,
 };
 pub use canonicalizer::{encode_placeholder_bppk, Canonicalizer, StructuralCanonicalizer, Target};
 pub use chain_head::{ChainHead, ChainHeadError, ChainHeadFetcher, HttpChainHeadFetcher};
