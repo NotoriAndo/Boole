@@ -71,18 +71,32 @@ fn test_default_state_path_respects_boole_miner_home() {
     }
 }
 
+// P2.3 (slice 42) — `XDG_CONFIG_HOME` is no longer consulted for the
+// canonical state path; it is only a *legacy* candidate that the
+// one-shot migration in `try_migrate_legacy_state_with` probes when
+// copying from the old layout. So with `XDG_CONFIG_HOME` set but no
+// `BOOLE_*_HOME` override and no legacy file on disk, the resolver
+// returns the modern `$HOME/.boole/miner/state.json` and ignores XDG.
 #[test]
-fn test_default_state_path_falls_back_to_xdg_config_home() {
+fn test_default_state_path_ignores_xdg_config_home_for_canonical_path() {
     let _g = ENV_LOCK.lock().unwrap();
-    let old_home = std::env::var("BOOLE_MINER_HOME").ok();
+    let old_miner = std::env::var("BOOLE_MINER_HOME").ok();
     let old_xdg = std::env::var("XDG_CONFIG_HOME").ok();
     let old_boole = std::env::var("BOOLE_HOME").ok();
+    let old_home = std::env::var("HOME").ok();
+    let tmp_home = std::env::temp_dir().join(format!(
+        "boole-miner-test-xdg-{}-{}",
+        std::process::id(),
+        rand_index()
+    ));
+    std::fs::create_dir_all(&tmp_home).unwrap();
     std::env::remove_var("BOOLE_MINER_HOME");
     std::env::remove_var("BOOLE_HOME");
-    std::env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
+    std::env::set_var("XDG_CONFIG_HOME", "/tmp/xdg-should-be-ignored");
+    std::env::set_var("HOME", &tmp_home);
     let p = default_state_path().unwrap();
-    assert_eq!(p, PathBuf::from("/tmp/xdg/boole-miner/state.json"));
-    if let Some(v) = old_home {
+    assert_eq!(p, tmp_home.join(".boole").join("miner").join("state.json"));
+    if let Some(v) = old_miner {
         std::env::set_var("BOOLE_MINER_HOME", v);
     }
     if let Some(v) = old_xdg {
@@ -93,6 +107,12 @@ fn test_default_state_path_falls_back_to_xdg_config_home() {
     if let Some(v) = old_boole {
         std::env::set_var("BOOLE_HOME", v);
     }
+    if let Some(v) = old_home {
+        std::env::set_var("HOME", v);
+    } else {
+        std::env::remove_var("HOME");
+    }
+    let _ = std::fs::remove_dir_all(&tmp_home);
 }
 
 // P2.3 — BOOLE_HOME is the workspace-wide root that boole-cli already
@@ -101,11 +121,10 @@ fn test_default_state_path_falls_back_to_xdg_config_home() {
 // who sets `BOOLE_HOME=/var/lib/boole` finds the miner state under that
 // root without needing a separate `BOOLE_MINER_HOME` override.
 //
-// Precedence (most specific wins):
+// Canonical precedence (most specific wins; XDG is migration-only):
 //   1. BOOLE_MINER_HOME              -> $BOOLE_MINER_HOME/state.json
 //   2. BOOLE_HOME                    -> $BOOLE_HOME/miner/state.json
-//   3. XDG_CONFIG_HOME               -> $XDG_CONFIG_HOME/boole-miner/state.json
-//   4. $HOME                         -> $HOME/.config/boole-miner/state.json
+//   3. $HOME                         -> $HOME/.boole/miner/state.json
 #[test]
 fn test_default_state_path_uses_boole_home_when_no_more_specific_override() {
     let _g = ENV_LOCK.lock().unwrap();
