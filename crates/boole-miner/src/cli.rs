@@ -296,6 +296,92 @@ fn enforce_paid_llm_gate_from_env(backend: LLMBackend) -> anyhow::Result<()> {
     enforce_paid_llm_gate(backend, raw.as_deref())
 }
 
+/// P2.4 (slice 43) — exit code returned to the shell when the miner
+/// refuses to launch a paid backend without an opt-in. Documented as
+/// `3 (policy-refused)` in §6.5 P2.4 so operators and CI systems can
+/// programmatically distinguish "we declined to spend money" from a
+/// generic configuration error (`1`) or a panic (`>=101`).
+pub const EXIT_CODE_POLICY_REFUSED: i32 = 3;
+
+/// P2.4 (slice 43) — outcome of [`evaluate_paid_api_policy`].
+///
+/// Non-error variants tell the caller exactly which branch fired so it
+/// can record a metric (`AllowedByEnv` increments the opt-in counter)
+/// or run an interactive prompt (`RequiresInteractiveConfirm` — slice
+/// 44 wires the prompt). `NotPaid` is the fast path for local /
+/// agent-driven backends that do not bill against a hosted API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaidApiPolicyOutcome {
+    /// Backend does not bill against a hosted paid API — no gate fires.
+    NotPaid,
+    /// Operator exported the opt-in env var with a truthy value.
+    AllowedByEnv,
+    /// Paid backend, no opt-in, but stdin is a TTY — the caller must
+    /// prompt the operator (`y/N`). Slice 43 returns this verbatim so
+    /// the caller decides; slice 44 wires the prompt into `run_start`.
+    RequiresInteractiveConfirm,
+}
+
+/// P2.4 (slice 43) — typed refusal carrying everything the binary needs
+/// to terminate cleanly: the documented exit code and the unified CLI
+/// JSON envelope (`ok=false`, `version=v1`, `command=<caller>`,
+/// `error.reason=paid-api-not-opted-in`). The caller prints the
+/// envelope to stderr and calls `std::process::exit(refusal.exit_code)`.
+#[derive(Debug, Clone)]
+pub struct PaidApiPolicyError {
+    pub exit_code: i32,
+    pub envelope: serde_json::Value,
+}
+
+/// P2.4 (slice 43) — pure policy decision for the paid-API gate.
+///
+/// Inputs are explicit (no env read, no TTY syscall) so the function is
+/// trivially testable across every (backend, opt-in env value, TTY)
+/// combination without racing on the global process environment.
+///
+/// Semantics:
+///   * Non-paid backend → `Ok(NotPaid)` — the gate does not fire.
+///   * Truthy opt-in env (matches `enforce_paid_llm_gate` semantics,
+///     i.e. trimmed value in `{"1","true","TRUE","True"}`) →
+///     `Ok(AllowedByEnv)`.
+///   * Paid backend, no opt-in, TTY → `Ok(RequiresInteractiveConfirm)`.
+///   * Paid backend, no opt-in, no TTY → `Err(PaidApiPolicyError)` with
+///     `exit_code = EXIT_CODE_POLICY_REFUSED` and the documented
+///     envelope shape.
+pub fn evaluate_paid_api_policy(
+    backend: LLMBackend,
+    allow_env_value: Option<&str>,
+    is_tty: bool,
+    command: &str,
+) -> Result<PaidApiPolicyOutcome, PaidApiPolicyError> {
+    if !is_paid_llm_backend(backend) {
+        return Ok(PaidApiPolicyOutcome::NotPaid);
+    }
+    let allowed = matches!(
+        allow_env_value.map(str::trim),
+        Some("1") | Some("true") | Some("TRUE") | Some("True")
+    );
+    if allowed {
+        return Ok(PaidApiPolicyOutcome::AllowedByEnv);
+    }
+    if is_tty {
+        return Ok(PaidApiPolicyOutcome::RequiresInteractiveConfirm);
+    }
+    Err(PaidApiPolicyError {
+        exit_code: EXIT_CODE_POLICY_REFUSED,
+        envelope: serde_json::json!({
+            "ok": false,
+            "version": "v1",
+            "command": command,
+            "error": {
+                "reason": "paid-api-not-opted-in",
+                "backend": backend.as_str(),
+                "allowEnv": PAID_LLM_ALLOW_ENV,
+            },
+        }),
+    })
+}
+
 fn parse_agent_args(s: &str) -> anyhow::Result<Vec<String>> {
     let parsed: serde_json::Value = serde_json::from_str(s)
         .map_err(|_| anyhow::anyhow!("--agent-args must be a JSON string array"))?;
