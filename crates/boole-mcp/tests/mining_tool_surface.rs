@@ -180,15 +180,24 @@ fn tools_endpoint_now_lists_boole_mine_and_boole_status() {
     }
 }
 
+/// P2.1 closure (slice 53) — `boole.mine` drives a zero-cycle
+/// `run_mining_loop` round-trip through the slice 49 in-process bundle
+/// and returns the four protocol counters from `MiningLoopSummary` as
+/// a typed 200 envelope. `MiningLoopOptions { max_cycles: Some(0), .. }`
+/// short-circuits the body before any driver/verifier/Lean work, so the
+/// HTTP path is exercised end-to-end without any real mining cost.
+/// Counter expansion + non-zero cycle counts ride on slice 54+.
 #[test]
-fn invoke_boole_mine_returns_typed_not_implemented_501() {
+fn invoke_boole_mine_zero_cycle_returns_protocol_summary_envelope_200() {
     let (_guard, addr) = spawn_serve(&dummy_upstream_url());
     let req_body = json!({"tool":"boole.mine","args":{}}).to_string();
     let (status, body) = http_post_json(addr, "/mcp/invoke", &req_body);
-    assert_eq!(status, 501, "body={body}");
+    assert_eq!(status, 200, "body={body}");
     let v: Value = serde_json::from_str(&body).expect("json");
-    assert_eq!(v["error"], "not-implemented");
-    assert_eq!(v["tool"], "boole.mine");
+    assert_eq!(v["cycles_run"], 0, "body={body}");
+    assert_eq!(v["tickets_found"], 0, "body={body}");
+    assert_eq!(v["shares_accepted"], 0, "body={body}");
+    assert_eq!(v["network_errors"], 0, "body={body}");
 }
 
 /// P2.1 closure (slice 52) — `boole.status` answers a real envelope.

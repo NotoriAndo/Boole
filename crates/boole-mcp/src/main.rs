@@ -48,9 +48,18 @@ use axum::{
     Json, Router,
 };
 use clap::{Parser, Subcommand, ValueEnum};
+use num_bigint::BigUint;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tokio::net::TcpListener;
+
+use boole_core::Hex32;
+use boole_mcp::{build_in_process_mining_deps, InProcessMiningInputs};
+use boole_miner::{
+    run_mining_loop, AnnounceTicketResult, ChainHead, MiningLoopOptions, MockDriver, MockResponse,
+    ProtocolReport, RejectingVerifier, StructuralCanonicalizer, StubTargetEmitter, SubmitResult,
+    VerifyReason,
+};
 
 /// `boole-mcp --version` text. Captured at build time by `build.rs`
 /// so an operator can pin down exactly which binary is registered into
@@ -394,14 +403,73 @@ async fn invoke(
             ),
         },
         "boole.status" => (StatusCode::OK, Json(json!({"state": "idle"}))),
-        tool @ "boole.mine" => (
-            StatusCode::NOT_IMPLEMENTED,
-            Json(json!({"error":"not-implemented","tool":tool})),
-        ),
+        "boole.mine" => {
+            let protocol = tokio::task::spawn_blocking(run_zero_cycle_mining_summary)
+                .await
+                .expect("zero-cycle mining task panicked");
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "cycles_run": protocol.cycles_run,
+                    "tickets_found": protocol.tickets_found,
+                    "shares_accepted": protocol.shares_accepted,
+                    "network_errors": protocol.network_errors,
+                })),
+            )
+        }
         other => (
             StatusCode::BAD_REQUEST,
             Json(json!({"error":"unknown-tool","tool":other})),
         ),
+    }
+}
+
+/// P2.1 slice 53 — drive the slice 49 in-process bundle through
+/// `run_mining_loop` with `max_cycles: Some(0)`. The body short-circuits
+/// before any driver / verifier / Lean work, so this exercises the full
+/// MCP -> `MiningLoopDeps` -> `run_mining_loop` plumbing end-to-end
+/// without paying any mining cost. Returns just the protocol counters
+/// because that's what the slice 53 envelope contract exposes; the
+/// agent-side report rides on slice 54+.
+fn run_zero_cycle_mining_summary() -> ProtocolReport {
+    let bundle = build_in_process_mining_deps(default_in_process_inputs());
+    let opts = MiningLoopOptions {
+        max_cycles: Some(0),
+        ..Default::default()
+    };
+    run_mining_loop(bundle.deps, opts).protocol
+}
+
+/// Fixture `InProcessMiningInputs` for the slice 53 zero-cycle smoke.
+/// Field values match the slice 49 / 50 in-process tests so deps shape
+/// stays in sync; nothing in here is reachable when `max_cycles == 0`.
+fn default_in_process_inputs() -> InProcessMiningInputs {
+    InProcessMiningInputs {
+        pk: Hex32::from_bytes([0u8; 32]),
+        head: ChainHead {
+            c: Hex32::from_bytes([0u8; 32]),
+            t_ticket: BigUint::from(1u32) << 240,
+            t_share: BigUint::from(1u32) << 232,
+            t_block: BigUint::from(1u32) << 224,
+            t_submit: BigUint::from(1u32) << 248,
+            min_share_score: BigUint::from(1u32),
+            m: 7,
+            d: 11,
+            profile: "v1-lenbound".to_string(),
+            n: Some(3),
+        },
+        announce_result: AnnounceTicketResult::Observed {
+            hash_hex: "0xticket".to_string(),
+        },
+        submit_result: SubmitResult::Accepted {
+            share_hash_hex: "0xshare".to_string(),
+        },
+        emitter: Box::new(StubTargetEmitter::new("stub")),
+        driver: Box::new(MockDriver::new(vec![MockResponse::Text(
+            "fun xs => xs".to_string(),
+        )])),
+        verifier: Box::new(RejectingVerifier::new(VerifyReason::ElaborateFailed)),
+        canonicalizer: Box::new(StructuralCanonicalizer),
     }
 }
 
