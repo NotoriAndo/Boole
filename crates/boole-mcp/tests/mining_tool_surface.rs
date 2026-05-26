@@ -191,13 +191,16 @@ fn invoke_boole_mine_returns_typed_not_implemented_501() {
     assert_eq!(v["tool"], "boole.mine");
 }
 
+/// P2.1 closure (slice 52) — `boole.status` answers a real envelope.
+/// With no mining session ever started, the read returns
+/// `{"state":"idle"}` and HTTP 200. The `not-implemented` 501 envelope
+/// is reserved for `boole.mine` until slice 53 wires the run-loop.
 #[test]
-fn invoke_boole_status_returns_typed_not_implemented_501() {
+fn invoke_boole_status_returns_idle_envelope_200() {
     let (_guard, addr) = spawn_serve(&dummy_upstream_url());
     let req_body = json!({"tool":"boole.status","args":{}}).to_string();
     let (status, body) = http_post_json(addr, "/mcp/invoke", &req_body);
-    assert_eq!(status, 501, "body={body}");
+    assert_eq!(status, 200, "body={body}");
     let v: Value = serde_json::from_str(&body).expect("json");
-    assert_eq!(v["error"], "not-implemented");
-    assert_eq!(v["tool"], "boole.status");
+    assert_eq!(v["state"], "idle", "body={body}");
 }

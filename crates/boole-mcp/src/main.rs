@@ -15,15 +15,14 @@
 //!   * POST /mcp/invoke    -> 200 with raw upstream JSON, or typed
 //!     4xx/5xx error envelope (see below)
 //!
-//! P2.1 (slice 51) adds two mining-side tools that **do not proxy** to
-//! the upstream node; the round-trip is meant to run in-process via
-//! the `boole-mcp` lib's `InProcessChainHead`/`InProcessSubmitter`
-//! impls. Slice 51 only pins discoverability + the dispatch envelope:
+//! P2.1 (slice 51+) adds two mining-side tools that **do not proxy** to
+//! the upstream node; the round-trip runs in-process via the
+//! `boole-mcp` lib's `InProcessChainHead`/`InProcessSubmitter` impls.
 //!
-//!   * `boole.mine`   -> drives a fixture mining round-trip (slice 52+)
-//!   * `boole.status` -> reports current mining session state (slice 52+)
-//!
-//! Both currently answer with the `not-implemented` envelope below.
+//!   * `boole.mine`   -> drives a fixture mining round-trip (slice 53+).
+//!     Currently answers `not-implemented`.
+//!   * `boole.status` -> reports current mining session state. With no
+//!     session ever started, returns 200 `{"state":"idle"}` (slice 52).
 //!
 //! Typed error shapes (always JSON):
 //!   * unknown tool        -> 400 {"error":"unknown-tool","tool":"<name>"}
@@ -394,7 +393,8 @@ async fn invoke(
                 Json(json!({"error":"missing-arg","arg":"receipt_id"})),
             ),
         },
-        tool @ ("boole.mine" | "boole.status") => (
+        "boole.status" => (StatusCode::OK, Json(json!({"state": "idle"}))),
+        tool @ "boole.mine" => (
             StatusCode::NOT_IMPLEMENTED,
             Json(json!({"error":"not-implemented","tool":tool})),
         ),
