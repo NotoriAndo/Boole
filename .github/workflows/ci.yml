@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual fallback so a missed push webhook (rare GitHub Actions hiccup)
+  # can be re-triggered without an empty commit. `gh workflow run ci.yml
+  # --ref main` will queue a fresh run on the current `main` HEAD.
+  workflow_dispatch:
 
 jobs:
   self-test:
