@@ -55,11 +55,27 @@ jobs:
 
       - name: Install cargo-deny
         shell: bash
+        # Bumped from 0.16.4 -> 0.19.7: 0.16.x cannot parse RustSec advisory
+        # entries that use the CVSS 4.0 vector format, which the advisory-db
+        # adopted in 2026. 0.17+ pulls in `rustsec` crate >= 0.30 that knows
+        # CVSS 4.0; 0.19.7 is the current upstream release.
+        env:
+          CARGO_DENY_VERSION: "0.19.7"
         run: |
           set -euo pipefail
-          curl -sSfL https://github.com/EmbarkStudios/cargo-deny/releases/download/0.16.4/cargo-deny-0.16.4-x86_64-unknown-linux-musl.tar.gz -o /tmp/cargo-deny.tar.gz
+          asset="cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          base="https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}"
+          curl -sSfL "${base}/${asset}" -o /tmp/cargo-deny.tar.gz
+          curl -sSfL "${base}/${asset}.sha256" -o /tmp/cargo-deny.tar.gz.sha256
+          # Upstream .sha256 contains just the hex digest (no filename), so
+          # rewrite it into the GNU coreutils-friendly "<digest>  <file>"
+          # form before handing it to sha256sum -c.
+          digest=$(awk '{print $1}' /tmp/cargo-deny.tar.gz.sha256)
+          printf '%s  %s\n' "${digest}" /tmp/cargo-deny.tar.gz > /tmp/cargo-deny.tar.gz.sha256.check
+          sha256sum -c /tmp/cargo-deny.tar.gz.sha256.check
           tar -xzf /tmp/cargo-deny.tar.gz -C /tmp
-          sudo install -m 0755 /tmp/cargo-deny-0.16.4-x86_64-unknown-linux-musl/cargo-deny /usr/local/bin/cargo-deny
+          sudo install -m 0755 "/tmp/cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl/cargo-deny" /usr/local/bin/cargo-deny
+          cargo-deny --version
 
       - name: Install cargo-audit
         shell: bash
