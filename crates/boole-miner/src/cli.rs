@@ -773,18 +773,84 @@ fn family_target_emitter(
 pub fn run_start(args: StartArgs) -> anyhow::Result<MiningLoopSummary> {
     let allow_env = std::env::var(PAID_LLM_ALLOW_ENV).ok();
     let is_tty = std::io::IsTerminal::is_terminal(&std::io::stdin());
-    run_start_with_paid_policy_inputs(args, allow_env.as_deref(), is_tty)
+    let prompt: PaidApiConfirmPrompt = Box::new(real_paid_api_confirm_prompt);
+    run_start_with_paid_policy_inputs_and_prompt(args, allow_env.as_deref(), is_tty, Some(prompt))
+}
+
+/// P2.4 (slice 45) — operator's response to the paid-API interactive
+/// confirm prompt. The prompt callback returns this so the policy code
+/// path stays agnostic of stdin shape (real terminal, test closure,
+/// canned automation feed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaidApiConfirmDecision {
+    /// Operator typed `y`/`yes` (case-insensitive). Gate lets the run
+    /// proceed exactly as if `BOOLE_ALLOW_PAID_LLM=1` were set.
+    Proceed,
+    /// Anything else (empty line, `n`, `no`, junk, EOF on a closed pipe
+    /// even though `is_tty=true` claimed otherwise). Gate refuses.
+    Refuse,
+}
+
+/// P2.4 (slice 45) — callback signature for the interactive confirm.
+/// Boxed `FnOnce` so callers can wire a real stdin reader or a test
+/// closure; an `Err(io::Error)` from the closure is treated as Refuse
+/// so a closed/broken stdin cannot accidentally consent on the
+/// operator's behalf.
+pub type PaidApiConfirmPrompt = Box<dyn FnOnce() -> std::io::Result<PaidApiConfirmDecision>>;
+
+/// Default interactive prompt used by the real binary. Writes the
+/// question to stderr (so JSON-on-stdout subcommands are not polluted)
+/// and reads exactly one line from stdin; anything other than `y`/`yes`
+/// (case-insensitive, trimmed) is treated as Refuse.
+fn real_paid_api_confirm_prompt() -> std::io::Result<PaidApiConfirmDecision> {
+    use std::io::{BufRead, Write};
+    let stderr = std::io::stderr();
+    let mut h = stderr.lock();
+    write!(
+        h,
+        "boole-miner: about to launch a paid LLM backend. \
+         This will bill against your hosted API key. Type `y` to proceed: "
+    )?;
+    h.flush()?;
+    drop(h);
+
+    let stdin = std::io::stdin();
+    let mut line = String::new();
+    stdin.lock().read_line(&mut line)?;
+    let trimmed = line.trim().to_ascii_lowercase();
+    if trimmed == "y" || trimmed == "yes" {
+        Ok(PaidApiConfirmDecision::Proceed)
+    } else {
+        Ok(PaidApiConfirmDecision::Refuse)
+    }
 }
 
 /// P2.4 (slice 44) — testable seam over `run_start` that takes the
 /// paid-API policy inputs (env value + TTY presence) explicitly. The
 /// thin `run_start` wrapper above reads them from the process; tests
 /// pass them directly so the matrix is exercised without mutating the
-/// global environment or attaching a real TTY.
+/// global environment or attaching a real TTY. Kept as a thin shim over
+/// the prompt-aware variant below so existing slice-44 tests still pin
+/// the non-prompted behavior.
 pub fn run_start_with_paid_policy_inputs(
     args: StartArgs,
     allow_env_value: Option<&str>,
     is_tty: bool,
+) -> anyhow::Result<MiningLoopSummary> {
+    run_start_with_paid_policy_inputs_and_prompt(args, allow_env_value, is_tty, None)
+}
+
+/// P2.4 (slice 45) — full-fat seam: same as
+/// `run_start_with_paid_policy_inputs` plus an explicit `prompt`
+/// callback that fires exactly once when (and only when) the policy
+/// decision is `RequiresInteractiveConfirm`. `prompt = None` preserves
+/// slice-44 semantics (TTY-no-opt-in refuses without consulting any
+/// callback) so the test matrix from slice 44 stays meaningful.
+pub fn run_start_with_paid_policy_inputs_and_prompt(
+    args: StartArgs,
+    allow_env_value: Option<&str>,
+    is_tty: bool,
+    prompt: Option<PaidApiConfirmPrompt>,
 ) -> anyhow::Result<MiningLoopSummary> {
     let path = resolve_state_path(&args.state_args)?;
     let state = load_state(&path)?;
@@ -795,27 +861,30 @@ pub fn run_start_with_paid_policy_inputs(
     // the loop itself must not begin calling a paid backend unless the
     // current process environment still asserts the opt-in.
     let backend = ensure_backend(&state.config.llm.backend)?;
+    let typed_refusal = || PaidApiPolicyError {
+        exit_code: EXIT_CODE_POLICY_REFUSED,
+        envelope: serde_json::json!({
+            "ok": false,
+            "version": "v1",
+            "command": "mine.start",
+            "error": {
+                "reason": "paid-api-not-opted-in",
+                "backend": backend.as_str(),
+                "allowEnv": PAID_LLM_ALLOW_ENV,
+            },
+        }),
+    };
     match evaluate_paid_api_policy(backend, allow_env_value, is_tty, "mine.start") {
         Ok(PaidApiPolicyOutcome::NotPaid) | Ok(PaidApiPolicyOutcome::AllowedByEnv) => {}
-        Ok(PaidApiPolicyOutcome::RequiresInteractiveConfirm) => {
-            // Slice 44 — the interactive y/N prompt is a follow-up
-            // slice. Until then, the TTY-no-opt-in path returns the
-            // same typed refusal as the non-TTY path so an operator
-            // sees a clean exit (code 3 + envelope) instead of a hang.
-            return Err(anyhow::Error::new(PaidApiPolicyError {
-                exit_code: EXIT_CODE_POLICY_REFUSED,
-                envelope: serde_json::json!({
-                    "ok": false,
-                    "version": "v1",
-                    "command": "mine.start",
-                    "error": {
-                        "reason": "paid-api-not-opted-in",
-                        "backend": backend.as_str(),
-                        "allowEnv": PAID_LLM_ALLOW_ENV,
-                    },
-                }),
-            }));
-        }
+        Ok(PaidApiPolicyOutcome::RequiresInteractiveConfirm) => match prompt {
+            Some(cb) => match cb() {
+                Ok(PaidApiConfirmDecision::Proceed) => {}
+                Ok(PaidApiConfirmDecision::Refuse) | Err(_) => {
+                    return Err(anyhow::Error::new(typed_refusal()));
+                }
+            },
+            None => return Err(anyhow::Error::new(typed_refusal())),
+        },
         Err(refusal) => return Err(anyhow::Error::new(refusal)),
     }
     let signing = signing_key_from_state(&state)?;

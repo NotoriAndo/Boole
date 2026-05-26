@@ -24,7 +24,13 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use boole_miner::cli::{run_start_with_paid_policy_inputs, StartArgs, StateArgs};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+use boole_miner::cli::{
+    run_start_with_paid_policy_inputs, run_start_with_paid_policy_inputs_and_prompt,
+    PaidApiConfirmDecision, StartArgs, StateArgs,
+};
 use boole_miner::{
     evaluate_paid_api_policy, generate_miner_state, save_state, DispatcherConfig, LLMBackend,
     LlmConfig, MinerStateConfig, PaidApiPolicyError, PaidApiPolicyOutcome,
@@ -231,6 +237,127 @@ fn run_start_non_paid_backend_proceeds_past_policy_check() {
     assert!(
         err.downcast_ref::<PaidApiPolicyError>().is_none(),
         "non-paid backend must NOT be refused by the paid-API gate; err: {err:?}"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+// ---------- slice 45: TTY interactive y/N prompt ----------
+
+#[test]
+fn tty_no_optin_with_yes_prompt_proceeds_past_paid_gate_exactly_once() {
+    let (dir, state_path) = write_paid_backend_state("anthropic");
+    let args = start_args(state_path);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_in_prompt = Arc::clone(&calls);
+    let prompt = Box::new(move || {
+        calls_in_prompt.fetch_add(1, Ordering::SeqCst);
+        Ok(PaidApiConfirmDecision::Proceed)
+    });
+
+    let err = run_start_with_paid_policy_inputs_and_prompt(args, None, true, Some(prompt))
+        .expect_err("anthropic backend still fails past the gate (no live dispatcher)");
+    assert!(
+        err.downcast_ref::<PaidApiPolicyError>().is_none(),
+        "prompt=Proceed must let the gate pass; err: {err:?}"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "prompt must be invoked exactly once on TTY+no-opt-in"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn tty_no_optin_with_refuse_prompt_returns_typed_refusal_exactly_once() {
+    let (dir, state_path) = write_paid_backend_state("google");
+    let args = start_args(state_path);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_in_prompt = Arc::clone(&calls);
+    let prompt = Box::new(move || {
+        calls_in_prompt.fetch_add(1, Ordering::SeqCst);
+        Ok(PaidApiConfirmDecision::Refuse)
+    });
+
+    let err = run_start_with_paid_policy_inputs_and_prompt(args, None, true, Some(prompt))
+        .expect_err("Refuse decision must produce the typed refusal");
+    let refusal = err
+        .downcast_ref::<PaidApiPolicyError>()
+        .unwrap_or_else(|| panic!("err must downcast to PaidApiPolicyError; got: {err:?}"));
+    assert_eq!(refusal.exit_code, EXIT_CODE_POLICY_REFUSED);
+    assert_eq!(refusal.envelope["error"]["backend"], "google");
+    assert_eq!(refusal.envelope["error"]["reason"], "paid-api-not-opted-in");
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "prompt invoked once");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn tty_no_optin_with_prompt_io_error_returns_typed_refusal() {
+    let (dir, state_path) = write_paid_backend_state("openai");
+    let args = start_args(state_path);
+    let prompt = Box::new(|| -> std::io::Result<PaidApiConfirmDecision> {
+        Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "stdin closed"))
+    });
+
+    let err = run_start_with_paid_policy_inputs_and_prompt(args, None, true, Some(prompt))
+        .expect_err("prompt I/O error must produce the typed refusal");
+    let refusal = err
+        .downcast_ref::<PaidApiPolicyError>()
+        .unwrap_or_else(|| panic!("err must downcast to PaidApiPolicyError; got: {err:?}"));
+    assert_eq!(refusal.exit_code, EXIT_CODE_POLICY_REFUSED);
+    assert_eq!(refusal.envelope["error"]["backend"], "openai");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn non_tty_path_does_not_invoke_prompt_at_all() {
+    let (dir, state_path) = write_paid_backend_state("anthropic");
+    let args = start_args(state_path);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_in_prompt = Arc::clone(&calls);
+    let prompt = Box::new(move || {
+        calls_in_prompt.fetch_add(1, Ordering::SeqCst);
+        Ok(PaidApiConfirmDecision::Proceed)
+    });
+
+    let err = run_start_with_paid_policy_inputs_and_prompt(args, None, false, Some(prompt))
+        .expect_err("non-TTY + no opt-in must refuse without consulting prompt");
+    assert!(err.downcast_ref::<PaidApiPolicyError>().is_some());
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "non-TTY path must NOT invoke the prompt (silent refusal for automation)"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn opt_in_env_does_not_invoke_prompt_even_on_tty() {
+    let (dir, state_path) = write_paid_backend_state("anthropic");
+    let args = start_args(state_path);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_in_prompt = Arc::clone(&calls);
+    let prompt = Box::new(move || {
+        calls_in_prompt.fetch_add(1, Ordering::SeqCst);
+        Ok(PaidApiConfirmDecision::Refuse)
+    });
+
+    let err =
+        run_start_with_paid_policy_inputs_and_prompt(args, Some("1"), true, Some(prompt))
+            .expect_err("post-gate failure expected (no live dispatcher)");
+    assert!(
+        err.downcast_ref::<PaidApiPolicyError>().is_none(),
+        "opt-in env must bypass prompt and the policy gate; err: {err:?}"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "env opt-in short-circuits the prompt path"
     );
 
     let _ = fs::remove_dir_all(&dir);
