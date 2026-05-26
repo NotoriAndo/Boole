@@ -15,10 +15,21 @@
 //!   * POST /mcp/invoke    -> 200 with raw upstream JSON, or typed
 //!     4xx/5xx error envelope (see below)
 //!
+//! P2.1 (slice 51) adds two mining-side tools that **do not proxy** to
+//! the upstream node; the round-trip is meant to run in-process via
+//! the `boole-mcp` lib's `InProcessChainHead`/`InProcessSubmitter`
+//! impls. Slice 51 only pins discoverability + the dispatch envelope:
+//!
+//!   * `boole.mine`   -> drives a fixture mining round-trip (slice 52+)
+//!   * `boole.status` -> reports current mining session state (slice 52+)
+//!
+//! Both currently answer with the `not-implemented` envelope below.
+//!
 //! Typed error shapes (always JSON):
 //!   * unknown tool        -> 400 {"error":"unknown-tool","tool":"<name>"}
 //!   * missing required arg-> 400 {"error":"missing-arg","arg":"<name>"}
 //!   * upstream unreachable-> 502 {"error":"upstream-unreachable"}
+//!   * not-implemented     -> 501 {"error":"not-implemented","tool":"<name>"}
 //!
 //! No signing, no key material, no mutation routes -- this is a
 //! read-only proxy. The mutation/wallet surface lives in the signed
@@ -343,6 +354,24 @@ async fn tools_list() -> impl IntoResponse {
                     "required": ["receipt_id"],
                     "additionalProperties": false
                 }
+            },
+            {
+                "name": "boole.mine",
+                "description": "Drive a fixture mining round-trip in-process (no HTTP loopback to boole-node). Returns the mining loop summary once the in-process runtime wiring lands.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                }
+            },
+            {
+                "name": "boole.status",
+                "description": "Report current in-process mining session state (idle, in-progress, last summary). Pure read.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                }
             }
         ]
     });
@@ -365,6 +394,10 @@ async fn invoke(
                 Json(json!({"error":"missing-arg","arg":"receipt_id"})),
             ),
         },
+        tool @ ("boole.mine" | "boole.status") => (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({"error":"not-implemented","tool":tool})),
+        ),
         other => (
             StatusCode::BAD_REQUEST,
             Json(json!({"error":"unknown-tool","tool":other})),
