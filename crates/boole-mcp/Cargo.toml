@@ -6,6 +6,10 @@ license.workspace = true
 authors.workspace = true
 publish = false
 
+[lib]
+name = "boole_mcp"
+path = "src/lib.rs"
+
 [[bin]]
 name = "boole-mcp"
 path = "src/main.rs"
@@ -13,11 +17,17 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+boole-core = { path = "../boole-core" }
+boole-miner = { path = "../boole-miner" }
 clap.workspace = true
+num-bigint.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+num-bigint.workspace = true
 
 [lints]
 workspace = true

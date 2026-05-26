@@ -263,7 +263,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "boole-core",
+ "boole-miner",
  "clap",
+ "num-bigint",
  "reqwest",
  "serde",
  "serde_json",
