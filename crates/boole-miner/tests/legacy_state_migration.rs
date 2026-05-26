@@ -21,7 +21,7 @@
 //! env vars, so cargo's parallel test runner does not cause races.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use boole_miner::{
@@ -42,30 +42,30 @@ fn temp_root() -> PathBuf {
     p
 }
 
-fn env_with_home(home: &PathBuf) -> StateEnv {
+fn env_with_home(home: &Path) -> StateEnv {
     StateEnv {
         boole_miner_home: None,
         boole_home: None,
         xdg_config_home: None,
-        home: home.clone(),
+        home: home.to_path_buf(),
     }
 }
 
-fn legacy_path(home: &PathBuf) -> PathBuf {
+fn legacy_path(home: &Path) -> PathBuf {
     home.join(".config").join("boole-miner").join("state.json")
 }
 
-fn modern_path(home: &PathBuf) -> PathBuf {
+fn modern_path(home: &Path) -> PathBuf {
     home.join(".boole").join("miner").join("state.json")
 }
 
-fn seed_legacy(home: &PathBuf, bytes: &[u8]) {
+fn seed_legacy(home: &Path, bytes: &[u8]) {
     let p = legacy_path(home);
     fs::create_dir_all(p.parent().unwrap()).unwrap();
     fs::write(&p, bytes).unwrap();
 }
 
-fn seed_modern(home: &PathBuf, bytes: &[u8]) {
+fn seed_modern(home: &Path, bytes: &[u8]) {
     let p = modern_path(home);
     fs::create_dir_all(p.parent().unwrap()).unwrap();
     fs::write(&p, bytes).unwrap();
@@ -176,7 +176,7 @@ fn legacy_candidates_with_xdg_set_returns_xdg_first() {
     assert!(
         candidates
             .iter()
-            .any(|p| p.starts_with(&home.join(".config")) && p.ends_with("state.json")),
+            .any(|p| p.starts_with(home.join(".config")) && p.ends_with("state.json")),
         "$HOME/.config candidate present: {candidates:?}"
     );
     let _ = fs::remove_dir_all(&home);
