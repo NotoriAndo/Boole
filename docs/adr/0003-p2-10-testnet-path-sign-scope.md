@@ -87,21 +87,29 @@ full gate → commit → push cycle:
 | Slice | Migration | File / site |
 |---|---|---|
 | 58 | This ADR + docs-smoke pin (doc-only) | `docs/adr/0003-*.md`, `scripts/docs-smoke.sh` |
-| 59 | `boole-miner` proof submit | `crates/boole-miner/src/bounty_client.rs:124` |
-| 60 | `boole-cli signer.work.v1` | `crates/boole-cli/src/main.rs:3399` |
-| 61 | `boole-cli bounty.proof.v1` | `crates/boole-cli/src/main.rs:2140` |
-| 62 | `boole-cli bounty.announce.v1` | `crates/boole-cli/src/main.rs:2274` |
-| 63 | `boole-cli bounty.status.v1` | `crates/boole-cli/src/main.rs:2385` |
-| 64 | Workspace grep test (strict: zero in-scope `.sign(` calls; `keys.sign` site annotated with `// P2.10-exempt` per this ADR) | `crates/boole-core/tests/sign_scope_grep.rs` |
-| 65 | P2.10 criterion 3 — cross-network verifier rejection regression | `crates/boole-core/tests/cross_network_rejection.rs` |
-| 66 | P2.10 criterion 1 — `scripts/smoke-testnet-faucet-to-block.sh` + `tests/fixtures/testnet-faucet-smoke/` transcript | scripts + fixture |
+| 59 | **Node-side first**: every `verify_signature(pk, signature, payload)` call site on a route that ingests a `boole.signed.v1` envelope (`crates/boole-node/src/local_node.rs` ≈8 sites) parses an optional `network_id` field from the outer body, dispatches to `verify_signature_with_network` with that value, and rejects mismatches against `LocalNodeConfig::network_id` with a typed `cross_network_rejected` envelope (closes criterion 3's server-side half). Backward-compatible: `network_id` absent in the body falls through to legacy `verify_signature(... None)`. | `crates/boole-node/src/local_node.rs` + node tests |
+| 60 | **Client-side**: all five in-scope callers migrate to `sign_for_network(payload, Some(network_id))` and include `network_id` in the wire body. `--network <testnet\|dev\|mainnet>` becomes required on the affected CLIs (`boole-miner mine bounty`, `boole bounty submit\|announce\|status\|sign-work`). | `crates/boole-miner/src/bounty_client.rs`, `crates/boole-miner/src/cli.rs`, `crates/boole-cli/src/main.rs` |
+| 61 | Workspace grep test (strict: zero in-scope `.sign(` calls; `keys.sign` site annotated with `// P2.10-exempt` per this ADR) + cross-network verifier rejection regression test that drives slice 59's server-side rejection through a real HTTP round-trip. | `crates/boole-core/tests/sign_scope_grep.rs`, `crates/boole-node/tests/cross_network_rejection.rs` |
+| 62 | P2.10 criterion 1 — `scripts/smoke-testnet-faucet-to-block.sh` + `tests/fixtures/testnet-faucet-smoke/` transcript | scripts + fixture |
 
-Sub-slice ordering rationale: the simplest in-scope caller
-(`boole-miner` proof submit, single NetworkPreset reference) lands
-first to establish the migration pattern. The four `boole-cli` callers
-follow in increasing structural complexity. The workspace grep test
-lands last (slice 64) so that it transitions from "would fail" to
-"green" exactly once.
+Sub-slice ordering rationale: the **node side must migrate first**.
+If client-side `sign_for_network` lands before the node parses the
+wire `network_id`, the node still recomputes the digest via legacy
+`verify_signature` (no network binding), the digests diverge, and
+every signed-envelope route fails with `signature_invalid` — a
+disastrous regression. Slice 59 keeps backward compatibility by
+falling through to legacy verification when `network_id` is absent
+from the body, so client crates keep working until slice 60 flips
+them. Slice 60 then lands the client-side switch atomically across
+all five callers and starts wire bodies including `network_id`.
+Slice 61 enforces the no-regression grep policy and adds an HTTP-level
+cross-network rejection test. Slice 62 is the external-user e2e
+script.
+
+This binding plan supersedes earlier drafts (the originally landed
+3-slice plan, the still-earlier 7-slice plan): closure needs four
+src-changing sub-slices, capped by the actual node-side and
+client-side scope discovered during slice 58 investigation.
 
 ## Consequences
 
