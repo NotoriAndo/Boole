@@ -162,6 +162,22 @@ require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "no in-process secr
 require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "doc-only; no Rust source changes ride with it"
 require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "closed-local wallet operation only"
 
+require_file docs/adr/0003-p2-10-testnet-path-sign-scope.md
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "P2.10 testnet-path signing scope and migration plan"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "Status: Implemented (2026-05-28)"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "testnet-path signed envelope construction"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "boole.bounty.proof.v1"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "boole.bounty.announce.v1"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "boole.bounty.status.v1"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "boole.signer.work.v1"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "sign_for_network(payload, Some(network_id))"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "explicitly excluded"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "keys.sign"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "P2.10-exempt"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "Migration sub-slice plan"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "doc-only; no Rust source changes ride with it"
+require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "closed-local testnet operability only"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
