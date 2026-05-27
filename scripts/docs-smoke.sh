@@ -149,4 +149,25 @@ require_text docs/verified-answer-local-mvp-closeout.md "not a feature expansion
 require_text docs/adr/0001-pofp-v2-canonical-widening.md "Status: Implemented"
 require_text docs/adr/0001-pofp-v2-canonical-widening.md "POFP-v2 is the default canonical package emitted by the Rust Lean proof bridge"
 
+require_file docs/boole-mcp-e2e.md
+require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
+require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
+require_text docs/boole-mcp-e2e.md "Rust \`1.95.0\`"
+require_text docs/boole-mcp-e2e.md "cargo build --release -p boole-mcp --bin boole-mcp"
+require_text docs/boole-mcp-e2e.md "boole-mcp --version"
+require_text docs/boole-mcp-e2e.md "boole-mcp install --target"
+require_text docs/boole-mcp-e2e.md "--dry-run"
+require_text docs/boole-mcp-e2e.md "boole-mcp serve --node-url"
+require_text docs/boole-mcp-e2e.md "/mcp/tools"
+require_text docs/boole-mcp-e2e.md "/mcp/invoke"
+require_text docs/boole-mcp-e2e.md "boole.mine"
+require_text docs/boole-mcp-e2e.md "boole.status"
+require_text docs/boole-mcp-e2e.md '{"state":"idle"}'
+require_text docs/boole-mcp-e2e.md '"state":"completed"'
+require_text docs/boole-mcp-e2e.md "last_summary"
+require_text docs/boole-mcp-e2e.md "RUNTIME_SMOKE_FIXTURE_BYTES"
+require_text docs/boole-mcp-e2e.md "tests/fixtures/boole-mcp-e2e/"
+require_text docs/boole-mcp-e2e.md "not public-network mining"
+require_text docs/boole-mcp-e2e.md "No paid-API calls"
+
 printf 'docs-smoke: PASS\n' >&2
