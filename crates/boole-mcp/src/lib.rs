@@ -27,6 +27,15 @@ use boole_miner::{
     TargetEmitter, Verifier,
 };
 
+/// P2.1 slice 55 — canonical runtime-smoke scenario fixture embedded at
+/// build time. Keeps the binary self-sufficient: a user running
+/// `boole-mcp serve` does not need anything from `fixtures/` on their
+/// host. Closes P2.1 closure criterion 3. Future slices source
+/// `default_in_process_inputs` thresholds from this byte slice instead
+/// of hardcoded BigUint constants.
+pub const RUNTIME_SMOKE_FIXTURE_BYTES: &[u8] =
+    include_bytes!("../../../fixtures/protocol/runtime-smoke/v1.json");
+
 /// `ChainHeadFetcher` impl that returns a single pinned `ChainHead`.
 /// Suitable for boole-mcp's mining tools when the head is sourced from
 /// boole-mcp's own state instead of an external boole-node `GET /head`
