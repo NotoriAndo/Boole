@@ -213,3 +213,30 @@ fn invoke_boole_status_returns_idle_envelope_200() {
     let v: Value = serde_json::from_str(&body).expect("json");
     assert_eq!(v["state"], "idle", "body={body}");
 }
+
+/// P2.1 closure (slice 54) — `boole.status` reflects the last mining
+/// session. After `boole.mine` completes a zero-cycle round-trip, a
+/// subsequent `boole.status` returns the `completed` envelope with
+/// `last_summary` populated from the stored `ProtocolReport`, not the
+/// `idle` envelope. AppState carries a `Mutex<Option<ProtocolReport>>`
+/// slot that the dispatch fills on each successful `boole.mine`.
+#[test]
+fn invoke_boole_status_after_mine_returns_completed_envelope_200() {
+    let (_guard, addr) = spawn_serve(&dummy_upstream_url());
+    let mine_body = json!({"tool":"boole.mine","args":{}}).to_string();
+    let (mine_status, mine_resp) = http_post_json(addr, "/mcp/invoke", &mine_body);
+    assert_eq!(mine_status, 200, "mine_resp={mine_resp}");
+
+    let status_body = json!({"tool":"boole.status","args":{}}).to_string();
+    let (status_code, status_resp) = http_post_json(addr, "/mcp/invoke", &status_body);
+    assert_eq!(status_code, 200, "status_resp={status_resp}");
+    let v: Value = serde_json::from_str(&status_resp).expect("json");
+    assert_eq!(v["state"], "completed", "body={status_resp}");
+    assert_eq!(v["last_summary"]["cycles_run"], 0, "body={status_resp}");
+    assert_eq!(v["last_summary"]["tickets_found"], 0, "body={status_resp}");
+    assert_eq!(
+        v["last_summary"]["shares_accepted"], 0,
+        "body={status_resp}"
+    );
+    assert_eq!(v["last_summary"]["network_errors"], 0, "body={status_resp}");
+}

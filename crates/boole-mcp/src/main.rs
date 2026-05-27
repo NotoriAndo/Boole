@@ -19,10 +19,15 @@
 //! the upstream node; the round-trip runs in-process via the
 //! `boole-mcp` lib's `InProcessChainHead`/`InProcessSubmitter` impls.
 //!
-//!   * `boole.mine`   -> drives a fixture mining round-trip (slice 53+).
-//!     Currently answers `not-implemented`.
-//!   * `boole.status` -> reports current mining session state. With no
-//!     session ever started, returns 200 `{"state":"idle"}` (slice 52).
+//!   * `boole.mine`   -> drives a zero-cycle in-process round-trip
+//!     through `run_mining_loop` and returns the `ProtocolReport`
+//!     counters (cycles_run, tickets_found, shares_accepted,
+//!     network_errors). Slice 54 also stores the summary into
+//!     AppState so subsequent `boole.status` calls reflect it.
+//!   * `boole.status` -> reports current mining session state. Returns
+//!     200 `{"state":"idle"}` before any session has run, or
+//!     `{"state":"completed","last_summary":{...}}` once `boole.mine`
+//!     has executed in this process (slice 54).
 //!
 //! Typed error shapes (always JSON):
 //!   * unknown tool        -> 400 {"error":"unknown-tool","tool":"<name>"}
@@ -36,7 +41,7 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -131,10 +136,14 @@ impl IdeTarget {
     }
 }
 
-#[derive(Clone)]
 struct AppState {
     node_url: String,
     client: reqwest::Client,
+    /// P2.1 slice 54 — last `boole.mine` summary so `boole.status` can
+    /// report `completed` with the protocol counters instead of `idle`
+    /// after a session has run in this process. `None` before any mine
+    /// call; replaced wholesale on each successful invocation.
+    last_mining_summary: Mutex<Option<ProtocolReport>>,
 }
 
 #[derive(Deserialize)]
@@ -316,6 +325,7 @@ async fn serve(node_url: &str, listen: &str) -> Result<()> {
     let state = Arc::new(AppState {
         node_url: node_url.trim_end_matches('/').to_string(),
         client,
+        last_mining_summary: Mutex::new(None),
     });
     let app = build_router(state);
     axum::serve(listener, app).await?;
@@ -402,11 +412,38 @@ async fn invoke(
                 Json(json!({"error":"missing-arg","arg":"receipt_id"})),
             ),
         },
-        "boole.status" => (StatusCode::OK, Json(json!({"state": "idle"}))),
+        "boole.status" => {
+            let guard = state
+                .last_mining_summary
+                .lock()
+                .expect("last_mining_summary mutex poisoned");
+            match guard.as_ref() {
+                Some(p) => (
+                    StatusCode::OK,
+                    Json(json!({
+                        "state": "completed",
+                        "last_summary": {
+                            "cycles_run": p.cycles_run,
+                            "tickets_found": p.tickets_found,
+                            "shares_accepted": p.shares_accepted,
+                            "network_errors": p.network_errors,
+                        }
+                    })),
+                ),
+                None => (StatusCode::OK, Json(json!({"state": "idle"}))),
+            }
+        }
         "boole.mine" => {
             let protocol = tokio::task::spawn_blocking(run_zero_cycle_mining_summary)
                 .await
                 .expect("zero-cycle mining task panicked");
+            {
+                let mut guard = state
+                    .last_mining_summary
+                    .lock()
+                    .expect("last_mining_summary mutex poisoned");
+                *guard = Some(protocol.clone());
+            }
             (
                 StatusCode::OK,
                 Json(json!({
