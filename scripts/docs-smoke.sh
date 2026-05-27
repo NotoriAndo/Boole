@@ -149,6 +149,19 @@ require_text docs/verified-answer-local-mvp-closeout.md "not a feature expansion
 require_text docs/adr/0001-pofp-v2-canonical-widening.md "Status: Implemented"
 require_text docs/adr/0001-pofp-v2-canonical-widening.md "POFP-v2 is the default canonical package emitted by the Rust Lean proof bridge"
 
+require_file docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md
+require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "P2.9 wallet CLI scope narrowed to init|address|sign|migrate"
+require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "Status: Implemented (2026-05-27)"
+require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "boole wallet init|unlock|lock|restore|migrate"
+require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "boole wallet init|address|sign|migrate"
+require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "stateless passphrase-per-operation model"
+require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "deferred to Wave P3"
+require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "passphrase is"
+require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "re-read on every signing operation"
+require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "no in-process secret survives a"
+require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "doc-only; no Rust source changes ride with it"
+require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "closed-local wallet operation only"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
