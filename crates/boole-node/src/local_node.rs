@@ -20,7 +20,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
     agent_passport_events_for_receipt, canonical_payload_hash_hex, compute_block_reward_credits,
-    replay_blocks, ticket, verify_signature, AdmissionDecision, BountyProofVerifier,
+    replay_blocks, ticket, verify_signature_with_network, AdmissionDecision, BountyProofVerifier,
     BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport,
     CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry, Hex32, Hex64,
     PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput, SessionState, SubmitProofInput,
@@ -374,6 +374,16 @@ struct LocalNodeState {
     /// cannot race for the lock. Field is `_`-prefixed because it is
     /// never read directly — drop semantics are the entire contract.
     _state_dir_guard: Option<StateDirGuard>,
+    /// P2.10 — network identifier this node is pinned to. Populated at
+    /// boot from `LocalNodeConfig::network_id`, falling back to
+    /// `DEFAULT_NETWORK_ID` when the operator did not set one. Every
+    /// `boole.signed.v1` ingest route compares the outer envelope's
+    /// optional `network_id` field against this value: a match (or an
+    /// absent field, for backward compatibility) proceeds to ed25519
+    /// verification; a mismatch returns `HttpError::cross_network_rejected`
+    /// before any crypto runs so a cross-network replay attempt is
+    /// rejected even if the signer's pk is on a session allow-list.
+    network_id: String,
 }
 
 #[derive(Clone)]
@@ -507,6 +517,42 @@ fn check_signed_envelope_nonce_not_replayed(
         ));
     }
     Ok(())
+}
+
+/// P2.10 — parse the outer `boole.signed.v1` envelope's optional
+/// `network_id` field and cross-check it against the node's pinned
+/// `network_id`. Backward-compatible by design:
+///
+///   - `Ok(None)` when the wire envelope has no `network_id` field.
+///     Pre-P2.10 clients keep working: callers pass `None` to
+///     `verify_signature_with_network`, which recomputes the legacy
+///     non-network-bound digest.
+///   - `Ok(Some(nid))` when the wire `network_id` matches the node's
+///     pinned id. Callers pass `Some(nid)` so the verifier folds the
+///     same domain-separation tag the signer used.
+///   - `Err(cross_network_rejected)` when the wire field is present
+///     but does not match. 403, pre-crypto, so a cross-network replay
+///     attempt is rejected even if the signer's pk is on a session
+///     allow-list and the underlying digest would otherwise verify.
+fn parse_envelope_network_id<'a>(
+    envelope_obj: &'a serde_json::Map<String, Value>,
+    node_network_id: &str,
+) -> Result<Option<&'a str>, HttpError> {
+    let Some(field) = envelope_obj.get("network_id") else {
+        return Ok(None);
+    };
+    let Some(nid) = field.as_str() else {
+        return Err(HttpError::bad_envelope(
+            "envelope network_id must be a string",
+        ));
+    };
+    if nid != node_network_id {
+        return Err(HttpError::cross_network_rejected(
+            node_network_id.to_string(),
+            nid.to_string(),
+        ));
+    }
+    Ok(Some(nid))
 }
 
 /// P1.6b — atomic burn of the `(signer_pk, nonce)` pair into the
@@ -963,6 +1009,10 @@ impl LocalNodeState {
             receipt_store,
             lean_checker_dir: config.lean_checker_dir,
             lean_checker_disabled: config.lean_checker_disabled,
+            network_id: config
+                .network_id
+                .clone()
+                .unwrap_or_else(|| DEFAULT_NETWORK_ID.to_string()),
             state_dir: config.state_dir,
             _state_dir_guard: state_dir_guard,
         })
@@ -1652,15 +1702,20 @@ fn receipt_post_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value, H
         ));
     }
 
-    // 3) Crypto verification: structural envelope intact but wrong sig is
-    //    401, not 400.
-    match verify_signature(pk, signature, payload) {
+    // 3) P2.10 — parse optional wire network_id and reject pre-crypto when
+    //    it pins a different network than this node.
+    let envelope_network_id = parse_envelope_network_id(envelope_obj, &state.network_id)?;
+
+    // 4) Crypto verification: structural envelope intact but wrong sig is
+    //    401, not 400. Network-bound digest when the wire envelope opted
+    //    in via `network_id`; legacy digest otherwise.
+    match verify_signature_with_network(pk, signature, payload, envelope_network_id) {
         Ok(true) => {}
         Ok(false) => return Err(HttpError::signature_invalid()),
         Err(detail) => return Err(HttpError::bad_envelope(detail)),
     }
 
-    // 4) Inner payload schema gate.
+    // 5) Inner payload schema gate.
     let payload_obj = payload
         .as_object()
         .ok_or_else(|| HttpError::bad_payload("payload", "payload must be a JSON object"))?;
@@ -1878,14 +1933,18 @@ fn session_register_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Valu
         ));
     }
 
-    // 2) Crypto: signature must verify against payload bytes.
-    match verify_signature(pk, signature, payload) {
+    // 2) P2.10 — cross-network gate before crypto.
+    let envelope_network_id = parse_envelope_network_id(envelope_obj, &state.network_id)?;
+
+    // 3) Crypto: signature must verify against payload bytes (network-bound
+    //    when the wire envelope opted in).
+    match verify_signature_with_network(pk, signature, payload, envelope_network_id) {
         Ok(true) => {}
         Ok(false) => return Err(HttpError::signature_invalid()),
         Err(detail) => return Err(HttpError::bad_envelope(detail)),
     }
 
-    // 3) Inner payload validation.
+    // 4) Inner payload validation.
     let payload_obj = payload
         .as_object()
         .ok_or_else(|| HttpError::bad_payload("payload", "payload must be a JSON object"))?;
@@ -1999,14 +2058,18 @@ fn session_revoke_json(
         ));
     }
 
-    // 2) Crypto: signature must verify against payload bytes.
-    match verify_signature(pk, signature, payload) {
+    // 2) P2.10 — cross-network gate before crypto.
+    let envelope_network_id = parse_envelope_network_id(envelope_obj, &state.network_id)?;
+
+    // 3) Crypto: signature must verify against payload bytes (network-bound
+    //    when the wire envelope opted in).
+    match verify_signature_with_network(pk, signature, payload, envelope_network_id) {
         Ok(true) => {}
         Ok(false) => return Err(HttpError::signature_invalid()),
         Err(detail) => return Err(HttpError::bad_envelope(detail)),
     }
 
-    // 3) Inner payload validation.
+    // 4) Inner payload validation.
     let payload_obj = payload
         .as_object()
         .ok_or_else(|| HttpError::bad_payload("payload", "payload must be a JSON object"))?;
@@ -2174,6 +2237,7 @@ fn submit_session_gate(
         submitted_by,
         nonce,
         session,
+        &state.network_id,
     )?;
 
     let ledger = state
@@ -2225,6 +2289,7 @@ fn verify_signed_submit_work(
     submitted_by: &str,
     nonce: &str,
     session: &SessionState,
+    node_network_id: &str,
 ) -> Result<VerifiedSubmitWork, HttpError> {
     let work_body = body_value.ok_or_else(|| HttpError::missing_field("body"))?;
     let signed_work = session_obj
@@ -2259,7 +2324,11 @@ fn verify_signed_submit_work(
             "signed envelope pk must equal session.submittedBy",
         ));
     }
-    match verify_signature(pk, signature, payload) {
+    // P2.10 — the nested `boole.signer.work.v1` envelope is in-scope per
+    // ADR-0003. Cross-check its optional `network_id` against the node's
+    // pinned id before recomputing the network-bound digest.
+    let signed_network_id = parse_envelope_network_id(signed_obj, node_network_id)?;
+    match verify_signature_with_network(pk, signature, payload, signed_network_id) {
         Ok(true) => {}
         Ok(false) => return Err(HttpError::signature_invalid()),
         Err(err) => return Err(HttpError::bad_envelope(err)),
@@ -2644,14 +2713,19 @@ fn bounty_announce_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value
         ));
     }
 
-    // 3) Crypto: structurally valid envelope but wrong sig is 401, not 400.
-    match verify_signature(pk, signature, payload) {
+    // 3) P2.10 — cross-network gate before crypto.
+    let envelope_network_id = parse_envelope_network_id(envelope_obj, &state.network_id)?;
+
+    // 4) Crypto: structurally valid envelope but wrong sig is 401, not 400.
+    //    Network-bound digest when the wire envelope opted in via
+    //    `network_id`; legacy digest otherwise.
+    match verify_signature_with_network(pk, signature, payload, envelope_network_id) {
         Ok(true) => {}
         Ok(false) => return Err(HttpError::signature_invalid()),
         Err(detail) => return Err(HttpError::bad_envelope(detail)),
     }
 
-    // 4) Inner payload validation. The CLI builds this; the wire format
+    // 5) Inner payload validation. The CLI builds this; the wire format
     //    matches `CreateBountyInput` field-for-field with camelCase.
     let payload_obj = payload
         .as_object()
@@ -2803,7 +2877,9 @@ fn bounty_status_json(
             "signature must be 128 lowercase hex chars",
         ));
     }
-    match verify_signature(pk, signature, payload) {
+    // 1b) P2.10 — cross-network gate before crypto.
+    let envelope_network_id = parse_envelope_network_id(envelope_obj, &state.network_id)?;
+    match verify_signature_with_network(pk, signature, payload, envelope_network_id) {
         Ok(true) => {}
         Ok(false) => return Err(HttpError::signature_invalid()),
         Err(detail) => return Err(HttpError::bad_envelope(detail)),
@@ -3006,14 +3082,18 @@ fn bounty_proof_prepare(
         ));
     }
 
-    // 3) Crypto: signature must verify against payload bytes.
-    match verify_signature(pk, signature, payload) {
+    // 3) P2.10 — cross-network gate before crypto.
+    let envelope_network_id = parse_envelope_network_id(outer_obj, &state.network_id)?;
+
+    // 4) Crypto: signature must verify against payload bytes (network-bound
+    //    when the wire envelope opted in).
+    match verify_signature_with_network(pk, signature, payload, envelope_network_id) {
         Ok(true) => {}
         Ok(false) => return Err(HttpError::signature_invalid()),
         Err(detail) => return Err(HttpError::bad_envelope(detail)),
     }
 
-    // 4) Inner payload validation.
+    // 5) Inner payload validation.
     let payload_obj = payload
         .as_object()
         .ok_or_else(|| HttpError::bad_payload("payload", "payload must be a JSON object"))?;

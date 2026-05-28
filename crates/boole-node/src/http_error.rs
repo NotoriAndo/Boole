@@ -167,6 +167,20 @@ impl HttpError {
         Self::new(401, "signature_invalid")
     }
 
+    /// P2.10 — outer `boole.signed.v1` envelope carries a `network_id` that
+    /// does not match the network this node is pinned to
+    /// (`LocalNodeConfig::network_id`). HTTP 403 because the request is
+    /// syntactically valid and cryptographically sound but policy-rejected:
+    /// the signer scoped the signature to one network, the verifier runs on
+    /// another, and replaying it cross-network would re-bind work to the
+    /// wrong reward / reputation ledger. `expected` is the node's pinned
+    /// network_id; `got` is the wire envelope's claimed network_id.
+    pub fn cross_network_rejected(expected: impl Into<String>, got: impl Into<String>) -> Self {
+        Self::new(403, "cross_network_rejected")
+            .with_extra("expected", Value::String(expected.into()))
+            .with_extra("got", Value::String(got.into()))
+    }
+
     /// P1.6a — signed inner payload's `validBefore` has slipped past the
     /// server's clock. Carries both `validBefore` (what the signer claimed)
     /// and `now` (the server's current Unix-second view) so the caller can
@@ -352,6 +366,21 @@ mod tests {
         assert_eq!(
             err.into_json(),
             json!({"ok": false, "reason": "not_found", "detail": "no route for POST /missing"})
+        );
+    }
+
+    #[test]
+    fn cross_network_rejected_carries_expected_and_got() {
+        let err = HttpError::cross_network_rejected("boole-testnet", "boole-dev");
+        assert_eq!(err.status, 403);
+        assert_eq!(
+            err.into_json(),
+            json!({
+                "ok": false,
+                "reason": "cross_network_rejected",
+                "expected": "boole-testnet",
+                "got": "boole-dev",
+            })
         );
     }
 }
