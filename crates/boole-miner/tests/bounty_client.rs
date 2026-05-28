@@ -3,7 +3,7 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
-use boole_core::{verify_signature, SigningKeyV2};
+use boole_core::{verify_signature, verify_signature_with_network, SigningKeyV2};
 use boole_miner::{BountyClient, BountyProofInputs, BountyProofResult};
 
 type CapturedRequest = Arc<Mutex<Option<(String, Vec<u8>)>>>;
@@ -101,6 +101,7 @@ fn test_submit_proof_ok_on_200_returns_accepted_duplicate_bounty() {
         signing_key: &key,
         envelope: serde_json::json!({"proof": "x"}),
         envelope_bytes: b"envelope-bytes",
+        network_id: "boole-testnet",
     });
     match res {
         BountyProofResult::Ok {
@@ -144,6 +145,7 @@ fn test_submit_proof_not_found_on_404() {
         signing_key: &key,
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
+        network_id: "boole-testnet",
     });
     assert_eq!(
         res,
@@ -163,6 +165,7 @@ fn test_submit_proof_terminal_on_409() {
         signing_key: &key,
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
+        network_id: "boole-testnet",
     });
     assert_eq!(
         res,
@@ -182,6 +185,7 @@ fn test_submit_proof_no_verifier_on_501() {
         signing_key: &key,
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
+        network_id: "boole-testnet",
     });
     assert_eq!(
         res,
@@ -204,6 +208,7 @@ fn test_submit_proof_bad_request_on_400() {
         signing_key: &key,
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
+        network_id: "boole-testnet",
     });
     assert_eq!(
         res,
@@ -224,10 +229,42 @@ fn test_submit_proof_url_percent_encodes_bounty_id() {
         signing_key: &key,
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
+        network_id: "boole-testnet",
     });
     let (headers, _body) = srv.captured().unwrap();
     assert!(
         headers.contains("POST /bounties/weird%20id%2Fwith%3Aslash/proof HTTP/1.1\r\n"),
         "actual: {headers}"
+    );
+}
+
+#[test]
+fn test_submit_proof_stamps_wire_network_id_and_uses_network_bound_digest() {
+    let key = test_key();
+    let srv = CannedServer::new(200, br#"{"accepted":true}"#.to_vec());
+    let client = BountyClient::new(srv.url());
+    let _ = client.submit_proof(BountyProofInputs {
+        bounty_id: "abc",
+        signing_key: &key,
+        envelope: serde_json::json!({"proof": "x"}),
+        envelope_bytes: b"envelope-bytes",
+        network_id: "boole-testnet",
+    });
+    let (_headers, body) = srv.captured().unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        json["network_id"], "boole-testnet",
+        "wire body must include the boole-testnet network_id"
+    );
+    let signature = json["signature"].as_str().expect("signature str");
+    let payload = &json["payload"];
+    assert!(
+        verify_signature_with_network(&key.pk_hex(), signature, payload, Some("boole-testnet"))
+            .is_ok(),
+        "signature must verify against boole-testnet-bound digest"
+    );
+    assert!(
+        !verify_signature(&key.pk_hex(), signature, payload).unwrap(),
+        "legacy digest must NOT verify a network-bound signature"
     );
 }

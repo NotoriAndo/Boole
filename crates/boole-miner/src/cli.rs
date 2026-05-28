@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
 use crate::bounty_client::{BountyClient, BountyProofInputs, BountyProofResult};
 use crate::canonicalizer::StructuralCanonicalizer;
@@ -164,11 +164,34 @@ pub struct StartArgs {
     pub lean_dir: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum BountyNetworkPreset {
+    Testnet,
+    Dev,
+    Mainnet,
+}
+
+impl BountyNetworkPreset {
+    pub fn network_id(self) -> &'static str {
+        match self {
+            BountyNetworkPreset::Testnet => "boole-testnet",
+            BountyNetworkPreset::Dev => "boole-dev",
+            BountyNetworkPreset::Mainnet => "boole-mainnet",
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct BountyArgs {
     /// Dispatcher base URL.
     #[arg(long)]
     pub node: String,
+    /// P2.10 — network preset that scopes the produced
+    /// `boole.signed.v1` envelope. Required: there is no safe default
+    /// across testnet/dev/mainnet, and a misrouted signature can be
+    /// replayed across networks if the binding is missing.
+    #[arg(long, value_enum)]
+    pub network: BountyNetworkPreset,
     /// Bounty id.
     #[arg(long)]
     pub id: String,
@@ -630,6 +653,7 @@ pub fn run_bounty(args: BountyArgs) -> anyhow::Result<()> {
         signing_key: &signing_key,
         envelope: serde_json::json!({"bytes": hex::encode(&envelope_bytes)}),
         envelope_bytes: &envelope_bytes,
+        network_id: args.network.network_id(),
     });
     match result {
         BountyProofResult::Ok {

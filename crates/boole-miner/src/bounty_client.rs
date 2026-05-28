@@ -64,6 +64,12 @@ pub struct BountyProofInputs<'a> {
     pub signing_key: &'a SigningKeyV2,
     pub envelope: Value,
     pub envelope_bytes: &'a [u8],
+    /// P2.10 — network id that scopes the produced `boole.signed.v1`
+    /// envelope. Folded into the digest via `sign_for_network` and
+    /// stamped on the wire body so the receiving node can verify
+    /// `network_id == LocalNodeConfig::network_id` and reject
+    /// cross-network replay with 403 `cross_network_rejected`.
+    pub network_id: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,7 +127,10 @@ impl BountyClient {
             "validBefore": valid_before,
             "nonce": nonce,
         });
-        let signed = match inputs.signing_key.sign(&payload) {
+        let signed = match inputs
+            .signing_key
+            .sign_for_network(&payload, Some(inputs.network_id))
+        {
             Ok(s) => s,
             Err(detail) => {
                 return BountyProofResult::NetworkError {
@@ -134,6 +143,7 @@ impl BountyClient {
             "payload": signed.payload,
             "pk": signed.pk,
             "signature": signed.signature,
+            "network_id": inputs.network_id,
         });
         let path = format!(
             "/bounties/{}/proof",

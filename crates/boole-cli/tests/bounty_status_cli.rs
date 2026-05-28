@@ -95,7 +95,7 @@ fn boot(
                 receipt_commitment_ledger_path: None,
                 genesis_override: None,
                 state_dir: None,
-                network_id: None,
+                network_id: Some("boole-testnet".to_string()),
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
@@ -130,6 +130,8 @@ fn status_args(
     let mut args = vec![
         "bounty".to_string(),
         "status".to_string(),
+        "--network".to_string(),
+        "testnet".to_string(),
         "--id".to_string(),
         id.to_string(),
         "--new-status".to_string(),

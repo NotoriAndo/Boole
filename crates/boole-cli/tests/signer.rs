@@ -112,6 +112,8 @@ fn signer_sign_work_allowed_by_policy_emits_bound_signed_v1_without_secret() {
         .args([
             "signer",
             "sign-work",
+            "--network",
+            "testnet",
             "--session-id",
             "claude-allow",
             "--route",
@@ -184,6 +186,8 @@ fn signer_sign_work_rejects_request_hash_mismatch() {
         .args([
             "signer",
             "sign-work",
+            "--network",
+            "testnet",
             "--session-id",
             "claude-mismatch",
             "--route",
@@ -227,6 +231,8 @@ fn signer_sign_work_denies_route_not_in_session_envelope() {
         .args([
             "signer",
             "sign-work",
+            "--network",
+            "testnet",
             "--session-id",
             "claude-route",
             "--route",
@@ -274,6 +280,8 @@ fn signer_sign_work_denies_over_fee_with_policy_denied() {
         .args([
             "signer",
             "sign-work",
+            "--network",
+            "testnet",
             "--session-id",
             "claude-deny",
             "--route",
@@ -318,6 +326,8 @@ fn signer_sign_work_rejects_duplicate_nonce() {
     let common_args = [
         "signer",
         "sign-work",
+        "--network",
+        "testnet",
         "--session-id",
         "claude-nonce",
         "--route",

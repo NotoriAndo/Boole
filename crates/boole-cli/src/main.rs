@@ -309,6 +309,10 @@ enum SignerCommand {
     /// request against the session's policy. Refuses on policy violation,
     /// duplicate nonce, missing session, or malformed inputs.
     SignWork {
+        /// P2.10 — network preset that scopes the produced
+        /// `boole.signed.v1` envelope. Required.
+        #[arg(long, value_enum)]
+        network: NetworkPreset,
         /// Session id (filename stem under `$BOOLE_SESSIONS_DIR`).
         #[arg(long = "session-id")]
         session_id: String,
@@ -429,6 +433,12 @@ enum BountyCommand {
     /// prover, so a separate `--prover` flag would be redundant and a
     /// foot-gun if mismatched).
     Submit {
+        /// P2.10 — network preset that scopes the produced
+        /// `boole.signed.v1` envelope. Required: there is no safe default
+        /// across testnet/dev/mainnet, and a misrouted signature can be
+        /// replayed across networks if the binding is missing.
+        #[arg(long, value_enum)]
+        network: NetworkPreset,
         /// Bounty id whose verifier will judge the envelope.
         #[arg(long)]
         id: String,
@@ -458,6 +468,10 @@ enum BountyCommand {
     /// sign it locally with a stored v2 key, and POST the
     /// `boole.signed.v1` envelope to `/bounties`.
     Announce {
+        /// P2.10 — network preset that scopes the produced
+        /// `boole.signed.v1` envelope. Required.
+        #[arg(long, value_enum)]
+        network: NetworkPreset,
         /// New bounty id (1-128 printable ASCII chars without whitespace).
         #[arg(long)]
         id: String,
@@ -500,6 +514,10 @@ enum BountyCommand {
     /// v2 key, and POSTs the `boole.signed.v1` envelope to
     /// `/bounties/{id}/status`.
     Status {
+        /// P2.10 — network preset that scopes the produced
+        /// `boole.signed.v1` envelope. Required.
+        #[arg(long, value_enum)]
+        network: NetworkPreset,
         /// Bounty id whose status should change.
         #[arg(long)]
         id: String,
@@ -785,6 +803,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             BountyCommand::List { node, json } => bounty_list(node.as_deref(), json),
             BountyCommand::Get { id, node, json } => bounty_get(&id, node.as_deref(), json),
             BountyCommand::Submit {
+                network,
                 id,
                 proof_hash,
                 signing_key,
@@ -792,6 +811,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 node,
                 json,
             } => bounty_submit(
+                network,
                 &id,
                 &proof_hash,
                 &signing_key,
@@ -800,6 +820,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 json,
             ),
             BountyCommand::Announce {
+                network,
                 id,
                 domain,
                 problem_hash,
@@ -812,6 +833,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 node,
                 json,
             } => bounty_announce(
+                network,
                 &id,
                 &domain,
                 &problem_hash,
@@ -825,6 +847,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 json,
             ),
             BountyCommand::Status {
+                network,
                 id,
                 new_status,
                 reason,
@@ -833,6 +856,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 node,
                 json,
             } => bounty_status(
+                network,
                 &id,
                 &new_status,
                 reason.as_deref(),
@@ -918,6 +942,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         },
         Some(Command::Signer { command }) => match command {
             SignerCommand::SignWork {
+                network,
                 session_id,
                 route,
                 family,
@@ -928,6 +953,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 payload,
                 json,
             } => signer_sign_work(
+                network,
                 &session_id,
                 &route,
                 &family,
@@ -2077,6 +2103,7 @@ fn bounty_get(id: &str, node: Option<&str>, json: bool) -> anyhow::Result<()> {
 /// forwards the full server envelope verbatim. Non-2xx forwards the typed
 /// envelope (`bounty_not_found`, `bad_proof_hash`, ...) to stderr with exit 1.
 fn bounty_submit(
+    network: NetworkPreset,
     id: &str,
     proof_hash: &str,
     signing_key: &str,
@@ -2137,13 +2164,14 @@ fn bounty_submit(
         "nonce": fresh_signed_envelope_nonce(),
     });
     let signed = signing
-        .sign(&payload)
+        .sign_for_network(&payload, Some(network.network_id()))
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
     let body = serde_json::json!({
         "schema": signed.schema,
         "payload": signed.payload,
         "pk": signed.pk,
         "signature": signed.signature,
+        "network_id": network.network_id(),
     });
     let response = http_post(url, &path, &body)?;
     let body_text =
@@ -2181,6 +2209,7 @@ fn bounty_submit(
 /// `account balance`.
 #[allow(clippy::too_many_arguments)]
 fn bounty_announce(
+    network: NetworkPreset,
     id: &str,
     domain: &str,
     problem_hash: &str,
@@ -2271,13 +2300,14 @@ fn bounty_announce(
         "nonce": fresh_signed_envelope_nonce(),
     });
     let signed = signing
-        .sign(&payload)
+        .sign_for_network(&payload, Some(network.network_id()))
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
     let envelope = serde_json::json!({
         "schema": signed.schema,
         "payload": signed.payload,
         "pk": signed.pk,
         "signature": signed.signature,
+        "network_id": network.network_id(),
     });
 
     let url = node.unwrap_or("http://127.0.0.1:8080");
@@ -2302,7 +2332,9 @@ fn bounty_announce(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn bounty_status(
+    network: NetworkPreset,
     id: &str,
     new_status: &str,
     reason: Option<&str>,
@@ -2382,13 +2414,14 @@ fn bounty_status(
     );
     let payload_value = serde_json::Value::Object(payload);
     let signed = signing
-        .sign(&payload_value)
+        .sign_for_network(&payload_value, Some(network.network_id()))
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
     let envelope = serde_json::json!({
         "schema": signed.schema,
         "payload": signed.payload,
         "pk": signed.pk,
         "signature": signed.signature,
+        "network_id": network.network_id(),
     });
 
     let url = node.unwrap_or("http://127.0.0.1:8080");
@@ -3186,6 +3219,7 @@ fn record_nonce(path: &Path, nonce: &str) -> anyhow::Result<()> {
 /// N1.x defines the registered set.
 #[allow(clippy::too_many_arguments)]
 fn signer_sign_work(
+    network: NetworkPreset,
     session_id: &str,
     route: &str,
     family: &str,
@@ -3396,7 +3430,7 @@ fn signer_sign_work(
         "workPayload": payload,
     });
     let signed = signing_key
-        .sign(&work_request_payload)
+        .sign_for_network(&work_request_payload, Some(network.network_id()))
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
 
     record_nonce(&nonce_path, nonce)?;
@@ -3410,6 +3444,7 @@ fn signer_sign_work(
                     "payload": signed.payload,
                     "pk": signed.pk,
                     "signature": signed.signature,
+                    "network_id": network.network_id(),
                 }
             }),
         );
@@ -3501,6 +3536,10 @@ fn keys_sign(id: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
     let signing_key = boole_core::SigningKeyV2::from_seed_hex(sk_hex)
         .map_err(|err| anyhow::anyhow!("stored sk is not a valid ed25519 seed: {err}"))?;
     let payload = read_json_arg(payload_arg, "payload")?;
+    // P2.10-exempt: user-utility, see ADR-0003. `keys.sign` signs an
+    // arbitrary user-supplied payload with no NetworkPreset context and
+    // stays on the legacy unscoped digest. Any future change that gives
+    // this site a network preset must update ADR-0003.
     let signed = signing_key
         .sign(&payload)
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
