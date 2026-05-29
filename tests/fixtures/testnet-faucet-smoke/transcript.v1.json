@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "domain": "smoke-testnet-faucet-to-block",
+  "source": "scripts/smoke-testnet-faucet-to-block.sh",
+  "criterion": "P2.10 criterion 1 (ADR-0003): boole faucet claim --network testnet against a local fixture faucet, then at least one block appended, exit 0.",
+  "claimBoundary": "closed local smoke; not public-network claim",
+  "publicMiningEvidence": false,
+  "publicScoringEligible": false,
+  "ineligibilityReasons": [
+    "single local boole-node process",
+    "mock fixture faucet only",
+    "no public network admission"
+  ],
+  "networkId": "boole-testnet",
+  "scenario": "fixtures/protocol/runtime-smoke/v1.json",
+  "node": "boole-node run-local --network-id boole-testnet --lean-checker-disabled",
+  "expected": {
+    "faucetClaim": {
+      "ok": true,
+      "networkId": "boole-testnet",
+      "status": "queued"
+    },
+    "blocksMined": 2,
+    "finalHead": {
+      "height": 2,
+      "c": "c5a1b71f24efec2938bd38f18a9fb2a19a256f9a6bf258925304c9e9bcf49301"
+    },
+    "replayMatchesRuntime": true,
+    "mined": [
+      {
+        "step": 0,
+        "blockHeight": 0,
+        "c": "04451d16e5302c5395d1d7f20e8cc640ae21f169430ea50edcd176796961dd8d",
+        "replayMatchesRuntime": true
+      },
+      {
+        "step": 1,
+        "blockHeight": 1,
+        "c": "c5a1b71f24efec2938bd38f18a9fb2a19a256f9a6bf258925304c9e9bcf49301",
+        "replayMatchesRuntime": true
+      }
+    ]
+  },
+  "notes": [
+    "Volatile fields (nodeStartedAt, absolute /tmp store paths) are intentionally excluded; only deterministic chain/faucet evidence is pinned.",
+    "The mined block commitments are deterministic for the pinned runtime-smoke v1 scenario, so a divergence here flags a chain-state regression.",
+    "Closure does not constitute a public-network claim (ADR-0003): P2.10 is closed for closed-local testnet operability only."
+  ]
+}
