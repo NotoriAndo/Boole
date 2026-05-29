@@ -104,7 +104,7 @@ impl SigningKeyV2 {
         network_id: Option<&str>,
     ) -> Result<SignedEnvelope, String> {
         let digest = digest_for(payload, network_id);
-        let signature = self.inner.sign(&digest);
+        let signature = self.inner.sign(&digest); // P2.10-exempt: ed25519 primitive inside sign_for_network body (ADR-0003)
         Ok(SignedEnvelope {
             schema: SIGNED_ENVELOPE_SCHEMA,
             payload: payload.clone(),

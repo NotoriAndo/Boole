@@ -3541,7 +3541,7 @@ fn keys_sign(id: &str, payload_arg: &str, json: bool) -> anyhow::Result<()> {
     // stays on the legacy unscoped digest. Any future change that gives
     // this site a network preset must update ADR-0003.
     let signed = signing_key
-        .sign(&payload)
+        .sign(&payload) // P2.10-exempt: user-utility, see ADR-0003
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
     if json {
         let envelope = boole_cli::cli_envelope::encode_ok(

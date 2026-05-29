@@ -124,7 +124,7 @@ fn cmd_pubkey(vault_path: &Path) -> Result<()> {
 fn cmd_sign(vault_path: &Path, message_hex: &str) -> Result<()> {
     let message = hex::decode(message_hex).context("--message must be hex-encoded bytes")?;
     let signing_key = open_signing_key(vault_path)?;
-    let signature = signing_key.sign(&message);
+    let signature = signing_key.sign(&message); // P2.10-exempt: raw ed25519, not a SignedEnvelope constructor (ADR-0003 §42-46)
     println!("{}", hex::encode(signature.to_bytes()));
     Ok(())
 }
