@@ -109,11 +109,16 @@ fn boot(label: &str, opts: BootOpts) -> Boot {
     std::fs::create_dir_all(&dir).expect("tmp dir");
     let block_path = dir.join("blocks.ndjson");
 
-    let bounty_event_ledger_path = opts.with_bounty_events.then(|| dir.join("bounty-events.ndjson"));
+    let bounty_event_ledger_path = opts
+        .with_bounty_events
+        .then(|| dir.join("bounty-events.ndjson"));
     let bounty_verifiers = opts.with_bounty_events.then(mock_verifiers);
-    let session_registry_path = opts.with_session_registry.then(|| dir.join("sessions.ndjson"));
-    let signed_nonce_ledger_path =
-        opts.with_signed_nonce_ledger.then(|| dir.join("signed-nonces.ndjson"));
+    let session_registry_path = opts
+        .with_session_registry
+        .then(|| dir.join("sessions.ndjson"));
+    let signed_nonce_ledger_path = opts
+        .with_signed_nonce_ledger
+        .then(|| dir.join("signed-nonces.ndjson"));
     let bounties_path = opts.with_mock_bounties.then(mock_bounty_fixture_path);
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
@@ -200,17 +205,27 @@ fn assert_cross_network_rejected(status: u16, resp: &Value) {
         status, 403,
         "mismatched wire network_id must be policy-rejected pre-crypto: {resp}"
     );
-    assert_eq!(resp["ok"], false, "rejection envelope ok must be false: {resp}");
+    assert_eq!(
+        resp["ok"], false,
+        "rejection envelope ok must be false: {resp}"
+    );
     assert_eq!(
         resp["reason"], "cross_network_rejected",
         "reason must be cross_network_rejected: {resp}"
     );
-    assert_eq!(resp["expected"], NODE_NETWORK_ID, "expected pinned id: {resp}");
+    assert_eq!(
+        resp["expected"], NODE_NETWORK_ID,
+        "expected pinned id: {resp}"
+    );
     assert_eq!(resp["got"], FOREIGN_NETWORK_ID, "got foreign id: {resp}");
 }
 
 fn finish(booted: Boot) {
-    booted.handle.join().expect("server thread").expect("server ok");
+    booted
+        .handle
+        .join()
+        .expect("server thread")
+        .expect("server ok");
     let _ = std::fs::remove_dir_all(&booted.dir);
 }
 
@@ -243,7 +258,13 @@ fn receipts_cross_network_envelope_returns_403() {
 
 #[test]
 fn sessions_register_cross_network_envelope_returns_403() {
-    let booted = boot("sessions-register", BootOpts { with_session_registry: true, ..Default::default() });
+    let booted = boot(
+        "sessions-register",
+        BootOpts {
+            with_session_registry: true,
+            ..Default::default()
+        },
+    );
     let key = SigningKeyV2::from_dev_id("p1-6-xnet-sess-reg");
     let payload = json!({
         "schema": "boole.sessions.register.v1",
@@ -265,7 +286,13 @@ fn sessions_register_cross_network_envelope_returns_403() {
 
 #[test]
 fn sessions_revoke_cross_network_envelope_returns_403() {
-    let booted = boot("sessions-revoke", BootOpts { with_session_registry: true, ..Default::default() });
+    let booted = boot(
+        "sessions-revoke",
+        BootOpts {
+            with_session_registry: true,
+            ..Default::default()
+        },
+    );
     let key = SigningKeyV2::from_dev_id("p1-6-xnet-sess-rev");
     let session_pk = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let payload = json!({
@@ -276,14 +303,24 @@ fn sessions_revoke_cross_network_envelope_returns_403() {
         "nonce": fresh_nonce(),
     });
     let envelope = foreign_network_envelope(&payload, &key);
-    let (status, resp) = http_post(booted.addr, &format!("/sessions/{session_pk}/revoke"), &envelope);
+    let (status, resp) = http_post(
+        booted.addr,
+        &format!("/sessions/{session_pk}/revoke"),
+        &envelope,
+    );
     assert_cross_network_rejected(status, &resp);
     finish(booted);
 }
 
 #[test]
 fn bounty_status_cross_network_envelope_returns_403() {
-    let booted = boot("bounty-status", BootOpts { with_bounty_events: true, ..Default::default() });
+    let booted = boot(
+        "bounty-status",
+        BootOpts {
+            with_bounty_events: true,
+            ..Default::default()
+        },
+    );
     let key = SigningKeyV2::from_dev_id("p1-6-xnet-status");
     let payload = json!({
         "schema": "boole.bounty.status.v1",
@@ -294,8 +331,7 @@ fn bounty_status_cross_network_envelope_returns_403() {
         "nonce": fresh_nonce(),
     });
     let envelope = foreign_network_envelope(&payload, &key);
-    let (status, resp) =
-        http_post(booted.addr, "/bounties/p1-6-xnet-status/status", &envelope);
+    let (status, resp) = http_post(booted.addr, "/bounties/p1-6-xnet-status/status", &envelope);
     assert_cross_network_rejected(status, &resp);
     finish(booted);
 }
@@ -308,7 +344,11 @@ fn bounty_proof_cross_network_envelope_returns_403() {
     // bounty_not_found before the cross-network check can fire.
     let booted = boot(
         "bounty-proof",
-        BootOpts { with_bounty_events: true, with_mock_bounties: true, ..Default::default() },
+        BootOpts {
+            with_bounty_events: true,
+            with_mock_bounties: true,
+            ..Default::default()
+        },
     );
     let key = SigningKeyV2::from_dev_id("p1-6-xnet-proof");
     let proof_hash = "5555555555555555555555555555555555555555555555555555555555555555";
