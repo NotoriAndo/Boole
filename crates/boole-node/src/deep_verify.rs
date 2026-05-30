@@ -9,12 +9,13 @@
 //!   * count how many `proof` events are eligible for offline Lean
 //!     re-execution (`verifierKind == "lean"` AND `accepted == true`).
 //!
-//! This module is the read-only inventory step. The actual Lean
-//! re-execution (shell out to `LeanRunner` + cross-check the recorded
-//! `checkerArtifactHash`) lands in a follow-up sub-slice; without a
-//! checker dir, every eligible lean proof event is reported under
-//! `lean_proofs_skipped` so the caller can tell the deep re-run
-//! never ran.
+//! When a checker dir is supplied, this module also performs the actual
+//! Lean re-execution: it shells out to `LeanRunner` and cross-checks the
+//! recorded `checkerArtifactHash`, reporting any mismatch as a
+//! `DeepVerifyDivergence`. Without a checker dir (`lean_checker_dir ==
+//! None`), it stays a read-only inventory step and every eligible lean
+//! proof event is reported under `lean_proofs_skipped` so the caller can
+//! tell the deep re-run never ran.
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -37,9 +38,10 @@ pub struct DeepVerifyReport {
     pub divergences: Vec<DeepVerifyDivergence>,
 }
 
-/// A single mismatch found while re-running a Lean proof event. Reserved
-/// for the follow-up sub-slice that wires `LeanRunner` in — the inventory
-/// pass in this slice never produces divergences.
+/// A single mismatch found while re-running a Lean proof event. Produced
+/// by `reverify_lean_event` on the `Some(checker_dir)` path when a
+/// recorded field (e.g. `leanSource`, `checkerArtifactHash`, or the
+/// accept decision) does not reproduce under offline re-execution.
 #[derive(Debug, Clone)]
 pub struct DeepVerifyDivergence {
     pub work_id: String,
@@ -89,11 +91,12 @@ impl std::fmt::Display for DeepVerifyError {
 
 impl std::error::Error for DeepVerifyError {}
 
-/// Stream the bounty event ledger and classify each event. The
-/// `lean_checker_dir` is reserved for the follow-up sub-slice that wires
-/// the real Lean re-execution; in this slice supplying `None` is the
-/// only supported path (eligible lean proofs land under
-/// `lean_proofs_skipped`).
+/// Stream the bounty event ledger and classify each event. When
+/// `lean_checker_dir` is `Some(dir)`, each accepted-lean proof event is
+/// re-run via `reverify_lean_event` (counted under
+/// `lean_proofs_reverified`, with mismatches collected as
+/// `divergences`). When `None`, eligible lean proofs land under
+/// `lean_proofs_skipped` and no re-execution is attempted.
 pub fn deep_verify_bounty_events(
     bounty_events_path: &Path,
     lean_checker_dir: Option<&Path>,
