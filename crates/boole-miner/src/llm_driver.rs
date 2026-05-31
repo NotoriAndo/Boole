@@ -920,7 +920,7 @@ impl ProverDriver for GoogleDriver {
 
 // --- Driver factory -------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LLMDriverConfig {
     pub backend: LLMBackend,
     pub timeout: Duration,
@@ -931,6 +931,25 @@ pub struct LLMDriverConfig {
     pub model: Option<String>,
     pub base_url: Option<String>,
     pub max_tokens: Option<u32>,
+}
+
+// P0.8: hand-written `Debug` so the paid-backend `api_key` never reaches
+// logs/panic/tracing output. Presence stays observable as
+// `Some("<redacted>")` vs `None` so missing-credential diagnostics work.
+impl std::fmt::Debug for LLMDriverConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LLMDriverConfig")
+            .field("backend", &self.backend)
+            .field("timeout", &self.timeout)
+            .field("claude_binary", &self.claude_binary)
+            .field("agent_command", &self.agent_command)
+            .field("agent_args", &self.agent_args)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("model", &self.model)
+            .field("base_url", &self.base_url)
+            .field("max_tokens", &self.max_tokens)
+            .finish()
+    }
 }
 
 #[derive(Debug, Error)]

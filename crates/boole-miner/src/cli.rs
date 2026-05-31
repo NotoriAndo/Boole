@@ -181,7 +181,7 @@ impl BountyNetworkPreset {
     }
 }
 
-#[derive(Debug, Args)]
+#[derive(Args)]
 pub struct BountyArgs {
     /// Dispatcher base URL.
     #[arg(long)]
@@ -210,6 +210,24 @@ pub struct BountyArgs {
     /// HTTP timeout in milliseconds.
     #[arg(long = "timeout-ms", default_value_t = 30_000)]
     pub timeout_ms: u64,
+}
+
+// P0.8: hand-written `Debug` so the ed25519 `prover_sk_hex` seed never
+// reaches logs/panic/tracing output (the enclosing `MineCommand` derives
+// `Debug`, so a `{:?}` on the parsed CLI would otherwise print the seed).
+// All other fields are public-by-design (node URL, network, ids).
+impl std::fmt::Debug for BountyArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BountyArgs")
+            .field("node", &self.node)
+            .field("network", &self.network)
+            .field("id", &self.id)
+            .field("prover", &self.prover)
+            .field("prover_sk_hex", &"<redacted>")
+            .field("envelope_path", &self.envelope_path)
+            .field("timeout_ms", &self.timeout_ms)
+            .finish()
+    }
 }
 
 pub const SECRET_KEYS: &[&str] = &["llm.apiKey", "llm.api_key"];
