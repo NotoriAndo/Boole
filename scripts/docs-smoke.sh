@@ -178,6 +178,14 @@ require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "Migration sub-slice
 require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "doc-only; no Rust source changes ride with it"
 require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "closed-local testnet operability only"
 
+# P0.5 — ADR-0004 telemetry subscriber / request-id / panic-hook / metrics plan (slice 63).
+require_file docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md
+require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "Status: Accepted (2026-05-31)"
+require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "P0.5 telemetry subscriber"
+require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "request_id"
+require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "boole_panic_total"
+require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "No consensus change"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
