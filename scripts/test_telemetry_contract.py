@@ -63,7 +63,7 @@ class TelemetryContractTests(unittest.TestCase):
         candidates = [
             ROOT / "crates" / "boole-node" / "src" / "main.rs",
             ROOT / "crates" / "boole-cli" / "src" / "main.rs",
-            ROOT / "crates" / "boole-miner" / "src" / "main.rs",
+            ROOT / "crates" / "boole-miner" / "src" / "bin" / "boole-miner.rs",
         ]
         for path in candidates:
             if not path.is_file():
@@ -77,6 +77,54 @@ class TelemetryContractTests(unittest.TestCase):
             "P0.5: at least one binary `main` must call "
             "`boole_telemetry::init(...)` so the contract has a proven caller",
         )
+
+    # --- P0.5 slice 65: every binary main calls telemetry::init ---
+
+    # Each entry is (binary label, path-to-main, BinaryName variant the main
+    # is expected to pass). Paths reflect the real entry points: boole-miner's
+    # binary lives at src/bin/boole-miner.rs, not src/main.rs.
+    _BINARY_MAINS = [
+        ("boole-node", ("crates", "boole-node", "src", "main.rs"), "Node"),
+        ("boole-cli", ("crates", "boole-cli", "src", "main.rs"), "Cli"),
+        (
+            "boole-miner",
+            ("crates", "boole-miner", "src", "bin", "boole-miner.rs"),
+            "Miner",
+        ),
+        ("boole-mcp", ("crates", "boole-mcp", "src", "main.rs"), "Mcp"),
+    ]
+
+    def test_every_binary_main_calls_init(self) -> None:
+        """L8 contract: telemetry::init must run from the main of EVERY
+        binary, not just one, so structured tracing is installed before any
+        work on every process."""
+        missing: list[str] = []
+        for label, parts, _variant in self._BINARY_MAINS:
+            path = ROOT.joinpath(*parts)
+            self.assertTrue(path.is_file(), f"{label}: main not found at {path}")
+            body = _read(path)
+            if not re.search(r"boole_telemetry::init|telemetry::init\s*\(", body):
+                missing.append(label)
+        self.assertFalse(
+            missing,
+            "P0.5: these binary mains do not call telemetry::init: "
+            f"{', '.join(missing)}",
+        )
+
+    def test_binary_name_variants_exist(self) -> None:
+        """The telemetry module must expose a BinaryName variant for each
+        binary so the call site is a typed boundary (a typo is a compile
+        error, per the master plan's typed-boundaries rule)."""
+        path = _find_telemetry_module()
+        if path is None:
+            self.skipTest("module not yet present — covered by previous test")
+        body = _read(path)
+        for _label, _parts, variant in self._BINARY_MAINS:
+            self.assertRegex(
+                body,
+                re.compile(rf"\b{variant}\b"),
+                f"P0.5: BinaryName must define a `{variant}` variant",
+            )
 
 
 if __name__ == "__main__":

@@ -155,6 +155,10 @@ struct InvokeRequest {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // P0.5 slice 65 — install the telemetry subscriber before any work so
+    // the MCP server's events are observable. Default-silent unless RUST_LOG
+    // opts in.
+    boole_core::telemetry::init(boole_core::telemetry::BinaryName::Mcp);
     let cli = Cli::parse();
     match cli.command {
         Command::Serve { node_url, listen } => serve(&node_url, &listen).await,

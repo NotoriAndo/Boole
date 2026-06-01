@@ -725,6 +725,10 @@ enum FaucetCommand {
 }
 
 fn main() {
+    // P0.5 slice 65 — install the telemetry subscriber before any work so
+    // tracing/panic/error events from the CLI are observable. Default-silent
+    // unless RUST_LOG opts in, preserving the CLI's clean-stderr contract.
+    boole_core::telemetry::init(boole_core::telemetry::BinaryName::Cli);
     let cli = Cli::parse();
     let result = run(cli);
     if let Err(err) = result {

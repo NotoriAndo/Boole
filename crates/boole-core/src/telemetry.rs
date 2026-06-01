@@ -30,6 +30,7 @@ pub enum BinaryName {
     Node,
     Cli,
     Miner,
+    Mcp,
 }
 
 impl BinaryName {
@@ -39,6 +40,7 @@ impl BinaryName {
             BinaryName::Node => "boole-node",
             BinaryName::Cli => "boole-cli",
             BinaryName::Miner => "boole-miner",
+            BinaryName::Mcp => "boole-mcp",
         }
     }
 }
@@ -111,6 +113,7 @@ mod tests {
         assert_eq!(BinaryName::Node.as_str(), "boole-node");
         assert_eq!(BinaryName::Cli.as_str(), "boole-cli");
         assert_eq!(BinaryName::Miner.as_str(), "boole-miner");
+        assert_eq!(BinaryName::Mcp.as_str(), "boole-mcp");
     }
 
     #[test]

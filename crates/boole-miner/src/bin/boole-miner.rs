@@ -14,6 +14,10 @@ struct Cli {
 }
 
 fn main() {
+    // P0.5 slice 65 — install the telemetry subscriber before any work.
+    // Default-silent unless RUST_LOG opts in, so the miner's stdout/stderr
+    // envelope contract is unchanged.
+    boole_core::telemetry::init(boole_core::telemetry::BinaryName::Miner);
     let cli = Cli::parse();
     if let Err(err) = run_mine(cli.command) {
         // P2.4 — typed paid-API refusal carries its own exit code and a
