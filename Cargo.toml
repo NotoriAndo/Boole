@@ -42,6 +42,11 @@ thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 tower = { version = "0.5", features = ["limit"] }
 tower-http = { version = "0.6", features = ["timeout"] }
+# P0.5 (ADR-0004) — structured telemetry. tracing-subscriber carries the
+# JSON formatter + env-filter; default features off so we pull only what
+# the subscriber needs.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt", "env-filter", "json", "ansi"] }
 
 # P0.6 — workspace-wide lint policy. Member crates opt in via
 # `[lints] workspace = true` in their own Cargo.toml. boole-lean-runner is
