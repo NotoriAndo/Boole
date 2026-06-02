@@ -756,6 +756,10 @@ fn build_router(state: AppState) -> Router {
         .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
         .layer(from_fn(body_cap_middleware))
         .layer(from_fn(connection_close_middleware))
+        // P0.5 slice 66 — stamp x-request-id on every response and enter a
+        // tracing span carrying it. Installed here so it wraps all handlers
+        // and their responses uniformly.
+        .layer(from_fn(request_id_middleware))
         // P1.7 — per-source-IP HTTP rate limiter. Installed last so the
         // typed `429 rate_limited` envelope short-circuits before
         // body-cap, timeout, and concurrency-limit layers wake the
@@ -1231,6 +1235,36 @@ async fn connection_close_middleware(request: Request, next: Next) -> Response {
         axum::http::header::CONNECTION,
         HeaderValue::from_static("close"),
     );
+    response
+}
+
+/// P0.5 slice 66 — monotonic per-request id counter. Combined with the
+/// boot-time millisecond stamp it yields an id that is unique within a
+/// process (and overwhelmingly unique across restarts) without taking a
+/// `uuid`/`rand` dependency. Hex-encoded `<boot_ms>-<seq>`.
+static REQUEST_ID_SEQ: AtomicUsize = AtomicUsize::new(0);
+
+/// Generate the next request id. `boot_ms` disambiguates restarts; the
+/// atomic sequence disambiguates concurrent requests within one process.
+fn next_request_id(boot_ms: u128) -> String {
+    let seq = REQUEST_ID_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("{boot_ms:x}-{seq:x}")
+}
+
+/// P0.5 slice 66 — stamp every response with a unique `x-request-id`
+/// header and enter a tracing span carrying it, so a log line, a tracing
+/// span, and an operator's `curl -i` all share one correlation id. The
+/// header is the minimal propagation surface; echoing the id into every
+/// response envelope and ledger line is a larger per-handler change
+/// deferred to a follow-up slice. No consensus state is touched.
+async fn request_id_middleware(request: Request, next: Next) -> Response {
+    let request_id = next_request_id(now_unix_ms());
+    let span = tracing::info_span!("http_request", request_id = %request_id);
+    let _enter = span.enter();
+    let mut response = next.run(request).await;
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        response.headers_mut().insert("x-request-id", value);
+    }
     response
 }
 
