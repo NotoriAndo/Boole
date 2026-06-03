@@ -13,6 +13,27 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+/// P1.3b — derive the canonical reward event for a block. The block store is
+/// the source of truth for the reward ledger, so this single helper is used
+/// both to re-derive an absent ledger and to heal a ledger that trails the
+/// block store after a crash mid-commit. It folds the base proposer/share
+/// credits and the block's promoted bounty credits into one event, matching
+/// exactly what the live commit path writes.
+fn derive_reward_event(block: &PersistedBlock) -> anyhow::Result<PersistedRewardEvent> {
+    let mut credits = compute_block_reward_credits(block)?;
+    for bounty_credit in &block.promoted_bounty_credits {
+        credits.push(boole_core::PersistedCredit {
+            pk: bounty_credit.prover.clone(),
+            amount: bounty_credit.amount.clone(),
+        });
+    }
+    Ok(PersistedRewardEvent {
+        height: block.height,
+        c: block.c.clone(),
+        credits,
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
     pub policy: CalibrationPolicy,
@@ -112,7 +133,32 @@ impl RuntimeAdmissionState {
         }
         if let Some(path) = reward_ledger_path {
             let ledger = if path.exists() {
-                let recovered_ledger = FileRewardLedger::recover(&path)?;
+                let mut recovered_ledger = FileRewardLedger::recover(&path)?;
+                // P1.3b — crash-mid-commit heal. A crash between
+                // `FileBlockStore::append` and `FileRewardLedger::append`
+                // leaves the reward ledger trailing the block store by one (or
+                // more) events. The block store is the source of truth — each
+                // block fully determines its reward event — so re-derive and
+                // append the missing trailing events instead of refusing to
+                // boot, then re-verify. A GENUINE balance tamper (a wrong
+                // amount in an EXISTING event, which does not change the event
+                // count) is NOT healed: the count already matches the block
+                // store, so no event is re-derived and the verify below bails.
+                let blocks = recovered.blocks();
+                if recovered_ledger.size() < blocks.len() {
+                    let from = recovered_ledger.size();
+                    for block in &blocks[from..] {
+                        let event = derive_reward_event(block)?;
+                        FileRewardLedger::append(&path, &event)?;
+                        recovered_ledger.apply(event)?;
+                    }
+                    eprintln!(
+                        "boole-node: reward ledger healed from block store: re-derived {} \
+                         trailing event(s) up to height {} (crash-mid-commit recovery)",
+                        blocks.len() - from,
+                        blocks.last().map(|b| b.height).unwrap_or(0),
+                    );
+                }
                 verify_ledger_matches_replay(
                     &recovered_ledger,
                     &replay.balances,
@@ -123,23 +169,10 @@ impl RuntimeAdmissionState {
             } else {
                 // Re-derive from blocks: write one event per block to the file
                 // and rebuild the in-memory state from the same source so the
-                // file and the cache cannot drift mid-run. S23b — also fold
-                // the block's bounty credit rows into the same event so the
-                // re-derived ledger matches what live commit will produce.
+                // file and the cache cannot drift mid-run.
                 let mut ledger = FileRewardLedger::default();
                 for block in recovered.blocks() {
-                    let mut credits = compute_block_reward_credits(block)?;
-                    for bounty_credit in &block.promoted_bounty_credits {
-                        credits.push(boole_core::PersistedCredit {
-                            pk: bounty_credit.prover.clone(),
-                            amount: bounty_credit.amount.clone(),
-                        });
-                    }
-                    let event = PersistedRewardEvent {
-                        height: block.height,
-                        c: block.c.clone(),
-                        credits,
-                    };
+                    let event = derive_reward_event(block)?;
                     FileRewardLedger::append(&path, &event)?;
                     ledger.apply(event)?;
                 }

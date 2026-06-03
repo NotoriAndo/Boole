@@ -26,6 +26,9 @@ const NODE_MAIN_SRC: &str = include_str!("../src/main.rs");
 /// `boole state verify` CLI that emits the `replay-mismatch` report
 /// signal an operator runs at the "reward/block divergence" row.
 const CLI_MAIN_SRC: &str = include_str!("../../boole-cli/src/main.rs");
+/// P1.3b — boot/recovery source that emits the crash-mid-commit reward
+/// ledger heal signal at the "power loss mid-commit" row.
+const RUNTIME_SRC: &str = include_str!("../src/runtime.rs");
 
 // ---------------------------------------------------------------------
 // Implemented rows: the durable signal string must stay present in the
@@ -109,10 +112,15 @@ fn deferred_rows_are_tracked_against_their_blocking_wave() {
     // strings are INDEED absent from the node source so this test starts
     // failing (forcing an update) the moment someone wires the feature in.
     //
-    //   * "Power loss mid-commit" — needs P1.3b staging-commit resume.
     //   * "Operator lost master password" — `boole wallet restore`, deferred
     //     to P3 by ADR-0002 (P2.9 scope narrowed to init|address|sign|migrate).
     //   * "Schema version drift" — needs `boole storage migrate`.
+    //
+    // "staging commit" stays here as an ANTI-pattern guard: P1.3b closes the
+    // "power loss mid-commit" row with a re-derive-on-mismatch heal (see
+    // `row_power_loss_mid_commit_heals_on_reboot`), NOT a
+    // `staging/commit-<height>.json` write-ahead file, so that string must
+    // never appear in the node source.
     let unimplemented_signals = ["staging commit", "schema-version-unsupported"];
     for sig in unimplemented_signals {
         assert!(
@@ -132,5 +140,18 @@ fn row_disk_full_signal_present() {
     assert!(
         LOCAL_NODE_SRC.contains("disk_full_sentinel"),
         "P2.6: the disk-full readiness reason must be wired into local_node.rs"
+    );
+}
+
+/// P1.3b — "power loss mid-commit" is no longer deferred: the boot path
+/// re-derives a reward ledger that trails the block store (the crash window
+/// between block append and reward append) instead of refusing to boot.
+/// Fault-injection lives in
+/// `reward_ledger_crash_heal::boot_heals_reward_ledger_trailing_block_store_by_one`.
+#[test]
+fn row_power_loss_mid_commit_heals_on_reboot() {
+    assert!(
+        RUNTIME_SRC.contains("reward ledger healed from block store"),
+        "P1.3b: the boot path must re-derive trailing reward events on reboot"
     );
 }

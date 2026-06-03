@@ -47,7 +47,7 @@ run_capture_json() {
 }
 
 run_logged cargo-fmt cargo fmt --all --check
-run_logged python-script-tests python3 -m unittest scripts/test_install_script.py scripts/test_preflight_orchestration.py scripts/test_model_benchmark.py scripts/test_self_test_contract.py scripts/test_workspace_invariants_contract.py scripts/test_supply_chain_contract.py scripts/test_state_dir_contract.py scripts/test_state_dir_runtime_contract.py scripts/test_storage_durability_contract.py scripts/test_nonce_burn_before_block_contract.py scripts/test_verify_answer_payment_gate_contract.py scripts/test_mock_verify_accept_feature_gate_contract.py
+run_logged python-script-tests python3 -m unittest scripts/test_install_script.py scripts/test_preflight_orchestration.py scripts/test_model_benchmark.py scripts/test_self_test_contract.py scripts/test_workspace_invariants_contract.py scripts/test_supply_chain_contract.py scripts/test_state_dir_contract.py scripts/test_state_dir_runtime_contract.py scripts/test_storage_durability_contract.py scripts/test_nonce_burn_before_block_contract.py scripts/test_verify_answer_payment_gate_contract.py scripts/test_mock_verify_accept_feature_gate_contract.py scripts/test_multi_store_commit_ordering_contract.py
 run_logged docs-smoke ./scripts/docs-smoke.sh
 run_logged wallet-session-receipt-gate ./scripts/wallet-session-receipt-gate.sh
 # P1.8 + P1.9 — clippy verifies both the no-feature production surface
