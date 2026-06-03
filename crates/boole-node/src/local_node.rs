@@ -1494,13 +1494,44 @@ fn compute_ledgers_loaded(state: &LocalNodeState) -> bool {
         && state.receipt_store.is_some()
 }
 
+/// P0.5 slice 67 — process-wide outcome counters surfaced on `/metrics`
+/// as Prometheus counters. Global atomics (not `AppState` fields) so the
+/// outcome sites can bump them without threading a handle through every
+/// call path; a node runs one HTTP server per process, so process-global
+/// is the correct cardinality. `boole_panic_total` is wired here and
+/// incremented by the panic hook (slice 68); it reads 0 until a panic
+/// fires.
+static SUBMITS_ACCEPTED: AtomicUsize = AtomicUsize::new(0);
+static SUBMITS_REJECTED: AtomicUsize = AtomicUsize::new(0);
+static PROOFS_ACCEPTED: AtomicUsize = AtomicUsize::new(0);
+static PROOFS_REJECTED: AtomicUsize = AtomicUsize::new(0);
+// `boole_panic_total` is owned by `boole_core::telemetry` (P0.5 slice 68)
+// so every binary's panic hook bumps one shared counter; the renderer
+// reads it via `telemetry::panic_total()`.
+
+/// Outcome label for the submit/proof counters. `accepted` = the handler
+/// returned a 2xx envelope; `rejected` = any typed-error / verifier path.
+fn record_submit_outcome(accepted: bool) {
+    if accepted {
+        SUBMITS_ACCEPTED.fetch_add(1, Ordering::Relaxed);
+    } else {
+        SUBMITS_REJECTED.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+fn record_proof_outcome(accepted: bool) {
+    if accepted {
+        PROOFS_ACCEPTED.fetch_add(1, Ordering::Relaxed);
+    } else {
+        PROOFS_REJECTED.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 /// P2.6 — `/metrics` exposes a Prometheus text-format scrape surface
 /// (exposition v0.0.4). The body lists each gauge with a `# HELP` /
-/// `# TYPE` header followed by `<name> <value>` samples. The slice
-/// surfaces immediately-available state gauges (height, share-pool
-/// size, bounty side-pool total, boot timestamp); follow-on slices
-/// can attach mutating counters (requests served, panic count) as
-/// instrumentation lands.
+/// `# TYPE` header followed by `<name> <value>` samples. P0.5 slice 67
+/// adds mutating counters (`boole_submits_total`, `boole_proofs_total`,
+/// `boole_panic_total`) alongside the boot-time state gauges.
 async fn metrics_handler(State(state): State<AppState>) -> Response {
     let guard = state.inner.read().await;
     let body = render_prometheus_metrics(&guard);
@@ -1537,6 +1568,33 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
     out.push_str("# HELP boole_node_started_at_ms Unix epoch ms when the node booted.\n");
     out.push_str("# TYPE boole_node_started_at_ms gauge\n");
     out.push_str(&format!("boole_node_started_at_ms {started_at}\n"));
+
+    // P0.5 slice 67 — process-wide outcome counters. Counter type so a
+    // scraper computes rate()/increase() over the monotonic series.
+    let submits_accepted = SUBMITS_ACCEPTED.load(Ordering::Relaxed);
+    let submits_rejected = SUBMITS_REJECTED.load(Ordering::Relaxed);
+    let proofs_accepted = PROOFS_ACCEPTED.load(Ordering::Relaxed);
+    let proofs_rejected = PROOFS_REJECTED.load(Ordering::Relaxed);
+    let panic_total = boole_core::telemetry::panic_total();
+    out.push_str("# HELP boole_submits_total Share submissions by outcome.\n");
+    out.push_str("# TYPE boole_submits_total counter\n");
+    out.push_str(&format!(
+        "boole_submits_total{{outcome=\"accepted\"}} {submits_accepted}\n"
+    ));
+    out.push_str(&format!(
+        "boole_submits_total{{outcome=\"rejected\"}} {submits_rejected}\n"
+    ));
+    out.push_str("# HELP boole_proofs_total Bounty proof submissions by outcome.\n");
+    out.push_str("# TYPE boole_proofs_total counter\n");
+    out.push_str(&format!(
+        "boole_proofs_total{{outcome=\"accepted\"}} {proofs_accepted}\n"
+    ));
+    out.push_str(&format!(
+        "boole_proofs_total{{outcome=\"rejected\"}} {proofs_rejected}\n"
+    ));
+    out.push_str("# HELP boole_panic_total In-process panics caught by the panic hook.\n");
+    out.push_str("# TYPE boole_panic_total counter\n");
+    out.push_str(&format!("boole_panic_total {panic_total}\n"));
     out
 }
 
@@ -1621,14 +1679,23 @@ async fn submit_handler(
     // through to the legacy path so pre-wallet callers stay unaffected.
     let checked_session = match submit_session_gate(&mut guard, &body) {
         Ok(session) => session,
-        Err(err) => return error_response(err),
+        Err(err) => {
+            record_submit_outcome(false);
+            return error_response(err);
+        }
     };
     // P1.3a — burn moved INTO submit_json before block append. Do not
     // re-burn here on accepted=true; that would double-append the same
     // (pk, nonce) and surface a spurious nonce_replayed envelope.
     match submit_json(&mut guard, &body, &peer_ip, checked_session.as_ref()) {
-        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
-        Err(err) => error_response(anyhow_to_internal(err)),
+        Ok(value) => {
+            record_submit_outcome(true);
+            (StatusCode::OK, Json(value)).into_response()
+        }
+        Err(err) => {
+            record_submit_outcome(false);
+            error_response(anyhow_to_internal(err))
+        }
     }
 }
 
@@ -2671,11 +2738,16 @@ async fn bounty_proof_handler(
         let guard = state.inner.read().await;
         match bounty_proof_prepare(&guard, &id, &body) {
             Ok(p) => p,
-            Err(err) => return error_response(err),
+            Err(err) => {
+                record_proof_outcome(false);
+                return error_response(err);
+            }
         }
     };
     let prepared = match prep {
         PreparedProof::Duplicate(value) => {
+            // Idempotent re-submission of an already-accepted proof.
+            record_proof_outcome(true);
             return (StatusCode::OK, Json(value)).into_response();
         }
         PreparedProof::RunVerifier(p) => *p,
@@ -2686,13 +2758,22 @@ async fn bounty_proof_handler(
         .verify_with_evidence(&prepared.bounty, &prepared.envelope)
     {
         Ok(o) => o,
-        Err(e) => return error_response(HttpError::verifier_error(e)),
+        Err(e) => {
+            record_proof_outcome(false);
+            return error_response(HttpError::verifier_error(e));
+        }
     };
 
     let mut guard = state.inner.write().await;
     match bounty_proof_finalize(&mut guard, &id, prepared, outcome) {
-        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
-        Err(err) => error_response(err),
+        Ok(value) => {
+            record_proof_outcome(true);
+            (StatusCode::OK, Json(value)).into_response()
+        }
+        Err(err) => {
+            record_proof_outcome(false);
+            error_response(err)
+        }
     }
 }
 

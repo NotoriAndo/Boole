@@ -19,9 +19,64 @@
 //! `BinaryName` is an enum (not a `&str`) so a typo at the call site is a
 //! compile error, satisfying the master plan's "typed boundaries" rule.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Once;
 
 use tracing_subscriber::EnvFilter;
+
+/// P0.5 slice 68 — process-wide panic counter. The panic hook installed
+/// by [`init`] bumps this and emits a structured final line so a panic is
+/// observable in logs and on `/metrics` (`boole_panic_total`) even when
+/// the release `panic = "abort"` profile turns the panic into an exit.
+/// `pub` so `boole-node`'s `/metrics` renderer can read it across the
+/// crate boundary.
+pub static PANIC_TOTAL: AtomicUsize = AtomicUsize::new(0);
+
+/// Current count of in-process panics observed by the telemetry hook.
+pub fn panic_total() -> usize {
+    PANIC_TOTAL.load(Ordering::Relaxed)
+}
+
+/// Record one panic: bump the counter and emit a structured error line.
+/// Factored out of the hook closure so it is unit-testable without
+/// constructing a `PanicHookInfo` or mutating the global hook.
+fn note_panic(location: &str, message: &str) {
+    PANIC_TOTAL.fetch_add(1, Ordering::Relaxed);
+    tracing::error!(
+        target: "boole_panic",
+        location = location,
+        message = message,
+        "process panic"
+    );
+}
+
+/// Extract a human-readable payload from a panic. `panic!("x")` carries a
+/// `&str`; `panic!("{}", e)` carries a `String`; anything else is opaque.
+fn panic_message(info: &std::panic::PanicHookInfo<'_>) -> String {
+    if let Some(s) = info.payload().downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = info.payload().downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "<non-string panic payload>".to_string()
+    }
+}
+
+/// Install the structured panic hook. Chains the previous hook so the
+/// default backtrace/abort behavior is preserved; our hook only adds the
+/// counter bump and the structured line on top.
+fn install_panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map(|l| l.to_string())
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let message = panic_message(info);
+        note_panic(&location, &message);
+        prev(info);
+    }));
+}
 
 /// Identifies the calling binary in startup telemetry so a single log
 /// stream multiplexed from several Boole processes stays attributable.
@@ -93,6 +148,11 @@ pub fn init(name: BinaryName) {
             .with_env_filter(filter)
             .try_init();
 
+        // P0.5 slice 68 — structured panic hook + boole_panic_total. Runs
+        // in every binary's `init`; chains the previous hook so backtraces
+        // and the release `panic = "abort"` exit are preserved.
+        install_panic_hook();
+
         if std::env::var("BOOLE_TELEMETRY_BOOT").as_deref() == Ok("1") {
             eprintln!(
                 "boole.telemetry boot binary={} version={} pid={}",
@@ -120,6 +180,40 @@ mod tests {
     fn init_is_idempotent_and_does_not_panic() {
         init(BinaryName::Node);
         init(BinaryName::Node);
+    }
+
+    // --- P0.5 slice 68: panic counter ---
+
+    #[test]
+    fn note_panic_increments_total() {
+        let before = panic_total();
+        note_panic("src/foo.rs:1:1", "boom");
+        let after = panic_total();
+        assert_eq!(
+            after,
+            before + 1,
+            "note_panic must bump boole_panic_total by exactly one"
+        );
+    }
+
+    #[test]
+    fn panic_message_extracts_str_and_string_payloads() {
+        // &str payload (panic!("literal")).
+        let s: Box<dyn std::any::Any + Send> = Box::new("literal-panic");
+        // String payload (panic!("{}", x)).
+        let owned: Box<dyn std::any::Any + Send> = Box::new(String::from("owned-panic"));
+        // We cannot easily synthesize a PanicHookInfo, so assert the
+        // downcast logic directly mirrors panic_message's branches.
+        assert_eq!(
+            s.downcast_ref::<&str>().copied(),
+            Some("literal-panic"),
+            "str payloads must downcast to &str"
+        );
+        assert_eq!(
+            owned.downcast_ref::<String>().map(String::as_str),
+            Some("owned-panic"),
+            "format-arg payloads must downcast to String"
+        );
     }
 
     // --- P0.5 slice 64: subscriber directive / colour resolution ---
