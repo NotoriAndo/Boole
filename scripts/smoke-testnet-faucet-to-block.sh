@@ -101,6 +101,7 @@ cargo run -q -p boole-node -- run-local \
   --state-dir "$STATE_DIR" \
   --network-id "$NETWORK_ID" \
   --lean-checker-disabled \
+  --allow-insecure-verifier \
   --max-requests 9 \
   >"$NODE_OUT" 2>"$NODE_ERR" &
 NODE_PID=$!
@@ -277,7 +278,7 @@ print(json.dumps({
         "status": result.get("status"),
         "txId": result.get("tx_id"),
     },
-    "node": "boole-node run-local --network-id boole-testnet --lean-checker-disabled",
+    "node": "boole-node run-local --network-id boole-testnet --lean-checker-disabled --allow-insecure-verifier",
     "blocksMined": len(mined),
     "initialHead": initial_head,
     "finalHead": head,
