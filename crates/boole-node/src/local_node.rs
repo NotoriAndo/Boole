@@ -44,10 +44,25 @@ use tokio::net::TcpListener;
 use tokio::sync::{Notify, RwLock};
 use tower::limit::ConcurrencyLimitLayer;
 use tower::Service;
-use tower_http::timeout::TimeoutLayer;
 
-const MAX_HTTP_BODY_BYTES: usize = 1_048_576;
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+/// P1.7 — default body cap for state-mutating and read routes (1 MiB),
+/// stream-counted (not Content-Length-trusting). The bounty-proof route
+/// carries Lean source + POFP envelope + signature and is raised to
+/// [`PROOF_ROUTE_BODY_BYTES`].
+pub const MAX_HTTP_BODY_BYTES: usize = 1_048_576;
+/// P1.7 — `/bounties/{id}/proof` body cap (8 MiB): a real proof envelope
+/// (Lean source + structural package + signature) can exceed the 1 MiB
+/// default. Applied via a route-aware Content-Length check and a per-route
+/// `DefaultBodyLimit` for the chunked path.
+pub const PROOF_ROUTE_BODY_BYTES: usize = 8 * 1_048_576;
+/// P1.7 — request timeout for every route except the bounty-proof route.
+/// Replaces the former uniform 15 s. On expiry the request short-circuits
+/// with a typed `request_timeout` (408) envelope.
+pub const DEFAULT_ROUTE_TIMEOUT: Duration = Duration::from_secs(30);
+/// P1.7 — request timeout for `/bounties/{id}/proof`, which runs the Lean
+/// verifier (itself internally bounded). Larger than the default so a
+/// legitimate verification is not cut off by the cheap-route limit.
+pub const PROOF_ROUTE_TIMEOUT: Duration = Duration::from_secs(90);
 /// P1.7 — workspace-wide cap on simultaneously in-flight HTTP requests.
 /// `tower::limit::ConcurrencyLimitLayer` queues additional callers on a
 /// semaphore so a flood of expensive routes (Lean verify, registry
@@ -727,7 +742,14 @@ fn build_router(state: AppState) -> Router {
             get(bounty_list_handler).post(bounty_announce_handler),
         )
         .route("/bounties/{id}", get(bounty_by_id_handler))
-        .route("/bounties/{id}/proof", post(bounty_proof_handler))
+        .route(
+            "/bounties/{id}/proof",
+            // P1.7 — the proof route accepts a larger body (Lean source +
+            // POFP envelope + signature); raise its streaming cap above the
+            // 1 MiB default. The route-layer is inner-most, so this
+            // `DefaultBodyLimit` overrides the global one for this route.
+            post(bounty_proof_handler).layer(DefaultBodyLimit::max(PROOF_ROUTE_BODY_BYTES)),
+        )
         .route("/bounties/{id}/status", post(bounty_status_handler))
         .route("/ticket", post(ticket_handler))
         .route("/submit", post(submit_handler))
@@ -741,10 +763,11 @@ fn build_router(state: AppState) -> Router {
             post(session_revoke_handler),
         )
         .fallback(fallback_handler)
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::REQUEST_TIMEOUT,
-            REQUEST_TIMEOUT,
-        ))
+        // P1.7 — route-aware request timeout (default 30 s, bounty-proof
+        // 90 s). Replaces the uniform `tower_http::TimeoutLayer` so a
+        // timed-out request carries the typed `request_timeout` (408)
+        // envelope instead of a bare empty body.
+        .layer(from_fn(route_timeout_middleware))
         .layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_REQUESTS))
         // P1.7 — stream-counting body cap. `body_cap_middleware` below
         // catches honest Content-Length requests and returns the same
@@ -1268,11 +1291,41 @@ async fn request_id_middleware(request: Request, next: Next) -> Response {
     response
 }
 
+/// P1.7 — true for the bounty-proof route (`/bounties/{id}/proof`), which
+/// carries a larger body and runs the Lean verifier. Both the body cap and
+/// the request timeout key off this single predicate so one source decides
+/// the route class (no fragile per-route layer-composition ordering).
+fn is_proof_route(path: &str) -> bool {
+    path.starts_with("/bounties/") && path.ends_with("/proof")
+}
+
+/// P1.7 — per-route request timeout. The proof route gets
+/// [`PROOF_ROUTE_TIMEOUT`] (Lean verify is heavier); everything else gets
+/// [`DEFAULT_ROUTE_TIMEOUT`]. On expiry the request short-circuits with a
+/// typed `request_timeout` (408) envelope instead of the bare empty body a
+/// `tower_http::TimeoutLayer` would emit.
+async fn route_timeout_middleware(request: Request, next: Next) -> Response {
+    let timeout = if is_proof_route(request.uri().path()) {
+        PROOF_ROUTE_TIMEOUT
+    } else {
+        DEFAULT_ROUTE_TIMEOUT
+    };
+    match tokio::time::timeout(timeout, next.run(request)).await {
+        Ok(response) => response,
+        Err(_) => error_response(HttpError::request_timeout()),
+    }
+}
+
 async fn body_cap_middleware(headers: HeaderMap, request: Request, next: Next) -> Response {
+    let cap = if is_proof_route(request.uri().path()) {
+        PROOF_ROUTE_BODY_BYTES
+    } else {
+        MAX_HTTP_BODY_BYTES
+    };
     if let Some(value) = headers.get(axum::http::header::CONTENT_LENGTH) {
         if let Some(len) = value.to_str().ok().and_then(|s| s.parse::<usize>().ok()) {
-            if len > MAX_HTTP_BODY_BYTES {
-                return error_response(HttpError::body_too_large(MAX_HTTP_BODY_BYTES, len));
+            if len > cap {
+                return error_response(HttpError::body_too_large(cap, len));
             }
         }
     }
@@ -2753,14 +2806,29 @@ async fn bounty_proof_handler(
         PreparedProof::RunVerifier(p) => *p,
     };
 
-    let outcome = match prepared
-        .verifier
-        .verify_with_evidence(&prepared.bounty, &prepared.envelope)
+    // P1.7 — run the synchronous, subprocess-spawning Lean verifier on a
+    // dedicated blocking thread so a flood of concurrent proofs cannot pin
+    // the async worker pool (L5: "each verify on its own task"). The route
+    // timeout can then preempt this await; the verifier's own internal
+    // deadline + `ChildKillOnDrop` reap the `lake` child even if it does.
+    let verifier = Arc::clone(&prepared.verifier);
+    let bounty = prepared.bounty.clone();
+    let envelope = prepared.envelope.clone();
+    let outcome = match tokio::task::spawn_blocking(move || {
+        verifier.verify_with_evidence(&bounty, &envelope)
+    })
+    .await
     {
-        Ok(o) => o,
-        Err(e) => {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => {
             record_proof_outcome(false);
             return error_response(HttpError::verifier_error(e));
+        }
+        Err(join_err) => {
+            record_proof_outcome(false);
+            return error_response(HttpError::verifier_error(format!(
+                "verifier task panicked: {join_err}"
+            )));
         }
     };
 

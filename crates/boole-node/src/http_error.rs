@@ -259,6 +259,15 @@ impl HttpError {
             .with_extra("windowMs", json!(window_ms as u64))
     }
 
+    /// P1.7 — the request exceeded its route's processing-time budget
+    /// (default 30 s; bounty-proof 90 s). Replaces the bare empty body a
+    /// `tower_http::TimeoutLayer` emits with the typed envelope every other
+    /// 4xx/5xx response uses, so a timed-out caller can branch on `reason`.
+    pub fn request_timeout() -> Self {
+        Self::new(408, "request_timeout")
+            .with_detail("request exceeded the server processing-time limit")
+    }
+
     pub fn not_found(detail: impl Into<String>) -> Self {
         Self::new(404, "not_found").with_detail(detail)
     }
@@ -325,6 +334,21 @@ mod tests {
                 "reason": "body_too_large",
                 "limitBytes": 1024,
                 "actualBytes": 4096,
+            })
+        );
+    }
+
+    #[test]
+    fn request_timeout_envelope_is_typed_408() {
+        let err = HttpError::request_timeout();
+        assert_eq!(err.status, 408);
+        assert_eq!(err.reason, "request_timeout");
+        assert_eq!(
+            err.into_json(),
+            json!({
+                "ok": false,
+                "reason": "request_timeout",
+                "detail": "request exceeded the server processing-time limit",
             })
         );
     }

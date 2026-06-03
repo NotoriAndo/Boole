@@ -336,10 +336,12 @@ fn truncate_utf8_to_bytes(value: &mut String, limit: usize) -> bool {
 
 /// P1.9 — tokens that make a Lean proof unsound and must be rejected
 /// before the proof is ever handed to the checker:
+///
 /// - `sorry` admits any goal without proof;
 /// - `axiom` introduces an unverified postulate the kernel trusts blindly;
 /// - `native_decide` discharges a goal via native compiled code, outside
 ///   the trusted kernel.
+///
 /// Each token is matched on a word boundary (after line comments are
 /// stripped), so identifiers that merely contain the substring
 /// (`my_axiom_lemma`, `native_decide_helper`) are never flagged.
