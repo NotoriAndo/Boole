@@ -35,7 +35,7 @@ use std::future::Future;
 use std::net::{IpAddr, SocketAddr, TcpListener as StdTcpListener};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::task::{Context, Poll};
@@ -298,6 +298,13 @@ struct LocalNodeState {
     /// compute `uptime = now - nodeStartedAt` without scraping process
     /// metrics. The value never mutates during the process lifetime.
     started_at_ms: u64,
+    /// P2.6 e — runtime disk-full sentinel. `/ready` returns 503 with
+    /// reason `disk_full_sentinel` when this is set, mirroring the master
+    /// plan's "operator's disk fills up mid-mining → /ready 503" row.
+    /// Defaults to `false`; the test seam
+    /// `serve_local_node_with_disk_full_sentinel` injects it, and a future
+    /// ENOSPC handler on the durable-append path is the production trigger.
+    disk_full: Arc<AtomicBool>,
     /// Static catalog of `WorkManifest`s loaded once at boot from
     /// `LocalNodeConfig.work_manifests_path` (empty when unconfigured).
     /// Served read-only via `GET /work` and `GET /work/:id`.
@@ -624,6 +631,33 @@ async fn rate_limit_middleware(
     } else {
         error_response(HttpError::rate_limited(limiter.quota, limiter.window_ms))
     }
+}
+
+/// P2.6 e — test seam: serve with an injected disk-full sentinel so the
+/// `/ready` fault-injection matrix can assert the 503 + `disk_full_sentinel`
+/// reason without an actual full filesystem. Production code never calls
+/// this; the live trigger will be an ENOSPC handler on the durable-append
+/// path storing into the same `Arc<AtomicBool>`.
+#[doc(hidden)]
+pub fn serve_local_node_with_disk_full_sentinel(
+    listener: StdTcpListener,
+    config: LocalNodeConfig,
+    disk_full: Arc<AtomicBool>,
+) -> anyhow::Result<()> {
+    let max_requests = config.max_requests;
+    let rate_limiter = build_rate_limiter(config.http_rate_limit_per_60s);
+    let mut state = LocalNodeState::from_config(config)?;
+    state.disk_full = disk_full;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(serve_local_node_async(
+        listener,
+        state,
+        max_requests,
+        rate_limiter,
+        None,
+    ))
 }
 
 pub fn serve_local_node(listener: StdTcpListener, config: LocalNodeConfig) -> anyhow::Result<()> {
@@ -1062,6 +1096,7 @@ impl LocalNodeState {
         };
         Ok(Self {
             runtime,
+            disk_full: Arc::new(AtomicBool::new(false)),
             genesis_c: scenario.genesis_c,
             block_path: config.block_path,
             report: scenario.cfg,
@@ -1463,6 +1498,9 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
             .unwrap_or(false)
     };
     let ledgers_loaded = compute_ledgers_loaded(&guard);
+    // P2.6 e — disk-full sentinel. A positive boolean keeps the wire shape
+    // consistent with the other `checks` keys (all are "ok"-form).
+    let disk_space_ok = !guard.disk_full.load(Ordering::Acquire);
     drop(guard);
 
     let checks = json!({
@@ -1470,6 +1508,7 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
         "state_dir_lock_held": state_dir_lock_held,
         "lean_checker_configured": lean_checker_configured,
         "ledgers_loaded": ledgers_loaded,
+        "disk_space_ok": disk_space_ok,
     });
 
     // First failing precondition names the reason. Boot-time invariants
@@ -1528,6 +1567,21 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
                 "ok": false,
                 "probe": "ready",
                 "reason": "ledgers_not_loaded",
+                "checks": checks,
+            })),
+        )
+            .into_response();
+    }
+    // P2.6 e — disk-full is checked last: it is the least actionable for an
+    // operator (free disk, then it clears on its own) so a more specific
+    // precondition failure is surfaced first when several coincide.
+    if !disk_space_ok {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "probe": "ready",
+                "reason": "disk_full_sentinel",
                 "checks": checks,
             })),
         )

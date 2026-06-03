@@ -38,7 +38,10 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use boole_node::{serve_local_node, LocalNodeConfig};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
+use boole_node::{serve_local_node, serve_local_node_with_disk_full_sentinel, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::Value;
 
@@ -179,11 +182,98 @@ fn ready_returns_200_with_all_checks_true_on_clean_embedding_boot() {
         "state_dir_lock_held",
         "lean_checker_configured",
         "ledgers_loaded",
+        "disk_space_ok",
     ] {
         assert_eq!(
             body.pointer(&format!("/checks/{check}")),
             Some(&Value::Bool(true)),
             "all-green /ready must report checks.{check}=true: {body}"
+        );
+    }
+    finish(booted);
+}
+
+/// Boot a clean embedding node (lean disabled, no state-dir) but inject a
+/// disk-full sentinel set to `true`, so every readiness precondition except
+/// disk space is satisfied.
+fn boot_disk_full(label: &str) -> Boot {
+    let dir = std::env::temp_dir().join(format!(
+        "boole-p2-6-ready-{label}-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_path = dir.join("blocks.ndjson");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let (tx, rx) = mpsc::channel();
+    let scenario = scenario_path();
+    let disk_full = Arc::new(AtomicBool::new(true));
+
+    let handle = thread::spawn(move || {
+        tx.send(()).expect("ready");
+        serve_local_node_with_disk_full_sentinel(
+            listener,
+            LocalNodeConfig {
+                scenario_path: scenario,
+                block_path,
+                reward_ledger_path: None,
+                work_manifests_path: None,
+                bounties_path: None,
+                bounty_event_ledger_path: None,
+                bounty_verifiers: None,
+                family_manifests_dir: None,
+                max_requests: Some(1),
+                operator_signer_pks: vec![],
+                session_registry_path: None,
+                submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
+                submit_receipt_ledger_path: None,
+                receipt_commitment_ledger_path: None,
+                genesis_override: None,
+                state_dir: None,
+                network_id: None,
+                lean_checker_dir: None,
+                lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
+            },
+            disk_full,
+        )
+    });
+    rx.recv().expect("server ready");
+    thread::sleep(Duration::from_millis(50));
+    Boot { addr, handle, dir }
+}
+
+#[test]
+fn ready_returns_503_when_disk_full_sentinel_is_set() {
+    // Clean embedding (lean disabled, no state-dir) so every other
+    // precondition passes; only the injected disk-full sentinel trips, and
+    // it is the last-checked reason, so it surfaces only when alone.
+    let booted = boot_disk_full("disk-full");
+    let (status, body) = http_get(booted.addr, "/ready");
+    assert_eq!(status, 503, "disk-full must be 503: {body}");
+    assert_eq!(
+        body.get("reason").and_then(Value::as_str),
+        Some("disk_full_sentinel"),
+        "reason must be disk_full_sentinel: {body}"
+    );
+    assert_eq!(
+        body.pointer("/checks/disk_space_ok"),
+        Some(&Value::Bool(false)),
+        "checks.disk_space_ok must be false: {body}"
+    );
+    for check in [
+        "replay_matches_runtime",
+        "state_dir_lock_held",
+        "lean_checker_configured",
+        "ledgers_loaded",
+    ] {
+        assert_eq!(
+            body.pointer(&format!("/checks/{check}")),
+            Some(&Value::Bool(true)),
+            "only disk-full should fail; checks.{check} must be true: {body}"
         );
     }
     finish(booted);

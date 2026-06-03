@@ -110,11 +110,10 @@ fn deferred_rows_are_tracked_against_their_blocking_wave() {
     // failing (forcing an update) the moment someone wires the feature in.
     //
     //   * "Power loss mid-commit" — needs P1.3b staging-commit resume.
-    //   * "Disk fills up" — needs a `disk-full` typed error envelope.
     //   * "Operator lost master password" — `boole wallet restore`, deferred
     //     to P3 by ADR-0002 (P2.9 scope narrowed to init|address|sign|migrate).
     //   * "Schema version drift" — needs `boole storage migrate`.
-    let unimplemented_signals = ["staging commit", "disk-full", "schema-version-unsupported"];
+    let unimplemented_signals = ["staging commit", "schema-version-unsupported"];
     for sig in unimplemented_signals {
         assert!(
             !LOCAL_NODE_SRC.contains(sig),
@@ -123,4 +122,15 @@ fn deferred_rows_are_tracked_against_their_blocking_wave() {
              recovery_playbook_matrix.rs with a real fault-injection test."
         );
     }
+}
+
+/// P2.6 e — "operator's disk fills up mid-mining" is no longer deferred: the
+/// `disk_full_sentinel` readiness reason landed with a fault-injection test
+/// (`ready_fault_injection::ready_returns_503_when_disk_full_sentinel_is_set`).
+#[test]
+fn row_disk_full_signal_present() {
+    assert!(
+        LOCAL_NODE_SRC.contains("disk_full_sentinel"),
+        "P2.6: the disk-full readiness reason must be wired into local_node.rs"
+    );
 }
