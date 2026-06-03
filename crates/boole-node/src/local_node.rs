@@ -730,33 +730,54 @@ pub fn serve_local_node_with_os_signals(
         .enable_all()
         .build()?;
     let shutdown = Arc::new(Notify::new());
-    runtime.block_on(async move {
-        install_os_signal_shutdown(shutdown.clone());
-        serve_local_node_async(listener, state, max_requests, rate_limiter, Some(shutdown)).await
-    })
-}
 
-/// Spawn detached tasks that fire `notify` (the graceful-drain trigger) on
-/// SIGTERM (Unix) or Ctrl-C / SIGINT. Both delegate to the same drain path
-/// the external-trigger and `max_requests` callers use, so there is exactly
-/// one shutdown code path regardless of how the stop is requested.
-fn install_os_signal_shutdown(notify: Arc<Notify>) {
+    // P2.7 — register the OS signal handlers SYNCHRONOUSLY, in the runtime
+    // context, BEFORE `block_on` yields to any worker thread. Two reasons:
+    // (1) a SIGTERM/SIGINT that arrives the instant the server starts serving
+    // cannot slip through to the kernel's default (terminate) action via a
+    // registration race — by the time `/ready`/`/live` answer, the sigaction
+    // is already installed; (2) a registration failure is propagated as a
+    // boot error instead of being silently swallowed, so the bounded-drain
+    // guarantee is never void without the operator knowing. The `Signal`
+    // streams stay valid for the lifetime of the runtime that owns them.
     #[cfg(unix)]
-    {
+    let signals = {
         use tokio::signal::unix::{signal, SignalKind};
-        let term_notify = notify.clone();
-        tokio::spawn(async move {
-            if let Ok(mut term) = signal(SignalKind::terminate()) {
+        let _enter = runtime.enter();
+        let term = signal(SignalKind::terminate())
+            .map_err(|e| anyhow::anyhow!("failed to register SIGTERM handler: {e}"))?;
+        let int = signal(SignalKind::interrupt())
+            .map_err(|e| anyhow::anyhow!("failed to register SIGINT handler: {e}"))?;
+        (term, int)
+    };
+
+    runtime.block_on(async move {
+        #[cfg(unix)]
+        {
+            let (mut term, mut int) = signals;
+            let term_notify = shutdown.clone();
+            tokio::spawn(async move {
                 term.recv().await;
                 term_notify.notify_one();
-            }
-        });
-    }
-    tokio::spawn(async move {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            notify.notify_one();
+            });
+            let int_notify = shutdown.clone();
+            tokio::spawn(async move {
+                int.recv().await;
+                int_notify.notify_one();
+            });
         }
-    });
+        #[cfg(not(unix))]
+        {
+            // Non-unix: Ctrl-C is the only portable stop signal.
+            let ctrl_c_notify = shutdown.clone();
+            tokio::spawn(async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    ctrl_c_notify.notify_one();
+                }
+            });
+        }
+        serve_local_node_async(listener, state, max_requests, rate_limiter, Some(shutdown)).await
+    })
 }
 
 async fn serve_local_node_async(
@@ -1381,8 +1402,19 @@ async fn request_id_middleware(request: Request, next: Next) -> Response {
 /// carries a larger body and runs the Lean verifier. Both the body cap and
 /// the request timeout key off this single predicate so one source decides
 /// the route class (no fragile per-route layer-composition ordering).
+///
+/// Matches ONLY the canonical three-segment form: a single non-empty `id`
+/// segment with no extra depth. A loose `starts_with`/`ends_with` would also
+/// match `/bounties/proof` (the `/bounties/{id}` GET with `id="proof"`) and
+/// `/bounties/x/y/proof` (no registered route), handing them the wrong
+/// 90 s timeout + 8 MiB body-cap class.
 fn is_proof_route(path: &str) -> bool {
-    path.starts_with("/bounties/") && path.ends_with("/proof")
+    if let Some(rest) = path.strip_prefix("/bounties/") {
+        if let Some(id) = rest.strip_suffix("/proof") {
+            return !id.is_empty() && !id.contains('/');
+        }
+    }
+    false
 }
 
 /// P1.7 — per-route request timeout. The proof route gets
@@ -4064,5 +4096,22 @@ mod tests {
             err.to_string().contains("rewardRecipient not credited"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn is_proof_route_matches_only_canonical_three_segment_form() {
+        // Canonical proof route → true.
+        assert!(is_proof_route("/bounties/test-id/proof"));
+        assert!(is_proof_route("/bounties/abc123/proof"));
+        // /bounties/{id} GET with id="proof" → NOT the proof route.
+        assert!(!is_proof_route("/bounties/proof"));
+        // Deeper paths (no registered route) → NOT the proof route.
+        assert!(!is_proof_route("/bounties/x/y/proof"));
+        // Other routes / prefixes → false.
+        assert!(!is_proof_route("/bounties/test-id"));
+        assert!(!is_proof_route("/bounties/test-id/status"));
+        assert!(!is_proof_route("/bounties"));
+        assert!(!is_proof_route("/submit"));
+        assert!(!is_proof_route("/bounties//proof"));
     }
 }

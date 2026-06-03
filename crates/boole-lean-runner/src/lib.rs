@@ -357,8 +357,13 @@ fn scan_for_forbidden_tokens(path: &Path) -> Result<Option<(&'static str, usize)
     let bytes = std::fs::read(path)
         .with_context(|| format!("failed to read proof file {}", path.display()))?;
     let text = String::from_utf8_lossy(&bytes);
-    for (idx, raw_line) in text.lines().enumerate() {
-        let line = strip_line_comment(raw_line);
+    // Blank the bytes of line comments, nested block comments, and string
+    // literals (preserving newlines so line numbers stay accurate) so the
+    // forbidden-token scan only fires on real CODE. A `sorry`/`axiom`/
+    // `native_decide` that appears inside a comment or string is
+    // documentation, not an unsound declaration, and must not be rejected.
+    let code = blank_non_code(&text);
+    for (idx, line) in code.lines().enumerate() {
         for &(needle, name) in FORBIDDEN_TOKENS {
             if contains_forbidden_token(line, needle) {
                 return Ok(Some((name, idx + 1)));
@@ -368,12 +373,83 @@ fn scan_for_forbidden_tokens(path: &Path) -> Result<Option<(&'static str, usize)
     Ok(None)
 }
 
-fn strip_line_comment(line: &str) -> &str {
-    if let Some(pos) = line.find("--") {
-        &line[..pos]
-    } else {
-        line
+/// Replace the bytes of Lean line comments (`-- … eol`), nested block
+/// comments (`/- … -/`), and double-quoted string literals with spaces,
+/// preserving newlines so 1-based line numbers stay accurate.
+///
+/// A single left-to-right pass tracks the lexical state so that, crucially,
+/// `/-` inside a string and `"` inside a comment are NOT misinterpreted — a
+/// naive two-pass strip would treat `"/-"` as a comment-open and blank the
+/// real code that follows, a false negative that would let an unsound
+/// `axiom` through. Char literals (`'c'`) are left as-is: a single char can
+/// never be a forbidden multi-byte keyword, and `'` is also an identifier
+/// suffix in Lean (`x'`), so treating it as a delimiter would mangle code.
+/// Only ASCII delimiters are matched; UTF-8 multi-byte code bytes are copied
+/// through verbatim (their bytes never collide with the ASCII delimiters).
+fn blank_non_code(text: &str) -> String {
+    let b = text.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(b.len());
+    let mut i = 0;
+    let mut block_depth: usize = 0;
+    while i < b.len() {
+        let c = b[i];
+        if block_depth > 0 {
+            if c == b'/' && i + 1 < b.len() && b[i + 1] == b'-' {
+                block_depth += 1;
+                out.push(b' ');
+                out.push(b' ');
+                i += 2;
+                continue;
+            }
+            if c == b'-' && i + 1 < b.len() && b[i + 1] == b'/' {
+                block_depth -= 1;
+                out.push(b' ');
+                out.push(b' ');
+                i += 2;
+                continue;
+            }
+            out.push(if c == b'\n' { b'\n' } else { b' ' });
+            i += 1;
+            continue;
+        }
+        if c == b'/' && i + 1 < b.len() && b[i + 1] == b'-' {
+            block_depth = 1;
+            out.push(b' ');
+            out.push(b' ');
+            i += 2;
+            continue;
+        }
+        if c == b'-' && i + 1 < b.len() && b[i + 1] == b'-' {
+            while i < b.len() && b[i] != b'\n' {
+                out.push(b' ');
+                i += 1;
+            }
+            continue;
+        }
+        if c == b'"' {
+            out.push(b' ');
+            i += 1;
+            while i < b.len() {
+                if b[i] == b'\\' && i + 1 < b.len() {
+                    out.push(b' ');
+                    out.push(b' ');
+                    i += 2;
+                    continue;
+                }
+                if b[i] == b'"' {
+                    out.push(b' ');
+                    i += 1;
+                    break;
+                }
+                out.push(if b[i] == b'\n' { b'\n' } else { b' ' });
+                i += 1;
+            }
+            continue;
+        }
+        out.push(c);
+        i += 1;
     }
+    String::from_utf8(out).unwrap_or_else(|_| text.to_string())
 }
 
 fn contains_forbidden_token(line: &str, needle: &[u8]) -> bool {
@@ -715,7 +791,52 @@ mod tests {
 
     #[test]
     fn ignores_sorry_in_line_comment() {
-        assert!(!contains_sorry_token(strip_line_comment("foo -- sorry")));
+        // blank_non_code blanks the `-- sorry` so the scan finds nothing.
+        assert!(!contains_forbidden_token(
+            &blank_non_code("foo -- sorry"),
+            b"sorry"
+        ));
+    }
+
+    #[test]
+    fn ignores_forbidden_tokens_in_block_comments() {
+        let code = blank_non_code(
+            "/- this proof is axiom-independent and avoids native_decide -/\n\
+             theorem t : True := trivial\n",
+        );
+        assert!(!contains_forbidden_token(&code, b"axiom"));
+        assert!(!contains_forbidden_token(&code, b"native_decide"));
+        assert!(!contains_forbidden_token(&code, b"sorry"));
+    }
+
+    #[test]
+    fn ignores_forbidden_tokens_in_string_literals() {
+        let code = blank_non_code(r#"def msg : String := "axiom is not permitted here""#);
+        assert!(!contains_forbidden_token(&code, b"axiom"));
+    }
+
+    #[test]
+    fn block_comment_open_inside_string_does_not_swallow_following_code() {
+        // `/-` inside a string must NOT start a block comment that would blank
+        // the real `axiom` on the next line (a false negative / unsound).
+        let code = blank_non_code("def s : String := \"/-\"\naxiom sneaky : False\n");
+        let line2 = code.lines().nth(1).unwrap_or("");
+        assert!(
+            contains_forbidden_token(line2, b"axiom"),
+            "a real axiom after a string containing /- must still be caught; line2={line2:?}"
+        );
+    }
+
+    #[test]
+    fn real_forbidden_token_in_code_survives_blanking() {
+        assert!(contains_forbidden_token(
+            &blank_non_code("axiom bad : False\n"),
+            b"axiom"
+        ));
+        assert!(contains_forbidden_token(
+            &blank_non_code("theorem t : True := by native_decide\n"),
+            b"native_decide"
+        ));
     }
 
     #[test]

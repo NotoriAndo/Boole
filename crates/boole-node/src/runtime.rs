@@ -159,6 +159,25 @@ impl RuntimeAdmissionState {
                         blocks.last().map(|b| b.height).unwrap_or(0),
                     );
                 }
+                // P1.3b KNOWN LIMITATION — the reward-ledger heal above covers
+                // the common crash window (block append → reward append). It
+                // does NOT heal the bounty-event ledger: a crash AFTER this
+                // reward append but BEFORE the per-credit
+                // `FileBountyEventLedger::append` in `submit_json` leaves the
+                // bounty-event ledger short of `credit` events for the last
+                // block, and the verify below bails on a bounty-family
+                // divergence. The re-derive strategy cannot close this window:
+                // the paired `share_promoted` events carry a `proofHash` and
+                // include zero-credit shares that are NOT recorded in
+                // `promoted_bounty_credits`, so re-deriving only the `credit`
+                // events would leave `rebuild_bounty_side_pool` treating the
+                // already-committed share as still-pending and re-promotable —
+                // trading an unbootable node for a double-credit. Closing this
+                // window cleanly requires the staging-commit approach (write
+                // the full block + reward + bounty-event set atomically) or a
+                // block-store-aware side-pool rebuild; tracked as a follow-up
+                // (see ADR-0005). A node run with `--bounty-events` that
+                // crashes in this narrow window needs manual recovery today.
                 verify_ledger_matches_replay(
                     &recovered_ledger,
                     &replay.balances,

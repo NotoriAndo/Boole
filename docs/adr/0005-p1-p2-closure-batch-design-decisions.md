@@ -33,6 +33,24 @@ helper backs both the absent-ledger re-derive and the trailing-event heal.
 Pinned by `tests/reward_ledger_crash_heal.rs` and
 `scripts/test_multi_store_commit_ordering_contract.py`.
 
+**Known limitation (tracked follow-up).** The re-derive heal closes the
+*common* crash window (block append → reward append). It does **not** close
+the narrower bounty-event window: a crash after the reward append but before
+the per-credit `FileBountyEventLedger::append` in `submit_json` leaves the
+bounty-event ledger short of `credit` events for the last block, and boot
+bails on a bounty-family divergence (an unbootable node for a `--bounty-events`
+operator who committed a promoted-credit block). The re-derive strategy
+*cannot* close this window: the paired `share_promoted` events carry a
+`proofHash` and include zero-credit shares that are not recorded in
+`promoted_bounty_credits`, so re-deriving only the `credit` events would leave
+`rebuild_bounty_side_pool` treating an already-committed share as still-pending
+and re-promotable — trading the unbootable node for a *double-credit*, which is
+strictly worse. Closing this window correctly requires either the
+staging-commit approach (the very write-ahead file this slice otherwise avoids)
+or a block-store-aware side-pool rebuild. It is deliberately left as a tracked
+follow-up rather than shipped as a hasty, consensus-unsafe partial heal. The
+boot path documents the exact window in a code comment.
+
 ## P2.7 — `BountySidePool` durability via the bounty-event ledger, not a snapshot
 
 **Master plan (§4 L8):** the SIGTERM drain should "persist `BountySidePool`".
