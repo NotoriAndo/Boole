@@ -674,6 +674,57 @@ pub fn serve_local_node_with_shutdown(
     ))
 }
 
+/// P2.7 — production entry point: serve until a SIGTERM or SIGINT arrives,
+/// then drain gracefully. On the trigger, axum's `with_graceful_shutdown`
+/// stops accepting new connections and finishes in-flight requests; every
+/// NDJSON ledger is already fsynced per-append; the Lean child is reaped via
+/// `ChildKillOnDrop` when an interrupted proof future drops; and the
+/// state-dir flock is released when `LocalNodeState` drops on return.
+///
+/// The `BountySidePool` is deliberately NOT snapshotted to a side file: it
+/// is a pure projection of the durable bounty-event ledger and is rebuilt on
+/// the next boot (P1.5b `rebuild_bounty_side_pool`), so there is one source
+/// of truth that a separate snapshot could only diverge from.
+pub fn serve_local_node_with_os_signals(
+    listener: StdTcpListener,
+    config: LocalNodeConfig,
+) -> anyhow::Result<()> {
+    let max_requests = config.max_requests;
+    let rate_limiter = build_rate_limiter(config.http_rate_limit_per_60s);
+    let state = LocalNodeState::from_config(config)?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let shutdown = Arc::new(Notify::new());
+    runtime.block_on(async move {
+        install_os_signal_shutdown(shutdown.clone());
+        serve_local_node_async(listener, state, max_requests, rate_limiter, Some(shutdown)).await
+    })
+}
+
+/// Spawn detached tasks that fire `notify` (the graceful-drain trigger) on
+/// SIGTERM (Unix) or Ctrl-C / SIGINT. Both delegate to the same drain path
+/// the external-trigger and `max_requests` callers use, so there is exactly
+/// one shutdown code path regardless of how the stop is requested.
+fn install_os_signal_shutdown(notify: Arc<Notify>) {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let term_notify = notify.clone();
+        tokio::spawn(async move {
+            if let Ok(mut term) = signal(SignalKind::terminate()) {
+                term.recv().await;
+                term_notify.notify_one();
+            }
+        });
+    }
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            notify.notify_one();
+        }
+    });
+}
+
 async fn serve_local_node_async(
     listener: StdTcpListener,
     state: LocalNodeState,

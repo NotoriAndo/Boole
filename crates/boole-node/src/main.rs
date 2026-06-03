@@ -6,7 +6,7 @@ use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use boole_node::FileBlockStore;
 use boole_node::LeanBountyVerifier;
 use boole_node::{run_runtime_smoke, run_runtime_smoke_scenario_file, RuntimeSmokeInput};
-use boole_node::{serve_local_node, LocalNodeConfig};
+use boole_node::{serve_local_node_with_os_signals, LocalNodeConfig};
 use boole_node::{LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate};
 use boole_node::{RuntimeAdmissionState, RuntimeConfig};
 use clap::{ArgGroup, Args, Parser, Subcommand};
@@ -316,7 +316,8 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
     if let Some(dir) = args.state_dir.as_ref() {
         eprintln!("boole-node local stateDir={}", dir.display());
     }
-    let result = serve_local_node(
+    // P2.7 — the CLI runs until SIGTERM/SIGINT, then drains gracefully.
+    let result = serve_local_node_with_os_signals(
         listener,
         LocalNodeConfig {
             scenario_path: args.scenario.into(),

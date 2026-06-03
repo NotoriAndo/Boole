@@ -29,8 +29,9 @@ pub use deep_verify::{
 pub use family_manifest_store::load_family_manifest_registry_from_dir;
 pub use lean_bounty_verifier::LeanBountyVerifier;
 pub use local_node::{
-    serve_local_node, serve_local_node_with_shutdown, LocalNodeConfig, DEFAULT_ROUTE_TIMEOUT,
-    MAX_CONCURRENT_REQUESTS, MAX_HTTP_BODY_BYTES, PROOF_ROUTE_BODY_BYTES, PROOF_ROUTE_TIMEOUT,
+    serve_local_node, serve_local_node_with_os_signals, serve_local_node_with_shutdown,
+    LocalNodeConfig, DEFAULT_ROUTE_TIMEOUT, MAX_CONCURRENT_REQUESTS, MAX_HTTP_BODY_BYTES,
+    PROOF_ROUTE_BODY_BYTES, PROOF_ROUTE_TIMEOUT,
 };
 pub use proof_bridge::{
     canonical_pofp_package_from_lean_result, LeanProofBridge, LeanProofBridgePolicy,
