@@ -214,6 +214,34 @@ fn invoke_boole_status_returns_idle_envelope_200() {
     assert_eq!(v["state"], "idle", "body={body}");
 }
 
+/// P2.1 criterion 1 closure — `boole.mine` accepts an optional
+/// `max_cycles` arg and drives a NON-zero-cycle round-trip through the
+/// in-process bundle. With `max_cycles = 1` the loop body executes one
+/// full cycle (head fetch -> classify -> ticket grind -> announce ->
+/// driver -> verifier), so `cycles_run` comes back as 1 (the
+/// `RejectingVerifier` means no share is accepted, but the cycle still
+/// completes). This proves the criterion-1 path — a real >0-cycle
+/// round-trip driven from the MCP tool — not just the zero-cycle plumbing
+/// smoke. Omitting the arg keeps the backward-compatible zero-cycle
+/// default.
+#[test]
+fn invoke_boole_mine_with_max_cycles_one_runs_one_cycle() {
+    let (_guard, addr) = spawn_serve(&dummy_upstream_url());
+    let req_body = json!({"tool":"boole.mine","args":{"max_cycles":1}}).to_string();
+    let (status, body) = http_post_json(addr, "/mcp/invoke", &req_body);
+    assert_eq!(status, 200, "body={body}");
+    let v: Value = serde_json::from_str(&body).expect("json");
+    assert_eq!(
+        v["cycles_run"], 1,
+        "max_cycles=1 must drive exactly one mining cycle; body={body}"
+    );
+    // RejectingVerifier -> the cycle completes but accepts no share.
+    assert_eq!(
+        v["shares_accepted"], 0,
+        "rejecting verifier accepts no share; body={body}"
+    );
+}
+
 /// P2.1 closure (slice 54) — `boole.status` reflects the last mining
 /// session. After `boole.mine` completes a zero-cycle round-trip, a
 /// subsequent `boole.status` returns the `completed` envelope with

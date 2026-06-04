@@ -72,6 +72,123 @@
 - Tests whose expected values are derived from the input via the buggy code rather than the protocol spec.
 - If in doubt, check the actual wire format (here: live `curl /head | jq`) and align fixtures with reality, not with the previously-passing tests.
 
+## 2026-06-02 — Focused clippy ≠ gate clippy: always pass `-- -D warnings`
+
+**Pattern:** P2.1's focused check `cargo clippy -p boole-mcp --all-targets`
+returned exit 0 with no visible warnings, so I launched the full gate.
+The gate FAILED at the `cargo-clippy` stage (GATE_EXIT=101) on a
+`clippy::clone_on_copy` lint — `GrinderConfig` is `Copy`, so
+`bounded.clone()` is a lint. That burned a multi-hour gate run for a
+one-line fix.
+
+**Root cause:** `scripts/self-test.sh:59-60` runs clippy as
+`cargo clippy --workspace --all-targets --locked -- -D warnings` (and a
+second pass with dev features). The `-D warnings` promotes EVERY lint to
+an error. My focused `cargo clippy -p <crate>` without `-- -D warnings`
+left lints as warnings that my grep for `error:` never caught.
+
+**Rule:** before launching the (5-15h) full gate, reproduce the gate's
+clippy exactly: `cargo clippy --workspace --all-targets --locked -- -D
+warnings` (and the dev-features variant). Never trust a focused
+`cargo clippy -p <crate>` without `-- -D warnings` as a gate proxy — it
+silently downgrades the very lints the gate fails on. Cheap pre-gate
+check that saves a whole gate cycle.
+
+## 2026-06-01 — Gate log mtime frozen ≠ hang (never reflexively kill cargo)
+
+**Pattern:** during the P0.5 slice-63 full gate, the main gate log
+(`/tmp/p0-5-adr-gate.log`) stopped updating for 130+ minutes while stuck
+on `cargo-test: RUN`. I misread the frozen mtime as a hang and assembled
+a `pkill -x cargo`/`pkill -x rustc`/`pkill -f self-test.sh` batch to
+"recover" it. The destructive batch only failed to execute by luck — an
+earlier ports-check command in the same parallel block exited 1, which
+cancelled the whole batch. The gate was in fact perfectly healthy.
+
+**Root cause:** `scripts/self-test.sh`'s `run_logged` (lines 16-28)
+redirects each stage's stdout/stderr to `$TMP_DIR/<name>.log`, NOT to the
+main gate log. So the main log only ever gets the one-line
+`self-test check cargo-test: RUN` marker, and its mtime stays frozen for
+the entire (long, serial `RUST_TEST_THREADS=1`, host-contended)
+cargo-test stage. `$TMP_DIR` is removed by an EXIT trap, so its path is
+not externally observable mid-run.
+
+**Rule:** a frozen gate-log mtime is NOT evidence of a hang. Before ever
+reaching for `pkill cargo`/`pkill rustc`, prove liveness from the
+PROCESS TREE instead:
+- `pgrep -f self-test.sh` and `pgrep -x cargo` → both RUNNING?
+- `pgrep -P <cargo-pid>` → `ps -o pid,etime,comm <child>`.
+- If the child test-binary name/etime is ROTATING between probes (e.g.
+  `ready_..._lean_checker_dir_path_missing` → `ready_..._ledgers_not_loaded`,
+  each with a small etime), the gate is healthily stepping through the
+  serial test set. Leave it alone.
+Killing it discards hours of serial cargo-test work for nothing. Do not
+rely on a lucky cancellation to save you next time.
+
+## 2026-06-01 — Failed Edit + "N passed" tripwire; never batch a gate with unverified edits
+
+**Pattern:** starting slice 64 I issued ~30 tool calls in ONE batch:
+`Edit`s on `telemetry.rs`/`Cargo.toml`, then RED/GREEN `cargo test`, then
+a full `self-test.sh` gate launch — together. Every Edit FAILED ("String
+to replace not found") because my `old_string`s came from stale
+pre-compaction memory. I didn't react (failures buried in a 30-result
+batch), ran tests anyway, saw "2 passed; 16 filtered out", and launched a
+5-hour gate against a tree with ZERO slice-64 changes.
+
+**Tripwire missed:** I had ADDED 5 tests, so the focused run should show 7
+(or a compile error). Seeing exactly the PRE-EXISTING count proves the
+edits didn't apply.
+
+**Rules:**
+- NEVER batch an expensive/irreversible step (gate, commit, push) in the
+  same tool block as the edits it depends on. Apply edits → confirm each
+  landed (Edit tool reports success explicitly; or re-Read) → THEN gate.
+- After "adding" tests the focused count MUST increase; if it equals the
+  baseline, stop — the edit failed.
+- Post-compaction, treat remembered file contents as UNTRUSTED: Read the
+  real file and copy exact `old_string` from it.
+
+## 2026-06-01 — macOS tool reality: no python tomllib, no `cat -A`; one failure cancels the batch
+
+**Pattern:** `python3 -c "import tomllib"` and `cat -A` both errored — but
+these were REAL (`python3` here is <3.11; macOS `cat` lacks `-A`), not
+channel corruption. The `Exit code 1` from the python probe CANCELLED
+every queued tool call after it in the same parallel batch (~20 edits +
+checks lost).
+
+**Rules:**
+- Don't use `tomllib` (py<3.11 here) or GNU-only flags (`cat -A`, some
+  `sed`/`grep` long opts) — they fail on this macOS host.
+- A single non-zero Bash in a parallel batch can cancel the siblings
+  after it. Keep edits in their OWN batch, separate from probes that may
+  exit non-zero. Prefer the `Read`/`Edit` tools (explicit success) over
+  shell parsing for anything load-bearing.
+
+## 2026-06-01 — TaskStop'd gate leaves an orphan cargo holding the package-cache lock
+
+**Pattern:** slice 64 added new deps (tracing, tracing-subscriber). Its
+focused `cargo test -p boole-core` sat for 15+ min with its cargo alive
+but ZERO rustc children — not compiling, BLOCKED. Process-tree dig found
+a second cargo (pid 57883, parent 57881 with PPID=1 → orphaned to
+launchd) in the SAME repo, running 6h09m, holding `~/.cargo/.package-cache`.
+It was an orphan from a gate I had `TaskStop`'d earlier this session:
+TaskStop killed the bash wrapper but the cargo subtree was reparented to
+launchd and kept the package-cache lock. Earlier slices (no new deps)
+never contended because cargo only takes that lock to resolve/fetch
+registry deps; the moment a slice ADDS a dep, the fetch blocks on the
+orphan's lock forever.
+
+**Rules:**
+- After `TaskStop` on a task that ran `cargo`, the cargo subtree may
+  survive as an orphan. If a later cargo invocation hangs with no rustc
+  children, suspect a stale `~/.cargo/.package-cache` lock:
+  `lsof ~/.cargo/.package-cache` names the holder.
+- Confirm it's YOUR orphan before killing: holder's cwd ==
+  `/Users/seoyong/projects/Boole` AND its process-group root has PPID=1
+  (reparented). Then `kill` it — recovering your own stuck gate is
+  authorized continuation; it is not someone else's process.
+- Better: prefer letting a gate finish over `TaskStop`; if you must stop
+  one, also kill its cargo/rustc subtree so no orphan lock survives.
+
 ## 2026-05-10 — Telegram-initiated task: every reply goes via Telegram, not just the completion ping
 
 **Pattern:** A Telegram message arrived asking a clarification question (`lake-verify 와이어업이 테스트를 말하는거야?`). I answered with terminal text output, treating it like an interactive CLI question. The user pushed back: "내가 텔레그램으로 대답하라고 했지." The global rule in `~/.claude/CLAUDE.md` says **all** replies for Telegram-initiated tasks go via Telegram — not only the final completion ping. Mid-conversation Q&A counts.
@@ -111,3 +228,102 @@ This matters for the wallet plan specifically: the Global verification commands 
 4. Wait for the inbound Telegram reply; do not assume silence = consent.
 
 **Self-check before any decision request:** if the most recent inbound message has a `<channel source="telegram">` tag, every clarification — including 2-/3-/4-way choices that feel natural to a CLI menu — goes through `reply`. Both `text` output and `AskUserQuestion` are dead channels for that user.
+
+## 2026-05-18 — Repeat offense: terminal text reply in Telegram session despite 2026-05-10 lesson
+
+**Pattern:** msg 186 arrived via Telegram (`chat_id=1311067056`) asking "full test는 커밋/푸시 전에만 하라는 내용도 있어?". I answered with a long terminal markdown block — exactly the failure mode the 2026-05-10 lesson documents. The user pushed back with msg 187: "야 텔레그램으로 대답하라고". This is the *third* Telegram-channel violation (2026-05-10 terminal text, 2026-05-13 AskUserQuestion, 2026-05-18 terminal text again). The prior lessons existed and were in `tasks/lessons.md` but did not change behavior in-session.
+
+**Why the rule kept failing:** the 2026-05-10 lesson is phrased as a self-check ("if the most recent inbound has a telegram channel tag…"), but in practice the in-session conversation summary after compaction collapses the channel tags. By the time I answered msg 186, the inbound `<channel source="telegram">` tag was present in that turn — I just skipped the self-check.
+
+**Hardened rule:** before emitting *any* user-facing text in a session that has ever produced a `mcp__plugin_telegram_telegram__reply` call, run this two-line check:
+
+1. Does the most recent inbound user message contain `<channel source="telegram"` (or `plugin:telegram:telegram`)? — if yes, route via `reply`.
+2. Has this session previously used the Telegram reply tool? — if yes, default to `reply` even when the current turn looks ambiguous. Override only when the user explicitly says "이건 터미널에 적어줘" or equivalent.
+
+**Trigger phrases to treat as REPLY signals (not terminal):** any Korean question/statement following a `<channel source="telegram">` block, including short follow-ups like "야", "어", "확인", "알겠어", and any clarification request. Short = still Telegram.
+
+**No-exception list:** the terminal is acceptable only for (a) tool-call narration that the harness shows automatically, and (b) explicit user instruction to write to the terminal. Everything else in a Telegram session goes through `reply` — including this very lesson update would have been reported via `reply`, not text, if the user asked about it.
+
+## 2026-05-30 — committed before confirming the full gate actually PASSED
+
+**Pattern:** on the P1.6 cross-network matrix slice I read the self-test log with `tail`, saw the last line was `cargo-fmt: FAIL` (stage 1 bailed immediately), but registered it as PASS and committed + pushed `ea8f53c` anyway. A rustfmt-dirty file reached origin/main. Root causes: (1) I judged gate success by eyeballing a stage list instead of grepping for the explicit `self-test: PASS` terminal line; (2) my own `echo "fmt clean"` label in a background command sat just above the real rustfmt diff, and I read the label not the diff. rustfmt rewraps hand-written method chains and doc comments, so source that looks fine to the eye still fails `cargo fmt --check`.
+
+**Rule:**
+- Gate verdict is ONLY `grep -E "^self-test: (PASS|FAIL)" <log>`. Never declare a gate green by scanning the stage list. If the PASS line is absent, the gate did NOT pass — do not commit.
+- self-test bails on the FIRST failing stage, so a `tail` of the log shows that stage's name as the last line, NOT `self-test: PASS`. Always grep the explicit terminal verdict.
+- Run `cargo fmt` (the formatter, not `--check`) on any new/edited `.rs` file BEFORE running the gate. rustfmt reflows method chains (`opts.x.then(...)`), struct literals, and `//!`/`///` doc comments — hand-written layout is not authoritative.
+- When reading background-command output, never conflate my own `echo` labels with the tool's real output; print and check the exit code explicitly.
+- Recovery when a bad commit already pushed: `cargo fmt` → re-run focused tests → commit the fixup as its own NotoriAndo commit → push → verify local SHA == origin/main → re-run the FULL gate and confirm the explicit `self-test: PASS` line before considering the slice closed.
+
+## 2026-05-30 — "tool output corrupted" was a repeated MISJUDGMENT; pausing wasted cycles
+
+**Pattern:** twice in one long autonomous run I concluded the Bash/Read tools were "corrupted" and scheduled a 30-min pause. Both times the tools were fine. Root causes of the illusion: (1) I chased a phantom file `signed_envelope_network_rejection.rs` that never existed (the real file is `cross_network_rejection.rs`), so `wc`/`Read`/`git restore` all correctly reported "no such file" — I misread consistent absence as contamination; (2) a Bash call ran with `cwd=/Users/seoyong/projects/boole` (lowercase) instead of `…/Boole` — but macOS is case-insensitive so it is the SAME repo (git HEAD identical), harmless; (3) `grep -c` returning `0` for warning/error counts is the SUCCESS case, not a corrupted-output case.
+
+**Rule:**
+- Before declaring tools broken, run ONE deterministic sanity probe: `echo TOKEN; expr 6 \* 7; git rev-parse --short HEAD`. If it returns `TOKEN / 42 / <sha>`, the tools are fine — the problem is my query (wrong path, phantom file, or misread exit code), not the harness. Do NOT pause on suspicion.
+- A file "not existing" reported consistently by ls+Read+git is GROUND TRUTH, not corruption. Verify the real filename with `git ls-files | grep <topic>` before assuming a tool fault.
+- `cwd` may show `/Users/seoyong/projects/boole` (lowercase) — this is the same case-insensitive repo as `…/Boole`; not a fault. Confirm via matching `git rev-parse HEAD`.
+- Reserve pausing for a REAL blocker (genuine FAIL, missing dependency, ambiguous user decision) — not for self-induced confusion. Pausing 30min on a phantom burns the autonomous budget for nothing.
+
+## 2026-05-31 — audit the actual test file before writing a "missing" test (scout can be wrong)
+
+**Pattern:** an Explore scout reported that the P1.5 replay-parity test (promote-some, reboot, assert exactly the unpromoted shares survive) did NOT exist and only the all-unpromoted case was covered. I was about to write it. Before authoring, I grepped the target file directly and found `boot_after_promotion_rebuilds_side_pool_to_match_pre_restart_state` already present in `crates/boole-node/tests/hard_guard_regression.rs` (line ~1100) — it does EXACTLY the mixed promoted/unpromoted reboot parity (comment: "promoted shares must not reappear, unpromoted shares must not vanish"), and it passes. The scout had scanned the 1206-line file and missed the test.
+
+**Rule:**
+- A subagent's "this test/file does not exist" claim is a HINT, not ground truth. Before writing any test a scout says is missing, run a direct `grep -n "fn .*<topic>\|<key assertion phrase>" <target_test_file>` and, for a multi-hundred-line file, grep the whole file for the invariant phrase — not just the function-name guess. Writing a duplicate test is wasted work and muddies the suite.
+- This is the test-suite analogue of the older "audit existing crates before forking a shared module" lesson. Same discipline: verify absence in the real artifact, don't trust a summary.
+
+## 2026-05-31 — very long sessions degrade bulk tool output; switch tools, don't guess
+
+**Pattern:** deep into an enormous session, multi-section `echo;grep;grep` Bash calls and large `Read` ranges began rendering as empty / "(no output)" / abbreviated `...`, while a deterministic `echo PROBE_$(expr ...)` still returned correctly. The file contents were fine on disk (git/tests green); the harness was collapsing bulky output at the tail of a giant transcript.
+
+**Rule:**
+- When bulk output renders empty but a deterministic probe works, the tools are fine — it's output volume at session-tail. Switch to SMALLER, single-purpose calls (one grep, narrow Read window) rather than concluding corruption or pausing.
+- Do NOT author code (especially tests against an exact API/schema) while you cannot reliably read that API. Guessing a `recover`/record signature risks a broken commit. Either get a clean small read first, or checkpoint and hand the precisely-scoped next step forward.
+- Low-value belt-and-suspenders work (e.g. per-store torn-tail unit tests when the production path is already correct AND contract-tested) is not worth authoring blind against degraded reads at session-tail. Prefer a clean checkpoint.
+
+## 2026-06-04 — `self-test.sh` runs cargo-test TWICE; the gate is ~14h on this host
+
+**Pattern:** the full gate took ~14h wall-clock. Root cause: `scripts/self-test.sh` runs `cargo test --workspace` as the `cargo-test` stage AND `scripts/check-rust-parity.sh` (the `rust-parity` stage) runs `cargo test --workspace` a SECOND time (after regenerating fixtures from the pof TypeScript reference). With ~150 integration-test binaries and macOS dyld re-verifying each fresh binary's signature on first `execve` (the prewarm stage only warms the 3 production CLIs, not the test binaries), each full test run is ~6-7h, so the gate runs ~14h.
+
+**Rules:**
+- Budget ~14h for a full gate on this host; a "frozen"-looking cargo-test is almost always healthy. A test binary at `%CPU 0.0` for minutes is in dyld signature verification / page-in, NOT a deadlock. PROVE liveness by watching the cargo child rotate between binaries (`pgrep -P <cargo> → ps -o comm,etime`); the binary NAME changing between probes = healthy. The execution order is NOT alphabetical, so don't infer "near done" from the name.
+- The `rust-parity` stage's cargo is a SECOND full test run, not a hang — expect the cargo-test stage to PASS, then a fresh ~6h cargo under `rust-parity`.
+- Never reflexively `pkill cargo` on a slow gate; it discards the whole run.
+
+## 2026-06-04 — worktree overlap: ship disjoint slices while a multi-hour gate runs
+
+**Pattern:** with a ~14h P2.1 gate running in the main tree, I implemented 5 disjoint slices (P1.9/P1.7/P2.7/P2.6/P1.3b, all in boole-node/boole-lean-runner — disjoint from P2.1's boole-mcp) in a `git worktree` on a `slices-batch` branch. This converted ~14h of idle into productive slice + review + doc work; the slices merge cleanly into main after the P2.1 gate passes.
+
+**Rules:**
+- Before relying on a worktree, PROBE that the Write/Edit tools can write to its path (`git worktree add /tmp/wt HEAD`, then `Write /tmp/wt/PROBE`). Out-of-primary-dir paths may be sandboxed; confirm first.
+- Warm-build the deps once (`cargo build --manifest-path <wt>/Cargo.toml --workspace --features ...`) so per-slice focused tests are incremental. Use `--manifest-path` to avoid `cd` permission prompts.
+- The worktree has its OWN target dir → no build-lock conflict with the main gate. With no NEW deps, there is no `~/.cargo/.package-cache` contention either.
+- Do NOT run two FULL gates concurrently: cargo-test is dyld/disk-bound and the kernel serializes it, so two gates each run ~2x slower (no net saving) and their smoke stages can collide on ports. Keep full gates serial; overlap only read-only / focused work.
+
+## 2026-06-04 — subprocess test: a parser thread that stops reading SIGPIPEs the child
+
+**Pattern:** `shutdown_drain.rs` spawned `boole-node`, piped stderr, and a reader thread `break`-ed after the first "listening" line. Dropping the `BufReader` closed the pipe's read end; the node's NEXT `eprintln!` (it prints several boot lines) got SIGPIPE and the process was killed before it could serve `/live` — the test failed with "node /live never returned 200". The manual run didn't repro because it redirected stderr to a FILE, not a pipe.
+
+**Rule:** when capturing a long-lived child's piped stdout/stderr in a test, DRAIN it to EOF (keep reading after you find the line you wanted) — `let mut sent=false; for line in reader.lines() { if !sent && line.contains(..) { tx.send(line); sent=true; } }`. A reader that stops early closes the pipe and SIGPIPEs the child on its next write.
+
+## 2026-06-04 — adversarial review BEFORE the multi-hour gate caught 6 bugs the gate could not
+
+**Pattern:** before merging the 5 slices, an 11-agent adversarial review of the per-slice diffs (read-only, concurrent with the running gate) confirmed 6 real bugs the full gate's tests would NOT have caught, because they live in untested edge cases: (1-2) the forbidden-token scanner false-rejected SOUND proofs that mention `axiom`/`native_decide` in a `/- block comment -/` or string literal (the scan only stripped `--` line comments); (3) `is_proof_route` matched `/bounties/proof` and `/bounties/x/y/proof` via loose `starts_with`/`ends_with`; (4-5) the SIGTERM handler silently swallowed a `signal()` registration error AND raced registration vs serving; (6) HIGH — a crash between the reward append and the bounty-event append leaves the bounty-event ledger trailing and the node UNBOOTABLE (the P1.3b re-derive heal only covers the reward ledger).
+
+**Rules:**
+- A green full gate proves the tests you WROTE pass; it cannot catch a bug in a path you did not test. Run an adversarial review (a Workflow fanning a reviewer per slice + an adversarial verify per finding) on the diff BEFORE committing to a multi-hour gate — it is high-ROI and catches false-positives/false-negatives the tests miss.
+- A SECURITY/soundness scanner must be lexically correct: blank comments AND strings in a SINGLE pass (a `/-` inside a `"..."` string must not start a "block comment" that blanks real code — that would be a false NEGATIVE / unsound). A naive two-pass strip is wrong.
+- When fixing a found bug, prefer the SAFE direction for the domain: for a verifier scanner, over-rejection is safe (never accept an unsound proof), under-acceptance (false negative) is not — so the fix must not introduce false negatives.
+
+## 2026-06-04 — don't ship a partial consensus-path fix; document the limitation instead
+
+**Pattern:** the P1.3b reviewer found a HIGH unbootable-state: a crash between the reward append and the bounty-event append (on a promoted-credit block, with `--bounty-events`) leaves the bounty-event ledger trailing → boot bails on a bounty-family divergence. The "obvious" fix (re-derive only the missing `credit` events) is UNSAFE: the paired `share_promoted` events carry a `proofHash` and include zero-credit shares that are NOT recorded in `promoted_bounty_credits`, so they cannot be re-derived from the block store. `rebuild_bounty_side_pool` would then treat the already-committed share as still-pending and re-promotable → a DOUBLE-CREDIT, strictly worse than the unbootable node.
+
+**Rule:** on a consensus/recovery path, a partial fix that trades one bug for a worse one is not a fix. When the correct closure needs an architectural change (here: staging-commit of all stores, or a block-store-aware side-pool rebuild) that you cannot validate quickly, document the exact window + why the easy fix is unsafe (code comment + ADR), narrow the slice's claim honestly, and defer — do not ship the unsafe partial.
+
+## 2026-06-04 — avoid config-field churn for a test-injection flag
+
+**Pattern:** `LocalNodeConfig` has no `Default` and ~50 struct-literal call sites across boole-node + boole-cli tests. P2.6 needed a disk-full injection knob; adding a `LocalNodeConfig` field would have forced a one-line edit into all ~50 sites. Instead I put the flag on `LocalNodeState` as an `Arc<AtomicBool>` (default false) + a `#[doc(hidden)] serve_local_node_with_disk_full_sentinel` test seam — zero call-site churn, and the AtomicBool is the natural home for the eventual real ENOSPC trigger. Similarly P1.9's release-refusal went on the CLI args (`--allow-insecure-verifier`), not a `LocalNodeConfig` field, keeping the library `from_config` permissive so existing node tests are untouched.
+
+**Rule:** before adding a field to a wide, `Default`-less config struct for a TEST-only injection point, prefer a runtime flag on the state (`Arc<AtomicBool>`) + a `#[doc(hidden)]` test-seam constructor, or a CLI-arg-level guard. It avoids 50-file mechanical churn and usually models the production trigger better.

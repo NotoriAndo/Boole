@@ -379,10 +379,16 @@ async fn tools_list() -> impl IntoResponse {
             },
             {
                 "name": "boole.mine",
-                "description": "Drive a fixture mining round-trip in-process (no HTTP loopback to boole-node). Returns the mining loop summary once the in-process runtime wiring lands.",
+                "description": "Drive a fixture mining round-trip in-process (no HTTP loopback to boole-node). Optional `max_cycles` (default 0 = plumbing smoke; >=1 runs that many full ticket cycles). Returns the mining loop protocol counters.",
                 "input_schema": {
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "max_cycles": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Number of ticket cycles to run (default 0)."
+                        }
+                    },
                     "additionalProperties": false
                 }
             },
@@ -438,9 +444,17 @@ async fn invoke(
             }
         }
         "boole.mine" => {
-            let protocol = tokio::task::spawn_blocking(run_zero_cycle_mining_summary)
+            // P2.1 criterion 1 — optional `max_cycles` (default 0 keeps the
+            // backward-compatible zero-cycle smoke). A value >= 1 drives a
+            // real round-trip through the in-process bundle.
+            let max_cycles = req
+                .args
+                .get("max_cycles")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let protocol = tokio::task::spawn_blocking(move || run_mining_summary(max_cycles))
                 .await
-                .expect("zero-cycle mining task panicked");
+                .expect("mining task panicked");
             {
                 let mut guard = state
                     .last_mining_summary
@@ -465,17 +479,33 @@ async fn invoke(
     }
 }
 
-/// P2.1 slice 53 — drive the slice 49 in-process bundle through
-/// `run_mining_loop` with `max_cycles: Some(0)`. The body short-circuits
-/// before any driver / verifier / Lean work, so this exercises the full
-/// MCP -> `MiningLoopDeps` -> `run_mining_loop` plumbing end-to-end
-/// without paying any mining cost. Returns just the protocol counters
-/// because that's what the slice 53 envelope contract exposes; the
-/// agent-side report rides on slice 54+.
-fn run_zero_cycle_mining_summary() -> ProtocolReport {
+/// P2.1 — drive the slice 49 in-process bundle through `run_mining_loop`
+/// for `max_cycles` ticket cycles. A `max_cycles` of zero short-circuits
+/// the loop body (the zero-cycle plumbing smoke from slice 53); a value
+/// of one or more runs that many full cycles (head fetch, classify,
+/// grind, announce, driver, verifier) against the fixture bundle,
+/// closing P2.1 criterion 1's "real round-trip" requirement. The
+/// fixture's `RejectingVerifier` means a non-zero-cycle run completes
+/// the cycle but accepts no share, so it pays driver and verifier cost
+/// without needing a live Lean toolchain. Returns the protocol counters
+/// from the summary.
+fn run_mining_summary(max_cycles: u64) -> ProtocolReport {
     let bundle = build_in_process_mining_deps(default_in_process_inputs());
+    // Bound every grinder so a >0-cycle fixture run terminates promptly:
+    // the cycle still completes (and `cycles_run` increments) whether or
+    // not a share target is hit, so criterion 1's "one real round-trip"
+    // is proven without an unbounded PoW search. Deterministic nonces keep
+    // the outcome reproducible. `max_cycles == 0` ignores all of this.
+    let bounded = boole_miner::GrinderConfig {
+        max_attempts: Some(4096),
+        ..Default::default()
+    };
     let opts = MiningLoopOptions {
-        max_cycles: Some(0),
+        max_cycles: Some(max_cycles),
+        deterministic_nonces: true,
+        ticket_grind: bounded,
+        share_grind: bounded,
+        submit_grind: bounded,
         ..Default::default()
     };
     run_mining_loop(bundle.deps, opts).protocol
