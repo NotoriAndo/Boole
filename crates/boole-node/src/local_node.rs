@@ -35,7 +35,7 @@ use std::future::Future;
 use std::net::{IpAddr, SocketAddr, TcpListener as StdTcpListener};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::task::{Context, Poll};
@@ -44,10 +44,25 @@ use tokio::net::TcpListener;
 use tokio::sync::{Notify, RwLock};
 use tower::limit::ConcurrencyLimitLayer;
 use tower::Service;
-use tower_http::timeout::TimeoutLayer;
 
-const MAX_HTTP_BODY_BYTES: usize = 1_048_576;
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+/// P1.7 — default body cap for state-mutating and read routes (1 MiB),
+/// stream-counted (not Content-Length-trusting). The bounty-proof route
+/// carries Lean source + POFP envelope + signature and is raised to
+/// [`PROOF_ROUTE_BODY_BYTES`].
+pub const MAX_HTTP_BODY_BYTES: usize = 1_048_576;
+/// P1.7 — `/bounties/{id}/proof` body cap (8 MiB): a real proof envelope
+/// (Lean source + structural package + signature) can exceed the 1 MiB
+/// default. Applied via a route-aware Content-Length check and a per-route
+/// `DefaultBodyLimit` for the chunked path.
+pub const PROOF_ROUTE_BODY_BYTES: usize = 8 * 1_048_576;
+/// P1.7 — request timeout for every route except the bounty-proof route.
+/// Replaces the former uniform 15 s. On expiry the request short-circuits
+/// with a typed `request_timeout` (408) envelope.
+pub const DEFAULT_ROUTE_TIMEOUT: Duration = Duration::from_secs(30);
+/// P1.7 — request timeout for `/bounties/{id}/proof`, which runs the Lean
+/// verifier (itself internally bounded). Larger than the default so a
+/// legitimate verification is not cut off by the cheap-route limit.
+pub const PROOF_ROUTE_TIMEOUT: Duration = Duration::from_secs(90);
 /// P1.7 — workspace-wide cap on simultaneously in-flight HTTP requests.
 /// `tower::limit::ConcurrencyLimitLayer` queues additional callers on a
 /// semaphore so a flood of expensive routes (Lean verify, registry
@@ -283,6 +298,13 @@ struct LocalNodeState {
     /// compute `uptime = now - nodeStartedAt` without scraping process
     /// metrics. The value never mutates during the process lifetime.
     started_at_ms: u64,
+    /// P2.6 e — runtime disk-full sentinel. `/ready` returns 503 with
+    /// reason `disk_full_sentinel` when this is set, mirroring the master
+    /// plan's "operator's disk fills up mid-mining → /ready 503" row.
+    /// Defaults to `false`; the test seam
+    /// `serve_local_node_with_disk_full_sentinel` injects it, and a future
+    /// ENOSPC handler on the durable-append path is the production trigger.
+    disk_full: Arc<AtomicBool>,
     /// Static catalog of `WorkManifest`s loaded once at boot from
     /// `LocalNodeConfig.work_manifests_path` (empty when unconfigured).
     /// Served read-only via `GET /work` and `GET /work/:id`.
@@ -611,6 +633,33 @@ async fn rate_limit_middleware(
     }
 }
 
+/// P2.6 e — test seam: serve with an injected disk-full sentinel so the
+/// `/ready` fault-injection matrix can assert the 503 + `disk_full_sentinel`
+/// reason without an actual full filesystem. Production code never calls
+/// this; the live trigger will be an ENOSPC handler on the durable-append
+/// path storing into the same `Arc<AtomicBool>`.
+#[doc(hidden)]
+pub fn serve_local_node_with_disk_full_sentinel(
+    listener: StdTcpListener,
+    config: LocalNodeConfig,
+    disk_full: Arc<AtomicBool>,
+) -> anyhow::Result<()> {
+    let max_requests = config.max_requests;
+    let rate_limiter = build_rate_limiter(config.http_rate_limit_per_60s);
+    let mut state = LocalNodeState::from_config(config)?;
+    state.disk_full = disk_full;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(serve_local_node_async(
+        listener,
+        state,
+        max_requests,
+        rate_limiter,
+        None,
+    ))
+}
+
 pub fn serve_local_node(listener: StdTcpListener, config: LocalNodeConfig) -> anyhow::Result<()> {
     let max_requests = config.max_requests;
     let rate_limiter = build_rate_limiter(config.http_rate_limit_per_60s);
@@ -657,6 +706,78 @@ pub fn serve_local_node_with_shutdown(
         rate_limiter,
         Some(external_shutdown),
     ))
+}
+
+/// P2.7 — production entry point: serve until a SIGTERM or SIGINT arrives,
+/// then drain gracefully. On the trigger, axum's `with_graceful_shutdown`
+/// stops accepting new connections and finishes in-flight requests; every
+/// NDJSON ledger is already fsynced per-append; the Lean child is reaped via
+/// `ChildKillOnDrop` when an interrupted proof future drops; and the
+/// state-dir flock is released when `LocalNodeState` drops on return.
+///
+/// The `BountySidePool` is deliberately NOT snapshotted to a side file: it
+/// is a pure projection of the durable bounty-event ledger and is rebuilt on
+/// the next boot (P1.5b `rebuild_bounty_side_pool`), so there is one source
+/// of truth that a separate snapshot could only diverge from.
+pub fn serve_local_node_with_os_signals(
+    listener: StdTcpListener,
+    config: LocalNodeConfig,
+) -> anyhow::Result<()> {
+    let max_requests = config.max_requests;
+    let rate_limiter = build_rate_limiter(config.http_rate_limit_per_60s);
+    let state = LocalNodeState::from_config(config)?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let shutdown = Arc::new(Notify::new());
+
+    // P2.7 — register the OS signal handlers SYNCHRONOUSLY, in the runtime
+    // context, BEFORE `block_on` yields to any worker thread. Two reasons:
+    // (1) a SIGTERM/SIGINT that arrives the instant the server starts serving
+    // cannot slip through to the kernel's default (terminate) action via a
+    // registration race — by the time `/ready`/`/live` answer, the sigaction
+    // is already installed; (2) a registration failure is propagated as a
+    // boot error instead of being silently swallowed, so the bounded-drain
+    // guarantee is never void without the operator knowing. The `Signal`
+    // streams stay valid for the lifetime of the runtime that owns them.
+    #[cfg(unix)]
+    let signals = {
+        use tokio::signal::unix::{signal, SignalKind};
+        let _enter = runtime.enter();
+        let term = signal(SignalKind::terminate())
+            .map_err(|e| anyhow::anyhow!("failed to register SIGTERM handler: {e}"))?;
+        let int = signal(SignalKind::interrupt())
+            .map_err(|e| anyhow::anyhow!("failed to register SIGINT handler: {e}"))?;
+        (term, int)
+    };
+
+    runtime.block_on(async move {
+        #[cfg(unix)]
+        {
+            let (mut term, mut int) = signals;
+            let term_notify = shutdown.clone();
+            tokio::spawn(async move {
+                term.recv().await;
+                term_notify.notify_one();
+            });
+            let int_notify = shutdown.clone();
+            tokio::spawn(async move {
+                int.recv().await;
+                int_notify.notify_one();
+            });
+        }
+        #[cfg(not(unix))]
+        {
+            // Non-unix: Ctrl-C is the only portable stop signal.
+            let ctrl_c_notify = shutdown.clone();
+            tokio::spawn(async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    ctrl_c_notify.notify_one();
+                }
+            });
+        }
+        serve_local_node_async(listener, state, max_requests, rate_limiter, Some(shutdown)).await
+    })
 }
 
 async fn serve_local_node_async(
@@ -727,7 +848,14 @@ fn build_router(state: AppState) -> Router {
             get(bounty_list_handler).post(bounty_announce_handler),
         )
         .route("/bounties/{id}", get(bounty_by_id_handler))
-        .route("/bounties/{id}/proof", post(bounty_proof_handler))
+        .route(
+            "/bounties/{id}/proof",
+            // P1.7 — the proof route accepts a larger body (Lean source +
+            // POFP envelope + signature); raise its streaming cap above the
+            // 1 MiB default. The route-layer is inner-most, so this
+            // `DefaultBodyLimit` overrides the global one for this route.
+            post(bounty_proof_handler).layer(DefaultBodyLimit::max(PROOF_ROUTE_BODY_BYTES)),
+        )
         .route("/bounties/{id}/status", post(bounty_status_handler))
         .route("/ticket", post(ticket_handler))
         .route("/submit", post(submit_handler))
@@ -741,10 +869,11 @@ fn build_router(state: AppState) -> Router {
             post(session_revoke_handler),
         )
         .fallback(fallback_handler)
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::REQUEST_TIMEOUT,
-            REQUEST_TIMEOUT,
-        ))
+        // P1.7 — route-aware request timeout (default 30 s, bounty-proof
+        // 90 s). Replaces the uniform `tower_http::TimeoutLayer` so a
+        // timed-out request carries the typed `request_timeout` (408)
+        // envelope instead of a bare empty body.
+        .layer(from_fn(route_timeout_middleware))
         .layer(ConcurrencyLimitLayer::new(MAX_CONCURRENT_REQUESTS))
         // P1.7 — stream-counting body cap. `body_cap_middleware` below
         // catches honest Content-Length requests and returns the same
@@ -988,6 +1117,7 @@ impl LocalNodeState {
         };
         Ok(Self {
             runtime,
+            disk_full: Arc::new(AtomicBool::new(false)),
             genesis_c: scenario.genesis_c,
             block_path: config.block_path,
             report: scenario.cfg,
@@ -1268,11 +1398,52 @@ async fn request_id_middleware(request: Request, next: Next) -> Response {
     response
 }
 
+/// P1.7 — true for the bounty-proof route (`/bounties/{id}/proof`), which
+/// carries a larger body and runs the Lean verifier. Both the body cap and
+/// the request timeout key off this single predicate so one source decides
+/// the route class (no fragile per-route layer-composition ordering).
+///
+/// Matches ONLY the canonical three-segment form: a single non-empty `id`
+/// segment with no extra depth. A loose `starts_with`/`ends_with` would also
+/// match `/bounties/proof` (the `/bounties/{id}` GET with `id="proof"`) and
+/// `/bounties/x/y/proof` (no registered route), handing them the wrong
+/// 90 s timeout + 8 MiB body-cap class.
+fn is_proof_route(path: &str) -> bool {
+    if let Some(rest) = path.strip_prefix("/bounties/") {
+        if let Some(id) = rest.strip_suffix("/proof") {
+            return !id.is_empty() && !id.contains('/');
+        }
+    }
+    false
+}
+
+/// P1.7 — per-route request timeout. The proof route gets
+/// [`PROOF_ROUTE_TIMEOUT`] (Lean verify is heavier); everything else gets
+/// [`DEFAULT_ROUTE_TIMEOUT`]. On expiry the request short-circuits with a
+/// typed `request_timeout` (408) envelope instead of the bare empty body a
+/// `tower_http::TimeoutLayer` would emit.
+async fn route_timeout_middleware(request: Request, next: Next) -> Response {
+    let timeout = if is_proof_route(request.uri().path()) {
+        PROOF_ROUTE_TIMEOUT
+    } else {
+        DEFAULT_ROUTE_TIMEOUT
+    };
+    match tokio::time::timeout(timeout, next.run(request)).await {
+        Ok(response) => response,
+        Err(_) => error_response(HttpError::request_timeout()),
+    }
+}
+
 async fn body_cap_middleware(headers: HeaderMap, request: Request, next: Next) -> Response {
+    let cap = if is_proof_route(request.uri().path()) {
+        PROOF_ROUTE_BODY_BYTES
+    } else {
+        MAX_HTTP_BODY_BYTES
+    };
     if let Some(value) = headers.get(axum::http::header::CONTENT_LENGTH) {
         if let Some(len) = value.to_str().ok().and_then(|s| s.parse::<usize>().ok()) {
-            if len > MAX_HTTP_BODY_BYTES {
-                return error_response(HttpError::body_too_large(MAX_HTTP_BODY_BYTES, len));
+            if len > cap {
+                return error_response(HttpError::body_too_large(cap, len));
             }
         }
     }
@@ -1359,6 +1530,9 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
             .unwrap_or(false)
     };
     let ledgers_loaded = compute_ledgers_loaded(&guard);
+    // P2.6 e — disk-full sentinel. A positive boolean keeps the wire shape
+    // consistent with the other `checks` keys (all are "ok"-form).
+    let disk_space_ok = !guard.disk_full.load(Ordering::Acquire);
     drop(guard);
 
     let checks = json!({
@@ -1366,6 +1540,7 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
         "state_dir_lock_held": state_dir_lock_held,
         "lean_checker_configured": lean_checker_configured,
         "ledgers_loaded": ledgers_loaded,
+        "disk_space_ok": disk_space_ok,
     });
 
     // First failing precondition names the reason. Boot-time invariants
@@ -1424,6 +1599,21 @@ async fn ready_handler(State(state): State<AppState>) -> Response {
                 "ok": false,
                 "probe": "ready",
                 "reason": "ledgers_not_loaded",
+                "checks": checks,
+            })),
+        )
+            .into_response();
+    }
+    // P2.6 e — disk-full is checked last: it is the least actionable for an
+    // operator (free disk, then it clears on its own) so a more specific
+    // precondition failure is surfaced first when several coincide.
+    if !disk_space_ok {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "ok": false,
+                "probe": "ready",
+                "reason": "disk_full_sentinel",
                 "checks": checks,
             })),
         )
@@ -2753,14 +2943,29 @@ async fn bounty_proof_handler(
         PreparedProof::RunVerifier(p) => *p,
     };
 
-    let outcome = match prepared
-        .verifier
-        .verify_with_evidence(&prepared.bounty, &prepared.envelope)
+    // P1.7 — run the synchronous, subprocess-spawning Lean verifier on a
+    // dedicated blocking thread so a flood of concurrent proofs cannot pin
+    // the async worker pool (L5: "each verify on its own task"). The route
+    // timeout can then preempt this await; the verifier's own internal
+    // deadline + `ChildKillOnDrop` reap the `lake` child even if it does.
+    let verifier = Arc::clone(&prepared.verifier);
+    let bounty = prepared.bounty.clone();
+    let envelope = prepared.envelope.clone();
+    let outcome = match tokio::task::spawn_blocking(move || {
+        verifier.verify_with_evidence(&bounty, &envelope)
+    })
+    .await
     {
-        Ok(o) => o,
-        Err(e) => {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => {
             record_proof_outcome(false);
             return error_response(HttpError::verifier_error(e));
+        }
+        Err(join_err) => {
+            record_proof_outcome(false);
+            return error_response(HttpError::verifier_error(format!(
+                "verifier task panicked: {join_err}"
+            )));
         }
     };
 
@@ -3891,5 +4096,22 @@ mod tests {
             err.to_string().contains("rewardRecipient not credited"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn is_proof_route_matches_only_canonical_three_segment_form() {
+        // Canonical proof route → true.
+        assert!(is_proof_route("/bounties/test-id/proof"));
+        assert!(is_proof_route("/bounties/abc123/proof"));
+        // /bounties/{id} GET with id="proof" → NOT the proof route.
+        assert!(!is_proof_route("/bounties/proof"));
+        // Deeper paths (no registered route) → NOT the proof route.
+        assert!(!is_proof_route("/bounties/x/y/proof"));
+        // Other routes / prefixes → false.
+        assert!(!is_proof_route("/bounties/test-id"));
+        assert!(!is_proof_route("/bounties/test-id/status"));
+        assert!(!is_proof_route("/bounties"));
+        assert!(!is_proof_route("/submit"));
+        assert!(!is_proof_route("/bounties//proof"));
     }
 }

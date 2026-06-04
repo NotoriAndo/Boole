@@ -6,7 +6,7 @@ use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use boole_node::FileBlockStore;
 use boole_node::LeanBountyVerifier;
 use boole_node::{run_runtime_smoke, run_runtime_smoke_scenario_file, RuntimeSmokeInput};
-use boole_node::{serve_local_node, LocalNodeConfig};
+use boole_node::{serve_local_node_with_os_signals, LocalNodeConfig};
 use boole_node::{LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate};
 use boole_node::{RuntimeAdmissionState, RuntimeConfig};
 use clap::{ArgGroup, Args, Parser, Subcommand};
@@ -115,6 +115,14 @@ struct RunLocalArgs {
         conflicts_with = "lean_checker_dir"
     )]
     lean_checker_disabled: bool,
+    /// P1.9 — required operator opt-in to run a node whose proofs are NOT
+    /// Lean-verified (`--lean-checker-disabled`). Without this flag a
+    /// `run-local` that disables the verifier refuses to boot with a typed
+    /// `insecure_verifier_config` error and exit code 78, so a production
+    /// node cannot silently accept unverified proofs. Mirrors the paid-API
+    /// opt-in posture (P2.4): insecurity must be explicit, never default.
+    #[arg(long = "allow-insecure-verifier", default_value_t = false)]
+    allow_insecure_verifier: bool,
     #[arg(long = "max-requests")]
     max_requests: Option<usize>,
     #[arg(long, env = "GENESIS_C")]
@@ -203,6 +211,28 @@ fn run_runtime_smoke_command(args: RuntimeSmokeArgs) -> anyhow::Result<()> {
 }
 
 fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
+    // P1.9 — refuse to boot a node whose proofs are NOT Lean-verified
+    // unless the operator explicitly opted in. This fires before binding a
+    // port or touching any ledger, so a misconfigured production node
+    // fails fast with a typed envelope rather than silently serving
+    // unverified proofs. The runtime `/ready` 503 (`lean_checker_not_
+    // configured`) is a complementary guard, not a substitute: an operator
+    // who never probes `/ready` would otherwise serve unverified traffic.
+    if args.lean_checker_disabled && !args.allow_insecure_verifier {
+        let envelope = serde_json::json!({
+            "ok": false,
+            "command": "run-local",
+            "error": "insecure_verifier_config",
+            "message": "--lean-checker-disabled requires --allow-insecure-verifier (development/testnet only); a production node must configure --lean-checker-dir",
+        });
+        eprintln!(
+            "{}",
+            serde_json::to_string(&envelope).unwrap_or_else(|_| {
+                "{\"ok\":false,\"error\":\"insecure_verifier_config\"}".to_string()
+            })
+        );
+        std::process::exit(78);
+    }
     // Flags win over env vars (clap `env` attribute already implements
     // that fallback per arg), so this layer only resolves the remaining
     // address/path defaults and validates structural invariants.
@@ -286,7 +316,8 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
     if let Some(dir) = args.state_dir.as_ref() {
         eprintln!("boole-node local stateDir={}", dir.display());
     }
-    let result = serve_local_node(
+    // P2.7 — the CLI runs until SIGTERM/SIGINT, then drains gracefully.
+    let result = serve_local_node_with_os_signals(
         listener,
         LocalNodeConfig {
             scenario_path: args.scenario.into(),

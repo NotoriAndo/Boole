@@ -186,6 +186,13 @@ require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "reque
 require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "boole_panic_total"
 require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "No consensus change"
 
+# P1/P2 closure batch — ADR-0005 design-decision deviations (P1.9/P1.7/P2.7/P2.6/P1.3b).
+require_file docs/adr/0005-p1-p2-closure-batch-design-decisions.md
+require_text docs/adr/0005-p1-p2-closure-batch-design-decisions.md "Status: Accepted (2026-06-04)"
+require_text docs/adr/0005-p1-p2-closure-batch-design-decisions.md "re-derive-on-mismatch heal"
+require_text docs/adr/0005-p1-p2-closure-batch-design-decisions.md "pure projection of the durable bounty-event ledger"
+require_text docs/adr/0005-p1-p2-closure-batch-design-decisions.md "runtime CLI-level opt-in"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
