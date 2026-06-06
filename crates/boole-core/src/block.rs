@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use num_bigint::BigUint;
 
-use crate::block_builder::PromotedBountyCredit;
+use crate::block_builder::{PromotedBountyCredit, PromotedBountyShare};
 use crate::{difficulty_weight, parse_biguint_hex, Hex32};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +53,14 @@ pub struct PersistedBlock {
     /// non-negative `u128` amounts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub promoted_bounty_credits: Vec<PromotedBountyCredit>,
+    /// P1.3b — every bounty share promoted into this block (including
+    /// zero-credit shares), recorded so the bounty-event ledger's
+    /// `share_promoted` rows are re-derivable from the block store after a
+    /// crash mid-commit. NOT part of `block_hash` (consensus is unchanged);
+    /// this is node-local audit/recovery data. `validate_shape` enforces
+    /// hex-32 `proof_hash`/`prover`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub promoted_bounty_shares: Vec<PromotedBountyShare>,
 }
 
 fn is_zero(value: &u64) -> bool {
@@ -115,6 +123,10 @@ impl PersistedBlock {
                     credit.amount
                 );
             }
+        }
+        for share in &self.promoted_bounty_shares {
+            Hex32::from_hex(&share.proof_hash)?;
+            Hex32::from_hex(&share.prover)?;
         }
         Ok(())
     }

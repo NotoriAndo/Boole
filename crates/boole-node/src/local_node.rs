@@ -3911,7 +3911,13 @@ fn submit_json(
             });
             FileBountyEventLedger::append(bounty_event_path, &event)?;
         }
-        for share in &selection.shares {
+        // P1.3b — write the `share_promoted` rows from the now-persisted block
+        // field, not the in-memory `selection.shares`, so the on-disk block and
+        // the bounty-event ledger are derived from the same source (the block
+        // is fsync'd before this point). The values are identical in the
+        // non-crash path; this is the correctness anchor that lets the boot
+        // heal re-derive these rows after a crash mid-commit.
+        for share in &committed.block.promoted_bounty_shares {
             let event = json!({
                 "schemaVersion": 1,
                 "kind": "share_promoted",
@@ -4088,6 +4094,7 @@ mod tests {
             truncated_by_kmax: 0,
             ts: 0,
             promoted_bounty_credits: Vec::new(),
+            promoted_bounty_shares: Vec::new(),
         };
 
         let err = submit_receipt_json(&session, &block, HASH_1)

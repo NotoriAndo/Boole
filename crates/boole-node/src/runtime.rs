@@ -1,4 +1,5 @@
 use crate::block_store::FileBlockStore;
+use crate::bounty_event_store::FileBountyEventLedger;
 use crate::reward_store::{verify_ledger_matches_replay, FileRewardLedger};
 use boole_core::{
     admit_parsed_submission_typed, block_hash, build_block_selection, calibration_policy,
@@ -32,6 +33,51 @@ fn derive_reward_event(block: &PersistedBlock) -> anyhow::Result<PersistedReward
         c: block.c.clone(),
         credits,
     })
+}
+
+/// P1.3b — re-derive the bounty-event ledger rows for a block, byte-identical
+/// to what `submit_json` writes (`crates/boole-node/src/local_node.rs`), so a
+/// bounty-event ledger that trails the block store after a crash mid-commit
+/// can be healed from the block store. Returns `(credit_events,
+/// share_promoted_events)`. The block carries BOTH `promoted_bounty_credits`
+/// and `promoted_bounty_shares` (the latter with the `proofHash` that is
+/// otherwise lost when the in-memory selection is dropped), so this is a pure
+/// function of the persisted block.
+fn derive_bounty_events(
+    block: &PersistedBlock,
+) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
+    let credits = block
+        .promoted_bounty_credits
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "schemaVersion": 1,
+                "kind": "credit",
+                "height": block.height,
+                "c": block.c,
+                "familyId": c.family_id,
+                "bountyId": c.bounty_id,
+                "prover": c.prover,
+                "amount": c.amount,
+            })
+        })
+        .collect();
+    let shares = block
+        .promoted_bounty_shares
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "schemaVersion": 1,
+                "kind": "share_promoted",
+                "height": block.height,
+                "familyId": s.family_id,
+                "bountyId": s.bounty_id,
+                "proofHash": s.proof_hash,
+                "prover": s.prover,
+            })
+        })
+        .collect();
+    (credits, shares)
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +177,57 @@ impl RuntimeAdmissionState {
                 policy,
             )?;
         }
+        // P1.3b — bounty-event ledger crash-mid-commit heal. The bounty-event
+        // ledger is the LAST store written per block (block → reward →
+        // bounty-event `credit` rows → bounty-event `share_promoted` rows →
+        // receipt), so a crash after the reward append but before the
+        // bounty-event appends leaves it short of the last block's rows, and a
+        // deleted ledger (the documented upgrade-recovery path) leaves it short
+        // of EVERY block's rows. `verify_ledger_matches_replay` below would then
+        // refuse to boot a `--bounty-events` node.
+        //
+        // The full expected ledger is, across all blocks in commit order, each
+        // block's `credit` rows followed by its `share_promoted` rows — and the
+        // file is append-only in exactly that order, so whatever survived is a
+        // strict PREFIX of it (`recover` also truncates any torn trailing line
+        // on disk first). Re-derive the full sequence from the block store and
+        // append the missing suffix — the same prefix-heal shape as the reward
+        // ledger, covering both the trailing-last-block crash and a fully
+        // rebuilt (absent) ledger. Each block persists `promoted_bounty_shares`
+        // (the `proofHash` carrier, including zero-credit shares) so the
+        // `share_promoted` rows are recoverable once the in-memory selection
+        // drops; healing them — not just `credit` rows — is what stops
+        // `rebuild_bounty_side_pool` re-promoting an already-committed share. A
+        // genuine tamper (count matches, a value is wrong) is NOT a short
+        // prefix, so nothing is appended and the verify below still bails.
+        if let Some(bounty_path) = bounty_event_ledger_path.as_deref() {
+            let mut expected: Vec<serde_json::Value> = Vec::new();
+            for block in recovered.blocks() {
+                let (credits, shares) = derive_bounty_events(block);
+                expected.extend(credits);
+                expected.extend(shares);
+            }
+            if !expected.is_empty() {
+                let present = if bounty_path.exists() {
+                    FileBountyEventLedger::recover(bounty_path)?
+                } else {
+                    Vec::new()
+                };
+                if present.len() < expected.len() {
+                    let missing = expected.len() - present.len();
+                    for ev in expected.into_iter().skip(present.len()) {
+                        FileBountyEventLedger::append(bounty_path, &ev)?;
+                    }
+                    eprintln!(
+                        "boole-node: bounty-event ledger healed from block store: \
+                         re-derived {} trailing bounty event(s) up to height {} \
+                         (crash-mid-commit / rebuild recovery)",
+                        missing,
+                        recovered.blocks().last().map(|b| b.height).unwrap_or(0),
+                    );
+                }
+            }
+        }
         if let Some(path) = reward_ledger_path {
             let ledger = if path.exists() {
                 let mut recovered_ledger = FileRewardLedger::recover(&path)?;
@@ -159,25 +256,12 @@ impl RuntimeAdmissionState {
                         blocks.last().map(|b| b.height).unwrap_or(0),
                     );
                 }
-                // P1.3b KNOWN LIMITATION — the reward-ledger heal above covers
-                // the common crash window (block append → reward append). It
-                // does NOT heal the bounty-event ledger: a crash AFTER this
-                // reward append but BEFORE the per-credit
-                // `FileBountyEventLedger::append` in `submit_json` leaves the
-                // bounty-event ledger short of `credit` events for the last
-                // block, and the verify below bails on a bounty-family
-                // divergence. The re-derive strategy cannot close this window:
-                // the paired `share_promoted` events carry a `proofHash` and
-                // include zero-credit shares that are NOT recorded in
-                // `promoted_bounty_credits`, so re-deriving only the `credit`
-                // events would leave `rebuild_bounty_side_pool` treating the
-                // already-committed share as still-pending and re-promotable —
-                // trading an unbootable node for a double-credit. Closing this
-                // window cleanly requires the staging-commit approach (write
-                // the full block + reward + bounty-event set atomically) or a
-                // block-store-aware side-pool rebuild; tracked as a follow-up
-                // (see ADR-0005). A node run with `--bounty-events` that
-                // crashes in this narrow window needs manual recovery today.
+                // P1.3b — by this point BOTH the reward ledger (heal above) and
+                // the bounty-event ledger (heal before the reward block) have
+                // been brought into agreement with the block store, so this
+                // verify confirms convergence and still bails on a GENUINE
+                // tamper (an existing event whose value is wrong but whose count
+                // matches — neither heal fires for that case).
                 verify_ledger_matches_replay(
                     &recovered_ledger,
                     &replay.balances,
@@ -454,6 +538,10 @@ impl RuntimeAdmissionState {
             truncated_by_kmax: selection.truncated_by_kmax as u64,
             ts,
             promoted_bounty_credits: selection.promoted_bounty_credits.clone(),
+            // P1.3b — persist the promoted shares on the block so the
+            // bounty-event ledger's `share_promoted` rows are re-derivable
+            // from the block store after a crash mid-commit. Not hashed.
+            promoted_bounty_shares: selection.promoted_bounty_shares.clone(),
         })
     }
 

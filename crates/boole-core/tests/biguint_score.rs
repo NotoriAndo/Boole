@@ -113,6 +113,7 @@ fn persisted_block_shape_accepts_large_decimal_min_share_score() {
         truncated_by_kmax: 0,
         ts: 1,
         promoted_bounty_credits: vec![],
+        promoted_bounty_shares: vec![],
     };
 
     block

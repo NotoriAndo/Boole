@@ -114,5 +114,6 @@ fn block(height: u64, ts: u64, t_block: &str, difficulty_epoch: u64) -> Persiste
         truncated_by_kmax: 0,
         ts,
         promoted_bounty_credits: vec![],
+        promoted_bounty_shares: vec![],
     }
 }

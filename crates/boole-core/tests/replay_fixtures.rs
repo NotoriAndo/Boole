@@ -269,6 +269,7 @@ fn evidence_backed_block() -> PersistedBlock {
         truncated_by_kmax: 0,
         ts: 1_700_000_000_000,
         promoted_bounty_credits: vec![],
+        promoted_bounty_shares: vec![],
     }
 }
 

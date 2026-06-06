@@ -33,23 +33,62 @@ helper backs both the absent-ledger re-derive and the trailing-event heal.
 Pinned by `tests/reward_ledger_crash_heal.rs` and
 `scripts/test_multi_store_commit_ordering_contract.py`.
 
-**Known limitation (tracked follow-up).** The re-derive heal closes the
-*common* crash window (block append → reward append). It does **not** close
-the narrower bounty-event window: a crash after the reward append but before
-the per-credit `FileBountyEventLedger::append` in `submit_json` leaves the
-bounty-event ledger short of `credit` events for the last block, and boot
+**Narrower bounty-event window — now closed (P1.3b follow-up).** The reward
+heal above closes the *common* crash window (block append → reward append). A
+crash one step later — after the reward append but before the per-row
+`FileBountyEventLedger::append` calls in `submit_json` — leaves the bounty-event
+ledger short of the last block's `credit` + `share_promoted` rows, and boot
 bails on a bounty-family divergence (an unbootable node for a `--bounty-events`
-operator who committed a promoted-credit block). The re-derive strategy
-*cannot* close this window: the paired `share_promoted` events carry a
-`proofHash` and include zero-credit shares that are not recorded in
-`promoted_bounty_credits`, so re-deriving only the `credit` events would leave
+operator who committed a promoted-credit block). The earlier blocker was that a
+`credit`-only re-derive is consensus-unsafe: the paired `share_promoted` rows
+carry a `proofHash` and include zero-credit shares that are absent from
+`promoted_bounty_credits`, so a missing `share_promoted` row would leave
 `rebuild_bounty_side_pool` treating an already-committed share as still-pending
-and re-promotable — trading the unbootable node for a *double-credit*, which is
-strictly worse. Closing this window correctly requires either the
-staging-commit approach (the very write-ahead file this slice otherwise avoids)
-or a block-store-aware side-pool rebuild. It is deliberately left as a tracked
-follow-up rather than shipped as a hasty, consensus-unsafe partial heal. The
-boot path documents the exact window in a code comment.
+and re-promotable — a *double-credit*.
+
+The fix records the full re-derive input on the canonical store: each block now
+persists `promoted_bounty_shares` (the `proofHash` carrier, including
+zero-credit shares) alongside the existing `promoted_bounty_credits`. The full
+expected ledger is, across **all** blocks in commit order, each block's `credit`
+rows followed by its `share_promoted` rows; the file is append-only in exactly
+that order, so whatever survived a crash — or a deleted ledger — is a strict
+*prefix* of it. Boot re-derives that full sequence from the block store and
+appends the missing suffix (`recover` first truncates any torn trailing line on
+disk). This is the same append-only, prefix-heal-from-the-canonical-store shape
+as the reward ledger, with no second source of truth, and it covers **both** the
+trailing-last-block crash **and** a fully rebuilt (absent/deleted) ledger across
+many blocks. `submit_json` writes the live `share_promoted` rows from the
+now-persisted block field (not the in-memory selection) so the on-disk block and
+the ledger share one source. A genuine tamper (count matches, value wrong) is
+not a short prefix, so nothing is appended and `verify_ledger_matches_replay`
+still bails.
+
+`promoted_bounty_shares` is **not** part of `block_hash` (which hashes only
+`prev_c` + `selected_share_hashes`), so the new field is node-local audit data
+and changes no block identity or consensus outcome — pinned by
+`bounty_event_crash_heal::block_hash_is_unchanged_by_promoted_bounty_shares_field`.
+The single-block heal, idempotency, the `proofHash`-restore (double-promotion
+guard), the prefix-torn-inside-one-block suffix heal, the multi-block
+deleted-ledger rebuild, and the tamper-still-bails path are pinned by
+`tests/bounty_event_crash_heal.rs`; the runbook row by
+`recovery_playbook_matrix::row_bounty_event_crash_heals_on_reboot`.
+
+*Upgrade note.* On the current binary, the operator recovery for a damaged
+bounty-event ledger is simply to delete it and reboot — the prefix heal rebuilds
+every block's rows. The one residual gap is blocks committed by the **pre-fix**
+binary: they carry an empty `promoted_bounty_shares`, so their `share_promoted`
+rows cannot be re-derived (their `credit` rows still can, from
+`promoted_bounty_credits`). A ledger spanning such legacy blocks should be
+rebuilt only after they have aged out, or accepted as missing the legacy
+`share_promoted` audit rows.
+
+*Integrity scope.* `verify_ledger_matches_replay` cross-checks `credit` rows by
+per-family total but does not integrity-check `share_promoted` row contents; the
+block store's `promoted_*` fields are likewise outside `block_hash`. The whole
+bounty-promotion subsystem therefore trusts node-local storage — a process with
+write access to these files is already in the trusted boundary. This heal closes
+the *crash* window (missing rows); hardening against on-disk *tampering* of
+bounty audit data is a separate, explicitly out-of-scope concern.
 
 ## P2.7 — `BountySidePool` durability via the bounty-event ledger, not a snapshot
 
