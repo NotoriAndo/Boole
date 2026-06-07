@@ -19,6 +19,7 @@ use crate::llm_driver::{
     MockResponse, ProverDriver,
 };
 use crate::local_verify::Verifier;
+use crate::proof_signer::{AgentSigner, KeySigner, ProofSigner};
 // P1.9 — `AcceptingVerifier` import is feature-gated together with the
 // `--mock-verify-accept` flag below; the no-feature build never
 // references the bypass.
@@ -208,6 +209,12 @@ pub struct BountyArgs {
     /// var keeps the seed off the process command line.
     #[arg(long = "prover-sk-hex")]
     pub prover_sk_hex: Option<String>,
+    /// P1.10 — path to a `boole-wallet-agent` vault holding the prover seed.
+    /// When set, signing is delegated to the wallet-agent subprocess (the seed
+    /// never enters this process); the vault passphrase is read from
+    /// `BOOLE_WALLET_PASSPHRASE` (never argv). Takes precedence over any seed.
+    #[arg(long = "prover-vault")]
+    pub prover_vault: Option<PathBuf>,
     /// Path to a file holding the canonical envelope bytes (default: empty).
     #[arg(long = "envelope-path")]
     pub envelope_path: Option<PathBuf>,
@@ -231,6 +238,7 @@ impl std::fmt::Debug for BountyArgs {
                 "prover_sk_hex",
                 &self.prover_sk_hex.as_ref().map(|_| "<redacted>"),
             )
+            .field("prover_vault", &self.prover_vault)
             .field("envelope_path", &self.envelope_path)
             .field("timeout_ms", &self.timeout_ms)
             .finish()
@@ -685,24 +693,50 @@ pub fn run_bounty(args: BountyArgs) -> anyhow::Result<()> {
         },
         None => Vec::new(),
     };
-    let prover_sk_hex = match resolve_prover_sk_hex(
-        args.prover_sk_hex.as_deref(),
-        std::env::var("BOOLE_PROVER_SK_HEX").ok(),
-    ) {
-        Ok(seed) => seed,
-        Err(detail) => {
-            bounty_emit_err("prover-sk-missing", serde_json::json!({ "detail": detail }))
+    // P1.10 — build the prover signer. With `--prover-vault`, the ed25519 seed
+    // stays sealed in the wallet-agent vault and never enters this process;
+    // otherwise fall back to the in-process seed (env-preferred — see
+    // `resolve_prover_sk_hex`).
+    let signer: Box<dyn ProofSigner> = if let Some(vault) = args.prover_vault.clone() {
+        let passphrase = match std::env::var("BOOLE_WALLET_PASSPHRASE") {
+            Ok(p) if !p.is_empty() => p,
+            _ => bounty_emit_err(
+                "wallet-passphrase-missing",
+                serde_json::json!({
+                    "detail": "--prover-vault requires the BOOLE_WALLET_PASSPHRASE env var (the vault passphrase; never argv)",
+                }),
+            ),
+        };
+        let agent_bin = std::env::var("BOOLE_WALLET_AGENT_BIN")
+            .unwrap_or_else(|_| "boole-wallet-agent".to_string());
+        Box::new(AgentSigner::new(agent_bin, vault, passphrase))
+    } else {
+        let prover_sk_hex = match resolve_prover_sk_hex(
+            args.prover_sk_hex.as_deref(),
+            std::env::var("BOOLE_PROVER_SK_HEX").ok(),
+        ) {
+            Ok(seed) => seed,
+            Err(detail) => {
+                bounty_emit_err("prover-sk-missing", serde_json::json!({ "detail": detail }))
+            }
+        };
+        match boole_core::SigningKeyV2::from_seed_hex(&prover_sk_hex) {
+            Ok(k) => Box::new(KeySigner::new(k)),
+            Err(err) => bounty_emit_err("bad-prover-sk-hex", serde_json::json!({ "detail": err })),
         }
     };
-    let signing_key = match boole_core::SigningKeyV2::from_seed_hex(&prover_sk_hex) {
-        Ok(k) => k,
-        Err(err) => bounty_emit_err("bad-prover-sk-hex", serde_json::json!({ "detail": err })),
+    let prover_pk = match signer.pk_hex() {
+        Ok(p) => p,
+        Err(detail) => bounty_emit_err(
+            "prover-pk-unresolved",
+            serde_json::json!({ "detail": detail }),
+        ),
     };
-    if signing_key.pk_hex() != args.prover {
+    if prover_pk != args.prover {
         bounty_emit_err(
             "prover-sk-pk-mismatch",
             serde_json::json!({
-                "detail": "--prover-sk-hex derives a pk that does not match --prover",
+                "detail": "the prover signer derives a pk that does not match --prover",
             }),
         );
     }
@@ -710,7 +744,7 @@ pub fn run_bounty(args: BountyArgs) -> anyhow::Result<()> {
         BountyClient::with_timeout(args.node.clone(), Duration::from_millis(args.timeout_ms));
     let result = client.submit_proof(BountyProofInputs {
         bounty_id: &args.id,
-        signing_key: &signing_key,
+        signer: signer.as_ref(),
         envelope: serde_json::json!({"bytes": hex::encode(&envelope_bytes)}),
         envelope_bytes: &envelope_bytes,
         network_id: args.network.network_id(),

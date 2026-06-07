@@ -24,11 +24,11 @@
 // proof_hash is computed locally as SHA-256(envelope_bytes).
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use boole_core::SigningKeyV2;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::http_client::{percent_encode_component, HttpClient, HttpError};
+use crate::proof_signer::ProofSigner;
 
 pub const BOUNTY_PROOF_PAYLOAD_SCHEMA: &str = "boole.bounty.proof.v1";
 
@@ -59,9 +59,11 @@ fn fresh_signed_envelope_nonce() -> String {
 
 pub struct BountyProofInputs<'a> {
     pub bounty_id: &'a str,
-    /// Ed25519 signing key. The miner derives the prover pk from this
-    /// key; the node requires `envelope.pk == payload.prover`.
-    pub signing_key: &'a SigningKeyV2,
+    /// Prover signer (P1.10). `KeySigner` holds the seed in-process;
+    /// `AgentSigner` delegates to the wallet-agent so the seed never enters
+    /// this process. The miner derives the prover pk from the signer; the
+    /// node requires `envelope.pk == payload.prover`.
+    pub signer: &'a dyn ProofSigner,
     pub envelope: Value,
     pub envelope_bytes: &'a [u8],
     /// P2.10 — network id that scopes the produced `boole.signed.v1`
@@ -115,7 +117,14 @@ impl BountyClient {
 
     pub fn submit_proof(&self, inputs: BountyProofInputs<'_>) -> BountyProofResult {
         let proof_hash = hex::encode(Sha256::digest(inputs.envelope_bytes));
-        let prover = inputs.signing_key.pk_hex();
+        let prover = match inputs.signer.pk_hex() {
+            Ok(p) => p,
+            Err(detail) => {
+                return BountyProofResult::NetworkError {
+                    cause: format!("resolve prover pk: {detail}"),
+                }
+            }
+        };
         let valid_before = now_unix_secs().saturating_add(BOUNTY_PROOF_VALID_BEFORE_WINDOW_SECS);
         let nonce = fresh_signed_envelope_nonce();
         let payload = serde_json::json!({
@@ -127,10 +136,7 @@ impl BountyClient {
             "validBefore": valid_before,
             "nonce": nonce,
         });
-        let signed = match inputs
-            .signing_key
-            .sign_for_network(&payload, Some(inputs.network_id))
-        {
+        let signed = match inputs.signer.sign_payload(&payload, inputs.network_id) {
             Ok(s) => s,
             Err(detail) => {
                 return BountyProofResult::NetworkError {

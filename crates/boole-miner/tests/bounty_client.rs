@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use boole_core::{verify_signature, verify_signature_with_network, SigningKeyV2};
-use boole_miner::{BountyClient, BountyProofInputs, BountyProofResult};
+use boole_miner::{BountyClient, BountyProofInputs, BountyProofResult, KeySigner};
 
 type CapturedRequest = Arc<Mutex<Option<(String, Vec<u8>)>>>;
 
@@ -98,7 +98,7 @@ fn test_submit_proof_ok_on_200_returns_accepted_duplicate_bounty() {
     let client = BountyClient::new(srv.url());
     let res = client.submit_proof(BountyProofInputs {
         bounty_id: "abc",
-        signing_key: &key,
+        signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({"proof": "x"}),
         envelope_bytes: b"envelope-bytes",
         network_id: "boole-testnet",
@@ -137,12 +137,11 @@ fn test_submit_proof_ok_on_200_returns_accepted_duplicate_bounty() {
 
 #[test]
 fn test_submit_proof_not_found_on_404() {
-    let key = test_key();
     let srv = CannedServer::new(404, br#"{"error":"missing"}"#.to_vec());
     let client = BountyClient::new(srv.url());
     let res = client.submit_proof(BountyProofInputs {
         bounty_id: "missing-id",
-        signing_key: &key,
+        signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
         network_id: "boole-testnet",
@@ -157,12 +156,11 @@ fn test_submit_proof_not_found_on_404() {
 
 #[test]
 fn test_submit_proof_terminal_on_409() {
-    let key = test_key();
     let srv = CannedServer::new(409, br#"{"status":"solved"}"#.to_vec());
     let client = BountyClient::new(srv.url());
     let res = client.submit_proof(BountyProofInputs {
         bounty_id: "abc",
-        signing_key: &key,
+        signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
         network_id: "boole-testnet",
@@ -177,12 +175,11 @@ fn test_submit_proof_terminal_on_409() {
 
 #[test]
 fn test_submit_proof_no_verifier_on_501() {
-    let key = test_key();
     let srv = CannedServer::new(501, br#"{"kind":"lean-checker"}"#.to_vec());
     let client = BountyClient::new(srv.url());
     let res = client.submit_proof(BountyProofInputs {
         bounty_id: "abc",
-        signing_key: &key,
+        signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
         network_id: "boole-testnet",
@@ -197,7 +194,6 @@ fn test_submit_proof_no_verifier_on_501() {
 
 #[test]
 fn test_submit_proof_bad_request_on_400() {
-    let key = test_key();
     let srv = CannedServer::new(
         400,
         br#"{"error":"shape","detail":"prover not hex32"}"#.to_vec(),
@@ -205,7 +201,7 @@ fn test_submit_proof_bad_request_on_400() {
     let client = BountyClient::new(srv.url());
     let res = client.submit_proof(BountyProofInputs {
         bounty_id: "abc",
-        signing_key: &key,
+        signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
         network_id: "boole-testnet",
@@ -221,12 +217,11 @@ fn test_submit_proof_bad_request_on_400() {
 
 #[test]
 fn test_submit_proof_url_percent_encodes_bounty_id() {
-    let key = test_key();
     let srv = CannedServer::new(200, br#"{"accepted":true}"#.to_vec());
     let client = BountyClient::new(srv.url());
     let _ = client.submit_proof(BountyProofInputs {
         bounty_id: "weird id/with:slash",
-        signing_key: &key,
+        signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({}),
         envelope_bytes: b"x",
         network_id: "boole-testnet",
@@ -245,7 +240,7 @@ fn test_submit_proof_stamps_wire_network_id_and_uses_network_bound_digest() {
     let client = BountyClient::new(srv.url());
     let _ = client.submit_proof(BountyProofInputs {
         bounty_id: "abc",
-        signing_key: &key,
+        signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({"proof": "x"}),
         envelope_bytes: b"envelope-bytes",
         network_id: "boole-testnet",

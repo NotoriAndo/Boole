@@ -5,9 +5,10 @@
 //! so the miner CLI now requires the ed25519 seed via `--prover-sk-hex`.
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::net::{SocketAddr, TcpListener};
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
@@ -101,6 +102,140 @@ fn boot_with_mock(
 
 fn cli_url(addr: SocketAddr) -> String {
     format!("http://{addr}")
+}
+
+fn wallet_agent_bin() -> PathBuf {
+    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    p.pop();
+    p.pop();
+    p.push("target");
+    p.push(if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    });
+    p.push("boole-wallet-agent");
+    p
+}
+
+/// Seal `seed_hex` into a fresh vault via `boole-wallet-agent migrate-from-hex`
+/// (stdin: passphrase line, then seed-hex line — never argv).
+fn seal_vault(agent: &Path, vault: &Path, passphrase: &str, seed_hex: &str) {
+    let mut child = Command::new(agent)
+        .args(["migrate-from-hex", "--vault", &vault.to_string_lossy()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn boole-wallet-agent migrate-from-hex");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(format!("{passphrase}\n{seed_hex}\n").as_bytes())
+        .expect("write passphrase+seed");
+    let out = child.wait_with_output().expect("wait agent");
+    assert!(
+        out.status.success(),
+        "migrate-from-hex failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn mine_bounty_with_prover_vault_submits_accepted_envelope() {
+    // P1.10 — the prover seed stays sealed in a wallet-agent vault and never
+    // enters the boole-cli/boole-miner process. Signing is delegated to the
+    // agent subprocess (passphrase via BOOLE_WALLET_PASSPHRASE, never argv);
+    // the node must accept the vault-produced signature exactly as it would a
+    // seed-produced one (byte-identical — see ADR-0006).
+    let agent = wallet_agent_bin();
+    assert!(
+        agent.exists(),
+        "boole-wallet-agent binary missing at {}; build it first \
+         (`cargo build -p boole-wallet-agent`). The full gate's workspace \
+         build provides it.",
+        agent.display()
+    );
+
+    let (addr, handle, dir) = boot_with_mock(1);
+    let envelope = dir.join("envelope.bin");
+    std::fs::write(&envelope, b"{}").expect("write envelope");
+
+    let key = test_key();
+    let pk = key.pk_hex();
+    let vault = dir.join("prover.vault");
+    let passphrase = "vault-pass-p1-10";
+    seal_vault(&agent, &vault, passphrase, &key.sk_seed_hex());
+
+    let out = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "mine",
+            "bounty",
+            "--node",
+            cli_url(addr).as_str(),
+            "--network",
+            "testnet",
+            "--id",
+            "gamma-1",
+            "--prover",
+            pk.as_str(),
+            "--prover-vault",
+            vault.to_str().unwrap(),
+            "--envelope-path",
+            envelope.to_str().unwrap(),
+        ])
+        .env("BOOLE_WALLET_PASSPHRASE", passphrase)
+        .env("BOOLE_WALLET_AGENT_BIN", agent.to_str().unwrap())
+        .output()
+        .expect("run cli");
+
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let env: Value = serde_json::from_str(String::from_utf8_lossy(&out.stdout).trim())
+        .expect("stdout json envelope");
+    assert_eq!(env["ok"], true);
+    assert_eq!(env["command"], "mine.bounty");
+    assert_eq!(
+        env["result"]["accepted"], true,
+        "vault-signed proof accepted"
+    );
+    assert_eq!(env["result"]["bounty"]["status"], "solved");
+
+    handle.join().expect("server").expect("server ok");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn mine_bounty_prover_vault_without_passphrase_is_typed_error() {
+    // --prover-vault without BOOLE_WALLET_PASSPHRASE must fail with a typed
+    // envelope, never silently fall back to a seed or an empty passphrase.
+    let out = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "mine",
+            "bounty",
+            "--node",
+            "http://127.0.0.1:1",
+            "--network",
+            "testnet",
+            "--id",
+            "gamma-1",
+            "--prover",
+            test_key().pk_hex().as_str(),
+            "--prover-vault",
+            "/nonexistent/prover.vault",
+        ])
+        .env_remove("BOOLE_WALLET_PASSPHRASE")
+        .output()
+        .expect("run cli");
+    assert!(!out.status.success(), "must fail without a passphrase");
+    let env: Value = serde_json::from_str(String::from_utf8_lossy(&out.stderr).trim())
+        .expect("stderr json envelope");
+    assert_eq!(env["ok"], false);
+    assert_eq!(env["error"]["reason"], "wallet-passphrase-missing");
 }
 
 #[test]
