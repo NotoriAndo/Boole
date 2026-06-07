@@ -94,8 +94,8 @@ pub use replay::{
 pub use session_policy::{SessionPolicy, SessionState, SignerRequest};
 pub use share_pool::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
 pub use signed_envelope::{
-    canonical_payload_hash_hex, verify_signature, verify_signature_with_network, SignedEnvelope,
-    SigningKeyV2, SIGNED_ENVELOPE_SCHEMA,
+    canonical_payload_hash_hex, signing_digest_hex, verify_signature,
+    verify_signature_with_network, SignedEnvelope, SigningKeyV2, SIGNED_ENVELOPE_SCHEMA,
 };
 pub use submission_pow::{
     check_submission_pow, check_submission_pow_json, check_submission_pow_with_policy,

@@ -124,6 +124,18 @@ pub fn canonical_payload_hash_hex(payload: &Value) -> String {
     hex::encode(sha256_canonical(payload))
 }
 
+/// P1.10 — the exact 32-byte digest (hex) that `sign_for_network` raw-ed25519
+/// signs for `(payload, network_id)`. This lets an external signer that holds
+/// the key out of this process — e.g. `boole-wallet-agent sign --message
+/// <hex>`, which raw-ed25519-signs the decoded bytes — produce a signature
+/// byte-identical to the in-process `SigningKeyV2::sign_for_network`. Pass the
+/// returned hex as the agent's `--message`; the resulting signature, paired
+/// with the vault's pubkey, assembles a `boole.signed.v1` envelope that
+/// verifies unchanged.
+pub fn signing_digest_hex(payload: &Value, network_id: Option<&str>) -> String {
+    hex::encode(digest_for(payload, network_id))
+}
+
 /// Wire shape of a signed envelope. `signature` is hex64 (32-byte ed25519
 /// signature × 2). `pk` is hex32 (32-byte verifying key × 2).
 ///
