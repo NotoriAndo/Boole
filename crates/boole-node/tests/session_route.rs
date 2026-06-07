@@ -623,3 +623,61 @@ fn session_route_register_replayed_nonce_returns_409_nonce_replayed() {
     let _ = std::fs::remove_dir_all(&boot.dir);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn session_route_register_rejection_does_not_burn_nonce() {
+    // P1.6 closure cell (f) — the per-signer nonce is burned ONLY on the commit
+    // path (`burn_signed_envelope_nonce` runs immediately before the session-
+    // ledger append), never on a business rejection. A register whose envelope
+    // is well-formed, signed, and nonce-fresh but whose inner `session` fails
+    // validation (which happens AFTER the nonce-replay check and BEFORE the
+    // burn) must leave the `(signerPk, nonce)` reusable. This is the complement
+    // of `session_route_register_replayed_nonce_returns_409_nonce_replayed`: a
+    // committed write burns the nonce, a rejected write does not. With the
+    // signed nonce ledger configured, a burn on the rejected request would turn
+    // the retry into a `409 nonce_replayed`, so the 200 below is the proof.
+    let dir = fresh_dir("register-reject-no-burn");
+    let registry = dir.join("sessions.ndjson");
+    let signed_nonce_path = dir.join("signed-nonces.ndjson");
+    let boot = boot_with_signed_nonce_ledger(2, Some(registry), Some(signed_nonce_path));
+    let key = SigningKeyV2::from_dev_id("session-route-register-reject-no-burn");
+    let reused_nonce = "abababababababababababababababab";
+
+    // Request A: a malformed `session` (missing every required field) fails
+    // SessionState parsing after the nonce-replay check and before the burn.
+    let mut bad = register_payload(json!({}), 0);
+    bad["nonce"] = json!(reused_nonce);
+    let (s1, resp1) = http_post(
+        boot.addr,
+        "/sessions",
+        &signed_register_envelope(&bad, &key),
+    );
+    assert_ne!(
+        s1, 200,
+        "a malformed session must be rejected, got 200: {resp1}"
+    );
+    assert_eq!(
+        resp1["ok"], false,
+        "rejection envelope must be ok=false: {resp1}"
+    );
+
+    // Request B: same signer + same nonce, now a VALID session → must succeed,
+    // proving request A did not burn the nonce.
+    let mut good = register_payload(fixture_session(), 0);
+    good["nonce"] = json!(reused_nonce);
+    let (s2, resp2) = http_post(
+        boot.addr,
+        "/sessions",
+        &signed_register_envelope(&good, &key),
+    );
+    assert_eq!(
+        s2, 200,
+        "a nonce reused after a non-committing rejection must still be accepted: {resp2}"
+    );
+    assert_eq!(resp2["ok"], true, "second register must succeed: {resp2}");
+    assert_eq!(resp2["session"]["sessionPk"], PK_A);
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}

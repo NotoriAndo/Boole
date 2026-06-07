@@ -157,6 +157,39 @@ per-route layer to ~15 read routes for marginal benefit. The route-specific
 *matrix* (proof ≠ default for both timeout and body cap) is demonstrated and
 fault-tested (`tests/http_fault_matrix.rs`).
 
+## P1.6 — `/verify-answer` and `/submit` are structural exceptions to the signed-envelope model
+
+**Decision:** the P1.6 per-route matrix requires every *mutating* route to carry
+a `boole.signed.v1` owner envelope with per-signer nonce burn, `validBefore`,
+and `network_id` binding. The six owner/agent/announcer/prover routes
+(`/sessions` register + revoke, `/bounties` announce + status + proof,
+`/receipts`) satisfy all five columns. Two routes are **exempted with a
+documented rationale** rather than retrofitted:
+
+- **`POST /verify-answer`** is *payment*-authenticated, not owner-authenticated.
+  Its auth is the x402 `Payment-Signature` header over the canonical request
+  hash, because the caller is a paying client, not the resource owner — an owner
+  envelope is the wrong primitive. Payment replay/settlement protection is the
+  remit of the x402 facilitator + payment nonce ledger in **P3.1**; the current
+  build ships only a compile-time mock behind `dev-mock-payment` (see
+  `docs/dev-mock-payment.md`), and a release build uniformly returns the typed
+  `payment_invalid` envelope.
+- **`POST /submit`** (direct PoW) is *permissionless* by design: the
+  proof-of-work + canon verification is itself the admission gate, so there is no
+  owner identity to sign or per-signer nonce to burn. The submission binds the
+  current chain `c`; the session-bound submit path additionally burns a Submit
+  nonce on commit (`submit_session_policy::rejected_admission_does_not_burn_submit_nonce`).
+
+**Why exempt rather than force-fit:** adding a mandatory owner envelope to a
+payment route or a permissionless-mining route would *break* those designs (a
+paying non-owner client, and open PoW submission). This mirrors the P2.5
+treatment of structurally-non-`Unified` CLI commands: a documented exception is
+the correct closure, not a contortion. The burn-only-on-commit invariant for the
+six signed routes is pinned by
+`session_route::session_route_register_rejection_does_not_burn_nonce` (cell f: a
+business-rejected register leaves the `(signerPk, nonce)` reusable) alongside the
+replay/cross-network/auth matrices already in the suite.
+
 ## Process note — worktree overlap
 
 The five slices were implemented and per-slice focused-gated in a git worktree
