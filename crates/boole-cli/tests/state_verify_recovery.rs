@@ -56,3 +56,32 @@ fn deep_verify_source_does_not_claim_none_is_only_supported_path() {
          the Some(checker_dir) branch re-runs Lean via reverify_lean_event."
     );
 }
+
+/// The CLI surface (`boole state verify --deep`) carried the same stale
+/// future-tense comments as `deep_verify.rs` — the `StateCommand::Verify` doc,
+/// the `--lean-checker-dir` arg doc, and the `state_verify_deep` fn doc each
+/// claimed the Lean re-run "lands in a follow-up sub-slice" / the flag is
+/// "Accepted today but unused" / "today every accepted-lean proof event is
+/// reported under `leanProofsSkipped`". Those are false now that
+/// `--lean-checker-dir` routes through `reverify_lean_event`. Pin their absence
+/// in the CLI source too, not just the node-side `deep_verify.rs`.
+const CLI_MAIN_SRC: &str = include_str!("../src/main.rs");
+
+#[test]
+fn cli_state_verify_doc_carries_no_stale_follow_up_or_unused_flag_comment() {
+    for stale in [
+        "follow-up sub-slice",
+        "Accepted today but unused",
+        "today every accepted-lean",
+        "today every eligible event",
+    ] {
+        assert_eq!(
+            CLI_MAIN_SRC.matches(stale).count(),
+            0,
+            "stale deep-verify doc comment {stale:?} must be removed from \
+             boole-cli/src/main.rs: `--lean-checker-dir` already re-executes \
+             Lean and fills `leanProofsReverified`, so the future-tense / \
+             unused-flag phrasing is false."
+        );
+    }
+}

@@ -552,10 +552,11 @@ enum StateCommand {
     ///
     /// With `--deep`, instead of (or in addition to) the block-store
     /// replay, stream the bounty audit ledger (`--bounty-events`) and
-    /// report how many accepted-lean proof events are eligible for
-    /// offline Lean re-execution. The actual re-run wiring lands in a
-    /// follow-up sub-slice; today every eligible event is reported under
-    /// `leanProofsSkipped`.
+    /// re-execute each accepted-lean proof event offline. Supplying
+    /// `--lean-checker-dir` re-runs Lean and reports the count under
+    /// `leanProofsReverified` (a recorded `checkerArtifactHash` that no
+    /// longer matches the re-execution surfaces as a divergence); without
+    /// it, eligible events are reported under `leanProofsSkipped`.
     Verify {
         /// Path to the durable blocks NDJSON file (typically
         /// `<state-dir>/blocks.ndjson`). Required unless `--deep` is set.
@@ -570,10 +571,10 @@ enum StateCommand {
         /// is set.
         #[arg(long)]
         bounty_events: Option<PathBuf>,
-        /// Lean checker package directory used by the follow-up
-        /// sub-slice to re-execute accepted-lean proof events. Accepted
-        /// today but unused; supplying it does not yet flip events into
-        /// `leanProofsReverified`.
+        /// Lean checker package directory used to re-execute accepted-lean
+        /// proof events. When supplied with `--deep`, each accepted event is
+        /// re-run and counted under `leanProofsReverified`; omit it to report
+        /// eligible events under `leanProofsSkipped` instead.
         #[arg(long)]
         lean_checker_dir: Option<PathBuf>,
         /// Emit JSON output.
@@ -1031,10 +1032,11 @@ fn state_verify_dispatch(
 /// P1.4 — `boole state verify --deep --bounty-events <ndjson>`.
 /// Streams the bounty audit ledger via `boole_node::deep_verify_bounty_events`
 /// and emits a `{ok, eventsScanned, leanProofsAccepted, leanProofsReverified,
-/// leanProofsSkipped, divergences}` envelope. Today every accepted-lean
-/// proof event is reported under `leanProofsSkipped`; the follow-up
-/// sub-slice wires the actual Lean re-execution behind the existing
-/// `--lean-checker-dir` flag.
+/// leanProofsSkipped, divergences}` envelope. When `--lean-checker-dir` is
+/// supplied each accepted-lean proof event is re-executed offline and counted
+/// under `leanProofsReverified` (a `checkerArtifactHash` that no longer matches
+/// becomes a divergence → exit 3); without the flag, events are reported under
+/// `leanProofsSkipped`.
 fn state_verify_deep(
     events_path: &Path,
     lean_checker_dir: Option<&Path>,
