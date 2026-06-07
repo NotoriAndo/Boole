@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "domain": "boole-mcp-e2e",
+  "source": "docs/boole-mcp-e2e.md",
+  "criterion": "P2.2 closure criterion 3: external-user e2e smoke — fresh $HOME, install, boole.status idle, boole.mine (zero-cycle), boole.status completed — captured envelope shapes.",
+  "claimBoundary": "closed local smoke; not public-network mining",
+  "publicMiningEvidence": false,
+  "publicScoringEligible": false,
+  "ineligibilityReasons": [
+    "single local boole-mcp process driving an in-process zero-cycle mining bundle",
+    "no driver/verifier/Lean invocation at max_cycles = 0",
+    "no public network admission",
+    "no paid-API calls"
+  ],
+  "binary": "boole-mcp serve --node-url <node> --listen 127.0.0.1:0",
+  "expected": {
+    "installDryRun": {
+      "ok": true,
+      "command": "install",
+      "result": {
+        "dry_run": true,
+        "target": "claude"
+      },
+      "volatileFields": ["result.settings_path", "result.planned_content", "version"]
+    },
+    "statusIdleBeforeMine": {
+      "state": "idle"
+    },
+    "mineZeroCycle": {
+      "cycles_run": 0,
+      "tickets_found": 0,
+      "shares_accepted": 0,
+      "network_errors": 0
+    },
+    "statusCompletedAfterMine": {
+      "state": "completed",
+      "last_summary": {
+        "cycles_run": 0,
+        "tickets_found": 0,
+        "shares_accepted": 0,
+        "network_errors": 0
+      }
+    }
+  },
+  "notes": [
+    "Volatile fields (settings_path, planned_content, build/version strings, absolute paths, ephemeral port) are intentionally excluded; only deterministic envelope shapes are pinned.",
+    "The live boole-mcp binary is verified to produce these exact envelopes by crates/boole-mcp/tests/mining_tool_surface.rs (spawns the binary, drives /mcp/invoke); this transcript pins the documented shapes so the doc and the contract cannot drift.",
+    "boole.mine runs run_mining_loop with max_cycles = 0, so every protocol counter is 0 and no real mining work (driver/verifier/Lean) is performed — this is a contract smoke, not a mining-productivity claim."
+  ]
+}
