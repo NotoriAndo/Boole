@@ -15,6 +15,14 @@ jobs:
     name: self-test
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # P0.3 — declare the single-threaded determinism contract at the CI level,
+    # not only inside scripts/self-test.sh. RUST_TEST_THREADS=1 keeps the gate's
+    # ordering deterministic (shared temp dirs, port binds, ledger paths) so a
+    # CI runner cannot reorder tests into a flake the local gate never sees. The
+    # master plan P0.3 contract requires this in BOTH the script and the
+    # workflow file.
+    env:
+      RUST_TEST_THREADS: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v6

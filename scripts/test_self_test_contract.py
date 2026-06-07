@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SELF_TEST = ROOT / "scripts" / "self-test.sh"
 RUST_PARITY = ROOT / "scripts" / "check-rust-parity.sh"
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 def _read(path: Path) -> str:
@@ -17,6 +18,21 @@ def _read(path: Path) -> str:
 
 
 class SelfTestContractTests(unittest.TestCase):
+    def test_ci_workflow_declares_rust_test_threads(self) -> None:
+        # P0.3 — the determinism contract must be explicit at the CI level too,
+        # not only inside self-test.sh, so the workflow file alone documents the
+        # single-threaded invariant. Matches `RUST_TEST_THREADS: "1"` (or '1')
+        # under an `env:` block on the self-test job.
+        body = _read(CI_WORKFLOW)
+        pattern = re.compile(r"""^\s*RUST_TEST_THREADS:\s*["']?1["']?\s*$""", re.MULTILINE)
+        self.assertRegex(
+            body,
+            pattern,
+            ".github/workflows/ci.yml must declare `RUST_TEST_THREADS: \"1\"` "
+            "at the workflow/job level so the single-threaded gate contract is "
+            "explicit in CI, not only inside scripts/self-test.sh",
+        )
+
     def test_self_test_exports_rust_test_threads(self) -> None:
         body = _read(SELF_TEST)
         pattern = re.compile(r"^\s*export\s+RUST_TEST_THREADS=1\b", re.MULTILINE)
