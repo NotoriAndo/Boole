@@ -85,7 +85,7 @@ fn bounty_args_debug_redacts_prover_sk_hex() {
         network: BountyNetworkPreset::Testnet,
         id: "gamma-1".to_string(),
         prover: "1111111111111111111111111111111111111111111111111111111111111111".to_string(),
-        prover_sk_hex: seed.to_string(),
+        prover_sk_hex: Some(seed.to_string()),
         envelope_path: None,
         timeout_ms: 30_000,
     };

@@ -199,11 +199,15 @@ pub struct BountyArgs {
     /// the pk derived from `--prover-sk-hex`.
     #[arg(long)]
     pub prover: String,
-    /// Prover ed25519 signing-key seed (32-byte lowercase hex). The
-    /// node requires `boole.signed.v1` envelopes on POST
-    /// `/bounties/{id}/proof`, so this is required for any real submit.
+    /// Prover ed25519 signing-key seed (32-byte lowercase hex). The node
+    /// requires `boole.signed.v1` envelopes on POST `/bounties/{id}/proof`, so
+    /// a seed is required for any real submit. P1.10: prefer the
+    /// `BOOLE_PROVER_SK_HEX` environment variable — passing the seed on the
+    /// command line leaks it to `ps`, process listings, and shell history. This
+    /// flag is accepted for back-compat (and wins if both are set), but the env
+    /// var keeps the seed off the process command line.
     #[arg(long = "prover-sk-hex")]
-    pub prover_sk_hex: String,
+    pub prover_sk_hex: Option<String>,
     /// Path to a file holding the canonical envelope bytes (default: empty).
     #[arg(long = "envelope-path")]
     pub envelope_path: Option<PathBuf>,
@@ -223,7 +227,10 @@ impl std::fmt::Debug for BountyArgs {
             .field("network", &self.network)
             .field("id", &self.id)
             .field("prover", &self.prover)
-            .field("prover_sk_hex", &"<redacted>")
+            .field(
+                "prover_sk_hex",
+                &self.prover_sk_hex.as_ref().map(|_| "<redacted>"),
+            )
             .field("envelope_path", &self.envelope_path)
             .field("timeout_ms", &self.timeout_ms)
             .finish()
@@ -231,6 +238,32 @@ impl std::fmt::Debug for BountyArgs {
 }
 
 pub const SECRET_KEYS: &[&str] = &["llm.apiKey", "llm.api_key"];
+
+/// P1.10 — resolve the prover ed25519 signing-key seed, allowing it to be
+/// supplied via the `BOOLE_PROVER_SK_HEX` environment variable instead of the
+/// `--prover-sk-hex` argv flag. Passing the seed on the command line leaks it
+/// to `ps`, process listings, and shell history; the env var keeps it off the
+/// process command line. Precedence: an explicit non-empty `--prover-sk-hex`
+/// wins (back-compat), else a non-empty env value, else a typed error. This is
+/// a pure seam so the secret-boundary behaviour is unit-testable without
+/// spawning the binary.
+pub fn resolve_prover_sk_hex(
+    arg: Option<&str>,
+    env: Option<String>,
+) -> Result<String, &'static str> {
+    if let Some(seed) = arg {
+        if !seed.is_empty() {
+            return Ok(seed.to_string());
+        }
+    }
+    match env {
+        Some(seed) if !seed.is_empty() => Ok(seed),
+        _ => Err(
+            "prover signing key required: set BOOLE_PROVER_SK_HEX (keeps the seed \
+             off the command line) or pass --prover-sk-hex (ps-visible)",
+        ),
+    }
+}
 const REDACTED: &str = "***";
 
 fn iso_now() -> String {
@@ -652,7 +685,16 @@ pub fn run_bounty(args: BountyArgs) -> anyhow::Result<()> {
         },
         None => Vec::new(),
     };
-    let signing_key = match boole_core::SigningKeyV2::from_seed_hex(&args.prover_sk_hex) {
+    let prover_sk_hex = match resolve_prover_sk_hex(
+        args.prover_sk_hex.as_deref(),
+        std::env::var("BOOLE_PROVER_SK_HEX").ok(),
+    ) {
+        Ok(seed) => seed,
+        Err(detail) => {
+            bounty_emit_err("prover-sk-missing", serde_json::json!({ "detail": detail }))
+        }
+    };
+    let signing_key = match boole_core::SigningKeyV2::from_seed_hex(&prover_sk_hex) {
         Ok(k) => k,
         Err(err) => bounty_emit_err("bad-prover-sk-hex", serde_json::json!({ "detail": err })),
     };
