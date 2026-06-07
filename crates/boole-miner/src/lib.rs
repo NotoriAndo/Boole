@@ -13,6 +13,7 @@ mod local_verify;
 mod mining_loop;
 mod proof_intake;
 mod proof_package;
+mod proof_signer;
 mod state;
 mod submit_client;
 mod target_emitter;
@@ -61,6 +62,7 @@ pub use proof_package::{
     bppk_canon_hash, expr_tag, level_tag, lit_tag, walk_bppk, BppkBuilder, BppkDecodeError,
     BppkWalkResult, FORMAT_VERSION, MAGIC, MAX_WALK_DEPTH,
 };
+pub use proof_signer::{AgentSigner, KeySigner, ProofSigner};
 pub use state::{
     canonical_state_path_with, default_state_path, generate_miner_state, legacy_candidates_with,
     load_state, pubkey_to_address, save_state, signing_key_from_state, state_exists,
