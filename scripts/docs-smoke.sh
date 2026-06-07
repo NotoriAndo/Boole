@@ -33,7 +33,18 @@ require_file docs/replay-consensus.md
 require_file docs/settlement-report.md
 require_file docs/receipt-commitment.md
 require_file docs/verified-answer-local-mvp-closeout.md
+require_file docs/dev-mock-payment.md
 require_file docs/adr/0001-pofp-v2-canonical-widening.md
+
+# P1.8 — the dev-only mock payment doc must carry an unmistakable banner and
+# name its feature gate, and receipt-commitment.md must caveat the magic header
+# as development-only (not a production payment) with a pointer to the doc.
+require_text docs/dev-mock-payment.md "DEVELOPMENT-ONLY. THIS IS NOT A PRODUCTION PAYMENT PATH."
+require_text docs/dev-mock-payment.md "dev-mock-payment"
+require_text docs/dev-mock-payment.md "VERIFY_ANSWER_PAYMENT_SIGNATURE"
+require_text docs/dev-mock-payment.md "working payment system"
+require_text docs/receipt-commitment.md "development-only"
+require_text docs/receipt-commitment.md "dev-mock-payment.md"
 
 require_text README.md "docs/install.md"
 require_text README.md "docs/replay-consensus.md"

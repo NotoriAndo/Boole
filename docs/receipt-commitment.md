@@ -51,7 +51,7 @@ When configured, the node serves:
 
 - `GET /receipts/{receiptId}` — returns `{ "ok": true, "receiptCommitment": ... }` for a stored commitment.
 - `POST /receipts` — local MVP append path for a `ReceiptCommitment` JSON object.
-- `POST /verify-answer` — mock/local pay-before-verification path. Without `Payment-Signature: boole-native-test:paid`, it returns HTTP 402 `payment_required` with `scheme: "boole-native-test"`, `amount: "1"`, `requestHash`, `payTo`, and `x402Version: "x402.draft-2"`. With the valid fake payment header it returns a mock verified result and appends only the `ReceiptCommitment` row.
+- `POST /verify-answer` — **development-only** mock pay-before-verification path. **The `Payment-Signature: boole-native-test:paid` header below is a compile-time MOCK, not a production payment — it is gated behind the `dev-mock-payment` Cargo feature (absent from all default feature sets), so a release build never compiles the magic string in and uniformly returns `payment_invalid`. See [`dev-mock-payment.md`](./dev-mock-payment.md); real settlement is the P3 x402 facilitator.** Under the `dev-mock-payment` build, without `Payment-Signature: boole-native-test:paid`, it returns HTTP 402 `payment_required` with `scheme: "boole-native-test"`, `amount: "1"`, `requestHash`, `payTo`, and `x402Version: "x402.draft-2"`. With the valid fake payment header it returns a mock verified result and appends only the `ReceiptCommitment` row.
 
 Unknown receipts return a typed `receipt_not_found` 404. Unsupported mock x402 versions return `x402_version_unsupported`. Raw answer fields such as `humanAnswer` are rejected and are not appended to the ledger.
 
