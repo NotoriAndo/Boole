@@ -2108,6 +2108,42 @@ fn bounty_get(id: &str, node: Option<&str>, json: bool) -> anyhow::Result<()> {
 /// so shell scripts can pipe the result without parsing JSON. `--json`
 /// forwards the full server envelope verbatim. Non-2xx forwards the typed
 /// envelope (`bounty_not_found`, `bad_proof_hash`, ...) to stderr with exit 1.
+/// P1.10 — resolve a `ProofSigner` from a key/session envelope's seed-or-vault
+/// fields. A `vault`-backed entry signs via the `boole-wallet-agent` subprocess
+/// (the ed25519 seed never enters this process; passphrase via
+/// `BOOLE_WALLET_PASSPHRASE`, agent bin via `BOOLE_WALLET_AGENT_BIN` — never
+/// argv); an `sk`-backed entry signs in-process (unchanged). `vault` wins when
+/// both are present. Callers pass the relevant field strings (`sk`/`vault` for
+/// key entries, `sessionSk`/`sessionVault` for session entries).
+fn proof_signer_from(
+    sk_hex: Option<&str>,
+    vault: Option<&str>,
+) -> anyhow::Result<Box<dyn boole_miner::ProofSigner>> {
+    if let Some(v) = vault.filter(|v| !v.is_empty()) {
+        let passphrase = std::env::var("BOOLE_WALLET_PASSPHRASE")
+            .ok()
+            .filter(|p| !p.is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "vault-backed key requires the BOOLE_WALLET_PASSPHRASE env var (never argv)"
+                )
+            })?;
+        let agent_bin = std::env::var("BOOLE_WALLET_AGENT_BIN")
+            .unwrap_or_else(|_| "boole-wallet-agent".to_string());
+        return Ok(Box::new(boole_miner::AgentSigner::new(
+            agent_bin,
+            PathBuf::from(v),
+            passphrase,
+        )));
+    }
+    let sk = sk_hex
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("key envelope has neither a usable `sk` nor a `vault`"))?;
+    let key = boole_core::SigningKeyV2::from_seed_hex(sk)
+        .map_err(|err| anyhow::anyhow!("stored sk is not a valid ed25519 seed: {err}"))?;
+    Ok(Box::new(boole_miner::KeySigner::new(key)))
+}
+
 fn bounty_submit(
     network: NetworkPreset,
     id: &str,
@@ -2150,12 +2186,13 @@ fn bounty_submit(
             }),
         );
     }
-    let sk_hex = key_envelope
-        .get("sk")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("v2 key envelope missing required `sk` field"))?;
-    let signing = boole_core::SigningKeyV2::from_seed_hex(sk_hex)
-        .map_err(|err| anyhow::anyhow!("stored sk is not a valid ed25519 seed: {err}"))?;
+    let signer = proof_signer_from(
+        key_envelope.get("sk").and_then(|v| v.as_str()),
+        key_envelope.get("vault").and_then(|v| v.as_str()),
+    )?;
+    let prover = signer
+        .pk_hex()
+        .map_err(|err| anyhow::anyhow!("resolve prover pk: {err}"))?;
 
     let envelope_value = read_json_arg(envelope, "envelope")?;
     let url = node.unwrap_or("http://127.0.0.1:8080");
@@ -2164,13 +2201,13 @@ fn bounty_submit(
         "schema": "boole.bounty.proof.v1",
         "bountyId": id,
         "proofHash": proof_hash,
-        "prover": signing.pk_hex(),
+        "prover": prover,
         "envelope": envelope_value,
         "validBefore": signed_payload_valid_before(),
         "nonce": fresh_signed_envelope_nonce(),
     });
-    let signed = signing
-        .sign_for_network(&payload, Some(network.network_id()))
+    let signed = signer
+        .sign_payload(&payload, network.network_id())
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
     let body = serde_json::json!({
         "schema": signed.schema,
@@ -2282,12 +2319,10 @@ fn bounty_announce(
             }),
         );
     }
-    let sk_hex = key_envelope
-        .get("sk")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("v2 key envelope missing required `sk` field"))?;
-    let signing = boole_core::SigningKeyV2::from_seed_hex(sk_hex)
-        .map_err(|err| anyhow::anyhow!("stored sk is not a valid ed25519 seed: {err}"))?;
+    let signer = proof_signer_from(
+        key_envelope.get("sk").and_then(|v| v.as_str()),
+        key_envelope.get("vault").and_then(|v| v.as_str()),
+    )?;
 
     let ts_value = ts.unwrap_or_else(unix_ms_now);
     let payload = serde_json::json!({
@@ -2305,8 +2340,8 @@ fn bounty_announce(
         "validBefore": signed_payload_valid_before(),
         "nonce": fresh_signed_envelope_nonce(),
     });
-    let signed = signing
-        .sign_for_network(&payload, Some(network.network_id()))
+    let signed = signer
+        .sign_payload(&payload, network.network_id())
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
     let envelope = serde_json::json!({
         "schema": signed.schema,
@@ -2382,12 +2417,10 @@ fn bounty_status(
             }),
         );
     }
-    let sk_hex = key_envelope
-        .get("sk")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("v2 key envelope missing required `sk` field"))?;
-    let signing = boole_core::SigningKeyV2::from_seed_hex(sk_hex)
-        .map_err(|err| anyhow::anyhow!("stored sk is not a valid ed25519 seed: {err}"))?;
+    let signer = proof_signer_from(
+        key_envelope.get("sk").and_then(|v| v.as_str()),
+        key_envelope.get("vault").and_then(|v| v.as_str()),
+    )?;
 
     let ts_value = ts.unwrap_or_else(unix_ms_now);
     let mut payload = serde_json::Map::new();
@@ -2419,8 +2452,8 @@ fn bounty_status(
         serde_json::Value::String(fresh_signed_envelope_nonce()),
     );
     let payload_value = serde_json::Value::Object(payload);
-    let signed = signing
-        .sign_for_network(&payload_value, Some(network.network_id()))
+    let signed = signer
+        .sign_payload(&payload_value, network.network_id())
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
     let envelope = serde_json::json!({
         "schema": signed.schema,
@@ -3395,12 +3428,10 @@ fn signer_sign_work(
         );
     }
 
-    let session_sk = envelope
-        .get("sessionSk")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("session envelope missing required `sessionSk` field"))?;
-    let signing_key = boole_core::SigningKeyV2::from_seed_hex(session_sk)
-        .map_err(|err| anyhow::anyhow!("stored sessionSk is not a valid ed25519 seed: {err}"))?;
+    let signing_key = proof_signer_from(
+        envelope.get("sessionSk").and_then(|v| v.as_str()),
+        envelope.get("sessionVault").and_then(|v| v.as_str()),
+    )?;
     let payload = read_json_arg(payload_arg, "payload")?;
     let computed_request_hash = boole_core::canonical_payload_hash_hex(&payload);
     if computed_request_hash != request_hash {
@@ -3436,7 +3467,7 @@ fn signer_sign_work(
         "workPayload": payload,
     });
     let signed = signing_key
-        .sign_for_network(&work_request_payload, Some(network.network_id()))
+        .sign_payload(&work_request_payload, network.network_id())
         .map_err(|err| anyhow::anyhow!("ed25519 sign failed: {err}"))?;
 
     record_nonce(&nonce_path, nonce)?;

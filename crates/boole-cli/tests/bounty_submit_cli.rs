@@ -14,9 +14,10 @@
 //! invocation.
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
@@ -231,6 +232,107 @@ fn submit_default_dedup_prints_duplicate() {
         stdout, "duplicate",
         "second post on same proofHash prints duplicate: {stdout:?}"
     );
+    boot.handle.join().expect("server").expect("server ok");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+}
+
+/// Resolve the `boole-wallet-agent` binary as a sibling of `boole-cli` in the
+/// target dir (cargo only exports `CARGO_BIN_EXE_*` within a bin's own crate),
+/// building it if missing — mirrors `wallet_cli.rs`.
+fn wallet_agent_bin() -> PathBuf {
+    let cli = Path::new(env!("CARGO_BIN_EXE_boole-cli"));
+    let sibling = cli
+        .parent()
+        .expect("cli has parent dir")
+        .join("boole-wallet-agent");
+    if !sibling.exists() {
+        let status = Command::new(env!("CARGO"))
+            .args(["build", "-p", "boole-wallet-agent"])
+            .status()
+            .expect("invoke cargo to build boole-wallet-agent");
+        assert!(status.success(), "cargo build -p boole-wallet-agent failed");
+    }
+    sibling
+}
+
+/// P1.10 — create a wallet-agent vault holding a fresh key and return its pk.
+fn init_vault(agent: &Path, vault: &Path, passphrase: &str) -> String {
+    let mut child = Command::new(agent)
+        .args(["init", "--vault", &vault.to_string_lossy()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn boole-wallet-agent init");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(format!("{passphrase}\n").as_bytes())
+        .expect("write passphrase");
+    let out = child.wait_with_output().expect("wait agent init");
+    assert!(
+        out.status.success(),
+        "vault init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+#[test]
+fn submit_with_vault_backed_key_signs_via_agent_and_solves() {
+    // P1.10 — a vault-backed keystore entry (no plaintext `sk`, just a `vault`
+    // path) signs the proof via the boole-wallet-agent subprocess, so the
+    // ed25519 seed never enters the boole-cli process. The node must accept the
+    // vault-produced proof exactly as a seed-produced one.
+    let boot = boot_with_mock(1);
+    let agent = wallet_agent_bin();
+    let vault = boot.dir.join("prover.vault");
+    let passphrase = "submit-vault-pass";
+    let pk = init_vault(&agent, &vault, passphrase);
+
+    // Write a vault-backed v2 key envelope (no `sk`).
+    let key_id = "bounty-submit-vault-test";
+    let entry = json!({
+        "schema": "boole.keys.v2",
+        "pk": pk,
+        "vault": vault.to_string_lossy(),
+    });
+    std::fs::write(
+        boot.keys_dir.join(format!("{key_id}.json")),
+        serde_json::to_vec_pretty(&entry).unwrap(),
+    )
+    .expect("write vault-backed key");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .env("BOOLE_KEYS_DIR", &boot.keys_dir)
+        .env("BOOLE_WALLET_PASSPHRASE", passphrase)
+        .env("BOOLE_WALLET_AGENT_BIN", &agent)
+        .args([
+            "bounty",
+            "submit",
+            "--network",
+            "testnet",
+            "--id",
+            "gamma-1",
+            "--proof-hash",
+            PROOF_HASH_A,
+            "--signing-key",
+            key_id,
+            "--envelope",
+            "{}",
+            "--node",
+            cli_url(boot.addr).as_str(),
+        ])
+        .output()
+        .expect("run cli");
+    assert!(
+        out.status.success(),
+        "vault-backed submit must succeed: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    assert_eq!(stdout, "solved", "vault-signed proof solves: {stdout:?}");
     boot.handle.join().expect("server").expect("server ok");
     let _ = std::fs::remove_dir_all(&boot.dir);
 }
