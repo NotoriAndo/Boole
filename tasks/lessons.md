@@ -327,3 +327,21 @@ This matters for the wallet plan specifically: the Global verification commands 
 **Pattern:** `LocalNodeConfig` has no `Default` and ~50 struct-literal call sites across boole-node + boole-cli tests. P2.6 needed a disk-full injection knob; adding a `LocalNodeConfig` field would have forced a one-line edit into all ~50 sites. Instead I put the flag on `LocalNodeState` as an `Arc<AtomicBool>` (default false) + a `#[doc(hidden)] serve_local_node_with_disk_full_sentinel` test seam — zero call-site churn, and the AtomicBool is the natural home for the eventual real ENOSPC trigger. Similarly P1.9's release-refusal went on the CLI args (`--allow-insecure-verifier`), not a `LocalNodeConfig` field, keeping the library `from_config` permissive so existing node tests are untouched.
 
 **Rule:** before adding a field to a wide, `Default`-less config struct for a TEST-only injection point, prefer a runtime flag on the state (`Arc<AtomicBool>`) + a `#[doc(hidden)]` test-seam constructor, or a CLI-arg-level guard. It avoids 50-file mechanical churn and usually models the production trigger better.
+
+## 2026-06-09 — a green gate does not mean P0–P2 is complete; audit before claiming done
+
+**Pattern:** I reported the codebase "P0–P2 complete" on the strength of a passing full gate. A /deep-research adversarial audit then refuted it with 24 real findings the green gate could not see: routes that AUTHENTICATED (valid signature) but never AUTHORIZED (anyone could register/revoke a session or announce/transition a bounty); boole.mine's ">0-cycle round-trip" that ran entirely through MOCK components (StubTargetEmitter + MockDriver), so no real instance was ever generated; and a heal path with no test for interleaved route+block events (the exact case that made a node unbootable).
+
+**Rule:** a passing gate proves the tests you WROTE pass — it says nothing about authz gaps, mock-theatre, or untested edge paths. Before claiming a milestone "complete", run an adversarial audit (deep-research / a reviewer-fan-out workflow) against the actual code and reconcile every finding. Never upgrade "tests pass" to "the system is correct/complete".
+
+## 2026-06-09 — an authorization CHECK needs a REJECT-path test, or it is unverified
+
+**Pattern:** the P1.6 authz logic was committed with the route changes but ZERO tests asserted the 403 reject path. `grep unauthorized_signer crates/**/tests` returned nothing — the check could have been deleted and every existing (happy-path) test would still pass. The audit flagged this as a test-honesty gap.
+
+**Rule:** when you add an authorization/security gate, the RED test MUST assert the REJECT path (non-owner → 403, unknown → 404, non-allowlisted → 403) — not merely that the happy paths still succeed. Make the happy-path tests sign AS the authorized principal (so they exercise the allow path), and add explicit deny-path tests that fail closed if the check is removed. A feature with only happy-path tests is an unverified feature.
+
+## 2026-06-09 — run `cargo fmt --all --check` before committing hand-written Rust
+
+**Pattern:** I hand-wrote new test functions, committed them, and launched the ~multi-hour full gate. It FAILED at stage 1 (cargo-fmt) on my unformatted code, wasting the gate cycle. cargo-fmt is the gate's first stage precisely because it is cheap and catches this.
+
+**Rule:** any time I hand-write or hand-edit Rust, run `cargo fmt --all` (or `-p <crate>`) and then `cargo fmt --all --check` BEFORE committing and BEFORE gating. Cheap local check; a fmt-only gate restart is pure waste. (Delegated subagents already do this; the lapse was in my own inline edits.)
