@@ -224,6 +224,16 @@ fn fixture_session() -> Value {
     })
 }
 
+/// `fixture_session` owned by `owner`. The P1.6 authorization check on
+/// `POST /sessions` requires the envelope signer's pk to equal the session's
+/// `ownerPk`, so any happy-path register (and the revoke that follows it) must
+/// be signed by the owner — i.e. the session's `ownerPk` is the signer's pk.
+fn owned_session(owner: &SigningKeyV2) -> Value {
+    let mut session = fixture_session();
+    session["ownerPk"] = json!(owner.pk_hex());
+    session
+}
+
 #[test]
 fn session_route_register_returns_ok_for_valid_session() {
     let dir = fresh_dir("register-ledger");
@@ -231,7 +241,7 @@ fn session_route_register_returns_ok_for_valid_session() {
     let boot = boot_with_registry(1, Some(registry));
 
     let key = SigningKeyV2::from_dev_id("session-route-register-happy");
-    let body = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let body = signed_register_envelope(&register_payload(owned_session(&key), 0), &key);
     let (status, value) = http_post(boot.addr, "/sessions", &body);
     assert_eq!(status, 200, "expected 200, got {status}: {value}");
     assert_eq!(value["ok"], true);
@@ -250,7 +260,7 @@ fn session_route_get_returns_public_state_no_secret() {
     let boot = boot_with_registry(2, Some(registry));
 
     let key = SigningKeyV2::from_dev_id("session-route-get-public-state");
-    let body = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let body = signed_register_envelope(&register_payload(owned_session(&key), 0), &key);
     let (status_post, _) = http_post(boot.addr, "/sessions", &body);
     assert_eq!(status_post, 200);
 
@@ -258,7 +268,7 @@ fn session_route_get_returns_public_state_no_secret() {
     assert_eq!(status, 200, "expected 200, got {status}: {value}");
     assert_eq!(value["ok"], true);
     assert_eq!(value["session"]["sessionPk"], PK_A);
-    assert_eq!(value["session"]["ownerPk"], PK_B);
+    assert_eq!(value["session"]["ownerPk"], key.pk_hex());
     assert_eq!(value["session"]["agentPk"], PK_C);
     let body_text = serde_json::to_string(&value).expect("json");
     assert!(
@@ -282,7 +292,7 @@ fn session_route_revoke_sets_revoked_true() {
     let boot = boot_with_registry(3, Some(registry));
 
     let key = SigningKeyV2::from_dev_id("session-route-revoke-flow");
-    let body = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let body = signed_register_envelope(&register_payload(owned_session(&key), 0), &key);
     let (status_post, _) = http_post(boot.addr, "/sessions", &body);
     assert_eq!(status_post, 200);
 
@@ -371,7 +381,8 @@ fn session_route_revoke_with_valid_signed_envelope_accepts_and_persists() {
     let boot = boot_with_registry(2, Some(registry));
 
     let key = SigningKeyV2::from_dev_id("session-route-revoke-happy");
-    let register_envelope = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let register_envelope =
+        signed_register_envelope(&register_payload(owned_session(&key), 0), &key);
     let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
     assert_eq!(status_register, 200);
 
@@ -391,13 +402,70 @@ fn session_route_revoke_with_valid_signed_envelope_accepts_and_persists() {
 }
 
 #[test]
+fn session_route_revoke_non_owner_signer_returns_403_unauthorized_signer() {
+    // P1.6 (audit) — only the session's owner may revoke it. `attacker` holds a
+    // valid key but does not own the registered session, so the revoke must be
+    // 403 unauthorized_signer, never 200. Fails closed if the authz check is
+    // removed.
+    let dir = fresh_dir("revoke-non-owner");
+    let registry = dir.join("sessions.ndjson");
+    let boot = boot_with_registry(2, Some(registry));
+
+    let owner = SigningKeyV2::from_dev_id("session-route-revoke-owner");
+    let attacker = SigningKeyV2::from_dev_id("session-route-revoke-attacker");
+    let register_envelope =
+        signed_register_envelope(&register_payload(owned_session(&owner), 0), &owner);
+    let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
+    assert_eq!(status_register, 200);
+
+    let revoke_envelope = signed_revoke_envelope(&revoke_payload(PK_A, 7), &attacker);
+    let (status, value) = http_post(
+        boot.addr,
+        &format!("/sessions/{PK_A}/revoke"),
+        &revoke_envelope,
+    );
+    assert_eq!(status, 403, "non-owner revoke must be 403: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "unauthorized_signer");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn session_route_revoke_unknown_session_returns_404_session_not_found() {
+    // P1.6 (audit) — revoking a session that was never registered must be 404
+    // session_not_found (the owner lookup finds nothing), not a silent success.
+    let dir = fresh_dir("revoke-unknown");
+    let registry = dir.join("sessions.ndjson");
+    let boot = boot_with_registry(1, Some(registry));
+
+    let key = SigningKeyV2::from_dev_id("session-route-revoke-unknown");
+    let revoke_envelope = signed_revoke_envelope(&revoke_payload(PK_A, 7), &key);
+    let (status, value) = http_post(
+        boot.addr,
+        &format!("/sessions/{PK_A}/revoke"),
+        &revoke_envelope,
+    );
+    assert_eq!(status, 404, "unknown session revoke must be 404: {value}");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "session_not_found");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = std::fs::remove_dir_all(&boot.dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn session_route_revoke_tampered_payload_returns_401_signature_invalid() {
     let dir = fresh_dir("revoke-tampered");
     let registry = dir.join("sessions.ndjson");
     let boot = boot_with_registry(2, Some(registry));
 
     let key = SigningKeyV2::from_dev_id("session-route-revoke-tampered");
-    let register_envelope = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let register_envelope =
+        signed_register_envelope(&register_payload(owned_session(&key), 0), &key);
     let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
     assert_eq!(status_register, 200);
 
@@ -426,7 +494,8 @@ fn session_route_revoke_wrong_outer_envelope_schema_returns_400_bad_envelope() {
     let boot = boot_with_registry(2, Some(registry));
 
     let key = SigningKeyV2::from_dev_id("session-route-revoke-bad-env");
-    let register_envelope = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let register_envelope =
+        signed_register_envelope(&register_payload(owned_session(&key), 0), &key);
     let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
     assert_eq!(status_register, 200);
 
@@ -453,7 +522,8 @@ fn session_route_revoke_wrong_inner_payload_schema_returns_400_bad_payload() {
     let boot = boot_with_registry(2, Some(registry));
 
     let key = SigningKeyV2::from_dev_id("session-route-revoke-bad-payload");
-    let register_envelope = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let register_envelope =
+        signed_register_envelope(&register_payload(owned_session(&key), 0), &key);
     let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
     assert_eq!(status_register, 200);
 
@@ -510,7 +580,8 @@ fn session_route_revoke_expired_valid_before_returns_401_envelope_expired() {
     let boot = boot_with_registry(2, Some(registry));
 
     let key = SigningKeyV2::from_dev_id("session-route-revoke-expired-valid-before");
-    let register_envelope = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let register_envelope =
+        signed_register_envelope(&register_payload(owned_session(&key), 0), &key);
     let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
     assert_eq!(status_register, 200);
 
@@ -541,7 +612,8 @@ fn session_route_revoke_rejects_session_pk_url_payload_mismatch() {
     let boot = boot_with_registry(2, Some(registry));
 
     let key = SigningKeyV2::from_dev_id("session-route-revoke-pk-mismatch");
-    let register_envelope = signed_register_envelope(&register_payload(fixture_session(), 0), &key);
+    let register_envelope =
+        signed_register_envelope(&register_payload(owned_session(&key), 0), &key);
     let (status_register, _) = http_post(boot.addr, "/sessions", &register_envelope);
     assert_eq!(status_register, 200);
 
@@ -566,7 +638,7 @@ fn session_route_register_missing_nonce_returns_400_bad_payload_field_nonce() {
     let registry = dir.join("sessions.ndjson");
     let boot = boot_with_registry(1, Some(registry));
     let key = SigningKeyV2::from_dev_id("session-route-register-missing-nonce");
-    let mut payload = register_payload(fixture_session(), 0);
+    let mut payload = register_payload(owned_session(&key), 0);
     payload.as_object_mut().expect("obj").remove("nonce");
     let envelope = signed_register_envelope(&payload, &key);
 
@@ -589,7 +661,7 @@ fn session_route_register_replayed_nonce_returns_409_nonce_replayed() {
     let key = SigningKeyV2::from_dev_id("session-route-register-replay");
     let pk_hex = key.pk_hex();
 
-    let mut payload_a = register_payload(fixture_session(), 0);
+    let mut payload_a = register_payload(owned_session(&key), 0);
     let reused_nonce = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
     payload_a["nonce"] = json!(reused_nonce);
     let env_a = signed_register_envelope(&payload_a, &key);
@@ -663,7 +735,7 @@ fn session_route_register_rejection_does_not_burn_nonce() {
 
     // Request B: same signer + same nonce, now a VALID session → must succeed,
     // proving request A did not burn the nonce.
-    let mut good = register_payload(fixture_session(), 0);
+    let mut good = register_payload(owned_session(&key), 0);
     good["nonce"] = json!(reused_nonce);
     let (s2, resp2) = http_post(
         boot.addr,

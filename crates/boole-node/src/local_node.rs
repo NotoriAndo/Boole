@@ -2263,6 +2263,16 @@ fn session_register_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Valu
         .ok_or_else(|| HttpError::missing_field("currentHeight"))?;
     let signer_pk = pk.to_string();
 
+    // P1.6 (audit) — AUTHORIZATION: a valid signature proves WHO signed, not
+    // that they may register THIS session. Only the session's declared owner
+    // may register it, otherwise anyone with any key could register a session
+    // binding an arbitrary `ownerPk`/`fixedRewardRecipient`.
+    if signer_pk != session.owner_pk {
+        return Err(HttpError::unauthorized_signer(
+            "envelope signer pk must equal session.ownerPk to register a session",
+        ));
+    }
+
     // 4) Burn the per-signer nonce before the session-ledger append so a
     //    crash mid-write rejects a retry with the same `(signerPk, nonce)`
     //    pair instead of silently re-registering the session.
@@ -2394,6 +2404,25 @@ fn session_revoke_json(
         .and_then(Value::as_u64)
         .ok_or_else(|| HttpError::bad_payload("height", "payload missing height"))?;
     let signer_pk = pk.to_string();
+
+    // P1.6 (audit) — AUTHORIZATION: only the session's owner may revoke it.
+    // Looked up BEFORE the burn so an unauthorized/not-found request leaves the
+    // `(signerPk, nonce)` reusable. A valid signature from any other key must
+    // not be able to revoke someone else's session.
+    match state
+        .session_store
+        .as_ref()
+        .and_then(|store| store.get(session_pk))
+        .map(|s| s.owner_pk.clone())
+    {
+        Some(owner) if owner == signer_pk => {}
+        Some(_) => {
+            return Err(HttpError::unauthorized_signer(
+                "envelope signer pk must equal the session's ownerPk to revoke it",
+            ))
+        }
+        None => return Err(HttpError::session_not_found(session_pk.to_string())),
+    }
 
     // 4) Burn per-signer nonce before the revoke append so a crash
     //    mid-write rejects a retry instead of double-revoking.
@@ -3094,6 +3123,18 @@ fn bounty_announce_json(state: &mut LocalNodeState, body: &[u8]) -> Result<Value
         .ok_or_else(|| HttpError::bad_payload("ts", "ts must be u64 unix ms"))?;
     let signer_pk = pk.to_string();
 
+    // P1.6 (audit) — AUTHORIZATION: when the operator configured an allowlist
+    // (`--operator-signer-pks`), only those keys may announce bounties. An empty
+    // allowlist keeps the route permissionless (open testnet bounty board), so
+    // this closes the closed-board gap without breaking the permissionless mode.
+    if !state.operator_signer_pks.is_empty()
+        && !state.operator_signer_pks.iter().any(|p| p == &signer_pk)
+    {
+        return Err(HttpError::unauthorized_signer(
+            "bounty announce requires the signer to be on the operator allowlist",
+        ));
+    }
+
     // 5) Burn the per-signer nonce before the registry mutates so a
     //    crash during create leaves the nonce burned and the retry is
     //    rejected with `nonce_replayed` rather than re-attempting the
@@ -3250,6 +3291,18 @@ fn bounty_status_json(
     let problem_hash = existing.problem_hash.clone();
     let verifier_kind = existing.verifier.kind.clone();
     let signer_pk = pk.to_string();
+
+    // P1.6 (audit) — AUTHORIZATION: when the operator configured an allowlist
+    // (`--operator-signer-pks`), only those keys may change a bounty's status.
+    // An empty allowlist keeps the route permissionless. Checked before the burn
+    // so an unauthorized request leaves the `(signerPk, nonce)` reusable.
+    if !state.operator_signer_pks.is_empty()
+        && !state.operator_signer_pks.iter().any(|p| p == &signer_pk)
+    {
+        return Err(HttpError::unauthorized_signer(
+            "bounty status change requires the signer to be on the operator allowlist",
+        ));
+    }
 
     // 4) Burn the per-signer nonce before the status mutation so a
     //    crash during update_status leaves the nonce burned and the

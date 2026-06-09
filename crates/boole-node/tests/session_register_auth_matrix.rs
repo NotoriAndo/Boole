@@ -215,3 +215,38 @@ fn sessions_register_expired_valid_before_returns_401_envelope_expired() {
     );
     finish(booted);
 }
+
+#[test]
+fn sessions_register_non_owner_signer_returns_403_unauthorized_signer() {
+    // P1.6 (audit) — AUTHORIZATION cell: a valid signature proves WHO signed,
+    // not that they may register THIS session. The session declares
+    // `ownerPk = owner.pk_hex()`, but a DIFFERENT key signs the register
+    // envelope; only the owner may register it, so this must be 403
+    // unauthorized_signer (NOT 200). Without the authz check this register
+    // would succeed, so this test fails closed if the check is ever removed.
+    let booted = boot("non-owner", 1);
+    let owner = SigningKeyV2::from_dev_id("p1-6-register-owner");
+    let attacker = SigningKeyV2::from_dev_id("p1-6-register-attacker");
+    let mut session = fixture_session();
+    session["ownerPk"] = json!(owner.pk_hex());
+    let payload = json!({
+        "schema": "boole.sessions.register.v1",
+        "session": session,
+        "currentHeight": 0,
+        "validBefore": valid_before_far_future(),
+        "nonce": fresh_nonce(),
+    });
+
+    let (status, resp) = http_post(
+        booted.addr,
+        "/sessions",
+        &signed_envelope(&payload, &attacker),
+    );
+    assert_eq!(status, 403, "non-owner register must be 403: {resp}");
+    assert_eq!(resp["ok"], false, "rejection ok must be false: {resp}");
+    assert_eq!(
+        resp["reason"], "unauthorized_signer",
+        "reason must be unauthorized_signer: {resp}"
+    );
+    finish(booted);
+}

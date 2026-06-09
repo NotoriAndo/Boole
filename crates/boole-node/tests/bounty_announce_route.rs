@@ -118,6 +118,58 @@ fn boot_with_signed_nonce_ledger(
     BootResult { addr, handle, dir }
 }
 
+// P1.6 (audit) — boot with a non-empty operator allowlist so the announce-route
+// authorization path can be exercised (the default boot leaves it empty, which
+// disables the check).
+fn boot_with_operators(
+    max_requests: usize,
+    bounty_event_path: PathBuf,
+    operator_signer_pks: Vec<String>,
+) -> BootResult {
+    let dir = bounty_event_path.parent().expect("parent").to_path_buf();
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_path = dir.join("blocks.ndjson");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let (tx, rx) = mpsc::channel();
+    let scenario = scenario_path();
+    let block_path_for_thread = block_path.clone();
+    let verifiers = mock_verifiers();
+    let handle = thread::spawn(move || {
+        tx.send(()).expect("ready");
+        serve_local_node(
+            listener,
+            LocalNodeConfig {
+                scenario_path: scenario,
+                block_path: block_path_for_thread,
+                reward_ledger_path: None,
+                work_manifests_path: None,
+                bounties_path: None,
+                bounty_event_ledger_path: Some(bounty_event_path),
+                bounty_verifiers: Some(verifiers),
+                family_manifests_dir: None,
+                max_requests: Some(max_requests),
+                operator_signer_pks,
+                session_registry_path: None,
+                submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
+                submit_receipt_ledger_path: None,
+                receipt_commitment_ledger_path: None,
+                genesis_override: None,
+                state_dir: None,
+                network_id: None,
+                lean_checker_dir: None,
+                lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
+            },
+        )
+    });
+    rx.recv().expect("server ready");
+    thread::sleep(Duration::from_millis(50));
+    BootResult { addr, handle, dir }
+}
+
 fn fresh_dir(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "boole-s13b-announce-{label}-{}-{}",
@@ -232,6 +284,30 @@ fn valid_signed_envelope_creates_bounty_and_appears_in_list() {
         "GET /bounties/new-bounty-1 must succeed: {list}"
     );
     assert_eq!(list["bounty"]["id"], "new-bounty-1");
+
+    booted.handle.join().expect("server").expect("server ok");
+    let _ = std::fs::remove_dir_all(&booted.dir);
+}
+
+#[test]
+fn announce_non_allowlisted_signer_returns_403_unauthorized_signer() {
+    // P1.6 (audit) — when an operator allowlist is configured, only an
+    // allowlisted signer may announce a bounty. `outsider` holds a valid key
+    // but is not on the allowlist, so the announce must be 403
+    // unauthorized_signer, never 200. Fails closed if the authz check is
+    // removed.
+    let dir = fresh_dir("announce-authz");
+    let event_path = dir.join("bounty-events.ndjson");
+    let operator = SigningKeyV2::from_dev_id("announce-operator");
+    let outsider = SigningKeyV2::from_dev_id("announce-outsider");
+    let booted = boot_with_operators(1, event_path, vec![operator.pk_hex()]);
+
+    let payload = announce_payload("authz-bounty", PROBLEM_HASH, 1800000500000);
+    let envelope = signed_envelope(&payload, &outsider);
+    let (status, resp) = http_post(booted.addr, "/bounties", &envelope);
+    assert_eq!(status, 403, "non-allowlisted announce must be 403: {resp}");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["reason"], "unauthorized_signer");
 
     booted.handle.join().expect("server").expect("server ok");
     let _ = std::fs::remove_dir_all(&booted.dir);

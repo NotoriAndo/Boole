@@ -78,6 +78,15 @@ impl HttpError {
             .with_detail(detail)
     }
 
+    /// P1.6 (audit) — a signed-envelope route where the signature is valid but
+    /// the signer is NOT AUTHORIZED for the action (e.g. registering/revoking a
+    /// session it does not own, or announcing/restatusing a bounty without
+    /// being on the operator allowlist). Authentication ≠ authorization: a valid
+    /// signature only proves WHO signed, not that they may perform the write.
+    pub fn unauthorized_signer(detail: impl Into<String>) -> Self {
+        Self::new(403, "unauthorized_signer").with_detail(detail)
+    }
+
     /// `POST /submit` when the envelope's `rewardRecipient` does not match
     /// the registered session's `fixedRewardRecipient`. The plan binds
     /// the reward sink to the session at register-time so a compromised

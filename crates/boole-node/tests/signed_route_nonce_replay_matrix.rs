@@ -241,6 +241,14 @@ fn fixture_session() -> Value {
     })
 }
 
+/// `fixture_session` owned by `owner`. The P1.6 authorization check requires
+/// the register/revoke envelope signer's pk to equal the session's `ownerPk`.
+fn owned_session(owner: &SigningKeyV2) -> Value {
+    let mut session = fixture_session();
+    session["ownerPk"] = json!(owner.pk_hex());
+    session
+}
+
 #[test]
 fn receipts_replayed_nonce_returns_409() {
     let booted = boot(
@@ -288,7 +296,7 @@ fn sessions_revoke_replayed_nonce_returns_409() {
     // Register the session first so revoke has a target.
     let register = json!({
         "schema": "boole.sessions.register.v1",
-        "session": fixture_session(),
+        "session": owned_session(&key),
         "currentHeight": 0,
         "validBefore": valid_before_far_future(),
         "nonce": format!("reg-{}", rand_suffix()),

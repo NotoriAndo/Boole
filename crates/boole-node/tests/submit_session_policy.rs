@@ -249,11 +249,21 @@ fn signed_register_envelope(payload: &Value, key: &SigningKeyV2) -> Value {
     })
 }
 
-fn register_session(addr: SocketAddr, session_pk: &str, fixed_reward_recipient: &str) {
+// P1.6 (audit) — the register route now authorizes the signer against the
+// session's `ownerPk`, so the registrar must own the session it registers.
+// Returns the owner key so callers can sign a matching revoke (only the owner
+// may revoke).
+fn register_session(
+    addr: SocketAddr,
+    session_pk: &str,
+    fixed_reward_recipient: &str,
+) -> SigningKeyV2 {
     let key = SigningKeyV2::from_dev_id("session-registrar-helper");
+    let mut session = fixture_session(session_pk, fixed_reward_recipient);
+    session["ownerPk"] = json!(key.pk_hex());
     let payload = json!({
         "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
-        "session": fixture_session(session_pk, fixed_reward_recipient),
+        "session": session,
         "currentHeight": 0,
         "validBefore": valid_before_far_future(),
         "nonce": fresh_nonce(),
@@ -265,10 +275,12 @@ fn register_session(addr: SocketAddr, session_pk: &str, fixed_reward_recipient: 
         "register failed: status={status}, body={value}"
     );
     assert_eq!(value["ok"], true);
+    key
 }
 
-fn revoke_session(addr: SocketAddr, session_pk: &str) {
-    let key = SigningKeyV2::from_dev_id("session-revoker-helper");
+// Only the session's owner may revoke it, so the caller passes the same key
+// that `register_session` returned.
+fn revoke_session(addr: SocketAddr, session_pk: &str, owner: &SigningKeyV2) {
     let payload = json!({
         "schema": "boole.sessions.revoke.v1",
         "sessionPk": session_pk,
@@ -276,7 +288,7 @@ fn revoke_session(addr: SocketAddr, session_pk: &str) {
         "validBefore": valid_before_far_future(),
         "nonce": fresh_nonce(),
     });
-    let signed = key.sign(&payload).expect("sign revoke");
+    let signed = owner.sign(&payload).expect("sign revoke");
     let envelope = json!({
         "schema": signed.schema,
         "payload": signed.payload,
@@ -378,8 +390,8 @@ fn submit_with_revoked_session_returns_session_revoked() {
     let paths = BootPaths::new("revoked");
     let boot = boot_with(&paths, 3);
 
-    register_session(boot.addr, PK_AGENT, PK_REWARD);
-    revoke_session(boot.addr, PK_AGENT);
+    let owner = register_session(boot.addr, PK_AGENT, PK_REWARD);
+    revoke_session(boot.addr, PK_AGENT, &owner);
 
     let body = scenario_body();
     let session = json!({
@@ -610,9 +622,12 @@ fn submit_rejects_session_expired_at_current_node_height() {
 
     let key = SigningKeyV2::from_dev_id("n21-expired-at-submit");
     let session_pk = key.pk_hex();
+    // P1.6 (audit) — the registrar must own the session, so ownerPk is the
+    // register signer's pk (declared before the session object that uses it).
+    let register_key = SigningKeyV2::from_dev_id("session-registrar-expiry-inline");
     let session = json!({
         "sessionPk": session_pk,
-        "ownerPk": PK_OWNER,
+        "ownerPk": register_key.pk_hex(),
         "agentPk": PK_AGENT_RAW,
         "fixedRewardRecipient": PK_REWARD,
         "allowedFamilyRoot": ROOT_HEX,
@@ -622,7 +637,6 @@ fn submit_rejects_session_expired_at_current_node_height() {
         "revoked": false,
         "policyHash": ROOT_HEX,
     });
-    let register_key = SigningKeyV2::from_dev_id("session-registrar-expiry-inline");
     let register_payload = json!({
         "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
         "session": session,
@@ -816,9 +830,12 @@ fn sessions_register_with_valid_signed_envelope_accepts_and_persists() {
     let paths = BootPaths::new("register-signed-ok");
     let boot = boot_with(&paths, 1);
     let key = SigningKeyV2::from_dev_id("session-registrar-happy");
+    // P1.6 (audit) — the registrar must own the session it registers.
+    let mut session = fixture_session(PK_REGISTER_HAPPY, PK_REWARD);
+    session["ownerPk"] = json!(key.pk_hex());
     let payload = json!({
         "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
-        "session": fixture_session(PK_REGISTER_HAPPY, PK_REWARD),
+        "session": session,
         "currentHeight": 0,
         "validBefore": valid_before_far_future(),
         "nonce": fresh_nonce(),
