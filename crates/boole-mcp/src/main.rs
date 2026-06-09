@@ -39,6 +39,7 @@
 //! read-only proxy. The mutation/wallet surface lives in the signed
 //! boole-cli / boole-wallet-agent path, not here.
 
+use std::io::{BufReader, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -59,7 +60,10 @@ use serde_json::{json, Map, Value};
 use tokio::net::TcpListener;
 
 use boole_core::Hex32;
-use boole_mcp::{build_in_process_mining_deps, InProcessMiningInputs};
+use boole_mcp::{
+    build_in_process_mining_deps, handle_jsonrpc_sync, mcp_tools_array, read_mcp_frame,
+    write_mcp_frame, InProcessMiningInputs,
+};
 use boole_miner::{
     run_mining_loop, AnnounceTicketResult, ChainHead, FamilyV1LengthBoundTargetEmitter,
     GenerateResult, MiningLoopOptions, MiningLoopOutcome, ProverDriver, RejectingVerifier,
@@ -93,6 +97,16 @@ enum Command {
         node_url: String,
         #[arg(long, default_value = "127.0.0.1:0")]
         listen: String,
+    },
+    /// Real MCP stdio transport: speak JSON-RPC 2.0 with Content-Length
+    /// framing over stdin/stdout. This is the transport that MCP clients
+    /// (Claude, Cursor, etc.) expect when launching `boole-mcp` as a
+    /// subprocess. The HTTP `serve` subcommand is kept for direct use.
+    Stdio {
+        /// Upstream boole-node base URL for proxy tools (bounty.list,
+        /// receipt.get). Optional; omit when only mining tools are needed.
+        #[arg(long)]
+        node_url: Option<String>,
     },
     /// P2.2 — register `boole-mcp` as an MCP server in the target IDE's
     /// settings file. Idempotent merge: re-running this is a no-op when
@@ -163,6 +177,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Serve { node_url, listen } => serve(&node_url, &listen).await,
+        Command::Stdio { node_url } => run_stdio(node_url).await,
         Command::Install { target, dry_run } => run_install(target, dry_run),
     }
 }
@@ -253,9 +268,12 @@ fn run_install(target: IdeTarget, dry_run: bool) -> Result<()> {
         json!({})
     };
 
+    // Use the stdio subcommand so MCP clients (Claude, Cursor, etc.) get the
+    // real JSON-RPC 2.0 stdio transport instead of HTTP.  Pass --node-url so
+    // the proxy tools (bounty.list, receipt.get) keep working.
     let entry = json!({
         "command": bin_str,
-        "args": ["serve", "--node-url", "http://127.0.0.1:8080"],
+        "args": ["stdio", "--node-url", "http://127.0.0.1:8080"],
     });
 
     let root = settings
@@ -355,116 +373,82 @@ async fn not_found() -> impl IntoResponse {
 }
 
 async fn tools_list() -> impl IntoResponse {
-    let body = json!({
-        "tools": [
-            {
-                "name": "bounty.list",
-                "description": "List currently-open bounties/work units from the upstream boole-node.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {},
-                    "additionalProperties": false
-                }
-            },
-            {
-                "name": "receipt.get",
-                "description": "Fetch a single proof receipt by id from the upstream boole-node.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "receipt_id": { "type": "string" }
-                    },
-                    "required": ["receipt_id"],
-                    "additionalProperties": false
-                }
-            },
-            {
-                "name": "boole.mine",
-                "description": "Drive a closed-local mining round-trip in-process: real v1-lenbound instance generation → deterministic driver stand-in → ProofIntakeV1 → Canonicalizer → RejectingVerifier. Optional `max_cycles` (default 0 = zero-cycle plumbing smoke; >=1 runs that many full closed-local cycles). Returns honest pipeline counters: verify_accepted=0 is correct (no Lean toolchain). Not public mining; not a solve claim.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "max_cycles": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "description": "Number of ticket cycles to run (default 0)."
-                        }
-                    },
-                    "additionalProperties": false
-                }
-            },
-            {
-                "name": "boole.status",
-                "description": "Report current in-process mining session state (idle, in-progress, last summary). Pure read.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {},
-                    "additionalProperties": false
-                }
-            }
-        ]
-    });
+    // Use the shared tools array from lib so HTTP and stdio surfaces stay in
+    // sync. The HTTP route keeps both `input_schema` (snake, existing contract)
+    // and `inputSchema` (camel, MCP spec) in the response.
+    let body = json!({ "tools": mcp_tools_array() });
     (StatusCode::OK, Json(body))
 }
 
-async fn invoke(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<InvokeRequest>,
-) -> (StatusCode, Json<Value>) {
-    match req.tool.as_str() {
-        "bounty.list" => proxy_get(&state, "/work").await,
-        "receipt.get" => match req.args.get("receipt_id").and_then(|v| v.as_str()) {
+/// Typed result from the shared tool dispatcher.
+enum ToolResult {
+    Ok(Value),
+    /// HTTP 400 — bad request (missing arg, unknown tool).
+    BadRequest(Value),
+    /// HTTP 502 — upstream unreachable (proxy tools only).
+    BadGateway(Value),
+}
+
+/// Shared async tool dispatcher used by both the HTTP `invoke` handler
+/// and the stdio `tools/call` handler.
+///
+/// Stateful operations (boole.mine, boole.status) access `state` directly.
+/// Proxy operations (bounty.list, receipt.get) use `state.client` +
+/// `state.node_url`.
+async fn dispatch_tool(state: &AppState, tool: &str, args: &Value) -> ToolResult {
+    match tool {
+        "bounty.list" => match proxy_get(state, "/work").await {
+            (StatusCode::OK, Json(v)) => ToolResult::Ok(v),
+            (StatusCode::BAD_GATEWAY, Json(v)) => ToolResult::BadGateway(v),
+            (_, Json(v)) => ToolResult::BadRequest(v),
+        },
+        "receipt.get" => match args.get("receipt_id").and_then(|v| v.as_str()) {
             Some(id) if !id.is_empty() => {
                 let path = format!("/receipts/{id}");
-                proxy_get(&state, &path).await
+                match proxy_get(state, &path).await {
+                    (StatusCode::OK, Json(v)) => ToolResult::Ok(v),
+                    (StatusCode::BAD_GATEWAY, Json(v)) => ToolResult::BadGateway(v),
+                    (_, Json(v)) => ToolResult::BadRequest(v),
+                }
             }
-            _ => (
-                StatusCode::BAD_REQUEST,
-                Json(json!({"error":"missing-arg","arg":"receipt_id"})),
-            ),
+            _ => ToolResult::BadRequest(json!({"error":"missing-arg","arg":"receipt_id"})),
         },
         "boole.status" => {
             let guard = state
                 .last_mining_summary
                 .lock()
                 .expect("last_mining_summary mutex poisoned");
-            match guard.as_ref() {
+            let val = match guard.as_ref() {
                 Some(outcome) => {
                     let p = &outcome.protocol;
                     let a = &outcome.agent;
-                    (
-                        StatusCode::OK,
-                        Json(json!({
-                            "state": "completed",
-                            "last_summary": {
-                                // Protocol counters
-                                "cycles_run": p.cycles_run,
-                                "tickets_found": p.tickets_found,
-                                "verify_accepted": p.verify_accepted,
-                                "verify_rejected": p.verify_rejected,
-                                "shares_accepted": p.shares_accepted,
-                                "network_errors": p.network_errors,
-                                "loop_class": p.loop_class,
-                                // Agent runtime counters
-                                "driver_answered": a.driver_answered,
-                                "proof_intake_accepted": a.proof_intake_accepted,
-                                "proof_intake_rejected": a.proof_intake_rejected,
-                            }
-                        })),
-                    )
+                    json!({
+                        "state": "completed",
+                        "last_summary": {
+                            // Protocol counters
+                            "cycles_run": p.cycles_run,
+                            "tickets_found": p.tickets_found,
+                            "verify_accepted": p.verify_accepted,
+                            "verify_rejected": p.verify_rejected,
+                            "shares_accepted": p.shares_accepted,
+                            "network_errors": p.network_errors,
+                            "loop_class": p.loop_class,
+                            // Agent runtime counters
+                            "driver_answered": a.driver_answered,
+                            "proof_intake_accepted": a.proof_intake_accepted,
+                            "proof_intake_rejected": a.proof_intake_rejected,
+                        }
+                    })
                 }
-                None => (StatusCode::OK, Json(json!({"state": "idle"}))),
-            }
+                None => json!({"state": "idle"}),
+            };
+            ToolResult::Ok(val)
         }
         "boole.mine" => {
             // Optional `max_cycles` (default 0 = zero-cycle plumbing smoke;
             // >= 1 drives a closed-local real round-trip through the in-process
             // bundle with a real v1-lenbound target emitter).
-            let max_cycles = req
-                .args
-                .get("max_cycles")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+            let max_cycles = args.get("max_cycles").and_then(|v| v.as_u64()).unwrap_or(0);
             let outcome = tokio::task::spawn_blocking(move || run_mining_summary(max_cycles))
                 .await
                 .expect("mining task panicked");
@@ -477,28 +461,33 @@ async fn invoke(
             }
             let p = &outcome.protocol;
             let a = &outcome.agent;
-            (
-                StatusCode::OK,
-                Json(json!({
-                    // Protocol counters
-                    "cycles_run": p.cycles_run,
-                    "tickets_found": p.tickets_found,
-                    "verify_accepted": p.verify_accepted,
-                    "verify_rejected": p.verify_rejected,
-                    "shares_accepted": p.shares_accepted,
-                    "network_errors": p.network_errors,
-                    "loop_class": p.loop_class,
-                    // Agent runtime counters (driver → ProofIntakeV1 pipeline)
-                    "driver_answered": a.driver_answered,
-                    "proof_intake_accepted": a.proof_intake_accepted,
-                    "proof_intake_rejected": a.proof_intake_rejected,
-                })),
-            )
+            ToolResult::Ok(json!({
+                // Protocol counters
+                "cycles_run": p.cycles_run,
+                "tickets_found": p.tickets_found,
+                "verify_accepted": p.verify_accepted,
+                "verify_rejected": p.verify_rejected,
+                "shares_accepted": p.shares_accepted,
+                "network_errors": p.network_errors,
+                "loop_class": p.loop_class,
+                // Agent runtime counters (driver → ProofIntakeV1 pipeline)
+                "driver_answered": a.driver_answered,
+                "proof_intake_accepted": a.proof_intake_accepted,
+                "proof_intake_rejected": a.proof_intake_rejected,
+            }))
         }
-        other => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error":"unknown-tool","tool":other})),
-        ),
+        other => ToolResult::BadRequest(json!({"error":"unknown-tool","tool":other})),
+    }
+}
+
+async fn invoke(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<InvokeRequest>,
+) -> (StatusCode, Json<Value>) {
+    match dispatch_tool(&state, &req.tool, &req.args).await {
+        ToolResult::Ok(v) => (StatusCode::OK, Json(v)),
+        ToolResult::BadRequest(v) => (StatusCode::BAD_REQUEST, Json(v)),
+        ToolResult::BadGateway(v) => (StatusCode::BAD_GATEWAY, Json(v)),
     }
 }
 
@@ -634,4 +623,146 @@ async fn proxy_get(state: &AppState, path: &str) -> (StatusCode, Json<Value>) {
             Json(json!({"error":"upstream-unreachable"})),
         ),
     }
+}
+
+// ── S6: stdio subcommand ──────────────────────────────────────────────────
+
+/// Wrap a tool result `Value` in the MCP `tools/call` content envelope.
+fn tool_result_to_mcp_content(id: &Value, result: &ToolResult) -> String {
+    let (text, is_error) = match result {
+        ToolResult::Ok(v) => (
+            serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
+            false,
+        ),
+        ToolResult::BadRequest(v) => (
+            serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
+            true,
+        ),
+        ToolResult::BadGateway(v) => (
+            serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()),
+            true,
+        ),
+    };
+    let resp = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "content": [{ "type": "text", "text": text }],
+            "isError": is_error
+        }
+    });
+    resp.to_string()
+}
+
+/// Run the MCP stdio transport loop.
+///
+/// Reads Content-Length-framed JSON-RPC 2.0 messages from stdin, dispatches
+/// them, and writes framed responses to stdout.  Stateless messages
+/// (initialize, tools/list, unknown methods) are handled by the lib's
+/// `handle_jsonrpc_sync`.  Stateful tool calls (boole.mine, boole.status,
+/// bounty.list, receipt.get) are handled via `dispatch_tool` which has access
+/// to `AppState`.
+///
+/// The loop exits cleanly on EOF (read_mcp_frame returns None).
+///
+/// Design: stdin reads are done via `tokio::task::spawn_blocking` because the
+/// standard `BufRead` framing API is synchronous.  `boole.mine` already uses
+/// `spawn_blocking` internally, so this fits the existing pattern and avoids
+/// an async IO dependency for a protocol that is inherently sequential (one
+/// request at a time on a single stdio pipe).
+async fn run_stdio(node_url: Option<String>) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(10))
+        .build()?;
+    let state = Arc::new(AppState {
+        node_url: node_url
+            .as_deref()
+            .unwrap_or("http://127.0.0.1:8080")
+            .trim_end_matches('/')
+            .to_string(),
+        client,
+        last_mining_summary: Mutex::new(None),
+    });
+
+    // Wrap stdin in a BufReader inside a Mutex so it can be sent across
+    // spawn_blocking calls.  Each iteration reads exactly one frame.
+    let stdin = Arc::new(Mutex::new(BufReader::new(std::io::stdin())));
+    let stdout = Arc::new(Mutex::new(std::io::stdout()));
+
+    loop {
+        // Read one frame (blocking).
+        let stdin_clone = Arc::clone(&stdin);
+        let frame_result = tokio::task::spawn_blocking(move || {
+            let mut guard = stdin_clone.lock().expect("stdin mutex poisoned");
+            read_mcp_frame(&mut *guard)
+        })
+        .await
+        .expect("stdin reader task panicked");
+
+        let msg = match frame_result? {
+            Some(s) => s,
+            None => {
+                // Clean EOF — MCP client closed stdin.
+                break;
+            }
+        };
+
+        // Try the stateless handler first (initialize, tools/list, unknown
+        // methods, notifications).
+        let req_val: Value = match serde_json::from_str(&msg) {
+            Ok(v) => v,
+            Err(_) => {
+                // Malformed JSON — handle_jsonrpc_sync will produce the
+                // -32700 error object.
+                if let Some(resp_str) = handle_jsonrpc_sync(&msg) {
+                    let stdout_clone = Arc::clone(&stdout);
+                    tokio::task::spawn_blocking(move || {
+                        let mut out = stdout_clone.lock().expect("stdout mutex poisoned");
+                        write_mcp_frame(&mut *out, &resp_str).ok();
+                        out.flush().ok();
+                    })
+                    .await
+                    .expect("stdout writer task panicked");
+                }
+                continue;
+            }
+        };
+
+        let method = req_val.get("method").and_then(|v| v.as_str()).unwrap_or("");
+        let id = req_val.get("id").cloned().unwrap_or(Value::Null);
+
+        // Stateful tools/call goes through dispatch_tool.
+        if method == "tools/call" {
+            let params = req_val.get("params").cloned().unwrap_or(json!({}));
+            let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+            let result = dispatch_tool(&state, tool_name, &arguments).await;
+            let resp_str = tool_result_to_mcp_content(&id, &result);
+            let stdout_clone = Arc::clone(&stdout);
+            tokio::task::spawn_blocking(move || {
+                let mut out = stdout_clone.lock().expect("stdout mutex poisoned");
+                write_mcp_frame(&mut *out, &resp_str).ok();
+                out.flush().ok();
+            })
+            .await
+            .expect("stdout writer task panicked");
+            continue;
+        }
+
+        // All other methods go through the stateless handler.
+        if let Some(resp_str) = handle_jsonrpc_sync(&msg) {
+            let stdout_clone = Arc::clone(&stdout);
+            tokio::task::spawn_blocking(move || {
+                let mut out = stdout_clone.lock().expect("stdout mutex poisoned");
+                write_mcp_frame(&mut *out, &resp_str).ok();
+                out.flush().ok();
+            })
+            .await
+            .expect("stdout writer task panicked");
+        }
+        // Notifications produce None — no frame to write.
+    }
+
+    Ok(())
 }

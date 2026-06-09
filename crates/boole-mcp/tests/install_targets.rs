@@ -5,7 +5,9 @@
 //!   * For each of `claude | codex | cursor | opencode`, a fresh
 //!     `$HOME` ends up with a settings file at the canonical IDE path
 //!     containing `mcpServers.boole.command` pointing at the running
-//!     binary, plus an `args` array suitable for launching `serve`.
+//!     binary, plus an `args` array that launches `stdio` (real MCP
+//!     stdio transport) with `--node-url http://127.0.0.1:8080` so
+//!     the proxy tools (bounty.list / receipt.get) keep working.
 //!   * Re-running install is idempotent: the second invocation does not
 //!     mutate the settings bytes (no duplication, no key churn).
 //!   * Pre-existing unrelated keys (other `mcpServers.*` entries and
@@ -112,6 +114,20 @@ fn install_each_ide_writes_canonical_settings_entry() {
             entry["args"].is_array(),
             "{target}: mcpServers.boole.args should be an array"
         );
+        let args: Vec<&str> = entry["args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(
+            args[0], "stdio",
+            "{target}: args[0] must be 'stdio' (MCP stdio transport); got {args:?}"
+        );
+        assert!(
+            args.contains(&"--node-url"),
+            "{target}: args must include --node-url for proxy tools; got {args:?}"
+        );
         let _ = fs::remove_dir_all(&home);
     }
 }
@@ -176,6 +192,14 @@ fn install_dry_run_does_not_write() {
     assert!(
         env["result"]["planned_content"]["mcpServers"]["boole"]["command"].is_string(),
         "dry-run envelope must include the planned content"
+    );
+    let args = env["result"]["planned_content"]["mcpServers"]["boole"]["args"]
+        .as_array()
+        .expect("dry-run planned_content args must be an array");
+    assert_eq!(
+        args[0].as_str().unwrap_or(""),
+        "stdio",
+        "dry-run: args[0] must be 'stdio'; got {args:?}"
     );
     let _ = fs::remove_dir_all(&home);
 }
