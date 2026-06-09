@@ -28,7 +28,10 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        # P0.7 (audit) — pin the third-party action to an immutable commit SHA
+        # (was @master): a mutable ref is arbitrary-code-execution-on-push.
+        # SHA = dtolnay/rust-toolchain master @ 2026-06; bump deliberately.
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: 1.95.0
           components: rustfmt, clippy
@@ -37,7 +40,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o /tmp/elan-init.sh
+          # P0.7 (audit) — fetch the elan installer from an immutable release
+          # tag (was `master`, a mutable branch tip).
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/v4.2.3/elan-init.sh -o /tmp/elan-init.sh
           sh /tmp/elan-init.sh -y --default-toolchain leanprover/lean4:v4.29.1
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
@@ -46,11 +51,25 @@ jobs:
         run: |
           set -euo pipefail
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz
+          # P0.7 (audit) — verify the published SHA-256 before trusting the
+          # binary (mirrors the cargo-deny download in the supply-chain job).
+          echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  /tmp/gitleaks.tar.gz" | sha256sum -c -
           tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
           sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
 
       - name: Run Boole self-test
         run: ./scripts/self-test.sh
+
+      # P0.7 (audit) — the self-test gate only builds the dev profile, so the
+      # release profile (panic = "abort", opt-level, overflow checks elided)
+      # ships entirely unexercised. Build the shipped binaries in release here
+      # so a release-only miscompile or panic-strategy regression fails CI,
+      # not production.
+      - name: Build release binaries
+        run: >-
+          cargo build --release --locked
+          -p boole-node -p boole-cli -p boole-miner
+          -p boole-mcp -p boole-wallet-agent
 
   supply-chain:
     name: supply-chain
@@ -61,7 +80,10 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        # P0.7 (audit) — pin the third-party action to an immutable commit SHA
+        # (was @master): a mutable ref is arbitrary-code-execution-on-push.
+        # SHA = dtolnay/rust-toolchain master @ 2026-06; bump deliberately.
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: 1.95.0
 

@@ -62,6 +62,51 @@ class SupplyChainContractTests(unittest.TestCase):
             "P0.7: ci.yml must invoke `cargo audit` as a required job",
         )
 
+    def test_third_party_actions_are_sha_pinned(self) -> None:
+        # P0.7 (audit) — third-party actions must be pinned to an immutable
+        # 40-hex commit SHA, never a mutable branch/tag (a `@master` ref is
+        # arbitrary-code-execution on the next upstream push).
+        body = _read(CI_WORKFLOW)
+        self.assertNotIn(
+            "dtolnay/rust-toolchain@master",
+            body,
+            "P0.7: dtolnay/rust-toolchain must be SHA-pinned, not @master",
+        )
+        self.assertRegex(
+            body,
+            re.compile(r"dtolnay/rust-toolchain@[0-9a-f]{40}\b"),
+            "P0.7: dtolnay/rust-toolchain must be pinned to a 40-hex commit SHA",
+        )
+
+    def test_curled_installers_are_integrity_checked(self) -> None:
+        # P0.7 (audit) — binaries/scripts fetched by curl must be pinned to an
+        # immutable ref or verified by checksum, not fetched from a mutable
+        # branch tip without integrity.
+        body = _read(CI_WORKFLOW)
+        self.assertNotIn(
+            "leanprover/elan/master/elan-init.sh",
+            body,
+            "P0.7: elan-init.sh must be fetched from an immutable tag, not master",
+        )
+        self.assertIn(
+            "sha256sum -c",
+            body,
+            "P0.7: the gitleaks download must be sha256-verified before use",
+        )
+
+    def test_ci_builds_release_binaries(self) -> None:
+        # P0.7 (audit) — the self-test gate only exercises the dev profile, so
+        # CI must additionally build the shipped binaries in release; otherwise
+        # the release profile (panic = "abort", optimizations) never runs until
+        # production.
+        body = _read(CI_WORKFLOW)
+        self.assertRegex(
+            body,
+            re.compile(r"cargo build --release", re.MULTILINE),
+            "P0.7: ci.yml must build the release profile so panic=abort and "
+            "release optimizations are exercised before shipping",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
