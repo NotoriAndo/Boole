@@ -186,20 +186,22 @@ impl RuntimeAdmissionState {
         // of EVERY block's rows. `verify_ledger_matches_replay` below would then
         // refuse to boot a `--bounty-events` node.
         //
-        // The full expected ledger is, across all blocks in commit order, each
-        // block's `credit` rows followed by its `share_promoted` rows — and the
-        // file is append-only in exactly that order, so whatever survived is a
-        // strict PREFIX of it (`recover` also truncates any torn trailing line
-        // on disk first). Re-derive the full sequence from the block store and
-        // append the missing suffix — the same prefix-heal shape as the reward
-        // ledger, covering both the trailing-last-block crash and a fully
-        // rebuilt (absent) ledger. Each block persists `promoted_bounty_shares`
-        // (the `proofHash` carrier, including zero-credit shares) so the
-        // `share_promoted` rows are recoverable once the in-memory selection
-        // drops; healing them — not just `credit` rows — is what stops
-        // `rebuild_bounty_side_pool` re-promoting an already-committed share. A
-        // genuine tamper (count matches, a value is wrong) is NOT a short
-        // prefix, so nothing is appended and the verify below still bails.
+        // The ledger INTERLEAVES route-driven events (`create` / `status_change`
+        // / `proof`, written by the announce/status/proof handlers at arbitrary
+        // times) with BLOCK-driven `credit` + `share_promoted` rows (written at
+        // block commit in `submit_json`, credit-rows-then-share-rows per block,
+        // in block order). ONLY the block-driven rows are re-derivable from the
+        // block store (`derive_bounty_events`); the route-driven rows are not and
+        // are left untouched. Filtering the route-driven rows out, the surviving
+        // block-driven rows are a strict PREFIX of the expected
+        // `credit`/`share_promoted` sequence (same block order; `recover` also
+        // truncates any torn trailing line first), so re-append the missing
+        // suffix. Healing the `share_promoted` rows — not just `credit` — is what
+        // stops `rebuild_bounty_side_pool` re-promoting an already-committed
+        // share. A genuine tamper keeps the block-driven count equal, so nothing
+        // is appended and the verify still bails. (A DELETED ledger loses the
+        // route-driven audit rows permanently — only the block-derivable
+        // credit/share rows are restored.)
         if let Some(bounty_path) = bounty_event_ledger_path.as_deref() {
             let mut expected: Vec<serde_json::Value> = Vec::new();
             for block in recovered.blocks() {
@@ -213,15 +215,29 @@ impl RuntimeAdmissionState {
                 } else {
                     Vec::new()
                 };
-                if present.len() < expected.len() {
-                    let missing = expected.len() - present.len();
-                    for ev in expected.into_iter().skip(present.len()) {
+                // Count ONLY the block-driven rows already on disk: the ledger
+                // also holds route-driven `create`/`status_change`/`proof` rows
+                // that `expected` does not, so a raw `present.len()` would be the
+                // wrong basis for the prefix comparison (and would wrongly skip
+                // the heal whenever any route event exists).
+                let present_block_rows = present
+                    .iter()
+                    .filter(|e| {
+                        matches!(
+                            e.get("kind").and_then(serde_json::Value::as_str),
+                            Some("credit") | Some("share_promoted")
+                        )
+                    })
+                    .count();
+                if present_block_rows < expected.len() {
+                    let missing = expected.len() - present_block_rows;
+                    for ev in expected.into_iter().skip(present_block_rows) {
                         FileBountyEventLedger::append(bounty_path, &ev)?;
                     }
                     eprintln!(
                         "boole-node: bounty-event ledger healed from block store: \
-                         re-derived {} trailing bounty event(s) up to height {} \
-                         (crash-mid-commit / rebuild recovery)",
+                         re-derived {} trailing credit/share_promoted event(s) up to \
+                         height {} (crash-mid-commit recovery)",
                         missing,
                         recovered.blocks().last().map(|b| b.height).unwrap_or(0),
                     );

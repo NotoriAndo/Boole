@@ -578,3 +578,64 @@ fn boot_heals_a_prefix_torn_inside_one_blocks_rows() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn boot_heals_block_rows_when_route_events_are_interleaved() {
+    // P1.3b regression (adversarial-audit finding): the bounty-event ledger
+    // interleaves ROUTE-driven rows (`create`/`status_change`/`proof`, written
+    // by the announce/status/proof handlers) with BLOCK-driven
+    // `credit`/`share_promoted` rows. The heal must count ONLY the block-driven
+    // rows. A raw `present.len()` (all kinds) vs `expected.len()` (credit+share
+    // only) comparison is wrong: with more route rows than expected block rows
+    // the heal silently never fires, leaving the credit/share rows missing and
+    // the `--bounty-events` node UNBOOTABLE (verify bails on the family-credit
+    // divergence). This test pins the filtered count.
+    let dir = tmp_dir("interleaved");
+    let (config, block_path, _block) = commit_block_with_promoted(&dir);
+    let reward_path = dir.join("rewards.ndjson");
+    let bounty_path = dir.join("bounty-events.ndjson");
+    establish_consistent_state(&config, &block_path, &reward_path, &bounty_path);
+
+    // Simulate the crash: the announce/status handlers had written route rows,
+    // but the block commit crashed before its `credit` + `share_promoted`
+    // appends. The surviving ledger holds ONLY the route rows — and MORE of them
+    // (3) than the block's expected block rows (2: one credit + one share) — so
+    // the buggy raw-count heal would not fire. The reward ledger is intact.
+    // Valid route-driven `create` rows (workId/problemHash/verifierKind/ts are
+    // required by `validate_bounty_ledger_event`), matching the shape the
+    // announce handler writes. THREE of them — more than the two expected
+    // block rows — so the buggy raw-count heal would not fire.
+    let ph = "1111111111111111111111111111111111111111111111111111111111111111";
+    let route_only = [
+        format!(r#"{{"schemaVersion":1,"kind":"create","workId":"b1","problemHash":"{ph}","verifierKind":"lean-runner-v01","ts":1}}"#),
+        format!(r#"{{"schemaVersion":1,"kind":"create","workId":"b2","problemHash":"{ph}","verifierKind":"lean-runner-v01","ts":2}}"#),
+        format!(r#"{{"schemaVersion":1,"kind":"create","workId":"b3","problemHash":"{ph}","verifierKind":"lean-runner-v01","ts":3}}"#),
+    ]
+    .join("\n");
+    std::fs::write(&bounty_path, format!("{route_only}\n")).expect("write route-only ledger");
+    assert_eq!(kind_count(&bounty_path, "credit"), 0, "no block rows yet");
+    assert_eq!(kind_count(&bounty_path, "create"), 3, "route rows present");
+
+    // Re-boot: the heal must re-derive the missing credit + share_promoted rows,
+    // counting only the block-driven rows already present (zero), NOT the 3
+    // route rows. With the bug this boot would bail (unbootable node).
+    boot(config, &block_path, reward_path, bounty_path.clone())
+        .expect("boot must heal the block rows past the interleaved route rows, not bail");
+    assert_eq!(
+        kind_count(&bounty_path, "credit"),
+        1,
+        "credit row re-derived despite interleaved route rows"
+    );
+    assert_eq!(
+        kind_count(&bounty_path, "share_promoted"),
+        1,
+        "share_promoted row re-derived"
+    );
+    assert_eq!(
+        kind_count(&bounty_path, "create"),
+        3,
+        "route rows left untouched by the heal"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
