@@ -61,9 +61,9 @@ use tokio::net::TcpListener;
 use boole_core::Hex32;
 use boole_mcp::{build_in_process_mining_deps, InProcessMiningInputs};
 use boole_miner::{
-    run_mining_loop, AnnounceTicketResult, ChainHead, MiningLoopOptions, MockDriver, MockResponse,
-    ProtocolReport, RejectingVerifier, StructuralCanonicalizer, StubTargetEmitter, SubmitResult,
-    VerifyReason,
+    run_mining_loop, AnnounceTicketResult, ChainHead, FamilyV1LengthBoundTargetEmitter,
+    GenerateResult, MiningLoopOptions, MiningLoopOutcome, ProverDriver, RejectingVerifier,
+    Strategy, StructuralCanonicalizer, SubmitResult, VerifyReason,
 };
 
 /// `boole-mcp --version` text. Captured at build time by `build.rs`
@@ -139,11 +139,12 @@ impl IdeTarget {
 struct AppState {
     node_url: String,
     client: reqwest::Client,
-    /// P2.1 slice 54 — last `boole.mine` summary so `boole.status` can
-    /// report `completed` with the protocol counters instead of `idle`
-    /// after a session has run in this process. `None` before any mine
-    /// call; replaced wholesale on each successful invocation.
-    last_mining_summary: Mutex<Option<ProtocolReport>>,
+    /// P2.1 slice 54 — last `boole.mine` outcome so `boole.status` can
+    /// report `completed` with the full honest counter set (protocol +
+    /// agent runtime) instead of `idle` after a session has run in this
+    /// process. `None` before any mine call; replaced wholesale on each
+    /// successful invocation.
+    last_mining_summary: Mutex<Option<MiningLoopOutcome>>,
 }
 
 #[derive(Deserialize)]
@@ -379,7 +380,7 @@ async fn tools_list() -> impl IntoResponse {
             },
             {
                 "name": "boole.mine",
-                "description": "Drive a fixture mining round-trip in-process (no HTTP loopback to boole-node). Optional `max_cycles` (default 0 = plumbing smoke; >=1 runs that many full ticket cycles). Returns the mining loop protocol counters.",
+                "description": "Drive a closed-local mining round-trip in-process: real v1-lenbound instance generation → deterministic driver stand-in → ProofIntakeV1 → Canonicalizer → RejectingVerifier. Optional `max_cycles` (default 0 = zero-cycle plumbing smoke; >=1 runs that many full closed-local cycles). Returns honest pipeline counters: verify_accepted=0 is correct (no Lean toolchain). Not public mining; not a solve claim.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
@@ -428,31 +429,43 @@ async fn invoke(
                 .lock()
                 .expect("last_mining_summary mutex poisoned");
             match guard.as_ref() {
-                Some(p) => (
-                    StatusCode::OK,
-                    Json(json!({
-                        "state": "completed",
-                        "last_summary": {
-                            "cycles_run": p.cycles_run,
-                            "tickets_found": p.tickets_found,
-                            "shares_accepted": p.shares_accepted,
-                            "network_errors": p.network_errors,
-                        }
-                    })),
-                ),
+                Some(outcome) => {
+                    let p = &outcome.protocol;
+                    let a = &outcome.agent;
+                    (
+                        StatusCode::OK,
+                        Json(json!({
+                            "state": "completed",
+                            "last_summary": {
+                                // Protocol counters
+                                "cycles_run": p.cycles_run,
+                                "tickets_found": p.tickets_found,
+                                "verify_accepted": p.verify_accepted,
+                                "verify_rejected": p.verify_rejected,
+                                "shares_accepted": p.shares_accepted,
+                                "network_errors": p.network_errors,
+                                "loop_class": p.loop_class,
+                                // Agent runtime counters
+                                "driver_answered": a.driver_answered,
+                                "proof_intake_accepted": a.proof_intake_accepted,
+                                "proof_intake_rejected": a.proof_intake_rejected,
+                            }
+                        })),
+                    )
+                }
                 None => (StatusCode::OK, Json(json!({"state": "idle"}))),
             }
         }
         "boole.mine" => {
-            // P2.1 criterion 1 — optional `max_cycles` (default 0 keeps the
-            // backward-compatible zero-cycle smoke). A value >= 1 drives a
-            // real round-trip through the in-process bundle.
+            // Optional `max_cycles` (default 0 = zero-cycle plumbing smoke;
+            // >= 1 drives a closed-local real round-trip through the in-process
+            // bundle with a real v1-lenbound target emitter).
             let max_cycles = req
                 .args
                 .get("max_cycles")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
-            let protocol = tokio::task::spawn_blocking(move || run_mining_summary(max_cycles))
+            let outcome = tokio::task::spawn_blocking(move || run_mining_summary(max_cycles))
                 .await
                 .expect("mining task panicked");
             {
@@ -460,15 +473,25 @@ async fn invoke(
                     .last_mining_summary
                     .lock()
                     .expect("last_mining_summary mutex poisoned");
-                *guard = Some(protocol.clone());
+                *guard = Some(outcome.clone());
             }
+            let p = &outcome.protocol;
+            let a = &outcome.agent;
             (
                 StatusCode::OK,
                 Json(json!({
-                    "cycles_run": protocol.cycles_run,
-                    "tickets_found": protocol.tickets_found,
-                    "shares_accepted": protocol.shares_accepted,
-                    "network_errors": protocol.network_errors,
+                    // Protocol counters
+                    "cycles_run": p.cycles_run,
+                    "tickets_found": p.tickets_found,
+                    "verify_accepted": p.verify_accepted,
+                    "verify_rejected": p.verify_rejected,
+                    "shares_accepted": p.shares_accepted,
+                    "network_errors": p.network_errors,
+                    "loop_class": p.loop_class,
+                    // Agent runtime counters (driver → ProofIntakeV1 pipeline)
+                    "driver_answered": a.driver_answered,
+                    "proof_intake_accepted": a.proof_intake_accepted,
+                    "proof_intake_rejected": a.proof_intake_rejected,
                 })),
             )
         }
@@ -479,23 +502,57 @@ async fn invoke(
     }
 }
 
-/// P2.1 — drive the slice 49 in-process bundle through `run_mining_loop`
-/// for `max_cycles` ticket cycles. A `max_cycles` of zero short-circuits
-/// the loop body (the zero-cycle plumbing smoke from slice 53); a value
-/// of one or more runs that many full cycles (head fetch, classify,
-/// grind, announce, driver, verifier) against the fixture bundle,
-/// closing P2.1 criterion 1's "real round-trip" requirement. The
-/// fixture's `RejectingVerifier` means a non-zero-cycle run completes
-/// the cycle but accepts no share, so it pays driver and verifier cost
-/// without needing a live Lean toolchain. Returns the protocol counters
-/// from the summary.
-fn run_mining_summary(max_cycles: u64) -> ProtocolReport {
+/// Deterministic closed-local prover stand-in.
+///
+/// This is NOT an LLM, NOT a network call, and NOT a Lean-verified solver.
+/// It returns a fixed intake-valid term-mode answer so the closed-local smoke
+/// can traverse the full pipeline (emitter → driver → ProofIntakeV1 →
+/// Canonicalizer → RejectingVerifier) without any external dependencies.
+///
+/// The answer `fun xs => nodup_dedup _` passes ProofIntakeV1 because:
+///   - first token is `fun` (not a bare tactic keyword)
+///   - no backticks, `sorry`, or `admit`
+///
+/// verify_accepted will always be 0 with `RejectingVerifier` — that is
+/// CORRECT and EXPECTED for a closed-local smoke.
+struct CanonicalProofDriver;
+
+impl ProverDriver for CanonicalProofDriver {
+    fn name(&self) -> &str {
+        "canonical-proof-stand-in"
+    }
+
+    fn strategy(&self) -> Strategy {
+        Strategy::Frontier
+    }
+
+    fn generate(&self, _prompt: &str) -> GenerateResult {
+        GenerateResult::Answered {
+            answer: "fun xs => nodup_dedup _".to_string(),
+            elapsed: Duration::from_millis(0),
+            tokens_used: None,
+        }
+    }
+}
+
+/// Drive the in-process bundle through `run_mining_loop` for `max_cycles`
+/// ticket cycles.
+///
+/// A `max_cycles` of zero short-circuits the loop body (zero-cycle plumbing
+/// smoke); a value of one or more drives that many closed-local round-trips
+/// with a real v1-lenbound target emitter and the `CanonicalProofDriver`
+/// stand-in. The `RejectingVerifier` means the cycle completes with
+/// verify_rejected >= 1 and verify_accepted == 0 — correct for a closed-local
+/// smoke with no Lean toolchain.
+///
+/// Returns the full `MiningLoopOutcome` (protocol + agent counters) so the
+/// caller can surface the honest pipeline boundary to the MCP client.
+fn run_mining_summary(max_cycles: u64) -> MiningLoopOutcome {
     let bundle = build_in_process_mining_deps(default_in_process_inputs());
-    // Bound every grinder so a >0-cycle fixture run terminates promptly:
-    // the cycle still completes (and `cycles_run` increments) whether or
-    // not a share target is hit, so criterion 1's "one real round-trip"
-    // is proven without an unbounded PoW search. Deterministic nonces keep
-    // the outcome reproducible. `max_cycles == 0` ignores all of this.
+    // Bound every grinder so a >0-cycle fixture run terminates promptly.
+    // The cycle still completes (and `cycles_run` increments) whether or
+    // not a share target is hit. Deterministic nonces keep the outcome
+    // reproducible.
     let bounded = boole_miner::GrinderConfig {
         max_attempts: Some(4096),
         ..Default::default()
@@ -508,21 +565,33 @@ fn run_mining_summary(max_cycles: u64) -> ProtocolReport {
         submit_grind: bounded,
         ..Default::default()
     };
-    run_mining_loop(bundle.deps, opts).protocol
+    run_mining_loop(bundle.deps, opts)
 }
 
-/// Fixture `InProcessMiningInputs` for the slice 53 zero-cycle smoke.
-/// Field values match the slice 49 / 50 in-process tests so deps shape
-/// stays in sync; nothing in here is reachable when `max_cycles == 0`.
+/// In-process inputs for the closed-local mining smoke.
+///
+/// Uses `FamilyV1LengthBoundTargetEmitter` (real v1-lenbound instance
+/// generation) and `CanonicalProofDriver` (deterministic intake-valid answer,
+/// no LLM or network). ChainHead thresholds are all-ones so the ticket grind
+/// succeeds deterministically on the first attempt, giving `tickets_found >= 1`
+/// on any >0-cycle run.
+///
+/// `RejectingVerifier` and `StructuralCanonicalizer` are kept so CI never
+/// requires a Lean toolchain; `verify_accepted == 0` is correct and expected.
 fn default_in_process_inputs() -> InProcessMiningInputs {
+    // All-ones thresholds: difficulty_weight((1<<256)-1) = 1, which satisfies
+    // has_open_thresholds → loop_class = "smoke".  The ticket grind succeeds
+    // on the first deterministic nonce attempt, so tickets_found >= 1 for any
+    // >0-cycle run without an expensive PoW search.
+    let all_ones = BigUint::from_bytes_be(&[0xffu8; 32]);
     InProcessMiningInputs {
         pk: Hex32::from_bytes([0u8; 32]),
         head: ChainHead {
             c: Hex32::from_bytes([0u8; 32]),
-            t_ticket: BigUint::from(1u32) << 240,
-            t_share: BigUint::from(1u32) << 232,
-            t_block: BigUint::from(1u32) << 224,
-            t_submit: BigUint::from(1u32) << 248,
+            t_ticket: all_ones.clone(),
+            t_share: all_ones.clone(),
+            t_block: all_ones.clone(),
+            t_submit: all_ones,
             min_share_score: BigUint::from(1u32),
             m: 7,
             d: 11,
@@ -535,10 +604,8 @@ fn default_in_process_inputs() -> InProcessMiningInputs {
         submit_result: SubmitResult::Accepted {
             share_hash_hex: "0xshare".to_string(),
         },
-        emitter: Box::new(StubTargetEmitter::new("stub")),
-        driver: Box::new(MockDriver::new(vec![MockResponse::Text(
-            "fun xs => xs".to_string(),
-        )])),
+        emitter: Box::new(FamilyV1LengthBoundTargetEmitter::new()),
+        driver: Box::new(CanonicalProofDriver),
         verifier: Box::new(RejectingVerifier::new(VerifyReason::ElaborateFailed)),
         canonicalizer: Box::new(StructuralCanonicalizer),
     }
