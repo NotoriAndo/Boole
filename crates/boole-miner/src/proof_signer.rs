@@ -13,6 +13,7 @@ use std::process::{Command, Stdio};
 
 use boole_core::{signing_digest_hex, SignedEnvelope, SigningKeyV2, SIGNED_ENVELOPE_SCHEMA};
 use serde_json::Value;
+use zeroize::Zeroizing;
 
 /// Produces a `boole.signed.v1` envelope for a payload, scoped to a network.
 /// Implementors differ only in WHERE the ed25519 key lives.
@@ -51,7 +52,8 @@ impl ProofSigner for KeySigner {
 pub struct AgentSigner {
     agent_bin: String,
     vault_path: PathBuf,
-    passphrase: String,
+    // D#5 — wiped from memory on drop; the secret must not outlive the signer.
+    passphrase: Zeroizing<String>,
 }
 
 impl AgentSigner {
@@ -62,7 +64,7 @@ impl AgentSigner {
         Self {
             agent_bin: agent_bin.into(),
             vault_path,
-            passphrase,
+            passphrase: Zeroizing::new(passphrase),
         }
     }
 
@@ -82,8 +84,11 @@ impl AgentSigner {
                 .stdin
                 .take()
                 .ok_or_else(|| "wallet-agent stdin unavailable".to_string())?;
+            // Write the passphrase bytes and the newline separately so no
+            // unzeroized temporary String holding the secret is allocated.
             stdin
-                .write_all(format!("{}\n", self.passphrase).as_bytes())
+                .write_all(self.passphrase.as_bytes())
+                .and_then(|()| stdin.write_all(b"\n"))
                 .map_err(|e| format!("write passphrase to wallet-agent: {e}"))?;
         }
         let out = child
@@ -128,5 +133,18 @@ impl ProofSigner for AgentSigner {
             signature,
             network_id: Some(network_id.to_string()),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // D#5 — type-level assertion: the passphrase must live in a
+    // self-zeroizing wrapper so the secret is wiped from memory on drop.
+    #[test]
+    fn agent_signer_passphrase_is_zeroizing() {
+        let signer = AgentSigner::new("agent", PathBuf::from("/tmp/vault"), "s3cret".to_string());
+        let _: &zeroize::Zeroizing<String> = &signer.passphrase;
     }
 }

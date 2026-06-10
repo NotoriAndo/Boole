@@ -47,6 +47,7 @@ tower-http = { version = "0.6", features = ["timeout"] }
 # the subscriber needs.
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt", "env-filter", "json", "ansi"] }
+zeroize = "1"
 
 # P0.6 — workspace-wide lint policy. Member crates opt in via
 # `[lints] workspace = true` in their own Cargo.toml. boole-lean-runner is
