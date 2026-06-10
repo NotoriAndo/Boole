@@ -81,6 +81,32 @@ fn lean_verifier_accepts_valid_proof_envelope() {
 }
 
 #[test]
+fn lean_verifier_rejects_sorry_proof_before_spawning_lake() {
+    // E#2 — the forbidden-token scan fires inside `LeanRunner::check_file`
+    // BEFORE any lake/lean subprocess is spawned, so this end-to-end
+    // rejection must hold even on hosts without the Lean toolchain (no
+    // availability gate on purpose).
+    let checker_dir = canonical_checker_dir();
+    let verifier_hash = format!(
+        "lean-bounty-verifier-test-sorry-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    );
+    let verifier = LeanBountyVerifier::new(checker_dir);
+    let bounty = make_lean_bounty("alpha-1", &verifier_hash);
+    let envelope = json!({
+        "leanSource": "theorem sneaky : False := by\n  sorry\n"
+    });
+    let err = verifier
+        .verify_with_evidence(&bounty, &envelope)
+        .expect_err("sorry-carrying proof must surface as Err, never Ok(accepted)");
+    assert!(
+        err.contains("sorry"),
+        "rejection must name the forbidden token, got: {err}"
+    );
+}
+
+#[test]
 fn lean_verifier_rejects_invalid_proof_envelope() {
     if !lake_and_lean_available() {
         eprintln!("skipping lean_verifier_rejects: lake/lean unavailable");
