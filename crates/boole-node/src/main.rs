@@ -387,7 +387,7 @@ fn run_submit_lean_command(args: SubmitLeanArgs) -> anyhow::Result<()> {
                     "error": "missing_checker_artifact_policy",
                     "shareAccepted": false,
                     "blockProduced": false,
-                    "invalidAccepted": 0,
+                    "invalidAccepted": invalid_accepted_count(false, false),
                 }))?
             );
             std::process::exit(1);
@@ -420,7 +420,7 @@ fn run_submit_lean_command(args: SubmitLeanArgs) -> anyhow::Result<()> {
                     "error": "malformed-admission-nonce",
                     "shareAccepted": false,
                     "blockProduced": false,
-                    "invalidAccepted": 0,
+                    "invalidAccepted": invalid_accepted_count(false, false),
                 }))?
             );
             std::process::exit(1);
@@ -462,7 +462,7 @@ fn run_submit_lean_command(args: SubmitLeanArgs) -> anyhow::Result<()> {
                     "lean": err.lean(),
                     "shareAccepted": false,
                     "blockProduced": false,
-                    "invalidAccepted": 0,
+                    "invalidAccepted": invalid_accepted_count(false, false),
                 }))?
             );
             std::process::exit(1);
@@ -491,7 +491,9 @@ fn run_submit_lean_command(args: SubmitLeanArgs) -> anyhow::Result<()> {
                 "lean": bridged.lean,
                 "shareAccepted": false,
                 "blockProduced": false,
-                "invalidAccepted": 0,
+                // Verification passed (`bridged` exists) but the share was
+                // rejected at admission — nothing invalid was accepted.
+                "invalidAccepted": invalid_accepted_count(true, false),
             }))?
         );
         std::process::exit(1);
@@ -525,7 +527,7 @@ fn run_submit_lean_command(args: SubmitLeanArgs) -> anyhow::Result<()> {
                 "replayMatchesRuntime": true,
                 "blockStorePath": block_path.to_string_lossy(),
                 "difficultyMode": difficulty_mode,
-                "invalidAccepted": 0,
+                "invalidAccepted": invalid_accepted_count(true, true),
             }))?
         );
         return Ok(());
@@ -567,7 +569,7 @@ fn run_submit_lean_command(args: SubmitLeanArgs) -> anyhow::Result<()> {
             "replayMatchesRuntime": replay.latest_c == runtime_head,
             "blockStorePath": block_path.to_string_lossy(),
             "difficultyMode": difficulty_mode,
-            "invalidAccepted": 0,
+            "invalidAccepted": invalid_accepted_count(true, true),
         }))?
     );
     Ok(())
@@ -660,4 +662,29 @@ fn submit_lean_fixture(path: &Path, difficulty_mode: &str) -> anyhow::Result<Sub
 
 fn is_well_formed_hex32(s: &str) -> bool {
     boole_core::Hex32::from_hex(s).is_ok()
+}
+
+/// Safety sentinel for the submit-lean pipeline (E#3): counts a submission
+/// whose Lean verification did NOT pass but which was nonetheless accepted
+/// as a share. The pipeline verifies before admission, so this must always
+/// be 0 — computing it from the run's actual outcome (instead of emitting a
+/// hardcoded literal) keeps the benchmark's `safety.invalidAccepted` signal
+/// honest: if a future refactor ever lets an unverified submission through,
+/// the emitted value flips to 1 and the benchmark gate fails.
+fn invalid_accepted_count(verify_ok: bool, share_accepted: bool) -> u32 {
+    u32::from(share_accepted && !verify_ok)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::invalid_accepted_count;
+
+    #[test]
+    fn invalid_accepted_counts_only_unverified_yet_accepted_shares() {
+        assert_eq!(invalid_accepted_count(true, true), 0);
+        assert_eq!(invalid_accepted_count(true, false), 0);
+        assert_eq!(invalid_accepted_count(false, false), 0);
+        // The sentinel case: share accepted without a passing verification.
+        assert_eq!(invalid_accepted_count(false, true), 1);
+    }
 }
