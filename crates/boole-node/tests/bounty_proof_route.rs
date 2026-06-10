@@ -538,6 +538,56 @@ fn replayed_nonce_with_distinct_proof_hash_returns_409_nonce_replayed() {
 }
 
 #[test]
+fn rejected_proof_burns_nonce_preventing_replay() {
+    // Invariant A — the (signer_pk, nonce) burn is unconditional: a proof
+    // the verifier REJECTS still consumes its nonce. A rejected envelope
+    // must not be replayable (same signer, same nonce, fresh proofHash),
+    // otherwise an attacker could grind rejected submissions against a
+    // burned-nonce window. delta-1 is wired to mock-reject.
+    let (addr, handle, dir) = boot_with_signed_nonce_ledger(2, Some("signed-nonces.ndjson"));
+    let key = prover_key();
+    let pk_hex = key.pk_hex();
+    let reused_nonce = "feedfacefeedfacefeedfacefeedface";
+
+    let payload_a = json!({
+        "schema": "boole.bounty.proof.v1",
+        "bountyId": "delta-1",
+        "proofHash": PROOF_HASH_A,
+        "prover": pk_hex,
+        "envelope": json!({}),
+        "validBefore": valid_before_far_future(),
+        "nonce": reused_nonce,
+    });
+    let env_a = proof_envelope_with_payload(&key, payload_a);
+    let (s1, r1) = http_post(addr, "/bounties/delta-1/proof", &env_a);
+    assert_eq!(s1, 200, "rejected proof still returns 200: {r1}");
+    assert_eq!(r1["accepted"], false);
+    assert_eq!(r1["duplicate"], false);
+
+    let payload_b = json!({
+        "schema": "boole.bounty.proof.v1",
+        "bountyId": "delta-1",
+        "proofHash": PROOF_HASH_B,
+        "prover": pk_hex,
+        "envelope": json!({"different": "envelope"}),
+        "validBefore": valid_before_far_future(),
+        "nonce": reused_nonce,
+    });
+    let env_b = proof_envelope_with_payload(&key, payload_b);
+    let (s2, r2) = http_post(addr, "/bounties/delta-1/proof", &env_b);
+    assert_eq!(
+        s2, 409,
+        "nonce burned by the rejected proof must block replay: {r2}"
+    );
+    assert_eq!(r2["reason"], "nonce_replayed");
+    assert_eq!(r2["signerPk"], pk_hex);
+    assert_eq!(r2["nonce"], reused_nonce);
+
+    handle.join().expect("server thread").expect("server exits");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn identical_proof_envelope_retry_returns_200_duplicate_not_nonce_replayed() {
     // HTTP idempotency invariant: the SAME envelope (same proofHash + same
     // nonce) re-POSTed must hit dedup, not the nonce-replay gate. Network

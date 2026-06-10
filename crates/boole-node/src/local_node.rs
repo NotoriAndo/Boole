@@ -3537,8 +3537,8 @@ fn bounty_proof_prepare(
     //    peek so HTTP idempotency wins over freshness, but before the
     //    verifier and terminal gates so a stolen envelope re-aimed at a
     //    fresh proofHash never reaches `lake exec`. The atomic
-    //    `(signer_pk, nonce)` burn happens in phase 3 once the verifier
-    //    has accepted the proof.
+    //    `(signer_pk, nonce)` burn happens in phase 3 regardless of the
+    //    verifier's verdict — a rejected proof still consumes its nonce.
     check_signed_envelope_nonce_not_replayed(state, pk, &nonce)?;
 
     // 5) 501 — unknown verifier kind. Caller knows to retry with a node
