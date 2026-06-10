@@ -59,10 +59,10 @@ fn mock_bounty_fixture_path() -> PathBuf {
         .expect("mock bounty fixture path")
 }
 
-fn valid_before_far_future() -> u64 {
+fn valid_before_fresh() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() + 3600)
+        .map(|d| d.as_secs() + 60)
         .unwrap_or(u64::MAX / 2)
 }
 
@@ -266,14 +266,14 @@ fn receipts_replayed_nonce_returns_409() {
     let mut first = json!({
         "schema": "boole.receipts.commit.v1",
         "receiptCommitment": fixture_commitment(),
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": reused,
     });
     let (s1, r1) = http_post(booted.addr, "/receipts", &signed_envelope(&first, &key));
     assert_eq!(s1, 200, "first receipt must succeed: {r1}");
 
     // Distinct payload (bump validBefore) but reuse the same nonce.
-    first["validBefore"] = json!(valid_before_far_future() + 1);
+    first["validBefore"] = json!(valid_before_fresh() + 1);
     let (s2, r2) = http_post(booted.addr, "/receipts", &signed_envelope(&first, &key));
     assert_nonce_replayed(s2, &r2, &pk_hex, reused);
     finish(booted);
@@ -298,7 +298,7 @@ fn sessions_revoke_replayed_nonce_returns_409() {
         "schema": "boole.sessions.register.v1",
         "session": owned_session(&key),
         "currentHeight": 0,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": format!("reg-{}", rand_suffix()),
     });
     let (sr, rr) = http_post(booted.addr, "/sessions", &signed_envelope(&register, &key));
@@ -308,7 +308,7 @@ fn sessions_revoke_replayed_nonce_returns_409() {
         "schema": "boole.sessions.revoke.v1",
         "sessionPk": PK_A,
         "height": 7,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": reused,
     });
     let (s1, r1) = http_post(
@@ -349,7 +349,7 @@ fn bounty_status_replayed_nonce_returns_409() {
         "id": "gamma-1",
         "newStatus": "withdrawn",
         "ts": 1800001100000_u64,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": reused,
     });
     let (s1, r1) = http_post(

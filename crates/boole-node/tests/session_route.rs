@@ -59,7 +59,7 @@ fn register_payload(session: Value, current_height: u64) -> Value {
         "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
         "session": session,
         "currentHeight": current_height,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     })
 }
@@ -69,15 +69,15 @@ fn revoke_payload(session_pk: &str, height: u64) -> Value {
         "schema": SESSIONS_REVOKE_PAYLOAD_SCHEMA,
         "sessionPk": session_pk,
         "height": height,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     })
 }
 
-fn valid_before_far_future() -> u64 {
+fn valid_before_fresh() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() + 3600)
+        .map(|d| d.as_secs() + 60)
         .unwrap_or(u64::MAX / 2)
 }
 
@@ -531,7 +531,7 @@ fn session_route_revoke_wrong_inner_payload_schema_returns_400_bad_payload() {
         "schema": "boole.sessions.revoke.v0",
         "sessionPk": PK_A,
         "height": 7,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let envelope = signed_revoke_envelope(&payload, &key);

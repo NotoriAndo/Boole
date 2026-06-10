@@ -232,10 +232,10 @@ fn fixture_session(session_pk: &str, fixed_reward_recipient: &str) -> Value {
 
 const SESSIONS_REGISTER_PAYLOAD_SCHEMA: &str = "boole.sessions.register.v1";
 
-fn valid_before_far_future() -> u64 {
+fn valid_before_fresh() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() + 3600)
+        .map(|d| d.as_secs() + 60)
         .unwrap_or(u64::MAX / 2)
 }
 
@@ -265,7 +265,7 @@ fn register_session(
         "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
         "session": session,
         "currentHeight": 0,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let envelope = signed_register_envelope(&payload, &key);
@@ -285,7 +285,7 @@ fn revoke_session(addr: SocketAddr, session_pk: &str, owner: &SigningKeyV2) {
         "schema": "boole.sessions.revoke.v1",
         "sessionPk": session_pk,
         "height": 1,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let signed = owner.sign(&payload).expect("sign revoke");
@@ -641,7 +641,7 @@ fn submit_rejects_session_expired_at_current_node_height() {
         "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
         "session": session,
         "currentHeight": 0,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let register_envelope = signed_register_envelope(&register_payload, &register_key);
@@ -837,7 +837,7 @@ fn sessions_register_with_valid_signed_envelope_accepts_and_persists() {
         "schema": SESSIONS_REGISTER_PAYLOAD_SCHEMA,
         "session": session,
         "currentHeight": 0,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let envelope = signed_register_envelope(&payload, &key);

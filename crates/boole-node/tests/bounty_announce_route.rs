@@ -239,15 +239,15 @@ fn announce_payload(id: &str, problem_hash: &str, ts: u64) -> Value {
         "reward": "100",
         "deadline": 1900000000000_u64,
         "ts": ts,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     })
 }
 
-fn valid_before_far_future() -> u64 {
+fn valid_before_fresh() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() + 3600)
+        .map(|d| d.as_secs() + 60)
         .unwrap_or(u64::MAX / 2)
 }
 

@@ -476,10 +476,20 @@ fn now_unix_secs() -> u64 {
 /// and queue/transport delay.
 const VALID_BEFORE_LEEWAY_SECS: u64 = 60;
 
+/// D#3 — upper bound on how far into the future `validBefore` may point.
+/// Matches the largest window the system's own producers stamp
+/// (`SIGNED_PAYLOAD_VALID_BEFORE_WINDOW_SECS` /
+/// `BOUNTY_PROOF_VALID_BEFORE_WINDOW_SECS`, both 300s); without this cap a
+/// captured envelope stamped years ahead stays replayable until it
+/// "expires", defeating the freshness gate. The skew leeway is added on
+/// top so a producer clock modestly ahead of the server is not bounced.
+const VALID_BEFORE_MAX_TTL_SECS: u64 = 300;
+
 /// P1.6a — every signed inner payload must carry `validBefore`
 /// (u64 Unix seconds). Returns `bad_payload` for missing/non-u64 values
 /// so wallets see the same vocabulary as the rest of the inner-payload
-/// gates, and `envelope_expired` once the leeway window has elapsed.
+/// gates, `envelope_expired` once the leeway window has elapsed, and
+/// `bad_payload` again when `validBefore` exceeds the future cap (D#3).
 fn check_payload_valid_before(payload: &serde_json::Map<String, Value>) -> Result<(), HttpError> {
     let valid_before = payload
         .get("validBefore")
@@ -493,6 +503,15 @@ fn check_payload_valid_before(payload: &serde_json::Map<String, Value>) -> Resul
     let now = now_unix_secs();
     if now > valid_before.saturating_add(VALID_BEFORE_LEEWAY_SECS) {
         return Err(HttpError::envelope_expired(valid_before, now));
+    }
+    let max_valid_before = now
+        .saturating_add(VALID_BEFORE_MAX_TTL_SECS)
+        .saturating_add(VALID_BEFORE_LEEWAY_SECS);
+    if valid_before > max_valid_before {
+        return Err(HttpError::bad_payload(
+            "validBefore",
+            "payload validBefore exceeds the maximum future window",
+        ));
     }
     Ok(())
 }

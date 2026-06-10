@@ -162,8 +162,8 @@ fn http_post(addr: SocketAddr, path: &str, body: &Value) -> (u16, Value) {
 /// Build a `boole.signed.v1` envelope around a
 /// `boole.bounty.proof.v1` payload signed by `key`. `prover` is filled
 /// from the key's pk_hex so the inner prover-vs-pk check passes.
-/// `validBefore` is stamped one hour into the future so the freshness
-/// gate (P1.6a) admits the request.
+/// `validBefore` is stamped 60s into the future so the freshness (P1.6a)
+/// gate admits the request and the future cap (D#3) is not tripped.
 fn signed_proof_body(
     key: &SigningKeyV2,
     bounty_id: &str,
@@ -178,7 +178,7 @@ fn signed_proof_body(
             "proofHash": proof_hash,
             "prover": key.pk_hex(),
             "envelope": envelope,
-            "validBefore": valid_before_far_future(),
+            "validBefore": valid_before_fresh(),
             "nonce": fresh_nonce(),
         }),
     )
@@ -304,7 +304,7 @@ fn bad_prover_returns_400_typed() {
         "proofHash": PROOF_HASH_A,
         "prover": "not-a-hex32",
         "envelope": {},
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let body = proof_envelope_with_payload(&key, payload);
@@ -417,7 +417,7 @@ fn prover_pk_mismatch_returns_400_bad_payload() {
         "proofHash": PROOF_HASH_A,
         "prover": other.pk_hex(),
         "envelope": {},
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let body = proof_envelope_with_payload(&signer, payload);
@@ -489,6 +489,37 @@ fn expired_valid_before_returns_401_envelope_expired() {
 }
 
 #[test]
+fn far_future_valid_before_returns_400_bad_payload() {
+    // D#3 — validBefore must have an upper bound. Without a future cap an
+    // envelope stamped years ahead stays replayable until it "expires",
+    // defeating the freshness gate entirely.
+    let (addr, handle, dir) = boot_with_mock_verifiers(1);
+    let signer = prover_key();
+    let ten_years_ahead = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() + 10 * 365 * 24 * 3600)
+        .expect("clock after epoch");
+    let payload = json!({
+        "schema": "boole.bounty.proof.v1",
+        "bountyId": "gamma-1",
+        "proofHash": PROOF_HASH_A,
+        "prover": signer.pk_hex(),
+        "envelope": {},
+        "validBefore": ten_years_ahead,
+        "nonce": fresh_nonce(),
+    });
+    let body = proof_envelope_with_payload(&signer, payload);
+    let (status, resp) = http_post(addr, "/bounties/gamma-1/proof", &body);
+    assert_eq!(status, 400, "expected 400, got {status}: {resp}");
+    assert_eq!(resp["ok"], false);
+    assert_eq!(resp["reason"], "bad_payload");
+    assert_eq!(resp["field"], "validBefore");
+
+    handle.join().expect("server thread").expect("server exits");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn replayed_nonce_with_distinct_proof_hash_returns_409_nonce_replayed() {
     // P1.6b — once a signer burns a nonce on the per-signer signed-envelope
     // ledger, a second envelope from the same signer reusing that nonce is
@@ -506,7 +537,7 @@ fn replayed_nonce_with_distinct_proof_hash_returns_409_nonce_replayed() {
         "proofHash": PROOF_HASH_A,
         "prover": pk_hex,
         "envelope": json!({}),
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": reused_nonce,
     });
     let env_a = proof_envelope_with_payload(&key, payload_a);
@@ -520,7 +551,7 @@ fn replayed_nonce_with_distinct_proof_hash_returns_409_nonce_replayed() {
         "proofHash": PROOF_HASH_B,
         "prover": pk_hex,
         "envelope": json!({"different": "envelope"}),
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": reused_nonce,
     });
     let env_b = proof_envelope_with_payload(&key, payload_b);
@@ -555,7 +586,7 @@ fn rejected_proof_burns_nonce_preventing_replay() {
         "proofHash": PROOF_HASH_A,
         "prover": pk_hex,
         "envelope": json!({}),
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": reused_nonce,
     });
     let env_a = proof_envelope_with_payload(&key, payload_a);
@@ -570,7 +601,7 @@ fn rejected_proof_burns_nonce_preventing_replay() {
         "proofHash": PROOF_HASH_B,
         "prover": pk_hex,
         "envelope": json!({"different": "envelope"}),
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": reused_nonce,
     });
     let env_b = proof_envelope_with_payload(&key, payload_b);
@@ -611,9 +642,9 @@ fn identical_proof_envelope_retry_returns_200_duplicate_not_nonce_replayed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-fn valid_before_far_future() -> u64 {
+fn valid_before_fresh() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() + 3600)
+        .map(|d| d.as_secs() + 60)
         .unwrap_or(u64::MAX / 2)
 }

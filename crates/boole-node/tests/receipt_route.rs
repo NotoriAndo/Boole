@@ -127,15 +127,15 @@ fn receipt_payload(commitment: &ReceiptCommitment) -> Value {
     json!({
         "schema": RECEIPTS_POST_PAYLOAD_SCHEMA,
         "receiptCommitment": commitment,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     })
 }
 
-fn valid_before_far_future() -> u64 {
+fn valid_before_fresh() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() + 3600)
+        .map(|d| d.as_secs() + 60)
         .unwrap_or(u64::MAX / 2)
 }
 
@@ -244,7 +244,7 @@ fn receipt_route_post_rejects_raw_human_answer_field() {
     let payload = json!({
         "schema": RECEIPTS_POST_PAYLOAD_SCHEMA,
         "receiptCommitment": commitment_value,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let envelope = signed_envelope(&payload, &key);

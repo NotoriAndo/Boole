@@ -59,10 +59,10 @@ fn fresh_nonce() -> String {
     format!("nonce-{}", rand_suffix())
 }
 
-fn valid_before_far_future() -> u64 {
+fn valid_before_fresh() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() + 3600)
+        .map(|d| d.as_secs() + 60)
         .unwrap_or(u64::MAX / 2)
 }
 
@@ -247,7 +247,7 @@ fn receipts_cross_network_envelope_returns_403() {
             "feeCharged": "1",
             "rewardRecipient": "4444444444444444444444444444444444444444444444444444444444444444"
         },
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let envelope = foreign_network_envelope(&payload, &key);
@@ -275,7 +275,7 @@ fn sessions_register_cross_network_envelope_returns_403() {
             "issuedAtHeight": 0,
             "expiresAtHeight": 100
         },
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let envelope = foreign_network_envelope(&payload, &key);
@@ -299,7 +299,7 @@ fn sessions_revoke_cross_network_envelope_returns_403() {
         "schema": "boole.sessions.revoke.v1",
         "sessionPk": session_pk,
         "height": 0,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let envelope = foreign_network_envelope(&payload, &key);
@@ -327,7 +327,7 @@ fn bounty_status_cross_network_envelope_returns_403() {
         "id": "p1-6-xnet-status",
         "status": "paused",
         "ts": 1800000600000_u64,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let envelope = foreign_network_envelope(&payload, &key);
@@ -360,7 +360,7 @@ fn bounty_proof_cross_network_envelope_returns_403() {
         "problemHash": PROBLEM_HASH,
         "verifier": { "kind": "mock-accept", "metadata": { "verifierHash": VERIFIER_HASH } },
         "ts": 1800000700000_u64,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let envelope = foreign_network_envelope(&payload, &key);

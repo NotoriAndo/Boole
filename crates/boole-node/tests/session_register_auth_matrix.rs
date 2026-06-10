@@ -46,10 +46,10 @@ fn fresh_nonce() -> String {
     format!("nonce-{}", rand_suffix())
 }
 
-fn valid_before_far_future() -> u64 {
+fn valid_before_fresh() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() + 3600)
+        .map(|d| d.as_secs() + 60)
         .unwrap_or(u64::MAX / 2)
 }
 
@@ -181,7 +181,7 @@ fn sessions_register_tampered_payload_returns_401_signature_invalid() {
     let booted = boot("bad-sig", 1);
     let key = SigningKeyV2::from_dev_id("p1-6-register-bad-sig");
 
-    let mut envelope = signed_envelope(&register_payload(valid_before_far_future()), &key);
+    let mut envelope = signed_envelope(&register_payload(valid_before_fresh()), &key);
     // Mutate the inner payload after signing: the signature was computed
     // for currentHeight=0 but the wire now claims 99, so the ed25519
     // check over the recanonicalized payload must fail.
@@ -233,7 +233,7 @@ fn sessions_register_non_owner_signer_returns_403_unauthorized_signer() {
         "schema": "boole.sessions.register.v1",
         "session": session,
         "currentHeight": 0,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
 

@@ -158,7 +158,7 @@ fn signed_proof_body(
         "proofHash": proof_hash,
         "prover": key.pk_hex(),
         "envelope": envelope,
-        "validBefore": valid_before_far_future(),
+        "validBefore": valid_before_fresh(),
         "nonce": fresh_nonce(),
     });
     let signed = key.sign(&payload).expect("sign proof payload");
@@ -170,10 +170,10 @@ fn signed_proof_body(
     })
 }
 
-fn valid_before_far_future() -> u64 {
+fn valid_before_fresh() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() + 3600)
+        .map(|d| d.as_secs() + 60)
         .unwrap_or(u64::MAX / 2)
 }
 
