@@ -226,6 +226,27 @@ fn test_save_state_writes_mode_0600_atomic() {
     assert_eq!(mode, 0o600, "expected 0600, got {mode:o}");
 }
 
+// Structural durability test for the parent-dir fsync after rename.
+// The crash-durability property itself (rename surviving a kernel crash)
+// cannot be observed from userland without fault injection, so this test
+// pins the observable contract around the fsync: save_state still succeeds,
+// the state round-trips, and no tmp file is left behind in the parent dir.
+#[test]
+fn test_save_state_parent_dir_fsync_leaves_clean_durable_state() {
+    let path = temp_state_path();
+    let s = generate_miner_state(sample_config(), "2026-05-09T00:00:00Z");
+    save_state(&s, &path).unwrap();
+    let loaded = load_state(&path).unwrap();
+    assert_eq!(loaded, s);
+    let parent = path.parent().unwrap();
+    let leftovers: Vec<_> = std::fs::read_dir(parent)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+        .collect();
+    assert!(leftovers.is_empty(), "tmp files left behind: {leftovers:?}");
+}
+
 #[test]
 fn test_save_then_load_round_trips_state() {
     let path = temp_state_path();

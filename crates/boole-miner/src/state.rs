@@ -341,6 +341,14 @@ pub fn save_state(state: &MinerState, path: &Path) -> Result<(), StateError> {
         let _ = std::fs::remove_file(&tmp);
         return Err(err.into());
     }
+    // fsync the parent directory so the rename itself is crash-durable
+    // (the file's sync_all above only covers the file contents, not the
+    // directory entry). Best-effort: a failure here must not fail the save.
+    if let Some(parent) = path.parent() {
+        if let Ok(dir) = std::fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
     Ok(())
 }
 
