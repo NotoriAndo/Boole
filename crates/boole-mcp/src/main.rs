@@ -541,7 +541,10 @@ fn run_mining_summary(max_cycles: u64) -> MiningLoopOutcome {
     // Bound every grinder so a >0-cycle fixture run terminates promptly.
     // The cycle still completes (and `cycles_run` increments) whether or
     // not a share target is hit. Deterministic nonces keep the outcome
-    // reproducible.
+    // reproducible. E#1 note: the CLI `--deterministic-nonces` flag is
+    // dev-tools-gated; setting the library field here is fine because
+    // boole-mcp drives a closed-local in-process smoke, not a network
+    // miner — no share leaves this process.
     let bounded = boole_miner::GrinderConfig {
         max_attempts: Some(4096),
         ..Default::default()

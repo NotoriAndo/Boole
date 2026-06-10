@@ -181,6 +181,7 @@ fn start_args(state_path: PathBuf) -> StartArgs {
         mock_verify_accept: false,
         fixed_target_seed_hex: None,
         fixed_target_render: None,
+        #[cfg(feature = "dev-tools")]
         deterministic_nonces: false,
         grind_max_attempts: None,
         lean_dir: None,

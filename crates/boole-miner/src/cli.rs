@@ -152,7 +152,10 @@ pub struct StartArgs {
     #[arg(long = "fixed-target-render")]
     pub fixed_target_render: Option<String>,
     /// Use deterministic `CounterNonce` instead of `OsRngNonce` for grinders
-    /// (test-only knob — production runs with OS randomness).
+    /// (test-only knob — production runs with OS randomness). E#1 — gated
+    /// behind `dev-tools` like `--mock-verify-accept` so a release miner
+    /// can never be started with predictable nonces.
+    #[cfg(feature = "dev-tools")]
     #[arg(long = "deterministic-nonces")]
     pub deterministic_nonces: bool,
     /// Per-grind attempt cap (applies to ticket / share / submit grinders).
@@ -1225,7 +1228,10 @@ pub fn run_start_with_paid_policy_hooks(
             target_mode,
         },
         cancel: None,
+        #[cfg(feature = "dev-tools")]
         deterministic_nonces: args.deterministic_nonces,
+        #[cfg(not(feature = "dev-tools"))]
+        deterministic_nonces: false,
     };
 
     let deps = MiningLoopDeps {
@@ -1465,6 +1471,34 @@ pub fn run_mine(cmd: MineCommand) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // E#1 — `--deterministic-nonces` is a test-only knob: predictable
+    // nonces must not be reachable from a release miner binary. The flag
+    // (like `--mock-verify-accept`) exists only under `dev-tools`.
+
+    #[cfg(not(feature = "dev-tools"))]
+    #[test]
+    fn deterministic_nonces_flag_is_absent_without_dev_tools() {
+        use clap::Args as _;
+        let mut cmd = StartArgs::augment_args(clap::Command::new("start"));
+        let help = cmd.render_long_help().to_string();
+        assert!(
+            !help.contains("--deterministic-nonces"),
+            "release build must not expose --deterministic-nonces:\n{help}"
+        );
+    }
+
+    #[cfg(feature = "dev-tools")]
+    #[test]
+    fn deterministic_nonces_flag_is_present_with_dev_tools() {
+        use clap::Args as _;
+        let mut cmd = StartArgs::augment_args(clap::Command::new("start"));
+        let help = cmd.render_long_help().to_string();
+        assert!(
+            help.contains("--deterministic-nonces"),
+            "dev-tools build must keep --deterministic-nonces:\n{help}"
+        );
+    }
 
     // P2.4 — paid-LLM gate. Splitting the pure function `enforce_paid_llm_gate`
     // from `enforce_paid_llm_gate_from_env` keeps the policy testable without
