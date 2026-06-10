@@ -649,11 +649,22 @@ lean_exe boole_check where
 """,
         encoding="utf-8",
     )
+    # D#6 — checker_artifact_hash strictly pins Boole/Family/V0Helpers.lean.
+    (workspace / "Boole" / "Family").mkdir(parents=True)
+    (workspace / "Boole" / "Family" / "V0Helpers.lean").write_text(
+        "-- fixture stub: pinned by checker_artifact_hash\n",
+        encoding="utf-8",
+    )
 
 
 def checker_artifact_hash(workspace: Path) -> str:
     entries: list[tuple[str, bytes]] = []
-    for relative in ["lean-toolchain", "lakefile.lean", "lake-manifest.json"]:
+    for relative in [
+        "lean-toolchain",
+        "lakefile.lean",
+        "lake-manifest.json",
+        "Boole/Family/V0Helpers.lean",
+    ]:
         path = workspace / relative
         entries.append((relative, path.read_bytes()))
     checker_root = workspace / "BooleCheck"

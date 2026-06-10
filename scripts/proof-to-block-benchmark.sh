@@ -67,6 +67,11 @@ lean_exe boole_check where
     return 1
 """
     )
+    # D#6 — checker_artifact_hash strictly pins Boole/Family/V0Helpers.lean.
+    (workspace / "Boole" / "Family").mkdir(parents=True)
+    (workspace / "Boole" / "Family" / "V0Helpers.lean").write_text(
+        "-- fixture stub: pinned by checker_artifact_hash\n"
+    )
     proof = workspace / "LeanSubmitProofToBlock.lean"
     proof.write_text(
         """theorem boole_benchmark_submit_lean_valid : 2 + 2 = 4 := by
@@ -78,7 +83,12 @@ lean_exe boole_check where
 
 def checker_artifact_hash(workspace: pathlib.Path) -> str:
     entries = []
-    for relative in ["lean-toolchain", "lakefile.lean", "lake-manifest.json"]:
+    for relative in [
+        "lean-toolchain",
+        "lakefile.lean",
+        "lake-manifest.json",
+        "Boole/Family/V0Helpers.lean",
+    ]:
         path = workspace / relative
         entries.append((relative, path.read_bytes()))
     checker_root = workspace / "BooleCheck"
