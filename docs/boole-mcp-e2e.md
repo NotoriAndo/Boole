@@ -8,10 +8,17 @@ tools.
 
 Scope: closed local smoke; not public-network mining. The `boole.mine`
 tool exercised here runs a `MiningLoopOptions { max_cycles: Some(0), ..
-}` zero-cycle round-trip on in-process mocks (`MockDriver`,
-`RejectingVerifier`, `StubTargetEmitter`, `StructuralCanonicalizer`),
-so no real proof work, no Lean elaboration, no HTTP loopback to a
-real `boole-node`, and no paid-API calls are made. The block-produced
+}` zero-cycle round-trip: the loop body short-circuits before any
+collaborator call, so no real proof work, no Lean elaboration, no
+HTTP loopback to a real `boole-node`, and no paid-API calls are made.
+The in-process collaborators wired behind `boole.mine` are
+`CanonicalProofDriver`, `RejectingVerifier`,
+`FamilyV1LengthBoundTargetEmitter`, and `StructuralCanonicalizer`;
+with `max_cycles >= 1` they drive a real v1-lenbound instance through
+the proof-intake pipeline and report honest counters
+(`driver_answered`, `proof_intake_accepted`, `verify_rejected`,
+`loop_class = "smoke"`) — still a closed-local smoke with no Lean
+toolchain dependency and no paid-API calls. The block-produced
 end-state from the master plan §6.5 P2.2 criterion 3 wording maps to
 the `{"state":"completed","last_summary":{...}}` envelope returned by
 `boole.status` after a successful `boole.mine`.
@@ -113,8 +120,13 @@ hand and re-run install.
 
 ## Step 4 — start the boole-mcp server
 
-For the e2e smoke, run the server directly (the IDE invokes the same
-command via `mcpServers.boole.command` once installed):
+For the e2e smoke, run the HTTP server surface directly. Note that an
+installed IDE entry uses the stdio transport instead: `boole-mcp
+install` registers `args: ["stdio", "--node-url", ...]`, and the IDE
+launches `boole-mcp stdio` as a subprocess speaking JSON-RPC 2.0 over
+stdin/stdout with Content-Length framing. The HTTP `serve` surface
+below exists for curl-driven smokes like this one; both transports
+dispatch the same tools:
 
 ```
 ./target/release/boole-mcp serve --node-url http://127.0.0.1:8080 --listen 127.0.0.1:0
