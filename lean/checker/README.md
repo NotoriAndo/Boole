@@ -18,7 +18,10 @@ The hash inputs, in canonical order, are:
 1. `lean-toolchain` — pins the Lean compiler version operators must use.
 2. `lakefile.lean` — pins the Lake build configuration.
 3. `lake-manifest.json` — pins resolved dependency versions.
-4. Every file under `BooleCheck/**` (recursive), sorted by relative path.
+4. `Boole/Family/V0Helpers.lean` — the helper surface proof files import
+   (`import Boole.Family.V0Helpers`); pinned explicitly because it lives
+   outside `BooleCheck/`.
+5. Every file under `BooleCheck/**` (recursive), sorted by relative path.
 
 Symlinks anywhere inside the package are rejected so an operator cannot
 smuggle a file in via a symlink that resolves outside the package.
@@ -28,7 +31,7 @@ smuggle a file in via a symlink that resolves outside the package.
 The hash of the files committed to this repo:
 
 ```
-160009a4f09686c0d264e82261bfd1fa8783f78fb98a8f7783695ccdae217b87
+201d0457c3c9b3f7791c1c208e59a975460d8f0b2b2d5d850f90803af086f507
 ```
 
 Recompute and verify with:

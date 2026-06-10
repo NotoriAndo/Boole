@@ -265,6 +265,12 @@ lean_exe boole_check where
 "#,
         )
         .expect("write checker main");
+        std::fs::create_dir_all(self.root.join("Boole/Family")).expect("create Boole/Family");
+        std::fs::write(
+            self.root.join("Boole/Family/V0Helpers.lean"),
+            "-- fixture stub: pinned by checker_artifact_hash\n",
+        )
+        .expect("write V0Helpers stub");
     }
 }
 

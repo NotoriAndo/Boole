@@ -663,9 +663,20 @@ impl Drop for ChildKillOnDrop {
 
 // Files the artifact hash always pins, in order. Anything outside this list
 // must come from the recursive `BooleCheck/**` walk below.
-const CHECKER_PINNED_FILES: &[&str] = &["lean-toolchain", "lakefile.lean", "lake-manifest.json"];
+// `Boole/Family/V0Helpers.lean` is pinned explicitly (D#6): proof files
+// `import Boole.Family.V0Helpers`, so a tampered helper must be visible in
+// the hash even though it lives outside `BooleCheck/`.
+const CHECKER_PINNED_FILES: &[&str] = &[
+    "lean-toolchain",
+    "lakefile.lean",
+    "lake-manifest.json",
+    "Boole/Family/V0Helpers.lean",
+];
 
-fn checker_artifact_hash(package_dir: &Path) -> Result<String> {
+/// SHA-256 over the checker package's pinned files plus every source under
+/// `BooleCheck/**`. Public so tests and operator tooling can recompute the
+/// hash with the EXACT production formula instead of mirroring it.
+pub fn checker_artifact_hash(package_dir: &Path) -> Result<String> {
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
     for relative in CHECKER_PINNED_FILES {
         let path = package_dir.join(relative);

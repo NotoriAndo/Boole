@@ -142,14 +142,64 @@ fn canonical_checker_accepts_valid_proof_through_sandbox() {
 }
 
 fn recompute_artifact_hash(package_dir: &Path) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    for rel in ["lakefile.lean", "BooleCheck/Main.lean"] {
-        let bytes = std::fs::read(package_dir.join(rel)).expect("read checker artifact");
-        hasher.update(rel.as_bytes());
-        hasher.update([0]);
-        hasher.update(bytes);
-        hasher.update([0]);
+    // Use the production formula directly so this fallback can never drift
+    // from what `LeanRunner::evidence` actually computes.
+    boole_lean_runner::checker_artifact_hash(package_dir).expect("recompute checker artifact hash")
+}
+
+/// Copy the canonical checker's hash-relevant sources (pinned files +
+/// `BooleCheck/**` + `Boole/**`) into a fresh temp dir, skipping `.lake`
+/// build output and the README.
+fn copy_checker_sources(name: &str) -> PathBuf {
+    let src = canonical_checker_dir();
+    let dst = std::env::temp_dir().join(format!(
+        "boole-canonical-checker-{name}-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dst);
+    for rel in ["lean-toolchain", "lakefile.lean", "lake-manifest.json"] {
+        let to = dst.join(rel);
+        std::fs::create_dir_all(to.parent().expect("parent")).expect("mkdir");
+        std::fs::copy(src.join(rel), to).expect("copy pinned file");
     }
-    hex::encode(hasher.finalize())
+    for tree in ["BooleCheck", "Boole"] {
+        copy_tree(&src.join(tree), &dst.join(tree));
+    }
+    dst
+}
+
+fn copy_tree(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).expect("mkdir tree");
+    for entry in std::fs::read_dir(src).expect("read src tree") {
+        let entry = entry.expect("dir entry");
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            copy_tree(&from, &to);
+        } else {
+            std::fs::copy(&from, &to).expect("copy source file");
+        }
+    }
+}
+
+#[test]
+fn checker_artifact_hash_includes_v0helpers() {
+    // D#6 — `Boole/Family/V0Helpers.lean` is imported by proof files, so a
+    // tampered helper MUST change the checkerArtifactHash. Mutate the helper
+    // in a copied package and assert the hash moves.
+    let base = copy_checker_sources("v0helpers-base");
+    let tampered = copy_checker_sources("v0helpers-tampered");
+    let helper = tampered.join("Boole/Family/V0Helpers.lean");
+    let mut text = std::fs::read_to_string(&helper).expect("read V0Helpers.lean");
+    text.push_str("\n-- tampered\n");
+    std::fs::write(&helper, text).expect("mutate V0Helpers.lean");
+
+    let base_hash = boole_lean_runner::checker_artifact_hash(&base).expect("hash base");
+    let tampered_hash = boole_lean_runner::checker_artifact_hash(&tampered).expect("hash tampered");
+    let _ = std::fs::remove_dir_all(&base);
+    let _ = std::fs::remove_dir_all(&tampered);
+    assert_ne!(
+        base_hash, tampered_hash,
+        "V0Helpers.lean tamper must be visible in checkerArtifactHash"
+    );
 }

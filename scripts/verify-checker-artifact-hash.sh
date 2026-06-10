@@ -16,7 +16,12 @@ actual=$(python3 - "$checker_dir" <<'PY'
 import hashlib, pathlib, sys
 
 root = pathlib.Path(sys.argv[1])
-PINNED = ("lean-toolchain", "lakefile.lean", "lake-manifest.json")
+PINNED = (
+    "lean-toolchain",
+    "lakefile.lean",
+    "lake-manifest.json",
+    "Boole/Family/V0Helpers.lean",
+)
 
 entries = []
 for rel in PINNED:
