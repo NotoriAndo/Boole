@@ -45,6 +45,11 @@ pub struct RateLimiter {
 }
 
 impl RateLimiter {
+    /// Upper bound on the exact-ticket dedup set (D#2). `observe_ticket`
+    /// inserts before admission, so without a cap an attacker submitting
+    /// distinct `(pk, c, n)` triples grows `seen_tickets` without limit.
+    pub const SEEN_TICKETS_CAP: usize = 1_000_000;
+
     pub fn new(cfg: CalibrationReport, window_ms: i64) -> Self {
         Self::from_calibration_report(&cfg, window_ms).expect("calibration report is valid")
     }
@@ -79,10 +84,24 @@ impl RateLimiter {
             self.seen_tickets.insert(ticket_key);
             let pc = key(pk, c);
             *self.exact_tickets_per_pk_c.entry(pc).or_insert(0) += 1;
+            // Bounded-memory guard (D#2): past the cap, drop the exact dedup
+            // state instead of growing without limit under a distinct-nonce
+            // flood. Trade-off: previously-seen tickets become re-observable
+            // after a clear; `has_observed_ticket` then falls back to the
+            // per-(pk,c) ticket counters, which keep admission conservative.
+            if self.seen_tickets.len() > Self::SEEN_TICKETS_CAP {
+                self.seen_tickets.clear();
+                self.exact_tickets_per_pk_c.clear();
+            }
         }
         let k = key(pk, c);
         *self.pk_tickets.entry(k).or_insert(0) += 1;
         true
+    }
+
+    /// Current size of the exact-ticket dedup set (telemetry + tests).
+    pub fn seen_tickets_len(&self) -> usize {
+        self.seen_tickets.len()
     }
 
     pub fn has_observed_ticket(&self, pk: &str, c: &str, n: &str) -> bool {
