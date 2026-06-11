@@ -84,6 +84,25 @@ fn envelope_schema_version_is_v1() {
 }
 
 #[test]
+fn every_inventory_entry_is_unified_or_documented() {
+    // §6.5 P2.5 closure pin: the AdHocJson drain is complete, so no
+    // inventory entry may classify either of its output modes as AdHocJson
+    // again. Every non-Unified kind is one of the documented structural
+    // exceptions (RawServerForward / JsonAlways / PlainText / EventStream)
+    // recorded in the master plan's §6.5 P2.5 exceptions table.
+    for entry in COMMAND_INVENTORY {
+        for kind in [entry.output_with_json, entry.output_default] {
+            assert!(
+                !matches!(kind, OutputKind::AdHocJson),
+                "command {:?} regressed to AdHocJson — migrate it to Unified \
+                 or document a structural exception in the master plan",
+                entry.path
+            );
+        }
+    }
+}
+
+#[test]
 fn inventory_covers_known_command_paths() {
     // Drift guard: if a clap subcommand is added or removed, this matrix
     // (and consequently the inventory test) must be updated in the same
