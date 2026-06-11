@@ -345,3 +345,33 @@ This matters for the wallet plan specifically: the Global verification commands 
 **Pattern:** I hand-wrote new test functions, committed them, and launched the ~multi-hour full gate. It FAILED at stage 1 (cargo-fmt) on my unformatted code, wasting the gate cycle. cargo-fmt is the gate's first stage precisely because it is cheap and catches this.
 
 **Rule:** any time I hand-write or hand-edit Rust, run `cargo fmt --all` (or `-p <crate>`) and then `cargo fmt --all --check` BEFORE committing and BEFORE gating. Cheap local check; a fmt-only gate restart is pure waste. (Delegated subagents already do this; the lapse was in my own inline edits.)
+
+## 2026-06-10 — a "pinned formula" lives in N mirrors: grep scripts/ before changing it
+
+**Pattern:** D#6 added `Boole/Family/V0Helpers.lean` to `CHECKER_PINNED_FILES`
+in boole-lean-runner. The focused lean-runner tests went green, but
+`runtime_smoke_cli` then failed: `scripts/proof-to-block-benchmark.sh` and
+`scripts/boole-model-benchmark.py` each carry their OWN checker-workspace
+writer AND their own Python reimplementation of `checker_artifact_hash`.
+The strict pin made their ad-hoc workspaces unreadable (missing file) and
+their mirrored hash formula stale. Same class as the canonical_checker.rs
+test fallback, which had ALREADY drifted (2-file formula) before this slice.
+
+**Rule:** before changing any consensus-adjacent formula (hash inputs, wire
+shapes, pinned file lists), enumerate every reimplementation first:
+`grep -rln '<key element>' crates/ scripts/ fixtures/` — test fallbacks,
+shell/python mirrors, fixture writers. Fix them in the same slice, and where
+possible replace mirrors with a call into the production implementation
+(here: `checker_artifact_hash` was made pub so Rust tests use the real
+formula; the Python mirrors remain and must be kept in lockstep manually).
+
+## 2026-06-10 — zsh for-loop over an unquoted $(…) variable does NOT word-split
+
+**Pattern:** `files=$(grep -rl …); for f in $files; do sed -i '' … "$f"; done`
+treated the whole newline-joined list as ONE filename under zsh (no implicit
+word splitting, unlike bash) — sed errored "No such file or directory" and
+ZERO files were edited. The follow-up leftover-grep caught it.
+
+**Rule:** on this host (zsh), never `for f in $var`. Use
+`grep -rl … | xargs sed -i ''` or `for f in ${(f)var}`. After any bulk sed,
+always run the inverse grep ("leftovers: 0") before trusting the sweep.
