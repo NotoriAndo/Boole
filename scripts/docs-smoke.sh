@@ -204,6 +204,17 @@ require_text docs/adr/0005-p1-p2-closure-batch-design-decisions.md "re-derive-on
 require_text docs/adr/0005-p1-p2-closure-batch-design-decisions.md "pure projection of the durable bounty-event ledger"
 require_text docs/adr/0005-p1-p2-closure-batch-design-decisions.md "runtime CLI-level opt-in"
 
+# N0-pre.11 — ADR-0007 records the live Lean-evidence binding decisions
+# (the N0 fusion design) in tracked docs; previously they lived only in
+# operator-local planning notes.
+require_file docs/adr/0007-live-lean-evidence-binding.md
+require_text docs/adr/0007-live-lean-evidence-binding.md "Status: Accepted (2026-06-11)"
+require_text docs/adr/0007-live-lean-evidence-binding.md "the miner renders; the node verifies"
+require_text docs/adr/0007-live-lean-evidence-binding.md "test/fixture builds only"
+require_text docs/adr/0007-live-lean-evidence-binding.md "legacy-skip"
+require_text docs/adr/0007-live-lean-evidence-binding.md "schema-versioned evidence object"
+require_text docs/adr/0007-live-lean-evidence-binding.md "deep_verify_block"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"

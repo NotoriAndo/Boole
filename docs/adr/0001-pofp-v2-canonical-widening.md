@@ -2,9 +2,14 @@
 
 ## Status
 
-Status: Implemented.
+Status: Implemented (wire format only — see scope note below).
 
 POFP-v2 is the default canonical package emitted by the Rust Lean proof bridge. It widens the two formerly narrow canonical expression slots to two domain-separated 256-bit opaque digest slots. The change invalidates POFP-v1 proof-package bytes and therefore must still coincide with a chain reset for any network that previously admitted v1 packages.
+
+Scope note: "Implemented" covers the v2 wire format. The live mining loop
+does not yet emit Lean-bound v2 packages — it grinds a structural
+placeholder. Binding the live canon bytes to Lean evidence is specified in
+ADR-0007 and lands in wave N0.
 
 ## Context
 
