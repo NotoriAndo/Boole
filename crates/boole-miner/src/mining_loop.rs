@@ -417,6 +417,10 @@ pub struct ProtocolReport {
     pub shares_rejected: u64,
     pub rate_limited: u64,
     pub network_errors: u64,
+    /// N0-pre.8 — canonicalization failures. Distinct from
+    /// `network_errors` (transport) so canon bugs neither trigger
+    /// transport-health alerts nor hide inside them.
+    pub canonicalize_errors: u64,
     /// Dispatcher returned a protocol rejection on `announce_ticket`
     /// (e.g. 4xx). Distinct from `network_errors`, which tracks transport
     /// failures, so operational alerts on transport health can ignore
@@ -718,7 +722,7 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
             let canon_bytes = match deps.canonicalizer.canonicalize(&proof_source, &target) {
                 Ok(b) => b,
                 Err(err) => {
-                    summary.protocol.network_errors += 1; // track as generic failure
+                    summary.protocol.canonicalize_errors += 1;
                     log(&MiningEvent::LlmOutcome {
                         j_index,
                         outcome: LlmOutcomeKind::Error,

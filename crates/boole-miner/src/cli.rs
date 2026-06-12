@@ -1276,6 +1276,7 @@ fn summary_for_log(s: &MiningLoopSummary) -> serde_json::Value {
             "sharesRejected": s.protocol.shares_rejected,
             "rateLimited": s.protocol.rate_limited,
             "networkErrors": s.protocol.network_errors,
+            "canonicalizeErrors": s.protocol.canonicalize_errors,
             "announceRejected": s.protocol.announce_rejected,
             "proposerShares": s.protocol.proposer_shares,
             "loopClass": s.protocol.loop_class,
@@ -1292,6 +1293,7 @@ fn summary_for_log(s: &MiningLoopSummary) -> serde_json::Value {
         "sharesRejected": s.protocol.shares_rejected,
         "rateLimited": s.protocol.rate_limited,
         "networkErrors": s.protocol.network_errors,
+        "canonicalizeErrors": s.protocol.canonicalize_errors,
         "announceRejected": s.protocol.announce_rejected,
         "proposerShares": s.protocol.proposer_shares,
         "loopClass": s.protocol.loop_class,
@@ -1576,6 +1578,7 @@ mod tests {
                 shares_rejected: 9,
                 rate_limited: 10,
                 network_errors: 11,
+                canonicalize_errors: 0,
                 announce_rejected: 12,
                 proposer_shares: 13,
                 loop_class: "smoke".to_string(),
@@ -1593,6 +1596,7 @@ mod tests {
         assert!(json["agent"].get("llmSolved").is_none());
         assert_eq!(json["protocol"]["verifyAccepted"], 6);
         assert_eq!(json["protocol"]["sharesAccepted"], 8);
+        assert_eq!(json["protocol"]["canonicalizeErrors"], 0);
         assert_eq!(json["protocol"]["publicScoringEligible"], false);
         assert_eq!(
             json["protocol"]["ineligibilityReasons"][0],
@@ -1630,6 +1634,7 @@ mod tests {
                 shares_rejected: 0,
                 rate_limited: 0,
                 network_errors: 0,
+                canonicalize_errors: 0,
                 announce_rejected: 0,
                 proposer_shares: 1,
                 loop_class: "smoke".to_string(),

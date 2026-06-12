@@ -41,7 +41,11 @@ pub fn encode_placeholder_bppk(proof_source: &str, target: &Target) -> Vec<u8> {
 pub struct StructuralCanonicalizer;
 
 impl Canonicalizer for StructuralCanonicalizer {
-    fn canonicalize(&self, proof_source: &str, target: &Target) -> anyhow::Result<Vec<u8>> {
+    fn canonicalize(
+        &self,
+        proof_source: &str,
+        target: &Target,
+    ) -> Result<Vec<u8>, super::CanonError> {
         Ok(encode_placeholder_bppk(proof_source, target))
     }
 }

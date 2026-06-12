@@ -432,6 +432,7 @@ async fn dispatch_tool(state: &AppState, tool: &str, args: &Value) -> ToolResult
                             "verify_rejected": p.verify_rejected,
                             "shares_accepted": p.shares_accepted,
                             "network_errors": p.network_errors,
+                            "canonicalize_errors": p.canonicalize_errors,
                             "loop_class": p.loop_class,
                             // Agent runtime counters
                             "driver_answered": a.driver_answered,
@@ -469,6 +470,7 @@ async fn dispatch_tool(state: &AppState, tool: &str, args: &Value) -> ToolResult
                 "verify_rejected": p.verify_rejected,
                 "shares_accepted": p.shares_accepted,
                 "network_errors": p.network_errors,
+                "canonicalize_errors": p.canonicalize_errors,
                 "loop_class": p.loop_class,
                 // Agent runtime counters (driver → ProofIntakeV1 pipeline)
                 "driver_answered": a.driver_answered,

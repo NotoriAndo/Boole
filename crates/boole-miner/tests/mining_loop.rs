@@ -11,13 +11,13 @@ use boole_core::{parse_biguint_hex, Hex32};
 
 use boole_miner::{
     run_mining_loop, v1_lenbound_helper_manifest, AcceptingVerifier, AgentRuntimeReport,
-    AnnounceTicketInputs, AnnounceTicketResult, Canonicalizer, ChainHead, DefaultPromptBuilder,
-    FixedChainHead, GenerateResult, GrinderConfig, MiningEvent, MiningLoopDeps, MiningLoopOptions,
-    MiningLoopOutcome, MiningRunContext, MiningRunDriverMode, MiningRunTargetMode,
-    MiningRunVerifierMode, MockDriver, MockResponse, PromptBuilder, ProtocolReport, ProverDriver,
-    RejectingVerifier, Strategy, StructuralCanonicalizer, StubTargetEmitter, SubmitInputs,
-    SubmitResult, Submitter, Target, Verifier, VerifyReason, VerifyResult,
-    BOOLE_PROOF_SUBMISSION_CONTRACT_V1,
+    AnnounceTicketInputs, AnnounceTicketResult, CanonError, Canonicalizer, ChainHead,
+    DefaultPromptBuilder, FixedChainHead, GenerateResult, GrinderConfig, MiningEvent,
+    MiningLoopDeps, MiningLoopOptions, MiningLoopOutcome, MiningRunContext, MiningRunDriverMode,
+    MiningRunTargetMode, MiningRunVerifierMode, MockDriver, MockResponse, PromptBuilder,
+    ProtocolReport, ProverDriver, RejectingVerifier, Strategy, StructuralCanonicalizer,
+    StubTargetEmitter, SubmitInputs, SubmitResult, Submitter, Target, Verifier, VerifyReason,
+    VerifyResult, BOOLE_PROOF_SUBMISSION_CONTRACT_V1,
 };
 
 fn pk32() -> Hex32 {
@@ -143,7 +143,7 @@ struct RecordingCanonicalizer {
 }
 
 impl Canonicalizer for RecordingCanonicalizer {
-    fn canonicalize(&self, proof_source: &str, _target: &Target) -> anyhow::Result<Vec<u8>> {
+    fn canonicalize(&self, proof_source: &str, _target: &Target) -> Result<Vec<u8>, CanonError> {
         self.recorder
             .calls
             .lock()
@@ -188,6 +188,82 @@ impl Verifier for RecordingVerifier {
             attempt_artifact_path: None,
         }
     }
+}
+
+struct FailingCanonicalizer;
+
+impl Canonicalizer for FailingCanonicalizer {
+    fn canonicalize(&self, _proof_source: &str, _target: &Target) -> Result<Vec<u8>, CanonError> {
+        Err(CanonError::Encode(
+            "forced canonicalize failure".to_string(),
+        ))
+    }
+}
+
+#[test]
+fn canonicalize_failure_increments_dedicated_counter_not_network_errors() {
+    // N0-pre.8 — a canonicalizer failure is not a transport failure: it must
+    // land in its own `canonicalize_errors` counter so operational alerts on
+    // network health do not fire on canon bugs (and canon bugs are not
+    // hidden inside `network_errors`).
+    let recorder = BoundaryRecorder::new();
+    let submitter = RecordingSubmitter::with_results(
+        SubmitResult::Accepted {
+            share_hash_hex: "abc".to_string(),
+        },
+        AnnounceTicketResult::Observed {
+            hash_hex: "def".to_string(),
+        },
+    );
+    let deps = MiningLoopDeps {
+        pk: pk32(),
+        chain_head: Box::new(FixedChainHead { head: easy_head() }),
+        emitter: Box::new(StubTargetEmitter::new("render")),
+        driver: Box::new(RawAnsweredDriver {
+            raw_answer: "```lean\nby trivial\n```".to_string(),
+        }),
+        verifier: Box::new(RecordingVerifier {
+            recorder: recorder.clone(),
+        }),
+        canonicalizer: Box::new(FailingCanonicalizer),
+        submit_client: Box::new(submitter),
+        prompt_builder: None,
+        log: None,
+        sleeper: None,
+    };
+    let opts = MiningLoopOptions {
+        max_cycles: Some(1),
+        deterministic_nonces: true,
+        ticket_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        share_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        submit_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        ..Default::default()
+    };
+
+    let outcome = run_mining_loop(deps, opts);
+
+    assert_eq!(
+        outcome.protocol.canonicalize_errors, 1,
+        "canonicalize failure must hit the dedicated counter"
+    );
+    assert_eq!(
+        outcome.protocol.network_errors, 0,
+        "canonicalize failure must NOT masquerade as a network error"
+    );
+    assert_eq!(
+        recorder.calls.lock().unwrap().len(),
+        0,
+        "verifier must not run when canonicalization failed"
+    );
 }
 
 #[test]
@@ -400,6 +476,7 @@ fn mining_loop_outcome_splits_agent_runtime_from_protocol_report() {
         shares_rejected: 0,
         rate_limited: 0,
         network_errors: 0,
+        canonicalize_errors: 0,
         announce_rejected: 0,
         proposer_shares: 1,
         loop_class: "smoke".to_string(),
