@@ -10,6 +10,11 @@ on:
   # --ref main` will queue a fresh run on the current `main` HEAD.
   workflow_dispatch:
 
+# N0-pre.2 (audit) — least-privilege token: every job only reads the
+# repository; nothing in CI may write with the default GITHUB_TOKEN.
+permissions:
+  contents: read
+
 jobs:
   self-test:
     name: self-test
@@ -25,7 +30,11 @@ jobs:
       RUST_TEST_THREADS: "1"
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        # N0-pre.2 (audit) — pin to an immutable commit SHA (was the
+        # mutable @v6 tag). SHA = actions/checkout v6.0.3 release commit,
+        # verified via `git ls-remote https://github.com/actions/checkout
+        # refs/tags/v6` on 2026-06-13; bump deliberately.
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Install Rust toolchain
         # P0.7 (audit) — pin the third-party action to an immutable commit SHA
@@ -77,7 +86,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        # N0-pre.2 (audit) — pin to an immutable commit SHA (was the
+        # mutable @v6 tag). SHA = actions/checkout v6.0.3 release commit,
+        # verified via `git ls-remote https://github.com/actions/checkout
+        # refs/tags/v6` on 2026-06-13; bump deliberately.
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Install Rust toolchain
         # P0.7 (audit) — pin the third-party action to an immutable commit SHA
