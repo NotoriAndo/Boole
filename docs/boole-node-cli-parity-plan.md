@@ -32,5 +32,5 @@ Deprecated experimental target families, profiles, benchmark modes, fixtures, an
 
 ## Open work
 
-- D3.2: move `FileBountyEventLedger` ownership out of core into the node/local persistence layer in a separate slice.
+- D3.2 (done, 2026-06-13 verification): `FileBountyEventLedger` is node-owned (`crates/boole-node/src/bounty_event_store.rs`), not in core — the move this item asked for already landed.
 - Future bounty/economics integration remains separate from this cleanup and must preserve local/public claim boundaries.

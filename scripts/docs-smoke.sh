@@ -215,6 +215,14 @@ require_text docs/adr/0007-live-lean-evidence-binding.md "legacy-skip"
 require_text docs/adr/0007-live-lean-evidence-binding.md "schema-versioned evidence object"
 require_text docs/adr/0007-live-lean-evidence-binding.md "deep_verify_block"
 
+# N0-pre.12 — stale tracked-docs corrections (audit R6): the migration
+# status doc carries a supersede banner with current gate figures, the
+# parity plan marks D3.2 done, and ADR-0001 cross-references ADR-0007.
+require_text docs/migration-status-and-next-steps.md "Superseded"
+require_text docs/migration-status-and-next-steps.md "casesPassed: 7"
+require_text docs/boole-node-cli-parity-plan.md "D3.2 (done"
+require_text docs/adr/0001-pofp-v2-canonical-widening.md "ADR-0007"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"

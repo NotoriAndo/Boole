@@ -1,17 +1,25 @@
 # Boole Rust Core Migration — Current Status and Next Steps
 
-**Updated:** after commit `53ca071 test: expand runtime smoke preflight scenarios`
+> **Superseded (2026-06-13, N0-pre.12).** This document is a historical
+> migration snapshot, not the current source of truth. The current gate
+> figures live in `README.md` and `scripts/self-test.sh`; the binding
+> execution order lives in `local-docs/todo/EXECUTION-ORDER.md`. The
+> figures below were refreshed to the current `self-test.sh` numbers so
+> this file no longer misleads an external reader, but new status must be
+> read from the README and the master plans, not here.
+
+**Updated:** N0-pre.12 figure refresh (was `53ca071 test: expand runtime smoke preflight scenarios`)
 
 ## One-line status
 
 Boole Rust migration is **not fully complete as a production L1**, but the **Rust runtime proof-to-block spine and local preflight harness are now working end-to-end**.
 
-Current verified local benchmark:
+Current verified local benchmark (matches `README.md` / `self-test.sh`):
 
 ```text
-casesPassed: 5
-caseCount: 5
-blocksProduced: 13
+casesPassed: 7
+caseCount: 7
+blocksProduced: 17
 replayFailures: 0
 invalidAccepted: 0
 chainDivergence: 0
