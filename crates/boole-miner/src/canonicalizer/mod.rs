@@ -1,5 +1,7 @@
+pub mod lean_bound;
 pub mod structural;
 
+pub use lean_bound::LeanBoundCanonicalizer;
 pub use structural::{encode_placeholder_bppk, StructuralCanonicalizer};
 
 /// N0-pre.8 — typed canonicalization failure. Fixes the `Canonicalizer`
