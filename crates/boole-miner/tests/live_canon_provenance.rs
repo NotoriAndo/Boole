@@ -1,27 +1,31 @@
-//! N0.1 — characterization (read-only inventory): pins that the LIVE mining
-//! loop's canonical bytes come from the structural BPPK placeholder and are
-//! NOT bound to any Lean-rendered proof. N0.3 INVERTS this file once the
-//! default canonicalizer becomes `LeanBoundCanonicalizer`.
+//! N0.3 — INVERTED from N0.1: the LIVE mining loop, assembled via the
+//! production canonicalizer factory `live_canonicalizer`, now grinds and
+//! submits Lean-bound canon bytes (POFP-v2 from the family's canonical
+//! proof + checker evidence), NOT the structural BPPK placeholder.
 //!
-//! Live-path seam inventory (re-verified 2026-06-13):
-//! - default wiring: `boole-miner/src/cli.rs:1209` and
-//!   `boole-mcp/src/main.rs:604` both inject `StructuralCanonicalizer`
-//! - trait field: `mining_loop.rs` `MiningLoopDeps.canonicalizer`
-//! - impl: `canonicalizer/structural.rs` (`encode_placeholder_bppk`)
-//! - grind hash: `mining_loop.rs` hashes the canon bytes via
-//!   `proof_package::bppk_canon_hash`
+//! Live-path seam (N0.3): `boole-miner/src/cli.rs` builds its canonicalizer
+//! via `boole_miner::live_canonicalizer(lean_dir, profile)`; with a checker
+//! dir it returns `LeanBoundCanonicalizer`. This test drives the loop with
+//! the same factory and asserts the submitted canon is lean-bound.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use boole_core::{parse_biguint_hex, Hex32};
 use boole_miner::{
-    bppk_canon_hash, encode_placeholder_bppk, run_mining_loop, walk_bppk, AnnounceTicketInputs,
+    encode_placeholder_bppk, live_canonicalizer, run_mining_loop, AnnounceTicketInputs,
     AnnounceTicketResult, ChainHead, FixedChainHead, GenerateResult, GrinderConfig, MiningLoopDeps,
-    MiningLoopOptions, ProverDriver, Strategy, StructuralCanonicalizer, StubTargetEmitter,
-    SubmitInputs, SubmitResult, Submitter, Target, TargetEmitArgs, TargetEmitter, Verifier,
-    VerifyReason, VerifyResult,
+    MiningLoopOptions, ProverDriver, Strategy, StubTargetEmitter, SubmitInputs, SubmitResult,
+    Submitter, Target, TargetEmitArgs, TargetEmitter, Verifier, VerifyReason, VerifyResult,
 };
+
+fn canonical_checker_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../lean/checker")
+        .canonicalize()
+        .expect("canonical checker dir")
+}
 
 fn easy_head() -> ChainHead {
     ChainHead {
@@ -117,7 +121,8 @@ impl Submitter for CanonCapturingSubmitter {
 }
 
 #[test]
-fn live_loop_canon_is_structural_bppk_placeholder_today() {
+fn live_loop_canon_is_lean_bound() {
+    let lean_dir = canonical_checker_dir();
     let emitted = Arc::new(Mutex::new(Vec::new()));
     let captured = Arc::new(Mutex::new(Vec::new()));
     let deps = MiningLoopDeps {
@@ -129,9 +134,11 @@ fn live_loop_canon_is_structural_bppk_placeholder_today() {
         }),
         driver: Box::new(AnsweredDriver),
         verifier: Box::new(AlwaysAcceptVerifier),
-        // The SAME default the live `mine start` path injects (cli.rs:1209;
-        // boole-mcp main.rs:604).
-        canonicalizer: Box::new(StructuralCanonicalizer),
+        // The SAME canonicalizer the live `mine start` path injects
+        // (cli.rs builds it via this factory). With a checker dir present
+        // this is `LeanBoundCanonicalizer`, not the placeholder.
+        canonicalizer: live_canonicalizer(Some(lean_dir.as_path()), "v1-lenbound")
+            .expect("live canonicalizer builds from the canonical checker dir"),
         submit_client: Box::new(CanonCapturingSubmitter {
             canon_bytes: captured.clone(),
         }),
@@ -167,30 +174,33 @@ fn live_loop_canon_is_structural_bppk_placeholder_today() {
     let target = &targets[0];
     let canon = &canons[0];
 
-    // (1) Placeholder identity: the bytes the live loop grinds and submits
-    // are EXACTLY the structural BPPK placeholder over the intake-normalized
-    // proof source ("by trivial") and the emitted target — not a
-    // Lean-evidence-bound POFP-v2 package.
-    assert_eq!(
+    // (1) No longer the placeholder: the bytes the live loop grinds and
+    // submits must NOT equal the structural BPPK placeholder for this
+    // (proof source, target) — the L1 gap is closed on the live path.
+    assert_ne!(
         canon,
         &encode_placeholder_bppk("by trivial", target),
-        "live canon bytes must equal the structural placeholder encoding"
+        "live canon must not be the structural placeholder anymore"
     );
 
-    // (2) The grind hash formula over those bytes is bppk_canon_hash
-    // (the L1 gap: proof_package.rs `bppk_canon_hash`).
-    let grind_hash = bppk_canon_hash(canon);
+    // (2) Lean-bound identity: the submitted canon equals what the
+    // LeanBoundCanonicalizer produces for the same target via the factory,
+    // i.e. it is the POFP-v2 package derived from the family canonical
+    // proof + checker evidence (not the model's raw answer).
+    let expected = live_canonicalizer(Some(lean_dir.as_path()), "v1-lenbound")
+        .expect("rebuild factory")
+        .canonicalize("by trivial", target)
+        .expect("lean-bound canonicalize");
     assert_eq!(
-        grind_hash,
-        bppk_canon_hash(&encode_placeholder_bppk("by trivial", target))
+        canon, &expected,
+        "live canon must be the Lean-bound POFP-v2 package"
     );
 
-    // (3) NOT Lean-bound: the package embeds ZERO declarations — no
-    // Lean-rendered canonical proof and no checker evidence live inside,
-    // only the raw proof source as an opaque string literal.
-    let walk = walk_bppk(canon).expect("placeholder package walks");
+    // (3) It is a POFP-v2 package (magic + version 2), not a BPPK package.
+    assert_eq!(&canon[..4], b"POFP", "canon must carry the POFP magic");
     assert_eq!(
-        walk.decl_count, 0,
-        "placeholder must embed no Lean declarations"
+        u32::from_le_bytes(canon[4..8].try_into().unwrap()),
+        2,
+        "canon must be POFP format version 2"
     );
 }

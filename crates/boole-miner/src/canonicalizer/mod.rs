@@ -1,8 +1,47 @@
+use std::path::Path;
+
 pub mod lean_bound;
 pub mod structural;
 
 pub use lean_bound::LeanBoundCanonicalizer;
 pub use structural::{encode_placeholder_bppk, StructuralCanonicalizer};
+
+/// N0.3 — the canonicalizer the live `mine start` path uses.
+///
+/// With a checker directory present, the live loop grinds Lean-bound
+/// canon: `LeanBoundCanonicalizer` whose `checker_artifact_hash` is read
+/// directly from the configured checker package (a pure file hash — no
+/// Lean process is spawned) and whose `verifier_hash` is derived from the
+/// profile. Without a checker directory (the dev-tools mock path, where no
+/// real Lean verification runs), there is no honest checker identity to
+/// bind, so the loop falls back to the structural placeholder — that path
+/// makes no real claim (its verifier is mocked or rejecting).
+///
+/// Returns an error (so `mine start` fails loudly) when a checker dir is
+/// configured but its artifact hash cannot be computed — a malformed
+/// checker package must not silently downgrade to an empty-evidence canon.
+pub fn live_canonicalizer(
+    lean_dir: Option<&Path>,
+    profile: &str,
+) -> Result<Box<dyn Canonicalizer>, CanonError> {
+    match lean_dir {
+        Some(dir) => {
+            let checker_artifact_hash =
+                boole_lean_runner::checker_artifact_hash(dir).map_err(|err| {
+                    CanonError::Encode(format!(
+                        "failed to compute checker artifact hash for {}: {err}",
+                        dir.display()
+                    ))
+                })?;
+            let verifier_hash = format!("boole-miner-verifier:{profile}");
+            Ok(Box::new(LeanBoundCanonicalizer::new(
+                verifier_hash,
+                checker_artifact_hash,
+            )))
+        }
+        None => Ok(Box::new(StructuralCanonicalizer)),
+    }
+}
 
 /// N0-pre.8 — typed canonicalization failure. Fixes the `Canonicalizer`
 /// error contract before the N0.2 `LeanBoundCanonicalizer` lands, so a

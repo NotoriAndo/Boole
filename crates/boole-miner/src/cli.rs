@@ -12,7 +12,7 @@ use std::time::Duration;
 use clap::{Args, Subcommand, ValueEnum};
 
 use crate::bounty_client::{BountyClient, BountyProofInputs, BountyProofResult};
-use crate::canonicalizer::StructuralCanonicalizer;
+use crate::canonicalizer::live_canonicalizer;
 use crate::chain_head::HttpChainHeadFetcher;
 use crate::llm_driver::{
     create_driver, AgentCliDriver, ClaudeCliDriver, LLMBackend, LLMDriverConfig, MockDriver,
@@ -1206,7 +1206,19 @@ pub fn run_start_with_paid_policy_hooks(
         args.profile.clone(),
     )?;
 
-    let canonicalizer = Box::new(StructuralCanonicalizer);
+    // N0.3 — the live loop grinds Lean-bound canon. Resolve the checker dir
+    // exactly as `build_real_lean_verifier` does (arg or BOOLE_LEAN_DIR) so
+    // the canon binds the same checker the verifier runs. In mock-verify
+    // mode no real checker governs the run, so the factory falls back to the
+    // structural placeholder (that path makes no real claim).
+    let canon_lean_dir = if mock_verify_accept {
+        None
+    } else {
+        args.lean_dir
+            .clone()
+            .or_else(|| std::env::var_os("BOOLE_LEAN_DIR").map(PathBuf::from))
+    };
+    let canonicalizer = live_canonicalizer(canon_lean_dir.as_deref(), &args.profile)?;
     let submit_client: Box<dyn Submitter> =
         Box::new(SubmitClient::new(state.config.dispatcher.url.clone()));
 

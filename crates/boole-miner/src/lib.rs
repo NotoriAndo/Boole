@@ -20,7 +20,7 @@ mod target_emitter;
 
 pub use bounty_client::{BountyClient, BountyProofInputs, BountyProofResult};
 pub use canonicalizer::{
-    encode_placeholder_bppk, CanonError, Canonicalizer, LeanBoundCanonicalizer,
+    encode_placeholder_bppk, live_canonicalizer, CanonError, Canonicalizer, LeanBoundCanonicalizer,
     StructuralCanonicalizer, Target,
 };
 pub use chain_head::{ChainHead, ChainHeadError, ChainHeadFetcher, HttpChainHeadFetcher};
