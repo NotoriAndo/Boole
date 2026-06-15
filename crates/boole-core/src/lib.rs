@@ -19,6 +19,7 @@ pub mod difficulty;
 pub mod family_manifest;
 pub mod family_manifest_registry;
 pub mod hash;
+pub mod lean_bound_canon;
 pub mod paths;
 pub mod rate_limiter;
 pub mod receipt;
@@ -78,6 +79,7 @@ pub use hash::{
     parse_biguint_hex, share_hash, share_score, submission_pow_hash, submission_pow_ok, ticket,
     Hex32, Hex64, TicketResult,
 };
+pub use lean_bound_canon::lean_bound_canon_package;
 pub use rate_limiter::{
     rate_limit_result_json, RateLimitRejectReason, RateLimitResult, RateLimiter,
 };

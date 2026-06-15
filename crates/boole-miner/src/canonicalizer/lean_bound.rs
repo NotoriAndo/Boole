@@ -16,16 +16,10 @@
 //! persisted block alone. N0.4 pins that recomputation; any change to this
 //! recipe must change both sides in lockstep.
 
-use sha2::{Digest, Sha256};
+use boole_core::lean_bound_canon_package;
 
 use super::{CanonError, Canonicalizer, Target};
 use crate::family_v1_lenbound;
-
-const POFP_MAGIC: &[u8; 4] = b"POFP";
-const FORMAT_VERSION_V2: u32 = 2;
-/// POFP-v2 opaque-digest expression tag (ADR-0001; mirrors the node's
-/// proof bridge emitter).
-const EXPR_TAG_OPAQUE_DIGEST: u8 = 0x19;
 
 pub struct LeanBoundCanonicalizer {
     verifier_hash: String,
@@ -42,16 +36,6 @@ impl LeanBoundCanonicalizer {
             checker_artifact_hash: checker_artifact_hash.into(),
         }
     }
-
-    fn stable_digest(&self, domain: &[u8], lean_source: &str) -> [u8; 32] {
-        let mut hasher = Sha256::new();
-        hasher.update(domain);
-        hasher.update(self.verifier_hash.as_bytes());
-        hasher.update(self.checker_artifact_hash.as_bytes());
-        hasher.update(b"\0lean-source\0");
-        hasher.update(lean_source.as_bytes());
-        hasher.finalize().into()
-    }
 }
 
 impl Canonicalizer for LeanBoundCanonicalizer {
@@ -59,7 +43,9 @@ impl Canonicalizer for LeanBoundCanonicalizer {
     /// target's instance, not from the model's raw answer: the model answer
     /// is what the verifier judges; the canonical render is what the block
     /// binds, so the canon hash is deterministic per instance and node-side
-    /// re-derivation needs no model artifacts.
+    /// re-derivation needs no model artifacts. The package bytes come from
+    /// the shared `boole_core::lean_bound_canon_package` encoder so the node
+    /// (deep_verify_block) can recompute the identical bytes (N0.4a).
     fn canonicalize(&self, _proof_source: &str, target: &Target) -> Result<Vec<u8>, CanonError> {
         let instance = family_v1_lenbound::generate_from_hex(&target.seed_hex).map_err(|err| {
             CanonError::InvalidProofSource(format!(
@@ -67,17 +53,10 @@ impl Canonicalizer for LeanBoundCanonicalizer {
             ))
         })?;
         let lean_source = family_v1_lenbound::render_canonical_proof(&instance);
-
-        let mut package = Vec::with_capacity(86);
-        package.extend_from_slice(POFP_MAGIC);
-        package.extend_from_slice(&FORMAT_VERSION_V2.to_le_bytes());
-        package.extend_from_slice(&0u32.to_le_bytes()); // universeArity
-        package.extend_from_slice(&0u32.to_le_bytes()); // theoremName: zero segments
-        package.push(EXPR_TAG_OPAQUE_DIGEST);
-        package.extend_from_slice(&self.stable_digest(b"pofp-v2:type", &lean_source));
-        package.push(EXPR_TAG_OPAQUE_DIGEST);
-        package.extend_from_slice(&self.stable_digest(b"pofp-v2:value", &lean_source));
-        package.extend_from_slice(&0u32.to_le_bytes()); // declCount
-        Ok(package)
+        Ok(lean_bound_canon_package(
+            &self.verifier_hash,
+            &self.checker_artifact_hash,
+            &lean_source,
+        ))
     }
 }
