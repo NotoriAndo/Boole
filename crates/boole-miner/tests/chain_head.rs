@@ -40,6 +40,59 @@ fn valid_head_body() -> &'static [u8] {
     }"#
 }
 
+fn head_body_with_difficulty(epoch: u64, mode: &str) -> Vec<u8> {
+    format!(
+        r#"{{
+        "c": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+        "T_ticket": "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "T_share": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "T_block": "00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "T_submit": "00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "MinShareScoreMultiplier": 1.0,
+        "M": 32, "K_max": 256, "L": 4, "D_max": 8,
+        "difficultyEpoch": {epoch}, "difficultyMode": "{mode}",
+        "provenance": "test"
+    }}"#
+    )
+    .into_bytes()
+}
+
+#[test]
+fn chain_head_parses_difficulty_epoch_and_mode() {
+    // N1.1 (G4) — the miner consumes /head's epoch/mode labels.
+    let (url, handle) =
+        one_shot_get_responder(200, head_body_with_difficulty(3, "epoch-retarget-v0"));
+    let f = HttpChainHeadFetcher::with_timeout(
+        url,
+        Duration::from_secs(5),
+        1,
+        "v1-lenbound".to_string(),
+        None,
+    );
+    let head = f.fetch_head().expect("fetch_head");
+    assert_eq!(head.difficulty_epoch, 3);
+    assert_eq!(head.mode, "epoch-retarget-v0");
+    handle.join().unwrap();
+}
+
+#[test]
+fn chain_head_defaults_difficulty_when_labels_absent() {
+    // Backward-compat: a /head without the labels (pre-N1.1 node) defaults to
+    // epoch 0 / static-calibrated so the miner still parses it.
+    let (url, handle) = one_shot_get_responder(200, valid_head_body().to_vec());
+    let f = HttpChainHeadFetcher::with_timeout(
+        url,
+        Duration::from_secs(5),
+        1,
+        "v1-lenbound".to_string(),
+        None,
+    );
+    let head = f.fetch_head().expect("fetch_head");
+    assert_eq!(head.difficulty_epoch, 0);
+    assert_eq!(head.mode, "static-calibrated");
+    handle.join().unwrap();
+}
+
 #[test]
 fn test_fetch_head_parses_chain_head_with_supplied_d_profile() {
     let (url, handle) = one_shot_get_responder(200, valid_head_body().to_vec());

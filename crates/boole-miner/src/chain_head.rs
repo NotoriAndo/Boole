@@ -31,6 +31,12 @@ pub struct ChainHead {
     pub d: u32,
     pub profile: String,
     pub n: Option<u32>,
+    /// N1.1 (G4) — difficulty epoch the node reports at this head. Defaults
+    /// to 0 when the node omits the label (pre-N1.1).
+    pub difficulty_epoch: u64,
+    /// N1.1 (G4) — difficulty mode label (`static-calibrated` /
+    /// `epoch-retarget-v0`). Defaults to `static-calibrated` when absent.
+    pub mode: String,
 }
 
 #[derive(Debug, Error)]
@@ -130,6 +136,17 @@ impl HttpChainHeadFetcher {
             }
         })?;
 
+        // N1.1 (G4) — optional difficulty labels; default for pre-N1.1 nodes.
+        let difficulty_epoch = obj
+            .get("difficultyEpoch")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let mode = obj
+            .get("difficultyMode")
+            .and_then(Value::as_str)
+            .unwrap_or("static-calibrated")
+            .to_string();
+
         Ok(ChainHead {
             c,
             t_ticket,
@@ -141,6 +158,8 @@ impl HttpChainHeadFetcher {
             d: self.d,
             profile: self.profile.clone(),
             n: self.n,
+            difficulty_epoch,
+            mode,
         })
     }
 }

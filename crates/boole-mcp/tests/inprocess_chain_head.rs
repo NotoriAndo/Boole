@@ -32,6 +32,8 @@ fn fixture_head() -> ChainHead {
         d: 11,
         profile: "v1-lenbound".to_string(),
         n: Some(3),
+        difficulty_epoch: 0,
+        mode: "static-calibrated".to_string(),
     }
 }
 

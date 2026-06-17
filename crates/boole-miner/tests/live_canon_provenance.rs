@@ -39,6 +39,8 @@ fn easy_head() -> ChainHead {
         d: 1,
         profile: "v01".to_string(),
         n: None,
+        difficulty_epoch: 0,
+        mode: "static-calibrated".to_string(),
     }
 }
 

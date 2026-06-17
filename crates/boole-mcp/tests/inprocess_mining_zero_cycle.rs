@@ -36,6 +36,8 @@ fn fixture_inputs() -> InProcessMiningInputs {
             d: 11,
             profile: "v1-lenbound".to_string(),
             n: Some(3),
+            difficulty_epoch: 0,
+            mode: "static-calibrated".to_string(),
         },
         announce_result: AnnounceTicketResult::Observed {
             hash_hex: "0xticket".to_string(),

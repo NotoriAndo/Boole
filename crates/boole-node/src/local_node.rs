@@ -2820,19 +2820,32 @@ fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
 fn head_json(state: &LocalNodeState) -> anyhow::Result<Value> {
     let height = state.runtime.cached_block_count();
     let report = &state.report;
+    // N1.1 (G1/G2) — emit the height-effective retargeted difficulty + epoch/
+    // mode labels. In static-calibrated mode keep the exact report.T_block so
+    // /head output is byte-unchanged when retarget is disabled; only the
+    // retarget-engaged path swaps in the runtime-effective value.
+    let difficulty = state.runtime.effective_difficulty_for_head()?;
+    let t_block = if difficulty.mode == "static-calibrated" {
+        json!(report.T_block)
+    } else {
+        json!(difficulty.t_block)
+    };
     Ok(json!({
         "ok": true,
         "height": height,
         "c": current_head(state),
         "T_ticket": report.T_ticket,
         "T_share": report.T_share,
-        "T_block": report.T_block,
+        "T_block": t_block,
         "T_submit": report.T_submit,
         "MinShareScoreMultiplier": report.MinShareScoreMultiplier,
         "M": report.M,
         "K_max": report.K_max,
         "L": report.L,
         "D_max": report.D_max,
+        "difficultyEpoch": difficulty.difficulty_epoch,
+        "difficultyMode": difficulty.mode,
+        "difficultyRetarget": difficulty.retarget,
         "provenance": report.provenance,
     }))
 }

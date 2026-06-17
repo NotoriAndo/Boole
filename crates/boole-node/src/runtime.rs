@@ -3,11 +3,11 @@ use crate::bounty_event_store::FileBountyEventLedger;
 use crate::reward_store::{verify_ledger_matches_replay, FileRewardLedger};
 use boole_core::{
     admit_parsed_submission_typed, block_hash, build_block_selection, calibration_policy,
-    compute_block_reward_credits, expected_retarget_difficulty_for_height, parse_submission_body,
-    replay_blocks, share_score, AdmissionDecision, AdmissionParsedDeps, BlockBuilderConfig,
-    BuildSelectionResult, CalibrationPolicy, CalibrationReport, CandidateShare,
-    DifficultyRetargetPolicy, Hex32, PersistedBlock, PersistedRewardEvent, PoolShare, RateLimiter,
-    SelectedShareEvidence, SharePool,
+    compute_block_reward_credits, difficulty_weight, expected_retarget_difficulty_for_height,
+    parse_submission_body, replay_blocks, share_score, AdmissionDecision, AdmissionParsedDeps,
+    BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy, CalibrationReport, CandidateShare,
+    DifficultyEvidence, DifficultyRetargetPolicy, Hex32, PersistedBlock, PersistedRewardEvent,
+    PoolShare, RateLimiter, SelectedShareEvidence, SharePool,
 };
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -436,6 +436,32 @@ impl RuntimeAdmissionState {
             evidence.t_block,
             evidence.difficulty_epoch,
         )
+    }
+
+    /// N1.1 (G1/G2) — the height-effective difficulty `/head` must report.
+    /// With retarget enabled this runs the same `expected_retarget_difficulty_for_height`
+    /// path the commit uses (`block_builder_config_for_height`), so a miner
+    /// reads the runtime-effective `T_block` + epoch/mode, not the static
+    /// calibrated report. With retarget disabled it reports the static
+    /// calibrated thresholds under `static-calibrated`/epoch 0.
+    pub fn effective_difficulty_for_head(&self) -> anyhow::Result<DifficultyEvidence> {
+        let static_t_block = format!("0x{:064x}", self.config.policy.thresholds.t_block);
+        match &self.config.difficulty_retarget {
+            Some(policy) => expected_retarget_difficulty_for_height(
+                self.cached_blocks(),
+                &static_t_block,
+                policy,
+            ),
+            None => Ok(DifficultyEvidence {
+                mode: "static-calibrated".to_string(),
+                retarget: "not-enabled".to_string(),
+                difficulty_epoch: 0,
+                t_block: static_t_block,
+                t_share: format!("0x{:064x}", self.config.policy.thresholds.t_share),
+                difficulty_weight: difficulty_weight(&self.config.policy.thresholds.t_block)?
+                    .to_string(),
+            }),
+        }
     }
 
     pub fn produce_block_for_current_c(
