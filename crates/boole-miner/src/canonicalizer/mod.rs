@@ -33,7 +33,9 @@ pub fn live_canonicalizer(
                         dir.display()
                     ))
                 })?;
-            let verifier_hash = format!("boole-miner-verifier:{profile}");
+            // Shared convention (N0.4c) so deep_verify_block recomputes the
+            // identical verifier_hash from the same profile.
+            let verifier_hash = boole_core::lean_bound_verifier_hash(profile);
             Ok(Box::new(LeanBoundCanonicalizer::new(
                 verifier_hash,
                 checker_artifact_hash,

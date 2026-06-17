@@ -24,7 +24,8 @@ pub use block_store::FileBlockStore;
 pub use bounty_catalog_store::load_bounties_from_path;
 pub use bounty_event_store::FileBountyEventLedger;
 pub use deep_verify::{
-    deep_verify_bounty_events, DeepVerifyDivergence, DeepVerifyError, DeepVerifyReport,
+    deep_verify_block, deep_verify_bounty_events, DeepVerifyBlockReport, DeepVerifyDivergence,
+    DeepVerifyError, DeepVerifyReport,
 };
 pub use family_manifest_store::load_family_manifest_registry_from_dir;
 pub use lean_bounty_verifier::LeanBountyVerifier;
