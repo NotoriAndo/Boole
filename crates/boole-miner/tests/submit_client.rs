@@ -157,6 +157,7 @@ fn test_submit_accepted_on_200_returns_share_hash() {
         j_hex: "33".repeat(32).as_str(),
         nonce_s_hex: "44".repeat(32).as_str(),
         canon_bytes: b"POFP-bytes",
+        seed_hex: "",
     });
     match res {
         SubmitResult::Accepted { share_hash_hex } => {
@@ -184,6 +185,7 @@ fn test_submit_rejected_on_200_with_accepted_false_remaps_to_422() {
         j_hex: "33".repeat(32).as_str(),
         nonce_s_hex: "44".repeat(32).as_str(),
         canon_bytes: b"x",
+        seed_hex: "",
     });
     assert_eq!(
         res,
@@ -208,6 +210,7 @@ fn test_submit_rate_limited_on_429() {
         j_hex: "33".repeat(32).as_str(),
         nonce_s_hex: "44".repeat(32).as_str(),
         canon_bytes: b"x",
+        seed_hex: "",
     });
     assert_eq!(
         res,
@@ -231,6 +234,7 @@ fn test_submit_rejected_on_400_carries_field_and_detail() {
         j_hex: "33".repeat(32).as_str(),
         nonce_s_hex: "44".repeat(32).as_str(),
         canon_bytes: b"x",
+        seed_hex: "",
     });
     assert_eq!(
         res,

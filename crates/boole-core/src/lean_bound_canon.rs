@@ -36,6 +36,15 @@ fn stable_digest(
     hasher.finalize().into()
 }
 
+/// The `verifier_hash` identity a Lean-bound share binds, derived solely
+/// from the family profile. Shared so the miner (live canonicalizer) and
+/// the node (`deep_verify_block`) agree on the exact string without the
+/// node having to know the miner's naming convention out-of-band — both
+/// call this one function (N0.4c).
+pub fn lean_bound_verifier_hash(profile: &str) -> String {
+    format!("boole-miner-verifier:{profile}")
+}
+
 /// Build the canonical POFP-v2 package binding a rendered Lean proof to its
 /// checker evidence. Output is deterministic and exactly 86 bytes.
 pub fn lean_bound_canon_package(

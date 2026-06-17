@@ -14,6 +14,12 @@ pub struct SelectedShareEvidence {
     pub c: String,
     pub canon_hash: String,
     pub proof_package: String,
+    /// N0.4b (Path 2) — the family seed this share's canonical proof derives
+    /// from. Lets `deep_verify_block` re-generate the Lean source and
+    /// recompute the canon offline. NOT part of `block_hash` (consensus
+    /// unchanged); empty on shares submitted without a seed.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub seed_hex: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

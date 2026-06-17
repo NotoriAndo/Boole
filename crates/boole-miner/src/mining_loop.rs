@@ -815,6 +815,9 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                 j_hex: &share.j.to_hex(),
                 nonce_s_hex: &submit_pow.nonce_s.to_hex(),
                 canon_bytes: &canon_bytes,
+                // N0.4b — bind the family seed so the node can re-derive and
+                // deep-verify this share's canonical Lean source.
+                seed_hex: &target.seed_hex,
             });
             log(&MiningEvent::SubmitOutcome {
                 result: submit_result.clone(),

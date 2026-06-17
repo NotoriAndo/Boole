@@ -72,6 +72,14 @@ pub fn parse_submission_body(
     let package_bytes =
         hex::decode(bytes_hex).map_err(|err| decode_reject("bytes", err.to_string()))?;
 
+    // N0.4b — `seedHex` is OPTIONAL: a body without it still parses (no
+    // reject), so pre-N0.4b miners and the submit-lean/bounty flows are
+    // unaffected. Empty string means "no persisted seed" downstream.
+    let seed_hex = match body.get("seedHex") {
+        Some(_) => string_field(body, "seedHex")?.to_string(),
+        None => String::new(),
+    };
+
     Ok(ParsedSubmission {
         c_hex,
         pk_hex,
@@ -84,6 +92,7 @@ pub fn parse_submission_body(
         j,
         nonce_s,
         package_bytes,
+        seed_hex,
     })
 }
 

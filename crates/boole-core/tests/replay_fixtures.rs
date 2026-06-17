@@ -256,6 +256,7 @@ fn evidence_backed_block() -> PersistedBlock {
             c: prev_c.to_string(),
             canon_hash,
             proof_package,
+            seed_hex: String::new(),
         }],
         min_share_score: "1".to_string(),
         min_share_score_multiplier_nanos: 1_000_000_000,

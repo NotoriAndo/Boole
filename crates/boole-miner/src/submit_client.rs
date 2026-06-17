@@ -31,6 +31,11 @@ pub struct SubmitInputs<'a> {
     pub j_hex: &'a str,
     pub nonce_s_hex: &'a str,
     pub canon_bytes: &'a [u8],
+    /// N0.4b (Path 2) — the family seed the canon derives from. Sent as the
+    /// optional `seedHex` body field so the node can persist it and later
+    /// re-derive the canonical Lean source for deep verification. Empty for
+    /// non-family submitters (the node treats absence/empty as "no seed").
+    pub seed_hex: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,7 +128,7 @@ impl SubmitClient {
     }
 
     pub fn submit(&self, inputs: SubmitInputs<'_>) -> SubmitResult {
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "c": inputs.c_hex,
             "pk": inputs.pk_hex,
             "n": inputs.n_hex,
@@ -131,6 +136,11 @@ impl SubmitClient {
             "nonceS": inputs.nonce_s_hex,
             "bytes": hex::encode(inputs.canon_bytes),
         });
+        // N0.4b — only emit `seedHex` when present, so non-family submitters
+        // keep the exact pre-N0.4b body shape.
+        if !inputs.seed_hex.is_empty() {
+            body["seedHex"] = serde_json::Value::String(inputs.seed_hex.to_string());
+        }
         let res = match self.http.post_json("/submit", &body) {
             Ok(r) => r,
             Err(err) => {

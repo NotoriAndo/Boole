@@ -518,6 +518,7 @@ impl RuntimeAdmissionState {
                 c: share.c.clone(),
                 canon_hash: share.canon_hash.clone(),
                 proof_package: share.proof_package.clone(),
+                seed_hex: share.seed_hex.clone(),
             })
             .collect::<Vec<_>>();
         let share_hashes = selected_share_hashes
@@ -746,6 +747,7 @@ impl RuntimeAdmissionState {
                 canon_tag,
                 canon_hash,
                 proof_package,
+                seed_hex: submission.seed_hex,
             });
         }
         decision

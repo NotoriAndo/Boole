@@ -3,7 +3,11 @@ mod canonicalizer;
 mod chain_head;
 pub mod cli;
 #[allow(dead_code)]
-mod family_v1_lenbound;
+// N0.4b — the v1-lenbound family generator/renderer moved to boole-core so
+// the node can re-derive a share's canonical Lean source (deep_verify_block)
+// without depending on boole-miner. Re-exported here as `crate::family_v1_lenbound`
+// so existing miner-internal references resolve unchanged.
+pub use boole_core::family_v1_lenbound;
 mod grinder;
 mod http_client;
 mod http_runner;

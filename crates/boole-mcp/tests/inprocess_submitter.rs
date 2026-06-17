@@ -51,6 +51,7 @@ fn inprocess_submitter_returns_pinned_results() {
         j_hex: "j1",
         nonce_s_hex: "nonce1",
         canon_bytes: b"canon",
+        seed_hex: "",
     });
     assert_eq!(submit_got, accepted_submit());
 }
@@ -101,6 +102,7 @@ fn inprocess_submitter_captures_submit_inputs_including_canon_bytes() {
         j_hex: "jX",
         nonce_s_hex: "nonceX",
         canon_bytes: b"\x00\x01\x02\xff",
+        seed_hex: "",
     });
 
     let captured = submitter.captured_submits();
@@ -134,6 +136,7 @@ fn inprocess_submitter_is_trait_object_safe_via_arc_dyn() {
         j_hex: "j",
         nonce_s_hex: "ns",
         canon_bytes: b"",
+        seed_hex: "",
     });
     assert_eq!(got, accepted_submit());
 }

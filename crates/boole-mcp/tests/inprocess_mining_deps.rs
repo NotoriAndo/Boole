@@ -93,6 +93,7 @@ fn build_in_process_mining_deps_capture_log_records_submitter_calls() {
         j_hex: "jB",
         nonce_s_hex: "nonceB",
         canon_bytes: b"canonB",
+        seed_hex: "",
     });
 
     let announces = bundle.capture.captured_announces();

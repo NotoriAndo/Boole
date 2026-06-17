@@ -13,6 +13,12 @@ pub struct ParsedSubmission {
     pub j: Hex32,
     pub nonce_s: Hex32,
     pub package_bytes: Vec<u8>,
+    /// N0.4b (Path 2) — OPTIONAL family seed hex. Lets the node persist the
+    /// seed on the block so `deep_verify_block` can re-derive the share's
+    /// canonical Lean source and recompute the canon. Empty when the
+    /// submitter omits it (pre-N0.4b miners, submit-lean/bounty flows); it
+    /// does not participate in admission.
+    pub seed_hex: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

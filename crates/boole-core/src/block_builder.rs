@@ -69,6 +69,10 @@ pub struct CandidateShare {
     pub canon_hash: String,
     #[serde(default)]
     pub proof_package: String,
+    /// N0.4b (Path 2) — family seed for offline re-derivation of the
+    /// canonical Lean source; carried into `SelectedShareEvidence` at commit.
+    #[serde(default)]
+    pub seed_hex: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
