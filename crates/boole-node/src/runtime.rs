@@ -408,7 +408,10 @@ impl RuntimeAdmissionState {
             .current_c
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("current chain head is not set"))?;
-        let config = BlockBuilderConfig::from_policy(&self.config.policy)?;
+        // N1.2 (G3) — honor difficulty retarget: route through the
+        // height-aware config instead of static from_policy so selection
+        // uses the same t_block the commit/replay/`/head` paths do.
+        let config = self.block_builder_config_for_height(self.cached_blocks())?;
         build_block_selection(
             current_c,
             &self.candidate_shares_for_current_c(),
@@ -470,7 +473,8 @@ impl RuntimeAdmissionState {
         ts: u64,
         accepted_canon_tags: &BTreeSet<u8>,
     ) -> anyhow::Result<PersistedBlock> {
-        let config = BlockBuilderConfig::from_policy(&self.config.policy)?;
+        // N1.2 (G3) — honor difficulty retarget (see build_block_selection).
+        let config = self.block_builder_config_for_height(self.cached_blocks())?;
         self.produce_block_for_current_c_with_config(
             height,
             ts,
