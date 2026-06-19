@@ -1269,6 +1269,11 @@ pub fn run_start_with_paid_policy_hooks(
     Ok(summary)
 }
 
+/// N1.5 (G6) — the claim boundary this miner asserts in its session report.
+/// `mine start` here is a closed-local-smoke driver, not public-network
+/// mining; the constant keeps the report honest about that.
+const MINER_CLAIM_BOUNDARY: &str = "closed-local-smoke";
+
 fn summary_for_log(s: &MiningLoopSummary) -> serde_json::Value {
     serde_json::json!({
         "agent": {
@@ -1294,6 +1299,9 @@ fn summary_for_log(s: &MiningLoopSummary) -> serde_json::Value {
             "loopClass": s.protocol.loop_class,
             "publicScoringEligible": s.protocol.public_scoring_eligible,
             "ineligibilityReasons": s.protocol.ineligibility_reasons,
+            "difficultyMode": s.protocol.difficulty_mode,
+            "claimBoundary": MINER_CLAIM_BOUNDARY,
+            "publicMiningEvidence": false,
         },
         // Flat mirror for stdout-line scrapers. The nested `agent`/`protocol`
         // objects remain canonical for new code.
@@ -1311,6 +1319,9 @@ fn summary_for_log(s: &MiningLoopSummary) -> serde_json::Value {
         "loopClass": s.protocol.loop_class,
         "publicScoringEligible": s.protocol.public_scoring_eligible,
         "ineligibilityReasons": s.protocol.ineligibility_reasons,
+        "difficultyMode": s.protocol.difficulty_mode,
+        "claimBoundary": MINER_CLAIM_BOUNDARY,
+        "publicMiningEvidence": false,
         "driverCalls": s.agent.driver_calls,
         "driverAnswered": s.agent.driver_answered,
         "driverRejected": s.agent.driver_rejected,
@@ -1596,6 +1607,7 @@ mod tests {
                 loop_class: "smoke".to_string(),
                 public_scoring_eligible: false,
                 ineligibility_reasons: vec!["open_thresholds".to_string()],
+                difficulty_mode: "static-calibrated".to_string(),
             },
         };
 
@@ -1614,6 +1626,12 @@ mod tests {
             json["protocol"]["ineligibilityReasons"][0],
             "open_thresholds"
         );
+        // N1.5 (G6) — claim-boundary honesty labels on the session report.
+        assert_eq!(json["protocol"]["claimBoundary"], "closed-local-smoke");
+        assert_eq!(json["protocol"]["publicMiningEvidence"], false);
+        assert_eq!(json["protocol"]["difficultyMode"], "static-calibrated");
+        assert_eq!(json["claimBoundary"], "closed-local-smoke");
+        assert_eq!(json["publicMiningEvidence"], false);
         assert_eq!(json["driverCalls"], 3);
         assert_eq!(json["driverAnswered"], 2);
         assert_eq!(json["proofIntakeAccepted"], 2);
@@ -1652,6 +1670,7 @@ mod tests {
                 loop_class: "smoke".to_string(),
                 public_scoring_eligible: false,
                 ineligibility_reasons: vec!["controlled_local_smoke".to_string()],
+                difficulty_mode: "static-calibrated".to_string(),
             },
         };
         let actual = summary_for_log(&summary);

@@ -2776,6 +2776,12 @@ fn compute_replay_matches_runtime(state: &LocalNodeState) -> bool {
         && Some(replay.latest_c.as_str()) == state.runtime.current_c()
 }
 
+/// N1.5 (G6) — the only claim boundary this node asserts. It has no public
+/// mining mode to configure, so the honest label is a constant rather than a
+/// `LocalNodeConfig` field (avoids churning the wide Default-less config for
+/// a value that can never be anything else here).
+const CLAIM_BOUNDARY: &str = "closed-local-smoke";
+
 fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
     // Serve from the in-memory block cache. After boot the cache is
     // authoritative; commits update it synchronously via {check, append,
@@ -2814,6 +2820,13 @@ fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
             .as_ref()
             .map(|p| p.to_string_lossy().to_string()),
         "lean_checker_disabled": state.lean_checker_disabled,
+        // N1.5 (G6) — claim-boundary + difficulty-mode honesty labels so a
+        // reviewer can distinguish closed-local-smoke from public mining.
+        "claimBoundary": CLAIM_BOUNDARY,
+        "difficultyMode": state.runtime.effective_difficulty_for_head()?.mode,
+        "publicMiningEvidence": false,
+        "publicScoringEligible": false,
+        "ineligibilityReasons": Vec::<String>::new(),
     }))
 }
 
@@ -2846,6 +2859,13 @@ fn head_json(state: &LocalNodeState) -> anyhow::Result<Value> {
         "difficultyEpoch": difficulty.difficulty_epoch,
         "difficultyMode": difficulty.mode,
         "difficultyRetarget": difficulty.retarget,
+        // N1.5 (G6) — honesty labels: this node is a closed-local node, not a
+        // public-network mining surface. A reviewer can tell its responses
+        // apart from public mining evidence without scraping logs.
+        "claimBoundary": CLAIM_BOUNDARY,
+        "publicMiningEvidence": false,
+        "publicScoringEligible": false,
+        "ineligibilityReasons": Vec::<String>::new(),
         "provenance": report.provenance,
     }))
 }

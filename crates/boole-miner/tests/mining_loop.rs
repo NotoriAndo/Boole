@@ -484,6 +484,7 @@ fn mining_loop_outcome_splits_agent_runtime_from_protocol_report() {
         loop_class: "smoke".to_string(),
         public_scoring_eligible: false,
         ineligibility_reasons: vec!["open_thresholds".to_string()],
+        difficulty_mode: "static-calibrated".to_string(),
     };
     let outcome = MiningLoopOutcome { agent, protocol };
 

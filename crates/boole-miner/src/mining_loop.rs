@@ -430,6 +430,11 @@ pub struct ProtocolReport {
     pub loop_class: String,
     pub public_scoring_eligible: bool,
     pub ineligibility_reasons: Vec<String>,
+    /// N1.5 (G6) — the difficulty mode of the head this session mined
+    /// against (`static-calibrated` / `epoch-retarget-v0`), surfaced so the
+    /// report distinguishes a retarget-aware run from a static one. Set from
+    /// the fetched `ChainHead.mode`.
+    pub difficulty_mode: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -522,7 +527,12 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
         }
 
         let head = match deps.chain_head.fetch_head() {
-            Ok(h) => h,
+            Ok(h) => {
+                // N1.5 (G6) — record the difficulty mode this session mines
+                // against for the honest session report.
+                summary.protocol.difficulty_mode = h.mode.clone();
+                h
+            }
             Err(err) => {
                 log(&MiningEvent::HeadFetchFailed {
                     error: render_chain_head_error(&err),

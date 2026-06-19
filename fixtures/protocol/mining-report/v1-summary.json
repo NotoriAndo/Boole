@@ -23,7 +23,10 @@
     "publicScoringEligible": false,
     "ineligibilityReasons": [
       "controlled_local_smoke"
-    ]
+    ],
+    "difficultyMode": "static-calibrated",
+    "claimBoundary": "closed-local-smoke",
+    "publicMiningEvidence": false
   },
   "cyclesRun": 4,
   "ticketsFound": 4,
@@ -41,6 +44,9 @@
   "ineligibilityReasons": [
     "controlled_local_smoke"
   ],
+  "difficultyMode": "static-calibrated",
+  "claimBoundary": "closed-local-smoke",
+  "publicMiningEvidence": false,
   "driverCalls": 4,
   "driverAnswered": 3,
   "driverRejected": 1,
