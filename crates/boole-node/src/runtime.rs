@@ -168,15 +168,18 @@ impl RuntimeAdmissionState {
         bounty_event_ledger_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         let recovered = FileBlockStore::recover(block_path)?;
-        let replay = replay_blocks(recovered.blocks())?;
         let mut runtime = Self::new(config);
-        if let Some(policy) = &runtime.config.difficulty_retarget {
-            boole_core::validate_retargeted_difficulty(
+        // N1.3 (G2) — retarget-aware boot replay: when a retarget policy is
+        // configured, fold its difficulty validation into replay (rejects a
+        // forged epoch-boundary t_block) instead of a separate call.
+        let replay = match &runtime.config.difficulty_retarget {
+            Some(policy) => boole_core::replay_blocks_with_retarget(
                 recovered.blocks(),
                 &format!("0x{:064x}", runtime.config.policy.thresholds.t_block),
                 policy,
-            )?;
-        }
+            )?,
+            None => replay_blocks(recovered.blocks())?,
+        };
         // P1.3b — bounty-event ledger crash-mid-commit heal. The bounty-event
         // ledger is the LAST store written per block (block → reward →
         // bounty-event `credit` rows → bounty-event `share_promoted` rows →

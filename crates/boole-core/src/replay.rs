@@ -82,6 +82,21 @@ pub fn compute_block_reward_credits(
     compute_block_credits_for_reward_pks(proposer_reward_pk, share_reward_pks)
 }
 
+/// N1.3 (G2) — retarget-aware replay. Folds
+/// `validate_retargeted_difficulty` (every persisted block's `t_block` /
+/// `difficulty_epoch` / `difficulty_weight` must match what the policy
+/// computes for its height) ahead of the standard share-evidence + linkage
+/// replay. Any path that claims `difficultyMode = epoch-retarget-v0` MUST
+/// use this; `replay_blocks` stays the non-retarget-aware entry point.
+pub fn replay_blocks_with_retarget(
+    blocks: &[PersistedBlock],
+    initial_t_block: &str,
+    policy: &crate::DifficultyRetargetPolicy,
+) -> anyhow::Result<ReplayResult> {
+    crate::validate_retargeted_difficulty(blocks, initial_t_block, policy)?;
+    replay_blocks(blocks)
+}
+
 pub fn replay_blocks(blocks: &[PersistedBlock]) -> anyhow::Result<ReplayResult> {
     let mut latest_c =
         "0000000000000000000000000000000000000000000000000000000000000000".to_string();

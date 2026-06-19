@@ -91,8 +91,8 @@ pub use rejection_log::{
     RingRejectionLogger,
 };
 pub use replay::{
-    compute_block_credits, compute_block_reward_credits, replay_blocks, PersistedCredit,
-    PersistedRewardEvent, ReplayResult,
+    compute_block_credits, compute_block_reward_credits, replay_blocks,
+    replay_blocks_with_retarget, PersistedCredit, PersistedRewardEvent, ReplayResult,
 };
 pub use session_policy::{SessionPolicy, SessionState, SignerRequest};
 pub use share_pool::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
