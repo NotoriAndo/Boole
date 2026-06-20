@@ -2505,10 +2505,27 @@ struct VerifiedSubmitWork {
     route: String,
 }
 
-fn submit_session_gate(
-    state: &mut LocalNodeState,
-    body: &[u8],
-) -> Result<Option<CheckedSubmitSession>, HttpError> {
+/// Parsed wallet-submit envelope after the state-free validation gate.
+///
+/// RM2.3 (R3): the envelope parse + field/format validation is split out of
+/// `submit_session_gate` so it is directly unit-testable without booting an
+/// HTTP node or constructing a `LocalNodeState`. The owned `envelope` lets the
+/// stateful suffix re-read the `body` and `session` blocks it needs.
+#[derive(Debug)]
+struct ParsedSubmitSession {
+    submitted_by: String,
+    reward_recipient: String,
+    nonce: String,
+    envelope: Value,
+}
+
+/// State-free prefix of the submit-session gate: decode the request envelope,
+/// detect whether it carries a wallet `session` block, and validate the
+/// required fields' presence and key format. Returns `Ok(None)` for non-wallet
+/// callers (malformed JSON, no `session` object) so the legacy `submit_json`
+/// path stays in charge, and `Err` for a wallet envelope missing or malforming
+/// a required field. No `LocalNodeState` access happens here.
+fn parse_submit_session_envelope(body: &[u8]) -> Result<Option<ParsedSubmitSession>, HttpError> {
     let envelope: Value = match serde_json::from_slice(body) {
         Ok(value) => value,
         // Malformed JSON is reported by the legacy `submit_json` path so
@@ -2519,13 +2536,10 @@ fn submit_session_gate(
         Some(obj) => obj,
         None => return Ok(None),
     };
-    let session_value = match envelope_obj.get("session") {
-        Some(value) if value.is_object() => value,
+    let session_obj = match envelope_obj.get("session").and_then(Value::as_object) {
+        Some(obj) => obj,
         _ => return Ok(None),
     };
-    let session_obj = session_value
-        .as_object()
-        .expect("session value checked to be object above");
     let submitted_by = session_obj
         .get("submittedBy")
         .and_then(Value::as_str)
@@ -2541,6 +2555,34 @@ fn submit_session_gate(
     if !is_well_formed_hex32(submitted_by) {
         return Err(HttpError::malformed_pk());
     }
+    let parsed = ParsedSubmitSession {
+        submitted_by: submitted_by.to_string(),
+        reward_recipient: reward_recipient.to_string(),
+        nonce: nonce.to_string(),
+        envelope,
+    };
+    Ok(Some(parsed))
+}
+
+fn submit_session_gate(
+    state: &mut LocalNodeState,
+    body: &[u8],
+) -> Result<Option<CheckedSubmitSession>, HttpError> {
+    let parsed = match parse_submit_session_envelope(body)? {
+        Some(parsed) => parsed,
+        None => return Ok(None),
+    };
+    let envelope_obj = parsed
+        .envelope
+        .as_object()
+        .expect("parsed envelope is an object");
+    let session_obj = envelope_obj
+        .get("session")
+        .and_then(Value::as_object)
+        .expect("parsed envelope carries a session object");
+    let submitted_by = parsed.submitted_by.as_str();
+    let reward_recipient = parsed.reward_recipient.as_str();
+    let nonce = parsed.nonce.as_str();
 
     state
         .submit_nonce_ledger_path
@@ -4208,6 +4250,56 @@ mod tests {
             err.to_string().contains("rewardRecipient not credited"),
             "unexpected error: {err}"
         );
+    }
+
+    // RM2.3 (R3) — the submit-session envelope parse/validation gate is a
+    // pure function (no LocalNodeState), so it is directly unit-testable
+    // without booting an HTTP node. These cover the state-free decision
+    // points the route tests previously exercised only over HTTP.
+    #[test]
+    fn parse_submit_session_envelope_returns_none_for_non_wallet_bodies() {
+        // Malformed JSON → None (legacy submit path handles it).
+        assert!(parse_submit_session_envelope(b"not json")
+            .expect("malformed json is passthrough")
+            .is_none());
+        // Valid JSON without a `session` block → None (pre-wallet caller).
+        let body = serde_json::to_vec(&serde_json::json!({"bytes": "00"})).unwrap();
+        assert!(parse_submit_session_envelope(&body)
+            .expect("no-session is passthrough")
+            .is_none());
+    }
+
+    #[test]
+    fn parse_submit_session_envelope_rejects_missing_and_malformed_fields() {
+        let missing = serde_json::to_vec(&serde_json::json!({
+            "session": {"rewardRecipient": PK_B, "nonce": "n1"}
+        }))
+        .unwrap();
+        let err =
+            parse_submit_session_envelope(&missing).expect_err("missing submittedBy must reject");
+        assert_eq!(err.reason, "missing_field", "got: {:?}", err.reason);
+
+        let bad_pk = serde_json::to_vec(&serde_json::json!({
+            "session": {"submittedBy": "zz", "rewardRecipient": PK_B, "nonce": "n1"}
+        }))
+        .unwrap();
+        let err = parse_submit_session_envelope(&bad_pk).expect_err("malformed pk must reject");
+        assert_eq!(err.reason, "malformed_pk", "got: {:?}", err.reason);
+    }
+
+    #[test]
+    fn parse_submit_session_envelope_extracts_well_formed_session() {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "body": {"k": "v"},
+            "session": {"submittedBy": PK_A, "rewardRecipient": PK_B, "nonce": "n-42"}
+        }))
+        .unwrap();
+        let parsed = parse_submit_session_envelope(&body)
+            .expect("valid envelope parses")
+            .expect("a session block is present");
+        assert_eq!(parsed.submitted_by, PK_A);
+        assert_eq!(parsed.reward_recipient, PK_B);
+        assert_eq!(parsed.nonce, "n-42");
     }
 
     #[test]
