@@ -375,3 +375,81 @@ ZERO files were edited. The follow-up leftover-grep caught it.
 **Rule:** on this host (zsh), never `for f in $var`. Use
 `grep -rl … | xargs sed -i ''` or `for f in ${(f)var}`. After any bulk sed,
 always run the inverse grep ("leftovers: 0") before trusting the sweep.
+
+## 2026-06-19 — when changing a summary/JSON builder, run the WHOLE test module, not one test
+
+**Pattern:** N1.5 added keys (difficultyMode/claimBoundary/publicMiningEvidence)
+to `summary_for_log` in boole-miner cli.rs. I focused-ran only
+`summary_for_log_emits_nested_agent_and_protocol_reports` (the partial-key
+test) and it passed, so I committed and launched the ~14h combined gate. The
+gate FAILED at cargo-test on a SIBLING test in the same module —
+`mining_report_summary_matches_v1_artifact_contract_fixture` — which does an
+EXACT JSON equality against `fixtures/protocol/mining-report/v1-summary.json`.
+New keys → mismatch. Burned a multi-hour gate cycle. This is the THIRD time
+this class bit (E#3 + D#6 were the same "fixture mirror not synced").
+
+**Rule:** when editing any function that builds a serialized artifact
+(summary JSON, /head, /status, a report, a canon package):
+1. Run the ENTIRE test module / crate test target, not the one test you think
+   covers it — `cargo test -p <crate> --lib <module>::tests` (or the whole
+   `--lib`), not `... <module>::tests::<one_fn>`. Exact-match fixture tests
+   hide as siblings of the shape test.
+2. grep for fixtures the function is compared against:
+   `grep -rln "<one stable key from the artifact>" fixtures/` and update every
+   mirror in the SAME commit.
+3. Only then launch the full gate. A fixture-only fix is cheap; a gate restart
+   is ~14h.
+
+## 2026-06-20 — Audit a "refactor/extract" task before re-implementing it
+
+**Pattern:** RM2.3 was filed as "extract the session/submit gate into an
+axum-free, directly-testable typed function." Reading the code first showed the
+gate (`submit_session_gate`) was ALREADY an axum-free typed function with thin
+handler delegators and 16 route tests — the only unmet part of the spec's R3
+was "directly unit-testable" (it was private, covered only over HTTP). Had I
+taken the title literally I'd have rewritten a working consensus-adjacent gate
+and risked changing route behavior for no benefit.
+
+**Rule:** for any "extract / split / refactor X" slice, first read X and diff it
+against the spec's acceptance criteria line by line. Implement only the
+*residual gap*, and write down in the decision log what was already satisfied
+and why the change is the minimal closing move. The smallest behavior-preserving
+edit that makes the unmet criterion true beats a faithful-to-the-title rewrite.
+
+**Corollary (clean pure/stateful seam):** when the goal is "make validation
+directly testable," look for the state-free prefix of the function — here the
+envelope decode + field/format checks ran entirely before the first
+`LocalNodeState` access. Extracting just that prefix (returning an owned
+`ParsedSubmitSession` so the stateful suffix can re-read what it needs) gives
+direct unit tests with zero change to the stateful path. Pure prefix first, then
+delegate.
+
+## 2026-06-20 — A cargo test "hung at 0% CPU" is usually a build-lock orphan, not a test bug
+
+**Pattern:** The RM2.3 full gate appeared to "hang" at the
+wallet-session-receipt-gate stage — a test binary alive 2+ min at 0.0% CPU. I
+killed the named pids and re-ran, and it hung again on a *different* binary
+(session_store, then session_route), also 0% CPU. Chasing the no-read-timeout
+HTTP helper in those tests was a red herring: run in isolation single-threaded
+they pass in ~1s. The real cause: killing a gate by its named pids left an
+**orphaned `cargo test` process** (its parent script died, cargo kept running)
+holding the `target/debug/.cargo-lock` build lock. Every subsequent cargo
+invocation then *blocks on the flock* — which presents exactly as "process alive,
+0% CPU, no rustc children, no progress."
+
+**Rule:**
+1. Before concluding "a test hangs," check for leftover cargo/rustc/`target/
+   debug/deps/` processes: `ps -Ao pid,etime,%cpu,command | grep -E "cargo
+   test|target/debug/deps/|rustc"`. A 0%-CPU cargo with no rustc children is
+   blocked on the build lock, not computing.
+2. When killing a gate, kill the WHOLE tree including the orphan-prone cargo:
+   `pkill -9 -f "rustup/toolchains.*cargo test"; pkill -9 -f "target/debug/
+   deps/"`. Verify the process list is empty before relaunching.
+3. Do NOT run concurrent focused `cargo` commands while a full gate runs —
+   build-lock contention + load (the machine sits at load ~4–5 from background
+   dev servers) is what makes a gate look stuck. Launch the gate, then poll only
+   with non-cargo commands (`ps`, `grep` on the log).
+4. To confirm a suspected test hang is real, run that one binary in isolation
+   single-threaded (`cargo test -p <crate> --test <bin> -- --test-threads=1
+   --nocapture`) on a clean process table. If it passes fast, the "hang" was
+   lock/load, not the test.
