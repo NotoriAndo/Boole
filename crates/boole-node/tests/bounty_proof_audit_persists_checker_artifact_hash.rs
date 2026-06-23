@@ -220,6 +220,7 @@ fn accepted_lean_proof_audit_event_records_checker_artifact_hash_from_verifier_e
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         )
     });

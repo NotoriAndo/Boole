@@ -20,6 +20,7 @@ cargo run -q -p boole-node -- run-local \
   --block-store "$BLOCK_STORE" \
   --reward-store "$REWARD_LEDGER" \
   --max-requests 9 \
+  --allow-anonymous-submit \
   >/tmp/boole-node-local-mining-smoke.out \
   2>/tmp/boole-node-local-mining-smoke.err &
 PID=$!

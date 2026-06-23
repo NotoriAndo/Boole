@@ -114,6 +114,7 @@ fn status_replay_matches_runtime_recomputes_on_each_request() {
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         )
     });

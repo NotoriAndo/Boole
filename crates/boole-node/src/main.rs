@@ -123,6 +123,13 @@ struct RunLocalArgs {
     /// opt-in posture (P2.4): insecurity must be explicit, never default.
     #[arg(long = "allow-insecure-verifier", default_value_t = false)]
     allow_insecure_verifier: bool,
+    /// N2.1 — required operator opt-in to accept session-less (anonymous)
+    /// `/submit` envelopes. Off by default: a bare prover pk cannot prove it
+    /// owns the reward it claims, so anonymous submits are rejected with
+    /// `401 unauthenticated_submit` before admission. Mirrors the insecure-
+    /// verifier opt-in (P1.9) — relaxing an ownership guard must be explicit.
+    #[arg(long = "allow-anonymous-submit", default_value_t = false)]
+    allow_anonymous_submit: bool,
     #[arg(long = "max-requests")]
     max_requests: Option<usize>,
     #[arg(long, env = "GENESIS_C")]
@@ -341,6 +348,7 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             lean_checker_dir: args.lean_checker_dir,
             lean_checker_disabled: args.lean_checker_disabled,
             http_rate_limit_per_60s: None,
+            allow_anonymous_submit: args.allow_anonymous_submit,
         },
     );
     match result {

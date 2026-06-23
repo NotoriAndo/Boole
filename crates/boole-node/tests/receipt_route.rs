@@ -101,6 +101,7 @@ fn boot_with_receipt_store(max_requests: usize, receipt_store: Option<PathBuf>) 
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         )
     });

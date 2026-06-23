@@ -189,6 +189,7 @@ fn accepted_lean_proof_event_records_lean_source_and_verifier_hash() {
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         )
     });

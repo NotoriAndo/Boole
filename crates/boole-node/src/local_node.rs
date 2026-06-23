@@ -277,6 +277,14 @@ pub struct LocalNodeConfig {
     /// flooding /ready or /live during incident response cannot self-
     /// blackhole the node.
     pub http_rate_limit_per_60s: Option<usize>,
+    /// N2.1 — when `false` (the secure production default), a `/submit`
+    /// envelope that carries no agent-wallet `session` block is rejected
+    /// with `401 unauthenticated_submit` before admission: a bare prover pk
+    /// cannot prove ownership of the reward it claims. When `true`, the
+    /// legacy unauthenticated path is allowed (controlled local smoke,
+    /// pre-wallet embeddings, existing tests). The production CLI defaults
+    /// this to `false`; opt in with `--allow-anonymous-submit`.
+    pub allow_anonymous_submit: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -406,6 +414,11 @@ struct LocalNodeState {
     /// before any crypto runs so a cross-network replay attempt is
     /// rejected even if the signer's pk is on a session allow-list.
     network_id: String,
+    /// N2.1 — mirrors `LocalNodeConfig.allow_anonymous_submit`. Read by
+    /// `submit_handler` to reject session-less `/submit` envelopes with
+    /// `401 unauthenticated_submit` unless the operator explicitly opted
+    /// into the legacy unauthenticated path.
+    allow_anonymous_submit: bool,
 }
 
 #[derive(Clone)]
@@ -1168,6 +1181,7 @@ impl LocalNodeState {
                 .unwrap_or_else(|| DEFAULT_NETWORK_ID.to_string()),
             state_dir: config.state_dir,
             _state_dir_guard: state_dir_guard,
+            allow_anonymous_submit: config.allow_anonymous_submit,
         })
     }
 }
@@ -1893,6 +1907,16 @@ async fn submit_handler(
             return error_response(err);
         }
     };
+    // N2.1 — ownership proof is mandatory by default. A submit that carried
+    // no agent-wallet `session` block (`checked_session == None`) has only a
+    // bare prover pk and cannot prove it owns the reward it claims. Reject it
+    // before admission unless the operator explicitly enabled the legacy
+    // anonymous path. The session-bearing path already proved ownership
+    // (reward-recipient binding + signature) inside `submit_session_gate`.
+    if checked_session.is_none() && !guard.allow_anonymous_submit {
+        record_submit_outcome(false);
+        return error_response(HttpError::unauthenticated_submit());
+    }
     // P1.3a — burn moved INTO submit_json before block append. Do not
     // re-burn here on accepted=true; that would double-append the same
     // (pk, nonce) and surface a spurious nonce_replayed envelope.

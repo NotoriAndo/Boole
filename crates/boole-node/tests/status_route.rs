@@ -86,6 +86,7 @@ fn status_response_includes_claim_boundary_and_difficulty_mode() {
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         )
     });

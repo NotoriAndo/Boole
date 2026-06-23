@@ -453,3 +453,74 @@ invocation then *blocks on the flock* — which presents exactly as "process ali
    single-threaded (`cargo test -p <crate> --test <bin> -- --test-threads=1
    --nocapture`) on a clean process table. If it passes fast, the "hang" was
    lock/load, not the test.
+
+## 2026-06-21 — Check the precondition before starting a slice; size a default-flip's blast radius
+
+**Pattern (precondition):** "N2.1 진행해" — but N2.1's own plan named N0-pre.10 a
+*binding* precondition ("N2 전 완료 필수") on the very same submit-reject path, and
+it was unimplemented. Starting N2.1 first would have meant operating on that path
+twice with a conflict in between. Always grep the slice's "선행 게이트 / Conflict
+risk / precondition" lines AND verify the precondition is actually in the code
+(not just listed as done) before writing the first test.
+
+**Pattern (default-flip blast radius):** N2.1 added one secure-default config
+field (`allow_anonymous_submit: bool`, default false). That one field touched
+**58 `LocalNodeConfig` literals** across the workspace (node tests, cli tests,
+main.rs) because Rust struct literals must name every field. The flip also
+silently breaks any harness that exercises the now-guarded path.
+
+**Rule for a new required config field / default flip:**
+1. Count the construction sites first: `grep -rn "<StructName> {" crates/ | wc -l`.
+   If it's large, the value you choose for existing literals matters — set them
+   to the *behavior-preserving* value (here `true` = old anonymous-allowed
+   behavior) and flip the default ONLY in the production entrypoint + the RED
+   test. Patch them mechanically (`perl -i -pe` anchored on the current last
+   field, preserving indentation), then let `cargo build --workspace
+   --all-targets` (BOTH feature sets) enumerate any you missed.
+2. Trace every smoke/benchmark stage that exercises the guarded path. Distinguish
+   HTTP-handler stages (here `local-mining-smoke` → `run-local` + POST /submit →
+   AFFECTED, needs the opt-in flag) from in-process stages (here `runtime-smoke`
+   = `run_runtime_smoke`, `proof-to-block-benchmark` = `submit-lean`/`agent-proof`
+   subcommands → NOT through the handler → unaffected). Run the affected smoke in
+   isolation before the ~12h gate.
+3. Match existing wire conventions for new reason codes (snake_case here, not the
+   spec's hyphenated draft) — a staff engineer matches the surrounding code.
+
+## CI green ≠ local gate green: fresh-environment + live-advisory failures (2026-06-23)
+
+Two CI failures on main that the local full gate could not catch, because the
+gate ran in a warmer / older environment than a fresh CI runner.
+
+**Fresh-CI vs warm-local-cache (Lean checker prebuild):** the self-test job
+failed in `deep_verify_block_roundtrip` with a DeepVerifyDivergence
+(`accepted: true → false`) while the same commit's local gate passed. Root
+cause: the test re-runs `lake exec boole_check` on a proof that imports
+`Boole.Family.V0Helpers`; the checker's `.lake/build` is gitignored, so a fresh
+runner has no prebuilt olean and the import fails ("unknown module prefix
+'Boole'"). A developer's already-warm `.lake/build` masked it locally.
+- Fix: add a `lean-checker-build` gate stage (`lake build
+  Boole.Family.V0Helpers boole_check`) BEFORE cargo-test, so local and fresh CI
+  share the precondition. No runtime code performs a lake build.
+- Proof technique (avoid the cache illusion): reproduce fresh by moving the
+  built oleans aside (`mv lean/checker/.lake/build/lib/lean/Boole /tmp/...`),
+  run the real test → it fails with the EXACT CI divergence (same work_id /
+  proof_hash); run the preflight → it passes again. A worktree works too, but a
+  full cargo recompile is unnecessary when only the lean state must be fresh.
+- Rule: when a test shells out to an external tool whose build artifacts are
+  gitignored (lean/lake, generated parsers, codegen), the gate must explicitly
+  build those artifacts. A green local gate over a warm cache proves nothing
+  about a fresh runner — clear the cache locally to verify.
+
+**Live RustSec advisory (cargo audit):** the supply-chain job's `cargo audit
+--deny warnings` began failing on a commit whose self-test was green, because
+`cargo audit` fetches the live advisory DB: RUSTSEC-2026-0185 (quinn-proto
+0.11.14 remote memory exhaustion) was published after the prior green run. The
+failure is time-triggered, not change-triggered — an untouched main can go red.
+- Fix: minimal Cargo.lock-only bump (`cargo update -p quinn-proto --precise
+  0.11.15`); no Cargo.toml / reqwest update, no `audit ignore`. The crate was
+  not even in the default build tree (`cargo tree -i quinn-proto` empty), so the
+  bump is a pure lockfile change. Verify with `cargo audit --deny warnings` +
+  `cargo deny check`.
+- Rule: prefer the smallest lockfile change that clears the advisory; reach for
+  a wider dependency update or an ignore only if the patched version genuinely
+  cannot be resolved.

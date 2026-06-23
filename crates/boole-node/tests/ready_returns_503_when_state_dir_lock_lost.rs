@@ -121,6 +121,7 @@ fn ready_returns_503_when_state_dir_lock_file_removed_at_runtime() {
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         )
     });

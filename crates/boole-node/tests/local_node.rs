@@ -47,6 +47,7 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         );
         if let Err(err) = &result {
@@ -150,6 +151,7 @@ fn local_node_submit_accepts_share_without_block_when_no_proposer() {
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         )
     });
@@ -222,6 +224,7 @@ fn local_node_submit_uses_tcp_peer_ip_not_spoofed_body_ip_for_rate_limit() {
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         )
     });
@@ -300,6 +303,7 @@ fn local_node_rejects_oversized_http_body_before_json_parsing() {
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         )
     });

@@ -108,6 +108,7 @@ fn metrics_endpoint_emits_prometheus_text_format() {
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         )
     });

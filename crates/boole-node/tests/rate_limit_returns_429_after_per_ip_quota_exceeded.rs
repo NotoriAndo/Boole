@@ -113,6 +113,7 @@ fn http_rate_limit_returns_429_after_per_ip_quota_exceeded() {
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: Some(3),
+                allow_anonymous_submit: true,
             },
         )
     });

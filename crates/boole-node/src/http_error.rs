@@ -41,6 +41,16 @@ impl HttpError {
         Self::new(400, "malformed_pk")
     }
 
+    /// `POST /submit` (N2.1) when the envelope carries no agent-wallet
+    /// `session` block and the node was booted with the secure default
+    /// `allow_anonymous_submit = false`. A bare prover pk cannot prove it
+    /// owns the reward it claims, so anonymous submits are rejected before
+    /// admission rather than silently credited. Operators opt into the
+    /// legacy unauthenticated path explicitly (`--allow-anonymous-submit`).
+    pub fn unauthenticated_submit() -> Self {
+        Self::new(401, "unauthenticated_submit")
+    }
+
     /// Returned by `/sessions*` routes when the node was booted without
     /// `LocalNodeConfig.session_registry_path`. The agent-wallet plan
     /// keeps the registry opt-in so legacy embeddings can stay quiet.

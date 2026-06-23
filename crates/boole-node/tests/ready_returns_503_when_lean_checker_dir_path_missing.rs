@@ -111,6 +111,7 @@ fn ready_returns_503_when_lean_checker_dir_is_set_but_path_does_not_exist() {
                 lean_checker_dir: Some(bogus_for_thread),
                 lean_checker_disabled: false,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         )
     });

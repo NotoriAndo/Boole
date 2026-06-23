@@ -101,6 +101,7 @@ fn chunked_post_exceeding_body_cap_returns_413() {
                 lean_checker_dir: None,
                 lean_checker_disabled: true,
                 http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
             },
         )
     });
