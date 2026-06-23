@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use boole_miner::{
-    AnnounceTicketInputs, AnnounceTicketResult, SubmitClient, SubmitInputs, SubmitResult,
+    AnnounceTicketInputs, AnnounceTicketResult, SubmitClient, SubmitInputs, SubmitRejectionKind,
+    SubmitResult,
 };
 
 type CapturedRequest = Arc<Mutex<Option<(String, Vec<u8>)>>>;
@@ -195,6 +196,7 @@ fn test_submit_rejected_on_200_with_accepted_false_remaps_to_422() {
             reason: Some("bad_proof".to_string()),
             field: None,
             detail: None,
+            kind: SubmitRejectionKind::Other,
         }
     );
 }
@@ -244,6 +246,34 @@ fn test_submit_rejected_on_400_carries_field_and_detail() {
             reason: Some("bad_hex".to_string()),
             field: Some("c".to_string()),
             detail: Some("odd length".to_string()),
+            kind: SubmitRejectionKind::Other,
         }
     );
+}
+
+#[test]
+fn test_submit_stale_c_classified_from_stable_code_not_prose() {
+    // N0-pre.10 — the node tags an admission reject with accepted:false and a
+    // stable `code`, but the human-readable `decision` never says "StaleC".
+    // The parsed kind must still be StaleC so the mining loop refreshes /head.
+    let srv = CannedServer::new(
+        200,
+        br#"{"ok":false,"accepted":false,"decision":"share c trails the head; refetch","code":"stale_c","c":"00"}"#.to_vec(),
+    );
+    let client = SubmitClient::new(srv.url());
+    let res = client.submit(SubmitInputs {
+        c_hex: "00".repeat(32).as_str(),
+        pk_hex: "11".repeat(32).as_str(),
+        n_hex: "22".repeat(32).as_str(),
+        j_hex: "33".repeat(32).as_str(),
+        nonce_s_hex: "44".repeat(32).as_str(),
+        canon_bytes: b"x",
+        seed_hex: "",
+    });
+    match res {
+        SubmitResult::Rejected { kind, .. } => {
+            assert_eq!(kind, SubmitRejectionKind::StaleC);
+        }
+        other => panic!("expected Rejected, got {other:?}"),
+    }
 }

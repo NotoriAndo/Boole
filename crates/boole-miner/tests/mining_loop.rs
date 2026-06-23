@@ -1165,6 +1165,7 @@ fn test_loop_breaks_inner_when_submit_returns_stale_c() {
             ),
             field: None,
             detail: None,
+            kind: boole_miner::SubmitRejectionKind::StaleC,
         },
         AnnounceTicketResult::Observed {
             hash_hex: "def".to_string(),
@@ -1237,6 +1238,94 @@ fn test_loop_breaks_inner_when_submit_returns_stale_c() {
     assert!(
         new_c.is_none(),
         "StaleCRejection has no fresh c to surface, got {new_c:?}"
+    );
+}
+
+// N0-pre.10 — the mid-cycle head refresh must key on the typed rejection
+// `kind`, NOT a substring of the human-readable reason. A node is free to
+// reword its reject prose; as long as it tags the rejection StaleC (stable
+// `code`), the miner must still break the inner loop and re-fetch /head.
+#[test]
+fn stale_c_head_refresh_triggers_on_reason_code_not_substring() {
+    let mut head = easy_head();
+    head.m = 4;
+
+    let submitter = Arc::new(RecordingSubmitter::with_results(
+        SubmitResult::Rejected {
+            status: 422,
+            error: "not_accepted".to_string(),
+            // Deliberately omits the literal "StaleC" — only the typed kind
+            // identifies the staleness. Pre-pre.10 substring matching would
+            // miss this and silently keep grinding against a stale c.
+            reason: Some("share c trails the chain head; refetch and retry".to_string()),
+            field: None,
+            detail: None,
+            kind: boole_miner::SubmitRejectionKind::StaleC,
+        },
+        AnnounceTicketResult::Observed {
+            hash_hex: "def".to_string(),
+        },
+    ));
+    struct ArcSubmitter(Arc<RecordingSubmitter>);
+    impl Submitter for ArcSubmitter {
+        fn announce_ticket(&self, inputs: AnnounceTicketInputs<'_>) -> AnnounceTicketResult {
+            self.0.announce_ticket(inputs)
+        }
+        fn submit(&self, inputs: SubmitInputs<'_>) -> SubmitResult {
+            self.0.submit(inputs)
+        }
+    }
+
+    let events: Arc<Mutex<Vec<MiningEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = Arc::clone(&events);
+    let log_fn: Box<dyn Fn(&MiningEvent) + Send + Sync> =
+        Box::new(move |e: &MiningEvent| events_clone.lock().unwrap().push(e.clone()));
+
+    let deps = MiningLoopDeps {
+        pk: pk32(),
+        chain_head: Box::new(FixedChainHead { head }),
+        emitter: Box::new(StubTargetEmitter::new("render")),
+        driver: make_canned_proof_driver(),
+        verifier: Box::new(AcceptingVerifier),
+        canonicalizer: Box::new(StructuralCanonicalizer),
+        submit_client: Box::new(ArcSubmitter(Arc::clone(&submitter))),
+        prompt_builder: None,
+        log: Some(log_fn),
+        sleeper: None,
+    };
+    let opts = MiningLoopOptions {
+        max_cycles: Some(1),
+        deterministic_nonces: true,
+        ticket_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        share_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        submit_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        ..Default::default()
+    };
+    let summary = run_mining_loop(deps, opts);
+
+    assert_eq!(summary.protocol.shares_rejected, 1);
+    let evs = events.lock().unwrap();
+    let advances: Vec<_> = evs
+        .iter()
+        .filter_map(|e| match e {
+            MiningEvent::HeadAdvancedMidCycle { reason, .. } => Some(*reason),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        advances,
+        vec![boole_miner::HeadAdvanceReason::StaleCRejection],
+        "typed StaleC kind must trip the head refresh even when the reason \
+         prose never contains the substring \"StaleC\""
     );
 }
 

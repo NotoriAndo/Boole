@@ -78,7 +78,8 @@ pub use state::{
     StateError,
 };
 pub use submit_client::{
-    AnnounceTicketInputs, AnnounceTicketResult, SubmitClient, SubmitInputs, SubmitResult, Submitter,
+    AnnounceTicketInputs, AnnounceTicketResult, SubmitClient, SubmitInputs, SubmitRejectionKind,
+    SubmitResult, Submitter,
 };
 pub use target_emitter::{
     target_seed, FamilyV1LengthBoundTargetEmitter, FixedSeedTargetEmitter, StubTargetEmitter,

@@ -37,7 +37,8 @@ use crate::proof_intake::{
 };
 use crate::proof_package::bppk_canon_hash;
 use crate::submit_client::{
-    AnnounceTicketInputs, AnnounceTicketResult, SubmitInputs, SubmitResult, Submitter,
+    AnnounceTicketInputs, AnnounceTicketResult, SubmitInputs, SubmitRejectionKind, SubmitResult,
+    Submitter,
 };
 use crate::target_emitter::{TargetEmitArgs, TargetEmitter};
 
@@ -851,17 +852,13 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                         }
                     }
                 }
-                SubmitResult::Rejected { reason, detail, .. } => {
+                SubmitResult::Rejected { kind, .. } => {
                     summary.protocol.shares_rejected += 1;
-                    let mentions_stale_c = reason
-                        .as_deref()
-                        .map(|r| r.contains("StaleC"))
-                        .unwrap_or(false)
-                        || detail
-                            .as_deref()
-                            .map(|d| d.contains("StaleC"))
-                            .unwrap_or(false);
-                    if mentions_stale_c {
+                    // N0-pre.10 — branch on the typed rejection kind parsed
+                    // from the node's stable `code`, not a substring of the
+                    // human-readable reason. Reworded server prose can no
+                    // longer silently disable the mid-cycle head refresh.
+                    if matches!(kind, SubmitRejectionKind::StaleC) {
                         head_advanced = Some(HeadAdvanceReason::StaleCRejection);
                         log(&MiningEvent::HeadAdvancedMidCycle {
                             old_c_hex: head.c.to_hex(),

@@ -33,6 +33,18 @@ pub enum AdmissionDecision {
     },
 }
 
+impl AdmissionDecision {
+    /// Stable machine-readable rejection code, or `None` when accepted. The
+    /// node surfaces this as an additive `code` field on `/submit` rejects so
+    /// clients can branch without parsing Debug prose (N0-pre.10).
+    pub fn reject_code(&self) -> Option<&'static str> {
+        match self {
+            Self::Accepted { .. } => None,
+            Self::Rejected { rejection, .. } => Some(rejection.code()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdmissionStatus {
     BadRequest,
@@ -105,4 +117,24 @@ pub enum RejectionReason {
     SubmitPow { detail: SubmitPowRejectReason },
     RateLimit { quota: RateLimitRejectReason },
     SharePool { detail: SharePoolRejectReason },
+}
+
+impl RejectionReason {
+    /// Stable, machine-readable code for this rejection. Unlike the Debug
+    /// rendering, this string is part of the wire contract: a client may
+    /// branch on it (e.g. the miner treats `"stale_c"` as a mid-cycle
+    /// head-advance signal) without depending on human-readable prose. The
+    /// SharePool family delegates to `SharePoolRejectReason::as_str` so the
+    /// `stale_c` code is single-sourced.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::BadRequest { .. } => "bad_request",
+            Self::Decode { .. } => "decode",
+            Self::Ticket { detail } => detail.as_str(),
+            Self::Validator { .. } => "validator_rejected",
+            Self::SubmitPow { detail } => detail.as_str(),
+            Self::RateLimit { .. } => "rate_limited",
+            Self::SharePool { detail } => detail.as_str(),
+        }
+    }
 }

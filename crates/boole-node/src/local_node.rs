@@ -3971,6 +3971,11 @@ fn submit_json(
             "ok": false,
             "accepted": false,
             "decision": format!("{decision:?}"),
+            // N0-pre.10 — stable machine-readable rejection code (additive;
+            // the human-readable `decision` Debug string stays for back-compat).
+            // The miner branches on this (`stale_c` => mid-cycle head refresh)
+            // instead of substring-matching the prose.
+            "code": decision.reject_code(),
             "c": current_head(state),
         }));
     };

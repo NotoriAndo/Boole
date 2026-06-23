@@ -65,6 +65,11 @@ pub enum SubmitResult {
         reason: Option<String>,
         field: Option<String>,
         detail: Option<String>,
+        /// Typed rejection classification parsed from the node's stable
+        /// `code` field (N0-pre.10). The mining loop branches on this instead
+        /// of substring-matching `reason`/`detail`, so reworded server prose
+        /// can never silently disable a head refresh.
+        kind: SubmitRejectionKind,
     },
     RateLimited {
         reason: String,
@@ -72,6 +77,40 @@ pub enum SubmitResult {
     NetworkError {
         cause: String,
     },
+}
+
+/// Stable classification of a `/submit` rejection. Unknown codes map to
+/// `Other` so new server codes degrade gracefully rather than being
+/// misclassified.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubmitRejectionKind {
+    /// The share's `c` trails the chain head — the miner should re-fetch
+    /// `/head` and start a fresh cycle.
+    StaleC,
+    Other,
+}
+
+impl SubmitRejectionKind {
+    /// Classify from a parsed reject payload. Prefers the stable `code`
+    /// field; falls back to a substring scan of the human-readable
+    /// `decision`/`reason`/`detail` for nodes that predate the `code` field.
+    fn from_payload(payload: &serde_json::Map<String, Value>) -> Self {
+        if let Some(code) = take_string(payload, "code") {
+            return match code.as_str() {
+                "stale_c" => Self::StaleC,
+                _ => Self::Other,
+            };
+        }
+        let legacy_mentions_stale_c = ["decision", "reason", "detail"]
+            .iter()
+            .filter_map(|key| take_string(payload, key))
+            .any(|text| text.contains("StaleC"));
+        if legacy_mentions_stale_c {
+            Self::StaleC
+        } else {
+            Self::Other
+        }
+    }
 }
 
 /// Trait the mining loop consumes. Lets integration tests swap in a
@@ -162,6 +201,7 @@ impl SubmitClient {
                         .or_else(|| take_string(&payload, "reason")),
                     field: None,
                     detail: None,
+                    kind: SubmitRejectionKind::from_payload(&payload),
                 };
             }
             return SubmitResult::Accepted {
@@ -181,6 +221,7 @@ impl SubmitClient {
                 reason: take_string(&payload, "reason"),
                 field: take_string(&payload, "field"),
                 detail: take_string(&payload, "detail"),
+                kind: SubmitRejectionKind::from_payload(&payload),
             };
         }
         SubmitResult::NetworkError {
