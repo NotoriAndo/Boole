@@ -82,6 +82,63 @@ class SelfTestContractTests(unittest.TestCase):
                     f"cargo test invocation in check-rust-parity.sh missing --locked: {stripped!r}",
                 )
 
+    def test_self_test_has_lean_checker_build_step(self) -> None:
+        # Fresh-environment regression: deep_verify_block_roundtrip re-runs the
+        # Lean checker (`lake exec boole_check`) on a re-derived proof that
+        # imports `Boole.Family.V0Helpers`. On a clean CI runner the checker's
+        # `.lake/build` is empty (it is gitignored), so the import fails with
+        # "unknown module prefix 'Boole'" and the share re-verifies as
+        # accepted=false (DeepVerifyDivergence). The local gate only passes
+        # because a developer's `.lake/build` is already warm. self-test.sh must
+        # prebuild the checker artifacts so the local gate and a fresh CI runner
+        # share the same precondition.
+        body = _read(SELF_TEST)
+        self.assertRegex(
+            body,
+            re.compile(r"^\s*run_logged\s+lean-checker-build\b", re.MULTILINE),
+            "scripts/self-test.sh must declare a `lean-checker-build` stage that "
+            "prebuilds the Lean checker artifacts before cargo-test re-runs them",
+        )
+
+    def test_lean_checker_build_builds_v0helpers_and_boole_check(self) -> None:
+        body = _read(SELF_TEST)
+        lake_build_lines = [
+            line
+            for line in body.splitlines()
+            if "lake build" in line and not line.strip().startswith("#")
+        ]
+        self.assertTrue(
+            any(
+                "Boole.Family.V0Helpers" in line and "boole_check" in line
+                for line in lake_build_lines
+            ),
+            "self-test.sh lean-checker-build must run "
+            "`lake build Boole.Family.V0Helpers boole_check` so the proof's "
+            "imported module olean and the checker exe both exist before "
+            "deep_verify re-runs the checker on a fresh tree",
+        )
+
+    def test_lean_checker_build_precedes_cargo_test(self) -> None:
+        body = _read(SELF_TEST)
+        lean_idx = body.find("run_logged lean-checker-build")
+        # The cargo-test stage proper, not cargo-test-build / cargo-test-prewarm
+        # (the trailing `cargo test` token disambiguates).
+        cargo_test_match = re.search(
+            r"^\s*run_logged\s+cargo-test\s+cargo\s+test\b", body, re.MULTILINE
+        )
+        self.assertNotEqual(
+            lean_idx, -1, "self-test.sh is missing the lean-checker-build stage"
+        )
+        self.assertIsNotNone(
+            cargo_test_match, "self-test.sh cargo-test stage not found"
+        )
+        self.assertLess(
+            lean_idx,
+            cargo_test_match.start(),
+            "lean-checker-build must run before the cargo-test stage so the Lean "
+            ".olean artifacts exist when deep_verify re-runs the checker",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

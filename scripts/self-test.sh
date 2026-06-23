@@ -95,6 +95,22 @@ run_logged cargo-test-prewarm bash -c '
     fi
   done
 '
+# The cargo-test stage below runs deep_verify_block_roundtrip, which re-runs
+# the Lean checker (`lake exec boole_check`) on a re-derived proof that imports
+# `Boole.Family.V0Helpers`. The checker's `.lake/build` is gitignored, so a
+# fresh CI runner has no prebuilt olean: the import fails ("unknown module
+# prefix 'Boole'"), the checker rejects the proof, and the share re-verifies as
+# accepted=false (DeepVerifyDivergence). A developer's already-warm
+# `.lake/build` hides this locally, so the gate passes on a laptop but the same
+# commit fails on a clean runner. Prebuild the imported module's olean and the
+# checker exe here so the local gate and a fresh CI runner share the same
+# precondition. This is a gate-time build step only; no runtime code performs a
+# `lake build`.
+run_logged lean-checker-build bash -c '
+  set -euo pipefail
+  cd lean/checker
+  lake build Boole.Family.V0Helpers boole_check
+'
 run_logged cargo-test cargo test --workspace --all-targets --locked --features boole-node/dev-mock-payment,boole-miner/dev-tools
 LEGACY_POF_ROOT="${BOOLE_LEGACY_POF_ROOT:-$ROOT/../pof}"
 LEGACY_CHAIN_TS="$LEGACY_POF_ROOT/dispatcher/src/chain.ts"
