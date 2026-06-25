@@ -81,6 +81,7 @@ fn status_response_includes_node_started_at_unix_ms() {
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path: block_for_thread,
                 reward_ledger_path: None,

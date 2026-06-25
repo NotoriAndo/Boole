@@ -199,6 +199,7 @@ fn accepted_lean_proof_audit_event_records_checker_artifact_hash_from_verifier_e
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path: block_for_thread,
                 reward_ledger_path: None,

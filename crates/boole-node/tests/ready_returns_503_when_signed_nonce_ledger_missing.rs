@@ -93,6 +93,7 @@ fn ready_returns_503_when_state_dir_set_but_signed_nonce_ledger_missing() {
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path: block_for_thread,
                 reward_ledger_path: None,

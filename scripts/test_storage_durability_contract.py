@@ -43,6 +43,7 @@ DURABLE_STORES = {
     "reputation_store.rs",
     "bounty_event_store.rs",
     "signed_nonce_ledger.rs",
+    "proof_dedup_ledger.rs",
 }
 
 

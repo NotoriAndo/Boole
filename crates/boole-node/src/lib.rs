@@ -10,6 +10,7 @@ mod local_node;
 #[allow(dead_code)]
 mod nonce_ledger;
 mod proof_bridge;
+mod proof_dedup_ledger;
 mod receipt_store;
 mod reputation_store;
 mod reward_store;

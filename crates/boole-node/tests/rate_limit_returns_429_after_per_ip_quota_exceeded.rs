@@ -92,6 +92,7 @@ fn http_rate_limit_returns_429_after_per_ip_quota_exceeded() {
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path: block_for_thread,
                 reward_ledger_path: None,

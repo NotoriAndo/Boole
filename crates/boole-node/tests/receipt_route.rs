@@ -80,6 +80,7 @@ fn boot_with_receipt_store(max_requests: usize, receipt_store: Option<PathBuf>) 
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path: block_path_for_thread,
                 reward_ledger_path: None,

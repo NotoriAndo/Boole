@@ -129,6 +129,7 @@ fn boot(
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path,
                 reward_ledger_path: None,
@@ -217,6 +218,7 @@ fn boot_disk_full(label: &str) -> Boot {
         serve_local_node_with_disk_full_sentinel(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path,
                 reward_ledger_path: None,

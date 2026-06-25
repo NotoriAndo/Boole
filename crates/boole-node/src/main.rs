@@ -92,6 +92,12 @@ struct RunLocalArgs {
     /// keys on `sessionPk` for the session-bound `/submit` path.
     #[arg(long = "signed-nonce-ledger", env = "BOOLE_SIGNED_NONCE_LEDGER_PATH")]
     signed_nonce_ledger: Option<PathBuf>,
+    /// N2.3 — NDJSON ledger for the proof-dedup set. When set, a `/submit`
+    /// carrying a proof already credited (same server-computed canon hash,
+    /// under any pk) is rejected `duplicate_proof`, so one proof yields at
+    /// most one credit. Off by default (legacy embeddings stay unchanged).
+    #[arg(long = "proof-dedup-ledger", env = "BOOLE_PROOF_DEDUP_LEDGER_PATH")]
+    proof_dedup_ledger: Option<PathBuf>,
     #[arg(
         long = "submit-receipt-ledger",
         env = "BOOLE_SUBMIT_RECEIPT_LEDGER_PATH"
@@ -340,6 +346,7 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             session_registry_path: args.session_registry,
             submit_nonce_ledger_path: args.submit_nonce_ledger,
             signed_nonce_ledger_path: args.signed_nonce_ledger,
+            proof_dedup_ledger_path: args.proof_dedup_ledger,
             submit_receipt_ledger_path: args.submit_receipt_ledger,
             receipt_commitment_ledger_path: args.receipt_commitment_ledger,
             genesis_override: args.genesis,

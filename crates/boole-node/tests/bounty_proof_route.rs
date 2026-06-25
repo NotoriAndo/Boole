@@ -105,6 +105,7 @@ fn boot_with_signed_nonce_ledger(
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path: block_path_for_thread,
                 reward_ledger_path: None,

@@ -524,3 +524,39 @@ failure is time-triggered, not change-triggered — an untouched main can go red
 - Rule: prefer the smallest lockfile change that clears the advisory; reach for
   a wider dependency update or an ignore only if the patched version genuinely
   cannot be resolved.
+
+## Test/dev-loop friction: fmt-before-commit, macOS dyld, guard-after-admission (2026-06-24)
+
+**`cargo fmt` a NEW file before the gate, not after.** A freshly written test
+(N2.2) committed clean by focused test + `git diff --check`, but the full gate
+failed at its very first stage (`cargo-fmt`) on rustfmt's multi-line `assert_eq!`
+wrapping — a wasted ~full gate. Rule: run `cargo fmt --all` (or `--check`) the
+moment a new `.rs` file is written, before the focused run, so the gate never
+burns on formatting.
+
+**macOS dyld: a freshly built test binary's first `execve` blocks 30-60s.**
+cargo's atomic-rename-on-build invalidates the kernel signature cache (the same
+reason `self-test.sh` has a `cargo-test-prewarm` stage), so the first launch
+hangs inside `_dyld_start`. Wrapping a fresh binary in `timeout 15`/`timeout 60`
+(or a `sleep 6` poll) kills it mid-verification — it looks like an infinite hang
+with zero output (not even the test harness banner / `--list`). This burned a
+long debugging detour. Rule: run new tests via `cargo test` with NO short
+`timeout` and let cargo pay the dyld cost; only diagnose a "hang" as a real bug
+after the binary has launched at least once (warm signature cache).
+
+**Testing a guard that runs AFTER admission: the negative input must still pass
+admission.** N2.3's dedup check fires only on an `Accepted` submission. The
+multiminer fixture's proofs are valid POW only at the head they were generated
+against, so the second (duplicate) submit must carry `c = the live runtime head`
+after the first block — otherwise admission rejects it for `stale_c`/bad-POW
+*before* the guard, and the test passes for the wrong reason (a false GREEN that
+never exercised the feature). Confirm the test actually gates the feature with a
+behavioral RED: temporarily disable the guard (`if false && …`) and watch the
+test fail with the duplicate credited, then restore. For a consensus-path change
+this disable-then-restore is worth the extra run.
+
+**`max_requests` must equal the EXACT request count, including GETs.** The
+`boot(max)` harness stops the server after `max` requests; a balance/`/account`
+GET counts too. An under-count refuses a later request; an over-count hangs the
+final `join()`. Count every POST and GET in the test body (N2.2 and N2.3 both
+hung here first).

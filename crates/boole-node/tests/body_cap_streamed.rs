@@ -80,6 +80,7 @@ fn chunked_post_exceeding_body_cap_returns_413() {
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path,
                 reward_ledger_path: None,

@@ -77,6 +77,7 @@ fn external_shutdown_trigger_drains_and_returns_within_bounded_time() {
         serve_local_node_with_shutdown(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path: block_for_thread,
                 reward_ledger_path: None,

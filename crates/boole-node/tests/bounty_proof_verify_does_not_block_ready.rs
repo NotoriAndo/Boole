@@ -216,6 +216,7 @@ fn bounty_proof_verify_does_not_block_ready_probe() {
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path: block_for_thread,
                 reward_ledger_path: None,

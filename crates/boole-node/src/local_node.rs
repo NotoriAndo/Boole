@@ -4,6 +4,7 @@ use crate::bounty_event_store::FileBountyEventLedger;
 use crate::family_manifest_store::load_family_manifest_registry_from_dir;
 use crate::http_error::HttpError;
 use crate::nonce_ledger::FileNonceLedger;
+use crate::proof_dedup_ledger::FileProofDedupLedger;
 use crate::receipt_store::FileReceiptStore;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
 use crate::session_store::FileSessionStore;
@@ -218,6 +219,14 @@ pub struct LocalNodeConfig {
     /// gate stops at `validBefore` and the routes accept previously-seen
     /// `(signerPk, nonce)` pairs — legacy embedding behavior.
     pub signed_nonce_ledger_path: Option<PathBuf>,
+    /// N2.3 — Optional NDJSON ledger path for the proof-dedup set: the
+    /// server-computed canonical proof hashes already credited on `/submit`.
+    /// When `Some`, a second submit carrying the same proof bytes (under any
+    /// prover pk) is rejected `duplicate_proof` before any block write, so one
+    /// proof yields at most one credit (anti cross-pk farming). Recovery
+    /// rehydrates the set so the rejection survives a restart. When `None`, no
+    /// cross-pk proof dedup is enforced — legacy embedding behavior.
+    pub proof_dedup_ledger_path: Option<PathBuf>,
     /// Optional NDJSON receipt ledger for accepted session-bound `/submit`
     /// work. When configured, accepted session submits append the exact
     /// receipt returned in the HTTP response so agents can later prove the
@@ -374,6 +383,15 @@ struct LocalNodeState {
     /// operator has not opted in, in which case the six signed routes
     /// only enforce `validBefore` and accept previously-seen pairs.
     signed_nonce_ledger: Option<FileSignedNonceLedger>,
+    /// N2.3 — on-disk path for the proof-dedup ledger, mirroring the nonce
+    /// ledgers. `Some` iff `LocalNodeConfig.proof_dedup_ledger_path` is
+    /// `Some`; the `/submit` admit guard records each credited proof's canon
+    /// hash here and rejects a later submit carrying the same proof.
+    proof_dedup_ledger_path: Option<PathBuf>,
+    /// N2.3 — in-memory mirror of the proof-dedup ledger. `Some` iff
+    /// `proof_dedup_ledger_path` is `Some`; absent when the operator has not
+    /// opted in, in which case no cross-pk proof dedup is enforced.
+    proof_dedup_ledger: Option<FileProofDedupLedger>,
     /// Optional append-only receipt ledger for accepted session-bound submit
     /// artifacts. The response receipt and ledger line intentionally match.
     submit_receipt_ledger_path: Option<PathBuf>,
@@ -1143,6 +1161,10 @@ impl LocalNodeState {
             Some(path) => Some(FileSignedNonceLedger::recover(path)?),
             None => None,
         };
+        let proof_dedup_ledger = match config.proof_dedup_ledger_path.as_ref() {
+            Some(path) => Some(FileProofDedupLedger::recover(path)?),
+            None => None,
+        };
         let receipt_store = match config.receipt_commitment_ledger_path.as_ref() {
             Some(path) => Some(FileReceiptStore::recover(path)?),
             None => None,
@@ -1170,6 +1192,8 @@ impl LocalNodeState {
             nonce_ledger,
             signed_nonce_ledger_path: config.signed_nonce_ledger_path,
             signed_nonce_ledger,
+            proof_dedup_ledger_path: config.proof_dedup_ledger_path,
+            proof_dedup_ledger,
             submit_receipt_ledger_path: config.submit_receipt_ledger_path,
             receipt_commitment_ledger_path: config.receipt_commitment_ledger_path,
             receipt_store,
@@ -3934,6 +3958,18 @@ fn normalize_pow_fields(body: &mut serde_json::Map<String, Value>) {
     }
 }
 
+/// N2.3 — the server's canonical hash of a submitted proof: SHA-256 over the
+/// decoded proof package bytes (`body["bytes"]`). Mirrors the admission-layer
+/// `canon_hash` and is computed entirely server-side, so it is a forge-proof
+/// dedup key: two submits carrying the same proof collide regardless of pk or
+/// any client-supplied field. `normalize_pow_fields` only rewrites `n`/`j`/
+/// `nonceS`, never `bytes`, so this matches admission's value byte-for-byte.
+fn proof_canon_hash(body: &serde_json::Map<String, Value>) -> String {
+    let bytes_hex = body.get("bytes").and_then(Value::as_str).unwrap_or("");
+    let package = hex::decode(bytes_hex).unwrap_or_default();
+    hex::encode(Sha256::digest(&package))
+}
+
 fn submit_json(
     state: &mut LocalNodeState,
     body: &[u8],
@@ -4003,6 +4039,24 @@ fn submit_json(
             "c": current_head(state),
         }));
     };
+    // N2.3 — proof dedup. Reject a second credit for the same proof (same
+    // server-computed canonical bytes) under any pk BEFORE any durable write.
+    // Cross-pk farming of one proof must not earn two credits. The key is the
+    // node's own hash over the decoded proof package, never a client field.
+    let proof_canon_hash = proof_canon_hash(&body);
+    if state
+        .proof_dedup_ledger
+        .as_ref()
+        .is_some_and(|ledger| ledger.contains(&proof_canon_hash))
+    {
+        return Ok(json!({
+            "ok": false,
+            "accepted": false,
+            "reason": "duplicate_proof",
+            "code": "duplicate_proof",
+            "c": current_head(state),
+        }));
+    }
     // P1.3a (L7) — burn (submittedBy, nonce) to disk BEFORE any block
     // disk write. A crash that lands the block but not the burn leaves
     // an irrecoverable replay window because recovery cannot tell that
@@ -4067,6 +4121,17 @@ fn submit_json(
             &selection.shares,
             &selection.credits,
         )?;
+    // N2.3 — record the now-credited proof's canon hash so a later submit of
+    // the same proof (under any pk) is rejected by the check above. Recorded
+    // only after the block is committed, so a NoProposer/Ambiguous accept
+    // (which returns earlier without a credit) does not consume the proof's
+    // single-credit slot.
+    if let (Some(path), Some(ledger)) = (
+        state.proof_dedup_ledger_path.clone(),
+        state.proof_dedup_ledger.as_mut(),
+    ) {
+        ledger.append_credit(&path, &proof_canon_hash)?;
+    }
     // S23c — mirror the credit rows into the bounty event ledger so the
     // divergence sweep (S23d) has a parallel source to compare against.
     // P1.5b — additionally emit one `share_promoted` event per promoted

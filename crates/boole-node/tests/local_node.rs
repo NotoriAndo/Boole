@@ -26,6 +26,7 @@ fn local_node_serves_status_and_accepts_submit_into_replayable_block() {
         let result = serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: server_scenario_path,
                 block_path,
                 reward_ledger_path: None,
@@ -130,6 +131,7 @@ fn local_node_submit_accepts_share_without_block_when_no_proposer() {
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: server_scenario_path,
                 block_path: server_block_path,
                 reward_ledger_path: None,
@@ -203,6 +205,7 @@ fn local_node_submit_uses_tcp_peer_ip_not_spoofed_body_ip_for_rate_limit() {
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: server_scenario_path,
                 block_path,
                 reward_ledger_path: None,
@@ -282,6 +285,7 @@ fn local_node_rejects_oversized_http_body_before_json_parsing() {
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: server_scenario_path,
                 block_path,
                 reward_ledger_path: None,

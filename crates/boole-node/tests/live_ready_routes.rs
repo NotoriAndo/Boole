@@ -78,6 +78,7 @@ fn live_and_ready_routes_return_distinct_probe_envelopes() {
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path: block_for_thread,
                 reward_ledger_path: None,

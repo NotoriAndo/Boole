@@ -168,6 +168,7 @@ fn accepted_lean_proof_event_records_lean_source_and_verifier_hash() {
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path: block_for_thread,
                 reward_ledger_path: None,

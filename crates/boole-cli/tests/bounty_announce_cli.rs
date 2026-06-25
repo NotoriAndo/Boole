@@ -75,6 +75,7 @@ fn boot(
         serve_local_node(
             listener,
             LocalNodeConfig {
+                proof_dedup_ledger_path: None,
                 scenario_path: scenario,
                 block_path,
                 reward_ledger_path: None,
