@@ -994,4 +994,77 @@ mod tests {
         // don't panic or hang. Drop's `try_wait` returns
         // `Ok(Some(status))` so the SIGKILL branch never fires.
     }
+
+    // P1.7 characterization: the verifier runs the checker in its OWN process
+    // group (`configure_child_sandbox` -> `setpgid(0, 0)`) so a timeout kill
+    // (`kill_child_group` -> `killpg(SIGKILL)`) reaps the WHOLE group, not just
+    // the direct child. That is the real `lake -> lean` shape: `lake` forks the
+    // `lean` compiler as a grandchild. The existing `child_kill_on_drop` tests
+    // only cover a single direct child; this pins that a grandchild does NOT
+    // survive the group kill. A regression that replaced `killpg` with a
+    // single-pid `child.kill()` would leave a runaway `lean` process alive past
+    // the verifier deadline — this test would then fail (grandchild survives).
+    #[cfg(unix)]
+    #[test]
+    fn kill_child_group_reaps_grandchild_not_just_direct_child() {
+        // /bin/sh forks a backgrounded `sleep` (the grandchild), echoes its
+        // pid, then `exec`s into a long sleep so the direct child stays alive
+        // as the group leader until we kill the group. Non-interactive sh has
+        // no job control, so the background job stays in sh's process group.
+        let config = LeanRunnerConfig::new("test-group-kill");
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c")
+            .arg("sleep 60 & echo \"$!\"; exec sleep 60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_child_sandbox(&mut cmd, &config);
+        let mut child = cmd.spawn().expect("spawn group-leader child");
+
+        // Read the grandchild pid from the first stdout line.
+        let mut out = child.stdout.take().expect("piped stdout");
+        let mut line = Vec::new();
+        let mut byte = [0u8; 1];
+        loop {
+            match out.read(&mut byte) {
+                Ok(0) => break,
+                Ok(_) if byte[0] == b'\n' => break,
+                Ok(_) => line.push(byte[0]),
+                Err(_) => break,
+            }
+        }
+        let grandchild_pid: libc::pid_t = String::from_utf8_lossy(&line)
+            .trim()
+            .parse()
+            .expect("grandchild pid line");
+        assert!(grandchild_pid > 0, "grandchild pid must be positive");
+
+        // The grandchild is running before the group kill.
+        assert_eq!(
+            unsafe { libc::kill(grandchild_pid, 0) },
+            0,
+            "grandchild should be alive before the group kill"
+        );
+
+        kill_child_group(&mut child);
+        let _ = child.wait();
+
+        // killpg must have SIGKILLed the grandchild too; once its parent (the
+        // group leader) is reaped, init reaps the grandchild and `kill(pid, 0)`
+        // returns ESRCH. Poll ~1s so a regression fails instead of hanging.
+        let mut grandchild_alive = true;
+        for _ in 0..100 {
+            let rc = unsafe { libc::kill(grandchild_pid, 0) };
+            if rc == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+                grandchild_alive = false;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            !grandchild_alive,
+            "kill_child_group must SIGKILL the whole process group; grandchild \
+             pid {grandchild_pid} (the lake->lean shape) survived"
+        );
+    }
 }

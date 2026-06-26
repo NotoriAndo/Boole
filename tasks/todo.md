@@ -1,51 +1,35 @@
-# N2.3 — duplicate-proof / cross-pk farming reject — 2026-06-24
+# lean-runner process-group kill characterization — 2026-06-25
 
-Goal: EXECUTION-ORDER [8] last remnant. A `/submit` proof credited once: the
-same canonical proof bytes resubmitted under any prover pk is rejected with a
-server-computed dedup key (never a client field). origin/main=4db6174 at start.
+Groundwork before EXECUTION-ORDER [9] (lean-runner kernel-isolation ADR):
+pin the existing process-group SIGKILL guarantee with a regression guard so the
+later ADR-driven isolation work has a safety net. origin/main=9de7e2b at start.
 
-## Design (from parallel exploration)
+## Context (from isolation coverage audit)
 
-- Dedup key = `SHA256(hex::decode(body["bytes"]))` — server recomputes; matches
-  admission.rs:141 `canon_hash` (normalize_pow_fields only touches n/j/nonceS,
-  not bytes). `/submit` carries no client `proofHash`, so nothing to forge.
-- New durable ledger `proof_dedup_ledger.rs` modeled on `signed_nonce_ledger.rs`
-  (HashSet + tagged NDJSON `Credit{canonHash}` + durability helpers + recover).
-- Opt-in via `LocalNodeConfig.proof_dedup_ledger_path: Option<PathBuf>` (None =
-  no dedup, preserves ~58 existing literals). CLI `--proof-dedup-ledger`.
-- Guard in `submit_json` (write-lock held throughout):
-  - CHECK after `Accepted` match, before burn (≈4005): canon_hash in set →
-    `{ok:false, accepted:false, reason:"duplicate_proof", code:"duplicate_proof"}`
-    (200, consistent with admission-reject convention; NOT 409 — that's the
-    session-gate layer).
-  - INSERT after block commit (≈4069): record canon_hash only on actual credit
-    (NoProposer/Ambiguous early-returns do not record → "credit once").
-- Test fixture: `fixtures/protocol/runtime-smoke/multiminer.v1.json` — 3 steps,
-  identical `bytes`, different pk/n/j/nonceS.
+The verifier runs `lake exec boole_check` in its OWN process group
+(`configure_child_sandbox` -> `setpgid(0,0)`) so a timeout kill
+(`kill_child_group` -> `killpg(SIGKILL)`) reaps the whole group, including the
+`lean` compiler `lake` forks as a grandchild. The pre-existing
+`child_kill_on_drop_*` tests only cover a single direct child — the
+grandchild/process-group path was UNTESTED. (Other untested isolation gaps —
+OOM rlimit, env scrub — are platform-sensitive/Linux-only and deferred.)
 
 ## Steps
 
-- [x] proof_dedup_ledger.rs (+ 3 unit tests 3/3) + `mod` in lib.rs → GREEN
-- [x] `tests/no_duplicate_proof_credit.rs`:
-      `same_proof_under_two_pks_credits_once`,
-      `proof_dedup_key_is_server_computed_not_client_field`
-- [x] plumbing: config field + state + from_config rehydrate + 56 literals
-      (None; +new test Some + main.rs args = 58 total) + main.rs CLI flag
-      `--proof-dedup-ledger`
-- [x] guard in submit_json (CHECK after Accepted before burn; INSERT after
-      block commit so NoProposer/Ambiguous accepts do not consume the slot)
-- [x] focused GREEN 2/2 + behavioral-RED rigor check (guard `if false` → both
-      FAIL: step1 admitted at live head, block 1 credited aaaa, reason Null)
-- [ ] full gate `self-test: PASS` (consensus path — confirm runtime-smoke-all /
-      proof-to-block-benchmark green in log)
-- [ ] commit (NotoriAndo) + push + remote verify; lessons.md (fmt-before-commit,
-      dyld first-launch, guard-after-admission) folded into this push
+- [x] characterization test `kill_child_group_reaps_grandchild_not_just_direct_child`
+      (in-lib `#[cfg(unix)]`, no lake): /bin/sh forks a backgrounded sleep
+      (grandchild), real `configure_child_sandbox` groups it, `kill_child_group`
+      must reap the grandchild. GREEN (0.01s, deterministic).
+- [x] behavioral-RED rigor: `kill_child_group` -> single-pid `child.kill()`
+      (killpg removed) -> grandchild survives -> test FAILS. Restored after.
+- [ ] full gate `self-test: PASS` (boole-lean-runner is consensus-path —
+      confirm runtime-smoke-all / proof-to-block-benchmark green in log)
+- [ ] commit (NotoriAndo, test-only) + push + remote verify + CI green.
 
-## Hazards
+## Notes
 
-- Config-field blast radius: ~58 LocalNodeConfig literals → `None` (N2.1 lesson).
-- Conflict: dedup ledger must NOT be read on the consensus replay path
-  (reputation-style read-only); boot reconciler join is sibling-plan L7 (not
-  this slice).
-- macOS dyld: fresh test binary first launch is 30-60s; run via `cargo test`
-  (no short `timeout`), let it pay the cost.
+- Test-only: production `kill_child_group` unchanged (the diff is +73 lines, a
+  pure test addition).
+- Next on the master cursor after this groundwork: [9] lean-runner kernel
+  isolation ADR — an architecture decision (seccomp/landlock/namespaces/uid
+  vs current rlimits+pgroup), NOT a TDD slice; needs a design decision.
