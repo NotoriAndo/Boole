@@ -16,15 +16,19 @@ OOM rlimit, env scrub — are platform-sensitive/Linux-only and deferred.)
 
 ## Steps
 
-- [x] characterization test `kill_child_group_reaps_grandchild_not_just_direct_child`
+- [x] guard 1 `kill_child_group_reaps_grandchild_not_just_direct_child`
       (in-lib `#[cfg(unix)]`, no lake): /bin/sh forks a backgrounded sleep
       (grandchild), real `configure_child_sandbox` groups it, `kill_child_group`
-      must reap the grandchild. GREEN (0.01s, deterministic).
-- [x] behavioral-RED rigor: `kill_child_group` -> single-pid `child.kill()`
-      (killpg removed) -> grandchild survives -> test FAILS. Restored after.
+      must reap the grandchild. GREEN + behavioral-RED (single-pid kill ->
+      grandchild survives -> FAIL). **Landed `3fec7fa`, CI green.**
+- [x] guard 2 `child_environment_is_scrubbed_to_minimal_allowlist`: a secret
+      set as a Command override is wiped by `configure_child_environment`'s
+      `env_clear()` (checker cannot read operator secrets); only PATH/HOME/LANG
+      restored. Race-free (no process-env mutation). GREEN + behavioral-RED
+      (drop `env_clear()` -> `SECRET=do-not-leak` leaks -> FAIL).
 - [ ] full gate `self-test: PASS` (boole-lean-runner is consensus-path —
       confirm runtime-smoke-all / proof-to-block-benchmark green in log)
-- [ ] commit (NotoriAndo, test-only) + push + remote verify + CI green.
+- [ ] commit guard 2 (NotoriAndo, test-only) + push + remote verify + CI green.
 
 ## Notes
 

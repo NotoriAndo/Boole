@@ -1067,4 +1067,36 @@ mod tests {
              pid {grandchild_pid} (the lake->lean shape) survived"
         );
     }
+
+    // P1.7 characterization: the verifier scrubs the parent environment before
+    // running the checker (`configure_child_environment` -> `env_clear`) so a
+    // hostile proof cannot read operator secrets that happen to live in the
+    // node's process env; only a minimal allowlist (PATH/HOME/LANG) is
+    // restored. A regression that dropped `env_clear()` would let the checker
+    // observe the secret — this test would then see it echoed.
+    #[cfg(unix)]
+    #[test]
+    fn child_environment_is_scrubbed_to_minimal_allowlist() {
+        // The secret is set as a Command override BEFORE the scrub, NOT on the
+        // process env, so this is race-free under cargo's multi-threaded runner.
+        let mut cmd = Command::new("/bin/sh");
+        cmd.env("BOOLE_OPERATOR_SECRET", "do-not-leak");
+        cmd.arg("-c")
+            .arg("printf 'SECRET=%s LANG=%s' \"${BOOLE_OPERATOR_SECRET:-<absent>}\" \"${LANG:-<unset>}\"")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_child_environment(&mut cmd);
+        let output = cmd.output().expect("run checker-shaped child");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("SECRET=<absent>"),
+            "configure_child_environment must env_clear() prior vars so the \
+             checker cannot read operator secrets; got: {stdout}"
+        );
+        assert!(
+            stdout.contains("LANG=C.UTF-8"),
+            "the minimal allowlist must restore LANG=C.UTF-8; got: {stdout}"
+        );
+    }
 }
