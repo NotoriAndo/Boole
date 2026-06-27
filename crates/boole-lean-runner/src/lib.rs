@@ -1099,4 +1099,35 @@ mod tests {
             "the minimal allowlist must restore LANG=C.UTF-8; got: {stdout}"
         );
     }
+
+    // P1.7 characterization: the verifier caps the checker's CPU time via
+    // `configure_child_sandbox` -> `setrlimit(RLIMIT_CPU, (timeout_ms/1000)+5)`.
+    // This is the backstop that bounds a runaway proof on macOS, where
+    // `RLIMIT_AS` is a no-op, so the wall-clock timeout is the primary bound and
+    // RLIMIT_CPU the defence-in-depth secondary. setrlimit runs in pre_exec, so
+    // the exec'd checker inherits the cap; `ulimit -t` reports the soft limit.
+    #[cfg(unix)]
+    #[test]
+    fn configure_child_sandbox_caps_cpu_time() {
+        let config = LeanRunnerConfig::new("test-cpu-rlimit");
+        // The expected cap is derived from the default timeout: 10_000/1000 + 5.
+        assert_eq!(
+            config.timeout_ms, 10_000,
+            "test assumes the default timeout"
+        );
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c")
+            .arg("ulimit -t")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_child_sandbox(&mut cmd, &config);
+        let output = cmd.output().expect("run checker-shaped child");
+        let cpu = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert_eq!(
+            cpu, "15",
+            "configure_child_sandbox must cap checker CPU time at \
+             (timeout_ms/1000)+5 = 15s; got {cpu:?}"
+        );
+    }
 }

@@ -26,9 +26,14 @@ OOM rlimit, env scrub — are platform-sensitive/Linux-only and deferred.)
       `env_clear()` (checker cannot read operator secrets); only PATH/HOME/LANG
       restored. Race-free (no process-env mutation). GREEN + behavioral-RED
       (drop `env_clear()` -> `SECRET=do-not-leak` leaks -> FAIL).
+      **Landed `6269b73`, CI green.**
+- [x] guard 3 `configure_child_sandbox_caps_cpu_time`: `RLIMIT_CPU` =
+      (timeout_ms/1000)+5 = 15s (the runaway backstop on macOS where RLIMIT_AS
+      is a no-op), read via `ulimit -t`. GREEN + behavioral-RED (drop the
+      RLIMIT_CPU set -> child reports `unlimited` -> FAIL).
 - [ ] full gate `self-test: PASS` (boole-lean-runner is consensus-path —
       confirm runtime-smoke-all / proof-to-block-benchmark green in log)
-- [ ] commit guard 2 (NotoriAndo, test-only) + push + remote verify + CI green.
+- [ ] commit guard 3 (NotoriAndo, test-only) + push + remote verify + CI green.
 
 ## Notes
 
