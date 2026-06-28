@@ -31,9 +31,20 @@ OOM rlimit, env scrub — are platform-sensitive/Linux-only and deferred.)
       (timeout_ms/1000)+5 = 15s (the runaway backstop on macOS where RLIMIT_AS
       is a no-op), read via `ulimit -t`. GREEN + behavioral-RED (drop the
       RLIMIT_CPU set -> child reports `unlimited` -> FAIL).
-- [ ] full gate `self-test: PASS` (boole-lean-runner is consensus-path —
-      confirm runtime-smoke-all / proof-to-block-benchmark green in log)
-- [ ] commit guard 3 (NotoriAndo, test-only) + push + remote verify + CI green.
+- [x] full gate `self-test: PASS` (gate10; runtime-smoke-all / bench /
+      local-mining-smoke green; publicMiningEvidence=false).
+- [x] commit guard 3 `2100e79` (NotoriAndo, test-only) + push + remote verify +
+      CI green (self-test ✓ + supply-chain ✓).
+
+## Done — all three lean-runner isolation guards landed & CI-green
+
+`3fec7fa` process-group SIGKILL · `6269b73` env scrub · `2100e79` CPU rlimit.
+The locally-verifiable isolation surface is now pinned. Remaining gaps
+(OOM/RLIMIT_AS) are Linux-only / not locally verifiable -> deferred to the
+[9] ADR landing rather than pushed unverified.
+
+Next master-cursor item: [9] lean-runner kernel-isolation **ADR** — an
+architecture decision (논의 후 결정), drafted at `docs/adr/0008-*` (Proposed).
 
 ## Notes
 
