@@ -1,55 +1,28 @@
-# lean-runner process-group kill characterization — 2026-06-25
+# N0-pre.1 — lean-runner `#eval` forbidden token — 2026-06-29
 
-Groundwork before EXECUTION-ORDER [9] (lean-runner kernel-isolation ADR):
-pin the existing process-group SIGKILL guarantee with a regression guard so the
-later ADR-driven isolation work has a safety net. origin/main=9de7e2b at start.
+EXECUTION-ORDER [3] N0-pre 잔재 중 **N3 전 binding 선결조건**. master todo spec
+(todo-l1-network-master.md:156~) 기준. origin/main=811ebf6 at start.
 
-## Context (from isolation coverage audit)
-
-The verifier runs `lake exec boole_check` in its OWN process group
-(`configure_child_sandbox` -> `setpgid(0,0)`) so a timeout kill
-(`kill_child_group` -> `killpg(SIGKILL)`) reaps the whole group, including the
-`lean` compiler `lake` forks as a grandchild. The pre-existing
-`child_kill_on_drop_*` tests only cover a single direct child — the
-grandchild/process-group path was UNTESTED. (Other untested isolation gaps —
-OOM rlimit, env scrub — are platform-sensitive/Linux-only and deferred.)
+## Why
+`#eval` 은 임의 IO(`IO.Process.run`/`IO.FS.readFile`)를 node 권한으로 실행하고,
+Lean이 이를 에러가 아닌 side-effecting 명령으로 컴파일 → 악성 proof가 검사 중
+코드를 실행할 수 있는 구멍. peer가 proof를 보내는 N3.2부터 외부 공격면.
 
 ## Steps
-
-- [x] guard 1 `kill_child_group_reaps_grandchild_not_just_direct_child`
-      (in-lib `#[cfg(unix)]`, no lake): /bin/sh forks a backgrounded sleep
-      (grandchild), real `configure_child_sandbox` groups it, `kill_child_group`
-      must reap the grandchild. GREEN + behavioral-RED (single-pid kill ->
-      grandchild survives -> FAIL). **Landed `3fec7fa`, CI green.**
-- [x] guard 2 `child_environment_is_scrubbed_to_minimal_allowlist`: a secret
-      set as a Command override is wiped by `configure_child_environment`'s
-      `env_clear()` (checker cannot read operator secrets); only PATH/HOME/LANG
-      restored. Race-free (no process-env mutation). GREEN + behavioral-RED
-      (drop `env_clear()` -> `SECRET=do-not-leak` leaks -> FAIL).
-      **Landed `6269b73`, CI green.**
-- [x] guard 3 `configure_child_sandbox_caps_cpu_time`: `RLIMIT_CPU` =
-      (timeout_ms/1000)+5 = 15s (the runaway backstop on macOS where RLIMIT_AS
-      is a no-op), read via `ulimit -t`. GREEN + behavioral-RED (drop the
-      RLIMIT_CPU set -> child reports `unlimited` -> FAIL).
-- [x] full gate `self-test: PASS` (gate10; runtime-smoke-all / bench /
-      local-mining-smoke green; publicMiningEvidence=false).
-- [x] commit guard 3 `2100e79` (NotoriAndo, test-only) + push + remote verify +
-      CI green (self-test ✓ + supply-chain ✓).
-
-## Done — all three lean-runner isolation guards landed & CI-green
-
-`3fec7fa` process-group SIGKILL · `6269b73` env scrub · `2100e79` CPU rlimit.
-The locally-verifiable isolation surface is now pinned. Remaining gaps
-(OOM/RLIMIT_AS) are Linux-only / not locally verifiable -> deferred to the
-[9] ADR landing rather than pushed unverified.
-
-Next master-cursor item: [9] lean-runner kernel-isolation **ADR** — an
-architecture decision (논의 후 결정), drafted at `docs/adr/0008-*` (Proposed).
+- [x] RED: `check_file_rejects_eval_before_lake_spawn` (axiom 테스트 패턴 — temp
+      package dir + `#eval IO.println` proof + expect_err, lake 불필요).
+      토큰 추가 전 실행 → FAILED 확인 (lake 있으면 `#eval`이 유효 Lean이라 accepted).
+- [x] GREEN: `FORBIDDEN_TOKENS`(lib.rs)에 `(b"#eval", "#eval")` 추가
+      (기존 `blank_non_code` 어휘 처리 그대로 적용 — 주석/문자열 내 #eval 무시).
+- [x] focused: forbidden-token 13/13 GREEN (#eval 신규 + sorry/axiom/native_decide
+      무회귀).
+- [x] 모듈 doc 주석에 `#eval` 반영. fmt clean.
+- [ ] full gate `self-test: PASS` (boole-lean-runner = consensus 경로 — runtime-
+      smoke-all / proof-to-block-benchmark green 로그 직접 확인).
+- [ ] commit (NotoriAndo) + push + remote verify + CI green. EXECUTION-ORDER
+      [3] pre.1 done 표기.
 
 ## Notes
-
-- Test-only: production `kill_child_group` unchanged (the diff is +73 lines, a
-  pure test addition).
-- Next on the master cursor after this groundwork: [9] lean-runner kernel
-  isolation ADR — an architecture decision (seccomp/landlock/namespaces/uid
-  vs current rlimits+pgroup), NOT a TDD slice; needs a design decision.
+- 범위: `#eval`만 (사용자 결정: `#check`는 IO 실행 불가라 제외).
+- 사전점검: `fixtures/`·`lean/checker/Boole*`에 `#eval` 0건 → false positive 없음.
+- 남은 N0-pre: pre.3/4/5/6/7/9 (전부 작은 하드닝, 병렬).

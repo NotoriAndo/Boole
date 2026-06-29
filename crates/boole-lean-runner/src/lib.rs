@@ -16,10 +16,12 @@
 //!   recorded-but-unenforced number.
 //! - The child environment is wiped (`env_clear`) and a minimal PATH/HOME is
 //!   restored so parent secrets do not leak into the untrusted Lean process.
-//! - Proof files containing an unsound escape token (`sorry`, `axiom`, or
-//!   `native_decide`) are rejected before the checker runs: Lean compiles
-//!   `sorry` as a mere warning (returning success), trusts `axiom` blindly,
-//!   and `native_decide` discharges goals outside the trusted kernel.
+//! - Proof files containing an unsound escape token (`sorry`, `axiom`,
+//!   `native_decide`) or an arbitrary-IO command (`#eval`) are rejected before
+//!   the checker runs: Lean compiles `sorry` as a mere warning (returning
+//!   success), trusts `axiom` blindly, `native_decide` discharges goals outside
+//!   the trusted kernel, and `#eval` runs arbitrary IO (`IO.Process.run`/
+//!   `IO.FS.readFile`) with node privileges during checking.
 
 // P0.6b — boole-lean-runner is the trusted OS-syscall boundary: configuring
 // rlimits via `pre_exec` and killing process groups requires `unsafe` libc
@@ -349,6 +351,11 @@ const FORBIDDEN_TOKENS: &[(&[u8], &str)] = &[
     (b"sorry", "sorry"),
     (b"axiom", "axiom"),
     (b"native_decide", "native_decide"),
+    // N0-pre.1 — `#eval` executes arbitrary IO (`IO.Process.run`/
+    // `IO.FS.readFile`) with node privileges and Lean compiles it as a
+    // side-effecting command (not an error), so a hostile proof could run
+    // code during checking. Reject it pre-spawn like the other unsound tokens.
+    (b"#eval", "#eval"),
 ];
 
 /// Returns the first forbidden token found in `path` together with its
@@ -926,6 +933,36 @@ mod tests {
             .expect_err("native_decide must be rejected");
         assert!(
             err.to_string().contains("native_decide"),
+            "error should name the forbidden token, got: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn check_file_rejects_eval_before_lake_spawn() {
+        // N0-pre.1 — `#eval` runs arbitrary IO (`IO.Process.run`/
+        // `IO.FS.readFile`) with node privileges, and Lean compiles it as a
+        // side-effecting command rather than rejecting it. The pre-spawn
+        // forbidden-token scan must reject it before any `lake` invocation
+        // (so this test needs no lean toolchain).
+        let dir = std::env::temp_dir().join(format!(
+            "boole-fbscan-eval-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp package dir");
+        let proof = dir.join("Proof.lean");
+        std::fs::write(
+            &proof,
+            "theorem t : True := trivial\n#eval IO.println \"x\"\n",
+        )
+        .expect("write proof");
+        let runner = LeanRunner::new(LeanRunnerConfig::new("test").with_package_dir(&dir));
+        let err = runner
+            .check_file(&proof)
+            .expect_err("#eval must be rejected");
+        assert!(
+            err.to_string().contains("#eval"),
             "error should name the forbidden token, got: {err}"
         );
         let _ = std::fs::remove_dir_all(&dir);
