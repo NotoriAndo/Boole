@@ -301,6 +301,7 @@ fn driver_cfg(backend: LLMBackend, timeout: Duration) -> LLMDriverConfig {
         model: None,
         base_url: None,
         max_tokens: None,
+        allow_reasoning_as_answer: false,
     }
 }
 
@@ -748,6 +749,39 @@ fn test_openai_compat_driver_posts_to_v1_chat_completions_with_bearer_auth() {
 }
 
 #[test]
+fn empty_content_with_reasoning_is_not_answered_by_default() {
+    // N0-pre.9 — an empty `content` carrying only a `reasoning` field must NOT
+    // be promoted to the answer channel by default (proof-intake contract:
+    // answer channel only). The reasoning channel is opt-in.
+    let payload = serde_json::json!({
+        "choices": [{"message": {
+            "role": "assistant",
+            "content": "",
+            "reasoning": "let me think... by trivial",
+        }}],
+        "usage": serde_json::Value::Null,
+    });
+    let resp = HttpRunnerResponse {
+        status: 200,
+        body: serde_json::to_vec(&payload).unwrap(),
+    };
+    let http = FakeHttpRunner::new(vec![Ok(resp)]);
+    let driver = OpenAiCompatDriver::with_runner(
+        "http://localhost:11434",
+        "sk-secret",
+        "gemma3:27b",
+        4096,
+        Duration::from_secs(30),
+        Box::new(http),
+    );
+    let r = driver.generate("PROMPT");
+    assert!(
+        !matches!(r, GenerateResult::Answered { .. }),
+        "reasoning-only response must not be Answered by default, got {r:?}"
+    );
+}
+
+#[test]
 fn test_openai_compat_driver_strips_trailing_slash_from_base_url() {
     let http = FakeHttpRunner::new(vec![Ok(ok_chat_completion("by rfl", None))]);
     let driver = OpenAiCompatDriver::with_runner(
@@ -860,6 +894,8 @@ fn test_openai_compat_driver_falls_back_to_legacy_choice_text() {
 
 #[test]
 fn test_openai_compat_driver_falls_back_to_ollama_reasoning_when_content_empty() {
+    // N0-pre.9 — the reasoning-channel fallback is opt-in. With it enabled an
+    // empty `content` falls back to the `reasoning` field as before.
     let payload = serde_json::json!({
         "choices": [{"message": {
             "role": "assistant",
@@ -879,7 +915,8 @@ fn test_openai_compat_driver_falls_back_to_ollama_reasoning_when_content_empty()
         2048,
         Duration::from_secs(10),
         Box::new(http),
-    );
+    )
+    .allow_reasoning_as_answer(true);
     match driver.generate("p") {
         GenerateResult::Answered {
             answer,

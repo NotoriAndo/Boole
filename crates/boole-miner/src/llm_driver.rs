@@ -469,6 +469,12 @@ pub struct OpenAiCompatDriver {
     max_tokens: u32,
     timeout: Duration,
     http: Box<dyn HttpRunner>,
+    /// N0-pre.9 — when false (default), an empty `content` is NOT backfilled
+    /// from the `reasoning`/`reasoning_content`/`thinking` channels (proof-
+    /// intake contract: answer channel only). Operators opt in explicitly via
+    /// `LLMDriverConfig.allow_reasoning_as_answer` for models that emit the
+    /// answer on the reasoning channel.
+    allow_reasoning_as_answer: bool,
 }
 
 impl OpenAiCompatDriver {
@@ -486,6 +492,7 @@ impl OpenAiCompatDriver {
             max_tokens,
             timeout,
             http: Box::new(ReqwestHttpRunner),
+            allow_reasoning_as_answer: false,
         }
     }
 
@@ -504,7 +511,15 @@ impl OpenAiCompatDriver {
             max_tokens,
             timeout,
             http,
+            allow_reasoning_as_answer: false,
         }
+    }
+
+    /// N0-pre.9 — opt into treating the reasoning channel as the answer (for
+    /// models that emit the answer there). Off by default.
+    pub fn allow_reasoning_as_answer(mut self, allow: bool) -> Self {
+        self.allow_reasoning_as_answer = allow;
+        self
     }
 }
 
@@ -567,7 +582,8 @@ impl ProverDriver for OpenAiCompatDriver {
                 }
             }
         };
-        let text = extract_openai_compat_text(&payload).unwrap_or_default();
+        let text = extract_openai_compat_text(&payload, self.allow_reasoning_as_answer)
+            .unwrap_or_default();
         let tokens = payload
             .get("usage")
             .and_then(|u| u.get("completion_tokens"))
@@ -931,6 +947,10 @@ pub struct LLMDriverConfig {
     pub model: Option<String>,
     pub base_url: Option<String>,
     pub max_tokens: Option<u32>,
+    /// N0-pre.9 — when true, the OpenAI-compat backend may treat the reasoning
+    /// channel (reasoning / reasoning_content / thinking) as the answer. Off by
+    /// default so chain-of-thought scratchpads are not mistaken for proofs.
+    pub allow_reasoning_as_answer: bool,
 }
 
 // P0.8: hand-written `Debug` so the paid-backend `api_key` never reaches
@@ -948,6 +968,7 @@ impl std::fmt::Debug for LLMDriverConfig {
             .field("model", &self.model)
             .field("base_url", &self.base_url)
             .field("max_tokens", &self.max_tokens)
+            .field("allow_reasoning_as_answer", &self.allow_reasoning_as_answer)
             .finish()
     }
 }
@@ -1007,13 +1028,10 @@ pub fn create_driver(cfg: &LLMDriverConfig) -> Result<Box<dyn ProverDriver>, Dri
                 .clone()
                 .unwrap_or_else(|| "sk-no-key".to_string());
             let max_tokens = cfg.max_tokens.unwrap_or(OPENAI_COMPAT_DEFAULT_MAX_TOKENS);
-            Ok(Box::new(OpenAiCompatDriver::new(
-                base_url,
-                api_key,
-                model,
-                max_tokens,
-                cfg.timeout,
-            )))
+            Ok(Box::new(
+                OpenAiCompatDriver::new(base_url, api_key, model, max_tokens, cfg.timeout)
+                    .allow_reasoning_as_answer(cfg.allow_reasoning_as_answer),
+            ))
         }
         LLMBackend::Anthropic => {
             let api_key = cfg
@@ -1135,17 +1153,26 @@ pub fn with_retry(
 
 // --- Helpers --------------------------------------------------------------
 
-fn extract_openai_compat_text(payload: &serde_json::Value) -> Option<String> {
+fn extract_openai_compat_text(
+    payload: &serde_json::Value,
+    allow_reasoning: bool,
+) -> Option<String> {
     let choice = payload.get("choices")?.get(0)?;
     let message = choice.get("message");
 
-    let candidates = [
-        message.and_then(|m| m.get("content")),
-        choice.get("text"),
-        message.and_then(|m| m.get("reasoning")),
-        message.and_then(|m| m.get("reasoning_content")),
-        message.and_then(|m| m.get("thinking")),
-    ];
+    // The reasoning channel (reasoning / reasoning_content / thinking) is a
+    // model's scratchpad, not its answer. Treating it as the answer lets a
+    // model "answer" with chain-of-thought that never produced a real proof,
+    // so it is gated behind an explicit opt-in (N0-pre.9). By default only the
+    // content/text answer channels are considered.
+    let mut candidates = vec![message.and_then(|m| m.get("content")), choice.get("text")];
+    if allow_reasoning {
+        candidates.extend([
+            message.and_then(|m| m.get("reasoning")),
+            message.and_then(|m| m.get("reasoning_content")),
+            message.and_then(|m| m.get("thinking")),
+        ]);
+    }
 
     candidates
         .into_iter()

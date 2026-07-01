@@ -34,6 +34,7 @@ fn llm_driver_config_debug_redacts_api_key() {
         model: Some("claude-x".to_string()),
         base_url: None,
         max_tokens: None,
+        allow_reasoning_as_answer: false,
     };
     let dbg = format!("{cfg:?}");
     assert!(
@@ -63,6 +64,7 @@ fn llm_driver_config_debug_shows_none_when_no_api_key() {
         model: None,
         base_url: None,
         max_tokens: None,
+        allow_reasoning_as_answer: false,
     };
     let dbg = format!("{cfg:?}");
     // Presence must stay distinguishable: None renders as None, not as

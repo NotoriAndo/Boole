@@ -1138,6 +1138,8 @@ pub fn run_start_with_paid_policy_hooks(
                 model: state.config.llm.model.clone(),
                 base_url: state.config.llm.base_url.clone(),
                 max_tokens: None,
+                // N0-pre.9 — reasoning channel is never the answer by default.
+                allow_reasoning_as_answer: false,
             })?,
         }
     };
