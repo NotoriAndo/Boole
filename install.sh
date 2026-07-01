@@ -246,7 +246,22 @@ install_lean() {
 
   if ! have elan; then
     log "- elan missing; installing elan"
-    run_cmd sh -c 'curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y --default-toolchain none'
+    # N0-pre.3 — pin the elan installer to an immutable release tag (matching
+    # ci.yml's v4.2.3) and verify its sha256 before executing, instead of
+    # piping a mutable `master` script straight into a shell.
+    run_cmd sh -c '
+      set -eu
+      elan_init="$(mktemp)"
+      curl -sSfL https://raw.githubusercontent.com/leanprover/elan/v4.2.3/elan-init.sh -o "$elan_init"
+      expected="a620ff1641616222c8d37c54845492004bb84d6877cdbc944dd65c1aa685bf53"
+      if command -v sha256sum >/dev/null 2>&1; then
+        echo "$expected  $elan_init" | sha256sum -c -
+      else
+        echo "$expected  $elan_init" | shasum -a 256 -c -
+      fi
+      sh "$elan_init" -y --default-toolchain none
+      rm -f "$elan_init"
+    '
   else
     log "- elan: present"
   fi

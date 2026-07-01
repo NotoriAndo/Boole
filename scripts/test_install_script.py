@@ -35,6 +35,34 @@ class InstallScriptTests(unittest.TestCase):
             timeout=20,
         )
 
+    def test_elan_fetch_is_tag_pinned_with_checksum(self) -> None:
+        # N0-pre.3 — the elan installer must be fetched from an immutable
+        # release tag and sha256-verified before execution, not piped from a
+        # mutable `master` ref straight into a shell.
+        script = INSTALLER.read_text(encoding="utf-8")
+        elan_init_sha256 = (
+            "a620ff1641616222c8d37c54845492004bb84d6877cdbc944dd65c1aa685bf53"
+        )
+        self.assertNotIn(
+            "leanprover/elan/master/elan-init.sh",
+            script,
+            "elan must not be fetched from the mutable `master` ref",
+        )
+        self.assertIn(
+            "leanprover/elan/v4.2.3/elan-init.sh",
+            script,
+            "elan installer must be pinned to the v4.2.3 tag (matching ci.yml)",
+        )
+        self.assertIn(
+            elan_init_sha256,
+            script,
+            "install.sh must verify the elan installer sha256 before running it",
+        )
+        self.assertTrue(
+            "sha256sum -c" in script or "shasum -a 256 -c" in script,
+            "install.sh must run a checksum verification (sha256sum/shasum -c)",
+        )
+
     def test_help_documents_required_dependency_installation_and_safe_modes(self) -> None:
         proc = self.run_installer("--help")
         combined = proc.stdout + proc.stderr
