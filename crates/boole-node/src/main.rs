@@ -136,6 +136,17 @@ struct RunLocalArgs {
     /// verifier opt-in (P1.9) — relaxing an ownership guard must be explicit.
     #[arg(long = "allow-anonymous-submit", default_value_t = false)]
     allow_anonymous_submit: bool,
+    /// N0-pre.4 — enable the per-source-IP HTTP rate limiter (requests per
+    /// 60s window). The `HttpRateLimiter` has shipped since P1.7 but the
+    /// binary hardcoded it off, so an operator could not turn it on without
+    /// editing source. Absent (the default) leaves the limiter disabled, so
+    /// existing deployments are unchanged; `/live` and `/ready` are always
+    /// exempt so readiness probes can never self-blackhole the node.
+    #[arg(
+        long = "http-rate-limit-per-60s",
+        env = "BOOLE_NODE_HTTP_RATE_LIMIT_PER_60S"
+    )]
+    http_rate_limit_per_60s: Option<usize>,
     #[arg(long = "max-requests")]
     max_requests: Option<usize>,
     #[arg(long, env = "GENESIS_C")]
@@ -354,7 +365,7 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             network_id: args.network_id,
             lean_checker_dir: args.lean_checker_dir,
             lean_checker_disabled: args.lean_checker_disabled,
-            http_rate_limit_per_60s: None,
+            http_rate_limit_per_60s: args.http_rate_limit_per_60s,
             allow_anonymous_submit: args.allow_anonymous_submit,
         },
     );
