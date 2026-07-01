@@ -261,10 +261,11 @@ pub struct LocalNodeConfig {
     /// P2.6 b — Lean checker directory the operator selected at boot.
     /// `Some(path)` means the proof-verification path is wired up via
     /// `LeanBountyVerifier`; `None` means it was not configured at the
-    /// CLI. `/status` exposes this as `lean_checker_dir: <string|null>`
-    /// and `/ready` returns 503 when neither this nor
+    /// CLI. `/ready` returns 503 when neither this nor
     /// `lean_checker_disabled` is set — the master plan refuses to
-    /// silently accept a node that cannot verify proofs.
+    /// silently accept a node that cannot verify proofs. N0-pre.7 —
+    /// `/status` no longer echoes this absolute path (only the boolean
+    /// `lean_checker_disabled`); path-level diagnostics are operator-tier.
     pub lean_checker_dir: Option<PathBuf>,
     /// P2.6 b — Explicit opt-out of the Lean checker requirement, set by
     /// the operator at boot via `--lean-checker-disabled` (testnet
@@ -399,8 +400,9 @@ struct LocalNodeState {
     receipt_commitment_ledger_path: Option<PathBuf>,
     receipt_store: Option<FileReceiptStore>,
     /// P2.6 b — Lean checker directory the operator passed at boot, or
-    /// `None` if `--lean-checker-dir` was not supplied. Surfaced through
-    /// `/status.lean_checker_dir` and used by the `/ready` predicate.
+    /// `None` if `--lean-checker-dir` was not supplied. Used by the
+    /// `/ready` predicate. N0-pre.7 — no longer surfaced through `/status`
+    /// (the absolute path is operator-tier, not anonymous-visible).
     lean_checker_dir: Option<PathBuf>,
     /// P2.6 b — Explicit operator opt-out of the Lean checker
     /// requirement (`--lean-checker-disabled`). When `true`, the
@@ -2896,7 +2898,6 @@ fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
         "replayHeight": height,
         "replayLatestC": head,
         "replayMatchesRuntime": compute_replay_matches_runtime(state),
-        "blockStorePath": state.block_path.to_string_lossy(),
         "sharePoolSize": state.runtime.pool_size(),
         "familyManifestCount": state.family_manifest_registry.len(),
         "bountySidePoolTotal": state.bounty_side_pool.total_share_count(),
@@ -2904,11 +2905,12 @@ fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
         "nodeStartedAt": state.started_at_ms,
         // P2.6 b — Surface the operator's Lean-checker choice so a
         // 503 on `/ready` (reason: lean_checker_not_configured) is
-        // diagnosable purely from HTTP without scraping logs.
-        "lean_checker_dir": state
-            .lean_checker_dir
-            .as_ref()
-            .map(|p| p.to_string_lossy().to_string()),
+        // diagnosable purely from HTTP without scraping logs. N0-pre.7 —
+        // the boolean disabled flag stays (it leaks no path), but the
+        // `blockStorePath` and `lean_checker_dir` absolute paths were
+        // removed: an unauthenticated caller must not learn the operator's
+        // on-disk layout. Path-level diagnostics move to a future
+        // authenticated operator tier.
         "lean_checker_disabled": state.lean_checker_disabled,
         // N1.5 (G6) — claim-boundary + difficulty-mode honesty labels so a
         // reviewer can distinguish closed-local-smoke from public mining.

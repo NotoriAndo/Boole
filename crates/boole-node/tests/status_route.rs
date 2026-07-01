@@ -117,3 +117,81 @@ fn status_response_includes_claim_boundary_and_difficulty_mode() {
         .expect("server exits cleanly");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn status_response_contains_no_filesystem_paths() {
+    // N0-pre.7 — the unauthenticated GET /status must not leak operator
+    // absolute filesystem paths. `blockStorePath` and `lean_checker_dir`
+    // exposed the on-disk layout to any anonymous caller; operator-only
+    // diagnostics move to a future authenticated operator tier. The keys
+    // are removed outright (not masked) so no path substring survives.
+    let dir = std::env::temp_dir().join(format!(
+        "boole-status-nopaths-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let block_path = dir.join("blocks.ndjson");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let scenario = scenario_path();
+    let block_for_thread = block_path.clone();
+
+    let handle = thread::spawn(move || {
+        ready_tx.send(()).expect("ready");
+        serve_local_node(
+            listener,
+            LocalNodeConfig {
+                proof_dedup_ledger_path: None,
+                scenario_path: scenario,
+                block_path: block_for_thread,
+                reward_ledger_path: None,
+                work_manifests_path: None,
+                bounties_path: None,
+                bounty_event_ledger_path: None,
+                bounty_verifiers: None,
+                family_manifests_dir: None,
+                max_requests: Some(1),
+                operator_signer_pks: vec![],
+                session_registry_path: None,
+                submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
+                submit_receipt_ledger_path: None,
+                receipt_commitment_ledger_path: None,
+                genesis_override: None,
+                state_dir: None,
+                network_id: None,
+                lean_checker_dir: None,
+                lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
+            },
+        )
+    });
+    ready_rx.recv().expect("server ready");
+    thread::sleep(Duration::from_millis(50));
+
+    let (status, body) = http_get(addr, "/status");
+    assert_eq!(status, 200, "GET /status must return 200");
+    let obj = body
+        .as_object()
+        .expect("/status body must be a JSON object");
+    assert!(
+        !obj.contains_key("blockStorePath"),
+        "GET /status must not expose the operator's block-store filesystem \
+         path to anonymous callers; got: {body}"
+    );
+    assert!(
+        !obj.contains_key("lean_checker_dir"),
+        "GET /status must not expose the operator's Lean-checker directory \
+         path to anonymous callers; got: {body}"
+    );
+
+    handle
+        .join()
+        .expect("server thread joined")
+        .expect("server exits cleanly");
+    let _ = std::fs::remove_dir_all(&dir);
+}
