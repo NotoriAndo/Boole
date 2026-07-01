@@ -272,6 +272,13 @@ pub fn read_mcp_frame(reader: &mut impl BufRead) -> anyhow::Result<Option<String
     }
 
     let len = content_length.ok_or_else(|| anyhow::anyhow!("missing Content-Length header"))?;
+    // N0-pre.6 — cap the declared frame size before allocating, so a hostile
+    // `Content-Length` (e.g. 4 GiB) cannot drive a pre-allocation OOM bomb on
+    // the untrusted stdio transport.
+    const MCP_FRAME_MAX_BYTES: usize = 16 * 1024 * 1024;
+    if len > MCP_FRAME_MAX_BYTES {
+        anyhow::bail!("Content-Length {len} exceeds the {MCP_FRAME_MAX_BYTES}-byte frame cap");
+    }
     let mut body = vec![0u8; len];
     reader.read_exact(&mut body)?;
     let s = String::from_utf8(body)

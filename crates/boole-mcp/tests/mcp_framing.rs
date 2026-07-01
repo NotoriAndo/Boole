@@ -52,6 +52,23 @@ fn large_payload_round_trips() {
 }
 
 #[test]
+fn stdio_frame_over_max_content_length_is_rejected() {
+    // N0-pre.6 — a hostile `Content-Length` over the 16 MiB cap must be
+    // rejected BEFORE the body buffer is allocated, so it cannot drive a
+    // pre-allocation OOM bomb. (16 MiB + 1, so the test never itself
+    // allocates gigabytes.)
+    let over = 16 * 1024 * 1024 + 1;
+    let frame = format!("Content-Length: {over}\r\n\r\n");
+    let mut cursor = Cursor::new(frame.into_bytes());
+    let err = read_mcp_frame(&mut cursor).expect_err("over-cap frame must be rejected");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("cap") || msg.contains("exceeds"),
+        "rejection must cite the frame-size cap, got: {msg}"
+    );
+}
+
+#[test]
 fn missing_content_length_header_is_error() {
     // A bare body with no header at all looks like just a blank line then
     // content. Without Content-Length we should get an error.
