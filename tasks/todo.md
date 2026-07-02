@@ -1,48 +1,38 @@
-# N0-pre 잔여 마감 (pre.3/4/6/7/9) + pre.5 보류 — 2026-07-02
+# 문서 정직성 정정 — L1 적합성 리뷰 실행권고 1 (2026-07-03)
 
-EXECUTION-ORDER [3]의 N0-pre 병렬 잔여를 3개씩 2배치로 마감. 각 slice
-RED→GREEN→focused, 배치별 공유 full gate 1회, NotoriAndo author 단독 커밋,
-push, remote SHA 일치, CI green 확인. **closed-local validation만 — public/API
-benchmark claim 아님.**
+`local-docs/l1-fitness-review-2026-07-03.md` 실행권고 1 이행: 마스터플랜
+(`local-docs/todo/todo-l1-network-master.md`, operator-internal)의 "완성"
+라벨 2건 — evidence-backed replay / N0.4 `deep_verify_block` — 이 실제
+배선 상태보다 앞서 있어 정정. 기술 실사 전 자체 발견·자체 정정을 신뢰
+자산으로 기록. **closed-local 문서 작업 — public/API benchmark claim 아님.**
 
-## Batch 1 — 독립 크레이트 (충돌 0), push `c039820`, CI green
-- [x] pre.3 install.sh elan `master` → v4.2.3 tag pin + sha256 checksum
-      (portable sha256sum/shasum fallback) · contract test · `2b80317`
-- [x] pre.6 boole-mcp `read_mcp_frame` 16 MiB `MCP_FRAME_MAX_BYTES` 가드
-      (할당 전) · RED `stdio_frame_over_max_content_length_is_rejected` · `16098ba`
-- [x] pre.9 boole-miner `extract_openai_compat_text` reasoning-channel gate
-      (기본 off, `allow_reasoning_as_answer` opt-in builder + LLMDriverConfig
-      필드 7 literal) · RED `empty_content_with_reasoning_is_not_answered_by_default`,
-      기존 fallback 테스트는 opt-in으로 갱신 · `c039820`
+## 정정 전 코드 재확인 (직접 grep, 2026-07-03)
+- [x] `deep_verify_block`(boole-node `deep_verify.rs`) 호출자 전수 grep →
+      `tests/deep_verify_block_roundtrip.rs`뿐. 노드 런타임/CLI 진입점 0.
+      `boole state verify --deep`(boole-cli `main.rs`)은
+      `deep_verify_bounty_events`(bounty 원장 전용)에만 연결.
+- [x] `replay_evidence.rs::verify_selected_share_evidence` 첫 가드:
+      `selected_share_evidence.is_empty() → Ok(())` — 빈 evidence면
+      PoW/점수/커널 재검증 전체 스킵. 빈 evidence 금지 불변식 부재.
 
-## Batch 2 — boole-node (같은 크레이트, 다른 영역), push `bf00e26`, CI green
-- [x] pre.4 `--http-rate-limit-per-60s` flag (env, 기본 None) + wiring
-      hardcode `None` 제거 · CLI-spawn RED `run_local_rate_limit_flag_returns_429_over_limit`
-      (quota 2 → 3번째 429) · `53b2fc8`
-- [x] pre.7 `/status`에서 `blockStorePath`·`lean_checker_dir` 절대경로 키 제거
-      (`lean_checker_disabled` bool 유지), config doc 주석 정정 · RED
-      `status_response_contains_no_filesystem_paths` · `bf00e26`
-
-## pre.5 — 보류 (2026-07-02 사용자 결정)
-- [ ] pre.5 leanSource digest화 — **deep_verify 충돌로 보류.** 전수 조사:
-      `deep_verify.rs::reverify_lean_event`(accepted 증명 offline 재실행, ADR-0007
-      audit 증거)가 원문 leanSource 소비 + `bounty_proof_audit_persists_lean_source_and_verifier_hash`/
-      `state_verify_deep_lean_cli` 테스트가 원문 존재 단언. plan non-goal도
-      "원문 별도 아카이브=후속 결정"으로 이미 defer. **원문 아카이브 설계 시
-      재검토** — 그때까지 deep_verify audit 재실행 온전 유지. EXECUTION-ORDER
-      [3] + master todo §pre.5 배너에 결정·근거·후보방향 기록.
+## 정정 내용 (gitignored 마스터플랜 — 파일 자체는 커밋 대상 아님)
+- [x] baseline 표 "evidence-backed replay: 완성" → **evidence-optional**로
+      철회 + 표 아래 정정 배너(근거 함수/경로 인용)
+- [x] §N0 canon path summary에 2026-07-03 갱신 주석 — `deep_verify_block`
+      신설됐으나 CLI/노드 런타임 미배선
+- [x] §N0 closure에 정정 배너 — "persisted block이 real Lean으로
+      deep-verify"는 테스트 하네스 한정, 오퍼레이터 실행 경로 없음.
+      "§2 invariant 2 라이브 실존"은 재검증 가능성(persisted 필드 충분)로
+      한정해 읽음. 배선 주장은 CLI/노드 배선 착륙 전까지 금지.
+- [x] 미변경 확정: ADR-0007(설계 기록 — 배선 완료 주장 없음), tracked
+      `docs/replay-consensus.md`(legacy/no-evidence 경로 이미 명시 — 정직).
 
 ## Review
-- **결과**: N0-pre는 pre.5(보류) 제외 전부 닫힘. 5개 slice 모두 full gate
-  `self-test: PASS`(cargo-fmt/clippy/clippy-dev/lean-checker-build/runtime-smoke-all
-  6/6/proof-to-block 7케이스·17블록·replay-fail 0·divergence 0/gitleaks green),
-  양 배치 CI green, working tree clean, HEAD=origin/main=`bf00e26`.
-- **게이트 이슈**: batch1 gate가 cargo-fmt에서 1회 fail(신규 `candidates` vec
-  포맷) → `cargo fmt` 자동수정 후 재실행 PASS. 교훈: 파이프 `... | tail`은
-  self-test.sh exit code를 가리므로 exit는 별도 캡처(`; echo EXIT=$?`).
-- **방향 검증 성과**: pre.5를 plan 문구대로 바로 구현하지 않고 소비처 전수
-  grep → deep_verify 충돌 발견 → 설계 결정으로 사용자에 상신. "audit-before-
-  reimplement" 패턴(lessons) 재확인.
-- **추천 다음**: N0-pre 닫힘 → mainline은 N3. N3.2(untrusted peer 입력) binding
-  선행 = ADR-0008(lean-runner 커널 격리) 결정(seccomp/Landlock 범위·macOS
-  자세·기본값) — "논의 후 결정" 성격이라 사용자 합의 후 TDD 착륙.
+- **결과**: 마스터플랜 정정 4곳(표 라벨 1 + 배너 3). 정정문은 전부 코드
+  직접 재확인(위 grep) 근거로 작성 — 리뷰 문서 인용만으로 쓰지 않음.
+- **게이트**: docs-only tier — `scripts/docs-smoke.sh` + `git diff --check`.
+  (마스터플랜은 gitignored라 이 기록 파일만 커밋.)
+- **추천 다음**: 리뷰 실행권고 2 — N3 slice 스펙에 4건(라이브
+  `deep_verify_block` 배선 / evidence-필수 replay / 블록 선택순서 재유도 /
+  ts 앵커) 명시 편입. N3 스펙 변경은 "논의 후 결정" 성격 — 사용자 합의 후
+  착륙.
