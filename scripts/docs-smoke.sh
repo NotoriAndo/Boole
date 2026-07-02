@@ -34,7 +34,6 @@ require_file docs/settlement-report.md
 require_file docs/receipt-commitment.md
 require_file docs/verified-answer-local-mvp-closeout.md
 require_file docs/dev-mock-payment.md
-require_file docs/adr/0001-pofp-v2-canonical-widening.md
 
 # P1.8 — the dev-only mock payment doc must carry an unmistakable banner and
 # name its feature gate, and receipt-commitment.md must caveat the magic header
@@ -157,71 +156,15 @@ require_text docs/verified-answer-local-mvp-closeout.md "Definition of Done stat
 require_text docs/verified-answer-local-mvp-closeout.md "NEXT-BATCH.1 — Select the next official batch from operating evidence"
 require_text docs/verified-answer-local-mvp-closeout.md "not a feature expansion"
 
-require_text docs/adr/0001-pofp-v2-canonical-widening.md "Status: Implemented"
-require_text docs/adr/0001-pofp-v2-canonical-widening.md "POFP-v2 is the default canonical package emitted by the Rust Lean proof bridge"
-
-require_file docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md
-require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "P2.9 wallet CLI scope narrowed to init|address|sign|migrate"
-require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "Status: Implemented (2026-05-27)"
-require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "boole wallet init|unlock|lock|restore|migrate"
-require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "boole wallet init|address|sign|migrate"
-require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "stateless passphrase-per-operation model"
-require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "deferred to Wave P3"
-require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "passphrase is"
-require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "re-read on every signing operation"
-require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "no in-process secret survives a"
-require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "doc-only; no Rust source changes ride with it"
-require_text docs/adr/0002-p2-9-wallet-cli-scope-narrowed.md "closed-local wallet operation only"
-
-require_file docs/adr/0003-p2-10-testnet-path-sign-scope.md
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "P2.10 testnet-path signing scope and migration plan"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "Status: Implemented (2026-05-28)"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "testnet-path signed envelope construction"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "boole.bounty.proof.v1"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "boole.bounty.announce.v1"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "boole.bounty.status.v1"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "boole.signer.work.v1"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "sign_for_network(payload, Some(network_id))"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "explicitly excluded"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "keys.sign"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "P2.10-exempt"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "Migration sub-slice plan"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "doc-only; no Rust source changes ride with it"
-require_text docs/adr/0003-p2-10-testnet-path-sign-scope.md "closed-local testnet operability only"
-
-# P0.5 — ADR-0004 telemetry subscriber / request-id / panic-hook / metrics plan (slice 63).
-require_file docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md
-require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "Status: Accepted (2026-05-31)"
-require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "P0.5 telemetry subscriber"
-require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "request_id"
-require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "boole_panic_total"
-require_text docs/adr/0004-p0-5-telemetry-subscriber-and-observability.md "No consensus change"
-
-# P1/P2 closure batch — ADR-0005 design-decision deviations (P1.9/P1.7/P2.7/P2.6/P1.3b).
-require_file docs/adr/0005-p1-p2-closure-batch-design-decisions.md
-require_text docs/adr/0005-p1-p2-closure-batch-design-decisions.md "Status: Accepted (2026-06-04)"
-require_text docs/adr/0005-p1-p2-closure-batch-design-decisions.md "re-derive-on-mismatch heal"
-require_text docs/adr/0005-p1-p2-closure-batch-design-decisions.md "pure projection of the durable bounty-event ledger"
-require_text docs/adr/0005-p1-p2-closure-batch-design-decisions.md "runtime CLI-level opt-in"
-
-# N0-pre.11 — ADR-0007 records the live Lean-evidence binding decisions
-# (the N0 fusion design) in tracked docs; previously they lived only in
-# operator-local planning notes.
-require_file docs/adr/0007-live-lean-evidence-binding.md
-require_text docs/adr/0007-live-lean-evidence-binding.md "Status: Accepted (2026-06-11)"
-require_text docs/adr/0007-live-lean-evidence-binding.md "the miner renders; the node verifies"
-require_text docs/adr/0007-live-lean-evidence-binding.md "test/fixture builds only"
-require_text docs/adr/0007-live-lean-evidence-binding.md "legacy-skip"
-require_text docs/adr/0007-live-lean-evidence-binding.md "schema-versioned evidence object"
-require_text docs/adr/0007-live-lean-evidence-binding.md "deep_verify_block"
+# Design-decision records (ADRs) are operator-internal documents (relocated
+# 2026-07-02); their gate pins live outside this public script.
 
 # N0-pre.12 — stale tracked-docs corrections (audit R6): the migration
-# status doc carries a supersede banner with current gate figures, the
-# parity plan marks D3.2 done, and ADR-0001 cross-references ADR-0007.
+# status doc carries a supersede banner with current gate figures and the
+# parity plan marks D3.2 done.
 require_text docs/migration-status-and-next-steps.md "Superseded"
 require_text docs/migration-status-and-next-steps.md "casesPassed: 7"
 require_text docs/boole-node-cli-parity-plan.md "D3.2 (done"
-require_text docs/adr/0001-pofp-v2-canonical-widening.md "ADR-0007"
 
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"

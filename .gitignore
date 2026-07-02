@@ -1,6 +1,7 @@
 /target/
 /artifacts/
 /local-docs/
+/docs/adr/
 .DS_Store
 *.log
 .env
