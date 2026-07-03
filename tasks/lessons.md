@@ -576,3 +576,19 @@ promote it into the binding rules document (L1 master §개발 헌법 / CLAUDE.m
 the same session it is given, and leave the decision-log entry as the origin
 record. When recommending between options, argue from the north star first;
 convention-consistency is a tiebreaker, never the headline reason.
+
+## 2026-07-03 — A policy revision must reach every binding copy, or the old bottleneck survives on paper
+
+**Pattern:** the 2026-07-02 gate revision (tiered commit gates; full verification
+moved to CI) was applied to CLAUDE.md and EXECUTION-ORDER's gate-policy section,
+but the L1 master's 개발 헌법 items 5/6 kept the pre-revision text ("full gate
+before every commit" — the exact ~12h-per-commit bottleneck the revision
+removed). The user had to ask why the time-saving policy was missing from the
+constitution. Same failure shape as the north-star promotion miss caught earlier
+the same day: a rule updated in one binding place and left stale in another.
+
+**Rule:** the binding rule set lives in three places — CLAUDE.md, L1 master
+§개발 헌법, EXECUTION-ORDER §게이트 정책. Any policy change lands in all three in
+the same slice. Per-slice boilerplate that quotes a superseded policy gets one
+superseding note in the constitution (constitution wins), not case-by-case
+edits across hundreds of slice specs.
