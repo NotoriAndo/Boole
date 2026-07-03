@@ -592,3 +592,17 @@ the same day: a rule updated in one binding place and left stale in another.
 the same slice. Per-slice boilerplate that quotes a superseded policy gets one
 superseding note in the constitution (constitution wins), not case-by-case
 edits across hundreds of slice specs.
+
+## 2026-07-03 — Reports must be written for comprehension, not for the record
+
+**Pattern:** status reports to the user stacked project-internal jargon
+(invariant numbers, slice IDs, symbol names) without plain-language glosses,
+and the user had to ask for explanations in easy words. Precision belongs in
+the spec/ADR documents; the report's job is that the reader understands the
+decision and its consequences on first read.
+
+**Rule:** constitution §14 / CLAUDE.md 보고 문체: lead with the conclusion in
+one sentence; give every technical term an everyday-language gloss right next
+to it; never cite a symbol, slice number, or invariant number alone as if it
+explains itself. Write the precise version into the docs, then report the
+understandable version.
