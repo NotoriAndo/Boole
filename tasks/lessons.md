@@ -560,3 +560,19 @@ this disable-then-restore is worth the extra run.
 GET counts too. An under-count refuses a later request; an over-count hangs the
 final `join()`. Count every POST and GET in the test body (N2.2 and N2.3 both
 hung here first).
+
+## 2026-07-03 — A standing user directive belongs in the constitution, not a decision-log entry
+
+**Pattern:** the 2026-07-02 north-star directive ("optimize every proposal for a
+complete L1; existing docs/conventions are reference input, not binding — state
+any deviation and get confirmation") was recorded only inside one ADR entry of
+EXECUTION-ORDER's decision log. A day later a recommendation defaulted back to
+"consistency with the existing codebase idiom" as its primary argument, and the
+user had to ask where the directive actually lived. A log entry records that a
+decision happened once; only a rules-document entry changes future behavior.
+
+**Rule:** when the user issues a standing principle (not a one-off choice),
+promote it into the binding rules document (L1 master §개발 헌법 / CLAUDE.md) in
+the same session it is given, and leave the decision-log entry as the origin
+record. When recommending between options, argue from the north star first;
+convention-consistency is a tiebreaker, never the headline reason.
