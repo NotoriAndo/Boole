@@ -9,7 +9,9 @@
 //! (`boole-node::local_node`) and is out of scope for this replay-layer
 //! test.
 
-use boole_core::{block_hash, difficulty_weight, parse_biguint_hex, replay_blocks, Hex32, PersistedBlock};
+use boole_core::{
+    block_hash, difficulty_weight, parse_biguint_hex, replay_blocks, Hex32, PersistedBlock,
+};
 
 const ZERO: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 const T_BLOCK: &str = "0x000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
@@ -41,8 +43,7 @@ fn block_with_ts(height: u64, prev_c: &str, ts: u64) -> PersistedBlock {
         kmax_applied: 1,
         difficulty_epoch: 0,
         t_block: T_BLOCK.to_string(),
-        t_share: "0x00000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-            .to_string(),
+        t_share: "0x00000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string(),
         difficulty_weight: difficulty_weight(&t_block).unwrap().to_string(),
         dropped_below_min_score: 0,
         dropped_kernel_reject: 0,
