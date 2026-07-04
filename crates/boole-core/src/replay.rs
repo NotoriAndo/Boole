@@ -3,7 +3,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::block::PersistedBlock;
-use crate::replay_evidence::{verify_selected_share_evidence, EvidencePolicy};
+use crate::replay_evidence::{
+    verify_canonical_selection, verify_selected_share_evidence, EvidencePolicy,
+};
 use crate::{block_hash, Hex32};
 
 /// N3-pre.1 — explicit opt-in to replay a pre-evidence legacy chain (a
@@ -189,6 +191,11 @@ fn replay_blocks_with_evidence_policy(
             anyhow::bail!("block c mismatch: got {}, expected {}", block.c, expected_c);
         }
         verify_selected_share_evidence(block, evidence_policy)?;
+        // N3-pre.2 — same policy layer as the evidence check above: a
+        // no-op unless selectedShareEvidence is present (see that
+        // function's doc comment), so this never rejects a legacy
+        // evidence-less block that the policy above already allowed.
+        verify_canonical_selection(block)?;
 
         for credit in compute_block_reward_credits(block)? {
             let amount: u128 = credit.amount.parse()?;

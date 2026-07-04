@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use num_bigint::BigUint;
 
-use crate::block_builder::{PromotedBountyCredit, PromotedBountyShare};
+use crate::block_builder::{CanonicalOrderKey, PromotedBountyCredit, PromotedBountyShare};
 use crate::{difficulty_weight, parse_biguint_hex, Hex32};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +20,20 @@ pub struct SelectedShareEvidence {
     /// unchanged); empty on shares submitted without a seed.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub seed_hex: String,
+}
+
+impl SelectedShareEvidence {
+    /// N3-pre.2 — see `block_builder::compare_canonical`; this is the
+    /// same `(pk, n, j)` key `CandidateShare::canonical_order_key` hands
+    /// to that comparator, taken from the evidence a replayer actually
+    /// has instead of the builder's live candidate.
+    pub fn canonical_order_key(&self) -> CanonicalOrderKey<'_> {
+        CanonicalOrderKey {
+            pk: &self.pk,
+            n: &self.n,
+            j: &self.j,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

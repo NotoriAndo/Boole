@@ -50,8 +50,9 @@ pub use agent_events::{
 };
 pub use block::{PersistedBlock, SelectedShareEvidence};
 pub use block_builder::{
-    build_block_selection, BlockBuilderConfig, BuildSelectionResult, BuiltBlockSelection,
-    CandidateShare, PromotedBountyCredit, PromotedBountySelection, PromotedBountyShare,
+    build_block_selection, compare_canonical, BlockBuilderConfig, BuildSelectionResult,
+    BuiltBlockSelection, CandidateShare, CanonicalOrderKey, PromotedBountyCredit,
+    PromotedBountySelection, PromotedBountyShare,
 };
 pub use bounty_ledger::{validate_bounty_ledger_event, BountyEventLedger};
 pub use bounty_promotion::{select_promoted_bounty_selection, select_promoted_bounty_shares};
