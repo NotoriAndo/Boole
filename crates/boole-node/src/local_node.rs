@@ -1725,13 +1725,22 @@ fn compute_state_dir_lock_held(state: &LocalNodeState) -> bool {
 /// detect replay of direct-signed (wallet-agent) submissions across
 /// restarts, so it joins the other four as a hard precondition.
 ///
+/// N3-pre.5 (2026-07-03 review recommendation 3) adds the cross-pk
+/// proof-dedup ledger (N2.3) as a sixth hard precondition here. It
+/// remains opt-in and OFF by default for legacy embedding, but a
+/// production node that cannot persist it would leave the `/submit`
+/// cross-pk proof-farming surface open with no on-disk record to
+/// close it after a restart — this is admission-side hardening, not
+/// the consensus-level dedup rule (ADR-0012 / §N4), which still lands
+/// separately.
+///
 /// The runtime holds an in-memory handle for each ledger when its path
 /// is configured (`session_store`, `nonce_ledger`,
 /// `signed_nonce_ledger`, `submit_receipt_ledger_path`,
-/// `receipt_store`), so this predicate reads those handle fields rather
-/// than reaching back into the `LocalNodeConfig` — a future post-boot
-/// tear-down that nulls a handle flips this to `false` without further
-/// plumbing.
+/// `receipt_store`, `proof_dedup_ledger`), so this predicate reads
+/// those handle fields rather than reaching back into the
+/// `LocalNodeConfig` — a future post-boot tear-down that nulls a
+/// handle flips this to `false` without further plumbing.
 fn compute_ledgers_loaded(state: &LocalNodeState) -> bool {
     if state.state_dir.is_none() {
         return true;
@@ -1741,6 +1750,7 @@ fn compute_ledgers_loaded(state: &LocalNodeState) -> bool {
         && state.signed_nonce_ledger.is_some()
         && state.submit_receipt_ledger_path.is_some()
         && state.receipt_store.is_some()
+        && state.proof_dedup_ledger.is_some()
 }
 
 /// P0.5 slice 67 — process-wide outcome counters surfaced on `/metrics`

@@ -95,7 +95,11 @@ struct RunLocalArgs {
     /// N2.3 — NDJSON ledger for the proof-dedup set. When set, a `/submit`
     /// carrying a proof already credited (same server-computed canon hash,
     /// under any pk) is rejected `duplicate_proof`, so one proof yields at
-    /// most one credit. Off by default (legacy embeddings stay unchanged).
+    /// most one credit. Off by default for legacy embeddings (no
+    /// `--state-dir`); N3-pre.5 makes it a required `/ready` precondition
+    /// once `--state-dir` is set (production posture), alongside the other
+    /// five audit-critical ledgers — a production node must be able to
+    /// persist this set or `/ready` returns 503.
     #[arg(long = "proof-dedup-ledger", env = "BOOLE_PROOF_DEDUP_LEDGER_PATH")]
     proof_dedup_ledger: Option<PathBuf>,
     #[arg(
