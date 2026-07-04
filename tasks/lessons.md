@@ -606,3 +606,53 @@ one sentence; give every technical term an everyday-language gloss right next
 to it; never cite a symbol, slice number, or invariant number alone as if it
 explains itself. Write the precise version into the docs, then report the
 understandable version.
+
+## 2026-07-05 — Subagent commit gates must mirror CI's cheap first gates exactly
+
+**Pattern:** eight parallel worktree agents ran focused tests and even the
+heavy consensus smokes, but not `cargo fmt --all --check` or the two clippy
+`-D warnings` invocations — the first, cheapest stages of CI's self-test.
+Three PRs bounced off CI inside the first minute (fmt twice, clippy once),
+each costing a diagnose-fix-push-rerun cycle that was strictly slower than
+running the checks locally would have been. Separately, agents sharing one
+CARGO_TARGET_DIR produced false "unresolved definition" compile errors
+(cache poisoning between branches) that wasted a debugging round.
+
+**Rule:** any agent prompt that ends in "commit and push" must include the
+CI gate prefix verbatim: `cargo fmt --all --check` plus both clippy variants
+from scripts/self-test.sh, before commit. Parallel worktree agents each get
+a private CARGO_TARGET_DIR. After every push, confirm a CI run actually
+started for the new SHA (GitHub drops triggers occasionally); the documented
+`gh workflow run` dispatch is the fallback.
+
+## 2026-07-05 — Auto-merge on a stacked PR fires instantly when the base is unprotected
+
+**Pattern:** stacked slices (pre.2 on pre.1's branch, pre.6 on pre.2's)
+enabled `gh pr merge --auto --squash`, expecting to queue behind CI. Only
+`main` has required checks, so GitHub merged those PRs into the stack base
+immediately, un-gated. Net effect: three consensus slices rode one landing
+PR to main, and the default squash method would have collapsed them into a
+single commit, destroying the per-slice commit messages the plan mandates.
+
+**Rule:** in a stack, only the PR targeting main is a real gate; treat
+intermediate PRs as instant branch merges. Switch the landing PR to rebase
+merge (or rebuild the branch into one clean commit per slice before landing)
+so each slice keeps its own commit message. Check `mergeStateStatus` for
+CONFLICTING on the landing PR after siblings merge to main — first-landed
+wins, the stack pays the rebase.
+
+## 2026-07-05 — Gate scripts outside CI rot silently; baseline-verify before blaming the slice
+
+**Pattern:** N3-pre.5's commit gate (`smoke-testnet-faucet-to-block.sh`)
+failed with a 401 — not because of the slice, but because commit ecaa7c0
+(N2.1, ownership-by-default) had broken that script months of commits
+earlier. The script is not in CI's self-test, so main stayed green while a
+documented gate was unusable. The agent's triage was the right protocol:
+stash the slice, re-run the gate on clean origin/main, and only then declare
+the failure pre-existing and stop without committing.
+
+**Rule:** when a local gate fails, re-run it against unmodified origin/main
+before attributing it to the change; a pre-existing failure becomes its own
+fix-first slice (here: b4ef112) that the blocked slice then stacks on. Treat
+any gate script referenced by plans but absent from CI as suspect-stale, and
+prefer promoting such scripts into CI when they guard real invariants.
