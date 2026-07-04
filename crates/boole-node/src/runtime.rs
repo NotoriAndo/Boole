@@ -4,10 +4,12 @@ use crate::reward_store::{verify_ledger_matches_replay, FileRewardLedger};
 use boole_core::{
     admit_parsed_submission_typed, block_hash, build_block_selection, calibration_policy,
     compute_block_reward_credits, difficulty_weight, expected_retarget_difficulty_for_height,
-    parse_submission_body, replay_blocks, share_score, AdmissionDecision, AdmissionParsedDeps,
-    BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy, CalibrationReport, CandidateShare,
-    DifficultyEvidence, DifficultyRetargetPolicy, Hex32, PersistedBlock, PersistedRewardEvent,
-    PoolShare, RateLimiter, SelectedShareEvidence, SharePool,
+    parse_submission_body, replay_blocks_allow_legacy_evidence_less,
+    replay_blocks_with_retarget_allow_legacy_evidence_less, share_score, AdmissionDecision,
+    AdmissionParsedDeps, BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy,
+    CalibrationReport, CandidateShare, DifficultyEvidence, DifficultyRetargetPolicy, Hex32,
+    LegacyEvidenceOptIn, PersistedBlock, PersistedRewardEvent, PoolShare, RateLimiter,
+    SelectedShareEvidence, SharePool,
 };
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -172,13 +174,23 @@ impl RuntimeAdmissionState {
         // N1.3 (G2) — retarget-aware boot replay: when a retarget policy is
         // configured, fold its difficulty validation into replay (rejects a
         // forged epoch-boundary t_block) instead of a separate call.
+        //
+        // N3-pre.1 — this replays the node's OWN local block store (never a
+        // peer-supplied chain: there is no p2p ingest path in this codebase
+        // yet), so it opts into the legacy evidence-less path. That keeps
+        // boot compatible with pre-evidence local chains/fixtures while a
+        // future p2p ingest replay path (not this function) stays on the
+        // strict `replay_blocks`/`replay_blocks_with_retarget` entry points,
+        // which have no parameter that could accept this opt-in.
+        let opt_in = LegacyEvidenceOptIn::for_legacy_replay_only();
         let replay = match &runtime.config.difficulty_retarget {
-            Some(policy) => boole_core::replay_blocks_with_retarget(
+            Some(policy) => replay_blocks_with_retarget_allow_legacy_evidence_less(
                 recovered.blocks(),
                 &format!("0x{:064x}", runtime.config.policy.thresholds.t_block),
                 policy,
+                opt_in,
             )?,
-            None => replay_blocks(recovered.blocks())?,
+            None => replay_blocks_allow_legacy_evidence_less(recovered.blocks(), opt_in)?,
         };
         // P1.3b — bounty-event ledger crash-mid-commit heal. The bounty-event
         // ledger is the LAST store written per block (block → reward →

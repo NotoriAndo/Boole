@@ -6,9 +6,35 @@ use crate::{
     ValidationResult,
 };
 
-pub(crate) fn verify_selected_share_evidence(block: &PersistedBlock) -> anyhow::Result<()> {
+/// N3-pre.1 — internal switch for how `verify_selected_share_evidence`
+/// treats a block whose `selectedShareEvidence` is empty.
+///
+/// `Strict` is the only variant `replay_blocks` (and `replay_blocks_with_retarget`)
+/// ever pass — that is the entry point the future p2p ingest replay path
+/// will call. `AllowLegacyEvidenceLess` exists solely so a caller that
+/// explicitly holds a `crate::replay::LegacyEvidenceOptIn` (test code, or
+/// local/offline replay of a pre-evidence legacy chain) can replay blocks
+/// that predate `selectedShareEvidence`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum EvidencePolicy {
+    #[default]
+    Strict,
+    AllowLegacyEvidenceLess,
+}
+
+pub(crate) fn verify_selected_share_evidence(
+    block: &PersistedBlock,
+    policy: EvidencePolicy,
+) -> anyhow::Result<()> {
     if block.selected_share_evidence.is_empty() {
-        return Ok(());
+        return match policy {
+            EvidencePolicy::Strict => Err(anyhow::anyhow!(
+                "selected share evidence is required and must not be empty; \
+                 pass a LegacyEvidenceOptIn via replay_blocks_allow_legacy_evidence_less \
+                 to replay a pre-evidence legacy chain"
+            )),
+            EvidencePolicy::AllowLegacyEvidenceLess => Ok(()),
+        };
     }
     if block.selected_share_evidence.len() != block.selected_share_hashes.len() {
         anyhow::bail!(
