@@ -39,10 +39,8 @@ fn evidence_less_block() -> PersistedBlock {
         min_share_score_multiplier_nanos: 0,
         kmax_applied: 1,
         difficulty_epoch: 0,
-        t_block: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-            .to_string(),
-        t_share: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-            .to_string(),
+        t_block: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string(),
+        t_share: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_string(),
         difficulty_weight: "1".to_string(),
         dropped_below_min_score: 0,
         dropped_kernel_reject: 0,
