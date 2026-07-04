@@ -15,7 +15,11 @@ set -euo pipefail
 #      and asserts the unified P2.5 envelope plus the canonical
 #      `network_id=boole-testnet` the CLI POSTed to the faucet;
 #   4. drives the runtime-smoke scenario through `/ticket` + `/submit`
-#      to append at least one block, mirroring `local-mining-smoke.sh`;
+#      to append at least one block, mirroring `local-mining-smoke.sh`
+#      (including its `--allow-anonymous-submit` opt-in: the scenario's
+#      `/submit` candidates carry no agent-wallet `session` block, so
+#      since N2.1 they need the anonymous opt-in or the node's secure
+#      default rejects them `401 unauthenticated_submit`);
 #   5. asserts the node head advanced and prints a JSON transcript whose
 #      `claimBoundary` makes the closed-local scope explicit.
 #
@@ -102,6 +106,7 @@ cargo run -q -p boole-node -- run-local \
   --network-id "$NETWORK_ID" \
   --lean-checker-disabled \
   --allow-insecure-verifier \
+  --allow-anonymous-submit \
   --max-requests 9 \
   >"$NODE_OUT" 2>"$NODE_ERR" &
 NODE_PID=$!
