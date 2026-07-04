@@ -69,7 +69,7 @@ fn legacy_evidence_less_block_requires_explicit_opt_in() {
 
     // Default (strict) replay rejects it — same guarantee as above.
     assert!(
-        replay_blocks(&[block.clone()]).is_err(),
+        replay_blocks(std::slice::from_ref(&block)).is_err(),
         "strict replay must reject the evidence-less block"
     );
 
