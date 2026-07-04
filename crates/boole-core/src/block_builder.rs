@@ -117,6 +117,12 @@ impl BlockBuilderConfig {
 pub struct BuiltBlockSelection {
     pub selected: Vec<CandidateShare>,
     pub proposer_index: usize,
+    /// N3-pre.6 — how many selected shares satisfied T_block this cycle.
+    /// `1` is the ordinary case; `> 1` means two or more shares co-qualified
+    /// as proposer and `proposer_index` was chosen deterministically (the
+    /// lowest `compare_canonical` order among them) instead of refusing to
+    /// build. Diagnostics-only: it does not gate whether a block is built.
+    pub tied_proposer_count: usize,
     pub dropped_below_min_score: usize,
     pub dropped_kernel_reject: usize,
     pub truncated_by_kmax: usize,
@@ -136,12 +142,6 @@ pub struct BuiltBlockSelection {
 pub enum BuildSelectionResult {
     Ok(BuiltBlockSelection),
     NoProposer {
-        dropped_kernel_reject: usize,
-        kernel_checked_tags: Vec<u8>,
-        kernel_accepted: Vec<bool>,
-    },
-    AmbiguousProposer {
-        count: usize,
         dropped_kernel_reject: usize,
         kernel_checked_tags: Vec<u8>,
         kernel_accepted: Vec<bool>,
@@ -196,35 +196,21 @@ pub fn build_block_selection(
 
     survivors.sort_by(|a, b| compare_canonical(a.canonical_order_key(), b.canonical_order_key()));
 
-    let mut proposer_index = 0usize;
-    let mut proposer_count = 0usize;
-    for (idx, share) in survivors.iter().enumerate() {
-        let share_hash = normalize_hex256(&share.share_hash)?;
-        if share_hash < t_block {
-            proposer_index = idx;
-            proposer_count += 1;
-        }
-    }
+    let share_hashes = survivors.iter().map(|share| share.share_hash.as_str());
+    let (winner_index, tied_proposer_count) = select_qualifying_proposer(share_hashes, &t_block)?;
 
-    if proposer_count == 0 {
+    let Some(proposer_index) = winner_index else {
         return Ok(BuildSelectionResult::NoProposer {
             dropped_kernel_reject,
             kernel_checked_tags,
             kernel_accepted,
         });
-    }
-    if proposer_count > 1 {
-        return Ok(BuildSelectionResult::AmbiguousProposer {
-            count: proposer_count,
-            dropped_kernel_reject,
-            kernel_checked_tags,
-            kernel_accepted,
-        });
-    }
+    };
 
     Ok(BuildSelectionResult::Ok(BuiltBlockSelection {
         selected: survivors,
         proposer_index,
+        tied_proposer_count,
         dropped_below_min_score,
         dropped_kernel_reject,
         truncated_by_kmax,
@@ -284,6 +270,41 @@ pub fn compare_canonical(a: CanonicalOrderKey, b: CanonicalOrderKey) -> std::cmp
     a.pk.cmp(b.pk)
         .then_with(|| a.n.cmp(b.n))
         .then_with(|| a.j.cmp(b.j))
+}
+
+/// N3-pre.6 (external review A-g1, critical) — the single, shared
+/// deterministic proposer tie-break. `share_hashes` must already be in
+/// `compare_canonical` order (both call sites guarantee this: the builder
+/// sorts `survivors` with `compare_canonical` right before calling this,
+/// and `replay_evidence::verify_canonical_selection` only calls this after
+/// its own canonical-order check has passed). Among the shares satisfying
+/// `share_hash < t_block`, the first one in that canonical order wins —
+/// i.e. the lowest `compare_canonical` order among co-qualifiers.
+///
+/// Returns `(winner_index, qualifying_count)`: `winner_index` is `None`
+/// when nothing qualifies (`NoProposer`); `qualifying_count > 1` means
+/// two or more shares co-qualified and the tie was broken deterministically
+/// rather than refusing to build/verify.
+///
+/// `build_block_selection` and `replay_evidence::verify_canonical_selection`
+/// both call this exact function so a builder's tie-break winner and a
+/// replayer's re-derived winner can never be defined two different ways.
+pub fn select_qualifying_proposer<'a>(
+    share_hashes: impl Iterator<Item = &'a str>,
+    t_block: &str,
+) -> anyhow::Result<(Option<usize>, usize)> {
+    let normalized_t_block = normalize_hex256(t_block)?;
+    let mut winner_index = None;
+    let mut qualifying_count = 0usize;
+    for (idx, share_hash) in share_hashes.enumerate() {
+        if normalize_hex256(share_hash)? < normalized_t_block {
+            qualifying_count += 1;
+            if winner_index.is_none() {
+                winner_index = Some(idx);
+            }
+        }
+    }
+    Ok((winner_index, qualifying_count))
 }
 
 fn normalize_hex256(value: &str) -> anyhow::Result<String> {

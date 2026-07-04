@@ -120,14 +120,23 @@ fn replay_rejects_block_with_non_canonical_share_ordering() {
     );
 }
 
+// N3-pre.6 (external review A-g1, critical) — before this slice,
+// `build_block_selection` refused to build a block at all once two
+// shares co-qualified as proposer (`AmbiguousProposer`), so a block with
+// two T_block-satisfying selected shares could only reach replay via a
+// malicious/malformed input and replay correctly rejected it. Now the
+// builder resolves such ties deterministically instead of halting, so a
+// legitimately-committed block can carry two co-qualifying shares.
+// Replay must accept that same block on reboot/recovery — rejecting it
+// would mean a node can commit a block it can never replay again.
 #[test]
-fn replay_rejects_block_with_non_unique_proposer() {
+fn replay_accepts_block_with_co_qualifying_shares_via_tie_break() {
     let (evidence_a, hash_a) = share(PK_A, N_A, J_A);
     let (evidence_b, hash_b) = share(PK_B, N_B, J_B);
 
-    // Canonical order is correct here (A before B); the violation is that
-    // t_block = max means both selected shares satisfy T_block, so there
-    // are two candidate proposers instead of exactly one.
+    // Canonical order is correct here (A before B); t_block = max means
+    // both selected shares satisfy T_block — the same co-qualifying
+    // scenario `build_block_selection` now tie-breaks instead of halting.
     let block = block_with_shares(
         vec![evidence_a, evidence_b],
         vec![PK_A.to_string(), PK_B.to_string()],
@@ -135,12 +144,9 @@ fn replay_rejects_block_with_non_unique_proposer() {
         PK_A,
     );
 
-    let err = replay_blocks(&[block]).expect_err(
-        "replay must reject a block where more than one selected share satisfies T_block",
-    );
-    assert!(
-        err.to_string().to_lowercase().contains("proposer"),
-        "error should name the unique-proposer violation: {err}"
+    replay_blocks(&[block]).expect(
+        "replay must accept a block where more than one selected share satisfies T_block, \
+         mirroring build_block_selection's deterministic tie-break",
     );
 }
 

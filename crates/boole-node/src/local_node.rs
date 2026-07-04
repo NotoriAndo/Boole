@@ -4126,6 +4126,11 @@ fn submit_json(
         burn_submit_nonce(state, session).map_err(|err| anyhow::anyhow!("{err:?}"))?;
     }
     let accepted_tags = BTreeSet::from([canon_tag]);
+    // N3-pre.6 — two co-qualifying shares no longer stall block
+    // production (`AmbiguousProposer` is gone): `build_block_selection`
+    // now breaks the tie deterministically and returns `Ok`, so
+    // `NoProposer` (no share cleared T_block yet) is the only remaining
+    // no-block case.
     match state
         .runtime
         .build_block_selection_for_current_c(&accepted_tags)?
@@ -4138,19 +4143,6 @@ fn submit_json(
                 "shareAccepted": true,
                 "blockProduced": false,
                 "decision": "NoProposer",
-                "shareHash": share_hash.to_hex(),
-                "height": state.runtime.cached_block_count(),
-                "c": current_head(state),
-            }));
-        }
-        BuildSelectionResult::AmbiguousProposer { count, .. } => {
-            return Ok(json!({
-                "ok": true,
-                "accepted": true,
-                "shareAccepted": true,
-                "blockProduced": false,
-                "decision": "AmbiguousProposer",
-                "proposerCount": count,
                 "shareHash": share_hash.to_hex(),
                 "height": state.runtime.cached_block_count(),
                 "c": current_head(state),
