@@ -4,6 +4,45 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use boole_core::{Bounty, BountyProofVerifier, VerifyOutcome};
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
+
+/// Fixed wrapper the commissioned statement is rendered into — mirrors
+/// `family_v1_lenbound::lean_module`'s pattern: the theorem *statement* is
+/// fixed (here: the bounty's own commissioned statement, sourced from the
+/// bounty record — never from the submitter's envelope) and only the proof
+/// term after `:=` is attacker-supplied.
+const BOUNTY_NAMESPACE: &str = "BooleBountyVerifyMod";
+const BOUNTY_THEOREM: &str = "bounty_instance_thm";
+
+/// Render the commissioned `statement` and a submitted `proof_term` into
+/// the fixed Lean module the checker elaborates.
+fn render_bounty_lean_module(statement: &str, proof_term: &str) -> String {
+    format!(
+        "namespace {ns}\n\ntheorem {thm} : {statement} :=\n{proof_term}\n\nend {ns}\n",
+        ns = BOUNTY_NAMESPACE,
+        thm = BOUNTY_THEOREM,
+    )
+}
+
+/// Split a submitter-authored Lean source blob on its first top-level
+/// `:=` and return only the trimmed proof term that follows. Whatever the
+/// submitter wrote before `:=` (their own theorem name/statement) is
+/// discarded — TB.2 binds the proof to the bounty's own commissioned
+/// statement, not to anything the submitter claims.
+fn extract_proof_term(lean_source: &str) -> Result<&str, String> {
+    let (_, proof_term) = lean_source
+        .split_once(":=")
+        .ok_or_else(|| "lean envelope leanSource missing ':=' proof term".to_string())?;
+    let trimmed = proof_term.trim();
+    if trimmed.is_empty() {
+        return Err("lean envelope leanSource has an empty proof term after ':='".to_string());
+    }
+    Ok(trimmed)
+}
+
+fn content_hash_hex(text: &str) -> String {
+    hex::encode(Sha256::digest(text.as_bytes()))
+}
 
 /// Adapter that wires the existing `LeanRunner` shell-out into the
 /// `BountyProofVerifier` trait. Envelope shape: `{leanSource: "<utf8>"}`.
@@ -45,6 +84,33 @@ impl BountyProofVerifier for LeanBountyVerifier {
             .and_then(Value::as_str)
             .ok_or_else(|| "lean bounty missing verifier.metadata.verifierHash".to_string())?;
 
+        // TB.2 — bind the proof to the commissioned `problem_hash`: the
+        // statement lives in the bounty's own metadata (set at announce
+        // time), never in the submitter's envelope. Verify `problem_hash`
+        // really is that statement's content hash BEFORE running
+        // `check_file`, so a proof of an unrelated statement can no
+        // longer claim an open bounty just because it happens to type-check.
+        let statement = bounty
+            .verifier
+            .metadata
+            .get("statement")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "lean bounty missing verifier.metadata.statement".to_string())?;
+        if content_hash_hex(statement) != bounty.problem_hash {
+            let mut evidence: Map<String, Value> = Map::new();
+            evidence.insert(
+                "rejectReason".to_string(),
+                Value::String("problem_hash_mismatch".to_string()),
+            );
+            return Ok(VerifyOutcome {
+                accepted: false,
+                evidence,
+            });
+        }
+
+        let proof_term = extract_proof_term(lean_source)?;
+        let rendered_module = render_bounty_lean_module(statement, proof_term);
+
         let tmp_dir = std::env::temp_dir().join(format!(
             "boole-lean-bounty-{}-{}-{}",
             std::process::id(),
@@ -53,7 +119,7 @@ impl BountyProofVerifier for LeanBountyVerifier {
         ));
         std::fs::create_dir_all(&tmp_dir).map_err(|err| err.to_string())?;
         let proof_path = tmp_dir.join("Proof.lean");
-        std::fs::write(&proof_path, lean_source).map_err(|err| err.to_string())?;
+        std::fs::write(&proof_path, rendered_module).map_err(|err| err.to_string())?;
 
         let runner = LeanRunner::new(
             LeanRunnerConfig::new(verifier_hash).with_package_dir(self.checker_dir.clone()),
