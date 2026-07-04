@@ -1257,7 +1257,15 @@ fn state_verify(blocks_path: &Path, json: bool) -> anyhow::Result<()> {
             }),
         );
     });
-    let replay = boole_core::replay_blocks(store.blocks()).unwrap_or_else(|err| {
+    // N3-pre.1 — `state verify` is an offline/local replay tool over an
+    // operator-supplied blocks file (may predate `selectedShareEvidence`),
+    // so it opts into the legacy evidence-less path explicitly rather than
+    // relying on strict `replay_blocks`.
+    let replay = boole_core::replay_blocks_allow_legacy_evidence_less(
+        store.blocks(),
+        boole_core::LegacyEvidenceOptIn::for_legacy_replay_only(),
+    )
+    .unwrap_or_else(|err| {
         if json {
             state_verify_emit_err(
                 "replay-mismatch",
@@ -1351,7 +1359,15 @@ fn replay_fixture(path: &Path, json: bool) -> anyhow::Result<()> {
             }),
         );
     });
-    let replay = boole_core::replay_blocks(&fixture.blocks).unwrap_or_else(|err| {
+    // N3-pre.1 — `chain replay` replays an operator-supplied fixture file
+    // offline (may predate `selectedShareEvidence`), so it opts into the
+    // legacy evidence-less path explicitly rather than relying on strict
+    // `replay_blocks`.
+    let replay = boole_core::replay_blocks_allow_legacy_evidence_less(
+        &fixture.blocks,
+        boole_core::LegacyEvidenceOptIn::for_legacy_replay_only(),
+    )
+    .unwrap_or_else(|err| {
         if json {
             chain_replay_emit_err(
                 "replay-mismatch",

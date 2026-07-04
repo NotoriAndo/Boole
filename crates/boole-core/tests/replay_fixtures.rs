@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
 use boole_core::{
-    block_hash, compute_block_reward_credits, replay_blocks, share_hash, Hex32, PersistedBlock,
-    PersistedRewardEvent, SelectedShareEvidence,
+    block_hash, compute_block_reward_credits, replay_blocks,
+    replay_blocks_allow_legacy_evidence_less, share_hash, Hex32, LegacyEvidenceOptIn,
+    PersistedBlock, PersistedRewardEvent, SelectedShareEvidence,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -25,7 +26,14 @@ struct Expected {
 
 #[test]
 fn replay_matches_typescript_golden_fixture() {
-    assert_replay_fixture_matches(include_str!("../../../fixtures/protocol/replay/v1.json"));
+    // v1.json is the legacy TypeScript-derived fixture and predates
+    // `selectedShareEvidence` (see docs/replay-consensus.md); it replays
+    // via the explicit N3-pre.1 legacy opt-in, not the strict-by-default
+    // `replay_blocks` used by every other test in this file.
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
+            .expect("fixture parses");
+    assert_legacy_replay_fixture(fixture);
 }
 
 #[test]
@@ -45,12 +53,25 @@ fn replay_matches_evidence_backed_v2_golden_fixture() {
     assert_replay_fixture(fixture);
 }
 
-fn assert_replay_fixture_matches(raw: &str) {
-    let fixture: Fixture = serde_json::from_str(raw).expect("fixture parses");
-    assert_replay_fixture(fixture);
+fn assert_replay_fixture(fixture: Fixture) {
+    assert_reward_events_match(&fixture);
+    let replay = replay_blocks(&fixture.blocks).expect("replay passes");
+    assert_replay_result_matches(&fixture, replay);
 }
 
-fn assert_replay_fixture(fixture: Fixture) {
+/// N3-pre.1 — for the legacy (pre-`selectedShareEvidence`) v1 fixture only;
+/// see the doc comment on `replay_matches_typescript_golden_fixture`.
+fn assert_legacy_replay_fixture(fixture: Fixture) {
+    assert_reward_events_match(&fixture);
+    let replay = replay_blocks_allow_legacy_evidence_less(
+        &fixture.blocks,
+        LegacyEvidenceOptIn::for_legacy_replay_only(),
+    )
+    .expect("legacy replay passes");
+    assert_replay_result_matches(&fixture, replay);
+}
+
+fn assert_reward_events_match(fixture: &Fixture) {
     for (block, event) in fixture.blocks.iter().zip(fixture.reward_events.iter()) {
         let credits = compute_block_reward_credits(block).expect("credits compute");
         assert_eq!(
@@ -61,8 +82,9 @@ fn assert_replay_fixture(fixture: Fixture) {
         assert_eq!(block.height, event.height);
         assert_eq!(block.c, event.c);
     }
+}
 
-    let replay = replay_blocks(&fixture.blocks).expect("replay passes");
+fn assert_replay_result_matches(fixture: &Fixture, replay: boole_core::ReplayResult) {
     assert_eq!(replay.latest_c, fixture.expected.latest_c);
     assert_eq!(replay.height, fixture.expected.height);
     let got_balances = replay

@@ -3,10 +3,17 @@
 //! alone only checks share evidence + linkage (non-retarget-aware);
 //! `replay_blocks_with_retarget` folds in `validate_retargeted_difficulty`
 //! so a forged epoch-boundary difficulty is caught.
+//!
+//! N3-pre.1: this file's hand-built chain predates `selectedShareEvidence`
+//! (each block carries a bare share hash with no evidence, per the doc
+//! comment on `valid_chain` below), so both tests replay via the explicit
+//! `LegacyEvidenceOptIn` path (`replay_blocks_with_retarget_allow_legacy_evidence_less`)
+//! rather than the strict-by-default `replay_blocks_with_retarget`.
 
 use boole_core::{
-    block_hash, expected_retarget_difficulty_for_height, replay_blocks_with_retarget,
-    DifficultyRetargetPolicy, Hex32, PersistedBlock,
+    block_hash, expected_retarget_difficulty_for_height,
+    replay_blocks_with_retarget_allow_legacy_evidence_less, DifficultyRetargetPolicy, Hex32,
+    LegacyEvidenceOptIn, PersistedBlock,
 };
 
 const ZERO: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -76,7 +83,12 @@ fn replay_accepts_correct_retargeted_chain() {
     // Fast span (30s vs 60s target) → retarget at height 2 raises difficulty;
     // the chain is self-consistent so replay-with-retarget accepts it.
     let blocks = valid_chain(3, 30_000);
-    let result = replay_blocks_with_retarget(&blocks, INITIAL_T_BLOCK, &policy());
+    let result = replay_blocks_with_retarget_allow_legacy_evidence_less(
+        &blocks,
+        INITIAL_T_BLOCK,
+        &policy(),
+        LegacyEvidenceOptIn::for_legacy_replay_only(),
+    );
     assert!(
         result.is_ok(),
         "valid retargeted chain must replay: {result:?}"
@@ -89,8 +101,13 @@ fn replay_rejects_tampered_t_block_at_epoch_boundary() {
     // Forge the retarget-boundary block's difficulty back to the (easier)
     // initial value — a miner trying to keep difficulty low past a retarget.
     blocks[2].t_block = INITIAL_T_BLOCK.to_string();
-    let err = replay_blocks_with_retarget(&blocks, INITIAL_T_BLOCK, &policy())
-        .expect_err("tampered t_block at the epoch boundary must be rejected");
+    let err = replay_blocks_with_retarget_allow_legacy_evidence_less(
+        &blocks,
+        INITIAL_T_BLOCK,
+        &policy(),
+        LegacyEvidenceOptIn::for_legacy_replay_only(),
+    )
+    .expect_err("tampered t_block at the epoch boundary must be rejected");
     let msg = err.to_string();
     assert!(
         msg.contains("tBlock") || msg.contains("difficulty"),
