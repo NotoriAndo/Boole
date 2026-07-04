@@ -41,6 +41,12 @@ boole-testkit = { path = "../boole-testkit" }
 # logic.
 boole-wallet-agent = { path = "../boole-wallet-agent" }
 ed25519-dalek.workspace = true
+# N3-pre.4 — `state_verify_deep_blocks.rs` builds a real Lean-bound share
+# (canon package hash + checker artifact hash) to exercise `--deep
+# --blocks` against the repo's canonical checker, mirroring
+# `boole-node/tests/deep_verify_block_roundtrip.rs`.
+boole-lean-runner = { path = "../boole-lean-runner" }
+sha2.workspace = true
 
 # P0.6b — inherit `[workspace.lints]` so the workspace-wide deny set
 # (currently `unsafe_code = "deny"`) is enforced uniformly on this crate.
