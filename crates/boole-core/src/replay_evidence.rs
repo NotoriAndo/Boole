@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
 
 use crate::block::PersistedBlock;
-use crate::block_builder::compare_canonical;
+use crate::block_builder::{compare_canonical, select_qualifying_proposer};
 use crate::{
     min_share_score, parse_biguint_hex, share_hash, validate_proof_package_shape, Hex32,
     ValidationResult,
@@ -124,9 +124,22 @@ pub(crate) fn verify_selected_share_evidence(
 /// N3-pre.2 — replay/verify independently re-derives, from a block's
 /// contents alone, everything `build_block_selection` guarantees except
 /// pool-global optimality: the `compare_canonical` ordering of the
-/// selected shares, T_block satisfaction, and a unique proposer (exactly
-/// one selected share's hash satisfies T_block — mirroring
-/// `build_block_selection`'s own `NoProposer`/`AmbiguousProposer` split).
+/// selected shares and T_block satisfaction (at least one selected
+/// share's hash satisfies T_block — mirroring `build_block_selection`'s
+/// own `NoProposer` case).
+///
+/// N3-pre.6 — when more than one selected share satisfies T_block, this
+/// no longer rejects the block. It calls the exact same
+/// `select_qualifying_proposer` tie-break `build_block_selection` uses,
+/// so replay re-derives the identical deterministic winner (the lowest
+/// `compare_canonical` order among co-qualifiers) instead of the two
+/// sides ever defining "the winner" two different ways. Before this
+/// slice, `build_block_selection` refused to build a block at all once
+/// two shares co-qualified, so this path was unreachable; now that the
+/// builder resolves the tie, replay must accept the same resolution on
+/// reboot/recovery instead of rejecting a block the node itself already
+/// committed.
+///
 /// Pool-global optimality ("was this really the pool's top-k") is NOT
 /// checkable from a single block — the replayer never had the candidate
 /// pool the proposer chose from — and stays an explicit non-goal, along
@@ -162,24 +175,14 @@ pub(crate) fn verify_canonical_selection(block: &PersistedBlock) -> anyhow::Resu
         }
     }
 
-    let t_block = parse_biguint_hex(&block.t_block)?;
-    let mut proposer_count = 0usize;
-    for hash in &block.selected_share_hashes {
-        if parse_biguint_hex(hash)? < t_block {
-            proposer_count += 1;
-        }
-    }
+    let share_hashes = block.selected_share_hashes.iter().map(|hash| hash.as_str());
+    let (winner_index, _tied_proposer_count) =
+        select_qualifying_proposer(share_hashes, &block.t_block)?;
 
-    if proposer_count == 0 {
+    if winner_index.is_none() {
         anyhow::bail!(
             "no selected share satisfies T_block; replay found no proposer among {} shares",
             block.selected_share_hashes.len()
-        );
-    }
-    if proposer_count > 1 {
-        anyhow::bail!(
-            "ambiguous proposer: {} selected shares satisfy T_block, expected exactly one",
-            proposer_count
         );
     }
 
