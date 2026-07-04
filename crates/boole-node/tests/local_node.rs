@@ -243,7 +243,7 @@ fn local_node_submit_uses_tcp_peer_ip_not_spoofed_body_ip_for_rate_limit() {
 
     let mut second = scenario["steps"][1].clone();
     second["body"]["c"] = first["block"]["c"].clone();
-    second["ts"] = serde_json::json!(1800000001123u64);
+    second["ts"] = serde_json::json!(1700000001123u64);
     second["ip"] = serde_json::json!("198.51.100.250");
     let rejected = request_json_with_body(addr, "/submit", &second);
     assert_eq!(rejected["accepted"], false);

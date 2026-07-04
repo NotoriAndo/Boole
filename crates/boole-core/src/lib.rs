@@ -68,7 +68,8 @@ pub use config::{
 };
 pub use difficulty::{
     expected_retarget_difficulty_for_height, retarget_t_block, validate_retargeted_difficulty,
-    DifficultyEvidence, DifficultyRetargetPolicy,
+    verify_block_ts_median_time_past, DifficultyEvidence, DifficultyRetargetPolicy,
+    MEDIAN_TIME_PAST_WINDOW,
 };
 pub use family_manifest::{
     parse_family_manifest, verify_family_manifest_signature, FamilyCaps, FamilyManifest,

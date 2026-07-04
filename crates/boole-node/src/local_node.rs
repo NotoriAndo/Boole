@@ -495,6 +495,38 @@ fn now_unix_ms() -> u128 {
         .unwrap_or(0)
 }
 
+/// N3-pre.3 (review #3) — wall-clock future-drift bound for the
+/// self-produced block's `ts`. This is the ONLY place in the codebase that
+/// checks a block's `ts` against real wall-clock time; the deterministic
+/// median-time-past rule (`boole_core::MEDIAN_TIME_PAST_WINDOW`, enforced in
+/// `replay_blocks`) is intentionally wall-clock-free so consensus replay
+/// stays fully deterministic. `2h` mirrors the order of magnitude of
+/// Bitcoin's own "block ts must not be more than 2 hours ahead of network
+/// time" rule: generous enough to absorb real clock skew between operators,
+/// tight enough that a self-reported `ts` cannot pre-stage a large forward
+/// drift for a later median-time-past window. N3.3's p2p ingress is
+/// expected to reuse this same boundary guard for peer-submitted blocks.
+const BLOCK_TS_MAX_FUTURE_DRIFT_MS: u64 = 2 * 60 * 60 * 1000;
+
+/// Rejects a block `ts` that lies more than `BLOCK_TS_MAX_FUTURE_DRIFT_MS`
+/// ahead of `now_ms`. `now_ms` is threaded in explicitly (rather than read
+/// internally via `now_unix_ms`) so this stays a pure, directly
+/// unit-testable function; the real self-produce call site passes
+/// `now_unix_ms()`.
+fn check_block_ts_future_drift(ts_ms: u64, now_ms: u64) -> anyhow::Result<()> {
+    let max_allowed_ms = now_ms.saturating_add(BLOCK_TS_MAX_FUTURE_DRIFT_MS);
+    if ts_ms > max_allowed_ms {
+        anyhow::bail!(
+            "block ts {} exceeds the future-drift bound: now={} maxAllowedMs={} (driftBoundMs={})",
+            ts_ms,
+            now_ms,
+            max_allowed_ms,
+            BLOCK_TS_MAX_FUTURE_DRIFT_MS
+        );
+    }
+    Ok(())
+}
+
 fn now_unix_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -4006,10 +4038,15 @@ fn submit_json(
         }));
     }
     let canon_tag = canon_tag_raw as u8;
+    // N3-pre.3 (review #3) — a submit body that omits `ts` now defaults to
+    // real wall-clock time rather than the repo-wide fixed test constant
+    // `1_800_000_000_000`. That constant predates the future-drift bound
+    // below and would otherwise be rejected as "from the future" on every
+    // real run, since it is not tied to whenever the node actually boots.
     let ts_raw = submit_body
         .get("ts")
         .and_then(Value::as_u64)
-        .unwrap_or(1_800_000_000_000);
+        .unwrap_or_else(|| now_unix_ms() as u64);
     if ts_raw > i64::MAX as u64 {
         return Ok(json!({
             "ok": false,
@@ -4112,6 +4149,13 @@ fn submit_json(
             }));
         }
     }
+    // N3-pre.3 (review #3) — self-produce node boundary: reject a block
+    // whose self-reported `ts` has drifted too far into the future before
+    // any further state mutation. The deterministic median-time-past rule
+    // (replay layer, `boole_core::verify_block_ts_median_time_past`) never
+    // touches wall-clock time; this is the one guard that does, and it
+    // lives only here at the boundary.
+    check_block_ts_future_drift(ts_raw, now_unix_ms() as u64)?;
     let block_path = state.block_path.clone();
     // S23c — compute the promoted bounty selection at the latest known
     // height (`block_cache.len()` is the about-to-be-committed block's
@@ -4406,6 +4450,35 @@ mod tests {
         assert_eq!(parsed.submitted_by, PK_A);
         assert_eq!(parsed.reward_recipient, PK_B);
         assert_eq!(parsed.nonce, "n-42");
+    }
+
+    // N3-pre.3 (review #3) — the wall-clock future-drift bound is the ONLY
+    // check in the self-produce path that reads real time, so it is tested
+    // as a pure function of an explicit `now_ms` rather than over HTTP with
+    // `SystemTime::now()` — keeping it deterministic and independent of
+    // whatever `ts` convention the rest of the fixture suite uses.
+    #[test]
+    fn self_produce_rejects_ts_beyond_future_drift() {
+        let now_ms = 1_800_000_000_000u64;
+
+        // Within the drift bound (1 minute ahead of now) → accepted.
+        check_block_ts_future_drift(now_ms + 60_000, now_ms)
+            .expect("ts within the future-drift bound must be accepted");
+
+        // Exactly at the bound → still accepted (bound is inclusive).
+        check_block_ts_future_drift(now_ms + BLOCK_TS_MAX_FUTURE_DRIFT_MS, now_ms)
+            .expect("ts exactly at the future-drift bound must be accepted");
+
+        // A ts far beyond the bound (a proposer trying to pre-stage a
+        // large forward drift ahead of a later median-time-past window)
+        // must be rejected.
+        let err = check_block_ts_future_drift(now_ms + BLOCK_TS_MAX_FUTURE_DRIFT_MS + 1, now_ms)
+            .expect_err("ts beyond the future-drift bound must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("future-drift"),
+            "error should name the future-drift rule, got: {msg}"
+        );
     }
 
     #[test]
