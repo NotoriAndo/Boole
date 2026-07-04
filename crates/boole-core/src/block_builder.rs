@@ -281,7 +281,9 @@ impl CandidateShare {
 /// comparators that could silently drift apart. N3-pre.6's proposer
 /// tie-break reuses this function too.
 pub fn compare_canonical(a: CanonicalOrderKey, b: CanonicalOrderKey) -> std::cmp::Ordering {
-    a.pk.cmp(b.pk).then_with(|| a.n.cmp(b.n)).then_with(|| a.j.cmp(b.j))
+    a.pk.cmp(b.pk)
+        .then_with(|| a.n.cmp(b.n))
+        .then_with(|| a.j.cmp(b.j))
 }
 
 fn normalize_hex256(value: &str) -> anyhow::Result<String> {
