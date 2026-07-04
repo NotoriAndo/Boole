@@ -28,10 +28,25 @@ use boole_node::LeanBountyVerifier;
 use boole_testkit::rand_suffix;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 
 const PROOF_HASH: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
 const PROVER: &str = "1100000000000000000000000000000000000000000000000000000000000000";
+// Ledger-event `problemHash` used by the two synthetic ndjson audit
+// events below. `deep_verify_bounty_events`/`reverify_lean_event` (the
+// actual CLI re-verification path exercised by these tests) never binds
+// this value to anything — it re-runs the *raw* recorded `leanSource`
+// through `LeanRunner::check_file` directly, with no `Bounty`/`statement`
+// in the loop. `validate_bounty_ledger_event` only requires 32-byte hex.
 const PROBLEM_HASH: &str = "9999999999999999999999999999999999999999999999999999999999999999";
+
+/// TB.2 — content hash of a bounty's commissioned `statement`, matching
+/// `LeanBountyVerifier`'s own `content_hash_hex` (see
+/// `crates/boole-node/src/lean_bounty_verifier.rs` and the same helper in
+/// `crates/boole-node/tests/bounty_lean_verifier.rs`).
+fn content_hash_hex(statement: &str) -> String {
+    hex::encode(Sha256::digest(statement.as_bytes()))
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,16 +78,24 @@ fn canonical_checker_dir() -> PathBuf {
         .expect("canonical checker dir")
 }
 
-fn make_lean_bounty(verifier_hash: &str) -> Bounty {
+/// Build a bounty whose `problem_hash` is `statement`'s own content hash
+/// and whose `verifier.metadata.statement` carries that same statement —
+/// TB.2 requires both so `LeanBountyVerifier` can bind the probe's proof
+/// term to the bounty's commissioned statement before running Lean.
+fn make_lean_bounty(verifier_hash: &str, statement: &str) -> Bounty {
     let mut metadata: Map<String, Value> = Map::new();
     metadata.insert(
         "verifierHash".to_string(),
         Value::String(verifier_hash.to_string()),
     );
+    metadata.insert(
+        "statement".to_string(),
+        Value::String(statement.to_string()),
+    );
     Bounty {
         id: "lean-1".to_string(),
         domain: "lean.test".to_string(),
-        problem_hash: PROBLEM_HASH.to_string(),
+        problem_hash: content_hash_hex(statement),
         verifier: BountyVerifier {
             kind: "lean".to_string(),
             metadata,
@@ -97,8 +120,8 @@ fn write_ndjson(path: &std::path::Path, lines: &[Value]) {
 /// runner's computed value byte-for-byte. This avoids burning a
 /// hardcoded hash that drifts every time the checker package is
 /// rebuilt or relocated.
-fn probe_checker_artifact_hash(verifier_hash: &str, lean_source: &str) -> String {
-    let bounty = make_lean_bounty(verifier_hash);
+fn probe_checker_artifact_hash(verifier_hash: &str, statement: &str, lean_source: &str) -> String {
+    let bounty = make_lean_bounty(verifier_hash, statement);
     let envelope = json!({ "leanSource": lean_source });
     let outcome = LeanBountyVerifier::new(canonical_checker_dir())
         .verify_with_evidence(&bounty, &envelope)
@@ -125,7 +148,8 @@ fn deep_verify_with_checker_dir_re_executes_lean_and_increments_reverified() {
         rand_suffix()
     );
     let lean_source = "theorem boole_deep_verify_accept : 2 + 2 = 4 := by\n  decide\n";
-    let checker_artifact_hash = probe_checker_artifact_hash(&verifier_hash, lean_source);
+    let checker_artifact_hash =
+        probe_checker_artifact_hash(&verifier_hash, "2 + 2 = 4", lean_source);
 
     let dir = std::env::temp_dir().join(format!("boole-deep-verify-ok-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
