@@ -194,7 +194,7 @@ pub fn build_block_selection(
         }
     }
 
-    survivors.sort_by(compare_canonical);
+    survivors.sort_by(|a, b| compare_canonical(a.canonical_order_key(), b.canonical_order_key()));
 
     let mut proposer_index = 0usize;
     let mut proposer_count = 0usize;
@@ -238,7 +238,9 @@ pub fn build_block_selection(
 fn compare_preselection(a: &CandidateShare, b: &CandidateShare) -> std::cmp::Ordering {
     let a_score = parse_score_decimal(&a.score).unwrap_or_else(|_| BigUint::zero());
     let b_score = parse_score_decimal(&b.score).unwrap_or_else(|_| BigUint::zero());
-    b_score.cmp(&a_score).then_with(|| compare_canonical(a, b))
+    b_score
+        .cmp(&a_score)
+        .then_with(|| compare_canonical(a.canonical_order_key(), b.canonical_order_key()))
 }
 
 fn parse_score_decimal(value: &str) -> anyhow::Result<BigUint> {
@@ -247,10 +249,41 @@ fn parse_score_decimal(value: &str) -> anyhow::Result<BigUint> {
         .map_err(|err| anyhow::anyhow!("invalid decimal score: {err}"))
 }
 
-fn compare_canonical(a: &CandidateShare, b: &CandidateShare) -> std::cmp::Ordering {
-    a.pk.cmp(&b.pk)
-        .then_with(|| a.n.cmp(&b.n))
-        .then_with(|| a.j.cmp(&b.j))
+/// N3-pre.2 — the `(pk, n, j)` triple `compare_canonical` sorts by.
+/// Borrowed rather than owned so both `CandidateShare` (block
+/// construction) and `SelectedShareEvidence` (replay-side
+/// re-verification, see `replay_evidence::verify_canonical_selection`)
+/// can hand their fields to the same comparator without an intermediate
+/// allocation or a shared supertype.
+#[derive(Debug, Clone, Copy)]
+pub struct CanonicalOrderKey<'a> {
+    pub pk: &'a str,
+    pub n: &'a str,
+    pub j: &'a str,
+}
+
+impl CandidateShare {
+    pub fn canonical_order_key(&self) -> CanonicalOrderKey<'_> {
+        CanonicalOrderKey {
+            pk: &self.pk,
+            n: &self.n,
+            j: &self.j,
+        }
+    }
+}
+
+/// N3-pre.2 — canonical `(pk, n, j)` share ordering. `build_block_selection`
+/// sorts its post-kernel-gate survivors with this exact comparator before
+/// picking the T_block proposer; `replay_evidence::verify_canonical_selection`
+/// independently re-derives that same order from a persisted block's
+/// `selectedShareEvidence` and rejects any block that isn't sorted this
+/// way. Build and verify must keep calling this one function — never two
+/// comparators that could silently drift apart. N3-pre.6's proposer
+/// tie-break reuses this function too.
+pub fn compare_canonical(a: CanonicalOrderKey, b: CanonicalOrderKey) -> std::cmp::Ordering {
+    a.pk.cmp(b.pk)
+        .then_with(|| a.n.cmp(b.n))
+        .then_with(|| a.j.cmp(b.j))
 }
 
 fn normalize_hex256(value: &str) -> anyhow::Result<String> {
