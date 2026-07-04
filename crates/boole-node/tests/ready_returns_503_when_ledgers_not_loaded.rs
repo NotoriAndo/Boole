@@ -179,3 +179,136 @@ fn ready_returns_503_when_state_dir_set_but_an_agent_wallet_ledger_missing() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// N3-pre.5 (2026-07-03 review recommendation 3, interim operational
+/// hardening).
+///
+/// `compute_ledgers_loaded` treats the cross-pk proof-dedup ledger
+/// (N2.3, opt-in and OFF by default) like the other five required
+/// ledgers once the operator sets `--state-dir`: a production node
+/// that cannot persist the proof-dedup set would leave the `/submit`
+/// cross-pk farming surface open with no on-disk record to close it
+/// after a restart. This is admission-side hardening, not the
+/// consensus-level dedup rule (ADR-0012 / §N4), which still lands
+/// separately.
+///
+/// This test boots a node with `state_dir: Some(_)`, all five
+/// pre-existing required ledgers configured, but
+/// `proof_dedup_ledger_path: None`. `/ready` must return `503 Service
+/// Unavailable` with `reason: "ledgers_not_loaded"` and
+/// `checks.ledgers_loaded: false` so an orchestrator never routes
+/// traffic to a node that cannot persist cross-pk proof-dedup state.
+#[test]
+fn ready_returns_503_when_state_dir_set_but_proof_dedup_ledger_missing() {
+    let dir = std::env::temp_dir().join(format!(
+        "boole-ready-dedup-missing-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let state_dir = dir.join("state");
+    std::fs::create_dir_all(&state_dir).expect("state dir");
+    let block_path = dir.join("blocks.ndjson");
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let scenario = scenario_path();
+    let block_for_thread = block_path.clone();
+    let state_dir_for_thread = state_dir.clone();
+    let session_registry = dir.join("sessions.ndjson");
+    let submit_nonce_ledger = dir.join("submit-nonces.ndjson");
+    let signed_nonce_ledger = dir.join("signed-nonces.ndjson");
+    let submit_receipt_ledger = dir.join("submit-receipts.ndjson");
+    let receipt_commitment_ledger = dir.join("receipt-commitments.ndjson");
+
+    let handle = thread::spawn(move || {
+        ready_tx.send(()).expect("ready");
+        serve_local_node(
+            listener,
+            LocalNodeConfig {
+                proof_dedup_ledger_path: None,
+                scenario_path: scenario,
+                block_path: block_for_thread,
+                reward_ledger_path: None,
+                work_manifests_path: None,
+                bounties_path: None,
+                bounty_event_ledger_path: None,
+                bounty_verifiers: None,
+                family_manifests_dir: None,
+                max_requests: Some(1),
+                operator_signer_pks: vec![],
+                session_registry_path: Some(session_registry),
+                submit_nonce_ledger_path: Some(submit_nonce_ledger),
+                signed_nonce_ledger_path: Some(signed_nonce_ledger),
+                submit_receipt_ledger_path: Some(submit_receipt_ledger),
+                receipt_commitment_ledger_path: Some(receipt_commitment_ledger),
+                genesis_override: None,
+                state_dir: Some(state_dir_for_thread),
+                network_id: None,
+                lean_checker_dir: None,
+                lean_checker_disabled: true,
+                http_rate_limit_per_60s: None,
+                allow_anonymous_submit: true,
+            },
+        )
+    });
+    ready_rx.recv().expect("server ready");
+    thread::sleep(Duration::from_millis(50));
+
+    let (status, body) = http_get(addr, "/ready");
+    assert_eq!(
+        status, 503,
+        "GET /ready on a state-dir node with all five pre-existing \
+         required ledgers but no proof_dedup_ledger must return 503; \
+         a 200 would let an orchestrator route traffic to a production \
+         node with no on-disk record closing the /submit cross-pk \
+         proof-farming surface. Body: {body}"
+    );
+    assert_eq!(
+        body.get("ok"),
+        Some(&Value::Bool(false)),
+        "/ready failure body must report ok=false, got {body}"
+    );
+    assert_eq!(
+        body.get("probe").and_then(Value::as_str),
+        Some("ready"),
+        "/ready failure body must still tag probe=\"ready\", got {body}"
+    );
+    assert_eq!(
+        body.get("reason").and_then(Value::as_str),
+        Some("ledgers_not_loaded"),
+        "/ready failure body must reuse the existing ledger reason \
+         slug so dashboards keyed on it surface the missing-dedup-\
+         ledger case uniformly with the other ledger cases, got {body}"
+    );
+    assert_eq!(
+        body.pointer("/checks/ledgers_loaded"),
+        Some(&Value::Bool(false)),
+        "/ready failure body must expose checks.ledgers_loaded = \
+         false when the proof_dedup_ledger is missing in production \
+         mode so the envelope shape stays identical to the other \
+         ledger cases, got {body}"
+    );
+    assert_eq!(
+        body.pointer("/checks/replay_matches_runtime"),
+        Some(&Value::Bool(true)),
+        "/ready must continue to report the replay precondition's \
+         status (true on a clean boot here) so the envelope conveys \
+         the full readiness picture, got {body}"
+    );
+    assert_eq!(
+        body.pointer("/checks/lean_checker_configured"),
+        Some(&Value::Bool(true)),
+        "/ready must continue to report the lean precondition's \
+         status (true here since --lean-checker-disabled was set) so \
+         the envelope conveys the full readiness picture, got {body}"
+    );
+
+    handle
+        .join()
+        .expect("server thread joined")
+        .expect("server exits cleanly");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
