@@ -41,6 +41,9 @@ boole-testkit = { path = "../boole-testkit" }
 # logic.
 boole-wallet-agent = { path = "../boole-wallet-agent" }
 ed25519-dalek.workspace = true
+# TB.2 — `state_verify_deep_lean_cli` builds a bounty fixture whose
+# `problem_hash` is the SHA-256 content hash of its commissioned
+# `statement`, mirroring `LeanBountyVerifier`'s own binding check.
 # N3-pre.4 — `state_verify_deep_blocks.rs` builds a real Lean-bound share
 # (canon package hash + checker artifact hash) to exercise `--deep
 # --blocks` against the repo's canonical checker, mirroring
