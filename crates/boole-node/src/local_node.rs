@@ -21,11 +21,12 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
     agent_passport_events_for_receipt, canonical_payload_hash_hex, compute_block_reward_credits,
-    replay_blocks, ticket, verify_signature_with_network, AdmissionDecision, BountyProofVerifier,
-    BountyRegistry, BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport,
-    CreateBountyInput, DifficultyRetargetPolicy, FamilyManifestRegistry, Hex32, Hex64,
-    PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput, SessionState, SubmitProofInput,
-    UpdateStatusInput, VerifyOutcome, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
+    replay_blocks_allow_legacy_evidence_less, ticket, verify_signature_with_network,
+    AdmissionDecision, BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool,
+    BuildSelectionResult, CalibrationReport, CreateBountyInput, DifficultyRetargetPolicy,
+    FamilyManifestRegistry, Hex32, Hex64, LegacyEvidenceOptIn, PersistedBlock, ReceiptCommitment,
+    ReceiptCommitmentInput, SessionState, SubmitProofInput, UpdateStatusInput, VerifyOutcome,
+    WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -2861,7 +2862,14 @@ fn compute_replay_matches_runtime(state: &LocalNodeState) -> bool {
     if recovered.size() == 0 {
         return state.runtime.cached_block_count() == 0 && state.runtime.current_c().is_some();
     }
-    let Ok(replay) = replay_blocks(recovered.blocks()) else {
+    // N3-pre.1 — this recomputes drift against the node's OWN local block
+    // store (never a peer-supplied chain), so it opts into the legacy
+    // evidence-less path, matching the boot replay in
+    // `RuntimeAdmissionState::boot_from_store_with_bounty_ledger`.
+    let Ok(replay) = replay_blocks_allow_legacy_evidence_less(
+        recovered.blocks(),
+        LegacyEvidenceOptIn::for_legacy_replay_only(),
+    ) else {
         return false;
     };
     (replay.height as usize) == state.runtime.cached_block_count()

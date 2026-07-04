@@ -7,16 +7,16 @@ Boole replay is the safety rail that lets an external reviewer rebuild chain sta
 ```text
 PersistedBlock JSON
 → shape validation
-→ selected share evidence verification, when present
+→ selected share evidence verification (required by default)
 → block hash/head replay
 → reward/account state replay
 ```
 
-The Rust entry point is `boole_core::replay_blocks`. It is used by fixture tests, runtime smoke, local mining smoke, and the Proof-to-Block benchmark.
+The Rust entry point is `boole_core::replay_blocks`. It rejects a block whose `selectedShareEvidence` is empty — replay no longer degrades to "block c hash matches, done" when evidence is missing (N3-pre.1). `replay_blocks` is the strict, no-opt-in entry point; it is the one a future p2p ingest replay path must use.
 
-## legacy/no-evidence replay compatibility
+## legacy/no-evidence replay compatibility (explicit opt-in only)
 
-Older replay fixtures do not carry full selected proof packages. They remain accepted for migration compatibility:
+Older replay fixtures do not carry full selected proof packages. They remain accepted for migration compatibility, but only through an explicit opt-in — `boole_core::LegacyEvidenceOptIn` (constructed via `LegacyEvidenceOptIn::for_legacy_replay_only()`) passed to `replay_blocks_allow_legacy_evidence_less` / `replay_blocks_with_retarget_allow_legacy_evidence_less`:
 
 ```text
 fixtures/protocol/replay/v1.json
@@ -24,8 +24,9 @@ fixtures/protocol/replay/v1.json
 
 Compatibility rule:
 
-- empty or absent `selectedShareEvidence` means replay validates the block shape, selected share hashes/pks, difficulty evidence, block head, and rewards using the legacy fixture surface;
-- this path is only a compatibility path for already-exported golden fixtures and should not be used to weaken new evidence-backed runtime blocks.
+- `selectedShareEvidence` empty or absent is rejected by the default `replay_blocks` entry point;
+- a caller that must replay a pre-evidence legacy chain (existing golden fixtures, hand-built test chains, the node's own historical block store at boot, or the offline `boole state verify` / `boole chain replay` CLI tools) opts in explicitly by threading a `LegacyEvidenceOptIn` through the `_allow_legacy_evidence_less` entry points; every such call site is greppable by that suffix;
+- this opt-in path is only for legacy/local replay of already-exported golden fixtures or a node's own persisted state, and must never be reachable from a future p2p ingest replay path — that path has to call the strict `replay_blocks`/`replay_blocks_with_retarget`, which have no parameter that could accept the opt-in.
 
 ## Evidence-backed replay blocks
 

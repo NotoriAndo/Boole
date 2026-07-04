@@ -3,8 +3,31 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::block::PersistedBlock;
-use crate::replay_evidence::verify_selected_share_evidence;
+use crate::replay_evidence::{verify_selected_share_evidence, EvidencePolicy};
 use crate::{block_hash, Hex32};
+
+/// N3-pre.1 — explicit opt-in to replay a pre-evidence legacy chain (a
+/// block whose `selectedShareEvidence` is empty). `replay_blocks` and
+/// `replay_blocks_with_retarget` reject such blocks by default; this
+/// type is the ONLY way to relax that, and it is constructible only via
+/// `for_legacy_replay_only` so every call site is greppable.
+///
+/// For test code and legacy/local replay callers ONLY — e.g. a node
+/// reconciling its own historical block store at boot, or the offline
+/// `boole state verify` / `boole chain replay` CLI tools. The future p2p
+/// ingest replay path must call `replay_blocks` (which has no parameter
+/// that could accept this); never thread this opt-in through any code
+/// path that replays a block received from a peer.
+#[derive(Debug, Clone, Copy)]
+pub struct LegacyEvidenceOptIn(());
+
+impl LegacyEvidenceOptIn {
+    /// For test code and legacy/local replay callers ONLY. Read the type
+    /// doc comment before wiring this into any new call site.
+    pub fn for_legacy_replay_only() -> Self {
+        LegacyEvidenceOptIn(())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,7 +120,43 @@ pub fn replay_blocks_with_retarget(
     replay_blocks(blocks)
 }
 
+/// N3-pre.1 — same as `replay_blocks_with_retarget`, but for a pre-evidence
+/// legacy chain. Requires an explicit `LegacyEvidenceOptIn` (test code /
+/// legacy-local replay callers only — see that type's doc comment).
+pub fn replay_blocks_with_retarget_allow_legacy_evidence_less(
+    blocks: &[PersistedBlock],
+    initial_t_block: &str,
+    policy: &crate::DifficultyRetargetPolicy,
+    opt_in: LegacyEvidenceOptIn,
+) -> anyhow::Result<ReplayResult> {
+    crate::validate_retargeted_difficulty(blocks, initial_t_block, policy)?;
+    replay_blocks_allow_legacy_evidence_less(blocks, opt_in)
+}
+
+/// N3-pre.1 — the replay entry point every current node/CLI boot path
+/// (and, in future, p2p ingest) uses. Rejects a block whose
+/// `selectedShareEvidence` is empty by default (see
+/// `replay_evidence::verify_selected_share_evidence`); this is a
+/// consensus-critical evidence requirement, not merely a shape check.
 pub fn replay_blocks(blocks: &[PersistedBlock]) -> anyhow::Result<ReplayResult> {
+    replay_blocks_with_evidence_policy(blocks, EvidencePolicy::Strict)
+}
+
+/// N3-pre.1 — replay a pre-evidence legacy chain (existing golden
+/// fixtures, hand-built test chains). Requires an explicit
+/// `LegacyEvidenceOptIn` — see that type's doc comment for the callers
+/// this is (and is not) meant for.
+pub fn replay_blocks_allow_legacy_evidence_less(
+    blocks: &[PersistedBlock],
+    _opt_in: LegacyEvidenceOptIn,
+) -> anyhow::Result<ReplayResult> {
+    replay_blocks_with_evidence_policy(blocks, EvidencePolicy::AllowLegacyEvidenceLess)
+}
+
+fn replay_blocks_with_evidence_policy(
+    blocks: &[PersistedBlock],
+    evidence_policy: EvidencePolicy,
+) -> anyhow::Result<ReplayResult> {
     let mut latest_c =
         "0000000000000000000000000000000000000000000000000000000000000000".to_string();
     let mut balances: BTreeMap<String, u128> = BTreeMap::new();
@@ -129,7 +188,7 @@ pub fn replay_blocks(blocks: &[PersistedBlock]) -> anyhow::Result<ReplayResult> 
         if block.c != expected_c {
             anyhow::bail!("block c mismatch: got {}, expected {}", block.c, expected_c);
         }
-        verify_selected_share_evidence(block)?;
+        verify_selected_share_evidence(block, evidence_policy)?;
 
         for credit in compute_block_reward_credits(block)? {
             let amount: u128 = credit.amount.parse()?;
