@@ -146,6 +146,52 @@ pub fn validate_retargeted_difficulty(
     Ok(())
 }
 
+/// N3-pre.3 (review #3) — Median-Time-Past window size. `11` matches
+/// Bitcoin's long-vetted anti-timewarp constant (BIP-113 / `nMedianTimeSpan`);
+/// nothing in this repo's own constants argues for a different value
+/// (`retarget_every_blocks` varies per deployment and governs a different
+/// concern — how often difficulty re-targets, not how much per-block ts
+/// jitter is tolerated), so we borrow the widely-analyzed value rather than
+/// invent an untested window size.
+pub const MEDIAN_TIME_PAST_WINDOW: usize = 11;
+
+/// Deterministic, wall-clock-free block timestamp rule (review #3): every
+/// block at index > 0 must carry a `ts` that strictly exceeds the median
+/// `ts` of the previous `min(MEDIAN_TIME_PAST_WINDOW, index)` blocks
+/// (Bitcoin-style Median-Time-Past). Genesis (index 0) has no predecessors
+/// and is exempt.
+///
+/// This is the ONLY input the rule uses — never `SystemTime::now()` — so
+/// it preserves replay's consensus-determinism property (wall-clock leakage
+/// stays at zero). It exists to close a retarget-manipulation vector:
+/// `expected_retarget_difficulty_for_height` trusts `first.ts`/`last.ts`
+/// verbatim to compute `actual_span_ms`, so a chain whose `ts` values are
+/// not internally trustworthy must never reach that computation as
+/// "verified" input, even when every other field is self-consistent.
+///
+/// The wall-clock future-drift bound is a SEPARATE guard that belongs only
+/// at the node boundary (self-produce path in `boole-node::local_node`,
+/// later reused by `p2p_ingress.rs`) — it must never be folded in here.
+pub fn verify_block_ts_median_time_past(blocks: &[PersistedBlock]) -> anyhow::Result<()> {
+    for index in 1..blocks.len() {
+        let start = index.saturating_sub(MEDIAN_TIME_PAST_WINDOW);
+        let mut window: Vec<u64> = blocks[start..index].iter().map(|b| b.ts).collect();
+        window.sort_unstable();
+        let median = window[window.len() / 2];
+        let ts = blocks[index].ts;
+        if ts <= median {
+            anyhow::bail!(
+                "block ts {} at index {} does not exceed median-time-past {} of the previous {} block(s)",
+                ts,
+                index,
+                median,
+                window.len()
+            );
+        }
+    }
+    Ok(())
+}
+
 fn difficulty_evidence(
     t_block: &str,
     difficulty_epoch: u64,
