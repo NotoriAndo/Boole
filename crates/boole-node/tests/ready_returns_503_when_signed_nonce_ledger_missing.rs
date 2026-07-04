@@ -87,13 +87,14 @@ fn ready_returns_503_when_state_dir_set_but_signed_nonce_ledger_missing() {
     let submit_nonce_ledger = dir.join("submit-nonces.ndjson");
     let submit_receipt_ledger = dir.join("submit-receipts.ndjson");
     let receipt_commitment_ledger = dir.join("receipt-commitments.ndjson");
+    let proof_dedup_ledger = dir.join("proof-dedup.ndjson");
 
     let handle = thread::spawn(move || {
         ready_tx.send(()).expect("ready");
         serve_local_node(
             listener,
             LocalNodeConfig {
-                proof_dedup_ledger_path: None,
+                proof_dedup_ledger_path: Some(proof_dedup_ledger),
                 scenario_path: scenario,
                 block_path: block_for_thread,
                 reward_ledger_path: None,
