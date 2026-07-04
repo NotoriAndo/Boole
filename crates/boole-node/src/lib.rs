@@ -36,8 +36,8 @@ pub use local_node::{
     MAX_CONCURRENT_REQUESTS, MAX_HTTP_BODY_BYTES, PROOF_ROUTE_BODY_BYTES, PROOF_ROUTE_TIMEOUT,
 };
 pub use proof_bridge::{
-    canonical_pofp_package_from_lean_result, LeanProofBridge, LeanProofBridgePolicy,
-    ProofSubmissionTemplate,
+    canonical_pofp_package_from_lean_result, canonical_pofp_package_from_lean_result_and_source,
+    LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate,
 };
 pub use receipt_store::FileReceiptStore;
 pub use reputation_store::{
