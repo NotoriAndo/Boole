@@ -44,6 +44,11 @@ ed25519-dalek.workspace = true
 # TB.2 — `state_verify_deep_lean_cli` builds a bounty fixture whose
 # `problem_hash` is the SHA-256 content hash of its commissioned
 # `statement`, mirroring `LeanBountyVerifier`'s own binding check.
+# N3-pre.4 — `state_verify_deep_blocks.rs` builds a real Lean-bound share
+# (canon package hash + checker artifact hash) to exercise `--deep
+# --blocks` against the repo's canonical checker, mirroring
+# `boole-node/tests/deep_verify_block_roundtrip.rs`.
+boole-lean-runner = { path = "../boole-lean-runner" }
 sha2.workspace = true
 
 # P0.6b — inherit `[workspace.lints]` so the workspace-wide deny set

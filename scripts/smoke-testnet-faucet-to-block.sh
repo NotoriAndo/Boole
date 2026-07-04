@@ -15,7 +15,11 @@ set -euo pipefail
 #      and asserts the unified P2.5 envelope plus the canonical
 #      `network_id=boole-testnet` the CLI POSTed to the faucet;
 #   4. drives the runtime-smoke scenario through `/ticket` + `/submit`
-#      to append at least one block, mirroring `local-mining-smoke.sh`;
+#      to append at least one block, mirroring `local-mining-smoke.sh`
+#      (including its `--allow-anonymous-submit` opt-in: the scenario's
+#      `/submit` candidates carry no agent-wallet `session` block, so
+#      since N2.1 they need the anonymous opt-in or the node's secure
+#      default rejects them `401 unauthenticated_submit`);
 #   5. asserts the node head advanced and prints a JSON transcript whose
 #      `claimBoundary` makes the closed-local scope explicit.
 #
@@ -28,7 +32,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 ADDR="${BOOLE_NODE_ADDR:-127.0.0.1:18090}"
-SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/v1.json}"
+# N3-pre.5 — this smoke is the only one that boots with --state-dir +
+# --proof-dedup-ledger, so its two /submit steps need distinct proof
+# `bytes` (the dedup ledger keys on SHA-256(bytes) cross-pk). The shared
+# runtime-smoke/v1.json fixture intentionally reuses one `bytes` value
+# across steps (dozens of other tests/scripts depend on that), so this
+# smoke uses its own dedicated copy instead of mutating the shared one.
+SCENARIO="${SCENARIO:-fixtures/protocol/runtime-smoke/faucet-smoke.v1.json}"
 NETWORK_ID="boole-testnet"
 ADDRESS_HEX="${FAUCET_ADDRESS_HEX:-1111111111111111111111111111111111111111111111111111111111111111}"
 BLOCK_STORE="${BLOCK_STORE:-${TMPDIR:-/tmp}/boole-node-faucet-smoke.ndjson}"
@@ -39,10 +49,14 @@ REWARD_LEDGER="${REWARD_LEDGER:-${TMPDIR:-/tmp}/boole-node-faucet-smoke-rewards.
 # `--network-id` only takes effect with an opt-in state dir, so pin one
 # to a smoke-specific temp path and pre-clean it.
 STATE_DIR="${STATE_DIR:-${TMPDIR:-/tmp}/boole-node-faucet-smoke-state}"
+# N3-pre.5 — production posture (`--state-dir` set) now requires the
+# cross-pk proof-dedup ledger for `/ready`; this is the only smoke that
+# boots with `--state-dir`, so it is the one that must pass the flag.
+PROOF_DEDUP_LEDGER="${PROOF_DEDUP_LEDGER:-${TMPDIR:-/tmp}/boole-node-faucet-smoke-proof-dedup.ndjson}"
 FAUCET_OUT="${TMPDIR:-/tmp}/boole-faucet-smoke-mock.out"
 NODE_OUT="${TMPDIR:-/tmp}/boole-node-faucet-smoke.out"
 NODE_ERR="${TMPDIR:-/tmp}/boole-node-faucet-smoke.err"
-rm -f "$BLOCK_STORE" "$REWARD_LEDGER" "$FAUCET_OUT" "$NODE_OUT" "$NODE_ERR"
+rm -f "$BLOCK_STORE" "$REWARD_LEDGER" "$PROOF_DEDUP_LEDGER" "$FAUCET_OUT" "$NODE_OUT" "$NODE_ERR"
 rm -rf "$STATE_DIR"
 
 # --- mock faucet -----------------------------------------------------
@@ -99,14 +113,16 @@ cargo run -q -p boole-node -- run-local \
   --block-store "$BLOCK_STORE" \
   --reward-store "$REWARD_LEDGER" \
   --state-dir "$STATE_DIR" \
+  --proof-dedup-ledger "$PROOF_DEDUP_LEDGER" \
   --network-id "$NETWORK_ID" \
   --lean-checker-disabled \
   --allow-insecure-verifier \
+  --allow-anonymous-submit \
   --max-requests 9 \
   >"$NODE_OUT" 2>"$NODE_ERR" &
 NODE_PID=$!
 
-trap 'kill "$NODE_PID" "$FAUCET_PID" >/dev/null 2>&1 || true; rm -f "$NODE_OUT" "$NODE_ERR" "$FAUCET_OUT" "$BLOCK_STORE" "$REWARD_LEDGER"; rm -rf "$STATE_DIR"' EXIT
+trap 'kill "$NODE_PID" "$FAUCET_PID" >/dev/null 2>&1 || true; rm -f "$NODE_OUT" "$NODE_ERR" "$FAUCET_OUT" "$BLOCK_STORE" "$REWARD_LEDGER" "$PROOF_DEDUP_LEDGER"; rm -rf "$STATE_DIR"' EXIT
 
 # Wait for the mock faucet to publish its ephemeral port.
 FAUCET_URL=""

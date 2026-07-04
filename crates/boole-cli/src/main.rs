@@ -550,16 +550,25 @@ enum StateCommand {
     /// Same recovery shape `boole-node` uses at boot, but read-only:
     /// no lock is acquired and the file is never written.
     ///
-    /// With `--deep`, instead of (or in addition to) the block-store
-    /// replay, stream the bounty audit ledger (`--bounty-events`) and
-    /// re-execute each accepted-lean proof event offline. Supplying
+    /// With `--deep`, stream the bounty audit ledger (`--bounty-events`)
+    /// and re-execute each accepted-lean proof event offline. Supplying
     /// `--lean-checker-dir` re-runs Lean and reports the count under
     /// `leanProofsReverified` (a recorded `checkerArtifactHash` that no
     /// longer matches the re-execution surfaces as a divergence); without
     /// it, eligible events are reported under `leanProofsSkipped`.
+    ///
+    /// N3-pre.4: `--deep` combined with `--blocks` additionally
+    /// re-verifies every persisted block's Lean-bound shares (re-deriving
+    /// each share's canonical Lean source from its `seedHex` and
+    /// recomputing its canon), reported under `blocksScanned` /
+    /// `canonReverified` / `leanReverified` — a divergence there (e.g. a
+    /// tampered `proofPackage`) surfaces exactly like a bounty-ledger
+    /// divergence.
     Verify {
         /// Path to the durable blocks NDJSON file (typically
-        /// `<state-dir>/blocks.ndjson`). Required unless `--deep` is set.
+        /// `<state-dir>/blocks.ndjson`). Required unless `--deep` is set;
+        /// with `--deep`, supplying it additionally re-verifies the block
+        /// store's persisted Lean-bound shares (see above).
         #[arg(long)]
         blocks: Option<PathBuf>,
         /// Run the P1.4 deep verification pass over the bounty audit
@@ -1014,7 +1023,7 @@ fn state_verify_dispatch(
                 }),
             );
         });
-        return state_verify_deep(events, lean_checker_dir, json);
+        return state_verify_deep(events, lean_checker_dir, blocks_path, json);
     }
     let blocks = blocks_path.unwrap_or_else(|| {
         emit_typed_error(
@@ -1029,17 +1038,46 @@ fn state_verify_dispatch(
     state_verify(blocks, json)
 }
 
-/// P1.4 — `boole state verify --deep --bounty-events <ndjson>`.
+/// The only family profile the live v1 mining path grinds today (see the
+/// project's mining-path policy: `boole-miner start --profile
+/// v1-lenbound`). `deep_verify_block` needs a profile to re-derive the
+/// `verifier_hash` a Lean-bound share commits to; hardcoded here (rather
+/// than a new CLI flag) since it is the sole supported profile and adding
+/// flag surface for a one-value domain is out of scope for this slice.
+const DEEP_VERIFY_BLOCK_PROFILE: &str = "v1-lenbound";
+
+fn deep_verify_divergence_json(d: &boole_node::DeepVerifyDivergence) -> serde_json::Value {
+    serde_json::json!({
+        "workId": d.work_id,
+        "proofHash": d.proof_hash,
+        "field": d.field,
+        "expected": d.expected,
+        "actual": d.actual,
+    })
+}
+
+/// P1.4 / N3-pre.4 — `boole state verify --deep --bounty-events <ndjson>
+/// [--blocks <ndjson>]`.
 /// Streams the bounty audit ledger via `boole_node::deep_verify_bounty_events`
 /// and emits a `{ok, eventsScanned, leanProofsAccepted, leanProofsReverified,
-/// leanProofsSkipped, divergences}` envelope. When `--lean-checker-dir` is
-/// supplied each accepted-lean proof event is re-executed offline and counted
-/// under `leanProofsReverified` (a `checkerArtifactHash` that no longer matches
-/// becomes a divergence → exit 3); without the flag, events are reported under
-/// `leanProofsSkipped`.
+/// leanProofsSkipped, blocksScanned, leanBoundShares, canonReverified,
+/// leanReverified, sharesSkipped, divergences}` envelope. When
+/// `--lean-checker-dir` is supplied each accepted-lean proof event is
+/// re-executed offline and counted under `leanProofsReverified` (a
+/// `checkerArtifactHash` that no longer matches becomes a divergence → exit
+/// 3); without the flag, events are reported under `leanProofsSkipped`.
+///
+/// N3-pre.4: when `--blocks` is additionally supplied, every persisted
+/// block's Lean-bound shares are re-verified through
+/// `boole_node::deep_verify_block` (re-deriving the canonical Lean source
+/// from each share's `seedHex` and recomputing its canon), folding any
+/// divergence into the same envelope / exit-3 contract. This is a read-only
+/// audit addition — it does not change bounty ledger semantics or gate
+/// admission/ingest.
 fn state_verify_deep(
     events_path: &Path,
     lean_checker_dir: Option<&Path>,
+    blocks_path: Option<&Path>,
     json: bool,
 ) -> anyhow::Result<()> {
     let report = boole_node::deep_verify_bounty_events(events_path, lean_checker_dir)
@@ -1070,32 +1108,81 @@ fn state_verify_deep(
                 );
             }
         });
-    let divergences: Vec<serde_json::Value> = report
+    let mut divergences: Vec<serde_json::Value> = report
         .divergences
         .iter()
-        .map(|d| {
-            serde_json::json!({
-                "workId": d.work_id,
-                "proofHash": d.proof_hash,
-                "field": d.field,
-                "expected": d.expected,
-                "actual": d.actual,
-            })
-        })
+        .map(deep_verify_divergence_json)
         .collect();
+
+    let mut blocks_scanned = 0u64;
+    let mut lean_bound_shares = 0u64;
+    let mut canon_reverified = 0u64;
+    let mut lean_reverified = 0u64;
+    let mut shares_skipped = 0u64;
+    if let Some(blocks_path) = blocks_path {
+        let block_report =
+            boole_node::deep_verify_block(blocks_path, lean_checker_dir, DEEP_VERIFY_BLOCK_PROFILE)
+                .unwrap_or_else(|err| match err {
+                    boole_node::DeepVerifyError::EventsUnreadable { path, detail } => {
+                        emit_typed_error(
+                            "blocks_unreadable",
+                            2,
+                            serde_json::json!({
+                                "blocksPath": path.to_string_lossy(),
+                                "detail": detail,
+                            }),
+                        );
+                    }
+                    boole_node::DeepVerifyError::LedgerInvalid {
+                        path,
+                        line_number,
+                        detail,
+                    } => {
+                        emit_typed_error(
+                            "blocks_invalid",
+                            3,
+                            serde_json::json!({
+                                "blocksPath": path.to_string_lossy(),
+                                "lineNumber": line_number,
+                                "detail": detail,
+                            }),
+                        );
+                    }
+                });
+        blocks_scanned = block_report.blocks_scanned;
+        lean_bound_shares = block_report.lean_bound_shares;
+        canon_reverified = block_report.canon_reverified;
+        lean_reverified = block_report.lean_reverified;
+        shares_skipped = block_report.shares_skipped;
+        divergences.extend(
+            block_report
+                .divergences
+                .iter()
+                .map(deep_verify_divergence_json),
+        );
+    }
+
     let envelope = serde_json::json!({
         "ok": divergences.is_empty(),
         "eventsScanned": report.events_scanned,
         "leanProofsAccepted": report.lean_proofs_accepted,
         "leanProofsReverified": report.lean_proofs_reverified,
         "leanProofsSkipped": report.lean_proofs_skipped,
+        "blocksScanned": blocks_scanned,
+        "leanBoundShares": lean_bound_shares,
+        "canonReverified": canon_reverified,
+        "leanReverified": lean_reverified,
+        "sharesSkipped": shares_skipped,
         "divergences": divergences,
         "bountyEventsPath": events_path.to_string_lossy(),
     });
     if !divergences.is_empty() {
-        // A divergence here means the recorded `checkerArtifactHash` did
-        // not match the re-execution. Mirror the rest-of-CLI contract:
-        // operation refused → exit 3 with the report on stderr.
+        // A divergence here means either a bounty event's recorded
+        // `checkerArtifactHash` did not match its re-execution, or a
+        // persisted block's stored `proofPackage` did not match the canon
+        // recomputed from its re-derived Lean source. Mirror the
+        // rest-of-CLI contract: operation refused → exit 3 with the report
+        // on stderr.
         eprintln!("{envelope}");
         std::process::exit(3);
     }
@@ -1103,11 +1190,13 @@ fn state_verify_deep(
         println!("{envelope}");
     } else {
         println!(
-            "ok=true eventsScanned={} leanProofsAccepted={} leanProofsReverified={} leanProofsSkipped={}",
+            "ok=true eventsScanned={} leanProofsAccepted={} leanProofsReverified={} leanProofsSkipped={} blocksScanned={} canonReverified={}",
             report.events_scanned,
             report.lean_proofs_accepted,
             report.lean_proofs_reverified,
             report.lean_proofs_skipped,
+            blocks_scanned,
+            canon_reverified,
         );
     }
     Ok(())

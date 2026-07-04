@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::block::PersistedBlock;
+use crate::difficulty::verify_block_ts_median_time_past;
 use crate::replay_evidence::verify_selected_share_evidence;
 use crate::{block_hash, Hex32};
 
@@ -98,6 +99,13 @@ pub fn replay_blocks_with_retarget(
 }
 
 pub fn replay_blocks(blocks: &[PersistedBlock]) -> anyhow::Result<ReplayResult> {
+    // N3-pre.3 (review #3) — deterministic ts trust gate, upfront and
+    // unconditional (both the retarget-aware and plain replay entry points
+    // funnel through here). Without this, `actual_span_ms` in
+    // `expected_retarget_difficulty_for_height` would trust a self-reported
+    // `ts` that could be rewound to steer difficulty retargeting.
+    verify_block_ts_median_time_past(blocks)?;
+
     let mut latest_c =
         "0000000000000000000000000000000000000000000000000000000000000000".to_string();
     let mut balances: BTreeMap<String, u128> = BTreeMap::new();

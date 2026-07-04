@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": {
-    "note": "Boole node runtime-smoke multi-step scenario fixture"
+    "note": "N3-pre.5 — dedicated copy of runtime-smoke/v1.json for smoke-testnet-faucet-to-block.sh. That smoke is the only one that boots with --state-dir + --proof-dedup-ledger, so its two /submit steps need distinct proof `bytes` (dedup hashes SHA-256(bytes) cross-pk); the shared v1.json fixture intentionally reuses one `bytes` value across steps (~60 other tests/scripts depend on that), so this smoke gets its own copy instead of mutating the shared one. Step 1's `bytes` is a structurally valid POFP-v1 package (same walk_package shape as v1.json's, decl_count=0) with its second literal expr bumped 1 -> 2, so it decodes cleanly under boole_core::validator and only differs in its SHA-256 dedup key."
   },
   "cfg": {
     "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -31,7 +31,7 @@
       },
       "ip": "203.0.113.55",
       "canonTag": 0,
-      "ts": 1700000000123
+      "ts": 1800000000123
     },
     {
       "body": {
@@ -40,12 +40,12 @@
         "n": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
         "j": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
         "nonceS": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-        "bytes": "504f46500100000000000000000000001000000000100100000000000000"
+        "bytes": "504f46500100000000000000000000001000000000100200000000000000"
       },
       "cFromRuntimeHead": true,
       "ip": "198.51.100.88",
       "canonTag": 0,
-      "ts": 1700000061123
+      "ts": 1800000061123
     }
   ]
 }
