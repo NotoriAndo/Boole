@@ -4,8 +4,8 @@ use boole_core::{
 use boole_lean_runner::{LeanCheckResult, LeanRunner, LeanRunnerConfig, LeanRunnerEvidence};
 use boole_node::FileBlockStore;
 use boole_node::{
-    canonical_pofp_package_from_lean_result, LeanProofBridge, LeanProofBridgePolicy,
-    ProofSubmissionTemplate,
+    canonical_pofp_package_from_lean_result, canonical_pofp_package_from_lean_result_and_source,
+    LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate,
 };
 use boole_node::{RuntimeAdmissionState, RuntimeConfig};
 use serde::Deserialize;
@@ -58,10 +58,19 @@ fn lean_canonical_package_uses_pofp_v2_256_bit_slots() {
 
 #[test]
 fn lean_canonical_package_hash_surface_changes_across_full_digest_slots() {
-    let first =
-        canonical_pofp_package_from_lean_result(&synthetic_accepted_lean_result("stdout-a"));
-    let second =
-        canonical_pofp_package_from_lean_result(&synthetic_accepted_lean_result("stdout-b"));
+    // Toolchain/runtime values (lean_version/lake_version/stdout) are
+    // deliberately excluded from the canon digest (TB.3), so both results
+    // here share the same `stdout`; what must still change the full
+    // 256-bit digest slots is the bound proof source.
+    let evidence = synthetic_accepted_lean_result("stdout-shared");
+    let first = canonical_pofp_package_from_lean_result_and_source(
+        &evidence,
+        b"theorem boole_bridge_digest_a : 1 = 1 := rfl",
+    );
+    let second = canonical_pofp_package_from_lean_result_and_source(
+        &evidence,
+        b"theorem boole_bridge_digest_b : 2 = 2 := rfl",
+    );
 
     assert_ne!(&first[17..49], &second[17..49]);
     assert_ne!(&first[50..82], &second[50..82]);

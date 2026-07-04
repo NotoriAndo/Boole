@@ -179,8 +179,18 @@ impl LeanProofBridge {
 /// which the protocol uses (via `share_hash(c, pk, n, j, canon_hash)`)
 /// to bind a share to the Lean proof identity. POFP-v2 encodes two
 /// domain-separated 256-bit opaque digest expression slots derived from
-/// the Lean runner evidence and stdout, widening the variable canonical
-/// surface from POFP-v1's two 32-bit slots to two full SHA-256 slots.
+/// the Lean runner evidence and the (normalized) proof source, widening the
+/// variable canonical surface from POFP-v1's two 32-bit slots to two full
+/// SHA-256 slots.
+///
+/// Each digest binds only data that is reproducible offline from a
+/// persisted proof — `verifier_hash`, `checker_artifact_hash`, and the
+/// whitespace-normalized `proof_source` — and deliberately NOT toolchain or
+/// runtime values (`lean_version`, `lake_version`, `stdout`), so a
+/// semantically inert edit (e.g. a blank line) or a toolchain patch bump
+/// does not mint a fresh `canon_hash` for the same proof. This mirrors the
+/// sibling `boole_core::lean_bound_canon_package`, which documents excluding
+/// those same toolchain/runtime values as a hazard.
 ///
 /// POFP-v2 changes the wire format and invalidates every previously
 /// recorded POFP-v1 proof package, so deployment must coincide with a
@@ -229,15 +239,26 @@ fn runner_error_result(error: String) -> LeanCheckResult {
     }
 }
 
+/// Whitespace-canonicalize a proof source before it enters the digest: drop
+/// blank (whitespace-only) lines and trailing-whitespace on each remaining
+/// line. This is the minimum bar so a semantically inert blank-line edit
+/// yields the same normalized bytes, and therefore the same `canon_hash`.
+fn normalize_proof_source(proof_source: &[u8]) -> Vec<u8> {
+    let text = String::from_utf8_lossy(proof_source);
+    text.lines()
+        .map(|line| line.trim_end())
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .into_bytes()
+}
+
 fn stable_digest(result: &LeanCheckResult, domain: &[u8], proof_source: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(domain);
     hasher.update(result.evidence.verifier_hash.as_bytes());
     hasher.update(result.evidence.checker_artifact_hash.as_bytes());
-    hasher.update(result.evidence.lean_version.as_bytes());
-    hasher.update(result.evidence.lake_version.as_bytes());
-    hasher.update(result.stdout.as_bytes());
     hasher.update(b"\0proof-source\0");
-    hasher.update(proof_source);
+    hasher.update(normalize_proof_source(proof_source));
     hasher.finalize().into()
 }
