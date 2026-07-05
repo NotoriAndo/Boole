@@ -254,6 +254,17 @@ lean_exe boole_check where
 "#,
         )
         .expect("write checker main");
+        // TB.1 / ADR-0013 — `check_file` now runs a second, separate
+        // process (`lake env lean --run BooleCheck/Audit.lean`) after the
+        // primary checker accepts, so every synthetic fixture package needs
+        // its own copy of the real audit script or that stage fails to spawn.
+        // `include_str!` pulls the production file in verbatim at compile
+        // time so the fixture can never drift from what actually ships.
+        std::fs::write(
+            self.root.join("BooleCheck/Audit.lean"),
+            include_str!("../../../lean/checker/BooleCheck/Audit.lean"),
+        )
+        .expect("write axiom audit script");
         std::fs::create_dir_all(self.root.join("Boole/Family")).expect("create Boole/Family");
         std::fs::write(
             self.root.join("Boole/Family/V0Helpers.lean"),

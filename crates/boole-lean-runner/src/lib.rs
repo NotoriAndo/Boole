@@ -22,6 +22,20 @@
 //!   success), trusts `axiom` blindly, `native_decide` discharges goals outside
 //!   the trusted kernel, and `#eval` runs arbitrary IO (`IO.Process.run`/
 //!   `IO.FS.readFile`) with node privileges during checking.
+//! - Passing that pre-scan is not sufficient for soundness: a proof could
+//!   still declare a custom `elab`/`macro` command that runs arbitrary code
+//!   during elaboration (e.g. shelling out via `IO.Process.output`) or call
+//!   `Lean.addDecl` directly to inject an axiom without ever writing the
+//!   literal word `axiom`, and `set_option debug.skipKernelTC true` disables
+//!   kernel typechecking entirely. TB.1 (ADR-0013) closes this: the token
+//!   blacklist is extended to also reject `addDecl`/`elab`/`macro`/
+//!   `initialize`/`debug.` and any `import` outside the reviewed helper
+//!   surface (defense-in-depth, fail fast), and — as the PRIMARY boundary,
+//!   since a blacklist can never enumerate every escape — a dedicated
+//!   post-elaboration process (`BooleCheck/Audit.lean`) computes the
+//!   accepted file's full axiom-dependency closure and rejects it unless
+//!   that closure is a subset of `{propext, Classical.choice, Quot.sound}`.
+//!   See `enforce_axiom_allowlist` for the isolation argument.
 
 // P0.6b — boole-lean-runner is the trusted OS-syscall boundary: configuring
 // rlimits via `pre_exec` and killing process groups requires `unsafe` libc
@@ -149,25 +163,105 @@ impl LeanRunner {
         }
 
         let evidence = self.evidence()?;
-        let mut command = Command::new("lake");
-        command
+
+        let mut primary_command = Command::new("lake");
+        primary_command
             .arg("exec")
             .arg(&self.config.checker_exe)
             .arg(proof_path)
-            .current_dir(&self.config.package_dir)
+            .current_dir(&self.config.package_dir);
+        let primary = self.run_sandboxed(primary_command).with_context(|| {
+            format!(
+                "failed to run lake exec {} in {}",
+                self.config.checker_exe,
+                self.config.package_dir.display()
+            )
+        })?;
+
+        if !primary.success {
+            return Ok(LeanCheckResult {
+                accepted: false,
+                exit_code: primary.exit_code,
+                stdout: primary.stdout,
+                stderr: primary.stderr,
+                timed_out: primary.timed_out,
+                output_truncated: primary.output_truncated,
+                evidence,
+            });
+        }
+
+        // TB.1 / ADR-0013 — the primary checker accepted the file; now run
+        // the PRIMARY soundness boundary, the post-elaboration axiom-closure
+        // audit, as its own fresh `lake env lean --run` process. See
+        // `enforce_axiom_allowlist`'s doc comment for the isolation argument
+        // and `BooleCheck/Audit.lean`'s header for why this is a SEPARATE
+        // process rather than a check folded into `BooleCheck.Main`.
+        let mut audit_command = Command::new("lake");
+        audit_command
+            .arg("env")
+            .arg("lean")
+            .arg("--run")
+            .arg(AXIOM_AUDIT_SCRIPT)
+            .arg(proof_path)
+            .current_dir(&self.config.package_dir);
+        let audit = self.run_sandboxed(audit_command).with_context(|| {
+            format!(
+                "failed to run axiom audit in {}",
+                self.config.package_dir.display()
+            )
+        })?;
+
+        let timed_out = primary.timed_out || audit.timed_out;
+        let output_truncated = primary.output_truncated || audit.output_truncated;
+        match enforce_axiom_allowlist(&audit) {
+            Ok(()) => Ok(LeanCheckResult {
+                accepted: true,
+                exit_code: primary.exit_code,
+                stdout: primary.stdout,
+                stderr: primary.stderr,
+                timed_out,
+                output_truncated,
+                evidence,
+            }),
+            Err(reason) => {
+                let mut stderr = primary.stderr;
+                if !stderr.is_empty() && !stderr.ends_with('\n') {
+                    stderr.push('\n');
+                }
+                stderr.push_str("axiom audit rejected: ");
+                stderr.push_str(&reason);
+                Ok(LeanCheckResult {
+                    accepted: false,
+                    exit_code: primary.exit_code,
+                    stdout: primary.stdout,
+                    stderr,
+                    timed_out,
+                    output_truncated,
+                    evidence,
+                })
+            }
+        }
+    }
+
+    /// Runs `command` inside the sandboxed child-process harness shared by
+    /// the primary checker invocation and the TB.1 axiom audit: its own
+    /// process group (killed as a whole on timeout), rlimits, a scrubbed
+    /// environment, and byte-capped drain threads so the child can never
+    /// stall the timeout poll loop on a full pipe. `command`'s program and
+    /// args must already be set; stdio/env/sandbox are configured here.
+    fn run_sandboxed(&self, mut command: Command) -> Result<SandboxedRunOutcome> {
+        command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         configure_child_environment(&mut command);
         configure_child_sandbox(&mut command, &self.config);
 
-        let mut child = ChildKillOnDrop::new(command.spawn().with_context(|| {
-            format!(
-                "failed to run lake exec {} in {}",
-                self.config.checker_exe,
-                self.config.package_dir.display()
-            )
-        })?);
+        let mut child = ChildKillOnDrop::new(
+            command
+                .spawn()
+                .context("failed to spawn sandboxed command")?,
+        );
 
         let output_limit = self.config.output_limit_bytes;
         let stdout_pipe = child
@@ -237,8 +331,8 @@ impl LeanRunner {
         stdout_truncated |= truncate_utf8_to_bytes(&mut stdout, output_limit);
         stderr_truncated |= truncate_utf8_to_bytes(&mut stderr, output_limit);
 
-        Ok(LeanCheckResult {
-            accepted: !timed_out && output_status.success(),
+        Ok(SandboxedRunOutcome {
+            success: !timed_out && output_status.success(),
             exit_code: if timed_out {
                 -1
             } else {
@@ -248,7 +342,6 @@ impl LeanRunner {
             stderr,
             timed_out,
             output_truncated: stdout_truncated || stderr_truncated,
-            evidence,
         })
     }
 
@@ -266,6 +359,101 @@ impl LeanRunner {
             output_limit_bytes: self.config.output_limit_bytes,
         })
     }
+}
+
+/// The result of running one sandboxed child process to completion (or to
+/// timeout). Both the primary checker invocation and the TB.1 axiom audit
+/// produce one of these via [`LeanRunner::run_sandboxed`].
+struct SandboxedRunOutcome {
+    success: bool,
+    exit_code: i32,
+    stdout: String,
+    stderr: String,
+    timed_out: bool,
+    output_truncated: bool,
+}
+
+/// The three axioms Lean's core library trusts as sound by long-standing
+/// convention: `propext` (propositional extensionality), `Classical.choice`
+/// (excluded middle via choice), and `Quot.sound` (quotient soundness). Any
+/// other axiom in a submitted proof's closure means either the proof itself
+/// declared a new axiom (directly via `axiom`, or indirectly via
+/// `Lean.addDecl` from inside a custom `elab`), or it depends on a
+/// Lean-internal axiom whose name contains no blacklisted token (e.g.
+/// `Lean.trustCompiler`) — the blacklist alone cannot catch that case, which
+/// is exactly why the audit below exists as the primary boundary.
+const ALLOWED_AXIOMS: &[&str] = &["propext", "Classical.choice", "Quot.sound"];
+
+/// Relative path (from the checker package root) to the dedicated axiom
+/// audit entrypoint. See `BooleCheck/Audit.lean`'s own header comment for
+/// why this MUST be a separate `lake env lean --run` process rather than a
+/// check folded into `BooleCheck.Main`.
+const AXIOM_AUDIT_SCRIPT: &str = "BooleCheck/Audit.lean";
+
+/// Line prefix `BooleCheck/Audit.lean` prints once per axiom in the closure,
+/// e.g. `BOOLE_AXIOM propext`.
+const AXIOM_AUDIT_LINE_PREFIX: &str = "BOOLE_AXIOM ";
+
+/// Sentinel line `BooleCheck/Audit.lean` prints only after it has finished
+/// walking the full axiom closure. Its absence (crash, timeout, SIGKILL)
+/// must be treated as rejection, never as silent acceptance.
+const AXIOM_AUDIT_DONE_SENTINEL: &str = "BOOLE_AXIOM_AUDIT_DONE";
+
+/// TB.1 / ADR-0013 — the PRIMARY soundness boundary. `outcome` is the result
+/// of running `BooleCheck/Audit.lean` in its own process, AFTER the primary
+/// checker has already accepted the submission.
+///
+/// Mechanization / isolation argument (mirrors the header comment in
+/// `BooleCheck/Audit.lean`): the audit script re-parses and re-elaborates
+/// the submitted file from scratch into a brand-new `Environment` that the
+/// submitted file's own commands never touch, then computes the transitive
+/// axiom closure of every declaration the file newly introduced by calling
+/// `Lean.CollectAxioms.collect` — the same machinery backing `#print axioms`
+/// — and prints it on stdout. That reference is resolved against the audit
+/// script's OWN compiled code, not looked up dynamically through the
+/// elaborated environment, so nothing the submitted source does (not even
+/// `Lean.addDecl` invoked from inside a custom `elab`) can redirect what the
+/// audit itself runs: the submission can only influence what ends up IN the
+/// environment, and the audit inspects that environment from the outside,
+/// in a fresh OS process separate from the primary checker's own process.
+///
+/// A submission is accepted only if every printed axiom is in
+/// [`ALLOWED_AXIOMS`] AND the [`AXIOM_AUDIT_DONE_SENTINEL`] line is present;
+/// a missing sentinel (crash, timeout, kill) is rejection, never silent
+/// acceptance.
+fn enforce_axiom_allowlist(outcome: &SandboxedRunOutcome) -> std::result::Result<(), String> {
+    if outcome.timed_out {
+        return Err("axiom audit timed out".to_string());
+    }
+    if !outcome.success {
+        return Err(format!(
+            "axiom audit process exited non-zero (exit_code={}): {}",
+            outcome.exit_code, outcome.stderr
+        ));
+    }
+    let mut saw_sentinel = false;
+    let mut offending: Vec<String> = Vec::new();
+    for line in outcome.stdout.lines() {
+        if line == AXIOM_AUDIT_DONE_SENTINEL {
+            saw_sentinel = true;
+            continue;
+        }
+        if let Some(axiom) = line.strip_prefix(AXIOM_AUDIT_LINE_PREFIX) {
+            if !ALLOWED_AXIOMS.contains(&axiom) {
+                offending.push(axiom.to_string());
+            }
+        }
+    }
+    if !saw_sentinel {
+        return Err("axiom audit did not reach completion (missing sentinel)".to_string());
+    }
+    if !offending.is_empty() {
+        return Err(format!(
+            "proof depends on non-allowlisted axiom(s): {}",
+            offending.join(", ")
+        ));
+    }
+    Ok(())
 }
 
 struct DrainBuffer {
@@ -336,31 +524,103 @@ fn truncate_utf8_to_bytes(value: &mut String, limit: usize) -> bool {
     true
 }
 
-/// P1.9 — tokens that make a Lean proof unsound and must be rejected
-/// before the proof is ever handed to the checker:
+/// How a forbidden token's boundaries are checked (see
+/// [`contains_forbidden_token`] vs [`contains_forbidden_prefix`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TokenBoundary {
+    /// Both the byte before AND after the match must be non-word characters
+    /// (or absent). Correct for identifier-shaped tokens like `sorry`/`axiom`
+    /// where `my_axiom_lemma` must NOT be flagged.
+    Word,
+    /// Only the byte BEFORE the match must be a non-word character (or
+    /// absent). Needed for tokens like `debug.` whose next byte is always a
+    /// word character (the option name, e.g. `skipKernelTC`) — a `Word`
+    /// check could never match `debug.` at all.
+    PrefixOnly,
+}
+
+/// P1.9 / TB.1 (ADR-0013) — tokens that make a Lean proof unsound, or that
+/// let a submission escape the checker's intended trust boundary, and must
+/// be rejected before the proof is ever handed to the checker:
 ///
 /// - `sorry` admits any goal without proof;
 /// - `axiom` introduces an unverified postulate the kernel trusts blindly;
 /// - `native_decide` discharges a goal via native compiled code, outside
-///   the trusted kernel.
+///   the trusted kernel;
+/// - `#eval` runs arbitrary IO during checking (see below);
+/// - `addDecl` lets a custom `elab`/`macro` command register an axiom (or
+///   any declaration) directly into the environment, bypassing the `axiom`
+///   keyword scan entirely;
+/// - `elab`/`macro` let a submission run arbitrary `IO`/`MetaM`/`TermElabM`
+///   code *during elaboration*, before the post-elaboration axiom audit
+///   (see `enforce_axiom_allowlist`) ever starts;
+/// - `initialize` runs IO at import/elaboration time via the same escape;
+/// - `debug.` (matched as a prefix, not a whole word — see
+///   `TokenBoundary::PrefixOnly`) blocks every `set_option debug.*`, in
+///   particular `debug.skipKernelTC`, which disables kernel typechecking
+///   entirely. No `debug.*` option has a legitimate use in a submitted proof.
 ///
-/// Each token is matched on a word boundary (after line comments are
+/// This blacklist is defense-in-depth, fail-fast hardening, NOT the primary
+/// soundness boundary — a blacklist can never enumerate every escape (e.g.
+/// a proof term that merely names `Lean.trustCompiler` uses no keyword
+/// here). The post-elaboration axiom-closure audit in `check_file` is the
+/// boundary that actually decides soundness.
+///
+/// Each `Word` token is matched on a word boundary (after line comments are
 /// stripped), so identifiers that merely contain the substring
 /// (`my_axiom_lemma`, `native_decide_helper`) are never flagged.
-const FORBIDDEN_TOKENS: &[(&[u8], &str)] = &[
-    (b"sorry", "sorry"),
-    (b"axiom", "axiom"),
-    (b"native_decide", "native_decide"),
+const FORBIDDEN_TOKENS: &[(&[u8], &str, TokenBoundary)] = &[
+    (b"sorry", "sorry", TokenBoundary::Word),
+    (b"axiom", "axiom", TokenBoundary::Word),
+    (b"native_decide", "native_decide", TokenBoundary::Word),
     // N0-pre.1 — `#eval` executes arbitrary IO (`IO.Process.run`/
     // `IO.FS.readFile`) with node privileges and Lean compiles it as a
     // side-effecting command (not an error), so a hostile proof could run
     // code during checking. Reject it pre-spawn like the other unsound tokens.
-    (b"#eval", "#eval"),
+    (b"#eval", "#eval", TokenBoundary::Word),
+    (b"addDecl", "addDecl", TokenBoundary::Word),
+    (b"elab", "elab", TokenBoundary::Word),
+    (b"macro", "macro", TokenBoundary::Word),
+    (b"initialize", "initialize", TokenBoundary::Word),
+    (b"debug.", "debug.", TokenBoundary::PrefixOnly),
 ];
 
-/// Returns the first forbidden token found in `path` together with its
-/// 1-based line number, or `None` if the proof is free of all of them.
-fn scan_for_forbidden_tokens(path: &Path) -> Result<Option<(&'static str, usize)>> {
+/// Import paths a submitted proof file may reference. ADR-0013's blacklist
+/// hardening step: only the shared, human-reviewed helper surface is
+/// reachable from a submission — anything else (in particular `import
+/// Lean`, which the `elab`/`addDecl` escapes both require) is rejected
+/// pre-spawn.
+const ALLOWED_IMPORTS: &[&str] = &["Boole.Family.V0Helpers"];
+
+/// Returns the disallowed module name if `line` is an `import` declaration
+/// naming something outside [`ALLOWED_IMPORTS`], or `None` if the line is
+/// not an import at all, or names an allowed module.
+fn disallowed_import_on_line(line: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    let rest = trimmed.strip_prefix("import")?;
+    // `import` must be a whole keyword: the next byte (if any) must not be a
+    // word character, else this is an identifier like `importantThing`, not
+    // the `import` command.
+    let starts_with_word_char = rest
+        .as_bytes()
+        .first()
+        .map(|&b| b.is_ascii_alphanumeric() || b == b'_')
+        .unwrap_or(false);
+    if starts_with_word_char {
+        return None;
+    }
+    let module = rest.trim();
+    if module.is_empty() || ALLOWED_IMPORTS.contains(&module) {
+        None
+    } else {
+        Some(module.to_string())
+    }
+}
+
+/// Returns the first forbidden token (or disallowed import) found in `path`
+/// together with its 1-based line number, or `None` if the proof is free of
+/// all of them.
+fn scan_for_forbidden_tokens(path: &Path) -> Result<Option<(String, usize)>> {
     let bytes = std::fs::read(path)
         .with_context(|| format!("failed to read proof file {}", path.display()))?;
     let text = String::from_utf8_lossy(&bytes);
@@ -371,10 +631,17 @@ fn scan_for_forbidden_tokens(path: &Path) -> Result<Option<(&'static str, usize)
     // documentation, not an unsound declaration, and must not be rejected.
     let code = blank_non_code(&text);
     for (idx, line) in code.lines().enumerate() {
-        for &(needle, name) in FORBIDDEN_TOKENS {
-            if contains_forbidden_token(line, needle) {
-                return Ok(Some((name, idx + 1)));
+        for &(needle, name, boundary) in FORBIDDEN_TOKENS {
+            let hit = match boundary {
+                TokenBoundary::Word => contains_forbidden_token(line, needle),
+                TokenBoundary::PrefixOnly => contains_forbidden_prefix(line, needle),
+            };
+            if hit {
+                return Ok(Some((name.to_string(), idx + 1)));
             }
+        }
+        if let Some(module) = disallowed_import_on_line(line) {
+            return Ok(Some((format!("import {module}"), idx + 1)));
         }
     }
     Ok(None)
@@ -479,6 +746,33 @@ fn contains_forbidden_token(line: &str, needle: &[u8]) -> bool {
             continue;
         }
         if after.map(is_word_char).unwrap_or(false) {
+            continue;
+        }
+        return true;
+    }
+    false
+}
+
+/// Like [`contains_forbidden_token`] but only checks the byte BEFORE the
+/// match, not after — for tokens such as `debug.` where the byte after the
+/// match is always a word character (the option name) so a whole-word check
+/// could never fire. See [`TokenBoundary::PrefixOnly`].
+fn contains_forbidden_prefix(line: &str, needle: &[u8]) -> bool {
+    let bytes = line.as_bytes();
+    if needle.is_empty() || bytes.len() < needle.len() {
+        return false;
+    }
+    for start in 0..=(bytes.len() - needle.len()) {
+        if &bytes[start..start + needle.len()] != needle {
+            continue;
+        }
+        let before = if start == 0 {
+            None
+        } else {
+            Some(bytes[start - 1])
+        };
+        let is_word_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+        if before.map(is_word_char).unwrap_or(false) {
             continue;
         }
         return true;
