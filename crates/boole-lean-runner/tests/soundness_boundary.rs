@@ -234,10 +234,7 @@ fn accepts_lenbound_style_proof_importing_helper_surface() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-fn assert_rejected(
-    outcome: anyhow::Result<LeanCheckResult>,
-    context: &str,
-) {
+fn assert_rejected(outcome: anyhow::Result<LeanCheckResult>, context: &str) {
     match outcome {
         // Rejected by the pre-spawn blacklist before `lake` ever ran.
         Err(_) => {}

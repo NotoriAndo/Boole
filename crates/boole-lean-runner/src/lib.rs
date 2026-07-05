@@ -257,8 +257,11 @@ impl LeanRunner {
         configure_child_environment(&mut command);
         configure_child_sandbox(&mut command, &self.config);
 
-        let mut child =
-            ChildKillOnDrop::new(command.spawn().context("failed to spawn sandboxed command")?);
+        let mut child = ChildKillOnDrop::new(
+            command
+                .spawn()
+                .context("failed to spawn sandboxed command")?,
+        );
 
         let output_limit = self.config.output_limit_bytes;
         let stdout_pipe = child
