@@ -1,0 +1,18 @@
+[package]
+name = "boole-p2p"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+# N3.1 (ADR-0009) — minimal P2P transport crate: `Transport` trait +
+# line-framed JSON/TCP implementation + wire-frame enum. publish = false:
+# operator-internal network layer, never pushed to crates.io.
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

@@ -3,6 +3,7 @@ members = [
   "crates/boole-core",
   "crates/boole-cli",
   "crates/boole-node",
+  "crates/boole-p2p",
   "crates/boole-lean-runner",
   "crates/boole-mcp",
   "crates/boole-miner",
