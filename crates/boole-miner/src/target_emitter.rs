@@ -16,24 +16,17 @@
 //   - `FamilyV1LengthBoundTargetEmitter` — active production path. Derives
 //     the seed via `target_seed(...)`, generates the v1 length-bound instance,
 //     and renders the theorem statement directly. No external Lake call required.
-use boole_core::{h_protocol, Hex32};
+use boole_core::Hex32;
 
 use crate::canonicalizer::Target;
 use crate::family_v1_lenbound::{
     generate_from_hex as generate_v1_lenbound_from_hex, render_text as render_v1_lenbound_text,
 };
 
-const DOMAIN_TARGET: &[u8] = b"target";
-
-/// Compute the deterministic target seed for `(c, pk, n, j_index)`. The
-/// `j_index` is the integer loop counter 0..M, NOT the 32-byte share j.
-pub fn target_seed(c: &Hex32, pk: &Hex32, n: &Hex32, j_index: u32) -> Hex32 {
-    let j_be = j_index.to_be_bytes();
-    h_protocol(
-        DOMAIN_TARGET,
-        &[c.as_bytes(), pk.as_bytes(), n.as_bytes(), &j_be],
-    )
-}
+// The derivation itself lives in `boole_core::target_seed` — the single
+// shared function admission and replay use to re-derive a claimed seed —
+// re-exported here so the miner keeps one import path for it.
+pub use boole_core::target_seed;
 
 #[derive(Debug, Clone)]
 pub struct TargetEmitArgs<'a> {

@@ -1,9 +1,9 @@
 use crate::{
-    check_submission_pow_with_policy, share_hash, ticket, validate_proof_package_with_policy,
-    validation_reason_json, AdmissionDecision, AdmissionError, AdmissionStatus, CalibrationPolicy,
-    Hex32, ParsedSubmission, PoolShare, RateLimitResult, RateLimiter, RejectionReason, SharePool,
-    SubmissionPowResult, SubmitPowRejectReason, TicketAdmissionResult, TicketRejectReason,
-    ValidationResult,
+    check_submission_pow_with_policy, find_target_seed_j_index, share_hash, ticket,
+    validate_proof_package_with_policy, validation_reason_json, AdmissionDecision, AdmissionError,
+    AdmissionStatus, CalibrationPolicy, Hex32, ParsedSubmission, PoolShare, RateLimitResult,
+    RateLimiter, RejectionReason, SeedBindingRejectReason, SharePool, SubmissionPowResult,
+    SubmitPowRejectReason, TicketAdmissionResult, TicketRejectReason, ValidationResult,
 };
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -124,6 +124,24 @@ pub fn admit_parsed_submission_typed(deps: AdmissionParsedDeps<'_>) -> Admission
             AdmissionStatus::UnprocessableEntity,
             AdmissionError::Ticket { reason },
             RejectionReason::Ticket { detail: reason },
+        );
+    }
+
+    // Seed↔prev-block binding — a CLAIMED `seedHex` must be one the chain
+    // posed: `target_seed(c, pk, n, j_index)` for some in-bound `j_index`.
+    // An empty `seedHex` stays admissible (pre-N0.4b legacy posture;
+    // mandatory seeds are N3.3 scope). Replay enforces the same rule in
+    // `verify_selected_share_evidence`.
+    if !s.seed_hex.is_empty() && find_target_seed_j_index(&s.c, &s.pk, &s.n, &s.seed_hex).is_none()
+    {
+        return reject(
+            AdmissionStatus::UnprocessableEntity,
+            AdmissionError::SeedBinding {
+                reason: SeedBindingRejectReason::NotDerivedFromContext,
+            },
+            RejectionReason::SeedBinding {
+                detail: SeedBindingRejectReason::NotDerivedFromContext,
+            },
         );
     }
 
@@ -286,6 +304,13 @@ fn rejected_json(
             "reason": reason.as_str(),
             "rejection": rejection_json(rejection)
         }),
+        AdmissionError::SeedBinding { reason } => json!({
+            "accepted": false,
+            "status": status.code(),
+            "error": "seed_binding",
+            "reason": reason.as_str(),
+            "rejection": rejection_json(rejection)
+        }),
         AdmissionError::RateLimited { reason } => json!({
             "accepted": false,
             "status": status.code(),
@@ -319,6 +344,9 @@ fn rejection_json(rejection: &RejectionReason) -> Value {
         }
         RejectionReason::SubmitPow { detail } => {
             json!({ "stage": "submit_pow", "detail": detail.as_str() })
+        }
+        RejectionReason::SeedBinding { detail } => {
+            json!({ "stage": "seed_binding", "detail": detail.as_str() })
         }
         RejectionReason::RateLimit { quota } => {
             json!({ "stage": "rate_limit", "quota": quota.as_str() })

@@ -827,8 +827,16 @@ pub fn run_mining_loop(deps: MiningLoopDeps, opts: MiningLoopOptions) -> MiningL
                 nonce_s_hex: &submit_pow.nonce_s.to_hex(),
                 canon_bytes: &canon_bytes,
                 // N0.4b — bind the family seed so the node can re-derive and
-                // deep-verify this share's canonical Lean source.
-                seed_hex: &target.seed_hex,
+                // deep-verify this share's canonical Lean source. Only a
+                // chain-derived seed is claimed on the wire: admission
+                // enforces `seedHex == target_seed(c, pk, n, j_index)`, which
+                // a pinned/stub seed can never satisfy — those runs submit
+                // seedless (legacy posture).
+                seed_hex: if opts.run_context.target_mode == MiningRunTargetMode::ChainDerived {
+                    &target.seed_hex
+                } else {
+                    ""
+                },
             });
             log(&MiningEvent::SubmitOutcome {
                 result: submit_result.clone(),

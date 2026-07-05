@@ -43,7 +43,7 @@ pub use admission::{
 };
 pub use admission_types::{
     AdmissionDecision, AdmissionError, AdmissionStatus, ParsedSubmission, RejectionReason,
-    SubmitPowRejectReason, TicketAdmissionResult, TicketRejectReason,
+    SeedBindingRejectReason, SubmitPowRejectReason, TicketAdmissionResult, TicketRejectReason,
 };
 pub use agent_events::{
     agent_passport_events_for_receipt, AgentPassportEvent, AGENT_PASSPORT_EVENT_SCHEMA,
@@ -78,9 +78,9 @@ pub use family_manifest::{
 };
 pub use family_manifest_registry::FamilyManifestRegistry;
 pub use hash::{
-    block_hash, difficulty_weight, digest_to_biguint, h_protocol, min_share_score,
-    parse_biguint_hex, share_hash, share_score, submission_pow_hash, submission_pow_ok, ticket,
-    Hex32, Hex64, TicketResult,
+    block_hash, difficulty_weight, digest_to_biguint, find_target_seed_j_index, h_protocol,
+    min_share_score, parse_biguint_hex, share_hash, share_score, submission_pow_hash,
+    submission_pow_ok, target_seed, ticket, Hex32, Hex64, TicketResult, TARGET_SEED_J_INDEX_BOUND,
 };
 pub use lean_bound_canon::{lean_bound_canon_package, lean_bound_verifier_hash};
 pub use rate_limiter::{

@@ -70,6 +70,7 @@ pub enum AdmissionError {
     Ticket { reason: TicketRejectReason },
     Validator { reason: ValidationReason },
     SubmitPow { reason: SubmitPowRejectReason },
+    SeedBinding { reason: SeedBindingRejectReason },
     RateLimited { reason: RateLimitRejectReason },
     SharePool { reason: SharePoolRejectReason },
 }
@@ -108,6 +109,22 @@ impl SubmitPowRejectReason {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeedBindingRejectReason {
+    /// The claimed `seedHex` is not `target_seed(c, pk, n, j_index)` for any
+    /// `j_index < TARGET_SEED_J_INDEX_BOUND` — the miner posed its own
+    /// problem instead of solving one the chain posed.
+    NotDerivedFromContext,
+}
+
+impl SeedBindingRejectReason {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::NotDerivedFromContext => "seed_not_derived_from_context",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RejectionReason {
     BadRequest { field: String },
@@ -115,6 +132,7 @@ pub enum RejectionReason {
     Ticket { detail: TicketRejectReason },
     Validator { reason: ValidationReason },
     SubmitPow { detail: SubmitPowRejectReason },
+    SeedBinding { detail: SeedBindingRejectReason },
     RateLimit { quota: RateLimitRejectReason },
     SharePool { detail: SharePoolRejectReason },
 }
@@ -133,6 +151,7 @@ impl RejectionReason {
             Self::Ticket { detail } => detail.as_str(),
             Self::Validator { .. } => "validator_rejected",
             Self::SubmitPow { detail } => detail.as_str(),
+            Self::SeedBinding { detail } => detail.as_str(),
             Self::RateLimit { .. } => "rate_limited",
             Self::SharePool { detail } => detail.as_str(),
         }
