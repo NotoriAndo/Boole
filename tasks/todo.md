@@ -96,3 +96,32 @@
 - 명시적 이연 잔여: ADR-0008 격리 enforce slice(N3.2 전 binding) / replay 진실 갭
   (N3.3 ingress 재검증) / TB.4 경로 a(D2 결합).
 - closed-local 검증 + CI only. public mining/유료 API claim 아님.
+
+---
+
+# 2026-07-05 — ADR-0008 kernel isolation slice (EXECUTION-ORDER [9]) 착륙
+
+- [x] 격리 코드 착륙 — **b405a49** (PR #20, log 모드 기본). cfg-gated:
+      Linux = seccomp(egress deny denylist 11종) + Landlock(FS 격리),
+      macOS = Seatbelt 프로필. IsolationMode::Log 기본(enforce는 N3.2 전환),
+      enforce-capable + 가드 3종(egress / write-outside-scratch /
+      non-toolchain-exec)으로 실제 차단 증명.
+- [x] 신규 deps `landlock` 0.4.5 + `seccompiler` 0.5.0 (cfg-linux) —
+      cargo-deny/audit 공급망 게이트 통과, 버전 핀.
+- [x] Linux 전용 회귀 CI 발굴·수리 — **d20bb72**. Landlock의 Execute 권한이
+      ELF 인터프리터(동적 로더)에도 적용돼 execve 실패(EACCES). 로더 +
+      표준 공유 라이브러리 디렉토리(/lib·/lib64·/usr/lib·multiarch)를
+      Execute 허용목록에 추가. 프로덕션 관련 수정(lake/lean도 동적 링크).
+      landlock 크레이트 자체 예제가 동일 요구 확인. CI 1회 왕복으로 수렴.
+
+## Review
+- ADR-0008 격리막이 log 모드로 착륙. main 안전(기본 log라 실제 검사 경로
+  smoke green), enforce 전환은 N3.2에서 신뢰 경계 개방과 동시(ADR 결정 4).
+- **N3.2 전 잔여 (binding)**: ① macOS Seatbelt 가드 CI 미검증 — ci.yml에
+  ubuntu-latest만, macOS 러너 없음(ADR 결정 3 미충족). macOS 러너 잡 신설 vs
+  ADR 개정(로컬-검증-한정 인정)은 사용자 결정 대기. ② N3.2 커밋에서 enforce
+  기본 전환 + opt-out 플래그.
+- 개발 머신이 macOS라 Linux 경로는 CI 검증 의존 — 착수 때 명시한 리스크가
+  실제 CI 실패로 나타났고 1회 왕복으로 수리(lessons: 로컬 미검증 플랫폼
+  코드는 CI 왕복 전제, log 모드 착륙이 그 리스크를 흡수).
+- closed-local 검증 + CI only. public mining/유료 API claim 아님.

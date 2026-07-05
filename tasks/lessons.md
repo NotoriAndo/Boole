@@ -656,3 +656,23 @@ before attributing it to the change; a pre-existing failure becomes its own
 fix-first slice (here: b4ef112) that the blocked slice then stacks on. Treat
 any gate script referenced by plans but absent from CI as suspect-stale, and
 prefer promoting such scripts into CI when they guard real invariants.
+
+## 2026-07-05 — Platform code you can't run locally lands in log-mode + iterates through CI
+
+**Pattern:** the ADR-0008 isolation slice was developed on macOS, but its
+Linux seccomp/Landlock path can't execute on a macOS dev box (no Docker
+either). The agent cross-compiled it clean and it passed macOS tests, but the
+three Linux enforce guards failed on the ubuntu CI runner: Landlock's Execute
+right also governs the ELF interpreter open, so a dynamically-linked child's
+execve was denied (EACCES) until the loader + system lib dirs were added to
+the exec allowlist — a production-relevant bug (lake/lean are dynamically
+linked), invisible on macOS.
+
+**Rule:** for OS-specific code the dev machine can't execute, treat CI as the
+only validation and plan for round-trips: land enforcement in log/permissive
+mode first (so a mis-tuned filter logs instead of breaking the checker), prove
+the enforcing path via guards that CI runs, and brief the fixer that iteration
+is CI-paced (cap the rounds). When restricting execve via Landlock/seccomp,
+remember the dynamic loader + shared-lib dirs need read+exec, or every
+dynamically-linked child fails to start. Check the crate's own reference
+example for the canonical allowlist.
