@@ -31,7 +31,7 @@ smuggle a file in via a symlink that resolves outside the package.
 The hash of the files committed to this repo:
 
 ```
-201d0457c3c9b3f7791c1c208e59a975460d8f0b2b2d5d850f90803af086f507
+13d365bdfae14b63b1e081db995a11e023565a80f1e8be28a21e814886e6883d
 ```
 
 Recompute and verify with:

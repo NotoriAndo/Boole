@@ -67,6 +67,14 @@ lean_exe boole_check where
     return 1
 """
     )
+    # TB.1 / ADR-0013 — `check_file` now runs a second, separate process
+    # (`lake env lean --run BooleCheck/Audit.lean`) after the primary
+    # checker accepts, so this synthetic workspace needs its own copy of
+    # the real audit script or that stage fails to spawn. Copied verbatim
+    # from the shipped file (not duplicated by hand) so it can never drift.
+    (workspace / "BooleCheck" / "Audit.lean").write_text(
+        (root / "lean" / "checker" / "BooleCheck" / "Audit.lean").read_text()
+    )
     # D#6 — checker_artifact_hash strictly pins Boole/Family/V0Helpers.lean.
     (workspace / "Boole" / "Family").mkdir(parents=True)
     (workspace / "Boole" / "Family" / "V0Helpers.lean").write_text(
