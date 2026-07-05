@@ -313,8 +313,12 @@ fn validate_create(input: &CreateBountyInput) -> Result<(), String> {
     if !is_valid_id(&input.id) {
         return Err("bounty id must be 1-128 printable ASCII chars without whitespace".to_string());
     }
-    if input.domain.is_empty() {
-        return Err("bounty domain must be a non-empty string".to_string());
+    if !is_valid_domain(&input.domain) {
+        return Err(format!(
+            "bounty domain must be 1-{MAX_DOMAIN_LEN} chars of dot-separated \
+             lowercase tokens ([a-z0-9] with interior hyphens); got {:?}",
+            input.domain
+        ));
     }
     if !is_hex32(&input.problem_hash) {
         return Err("bounty problemHash must be 32-byte lowercase hex".to_string());
@@ -322,11 +326,74 @@ fn validate_create(input: &CreateBountyInput) -> Result<(), String> {
     if input.verifier_kind.is_empty() {
         return Err("bounty verifier.kind must be a non-empty string".to_string());
     }
+    validate_verifier_metadata(&input.verifier_metadata)?;
     if input.reward == 0 {
         return Err("bounty reward must be a positive bigint".to_string());
     }
     if input.deadline == 0 {
         return Err("bounty deadline must be a positive integer (unix ms)".to_string());
+    }
+    Ok(())
+}
+
+const MAX_DOMAIN_LEN: usize = 64;
+
+/// PM.3 (audit U40/U42) — `domain` doubles as `family_id` and is persisted
+/// into records downstream consumers treat as "Lean-verified", so it must
+/// stay a machine token, never prose: dot-separated lowercase segments,
+/// each `[a-z0-9]` with interior hyphens (the shape every shipped domain
+/// already uses, e.g. `lean.protocol-invariant`).
+fn is_valid_domain(domain: &str) -> bool {
+    if domain.is_empty() || domain.len() > MAX_DOMAIN_LEN {
+        return false;
+    }
+    domain.split('.').all(|segment| {
+        !segment.is_empty()
+            && !segment.starts_with('-')
+            && !segment.ends_with('-')
+            && segment
+                .bytes()
+                .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-'))
+    })
+}
+
+/// Longest legitimate metadata string is a Lean theorem `statement`;
+/// anything past this cap is corpus-poisoning surface, not a statement.
+const MAX_METADATA_STRING_LEN: usize = 16 * 1024;
+
+/// PM.3 (audit U40/U42) — `verifier.metadata` is announcer-controlled and
+/// stored verbatim next to verified proofs, so only keys a shipped
+/// verifier actually reads are accepted, each with the type that verifier
+/// expects. A new verifier that reads a new key extends this table in the
+/// same change that ships the verifier.
+fn validate_verifier_metadata(metadata: &Map<String, Value>) -> Result<(), String> {
+    for (key, value) in metadata {
+        match key.as_str() {
+            "statement" | "verifierHash" | "profile" | "template" => {
+                let Some(text) = value.as_str() else {
+                    return Err(format!("bounty verifier.metadata.{key} must be a string"));
+                };
+                if text.len() > MAX_METADATA_STRING_LEN {
+                    return Err(format!(
+                        "bounty verifier.metadata.{key} exceeds {MAX_METADATA_STRING_LEN} bytes"
+                    ));
+                }
+            }
+            "maxSteps" => {
+                if !value.is_u64() {
+                    return Err(
+                        "bounty verifier.metadata.maxSteps must be a non-negative integer"
+                            .to_string(),
+                    );
+                }
+            }
+            other => {
+                return Err(format!(
+                    "bounty verifier.metadata key {other:?} is not accepted; \
+                     allowed keys: statement, verifierHash, profile, template, maxSteps"
+                ));
+            }
+        }
     }
     Ok(())
 }
