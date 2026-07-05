@@ -1083,6 +1083,49 @@ fn build_seccomp_program(mode: IsolationMode) -> anyhow::Result<seccompiler::Bpf
     Ok(program)
 }
 
+// Landlock's `Execute` right is checked via the kernel's `open_exec()` path
+// (`FMODE_EXEC`-flagged opens), and that path is *also* how `load_elf_binary`
+// opens a dynamically linked ELF's own interpreter (`PT_INTERP`, e.g.
+// `/lib64/ld-linux-x86-64.so.2`) while the kernel is still processing the
+// outer binary's execve — this is a second, distinct FMODE_EXEC open, not
+// merely a read. Every `lake`/`lean` binary Boole runs is dynamically
+// linked (as is this crate's own `sandbox_probe` test binary), so without an
+// exec-allow rule covering the interpreter's own directory, `execve()`
+// itself fails with EACCES the instant Landlock is restricted — even when
+// the exec'd binary's own path is correctly allowlisted via
+// `exec_allow_dirs`. This matches the upstream `landlock` crate's own
+// reference sandboxer (`examples/sandboxer.rs`), whose usage example
+// allowlists `/lib` and `/usr` alongside `$PATH` for exactly this reason.
+//
+// The shared libraries the interpreter subsequently loads (libc.so.6 etc.)
+// are opened by the interpreter itself via a plain, non-exec `openat()`,
+// which this ruleset does not restrict at all: `ReadFile`/`ReadDir` are not
+// in `build_landlock_ruleset`'s `handled` set (see its module-level doc
+// above), so only the interpreter's own exec-flagged open needs this rule.
+//
+// The interpreter's resolved real path (after following distro symlinks,
+// e.g. Debian/Ubuntu's multiarch layout) varies by distro, so this
+// allowlists the standard search locations rather than one exact path;
+// each is Execute-only (never write) and a missing entry on a given distro
+// is silently skipped by the same `PathFd::new` fallback used for
+// `exec_allow_dirs`/`scratch_dirs` below.
+#[cfg(target_os = "linux")]
+fn dynamic_loader_exec_dirs() -> Vec<PathBuf> {
+    [
+        "/lib",
+        "/lib64",
+        "/usr/lib",
+        "/usr/lib64",
+        "/lib/x86_64-linux-gnu",
+        "/usr/lib/x86_64-linux-gnu",
+        "/lib/aarch64-linux-gnu",
+        "/usr/lib/aarch64-linux-gnu",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .collect()
+}
+
 #[cfg(target_os = "linux")]
 fn build_landlock_ruleset(config: &LeanRunnerConfig) -> anyhow::Result<landlock::RulesetCreated> {
     use landlock::{AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI};
@@ -1092,7 +1135,10 @@ fn build_landlock_ruleset(config: &LeanRunnerConfig) -> anyhow::Result<landlock:
     let handled = write_access | AccessFs::Execute;
     let mut created = Ruleset::default().handle_access(handled)?.create()?;
 
-    for dir in exec_allow_dirs(config) {
+    let exec_dirs = exec_allow_dirs(config)
+        .into_iter()
+        .chain(dynamic_loader_exec_dirs());
+    for dir in exec_dirs {
         if let Ok(fd) = PathFd::new(&dir) {
             created = created.add_rule(PathBeneath::new(fd, AccessFs::Execute))?;
         }
