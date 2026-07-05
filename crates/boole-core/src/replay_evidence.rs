@@ -3,8 +3,8 @@ use sha2::{Digest, Sha256};
 use crate::block::PersistedBlock;
 use crate::block_builder::{compare_canonical, select_qualifying_proposer};
 use crate::{
-    min_share_score, parse_biguint_hex, share_hash, validate_proof_package_shape, Hex32,
-    ValidationResult,
+    find_target_seed_j_index, min_share_score, parse_biguint_hex, share_hash,
+    validate_proof_package_shape, Hex32, ValidationResult, TARGET_SEED_J_INDEX_BOUND,
 };
 
 /// N3-pre.1 — internal switch for how `verify_selected_share_evidence`
@@ -114,6 +114,24 @@ pub(crate) fn verify_selected_share_evidence(
                 idx,
                 expected_share_hash,
                 block.selected_share_hashes[idx]
+            );
+        }
+
+        // Seed↔prev-block binding — a non-empty persisted `seedHex` claims
+        // the chain posed this share's problem, so replay re-derives it:
+        // `target_seed(c, pk, n, j_index)` for some in-bound `j_index`
+        // (`c == prev_c` is already enforced above). Empty `seedHex` stays
+        // accepted (pre-N0.4b legacy posture; mandatory seeds are N3.3
+        // scope). Admission enforces the same rule on the live path.
+        if !evidence.seed_hex.is_empty()
+            && find_target_seed_j_index(&c, &pk, &n, &evidence.seed_hex).is_none()
+        {
+            anyhow::bail!(
+                "selected share evidence seedHex at index {} does not derive from \
+                 target_seed(c, pk, n, j_index) for any j_index < {}: got {}",
+                idx,
+                TARGET_SEED_J_INDEX_BOUND,
+                evidence.seed_hex
             );
         }
     }

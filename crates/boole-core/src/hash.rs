@@ -5,6 +5,14 @@ use thiserror::Error;
 const DOMAIN_TICKET: &[u8] = b"ticket";
 const DOMAIN_SHARE: &[u8] = b"share";
 const DOMAIN_SUBMIT: &[u8] = b"submit";
+const DOMAIN_TARGET: &[u8] = b"target";
+
+/// Consensus bound on the target index: a claimed `seedHex` must equal
+/// `target_seed(c, pk, n, j_index)` for some `j_index` below this bound
+/// (admission and replay both search the same range). A miner profile's
+/// per-ticket target count `M` must stay ≤ this bound for its claimed
+/// seeds to admit.
+pub const TARGET_SEED_J_INDEX_BOUND: u32 = 256;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum Hex32Error {
@@ -120,6 +128,28 @@ pub fn ticket(c: &Hex32, pk: &Hex32, n: &Hex32, t_ticket: &BigUint) -> TicketRes
         hash_bytes,
         hash_int,
     }
+}
+
+/// Deterministic problem seed for `(c, pk, n, j_index)` — the protocol's
+/// "examiner": `c` is the previous block's hash, so the posed instance is a
+/// pure function of the chain head and the miner's admitted ticket. The
+/// `j_index` is the integer target counter 0..M, NOT the 32-byte grinded
+/// share `j`. Byte-compatible with pof's `targetGen.ts::targetSeed`.
+pub fn target_seed(c: &Hex32, pk: &Hex32, n: &Hex32, j_index: u32) -> Hex32 {
+    let j_be = j_index.to_be_bytes();
+    h_protocol(
+        DOMAIN_TARGET,
+        &[c.as_bytes(), pk.as_bytes(), n.as_bytes(), &j_be],
+    )
+}
+
+/// Search `j_index ∈ [0, TARGET_SEED_J_INDEX_BOUND)` for the index whose
+/// `target_seed(c, pk, n, j_index)` equals `seed_hex`. `None` means the
+/// claimed seed does not derive from this share's `(c, pk, n)` context —
+/// including any `seed_hex` that is not 64 lowercase hex characters.
+pub fn find_target_seed_j_index(c: &Hex32, pk: &Hex32, n: &Hex32, seed_hex: &str) -> Option<u32> {
+    let claimed = Hex32::from_hex(seed_hex).ok()?;
+    (0..TARGET_SEED_J_INDEX_BOUND).find(|&j_index| target_seed(c, pk, n, j_index) == claimed)
 }
 
 pub fn share_hash(c: &Hex32, pk: &Hex32, n: &Hex32, j: &Hex32, canon_hash: &Hex32) -> Hex32 {

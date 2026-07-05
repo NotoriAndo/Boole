@@ -52,6 +52,7 @@ fn easy_head() -> ChainHead {
 struct RecordingSubmitter {
     pub announce_calls: Mutex<u32>,
     pub submit_calls: Mutex<Vec<String>>,
+    pub submit_seed_hexes: Mutex<Vec<String>>,
     pub submit_result: Mutex<Option<SubmitResult>>,
     pub announce_result: Mutex<Option<AnnounceTicketResult>>,
 }
@@ -61,6 +62,7 @@ impl RecordingSubmitter {
         Self {
             announce_calls: Mutex::new(0),
             submit_calls: Mutex::new(Vec::new()),
+            submit_seed_hexes: Mutex::new(Vec::new()),
             submit_result: Mutex::new(Some(submit)),
             announce_result: Mutex::new(Some(announce)),
         }
@@ -85,6 +87,10 @@ impl Submitter for RecordingSubmitter {
             inputs.j_hex,
             inputs.canon_bytes.len()
         ));
+        self.submit_seed_hexes
+            .lock()
+            .unwrap()
+            .push(inputs.seed_hex.to_string());
         self.submit_result
             .lock()
             .unwrap()
@@ -1411,4 +1417,138 @@ fn test_verify_outcome_threads_attempt_artifact_path() {
             ..
         } if path == &artifact_path
     )));
+}
+
+// Seed↔prev-block binding — admission rejects a claimed `seedHex` that is
+// not `target_seed(c, pk, n, j_index)`, which a pinned/stub seed can never
+// satisfy. Non-chain-derived runs must therefore submit seedless (the
+// legacy posture) instead of claiming a seed the chain never posed; the
+// production chain-derived path keeps claiming its seed.
+
+#[test]
+fn chain_derived_target_mode_claims_seed_on_submit() {
+    let head = easy_head();
+    let submitter = Arc::new(RecordingSubmitter::with_results(
+        SubmitResult::Accepted {
+            share_hash_hex: "abc".to_string(),
+        },
+        AnnounceTicketResult::Observed {
+            hash_hex: "def".to_string(),
+        },
+    ));
+    struct ArcSubmitter(Arc<RecordingSubmitter>);
+    impl Submitter for ArcSubmitter {
+        fn announce_ticket(&self, inputs: AnnounceTicketInputs<'_>) -> AnnounceTicketResult {
+            self.0.announce_ticket(inputs)
+        }
+        fn submit(&self, inputs: SubmitInputs<'_>) -> SubmitResult {
+            self.0.submit(inputs)
+        }
+    }
+
+    let deps = MiningLoopDeps {
+        pk: pk32(),
+        chain_head: Box::new(FixedChainHead { head }),
+        emitter: Box::new(StubTargetEmitter::new("synthetic invariant render")),
+        driver: make_canned_proof_driver(),
+        verifier: Box::new(AcceptingVerifier),
+        canonicalizer: Box::new(StructuralCanonicalizer),
+        submit_client: Box::new(ArcSubmitter(Arc::clone(&submitter))),
+        prompt_builder: None,
+        log: None,
+        sleeper: None,
+    };
+    let opts = MiningLoopOptions {
+        max_cycles: Some(1),
+        deterministic_nonces: true,
+        // Default run_context: target_mode == ChainDerived.
+        ticket_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        share_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        submit_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        ..Default::default()
+    };
+    let _ = run_mining_loop(deps, opts);
+
+    let seeds = submitter.submit_seed_hexes.lock().unwrap();
+    assert_eq!(seeds.len(), 1);
+    assert_eq!(
+        seeds[0].len(),
+        64,
+        "a chain-derived run must claim its target seed on the wire; got {:?}",
+        seeds[0]
+    );
+}
+
+#[test]
+fn fixed_target_mode_submits_without_seed_claim() {
+    let head = easy_head();
+    let submitter = Arc::new(RecordingSubmitter::with_results(
+        SubmitResult::Accepted {
+            share_hash_hex: "abc".to_string(),
+        },
+        AnnounceTicketResult::Observed {
+            hash_hex: "def".to_string(),
+        },
+    ));
+    struct ArcSubmitter(Arc<RecordingSubmitter>);
+    impl Submitter for ArcSubmitter {
+        fn announce_ticket(&self, inputs: AnnounceTicketInputs<'_>) -> AnnounceTicketResult {
+            self.0.announce_ticket(inputs)
+        }
+        fn submit(&self, inputs: SubmitInputs<'_>) -> SubmitResult {
+            self.0.submit(inputs)
+        }
+    }
+
+    let deps = MiningLoopDeps {
+        pk: pk32(),
+        chain_head: Box::new(FixedChainHead { head }),
+        emitter: Box::new(StubTargetEmitter::new("synthetic invariant render")),
+        driver: make_canned_proof_driver(),
+        verifier: Box::new(AcceptingVerifier),
+        canonicalizer: Box::new(StructuralCanonicalizer),
+        submit_client: Box::new(ArcSubmitter(Arc::clone(&submitter))),
+        prompt_builder: None,
+        log: None,
+        sleeper: None,
+    };
+    let opts = MiningLoopOptions {
+        max_cycles: Some(1),
+        deterministic_nonces: true,
+        run_context: MiningRunContext {
+            verifier_mode: MiningRunVerifierMode::MockAccept,
+            driver_mode: MiningRunDriverMode::MockLlmResponse,
+            target_mode: MiningRunTargetMode::FixedSeed,
+        },
+        ticket_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        share_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        submit_grind: GrinderConfig {
+            max_attempts: Some(1),
+            report_every_hashes: 0,
+        },
+        ..Default::default()
+    };
+    let _ = run_mining_loop(deps, opts);
+
+    let seeds = submitter.submit_seed_hexes.lock().unwrap();
+    assert_eq!(seeds.len(), 1);
+    assert_eq!(
+        seeds[0], "",
+        "a pinned/stub-target run must not claim a seed the chain never posed"
+    );
 }
