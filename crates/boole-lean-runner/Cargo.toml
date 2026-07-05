@@ -16,6 +16,15 @@ thiserror.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+# ADR-0008 — Linux kernel isolation layer: seccomp-bpf (network-egress
+# denylist) + Landlock (filesystem write/exec containment). macOS uses the
+# co-equal Seatbelt tier implemented directly against libSystem in
+# src/lib.rs (no extra crate: `sandbox_init` is a libSystem FFI call, not a
+# published crate dependency).
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock.workspace = true
+seccompiler.workspace = true
+
 # P0.6b — inherit the workspace deny set. `unsafe_code` is locally relaxed
 # via a crate-root `#![allow(unsafe_code)]` attribute in src/lib.rs so the
 # carve-out for libc rlimit/setpgid/killpg syscalls is documented in code
