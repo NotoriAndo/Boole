@@ -1,0 +1,66 @@
+name: macos-isolation
+
+# ADR-0008 decision 3 (co-equal macOS node tier) requires the Seatbelt
+# isolation guards to be CI-verified, not only locally. Running the full
+# self-test on a GitHub macOS runner (~10x the Linux minute cost) is not
+# worth it; this scoped canary runs ONLY the boole-lean-runner lib guards
+# (the sandbox + baseline isolation unit tests — no Lean toolchain needed),
+# and only when the lean-runner crate or this workflow changes. It is the
+# OS-regression canary the ADR calls for (Seatbelt is a deprecated-but-
+# functional Apple API), at a fraction of a full macOS matrix's cost.
+# Constitution §13: the invariant (macOS isolation is CI-verified) is kept;
+# only the execution is optimized. Intentionally NOT a branch-protection
+# required check — it is path-filtered, so requiring it would hang PRs that
+# do not touch the lean-runner crate.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/boole-lean-runner/**"
+      - ".github/workflows/macos-isolation.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/boole-lean-runner/**"
+      - ".github/workflows/macos-isolation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-isolation-guard:
+    name: macos-isolation-guard
+    runs-on: macos-latest
+    timeout-minutes: 20
+    # Match the Linux self-test determinism contract: the sandbox guards
+    # spawn probe processes, so keep test execution single-threaded.
+    env:
+      RUST_TEST_THREADS: "1"
+    steps:
+      - name: Checkout
+        # Pinned to the same immutable SHA as ci.yml (actions/checkout v6.0.3).
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install Rust toolchain
+        # Pinned to the same immutable SHA as ci.yml (dtolnay/rust-toolchain).
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+
+      - name: Run boole-lean-runner isolation guards (Seatbelt path)
+        # --lib scopes to the crate's unit tests, where the Seatbelt sandbox
+        # guards and the baseline isolation guards live. It deliberately
+        # excludes the integration tests (soundness_boundary / real_checker),
+        # which require a Lean toolchain this canary does not install.
+        #
+        # The guards exec a sibling `sandbox_probe` bin (src/bin/sandbox_probe.rs)
+        # from the target dir; `cargo test --lib` does NOT build bin targets, so
+        # on a clean runner that binary is absent and the guards' setup asserts
+        # it exists (lib.rs probe_bin()). Build the probe first so the sibling is
+        # present under target/debug/ where the lib test binary looks for it.
+        run: |
+          set -euo pipefail
+          cargo build -p boole-lean-runner --bin sandbox_probe --locked
+          cargo test -p boole-lean-runner --lib --locked -- --nocapture
