@@ -72,3 +72,27 @@
 - **lessons 기록 3건**: ① 에이전트 커밋 게이트에 CI 선두 게이트(fmt+clippy) 원문 포함 + worktree별 개별 CARGO_TARGET_DIR ② 비보호 base 스택 PR의 auto-merge 즉시발동 특성과 landing PR rebase 머지 규칙 ③ CI 밖 게이트 스크립트는 부패 의심 + baseline 재실행으로 원인 귀속 후 수리-선행 slice화.
 - **관찰 항목(비차단)**: pre.1 에이전트가 로컬에서 `state_verify_deep_reverifies_persisted_blocks_with_real_lean` 실패를 main 기준으로 관찰 보고 — CI 클린 러너에선 86d223c 이후 전 run green이라 로컬 부하/캐시 요인 추정. 재발 시 조사.
 - **claim boundary**: 전부 closed-local 검증 + CI. public mining/유료 API/leaderboard claim 아님.
+
+---
+
+# 2026-07-05 — TB.1 checker soundness boundary (ADR-0013 grill → 착륙)
+
+- [x] ADR-0013 grill 리뷰 (텔레그램) — L1 적합성 도전 + 3공리 범위 도전 문답 후 전부 승인.
+      확정: 3공리 allowlist(propext/Classical.choice/Quot.sound) / 감사는 제출 소스가
+      영향 못 주는 분리 프로세스 / blacklist 확장은 보조 방어 / 격리 enforce는 결정 4
+      개정으로 ADR-0008 자체 slice로 분리(N3.2 전 binding 유지)
+- [x] TB.1 구현 착륙 — **7c4c743** (PR #18, CI green + main push CI green).
+      RED 4종(addDecl 공리 주입 / custom elab IO / debug.skipKernelTC / 허용 밖 공리
+      의존) 사전 실패 확인 → GREEN, v1-lenbound 정상 경로 수락 positive 테스트 동봉.
+      audit = `BooleCheck/Audit.lean` 2차 `lake env lean --run` 프로세스.
+      checker_artifact_hash 재고정 + 의존 fixture/README pin 전체 재생성.
+      smoke: runtime-smoke-all + proof-to-block-benchmark PASS.
+
+## Review
+- 외부 감사(2026-07-04) critical/high 편입분 전부 착륙 완료: N3-pre.1~6 + TB.1~TB.3
+  + TB.4(경로 b). §TB wave 닫힘. claim boundary 갱신: bounty 레인은
+  "commissioned-statement-bound, axiom-bounded machine check" 표현 가능,
+  verify-answer 레인은 D3 전까지 "문자열 검사" 표기 유지.
+- 명시적 이연 잔여: ADR-0008 격리 enforce slice(N3.2 전 binding) / replay 진실 갭
+  (N3.3 ingress 재검증) / TB.4 경로 a(D2 결합).
+- closed-local 검증 + CI only. public mining/유료 API claim 아님.
