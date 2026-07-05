@@ -56,6 +56,38 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+/// ADR-0008 — how strictly the kernel-layer isolation extensions (Linux
+/// seccomp-bpf + Landlock, macOS Seatbelt) enforce their policy on top of the
+/// portable baseline (pgroup + rlimits + env-scrub, always enforced).
+///
+/// Ratified decision 4 (phased enforcement): this slice lands with `Log` as
+/// the default so a not-yet-tuned allowlist observes a would-be violation
+/// instead of killing the checker outright. The N3.2 slice (the change that
+/// opens share-gossip network ingress) flips the default to `Enforce` in the
+/// same commit, plus an opt-out flag — that pairing is deliberate so the
+/// trust-boundary change and the enforcement change cannot drift apart.
+///
+/// Platform asymmetry, documented rather than silently smoothed over: Linux
+/// seccomp has a genuine non-blocking "log this syscall, still allow it"
+/// action (`SECCOMP_RET_LOG`), so `Log` mode installs the real filter with
+/// that action. Landlock and Seatbelt have no such primitive — once either
+/// is engaged the kernel actually blocks the denied operation, there is no
+/// "observe only" level. For those two mechanisms `Log` mode therefore means
+/// the ruleset/profile is not installed at all, which is behaviorally
+/// identical to "logged, never blocked" (nothing changes vs. today's
+/// baseline) and carries zero risk of an under-tuned allowlist breaking the
+/// checker. `Enforce` mode installs and actually applies all layers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IsolationMode {
+    /// Observe-only: never fails the checker. See type docs for the
+    /// per-mechanism meaning of "observe" (seccomp logs; Landlock/Seatbelt
+    /// are simply not installed).
+    #[default]
+    Log,
+    /// Kernel-layer checks are installed and actually deny violations.
+    Enforce,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeanRunnerConfig {
     pub verifier_hash: String,
@@ -64,6 +96,7 @@ pub struct LeanRunnerConfig {
     pub timeout_ms: u64,
     pub memory_limit_mb: u64,
     pub output_limit_bytes: usize,
+    pub isolation_mode: IsolationMode,
 }
 
 impl LeanRunnerConfig {
@@ -75,6 +108,7 @@ impl LeanRunnerConfig {
             timeout_ms: 10_000,
             memory_limit_mb: 8192,
             output_limit_bytes: 64 * 1024,
+            isolation_mode: IsolationMode::default(),
         }
     }
 
@@ -100,6 +134,11 @@ impl LeanRunnerConfig {
 
     pub fn with_output_limit_bytes(mut self, output_limit_bytes: usize) -> Self {
         self.output_limit_bytes = output_limit_bytes;
+        self
+    }
+
+    pub fn with_isolation_mode(mut self, isolation_mode: IsolationMode) -> Self {
+        self.isolation_mode = isolation_mode;
         self
     }
 }
@@ -787,16 +826,23 @@ fn contains_sorry_token(line: &str) -> bool {
     contains_forbidden_token(line, b"sorry")
 }
 
-fn configure_child_environment(command: &mut Command) {
-    command.env_clear();
-    // A minimal PATH covering common locations for `lake`/`lean` on macOS and
-    // Linux developer machines. Operators that install Lean elsewhere can set
-    // BOOLE_LEAN_PATH to override.
-    let path = std::env::var("BOOLE_LEAN_PATH")
+// A minimal PATH covering common locations for `lake`/`lean` on macOS and
+// Linux developer machines. Operators that install Lean elsewhere can set
+// BOOLE_LEAN_PATH to override. Shared by `configure_child_environment` (what
+// PATH the child sees) and, on Linux/macOS, the kernel-isolation exec
+// allowlist (ADR-0008) — the toolchain directories the checker is allowed to
+// `exec` from are derived from this same value, so the two never disagree
+// about "where `lake`/`lean` live".
+fn resolved_child_path() -> String {
+    std::env::var("BOOLE_LEAN_PATH")
         .ok()
         .or_else(|| std::env::var("PATH").ok())
-        .unwrap_or_else(|| "/usr/local/bin:/usr/bin:/bin".to_string());
-    command.env("PATH", path);
+        .unwrap_or_else(|| "/usr/local/bin:/usr/bin:/bin".to_string())
+}
+
+fn configure_child_environment(command: &mut Command) {
+    command.env_clear();
+    command.env("PATH", resolved_child_path());
     if let Ok(home) = std::env::var("HOME") {
         command.env("HOME", home);
     }
@@ -827,6 +873,311 @@ fn configure_child_sandbox(command: &mut Command, config: &LeanRunnerConfig) {
             set_rlimit(libc::RLIMIT_CPU, cpu_seconds)?;
             set_rlimit(libc::RLIMIT_FSIZE, fsize_bytes)?;
             set_rlimit(libc::RLIMIT_NOFILE, nofile)?;
+            Ok(())
+        });
+    }
+    install_kernel_isolation(command, config);
+}
+
+// ADR-0008 — kernel-layer isolation on top of the pgroup/rlimit/env-scrub
+// baseline above. Scope for this landing slice is exactly the three
+// characterization guards named in the ADR: deny network egress, deny
+// filesystem writes outside the checker's own package dir, deny `exec` of
+// anything outside the Lean toolchain. Read access is intentionally left
+// unrestricted on both platforms: enumerating every path the Lean toolchain
+// and dynamic linker legitimately read (shared library search paths, dyld's
+// shared cache on macOS, locale/timezone data, etc.) needs a real trace of
+// `lake`/`lean`'s syscalls that isn't available on this dev machine, and
+// getting it wrong would make the checker fail to even start. That tuning
+// is exactly what the ADR's log-mode-by-default phase (decision 4) exists
+// for, ahead of the N3.2 commit that flips Enforce on for real untrusted
+// traffic.
+//
+// `scratch_dirs`/`exec_allow_dirs` are shared by both platform
+// implementations so the Linux and macOS policies describe the same paths.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn scratch_dirs(config: &LeanRunnerConfig) -> Vec<PathBuf> {
+    vec![config.package_dir.clone()]
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn exec_allow_dirs(config: &LeanRunnerConfig) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = resolved_child_path()
+        .split(':')
+        .filter(|entry| !entry.is_empty())
+        .map(PathBuf::from)
+        .collect();
+    if let Ok(home) = std::env::var("HOME") {
+        dirs.push(PathBuf::from(home).join(".elan"));
+    }
+    // `lake exec <checker_exe>` runs a binary built under the package dir
+    // (e.g. `.lake/build/bin/boole_check`), so the package dir itself must
+    // be exec-allowed alongside the toolchain's own PATH/elan directories.
+    dirs.push(config.package_dir.clone());
+    dirs
+}
+
+// macOS — Seatbelt (`sandbox_init`), the mechanism Bazel/Chromium build
+// sandboxes use in production (ADR-0008 ratified decision 3: macOS is a
+// co-equal enforcement tier, not a documented-weaker fallback). `sandbox_init`
+// is a private-but-stable libSystem entry point; there is no published Rust
+// crate wrapping it, so we declare the FFI signature directly (the same
+// approach every macOS build-sandbox tool uses).
+//
+// Log mode: Seatbelt has no non-blocking "log but allow" level (unlike
+// seccomp's `SECCOMP_RET_LOG` on Linux) — once a profile is installed the
+// kernel actually enforces it. So `Log` mode simply does not call
+// `sandbox_init` at all, which is behaviorally identical to today's
+// pre-ADR-0008 baseline and carries zero risk of breaking the checker.
+// `Enforce` mode installs a profile built from `scratch_dirs`/
+// `exec_allow_dirs` using an "allow default, then deny the three specific
+// things" shape: this both matches the ADR's own phrasing ("deny network,
+// filesystem allowlist, restrict process-exec") and is far more robust than
+// a hand-tuned deny-default allowlist, which easily breaks process startup
+// by missing some mach-lookup/sysctl/IPC right the dynamic linker or libSystem
+// needs — exactly the class of failure log-mode tuning is meant to avoid.
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn sandbox_init(
+        profile: *const std::os::raw::c_char,
+        flags: u64,
+        errorbuf: *mut *mut std::os::raw::c_char,
+    ) -> std::os::raw::c_int;
+}
+
+// SBPL `subpath` is compared against the fully resolved (symlink-free) path
+// the kernel sees at access time. On macOS both `/tmp` and `/var` — and
+// therefore `$TMPDIR`, which every temp-dir-based path (including test
+// fixtures) is rooted under — are themselves symlinks into `/private/...`,
+// so a profile built from the literal, unresolved path would silently fail
+// to match real accesses underneath it. Canonicalize each configured dir
+// (falling back to the original path if it does not exist yet, e.g. before
+// first use) so the profile always names the same real path the kernel
+// enforces against.
+#[cfg(target_os = "macos")]
+fn canonical_or_self(dir: &Path) -> PathBuf {
+    std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())
+}
+
+#[cfg(target_os = "macos")]
+fn seatbelt_profile(config: &LeanRunnerConfig) -> String {
+    let write_subpaths: String = scratch_dirs(config)
+        .iter()
+        .map(|dir| {
+            format!(
+                "(subpath {:?})",
+                canonical_or_self(dir).display().to_string()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n      ");
+    let exec_subpaths: String = exec_allow_dirs(config)
+        .iter()
+        .map(|dir| {
+            format!(
+                "(subpath {:?})",
+                canonical_or_self(dir).display().to_string()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n      ");
+    format!(
+        r#"(version 1)
+(allow default)
+(deny network*)
+(deny file-write*
+  (require-not
+    (require-any
+      {write_subpaths})))
+(deny process-exec
+  (require-not
+    (require-any
+      {exec_subpaths})))
+"#
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn install_kernel_isolation(command: &mut Command, config: &LeanRunnerConfig) {
+    use std::os::unix::process::CommandExt;
+    if config.isolation_mode != IsolationMode::Enforce {
+        // Log mode: no non-blocking Seatbelt level exists, so install
+        // nothing (see module comment above).
+        return;
+    }
+    let profile = seatbelt_profile(config);
+    let c_profile = match std::ffi::CString::new(profile) {
+        Ok(c) => c,
+        Err(_) => return, // NUL byte in a path; fail open rather than panic.
+    };
+    unsafe {
+        command.pre_exec(move || {
+            let mut errorbuf: *mut std::os::raw::c_char = std::ptr::null_mut();
+            let rc = sandbox_init(c_profile.as_ptr(), 0, &mut errorbuf);
+            if rc != 0 {
+                return Err(std::io::Error::other(
+                    "sandbox_init failed while installing the ADR-0008 Seatbelt profile",
+                ));
+            }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn install_kernel_isolation(_command: &mut Command, _config: &LeanRunnerConfig) {
+    // Other Unix targets (e.g. BSD) are not part of Boole's supported dev/CI
+    // matrix; they keep the portable pgroup/rlimit/env-scrub baseline only.
+}
+
+// Linux — seccomp-bpf (`seccompiler`, rust-vmm/Firecracker provenance) denies
+// network egress; Landlock (`landlock`, the kernel feature author's reference
+// binding) denies filesystem writes/exec outside the allowlisted dirs.
+// ADR-0008 assigns both "deny network egress" and "deny arbitrary execve" to
+// seccomp, but seccomp-bpf can only inspect syscall *integer* arguments, not
+// pointee data like an execve path — it cannot express "deny execve of any
+// path outside these directories" by itself. Landlock's `AccessFs::Execute`
+// right (available since ABI v1 / kernel 5.13, the kernel's purpose-built
+// mechanism for exactly this) implements the path-scoped exec restriction
+// instead, while seccomp keeps the network-egress-syscall denylist it can
+// express natively. Both crates and both scopes are exactly as ratified;
+// this is a choice of *which layer implements which specific denial*, not a
+// change to scope, dependencies, or cfg-gating.
+#[cfg(target_os = "linux")]
+fn network_egress_syscalls() -> Vec<i64> {
+    vec![
+        libc::SYS_socket,
+        libc::SYS_socketpair,
+        libc::SYS_connect,
+        libc::SYS_bind,
+        libc::SYS_listen,
+        libc::SYS_accept,
+        libc::SYS_accept4,
+        libc::SYS_sendto,
+        libc::SYS_sendmsg,
+        libc::SYS_recvfrom,
+        libc::SYS_recvmsg,
+    ]
+}
+
+#[cfg(target_os = "linux")]
+fn build_seccomp_program(mode: IsolationMode) -> anyhow::Result<seccompiler::BpfProgram> {
+    use seccompiler::{SeccompAction, SeccompFilter, TargetArch};
+
+    let match_action = match mode {
+        IsolationMode::Log => SeccompAction::Log,
+        IsolationMode::Enforce => SeccompAction::Errno(libc::EACCES as u32),
+    };
+    let rules = network_egress_syscalls()
+        .into_iter()
+        .map(|sysno| (sysno, vec![]))
+        .collect();
+    let arch = TargetArch::try_from(std::env::consts::ARCH).map_err(|_| {
+        anyhow!(
+            "unsupported seccomp target arch: {}",
+            std::env::consts::ARCH
+        )
+    })?;
+    let filter = SeccompFilter::new(rules, SeccompAction::Allow, match_action, arch)?;
+    let program = seccompiler::BpfProgram::try_from(filter)?;
+    Ok(program)
+}
+
+// Landlock's `Execute` right is checked via the kernel's `open_exec()` path
+// (`FMODE_EXEC`-flagged opens), and that path is *also* how `load_elf_binary`
+// opens a dynamically linked ELF's own interpreter (`PT_INTERP`, e.g.
+// `/lib64/ld-linux-x86-64.so.2`) while the kernel is still processing the
+// outer binary's execve — this is a second, distinct FMODE_EXEC open, not
+// merely a read. Every `lake`/`lean` binary Boole runs is dynamically
+// linked (as is this crate's own `sandbox_probe` test binary), so without an
+// exec-allow rule covering the interpreter's own directory, `execve()`
+// itself fails with EACCES the instant Landlock is restricted — even when
+// the exec'd binary's own path is correctly allowlisted via
+// `exec_allow_dirs`. This matches the upstream `landlock` crate's own
+// reference sandboxer (`examples/sandboxer.rs`), whose usage example
+// allowlists `/lib` and `/usr` alongside `$PATH` for exactly this reason.
+//
+// The shared libraries the interpreter subsequently loads (libc.so.6 etc.)
+// are opened by the interpreter itself via a plain, non-exec `openat()`,
+// which this ruleset does not restrict at all: `ReadFile`/`ReadDir` are not
+// in `build_landlock_ruleset`'s `handled` set (see its module-level doc
+// above), so only the interpreter's own exec-flagged open needs this rule.
+//
+// The interpreter's resolved real path (after following distro symlinks,
+// e.g. Debian/Ubuntu's multiarch layout) varies by distro, so this
+// allowlists the standard search locations rather than one exact path;
+// each is Execute-only (never write) and a missing entry on a given distro
+// is silently skipped by the same `PathFd::new` fallback used for
+// `exec_allow_dirs`/`scratch_dirs` below.
+#[cfg(target_os = "linux")]
+fn dynamic_loader_exec_dirs() -> Vec<PathBuf> {
+    [
+        "/lib",
+        "/lib64",
+        "/usr/lib",
+        "/usr/lib64",
+        "/lib/x86_64-linux-gnu",
+        "/usr/lib/x86_64-linux-gnu",
+        "/lib/aarch64-linux-gnu",
+        "/usr/lib/aarch64-linux-gnu",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .collect()
+}
+
+#[cfg(target_os = "linux")]
+fn build_landlock_ruleset(config: &LeanRunnerConfig) -> anyhow::Result<landlock::RulesetCreated> {
+    use landlock::{AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr, ABI};
+
+    let abi = ABI::V1;
+    let write_access = AccessFs::from_write(abi);
+    let handled = write_access | AccessFs::Execute;
+    let mut created = Ruleset::default().handle_access(handled)?.create()?;
+
+    let exec_dirs = exec_allow_dirs(config)
+        .into_iter()
+        .chain(dynamic_loader_exec_dirs());
+    for dir in exec_dirs {
+        if let Ok(fd) = PathFd::new(&dir) {
+            created = created.add_rule(PathBeneath::new(fd, AccessFs::Execute))?;
+        }
+    }
+    for dir in scratch_dirs(config) {
+        if let Ok(fd) = PathFd::new(&dir) {
+            created = created.add_rule(PathBeneath::new(fd, write_access))?;
+        }
+    }
+    Ok(created)
+}
+
+#[cfg(target_os = "linux")]
+fn install_kernel_isolation(command: &mut Command, config: &LeanRunnerConfig) {
+    use std::os::unix::process::CommandExt;
+
+    let mode = config.isolation_mode;
+    let program = match build_seccomp_program(mode) {
+        Ok(p) => p,
+        Err(_) => return, // Fail open: never break the checker over a filter-build bug.
+    };
+    // Landlock has no non-blocking level (like macOS Seatbelt, unlike
+    // seccomp's RET_LOG); only build/apply the ruleset in Enforce mode so Log
+    // mode's filesystem behavior stays identical to the pre-ADR-0008
+    // baseline, matching the same reasoning as the macOS implementation.
+    let ruleset = if mode == IsolationMode::Enforce {
+        build_landlock_ruleset(config).ok()
+    } else {
+        None
+    };
+    let mut ruleset = ruleset;
+    unsafe {
+        command.pre_exec(move || {
+            seccompiler::apply_filter(&program)
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
+            if let Some(rs) = ruleset.take() {
+                rs.restrict_self()
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+            }
             Ok(())
         });
     }
@@ -1068,6 +1419,11 @@ mod tests {
         assert_eq!(cfg.timeout_ms, 10_000);
         assert_eq!(cfg.memory_limit_mb, 8192);
         assert_eq!(cfg.output_limit_bytes, 64 * 1024);
+        assert_eq!(
+            cfg.isolation_mode,
+            IsolationMode::Log,
+            "ADR-0008 decision 4: landing default must be Log, not Enforce"
+        );
     }
 
     #[test]
@@ -1460,5 +1816,283 @@ mod tests {
             "configure_child_sandbox must cap checker CPU time at \
              (timeout_ms/1000)+5 = 15s; got {cpu:?}"
         );
+    }
+
+    // ADR-0008 — kernel isolation characterization guards. `make_temp_dir`
+    // follows the same dependency-free tempdir idiom as
+    // `check_file_rejects_axiom_before_lake_spawn` above (no `tempfile`
+    // crate: a unique path under the OS temp dir, cleaned up manually).
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn make_temp_dir(tag: &str, unique: u32) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "boole-isolation-{tag}-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp isolation test dir");
+        dir
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn probe_bin() -> PathBuf {
+        // `CARGO_BIN_EXE_<name>` is only populated for integration-test /
+        // bench targets, not for the crate's own `--lib` unit test binary
+        // (confirmed empirically: it is `NotPresent` here even though the
+        // plain `sandbox_probe` executable is still built as a sibling of
+        // this very test binary). `configure_child_sandbox` itself is
+        // private, so these guards must live here in `mod tests` rather
+        // than in `tests/*.rs` (which only sees the crate's public API) —
+        // so instead of the env var, derive the sibling binary's path from
+        // this test binary's own path: both land directly under
+        // `<target-dir>/<profile>/`, with the test binary one level deeper
+        // in `deps/`.
+        let mut path = std::env::current_exe().expect("locate current test binary");
+        path.pop(); // drop the test binary's own file name
+        path.pop(); // drop `deps/`, landing in `<target-dir>/<profile>/`
+        path.push("sandbox_probe");
+        assert!(
+            path.exists(),
+            "expected sibling `sandbox_probe` binary at {path:?}; \
+             is it still declared as a [[bin]] target in Cargo.toml?"
+        );
+        path
+    }
+
+    // Copies the probe binary into `dir` and returns its new path. Under an
+    // Enforce config the exec-allowlist is path-scoped (a whole directory,
+    // not a specific binary identity), so to isolate what a single guard
+    // actually characterizes — e.g. "is network egress denied" — the probe
+    // itself must be exec'd from an *allowed* directory; otherwise the exec
+    // restriction itself would fire first and the guard would conflate two
+    // different mechanisms.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn probe_in(dir: &Path) -> PathBuf {
+        let dest = dir.join("sandbox_probe");
+        std::fs::copy(probe_bin(), &dest).expect("copy sandbox_probe into test dir");
+        dest
+    }
+
+    // The isolation-denial errno differs per mechanism: macOS Seatbelt
+    // reports EPERM (empirically confirmed against this profile shape);
+    // Linux seccomp (configured with `SeccompAction::Errno(EACCES)`) and
+    // Landlock (LSM convention) both report EACCES.
+    #[cfg(target_os = "macos")]
+    const ISOLATION_DENIED_ERRNO: i32 = libc::EPERM;
+    #[cfg(target_os = "linux")]
+    const ISOLATION_DENIED_ERRNO: i32 = libc::EACCES;
+
+    // P1.7/ADR-0008 characterization: under an Enforce config, the checker's
+    // network egress is denied. Before `install_kernel_isolation` existed,
+    // this probe succeeded in reaching the network stack (ECONNREFUSED, a
+    // different errno) — RED confirmed locally on macOS prior to
+    // implementation; GREEN once the isolation layer denies the syscall
+    // itself (a distinct errno) rather than the kernel routing layer.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn configure_child_sandbox_enforce_denies_network_egress() {
+        let scratch = make_temp_dir("egress-scratch", line!());
+        let config = LeanRunnerConfig::new("test-isolation-egress")
+            .with_package_dir(&scratch)
+            .with_isolation_mode(IsolationMode::Enforce);
+        // The probe must run from an exec-allowed dir so this guard
+        // isolates the network-egress check from the (separately covered)
+        // exec-allowlist check.
+        let mut cmd = Command::new(probe_in(&scratch));
+        cmd.arg("network-connect")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_child_sandbox(&mut cmd, &config);
+        let output = cmd.output().expect("spawn sandbox_probe");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains(&format!("errno=Some({ISOLATION_DENIED_ERRNO})")),
+            "Enforce mode must deny network egress with the isolation \
+             mechanism's own errno ({ISOLATION_DENIED_ERRNO}), not an \
+             unrelated network-stack failure like ECONNREFUSED; got: {stdout}"
+        );
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    // P1.7/ADR-0008 characterization: under an Enforce config, writes
+    // outside the configured `package_dir` (scratch) are denied, while
+    // writes inside it still succeed — proving the profile is a targeted
+    // allowlist, not a blanket write block. RED confirmed locally on macOS
+    // prior to implementation (both writes succeeded).
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn configure_child_sandbox_enforce_denies_write_outside_scratch() {
+        let scratch = make_temp_dir("write-scratch", line!());
+        let outside = make_temp_dir("write-outside", line!());
+        let config = LeanRunnerConfig::new("test-isolation-write")
+            .with_package_dir(&scratch)
+            .with_isolation_mode(IsolationMode::Enforce);
+        // The probe must run from an exec-allowed dir (package_dir itself)
+        // so this guard isolates the write-containment check from the
+        // (separately covered) exec-allowlist check.
+        let probe = probe_in(&scratch);
+
+        let denied_target = outside.join("denied.txt");
+        let mut cmd = Command::new(&probe);
+        cmd.arg("write")
+            .arg(&denied_target)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_child_sandbox(&mut cmd, &config);
+        let output = cmd.output().expect("spawn sandbox_probe");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains(&format!("errno=Some({ISOLATION_DENIED_ERRNO})")),
+            "Enforce mode must deny writes outside package_dir; got: {stdout}"
+        );
+        assert!(
+            !denied_target.exists(),
+            "a denied write must not have created the file"
+        );
+
+        let allowed_target = scratch.join("allowed.txt");
+        let mut cmd = Command::new(&probe);
+        cmd.arg("write")
+            .arg(&allowed_target)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_child_sandbox(&mut cmd, &config);
+        let output = cmd.output().expect("spawn sandbox_probe");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("RESULT=ALLOWED"),
+            "a write inside the configured package_dir must still succeed; got: {stdout}"
+        );
+
+        let _ = std::fs::remove_dir_all(&scratch);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    // P1.7/ADR-0008 characterization: under an Enforce config, `exec` of a
+    // binary outside the toolchain allowlist (PATH dirs / ~/.elan /
+    // package_dir) is denied, while the SAME binary exec'd from inside the
+    // allowlisted package_dir still runs — proving the mechanism restricts
+    // exec by path, not by binary identity. RED confirmed locally on macOS
+    // prior to implementation (both execs succeeded).
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn configure_child_sandbox_enforce_denies_non_toolchain_exec() {
+        let scratch = make_temp_dir("exec-scratch", line!());
+        let outside = make_temp_dir("exec-outside", line!());
+        let config = LeanRunnerConfig::new("test-isolation-exec")
+            .with_package_dir(&scratch)
+            .with_isolation_mode(IsolationMode::Enforce);
+
+        let outside_probe = probe_in(&outside);
+        let mut cmd = Command::new(&outside_probe);
+        cmd.arg("noop")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_child_sandbox(&mut cmd, &config);
+        match cmd.output() {
+            Ok(output) => panic!(
+                "Enforce mode must deny exec of a binary outside the toolchain \
+                 allowlist, but it ran: status={:?} stdout={:?}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout)
+            ),
+            Err(e) => assert_eq!(
+                e.raw_os_error(),
+                Some(ISOLATION_DENIED_ERRNO),
+                "expected the isolation mechanism's own exec-denial errno; got {e}"
+            ),
+        }
+
+        let inside_probe = probe_in(&scratch);
+        let mut cmd = Command::new(&inside_probe);
+        cmd.arg("noop")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_child_sandbox(&mut cmd, &config);
+        let output = cmd
+            .output()
+            .expect("exec inside the allowlisted package_dir must be allowed");
+        assert!(
+            output.status.success(),
+            "exec inside package_dir must succeed; status={:?}",
+            output.status
+        );
+
+        let _ = std::fs::remove_dir_all(&scratch);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    // P1.7/ADR-0008 characterization: the phased-enforcement contract
+    // (decision 4) — the DEFAULT config (`IsolationMode::Log`) must never
+    // break the checker. None of the three checks above may be blocked when
+    // isolation_mode is left at its default. Network is asserted more
+    // loosely (its errno must simply not be the isolation mechanism's own
+    // denial code) because a real connect attempt legitimately fails with
+    // ECONNREFUSED/ETIMEDOUT for unrelated reasons; write/exec are asserted
+    // as fully successful since both targets are test-owned.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn configure_child_sandbox_log_mode_does_not_block_any_check() {
+        let scratch = make_temp_dir("log-scratch", line!());
+        let outside = make_temp_dir("log-outside", line!());
+        let config = LeanRunnerConfig::new("test-isolation-log-mode").with_package_dir(&scratch);
+        assert_eq!(
+            config.isolation_mode,
+            IsolationMode::Log,
+            "test assumes Log is the default"
+        );
+
+        let mut cmd = Command::new(probe_bin());
+        cmd.arg("network-connect")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_child_sandbox(&mut cmd, &config);
+        let output = cmd.output().expect("spawn sandbox_probe");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            !stdout.contains("errno=Some(1)") && !stdout.contains("errno=Some(13)"),
+            "Log mode must never block network egress with the isolation \
+             mechanism's own errno (EPERM=1 macOS Seatbelt / EACCES=13 Linux \
+             seccomp+Landlock); got: {stdout}"
+        );
+
+        let outside_target = outside.join("log-mode-write.txt");
+        let mut cmd = Command::new(probe_bin());
+        cmd.arg("write")
+            .arg(&outside_target)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_child_sandbox(&mut cmd, &config);
+        let output = cmd.output().expect("spawn sandbox_probe");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("RESULT=ALLOWED"),
+            "Log mode must not block writes outside package_dir; got: {stdout}"
+        );
+
+        let outside_probe = outside.join("sandbox_probe");
+        std::fs::copy(probe_bin(), &outside_probe).expect("copy probe binary outside allowlist");
+        let mut cmd = Command::new(&outside_probe);
+        cmd.arg("noop")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_child_sandbox(&mut cmd, &config);
+        let output = cmd
+            .output()
+            .expect("Log mode must not block exec of a non-toolchain binary");
+        assert!(
+            output.status.success(),
+            "Log mode must not block non-toolchain exec; status={:?}",
+            output.status
+        );
+
+        let _ = std::fs::remove_dir_all(&scratch);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 }
