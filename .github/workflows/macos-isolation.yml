@@ -54,4 +54,13 @@ jobs:
         # guards and the baseline isolation guards live. It deliberately
         # excludes the integration tests (soundness_boundary / real_checker),
         # which require a Lean toolchain this canary does not install.
-        run: cargo test -p boole-lean-runner --lib --locked -- --nocapture
+        #
+        # The guards exec a sibling `sandbox_probe` bin (src/bin/sandbox_probe.rs)
+        # from the target dir; `cargo test --lib` does NOT build bin targets, so
+        # on a clean runner that binary is absent and the guards' setup asserts
+        # it exists (lib.rs probe_bin()). Build the probe first so the sibling is
+        # present under target/debug/ where the lib test binary looks for it.
+        run: |
+          set -euo pipefail
+          cargo build -p boole-lean-runner --bin sandbox_probe --locked
+          cargo test -p boole-lean-runner --lib --locked -- --nocapture
