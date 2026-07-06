@@ -5,12 +5,16 @@
 //! `SHA-256(proof package bytes)` (recomputed from `body["bytes"]`), never a
 //! client-supplied field, so two miners cannot farm one proof for two credits.
 //!
-//! The `multiminer.v1.json` fixture is built for exactly this attack: every
-//! step carries an identical `bytes` (one proof) under a different `pk`, each
-//! valid at the runtime head it sees. Step 0 is admitted at genesis and credits
-//! its pk; step 1 re-presents the same proof under a second pk at the new head.
-//! Without dedup it produces a second block and a second credit; with dedup it
-//! is rejected `duplicate_proof` before any write, so only one credit accrues.
+//! The attack is constructed here from the `multiminer.v1.json` steps: the
+//! test copies step 0's proof `bytes` into step 1's body (N4-pre.1 made the
+//! fixture's own steps carry distinct proofs, so the duplicate is forged
+//! test-side), giving the same proof under a different `pk`, each valid at
+//! the runtime head it sees. Step 0 is admitted at genesis and credits its
+//! pk; step 1 re-presents the same proof under a second pk at the new head.
+//! Without dedup it produces a second block and a second credit; with dedup
+//! it is rejected `duplicate_proof` before any write, so only one credit
+//! accrues. (Consensus-level dedup — ADR-0012 — would also refuse the block
+//! itself now; this test pins the admission-layer early-reject cache.)
 
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
@@ -173,12 +177,15 @@ fn same_proof_under_two_pks_credits_once() {
     assert_eq!(v0["accepted"], true, "step0 must be admitted: {v0}");
     let head = v0["c"].as_str().expect("new head from step0").to_string();
 
-    // Step 1: the SAME proof bytes under a different pk, at the new head so its
-    // proof-of-work is valid and the reject can only come from the dedup guard.
+    // Step 1: the SAME proof bytes under a different pk (forged here by
+    // copying step 0's bytes — the fixture's steps carry distinct proofs
+    // since N4-pre.1), at the new head so its proof-of-work is valid and
+    // the reject can only come from the dedup guard.
     let pk1 = steps[1]["body"]["pk"].as_str().expect("pk1").to_string();
-    assert_ne!(pk0, pk1, "fixture must carry the proof under two pks");
+    assert_ne!(pk0, pk1, "fixture must carry two distinct pks");
     let mut step1 = submit_envelope(&steps[1]);
     step1["body"]["c"] = json!(head);
+    step1["body"]["bytes"] = steps[0]["body"]["bytes"].clone();
     let (_s1, v1) = http_post(boot.addr, "/submit", &step1);
     assert_ne!(
         v1["accepted"],
@@ -211,12 +218,14 @@ fn proof_dedup_key_is_server_computed_not_client_field() {
     assert_eq!(v0["accepted"], true, "step0 must be admitted: {v0}");
     let head = v0["c"].as_str().expect("new head").to_string();
 
-    // Step 1 differs from step 0 in pk AND n/j/nonceS (the share identity); only
-    // `bytes` is shared. The reject therefore proves the dedup key is the
-    // server's hash of the proof bytes, not the share hash, the pk, or any
-    // client-varying field.
+    // Step 1 differs from step 0 in pk AND n/j/nonceS (the share identity);
+    // only `bytes` is shared (copied from step 0 — the fixture steps are
+    // distinct since N4-pre.1). The reject therefore proves the dedup key is
+    // the server's hash of the proof bytes, not the share hash, the pk, or
+    // any client-varying field.
     let mut step1 = submit_envelope(&steps[1]);
     step1["body"]["c"] = json!(head);
+    step1["body"]["bytes"] = steps[0]["body"]["bytes"].clone();
     assert_ne!(steps[0]["body"]["n"], steps[1]["body"]["n"], "n differs");
     assert_ne!(steps[0]["body"]["j"], steps[1]["body"]["j"], "j differs");
     let (_s1, v1) = http_post(boot.addr, "/submit", &step1);

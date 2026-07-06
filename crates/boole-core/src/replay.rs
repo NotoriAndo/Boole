@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -172,6 +172,10 @@ fn replay_blocks_with_evidence_policy(
         "0000000000000000000000000000000000000000000000000000000000000000".to_string();
     let mut balances: BTreeMap<String, u128> = BTreeMap::new();
     let mut bounty_credit_by_family: BTreeMap<String, u128> = BTreeMap::new();
+    // N4-pre.1 (ADR-0012 (d)) — chain-order index of every canon_hash
+    // credited so far. Purely re-derived from block data; no new persisted
+    // consensus state.
+    let mut credited_canon_hashes: BTreeSet<String> = BTreeSet::new();
 
     for (expected_height, block) in blocks.iter().enumerate() {
         block.validate_shape()?;
@@ -205,6 +209,25 @@ fn replay_blocks_with_evidence_policy(
         // function's doc comment), so this never rejects a legacy
         // evidence-less block that the policy above already allowed.
         verify_canonical_selection(block)?;
+        // N4-pre.1 (ADR-0012) — consensus-level proof dedup: a selected
+        // share's canon_hash must not have been credited in any earlier
+        // block, nor twice within this block. Runs AFTER
+        // verify_selected_share_evidence, which already proved each
+        // evidence.canon_hash equals the re-derived SHA-256 of the package
+        // bytes — so the key checked here IS the re-derived one (decision
+        // (c)), cross-pk by construction. Legacy evidence-less blocks
+        // contribute no canon_hash and stay outside the rule (their only
+        // entry path is the explicit LegacyEvidenceOptIn).
+        for evidence in &block.selected_share_evidence {
+            if !credited_canon_hashes.insert(evidence.canon_hash.clone()) {
+                anyhow::bail!(
+                    "block {} would credit an already-credited proof: canon_hash {} \
+                     was already credited on this chain (consensus proof dedup, ADR-0012)",
+                    block.height,
+                    evidence.canon_hash
+                );
+            }
+        }
 
         for credit in compute_block_reward_credits(block)? {
             let amount: u128 = credit.amount.parse()?;

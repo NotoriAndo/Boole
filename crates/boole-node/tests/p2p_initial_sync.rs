@@ -113,11 +113,10 @@ fn boot_with_p2p(
                 signed_nonce_ledger_path: None,
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
-                // None: the multiminer fixture reuses ONE proof's bytes
-                // across steps by design (it is the N2.3 dedup-attack
-                // fixture), so a dedup ledger would reject step1 before A
-                // can build the 2-block chain this test needs. Dedup
-                // behavior has its own tests (no_duplicate_proof_credit).
+                // None: the admission-layer dedup cache is orthogonal to
+                // what this test pins (sync convergence); dedup behavior
+                // has its own tests (no_duplicate_proof_credit) and its
+                // consensus-level rule its own suite (consensus_proof_dedup).
                 proof_dedup_ledger_path: None,
                 max_requests: None,
                 genesis_override: None,

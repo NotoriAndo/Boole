@@ -13,6 +13,14 @@ use crate::durability::{append_ndjson_line_durable, read_stable_prefix};
 /// proof — the same canonical bytes resubmitted under any prover pk — still
 /// rejects after a process restart.
 ///
+/// N4-pre.1 (ADR-0012) — this ledger is an ADMISSION EARLY-REJECT CACHE,
+/// not the source of truth: the consensus rule that one canon_hash is
+/// credited at most once on the whole chain is enforced by replay/verify
+/// from block data alone (the `boole-core` replay dedup) and pre-checked by
+/// `build_block_selection`. Deleting this file weakens nothing but
+/// early-reject latency; a duplicate-credit block is invalid on every node
+/// regardless of any local ledger state.
+///
 /// The key is the server's `SHA-256(proof package bytes)`, never a
 /// client-supplied field, so two miners cannot farm the same proof under
 /// different prover pks for multiple credits. Parallel to `FileNonceLedger`

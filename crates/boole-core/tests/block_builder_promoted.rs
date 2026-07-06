@@ -72,7 +72,8 @@ fn empty_promoted_yields_empty_promoted_bounty_shares_field() {
     let mut accepted = BTreeSet::new();
     accepted.insert(1u8);
 
-    let result = build_block_selection(CHAIN, &shares, &cfg, &accepted, &[], &[]).unwrap();
+    let result =
+        build_block_selection(CHAIN, &shares, &cfg, &accepted, &BTreeSet::new(), &[], &[]).unwrap();
     let BuildSelectionResult::Ok(view) = result else {
         panic!("expected Ok proposer");
     };
@@ -91,7 +92,16 @@ fn non_empty_promoted_passes_through_to_result_unchanged() {
     accepted.insert(1u8);
 
     let promoted = vec![make_promoted(1), make_promoted(2)];
-    let result = build_block_selection(CHAIN, &shares, &cfg, &accepted, &promoted, &[]).unwrap();
+    let result = build_block_selection(
+        CHAIN,
+        &shares,
+        &cfg,
+        &accepted,
+        &BTreeSet::new(),
+        &promoted,
+        &[],
+    )
+    .unwrap();
     let BuildSelectionResult::Ok(view) = result else {
         panic!("expected Ok proposer");
     };
@@ -114,15 +124,19 @@ fn promoted_does_not_alter_base_lane_fields() {
     let mut accepted = BTreeSet::new();
     accepted.insert(1u8);
 
-    let baseline = match build_block_selection(CHAIN, &shares, &cfg, &accepted, &[], &[]).unwrap() {
-        BuildSelectionResult::Ok(v) => v,
-        _ => panic!("baseline expected Ok"),
-    };
+    let baseline =
+        match build_block_selection(CHAIN, &shares, &cfg, &accepted, &BTreeSet::new(), &[], &[])
+            .unwrap()
+        {
+            BuildSelectionResult::Ok(v) => v,
+            _ => panic!("baseline expected Ok"),
+        };
     let with_promoted = match build_block_selection(
         CHAIN,
         &shares,
         &cfg,
         &accepted,
+        &BTreeSet::new(),
         &[make_promoted(1), make_promoted(2), make_promoted(3)],
         &[],
     )
@@ -163,6 +177,7 @@ fn promoted_does_not_alter_block_builder_config_values() {
         &shares,
         &cfg,
         &accepted,
+        &BTreeSet::new(),
         &[make_promoted(1), make_promoted(2)],
         &[],
     )

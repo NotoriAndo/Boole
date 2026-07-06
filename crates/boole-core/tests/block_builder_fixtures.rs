@@ -66,6 +66,7 @@ fn block_builder_matches_typescript_golden_fixture() {
         &fixture.input_shares,
         &cfg,
         &accepted,
+        &BTreeSet::new(),
         &[],
         &[],
     )
