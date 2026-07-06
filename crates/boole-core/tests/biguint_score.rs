@@ -2,6 +2,7 @@ use boole_core::{
     build_block_selection, calibration_policy, parse_biguint_hex, BlockBuilderConfig,
     BuildSelectionResult, CalibrationReport, CandidateShare, PersistedBlock,
 };
+use std::collections::BTreeSet;
 
 fn report_with_t_share(t_share: &str) -> CalibrationReport {
     serde_json::from_value(serde_json::json!({
@@ -78,8 +79,16 @@ fn block_selection_orders_scores_above_u128_without_truncation() {
     ];
     let accepted = [1].into_iter().collect();
 
-    let result = build_block_selection(chain_head, &shares, &cfg, &accepted, &[], &[])
-        .expect("selection supports scores above u128");
+    let result = build_block_selection(
+        chain_head,
+        &shares,
+        &cfg,
+        &accepted,
+        &BTreeSet::new(),
+        &[],
+        &[],
+    )
+    .expect("selection supports scores above u128");
 
     let BuildSelectionResult::Ok(selection) = result else {
         panic!("expected proposer selection");

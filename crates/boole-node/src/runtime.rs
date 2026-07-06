@@ -464,9 +464,26 @@ impl RuntimeAdmissionState {
             &self.candidate_shares_for_current_c(),
             &config,
             accepted_canon_tags,
+            &self.credited_canon_hashes(),
             &[],
             &[],
         )
+    }
+
+    /// N4-pre.1 (ADR-0012 (d)) — every canon_hash already credited on this
+    /// chain, re-derived from the cached block evidence. Fed into
+    /// `build_block_selection` so an honest proposer never builds a block
+    /// the consensus dedup rule would reject on replay/ingest.
+    fn credited_canon_hashes(&self) -> BTreeSet<String> {
+        self.block_cache
+            .iter()
+            .flat_map(|block| {
+                block
+                    .selected_share_evidence
+                    .iter()
+                    .map(|evidence| evidence.canon_hash.clone())
+            })
+            .collect()
     }
 
     fn block_builder_config_for_height(
@@ -550,6 +567,7 @@ impl RuntimeAdmissionState {
             &self.candidate_shares_for_current_c(),
             config,
             accepted_canon_tags,
+            &self.credited_canon_hashes(),
             promoted_bounty_shares,
             promoted_bounty_credits,
         )?;

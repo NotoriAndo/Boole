@@ -153,6 +153,7 @@ pub fn build_block_selection(
     shares: &[CandidateShare],
     cfg: &BlockBuilderConfig,
     accepted_canon_tags: &BTreeSet<u8>,
+    credited_canon_hashes: &BTreeSet<String>,
     promoted_bounty_shares: &[PromotedBountyShare],
     promoted_bounty_credits: &[PromotedBountyCredit],
 ) -> anyhow::Result<BuildSelectionResult> {
@@ -164,6 +165,15 @@ pub fn build_block_selection(
         if share.c != chain_head {
             continue;
         }
+        // N4-pre.1 (ADR-0012 (b)) — proposer-side mirror of the replay
+        // dedup rule: a share whose proof is already credited on this
+        // chain can never be part of a valid block, so an honest node
+        // drops it before selection instead of building a block replay
+        // would reject. Shares without a canon_hash (legacy pool entries)
+        // stay outside the rule, matching the replay-side exception.
+        if !share.canon_hash.is_empty() && credited_canon_hashes.contains(&share.canon_hash) {
+            continue;
+        }
         let score = parse_score_decimal(&share.score)?;
         if score < cfg.min_share_score {
             dropped_below_min_score += 1;
@@ -173,6 +183,14 @@ pub fn build_block_selection(
     }
 
     score_survivors.sort_by(compare_preselection);
+    // N4-pre.1 — within-block half of the dedup rule: two pool shares
+    // carrying the same proof bytes (same canon_hash under different
+    // (pk, n, j)) must not both be selected. Keep the first occurrence in
+    // preselection order (deterministic: score desc, then canonical).
+    let mut selected_canon_hashes: BTreeSet<String> = BTreeSet::new();
+    score_survivors.retain(|share| {
+        share.canon_hash.is_empty() || selected_canon_hashes.insert(share.canon_hash.clone())
+    });
     let truncated_by_kmax = score_survivors.len().saturating_sub(cfg.k_max);
     let preselected = score_survivors
         .into_iter()

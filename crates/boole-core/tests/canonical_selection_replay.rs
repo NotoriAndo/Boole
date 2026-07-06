@@ -32,8 +32,8 @@ const J_B: &str = "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 /// returns its evidence row plus its `shareHash`. PK_A/N_A/J_A sorts
 /// before PK_B/N_B/J_B under `compare_canonical` (pk is the primary key
 /// and `PK_A < PK_B`).
-fn share(pk: &str, n: &str, j: &str) -> (SelectedShareEvidence, String) {
-    let proof_package = valid_pofp_v2_package_hex();
+fn share(pk: &str, n: &str, j: &str, package_fill: u8) -> (SelectedShareEvidence, String) {
+    let proof_package = valid_pofp_v2_package_hex(package_fill);
     let proof_package_bytes = hex::decode(&proof_package).expect("valid proof package hex");
     let canon_hash = hex::encode(Sha256::digest(&proof_package_bytes));
     let hash = share_hash(
@@ -100,8 +100,8 @@ fn block_with_shares(
 
 #[test]
 fn replay_rejects_block_with_non_canonical_share_ordering() {
-    let (evidence_a, hash_a) = share(PK_A, N_A, J_A);
-    let (evidence_b, hash_b) = share(PK_B, N_B, J_B);
+    let (evidence_a, hash_a) = share(PK_A, N_A, J_A, 0x11);
+    let (evidence_b, hash_b) = share(PK_B, N_B, J_B, 0x33);
 
     // PK_B sorts after PK_A under compare_canonical, so persisting B
     // before A reverses the required canonical order.
@@ -131,8 +131,8 @@ fn replay_rejects_block_with_non_canonical_share_ordering() {
 // would mean a node can commit a block it can never replay again.
 #[test]
 fn replay_accepts_block_with_co_qualifying_shares_via_tie_break() {
-    let (evidence_a, hash_a) = share(PK_A, N_A, J_A);
-    let (evidence_b, hash_b) = share(PK_B, N_B, J_B);
+    let (evidence_a, hash_a) = share(PK_A, N_A, J_A, 0x11);
+    let (evidence_b, hash_b) = share(PK_B, N_B, J_B, 0x33);
 
     // Canonical order is correct here (A before B); t_block = max means
     // both selected shares satisfy T_block — the same co-qualifying
@@ -150,14 +150,17 @@ fn replay_accepts_block_with_co_qualifying_shares_via_tie_break() {
     );
 }
 
-fn valid_pofp_v2_package_hex() -> String {
+/// N4-pre.1 — parameterized fill so two shares in one block carry two
+/// DISTINCT proofs (the consensus dedup rule forbids one proof credited
+/// twice; these tests are about ordering/tie-breaks, not dedup).
+fn valid_pofp_v2_package_hex(fill: u8) -> String {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(b"POFP");
     bytes.extend_from_slice(&2u32.to_le_bytes());
     bytes.extend_from_slice(&0u32.to_le_bytes());
     bytes.extend_from_slice(&0u32.to_le_bytes());
     bytes.push(0x19);
-    bytes.extend_from_slice(&[0x11; 32]);
+    bytes.extend_from_slice(&[fill; 32]);
     bytes.push(0x19);
     bytes.extend_from_slice(&[0x22; 32]);
     bytes.extend_from_slice(&0u32.to_le_bytes());

@@ -51,10 +51,9 @@ trap cleanup EXIT
 
 launch_node() {
   local idx="$1" http_port="$2" p2p_port="$3" peer_a="$4" peer_b="$5"
-  # No proof-dedup ledger: the multiminer fixture deliberately reuses one
-  # proof's bytes across steps (it is the N2.3 dedup-attack fixture), so a
-  # dedup ledger would reject the second injection before any convergence
-  # can be observed. Dedup has its own gate (no_duplicate_proof_credit).
+  # No proof-dedup ledger: the admission-layer dedup cache is orthogonal
+  # to what this smoke pins (convergence); dedup has its own gates
+  # (no_duplicate_proof_credit + the consensus_proof_dedup suite).
   "$NODE_BIN" run-local \
     --addr "127.0.0.1:${http_port}" \
     --scenario "$SCENARIO" \
