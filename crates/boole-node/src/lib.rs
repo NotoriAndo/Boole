@@ -38,7 +38,7 @@ pub use local_node::{
     serve_local_node_with_shutdown, LocalNodeConfig, DEFAULT_ROUTE_TIMEOUT,
     MAX_CONCURRENT_REQUESTS, MAX_HTTP_BODY_BYTES, PROOF_ROUTE_BODY_BYTES, PROOF_ROUTE_TIMEOUT,
 };
-pub use p2p_ingress::P2pConfig;
+pub use p2p_ingress::{P2pConfig, DEFAULT_P2P_RATE_LIMIT_PER_60S};
 pub use proof_bridge::{
     canonical_pofp_package_from_lean_result, canonical_pofp_package_from_lean_result_and_source,
     LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate,

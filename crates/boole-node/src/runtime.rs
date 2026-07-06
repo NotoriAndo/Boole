@@ -391,6 +391,38 @@ impl RuntimeAdmissionState {
         Ok(self.apply_block_unchecked(block))
     }
 
+    /// N3.3 — persist and apply a peer-ingested block with the same
+    /// {check, append, reward-append, apply_unchecked, cache} ordering as
+    /// the self-produce commit (`commit_using_cache`), so a crash between
+    /// the write steps leaves the on-disk store and the in-memory state in
+    /// agreement (and the P1.3b boot heal covers the same windows).
+    ///
+    /// The caller MUST already have validated the block through the strict
+    /// replay entry points (`replay_blocks` / `replay_blocks_with_retarget`)
+    /// over the extended chain — this function only re-asserts the cheap
+    /// head-extension check before writing. The reward event is re-derived
+    /// from the block exactly like the boot heal (`derive_reward_event`),
+    /// so `verify_ledger_matches_replay` stays green on the next boot.
+    pub fn ingest_external_block(
+        &mut self,
+        block_path: impl AsRef<Path>,
+        block: &PersistedBlock,
+    ) -> anyhow::Result<usize> {
+        self.check_block_applicable(block)?;
+        FileBlockStore::append(block_path.as_ref(), block)?;
+        if let (Some(ledger_path), Some(ledger)) = (
+            self.reward_ledger_path.as_ref(),
+            self.reward_ledger.as_mut(),
+        ) {
+            let event = derive_reward_event(block)?;
+            FileRewardLedger::append(ledger_path, &event)?;
+            ledger.apply(event)?;
+        }
+        let dropped = self.apply_block_unchecked(block);
+        self.block_cache.push(block.clone());
+        Ok(dropped)
+    }
+
     pub fn pool_size(&self) -> usize {
         self.pool.size()
     }
