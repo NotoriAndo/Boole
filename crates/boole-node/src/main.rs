@@ -2,18 +2,18 @@ use boole_core::{
     replay_blocks, AdmissionDecision, BountyProofVerifier, BuildSelectionResult, CalibrationReport,
     Hex32,
 };
-use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
+use boole_lean_runner::{IsolationMode, LeanRunner, LeanRunnerConfig};
 use boole_node::FileBlockStore;
 use boole_node::LeanBountyVerifier;
 use boole_node::{run_runtime_smoke, run_runtime_smoke_scenario_file, RuntimeSmokeInput};
-use boole_node::{serve_local_node_with_os_signals, LocalNodeConfig};
+use boole_node::{serve_local_node_with_os_signals_and_p2p, LocalNodeConfig, P2pConfig};
 use boole_node::{LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate};
 use boole_node::{RuntimeAdmissionState, RuntimeConfig};
 use clap::{ArgGroup, Args, Parser, Subcommand};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::{BTreeSet, HashMap};
-use std::net::TcpListener;
+use std::net::{TcpListener, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -169,6 +169,23 @@ struct RunLocalArgs {
     /// contract. Ignored when `--state-dir` is unset.
     #[arg(long = "network-id", env = "BOOLE_NETWORK_ID")]
     network_id: Option<String>,
+    /// N3.2 — share-gossip listen address (`host:port`, ADR-0009). When
+    /// unset the node accepts no gossip ingress; egress still runs when
+    /// `--peer` is given.
+    #[arg(long = "p2p-listen", env = "BOOLE_P2P_LISTEN")]
+    p2p_listen: Option<String>,
+    /// N3.2 — static gossip peer (`host:port`), repeatable (ADR-0009 (d)).
+    /// The set doubles as the inbound gossip allowlist: connections from
+    /// addresses outside it are dropped at accept.
+    #[arg(long = "peer")]
+    peers: Vec<String>,
+    /// N3.2 — opt out of kernel-enforced checker isolation back to
+    /// observe-only Log mode (ADR-0008 decision 4: Enforce became the
+    /// default in the same change that opened network ingress). Relaxing a
+    /// security default must be explicit — mirrors the other `--allow-*`
+    /// opt-ins.
+    #[arg(long = "allow-isolation-log-mode", default_value_t = false)]
+    allow_isolation_log_mode: bool,
 }
 
 #[derive(Args)]
@@ -202,6 +219,11 @@ struct SubmitLeanArgs {
     difficulty_mode: String,
     #[arg(long, default_value_t = 1_800_000_000_123)]
     ts: u64,
+    /// N3.2 — opt out of kernel-enforced checker isolation back to
+    /// observe-only Log mode (ADR-0008 decision 4). See the `run-local`
+    /// flag of the same name.
+    #[arg(long = "allow-isolation-log-mode", default_value_t = false)]
+    allow_isolation_log_mode: bool,
 }
 
 #[derive(Args)]
@@ -325,13 +347,21 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             format!("{} pk(s)", operator_signer_pks.len())
         }
     );
+    // N3.2 — ADR-0008 decision 4: kernel isolation is Enforce by default;
+    // Log is an explicit operator opt-out.
+    let isolation_mode = if args.allow_isolation_log_mode {
+        eprintln!("boole-node local isolationMode=log (operator opt-out)");
+        IsolationMode::Log
+    } else {
+        IsolationMode::default()
+    };
     let bounty_verifiers: Option<HashMap<String, Arc<dyn BountyProofVerifier>>> =
         args.lean_checker_dir.as_ref().map(|dir| {
             eprintln!("boole-node local leanCheckerDir={}", dir.display());
             let mut m: HashMap<String, Arc<dyn BountyProofVerifier>> = HashMap::new();
             m.insert(
                 "lean".to_string(),
-                Arc::new(LeanBountyVerifier::new(dir.clone())),
+                Arc::new(LeanBountyVerifier::new(dir.clone()).with_isolation_mode(isolation_mode)),
             );
             m
         });
@@ -344,8 +374,37 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
     if let Some(dir) = args.state_dir.as_ref() {
         eprintln!("boole-node local stateDir={}", dir.display());
     }
+    // N3.2 — optional share-gossip surface (ADR-0009): a listen address
+    // and/or a static peer set. Resolution failures are boot errors — a
+    // node must never come up silently missing a configured peer.
+    let p2p = if args.p2p_listen.is_some() || !args.peers.is_empty() {
+        let mut peers = Vec::new();
+        for raw in &args.peers {
+            let resolved = raw
+                .to_socket_addrs()
+                .map_err(|err| anyhow::anyhow!("--peer {raw:?} did not resolve: {err}"))?
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("--peer {raw:?} resolved to no address"))?;
+            peers.push(resolved);
+        }
+        let p2p_listener = match args.p2p_listen.as_ref() {
+            Some(addr) => {
+                let bound = TcpListener::bind(addr)?;
+                eprintln!("boole-node local p2pListen={}", bound.local_addr()?);
+                Some(bound)
+            }
+            None => None,
+        };
+        eprintln!("boole-node local p2pPeers={}", peers.len());
+        Some(P2pConfig {
+            listener: p2p_listener,
+            peers,
+        })
+    } else {
+        None
+    };
     // P2.7 — the CLI runs until SIGTERM/SIGINT, then drains gracefully.
-    let result = serve_local_node_with_os_signals(
+    let result = serve_local_node_with_os_signals_and_p2p(
         listener,
         LocalNodeConfig {
             scenario_path: args.scenario.into(),
@@ -372,6 +431,7 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             http_rate_limit_per_60s: args.http_rate_limit_per_60s,
             allow_anonymous_submit: args.allow_anonymous_submit,
         },
+        p2p,
     );
     match result {
         Ok(()) => Ok(()),
@@ -461,12 +521,20 @@ fn run_submit_lean_command(args: SubmitLeanArgs) -> anyhow::Result<()> {
     let bridge_policy = LeanProofBridgePolicy::new()
         .require_verifier_hash(verifier_hash.clone())
         .allow_checker_artifact_hash(required_checker_artifact_hash);
+    // N3.2 — ADR-0008 decision 4: Enforce is the default; the flag is the
+    // explicit operator opt-out back to observe-only Log mode.
+    let isolation_mode = if args.allow_isolation_log_mode {
+        IsolationMode::Log
+    } else {
+        IsolationMode::default()
+    };
     let bridge = LeanProofBridge::new_with_policy(
         LeanRunner::new(
             LeanRunnerConfig::new(verifier_hash)
                 .with_package_dir(checker_dir)
                 .with_timeout_ms(timeout_ms)
-                .with_memory_limit_mb(memory_limit_mb),
+                .with_memory_limit_mb(memory_limit_mb)
+                .with_isolation_mode(isolation_mode),
         ),
         bridge_policy,
     );

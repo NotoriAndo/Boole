@@ -60,12 +60,13 @@ use std::time::{Duration, Instant};
 /// seccomp-bpf + Landlock, macOS Seatbelt) enforce their policy on top of the
 /// portable baseline (pgroup + rlimits + env-scrub, always enforced).
 ///
-/// Ratified decision 4 (phased enforcement): this slice lands with `Log` as
-/// the default so a not-yet-tuned allowlist observes a would-be violation
-/// instead of killing the checker outright. The N3.2 slice (the change that
-/// opens share-gossip network ingress) flips the default to `Enforce` in the
-/// same commit, plus an opt-out flag — that pairing is deliberate so the
-/// trust-boundary change and the enforcement change cannot drift apart.
+/// Ratified decision 4 (phased enforcement): the isolation slice landed with
+/// `Log` as the default so a not-yet-tuned allowlist observed a would-be
+/// violation instead of killing the checker outright. N3.2 — the change that
+/// opened share-gossip network ingress — flipped the default to `Enforce` in
+/// the same commit and added the operator opt-out
+/// (`boole-node --allow-isolation-log-mode`); that pairing is deliberate so
+/// the trust-boundary change and the enforcement change cannot drift apart.
 ///
 /// Platform asymmetry, documented rather than silently smoothed over: Linux
 /// seccomp has a genuine non-blocking "log this syscall, still allow it"
@@ -81,10 +82,11 @@ use std::time::{Duration, Instant};
 pub enum IsolationMode {
     /// Observe-only: never fails the checker. See type docs for the
     /// per-mechanism meaning of "observe" (seccomp logs; Landlock/Seatbelt
-    /// are simply not installed).
-    #[default]
+    /// are simply not installed). Opt-out only since N3.2.
     Log,
     /// Kernel-layer checks are installed and actually deny violations.
+    /// The default since N3.2 opened network ingress (ADR-0008 decision 4).
+    #[default]
     Enforce,
 }
 
@@ -1421,8 +1423,9 @@ mod tests {
         assert_eq!(cfg.output_limit_bytes, 64 * 1024);
         assert_eq!(
             cfg.isolation_mode,
-            IsolationMode::Log,
-            "ADR-0008 decision 4: landing default must be Log, not Enforce"
+            IsolationMode::Enforce,
+            "ADR-0008 decision 4: N3.2 (network ingress opens) flips the \
+             default to Enforce in the same change; Log is opt-out only"
         );
     }
 
@@ -2026,24 +2029,23 @@ mod tests {
     }
 
     // P1.7/ADR-0008 characterization: the phased-enforcement contract
-    // (decision 4) — the DEFAULT config (`IsolationMode::Log`) must never
-    // break the checker. None of the three checks above may be blocked when
-    // isolation_mode is left at its default. Network is asserted more
-    // loosely (its errno must simply not be the isolation mechanism's own
-    // denial code) because a real connect attempt legitimately fails with
-    // ECONNREFUSED/ETIMEDOUT for unrelated reasons; write/exec are asserted
-    // as fully successful since both targets are test-owned.
+    // (decision 4) — the explicit `IsolationMode::Log` opt-out (N3.2:
+    // `Enforce` became the default, Log is reached only via
+    // `--allow-isolation-log-mode`) must never break the checker. None of
+    // the three checks above may be blocked in Log mode. Network is
+    // asserted more loosely (its errno must simply not be the isolation
+    // mechanism's own denial code) because a real connect attempt
+    // legitimately fails with ECONNREFUSED/ETIMEDOUT for unrelated reasons;
+    // write/exec are asserted as fully successful since both targets are
+    // test-owned.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn configure_child_sandbox_log_mode_does_not_block_any_check() {
         let scratch = make_temp_dir("log-scratch", line!());
         let outside = make_temp_dir("log-outside", line!());
-        let config = LeanRunnerConfig::new("test-isolation-log-mode").with_package_dir(&scratch);
-        assert_eq!(
-            config.isolation_mode,
-            IsolationMode::Log,
-            "test assumes Log is the default"
-        );
+        let config = LeanRunnerConfig::new("test-isolation-log-mode")
+            .with_package_dir(&scratch)
+            .with_isolation_mode(IsolationMode::Log);
 
         let mut cmd = Command::new(probe_bin());
         cmd.arg("network-connect")

@@ -135,7 +135,11 @@ impl TcpTransport {
         Self
     }
 
-    fn conn_from_stream(stream: TcpStream) -> Result<TcpConn, FrameError> {
+    /// Wrap an already-connected stream in the frame codec. Public so a
+    /// caller that must own socket options (nonblocking accept loops, read
+    /// and write timeouts — N3.2 gossip ingress/egress) can accept/connect
+    /// itself and still speak the exact wire contract.
+    pub fn conn_from_stream(stream: TcpStream) -> Result<TcpConn, FrameError> {
         let write_half = stream.try_clone()?;
         Ok(TcpConn {
             reader: BufReader::new(stream),
