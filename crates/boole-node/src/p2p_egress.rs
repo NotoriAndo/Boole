@@ -112,12 +112,14 @@ fn egress_loop(
 
 /// Dial `peer`, exchange `Hello`s, and validate the reply symmetrically to
 /// ingress (ADR-0009 (e)): never hand gossip to a wrong-network or
-/// wrong-genesis listener.
-fn open_validated_conn(
+/// wrong-genesis listener. Returns the peer's own head summary from its
+/// `Hello` reply — the N3.4 sync loop uses it to size the catch-up pull;
+/// announce paths ignore it.
+pub(crate) fn open_validated_conn(
     peer: &SocketAddr,
     identity: &P2pIdentity,
     head: HeadSummary,
-) -> Result<(TcpTransport, boole_p2p::TcpConn), FrameError> {
+) -> Result<(TcpTransport, boole_p2p::TcpConn, HeadSummary), FrameError> {
     let stream = TcpStream::connect_timeout(peer, CONNECT_TIMEOUT)?;
     stream.set_read_timeout(Some(EGRESS_IO_TIMEOUT))?;
     stream.set_write_timeout(Some(EGRESS_IO_TIMEOUT))?;
@@ -130,7 +132,16 @@ fn open_validated_conn(
             detail: "peer hello mismatch (protocol_version/network_id/genesis_hash)".to_string(),
         });
     }
-    Ok((transport, conn))
+    let peer_head = match reply {
+        Frame::Hello { head, .. } => head,
+        // Unreachable: `matches` only accepts a Hello.
+        _ => {
+            return Err(FrameError::Malformed {
+                detail: "peer reply was not a Hello".to_string(),
+            })
+        }
+    };
+    Ok((transport, conn, peer_head))
 }
 
 fn announce_share_to_peer(
@@ -138,7 +149,8 @@ fn announce_share_to_peer(
     identity: &P2pIdentity,
     announcement: &ShareAnnouncement,
 ) -> Result<(), FrameError> {
-    let (transport, mut conn) = open_validated_conn(peer, identity, announcement.head.clone())?;
+    let (transport, mut conn, _peer_head) =
+        open_validated_conn(peer, identity, announcement.head.clone())?;
     transport.send_frame(
         &mut conn,
         &Frame::ShareAnnounce {
@@ -152,7 +164,8 @@ fn announce_block_to_peer(
     identity: &P2pIdentity,
     announcement: &BlockAnnouncement,
 ) -> Result<(), FrameError> {
-    let (transport, mut conn) = open_validated_conn(peer, identity, announcement.head.clone())?;
+    let (transport, mut conn, _peer_head) =
+        open_validated_conn(peer, identity, announcement.head.clone())?;
     transport.send_frame(
         &mut conn,
         &Frame::BlockAnnounce {
