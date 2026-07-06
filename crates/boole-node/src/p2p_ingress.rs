@@ -16,14 +16,16 @@ use std::thread;
 use std::time::Duration;
 
 use boole_p2p::{
-    Frame, FrameError, HeadSummary, TcpConn, TcpTransport, Transport, PROTOCOL_VERSION,
+    Frame, FrameError, HeadSummary, TcpConn, TcpTransport, Transport, GET_BLOCKS_RANGE_CAP,
+    PROTOCOL_VERSION,
 };
 use tokio::sync::RwLock;
 
 use crate::local_node::{
-    head_summary, ingest_announced_block, ingress_admit_share, HttpRateLimiter,
-    IngressBlockOutcome, IngressShareOutcome, LocalNodeState,
+    blocks_range_values, head_summary, ingest_announced_block, ingress_admit_share,
+    HttpRateLimiter, IngressBlockOutcome, IngressShareOutcome, LocalNodeState,
 };
+use crate::p2p_egress::open_validated_conn;
 
 /// How long an accepted connection may sit silent before it is dropped.
 /// Bounds a slow/hung peer's hold on the (serial) ingress thread; the
@@ -109,6 +111,9 @@ pub(crate) struct P2pMetrics {
     pub(crate) ingress_blocks_rejected: AtomicU64,
     pub(crate) ingress_block_announces_ignored: AtomicU64,
     pub(crate) ingress_rate_limited_drops: AtomicU64,
+    pub(crate) ingress_get_blocks_served: AtomicU64,
+    pub(crate) sync_blocks_applied: AtomicU64,
+    pub(crate) sync_peer_failures: AtomicU64,
     pub(crate) egress_announces: AtomicU64,
     pub(crate) egress_failures: AtomicU64,
     pub(crate) egress_block_announces: AtomicU64,
@@ -383,11 +388,26 @@ fn handle_connection(
                     }
                 }
             }
+            Ok(Frame::GetBlocks { from, to }) => {
+                // N3.4 — serve a sync pull from the local block cache.
+                // Range shape (≤256, not inverted) was validated by the
+                // codec on receive; heights past our head are simply not
+                // included (the requester sees a shorter/empty batch).
+                let blocks = blocks_range_values(&state.blocking_read(), from, to);
+                if transport
+                    .send_frame(&mut conn, &Frame::Blocks { blocks })
+                    .is_err()
+                {
+                    return;
+                }
+                metrics
+                    .ingress_get_blocks_served
+                    .fetch_add(1, Ordering::Relaxed);
+            }
             Ok(_) => {
-                // GetBlocks/Blocks outside an announce exchange arrive
-                // with N3.4; Hello re-sends are harmless. Count and keep
-                // the connection so additive frame evolution never wedges
-                // an older node (ADR-0009 (b)).
+                // Unsolicited Blocks / Hello re-sends are harmless. Count
+                // and keep the connection so additive frame evolution
+                // never wedges an older node (ADR-0009 (b)).
                 metrics
                     .ingress_unsupported_frames
                     .fetch_add(1, Ordering::Relaxed);
@@ -395,4 +415,120 @@ fn handle_connection(
             Err(()) => return,
         }
     }
+}
+
+/// N3.4 — how often the sync loop re-checks every peer's head. Catch-up
+/// during the closed testnet is announce-driven in the common case; this
+/// poll is the gap-filler (missed announces, fresh boot, a peer that was
+/// down). The value trades convergence latency against idle Hello traffic
+/// (2 peers × 1 Hello per interval ≈ nothing against the 600/min budget).
+const SYNC_POLL_INTERVAL: Duration = Duration::from_secs(5);
+
+pub(crate) fn spawn_sync_thread(
+    peers: Vec<SocketAddr>,
+    identity: P2pIdentity,
+    state: Arc<RwLock<LocalNodeState>>,
+    stop: Arc<AtomicBool>,
+    metrics: Arc<P2pMetrics>,
+) -> thread::JoinHandle<()> {
+    thread::Builder::new()
+        .name("boole-p2p-sync".to_string())
+        .spawn(move || sync_loop(peers, identity, state, stop, metrics))
+        .expect("spawn boole-p2p-sync thread")
+}
+
+/// N3.4 — initial/catch-up sync (`GetBlocks`/`Blocks`): learn each peer's
+/// head from the `Hello` exchange and pull the missing range in
+/// `GET_BLOCKS_RANGE_CAP` pages, pushing every block through the exact
+/// N3.3 verify-then-append path. First pass runs immediately (fresh-boot
+/// catch-up — the N5.3 `node join` seam), then the loop re-checks every
+/// `SYNC_POLL_INTERVAL`. Non-goals per spec: competing-chain selection
+/// (N4), parallel/headers-first optimizations.
+fn sync_loop(
+    peers: Vec<SocketAddr>,
+    identity: P2pIdentity,
+    state: Arc<RwLock<LocalNodeState>>,
+    stop: Arc<AtomicBool>,
+    metrics: Arc<P2pMetrics>,
+) {
+    while !stop.load(Ordering::Relaxed) {
+        for peer in &peers {
+            if stop.load(Ordering::Relaxed) {
+                return;
+            }
+            if sync_with_peer(peer, &identity, &state, &stop, &metrics).is_err() {
+                metrics.sync_peer_failures.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        // Sleep in short slices so shutdown stays bounded by the accept
+        // poll, not by the sync interval.
+        let deadline = std::time::Instant::now() + SYNC_POLL_INTERVAL;
+        while std::time::Instant::now() < deadline {
+            if stop.load(Ordering::Relaxed) {
+                return;
+            }
+            thread::sleep(ACCEPT_POLL_INTERVAL);
+        }
+    }
+}
+
+fn sync_with_peer(
+    peer: &SocketAddr,
+    identity: &P2pIdentity,
+    state: &Arc<RwLock<LocalNodeState>>,
+    stop: &Arc<AtomicBool>,
+    metrics: &Arc<P2pMetrics>,
+) -> Result<(), FrameError> {
+    let my_head = head_summary(&state.blocking_read());
+    let (transport, mut conn, peer_head) = open_validated_conn(peer, identity, my_head.clone())?;
+    let mut my_height = my_head.height;
+    while my_height < peer_head.height && !stop.load(Ordering::Relaxed) {
+        let to = (peer_head.height - 1).min(my_height + GET_BLOCKS_RANGE_CAP - 1);
+        transport.send_frame(
+            &mut conn,
+            &Frame::GetBlocks {
+                from: my_height,
+                to,
+            },
+        )?;
+        let blocks = match transport.recv_frame(&mut conn)? {
+            Frame::Blocks { blocks } => blocks,
+            _ => {
+                return Err(FrameError::Malformed {
+                    detail: "expected Blocks in reply to GetBlocks".to_string(),
+                })
+            }
+        };
+        if blocks.is_empty() {
+            // The peer served nothing for a range its Hello claimed to
+            // have — stop rather than spin; the next poll retries.
+            return Ok(());
+        }
+        for block_value in &blocks {
+            let mut guard = state.blocking_write();
+            match ingest_announced_block(&mut guard, block_value) {
+                IngressBlockOutcome::Ingested => {
+                    metrics.sync_blocks_applied.fetch_add(1, Ordering::Relaxed);
+                }
+                IngressBlockOutcome::Ignored => {
+                    // Raced with an announce or a local commit — the chain
+                    // moved under us. Normal; the next poll reconciles.
+                    return Ok(());
+                }
+                IngressBlockOutcome::Rejected => {
+                    // Strict replay refused the peer's block: tampered or
+                    // divergent chain. Abort this peer's sync (counted by
+                    // the caller as a peer failure) — never adopt.
+                    metrics
+                        .ingress_blocks_rejected
+                        .fetch_add(1, Ordering::Relaxed);
+                    return Err(FrameError::Malformed {
+                        detail: "peer served a block that failed strict validation".to_string(),
+                    });
+                }
+            }
+        }
+        my_height = head_summary(&state.blocking_read()).height;
+    }
+    Ok(())
 }

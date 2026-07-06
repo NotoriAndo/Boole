@@ -5,7 +5,9 @@ use crate::family_manifest_store::load_family_manifest_registry_from_dir;
 use crate::http_error::HttpError;
 use crate::nonce_ledger::FileNonceLedger;
 use crate::p2p_egress::{spawn_egress_thread, BlockAnnouncement, EgressEvent, ShareAnnouncement};
-use crate::p2p_ingress::{spawn_ingress_thread, P2pConfig, P2pIdentity, P2pMetrics};
+use crate::p2p_ingress::{
+    spawn_ingress_thread, spawn_sync_thread, P2pConfig, P2pIdentity, P2pMetrics,
+};
 use crate::proof_dedup_ledger::FileProofDedupLedger;
 use crate::receipt_store::FileReceiptStore;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
@@ -948,6 +950,7 @@ async fn serve_local_node_async(
     let p2p_metrics = state.p2p_metrics.clone();
     let mut p2p_threads: Vec<std::thread::JoinHandle<()>> = Vec::new();
     let mut p2p_ingress: Option<(StdTcpListener, Vec<IpAddr>, P2pIdentity, usize)> = None;
+    let mut p2p_sync: Option<(Vec<SocketAddr>, P2pIdentity)> = None;
     if let Some(p2p) = p2p {
         let identity = P2pIdentity {
             network_id: state.network_id.clone(),
@@ -963,6 +966,10 @@ async fn serve_local_node_async(
                 p2p_stop.clone(),
                 p2p_metrics.clone(),
             ));
+            // N3.4 — the sync loop dials the same static peer set to pull
+            // any chain range this node is missing (fresh-boot catch-up +
+            // announce-gap reconciliation).
+            p2p_sync = Some((p2p.peers.clone(), identity.clone()));
         }
         if let Some(gossip_listener) = p2p.listener {
             // ADR-0009 (d): the configured peer set doubles as the inbound
@@ -984,6 +991,15 @@ async fn serve_local_node_async(
             p2p_stop.clone(),
             p2p_metrics.clone(),
             rate_limit_per_60s,
+        ));
+    }
+    if let Some((peers, identity)) = p2p_sync {
+        p2p_threads.push(spawn_sync_thread(
+            peers,
+            identity,
+            app_state.inner.clone(),
+            p2p_stop.clone(),
+            p2p_metrics.clone(),
         ));
     }
     let shutdown_notify = Arc::new(Notify::new());
@@ -2031,6 +2047,21 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
             "boole_p2p_ingress_rate_limited_drops_total",
             "Inbound gossip connections dropped for exceeding the per-peer frame budget.",
             p2p.ingress_rate_limited_drops.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_ingress_get_blocks_served_total",
+            "GetBlocks sync pulls answered from the local block cache.",
+            p2p.ingress_get_blocks_served.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_sync_blocks_applied_total",
+            "Peer blocks validated and appended by the sync loop.",
+            p2p.sync_blocks_applied.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_sync_peer_failures_total",
+            "Sync rounds aborted by peer connect/protocol/validation failures.",
+            p2p.sync_peer_failures.load(Ordering::Relaxed),
         ),
         (
             "boole_p2p_egress_announces_total",
@@ -4522,6 +4553,24 @@ fn announce_admitted_share(
         submission,
         head: head_summary(state),
     }));
+}
+
+/// N3.4 — serialize the block-cache slice `[from..=to]` for a `Blocks`
+/// reply. Heights beyond the cache are silently absent (the requester
+/// sees a shorter or empty batch); the cache index IS the height by the
+/// store's recover invariant. Serialization of a cached block cannot
+/// fail, so the per-block result is unwrapped via filter_map defensively.
+pub(crate) fn blocks_range_values(state: &LocalNodeState, from: u64, to: u64) -> Vec<Value> {
+    let blocks = state.runtime.cached_blocks();
+    let count = blocks.len() as u64;
+    if from >= count {
+        return Vec::new();
+    }
+    let end = to.min(count.saturating_sub(1));
+    blocks[from as usize..=end as usize]
+        .iter()
+        .filter_map(|block| serde_json::to_value(block).ok())
+        .collect()
 }
 
 /// N3.3 — hand a just-committed block to the egress thread. Best-effort
