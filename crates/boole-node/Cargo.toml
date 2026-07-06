@@ -24,6 +24,7 @@ axum.workspace = true
 blake3.workspace = true
 boole-core = { path = "../boole-core" }
 boole-lean-runner = { path = "../boole-lean-runner" }
+boole-p2p = { path = "../boole-p2p" }
 clap.workspace = true
 hex.workspace = true
 libc.workspace = true

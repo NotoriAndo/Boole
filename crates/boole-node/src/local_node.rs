@@ -4,6 +4,8 @@ use crate::bounty_event_store::FileBountyEventLedger;
 use crate::family_manifest_store::load_family_manifest_registry_from_dir;
 use crate::http_error::HttpError;
 use crate::nonce_ledger::FileNonceLedger;
+use crate::p2p_egress::{spawn_egress_thread, ShareAnnouncement};
+use crate::p2p_ingress::{spawn_ingress_thread, P2pConfig, P2pIdentity, P2pMetrics};
 use crate::proof_dedup_ledger::FileProofDedupLedger;
 use crate::receipt_store::FileReceiptStore;
 use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
@@ -28,6 +30,7 @@ use boole_core::{
     ReceiptCommitmentInput, SessionState, SubmitProofInput, UpdateStatusInput, VerifyOutcome,
     WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
+use boole_p2p::HeadSummary;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -306,7 +309,7 @@ struct LocalNodeScenarioConfig {
     genesis_c: String,
 }
 
-struct LocalNodeState {
+pub(crate) struct LocalNodeState {
     runtime: RuntimeAdmissionState,
     genesis_c: String,
     block_path: PathBuf,
@@ -440,6 +443,15 @@ struct LocalNodeState {
     /// `401 unauthenticated_submit` unless the operator explicitly opted
     /// into the legacy unauthenticated path.
     allow_anonymous_submit: bool,
+    /// N3.2 — egress side of share gossip. `Some` iff the node booted with
+    /// a non-empty static peer set; `submit_json` pushes every admitted
+    /// (and dedup-cleared) share here and the egress thread fans it out as
+    /// `ShareAnnounce` frames. Fire-and-forget: a closed/full channel must
+    /// never change the local submit outcome.
+    p2p_egress: Option<std::sync::mpsc::Sender<ShareAnnouncement>>,
+    /// N3.2 — typed gossip drop/outcome counters (ADR-0009 (e)), shared
+    /// with the ingress/egress threads and rendered in `/metrics`.
+    p2p_metrics: Arc<P2pMetrics>,
 }
 
 #[derive(Clone)]
@@ -742,6 +754,7 @@ pub fn serve_local_node_with_disk_full_sentinel(
         max_requests,
         rate_limiter,
         None,
+        None,
     ))
 }
 
@@ -758,6 +771,35 @@ pub fn serve_local_node(listener: StdTcpListener, config: LocalNodeConfig) -> an
         max_requests,
         rate_limiter,
         None,
+        None,
+    ))
+}
+
+/// N3.2 — [`serve_local_node`] plus the share-gossip surface (ADR-0009):
+/// `p2p.listener` accepts allowlisted peers and re-admits announced shares
+/// through the exact local admission path; a non-empty `p2p.peers` set
+/// spawns the egress thread that announces locally-admitted shares. The
+/// optional `external_shutdown` trigger behaves exactly like
+/// [`serve_local_node_with_shutdown`]'s.
+pub fn serve_local_node_with_p2p(
+    listener: StdTcpListener,
+    config: LocalNodeConfig,
+    p2p: P2pConfig,
+    external_shutdown: Option<Arc<Notify>>,
+) -> anyhow::Result<()> {
+    let max_requests = config.max_requests;
+    let rate_limiter = build_rate_limiter(config.http_rate_limit_per_60s);
+    let state = LocalNodeState::from_config(config)?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(serve_local_node_async(
+        listener,
+        state,
+        max_requests,
+        rate_limiter,
+        external_shutdown,
+        Some(p2p),
     ))
 }
 
@@ -790,6 +832,7 @@ pub fn serve_local_node_with_shutdown(
         max_requests,
         rate_limiter,
         Some(external_shutdown),
+        None,
     ))
 }
 
@@ -807,6 +850,18 @@ pub fn serve_local_node_with_shutdown(
 pub fn serve_local_node_with_os_signals(
     listener: StdTcpListener,
     config: LocalNodeConfig,
+) -> anyhow::Result<()> {
+    serve_local_node_with_os_signals_and_p2p(listener, config, None)
+}
+
+/// N3.2 — production entry point with the optional share-gossip surface:
+/// [`serve_local_node_with_os_signals`] semantics plus [`P2pConfig`] wiring
+/// (see [`serve_local_node_with_p2p`]). `run-local` passes `Some` when the
+/// operator supplied `--p2p-listen` and/or `--peer`.
+pub fn serve_local_node_with_os_signals_and_p2p(
+    listener: StdTcpListener,
+    config: LocalNodeConfig,
+    p2p: Option<P2pConfig>,
 ) -> anyhow::Result<()> {
     let max_requests = config.max_requests;
     let rate_limiter = build_rate_limiter(config.http_rate_limit_per_60s);
@@ -861,23 +916,75 @@ pub fn serve_local_node_with_os_signals(
                 }
             });
         }
-        serve_local_node_async(listener, state, max_requests, rate_limiter, Some(shutdown)).await
+        serve_local_node_async(
+            listener,
+            state,
+            max_requests,
+            rate_limiter,
+            Some(shutdown),
+            p2p,
+        )
+        .await
     })
 }
 
 async fn serve_local_node_async(
     listener: StdTcpListener,
-    state: LocalNodeState,
+    mut state: LocalNodeState,
     max_requests: Option<usize>,
     rate_limiter: Option<Arc<HttpRateLimiter>>,
     external_shutdown: Option<Arc<Notify>>,
+    p2p: Option<P2pConfig>,
 ) -> anyhow::Result<()> {
     listener.set_nonblocking(true)?;
     let tokio_listener = TcpListener::from_std(listener)?;
+    // N3.2 — bring the gossip surface up around the shared node state. Both
+    // gossip threads are plain blocking `std::thread`s (the transport is
+    // blocking `std::net`, ADR-0009 (a)); they poll `p2p_stop` so shutdown
+    // below is bounded. The egress sender is injected BEFORE the state is
+    // wrapped in the lock so `submit_json` observes it from the first
+    // request.
+    let p2p_stop = Arc::new(AtomicBool::new(false));
+    let p2p_metrics = state.p2p_metrics.clone();
+    let mut p2p_threads: Vec<std::thread::JoinHandle<()>> = Vec::new();
+    let mut p2p_ingress: Option<(StdTcpListener, Vec<IpAddr>, P2pIdentity)> = None;
+    if let Some(p2p) = p2p {
+        let identity = P2pIdentity {
+            network_id: state.network_id.clone(),
+            genesis_c: state.genesis_c.clone(),
+        };
+        if !p2p.peers.is_empty() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            state.p2p_egress = Some(tx);
+            p2p_threads.push(spawn_egress_thread(
+                rx,
+                p2p.peers.clone(),
+                identity.clone(),
+                p2p_stop.clone(),
+                p2p_metrics.clone(),
+            ));
+        }
+        if let Some(gossip_listener) = p2p.listener {
+            // ADR-0009 (d): the configured peer set doubles as the inbound
+            // allowlist. IP-based — inbound source ports are ephemeral.
+            let allowlist: Vec<IpAddr> = p2p.peers.iter().map(|peer| peer.ip()).collect();
+            p2p_ingress = Some((gossip_listener, allowlist, identity));
+        }
+    }
     let app_state = AppState {
         inner: Arc::new(RwLock::new(state)),
         rate_limiter,
     };
+    if let Some((gossip_listener, allowlist, identity)) = p2p_ingress {
+        p2p_threads.push(spawn_ingress_thread(
+            gossip_listener,
+            allowlist,
+            identity,
+            app_state.inner.clone(),
+            p2p_stop.clone(),
+            p2p_metrics.clone(),
+        ));
+    }
     let shutdown_notify = Arc::new(Notify::new());
     // P2.7 — forward external trigger fires to the internal shutdown_notify
     // so the `max_requests` path and the external path use the same wake
@@ -911,6 +1018,13 @@ async fn serve_local_node_async(
     axum::serve(tokio_listener, make_service)
         .with_graceful_shutdown(async move { shutdown_notify.notified().await })
         .await?;
+    // N3.2 — bounded gossip teardown: both threads poll `p2p_stop` (accept
+    // loop at 25ms, egress queue at 100ms), so these joins cannot hang on
+    // a quiet network.
+    p2p_stop.store(true, Ordering::Relaxed);
+    for handle in p2p_threads {
+        let _ = handle.join();
+    }
     Ok(())
 }
 
@@ -1241,6 +1355,8 @@ impl LocalNodeState {
             state_dir: config.state_dir,
             _state_dir_guard: state_dir_guard,
             allow_anonymous_submit: config.allow_anonymous_submit,
+            p2p_egress: None,
+            p2p_metrics: Arc::new(P2pMetrics::default()),
         })
     }
 }
@@ -1860,6 +1976,56 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
     out.push_str("# HELP boole_node_started_at_ms Unix epoch ms when the node booted.\n");
     out.push_str("# TYPE boole_node_started_at_ms gauge\n");
     out.push_str(&format!("boole_node_started_at_ms {started_at}\n"));
+
+    // N3.2 — typed gossip counters (ADR-0009 (e): every dropped or rejected
+    // ingress object is counted, never silently discarded).
+    let p2p = &state.p2p_metrics;
+    for (name, help, value) in [
+        (
+            "boole_p2p_ingress_shares_admitted_total",
+            "Gossip shares re-admitted into the local pool.",
+            p2p.ingress_shares_admitted.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_ingress_shares_rejected_total",
+            "Gossip shares rejected by the local admission path.",
+            p2p.ingress_shares_rejected.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_ingress_not_allowlisted_drops_total",
+            "Inbound gossip connections dropped at accept (not allowlisted).",
+            p2p.ingress_not_allowlisted_drops.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_ingress_hello_mismatch_drops_total",
+            "Inbound gossip connections dropped on Hello mismatch.",
+            p2p.ingress_hello_mismatch_drops.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_ingress_malformed_frame_drops_total",
+            "Inbound gossip connections dropped on a malformed/over-cap frame.",
+            p2p.ingress_malformed_frame_drops.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_ingress_unsupported_frames_total",
+            "Well-formed gossip frames this node does not handle yet.",
+            p2p.ingress_unsupported_frames.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_egress_announces_total",
+            "Share announcements delivered to a peer.",
+            p2p.egress_announces.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_egress_failures_total",
+            "Share announcements that failed to reach a peer.",
+            p2p.egress_failures.load(Ordering::Relaxed),
+        ),
+    ] {
+        out.push_str(&format!("# HELP {name} {help}\n"));
+        out.push_str(&format!("# TYPE {name} counter\n"));
+        out.push_str(&format!("{name} {value}\n"));
+    }
 
     // P0.5 slice 67 — process-wide outcome counters. Counter type so a
     // scraper computes rate()/increase() over the monotonic series.
@@ -4114,6 +4280,11 @@ fn submit_json(
             "c": current_head(state),
         }));
     }
+    // N3.2 — gossip egress: the share is admitted and dedup-cleared, so
+    // announce it to the static peer set regardless of whether a block
+    // gets built below (a NoProposer accept is still a pool entry worth
+    // propagating). Fire-and-forget by design.
+    announce_admitted_share(state, &body, canon_tag, ts_raw);
     // P1.3a (L7) — burn (submittedBy, nonce) to disk BEFORE any block
     // disk write. A crash that lands the block but not the burn leaves
     // an irrecoverable replay window because recovery cannot tell that
@@ -4315,6 +4486,133 @@ fn current_head(state: &LocalNodeState) -> String {
         .current_c()
         .unwrap_or(&state.genesis_c)
         .to_string()
+}
+
+/// N3.2 — the `Hello.head` summary for the gossip handshake.
+pub(crate) fn head_summary(state: &LocalNodeState) -> HeadSummary {
+    HeadSummary {
+        height: state.runtime.cached_block_count() as u64,
+        c: current_head(state),
+    }
+}
+
+/// N3.2 — hand an admitted (and dedup-cleared) share to the egress thread.
+/// Best-effort: gossip must never change the local submit outcome, so a
+/// missing sender (no peers configured) or a closed channel is silently a
+/// no-op. Only HTTP-submitted shares reach here — the gossip ingress path
+/// never re-announces, so with the S7 full mesh (2–3 static peers) a
+/// gossip loop is structurally impossible.
+fn announce_admitted_share(
+    state: &LocalNodeState,
+    body: &serde_json::Map<String, Value>,
+    canon_tag: u8,
+    ts_raw: u64,
+) {
+    let Some(sender) = state.p2p_egress.as_ref() else {
+        return;
+    };
+    // The same `/submit` envelope shape the local admission consumed
+    // (ADR-0009 (b)) — the receiving peer re-parses it through the exact
+    // local validation path, so no second wire schema exists.
+    let submission = json!({
+        "body": body,
+        "canonTag": canon_tag,
+        "ts": ts_raw,
+    });
+    let _ = sender.send(ShareAnnouncement {
+        submission,
+        head: head_summary(state),
+    });
+}
+
+/// N3.2 — outcome of one gossip-ingress admission attempt, for the typed
+/// `/metrics` counters (ADR-0009 (e)).
+pub(crate) enum IngressShareOutcome {
+    Admitted,
+    #[allow(dead_code)] // the code is diagnostic; only the arm is counted today
+    Rejected {
+        code: String,
+    },
+}
+
+/// N3.2 — re-admit a peer-announced share through the EXACT local admission
+/// path (`admit_parsed_submission_typed` via the runtime wrapper): ADR-0009
+/// (e), no second validation policy. Mirrors `submit_json`'s pre-block
+/// sequence — canonTag/ts caps → body extraction → `normalize_pow_fields`
+/// → ticket observe → admit → N2.3 proof-dedup peek — and the caller holds
+/// the SAME single write guard the HTTP path holds, so the share pool and
+/// the dedup ledger cannot diverge between the two ingress surfaces.
+///
+/// Deliberate differences from the HTTP path:
+/// - no session gate: N2.1's ownership proof is an HTTP-surface policy for
+///   this node's own submitters, not consensus validation; gossiped shares
+///   are validated purely by admission (the announcing node enforced its
+///   own submit policy).
+/// - no nonce burn / receipt: session-bound bookkeeping has no meaning for
+///   a relayed share (there is no session).
+/// - no block build: block propagation is N3.3; a gossiped share only
+///   enters the candidate pool.
+/// - no re-announce (see `announce_admitted_share`).
+/// - the per-peer ingress rate limit (ADR-0009 (c)) is the admission rate
+///   limiter itself, keyed by the peer's IP exactly as HTTP keys on the
+///   client IP.
+pub(crate) fn ingress_admit_share(
+    state: &mut LocalNodeState,
+    submission: &Value,
+    peer_ip: &str,
+) -> IngressShareOutcome {
+    let rejected = |code: &str| IngressShareOutcome::Rejected {
+        code: code.to_string(),
+    };
+    let Some(envelope) = submission.as_object() else {
+        return rejected("malformed_submission");
+    };
+    let canon_tag_raw = envelope
+        .get("canonTag")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if canon_tag_raw > u8::MAX as u64 {
+        return rejected("canon_tag_out_of_range");
+    }
+    let canon_tag = canon_tag_raw as u8;
+    let ts_raw = envelope
+        .get("ts")
+        .and_then(Value::as_u64)
+        .unwrap_or_else(|| now_unix_ms() as u64);
+    if ts_raw > i64::MAX as u64 {
+        return rejected("ts_out_of_range");
+    }
+    let mut body = envelope
+        .get("body")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_else(|| envelope.clone());
+    normalize_pow_fields(&mut body);
+    if state.runtime.observe_ticket_from_body(&body).is_err() {
+        return rejected("ticket_observe_failed");
+    }
+    let decision = state.runtime.admit_body_with_canon_tag_and_reward_pk(
+        ts_raw as i64,
+        peer_ip,
+        &body,
+        canon_tag,
+        None,
+    );
+    if !matches!(decision, AdmissionDecision::Accepted { .. }) {
+        return rejected(decision.reject_code().unwrap_or("rejected"));
+    }
+    // N2.3 parity: the HTTP path peeks the proof-dedup ledger right after
+    // admission; a proof already credited on this chain must be a typed
+    // reject here too, not a silent pool entry.
+    let proof_canon_hash = proof_canon_hash(&body);
+    if state
+        .proof_dedup_ledger
+        .as_ref()
+        .is_some_and(|ledger| ledger.contains(&proof_canon_hash))
+    {
+        return rejected("duplicate_proof");
+    }
+    IngressShareOutcome::Admitted
 }
 
 fn block_json(block: &PersistedBlock) -> Value {

@@ -320,6 +320,7 @@ dependencies = [
  "blake3",
  "boole-core",
  "boole-lean-runner",
+ "boole-p2p",
  "boole-testkit",
  "clap",
  "hex",

@@ -9,6 +9,8 @@ mod lean_bounty_verifier;
 mod local_node;
 #[allow(dead_code)]
 mod nonce_ledger;
+mod p2p_egress;
+mod p2p_ingress;
 mod proof_bridge;
 mod proof_dedup_ledger;
 mod receipt_store;
@@ -32,9 +34,11 @@ pub use family_manifest_store::load_family_manifest_registry_from_dir;
 pub use lean_bounty_verifier::LeanBountyVerifier;
 pub use local_node::{
     serve_local_node, serve_local_node_with_disk_full_sentinel, serve_local_node_with_os_signals,
+    serve_local_node_with_os_signals_and_p2p, serve_local_node_with_p2p,
     serve_local_node_with_shutdown, LocalNodeConfig, DEFAULT_ROUTE_TIMEOUT,
     MAX_CONCURRENT_REQUESTS, MAX_HTTP_BODY_BYTES, PROOF_ROUTE_BODY_BYTES, PROOF_ROUTE_TIMEOUT,
 };
+pub use p2p_ingress::P2pConfig;
 pub use proof_bridge::{
     canonical_pofp_package_from_lean_result, canonical_pofp_package_from_lean_result_and_source,
     LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate,
