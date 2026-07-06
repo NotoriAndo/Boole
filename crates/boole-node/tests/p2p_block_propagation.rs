@@ -1,15 +1,18 @@
-//! N3.2 — share gossip: egress announce + ingress re-admit.
+//! N3.3 — block announce + linkage-checked ingest.
 //!
-//! A share submitted to node A must appear in node B's candidate pool via a
-//! `ShareAnnounce` frame, with B re-admitting it through the exact local
-//! admission path (`admit_parsed_submission_typed`) — no second validation
-//! policy (ADR-0009 (e)). The reject paths are pinned too: an inbound
-//! connection from a non-allowlisted address is dropped at accept, and a
-//! `Hello` carrying a mismatched `network_id` is a typed disconnect before
-//! any frame is processed (ADR-0009 (d)/(e)).
+//! A block committed on node A reaches node B as `BlockAnnounce` (summary);
+//! B pulls the body with `GetBlocks` on the same connection (the wire
+//! contract moves block bodies only inside `Blocks` frames, ADR-0009 (b))
+//! and validates it through the exact strict replay path — linkage, hash
+//! re-derivation, evidence-mandatory (N3-pre.1), canonical selection
+//! (N3-pre.2), median-time-past (N3-pre.3) and the boundary future-drift
+//! guard — BEFORE appending. B converges to A's byte-identical head.
 //!
-//! Block propagation is explicitly out of scope (N3.3): B's height must stay
-//! at genesis even after the gossiped share lands in its pool.
+//! Reject paths pinned here: an evidence-less block (strict replay must
+//! refuse it — the N3-pre.1 truth boundary applies to gossip ingest), and
+//! a peer flooding frames past the per-peer rate limit (ADR-0009 (c)).
+//! Fork-choice/reorg stay out of scope (N4): only a block extending the
+//! current head by exactly one is ingested.
 
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
@@ -20,11 +23,14 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use boole_core::{block_hash, Hex32};
 use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig};
-use boole_p2p::{Frame, FrameError, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
+use boole_p2p::{Frame, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 use tokio::sync::Notify;
+
+const DEFAULT_RATE_LIMIT: usize = 600;
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -37,8 +43,6 @@ fn scenario_path() -> PathBuf {
     repo_root().join("fixtures/protocol/runtime-smoke/v1.json")
 }
 
-/// The genesis `c` pinned by `fixtures/protocol/runtime-smoke/v1.json`; the
-/// `Hello.genesis_hash` both nodes exchange must equal it.
 fn scenario_genesis_c() -> String {
     let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
     let doc: Value = serde_json::from_str(&raw).expect("scenario json");
@@ -68,17 +72,15 @@ struct Boot {
     handle: thread::JoinHandle<anyhow::Result<()>>,
 }
 
-/// Boot an in-process node with the N3.2 gossip surface. `p2p_listener`
-/// pre-binds the gossip port (None = egress-only node); `peers` is the
-/// static peer set that doubles as the inbound IP allowlist (ADR-0009 (d)).
 fn boot_with_p2p(
     tag: &str,
     p2p_listener: Option<TcpListener>,
     peers: Vec<SocketAddr>,
+    rate_limit_per_60s: usize,
     allow_anonymous_submit: bool,
 ) -> Boot {
     let dir = std::env::temp_dir().join(format!(
-        "boole-n32-gossip-{tag}-{}-{}",
+        "boole-n33-block-{tag}-{}-{}",
         std::process::id(),
         rand_suffix()
     ));
@@ -125,7 +127,7 @@ fn boot_with_p2p(
             P2pConfig {
                 listener: p2p_listener,
                 peers,
-                rate_limit_per_60s: boole_node::DEFAULT_P2P_RATE_LIMIT_PER_60S,
+                rate_limit_per_60s,
             },
             Some(shutdown_for_node),
         )
@@ -188,19 +190,18 @@ fn http_get_json(addr: SocketAddr, path: &str) -> Value {
     serde_json::from_str(&text).unwrap_or_else(|err| panic!("body not JSON: {err}, raw={text}"))
 }
 
-fn share_pool_size(addr: SocketAddr) -> u64 {
-    http_get_json(addr, "/status")["sharePoolSize"]
-        .as_u64()
-        .expect("sharePoolSize")
-}
-
 fn height(addr: SocketAddr) -> u64 {
     http_get_json(addr, "/status")["height"]
         .as_u64()
         .expect("height")
 }
 
-/// Scrape one counter value from `/metrics` (Prometheus text format).
+fn share_pool_size(addr: SocketAddr) -> u64 {
+    http_get_json(addr, "/status")["sharePoolSize"]
+        .as_u64()
+        .expect("sharePoolSize")
+}
+
 fn metric_value(addr: SocketAddr, name: &str) -> u64 {
     let raw = "GET /metrics HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
     let (_, text) = http_request(addr, raw);
@@ -227,81 +228,69 @@ fn wait_until(what: &str, timeout: Duration, mut check: impl FnMut() -> bool) {
     }
 }
 
+fn hello_frame(genesis: &str, head: HeadSummary) -> Frame {
+    Frame::Hello {
+        protocol_version: PROTOCOL_VERSION,
+        network_id: "boole-mvp".to_string(),
+        genesis_hash: genesis.to_string(),
+        head,
+    }
+}
+
 #[test]
 #[ignore = "needs-multiprocess"]
-fn share_submitted_to_a_appears_in_b_candidate_pool() {
+fn block_committed_on_a_is_ingested_and_replayed_identically_on_b() {
     let steps = multiminer_steps();
 
-    // Pre-bind both gossip listeners so each node can name the other as a
-    // static peer before boot (ADR-0009 (d) static peer set).
     let a_p2p = TcpListener::bind("127.0.0.1:0").expect("bind a p2p");
     let b_p2p = TcpListener::bind("127.0.0.1:0").expect("bind b p2p");
     let a_p2p_addr = a_p2p.local_addr().expect("a p2p addr");
     let b_p2p_addr = b_p2p.local_addr().expect("b p2p addr");
 
-    let a = boot_with_p2p("a", Some(a_p2p), vec![b_p2p_addr], true);
-    // B never opens its HTTP submit surface to anonymous callers: gossip
-    // ingress bypasses the HTTP session gate by design (the gate is an HTTP
-    // surface policy; admission is the consensus-level validation).
-    let b = boot_with_p2p("b", Some(b_p2p), vec![a_p2p_addr], false);
+    let a = boot_with_p2p("a", Some(a_p2p), vec![b_p2p_addr], DEFAULT_RATE_LIMIT, true);
+    let b = boot_with_p2p(
+        "b",
+        Some(b_p2p),
+        vec![a_p2p_addr],
+        DEFAULT_RATE_LIMIT,
+        false,
+    );
 
     let (status, v0) = http_post(a.addr, "/submit", &submit_envelope(&steps[0]));
     assert_eq!(status, 200, "submit to A: {v0}");
     assert_eq!(v0["accepted"], json!(true), "A must admit the share: {v0}");
-
-    // The share must cross to B via ShareAnnounce and re-enter B's pool
-    // through the same admission path.
-    wait_until(
-        "share to appear in B's candidate pool",
-        Duration::from_secs(10),
-        || share_pool_size(b.addr) == 1,
+    // A block-producing submit carries the committed block object (the
+    // `blockProduced:false` key exists only on the NoProposer shape).
+    assert!(
+        v0["block"].is_object(),
+        "step0 must commit a block on A: {v0}"
     );
 
-    // Scope pin: share gossip only. Block propagation is N3.3, so B's chain
-    // must still be at genesis height even though A committed a block.
+    // The block must cross to B (BlockAnnounce -> GetBlocks -> Blocks),
+    // survive full strict validation, and land as B's new head.
+    wait_until("B to ingest A's block", Duration::from_secs(10), || {
+        height(b.addr) == 1
+    });
+
+    // Byte-identical convergence on the persisted head block.
+    let a_latest = http_get_json(a.addr, "/block/latest");
+    let b_latest = http_get_json(b.addr, "/block/latest");
     assert_eq!(
-        height(b.addr),
-        0,
-        "B must not gain a block from N3.2 gossip"
+        a_latest["block"], b_latest["block"],
+        "B's ingested head block must be identical to A's"
     );
     assert_eq!(
-        metric_value(b.addr, "boole_p2p_ingress_shares_admitted_total"),
+        metric_value(b.addr, "boole_p2p_ingress_blocks_ingested_total"),
         1,
-        "B must count exactly one gossip-admitted share"
+        "B must count exactly one ingested block"
     );
-
-    stop(a);
-    stop(b);
-}
-
-#[test]
-#[ignore = "needs-multiprocess"]
-fn ingress_drops_share_from_non_allowlisted_peer() {
-    let steps = multiminer_steps();
-
-    let b_p2p = TcpListener::bind("127.0.0.1:0").expect("bind b p2p");
-    let b_p2p_addr = b_p2p.local_addr().expect("b p2p addr");
-
-    // B's static peer set is EMPTY: every inbound gossip connection is
-    // outside the allowlist and must be dropped at accept (ADR-0009 (d)).
-    let b = boot_with_p2p("b-empty-allowlist", Some(b_p2p), vec![], false);
-    let a = boot_with_p2p("a-not-allowlisted", None, vec![b_p2p_addr], true);
-
-    let (status, v0) = http_post(a.addr, "/submit", &submit_envelope(&steps[0]));
-    assert_eq!(status, 200, "submit to A: {v0}");
-    assert_eq!(v0["accepted"], json!(true), "A must admit the share: {v0}");
-
-    // Positive signal first (a bare sleep would race the egress thread):
-    // B must COUNT the dropped connection, then its pool must still be empty.
-    wait_until(
-        "B to count the non-allowlisted drop",
-        Duration::from_secs(10),
-        || metric_value(b.addr, "boole_p2p_ingress_not_allowlisted_drops_total") >= 1,
-    );
+    // The N3.2-gossiped share was bound to the genesis head; after the block
+    // lands it is either pruned (admitted first) or rejected stale — the
+    // pool must not carry a stale share either way.
     assert_eq!(
         share_pool_size(b.addr),
         0,
-        "a non-allowlisted peer's share must never reach B's pool"
+        "B's pool must hold no stale share after the block ingest"
     );
 
     stop(a);
@@ -310,54 +299,159 @@ fn ingress_drops_share_from_non_allowlisted_peer() {
 
 #[test]
 #[ignore = "needs-multiprocess"]
-fn ingress_disconnects_on_network_id_mismatch_hello() {
+fn ingress_rejects_evidence_less_block() {
     let b_p2p = TcpListener::bind("127.0.0.1:0").expect("bind b p2p");
     let b_p2p_addr = b_p2p.local_addr().expect("b p2p addr");
 
-    // Loopback is allowlisted (the fake peer below connects from 127.0.0.1),
-    // so the drop this test observes can only come from the Hello check.
+    // Loopback is allowlisted, so the reject can only come from validation.
     let b = boot_with_p2p(
-        "b-hello-mismatch",
+        "b-evidence-less",
         Some(b_p2p),
         vec!["127.0.0.1:1".parse().expect("allowlist addr")],
+        DEFAULT_RATE_LIMIT,
         false,
     );
+    let genesis = scenario_genesis_c();
+
+    // A shape-valid block whose `c` re-derives correctly but that carries NO
+    // selected_share_evidence: the strict replay path (N3-pre.1) must refuse
+    // it at the gossip trust boundary — evidence-less blocks are a legacy
+    // local-replay concession, never a peer-ingest one.
+    let prev = Hex32::from_hex(&genesis).expect("genesis hex");
+    let share_hash_hex = "11".repeat(32);
+    let share_hash = Hex32::from_hex(&share_hash_hex).expect("share hash hex");
+    let forged_c = block_hash(&prev, &[share_hash]).to_hex();
+    let pk = "bb".repeat(32);
+    let forged = json!({
+        "height": 0,
+        "prevC": genesis,
+        "c": forged_c,
+        "proposerPk": pk,
+        "selectedShareHashes": [share_hash_hex],
+        "selectedSharePks": [pk],
+        "minShareScore": "0x1",
+        "kmaxApplied": 1,
+        "difficultyEpoch": 0,
+        "tBlock": format!("0x{}{}", "f".repeat(63), "e"),
+        "tShare": format!("0x{}", "f".repeat(64)),
+        "difficultyWeight": "1",
+        "droppedBelowMinScore": 0,
+        "droppedKernelReject": 0,
+        "truncatedByKmax": 0,
+        "ts": 1_700_000_000_123u64,
+    });
 
     let transport = TcpTransport::new();
     let mut conn = transport.connect(&b_p2p_addr).expect("connect to B");
     transport
         .send_frame(
             &mut conn,
-            &Frame::Hello {
-                protocol_version: PROTOCOL_VERSION,
-                network_id: "not-the-b-network".to_string(),
-                genesis_hash: scenario_genesis_c(),
-                head: HeadSummary {
-                    height: 0,
-                    c: scenario_genesis_c(),
+            &hello_frame(
+                &genesis,
+                HeadSummary {
+                    height: 1,
+                    c: forged_c.clone(),
                 },
+            ),
+        )
+        .expect("send hello");
+    match transport.recv_frame(&mut conn).expect("B hello reply") {
+        Frame::Hello { .. } => {}
+        other => panic!("expected B's hello reply, got {other:?}"),
+    }
+    transport
+        .send_frame(
+            &mut conn,
+            &Frame::BlockAnnounce {
+                height: 0,
+                c: forged_c.clone(),
             },
         )
-        .expect("send mismatched hello");
-
-    // ADR-0009 (e): typed disconnect after the mismatched Hello — B must
-    // close without replying, and count the drop.
-    match transport.recv_frame(&mut conn) {
-        Err(FrameError::ConnectionClosed) | Err(FrameError::Io(_)) => {}
-        other => panic!("B must disconnect after a mismatched Hello, got {other:?}"),
+        .expect("send block announce");
+    match transport
+        .recv_frame(&mut conn)
+        .expect("B must pull the block")
+    {
+        Frame::GetBlocks { from, to } => {
+            assert_eq!(
+                (from, to),
+                (0, 0),
+                "B must request exactly the announced block"
+            );
+        }
+        other => panic!("expected GetBlocks, got {other:?}"),
     }
-    wait_until(
-        "B to count the hello mismatch",
-        Duration::from_secs(10),
-        || metric_value(b.addr, "boole_p2p_ingress_hello_mismatch_drops_total") >= 1,
-    );
+    transport
+        .send_frame(
+            &mut conn,
+            &Frame::Blocks {
+                blocks: vec![forged],
+            },
+        )
+        .expect("send forged block");
 
-    // The share never had a path in: pool stays empty.
-    assert_eq!(
-        share_pool_size(b.addr),
-        0,
-        "no share may enter B's pool after a mismatched Hello"
+    wait_until(
+        "B to count the rejected block",
+        Duration::from_secs(10),
+        || metric_value(b.addr, "boole_p2p_ingress_blocks_rejected_total") >= 1,
     );
+    assert_eq!(height(b.addr), 0, "the evidence-less block must not land");
+
+    stop(b);
+}
+
+#[test]
+#[ignore = "needs-multiprocess"]
+fn ingress_rate_limits_flooding_peer() {
+    let b_p2p = TcpListener::bind("127.0.0.1:0").expect("bind b p2p");
+    let b_p2p_addr = b_p2p.local_addr().expect("b p2p addr");
+
+    // Tight quota so the flood trips fast: 3 frames per 60s window.
+    let b = boot_with_p2p(
+        "b-rate-limit",
+        Some(b_p2p),
+        vec!["127.0.0.1:1".parse().expect("allowlist addr")],
+        3,
+        false,
+    );
+    let genesis = scenario_genesis_c();
+
+    let transport = TcpTransport::new();
+    let mut conn = transport.connect(&b_p2p_addr).expect("connect to B");
+    transport
+        .send_frame(
+            &mut conn,
+            &hello_frame(
+                &genesis,
+                HeadSummary {
+                    height: 0,
+                    c: genesis.clone(),
+                },
+            ),
+        )
+        .expect("send hello");
+    match transport.recv_frame(&mut conn).expect("B hello reply") {
+        Frame::Hello { .. } => {}
+        other => panic!("expected B's hello reply, got {other:?}"),
+    }
+    // Flood well past the quota. Sends may start failing once B drops the
+    // connection — that is the expected enforcement, not a test failure.
+    for _ in 0..10 {
+        let _ = transport.send_frame(
+            &mut conn,
+            &Frame::BlockAnnounce {
+                height: 99,
+                c: "22".repeat(32),
+            },
+        );
+    }
+
+    wait_until(
+        "B to count the rate-limited drop",
+        Duration::from_secs(10),
+        || metric_value(b.addr, "boole_p2p_ingress_rate_limited_drops_total") >= 1,
+    );
+    assert_eq!(height(b.addr), 0, "no block may land from the flood");
 
     stop(b);
 }

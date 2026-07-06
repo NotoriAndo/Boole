@@ -179,6 +179,17 @@ struct RunLocalArgs {
     /// addresses outside it are dropped at accept.
     #[arg(long = "peer")]
     peers: Vec<String>,
+    /// N3.3 — per-peer gossip ingress frame budget per 60s window
+    /// (ADR-0009 (c): the limit's presence is wire-contract-level). The
+    /// default leaves an order of magnitude of headroom over honest S7
+    /// gossip cadence while bounding a misbehaving allowlisted peer;
+    /// 0 disables (closed-harness escape hatch only).
+    #[arg(
+        long = "p2p-rate-limit-per-60s",
+        env = "BOOLE_P2P_RATE_LIMIT_PER_60S",
+        default_value_t = boole_node::DEFAULT_P2P_RATE_LIMIT_PER_60S
+    )]
+    p2p_rate_limit_per_60s: usize,
     /// N3.2 — opt out of kernel-enforced checker isolation back to
     /// observe-only Log mode (ADR-0008 decision 4: Enforce became the
     /// default in the same change that opened network ingress). Relaxing a
@@ -396,9 +407,14 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             None => None,
         };
         eprintln!("boole-node local p2pPeers={}", peers.len());
+        eprintln!(
+            "boole-node local p2pRateLimitPer60s={}",
+            args.p2p_rate_limit_per_60s
+        );
         Some(P2pConfig {
             listener: p2p_listener,
             peers,
+            rate_limit_per_60s: args.p2p_rate_limit_per_60s,
         })
     } else {
         None

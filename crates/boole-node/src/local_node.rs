@@ -4,7 +4,7 @@ use crate::bounty_event_store::FileBountyEventLedger;
 use crate::family_manifest_store::load_family_manifest_registry_from_dir;
 use crate::http_error::HttpError;
 use crate::nonce_ledger::FileNonceLedger;
-use crate::p2p_egress::{spawn_egress_thread, ShareAnnouncement};
+use crate::p2p_egress::{spawn_egress_thread, BlockAnnouncement, EgressEvent, ShareAnnouncement};
 use crate::p2p_ingress::{spawn_ingress_thread, P2pConfig, P2pIdentity, P2pMetrics};
 use crate::proof_dedup_ledger::FileProofDedupLedger;
 use crate::receipt_store::FileReceiptStore;
@@ -23,12 +23,12 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
     agent_passport_events_for_receipt, canonical_payload_hash_hex, compute_block_reward_credits,
-    replay_blocks_allow_legacy_evidence_less, ticket, verify_signature_with_network,
-    AdmissionDecision, BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool,
-    BuildSelectionResult, CalibrationReport, CreateBountyInput, DifficultyRetargetPolicy,
-    FamilyManifestRegistry, Hex32, Hex64, LegacyEvidenceOptIn, PersistedBlock, ReceiptCommitment,
-    ReceiptCommitmentInput, SessionState, SubmitProofInput, UpdateStatusInput, VerifyOutcome,
-    WorkManifest, SIGNED_ENVELOPE_SCHEMA,
+    replay_blocks, replay_blocks_allow_legacy_evidence_less, replay_blocks_with_retarget, ticket,
+    verify_signature_with_network, AdmissionDecision, BountyProofVerifier, BountyRegistry,
+    BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport, CreateBountyInput,
+    DifficultyRetargetPolicy, FamilyManifestRegistry, Hex32, Hex64, LegacyEvidenceOptIn,
+    PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput, SessionState, SubmitProofInput,
+    UpdateStatusInput, VerifyOutcome, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
 use boole_p2p::HeadSummary;
 use serde::Deserialize;
@@ -443,12 +443,12 @@ pub(crate) struct LocalNodeState {
     /// `401 unauthenticated_submit` unless the operator explicitly opted
     /// into the legacy unauthenticated path.
     allow_anonymous_submit: bool,
-    /// N3.2 — egress side of share gossip. `Some` iff the node booted with
+    /// N3.2/N3.3 — egress side of gossip. `Some` iff the node booted with
     /// a non-empty static peer set; `submit_json` pushes every admitted
-    /// (and dedup-cleared) share here and the egress thread fans it out as
-    /// `ShareAnnounce` frames. Fire-and-forget: a closed/full channel must
-    /// never change the local submit outcome.
-    p2p_egress: Option<std::sync::mpsc::Sender<ShareAnnouncement>>,
+    /// (and dedup-cleared) share and every committed block here and the
+    /// egress thread fans them out. Fire-and-forget: a closed/full channel
+    /// must never change the local submit outcome.
+    p2p_egress: Option<std::sync::mpsc::Sender<EgressEvent>>,
     /// N3.2 — typed gossip drop/outcome counters (ADR-0009 (e)), shared
     /// with the ingress/egress threads and rendered in `/metrics`.
     p2p_metrics: Arc<P2pMetrics>,
@@ -471,14 +471,14 @@ struct AppState {
 /// at `quota`), and the contention surface is a single `std::sync::Mutex`
 /// — middleware critical sections are <10 µs even at high QPS, so a
 /// tokio-aware lock is not warranted here.
-struct HttpRateLimiter {
+pub(crate) struct HttpRateLimiter {
     quota: usize,
     window_ms: u128,
     state: StdMutex<HashMap<IpAddr, VecDeque<u128>>>,
 }
 
 impl HttpRateLimiter {
-    fn new(quota: usize, window_ms: u128) -> Self {
+    pub(crate) fn new(quota: usize, window_ms: u128) -> Self {
         Self {
             quota,
             window_ms,
@@ -486,7 +486,7 @@ impl HttpRateLimiter {
         }
     }
 
-    fn admit(&self, ip: IpAddr, now_ms: u128) -> bool {
+    pub(crate) fn admit(&self, ip: IpAddr, now_ms: u128) -> bool {
         let mut guard = self.state.lock().expect("rate-limit state mutex poisoned");
         let bucket = guard.entry(ip).or_default();
         let cutoff = now_ms.saturating_sub(self.window_ms);
@@ -947,7 +947,7 @@ async fn serve_local_node_async(
     let p2p_stop = Arc::new(AtomicBool::new(false));
     let p2p_metrics = state.p2p_metrics.clone();
     let mut p2p_threads: Vec<std::thread::JoinHandle<()>> = Vec::new();
-    let mut p2p_ingress: Option<(StdTcpListener, Vec<IpAddr>, P2pIdentity)> = None;
+    let mut p2p_ingress: Option<(StdTcpListener, Vec<IpAddr>, P2pIdentity, usize)> = None;
     if let Some(p2p) = p2p {
         let identity = P2pIdentity {
             network_id: state.network_id.clone(),
@@ -968,14 +968,14 @@ async fn serve_local_node_async(
             // ADR-0009 (d): the configured peer set doubles as the inbound
             // allowlist. IP-based — inbound source ports are ephemeral.
             let allowlist: Vec<IpAddr> = p2p.peers.iter().map(|peer| peer.ip()).collect();
-            p2p_ingress = Some((gossip_listener, allowlist, identity));
+            p2p_ingress = Some((gossip_listener, allowlist, identity, p2p.rate_limit_per_60s));
         }
     }
     let app_state = AppState {
         inner: Arc::new(RwLock::new(state)),
         rate_limiter,
     };
-    if let Some((gossip_listener, allowlist, identity)) = p2p_ingress {
+    if let Some((gossip_listener, allowlist, identity, rate_limit_per_60s)) = p2p_ingress {
         p2p_threads.push(spawn_ingress_thread(
             gossip_listener,
             allowlist,
@@ -983,6 +983,7 @@ async fn serve_local_node_async(
             app_state.inner.clone(),
             p2p_stop.clone(),
             p2p_metrics.clone(),
+            rate_limit_per_60s,
         ));
     }
     let shutdown_notify = Arc::new(Notify::new());
@@ -2012,6 +2013,26 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
             p2p.ingress_unsupported_frames.load(Ordering::Relaxed),
         ),
         (
+            "boole_p2p_ingress_blocks_ingested_total",
+            "Gossip blocks validated and appended to the local chain.",
+            p2p.ingress_blocks_ingested.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_ingress_blocks_rejected_total",
+            "Gossip blocks refused by the strict validation path.",
+            p2p.ingress_blocks_rejected.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_ingress_block_announces_ignored_total",
+            "Block announces not extending the current head by one.",
+            p2p.ingress_block_announces_ignored.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_ingress_rate_limited_drops_total",
+            "Inbound gossip connections dropped for exceeding the per-peer frame budget.",
+            p2p.ingress_rate_limited_drops.load(Ordering::Relaxed),
+        ),
+        (
             "boole_p2p_egress_announces_total",
             "Share announcements delivered to a peer.",
             p2p.egress_announces.load(Ordering::Relaxed),
@@ -2020,6 +2041,16 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
             "boole_p2p_egress_failures_total",
             "Share announcements that failed to reach a peer.",
             p2p.egress_failures.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_egress_block_announces_total",
+            "Block announcements delivered to a peer.",
+            p2p.egress_block_announces.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_egress_block_failures_total",
+            "Block announcements that failed to reach a peer.",
+            p2p.egress_block_failures.load(Ordering::Relaxed),
         ),
     ] {
         out.push_str(&format!("# HELP {name} {help}\n"));
@@ -4359,45 +4390,13 @@ fn submit_json(
     ) {
         ledger.append_credit(&path, &proof_canon_hash)?;
     }
-    // S23c — mirror the credit rows into the bounty event ledger so the
-    // divergence sweep (S23d) has a parallel source to compare against.
-    // P1.5b — additionally emit one `share_promoted` event per promoted
-    // share (including zero-credit shares) so the boot loader can
-    // subtract already-committed shares from the durable audit replay
-    // and avoid silently re-inserting them into the live side-pool.
-    if let Some(bounty_event_path) = state.bounty_event_ledger_path.as_ref() {
-        for credit in &committed.block.promoted_bounty_credits {
-            let event = json!({
-                "schemaVersion": 1,
-                "kind": "credit",
-                "height": committed.block.height,
-                "c": committed.block.c,
-                "familyId": credit.family_id,
-                "bountyId": credit.bounty_id,
-                "prover": credit.prover,
-                "amount": credit.amount,
-            });
-            FileBountyEventLedger::append(bounty_event_path, &event)?;
-        }
-        // P1.3b — write the `share_promoted` rows from the now-persisted block
-        // field, not the in-memory `selection.shares`, so the on-disk block and
-        // the bounty-event ledger are derived from the same source (the block
-        // is fsync'd before this point). The values are identical in the
-        // non-crash path; this is the correctness anchor that lets the boot
-        // heal re-derive these rows after a crash mid-commit.
-        for share in &committed.block.promoted_bounty_shares {
-            let event = json!({
-                "schemaVersion": 1,
-                "kind": "share_promoted",
-                "height": committed.block.height,
-                "familyId": share.family_id,
-                "bountyId": share.bounty_id,
-                "proofHash": share.proof_hash,
-                "prover": share.prover,
-            });
-            FileBountyEventLedger::append(bounty_event_path, &event)?;
-        }
-    }
+    // S23c/P1.5b — mirror the block-driven credit + share_promoted rows
+    // into the bounty event ledger (shared with the N3.3 gossip ingest
+    // path — see `append_block_bounty_events`).
+    append_block_bounty_events(state, &committed.block)?;
+    // N3.3 — gossip egress: announce the committed block to the static
+    // peer set (summary announce; peers pull the body). Fire-and-forget.
+    announce_committed_block(state, &committed.block);
     // P1.5a — drop shares already promoted into a committed block so the
     // next block does not re-promote the same proof and double-credit the
     // prover. We drain by the full `selection.shares` slice (not by the
@@ -4519,10 +4518,28 @@ fn announce_admitted_share(
         "canonTag": canon_tag,
         "ts": ts_raw,
     });
-    let _ = sender.send(ShareAnnouncement {
+    let _ = sender.send(EgressEvent::Share(ShareAnnouncement {
         submission,
         head: head_summary(state),
-    });
+    }));
+}
+
+/// N3.3 — hand a just-committed block to the egress thread. Best-effort
+/// like `announce_admitted_share`, and ingested blocks are never
+/// re-announced (S7 full mesh — no relay, so no gossip loop).
+fn announce_committed_block(state: &LocalNodeState, block: &PersistedBlock) {
+    let Some(sender) = state.p2p_egress.as_ref() else {
+        return;
+    };
+    let Ok(block_value) = serde_json::to_value(block) else {
+        return;
+    };
+    let _ = sender.send(EgressEvent::Block(BlockAnnouncement {
+        height: block.height,
+        c: block.c.clone(),
+        block: block_value,
+        head: head_summary(state),
+    }));
 }
 
 /// N3.2 — outcome of one gossip-ingress admission attempt, for the typed
@@ -4533,6 +4550,135 @@ pub(crate) enum IngressShareOutcome {
     Rejected {
         code: String,
     },
+}
+
+/// S23c — mirror a committed block's credit rows into the bounty event
+/// ledger so the divergence sweep (S23d) has a parallel source to compare
+/// against. P1.5b — additionally emit one `share_promoted` event per
+/// promoted share (including zero-credit shares) so the boot loader can
+/// subtract already-committed shares from the durable audit replay and
+/// avoid silently re-inserting them into the live side-pool. The rows are
+/// derived from the now-persisted block fields (fsync'd before this
+/// point), which is the correctness anchor that lets the P1.3b boot heal
+/// re-derive them after a crash mid-commit. Shared by the HTTP commit
+/// path (`submit_json`) and the N3.3 gossip block ingest.
+fn append_block_bounty_events(
+    state: &LocalNodeState,
+    block: &PersistedBlock,
+) -> anyhow::Result<()> {
+    let Some(bounty_event_path) = state.bounty_event_ledger_path.as_ref() else {
+        return Ok(());
+    };
+    for credit in &block.promoted_bounty_credits {
+        let event = json!({
+            "schemaVersion": 1,
+            "kind": "credit",
+            "height": block.height,
+            "c": block.c,
+            "familyId": credit.family_id,
+            "bountyId": credit.bounty_id,
+            "prover": credit.prover,
+            "amount": credit.amount,
+        });
+        FileBountyEventLedger::append(bounty_event_path, &event)?;
+    }
+    for share in &block.promoted_bounty_shares {
+        let event = json!({
+            "schemaVersion": 1,
+            "kind": "share_promoted",
+            "height": block.height,
+            "familyId": share.family_id,
+            "bountyId": share.bounty_id,
+            "proofHash": share.proof_hash,
+            "prover": share.prover,
+        });
+        FileBountyEventLedger::append(bounty_event_path, &event)?;
+    }
+    Ok(())
+}
+
+/// N3.3 — outcome of one gossip-ingress block attempt, for the typed
+/// `/metrics` counters.
+pub(crate) enum IngressBlockOutcome {
+    Ingested,
+    /// Not an error: the block does not extend the current head by exactly
+    /// one (stale re-announce, or a gap that needs N3.4 initial sync).
+    Ignored,
+    Rejected,
+}
+
+/// N3.3 — validate and apply a peer-announced block. The ONLY validation
+/// policy is the strict replay path over the extended chain (the same
+/// checks the node's own boot replay runs, hardened by N3-pre):
+/// linkage + height, `c` hash re-derivation, evidence-mandatory replay
+/// (pre.1), canonical-selection re-derivation (pre.2), median-time-past
+/// (pre.3) and the retarget schedule when configured — plus the pre.3
+/// boundary-layer wall-clock future-drift guard the self-produce path
+/// runs. `LegacyEvidenceOptIn` is structurally unreachable from here
+/// (ADR-0009 amendment / N3-pre.1).
+///
+/// Fork-choice/reorg are N4 non-goals: only a block extending the current
+/// head by exactly one is considered.
+///
+/// The caller holds the SAME single write guard the HTTP submit path
+/// holds, so block append, reward-ledger append, bounty-event rows and
+/// the N2.3 proof-dedup mirror stay coherent with local commits.
+pub(crate) fn ingest_announced_block(
+    state: &mut LocalNodeState,
+    block_value: &Value,
+) -> IngressBlockOutcome {
+    let Ok(block) = serde_json::from_value::<PersistedBlock>(block_value.clone()) else {
+        return IngressBlockOutcome::Rejected;
+    };
+    if block.height != state.runtime.cached_block_count() as u64
+        || block.prev_c != current_head(state)
+    {
+        return IngressBlockOutcome::Ignored;
+    }
+    if check_block_ts_future_drift(block.ts, now_unix_ms() as u64).is_err() {
+        return IngressBlockOutcome::Rejected;
+    }
+    let mut chain = state.runtime.cached_blocks().to_vec();
+    chain.push(block.clone());
+    let replay = match &state.runtime.config.difficulty_retarget {
+        Some(policy) => replay_blocks_with_retarget(
+            &chain,
+            &format!("0x{:064x}", state.runtime.config.policy.thresholds.t_block),
+            policy,
+        ),
+        None => replay_blocks(&chain),
+    };
+    if replay.is_err() {
+        return IngressBlockOutcome::Rejected;
+    }
+    // Same write ordering as the self-produce commit: block append →
+    // reward-ledger append → in-memory apply (inside the runtime call) →
+    // bounty-event rows → proof-dedup mirror.
+    let block_path = state.block_path.clone();
+    if let Err(err) = state.runtime.ingest_external_block(&block_path, &block) {
+        eprintln!("boole-node: p2p block ingest failed after validation: {err:#}");
+        return IngressBlockOutcome::Rejected;
+    }
+    if let Err(err) = append_block_bounty_events(state, &block) {
+        eprintln!("boole-node: p2p block ingest bounty-event append failed: {err:#}");
+    }
+    // N2.3 parity — the ingested block's proofs consumed their single
+    // credit slot on this chain: record their canon hashes so a later
+    // direct HTTP submit of the same proof bytes (under any pk, at the new
+    // head) is rejected `duplicate_proof` here too, not just on the node
+    // that produced the block. (Consensus-level dedup is N4-pre.1; this is
+    // the node-local operational ledger only.)
+    if let (Some(path), Some(ledger)) = (
+        state.proof_dedup_ledger_path.clone(),
+        state.proof_dedup_ledger.as_mut(),
+    ) {
+        for evidence in &block.selected_share_evidence {
+            if let Err(err) = ledger.append_credit(&path, &evidence.canon_hash) {
+                eprintln!("boole-node: p2p block ingest proof-dedup append failed: {err:#}");
+            }
+        }
+    }
+    IngressBlockOutcome::Ingested
 }
 
 /// N3.2 — re-admit a peer-announced share through the EXACT local admission
