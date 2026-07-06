@@ -676,3 +676,26 @@ is CI-paced (cap the rounds). When restricting execve via Landlock/seccomp,
 remember the dynamic loader + shared-lib dirs need read+exec, or every
 dynamically-linked child fails to start. Check the crate's own reference
 example for the canonical allowlist.
+
+## 2026-07-06 — Extracting a helper from a contract-pinned function body breaks scripts/ mirrors
+
+**Pattern:** N3.3 extracted submit_json's bounty-event appends into a shared
+`append_block_bounty_events` helper (for reuse by the p2p block ingest). All
+Rust gates passed locally, but CI failed in `python-script-tests`:
+`scripts/test_multi_store_commit_ordering_contract.py` statically pins the
+SOURCE-LINE ORDER of `submit_json`'s body (nonce burn → block commit →
+`FileBountyEventLedger::append(` → receipt), and the literal moved out of the
+scanned span. Semantically the write order was unchanged — only the static
+mirror broke. This is the 2026-06-10 "pinned formula lives in N mirrors"
+lesson recurring in a new form: the mirror pins a function's BODY STRUCTURE,
+not a formula.
+
+**Rule:** before refactoring (extracting/inlining/renaming inside) any
+consensus-adjacent function in boole-node/boole-core — especially
+`submit_json`, commit/boot paths, ledger appends — run
+`grep -rln '<fn name or moved literal>' scripts/*.py` and update the contract
+tests in the same commit, following the extraction (pin the helper CALL's
+position in the outer body + the moved literals inside the helper's own
+span). Then run the FULL python-script-tests stage locally
+(`python3 -m unittest scripts/test_*.py` per self-test.sh line 50) before
+pushing — it is seconds-cheap and one CI round-trip expensive.
