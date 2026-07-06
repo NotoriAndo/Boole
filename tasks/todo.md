@@ -296,8 +296,29 @@ closed-local 검증 + CI only — public mining/유료 API claim 아님.
       bytes)이라 dedup 원장 켠 채 2블록 체인 구축 불가 → 원장 없이 부팅 /
       미리 바인딩한 리스너 백로그로 announce가 "부팅 전" 전제를 무효화 →
       A egress를 dead peer로 차단해 sync 경로만 남김
-- [ ] 회귀(N3.2/N3.3/lib) + consensus 티어 게이트(fmt/clippy 2종/smoke 2종)
-      → 커밋 → PR → CI green → 머지 → remote 검증 → 보고
+- [x] 회귀: N3.2 3/3 + N3.3 3/3 + lib 40/40. consensus 티어: fmt --check
+      PASS + clippy 2종 PASS + runtime-smoke-all 6/6 +
+      proof-to-block-benchmark 7/7(replayFailures 0) 로컬 직접 확인.
+      scripts/*.py 미러 grep 사전 확인(해당 없음 — N3.3 lesson 적용)
+- [x] 커밋(`3048bdf` 코드 + `79185a8` 기록) → PR #31 → CI 1회 green
+      (self-test + supply-chain) → rebase 자동 머지 → remote 검증
+      (main `79185a8`, local==origin, tree clean)
 
 ## Review
-(작업 완료 후 기록)
+- **결과**: N3.4 착륙 — 빈 노드가 peer의 head를 Hello 교환으로 파악하고
+  뒤처진 범위를 GetBlocks(256블록 페이지, wire 상한)로 내려받아 블록마다
+  N3.3 검증-후-수용 루프를 그대로 통과시켜 동일 head까지 복원. 서빙 쪽
+  (GetBlocks → 블록 캐시 응답)도 함께 착륙. 부팅 즉시 1회(N5.3 node-join의
+  기반 경로) + 5초 주기 재확인으로 announce 누락 gap도 자가 보정.
+- **신뢰 경계**: 위조(evidence-less) 체인을 서빙하는 peer는 블록 단위로
+  거절되고 그 sync 라운드가 중단됨 — fresh 노드가 위조 체인을 채택하지
+  않음을 테스트로 고정. 검증 정책 추가 없음(strict replay 재사용).
+- **TDD 정직성**: 최초 RED 실행이 병행 편집의 컴파일 에러와 섞여서, src만
+  stash해 기능 부재 상태를 재현한 행동 RED(2테스트 타임아웃)를 별도 증명.
+- **하네스 교훈 2건**: ① multiminer fixture는 N2.3 dedup-공격용(같은 proof
+  bytes 반복)이라 dedup 원장을 켠 채 다블록 체인을 만들 수 없음 ② 테스트가
+  미리 바인딩한 p2p 리스너는 노드 부팅 전에도 OS 백로그로 연결을 받아
+  "부팅 전 announce 불가" 전제를 무효화 — dead-peer allowlist 구성으로
+  sync 경로만 분리 검증.
+- **claim boundary**: closed local 검증 + CI only. public mining/유료
+  API/leaderboard claim 아님.
