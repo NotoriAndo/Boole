@@ -72,14 +72,37 @@ class MultiStoreCommitOrderingContractTests(unittest.TestCase):
         return idx
 
     def test_write_order_nonce_block_bounty_receipt(self) -> None:
+        # N3.3 — the bounty-event rows moved into the shared
+        # `append_block_bounty_events` helper (reused by the p2p block
+        # ingest path); the ordering contract now pins the helper CALL's
+        # position inside submit_json and the actual ledger appends inside
+        # the helper's own body (checked below).
         nonce = self._offset("burn_submit_nonce(")
         block = self._offset("commit_next_block_for_current_c_with_promoted(")
-        bounty = self._offset("FileBountyEventLedger::append(")
+        bounty = self._offset("append_block_bounty_events(")
         receipt = self._offset("append_submit_receipt(")
         self.assertLess(nonce, block, "nonce burn must precede the block commit")
         self.assertLess(block, bounty, "block commit must precede the bounty-event append")
         self.assertLess(
             bounty, receipt, "bounty-event append must precede the submit receipt"
+        )
+
+    def test_bounty_helper_appends_credit_then_share_promoted(self) -> None:
+        body = _read(LOCAL_NODE)
+        start, end = _function_span(body, r"fn\s+append_block_bounty_events\s*\(")
+        span = body[start:end]
+        credit = span.find('"kind": "credit"')
+        share = span.find('"kind": "share_promoted"')
+        append = span.find("FileBountyEventLedger::append(")
+        self.assertNotEqual(
+            append, -1, "the helper must append to the bounty event ledger"
+        )
+        self.assertNotEqual(credit, -1, "the helper must write credit rows")
+        self.assertNotEqual(share, -1, "the helper must write share_promoted rows")
+        self.assertLess(
+            credit,
+            share,
+            "credit rows must precede share_promoted rows (P1.3b heal derivation order)",
         )
 
 
