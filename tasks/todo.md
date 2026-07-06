@@ -364,3 +364,44 @@ closed-local 검증 + CI only — public mining/유료 API claim 아님.
   API/leaderboard claim 아님.
 - **wave 완료 지표(비게이트, pre-mortem U00/PM.2)**: 유료 검증 구매자/LOI
   수: 0.
+
+---
+
+# 2026-07-06 — N4-pre.1 합의-레벨 proof dedup (ADR-0012 구현)
+
+텔레그램 지시 "N4-pre.1 진행해" (chat 1311067056). spec: L1 master
+§N4-pre.1 + ADR-0012(Accepted 2026-07-03). N4.1 착수 전 binding 게이트.
+closed-local 검증 + CI only — public mining/유료 API claim 아님.
+
+## 선결 확인
+- [x] N3-pre.1 evidence-필수 replay 착륙 (b64eb4a) — canon_hash 재유도 입력
+- [x] TB.3 canon 정규화 착륙 (6222c8d) — dedup 키 안정성 선결
+- [x] ADR-0012 전 항목 Accepted (2026-07-03 grill)
+
+## slice 계획
+- [x] 탐색 — 핵심 발견: runtime-smoke 계열 fixture 5개 전부(v1/restart/
+      three-block/retarget/multiminer)가 한 증명 bytes를 전 step 재사용 →
+      새 규칙 아래 다블록 체인 전부 위법. 단, 하드코딩 head 없음(step 1+는
+      전부 cFromRuntimeHead) → bytes만 교체하면 됨
+- [x] RED: replay 2종 행동 RED(중복 체인이 현재 replay 통과 확인) +
+      builder 1종(신규 파라미터) — 양성 대조(distinct 수락) 동반
+- [x] GREEN: replay 체인 순서 BTreeSet + typed 거절(재유도 canon_hash 키,
+      verify_selected_share_evidence 이후 실행으로 (c) 결정 충족; legacy
+      evidence-less 예외) + build_block_selection credited 셋 파라미터
+      (이미 보상된 share 선택 전 제외 + 블록 내 중복은 preselection 순서
+      첫 것만 유지) + runtime이 block_cache에서 셋 재유도. 전용 4/4 green
+- [x] N2.3 원장 doc 강등 (proof_dedup_ledger.rs — "admission early-reject
+      cache, not the source of truth")
+- [x] fixture 정합: 5개 fixture step별 distinct bytes(v1 package의 expr
+      payload u32만 수술) + N2.3 테스트는 중복을 테스트 안에서 위조 +
+      p2p/smoke 낡은 주석 갱신 + 기존 co-qualifying 테스트의 부수적 중복
+      package 수리(회귀 1건)
+- [x] consensus 티어 게이트: boole-core 전체 green + node lib 40/40 +
+      N2.3 2/2 + p2p 8/8 + fmt/clippy 2종 + runtime-smoke-all 6/6 +
+      proof-to-block-benchmark 7/7(blocksProduced 17 보존, replayFailures 0)
+      + 3-peer convergence smoke green + python 계약 테스트 OK
+- [ ] 커밋(`97878b9`) → PR → CI green → 머지 → remote 검증 → L1 master
+      착륙 기록 → 보고
+
+## Review
+(작업 완료 후 기록)
