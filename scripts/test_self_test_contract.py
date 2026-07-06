@@ -118,6 +118,42 @@ class SelfTestContractTests(unittest.TestCase):
             "deep_verify re-runs the checker on a fresh tree",
         )
 
+    def test_self_test_runs_p2p_convergence_smoke(self) -> None:
+        # N3.5 — the 3-peer local convergence smoke is the wave's closure
+        # guard: three independently-run nodes with static peer lists must
+        # reach the identical head with zero replay divergence. Constitution
+        # §10: a guard protects nothing until the gate runs it.
+        body = _read(SELF_TEST)
+        self.assertRegex(
+            body,
+            re.compile(r"^\s*run_capture_json\s+p2p-convergence\b", re.MULTILINE),
+            "scripts/self-test.sh must run the p2p-convergence stage "
+            "(scripts/p2p-local-convergence-smoke.sh) so 3-peer convergence "
+            "is gate-enforced, not just locally runnable",
+        )
+        self.assertIn(
+            "scripts/p2p-local-convergence-smoke.sh",
+            body,
+            "the p2p-convergence stage must invoke "
+            "scripts/p2p-local-convergence-smoke.sh",
+        )
+
+    def test_p2p_convergence_smoke_script_exists_and_asserts_convergence(self) -> None:
+        smoke = ROOT / "scripts" / "p2p-local-convergence-smoke.sh"
+        self.assertTrue(
+            smoke.exists(),
+            "scripts/p2p-local-convergence-smoke.sh must exist (N3.5)",
+        )
+        body = _read(smoke)
+        for needle in ("replayMatchesRuntime", "--peer", "--p2p-listen"):
+            self.assertIn(
+                needle,
+                body,
+                f"p2p-local-convergence-smoke.sh must use {needle!r}: the smoke "
+                "asserts identical heads AND zero replay divergence across "
+                "3 statically-peered nodes",
+            )
+
     def test_lean_checker_build_precedes_cargo_test(self) -> None:
         body = _read(SELF_TEST)
         lean_idx = body.find("run_logged lean-checker-build")
