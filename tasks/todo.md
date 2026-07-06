@@ -275,3 +275,29 @@ public mining/유료 API claim 아님.
   스테이지 실행).
 - **claim boundary**: closed local 검증 + CI only. public mining/유료
   API/leaderboard claim 아님.
+
+---
+
+# 2026-07-06 — N3.4 initial sync (GetBlocks/Blocks)
+
+텔레그램 지시 "N3.4 진행해" (chat 1311067056). spec: L1 master §N3.4.
+closed-local 검증 + CI only — public mining/유료 API claim 아님.
+
+## slice 계획
+- [x] RED: `crates/boole-node/tests/p2p_initial_sync.rs` — src stash로 기능
+      부재 상태 재현, 2테스트 모두 행동 실패(타임아웃) 확인 후 복원
+- [x] GREEN: ① ingress가 GetBlocks를 블록 캐시에서 서빙(Blocks 응답, 범위
+      상한은 코덱 검증 재사용) ② sync 스레드 — Hello 교환으로 peer head 파악
+      → 뒤처진 범위를 256블록 페이지로 pull → 블록마다 N3.3
+      `ingest_announced_block` 재사용(검증 정책 추가 없음) → 동일 head 수렴.
+      부팅 직후 1회 + 5초 주기 재확인(announce 누락 gap 보정). 위조 체인은
+      블록 단위 거절 + sync 중단(테스트 고정). 테스트 2/2 green
+- [x] 테스트 하네스 교훈 2건: multiminer fixture는 dedup-공격용(같은 proof
+      bytes)이라 dedup 원장 켠 채 2블록 체인 구축 불가 → 원장 없이 부팅 /
+      미리 바인딩한 리스너 백로그로 announce가 "부팅 전" 전제를 무효화 →
+      A egress를 dead peer로 차단해 sync 경로만 남김
+- [ ] 회귀(N3.2/N3.3/lib) + consensus 티어 게이트(fmt/clippy 2종/smoke 2종)
+      → 커밋 → PR → CI green → 머지 → remote 검증 → 보고
+
+## Review
+(작업 완료 후 기록)
