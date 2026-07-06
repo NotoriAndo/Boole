@@ -131,6 +131,11 @@ run_capture_json runtime-smoke-all "$SMOKE_JSON" ./scripts/runtime-smoke-all.sh
 run_capture_json proof-to-block-benchmark "$BENCH_JSON" ./scripts/proof-to-block-benchmark.sh
 MINING_JSON="$TMP_DIR/local-mining-smoke.json"
 run_capture_json local-mining-smoke "$MINING_JSON" ./scripts/local-mining-smoke.sh
+# N3.5 — three statically-peered local nodes must converge to the
+# identical head with zero replay divergence (shares driven into two
+# different nodes; exercises share gossip + block announce/pull + sync).
+CONVERGENCE_JSON="$TMP_DIR/p2p-convergence.json"
+run_capture_json p2p-convergence "$CONVERGENCE_JSON" ./scripts/p2p-local-convergence-smoke.sh
 run_logged git-diff-check git diff --check
 
 GITLEAKS_STATUS="skipped"
@@ -139,7 +144,7 @@ if command -v gitleaks >/dev/null 2>&1; then
   GITLEAKS_STATUS="pass"
 fi
 
-python3 - "$SMOKE_JSON" "$BENCH_JSON" "$MINING_JSON" "$GITLEAKS_STATUS" "$RUST_PARITY_STATUS" <<'PY'
+python3 - "$SMOKE_JSON" "$BENCH_JSON" "$MINING_JSON" "$GITLEAKS_STATUS" "$RUST_PARITY_STATUS" "$CONVERGENCE_JSON" <<'PY'
 import json
 import sys
 
@@ -148,6 +153,7 @@ benchmark = json.load(open(sys.argv[2]))
 mining = json.load(open(sys.argv[3]))
 gitleaks_status = sys.argv[4]
 rust_parity_status = sys.argv[5]
+convergence = json.load(open(sys.argv[6]))
 
 cases = smoke.get("cases", [])
 summary = benchmark.get("summary", {})
@@ -190,6 +196,16 @@ checks = [
         "miner": mining.get("miner"),
         "blocksMined": mining.get("blocksMined"),
         "finalHeight": mining.get("finalHead", {}).get("height"),
+    },
+    {
+        "name": "p2p-convergence",
+        "ok": convergence.get("ok") is True,
+        "claimBoundary": convergence.get("claimBoundary"),
+        "publicMiningEvidence": convergence.get("publicMiningEvidence"),
+        "peers": convergence.get("peers"),
+        "convergedHeight": convergence.get("convergedHeight"),
+        "convergedHead": convergence.get("convergedHead"),
+        "replayDivergence": convergence.get("replayDivergence"),
     },
     {"name": "git-diff-check", "ok": True},
     {"name": "gitleaks", "ok": gitleaks_status in {"pass", "skipped"}, "status": gitleaks_status},
