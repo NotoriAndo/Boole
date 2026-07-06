@@ -241,8 +241,37 @@ public mining/유료 API claim 아님.
       (HttpRateLimiter 재사용, 연결 넘나들며 지속 — 재접속으로 리셋 불가),
       `--p2p-rate-limit-per-60s` 튜닝 플래그(0=해제), 초과 시 typed drop
       카운터 + 연결 종료. flood 테스트 green
-- [ ] consensus 티어 게이트(fmt/clippy 2종/smoke 2종) → 커밋 → PR →
-      CI green → 머지 → remote 검증 → 보고
+- [x] consensus 티어 게이트: fmt --check PASS + clippy 2종(-D warnings,
+      dev-features 포함) PASS + runtime-smoke-all ok 6/6 +
+      proof-to-block-benchmark ok 7/7(replayFailures 0) 로컬 직접 확인
+- [x] 커밋 → PR #29 → CI 1라운드 실패(python 계약 테스트 — submit_json
+      bounty append 헬퍼 추출로 정적 미러 어긋남) → 미러 갱신 + 로컬 전체
+      python-script-tests 186 OK 재현 → 2라운드 CI green(self-test +
+      supply-chain) → rebase 자동 머지 → remote 검증
+      (main `fffe165`, 코드 `c7e66c4`, local==origin)
 
 ## Review
-(작업 완료 후 기록)
+- **결과**: N3.3 착륙 — A가 만든 블록이 peer B에 announce/pull로 전달되고,
+  B는 strict replay 경로(evidence-필수·canonical 재유도·median-time-past·
+  hash 재유도 + future-drift 경계 가드)를 그대로 재사용해 검증한 뒤에만
+  저장. byte-identical head 수렴을 테스트로 고정. head+1 확장만 수용
+  (reorg/fork-choice = N4 비목표). 위조(evidence-less) 블록 거절 테스트로
+  N3-pre.1 truth boundary가 gossip ingest에 실제 작동함을 입증.
+- **rate limit 동봉(사용자 지시)**: ADR-0009 (c) 잔여 — peer IP별 60초 창
+  600프레임 기본(HttpRateLimiter 재사용, 연결 재접속으로 리셋 불가),
+  `--p2p-rate-limit-per-60s` 튜닝(0=해제), 초과 시 연결 종료 + typed 카운터.
+  flood 테스트 green.
+- **정합성 설계**: ingest 쓰기 순서 = 자체 커밋과 동일({check, append,
+  reward-append, apply, cache}) + bounty rows + N2.3 proof-dedup 미러 —
+  재부팅 시 원장-replay 대조 검증이 그대로 통과. 합의-레벨 dedup(N4-pre.1,
+  ADR-0012)은 건드리지 않음(노드-로컬 운영 원장 미러만).
+- **게이트**: RED(컴파일 에러) 실증 → GREEN 3/3 + N3.2 gossip 3/3 +
+  node lib 40/40. consensus 티어: fmt/clippy 2종 + smoke 2종(6/6, 7/7,
+  replay 실패 0) 로컬 green. CI: 1라운드 python 계약 테스트 실패 →
+  원인은 헬퍼 추출에 따른 정적 소스-구조 미러 어긋남(의미상 순서 동일),
+  미러를 헬퍼 추출을 따라가게 갱신(+헬퍼 본문 내 credit→share_promoted
+  순서 pin 신설) 후 2라운드 green. lessons에 재발 방지 규칙 기록
+  (consensus-adjacent 함수 리팩토링 전 scripts/*.py grep + 로컬 python
+  스테이지 실행).
+- **claim boundary**: closed local 검증 + CI only. public mining/유료
+  API/leaderboard claim 아님.
