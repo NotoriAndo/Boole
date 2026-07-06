@@ -322,3 +322,27 @@ closed-local 검증 + CI only — public mining/유료 API claim 아님.
   sync 경로만 분리 검증.
 - **claim boundary**: closed local 검증 + CI only. public mining/유료
   API/leaderboard claim 아님.
+
+---
+
+# 2026-07-06 — N3.5 3-peer convergence smoke (gate 배선, N3 wave 마지막)
+
+텔레그램 지시 "N3.5 진행해" (chat 1311067056). spec: L1 master §N3.5.
+closed-local 검증 + CI only — public mining/유료 API claim 아님.
+
+## slice 계획
+- [x] RED: `test_self_test_contract.py`에 p2p-convergence 스테이지 + smoke
+      스크립트 계약 2테스트 선추가 → 스크립트/배선 부재로 2건 실패 확인
+- [x] GREEN: `scripts/p2p-local-convergence-smoke.sh` 신규 — 노드 3개
+      (ephemeral 포트, full-mesh --peer), share를 노드1·노드2 두 곳에 주입,
+      셋 다 동일 head(높이 2) + replayMatchesRuntime 전원 true(발산 0) 폴링
+      검증, JSON 요약 출력(claim boundary 명시). self-test.sh에
+      run_capture_json p2p-convergence 스테이지 + 요약 JSON check 추가
+- [x] 게이트: smoke 단독 2회 green(--locked 반영 후 재확인) + python
+      스테이지 전체 OK + self-test 요약 파이썬 모의 실행 OK + bash -n +
+      docs-smoke + git diff --check. Rust 무변경(scripts-only)
+- [ ] PR → CI green(신규 스테이지가 클린 러너에서 실제 실행) → 머지 →
+      remote 검증 → N3 closure 기록 → 보고
+
+## Review
+(작업 완료 후 기록)
