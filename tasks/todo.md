@@ -211,3 +211,38 @@ public mining/유료 API claim 아님.
 - ADR-0008 [9] macOS-CI 잔여 종결. **[9] 남은 것은 N3.2 enforce 기본 전환(결정 4) 하나뿐** — 이는 네트워크 개방 커밋과 묶는 명시적 이연분(설계상 지금 하면 안 됨).
 - 외부 감사(2026-07-04) 후속 트랙 전체 정리: N3-pre.1~6 + TB.1~4(b) + ADR-0008 격리 slice(log 모드) + macOS canary. 잔여는 전부 명시적 이연(N3.2 enforce, N3.3 replay 진실, TB.4-a D2).
 - closed-local 검증 + CI only. public mining/유료 API claim 아님.
+
+---
+
+# 2026-07-06 — N3.3 block announce + linkage-checked ingest (+ per-peer rate limit 튜닝)
+
+텔레그램 지시 "N3.3 시작해, per-peer rate limit 수치 튜닝도 묶어서"
+(chat 1311067056). spec: L1 master §N3.3 + ADR-0009 (c) per-peer ingress
+rate limit 기본값 튜닝(N3.2에서 명시 이연분). closed-local 검증 + CI only —
+public mining/유료 API claim 아님.
+
+## 선결 확인
+- [x] N3-pre wave 6건 전체 닫힘 (2026-07-05) — N3.3 착수 binding 충족
+- [x] N3.2 착륙 (152ab5b, PR #27) — p2p ingress/egress 뼈대 + enforce 전환 완료
+
+## slice 계획
+- [x] 코드 탐색 (Explore: PersistedBlock/FileBlockStore/replay 검증 집합/
+      runtime 적용 경로/reward ledger 정합/HttpRateLimiter API)
+- [x] RED: `crates/boole-node/tests/p2p_block_propagation.rs` — 컴파일 에러
+      (P2pConfig.rate_limit_per_60s/ingest API 부재) 확인
+- [x] GREEN: egress BlockAnnounce(commit 시, announce/pull — 본문은 Blocks
+      프레임으로만) + ingress: head+1 확장 확인 → GetBlocks pull → 검증은
+      strict replay 경로 재사용(evidence-필수·canonical 재유도·median-time-past
+      + future-drift 경계 가드; LegacyEvidenceOptIn 구조적 접근 불가) →
+      commit과 동일 쓰기 순서로 append(블록→reward ledger→적용→bounty rows→
+      dedup 미러). head 수렴 + 위조(evidence-less) 블록 거절 테스트 3/3 green.
+      reorg/fork-choice 없음(N4 비목표) — head+1 아닌 announce는 ignored 카운트
+- [x] per-peer rate limit: ingress에 IP별 60초 창 프레임 한도 기본 600
+      (HttpRateLimiter 재사용, 연결 넘나들며 지속 — 재접속으로 리셋 불가),
+      `--p2p-rate-limit-per-60s` 튜닝 플래그(0=해제), 초과 시 typed drop
+      카운터 + 연결 종료. flood 테스트 green
+- [ ] consensus 티어 게이트(fmt/clippy 2종/smoke 2종) → 커밋 → PR →
+      CI green → 머지 → remote 검증 → 보고
+
+## Review
+(작업 완료 후 기록)
