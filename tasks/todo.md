@@ -165,12 +165,38 @@ public mining/유료 API claim 아님.
       clippy 2종(-D warnings, dev-features 포함) PASS +
       runtime-smoke-all ok:true 6/6 + proof-to-block-benchmark ok:true 7/7
       (replayFailures 0, invalidAccepted 0) — 전부 Enforce 기본값 아래 실행
-- [ ] NotoriAndo author 커밋(`542081b`) → feature branch push → PR → CI green
-      → 머지 → remote 검증
-- [ ] L1 master §N3.2 착륙 기록 + 텔레그램 최종 보고
+- [x] NotoriAndo author 커밋 → feature branch push → PR #27 → CI green
+      (self-test + supply-chain + macOS isolation canary) → rebase 머지
+      → remote 검증 (main `a78482e`, 코드 커밋 `152ab5b`, local==origin)
+- [x] L1 master §N3.2 착륙 기록 + EXECUTION-ORDER [9] 완전 종결/[10] 갱신
+      (local-docs, gitignored) + 텔레그램 최종 보고
 
 ## Review
-(머지 후 기록)
+- **결과**: N3.2 착륙 — 두 노드가 share를 gossip으로 주고받고, 받은 노드는
+  로컬 HTTP 제출과 완전히 같은 admission 경로(`admit_parsed_submission_typed`
+  + N2.3 dedup peek, 같은 단일 write guard)로 재승인. 두 번째 검증 정책
+  없음(ADR-0009 (e)). ingress는 블록 생성/relay 안 함(N3.3 비목표 준수 —
+  테스트가 B height==0을 고정). `--p2p-listen`/`--peer`(inbound IP allowlist
+  겸용), Hello(protocol_version/network_id/genesis_hash) 상호검증, typed
+  drop/outcome 카운터 8종 /metrics 노출.
+- **ADR-0008 결정 4 이행**: IsolationMode 기본 Log→**Enforce**를 네트워크
+  ingress 개방과 같은 커밋에 동승 + `--allow-isolation-log-mode`
+  (run-local/submit-lean) opt-out. 실제 lake/lean이 Enforce(Seatbelt) 아래
+  첫 실행 green — real_checker 4/4, 클린 macOS 러너 canary도 green.
+- **게이트**: RED 2건 실증(컴파일 에러 + Log!=Enforce assert) → GREEN.
+  focused: gossip 3/3 + lean-runner 26/26 + node lib 40/40 + real_checker
+  4/4. consensus 티어: fmt/clippy 2종 로컬 재현 PASS + runtime-smoke-all
+  ok:true 6/6 + proof-to-block-benchmark ok:true 7/7(replayFailures 0,
+  invalidAccepted 0) — 전부 Enforce 기본값 아래 실행 로그 직접 확인.
+  PR #27 CI 3 job green 후 rebase 자동 머지, 커밋별 메시지 보존.
+- **설계 노트**: LocalNodeConfig 무변경(신규 P2pConfig 파라미터 +
+  `serve_local_node_with_p2p` 진입점 — 기존 테스트 ~58개 literal 무churn,
+  2026-06-04 lesson 적용). egress는 admit+dedup 통과 후에만 announce,
+  ingress는 재announce 안 함(2~3 peer full mesh라 relay 불필요 — loop
+  구조적 불가). per-peer ingress rate limit은 admission rate limiter를
+  peer IP로 재사용(ADR-0009 (c) presence 충족, 별도 한도 튜닝은 N3.3+).
+- **claim boundary**: closed local 검증 + CI only. public mining/유료
+  API/leaderboard claim 아님.
 
 ---
 
