@@ -128,6 +128,52 @@
 
 ---
 
+# 2026-07-06 — N3.2 share gossip (egress + ingress re-admit) + ADR-0008 enforce 전환
+
+텔레그램 지시 "N3.2 시작해" (chat 1311067056). spec: L1 master §N3.2 +
+EXECUTION-ORDER [9] 잔여 ②(enforce 기본 전환 + opt-out — ADR-0008 결정 4,
+네트워크 ingress 개방 커밋과 결합). closed-local 검증 + CI only —
+public mining/유료 API claim 아님.
+
+## 선결 확인
+- [x] N3.1 transport 착륙 (a7aae0c, PR #26) — boole-p2p crate 존재
+- [x] ADR-0008 격리 log 모드 착륙 (b405a49) + macOS canary (dd764be) —
+      N3.2 앞 binding 잔여는 enforce 전환뿐(이번 slice 범위)
+- [x] N3-pre wave 닫힘 — N3.2와 병렬 안전 항목 전부 착륙
+
+## slice 계획
+- [x] 코드 탐색 (Explore 3: boole-p2p surface / node admission·submit 경로 /
+      isolation enforce surface)
+- [x] RED: `crates/boole-node/tests/p2p_share_propagation.rs` —
+      컴파일 에러 확인(serve_local_node_with_p2p/P2pConfig 부재, N3.1 RED 관행)
+      + reject-path 2종(비allowlist drop / Hello network_id mismatch) 동봉.
+      enforce RED: `config_records_verifier_hash` Enforce 기대로 수정 →
+      Log!=Enforce 실패 확인
+- [x] GREEN: `p2p_egress.rs`(admit+dedup 통과 share announce, Hello 상호검증,
+      실패는 카운터로) + `p2p_ingress.rs`(allowlist→Hello 검증→동일
+      `admit_parsed_submission_typed` 재admit — 두 번째 검증 정책 금지,
+      HTTP 경로와 같은 단일 write guard 안에서 admit+dedup peek) +
+      `--p2p-listen`/`--peer` CLI + typed drop 카운터 /metrics 노출.
+      비목표 준수: ingress는 블록 생성/전파 안 함(N3.3), relay 없음
+- [x] enforce 전환: IsolationMode 기본 Log→Enforce + opt-out 플래그
+      `--allow-isolation-log-mode`(run-local/submit-lean), 기본값 테스트 갱신
+      + LeanBountyVerifier 배선 테스트 신설
+- [x] focused gate: gossip 3/3 + lean-runner --lib 26/26(RUST_TEST_THREADS=1,
+      Seatbelt enforce 가드 포함) + node --lib 40/40 + real_checker 4/4
+      (실제 lake가 Enforce 아래 첫 검증 — green)
+- [x] 커밋 게이트 (consensus 티어): cargo fmt --all --check PASS +
+      clippy 2종(-D warnings, dev-features 포함) PASS +
+      runtime-smoke-all ok:true 6/6 + proof-to-block-benchmark ok:true 7/7
+      (replayFailures 0, invalidAccepted 0) — 전부 Enforce 기본값 아래 실행
+- [ ] NotoriAndo author 커밋(`542081b`) → feature branch push → PR → CI green
+      → 머지 → remote 검증
+- [ ] L1 master §N3.2 착륙 기록 + 텔레그램 최종 보고
+
+## Review
+(머지 후 기록)
+
+---
+
 # 2026-07-05 — ADR-0008 [9] macOS-CI 갭 종결 (제3안: 좁은 canary)
 
 - [x] 사용자 결정 (텔레그램) — 3안 중 제3안 채택: 전체 macOS 러너(비용 10배) 도, ADR 개정(canary 상실) 도 아닌 **격리 가드 전용 좁은 macOS CI 잡**.
