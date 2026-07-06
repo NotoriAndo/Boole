@@ -341,8 +341,26 @@ closed-local 검증 + CI only — public mining/유료 API claim 아님.
 - [x] 게이트: smoke 단독 2회 green(--locked 반영 후 재확인) + python
       스테이지 전체 OK + self-test 요약 파이썬 모의 실행 OK + bash -n +
       docs-smoke + git diff --check. Rust 무변경(scripts-only)
-- [ ] PR → CI green(신규 스테이지가 클린 러너에서 실제 실행) → 머지 →
-      remote 검증 → N3 closure 기록 → 보고
+- [x] PR #33 → CI green — 신규 p2p-convergence 스테이지가 클린 ubuntu
+      러너에서 첫 실행 통과(self-test + supply-chain) → rebase 자동 머지 →
+      remote 검증(main `d43ad9e`, 코드 `a382c70`, local==origin, tree clean)
+- [x] N3 closure 기록 — L1 master §N3 closure 박스 7항목 전부 체크(N3 wave
+      완료), EXECUTION-ORDER [10] 갱신(다음 = N4-pre.1)
 
 ## Review
-(작업 완료 후 기록)
+- **결과**: N3.5 착륙으로 **N3 wave(minimal P2P) 전체 마감** — 독립 실행
+  노드 3개가 static peer 구성으로 share/블록을 주고받아 같은 replayable
+  체인으로 수렴(S7 목표). 수렴 여부는 이제 사람 판단이 아니라 self-test/CI가
+  매 커밋 기계적으로 지키는 게이트(p2p-convergence 스테이지)가 됨.
+- **게이트**: 계약 테스트 선추가 RED(2건 실패) → GREEN. smoke 로컬 2회
+  green(동일 head 높이 2, replay 발산 0) + python 스테이지 전체 OK + 요약
+  파이썬 모의 실행 사전 검증 + bash -n. scripts-only 변경이라 Rust 게이트
+  불필요. CI 1회 green — 신규 스테이지의 실제 첫 클린 러너 실행 포함.
+- **N3 wave 결산**: N3.0(ADR-0009) → N3-pre 6건 → N3.1 transport →
+  N3.2 share gossip(+ADR-0008 enforce 전환) → N3.3 block ingest(+rate
+  limit) → N3.4 initial sync → N3.5 수렴 게이트. 전부 TDD RED 실증,
+  전 slice CI green, 커밋별 rebase 머지로 이력 보존.
+- **claim boundary**: closed local 검증 + CI only. public mining/유료
+  API/leaderboard claim 아님.
+- **wave 완료 지표(비게이트, pre-mortem U00/PM.2)**: 유료 검증 구매자/LOI
+  수: 0.
