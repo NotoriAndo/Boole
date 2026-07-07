@@ -400,8 +400,33 @@ closed-local 검증 + CI only — public mining/유료 API claim 아님.
       N2.3 2/2 + p2p 8/8 + fmt/clippy 2종 + runtime-smoke-all 6/6 +
       proof-to-block-benchmark 7/7(blocksProduced 17 보존, replayFailures 0)
       + 3-peer convergence smoke green + python 계약 테스트 OK
-- [ ] 커밋(`97878b9`) → PR → CI green → 머지 → remote 검증 → L1 master
+- [x] 커밋 → PR #35 → CI green → rebase-merge → remote 검증 → L1 master
       착륙 기록 → 보고
 
 ## Review
-(작업 완료 후 기록)
+착륙 완료 (2026-07-07). PR #35 rebase-merge, main = `67d0c25`. 코어 규칙
+커밋 `f43256d` (`core: enforce chain-wide proof dedup as a consensus rule`).
+동봉 3커밋: `df8431d`(진행 기록) · `f1eb3b6`(reward/bounty heal 블록 distinct
+proof) · `67d0c25`(runtime 다중-커밋 테스트 distinct proof). 전부 NotoriAndo
+author.
+
+무엇을 했나 (쉬운 말): "한 번 보상받은 증명은 체인 어디서도 다시 보상받지
+못한다"를 replay가 블록 데이터만으로 재유도·강제하는 합의 규칙으로 만들었다.
+이전엔 각 노드의 로컬 장부 파일이 중복을 막았고 파일을 지우면 우회됐는데,
+이제는 중복 보상이 든 블록 자체가 모든 노드에서 가짜 판정된다. N4.1
+fork-choice 착수 전 binding 게이트가 이걸로 풀렸다.
+
+검증:
+- focused: consensus_proof_dedup 4/4 · boole-core 전체 green · node lib 40/40
+  · N2.3 2/2 · p2p 8/8 · runtime-smoke-all 6/6 · proof-to-block-benchmark
+  7/7(blocksProduced 17 보존, replayFailures 0) · 3-peer convergence green
+- CI: self-test pass 8m0s + supply-chain pass 3m15s (PR #35)
+- working tree clean, origin/main == local HEAD == `67d0c25`
+
+CI 반송 2라운드 (교훈 적재): (1) 테스트 body-reuse 4건 — 새 규칙이 한 template
+body 복제 다블록 커밋을 무효화 → 각 후속 블록에 distinct POFP payload 부여.
+(2) round-2 cargo-fmt(14s) — 단일-파일 amend를 fmt 게이트 없이 force-push.
+lessons.md 2026-07-07 항목에 재발 노트로 강화.
+
+claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
+claim 아님.
