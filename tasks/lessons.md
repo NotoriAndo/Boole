@@ -720,3 +720,14 @@ the same commit. Also: a "full local sweep" of boole-node must use the
 gate's feature flags (`--features boole-node/dev-mock-payment,...`) — a
 plain `cargo test -p boole-node` fails the two verify-answer tests by
 design and wastes a diagnosis round.
+
+**Recurrence (same PR #35, round 2):** after the test fixes I amended the
+commit and force-pushed WITHOUT re-running `cargo fmt --all --check` — my
+one-line `.collect()` payload chains exceeded rustfmt width, so CI's stage-1
+cargo-fmt bounced in 14s. This is the 2026-07-05 "mirror CI's cheap first
+gates" rule firing a second time: it applies to EVERY push, including a
+one-file amend that "obviously" can't have broken formatting. rustfmt
+rewraps method chains you hand-write on one line. Rule reinforced: no push —
+initial or amended — without `cargo fmt --all --check` + both clippy
+variants green locally first. Manual single-file edits are the trap because
+they feel too small to gate.
