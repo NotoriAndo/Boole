@@ -78,7 +78,7 @@ pub use family_manifest::{
     FamilyManifestParseResult,
 };
 pub use family_manifest_registry::FamilyManifestRegistry;
-pub use fork_choice::cumulative_difficulty_weight;
+pub use fork_choice::{choose_canonical_head, cumulative_difficulty_weight};
 pub use hash::{
     block_hash, difficulty_weight, digest_to_biguint, find_target_seed_j_index, h_protocol,
     min_share_score, parse_biguint_hex, share_hash, share_score, submission_pow_hash,
