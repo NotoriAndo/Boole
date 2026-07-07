@@ -596,3 +596,77 @@ B가 들어오면, 창세부터 B를 다시 재생해서 계좌 잔액을 "B를 
 
 claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
 claim 아님.
+
+# 2026-07-07 — N4.4 invalid/equivocating peer block reject (test-only 회귀 방어)
+
+N4 wave 마지막 slice. 텔레그램 "진행해" → 방향 검증 → "1번 진행해"(옵션 1:
+test-only 회귀 방어) 승인. 스펙(N3.3 착륙 前 작성)은 `p2p_ingress.rs`
+production 강화를 예상했으나, 방향 검증 결과 **N3.3이 이미 그 동작을 구현
+완료** — peer 블록을 로컬과 full parity로 strict replay(PoW·linkage·hash
+재유도·evidence·canonical·MTP·forged t_block) 후 실패 시 `Rejected` +
+`boole_p2p_ingress_blocks_rejected_total` 증가. 따라서 잔여 실체 = 그 보장을
+못 박는 회귀 테스트 1건.
+
+## 방향 검증 (완료)
+- [x] `ingest_announced_block`(local_node.rs:4675) 전수 확인 — 이미 strict
+      replay full-parity 거절 + reject metric 배선, evidence-less reject
+      테스트 존재. 스펙의 production 강화는 중복이므로 test-only로 축소.
+- [x] 사용자에 정직 보고(취약점 아님, 이미 구현됨) → 옵션 1 선택 수신.
+
+## slice 구현
+- [x] RED→진단: 첫 위조 시도(`difficultyWeight`를 "1"로) → 거절 안 되고
+      ingest됨. 진단 결과 이 시나리오는 near-max tBlock(`0xfff…ffe`)이라
+      정상 가중치가 원래 "1" → 위조가 no-op였음(취약점 아님, 오진 규명).
+- [x] 교정: 위조 방향을 "부풀리기"(`"1000000000000"`)로 — 실제 최저
+      작업량인데 과장해 fork-choice에서 이기려는 시나리오. B가 replay에서
+      재유도로 적발·거절. `assert_eq!(real difficultyWeight, "1")` 가드로
+      전제 못 박음.
+- [x] wire 소스 교정: `/block/latest` HTTP DTO는 wire-identical 아님(정상
+      블록도 거절됨) → A의 `blocks.ndjson` 저장소 raw 라인에서 직접 읽음.
+- [x] 대조군: 위조 안 한 쌍둥이를 별개 신선 노드에 같은 경로로 전송 →
+      정상 ingest(height 1). "거절이 검증 때문이지 전송 오류 아님" 증명(별개
+      노드인 이유: 쌍둥이가 같은 블록 `c` 공유 → 첫 노드는 이미-본으로 취급).
+- [x] 공용 헬퍼 `announce_block_to`(Hello→BlockAnnounce→GetBlocks→Blocks)
+      추가. 스펙의 신규 파일 대신 reject 헬퍼가 이미 사는
+      `p2p_block_propagation.rs`에 형제 테스트 추가(DRY).
+- [x] 로컬 게이트(test-only 티어): p2p 4/4 green + 새 테스트 3회 반복 안정 +
+      fmt clean + clippy(`-p boole-node --tests -D warnings`) clean +
+      `git diff --check` clean
+- [x] 커밋(`767b3d8`) → PR #43 → CI green → rebase-merge(`5f45d73`) →
+      remote 검증 → 착륙 기록 → 보고
+
+## Review
+착륙 완료 (2026-07-07). PR #43 rebase-merge, main = `5f45d73`. 커밋
+`767b3d8`(rebase 후 `5f45d73`), NotoriAndo author. **N4 wave 종결.**
+
+무엇을 했나 (쉬운 말): "이웃 노드가 보낸 위조/무효 블록은 거부된다"를 못 박는
+회귀 테스트를 추가했다. 이 거부 동작 자체는 이미 지난 N3.3에서 만들어졌기에,
+이번 일은 "나중에 실수로 위조 블록을 믿기 시작하지 못하게" 자물쇠를 거는
+테스트다. 위조 블록은 자기가 실제보다 훨씬 많은 작업을 했다고 거짓말해서(작업량
+가중치 부풀리기) 체인 경쟁에서 이기려는 시나리오인데, 받는 노드가 블록을 처음부터
+다시 계산해 검증하면서 거짓을 잡아내 버린다. 위조 안 한 정상 블록은 같은 길로
+보내면 잘 받아들여지는 것도 나란히 확인(대조군)해서, 거부가 "검증 때문"이지
+"전송이 깨져서"가 아님을 증명했다.
+
+개발 중 배운 것: 처음엔 가중치를 낮춰(1로) 위조하려 했는데, 이 테스트 시나리오는
+채굴 난이도가 거의 최저라 정상 블록의 가중치가 원래부터 1이었다. 그래서 "1을
+1로" 바꾼 셈이 되어 아무 변화가 없었고, 정상 블록이라 통과했다. 순간 취약점으로
+오인했지만 파고들어 원인을 규명하고, 위조 방향을 "부풀리기"로 바로잡아 진짜
+거부 경로를 검증했다. 또 하나: 블록을 HTTP `/block/latest`로 가져오면 실제
+네트워크 전송 형식과 미묘하게 달라 정상 블록도 거부됐는데, A의 실제 저장 파일
+(`blocks.ndjson`)에서 원본 바이트를 읽어 해결했다.
+
+범위: 테스트 전용, production 코드 무변경. slashing/peer-ban은 비목표(E2).
+
+검증:
+- focused: `ingress_rejects_tampered_peer_block` — 위조 거절(head 무변경 +
+  reject metric↑) + 정상 쌍둥이 ingest(대조군)
+- 회귀: p2p_block_propagation 4/4 green, 새 테스트 3회 반복 안정
+- 로컬 게이트: fmt clean + clippy clean + git diff --check clean
+- CI: self-test pass 8m23s + supply-chain pass 3m5s (PR #43)
+- working tree clean, origin/main == local HEAD == `5f45d73`
+
+이번에도 push 전 fmt+clippy 로컬 게이트 선행 → CI 반송 0.
+
+claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
+claim 아님.
