@@ -699,3 +699,24 @@ position in the outer body + the moved literals inside the helper's own
 span). Then run the FULL python-script-tests stage locally
 (`python3 -m unittest scripts/test_*.py` per self-test.sh line 50) before
 pushing — it is seconds-cheap and one CI round-trip expensive.
+
+## 2026-07-07 — A new consensus rule invalidates every test/fixture that "cheaply" reuses one artifact
+
+**Pattern:** N4-pre.1 (chain-wide proof dedup) made "the same proof credited
+twice" invalid. The exploration sweep caught the FIXTURES doing this (all 5
+runtime-smoke scenarios reused one proof across steps) but missed a TEST
+doing the same thing internally: `bounty_event_crash_heal` cloned one body
+across two block commits, and the new builder pre-filter correctly refused
+the second block — CI bounce. The failing pattern (`body1 = body0.clone()`
+then a second commit) was greppable in advance; my pre-PR sweep grepped
+fixtures and scripts but not `crates/*/tests/` for body-reuse.
+
+**Rule:** when a slice tightens a consensus invariant, enumerate EVERY
+artifact class that could embody the now-forbidden shape before pushing:
+fixtures (grep the literal bytes), scripts (static contract mirrors),
+AND tests (`grep -rn "\.clone()" crates/*/tests/` near multi-commit
+setups; any test committing 2+ blocks from one template body). Fix them in
+the same commit. Also: a "full local sweep" of boole-node must use the
+gate's feature flags (`--features boole-node/dev-mock-payment,...`) — a
+plain `cargo test -p boole-node` fails the two verify-answer tests by
+design and wastes a diagnosis round.

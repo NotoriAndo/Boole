@@ -71,6 +71,18 @@ fn body_for(c: &Constants, head_c: &str) -> Map<String, Value> {
     body
 }
 
+/// N4-pre.1 — consensus proof dedup (ADR-0012): each credited block needs a
+/// DISTINCT canon_hash. Vary the POFP v1 package's second-expr u32 payload
+/// (hex window [44:52]); `nth == 1` reproduces the base fixture proof.
+fn distinct_bytes(base_hex: &str, nth: u32) -> String {
+    let payload: String = nth
+        .to_le_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("{}{}{}", &base_hex[..44], payload, &base_hex[52..])
+}
+
 fn static_t_block_hex(config: &RuntimeConfig) -> String {
     format!("0x{:064x}", config.policy.thresholds.t_block)
 }
@@ -100,7 +112,15 @@ fn produce_block_for_current_c_uses_retargeted_t_block() {
     // as proposer (a 4× drop to 0x3f… would).
     for i in 0..RETARGET_EVERY {
         runtime.set_current_c(head_c.clone());
-        let body = body_for(&f.constants, &head_c);
+        let mut body = body_for(&f.constants, &head_c);
+        // Each committed block must carry a distinct proof (nth = i + 2, so
+        // h0/h1 differ from each other and from the base). The retarget-
+        // boundary h2 below keeps the base proof: its known-good hash still
+        // qualifies as proposer under the ~10%-lower retargeted t_block.
+        body.insert(
+            "bytes".to_string(),
+            Value::String(distinct_bytes(&f.constants.valid_bytes_hex, i as u32 + 2)),
+        );
         runtime.observe_ticket_from_body(&body).expect("observe");
         let ip = format!("198.51.100.{}", i + 1);
         assert!(matches!(
