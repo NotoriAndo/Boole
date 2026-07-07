@@ -477,3 +477,53 @@ N4-pre.1 게이트 해소 후 N4 wave 첫 슬라이스. closed-local + CI only.
 
 claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
 claim 아님.
+
+# 2026-07-07 — N4.2 canonical-head 선택 + 결정적 tie-break (fork-choice)
+
+텔레그램 지시 "추천진행해" (chat 1311067056). spec: L1 master §N4.2.
+N4.1(누적 작업량 합산) 위에 얹는 N4 wave 둘째 슬라이스. closed-local + CI only.
+
+## slice 계획
+- [x] 방향 검증 — N4.2는 N4.1의 `cumulative_difficulty_weight`를 소비해
+      경쟁 체인 중 총 작업량 최대 head를 고르고, 정확 동률은 최저 block hash로
+      결정적 tie-break. 노드 적용/reorg는 N4.3(비목표)
+- [x] RED: fork_choice 2종(`selects_heaviest_chain`,
+      `breaks_exact_tie_by_lowest_block_hash`). 함수 부재 → unresolved import 실패
+- [x] GREEN: fork_choice.rs 확장 — `choose_canonical_head(&[Vec<PersistedBlock>])`
+      단일-패스 폴드(weight 내림차순, 동률 시 hash 오름차순). head hash는 저장된
+      `c`를 믿지 않고 canonical 입력(prev_c + selected_share_hashes)에서
+      `block_hash`로 재유도(replay가 검증하는 그 유도). lib.rs pub use 추가.
+      전용 2/2 green
+- [x] 로컬 게이트: cargo fmt --all --check clean + clippy 2종(-D warnings)
+      clean + boole-core 전체 테스트 무회귀 (fork_choice는 admission/replay/
+      hash/block_builder 밖 순수 추가 함수 = production 티어, full은 CI)
+- [x] 커밋(`5f69fcc`) → PR #39 → CI green → rebase-merge(`ba8f302`) →
+      remote 검증 → 착륙 기록 → 보고
+
+## Review
+착륙 완료 (2026-07-07). PR #39 rebase-merge, main = `ba8f302`. 코어 커밋
+`5f69fcc`(rebase 후 `ba8f302`), NotoriAndo author.
+
+무엇을 했나 (쉬운 말): 체인이 두 갈래로 갈렸을 때 "어느 쪽이 진짜냐"를
+실제로 고르는 규칙을 만들었다. N4.1이 만든 "체인 총 작업량 더하기"를 써서
+후보 체인들 중 작업량이 가장 큰 쪽의 끝 블록을 canonical head로 고른다.
+작업량이 정확히 똑같으면(아주 드문 경우) 끝 블록 해시가 더 작은 쪽을 택해
+모든 정직한 노드가 같은 끝점으로 수렴하게 한다. 아직 노드에 붙여
+reorg(체인 갈아끼우기)를 하는 건 아니고(그건 N4.3), 그 "선택" 규칙까지가
+이번 몫.
+
+설계 포인트: head 해시를 블록에 저장된 `c` 필드를 그대로 믿지 않고 canonical
+입력(prev_c + 선택된 share 해시)에서 재유도한다 — replay가 각 블록을 검증할
+때 쓰는 바로 그 유도라, "믿지 말고 다시 계산" 원칙과 tie-break가 저장값
+위조에 흔들리지 않게 한다.
+
+검증:
+- focused: fork_choice 2/2 (selects_heaviest_chain / breaks_exact_tie)
+- 로컬 게이트: fmt clean + clippy 2종 clean + boole-core 전체 무회귀
+- CI: self-test pass 8m8s + supply-chain pass 3m12s (PR #39)
+- working tree clean, origin/main == local HEAD == `ba8f302`
+
+이번에도 push 전 fmt+clippy 로컬 게이트 선행 → CI 반송 0.
+
+claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
+claim 아님.
