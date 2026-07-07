@@ -1,6 +1,6 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Find the byte length of the longest NDJSON prefix that ends on a newline.
 ///
@@ -35,6 +35,50 @@ pub(crate) fn append_ndjson_line_durable(path: &Path, line: &str) -> anyhow::Res
         fsync_parent_dir(path)?;
     }
     Ok(())
+}
+
+/// Atomically replace the NDJSON file at `path` with `lines` (one record per
+/// entry, each newline-terminated). Writes a sibling temp file, fsyncs it, then
+/// `rename`s it over `path` — an atomic swap on a POSIX filesystem, so a crash
+/// leaves either the whole previous file or the whole new one, never a torn
+/// mix. The reorg handler uses this to swap the block store / reward ledger to
+/// a heavier chain without a window where the on-disk chain is truncated.
+pub(crate) fn write_ndjson_lines_atomic(path: &Path, lines: &[String]) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = tmp_sibling(path);
+    {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&tmp)?;
+        let mut buf = String::new();
+        for line in lines {
+            buf.push_str(line);
+            buf.push('\n');
+        }
+        file.write_all(buf.as_bytes())?;
+        file.flush()?;
+        file.sync_all()?;
+    }
+    fs::rename(&tmp, path)?;
+    fsync_parent_dir(path)?;
+    Ok(())
+}
+
+/// A deterministic sibling temp path (`<name>.reorg-tmp`) for the atomic write
+/// above. Fixed rather than randomized: a single runtime never reorgs
+/// concurrently with itself, and a leftover temp from a crashed reorg is simply
+/// truncated and overwritten on the next attempt.
+fn tmp_sibling(path: &Path) -> PathBuf {
+    let mut name = path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    name.push(".reorg-tmp");
+    path.with_file_name(name)
 }
 
 /// Read the file at `path`, truncate any torn trailing line on disk, and

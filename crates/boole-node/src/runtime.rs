@@ -1,10 +1,12 @@
 use crate::block_store::FileBlockStore;
 use crate::bounty_event_store::FileBountyEventLedger;
+use crate::durability::write_ndjson_lines_atomic;
 use crate::reward_store::{verify_ledger_matches_replay, FileRewardLedger};
 use boole_core::{
     admit_parsed_submission_typed, block_hash, build_block_selection, calibration_policy,
-    compute_block_reward_credits, difficulty_weight, expected_retarget_difficulty_for_height,
-    parse_submission_body, replay_blocks_allow_legacy_evidence_less,
+    choose_canonical_head, compute_block_reward_credits, difficulty_weight,
+    expected_retarget_difficulty_for_height, head_block_hash, parse_submission_body, replay_blocks,
+    replay_blocks_allow_legacy_evidence_less, replay_blocks_with_retarget,
     replay_blocks_with_retarget_allow_legacy_evidence_less, share_score, AdmissionDecision,
     AdmissionParsedDeps, BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy,
     CalibrationReport, CandidateShare, DifficultyEvidence, DifficultyRetargetPolicy, Hex32,
@@ -114,6 +116,18 @@ impl RuntimeConfig {
 pub struct RuntimeCommittedBlock {
     pub block: PersistedBlock,
     pub dropped_stale_shares: usize,
+}
+
+/// N4.3 — outcome of evaluating a competing chain against the current one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReorgOutcome {
+    /// The candidate chain won fork-choice; the block store and reward ledger
+    /// were rewritten to it and all in-memory state re-derived from genesis.
+    /// Carries the adopted head block's height.
+    Reorged { new_head_height: u64 },
+    /// The current chain is at least as good (heavier, or an exact tie the
+    /// current tip already holds); nothing on disk or in memory changed.
+    KeptCurrent,
 }
 
 pub struct RuntimeAdmissionState {
@@ -421,6 +435,99 @@ impl RuntimeAdmissionState {
         let dropped = self.apply_block_unchecked(block);
         self.block_cache.push(block.clone());
         Ok(dropped)
+    }
+
+    /// N4.3 — adopt `candidate` in place of the current chain when it wins
+    /// fork-choice, re-deriving all state deterministically from genesis.
+    ///
+    /// The candidate is strict-replayed first (a competing chain never takes
+    /// the legacy evidence-less boot path — it uses the same
+    /// `replay_blocks`/`replay_blocks_with_retarget` entry points a p2p ingest
+    /// would), so a tampered or evidence-less chain returns `Err` and leaves
+    /// the current chain untouched. The keep/reorg decision reuses N4.2's
+    /// [`choose_canonical_head`] + [`head_block_hash`] so the reorg trigger can
+    /// never drift from the standalone selection rule: keep the current chain
+    /// unless the candidate is strictly heavier (or wins the lowest-head-hash
+    /// tie-break).
+    ///
+    /// On adoption the block store and reward ledger files are each rewritten
+    /// atomically (write sibling temp + `rename`) and the in-memory
+    /// cache/head/ledger/share-pool are rebuilt from the candidate, so a fresh
+    /// boot over the rewritten files reconstructs byte-identical state.
+    ///
+    /// Non-goals (this slice): incremental rollback (it re-derives the whole
+    /// chain rather than diffing to the common ancestor), bounty-event ledger
+    /// rewind, and wiring the trigger into the p2p ingress/sync path.
+    pub fn reorg_to_heavier_chain(
+        &mut self,
+        block_path: impl AsRef<Path>,
+        candidate: &[PersistedBlock],
+    ) -> anyhow::Result<ReorgOutcome> {
+        let candidate_head = candidate
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("reorg candidate chain is empty"))?;
+
+        // 1. Strict replay from genesis. Peer/competing chains use the strict
+        //    entry points (no legacy evidence-less opt-in), so an
+        //    evidence-less or tampered candidate is rejected before it can
+        //    displace the current chain.
+        let replay = match &self.config.difficulty_retarget {
+            Some(policy) => replay_blocks_with_retarget(
+                candidate,
+                &format!("0x{:064x}", self.config.policy.thresholds.t_block),
+                policy,
+            )?,
+            None => replay_blocks(candidate)?,
+        };
+
+        // 2. Fork-choice. Reuse choose_canonical_head + head_block_hash so this
+        //    decision is identical to the standalone selection rule (N4.2). An
+        //    empty current chain loses to any valid candidate.
+        let candidate_head_hash = head_block_hash(candidate_head)?;
+        if let Some(current_head) = self.block_cache.last() {
+            if head_block_hash(current_head)? == candidate_head_hash {
+                return Ok(ReorgOutcome::KeptCurrent); // already on this exact tip
+            }
+            let winner = choose_canonical_head(&[self.block_cache.clone(), candidate.to_vec()])?;
+            if winner != candidate_head_hash {
+                return Ok(ReorgOutcome::KeptCurrent); // current chain is at least as good
+            }
+        }
+
+        // 3. Rewrite the block store atomically to the candidate chain.
+        let block_lines = candidate
+            .iter()
+            .map(serde_json::to_string)
+            .collect::<Result<Vec<_>, _>>()?;
+        write_ndjson_lines_atomic(block_path.as_ref(), &block_lines)?;
+
+        // 4. Rebuild the reward ledger atomically from the candidate — one
+        //    event per block, identical to the boot re-derive path, so the
+        //    next boot's `verify_ledger_matches_replay` stays green.
+        if let Some(ledger_path) = self.reward_ledger_path.clone() {
+            let mut ledger = FileRewardLedger::default();
+            let mut event_lines = Vec::with_capacity(candidate.len());
+            for block in candidate {
+                let event = derive_reward_event(block)?;
+                event_lines.push(serde_json::to_string(&event)?);
+                ledger.apply(event)?;
+            }
+            write_ndjson_lines_atomic(&ledger_path, &event_lines)?;
+            self.reward_ledger = Some(ledger);
+        }
+
+        // 5. Rebuild in-memory chain/head/pool from the candidate. Use the
+        //    replay-derived head `c` (not the stored one) as the authoritative
+        //    tip, matching how boot sets the head.
+        self.block_cache = candidate.to_vec();
+        self.set_current_c(replay.latest_c);
+        self.pool.prune_to_height(candidate_head.c.clone());
+        self.candidates
+            .retain(|candidate| candidate.c == candidate_head.c);
+
+        Ok(ReorgOutcome::Reorged {
+            new_head_height: candidate_head.height,
+        })
     }
 
     pub fn pool_size(&self) -> usize {
