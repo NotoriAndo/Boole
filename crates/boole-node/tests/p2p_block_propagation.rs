@@ -237,6 +237,63 @@ fn hello_frame(genesis: &str, head: HeadSummary) -> Frame {
     }
 }
 
+/// Drive a peer's block ingress by hand over one connection: Hello handshake,
+/// announce `block`, then answer the peer's `GetBlocks` pull with the block
+/// body. Used to feed a node both a tampered block (which strict replay must
+/// reject) and its untampered twin (a control that must be ingested).
+fn announce_block_to(peer_p2p: &SocketAddr, genesis: &str, block: &Value) {
+    let block_height = block["height"].as_u64().expect("block height");
+    let block_c = block["c"].as_str().expect("block c").to_string();
+    let transport = TcpTransport::new();
+    let mut conn = transport.connect(peer_p2p).expect("connect to peer");
+    transport
+        .send_frame(
+            &mut conn,
+            &hello_frame(
+                genesis,
+                HeadSummary {
+                    height: block_height + 1,
+                    c: block_c.clone(),
+                },
+            ),
+        )
+        .expect("send hello");
+    match transport.recv_frame(&mut conn).expect("peer hello reply") {
+        Frame::Hello { .. } => {}
+        other => panic!("expected peer's hello reply, got {other:?}"),
+    }
+    transport
+        .send_frame(
+            &mut conn,
+            &Frame::BlockAnnounce {
+                height: block_height,
+                c: block_c.clone(),
+            },
+        )
+        .expect("send block announce");
+    match transport
+        .recv_frame(&mut conn)
+        .expect("peer must pull the block")
+    {
+        Frame::GetBlocks { from, to } => {
+            assert_eq!(
+                (from, to),
+                (block_height, block_height),
+                "peer must request exactly the announced block"
+            );
+        }
+        other => panic!("expected GetBlocks, got {other:?}"),
+    }
+    transport
+        .send_frame(
+            &mut conn,
+            &Frame::Blocks {
+                blocks: vec![block.clone()],
+            },
+        )
+        .expect("send block body");
+}
+
 #[test]
 #[ignore = "needs-multiprocess"]
 fn block_committed_on_a_is_ingested_and_replayed_identically_on_b() {
@@ -398,6 +455,96 @@ fn ingress_rejects_evidence_less_block() {
     assert_eq!(height(b.addr), 0, "the evidence-less block must not land");
 
     stop(b);
+}
+
+/// N4.4 — regression defence for the fork-choice ingress boundary: a peer that
+/// forges its block's cumulative-work weight (a bid to win canonical head with
+/// a lie) must be refused. A validity-preserving twin of the same block IS
+/// ingested, proving the refusal comes from B's strict replay, not a broken
+/// transfer. Pins the reject guarantee that N3.3 established so a later change
+/// cannot silently start trusting tampered peer blocks.
+#[test]
+#[ignore = "needs-multiprocess"]
+fn ingress_rejects_tampered_peer_block() {
+    let steps = multiminer_steps();
+    let genesis = scenario_genesis_c();
+
+    // A produces one real, fully-valid block over HTTP. A has no p2p peers, so
+    // it never announces the block — the test carries it by hand, reading the
+    // exact wire bytes the p2p layer would serve straight from A's block store.
+    let a = boot_with_p2p("a-tamper-src", None, vec![], DEFAULT_RATE_LIMIT, true);
+    let (status, v0) = http_post(a.addr, "/submit", &submit_envelope(&steps[0]));
+    assert_eq!(status, 200, "submit to A: {v0}");
+    assert_eq!(v0["accepted"], json!(true), "A must admit the share: {v0}");
+    assert!(
+        v0["block"].is_object(),
+        "step0 must commit a block on A: {v0}"
+    );
+    let store = fs::read_to_string(a.dir.join("blocks.ndjson")).expect("read A's block store");
+    let real_block: Value =
+        serde_json::from_str(store.lines().last().expect("A stored at least one block"))
+            .expect("parse A's persisted block");
+    assert_eq!(
+        real_block["height"].as_u64(),
+        Some(0),
+        "A's committed block is height 0"
+    );
+
+    // Tampered twin: A's real block with only difficultyWeight forged far above
+    // the value this block's target (tBlock) actually earns — a bid to overstate
+    // cumulative work and steal canonical head at the fork-choice boundary. B
+    // re-derives the weight from tBlock during strict replay and must reject the
+    // inflated claim, leaving its head untouched. (The scenario's near-max
+    // tBlock earns weight "1", so the lie has to inflate, not shrink.) B_reject
+    // trusts only a dummy peer address (nothing auto-connects); loopback stays
+    // allowlisted, so the reject can only come from validation.
+    let mut tampered = real_block.clone();
+    assert_eq!(
+        real_block["difficultyWeight"],
+        json!("1"),
+        "scenario's near-max tBlock earns weight 1; the forgery must differ from it"
+    );
+    tampered["difficultyWeight"] = json!("1000000000000");
+    let reject_p2p = TcpListener::bind("127.0.0.1:0").expect("bind reject p2p");
+    let reject_p2p_addr = reject_p2p.local_addr().expect("reject p2p addr");
+    let b_reject = boot_with_p2p(
+        "b-tamper-reject",
+        Some(reject_p2p),
+        vec!["127.0.0.1:1".parse().expect("allowlist addr")],
+        DEFAULT_RATE_LIMIT,
+        false,
+    );
+    announce_block_to(&reject_p2p_addr, &genesis, &tampered);
+    wait_until(
+        "B to count the rejected tampered block",
+        Duration::from_secs(10),
+        || metric_value(b_reject.addr, "boole_p2p_ingress_blocks_rejected_total") >= 1,
+    );
+    assert_eq!(height(b_reject.addr), 0, "the tampered block must not land");
+
+    // Control on a fresh node: the untampered block IS accepted over the very
+    // same hand-driven path, proving the rejection above was validation — not a
+    // malformed frame or a broken transfer. It needs a separate node because
+    // the twin shares A's block `c`, which B_reject now treats as already-seen.
+    let accept_p2p = TcpListener::bind("127.0.0.1:0").expect("bind accept p2p");
+    let accept_p2p_addr = accept_p2p.local_addr().expect("accept p2p addr");
+    let b_accept = boot_with_p2p(
+        "b-tamper-accept",
+        Some(accept_p2p),
+        vec!["127.0.0.1:1".parse().expect("allowlist addr")],
+        DEFAULT_RATE_LIMIT,
+        false,
+    );
+    announce_block_to(&accept_p2p_addr, &genesis, &real_block);
+    wait_until(
+        "fresh B to ingest the untampered block",
+        Duration::from_secs(10),
+        || height(b_accept.addr) == 1,
+    );
+
+    stop(a);
+    stop(b_reject);
+    stop(b_accept);
 }
 
 #[test]
