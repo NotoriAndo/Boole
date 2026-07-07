@@ -430,3 +430,50 @@ lessons.md 2026-07-07 항목에 재발 노트로 강화.
 
 claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
 claim 아님.
+
+# 2026-07-07 — N4.1 체인 누적 작업량 (fork-choice weight primitive)
+
+텔레그램 지시 "추천작업진행해" (chat 1311067056). spec: L1 master §N4.1.
+N4-pre.1 게이트 해소 후 N4 wave 첫 슬라이스. closed-local + CI only.
+
+## slice 계획
+- [x] 탐색 — PersistedBlock.difficulty_weight 필드 형식 확인: 핵심 발견은
+      이 값이 `difficulty_weight(t_block).to_string()` = BigUint Display =
+      **10진수** 문자열이라는 것(hex 아님). spec 초안의 parse_biguint_hex
+      제안은 오독 → min_share_score 파싱 관용구(parse::<BigUint>())로 결정
+- [x] RED: cumulative_work 2종(heavier chain / equal-length ordering) +
+      base case(empty=0, single=weight). 함수 부재 → unresolved import 실패
+- [x] GREEN: 신규 fork_choice.rs — cumulative_difficulty_weight, BTree 아님
+      순수 폴드(anyhow::Result, 파싱 실패 시 height 문맥 담아 전파). lib.rs
+      pub mod + pub use 재수출. 전용 2/2 green
+- [x] 로컬 게이트: cargo fmt --all --check clean + clippy 2종(-D warnings)
+      clean + boole-core 전체 테스트 무회귀 (fork_choice는 admission/replay/
+      hash/block_builder 밖 순수 추가 함수 = production 티어, full은 CI)
+- [x] 커밋(`02eab79`) → PR #37 → CI green → rebase-merge(`d58e502`) →
+      remote 검증 → 착륙 기록 → 보고
+
+## Review
+착륙 완료 (2026-07-07). PR #37 rebase-merge, main = `d58e502`. 코어 커밋
+`02eab79`(rebase 후 `d58e502`), NotoriAndo author.
+
+무엇을 했나 (쉬운 말): 포크(체인이 두 갈래로 갈림)가 생겼을 때 "어느 쪽이
+진짜 체인이냐"를 길이가 아니라 실제로 쌓인 작업량으로 판정하기 위한 토대
+함수를 만들었다. 각 블록에는 그 블록을 캐낸 난이도에 비례하는 가중치가
+붙어 있는데, 체인 전체의 가중치를 더해 총 작업량을 계산한다. 아직 "선택"
+규칙은 아니고(그건 N4.2), 그 선택이 딛고 설 합산 함수까지가 이번 몫.
+
+정정 1건: 블록에 저장된 가중치가 16진수인 줄 알기 쉬운데 실제로는 10진수
+문자열이었다. spec 초안대로 16진수로 읽었으면 값이 틀어졌을 것 — 코드베이스
+기존 관용구(min_share_score 10진수 파싱)와 똑같이 맞췄다.
+
+검증:
+- focused: cumulative_work 2/2 (heavier / equal-length / empty=0 / single)
+- 로컬 게이트: fmt clean + clippy 2종 clean + boole-core 전체 무회귀
+- CI: self-test pass 8m15s + supply-chain pass 3m13s (PR #37)
+- working tree clean, origin/main == local HEAD == `d58e502`
+
+이번엔 push 전에 fmt+clippy 로컬 게이트를 먼저 돌려 CI 반송 0 (2026-07-07
+재발 노트 규칙 적용 성공).
+
+claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
+claim 아님.
