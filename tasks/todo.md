@@ -527,3 +527,72 @@ reorg(체인 갈아끼우기)를 하는 건 아니고(그건 N4.3), 그 "선택"
 
 claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
 claim 아님.
+
+# 2026-07-07 — N4.3 reorg가 state를 결정적으로 재유도 (노드 적용)
+
+텔레그램 지시 "N4.3 진행해" (chat 1311067056). spec: L1 master §N4.3.
+N4.1(누적 작업량)·N4.2(canonical-head 선택) 위에 얹는 N4 wave 셋째 슬라이스 —
+선택 규칙을 노드에 실제로 적용하는 첫 런타임 primitive. closed-local + CI only.
+
+## slice 계획
+- [x] 방향 검증 — 노드가 앉아 있는 체인 A에 공통 창세 prefix를 공유하는
+      무거운 경쟁 체인 B(fork-choice 승리)가 들어오면, 창세부터 재유도해 잔액을
+      B의 fresh replay와 byte-identical로 맞추고 재기동 후에도 동일 상태. 채택
+      판단은 N4.2 `choose_canonical_head` 재사용(규칙 이중화 금지). p2p 배선은
+      후속(비목표)
+- [x] RED: `reorg_state_convergence` 2종
+      (`reorg_to_heavier_chain_rederives_balances_byte_identical`,
+      `lighter_chain_is_not_adopted`). `ReorgOutcome`/`reorg_to_heavier_chain`
+      미구현 → unresolved import 실패(깔끔한 RED)
+- [x] GREEN: `RuntimeAdmissionState::reorg_to_heavier_chain(block_path, candidate)`
+      — ① 경쟁 체인 strict replay(legacy evidence-less 부팅 경로 미사용) ②
+      채택 판단 = N4.2 `choose_canonical_head` + `head_block_hash`(pub 승격)
+      재사용, 동일 tip=no-op, 더 무거운 쪽만 채택 ③ 블록 저장소+보상 장부
+      원자적 스왑(신규 `durability::write_ndjson_lines_atomic`: temp→fsync→
+      rename→dir fsync) ④ in-memory 캐시/head/장부/pool 후보로 재구성. 전용
+      2/2 green
+- [x] 로컬 게이트: cargo fmt --all --check clean + clippy 2종(-D warnings)
+      clean + fork_choice 2/2·durability 8/8 무회귀 (reorg는 admission/replay/
+      hash/block_builder 코어 밖 = production 티어, full은 CI)
+- [x] 커밋(`d0bbfe1`) → PR #41 → CI green → rebase-merge(`885df14`) →
+      remote 검증 → 착륙 기록 → 보고
+
+## Review
+착륙 완료 (2026-07-07). PR #41 rebase-merge, main = `885df14`. 코어 커밋
+`d0bbfe1`(rebase 후 `885df14`), NotoriAndo author.
+
+무엇을 했나 (쉬운 말): 지금까지는 "어느 체인이 진짜냐"를 고르는 규칙만
+있었는데(N4.2), 이번엔 노드가 그 규칙에 따라 실제로 체인을 갈아끼우게 했다.
+내 노드가 체인 A 위에 있는데, 같은 창세 블록에서 갈라져 나온 더 무거운 체인
+B가 들어오면, 창세부터 B를 다시 재생해서 계좌 잔액을 "B를 처음부터 새로
+재생한 결과"와 한 바이트도 다르지 않게 맞춘다. 그리고 이 교체가 재기동 후에도
+살아남도록, 블록 저장 파일과 보상 장부 파일을 통째로 원자적으로 갈아끼운다 —
+교체 도중 컴퓨터가 꺼져도 "옛 파일 전체" 아니면 "새 파일 전체"만 남고 반쪽짜리
+파일은 절대 안 생긴다.
+
+설계 포인트:
+- 채택 여부 판단은 N4.2의 `choose_canonical_head`를 그대로 재사용 — reorg
+  트리거와 선택 규칙이 두 벌로 갈라져 어긋나는 일을 원천 차단
+- 경쟁 체인은 strict replay 진입점만 사용(부팅용 legacy evidence-less 경로
+  절대 미사용) — 위조/evidence-less 후보는 거절되고 현재 체인 무변경
+- 원자적 파일 교체 헬퍼(`write_ndjson_lines_atomic`)를 durability에 신설,
+  reorg 중 크래시에도 반쪽 파일 없음
+- 보상 장부는 블록당 1이벤트로 재유도 — 부팅 재유도 경로와 동일해 다음 부팅의
+  `verify_ledger_matches_replay`가 green 유지
+
+범위: 런타임-레벨 primitive만. 트리거를 p2p ingress/sync 경로에 배선하는 것은
+후속 slice(N4.4 인근). 증분 rollback 없음(공통 조상까지 diff가 아니라 전 체인
+재유도 — testnet 규모 허용).
+
+검증:
+- focused: reorg_state_convergence 2/2 (byte-identical 재유도 + 가벼운 체인
+  미채택)
+- 회귀: fork_choice 2/2(N4.1/N4.2) + durability 8/8
+- 로컬 게이트: fmt clean + clippy 2종 clean
+- CI: self-test pass 8m12s + supply-chain pass 3m9s (PR #41)
+- working tree clean, origin/main == local HEAD == `885df14`
+
+이번에도 push 전 fmt+clippy 로컬 게이트 선행 → CI 반송 0.
+
+claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
+claim 아님.
