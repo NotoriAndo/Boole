@@ -120,6 +120,16 @@ fn commit_two_blocks(dir: &Path) -> (RuntimeConfig, std::path::PathBuf, String) 
 
     let mut body1 = body0.clone();
     body1.insert("c".to_string(), Value::String(committed0.block.c.clone()));
+    // N4-pre.1 — consensus proof dedup: the height-1 share must carry a
+    // DISTINCT proof or the builder (correctly) refuses to credit the same
+    // canon_hash twice. Bump the POFP v1 package's second expr payload.
+    let bytes0 = body0
+        .get("bytes")
+        .and_then(Value::as_str)
+        .expect("fixture body carries bytes");
+    let bytes1 = format!("{}{}{}", &bytes0[..44], "02000000", &bytes0[52..]);
+    assert_ne!(bytes0, bytes1, "second block must carry a distinct proof");
+    body1.insert("bytes".to_string(), Value::String(bytes1));
     runtime
         .observe_ticket_from_body(&body1)
         .expect("observe height1 ticket");

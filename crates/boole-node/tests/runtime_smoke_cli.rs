@@ -348,14 +348,28 @@ fn node_runtime_smoke_applies_epoch_retarget_policy() {
     cfg["perIpRateLimitPer60s"] = json!(1);
 
     let genesis_c = "0000000000000000000000000000000000000000000000000000000000000000";
-    let body = json!({
-        "c": genesis_c,
-        "pk": constants["pk"],
-        "n": constants["n"],
-        "j": constants["j"],
-        "nonceS": constants["nonceS"],
-        "bytes": constants["validBytesHex"]
-    });
+    // N4-pre.1 — consensus proof dedup (ADR-0012): each committed block needs a
+    // DISTINCT canon_hash, else the builder refuses to credit the same proof
+    // twice. Vary the POFP v1 package's second-expr u32 payload (hex [44:52]);
+    // the retarget is a no-op here (span == target) so t_block stays near-max
+    // and every variant still qualifies as proposer.
+    let base_bytes = constants["validBytesHex"].as_str().expect("fixture bytes");
+    let body_with_nth = |nth: u32| {
+        let payload: String = nth
+            .to_le_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let bytes = format!("{}{}{}", &base_bytes[..44], payload, &base_bytes[52..]);
+        json!({
+            "c": genesis_c,
+            "pk": constants["pk"],
+            "n": constants["n"],
+            "j": constants["j"],
+            "nonceS": constants["nonceS"],
+            "bytes": bytes
+        })
+    };
     let scenario = json!({
         "cfg": cfg,
         "difficultyRetarget": {
@@ -365,9 +379,9 @@ fn node_runtime_smoke_applies_epoch_retarget_policy() {
         },
         "genesisC": genesis_c,
         "steps": [
-            {"body": body, "ip": "203.0.113.55", "canonTag": 0, "ts": 1800000000123u64},
-            {"body": body, "cFromRuntimeHead": true, "ip": "198.51.100.88", "canonTag": 0, "ts": 1800000061123u64},
-            {"body": body, "cFromRuntimeHead": true, "ip": "192.0.2.44", "canonTag": 0, "ts": 1800000122123u64}
+            {"body": body_with_nth(1), "ip": "203.0.113.55", "canonTag": 0, "ts": 1800000000123u64},
+            {"body": body_with_nth(2), "cFromRuntimeHead": true, "ip": "198.51.100.88", "canonTag": 0, "ts": 1800000061123u64},
+            {"body": body_with_nth(3), "cFromRuntimeHead": true, "ip": "192.0.2.44", "canonTag": 0, "ts": 1800000122123u64}
         ]
     });
 

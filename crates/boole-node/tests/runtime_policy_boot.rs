@@ -417,6 +417,10 @@ fn runtime_commits_two_blocks_across_advanced_heads() {
 
     let mut body1 = body0.clone();
     body1.insert("c".to_string(), Value::String(committed0.block.c.clone()));
+    body1.insert(
+        "bytes".to_string(),
+        Value::String(distinct_proof_bytes(&body0, 2)),
+    );
     runtime
         .observe_ticket_from_body(&body1)
         .expect("observe height1 ticket");
@@ -492,6 +496,10 @@ fn runtime_boots_from_existing_store_and_continues_next_height() {
 
     let mut body1 = body0.clone();
     body1.insert("c".to_string(), Value::String(committed0.block.c.clone()));
+    body1.insert(
+        "bytes".to_string(),
+        Value::String(distinct_proof_bytes(&body0, 2)),
+    );
     runtime
         .observe_ticket_from_body(&body1)
         .expect("observe height1 ticket");
@@ -509,6 +517,10 @@ fn runtime_boots_from_existing_store_and_continues_next_height() {
 
     let mut body2 = body0.clone();
     body2.insert("c".to_string(), Value::String(committed1.block.c.clone()));
+    body2.insert(
+        "bytes".to_string(),
+        Value::String(distinct_proof_bytes(&body0, 3)),
+    );
     restarted
         .observe_ticket_from_body(&body2)
         .expect("observe height2 ticket");
@@ -629,4 +641,23 @@ fn body_for(constants: &Constants, patch: &Map<String, Value>) -> Map<String, Va
         }
     }
     body
+}
+
+/// N4-pre.1 — consensus proof dedup (ADR-0012): a canon_hash credited once on
+/// the chain may never be credited again. A test that commits more than one
+/// block must give each block a DISTINCT proof, or the builder (correctly)
+/// refuses to credit the same canon_hash twice and yields no proposer. This
+/// varies the POFP v1 package's second-expr u32 payload (hex window [44:52]);
+/// `nth == 1` reproduces the base fixture proof unchanged.
+fn distinct_proof_bytes(body: &Map<String, Value>, nth: u32) -> String {
+    let base = body
+        .get("bytes")
+        .and_then(Value::as_str)
+        .expect("body carries proof bytes");
+    let payload: String = nth
+        .to_le_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("{}{}{}", &base[..44], payload, &base[52..])
 }
