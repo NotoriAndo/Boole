@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use boole_core::CONSENSUS_RULE_VERSION;
 use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig};
 use boole_p2p::{Frame, FrameError, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
 use boole_testkit::rand_suffix;
@@ -330,6 +331,7 @@ fn ingress_disconnects_on_network_id_mismatch_hello() {
             &mut conn,
             &Frame::Hello {
                 protocol_version: PROTOCOL_VERSION,
+                consensus_rule_version: CONSENSUS_RULE_VERSION,
                 network_id: "not-the-b-network".to_string(),
                 genesis_hash: scenario_genesis_c(),
                 head: HeadSummary {
@@ -353,6 +355,62 @@ fn ingress_disconnects_on_network_id_mismatch_hello() {
     );
 
     // The share never had a path in: pool stays empty.
+    assert_eq!(
+        share_pool_size(b.addr),
+        0,
+        "no share may enter B's pool after a mismatched Hello"
+    );
+
+    stop(b);
+}
+
+#[test]
+#[ignore = "needs-multiprocess"]
+fn hello_mismatched_consensus_rule_version_is_dropped() {
+    let b_p2p = TcpListener::bind("127.0.0.1:0").expect("bind b p2p");
+    let b_p2p_addr = b_p2p.local_addr().expect("b p2p addr");
+
+    // Loopback is allowlisted and every other Hello field matches B's
+    // identity, so the drop this test observes can only come from the
+    // consensus_rule_version check (ADR-0014 (b): a peer running a
+    // different rule set must be disconnected before any frame is
+    // processed, or the nodes silently fork).
+    let b = boot_with_p2p(
+        "b-rule-version-mismatch",
+        Some(b_p2p),
+        vec!["127.0.0.1:1".parse().expect("allowlist addr")],
+        false,
+    );
+
+    let transport = TcpTransport::new();
+    let mut conn = transport.connect(&b_p2p_addr).expect("connect to B");
+    transport
+        .send_frame(
+            &mut conn,
+            &Frame::Hello {
+                protocol_version: PROTOCOL_VERSION,
+                consensus_rule_version: CONSENSUS_RULE_VERSION + 1,
+                network_id: "boole-mvp".to_string(),
+                genesis_hash: scenario_genesis_c(),
+                head: HeadSummary {
+                    height: 0,
+                    c: scenario_genesis_c(),
+                },
+            },
+        )
+        .expect("send mismatched hello");
+
+    // Same typed-disconnect posture as the network_id mismatch above.
+    match transport.recv_frame(&mut conn) {
+        Err(FrameError::ConnectionClosed) | Err(FrameError::Io(_)) => {}
+        other => panic!("B must disconnect after a mismatched rule version, got {other:?}"),
+    }
+    wait_until(
+        "B to count the hello mismatch",
+        Duration::from_secs(10),
+        || metric_value(b.addr, "boole_p2p_ingress_hello_mismatch_drops_total") >= 1,
+    );
+
     assert_eq!(
         share_pool_size(b.addr),
         0,

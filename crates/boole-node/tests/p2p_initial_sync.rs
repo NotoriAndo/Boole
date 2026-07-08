@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use boole_core::{block_hash, Hex32};
+use boole_core::{block_hash, Hex32, CONSENSUS_RULE_VERSION};
 use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig};
 use boole_p2p::{Frame, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
 use boole_testkit::rand_suffix;
@@ -368,6 +368,7 @@ fn sync_rejects_tampered_chain_from_peer() {
                 &mut conn,
                 &Frame::Hello {
                     protocol_version: PROTOCOL_VERSION,
+                    consensus_rule_version: CONSENSUS_RULE_VERSION,
                     network_id: "boole-mvp".to_string(),
                     genesis_hash: genesis_for_peer.clone(),
                     head: HeadSummary {

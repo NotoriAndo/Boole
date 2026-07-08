@@ -129,7 +129,9 @@ pub(crate) fn open_validated_conn(
     let reply = transport.recv_frame(&mut conn)?;
     if !identity.matches(&reply) {
         return Err(FrameError::Malformed {
-            detail: "peer hello mismatch (protocol_version/network_id/genesis_hash)".to_string(),
+            detail: "peer hello mismatch \
+                     (protocol_version/consensus_rule_version/network_id/genesis_hash)"
+                .to_string(),
         });
     }
     let peer_head = match reply {

@@ -28,6 +28,7 @@ pub mod receipt;
 pub mod rejection_log;
 pub mod replay;
 pub(crate) mod replay_evidence;
+pub mod rules;
 pub mod session_policy;
 pub mod share_pool;
 pub mod signed_envelope;
@@ -100,6 +101,7 @@ pub use replay::{
     replay_blocks_with_retarget_allow_legacy_evidence_less, LegacyEvidenceOptIn, PersistedCredit,
     PersistedRewardEvent, ReplayResult,
 };
+pub use rules::CONSENSUS_RULE_VERSION;
 pub use session_policy::{SessionPolicy, SessionState, SignerRequest};
 pub use share_pool::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
 pub use signed_envelope::{

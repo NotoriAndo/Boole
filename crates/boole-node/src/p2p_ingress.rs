@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use boole_core::CONSENSUS_RULE_VERSION;
 use boole_p2p::{
     Frame, FrameError, HeadSummary, TcpConn, TcpTransport, Transport, GET_BLOCKS_RANGE_CAP,
     PROTOCOL_VERSION,
@@ -74,25 +75,30 @@ impl P2pIdentity {
     pub(crate) fn hello(&self, head: HeadSummary) -> Frame {
         Frame::Hello {
             protocol_version: PROTOCOL_VERSION,
+            consensus_rule_version: CONSENSUS_RULE_VERSION,
             network_id: self.network_id.clone(),
             genesis_hash: self.genesis_c.clone(),
             head,
         }
     }
 
-    /// A peer `Hello` matches iff protocol_version, network_id AND
-    /// genesis_hash all agree (`Hello.genesis_hash` is load-bearing for
-    /// N5.2's per-network genesis commitment; here both nodes must already
-    /// carry the same configured genesis).
+    /// A peer `Hello` matches iff protocol_version, consensus_rule_version,
+    /// network_id AND genesis_hash all agree. `genesis_hash` is load-bearing
+    /// for N5.2's per-network genesis commitment; `consensus_rule_version`
+    /// (ADR-0014 (b)) keeps a peer enforcing a different block-validity rule
+    /// set from gossiping with us — same shares, different chosen blocks is
+    /// a silent fork.
     pub(crate) fn matches(&self, frame: &Frame) -> bool {
         matches!(
             frame,
             Frame::Hello {
                 protocol_version,
+                consensus_rule_version,
                 network_id,
                 genesis_hash,
                 ..
             } if *protocol_version == PROTOCOL_VERSION
+                && *consensus_rule_version == CONSENSUS_RULE_VERSION
                 && network_id == &self.network_id
                 && genesis_hash == &self.genesis_c
         )

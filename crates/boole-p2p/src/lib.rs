@@ -19,7 +19,9 @@ use serde_json::Value;
 
 /// Wire protocol version carried in `Hello` (ADR-0009 (b)) — additive frame
 /// evolution bumps this instead of silently breaking the wire.
-pub const PROTOCOL_VERSION: u32 = 1;
+/// v2: `Hello` gained the required `consensus_rule_version` field
+/// (ADR-0009 amendment 2026-07-08, ADR-0014 (b)).
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Max encoded frame size, newline included (ADR-0009 (c) — mirrors the MCP
 /// stdio frame cap, N0-pre.6). Applies to both directions.
@@ -48,6 +50,11 @@ pub enum Frame {
     #[serde(rename_all = "camelCase")]
     Hello {
         protocol_version: u32,
+        /// Which consensus rule set the sender enforces (ADR-0014 (b);
+        /// the constant is owned by boole-core). A mismatch is a typed
+        /// disconnect — nodes on different rules must not gossip, or they
+        /// silently fork on the same shares.
+        consensus_rule_version: u32,
         network_id: String,
         /// Load-bearing for N5.2 (per-network genesis commitment).
         genesis_hash: String,
@@ -246,6 +253,7 @@ mod tests {
     fn hello_encodes_with_camel_case_tag_and_fields() {
         let frame = Frame::Hello {
             protocol_version: PROTOCOL_VERSION,
+            consensus_rule_version: 1,
             network_id: "net".to_string(),
             genesis_hash: "00".repeat(32),
             head: HeadSummary {
@@ -255,7 +263,8 @@ mod tests {
         };
         let encoded = serde_json::to_value(&frame).expect("encode");
         assert_eq!(encoded["type"], "hello");
-        assert_eq!(encoded["protocolVersion"], 1);
+        assert_eq!(encoded["protocolVersion"], 2);
+        assert_eq!(encoded["consensusRuleVersion"], 1);
         assert_eq!(encoded["networkId"], "net");
         assert!(encoded["genesisHash"].is_string());
         assert_eq!(encoded["head"]["height"], 1);
