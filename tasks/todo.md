@@ -841,3 +841,80 @@ side_pool 재빌드는 후속 slice로 이월(더 어려운 케이스).
 
 claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
 claim 아님.
+
+---
+
+# 2026-07-08 — N4 후속: reorg 시 bounty-event 원장·side_pool 곧바로 재빌드 (노드, 옵션 1 뒷부분)
+
+위 proof-dedup 착륙에서 이월했던 "더 어려운 후속 slice"를 처리한다. reorg가 더
+무거운 경쟁 체인을 채택할 때, 노드-로컬 bounty 상태 중 **블록-투영(block
+projection)** 부분만 새 체인 기준으로 재유도한다.
+
+## 방향 검증 (구현 전)
+- 상태를 라우트-구동 vs 블록-투영으로 분류:
+  - 원장의 `create`/`status_change`/`proof` 행 = 라우트-구동(블록에 없음, off-chain
+    announce/status/proof 핸들러가 기록) → reorg 무관, 보존.
+  - 원장의 `credit`/`share_promoted` 행 = 블록-구동 → `derive_bounty_events`로 채택
+    체인에서 재유도.
+  - `bounty_registry` = (정적 catalog + 라우트 행)의 순수 함수, 블록에서 파생 불가 →
+    reorg-불변(재빌드 불필요).
+  - `bounty_side_pool` = {수락 proof} − {블록에서 promote됨}; 차감집합만 블록-구동 →
+    재유도 필요.
+- 결론: "세 상태 전부 블록에서 재빌드"는 불가능(라우트 상태가 블록에 없음). 올바른
+  설계는 "라우트 행 보존 + 블록 투영 재유도 + registry 그대로". 구현 전 이 통찰을
+  사용자에게 보고 후 진행.
+
+## slice 구현
+- [x] RED: `rebuild_bounty_ledger_rows_keeps_route_rows_and_reprojects_block_rows`,
+      `reorg_rebuilds_bounty_state_and_reopens_unpromoted_share`(옛 fork에서 promote
+      됐던 proof가 새 체인에서 미promote면 side_pool에 pending으로 재등장),
+      `reorg_bounty_rebuild_is_noop_without_configured_ledger`,
+      `rewrite_atomic_replaces_file_and_round_trips`,
+      `rewrite_atomic_rejects_invalid_event_and_writes_nothing`. 함수 부재로 컴파일
+      실패(RED 확인).
+- [x] GREEN(production 3곳):
+      1) `runtime::derive_bounty_events` → `pub(crate)`로 승격(재빌드에서 재사용).
+      2) `FileBountyEventLedger::rewrite_atomic(path, events)` — 각 이벤트 검증 후
+         `write_ndjson_lines_atomic`(temp+rename)로 원장 전체 원자적 교체(append로는
+         재작성 불가; 중간 크래시 시 옛 파일/새 파일 중 하나, 찢긴 splice 없음).
+      3) `local_node::rebuild_bounty_ledger_rows`(순수: 라우트 행 원순서 보존 + 블록
+         행 재유도) + `rebuild_bounty_state_after_reorg`(recover→재유도→rewrite→
+         side_pool 초기화 후 `rebuild_bounty_side_pool`로 재빌드; registry 미변경).
+         `ingest_candidate_chain`의 `Reorged` arm에서 proof-dedup 재빌드 뒤 호출,
+         disjoint 필드 borrow, 실패 시 로그-후-계속(reorg는 이미 커밋됨).
+- [x] doc 정정: `ingest_candidate_chain` doc-comment의 "bounty state NOT rewound —
+      deferred" 문구를 "원장·side_pool은 여기서 in-line 재빌드, registry는 reorg-불변,
+      원장 재작성이 부팅 heal의 PREFIX 가정도 유지"로 교체.
+- [x] 로컬 게이트(node production 티어, 비합의): boole-node lib 신규 5 + rewrite 2 +
+      reorg_state_convergence 2 + bounty_event_crash_heal 8 + bounty_event_ledger_
+      recovery 2 + p2p_initial_sync 3 + p2p_block_propagation 4 green
+      (`--include-ignored --test-threads=1`) + fmt clean +
+      clippy(`-p boole-node --all-targets -D warnings`) clean + `git diff --check` clean
+
+## Review
+착륙 완료 (2026-07-08). PR #49 rebase-merge, main = `9c7d41d`, NotoriAndo author.
+
+무엇을 했나 (쉬운 말): 우리 노드가 더 무거운 경쟁 체인으로 갈아탈 때(reorg), 현상금
+(bounty) 관련 노드 기록 중 "블록에서 만들어진 부분"만 새 체인 기준으로 다시 만든다.
+현상금 기록에는 두 종류가 섞여 있다. (1) 사람이 체인 밖에서 올린 것(현상금 공고,
+상태 변경, 증명 제출) — 이건 블록과 무관하니 그대로 둔다. (2) 블록이 만들어질 때
+찍힌 것(지급 크레딧, 이미 상 준 증명 표시) — 이건 갈아탄 새 체인 기준으로 새로 찍는다.
+현상금 목록(registry)은 (1)만으로 정해지므로 갈아타도 안 바뀌어 손대지 않는다.
+현상금 대기줄(side_pool)은 "수락된 증명 − 이미 상 준 증명"이라, 뺄셈 대상이 (2)라서
+다시 계산한다. 결과적으로, 버려진 옛 체인에서 상 줬던 증명이 새 체인에선 상을 못
+받게 됐다면 그 증명이 대기줄에 다시 나타난다. 원장을 새 체인 기준으로 통째로 다시
+쓰기 때문에, 나중에 재부팅할 때 하던 "빠진 뒷부분만 채우는" 복구도 어긋나지 않는다.
+
+범위: boole-node production(비합의, 노드-로컬). 현상금 투영 필드는 `block_hash`에
+들어가지 않음.
+
+검증:
+- focused: 신규 5 (원장 재유도/재배선 3 + rewrite_atomic 2) green
+- 회귀: bounty_event_crash_heal 8 + bounty_event_ledger_recovery 2 +
+  p2p_initial_sync 3 + p2p_block_propagation 4 + reorg_state_convergence 2 green
+- 로컬 게이트: fmt clean + clippy clean + git diff --check clean
+- CI: self-test pass + supply-chain pass (PR #49)
+- working tree clean, origin/main == local HEAD == `9c7d41d`
+
+claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
+claim 아님.
