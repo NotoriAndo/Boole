@@ -1,17 +1,15 @@
 {
-  "version": 1,
-  "source": {
-    "blockStore": "legacy-pof/dispatcher/src/blockStore.ts",
-    "rewardLedger": "legacy-pof/dispatcher/src/rewardLedger.ts",
-    "chain": "legacy-pof/dispatcher/src/chain.ts"
-  },
-  "generatedBy": "scripts/export-replay-fixtures.ts",
-  "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",
   "blocks": [
     {
+      "c": "3ac401a345c27e266387c9f084ef1aa94a2f4fb4764edca71f1ade48c1a6ddcc",
+      "difficultyEpoch": 0,
+      "difficultyWeight": "1",
+      "droppedBelowMinScore": 0,
+      "droppedKernelReject": 0,
       "height": 0,
+      "kmaxApplied": 2,
+      "minShareScore": "10",
       "prevC": "0000000000000000000000000000000000000000000000000000000000000000",
-      "c": "4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d",
       "proposerPk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "selectedShareHashes": [
         "0101010101010101010101010101010101010101010101010101010101010101",
@@ -21,21 +19,21 @@
         "1111111111111111111111111111111111111111111111111111111111111111",
         "2222222222222222222222222222222222222222222222222222222222222222"
       ],
-      "minShareScore": "10",
-      "kmaxApplied": 2,
-      "droppedBelowMinScore": 0,
-      "droppedKernelReject": 0,
-      "truncatedByKmax": 0,
-      "ts": 1700000000000,
-      "difficultyEpoch": 0,
       "tBlock": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       "tShare": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-      "difficultyWeight": "1"
+      "truncatedByKmax": 0,
+      "ts": 1700000000000
     },
     {
+      "c": "a75b21cbe77de38cf84728073e06eeef6bc58b71fd5a59b637947ccc1be8d700",
+      "difficultyEpoch": 0,
+      "difficultyWeight": "1",
+      "droppedBelowMinScore": 1,
+      "droppedKernelReject": 0,
       "height": 1,
-      "prevC": "4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d",
-      "c": "abbd27303f939d92feab97c196c14dc05d28e0631b66580d9c63305bb2044b49",
+      "kmaxApplied": 3,
+      "minShareScore": "20",
+      "prevC": "3ac401a345c27e266387c9f084ef1aa94a2f4fb4764edca71f1ade48c1a6ddcc",
       "proposerPk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "selectedShareHashes": [
         "0303030303030303030303030303030303030303030303030303030303030303",
@@ -47,65 +45,66 @@
         "2222222222222222222222222222222222222222222222222222222222222222",
         "3333333333333333333333333333333333333333333333333333333333333333"
       ],
-      "minShareScore": "20",
-      "kmaxApplied": 3,
-      "droppedBelowMinScore": 1,
-      "droppedKernelReject": 0,
-      "truncatedByKmax": 2,
-      "ts": 1700000001000,
-      "difficultyEpoch": 0,
       "tBlock": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       "tShare": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-      "difficultyWeight": "1"
-    }
-  ],
-  "rewardEvents": [
-    {
-      "height": 0,
-      "c": "4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d",
-      "credits": [
-        {
-          "pk": "1111111111111111111111111111111111111111111111111111111111111111",
-          "amount": "1"
-        },
-        {
-          "pk": "2222222222222222222222222222222222222222222222222222222222222222",
-          "amount": "1"
-        },
-        {
-          "pk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "amount": "1"
-        }
-      ]
-    },
-    {
-      "height": 1,
-      "c": "abbd27303f939d92feab97c196c14dc05d28e0631b66580d9c63305bb2044b49",
-      "credits": [
-        {
-          "pk": "2222222222222222222222222222222222222222222222222222222222222222",
-          "amount": "2"
-        },
-        {
-          "pk": "3333333333333333333333333333333333333333333333333333333333333333",
-          "amount": "1"
-        },
-        {
-          "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "amount": "1"
-        }
-      ]
+      "truncatedByKmax": 2,
+      "ts": 1700000001000
     }
   ],
   "expected": {
-    "latestC": "abbd27303f939d92feab97c196c14dc05d28e0631b66580d9c63305bb2044b49",
-    "height": 2,
     "balances": {
       "1111111111111111111111111111111111111111111111111111111111111111": "1",
       "2222222222222222222222222222222222222222222222222222222222222222": "3",
       "3333333333333333333333333333333333333333333333333333333333333333": "1",
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "1",
       "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "1"
+    },
+    "height": 2,
+    "latestC": "a75b21cbe77de38cf84728073e06eeef6bc58b71fd5a59b637947ccc1be8d700"
+  },
+  "generatedBy": "boole-core consensus fixture generator (preimage v2 reset, N5-pre.1)",
+  "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",
+  "rewardEvents": [
+    {
+      "c": "3ac401a345c27e266387c9f084ef1aa94a2f4fb4764edca71f1ade48c1a6ddcc",
+      "credits": [
+        {
+          "amount": "1",
+          "pk": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "amount": "1",
+          "pk": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        {
+          "amount": "1",
+          "pk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "height": 0
+    },
+    {
+      "c": "a75b21cbe77de38cf84728073e06eeef6bc58b71fd5a59b637947ccc1be8d700",
+      "credits": [
+        {
+          "amount": "2",
+          "pk": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        {
+          "amount": "1",
+          "pk": "3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        {
+          "amount": "1",
+          "pk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "height": 1
     }
-  }
+  ],
+  "source": {
+    "hash": "crates/boole-core/src/hash.rs::block_hash",
+    "note": "originally exported from legacy-pof (scripts/export-replay-fixtures.ts); block hashes recomputed under the v2 preimage (ADR-0014 (a)) \u2014 the legacy TS chain.ts is no longer the hash reference"
+  },
+  "version": 1
 }

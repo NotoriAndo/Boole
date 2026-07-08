@@ -33,20 +33,15 @@ pub fn cumulative_difficulty_weight(blocks: &[PersistedBlock]) -> anyhow::Result
 }
 
 /// The consensus hash of a chain's head (tip) block, recomputed from its
-/// canonical inputs (`prev_c` + `selected_share_hashes`) rather than trusting
-/// the stored `c` — the same derivation `replay` verifies each block against.
+/// canonical inputs (the v2 preimage's committed fields) rather than
+/// trusting the stored `c` — the same derivation `replay` verifies each
+/// block against.
 ///
 /// Public so a node's reorg handler can map [`choose_canonical_head`]'s winning
 /// hash back to a specific candidate chain (does the winner equal *my*
 /// candidate's head?) using the identical, tamper-resistant derivation.
 pub fn head_block_hash(head: &PersistedBlock) -> anyhow::Result<Hex32> {
-    let prev = Hex32::from_hex(&head.prev_c)?;
-    let share_hashes = head
-        .selected_share_hashes
-        .iter()
-        .map(|h| Hex32::from_hex(h))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(block_hash(&prev, &share_hashes))
+    Ok(block_hash(head))
 }
 
 /// Choose the canonical head among competing candidate chains: the head of the

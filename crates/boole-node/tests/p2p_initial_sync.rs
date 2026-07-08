@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use boole_core::{block_hash, Hex32, CONSENSUS_RULE_VERSION};
+use boole_core::{block_hash, CONSENSUS_RULE_VERSION};
 use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig};
 use boole_p2p::{Frame, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
 use boole_testkit::rand_suffix;
@@ -325,15 +325,12 @@ fn sync_rejects_tampered_chain_from_peer() {
     let fake_addr = fake_listener.local_addr().expect("fake addr");
     let genesis = scenario_genesis_c();
 
-    let prev = Hex32::from_hex(&genesis).expect("genesis hex");
     let share_hash_hex = "11".repeat(32);
-    let share_hash = Hex32::from_hex(&share_hash_hex).expect("share hash hex");
-    let forged_c = block_hash(&prev, &[share_hash]).to_hex();
     let pk = "bb".repeat(32);
-    let forged = json!({
+    let mut forged = json!({
         "height": 0,
         "prevC": genesis,
-        "c": forged_c,
+        "c": "",
         "proposerPk": pk,
         "selectedShareHashes": [share_hash_hex],
         "selectedSharePks": [pk],
@@ -348,6 +345,10 @@ fn sync_rejects_tampered_chain_from_peer() {
         "truncatedByKmax": 0,
         "ts": 1_700_000_000_123u64,
     });
+    let parsed: boole_core::PersistedBlock =
+        serde_json::from_value(forged.clone()).expect("forged block parses");
+    let forged_c = block_hash(&parsed).to_hex();
+    forged["c"] = json!(forged_c);
 
     let genesis_for_peer = genesis.clone();
     let fake_peer = thread::spawn(move || {

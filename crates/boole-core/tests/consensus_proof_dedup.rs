@@ -94,17 +94,12 @@ fn block_at(
     let evidence: Vec<SelectedShareEvidence> = shares.iter().map(|(e, _)| e.clone()).collect();
     let pks: Vec<String> = evidence.iter().map(|e| e.pk.clone()).collect();
     let hashes: Vec<String> = shares.iter().map(|(_, h)| h.clone()).collect();
-    let hex_hashes = hashes
-        .iter()
-        .map(|h| Hex32::from_hex(h).expect("share hash hex32"))
-        .collect::<Vec<_>>();
-    let c = block_hash(&Hex32::from_hex(prev_c).expect("prev c hex32"), &hex_hashes).to_hex();
     let proposer_pk = pks[0].clone();
     let kmax_applied = hashes.len() as u64;
-    PersistedBlock {
+    let mut block = PersistedBlock {
         height,
         prev_c: prev_c.to_string(),
-        c,
+        c: String::new(),
         proposer_pk,
         selected_share_hashes: hashes,
         selected_share_pks: pks,
@@ -124,7 +119,9 @@ fn block_at(
         ts,
         promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
-    }
+    };
+    block.c = block_hash(&block).to_hex();
+    block
 }
 
 #[test]

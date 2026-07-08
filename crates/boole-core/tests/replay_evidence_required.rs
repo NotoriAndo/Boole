@@ -10,8 +10,8 @@
 //! use) — see `replay_blocks_allow_legacy_evidence_less`.
 
 use boole_core::{
-    block_hash, replay_blocks, replay_blocks_allow_legacy_evidence_less, Hex32,
-    LegacyEvidenceOptIn, PersistedBlock,
+    block_hash, replay_blocks, replay_blocks_allow_legacy_evidence_less, LegacyEvidenceOptIn,
+    PersistedBlock,
 };
 
 const PREV_C: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -19,16 +19,10 @@ const SHARE_HASH: &str = "111111111111111111111111111111111111111111111111111111
 const PK: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 fn evidence_less_block() -> PersistedBlock {
-    let c = block_hash(
-        &Hex32::from_hex(PREV_C).expect("prev c hex32"),
-        &[Hex32::from_hex(SHARE_HASH).expect("share hash hex32")],
-    )
-    .to_hex();
-
-    PersistedBlock {
+    let mut block = PersistedBlock {
         height: 0,
         prev_c: PREV_C.to_string(),
-        c,
+        c: String::new(),
         proposer_pk: PK.to_string(),
         selected_share_hashes: vec![SHARE_HASH.to_string()],
         selected_share_pks: vec![PK.to_string()],
@@ -48,7 +42,9 @@ fn evidence_less_block() -> PersistedBlock {
         ts: 1_700_000_000_000,
         promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
-    }
+    };
+    block.c = block_hash(&block).to_hex();
+    block
 }
 
 #[test]

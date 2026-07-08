@@ -193,13 +193,7 @@ fn replay_blocks_with_evidence_policy(
                 latest_c
             );
         }
-        let prev = Hex32::from_hex(&block.prev_c)?;
-        let share_hashes = block
-            .selected_share_hashes
-            .iter()
-            .map(|h| Hex32::from_hex(h))
-            .collect::<Result<Vec<_>, _>>()?;
-        let expected_c = block_hash(&prev, &share_hashes).to_hex();
+        let expected_c = block_hash(block).to_hex();
         if block.c != expected_c {
             anyhow::bail!("block c mismatch: got {}, expected {}", block.c, expected_c);
         }

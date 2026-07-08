@@ -65,17 +65,12 @@ fn block_with_shares(
     hashes: Vec<String>,
     proposer_pk: &str,
 ) -> PersistedBlock {
-    let hex_hashes = hashes
-        .iter()
-        .map(|h| Hex32::from_hex(h).expect("share hash hex32"))
-        .collect::<Vec<_>>();
-    let c = block_hash(&Hex32::from_hex(PREV_C).expect("prev c hex32"), &hex_hashes).to_hex();
     let kmax_applied = hashes.len() as u64;
 
-    PersistedBlock {
+    let mut block = PersistedBlock {
         height: 0,
         prev_c: PREV_C.to_string(),
-        c,
+        c: String::new(),
         proposer_pk: proposer_pk.to_string(),
         selected_share_hashes: hashes,
         selected_share_pks: pks,
@@ -95,7 +90,9 @@ fn block_with_shares(
         ts: 1_700_000_000_000,
         promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
-    }
+    };
+    block.c = block_hash(&block).to_hex();
+    block
 }
 
 #[test]

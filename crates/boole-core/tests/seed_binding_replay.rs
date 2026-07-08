@@ -61,16 +61,10 @@ fn share_with_seed(seed_hex: &str) -> (SelectedShareEvidence, String) {
 }
 
 fn block_with_share(evidence: SelectedShareEvidence, hash: String) -> PersistedBlock {
-    let c = block_hash(
-        &Hex32::from_hex(PREV_C).expect("prev c hex32"),
-        &[Hex32::from_hex(&hash).expect("share hash hex32")],
-    )
-    .to_hex();
-
-    PersistedBlock {
+    let mut block = PersistedBlock {
         height: 0,
         prev_c: PREV_C.to_string(),
-        c,
+        c: String::new(),
         proposer_pk: PK.to_string(),
         selected_share_hashes: vec![hash],
         selected_share_pks: vec![PK.to_string()],
@@ -90,7 +84,9 @@ fn block_with_share(evidence: SelectedShareEvidence, hash: String) -> PersistedB
         ts: 1_700_000_000_000,
         promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
-    }
+    };
+    block.c = block_hash(&block).to_hex();
+    block
 }
 
 #[test]

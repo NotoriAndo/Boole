@@ -9,7 +9,7 @@ use boole_core::{
     replay_blocks_allow_legacy_evidence_less, replay_blocks_with_retarget,
     replay_blocks_with_retarget_allow_legacy_evidence_less, share_score, AdmissionDecision,
     AdmissionParsedDeps, BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy,
-    CalibrationReport, CandidateShare, DifficultyEvidence, DifficultyRetargetPolicy, Hex32,
+    CalibrationReport, CandidateShare, DifficultyEvidence, DifficultyRetargetPolicy,
     LegacyEvidenceOptIn, PersistedBlock, PersistedRewardEvent, PoolShare, RateLimiter,
     SelectedShareEvidence, SharePool,
 };
@@ -728,22 +728,19 @@ impl RuntimeAdmissionState {
                 seed_hex: share.seed_hex.clone(),
             })
             .collect::<Vec<_>>();
-        let share_hashes = selected_share_hashes
-            .iter()
-            .map(|hash| Hex32::from_hex(hash))
-            .collect::<Result<Vec<_>, _>>()?;
-        let prev = Hex32::from_hex(prev_c)?;
-        let c = block_hash(&prev, &share_hashes).to_hex();
         let proposer = selection
             .selected
             .get(selection.proposer_index)
             .ok_or_else(|| anyhow::anyhow!("proposer index out of range"))?;
         let proposer_reward_pk = proposer.reward_pk.clone();
 
-        Ok(PersistedBlock {
+        // Preimage v2 (ADR-0014 (a)): the hash commits the assembled block's
+        // replay-consumed fields, so build first with an empty `c`, then
+        // derive it.
+        let mut block = PersistedBlock {
             height,
             prev_c: prev_c.to_string(),
-            c,
+            c: String::new(),
             proposer_pk: proposer.pk.clone(),
             selected_share_hashes,
             selected_share_pks,
@@ -766,7 +763,9 @@ impl RuntimeAdmissionState {
             // bounty-event ledger's `share_promoted` rows are re-derivable
             // from the block store after a crash mid-commit. Not hashed.
             promoted_bounty_shares: selection.promoted_bounty_shares.clone(),
-        })
+        };
+        block.c = block_hash(&block).to_hex();
+        Ok(block)
     }
 
     pub fn commit_block_for_current_c(
