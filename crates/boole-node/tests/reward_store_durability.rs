@@ -6,7 +6,7 @@ use boole_node::FileRewardLedger;
 fn fixture_reward_event() -> PersistedRewardEvent {
     let raw = r#"{
         "height": 0,
-        "c": "4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d",
+        "c": "3ac401a345c27e266387c9f084ef1aa94a2f4fb4764edca71f1ade48c1a6ddcc",
         "credits": [
             {
                 "pk": "1111111111111111111111111111111111111111111111111111111111111111",

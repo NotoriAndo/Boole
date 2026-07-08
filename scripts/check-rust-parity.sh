@@ -4,8 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-npx tsx scripts/export-block-hash-fixtures.ts
-npx tsx scripts/export-replay-fixtures.ts
+# block-hash/replay fixtures are no longer TS-exported: the v2 block_hash
+# preimage (ADR-0014 (a), N5-pre.1) is defined by the Rust implementation,
+# not legacy-pof chain.ts — their fixtures are Rust-generated golden vectors.
 npx tsx scripts/export-block-builder-fixtures.ts
 npx tsx scripts/export-hash-pow-fixtures.ts
 npx tsx scripts/export-share-pool-fixtures.ts

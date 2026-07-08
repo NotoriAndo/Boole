@@ -27,7 +27,7 @@ fn valid_receipt() -> SubmitReceipt {
         request_hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             .to_string(),
         block_height: 0,
-        block_c: "4de4d7cc23ab12195fae90e2778deb07c8f7ebf16b3440f326680a2e3ae7750d".to_string(),
+        block_c: "3ac401a345c27e266387c9f084ef1aa94a2f4fb4764edca71f1ade48c1a6ddcc".to_string(),
         share_hash: "0101010101010101010101010101010101010101010101010101010101010101".to_string(),
         proposer_pk: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
         reward_recipient: "1111111111111111111111111111111111111111111111111111111111111111"

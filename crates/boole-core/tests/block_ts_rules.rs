@@ -22,16 +22,11 @@ const T_BLOCK: &str = "0x000ffffffffffffffffffffffffffffffffffffffffffffffffffff
 /// does not need.
 fn block_with_ts(height: u64, prev_c: &str, ts: u64) -> PersistedBlock {
     let share_hash = Hex32::from_bytes([height as u8 + 1; 32]);
-    let c = block_hash(
-        &Hex32::from_hex(prev_c).unwrap(),
-        std::slice::from_ref(&share_hash),
-    )
-    .to_hex();
     let t_block = parse_biguint_hex(T_BLOCK).unwrap();
-    PersistedBlock {
+    let mut block = PersistedBlock {
         height,
         prev_c: prev_c.to_string(),
-        c,
+        c: String::new(),
         proposer_pk: "11".repeat(32),
         selected_share_hashes: vec![share_hash.to_hex()],
         selected_share_pks: vec!["11".repeat(32)],
@@ -51,7 +46,9 @@ fn block_with_ts(height: u64, prev_c: &str, ts: u64) -> PersistedBlock {
         ts,
         promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
-    }
+    };
+    block.c = block_hash(&block).to_hex();
+    block
 }
 
 #[test]

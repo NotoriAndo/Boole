@@ -106,13 +106,40 @@ pub fn h_protocol(domain: &[u8], parts: &[&[u8]]) -> Hex32 {
     Hex32::from_bytes(*hasher.finalize().as_bytes())
 }
 
-pub fn block_hash(prev_c: &Hex32, share_hashes: &[Hex32]) -> Hex32 {
+/// Block hash, preimage v2 (ADR-0014 (a) / N5-pre.1): commits every
+/// `PersistedBlock` field that replay/block-validation consumes to derive
+/// state, difficulty, or fork-choice — reward routing, bounty credit rows,
+/// and the ts/difficulty inputs — not just `prev_c ‖ share_hashes` (v1).
+/// Two blocks may share a hash only if replay derives identical state from
+/// them.
+///
+/// Stays outside the preimage: `selected_share_evidence` and
+/// `promoted_bounty_shares` (schema-versioned side-band, ADR-0007 (d) /
+/// P1.3b), telemetry counters, and fields replay re-derives from committed
+/// inputs (`difficulty_weight` from `t_block`, `kmax_applied` from the
+/// share count). The stored `c` is never an input to its own hash.
+///
+/// Encoding: BLAKE3 over `"block.v2" ‖ canonical-JSON` of the committed
+/// fields in their persisted (camelCase) representation — canonical JSON
+/// makes the variable-length fields unambiguous without hand-rolled length
+/// prefixes, and matches how `GenesisSpec.hash()` (N5.1) commits its spec.
+pub fn block_hash(block: &crate::block::PersistedBlock) -> Hex32 {
+    let committed = serde_json::json!({
+        "height": block.height,
+        "prevC": block.prev_c,
+        "selectedShareHashes": block.selected_share_hashes,
+        "selectedSharePks": block.selected_share_pks,
+        "selectedShareRewardPks": block.selected_share_reward_pks,
+        "proposerPk": block.proposer_pk,
+        "proposerRewardPk": block.proposer_reward_pk,
+        "promotedBountyCredits": block.promoted_bounty_credits,
+        "ts": block.ts,
+        "tBlock": block.t_block,
+        "difficultyEpoch": block.difficulty_epoch,
+    });
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"block");
-    hasher.update(prev_c.as_bytes());
-    for share_hash in share_hashes {
-        hasher.update(share_hash.as_bytes());
-    }
+    hasher.update(b"block.v2");
+    hasher.update(&crate::canonical_json::canonicalize(&committed));
     Hex32::from_bytes(*hasher.finalize().as_bytes())
 }
 

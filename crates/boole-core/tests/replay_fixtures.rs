@@ -101,6 +101,12 @@ fn replay_credits_reward_override_fields_not_mining_identity_fields() {
     let reward_pk = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
     block.selected_share_reward_pks = vec![reward_pk.to_string()];
     block.proposer_reward_pk = reward_pk.to_string();
+    // Preimage v2 commits the reward routing (ADR-0014 (a)) — a block
+    // proposed WITH overrides hashes over them, so re-derive `c` after
+    // setting them (a post-hoc mutation without rehashing is now a
+    // c-mismatch reject; `block_hash_v2_commits_reward_routing_fields`
+    // pins that side).
+    block.c = boole_core::block_hash(&block).to_hex();
 
     let credits = compute_block_reward_credits(&block).expect("reward override credits compute");
     assert_eq!(credits.len(), 1);
@@ -256,16 +262,10 @@ fn evidence_backed_block() -> PersistedBlock {
         &Hex32::from_hex(&canon_hash).expect("canon hash hex32"),
     )
     .to_hex();
-    let c = block_hash(
-        &Hex32::from_hex(prev_c).expect("prev c hex32"),
-        &[Hex32::from_hex(&share_hash).expect("share hash hex32")],
-    )
-    .to_hex();
-
-    PersistedBlock {
+    let mut block = PersistedBlock {
         height: 0,
         prev_c: prev_c.to_string(),
-        c,
+        c: String::new(),
         proposer_pk: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
         selected_share_hashes: vec![share_hash],
         selected_share_pks: vec![pk.to_string()],
@@ -293,7 +293,9 @@ fn evidence_backed_block() -> PersistedBlock {
         ts: 1_700_000_000_000,
         promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
-    }
+    };
+    block.c = block_hash(&block).to_hex();
+    block
 }
 
 fn valid_pofp_v2_package_hex() -> String {

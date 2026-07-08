@@ -22,9 +22,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use boole_core::{
-    AdmissionDecision, Hex32, PersistedBlock, PromotedBountyCredit, PromotedBountyShare,
-};
+use boole_core::{AdmissionDecision, PersistedBlock, PromotedBountyCredit, PromotedBountyShare};
 use boole_node::{FileBlockStore, RuntimeAdmissionState, RuntimeConfig};
 use boole_testkit::rand_suffix;
 use serde::Deserialize;
@@ -465,10 +463,12 @@ fn boot_still_bails_when_an_existing_credit_event_is_tampered() {
 
 #[test]
 fn block_hash_is_unchanged_by_promoted_bounty_shares_field() {
-    // Consensus safety: block identity is hash(prev_c, selected_share_hashes).
-    // Recording promoted_bounty_shares on the block (node-local audit data) must
-    // not perturb it. Compute the block hash from a real committed block, then
-    // from a clone with the field cleared, and assert equality.
+    // Consensus safety: promoted_bounty_shares is node-local audit data and
+    // must stay OUTSIDE the block-hash preimage (P1.3b posture, re-affirmed
+    // by preimage v2 — ADR-0014 (a)). The promoted bounty CREDITS are
+    // committed (they feed balances); the share audit rows are not. Compute
+    // the hash from a real committed block, then from a clone with the
+    // field cleared, and assert equality.
     let dir = tmp_dir("blockhash");
     let (_config, _block_path, block) = commit_block_with_promoted(&dir);
     assert!(
@@ -476,23 +476,11 @@ fn block_hash_is_unchanged_by_promoted_bounty_shares_field() {
         "fixture block must carry a promoted share"
     );
 
-    let prev_c = Hex32::from_hex(&block.prev_c).expect("prev_c hex32");
-    let share_hashes: Vec<Hex32> = block
-        .selected_share_hashes
-        .iter()
-        .map(|h| Hex32::from_hex(h).expect("share hash hex32"))
-        .collect();
-    let with_shares = boole_core::block_hash(&prev_c, &share_hashes);
+    let with_shares = boole_core::block_hash(&block);
 
     let mut cleared = block.clone();
     cleared.promoted_bounty_shares.clear();
-    let prev_c2 = Hex32::from_hex(&cleared.prev_c).expect("prev_c hex32");
-    let share_hashes2: Vec<Hex32> = cleared
-        .selected_share_hashes
-        .iter()
-        .map(|h| Hex32::from_hex(h).expect("share hash hex32"))
-        .collect();
-    let without_shares = boole_core::block_hash(&prev_c2, &share_hashes2);
+    let without_shares = boole_core::block_hash(&cleared);
 
     assert_eq!(
         with_shares.to_hex(),

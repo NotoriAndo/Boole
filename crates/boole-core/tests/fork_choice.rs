@@ -48,12 +48,10 @@ fn block(height: u64, t_block: &str, prev_c: &str, share_hash: &str) -> Persiste
 }
 
 /// The consensus hash of a head built by `block(_, _, prev_c, share_hash)`,
-/// computed independently so tests can assert which head is chosen.
-fn head_hash(prev_c: &str, share_hash: &str) -> Hex32 {
-    block_hash(
-        &Hex32::from_hex(prev_c).unwrap(),
-        &[Hex32::from_hex(share_hash).unwrap()],
-    )
+/// computed independently (preimage v2 hashes the block's committed fields)
+/// so tests can assert which head is chosen.
+fn head_hash(height: u64, t_block: &str, prev_c: &str, share_hash: &str) -> Hex32 {
+    block_hash(&block(height, t_block, prev_c, share_hash))
 }
 
 #[test]
@@ -74,7 +72,7 @@ fn selects_heaviest_chain() {
     let chosen = choose_canonical_head(&[light, heavy]).unwrap();
     assert_eq!(
         chosen,
-        head_hash(&prev, &share_heavy),
+        head_hash(1, T_HARD, &prev, &share_heavy),
         "the heaviest chain's head must be chosen"
     );
 }
@@ -87,8 +85,8 @@ fn breaks_exact_tie_by_lowest_block_hash() {
 
     // Two single-block chains of IDENTICAL weight (same t_block) but different
     // heads → the tie must break on the lower block hash, deterministically.
-    let hash_a = head_hash(&prev, &share_a);
-    let hash_b = head_hash(&prev, &share_b);
+    let hash_a = head_hash(0, T_HARD, &prev, &share_a);
+    let hash_b = head_hash(0, T_HARD, &prev, &share_b);
     assert_ne!(hash_a, hash_b, "test needs two distinct head hashes");
     let expected_low = hash_a.min(hash_b);
 

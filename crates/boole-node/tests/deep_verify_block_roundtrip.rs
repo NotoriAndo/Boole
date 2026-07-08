@@ -56,15 +56,10 @@ fn block_with_lean_bound_share(tamper: bool) -> PersistedBlock {
         &Hex32::from_hex(&canon_hash).unwrap(),
     )
     .to_hex();
-    let c = block_hash(
-        &Hex32::from_hex(PREV_C).unwrap(),
-        &[Hex32::from_hex(&sh).unwrap()],
-    )
-    .to_hex();
-    PersistedBlock {
+    let mut block = PersistedBlock {
         height: 0,
         prev_c: PREV_C.to_string(),
-        c,
+        c: String::new(),
         proposer_pk: PK.to_string(),
         selected_share_hashes: vec![sh],
         selected_share_pks: vec![PK.to_string()],
@@ -92,7 +87,9 @@ fn block_with_lean_bound_share(tamper: bool) -> PersistedBlock {
         ts: 1_700_000_000_000,
         promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
-    }
+    };
+    block.c = block_hash(&block).to_hex();
+    block
 }
 
 fn temp_block_path(tag: &str) -> PathBuf {

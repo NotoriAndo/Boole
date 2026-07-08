@@ -13,4 +13,8 @@
 /// p2p `Hello`; a mismatched peer is disconnected with a typed drop.
 /// Also committed into `GenesisSpec.params` at N5.1 (the rule set a
 /// network launched with).
-pub const CONSENSUS_RULE_VERSION: u32 = 1;
+///
+/// v2: block_hash preimage v2 (ADR-0014 (a) / N5-pre.1) — the hash
+/// commits every replay-consumed block field, not just
+/// `prev_c ‖ share_hashes`.
+pub const CONSENSUS_RULE_VERSION: u32 = 2;

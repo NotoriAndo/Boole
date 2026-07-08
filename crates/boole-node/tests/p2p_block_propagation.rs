@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use boole_core::{block_hash, Hex32, CONSENSUS_RULE_VERSION};
+use boole_core::{block_hash, CONSENSUS_RULE_VERSION};
 use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig};
 use boole_p2p::{Frame, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
 use boole_testkit::rand_suffix;
@@ -375,15 +375,12 @@ fn ingress_rejects_evidence_less_block() {
     // selected_share_evidence: the strict replay path (N3-pre.1) must refuse
     // it at the gossip trust boundary — evidence-less blocks are a legacy
     // local-replay concession, never a peer-ingest one.
-    let prev = Hex32::from_hex(&genesis).expect("genesis hex");
     let share_hash_hex = "11".repeat(32);
-    let share_hash = Hex32::from_hex(&share_hash_hex).expect("share hash hex");
-    let forged_c = block_hash(&prev, &[share_hash]).to_hex();
     let pk = "bb".repeat(32);
-    let forged = json!({
+    let mut forged = json!({
         "height": 0,
         "prevC": genesis,
-        "c": forged_c,
+        "c": "",
         "proposerPk": pk,
         "selectedShareHashes": [share_hash_hex],
         "selectedSharePks": [pk],
@@ -398,6 +395,10 @@ fn ingress_rejects_evidence_less_block() {
         "truncatedByKmax": 0,
         "ts": 1_700_000_000_123u64,
     });
+    let parsed: boole_core::PersistedBlock =
+        serde_json::from_value(forged.clone()).expect("forged block parses");
+    let forged_c = block_hash(&parsed).to_hex();
+    forged["c"] = json!(forged_c);
 
     let transport = TcpTransport::new();
     let mut conn = transport.connect(&b_p2p_addr).expect("connect to B");

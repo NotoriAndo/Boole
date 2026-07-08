@@ -1,8 +1,19 @@
-use boole_core::{block_hash, Hex32};
+//! Golden vectors for the block-hash preimage v2 (ADR-0014 (a) / N5-pre.1).
+//!
+//! v1's fixture was a cross-language parity contract against the legacy
+//! TypeScript `blockHash`; the v2 preimage is defined by the Rust
+//! implementation alone (the deliberate protocol-change carve-out
+//! `docs/next-slice-golden-fixtures.md` anticipated), so these vectors are
+//! self-golden: they pin the preimage's byte layout against accidental
+//! drift — any change to the committed field set or encoding shows up as a
+//! hash mismatch here before it silently forks a chain.
+
+use boole_core::{block_hash, PersistedBlock};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct Fixture {
+    domain: String,
     cases: Vec<Case>,
 }
 
@@ -10,26 +21,24 @@ struct Fixture {
 #[serde(rename_all = "camelCase")]
 struct Case {
     name: String,
-    prev_c: String,
-    share_hashes: Vec<String>,
+    block: serde_json::Value,
     expected_c: String,
 }
 
 #[test]
-fn block_hash_matches_typescript_golden_fixture() {
+fn block_hash_matches_v2_golden_fixture() {
     let fixture: Fixture = serde_json::from_str(include_str!(
-        "../../../fixtures/protocol/block-hash/v1.json"
+        "../../../fixtures/protocol/block-hash/v2.json"
     ))
     .expect("fixture parses");
+    assert_eq!(fixture.domain, "block.v2");
 
     for case in fixture.cases {
-        let prev_c = Hex32::from_hex(&case.prev_c).expect("prevC hex32");
-        let share_hashes = case
-            .share_hashes
-            .iter()
-            .map(|h| Hex32::from_hex(h).expect("share hash hex32"))
-            .collect::<Vec<_>>();
-        let got = block_hash(&prev_c, &share_hashes).to_hex();
+        let mut block_value = case.block;
+        block_value["c"] = serde_json::json!("");
+        let block: PersistedBlock =
+            serde_json::from_value(block_value).expect("fixture block parses");
+        let got = block_hash(&block).to_hex();
         assert_eq!(got, case.expected_c, "case {}", case.name);
     }
 }
