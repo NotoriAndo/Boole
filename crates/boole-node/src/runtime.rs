@@ -47,7 +47,11 @@ fn derive_reward_event(block: &PersistedBlock) -> anyhow::Result<PersistedReward
 /// and `promoted_bounty_shares` (the latter with the `proofHash` that is
 /// otherwise lost when the in-memory selection is dropped), so this is a pure
 /// function of the persisted block.
-fn derive_bounty_events(
+///
+/// N4 — also reused by the reorg rebuild (`rebuild_bounty_ledger_rows` in
+/// `local_node.rs`) to re-project the block-driven ledger rows onto a
+/// newly-adopted chain, hence `pub(crate)`.
+pub(crate) fn derive_bounty_events(
     block: &PersistedBlock,
 ) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
     let credits = block
