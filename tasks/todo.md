@@ -815,7 +815,8 @@ claim 아님.
       clippy(`-p boole-node --all-targets -D warnings`) clean + `git diff --check` clean
 
 ## Review
-(착륙 후 채움: 커밋 SHA / PR# / CI / origin-main SHA)
+착륙 완료 (2026-07-08). PR #47 rebase-merge, main = `e74bc20`. 코어 커밋
+`a0e1378`(rebase 후 `e74bc20`), NotoriAndo author.
 
 무엇을 했나 (쉬운 말): 우리 노드가 더 무거운 경쟁 체인으로 갈아탈 때(reorg),
 "이 증명은 이미 상 받았으니 또 안 줌"이라고 빠르게 걸러내는 작은 메모장(미러)이
@@ -833,9 +834,10 @@ side_pool 재빌드는 후속 slice로 이월(더 어려운 케이스).
 검증:
 - focused: 신규 4 (rebuild_from_credits 2 + reorg 배선 2) green
 - 회귀: p2p_initial_sync 3 + p2p_block_propagation 4 + reorg_state_convergence 2 +
-  boole-node lib green
+  boole-node lib 44(신규 4 포함) green
 - 로컬 게이트: fmt clean + clippy clean + git diff --check clean
-- CI: (착륙 후 채움)
+- CI: self-test pass 8m04s + supply-chain pass 3m11s (PR #47)
+- working tree clean, origin/main == local HEAD == `e74bc20`
 
 claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
 claim 아님.
