@@ -670,3 +670,91 @@ production 강화를 예상했으나, 방향 검증 결과 **N3.3이 이미 그 
 
 claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
 claim 아님.
+
+# 2026-07-08 — N4 reorg 트리거를 p2p 동기화 경로에 배선 (fork-choice end-to-end)
+
+N4 wave 후속 slice. 텔레그램 "추천작업진행해" → 방향 검증 → "1번으로
+진행해"(옵션 1: reorg 배선 + consensus 상태만 지금 정합, side-ledger 재빌드는
+후속 slice로 이월) 승인. N4.2 fork-choice와 N4.3 reorg 원시연산
+(`reorg_to_heavier_chain`)은 착륙했으나 라이브 경로에 한 번도 불려가지
+않았다 — 더 무거운 **경쟁 체인**이 오면 조용히 버려졌다.
+
+## 방향 검증 (완료)
+- [x] `sync_with_peer`(p2p_ingress.rs)가 `ingest_announced_block`에만 의존 —
+      이건 로컬 head를 딱 1블록 연장만 가능. head 아래에서 갈라지는 peer
+      체인은 첫 블록 `prev_c`가 로컬 head와 달라 `Ignored`로 버려짐. fork-choice가
+      라이브 경로에서 실행될 기회 자체가 없음을 확인.
+- [x] `reorg_to_heavier_chain`은 착륙·테스트 완료(reorg_state_convergence)이나
+      호출자 grep 결과 라이브 경로 0 — 미배선 확정.
+- [x] 사용자에 옵션 제시 → 옵션 1(배선+consensus 정합 지금, side-ledger 이월) 수신.
+
+## slice 구현
+- [x] RED: `sync_reorgs_to_heavier_competing_chain` — B를 가벼운 1블록 fork
+      `[X0]`로 pre-seed, peer A는 무거운 2블록 fork `[Y0,Y1]`(`Y0 != X0`) 보유.
+      현재 코드에선 B가 reorg 못 해 20s 타임아웃(RED 확인).
+- [x] GREEN(production 4곳):
+      1) `local_node::ingest_candidate_chain` + `CandidateChainOutcome` 신설 —
+         후보 체인을 `reorg_to_heavier_chain` 안에서 strict replay, fork-choice가
+         엄격히 더 무거우면 채택(block store + reward ledger + in-memory
+         chain/head/pool 창세부터 재유도), 위조·evidence-less는 `Rejected`.
+      2) `sync_with_peer`의 `Ignored` arm → `reorg_from_peer`: peer 체인을
+         창세부터 페이지네이션 GetBlocks로 전량 fetch 후 `ingest_candidate_chain`.
+      3) 신규 metric `boole_p2p_sync_reorgs_applied_total` — fork-choice reorg
+         (`sync_blocks_applied`는 0 유지)를 선형 fast-forward와 구분.
+      4) RwLock 동일 스레드 write-write 교착 회피 — ingest 가드를 tight scope로
+         drop 후 reorg 경로가 새 가드 재획득.
+- [x] 테스트 race 교정: reorg가 B의 첫 sync pass에서 near-instant 발화 →
+      transient height-1 단언이 sync loop와 경합. 해당 단언 제거,
+      `sync_reorgs_applied==1` + `sync_blocks_applied==0` metric으로 "B가 [X0]에서
+      출발해 reorg했음"을 엄밀 증명(empty-boot fast-forward면 reorgs=0/applied=2).
+- [x] 로컬 게이트(node production 티어): p2p_initial_sync 3 + p2p_block_propagation
+      4 + reorg_state_convergence 2 + boole-node lib 40 green
+      (`--include-ignored --test-threads=1`) + fmt clean +
+      clippy(`-p boole-node --all-targets -D warnings`) clean + `git diff --check` clean
+- [x] 커밋(`c79e5bc`) → PR #45 → CI green → rebase-merge(`7bd27cc`) →
+      remote 검증 → 착륙 기록 → 보고
+
+## Review
+착륙 완료 (2026-07-08). PR #45 rebase-merge, main = `7bd27cc`. 커밋
+`c79e5bc`(rebase 후 `7bd27cc`), NotoriAndo author.
+
+무엇을 했나 (쉬운 말): 이웃 노드가 "우리 것보다 더 무거운(=더 많은 일이 담긴)
+경쟁 체인"을 들고 오면, 예전엔 그 체인의 첫 블록이 우리 머리에 안 이어진다는
+이유로 그냥 무시하고 버렸다. 이제는 그런 경우 이웃의 체인을 창세(제일 처음
+블록)부터 통째로 받아와, 처음부터 다시 계산·검증해서 정말로 더 무거우면 우리
+노드가 그쪽으로 갈아탄다(reorg — 우리가 쥐고 있던 체인을 버리고 더 무거운
+체인으로 재구성). 이걸로 fork-choice(어느 체인을 정답으로 삼을지 고르는 규칙)가
+처음부터 끝까지 실제로 작동한다. 위조하거나 근거(evidence)가 빠진 경쟁 체인은
+재검증에서 걸려 거부되고, 우리 체인은 그대로 유지된다.
+
+새 계기판 눈금: `boole_p2p_sync_reorgs_applied_total`. 이걸로 "체인을 갈아탄
+reorg"와 "그냥 뒤에 이어 붙인 fast-forward"를 구분한다(reorg면 이어붙이기
+카운터는 0으로 남는다).
+
+이월(옵션 1 결정): reorg 원시연산이 소유한 consensus 상태(블록 저장소·보상
+원장·메모리 체인/머리/풀)만 지금 재유도한다. 노드-로컬 bounty-event 원장과 N2.3
+proof-dedup 미러는 이번엔 되감지 않으며, 다음 부팅 때 블록 저장소로부터 다시
+유도돼 self-heal된다. 이 둘을 reorg 시점에 곧바로 재빌드하는 것은 후속 slice.
+
+개발 중 배운 것: reorg가 B의 첫 동기화 시도에서 거의 즉시(~0.3s) 발화해서,
+"reorg 직전의 잠깐 상태(높이 1)"를 단언하려던 테스트가 동기화 루프와 경합해
+깨졌다. 그 순간 단언을 지우고, 대신 "reorg 1회 + 이어붙이기 0회" 계기판 값으로
+B가 가벼운 fork에서 출발해 갈아탔음을 흔들림 없이 증명하도록 바꿨다(빈 상태에서
+출발했다면 이어붙이기 2회로 나올 것이라 구분됨).
+
+범위: boole-node production. side-ledger 재빌드는 후속 slice로 이월. slashing/
+peer-ban은 비목표(E2).
+
+검증:
+- focused: `sync_reorgs_to_heavier_competing_chain` — B가 A로 블록 단위 수렴,
+  `sync_reorgs_applied==1` + `sync_blocks_applied==0`(reorg 증명)
+- 회귀: p2p_initial_sync 3 + p2p_block_propagation 4 + reorg_state_convergence 2 +
+  boole-node lib 40 green
+- 로컬 게이트: fmt clean + clippy clean + git diff --check clean
+- CI: self-test pass 8m11s + supply-chain pass 3m24s (PR #45)
+- working tree clean, origin/main == local HEAD == `7bd27cc`
+
+이번에도 push 전 fmt+clippy 로컬 게이트 선행 → CI 반송 0.
+
+claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
+claim 아님.
