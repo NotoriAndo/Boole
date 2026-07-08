@@ -10,7 +10,7 @@ use crate::p2p_ingress::{
 };
 use crate::proof_dedup_ledger::FileProofDedupLedger;
 use crate::receipt_store::FileReceiptStore;
-use crate::runtime::{ReorgOutcome, RuntimeAdmissionState, RuntimeConfig};
+use crate::runtime::{derive_bounty_events, ReorgOutcome, RuntimeAdmissionState, RuntimeConfig};
 use crate::session_store::FileSessionStore;
 use crate::signed_nonce_ledger::FileSignedNonceLedger;
 use crate::state_dir::{self, StateDirGuard, StateManifest};
@@ -4770,12 +4770,19 @@ pub(crate) enum CandidateChainOutcome {
 ///   wrongly early-reject a resubmission that is creditable again on the new
 ///   chain. (The mirror does NOT self-heal on the next boot: `recover` replays
 ///   the mirror's own file with no block-store re-derivation.)
-/// - The bounty-event ledger + `bounty_registry` + `bounty_side_pool` are NOT
-///   rewound here — deferred to a follow-up slice. These do not cleanly
-///   self-heal on boot either: the boot heal is a SUFFIX-append that assumes
-///   the on-disk block-driven rows are a PREFIX of the expected sequence, an
-///   assumption a reorg (which diverges below the head) breaks, so a
-///   `--bounty-events` node can even fail boot via `verify_ledger_matches_replay`.
+/// - The bounty-event ledger + `bounty_side_pool` ARE rebuilt in-line here
+///   (`rebuild_bounty_state_after_reorg`). Both hold block projections: the
+///   ledger's `credit`/`share_promoted` rows and the side-pool's
+///   already-promoted subtraction set. The ledger's route-driven rows
+///   (`create`/`status_change`/`proof`) and the whole `bounty_registry` are a
+///   pure function of the untouched off-chain announce history, so they are
+///   reorg-INVARIANT and left untouched. Rewriting the ledger to the adopted
+///   chain also keeps a later boot heal correct: that heal is a SUFFIX-append
+///   assuming the on-disk block rows are a PREFIX of the expected sequence, an
+///   assumption a reorg would otherwise break (a `--bounty-events` node could
+///   then fail boot via `verify_ledger_matches_replay`); after the rewrite the
+///   on-disk block rows already match the new chain, so the heal appends
+///   nothing and the verify sums agree.
 pub(crate) fn ingest_candidate_chain(
     state: &mut LocalNodeState,
     candidate_values: &[Value],
@@ -4803,6 +4810,20 @@ pub(crate) fn ingest_candidate_chain(
                 &candidate,
             ) {
                 eprintln!("boole-node: proof-dedup mirror rebuild after reorg failed: {err:#}");
+            }
+            // Rebuild the node-local bounty projections (ledger block rows +
+            // side pool) onto the adopted chain; the registry and route-driven
+            // ledger rows are reorg-invariant. Same log-and-continue stance:
+            // the reorg is already committed, so a rebuild failure must not
+            // abort it. Disjoint field borrows keep the registry read and the
+            // side-pool write from aliasing.
+            if let Err(err) = rebuild_bounty_state_after_reorg(
+                state.bounty_event_ledger_path.as_deref(),
+                &state.bounty_registry,
+                &mut state.bounty_side_pool,
+                &candidate,
+            ) {
+                eprintln!("boole-node: bounty state rebuild after reorg failed: {err:#}");
             }
             CandidateChainOutcome::Reorged { new_head_height }
         }
@@ -4838,6 +4859,69 @@ fn rebuild_proof_dedup_mirror_after_reorg(
         path,
         &canon_hashes,
     )?);
+    Ok(())
+}
+
+/// N4 — re-derive the bounty-event ledger's rows for the newly-adopted chain.
+/// The ledger interleaves route-driven rows (`create` / `status_change` /
+/// `proof`, written by the announce/status/proof handlers and NOT recoverable
+/// from blocks) with block-driven rows (`credit` / `share_promoted`, written at
+/// block commit and fully re-derivable via `derive_bounty_events`). A reorg
+/// only invalidates the block-driven rows, so keep every route-driven row in its
+/// original relative order and replace the block-driven rows with those derived
+/// from `adopted` (credit rows then share rows per block, in block order). Pure:
+/// no I/O, so it is unit-testable and the wiring below owns the file swap.
+fn rebuild_bounty_ledger_rows(existing: &[Value], adopted: &[PersistedBlock]) -> Vec<Value> {
+    let mut rows: Vec<Value> = existing
+        .iter()
+        .filter(|event| {
+            matches!(
+                event.get("kind").and_then(Value::as_str),
+                Some("create") | Some("status_change") | Some("proof")
+            )
+        })
+        .cloned()
+        .collect();
+    for block in adopted {
+        let (credits, shares) = derive_bounty_events(block);
+        rows.extend(credits);
+        rows.extend(shares);
+    }
+    rows
+}
+
+/// N4 — rebuild the node-local bounty state after a reorg has adopted `adopted`
+/// as the new canonical chain. Only block PROJECTIONS change on a reorg:
+/// - the bounty-event ledger's `credit`/`share_promoted` rows, and
+/// - the `bounty_side_pool` (the set-difference `{accepted proofs} − {promoted}`,
+///   whose subtracted term is block-driven).
+///
+/// The `bounty_registry` and the ledger's route-driven rows are a pure function
+/// of the untouched off-chain announce/status/proof history, so they are
+/// reorg-INVARIANT and left as-is (the registry is never even read here beyond
+/// the side-pool's domain/reward lookup). Sequence: recover the current ledger →
+/// re-project its block rows onto `adopted` (`rebuild_bounty_ledger_rows`) →
+/// atomically rewrite the ledger → clear and rebuild the side-pool from the
+/// rewritten rows. No-op when no bounty-event ledger is configured (the
+/// registry/side-pool are empty without it). Rewriting the ledger to match the
+/// adopted chain also keeps a later boot heal correct: that heal is a suffix
+/// append assuming the on-disk block rows are a prefix of the expected sequence,
+/// which a reorg would otherwise break.
+fn rebuild_bounty_state_after_reorg(
+    ledger_path: Option<&Path>,
+    registry: &BountyRegistry,
+    side_pool: &mut BountySidePool,
+    adopted: &[PersistedBlock],
+) -> anyhow::Result<()> {
+    let Some(path) = ledger_path else {
+        return Ok(());
+    };
+    let existing = FileBountyEventLedger::recover(path)?;
+    let rebuilt = rebuild_bounty_ledger_rows(&existing, adopted);
+    FileBountyEventLedger::rewrite_atomic(path, &rebuilt)?;
+    *side_pool = BountySidePool::new();
+    rebuild_bounty_side_pool(side_pool, registry, &rebuilt)
+        .map_err(|err| anyhow::anyhow!("bounty side-pool rebuild after reorg: {err}"))?;
     Ok(())
 }
 
@@ -5094,6 +5178,166 @@ mod tests {
         rebuild_proof_dedup_mirror_after_reorg(None, &mut ledger, &adopted)
             .expect("no-op when no ledger configured");
         assert!(ledger.is_none(), "unconfigured mirror stays None");
+    }
+
+    /// Route-driven `create`/`proof` rows carry a bounty announced off-chain;
+    /// only `credit`/`share_promoted` rows mirror a block. A `PersistedBlock`
+    /// that promotes one bounty share/credit.
+    fn block_with_bounty_promotions(
+        height: u64,
+        prev_c: &str,
+        c: &str,
+        family_id: &str,
+        bounty_id: &str,
+        proof_hash: &str,
+        amount: &str,
+    ) -> PersistedBlock {
+        let mut block = block_with_canon_hashes(height, prev_c, c, &[]);
+        block.promoted_bounty_credits = vec![boole_core::PromotedBountyCredit {
+            family_id: family_id.to_string(),
+            bounty_id: bounty_id.to_string(),
+            prover: PK_A.to_string(),
+            amount: amount.to_string(),
+        }];
+        block.promoted_bounty_shares = vec![boole_core::PromotedBountyShare {
+            family_id: family_id.to_string(),
+            bounty_id: bounty_id.to_string(),
+            proof_hash: proof_hash.to_string(),
+            prover: PK_A.to_string(),
+        }];
+        block
+    }
+
+    #[test]
+    fn rebuild_bounty_ledger_rows_keeps_route_rows_and_reprojects_block_rows() {
+        // Route-driven rows (announced off-chain) — must survive verbatim.
+        let create = json!({
+            "schemaVersion": 1, "kind": "create", "workId": "b1",
+            "problemHash": HASH_1, "verifierKind": "lean", "ts": 1
+        });
+        let proof = json!({
+            "schemaVersion": 1, "kind": "proof", "workId": "b1",
+            "problemHash": HASH_1, "verifierKind": "lean", "ts": 2,
+            "proofHash": HASH_1, "solverPk": PK_A, "accepted": true,
+            "reward": "100", "credit": "100"
+        });
+        // Block-driven rows from the ABANDONED fork (height 9) — must be dropped.
+        let old_credit = json!({
+            "schemaVersion": 1, "kind": "credit", "height": 9, "c": HASH_0,
+            "familyId": "fam.a", "bountyId": "b1", "prover": PK_A, "amount": "100"
+        });
+        let old_share = json!({
+            "schemaVersion": 1, "kind": "share_promoted", "height": 9,
+            "familyId": "fam.a", "bountyId": "b1", "proofHash": HASH_1, "prover": PK_A
+        });
+        let existing = vec![create.clone(), proof.clone(), old_credit, old_share];
+
+        // New chain re-promotes the same bounty at height 0.
+        let block = block_with_bounty_promotions(0, HASH_0, "y0c", "fam.a", "b1", HASH_1, "100");
+        let rows = rebuild_bounty_ledger_rows(&existing, std::slice::from_ref(&block));
+
+        // Route rows preserved in original relative order at the front.
+        assert_eq!(rows[0], create);
+        assert_eq!(rows[1], proof);
+        // Block rows re-derived from the adopted chain (credit then share).
+        let (credits, shares) = derive_bounty_events(&block);
+        assert_eq!(rows[2], credits[0]);
+        assert_eq!(rows[3], shares[0]);
+        assert_eq!(rows.len(), 4);
+        // No abandoned-fork (height 9) block row survives.
+        assert!(rows
+            .iter()
+            .all(|r| r.get("height").and_then(Value::as_u64) != Some(9)));
+    }
+
+    #[test]
+    fn reorg_rebuilds_bounty_state_and_reopens_unpromoted_share() {
+        let dir =
+            std::env::temp_dir().join(format!("boole-node-reorg-bounty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let path = dir.join("bounty-events.ndjson");
+
+        // Registry: one open bounty announced off-chain (reorg-invariant).
+        let mut registry = BountyRegistry::new();
+        registry
+            .create(CreateBountyInput {
+                id: "b1".to_string(),
+                domain: "fam.a".to_string(),
+                problem_hash: HASH_1.to_string(),
+                verifier_kind: "lean".to_string(),
+                verifier_metadata: serde_json::Map::new(),
+                reward: 100,
+                deadline: 1000,
+                ts: 1,
+            })
+            .expect("create bounty");
+
+        // Ledger: create + accepted proof (route), plus a share_promoted row from
+        // the abandoned fork that credited this proof.
+        let create = json!({
+            "schemaVersion": 1, "kind": "create", "workId": "b1",
+            "problemHash": HASH_1, "verifierKind": "lean", "ts": 1
+        });
+        let proof = json!({
+            "schemaVersion": 1, "kind": "proof", "workId": "b1",
+            "problemHash": HASH_1, "verifierKind": "lean", "ts": 2,
+            "proofHash": HASH_1, "solverPk": PK_A, "accepted": true,
+            "reward": "100", "credit": "100"
+        });
+        let old_share = json!({
+            "schemaVersion": 1, "kind": "share_promoted", "height": 9,
+            "familyId": "fam.a", "bountyId": "b1", "proofHash": HASH_1, "prover": PK_A
+        });
+        for ev in [&create, &proof, &old_share] {
+            FileBountyEventLedger::append(&path, ev).expect("seed ledger");
+        }
+
+        // A stale side-pool entry from the abandoned fork that must be cleared.
+        let mut side_pool = BountySidePool::new();
+        side_pool.insert(BountyShare {
+            bounty_id: "stale".to_string(),
+            proof_hash: HASH_0.to_string(),
+            prover: PK_B.to_string(),
+            family_id: "fam.stale".to_string(),
+            ts: 0,
+            reward: 1,
+        });
+
+        // The adopted chain does NOT re-promote this proof.
+        let adopted = vec![block_with_canon_hashes(0, HASH_0, "y0c", &[])];
+        rebuild_bounty_state_after_reorg(Some(path.as_path()), &registry, &mut side_pool, &adopted)
+            .expect("rebuild bounty state after reorg");
+
+        // Side pool: stale entry gone; the now-un-promoted accepted proof is
+        // pending again for its family.
+        assert_eq!(side_pool.total_share_count(), 1);
+        let shares = side_pool.shares_for_family("fam.a");
+        assert_eq!(shares.len(), 1);
+        assert_eq!(shares[0].proof_hash, HASH_1);
+        assert_eq!(shares[0].bounty_id, "b1");
+
+        // Ledger rewritten: block-driven abandoned-fork row dropped, route rows kept.
+        let rewritten = FileBountyEventLedger::recover(&path).expect("recover rewritten");
+        assert_eq!(rewritten.len(), 2);
+        assert_eq!(rewritten[0]["kind"], "create");
+        assert_eq!(rewritten[1]["kind"], "proof");
+
+        // Registry is reorg-invariant: untouched.
+        assert_eq!(registry.size(), 1);
+        assert!(registry.get("b1").is_some());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reorg_bounty_rebuild_is_noop_without_configured_ledger() {
+        let registry = BountyRegistry::new();
+        let mut side_pool = BountySidePool::new();
+        let adopted = vec![block_with_canon_hashes(0, HASH_0, "y0c", &[])];
+        rebuild_bounty_state_after_reorg(None, &registry, &mut side_pool, &adopted)
+            .expect("no-op when no ledger configured");
+        assert_eq!(side_pool.total_share_count(), 0);
     }
 
     // RM2.3 (R3) — the submit-session envelope parse/validation gate is a
