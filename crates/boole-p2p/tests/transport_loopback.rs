@@ -14,6 +14,7 @@ use boole_p2p::{
 fn hello(network_id: &str) -> Frame {
     Frame::Hello {
         protocol_version: PROTOCOL_VERSION,
+        consensus_rule_version: 1,
         network_id: network_id.to_string(),
         genesis_hash: "00".repeat(32),
         head: HeadSummary {
@@ -47,6 +48,7 @@ fn two_in_process_peers_complete_hello_handshake() {
 
     let Frame::Hello {
         protocol_version,
+        consensus_rule_version,
         network_id,
         genesis_hash,
         head,
@@ -55,6 +57,7 @@ fn two_in_process_peers_complete_hello_handshake() {
         panic!("expected Hello reply");
     };
     assert_eq!(protocol_version, PROTOCOL_VERSION);
+    assert_eq!(consensus_rule_version, 1);
     assert_eq!(network_id, "boole-closed-testnet");
     assert_eq!(genesis_hash, "00".repeat(32));
     assert_eq!(head.height, 7);

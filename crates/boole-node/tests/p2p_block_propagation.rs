@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use boole_core::{block_hash, Hex32};
+use boole_core::{block_hash, Hex32, CONSENSUS_RULE_VERSION};
 use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig};
 use boole_p2p::{Frame, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
 use boole_testkit::rand_suffix;
@@ -231,6 +231,7 @@ fn wait_until(what: &str, timeout: Duration, mut check: impl FnMut() -> bool) {
 fn hello_frame(genesis: &str, head: HeadSummary) -> Frame {
     Frame::Hello {
         protocol_version: PROTOCOL_VERSION,
+        consensus_rule_version: CONSENSUS_RULE_VERSION,
         network_id: "boole-mvp".to_string(),
         genesis_hash: genesis.to_string(),
         head,
