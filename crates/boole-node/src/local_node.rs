@@ -10,7 +10,7 @@ use crate::p2p_ingress::{
 };
 use crate::proof_dedup_ledger::FileProofDedupLedger;
 use crate::receipt_store::FileReceiptStore;
-use crate::runtime::{RuntimeAdmissionState, RuntimeConfig};
+use crate::runtime::{ReorgOutcome, RuntimeAdmissionState, RuntimeConfig};
 use crate::session_store::FileSessionStore;
 use crate::signed_nonce_ledger::FileSignedNonceLedger;
 use crate::state_dir::{self, StateDirGuard, StateManifest};
@@ -2057,6 +2057,11 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
             "boole_p2p_sync_blocks_applied_total",
             "Peer blocks validated and appended by the sync loop.",
             p2p.sync_blocks_applied.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_sync_reorgs_applied_total",
+            "Heavier competing peer chains adopted by the sync loop via fork-choice reorg.",
+            p2p.sync_reorgs_applied.load(Ordering::Relaxed),
         ),
         (
             "boole_p2p_sync_peer_failures_total",
@@ -4728,6 +4733,67 @@ pub(crate) fn ingest_announced_block(
         }
     }
     IngressBlockOutcome::Ingested
+}
+
+/// N4 — outcome of evaluating a peer's FULL competing chain during sync.
+pub(crate) enum CandidateChainOutcome {
+    /// The competing chain won fork-choice; consensus state was re-derived
+    /// onto it from genesis. Carries the adopted head height.
+    Reorged { new_head_height: u64 },
+    /// The current chain is at least as heavy (or an exact tie the current
+    /// tip already holds); nothing on disk or in memory changed.
+    KeptCurrent,
+    /// The candidate could not be parsed, or failed strict replay — never
+    /// adopted (the current chain is left untouched).
+    Rejected,
+}
+
+/// N4 — the sync-path trigger for the reorg primitive. `sync_with_peer` calls
+/// this when a peer advertises a head that does NOT extend the local chain by
+/// one — i.e. a competing fork that diverges below the local head, which the
+/// extend-by-one ingest (`ingest_announced_block`) can only reject as
+/// `Ignored`. The full peer chain (from genesis) is evaluated by fork-choice
+/// (N4.2) and adopted iff it is strictly heavier, re-deriving all consensus
+/// state from genesis (N4.3, [`RuntimeAdmissionState::reorg_to_heavier_chain`]).
+///
+/// The candidate is strict-replayed INSIDE `reorg_to_heavier_chain` (the same
+/// evidence-mandatory entry points a p2p ingest uses, no legacy opt-in), so a
+/// tampered or evidence-less competing chain is `Rejected` and the current
+/// chain stays put.
+///
+/// Coherence caveat (this slice, per the N4.3 primitive's own non-goals): only
+/// the consensus state the reorg primitive owns — block store, reward ledger,
+/// in-memory chain/head/share-pool — is re-derived. The node-local
+/// bounty-event ledger and the N2.3 proof-dedup mirror are NOT rewound here;
+/// both are re-derived from the block store on the next boot (self-heal). A
+/// follow-up slice rebuilds them in-line on reorg.
+pub(crate) fn ingest_candidate_chain(
+    state: &mut LocalNodeState,
+    candidate_values: &[Value],
+) -> CandidateChainOutcome {
+    let mut candidate = Vec::with_capacity(candidate_values.len());
+    for value in candidate_values {
+        let Ok(block) = serde_json::from_value::<PersistedBlock>(value.clone()) else {
+            return CandidateChainOutcome::Rejected;
+        };
+        candidate.push(block);
+    }
+    let block_path = state.block_path.clone();
+    match state
+        .runtime
+        .reorg_to_heavier_chain(&block_path, &candidate)
+    {
+        Ok(ReorgOutcome::Reorged { new_head_height }) => {
+            CandidateChainOutcome::Reorged { new_head_height }
+        }
+        Ok(ReorgOutcome::KeptCurrent) => CandidateChainOutcome::KeptCurrent,
+        Err(err) => {
+            eprintln!(
+                "boole-node: p2p competing-chain reorg rejected by strict validation: {err:#}"
+            );
+            CandidateChainOutcome::Rejected
+        }
+    }
 }
 
 /// N3.2 — re-admit a peer-announced share through the EXACT local admission

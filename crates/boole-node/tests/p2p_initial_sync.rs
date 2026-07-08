@@ -12,8 +12,15 @@
 //! chain during sync is refused block-by-block — the fresh node stays at
 //! its last valid height instead of adopting the forged chain.
 //!
-//! Non-goals (spec): competing-chain selection (N4), parallel /
-//! headers-first sync optimizations.
+//! N4 — the reorg trigger wired into this same sync path: when a peer
+//! advertises a head that diverges below ours (a competing fork we cannot
+//! reach by extending block-by-block), sync downloads its full chain and
+//! adopts it iff fork-choice says it is strictly heavier
+//! (`sync_reorgs_to_heavier_competing_chain`). The selection RULE itself
+//! (N4.2) and the re-derive-from-genesis reorg primitive (N4.3) keep their
+//! own unit suites (`reorg_state_convergence`); this pins the wire-up.
+//!
+//! Non-goals (spec): parallel / headers-first sync optimizations.
 
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
@@ -79,6 +86,22 @@ fn boot_with_p2p(
     peers: Vec<SocketAddr>,
     allow_anonymous_submit: bool,
 ) -> Boot {
+    boot_with_p2p_seeded(tag, p2p_listener, peers, allow_anonymous_submit, &[])
+}
+
+/// Like [`boot_with_p2p`] but pre-seeds the node's block store with
+/// `seed_block_lines` (one serialized `PersistedBlock` per line, in height
+/// order) BEFORE boot, so the node comes up already holding that chain. The
+/// reward ledger is deliberately left absent: boot re-derives it from the
+/// seeded block store (the block store is the source of truth), so a block
+/// seed alone is enough to boot a node onto a specific chain.
+fn boot_with_p2p_seeded(
+    tag: &str,
+    p2p_listener: Option<TcpListener>,
+    peers: Vec<SocketAddr>,
+    allow_anonymous_submit: bool,
+    seed_block_lines: &[String],
+) -> Boot {
     let dir = std::env::temp_dir().join(format!(
         "boole-n34-sync-{tag}-{}-{}",
         std::process::id(),
@@ -86,10 +109,15 @@ fn boot_with_p2p(
     ));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("tmp dir");
+    let block_path = dir.join("blocks.ndjson");
+    if !seed_block_lines.is_empty() {
+        let mut contents = seed_block_lines.join("\n");
+        contents.push('\n');
+        fs::write(&block_path, contents).expect("seed block store");
+    }
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind http");
     let addr = listener.local_addr().expect("http addr");
     let (tx, rx) = mpsc::channel();
-    let block_path = dir.join("blocks.ndjson");
     let rewards = dir.join("rewards.ndjson");
     let scenario = scenario_path();
     let shutdown = Arc::new(Notify::new());
@@ -381,4 +409,111 @@ fn sync_rejects_tampered_chain_from_peer() {
 
     fake_peer.join().expect("fake peer thread");
     stop(b);
+}
+
+#[test]
+#[ignore = "needs-multiprocess"]
+fn sync_reorgs_to_heavier_competing_chain() {
+    // N4 — the reorg trigger wired into the sync path. Node B boots on its
+    // own one-block fork [X0]; node A holds a heavier, genesis-divergent
+    // competing chain [Y0, Y1] with Y0 != X0. B cannot reach A's head by
+    // extending block-by-block (the fork diverges at the very first block),
+    // so the sync loop must download A's full chain and adopt it via
+    // fork-choice (N4.2) + re-derive-from-genesis reorg (N4.3). Before the
+    // trigger was wired, B silently dropped the competing chain (`Ignored`)
+    // and stayed on its lighter fork.
+    let steps = multiminer_steps();
+
+    // Mint X0 on a throwaway node — B's own divergent height-0 block, from
+    // steps[0]'s genesis-anchored share. Capture its serialized store line to
+    // pre-seed B; the mint node is then discarded.
+    let x0_src = boot_with_p2p("reorg-x0", None, vec![], true);
+    let (s, v) = http_post(x0_src.addr, "/submit", &submit_envelope(&steps[0]));
+    assert_eq!(s, 200, "step0 (X0) must commit on the mint node: {v}");
+    assert!(v["block"].is_object(), "step0 must produce a block: {v}");
+    let x0_c = v["c"].as_str().expect("X0 head c").to_string();
+    let x0_line = fs::read_to_string(x0_src.dir.join("blocks.ndjson"))
+        .expect("read X0 store")
+        .lines()
+        .next()
+        .expect("one X0 block line")
+        .to_string();
+    stop(x0_src);
+
+    // A holds the heavier COMPETING chain [Y0, Y1], built from DIFFERENT
+    // shares (steps[1] @ genesis, then steps[2] @ Y0) so Y0 != X0 — a genuine
+    // fork at the first block, two blocks vs B's one.
+    let a_p2p = TcpListener::bind("127.0.0.1:0").expect("bind a p2p");
+    let a_p2p_addr = a_p2p.local_addr().expect("a p2p addr");
+    let a = boot_with_p2p(
+        "reorg-a",
+        Some(a_p2p),
+        vec!["127.0.0.1:1".parse().expect("dead peer addr")],
+        true,
+    );
+    let (s, v) = http_post(a.addr, "/submit", &submit_envelope(&steps[1]));
+    assert_eq!(s, 200, "step1 (Y0) must commit on A: {v}");
+    let y0_c = v["c"].as_str().expect("Y0 head c").to_string();
+    assert_ne!(y0_c, x0_c, "Y0 must diverge from X0 at genesis");
+    let mut step2 = submit_envelope(&steps[2]);
+    step2["body"]["c"] = json!(y0_c);
+    let (s, v) = http_post(a.addr, "/submit", &step2);
+    assert_eq!(s, 200, "step2 (Y1) must commit on A: {v}");
+    let y1_c = v["c"].as_str().expect("Y1 head c").to_string();
+    assert_eq!(height(a.addr), 2, "A must hold the 2-block competing chain");
+
+    // B boots pre-seeded on the LIGHTER fork [X0], with A as its only peer
+    // and no ingress listener — the ONLY way B can reach A's head is a
+    // fork-choice reorg driven by the sync loop. (B's height at boot is 1,
+    // but the first sync pass runs immediately and can reorg before the test
+    // observes it, so we don't assert the transient pre-reorg height — the
+    // `sync_reorgs_applied == 1` / `sync_blocks_applied == 0` metrics below
+    // prove B started on [X0] and reorged rather than fast-forwarding.)
+    let b = boot_with_p2p_seeded("reorg-b", None, vec![a_p2p_addr], false, &[x0_line]);
+
+    wait_until(
+        "B to reorg onto A's heavier competing chain",
+        Duration::from_secs(20),
+        || height(b.addr) == 2,
+    );
+
+    // B converged onto the competing chain, byte-identical, block by block —
+    // including block 0, which the reorg REPLACED (X0 -> Y0).
+    for h in 0..2u64 {
+        let a_block = http_get_json(a.addr, &format!("/block/{h}"));
+        let b_block = http_get_json(b.addr, &format!("/block/{h}"));
+        assert_eq!(
+            a_block["block"], b_block["block"],
+            "block {h} must be identical on both nodes after reorg"
+        );
+    }
+    assert_eq!(
+        b_head_c(&b),
+        y1_c,
+        "B's head must be the competing chain's head"
+    );
+    assert_eq!(
+        metric_value(b.addr, "boole_p2p_sync_reorgs_applied_total"),
+        1,
+        "exactly one reorg must be counted"
+    );
+    assert_eq!(
+        metric_value(b.addr, "boole_p2p_sync_blocks_applied_total"),
+        0,
+        "the competing chain is adopted whole via reorg, not counted as \
+         extend-by-one sync applies"
+    );
+
+    stop(a);
+    stop(b);
+}
+
+/// B's current head `c`, read from its highest block (avoids assuming the
+/// `/status` payload shape).
+fn b_head_c(b: &Boot) -> String {
+    let h = height(b.addr).saturating_sub(1);
+    http_get_json(b.addr, &format!("/block/{h}"))["block"]["c"]
+        .as_str()
+        .expect("head block c")
+        .to_string()
 }
