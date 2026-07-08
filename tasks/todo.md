@@ -731,10 +731,19 @@ N4 wave 후속 slice. 텔레그램 "추천작업진행해" → 방향 검증 →
 reorg"와 "그냥 뒤에 이어 붙인 fast-forward"를 구분한다(reorg면 이어붙이기
 카운터는 0으로 남는다).
 
-이월(옵션 1 결정): reorg 원시연산이 소유한 consensus 상태(블록 저장소·보상
-원장·메모리 체인/머리/풀)만 지금 재유도한다. 노드-로컬 bounty-event 원장과 N2.3
-proof-dedup 미러는 이번엔 되감지 않으며, 다음 부팅 때 블록 저장소로부터 다시
-유도돼 self-heal된다. 이 둘을 reorg 시점에 곧바로 재빌드하는 것은 후속 slice.
+이월(옵션 1 결정 + 사후 정정 2026-07-08): reorg 원시연산이 소유한 consensus
+상태(블록 저장소·보상 원장·메모리 체인/머리/풀)만 이 slice에서 재유도한다.
+노드-로컬 bounty-event 원장과 N2.3 proof-dedup 미러는 이번엔 되감지 않는다.
+**정정**: 여기서 이 둘이 "다음 부팅 때 블록 저장소로부터 다시 유도돼 self-heal
+된다"고 적었으나 이는 부정확했다 — 둘 다 부팅 때 블록 저장소로부터 깨끗이
+재유도되지 않는다. proof-dedup 미러의 `recover`는 제 파일(NDJSON)만 replay할 뿐
+블록 저장소 재유도가 없어, 버려진 fork에서 크레딧된 proof가 미러에 남아 새 체인에서
+다시 크레딧 가능한 재제출을 잘못 조기거절한다. bounty-event 부팅 heal은 on-disk
+행을 기대 시퀀스의 PREFIX로 가정하는 suffix-append라, head 아래로 갈라지는 reorg가
+그 가정을 깨뜨려 `--bounty-events` 노드는 `verify_ledger_matches_replay`에서 부팅
+실패까지 날 수 있다. → proof-dedup 미러는 바로 아래 후속 slice에서 reorg 시점
+곧바로 재빌드로 수리했고, bounty-event 원장·registry·side_pool은 여전히 별도 후속
+slice로 이월(더 어려운 케이스: 라우트-구동 행은 블록에 없음).
 
 개발 중 배운 것: reorg가 B의 첫 동기화 시도에서 거의 즉시(~0.3s) 발화해서,
 "reorg 직전의 잠깐 상태(높이 1)"를 단언하려던 테스트가 동기화 루프와 경합해
@@ -755,6 +764,78 @@ peer-ban은 비목표(E2).
 - working tree clean, origin/main == local HEAD == `7bd27cc`
 
 이번에도 push 전 fmt+clippy 로컬 게이트 선행 → CI 반송 0.
+
+claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
+claim 아님.
+
+---
+
+# 2026-07-08 — N4 후속: reorg 시 proof-dedup 미러 곧바로 재빌드 (노드, 옵션 1)
+
+위 N4.3 reorg-sync 착륙에서 이월했던 "옵션 1"의 앞부분을 처리한다. 두 가지를
+했다: (1) reorg가 새 체인을 채택할 때 N2.3 proof-dedup 미러를 그 자리에서 곧바로
+새 체인 기준으로 재빌드, (2) 위 이월 노트의 부정확한 "self-heal on boot" 주장을
+정정(위 문단 **정정** 참조). bounty-event 원장·registry·side_pool 재빌드는 더
+어려운 별도 후속 slice로 이월(라우트-구동 행은 블록에 없음, suffix-heal PREFIX
+가정이 reorg에서 깨짐).
+
+## 방향 검증 (구현 전)
+- ADR-0012 확인: proof-dedup 미러는 비권위(non-authoritative) admission 조기거절
+  캐시일 뿐, "canon_hash당 크레딧 1회" 합의 규칙은 블록 replay가 독립적으로 강제.
+  → 미러를 새 체인 기준으로 통째로 재작성하는 것은 합의 안전성에 무해(파일을
+  지워도 조기거절 지연만 손해). 되감기 규모가 과하지 않음(작은 캐시 재작성).
+- 정정 발견: `FileProofDedupLedger::recover`는 제 NDJSON 파일만 replay하고 블록
+  저장소 재유도가 없어 reorg 후 self-heal 안 됨 → 이월 노트가 부정확했음을 확인,
+  구현 전 사용자에게 정직 보고 후 옵션 1 축소 승인받음.
+
+## slice 구현
+- [x] RED: `rebuild_from_credits_replaces_stale_entries_atomically`(stale 시드 후
+      새 체인 크레딧으로 재빌드 → stale 사라지고 새 것만, 파일도 원자적 교체),
+      `rebuild_from_credits_with_no_credits_clears_the_mirror`(빈 입력→미러 비움),
+      `reorg_rebuilds_proof_dedup_mirror_from_adopted_chain`(배선 free fn이 채택
+      체인 evidence의 canon_hash를 모아 재빌드), `reorg_proof_dedup_rebuild_is_
+      noop_without_configured_ledger`(원장 미설정→None 유지). 함수 부재로 컴파일
+      실패(RED 확인).
+- [x] GREEN(production 2곳):
+      1) `FileProofDedupLedger::rebuild_from_credits(path, canon_hashes)` —
+         canon_hash들을 첫-등장순 dedup해 NDJSON 라인으로 만들고
+         `write_ndjson_lines_atomic`(temp+rename)로 파일을 원자적 교체, 새 in-메모리
+         set 반환. append와 달리 truncate(중간 크래시 시 옛 파일/새 파일 중 하나,
+         찢긴 splice 없음).
+      2) `local_node::rebuild_proof_dedup_mirror_after_reorg(ledger_path, ledger,
+         adopted)` 배선 free fn — 채택 체인의 `selected_share_evidence[].canon_hash`
+         전량을 모아 (1)로 재빌드. `ingest_candidate_chain`의 `Reorged` arm에서 호출,
+         실패 시 로그-후-계속(reorg는 이미 커밋됨, 미러는 지연 캐시).
+- [x] doc 정정: `ingest_candidate_chain` doc-comment의 "both re-derived on boot
+      (self-heal)" 문구를 정확히 교체(미러는 여기서 in-line 재빌드/부팅 self-heal
+      아님; bounty-event는 이월이며 부팅 heal도 깨끗하지 않음).
+- [x] 로컬 게이트(node production 티어): p2p_initial_sync 3 + p2p_block_propagation
+      4 + reorg_state_convergence 2 + boole-node lib(신규 4 포함) green
+      (`--include-ignored --test-threads=1`) + fmt clean +
+      clippy(`-p boole-node --all-targets -D warnings`) clean + `git diff --check` clean
+
+## Review
+(착륙 후 채움: 커밋 SHA / PR# / CI / origin-main SHA)
+
+무엇을 했나 (쉬운 말): 우리 노드가 더 무거운 경쟁 체인으로 갈아탈 때(reorg),
+"이 증명은 이미 상 받았으니 또 안 줌"이라고 빠르게 걸러내는 작은 메모장(미러)이
+있다. 예전엔 이 메모장을 갈아타기 후에도 그대로 뒀는데, 그러면 버려진 옛 체인에서
+상 받았던 증명이 메모장에 남아, 새 체인에선 다시 상 받을 수 있는 재제출을 잘못
+막아버린다. 이제는 갈아타는 그 순간 메모장을 새 체인 기준으로 통째로 새로 쓴다.
+이 메모장은 "정답 장부"가 아니라 속도용 캐시라(진짜 규칙은 블록 재검증이 지킴),
+통째로 새로 써도 안전하다. 그리고 예전 착륙 기록에 "이건 다음 부팅 때 저절로
+고쳐진다"고 적었던 게 사실이 아니어서(메모장 복구는 제 파일만 다시 읽을 뿐 블록에서
+새로 만들지 않음) 그 설명도 바로잡았다.
+
+범위: boole-node production(비합의, 노드-로컬). bounty-event 원장·registry·
+side_pool 재빌드는 후속 slice로 이월(더 어려운 케이스).
+
+검증:
+- focused: 신규 4 (rebuild_from_credits 2 + reorg 배선 2) green
+- 회귀: p2p_initial_sync 3 + p2p_block_propagation 4 + reorg_state_convergence 2 +
+  boole-node lib green
+- 로컬 게이트: fmt clean + clippy clean + git diff --check clean
+- CI: (착륙 후 채움)
 
 claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
 claim 아님.

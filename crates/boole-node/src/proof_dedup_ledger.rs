@@ -3,7 +3,9 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::durability::{append_ndjson_line_durable, read_stable_prefix};
+use crate::durability::{
+    append_ndjson_line_durable, read_stable_prefix, write_ndjson_lines_atomic,
+};
 
 /// N2.3 — append-only NDJSON ledger of server-computed proof-canon hashes
 /// that have already been credited on the `/submit` path. The dedup set is
@@ -59,6 +61,36 @@ impl FileProofDedupLedger {
             ledger.apply(event);
         }
         Ok(ledger)
+    }
+
+    /// N4 — atomically REPLACE the ledger file and return a fresh in-memory
+    /// mirror holding exactly `canon_hashes` (deduplicated, first-seen order).
+    ///
+    /// This is the reorg path. The mirror is a non-authoritative admission
+    /// early-reject cache (ADR-0012, see the type doc): the consensus
+    /// one-credit-per-canon-hash rule is enforced by block replay, not by this
+    /// file. When a reorg rewrites the canonical chain wholesale, the cache is
+    /// rewritten to match the newly-adopted chain's credited proofs — dropping
+    /// entries from the abandoned fork (which would otherwise wrongly
+    /// early-reject a proof that is creditable again on the new chain) and
+    /// adding the new chain's. Unlike `append_credit`, this truncates: the file
+    /// is replaced atomically (temp-file + rename), so a crash mid-rebuild
+    /// leaves either the old or the new file, never a torn splice.
+    pub fn rebuild_from_credits(
+        path: impl AsRef<Path>,
+        canon_hashes: &[String],
+    ) -> anyhow::Result<Self> {
+        let mut seen = HashSet::new();
+        let mut lines = Vec::with_capacity(canon_hashes.len());
+        for canon_hash in canon_hashes {
+            if seen.insert(canon_hash.clone()) {
+                lines.push(serde_json::to_string(&ProofDedupEvent::Credit {
+                    canon_hash: canon_hash.clone(),
+                })?);
+            }
+        }
+        write_ndjson_lines_atomic(path.as_ref(), &lines)?;
+        Ok(Self { seen })
     }
 
     /// True if this proof canon hash has already been credited.
@@ -135,6 +167,64 @@ mod tests {
         let recovered = FileProofDedupLedger::recover(&path).expect("recover");
         assert!(recovered.contains("aa11"));
         assert_eq!(recovered.size(), 1);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rebuild_from_credits_replaces_stale_entries_atomically() {
+        let dir = tmp_dir("rebuild-from-credits");
+        let path = dir.join("proof-dedup.ndjson");
+
+        // Seed the mirror as if the node sat on an abandoned fork that credited
+        // proof `stale-x0`.
+        let mut writer = FileProofDedupLedger::default();
+        writer.append_credit(&path, "stale-x0").expect("seed stale");
+        assert!(writer.contains("stale-x0"));
+
+        // Reorg adopts a chain crediting two distinct proofs; the new chain also
+        // happens to reference `y0` twice, which must collapse to one row.
+        let rebuilt = FileProofDedupLedger::rebuild_from_credits(
+            &path,
+            &["y0".to_string(), "y1".to_string(), "y0".to_string()],
+        )
+        .expect("rebuild from adopted chain");
+
+        // The in-memory mirror reflects the new chain, not the abandoned fork.
+        assert!(
+            !rebuilt.contains("stale-x0"),
+            "abandoned-fork credit must be dropped"
+        );
+        assert!(rebuilt.contains("y0"));
+        assert!(rebuilt.contains("y1"));
+        assert_eq!(rebuilt.size(), 2, "intra-chain duplicate collapses to one");
+
+        // A fresh recover over the rewritten file agrees — the file was replaced
+        // atomically, not appended to.
+        let recovered = FileProofDedupLedger::recover(&path).expect("recover rewritten file");
+        assert!(!recovered.contains("stale-x0"));
+        assert!(recovered.contains("y0"));
+        assert!(recovered.contains("y1"));
+        assert_eq!(recovered.size(), 2);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rebuild_from_credits_with_no_credits_clears_the_mirror() {
+        let dir = tmp_dir("rebuild-empty");
+        let path = dir.join("proof-dedup.ndjson");
+
+        let mut writer = FileProofDedupLedger::default();
+        writer.append_credit(&path, "stale").expect("seed stale");
+
+        // A reorg to a chain that credits nothing empties the mirror + file.
+        let rebuilt =
+            FileProofDedupLedger::rebuild_from_credits(&path, &[]).expect("rebuild empty");
+        assert_eq!(rebuilt.size(), 0);
+
+        let recovered = FileProofDedupLedger::recover(&path).expect("recover emptied file");
+        assert_eq!(recovered.size(), 0, "empty adopted chain clears the mirror");
 
         let _ = fs::remove_dir_all(&dir);
     }

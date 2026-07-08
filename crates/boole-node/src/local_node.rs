@@ -40,7 +40,7 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::convert::Infallible;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr, TcpListener as StdTcpListener};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -4761,12 +4761,21 @@ pub(crate) enum CandidateChainOutcome {
 /// tampered or evidence-less competing chain is `Rejected` and the current
 /// chain stays put.
 ///
-/// Coherence caveat (this slice, per the N4.3 primitive's own non-goals): only
-/// the consensus state the reorg primitive owns — block store, reward ledger,
-/// in-memory chain/head/share-pool — is re-derived. The node-local
-/// bounty-event ledger and the N2.3 proof-dedup mirror are NOT rewound here;
-/// both are re-derived from the block store on the next boot (self-heal). A
-/// follow-up slice rebuilds them in-line on reorg.
+/// Node-local ledger coherence on reorg:
+/// - The N2.3 proof-dedup mirror IS rebuilt in-line here
+///   (`rebuild_proof_dedup_mirror_after_reorg`) from the newly-adopted chain's
+///   credited canon hashes. It is a non-authoritative admission early-reject
+///   cache (ADR-0012), so a wholesale rewrite to match the new chain is safe;
+///   without it, a proof credited only on the abandoned fork would linger and
+///   wrongly early-reject a resubmission that is creditable again on the new
+///   chain. (The mirror does NOT self-heal on the next boot: `recover` replays
+///   the mirror's own file with no block-store re-derivation.)
+/// - The bounty-event ledger + `bounty_registry` + `bounty_side_pool` are NOT
+///   rewound here — deferred to a follow-up slice. These do not cleanly
+///   self-heal on boot either: the boot heal is a SUFFIX-append that assumes
+///   the on-disk block-driven rows are a PREFIX of the expected sequence, an
+///   assumption a reorg (which diverges below the head) breaks, so a
+///   `--bounty-events` node can even fail boot via `verify_ledger_matches_replay`.
 pub(crate) fn ingest_candidate_chain(
     state: &mut LocalNodeState,
     candidate_values: &[Value],
@@ -4784,6 +4793,17 @@ pub(crate) fn ingest_candidate_chain(
         .reorg_to_heavier_chain(&block_path, &candidate)
     {
         Ok(ReorgOutcome::Reorged { new_head_height }) => {
+            // Rebuild the non-authoritative proof-dedup mirror to the adopted
+            // chain. A failure here does not undo the already-applied reorg
+            // (block store + reward ledger are committed): the mirror is only a
+            // latency cache, so log and continue rather than abort.
+            if let Err(err) = rebuild_proof_dedup_mirror_after_reorg(
+                state.proof_dedup_ledger_path.as_deref(),
+                &mut state.proof_dedup_ledger,
+                &candidate,
+            ) {
+                eprintln!("boole-node: proof-dedup mirror rebuild after reorg failed: {err:#}");
+            }
             CandidateChainOutcome::Reorged { new_head_height }
         }
         Ok(ReorgOutcome::KeptCurrent) => CandidateChainOutcome::KeptCurrent,
@@ -4794,6 +4814,31 @@ pub(crate) fn ingest_candidate_chain(
             CandidateChainOutcome::Rejected
         }
     }
+}
+
+/// N4 — rebuild the N2.3 proof-dedup mirror after a reorg has adopted `adopted`
+/// as the new canonical chain. Collects every credited canon hash from the
+/// adopted chain's share evidence and atomically replaces the mirror file +
+/// in-memory set (see [`FileProofDedupLedger::rebuild_from_credits`]). No-op
+/// when the operator has not configured a proof-dedup ledger.
+fn rebuild_proof_dedup_mirror_after_reorg(
+    ledger_path: Option<&Path>,
+    ledger: &mut Option<FileProofDedupLedger>,
+    adopted: &[PersistedBlock],
+) -> anyhow::Result<()> {
+    let Some(path) = ledger_path else {
+        return Ok(());
+    };
+    let canon_hashes: Vec<String> = adopted
+        .iter()
+        .flat_map(|block| &block.selected_share_evidence)
+        .map(|evidence| evidence.canon_hash.clone())
+        .collect();
+    *ledger = Some(FileProofDedupLedger::rebuild_from_credits(
+        path,
+        &canon_hashes,
+    )?);
+    Ok(())
 }
 
 /// N3.2 — re-admit a peer-announced share through the EXACT local admission
@@ -4959,6 +5004,96 @@ mod tests {
             err.to_string().contains("rewardRecipient not credited"),
             "unexpected error: {err}"
         );
+    }
+
+    /// Minimal `PersistedBlock` carrying only the fields the proof-dedup rebuild
+    /// reads (`selected_share_evidence[].canon_hash`); everything else is inert.
+    fn block_with_canon_hashes(
+        height: u64,
+        prev_c: &str,
+        c: &str,
+        canon_hashes: &[&str],
+    ) -> PersistedBlock {
+        let selected_share_evidence = canon_hashes
+            .iter()
+            .map(|h| boole_core::SelectedShareEvidence {
+                pk: PK_A.to_string(),
+                n: "00".to_string(),
+                j: "00".to_string(),
+                c: c.to_string(),
+                canon_hash: (*h).to_string(),
+                proof_package: String::new(),
+                seed_hex: String::new(),
+            })
+            .collect();
+        PersistedBlock {
+            height,
+            prev_c: prev_c.to_string(),
+            c: c.to_string(),
+            proposer_pk: PK_A.to_string(),
+            selected_share_hashes: Vec::new(),
+            selected_share_pks: Vec::new(),
+            selected_share_reward_pks: Vec::new(),
+            proposer_reward_pk: PK_A.to_string(),
+            selected_share_evidence,
+            min_share_score: "0".to_string(),
+            min_share_score_multiplier_nanos: 0,
+            kmax_applied: 0,
+            difficulty_epoch: 0,
+            t_block: "ff".to_string(),
+            t_share: "ff".to_string(),
+            difficulty_weight: "1".to_string(),
+            dropped_below_min_score: 0,
+            dropped_kernel_reject: 0,
+            truncated_by_kmax: 0,
+            ts: 0,
+            promoted_bounty_credits: Vec::new(),
+            promoted_bounty_shares: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn reorg_rebuilds_proof_dedup_mirror_from_adopted_chain() {
+        let dir =
+            std::env::temp_dir().join(format!("boole-node-reorg-dedup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let path = dir.join("proof-dedup.ndjson");
+
+        // The node sat on an abandoned fork X0 that credited `x0-proof`.
+        let mut ledger = Some(
+            FileProofDedupLedger::rebuild_from_credits(&path, &["x0-proof".to_string()])
+                .expect("seed mirror on abandoned fork"),
+        );
+        assert!(ledger.as_ref().unwrap().contains("x0-proof"));
+
+        // A reorg adopts the heavier chain [Y0, Y1], crediting distinct proofs.
+        let adopted = vec![
+            block_with_canon_hashes(0, HASH_0, "y0c", &["y0-proof"]),
+            block_with_canon_hashes(1, "y0c", "y1c", &["y1-proof"]),
+        ];
+        rebuild_proof_dedup_mirror_after_reorg(Some(path.as_path()), &mut ledger, &adopted)
+            .expect("rebuild mirror after reorg");
+
+        let mirror = ledger.as_ref().expect("mirror stays configured");
+        assert!(
+            !mirror.contains("x0-proof"),
+            "abandoned-fork proof must no longer early-reject a resubmission"
+        );
+        assert!(mirror.contains("y0-proof"));
+        assert!(mirror.contains("y1-proof"));
+        assert_eq!(mirror.size(), 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reorg_proof_dedup_rebuild_is_noop_without_configured_ledger() {
+        let mut ledger: Option<FileProofDedupLedger> = None;
+        let adopted = vec![block_with_canon_hashes(0, HASH_0, "y0c", &["y0-proof"])];
+        rebuild_proof_dedup_mirror_after_reorg(None, &mut ledger, &adopted)
+            .expect("no-op when no ledger configured");
+        assert!(ledger.is_none(), "unconfigured mirror stays None");
     }
 
     // RM2.3 (R3) — the submit-session envelope parse/validation gate is a
