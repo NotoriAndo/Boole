@@ -19,11 +19,13 @@ use boole_p2p::{
     Frame, FrameError, HeadSummary, TcpConn, TcpTransport, Transport, GET_BLOCKS_RANGE_CAP,
     PROTOCOL_VERSION,
 };
+use serde_json::Value;
 use tokio::sync::RwLock;
 
 use crate::local_node::{
-    blocks_range_values, head_summary, ingest_announced_block, ingress_admit_share,
-    HttpRateLimiter, IngressBlockOutcome, IngressShareOutcome, LocalNodeState,
+    blocks_range_values, head_summary, ingest_announced_block, ingest_candidate_chain,
+    ingress_admit_share, CandidateChainOutcome, HttpRateLimiter, IngressBlockOutcome,
+    IngressShareOutcome, LocalNodeState,
 };
 use crate::p2p_egress::open_validated_conn;
 
@@ -113,6 +115,7 @@ pub(crate) struct P2pMetrics {
     pub(crate) ingress_rate_limited_drops: AtomicU64,
     pub(crate) ingress_get_blocks_served: AtomicU64,
     pub(crate) sync_blocks_applied: AtomicU64,
+    pub(crate) sync_reorgs_applied: AtomicU64,
     pub(crate) sync_peer_failures: AtomicU64,
     pub(crate) egress_announces: AtomicU64,
     pub(crate) egress_failures: AtomicU64,
@@ -505,15 +508,26 @@ fn sync_with_peer(
             return Ok(());
         }
         for block_value in &blocks {
-            let mut guard = state.blocking_write();
-            match ingest_announced_block(&mut guard, block_value) {
+            // Scope the write guard to the ingest call so it is dropped before
+            // any reorg path below re-acquires it (same-thread write-write
+            // would deadlock).
+            let outcome = {
+                let mut guard = state.blocking_write();
+                ingest_announced_block(&mut guard, block_value)
+            };
+            match outcome {
                 IngressBlockOutcome::Ingested => {
                     metrics.sync_blocks_applied.fetch_add(1, Ordering::Relaxed);
                 }
                 IngressBlockOutcome::Ignored => {
-                    // Raced with an announce or a local commit — the chain
-                    // moved under us. Normal; the next poll reconciles.
-                    return Ok(());
+                    // The peer's block does not extend our head by one: either
+                    // the chain moved under us (raced with a local commit /
+                    // announce) or the peer is on a COMPETING fork that
+                    // diverges below our head. The extend-by-one path can make
+                    // no progress here, so pull the peer's full chain from
+                    // genesis and let fork-choice decide whether it is heavy
+                    // enough to reorg onto (N4.2/N4.3).
+                    return reorg_from_peer(&transport, &mut conn, &peer_head, state, metrics);
                 }
                 IngressBlockOutcome::Rejected => {
                     // Strict replay refused the peer's block: tampered or
@@ -531,4 +545,88 @@ fn sync_with_peer(
         my_height = head_summary(&state.blocking_read()).height;
     }
     Ok(())
+}
+
+/// N4 — a peer advertised a head we cannot reach by extending our own chain
+/// block-by-block (it diverges below our head, so `ingest_announced_block`
+/// can only return `Ignored`). Download the peer's FULL chain from genesis
+/// and hand it to fork-choice: adopt it iff it is strictly heavier (N4.2),
+/// rewriting local consensus state from genesis (N4.3). A tie or lighter
+/// chain is kept; a tampered/evidence-less chain is refused by the strict
+/// replay inside the reorg primitive and counted as a rejected block.
+fn reorg_from_peer(
+    transport: &TcpTransport,
+    conn: &mut TcpConn,
+    peer_head: &HeadSummary,
+    state: &Arc<RwLock<LocalNodeState>>,
+    metrics: &Arc<P2pMetrics>,
+) -> Result<(), FrameError> {
+    let candidate = fetch_block_range(transport, conn, 0, peer_head.height)?;
+    if candidate.is_empty() {
+        // The peer advertised a head but served nothing for its own range —
+        // stop rather than spin; the next poll retries.
+        return Ok(());
+    }
+    // Network I/O is done; take the write guard only for the state mutation,
+    // matching the single-writer discipline the HTTP submit path holds.
+    let outcome = {
+        let mut guard = state.blocking_write();
+        ingest_candidate_chain(&mut guard, &candidate)
+    };
+    match outcome {
+        CandidateChainOutcome::Reorged { new_head_height } => {
+            metrics.sync_reorgs_applied.fetch_add(1, Ordering::Relaxed);
+            eprintln!(
+                "boole-node: sync adopted a heavier competing peer chain via reorg \
+                 (new head height {new_head_height})"
+            );
+            Ok(())
+        }
+        // The competing chain lost fork-choice (an equal tie our tip already
+        // holds, or a lighter chain). Benign: keep our chain and let the next
+        // poll re-check.
+        CandidateChainOutcome::KeptCurrent => Ok(()),
+        CandidateChainOutcome::Rejected => {
+            metrics
+                .ingress_blocks_rejected
+                .fetch_add(1, Ordering::Relaxed);
+            Err(FrameError::Malformed {
+                detail: "peer served a competing chain that failed strict validation".to_string(),
+            })
+        }
+    }
+}
+
+/// Pull blocks `[from, upto)` from an open, validated peer connection,
+/// paginated by the wire contract's range cap, in height order. `GetBlocks`
+/// is inclusive on both bounds (matching the serving side), so each page for
+/// heights `[next, to]` uses `to = min(upto - 1, next + cap - 1)`.
+fn fetch_block_range(
+    transport: &TcpTransport,
+    conn: &mut TcpConn,
+    from: u64,
+    upto: u64,
+) -> Result<Vec<Value>, FrameError> {
+    let mut collected = Vec::new();
+    let mut next = from;
+    while next < upto {
+        let to = (upto - 1).min(next + GET_BLOCKS_RANGE_CAP - 1);
+        transport.send_frame(conn, &Frame::GetBlocks { from: next, to })?;
+        let blocks = match transport.recv_frame(conn)? {
+            Frame::Blocks { blocks } => blocks,
+            _ => {
+                return Err(FrameError::Malformed {
+                    detail: "expected Blocks in reply to GetBlocks".to_string(),
+                })
+            }
+        };
+        if blocks.is_empty() {
+            // The peer served nothing for a range its Hello claimed — stop
+            // rather than spin.
+            break;
+        }
+        next += blocks.len() as u64;
+        collected.extend(blocks);
+    }
+    Ok(collected)
 }

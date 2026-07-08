@@ -456,8 +456,9 @@ impl RuntimeAdmissionState {
     /// boot over the rewritten files reconstructs byte-identical state.
     ///
     /// Non-goals (this slice): incremental rollback (it re-derives the whole
-    /// chain rather than diffing to the common ancestor), bounty-event ledger
-    /// rewind, and wiring the trigger into the p2p ingress/sync path.
+    /// chain rather than diffing to the common ancestor) and bounty-event
+    /// ledger rewind. The sync-path trigger that calls this on a divergent,
+    /// heavier peer chain is `local_node::ingest_candidate_chain` (N4).
     pub fn reorg_to_heavier_chain(
         &mut self,
         block_path: impl AsRef<Path>,
