@@ -5,8 +5,8 @@ use crate::reward_store::{verify_ledger_matches_replay, FileRewardLedger};
 use boole_core::{
     admit_parsed_submission_typed, block_hash, build_block_selection, calibration_policy,
     choose_canonical_head, compute_block_reward_credits, difficulty_weight,
-    expected_retarget_difficulty_for_height, head_block_hash, parse_submission_body, replay_blocks,
-    replay_blocks_allow_legacy_evidence_less, replay_blocks_with_retarget,
+    expected_retarget_difficulty_for_height, head_block_hash, parse_submission_body,
+    replay_blocks_allow_legacy_evidence_less, replay_blocks_with_genesis,
     replay_blocks_with_retarget_allow_legacy_evidence_less, share_score, AdmissionDecision,
     AdmissionParsedDeps, BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy,
     CalibrationReport, CandidateShare, DifficultyEvidence, DifficultyRetargetPolicy,
@@ -96,6 +96,29 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    /// N5.1 (ADR-0014) — the GenesisSpec this node's consensus surface
+    /// declares: Tier-1 params from the calibration policy + retarget
+    /// schedule, identity from the caller. `seed_binding_required` stays
+    /// false and the checker unpinned on the closed-local line — the
+    /// per-network presets (N5.2) flip them for `boole-testnet`.
+    pub fn genesis_spec(&self, network_id: &str, genesis_c: &str) -> boole_core::GenesisSpec {
+        boole_core::GenesisSpec {
+            network_id: network_id.to_string(),
+            params: boole_core::GenesisParams {
+                consensus_rule_version: boole_core::CONSENSUS_RULE_VERSION,
+                t_block: format!("0x{:064x}", self.policy.thresholds.t_block),
+                t_share: format!("0x{:064x}", self.policy.thresholds.t_share),
+                k_max: self.policy.k_max as u64,
+                retarget: self.difficulty_retarget.clone(),
+                seed_binding_required: false,
+                checker_artifact_hash: None,
+            },
+            initial_state: boole_core::GenesisInitialState {
+                genesis_c: genesis_c.to_string(),
+            },
+        }
+    }
+
     pub fn from_calibration_report(
         report: CalibrationReport,
         admission_window_ms: i64,
@@ -467,23 +490,19 @@ impl RuntimeAdmissionState {
         &mut self,
         block_path: impl AsRef<Path>,
         candidate: &[PersistedBlock],
+        genesis: &boole_core::GenesisSpec,
     ) -> anyhow::Result<ReorgOutcome> {
         let candidate_head = candidate
             .last()
             .ok_or_else(|| anyhow::anyhow!("reorg candidate chain is empty"))?;
 
-        // 1. Strict replay from genesis. Peer/competing chains use the strict
-        //    entry points (no legacy evidence-less opt-in), so an
-        //    evidence-less or tampered candidate is rejected before it can
-        //    displace the current chain.
-        let replay = match &self.config.difficulty_retarget {
-            Some(policy) => replay_blocks_with_retarget(
-                candidate,
-                &format!("0x{:064x}", self.config.policy.thresholds.t_block),
-                policy,
-            )?,
-            None => replay_blocks(candidate)?,
-        };
+        // 1. Strict replay from genesis (N5.1: the GenesisSpec is the
+        //    consensus source — anchor, difficulty, k_max, seed policy).
+        //    Peer/competing chains use the strict path (no legacy
+        //    evidence-less opt-in), so an evidence-less or tampered
+        //    candidate is rejected before it can displace the current
+        //    chain.
+        let replay = replay_blocks_with_genesis(candidate, genesis)?;
 
         // 2. Fork-choice. Reuse choose_canonical_head + head_block_hash so this
         //    decision is identical to the standalone selection rule (N4.2). An

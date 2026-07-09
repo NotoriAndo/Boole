@@ -25,7 +25,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
     agent_passport_events_for_receipt, canonical_payload_hash_hex, compute_block_reward_credits,
-    replay_blocks, replay_blocks_allow_legacy_evidence_less, replay_blocks_with_retarget, ticket,
+    replay_blocks_allow_legacy_evidence_less, replay_blocks_with_genesis, ticket,
     verify_signature_with_network, AdmissionDecision, BountyProofVerifier, BountyRegistry,
     BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport, CreateBountyInput,
     DifficultyRetargetPolicy, FamilyManifestRegistry, Hex32, Hex64, LegacyEvidenceOptIn,
@@ -4694,15 +4694,13 @@ pub(crate) fn ingest_announced_block(
     }
     let mut chain = state.runtime.cached_blocks().to_vec();
     chain.push(block.clone());
-    let replay = match &state.runtime.config.difficulty_retarget {
-        Some(policy) => replay_blocks_with_retarget(
-            &chain,
-            &format!("0x{:064x}", state.runtime.config.policy.thresholds.t_block),
-            policy,
-        ),
-        None => replay_blocks(&chain),
-    };
-    if replay.is_err() {
+    // N5.1 — the GenesisSpec is the consensus source the peer chain is
+    // validated against (anchor, difficulty, k_max, seed policy).
+    let genesis = state
+        .runtime
+        .config
+        .genesis_spec(&state.network_id, &state.genesis_c);
+    if replay_blocks_with_genesis(&chain, &genesis).is_err() {
         return IngressBlockOutcome::Rejected;
     }
     // Same write ordering as the self-produce commit: block append →
@@ -4795,9 +4793,13 @@ pub(crate) fn ingest_candidate_chain(
         candidate.push(block);
     }
     let block_path = state.block_path.clone();
+    let genesis = state
+        .runtime
+        .config
+        .genesis_spec(&state.network_id, &state.genesis_c);
     match state
         .runtime
-        .reorg_to_heavier_chain(&block_path, &candidate)
+        .reorg_to_heavier_chain(&block_path, &candidate, &genesis)
     {
         Ok(ReorgOutcome::Reorged { new_head_height }) => {
             // Rebuild the non-authoritative proof-dedup mirror to the adopted
