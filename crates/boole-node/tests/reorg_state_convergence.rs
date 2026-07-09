@@ -197,7 +197,11 @@ fn reorg_to_heavier_chain_rederives_balances_byte_identical() {
     }
 
     let outcome = node
-        .reorg_to_heavier_chain(&block_path, &chain_b)
+        .reorg_to_heavier_chain(
+            &block_path,
+            &chain_b,
+            &config.genesis_spec("boole-mvp", GENESIS_C),
+        )
         .expect("reorg to heavier chain");
     assert_eq!(outcome, ReorgOutcome::Reorged { new_head_height: 1 });
 
@@ -240,7 +244,11 @@ fn lighter_chain_is_not_adopted() {
     let head_before = node.current_c().map(str::to_string);
 
     let outcome = node
-        .reorg_to_heavier_chain(&block_path, &chain_light)
+        .reorg_to_heavier_chain(
+            &block_path,
+            &chain_light,
+            &config.genesis_spec("boole-mvp", GENESIS_C),
+        )
         .expect("evaluate lighter candidate");
     assert_eq!(outcome, ReorgOutcome::KeptCurrent);
 

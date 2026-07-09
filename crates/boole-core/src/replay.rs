@@ -156,9 +156,76 @@ pub fn replay_blocks_allow_legacy_evidence_less(
     replay_blocks_with_evidence_policy(blocks, EvidencePolicy::AllowLegacyEvidenceLess)
 }
 
+/// N5.1 (ADR-0014 (c)/(d)) — genesis-aware replay: validates the chain
+/// against a `GenesisSpec` as the consensus source instead of caller
+/// arguments and hardcoded defaults. On top of the strict replay rules
+/// this enforces:
+///
+/// - the chain anchor: block 0 must link to `initial_state.genesis_c`
+///   (the legacy entry points assume the all-zeros anchor);
+/// - difficulty: `params.retarget = Some(policy)` delegates to the N1
+///   retarget validation seeded from `params.t_block`; `None` means
+///   static difficulty — every block carries the initial `t_block`;
+/// - the `k_max` cap: a block may select at most `params.k_max` shares
+///   (previously only self-consistency, never an enforced limit);
+/// - `params.seed_binding_required`: an empty evidence `seedHex` is a
+///   consensus reject from height 0 (ADR-0014 (d), no grandfathering).
+pub fn replay_blocks_with_genesis(
+    blocks: &[PersistedBlock],
+    spec: &crate::GenesisSpec,
+) -> anyhow::Result<ReplayResult> {
+    match &spec.params.retarget {
+        Some(policy) => {
+            crate::validate_retargeted_difficulty(blocks, &spec.params.t_block, policy)?
+        }
+        None => validate_static_difficulty(blocks, &spec.params.t_block)?,
+    }
+    replay_blocks_with_rules(
+        blocks,
+        EvidencePolicy::Strict,
+        &spec.initial_state.genesis_c,
+        Some(&spec.params),
+    )
+}
+
+/// Static-difficulty rule (`retarget: None`): every block's `t_block`
+/// must equal the genesis-committed initial target as a value.
+fn validate_static_difficulty(
+    blocks: &[PersistedBlock],
+    initial_t_block: &str,
+) -> anyhow::Result<()> {
+    let expected = crate::parse_biguint_hex(initial_t_block)?;
+    for block in blocks {
+        let got = crate::parse_biguint_hex(&block.t_block)?;
+        if got != expected {
+            anyhow::bail!(
+                "static-difficulty t_block mismatch at height {}: got {}, genesis commits {}",
+                block.height,
+                block.t_block,
+                initial_t_block
+            );
+        }
+    }
+    Ok(())
+}
+
 fn replay_blocks_with_evidence_policy(
     blocks: &[PersistedBlock],
     evidence_policy: EvidencePolicy,
+) -> anyhow::Result<ReplayResult> {
+    replay_blocks_with_rules(
+        blocks,
+        evidence_policy,
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        None,
+    )
+}
+
+fn replay_blocks_with_rules(
+    blocks: &[PersistedBlock],
+    evidence_policy: EvidencePolicy,
+    genesis_c: &str,
+    genesis_params: Option<&crate::GenesisParams>,
 ) -> anyhow::Result<ReplayResult> {
     // N3-pre.3 (review #3) — deterministic ts trust gate, upfront and
     // unconditional (both the retarget-aware and plain replay entry points,
@@ -168,8 +235,7 @@ fn replay_blocks_with_evidence_policy(
     // retargeting.
     verify_block_ts_median_time_past(blocks)?;
 
-    let mut latest_c =
-        "0000000000000000000000000000000000000000000000000000000000000000".to_string();
+    let mut latest_c = genesis_c.to_string();
     let mut balances: BTreeMap<String, u128> = BTreeMap::new();
     let mut bounty_credit_by_family: BTreeMap<String, u128> = BTreeMap::new();
     // N4-pre.1 (ADR-0012 (d)) — chain-order index of every canon_hash
@@ -198,6 +264,29 @@ fn replay_blocks_with_evidence_policy(
             anyhow::bail!("block c mismatch: got {}, expected {}", block.c, expected_c);
         }
         verify_selected_share_evidence(block, evidence_policy)?;
+        // N5.1 (ADR-0014 (c)/(d)) — genesis-committed rules.
+        if let Some(params) = genesis_params {
+            if block.selected_share_hashes.len() as u64 > params.k_max {
+                anyhow::bail!(
+                    "block at height {} selects {} shares, exceeding the genesis k_max {}",
+                    block.height,
+                    block.selected_share_hashes.len(),
+                    params.k_max
+                );
+            }
+            if params.seed_binding_required {
+                for (idx, evidence) in block.selected_share_evidence.iter().enumerate() {
+                    if evidence.seed_hex.is_empty() {
+                        anyhow::bail!(
+                            "selected share evidence at index {} in height {} has an empty \
+                             seedHex, but the genesis requires seed binding",
+                            idx,
+                            block.height
+                        );
+                    }
+                }
+            }
+        }
         // N3-pre.2 — same policy layer as the evidence check above: a
         // no-op unless selectedShareEvidence is present (see that
         // function's doc comment), so this never rejects a legacy

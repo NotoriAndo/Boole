@@ -99,9 +99,9 @@ pub use rejection_log::{
 };
 pub use replay::{
     compute_block_credits, compute_block_reward_credits, replay_blocks,
-    replay_blocks_allow_legacy_evidence_less, replay_blocks_with_retarget,
-    replay_blocks_with_retarget_allow_legacy_evidence_less, LegacyEvidenceOptIn, PersistedCredit,
-    PersistedRewardEvent, ReplayResult,
+    replay_blocks_allow_legacy_evidence_less, replay_blocks_with_genesis,
+    replay_blocks_with_retarget, replay_blocks_with_retarget_allow_legacy_evidence_less,
+    LegacyEvidenceOptIn, PersistedCredit, PersistedRewardEvent, ReplayResult,
 };
 pub use rules::CONSENSUS_RULE_VERSION;
 pub use session_policy::{SessionPolicy, SessionState, SignerRequest};
