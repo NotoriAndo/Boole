@@ -548,14 +548,18 @@ fn promoted_credit_lands_in_balance_and_preserves_hard_guard() {
     //   * fold the promoted credit into the persisted reward ledger so
     //     `/account/{prover_pk}/balance` surfaces it,
     //   * emit a parallel "credit" event into the bounty event ledger,
-    //   * leave base-lane Hard-Guard view (`height`, `c`, `sharePoolSize`,
+    //   * leave the base-lane Hard-Guard view (`height`, `sharePoolSize`,
     //     `replayMatchesRuntime`) byte-identical to a no-bounty baseline
-    //     that committed the same share.
+    //     that committed the same share — while `c` MUST diverge: preimage
+    //     v2 (ADR-0014 (a)) commits the promoted credit rows, so a block
+    //     that pays a bounty credit is a different block by consensus
+    //     definition. Equal hashes here would mean the credit escaped the
+    //     hash again (the pre-v2 same-hash-different-balances hole).
     //
     // We boot twice. The two runs differ ONLY in bounty traffic — the
     // base-lane share submission is byte-identical. If promotion bleeds
     // into the base lane (mutates the SharePool, alters proposer/score
-    // rules, etc.) the two committed blocks would diverge. They must not.
+    // rules, etc.) the non-`c` view would diverge. It must not.
 
     // ---------- Boot A: baseline, no manifest, no bounty traffic ----------
     let baseline = boot_with_reward_ledger_and_operator(None, vec![], 2);
@@ -628,13 +632,33 @@ fn promoted_credit_lands_in_balance_and_preserves_hard_guard() {
         "promoted credit must land in reward ledger and surface via balance route: {balance}"
     );
 
-    // 4) Hard-Guard view across the two committed states must be byte-equal.
+    // 4) Hard-Guard view across the two committed states must be byte-equal
+    //    EXCEPT `c`: the promoted block carries the credit rows in its v2
+    //    preimage (ADR-0014 (a)), so its hash must differ from the
+    //    credit-less baseline block's.
     let (_, promoted_status) = http_get(promoted.addr, "/status");
     let promoted_view = extract_hard_guard_view(&promoted_status);
+    let mut baseline_sans_c = baseline_view.clone();
+    let baseline_c = baseline_sans_c
+        .as_object_mut()
+        .expect("baseline view object")
+        .remove("c")
+        .expect("baseline c");
+    let mut promoted_sans_c = promoted_view.clone();
+    let promoted_c = promoted_sans_c
+        .as_object_mut()
+        .expect("promoted view object")
+        .remove("c")
+        .expect("promoted c");
     assert_eq!(
-        baseline_view, promoted_view,
+        baseline_sans_c, promoted_sans_c,
         "Hard Guard violated — promotion altered base-lane state:\n\
          baseline={baseline_view}\npromoted={promoted_view}"
+    );
+    assert_ne!(
+        baseline_c, promoted_c,
+        "preimage v2 must commit the promoted credit rows — a block that \
+         pays a bounty credit cannot share a hash with one that does not"
     );
 
     // 5) P1.5a — once a share has been promoted into a committed block,

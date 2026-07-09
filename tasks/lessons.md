@@ -731,3 +731,24 @@ rewraps method chains you hand-write on one line. Rule reinforced: no push —
 initial or amended — without `cargo fmt --all --check` + both clippy
 variants green locally first. Manual single-file edits are the trap because
 they feel too small to gate.
+
+## 2026-07-09 — N5-pre.1 (PR #52): fail-fast가 진짜 회귀를 로컬에서 숨김 + fmt-after-amend 3회차
+
+**What happened:** (1) `cargo test -p boole-node`가 Lean 부하 플레이크
+(agent_proof_cli, 10s wall-clock timeout under load)로 한 타겟이 실패하자
+**나머지 테스트 바이너리 실행을 중단**(cargo의 타겟 간 fail-fast 기본값) —
+그 뒤에 있던 `hard_guard_regression`의 진짜 회귀(preimage v2가 promoted
+credit을 커밋하므로 c-동일성 단언이 무효)가 로컬에서 아예 실행되지 않았고
+CI에서야 잡혔다. (2) 마지막 unused-import 정리 후 fmt 재실행 없이 push —
+2026-07-05/07-07에 이어 3번째 같은 바운스.
+
+**Rule:** ① 스위트 스윕은 `cargo test --no-fail-fast`로 — 특히 플레이크
+가능 타겟(Lean/부하 의존)이 앞에 있을 때, 한 타겟의 flake가 뒤 타겟의
+실제 회귀를 가릴 수 있다. "N개 타겟 중 몇 개가 실행됐는가"를 결과에서
+확인할 것(test result 줄 수 ≈ 타겟 수). ② 합의 불변량을 바꾸는 slice는
+"그 불변량이 성립함을 단언하는 기존 테스트"를 사전 grep으로 찾는다 —
+이번엔 `block_hash_is_unchanged_by_promoted_bounty_shares_field`는 지도에
+있었지만 hard_guard의 c-동일성 단언은 이름에 hash가 없어 놓쳤다. 검색은
+심볼명이 아니라 **불변량 표면**(여기선 `"c"` 필드 비교) 기준으로.
+③ fmt-after-amend: 예외 없음 — 어떤 크기의 수정이든 push 전
+`cargo fmt --check` (이 규칙의 3회째 강화).
