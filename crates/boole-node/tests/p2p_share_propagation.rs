@@ -21,7 +21,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use boole_core::CONSENSUS_RULE_VERSION;
-use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig};
+use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig, RuntimeConfig};
 use boole_p2p::{Frame, FrameError, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
@@ -44,6 +44,21 @@ fn scenario_genesis_c() -> String {
     let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
     let doc: Value = serde_json::from_str(&raw).expect("scenario json");
     doc["genesisC"].as_str().expect("genesisC").to_string()
+}
+
+/// N5.2 — the GenesisSpec hash every node booted from the runtime-smoke
+/// scenario advertises in `Hello.genesis_hash` (the spec identity, not the
+/// raw chain anchor). Computed exactly the way the node does at boot.
+fn scenario_spec_hash() -> String {
+    let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
+    let doc: Value = serde_json::from_str(&raw).expect("scenario json");
+    let cfg: boole_core::CalibrationReport =
+        serde_json::from_value(doc["cfg"].clone()).expect("scenario cfg");
+    let config = RuntimeConfig::from_calibration_report(cfg, 60_000).expect("runtime config");
+    config
+        .genesis_spec("boole-mvp", doc["genesisC"].as_str().expect("genesisC"))
+        .hash()
+        .to_hex()
 }
 
 fn multiminer_steps() -> Vec<Value> {
@@ -333,7 +348,7 @@ fn ingress_disconnects_on_network_id_mismatch_hello() {
                 protocol_version: PROTOCOL_VERSION,
                 consensus_rule_version: CONSENSUS_RULE_VERSION,
                 network_id: "not-the-b-network".to_string(),
-                genesis_hash: scenario_genesis_c(),
+                genesis_hash: scenario_spec_hash(),
                 head: HeadSummary {
                     height: 0,
                     c: scenario_genesis_c(),
@@ -391,7 +406,7 @@ fn hello_mismatched_consensus_rule_version_is_dropped() {
                 protocol_version: PROTOCOL_VERSION,
                 consensus_rule_version: CONSENSUS_RULE_VERSION + 1,
                 network_id: "boole-mvp".to_string(),
-                genesis_hash: scenario_genesis_c(),
+                genesis_hash: scenario_spec_hash(),
                 head: HeadSummary {
                     height: 0,
                     c: scenario_genesis_c(),

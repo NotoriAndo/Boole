@@ -8,10 +8,11 @@
 //! ledger.
 //!
 //! `<dir>/state.manifest.json` records `created_at`, `network_id`,
-//! `binary_sha`, `schema_versions`. The first boot writes it; later boots
-//! verify the durable values match what the binary expects, so an empty
-//! directory and a deleted directory are distinguishable and a directory
-//! built for a different network is rejected before any write.
+//! `binary_sha`, `genesis_hash` (N5.2 — the `GenesisSpec.hash()` identity),
+//! `schema_versions`. The first boot writes it; later boots verify the
+//! durable values match what the binary expects, so an empty directory and
+//! a deleted directory are distinguishable and a directory built for a
+//! different network or a foreign genesis is rejected before any write.
 //!
 //! This slice ships the foundation only — the API and its unit tests.
 //! Wiring into `LocalNodeState::from_config` and the `--state-dir` CLI
@@ -62,6 +63,12 @@ pub struct StateManifest {
     pub created_at: String,
     pub network_id: String,
     pub binary_sha: String,
+    /// N5.2 — the `GenesisSpec.hash()` this state dir was written under.
+    /// Boot refuses a dir recorded under a foreign genesis. Empty on
+    /// pre-N5.2 manifests (`serde(default)`); `ensure_manifest` backfills
+    /// those once instead of refusing them.
+    #[serde(default)]
+    pub genesis_hash: String,
     pub schema_versions: BTreeMap<String, u32>,
 }
 
@@ -69,7 +76,7 @@ impl StateManifest {
     /// Build a manifest stamped with the current Unix-second timestamp.
     /// Tests that need a deterministic `created_at` build the struct
     /// directly instead.
-    pub fn now(network_id: &str, binary_sha: &str) -> Self {
+    pub fn now(network_id: &str, binary_sha: &str, genesis_hash: &str) -> Self {
         let secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -78,6 +85,7 @@ impl StateManifest {
             created_at: secs.to_string(),
             network_id: network_id.to_string(),
             binary_sha: binary_sha.to_string(),
+            genesis_hash: genesis_hash.to_string(),
             schema_versions: BTreeMap::new(),
         }
     }
@@ -178,6 +186,31 @@ pub fn ensure_manifest(dir: &Path, expected: &StateManifest) -> Result<(), State
             field: "binary_sha".to_string(),
             expected: expected.binary_sha.clone(),
             found: found.binary_sha,
+        });
+    }
+    // N5.2 — genesis binding: a state dir written under a foreign genesis
+    // must not boot. A pre-N5.2 manifest (empty recorded hash) is
+    // backfilled once with the current genesis instead of refused.
+    if found.genesis_hash.is_empty() && !expected.genesis_hash.is_empty() {
+        let mut upgraded = found.clone();
+        upgraded.genesis_hash = expected.genesis_hash.clone();
+        let serialized = serde_json::to_string_pretty(&upgraded)
+            .expect("StateManifest serializes to JSON without io errors");
+        let mut file = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .map_err(|err| StateDirError::Io(path.clone(), err))?;
+        file.write_all(serialized.as_bytes())
+            .map_err(|err| StateDirError::Io(path.clone(), err))?;
+        file.sync_all()
+            .map_err(|err| StateDirError::Io(path.clone(), err))?;
+    } else if found.genesis_hash != expected.genesis_hash {
+        return Err(StateDirError::ManifestMismatch {
+            dir: dir.to_path_buf(),
+            field: "genesis_hash".to_string(),
+            expected: expected.genesis_hash.clone(),
+            found: found.genesis_hash,
         });
     }
     for (key, expected_version) in &expected.schema_versions {
@@ -283,6 +316,7 @@ mod tests {
             created_at: "1700000000".to_string(),
             network_id: "boole-test".to_string(),
             binary_sha: "abc123".to_string(),
+            genesis_hash: "gg".repeat(32),
             schema_versions: BTreeMap::from([("rewards".to_string(), 1u32)]),
         };
         ensure_manifest(&dir, &m).expect("first ensure writes");
@@ -308,6 +342,7 @@ mod tests {
             created_at: "1700000000".to_string(),
             network_id: "boole-mainnet".to_string(),
             binary_sha: "abc123".to_string(),
+            genesis_hash: "gg".repeat(32),
             schema_versions: BTreeMap::new(),
         };
         ensure_manifest(&dir, &original).expect("first ensure");
@@ -339,6 +374,7 @@ mod tests {
             created_at: "1700000000".to_string(),
             network_id: "n".to_string(),
             binary_sha: "s".to_string(),
+            genesis_hash: "gg".repeat(32),
             schema_versions: BTreeMap::from([("rewards".to_string(), 1u32)]),
         };
         ensure_manifest(&dir, &original).expect("first ensure");
@@ -361,7 +397,7 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("mkdir");
         // Empty directory: no manifest yet.
         assert!(!dir.join(STATE_MANIFEST_FILE).exists());
-        let m = StateManifest::now("n", "s");
+        let m = StateManifest::now("n", "s", "g");
         ensure_manifest(&dir, &m).expect("write");
         assert!(dir.join(STATE_MANIFEST_FILE).exists());
         let _ = std::fs::remove_dir_all(&dir);

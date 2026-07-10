@@ -60,6 +60,30 @@ fn genesis_hash_is_deterministic_over_canonical_encoding() {
 type Mutation = (&'static str, Box<dyn Fn(&mut GenesisSpec)>);
 
 #[test]
+fn compiled_network_presets_are_distinct_and_testnet_requires_seeds() {
+    // N5.2 — the compiled-in networks. `boole-testnet-1` is the
+    // instance-numbered shared-testnet declaration (the plain
+    // "boole-testnet" label predates N5.2 as the P2.10 signing network id
+    // and stays scenario-driven, hence no preset for it).
+    let dev = boole_core::network_genesis_preset("boole-dev").expect("dev preset");
+    let testnet = boole_core::network_genesis_preset("boole-testnet-1").expect("testnet preset");
+    assert!(boole_core::network_genesis_preset("boole-testnet").is_none());
+    assert!(boole_core::network_genesis_preset("boole-mvp").is_none());
+
+    assert!(!dev.params.seed_binding_required, "dev stays relaxed");
+    assert!(
+        testnet.params.seed_binding_required,
+        "the shared testnet requires seed binding from height 0 (ADR-0014 (d))"
+    );
+    assert!(testnet.params.retarget.is_some(), "testnet retargets");
+    assert_ne!(
+        dev.hash().to_hex(),
+        testnet.hash().to_hex(),
+        "compiled networks are distinct genesis identities"
+    );
+}
+
+#[test]
 fn any_param_change_changes_genesis_hash() {
     let baseline = testnet_spec().hash().to_hex();
 

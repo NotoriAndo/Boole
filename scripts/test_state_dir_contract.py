@@ -63,7 +63,15 @@ class StateDirContractTests(unittest.TestCase):
         # The struct definition itself must name the four required fields.
         # Order is not important; presence is. Comments or attributes
         # between fields are tolerated by the regex.
-        for field in ("created_at", "network_id", "binary_sha", "schema_versions"):
+        # N5.2 added `genesis_hash` (the GenesisSpec.hash() identity the
+        # state dir was written under) to the P1.1 field set.
+        for field in (
+            "created_at",
+            "network_id",
+            "binary_sha",
+            "genesis_hash",
+            "schema_versions",
+        ):
             self.assertRegex(
                 body,
                 re.compile(
