@@ -32,7 +32,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use boole_core::{block_hash, CONSENSUS_RULE_VERSION};
-use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig};
+use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig, RuntimeConfig};
 use boole_p2p::{Frame, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
@@ -55,6 +55,21 @@ fn scenario_genesis_c() -> String {
     let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
     let doc: Value = serde_json::from_str(&raw).expect("scenario json");
     doc["genesisC"].as_str().expect("genesisC").to_string()
+}
+
+/// N5.2 — the GenesisSpec hash every node booted from the runtime-smoke
+/// scenario advertises in `Hello.genesis_hash` (the spec identity, not the
+/// raw chain anchor). Computed exactly the way the node does at boot.
+fn scenario_spec_hash() -> String {
+    let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
+    let doc: Value = serde_json::from_str(&raw).expect("scenario json");
+    let cfg: boole_core::CalibrationReport =
+        serde_json::from_value(doc["cfg"].clone()).expect("scenario cfg");
+    let config = RuntimeConfig::from_calibration_report(cfg, 60_000).expect("runtime config");
+    config
+        .genesis_spec("boole-mvp", doc["genesisC"].as_str().expect("genesisC"))
+        .hash()
+        .to_hex()
 }
 
 fn multiminer_steps() -> Vec<Value> {
@@ -350,7 +365,7 @@ fn sync_rejects_tampered_chain_from_peer() {
     let forged_c = block_hash(&parsed).to_hex();
     forged["c"] = json!(forged_c);
 
-    let genesis_for_peer = genesis.clone();
+    let genesis_for_peer = scenario_spec_hash();
     let fake_peer = thread::spawn(move || {
         let transport = TcpTransport::new();
         // Serve exactly one sync exchange, then exit; later poll rounds

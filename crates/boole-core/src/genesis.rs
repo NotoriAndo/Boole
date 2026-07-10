@@ -76,3 +76,61 @@ impl GenesisSpec {
         Hex32::from_bytes(*hasher.finalize().as_bytes())
     }
 }
+
+/// N5.2 (ADR-0014) — the compiled-in named networks. Booting under one of
+/// these names binds the node to the preset: a diverging effective genesis
+/// refuses to boot instead of silently forking the network. Unlisted
+/// network ids (the `boole-mvp` closed-local default) stay scenario-driven.
+///
+/// `boole-dev` mirrors the standard runtime-smoke scenario (relaxed: no
+/// seed requirement, unpinned checker, static difficulty).
+/// `boole-testnet-1` is the shared-testnet declaration — instance-numbered
+/// (a pre-launch reset mints `-2`, the ADR-0014 "boole-testnet" name is
+/// the LINE; the plain label also predates N5.2 as the P2.10 signing
+/// network id, which stays scenario-driven): seed binding required from
+/// height 0 (ADR-0014 (d)) and retargeting on; its checker pin stays
+/// `None` until the versioned checker release channel exists (the ops
+/// half of ADR-0014 (e) — a preset amendment lands it together with that
+/// channel, before the testnet launch).
+pub fn network_genesis_preset(network_id: &str) -> Option<GenesisSpec> {
+    let all_zero_anchor = "0".repeat(64);
+    let t_max = format!("0x{}", "f".repeat(64));
+    let t_eased = format!("0x{}e", "f".repeat(63));
+    match network_id {
+        "boole-dev" => Some(GenesisSpec {
+            network_id: "boole-dev".to_string(),
+            params: GenesisParams {
+                consensus_rule_version: crate::rules::CONSENSUS_RULE_VERSION,
+                t_block: t_eased,
+                t_share: t_max,
+                k_max: 4,
+                retarget: None,
+                seed_binding_required: false,
+                checker_artifact_hash: None,
+            },
+            initial_state: GenesisInitialState {
+                genesis_c: all_zero_anchor,
+            },
+        }),
+        "boole-testnet-1" => Some(GenesisSpec {
+            network_id: "boole-testnet-1".to_string(),
+            params: GenesisParams {
+                consensus_rule_version: crate::rules::CONSENSUS_RULE_VERSION,
+                t_block: t_eased,
+                t_share: t_max,
+                k_max: 4,
+                retarget: Some(DifficultyRetargetPolicy {
+                    target_block_ms: 60_000,
+                    retarget_every_blocks: 2,
+                    max_adjustment_factor: 4,
+                }),
+                seed_binding_required: true,
+                checker_artifact_hash: None,
+            },
+            initial_state: GenesisInitialState {
+                genesis_c: all_zero_anchor,
+            },
+        }),
+        _ => None,
+    }
+}

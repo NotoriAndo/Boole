@@ -24,7 +24,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use boole_core::{block_hash, CONSENSUS_RULE_VERSION};
-use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig};
+use boole_node::{serve_local_node_with_p2p, LocalNodeConfig, P2pConfig, RuntimeConfig};
 use boole_p2p::{Frame, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
@@ -47,6 +47,21 @@ fn scenario_genesis_c() -> String {
     let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
     let doc: Value = serde_json::from_str(&raw).expect("scenario json");
     doc["genesisC"].as_str().expect("genesisC").to_string()
+}
+
+/// N5.2 — the GenesisSpec hash every node booted from the runtime-smoke
+/// scenario advertises in `Hello.genesis_hash` (the spec identity, not the
+/// raw chain anchor). Computed exactly the way the node does at boot.
+fn scenario_spec_hash() -> String {
+    let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
+    let doc: Value = serde_json::from_str(&raw).expect("scenario json");
+    let cfg: boole_core::CalibrationReport =
+        serde_json::from_value(doc["cfg"].clone()).expect("scenario cfg");
+    let config = RuntimeConfig::from_calibration_report(cfg, 60_000).expect("runtime config");
+    config
+        .genesis_spec("boole-mvp", doc["genesisC"].as_str().expect("genesisC"))
+        .hash()
+        .to_hex()
 }
 
 fn multiminer_steps() -> Vec<Value> {
@@ -406,7 +421,7 @@ fn ingress_rejects_evidence_less_block() {
         .send_frame(
             &mut conn,
             &hello_frame(
-                &genesis,
+                &scenario_spec_hash(),
                 HeadSummary {
                     height: 1,
                     c: forged_c.clone(),
@@ -469,7 +484,6 @@ fn ingress_rejects_evidence_less_block() {
 #[ignore = "needs-multiprocess"]
 fn ingress_rejects_tampered_peer_block() {
     let steps = multiminer_steps();
-    let genesis = scenario_genesis_c();
 
     // A produces one real, fully-valid block over HTTP. A has no p2p peers, so
     // it never announces the block — the test carries it by hand, reading the
@@ -516,7 +530,7 @@ fn ingress_rejects_tampered_peer_block() {
         DEFAULT_RATE_LIMIT,
         false,
     );
-    announce_block_to(&reject_p2p_addr, &genesis, &tampered);
+    announce_block_to(&reject_p2p_addr, &scenario_spec_hash(), &tampered);
     wait_until(
         "B to count the rejected tampered block",
         Duration::from_secs(10),
@@ -537,7 +551,7 @@ fn ingress_rejects_tampered_peer_block() {
         DEFAULT_RATE_LIMIT,
         false,
     );
-    announce_block_to(&accept_p2p_addr, &genesis, &real_block);
+    announce_block_to(&accept_p2p_addr, &scenario_spec_hash(), &real_block);
     wait_until(
         "fresh B to ingest the untampered block",
         Duration::from_secs(10),
@@ -571,7 +585,7 @@ fn ingress_rate_limits_flooding_peer() {
         .send_frame(
             &mut conn,
             &hello_frame(
-                &genesis,
+                &scenario_spec_hash(),
                 HeadSummary {
                     height: 0,
                     c: genesis.clone(),

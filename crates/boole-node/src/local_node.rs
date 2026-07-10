@@ -314,6 +314,11 @@ struct LocalNodeScenarioConfig {
 pub(crate) struct LocalNodeState {
     runtime: RuntimeAdmissionState,
     genesis_c: String,
+    /// N5.2 — the node's content-addressed genesis identity
+    /// (`GenesisSpec.hash()`, N5.1), computed once at boot. Advertised in
+    /// the p2p `Hello`, recorded in `state.manifest.json`, surfaced on
+    /// `/status` as `genesisSpecHash`.
+    genesis_spec_hash: String,
     block_path: PathBuf,
     report: CalibrationReport,
     /// P2.6 — Unix epoch millis captured the moment the runtime hand-off
@@ -954,7 +959,7 @@ async fn serve_local_node_async(
     if let Some(p2p) = p2p {
         let identity = P2pIdentity {
             network_id: state.network_id.clone(),
-            genesis_c: state.genesis_c.clone(),
+            genesis_hash: state.genesis_spec_hash.clone(),
         };
         if !p2p.peers.is_empty() {
             let (tx, rx) = std::sync::mpsc::channel();
@@ -1224,18 +1229,15 @@ where
 
 impl LocalNodeState {
     fn from_config(config: LocalNodeConfig) -> anyhow::Result<Self> {
-        // L7 state-dir lock + manifest must run first — every per-store
-        // open below this line is guarded by the flock, so refusing the
-        // lock guarantees a losing process never appends to a peer's
-        // ledger and never half-writes its own.
+        // L7 state-dir lock must run first — every per-store open below
+        // this line is guarded by the flock, so refusing the lock
+        // guarantees a losing process never appends to a peer's ledger and
+        // never half-writes its own. (The manifest write/verify moved
+        // below: N5.2 records the genesis spec hash in it, which needs the
+        // scenario-derived consensus params first. The lock still precedes
+        // every store open, including the manifest file itself.)
         let state_dir_guard: Option<StateDirGuard> = if let Some(dir) = config.state_dir.as_ref() {
-            let guard = state_dir::acquire(dir)?;
-            let manifest = StateManifest::now(
-                config.network_id.as_deref().unwrap_or(DEFAULT_NETWORK_ID),
-                BINARY_SHA,
-            );
-            state_dir::ensure_manifest(dir, &manifest)?;
-            Some(guard)
+            Some(state_dir::acquire(dir)?)
         } else {
             None
         };
@@ -1251,6 +1253,33 @@ impl LocalNodeState {
             runtime_config = runtime_config
                 .with_difficulty_retarget(policy)
                 .map_err(|err| anyhow::anyhow!(err))?;
+        }
+        // N5.2 — the node's effective genesis identity (N5.1 spec hash).
+        let node_network_id = config
+            .network_id
+            .clone()
+            .unwrap_or_else(|| DEFAULT_NETWORK_ID.to_string());
+        let genesis_spec_hash = runtime_config
+            .genesis_spec(&node_network_id, &scenario.genesis_c)
+            .hash()
+            .to_hex();
+        // Booting under a COMPILED network name binds the node to that
+        // network's preset — a diverging effective genesis must refuse to
+        // boot instead of silently forking the named network.
+        if let Some(preset) = boole_core::network_genesis_preset(&node_network_id) {
+            let expected = preset.hash().to_hex();
+            if genesis_spec_hash != expected {
+                anyhow::bail!(
+                    "network {node_network_id} is a compiled-in network whose genesis \
+                     spec hash is {expected}, but this node's effective genesis is \
+                     {genesis_spec_hash} — refusing to boot a diverged genesis under \
+                     that name (ADR-0014 / N5.2)"
+                );
+            }
+        }
+        if let (Some(dir), Some(_)) = (config.state_dir.as_ref(), state_dir_guard.as_ref()) {
+            let manifest = StateManifest::now(&node_network_id, BINARY_SHA, &genesis_spec_hash);
+            state_dir::ensure_manifest(dir, &manifest)?;
         }
         let recovered = FileBlockStore::recover(&config.block_path)?;
         // Always route through boot_from_store so the reward-ledger path is
@@ -1339,6 +1368,7 @@ impl LocalNodeState {
             runtime,
             disk_full: Arc::new(AtomicBool::new(false)),
             genesis_c: scenario.genesis_c,
+            genesis_spec_hash,
             block_path: config.block_path,
             report: scenario.cfg,
             started_at_ms: std::time::SystemTime::now()
@@ -1365,10 +1395,7 @@ impl LocalNodeState {
             receipt_store,
             lean_checker_dir: config.lean_checker_dir,
             lean_checker_disabled: config.lean_checker_disabled,
-            network_id: config
-                .network_id
-                .clone()
-                .unwrap_or_else(|| DEFAULT_NETWORK_ID.to_string()),
+            network_id: node_network_id,
             state_dir: config.state_dir,
             _state_dir_guard: state_dir_guard,
             allow_anonymous_submit: config.allow_anonymous_submit,
@@ -3178,6 +3205,9 @@ fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
         "height": height,
         "c": head.clone(),
         "genesisC": state.genesis_c,
+        // N5.2 — the content-addressed genesis identity (GenesisSpec.hash())
+        // peers compare in Hello and the state manifest records.
+        "genesisSpecHash": state.genesis_spec_hash,
         "replayHeight": height,
         "replayLatestC": head,
         "replayMatchesRuntime": compute_replay_matches_runtime(state),

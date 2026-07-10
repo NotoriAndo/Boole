@@ -68,7 +68,10 @@ pub struct P2pConfig {
 #[derive(Clone)]
 pub(crate) struct P2pIdentity {
     pub(crate) network_id: String,
-    pub(crate) genesis_c: String,
+    /// N5.2 — the content-addressed genesis identity (`GenesisSpec.hash()`,
+    /// N5.1), NOT the raw chain anchor: peers that agree on the anchor but
+    /// differ on any committed consensus parameter must refuse to gossip.
+    pub(crate) genesis_hash: String,
 }
 
 impl P2pIdentity {
@@ -77,17 +80,17 @@ impl P2pIdentity {
             protocol_version: PROTOCOL_VERSION,
             consensus_rule_version: CONSENSUS_RULE_VERSION,
             network_id: self.network_id.clone(),
-            genesis_hash: self.genesis_c.clone(),
+            genesis_hash: self.genesis_hash.clone(),
             head,
         }
     }
 
     /// A peer `Hello` matches iff protocol_version, consensus_rule_version,
-    /// network_id AND genesis_hash all agree. `genesis_hash` is load-bearing
-    /// for N5.2's per-network genesis commitment; `consensus_rule_version`
-    /// (ADR-0014 (b)) keeps a peer enforcing a different block-validity rule
-    /// set from gossiping with us — same shares, different chosen blocks is
-    /// a silent fork.
+    /// network_id AND genesis_hash all agree. `genesis_hash` carries the
+    /// N5.2 per-network genesis commitment (the spec hash);
+    /// `consensus_rule_version` (ADR-0014 (b)) keeps a peer enforcing a
+    /// different block-validity rule set from gossiping with us — same
+    /// shares, different chosen blocks is a silent fork.
     pub(crate) fn matches(&self, frame: &Frame) -> bool {
         matches!(
             frame,
@@ -100,7 +103,7 @@ impl P2pIdentity {
             } if *protocol_version == PROTOCOL_VERSION
                 && *consensus_rule_version == CONSENSUS_RULE_VERSION
                 && network_id == &self.network_id
-                && genesis_hash == &self.genesis_c
+                && genesis_hash == &self.genesis_hash
         )
     }
 }
