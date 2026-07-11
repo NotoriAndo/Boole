@@ -3,7 +3,7 @@
 //! Core owns `FamilyManifestRegistry` and manifest parsing. Node owns walking a
 //! local directory of JSON files at boot and applying the skip-and-warn policy.
 
-use boole_node::load_family_manifest_registry_from_dir;
+use boole_node::{load_family_manifest_registry_from_dir, FamilyManifestStoreError};
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -82,13 +82,27 @@ fn node_family_manifest_store_returns_err_for_missing_dir() {
     assert!(load_family_manifest_registry_from_dir(&dir).is_err());
 }
 
+// SC.6: duplicate `family_id` across files is a hard error (ADR-0015 (c) —
+// same policy as the family-root computation; no silent last-write-wins).
 #[test]
-fn node_family_manifest_store_collapses_duplicate_family_ids_last_write_wins() {
-    let dir = fresh_dir("overwrite");
+fn manifest_store_rejects_duplicate_family_id() {
+    let dir = fresh_dir("duplicate");
     write_manifest(&dir, "first.json", "alpha");
     write_manifest(&dir, "second.json", "alpha");
 
-    let loaded = load_family_manifest_registry_from_dir(&dir).expect("load");
+    let err = load_family_manifest_registry_from_dir(&dir)
+        .expect_err("duplicate family_id must be a hard error");
 
-    assert_eq!(loaded.len(), 1);
+    match err {
+        FamilyManifestStoreError::DuplicateFamilyId { family_id, path } => {
+            assert_eq!(family_id, "alpha");
+            // Files load in sorted path order, so the duplicate is detected
+            // at the lexicographically later file.
+            assert_eq!(
+                path.file_name().and_then(|s| s.to_str()),
+                Some("second.json")
+            );
+        }
+        other => panic!("expected DuplicateFamilyId, got: {other:?}"),
+    }
 }

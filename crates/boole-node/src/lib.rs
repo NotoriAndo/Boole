@@ -30,7 +30,7 @@ pub use deep_verify::{
     deep_verify_block, deep_verify_bounty_events, DeepVerifyBlockReport, DeepVerifyDivergence,
     DeepVerifyError, DeepVerifyReport,
 };
-pub use family_manifest_store::load_family_manifest_registry_from_dir;
+pub use family_manifest_store::{load_family_manifest_registry_from_dir, FamilyManifestStoreError};
 pub use lean_bounty_verifier::LeanBountyVerifier;
 pub use local_node::{
     serve_local_node, serve_local_node_with_disk_full_sentinel, serve_local_node_with_os_signals,

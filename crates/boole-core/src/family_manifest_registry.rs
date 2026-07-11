@@ -2,14 +2,18 @@
 //!
 //! Core owns the in-memory registry and manifest domain parsing. Runtime crates
 //! such as `boole-node` own walking local directories and reading JSON files.
+//!
+//! Iteration is deterministic: `iter()` walks manifests sorted by `family_id`,
+//! independent of registration order. Block production (bounty promotion)
+//! consumes this walk, so every node must traverse families identically.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::family_manifest::FamilyManifest;
 
 #[derive(Debug, Default)]
 pub struct FamilyManifestRegistry {
-    by_id: HashMap<String, FamilyManifest>,
+    by_id: BTreeMap<String, FamilyManifest>,
 }
 
 impl FamilyManifestRegistry {
