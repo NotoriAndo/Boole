@@ -918,3 +918,58 @@ projection)** 부분만 새 체인 기준으로 재유도한다.
 
 claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
 claim 아님.
+
+---
+
+# SC.6 — family manifest registry determinism (2026-07-11 착수)
+
+§SC(consensus safety closure) 첫 slice. GAP-03 결정성 절반: registry 순회가
+HashMap 순서, store 로드가 read_dir 파일시스템 순서 + 중복 family_id
+last-write-wins — 블록 생산(승격 walk)이 노드/재실행마다 달라질 수 있음.
+ADR-0015 (c) family root 계산의 선결. **closed-local — public claim 아님.**
+
+## Plan
+- [x] RED(core): `crates/boole-core/tests/family_manifest_registry.rs` 신설 —
+      `family_registry_iteration_is_deterministic_across_load_orders`
+      (로드 순서 무관 + family_id 정렬 순회)
+- [x] RED(node): `family_manifest_store.rs`의 last-write-wins 테스트를
+      `manifest_store_rejects_duplicate_family_id`로 반전(typed error 단언)
+- [x] RED 실패 확인
+- [x] GREEN(core): `FamilyManifestRegistry` HashMap→BTreeMap
+- [x] GREEN(node): 정렬 로드 + 중복 family_id typed hard error
+      (`FamilyManifestStoreError`), skip-and-warn 정책은 유지
+- [x] focused gate: `--test family_manifest_registry`(core) +
+      `--test family_manifest_store`(node) + bounty_promotion 회귀
+- [x] fmt + clippy + `git diff --check`
+- [x] NotoriAndo author 커밋 → branch push → PR → CI green → merge → remote 검증
+- [x] 텔레그램 최종 보고
+
+## Review
+착륙 완료 (2026-07-11). PR #56 rebase-merge, main = `30633b0`, NotoriAndo author.
+
+무엇을 했나 (쉬운 말): family manifest(채굴 문제 유형 명세) 목록을 노드가 읽고
+도는 순서를 어느 노드/어느 재시작에서든 똑같게 만들었다. 지금까지는 목록이
+HashMap(순서 무작위 자료구조)과 파일시스템이 주는 순서에 의존해, 현상금 승격
+walk(블록 생산 입력)가 노드마다 다를 수 있었다. 이제 (1) registry 순회는
+family_id 알파벳 순으로 고정(BTreeMap), (2) 디렉토리 로드는 파일명 정렬 순서,
+(3) 같은 family_id가 두 파일에 있으면 조용히 덮어쓰지 않고 typed error로 부팅
+거부(ADR-0015 (c) family root 계산의 중복 정책과 동일). ADR-0015 (c) root 계산
+(SC.2)의 선결이 닫힘.
+
+검증:
+- RED 직접 확인 2건: core는 로드 순서에 따라 순회가 실제로 달라짐(단언 실패),
+  node는 typed error 부재로 컴파일 실패
+- focused GREEN: family_manifest_registry 1/1 (core) +
+  family_manifest_store 4/4 (node, 중복 거절 반전 포함)
+- 회귀: bounty_promotion 15/15 + family_manifest_signature 15/15 +
+  manifest_fixtures 1/1 (core), work_manifest_store 4/4 + bounty_route 4/4 (node)
+- fmt clean + clippy(-D warnings) core/node clean + git diff --check clean
+- CI: self-test pass + supply-chain pass (PR #56,
+  run 29150092471) → auto-merge(rebase)
+- working tree clean, origin/main == local HEAD == `30633b0`
+
+claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
+claim 아님.
+
+추천 다음 작업: §SC 순서대로 리셋 창(SC.2+SC.3+SC.9) 착수 — SC.6이 선결이었고
+이제 닫힘. SC.4/SC.5/SC.7/SC.8은 병렬 후보.
