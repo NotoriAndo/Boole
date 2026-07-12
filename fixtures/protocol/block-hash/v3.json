@@ -24,7 +24,7 @@
         "truncatedByKmax": 0,
         "ts": 1700000000000
       },
-      "expectedC": "3ac401a345c27e266387c9f084ef1aa94a2f4fb4764edca71f1ade48c1a6ddcc",
+      "expectedC": "fc9fc8956b1e665b81862b021b2988ae71cb7f5a7eeb61f98ce2b2cbc311d9e5",
       "name": "minimal-two-shares"
     },
     {
@@ -56,7 +56,7 @@
         "truncatedByKmax": 0,
         "ts": 1700000001000
       },
-      "expectedC": "785e1e983dc37f0311209c17e434ea297f99883fbd16fd7aa13c4bf4dbdb18ca",
+      "expectedC": "946c7ad7fcda1b90b87531561d9d18172c051fb089ac889a9e96a8aa011b6fe7",
       "name": "reward-routing-overrides"
     },
     {
@@ -69,12 +69,13 @@
         "kmaxApplied": 2,
         "minShareScore": "10",
         "prevC": "3434343434343434343434343434343434343434343434343434343434343434",
-        "promotedBountyCredits": [
+        "promotedBountyShares": [
           {
-            "amount": "5",
             "bountyId": "bounty-7",
             "familyId": "family.v1.lenbound",
-            "prover": "6666666666666666666666666666666666666666666666666666666666666666"
+            "proofHash": "4444444444444444444444444444444444444444444444444444444444444444",
+            "prover": "6666666666666666666666666666666666666666666666666666666666666666",
+            "reward": "5"
           }
         ],
         "proposerPk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -91,8 +92,8 @@
         "truncatedByKmax": 0,
         "ts": 1700000002000
       },
-      "expectedC": "b71c68d6d0a9a6189cba2a8102224ae3541697c0bb6c87ddbc516656fc1ea89b",
-      "name": "promoted-bounty-credit"
+      "expectedC": "0efb1bde25c6d4ad8c2c0c683028ec6a81d79821c70dba265105aa4ca6fdfa74",
+      "name": "promoted-bounty-share"
     },
     {
       "block": {
@@ -118,11 +119,11 @@
         "truncatedByKmax": 0,
         "ts": 1700000003000
       },
-      "expectedC": "c062b2f310210772de96136dbed1d547446ac4271ee3790e3a37824fc66255cf",
+      "expectedC": "6bddfe5a34d524189d8ac521ddbeffb455139217fa942abad08ff420c11ad7e2",
       "name": "retargeted-difficulty-inputs"
     }
   ],
-  "domain": "block.v2",
+  "domain": "block.v3",
   "generatedBy": "boole-core consensus fixture generator (N5-pre.1)",
   "source": "crates/boole-core/src/hash.rs::block_hash (preimage v2, ADR-0014 (a))",
   "version": 2

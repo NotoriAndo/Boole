@@ -22,13 +22,16 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
-use boole_core::{Bounty, BountyProofVerifier};
+use boole_core::{canonical_payload_hash_hex, Bounty, BountyProofVerifier};
 use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
 
+// Well-formed hex-32 that is NOT the canonical hash of any envelope used
+// here — only the local-mismatch test still needs it (§SC W1.b: the CLI
+// derives the proof hash from the envelope and verifies an explicit
+// --proof-hash against it).
 const PROOF_HASH_A: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
-const PROOF_HASH_B: &str = "bbbb000000000000000000000000000000000000000000000000000000000000";
 const SIGNING_KEY_ID: &str = "bounty-submit-cli-test";
 
 fn scenario_path() -> PathBuf {
@@ -149,7 +152,7 @@ fn cli_url(addr: SocketAddr) -> String {
 fn run_submit(
     boot: &BootedNode,
     id: &str,
-    proof_hash: &str,
+    proof_hash: Option<&str>,
     envelope: &str,
     json_flag: bool,
 ) -> std::process::Output {
@@ -160,8 +163,6 @@ fn run_submit(
         "testnet".to_string(),
         "--id".to_string(),
         id.to_string(),
-        "--proof-hash".to_string(),
-        proof_hash.to_string(),
         "--signing-key".to_string(),
         SIGNING_KEY_ID.to_string(),
         "--envelope".to_string(),
@@ -169,6 +170,12 @@ fn run_submit(
         "--node".to_string(),
         cli_url(boot.addr),
     ];
+    // §SC W1.b — omitted → the CLI derives the hash from the envelope's
+    // canonical JSON; provided → it must match the derived value.
+    if let Some(hash) = proof_hash {
+        args.push("--proof-hash".to_string());
+        args.push(hash.to_string());
+    }
     if json_flag {
         args.push("--json".to_string());
     }
@@ -182,7 +189,8 @@ fn run_submit(
 #[test]
 fn submit_default_accept_prints_bare_status_solved() {
     let boot = boot_with_mock(1);
-    let out = run_submit(&boot, "gamma-1", PROOF_HASH_A, "{}", false);
+    // No --proof-hash: the CLI derives it from the envelope (§SC W1.b).
+    let out = run_submit(&boot, "gamma-1", None, "{}", false);
     assert!(
         out.status.success(),
         "expected success: stderr={}",
@@ -197,7 +205,10 @@ fn submit_default_accept_prints_bare_status_solved() {
 #[test]
 fn submit_json_accept_prints_full_envelope() {
     let boot = boot_with_mock(1);
-    let out = run_submit(&boot, "gamma-1", PROOF_HASH_A, "{}", true);
+    // Explicit --proof-hash that MATCHES the derived value must be
+    // accepted end-to-end (§SC W1.b provided-and-verified path).
+    let matching = canonical_payload_hash_hex(&json!({}));
+    let out = run_submit(&boot, "gamma-1", Some(&matching), "{}", true);
     assert!(out.status.success());
     let parsed: Value = serde_json::from_slice(&out.stdout).expect("stdout json");
     assert_eq!(parsed["ok"], true);
@@ -211,7 +222,7 @@ fn submit_json_accept_prints_full_envelope() {
 #[test]
 fn submit_default_reject_prints_bare_status_open() {
     let boot = boot_with_mock(1);
-    let out = run_submit(&boot, "delta-1", PROOF_HASH_A, "{}", false);
+    let out = run_submit(&boot, "delta-1", None, "{}", false);
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
     assert_eq!(
@@ -225,9 +236,10 @@ fn submit_default_reject_prints_bare_status_open() {
 #[test]
 fn submit_default_dedup_prints_duplicate() {
     let boot = boot_with_mock(2);
-    let out1 = run_submit(&boot, "gamma-1", PROOF_HASH_B, "{}", false);
+    // Same envelope twice → same derived proofHash → dedup duplicate.
+    let out1 = run_submit(&boot, "gamma-1", None, "{}", false);
     assert!(out1.status.success());
-    let out2 = run_submit(&boot, "gamma-1", PROOF_HASH_B, "{}", false);
+    let out2 = run_submit(&boot, "gamma-1", None, "{}", false);
     assert!(out2.status.success());
     let stdout = String::from_utf8_lossy(&out2.stdout).trim().to_string();
     assert_eq!(
@@ -317,8 +329,6 @@ fn submit_with_vault_backed_key_signs_via_agent_and_solves() {
             "testnet",
             "--id",
             "gamma-1",
-            "--proof-hash",
-            PROOF_HASH_A,
             "--signing-key",
             key_id,
             "--envelope",
@@ -342,7 +352,7 @@ fn submit_with_vault_backed_key_signs_via_agent_and_solves() {
 #[test]
 fn submit_unknown_bounty_forwards_typed_error_exit_1() {
     let boot = boot_with_mock(1);
-    let out = run_submit(&boot, "no-such", PROOF_HASH_A, "{}", false);
+    let out = run_submit(&boot, "no-such", None, "{}", false);
     assert!(!out.status.success(), "unknown bounty must exit non-zero");
     assert!(
         out.stdout.is_empty(),
@@ -358,4 +368,56 @@ fn submit_unknown_bounty_forwards_typed_error_exit_1() {
 
     // Suppress unused-import warning on the json! macro path used elsewhere.
     let _ = json!({});
+}
+
+// §SC W1.b — the CLI derives the proof hash from the envelope's
+// canonical JSON; an explicit --proof-hash that disagrees fails LOCALLY
+// (typed stderr envelope, non-zero exit) before anything reaches the
+// wire, mirroring the node's `proof_hash_mismatch` rejection. No node is
+// booted: reaching the network at all would be the failure.
+#[test]
+fn submit_with_mismatching_proof_hash_fails_locally_with_typed_error() {
+    let dir = std::env::temp_dir().join(format!(
+        "boole-s12-bounty-submit-cli-hash-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let keys_dir = dir.join("keys");
+    std::fs::create_dir_all(&keys_dir).expect("tmp keys dir");
+    make_dev_key(&keys_dir, SIGNING_KEY_ID);
+
+    let out = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .env("BOOLE_KEYS_DIR", &keys_dir)
+        .args([
+            "bounty",
+            "submit",
+            "--network",
+            "testnet",
+            "--id",
+            "gamma-1",
+            "--proof-hash",
+            PROOF_HASH_A,
+            "--signing-key",
+            SIGNING_KEY_ID,
+            "--envelope",
+            "{}",
+            // Port 1 is never listened on — the CLI must fail before
+            // any connection attempt.
+            "--node",
+            "http://127.0.0.1:1",
+        ])
+        .output()
+        .expect("run cli");
+    assert!(
+        !out.status.success(),
+        "mismatching --proof-hash must exit non-zero: stdout={}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let parsed: Value = serde_json::from_slice(&out.stderr).expect("stderr json");
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["reason"], "proof_hash_mismatch");
+    assert_eq!(parsed["got"], PROOF_HASH_A);
+    assert_eq!(parsed["expected"], canonical_payload_hash_hex(&json!({})));
+    let _ = std::fs::remove_dir_all(&dir);
 }

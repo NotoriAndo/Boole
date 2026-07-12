@@ -24,13 +24,23 @@ pub struct PromotedBountyShare {
     pub bounty_id: String,
     pub proof_hash: String,
     pub prover: String,
+    /// Announced bounty reward for this share, decimal `u128` string
+    /// (JSON cannot carry full `u128` precision natively). Committed into
+    /// the block-hash preimage (v3, ADR-0015 (a)); the credited amount is
+    /// NOT this value but `min(reward, budget_left)` — replay re-derives
+    /// it via `derive_bounty_settlement`, the same function the producer
+    /// uses, so a block cannot declare a credit its family caps forbid.
+    pub reward: String,
 }
 
-/// Credit row attached to a promoted bounty share. `amount` is already
-/// capped against the per-family `caps.max_reward_credit_per_block`
-/// budget at selection time. `amount == 0` rows are dropped before
+/// Credit row derived from a committed promoted bounty share. `amount`
+/// is already capped against the per-family
+/// `caps.max_reward_credit_per_block` budget by
+/// `derive_bounty_settlement`. `amount == 0` rows are dropped before
 /// persistence (they would land as no-op events on disk and complicate
-/// replay diffs).
+/// replay diffs). Since preimage v3 (ADR-0015 (a)) credit rows are NOT
+/// part of the block schema — they exist only as a derived view (reward
+/// ledger events, replay balances).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PromotedBountyCredit {
@@ -130,12 +140,11 @@ pub struct BuiltBlockSelection {
     pub kernel_accepted: Vec<bool>,
     /// Bounty-lane shares that survived their kernel-tag check. Empty
     /// unless a caller passed promoted shares; never folded into the
-    /// base-lane drop counters above (Hard-Guard).
+    /// base-lane drop counters above (Hard-Guard). Since preimage v3
+    /// (ADR-0015 (a)) these committed rows are the ONLY bounty content a
+    /// block carries — credit rows are derived from them via
+    /// `derive_bounty_settlement`, never attached.
     pub promoted_bounty_shares: Vec<PromotedBountyShare>,
-    /// S23b — bounty credit rows attached to this block. Already capped
-    /// against per-family `max_reward_credit_per_block` by the selection
-    /// gate. Empty unless promoted credits were supplied.
-    pub promoted_bounty_credits: Vec<PromotedBountyCredit>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,7 +164,6 @@ pub fn build_block_selection(
     accepted_canon_tags: &BTreeSet<u8>,
     credited_canon_hashes: &BTreeSet<String>,
     promoted_bounty_shares: &[PromotedBountyShare],
-    promoted_bounty_credits: &[PromotedBountyCredit],
 ) -> anyhow::Result<BuildSelectionResult> {
     let t_block = normalize_hex256(&cfg.t_block)?;
     let mut dropped_below_min_score = 0usize;
@@ -235,7 +243,6 @@ pub fn build_block_selection(
         kernel_checked_tags,
         kernel_accepted,
         promoted_bounty_shares: promoted_bounty_shares.to_vec(),
-        promoted_bounty_credits: promoted_bounty_credits.to_vec(),
     }))
 }
 

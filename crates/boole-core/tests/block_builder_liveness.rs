@@ -65,7 +65,7 @@ fn two_co_qualifying_shares_still_commit_a_block() {
     let cfg = permissive_cfg();
     let accepted = BTreeSet::from([1u8]);
 
-    let result = build_block_selection(CHAIN, &shares, &cfg, &accepted, &BTreeSet::new(), &[], &[])
+    let result = build_block_selection(CHAIN, &shares, &cfg, &accepted, &BTreeSet::new(), &[])
         .expect("build_block_selection must not error on a co-qualifying pair");
 
     let selection = match result {
@@ -91,7 +91,7 @@ fn proposer_tie_breaks_by_lowest_share_hash() {
     let cfg = permissive_cfg();
     let accepted = BTreeSet::from([1u8]);
 
-    let result = build_block_selection(CHAIN, &shares, &cfg, &accepted, &BTreeSet::new(), &[], &[])
+    let result = build_block_selection(CHAIN, &shares, &cfg, &accepted, &BTreeSet::new(), &[])
         .expect("build_block_selection must not error on a co-qualifying pair");
 
     let selection = match result {

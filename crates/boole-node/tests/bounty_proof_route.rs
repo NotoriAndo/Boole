@@ -19,7 +19,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
-use boole_core::{Bounty, BountyProofVerifier, SigningKeyV2};
+use boole_core::{canonical_payload_hash_hex, Bounty, BountyProofVerifier, SigningKeyV2};
 // BountyProofVerifier trait lives in boole-core; the existing struct
 // `BountyVerifier { kind, metadata }` keeps its name in the bounty schema.
 use boole_node::{serve_local_node, LocalNodeConfig};
@@ -30,8 +30,18 @@ fn fresh_nonce() -> String {
     format!("nonce-{}", rand_suffix())
 }
 
+// Well-formed hex-32 values that are NOT the hash of any envelope used
+// here — still valid for branches that fail BEFORE the §SC W1.b binding
+// gate (catalog miss, wire-shape, freshness, prover checks) and for the
+// binding-mismatch test itself.
 const PROOF_HASH_A: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
-const PROOF_HASH_B: &str = "bbbb000000000000000000000000000000000000000000000000000000000000";
+
+/// §SC W1.b — the node re-derives the proof hash from the envelope
+/// (`hex(SHA-256(canonical_json(envelope)))`); tests that must get PAST
+/// the binding gate compute the same value the server expects.
+fn bound_hash(envelope: &Value) -> String {
+    canonical_payload_hash_hex(envelope)
+}
 
 fn prover_key() -> SigningKeyV2 {
     SigningKeyV2::from_dev_id("bounty-proof-test-prover")
@@ -198,11 +208,36 @@ fn proof_envelope_with_payload(key: &SigningKeyV2, payload: Value) -> Value {
     })
 }
 
+// §SC W1.b (masterplan audit 2026-07-11 item 6 / SC.2 second-review item
+// 18) — the node derives the proof hash from the submitted envelope
+// itself (`hex(SHA-256(canonical_json(envelope)))`, the same Boole
+// canonical JSON the signing path uses) and rejects a claimed
+// `proofHash` that does not match, BEFORE the dedup peek. Until this
+// slice only the hex-32 FORMAT was checked, so a submitter-chosen
+// string flowed into the audit ledger, the side pool, and the block.v3
+// preimage as "the hash of the verified proof".
+#[test]
+fn bounty_rejects_claimed_proof_hash_not_matching_verified_bytes() {
+    let (addr, handle, dir) = boot_with_mock_verifiers(1);
+    let key = prover_key();
+    // PROOF_HASH_A is well-formed hex-32 but unrelated to the `{}`
+    // envelope it accompanies, so only content binding can reject it.
+    let body = signed_proof_body(&key, "gamma-1", PROOF_HASH_A, json!({}));
+    let (status, resp) = http_post(addr, "/bounties/gamma-1/proof", &body);
+    assert_eq!(status, 400, "expected 400, got {status}: {resp}");
+    assert_eq!(resp["reason"], "proof_hash_mismatch");
+    assert_eq!(resp["expected"], canonical_payload_hash_hex(&json!({})));
+    assert_eq!(resp["got"], PROOF_HASH_A);
+
+    handle.join().expect("server thread").expect("server exits");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn accept_path_flips_status_to_solved() {
     let (addr, handle, dir) = boot_with_mock_verifiers(1);
     let key = prover_key();
-    let body = signed_proof_body(&key, "gamma-1", PROOF_HASH_A, json!({}));
+    let body = signed_proof_body(&key, "gamma-1", &bound_hash(&json!({})), json!({}));
     let (status, resp) = http_post(addr, "/bounties/gamma-1/proof", &body);
     assert_eq!(status, 200, "expected 200, got {status}: {resp}");
     assert_eq!(resp["ok"], true);
@@ -219,7 +254,7 @@ fn accept_path_flips_status_to_solved() {
 fn reject_path_keeps_status_open() {
     let (addr, handle, dir) = boot_with_mock_verifiers(1);
     let key = prover_key();
-    let body = signed_proof_body(&key, "delta-1", PROOF_HASH_A, json!({}));
+    let body = signed_proof_body(&key, "delta-1", &bound_hash(&json!({})), json!({}));
     let (status, resp) = http_post(addr, "/bounties/delta-1/proof", &body);
     assert_eq!(status, 200, "expected 200, got {status}: {resp}");
     assert_eq!(resp["ok"], true);
@@ -240,7 +275,7 @@ fn dedup_returns_cached_outcome_without_revisiting_verifier() {
     // wins over the terminal guard).
     let (addr, handle, dir) = boot_with_mock_verifiers(2);
     let key = prover_key();
-    let body = signed_proof_body(&key, "gamma-1", PROOF_HASH_A, json!({}));
+    let body = signed_proof_body(&key, "gamma-1", &bound_hash(&json!({})), json!({}));
     let (s1, r1) = http_post(addr, "/bounties/gamma-1/proof", &body);
     assert_eq!(s1, 200);
     assert_eq!(r1["accepted"], true);
@@ -325,7 +360,7 @@ fn terminal_bounty_returns_409_when_not_dedup_hit() {
     // (not previously seen) must hit the terminal guard, not dedup.
     let (addr, handle, dir) = boot_with_mock_verifiers(1);
     let key = prover_key();
-    let body = signed_proof_body(&key, "epsilon-1", PROOF_HASH_B, json!({}));
+    let body = signed_proof_body(&key, "epsilon-1", &bound_hash(&json!({})), json!({}));
     let (status, resp) = http_post(addr, "/bounties/epsilon-1/proof", &body);
     assert_eq!(status, 409, "expected 409, got {status}: {resp}");
     assert_eq!(resp["ok"], false);
@@ -341,7 +376,7 @@ fn unknown_verifier_kind_returns_501_typed() {
     // zeta-1 has verifier.kind = "wholly-unknown-kind".
     let (addr, handle, dir) = boot_with_mock_verifiers(1);
     let key = prover_key();
-    let body = signed_proof_body(&key, "zeta-1", PROOF_HASH_A, json!({}));
+    let body = signed_proof_body(&key, "zeta-1", &bound_hash(&json!({})), json!({}));
     let (status, resp) = http_post(addr, "/bounties/zeta-1/proof", &body);
     assert_eq!(status, 501, "expected 501, got {status}: {resp}");
     assert_eq!(resp["ok"], false);
@@ -536,7 +571,7 @@ fn replayed_nonce_with_distinct_proof_hash_returns_409_nonce_replayed() {
     let payload_a = json!({
         "schema": "boole.bounty.proof.v1",
         "bountyId": "gamma-1",
-        "proofHash": PROOF_HASH_A,
+        "proofHash": bound_hash(&json!({})),
         "prover": pk_hex,
         "envelope": json!({}),
         "validBefore": valid_before_fresh(),
@@ -550,7 +585,7 @@ fn replayed_nonce_with_distinct_proof_hash_returns_409_nonce_replayed() {
     let payload_b = json!({
         "schema": "boole.bounty.proof.v1",
         "bountyId": "gamma-1",
-        "proofHash": PROOF_HASH_B,
+        "proofHash": bound_hash(&json!({"different": "envelope"})),
         "prover": pk_hex,
         "envelope": json!({"different": "envelope"}),
         "validBefore": valid_before_fresh(),
@@ -585,7 +620,7 @@ fn rejected_proof_burns_nonce_preventing_replay() {
     let payload_a = json!({
         "schema": "boole.bounty.proof.v1",
         "bountyId": "delta-1",
-        "proofHash": PROOF_HASH_A,
+        "proofHash": bound_hash(&json!({})),
         "prover": pk_hex,
         "envelope": json!({}),
         "validBefore": valid_before_fresh(),
@@ -600,7 +635,7 @@ fn rejected_proof_burns_nonce_preventing_replay() {
     let payload_b = json!({
         "schema": "boole.bounty.proof.v1",
         "bountyId": "delta-1",
-        "proofHash": PROOF_HASH_B,
+        "proofHash": bound_hash(&json!({"different": "envelope"})),
         "prover": pk_hex,
         "envelope": json!({"different": "envelope"}),
         "validBefore": valid_before_fresh(),
@@ -627,7 +662,7 @@ fn identical_proof_envelope_retry_returns_200_duplicate_not_nonce_replayed() {
     // retries on a 200 should still return 200 duplicate=true.
     let (addr, handle, dir) = boot_with_signed_nonce_ledger(2, Some("signed-nonces.ndjson"));
     let key = prover_key();
-    let body = signed_proof_body(&key, "gamma-1", PROOF_HASH_A, json!({}));
+    let body = signed_proof_body(&key, "gamma-1", &bound_hash(&json!({})), json!({}));
     let (s1, r1) = http_post(addr, "/bounties/gamma-1/proof", &body);
     assert_eq!(s1, 200, "first proof must succeed: {r1}");
     assert_eq!(r1["duplicate"], false);

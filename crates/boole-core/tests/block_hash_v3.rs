@@ -1,13 +1,15 @@
-//! N5-pre.1 (ADR-0014 (a)) — block_hash preimage v2.
+//! §SC reset window (ADR-0015 (a)) — block_hash preimage v3.
 //!
-//! The v1 preimage committed only `prev_c ‖ share_hashes`, so two blocks
-//! with the same hash could route rewards differently or carry different
-//! bounty credit amounts — replay consumes those fields into balances, so
-//! that is a same-`c`-different-state fork vector (invariant 3). v2 commits
-//! every replay-consumed field; these tests pin that tampering any one of
-//! them changes the hash, and that the side-band fields stay excluded.
+//! v2 committed every replay-consumed field including declared bounty
+//! credit rows; v3 removes the declared rows from the schema entirely and
+//! commits the promoted bounty SHARE rows (with their announced `reward`)
+//! instead — replay derives the credit amounts from those committed
+//! settlement inputs via `derive_bounty_settlement`, so the hash pins the
+//! inputs, never a declared outcome. These tests pin that tampering any
+//! committed field changes the hash, and that the side-band fields stay
+//! excluded.
 
-use boole_core::{block_hash, PersistedBlock, PromotedBountyCredit, PromotedBountyShare};
+use boole_core::{block_hash, PersistedBlock, PromotedBountyShare, ShareWorkAuthorization};
 
 const PREV_C: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 const SHARE_HASH: &str = "1111111111111111111111111111111111111111111111111111111111111111";
@@ -42,8 +44,17 @@ fn base_block() -> PersistedBlock {
         dropped_kernel_reject: 0,
         truncated_by_kmax: 0,
         ts: 1_700_000_000_000,
-        promoted_bounty_credits: Vec::new(),
         promoted_bounty_shares: Vec::new(),
+    }
+}
+
+fn promoted_share(reward: &str) -> PromotedBountyShare {
+    PromotedBountyShare {
+        family_id: "family.v1".to_string(),
+        bounty_id: "bounty-1".to_string(),
+        proof_hash: PROOF_HASH.to_string(),
+        prover: PK_B.to_string(),
+        reward: reward.to_string(),
     }
 }
 
@@ -52,7 +63,7 @@ fn hash_of(block: &PersistedBlock) -> String {
 }
 
 #[test]
-fn block_hash_v2_commits_reward_routing_fields() {
+fn block_hash_v3_commits_reward_routing_fields() {
     let block = base_block();
     let baseline = hash_of(&block);
 
@@ -90,43 +101,47 @@ fn block_hash_v2_commits_reward_routing_fields() {
 }
 
 #[test]
-fn block_hash_v2_commits_bounty_credit_amounts() {
+fn block_hash_v3_commits_promoted_bounty_shares_and_rewards() {
     let mut block = base_block();
-    block.promoted_bounty_credits = vec![PromotedBountyCredit {
-        family_id: "family.v1".to_string(),
-        bounty_id: "bounty-1".to_string(),
-        prover: PK_B.to_string(),
-        amount: "5".to_string(),
-    }];
+    block.promoted_bounty_shares = vec![promoted_share("5")];
     let baseline = hash_of(&block);
 
     let mut inflated = block.clone();
-    inflated.promoted_bounty_credits[0].amount = "500".to_string();
+    inflated.promoted_bounty_shares[0].reward = "500".to_string();
     assert_ne!(
         hash_of(&inflated),
         baseline,
-        "inflating a bounty credit amount must change the block hash"
+        "inflating a promoted share's reward must change the block hash"
     );
 
     let mut rerouted = block.clone();
-    rerouted.promoted_bounty_credits[0].prover = PK_A.to_string();
+    rerouted.promoted_bounty_shares[0].prover = PK_A.to_string();
     assert_ne!(
         hash_of(&rerouted),
         baseline,
-        "re-routing a bounty credit must change the block hash"
+        "re-routing a promoted share's prover must change the block hash"
+    );
+
+    let mut swapped_proof = block.clone();
+    swapped_proof.promoted_bounty_shares[0].proof_hash =
+        "5555555555555555555555555555555555555555555555555555555555555555".to_string();
+    assert_ne!(
+        hash_of(&swapped_proof),
+        baseline,
+        "swapping a promoted share's proof must change the block hash"
     );
 
     let mut dropped = block;
-    dropped.promoted_bounty_credits.clear();
+    dropped.promoted_bounty_shares.clear();
     assert_ne!(
         hash_of(&dropped),
         baseline,
-        "dropping a bounty credit row must change the block hash"
+        "dropping a promoted share row must change the block hash"
     );
 }
 
 #[test]
-fn block_hash_v2_commits_ts_and_difficulty_inputs() {
+fn block_hash_v3_commits_ts_and_difficulty_inputs() {
     let block = base_block();
     let baseline = hash_of(&block);
 
@@ -156,23 +171,33 @@ fn block_hash_v2_commits_ts_and_difficulty_inputs() {
 }
 
 #[test]
-fn block_hash_v2_ignores_side_band_and_telemetry_fields() {
+fn block_hash_v3_ignores_side_band_and_telemetry_fields() {
     let block = base_block();
     let baseline = hash_of(&block);
 
-    // promoted_bounty_shares stays node-local audit/recovery data
-    // (P1.3b posture, re-affirmed by ADR-0014 (a)).
-    let mut with_shares = block.clone();
-    with_shares.promoted_bounty_shares = vec![PromotedBountyShare {
-        family_id: "family.v1".to_string(),
-        bounty_id: "bounty-1".to_string(),
-        proof_hash: PROOF_HASH.to_string(),
-        prover: PK_B.to_string(),
+    // selected_share_evidence stays a schema-versioned side-band
+    // (ADR-0007 (d)) — including the evidence v2 `signedWork` slot.
+    let mut with_evidence = block.clone();
+    with_evidence.selected_share_evidence = vec![boole_core::SelectedShareEvidence {
+        pk: PK_A.to_string(),
+        n: PK_B.to_string(),
+        j: PK_B.to_string(),
+        c: PREV_C.to_string(),
+        canon_hash: PROOF_HASH.to_string(),
+        proof_package: String::new(),
+        seed_hex: String::new(),
+        signed_work: Some(ShareWorkAuthorization {
+            schema: "boole.signed.v1".to_string(),
+            payload: serde_json::json!({"schema": "boole.signer.work.v2"}),
+            pk: PK_A.to_string(),
+            signature: "aa".repeat(64),
+            network_id: None,
+        }),
     }];
     assert_eq!(
-        hash_of(&with_shares),
+        hash_of(&with_evidence),
         baseline,
-        "promoted_bounty_shares must stay outside the preimage"
+        "selected_share_evidence (incl. signedWork) must stay outside the preimage"
     );
 
     // Telemetry counters are diagnostics, not consensus inputs.

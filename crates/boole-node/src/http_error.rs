@@ -170,6 +170,18 @@ impl HttpError {
         Self::new(400, "bad_proof_hash")
     }
 
+    /// §SC W1.b — the payload's claimed `proofHash` is well-formed hex-32
+    /// but does not equal the server-derived hash of the accompanying
+    /// proof envelope (`hex(SHA-256(canonical_json(envelope)))`). Without
+    /// this rejection the claimed string would flow into the audit
+    /// ledger, the bounty side pool, and the `block.v3` preimage as "the
+    /// hash of the verified proof" while being submitter-chosen.
+    pub fn proof_hash_mismatch(expected: impl Into<String>, got: impl Into<String>) -> Self {
+        Self::new(400, "proof_hash_mismatch")
+            .with_extra("expected", Value::String(expected.into()))
+            .with_extra("got", Value::String(got.into()))
+    }
+
     pub fn bad_prover() -> Self {
         Self::new(400, "bad_prover")
     }

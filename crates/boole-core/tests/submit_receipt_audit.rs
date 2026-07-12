@@ -27,7 +27,9 @@ fn valid_receipt() -> SubmitReceipt {
         request_hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             .to_string(),
         block_height: 0,
-        block_c: "3ac401a345c27e266387c9f084ef1aa94a2f4fb4764edca71f1ade48c1a6ddcc".to_string(),
+        // Derived from the replay fixture (regenerated per preimage bump)
+        // instead of a hardcoded hash literal.
+        block_c: replay_fixture().blocks[0].c.clone(),
         share_hash: "0101010101010101010101010101010101010101010101010101010101010101".to_string(),
         proposer_pk: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
         reward_recipient: "1111111111111111111111111111111111111111111111111111111111111111"
@@ -53,13 +55,14 @@ fn signed_work_for_receipt(receipt: &mut SubmitReceipt, nonce: &str) -> SignedEn
     receipt.request_hash = request_hash.clone();
 
     key.sign(&json!({
-        "schema": "boole.signer.work.v1",
+        "schema": "boole.signer.work.v2",
         "route": "/submit",
         "familyId": "boole.protocol-invariant.v01",
         "verifierId": "lean-runner-v01",
         "fee": "0",
         "requestHash": request_hash,
         "nonce": nonce,
+        "rewardRecipient": receipt.reward_recipient,
         "workPayload": work_payload,
     }))
     .expect("signed work envelope")

@@ -44,8 +44,18 @@ pub(crate) fn verify_selected_share_evidence(
             block.selected_share_hashes.len()
         );
     }
-    if block.min_share_score_multiplier_nanos == 0 {
-        anyhow::bail!("selected share evidence requires minShareScoreMultiplierNanos");
+    // §SC W1.a — the multiplier's consensus source is the Tier-2 rule
+    // constant, so the declared value must match it exactly; checking
+    // only the minShareScore arithmetic below would let a proposer move
+    // the floor by declaring a consistent (multiplier, minShareScore)
+    // pair of its own choosing.
+    if block.min_share_score_multiplier_nanos != crate::rules::MIN_SHARE_SCORE_MULTIPLIER_NANOS {
+        anyhow::bail!(
+            "selected share evidence minShareScoreMultiplierNanos must equal the \
+             consensus rule constant {}, got {}",
+            crate::rules::MIN_SHARE_SCORE_MULTIPLIER_NANOS,
+            block.min_share_score_multiplier_nanos
+        );
     }
     let t_share = parse_biguint_hex(&block.t_share)?;
     let expected_min_share_score =

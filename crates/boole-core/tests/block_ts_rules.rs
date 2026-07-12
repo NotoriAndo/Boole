@@ -44,7 +44,6 @@ fn block_with_ts(height: u64, prev_c: &str, ts: u64) -> PersistedBlock {
         dropped_kernel_reject: 0,
         truncated_by_kmax: 0,
         ts,
-        promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
     };
     block.c = block_hash(&block).to_hex();

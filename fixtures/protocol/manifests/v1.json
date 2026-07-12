@@ -20,7 +20,9 @@
         "resourceLimits": {
           "maxProofBytes": 16384,
           "verifyTimeoutMs": 30000,
-          "maxDecls": 1024
+          "maxDecls": 1024,
+          "maxHeartbeats": 400000,
+          "maxRecDepth": 512
         },
         "rewardPolicy": {
           "mode": "capped_bonus",
@@ -43,7 +45,9 @@
           "resourceLimits": {
             "maxProofBytes": 16384,
             "verifyTimeoutMs": 30000,
-            "maxDecls": 1024
+            "maxDecls": 1024,
+            "maxHeartbeats": 400000,
+            "maxRecDepth": 512
           },
           "rewardPolicy": {
             "mode": "capped_bonus",
@@ -68,7 +72,9 @@
         "resourceLimits": {
           "maxProofBytes": 16384,
           "verifyTimeoutMs": 30000,
-          "maxDecls": 1024
+          "maxDecls": 1024,
+          "maxHeartbeats": 400000,
+          "maxRecDepth": 512
         },
         "rewardPolicy": {
           "mode": "capped_bonus",
@@ -96,7 +102,9 @@
         "resourceLimits": {
           "maxProofBytes": 16384,
           "verifyTimeoutMs": 30000,
-          "maxDecls": 1024
+          "maxDecls": 1024,
+          "maxHeartbeats": 400000,
+          "maxRecDepth": 512
         },
         "rewardPolicy": {
           "mode": "capped_bonus",
@@ -124,7 +132,9 @@
         "resourceLimits": {
           "maxProofBytes": 16384,
           "verifyTimeoutMs": 30000,
-          "maxDecls": 1024
+          "maxDecls": 1024,
+          "maxHeartbeats": 400000,
+          "maxRecDepth": 512
         },
         "rewardPolicy": {
           "mode": "no_protocol_reward",
@@ -152,7 +162,9 @@
         "resourceLimits": {
           "maxProofBytes": 16384,
           "verifyTimeoutMs": 30000,
-          "maxDecls": 1024
+          "maxDecls": 1024,
+          "maxHeartbeats": 400000,
+          "maxRecDepth": 512
         },
         "rewardPolicy": {
           "mode": "capped_bonus",

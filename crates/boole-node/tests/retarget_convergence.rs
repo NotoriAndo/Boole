@@ -63,7 +63,6 @@ fn span_history(span_ms: u64) -> Vec<PersistedBlock> {
             dropped_kernel_reject: 0,
             truncated_by_kmax: 0,
             ts: base_ts + h * span_ms,
-            promoted_bounty_credits: vec![],
             promoted_bounty_shares: vec![],
         };
         block.c = block_hash(&block).to_hex();

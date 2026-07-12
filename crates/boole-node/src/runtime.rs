@@ -4,14 +4,15 @@ use crate::durability::write_ndjson_lines_atomic;
 use crate::reward_store::{verify_ledger_matches_replay, FileRewardLedger};
 use boole_core::{
     admit_parsed_submission_typed, block_hash, build_block_selection, calibration_policy,
-    choose_canonical_head, compute_block_reward_credits, difficulty_weight,
-    expected_retarget_difficulty_for_height, head_block_hash, parse_submission_body,
-    replay_blocks_allow_legacy_evidence_less, replay_blocks_with_genesis,
+    choose_canonical_head, compute_block_reward_credits, derive_bounty_settlement,
+    difficulty_weight, expected_retarget_difficulty_for_height, head_block_hash,
+    parse_submission_body, replay_blocks_allow_legacy_evidence_less,
+    replay_blocks_with_genesis_and_registry,
     replay_blocks_with_retarget_allow_legacy_evidence_less, share_score, AdmissionDecision,
     AdmissionParsedDeps, BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy,
     CalibrationReport, CandidateShare, DifficultyEvidence, DifficultyRetargetPolicy,
-    LegacyEvidenceOptIn, PersistedBlock, PersistedRewardEvent, PoolShare, RateLimiter,
-    SelectedShareEvidence, SharePool,
+    FamilyManifestRegistry, LegacyEvidenceOptIn, PersistedBlock, PersistedRewardEvent, PoolShare,
+    RateLimiter, SelectedShareEvidence, SharePool,
 };
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -20,13 +21,20 @@ use std::path::{Path, PathBuf};
 
 /// P1.3b — derive the canonical reward event for a block. The block store is
 /// the source of truth for the reward ledger, so this single helper is used
-/// both to re-derive an absent ledger and to heal a ledger that trails the
-/// block store after a crash mid-commit. It folds the base proposer/share
-/// credits and the block's promoted bounty credits into one event, matching
-/// exactly what the live commit path writes.
-fn derive_reward_event(block: &PersistedBlock) -> anyhow::Result<PersistedRewardEvent> {
+/// by the live commit path, ingest, reorg rebuild, AND the boot heal — the
+/// event can never differ between them. It folds the base proposer/share
+/// credits and the bounty credits derived from the block's committed
+/// promoted shares (ADR-0015 (a): settlement is re-derived against the
+/// family `registry` via `derive_bounty_settlement`, never read from a
+/// declared field) into one event.
+fn derive_reward_event(
+    block: &PersistedBlock,
+    registry: &FamilyManifestRegistry,
+) -> anyhow::Result<PersistedRewardEvent> {
     let mut credits = compute_block_reward_credits(block)?;
-    for bounty_credit in &block.promoted_bounty_credits {
+    for bounty_credit in
+        derive_bounty_settlement(&block.promoted_bounty_shares, registry, block.height)?
+    {
         credits.push(boole_core::PersistedCredit {
             pk: bounty_credit.prover.clone(),
             amount: bounty_credit.amount.clone(),
@@ -43,19 +51,18 @@ fn derive_reward_event(block: &PersistedBlock) -> anyhow::Result<PersistedReward
 /// to what `submit_json` writes (`crates/boole-node/src/local_node.rs`), so a
 /// bounty-event ledger that trails the block store after a crash mid-commit
 /// can be healed from the block store. Returns `(credit_events,
-/// share_promoted_events)`. The block carries BOTH `promoted_bounty_credits`
-/// and `promoted_bounty_shares` (the latter with the `proofHash` that is
-/// otherwise lost when the in-memory selection is dropped), so this is a pure
-/// function of the persisted block.
+/// share_promoted_events)`. Credit rows are DERIVED from the committed
+/// `promoted_bounty_shares` via `derive_bounty_settlement` (ADR-0015 (a)),
+/// so this is a pure function of (persisted block, family registry).
 ///
 /// N4 — also reused by the reorg rebuild (`rebuild_bounty_ledger_rows` in
 /// `local_node.rs`) to re-project the block-driven ledger rows onto a
 /// newly-adopted chain, hence `pub(crate)`.
 pub(crate) fn derive_bounty_events(
     block: &PersistedBlock,
-) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
-    let credits = block
-        .promoted_bounty_credits
+    registry: &FamilyManifestRegistry,
+) -> anyhow::Result<(Vec<serde_json::Value>, Vec<serde_json::Value>)> {
+    let credits = derive_bounty_settlement(&block.promoted_bounty_shares, registry, block.height)?
         .iter()
         .map(|c| {
             serde_json::json!({
@@ -85,7 +92,7 @@ pub(crate) fn derive_bounty_events(
             })
         })
         .collect();
-    (credits, shares)
+    Ok((credits, shares))
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +119,7 @@ impl RuntimeConfig {
                 retarget: self.difficulty_retarget.clone(),
                 seed_binding_required: false,
                 checker_artifact_hash: None,
+                family_manifest_root: None,
             },
             initial_state: boole_core::GenesisInitialState {
                 genesis_c: genesis_c.to_string(),
@@ -176,6 +184,12 @@ pub struct RuntimeAdmissionState {
     /// file (or re-derived from blocks if the file is absent) and updated
     /// in lockstep with `reward_ledger_path` appends on every commit.
     reward_ledger: Option<FileRewardLedger>,
+    /// §SC reset window (ADR-0015 (a)) — the family manifest set bounty
+    /// settlement derives against on every consensus path this runtime
+    /// touches (boot replay/heal, commit, ingest, reorg). Empty when the
+    /// node runs without family manifests: chains carrying promoted
+    /// bounty shares then reject.
+    family_registry: FamilyManifestRegistry,
 }
 
 impl RuntimeAdmissionState {
@@ -188,8 +202,21 @@ impl RuntimeAdmissionState {
             block_cache: Vec::new(),
             reward_ledger_path: None,
             reward_ledger: None,
+            family_registry: FamilyManifestRegistry::new(),
             config,
         }
+    }
+
+    /// §SC reset window — install the family manifest set consensus-path
+    /// bounty settlement derives against. Callers that boot via
+    /// `boot_from_store_with_bounty_ledger_and_registry` never need this;
+    /// it exists for the `new()`-then-wire construction local tests use.
+    pub fn set_family_registry(&mut self, registry: FamilyManifestRegistry) {
+        self.family_registry = registry;
+    }
+
+    pub fn family_registry(&self) -> &FamilyManifestRegistry {
+        &self.family_registry
     }
 
     pub fn boot_from_store(
@@ -210,8 +237,29 @@ impl RuntimeAdmissionState {
         reward_ledger_path: Option<PathBuf>,
         bounty_event_ledger_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
+        Self::boot_from_store_with_bounty_ledger_and_registry(
+            config,
+            block_path,
+            reward_ledger_path,
+            bounty_event_ledger_path,
+            FamilyManifestRegistry::new(),
+        )
+    }
+
+    /// §SC reset window (ADR-0015 (a)) — boot with the family manifest set
+    /// bounty settlement derives against. A chain carrying promoted bounty
+    /// shares can only boot through here (the registry-less variants
+    /// reject it as naming an unknown family).
+    pub fn boot_from_store_with_bounty_ledger_and_registry(
+        config: RuntimeConfig,
+        block_path: impl AsRef<Path>,
+        reward_ledger_path: Option<PathBuf>,
+        bounty_event_ledger_path: Option<PathBuf>,
+        family_registry: FamilyManifestRegistry,
+    ) -> anyhow::Result<Self> {
         let recovered = FileBlockStore::recover(block_path)?;
         let mut runtime = Self::new(config);
+        runtime.family_registry = family_registry;
         // N1.3 (G2) — retarget-aware boot replay: when a retarget policy is
         // configured, fold its difficulty validation into replay (rejects a
         // forged epoch-boundary t_block) instead of a separate call.
@@ -230,8 +278,13 @@ impl RuntimeAdmissionState {
                 &format!("0x{:064x}", runtime.config.policy.thresholds.t_block),
                 policy,
                 opt_in,
+                &runtime.family_registry,
             )?,
-            None => replay_blocks_allow_legacy_evidence_less(recovered.blocks(), opt_in)?,
+            None => replay_blocks_allow_legacy_evidence_less(
+                recovered.blocks(),
+                opt_in,
+                &runtime.family_registry,
+            )?,
         };
         // P1.3b — bounty-event ledger crash-mid-commit heal. The bounty-event
         // ledger is the LAST store written per block (block → reward →
@@ -261,7 +314,7 @@ impl RuntimeAdmissionState {
         if let Some(bounty_path) = bounty_event_ledger_path.as_deref() {
             let mut expected: Vec<serde_json::Value> = Vec::new();
             for block in recovered.blocks() {
-                let (credits, shares) = derive_bounty_events(block);
+                let (credits, shares) = derive_bounty_events(block, &runtime.family_registry)?;
                 expected.extend(credits);
                 expected.extend(shares);
             }
@@ -317,7 +370,7 @@ impl RuntimeAdmissionState {
                 if recovered_ledger.size() < blocks.len() {
                     let from = recovered_ledger.size();
                     for block in &blocks[from..] {
-                        let event = derive_reward_event(block)?;
+                        let event = derive_reward_event(block, &runtime.family_registry)?;
                         FileRewardLedger::append(&path, &event)?;
                         recovered_ledger.apply(event)?;
                     }
@@ -347,7 +400,7 @@ impl RuntimeAdmissionState {
                 // file and the cache cannot drift mid-run.
                 let mut ledger = FileRewardLedger::default();
                 for block in recovered.blocks() {
-                    let event = derive_reward_event(block)?;
+                    let event = derive_reward_event(block, &runtime.family_registry)?;
                     FileRewardLedger::append(&path, &event)?;
                     ledger.apply(event)?;
                 }
@@ -455,7 +508,7 @@ impl RuntimeAdmissionState {
             self.reward_ledger_path.as_ref(),
             self.reward_ledger.as_mut(),
         ) {
-            let event = derive_reward_event(block)?;
+            let event = derive_reward_event(block, &self.family_registry)?;
             FileRewardLedger::append(ledger_path, &event)?;
             ledger.apply(event)?;
         }
@@ -502,7 +555,8 @@ impl RuntimeAdmissionState {
         //    evidence-less opt-in), so an evidence-less or tampered
         //    candidate is rejected before it can displace the current
         //    chain.
-        let replay = replay_blocks_with_genesis(candidate, genesis)?;
+        let replay =
+            replay_blocks_with_genesis_and_registry(candidate, genesis, &self.family_registry)?;
 
         // 2. Fork-choice. Reuse choose_canonical_head + head_block_hash so this
         //    decision is identical to the standalone selection rule (N4.2). An
@@ -532,7 +586,7 @@ impl RuntimeAdmissionState {
             let mut ledger = FileRewardLedger::default();
             let mut event_lines = Vec::with_capacity(candidate.len());
             for block in candidate {
-                let event = derive_reward_event(block)?;
+                let event = derive_reward_event(block, &self.family_registry)?;
                 event_lines.push(serde_json::to_string(&event)?);
                 ledger.apply(event)?;
             }
@@ -596,7 +650,6 @@ impl RuntimeAdmissionState {
             &config,
             accepted_canon_tags,
             &self.credited_canon_hashes(),
-            &[],
             &[],
         )
     }
@@ -670,14 +723,7 @@ impl RuntimeAdmissionState {
     ) -> anyhow::Result<PersistedBlock> {
         // N1.2 (G3) — honor difficulty retarget (see build_block_selection).
         let config = self.block_builder_config_for_height(self.cached_blocks())?;
-        self.produce_block_for_current_c_with_config(
-            height,
-            ts,
-            accepted_canon_tags,
-            &config,
-            &[],
-            &[],
-        )
+        self.produce_block_for_current_c_with_config(height, ts, accepted_canon_tags, &config, &[])
     }
 
     fn produce_block_for_current_c_with_config(
@@ -687,7 +733,6 @@ impl RuntimeAdmissionState {
         accepted_canon_tags: &BTreeSet<u8>,
         config: &BlockBuilderConfig,
         promoted_bounty_shares: &[boole_core::PromotedBountyShare],
-        promoted_bounty_credits: &[boole_core::PromotedBountyCredit],
     ) -> anyhow::Result<PersistedBlock> {
         let prev_c = self
             .current_c
@@ -700,7 +745,6 @@ impl RuntimeAdmissionState {
             accepted_canon_tags,
             &self.credited_canon_hashes(),
             promoted_bounty_shares,
-            promoted_bounty_credits,
         )?;
         let BuildSelectionResult::Ok(selection) = selection else {
             anyhow::bail!("block selection did not produce a single proposer");
@@ -745,6 +789,9 @@ impl RuntimeAdmissionState {
                 canon_hash: share.canon_hash.clone(),
                 proof_package: share.proof_package.clone(),
                 seed_hex: share.seed_hex.clone(),
+                // Evidence v2 slot — SC.1 wires the submit-path signed
+                // work envelope through CandidateShare into here.
+                signed_work: None,
             })
             .collect::<Vec<_>>();
         let proposer = selection
@@ -753,8 +800,9 @@ impl RuntimeAdmissionState {
             .ok_or_else(|| anyhow::anyhow!("proposer index out of range"))?;
         let proposer_reward_pk = proposer.reward_pk.clone();
 
-        // Preimage v2 (ADR-0014 (a)): the hash commits the assembled block's
-        // replay-consumed fields, so build first with an empty `c`, then
+        // Preimage v3 (ADR-0015 (a)): the hash commits the assembled block's
+        // replay-consumed fields — including the promoted bounty share rows
+        // settlement derives from — so build first with an empty `c`, then
         // derive it.
         let mut block = PersistedBlock {
             height,
@@ -777,10 +825,8 @@ impl RuntimeAdmissionState {
             dropped_kernel_reject: selection.dropped_kernel_reject as u64,
             truncated_by_kmax: selection.truncated_by_kmax as u64,
             ts,
-            promoted_bounty_credits: selection.promoted_bounty_credits.clone(),
-            // P1.3b — persist the promoted shares on the block so the
-            // bounty-event ledger's `share_promoted` rows are re-derivable
-            // from the block store after a crash mid-commit. Not hashed.
+            // Preimage v3 — the committed settlement inputs; credit rows
+            // are derived from these, never persisted.
             promoted_bounty_shares: selection.promoted_bounty_shares.clone(),
         };
         block.c = block_hash(&block).to_hex();
@@ -803,7 +849,7 @@ impl RuntimeAdmissionState {
                 cached_height
             );
         }
-        self.commit_using_cache(block_path, height, ts, accepted_canon_tags, &[], &[])
+        self.commit_using_cache(block_path, height, ts, accepted_canon_tags, &[])
     }
 
     pub fn commit_next_block_for_current_c(
@@ -812,30 +858,24 @@ impl RuntimeAdmissionState {
         ts: u64,
         accepted_canon_tags: &BTreeSet<u8>,
     ) -> anyhow::Result<RuntimeCommittedBlock> {
-        self.commit_next_block_for_current_c_with_promoted(
-            block_path,
-            ts,
-            accepted_canon_tags,
-            &[],
-            &[],
-        )
+        self.commit_next_block_for_current_c_with_promoted(block_path, ts, accepted_canon_tags, &[])
     }
 
     /// S23c — promotion-aware commit. The caller (local_node.rs)
     /// computes `select_promoted_bounty_selection(...)` against its
     /// bounty side-pool / family registry / operator pks just before
-    /// the commit and threads the result through here. The bounty
-    /// credits are merged into the same `PersistedRewardEvent` as the
-    /// base-lane proposer credits so the reward ledger is the single
-    /// source of truth, AND folded into the persisted block's
-    /// `promoted_bounty_credits` so replay can recompute them.
+    /// the commit and threads the promoted SHARES through here. The
+    /// bounty credits are DERIVED from those committed rows
+    /// (`derive_bounty_settlement` inside `derive_reward_event`) and
+    /// merged into the same `PersistedRewardEvent` as the base-lane
+    /// proposer credits, so the reward ledger and replay share one
+    /// settlement policy (ADR-0015 (a)).
     pub fn commit_next_block_for_current_c_with_promoted(
         &mut self,
         block_path: impl AsRef<Path>,
         ts: u64,
         accepted_canon_tags: &BTreeSet<u8>,
         promoted_bounty_shares: &[boole_core::PromotedBountyShare],
-        promoted_bounty_credits: &[boole_core::PromotedBountyCredit],
     ) -> anyhow::Result<RuntimeCommittedBlock> {
         let block_path = block_path.as_ref();
         let height = self.block_cache.len() as u64;
@@ -845,7 +885,6 @@ impl RuntimeAdmissionState {
             ts,
             accepted_canon_tags,
             promoted_bounty_shares,
-            promoted_bounty_credits,
         )
     }
 
@@ -856,7 +895,6 @@ impl RuntimeAdmissionState {
         ts: u64,
         accepted_canon_tags: &BTreeSet<u8>,
         promoted_bounty_shares: &[boole_core::PromotedBountyShare],
-        promoted_bounty_credits: &[boole_core::PromotedBountyCredit],
     ) -> anyhow::Result<RuntimeCommittedBlock> {
         let config = self.block_builder_config_for_height(&self.block_cache)?;
         let block = self.produce_block_for_current_c_with_config(
@@ -865,7 +903,6 @@ impl RuntimeAdmissionState {
             accepted_canon_tags,
             &config,
             promoted_bounty_shares,
-            promoted_bounty_credits,
         )?;
         // Validate first so any rejection cannot leave a block on disk that
         // the runtime never applied. The pair {check, append, apply_unchecked}
@@ -877,22 +914,10 @@ impl RuntimeAdmissionState {
             self.reward_ledger_path.as_ref(),
             self.reward_ledger.as_mut(),
         ) {
-            let mut credits = compute_block_reward_credits(&block)?;
-            // S23c — fold bounty credits into the same reward event so
-            // `verify_ledger_matches_replay` sees one unified balance map.
-            // Empty `promoted_bounty_credits` means base-only blocks
-            // produce byte-identical events to pre-S23.
-            for bounty_credit in &block.promoted_bounty_credits {
-                credits.push(boole_core::PersistedCredit {
-                    pk: bounty_credit.prover.clone(),
-                    amount: bounty_credit.amount.clone(),
-                });
-            }
-            let event = PersistedRewardEvent {
-                height: block.height,
-                c: block.c.clone(),
-                credits,
-            };
+            // ADR-0015 (a) — one derivation for live commit, ingest,
+            // reorg, and boot heal: `derive_reward_event` folds base-lane
+            // credits and settlement-derived bounty credits.
+            let event = derive_reward_event(&block, &self.family_registry)?;
             FileRewardLedger::append(ledger_path, &event)?;
             ledger.apply(event)?;
         }

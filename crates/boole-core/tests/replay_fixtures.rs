@@ -1,12 +1,26 @@
 use std::collections::BTreeMap;
 
 use boole_core::{
-    block_hash, compute_block_reward_credits, replay_blocks,
-    replay_blocks_allow_legacy_evidence_less, share_hash, Hex32, LegacyEvidenceOptIn,
-    PersistedBlock, PersistedRewardEvent, SelectedShareEvidence,
+    block_hash, compute_block_reward_credits, min_share_score, parse_biguint_hex, replay_blocks,
+    replay_blocks_allow_legacy_evidence_less, share_hash, FamilyManifestRegistry, Hex32,
+    LegacyEvidenceOptIn, PersistedBlock, PersistedRewardEvent, SelectedShareEvidence,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+
+const V1_FIXTURE_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/protocol/replay/v1.json"
+);
+const V2_FIXTURE_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/protocol/replay/v2.json"
+);
+
+fn read_fixture(path: &str) -> Fixture {
+    serde_json::from_str(&std::fs::read_to_string(path).expect("fixture reads"))
+        .expect("fixture parses")
+}
 
 #[derive(Debug, Deserialize)]
 struct Fixture {
@@ -30,17 +44,13 @@ fn replay_matches_typescript_golden_fixture() {
     // `selectedShareEvidence` (see docs/replay-consensus.md); it replays
     // via the explicit N3-pre.1 legacy opt-in, not the strict-by-default
     // `replay_blocks` used by every other test in this file.
-    let fixture: Fixture =
-        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
-            .expect("fixture parses");
+    let fixture = read_fixture(V1_FIXTURE_PATH);
     assert_legacy_replay_fixture(fixture);
 }
 
 #[test]
 fn replay_matches_evidence_backed_v2_golden_fixture() {
-    let fixture: Fixture =
-        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v2.json"))
-            .expect("fixture parses");
+    let fixture = read_fixture(V2_FIXTURE_PATH);
     assert!(
         fixture
             .blocks
@@ -66,6 +76,7 @@ fn assert_legacy_replay_fixture(fixture: Fixture) {
     let replay = replay_blocks_allow_legacy_evidence_less(
         &fixture.blocks,
         LegacyEvidenceOptIn::for_legacy_replay_only(),
+        &FamilyManifestRegistry::new(),
     )
     .expect("legacy replay passes");
     assert_replay_result_matches(&fixture, replay);
@@ -101,11 +112,11 @@ fn replay_credits_reward_override_fields_not_mining_identity_fields() {
     let reward_pk = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
     block.selected_share_reward_pks = vec![reward_pk.to_string()];
     block.proposer_reward_pk = reward_pk.to_string();
-    // Preimage v2 commits the reward routing (ADR-0014 (a)) — a block
-    // proposed WITH overrides hashes over them, so re-derive `c` after
-    // setting them (a post-hoc mutation without rehashing is now a
-    // c-mismatch reject; `block_hash_v2_commits_reward_routing_fields`
-    // pins that side).
+    // The preimage commits the reward routing (ADR-0014 (a), v3 since
+    // the §SC reset window) — a block proposed WITH overrides hashes over
+    // them, so re-derive `c` after setting them (a post-hoc mutation
+    // without rehashing is now a c-mismatch reject;
+    // `block_hash_v3_commits_reward_routing_fields` pins that side).
     block.c = boole_core::block_hash(&block).to_hex();
 
     let credits = compute_block_reward_credits(&block).expect("reward override credits compute");
@@ -135,9 +146,7 @@ fn replay_credits_reward_override_fields_not_mining_identity_fields() {
 
 #[test]
 fn replay_rejects_block_with_bad_difficulty_weight() {
-    let fixture: Fixture =
-        serde_json::from_str(include_str!("../../../fixtures/protocol/replay/v1.json"))
-            .expect("fixture parses");
+    let fixture = read_fixture(V1_FIXTURE_PATH);
     let mut blocks = fixture.blocks;
     blocks[0].difficulty_weight = "999".to_string();
 
@@ -232,10 +241,29 @@ fn replay_rejects_selected_share_evidence_without_policy_multiplier() {
     let mut block = evidence_backed_block();
     block.min_share_score_multiplier_nanos = 0;
 
-    assert_replay_error_contains(
-        block,
-        "selected share evidence requires minShareScoreMultiplierNanos",
-    );
+    assert_replay_error_contains(block, "minShareScoreMultiplierNanos");
+}
+
+// §SC W1.a (masterplan audit 2026-07-11, item 5) — the multiplier's
+// consensus home is the rule set (ADR-0014 Tier-2 constant), not the
+// block itself. A block that self-declares a different multiplier with
+// an arithmetically CONSISTENT minShareScore passes the pre-W1.a
+// consistency check while unilaterally moving the share-score floor;
+// replay must bind the declared value to the rule constant, not merely
+// to the block's own arithmetic.
+#[test]
+fn replay_rejects_block_authored_score_multiplier() {
+    let mut block = evidence_backed_block();
+    let authored_multiplier_nanos = 2_000_000_000;
+    block.min_share_score_multiplier_nanos = authored_multiplier_nanos;
+    block.min_share_score = min_share_score(
+        &parse_biguint_hex(&block.t_share).expect("t_share parses"),
+        authored_multiplier_nanos,
+    )
+    .expect("min share score computes")
+    .to_string();
+
+    assert_replay_error_contains(block, "consensus rule constant");
 }
 
 fn assert_replay_error_contains(block: PersistedBlock, expected: &str) {
@@ -279,6 +307,7 @@ fn evidence_backed_block() -> PersistedBlock {
             canon_hash,
             proof_package,
             seed_hex: String::new(),
+            signed_work: None,
         }],
         min_share_score: "1".to_string(),
         min_share_score_multiplier_nanos: 1_000_000_000,
@@ -291,7 +320,6 @@ fn evidence_backed_block() -> PersistedBlock {
         dropped_kernel_reject: 0,
         truncated_by_kmax: 0,
         ts: 1_700_000_000_000,
-        promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
     };
     block.c = block_hash(&block).to_hex();
@@ -310,4 +338,45 @@ fn valid_pofp_v2_package_hex() -> String {
     bytes.extend_from_slice(&[0x22; 32]);
     bytes.extend_from_slice(&0u32.to_le_bytes());
     hex::encode(bytes)
+}
+
+/// Deliberate-regen helper (NOT part of the suite): after a preimage
+/// change (reset window), recompute each fixture's block `c` chain, the
+/// reward events' `c`, and `expected.latestC`, then rewrite the files.
+/// Balances and credits are content-derived and unchanged by a preimage
+/// bump. Run: `cargo test -p boole-core --test replay_fixtures -- --ignored`
+#[test]
+#[ignore = "regen helper — rewrites the golden fixtures from the current preimage"]
+fn regen_replay_golden_fixtures() {
+    for path in [V1_FIXTURE_PATH, V2_FIXTURE_PATH] {
+        let raw = std::fs::read_to_string(path).expect("fixture reads");
+        let mut value: serde_json::Value = serde_json::from_str(&raw).expect("fixture parses");
+        let blocks_value = value["blocks"].clone();
+        let mut blocks: Vec<PersistedBlock> =
+            serde_json::from_value(blocks_value).expect("blocks parse");
+        let mut prev_c = blocks
+            .first()
+            .map(|b| b.prev_c.clone())
+            .unwrap_or_else(|| "0".repeat(64));
+        let mut new_cs = Vec::with_capacity(blocks.len());
+        for block in &mut blocks {
+            block.prev_c = prev_c.clone();
+            block.c = String::new();
+            block.c = block_hash(block).to_hex();
+            prev_c = block.c.clone();
+            new_cs.push(block.c.clone());
+        }
+        value["blocks"] = serde_json::to_value(&blocks).expect("blocks serialize");
+        if let Some(events) = value["rewardEvents"].as_array_mut() {
+            for (event, c) in events.iter_mut().zip(new_cs.iter()) {
+                event["c"] = serde_json::json!(c);
+            }
+        }
+        if let Some(latest) = new_cs.last() {
+            value["expected"]["latestC"] = serde_json::json!(latest);
+        }
+        let mut out = serde_json::to_string_pretty(&value).expect("serialize");
+        out.push('\n');
+        std::fs::write(path, out).expect("fixture writes");
+    }
 }

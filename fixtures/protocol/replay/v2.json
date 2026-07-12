@@ -1,7 +1,7 @@
 {
   "blocks": [
     {
-      "c": "89fe85e460b998d2e7a3f149507af43446a89498d848fd3c301751c584217d59",
+      "c": "f337ff37cab8f89d7861075ec5ade4076216b8ec2db75bf67ffb573827d67921",
       "difficultyEpoch": 0,
       "difficultyWeight": "1",
       "droppedBelowMinScore": 0,
@@ -40,13 +40,13 @@
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "1"
     },
     "height": 1,
-    "latestC": "89fe85e460b998d2e7a3f149507af43446a89498d848fd3c301751c584217d59"
+    "latestC": "f337ff37cab8f89d7861075ec5ade4076216b8ec2db75bf67ffb573827d67921"
   },
   "generatedBy": "boole-core consensus fixture generator",
   "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",
   "rewardEvents": [
     {
-      "c": "89fe85e460b998d2e7a3f149507af43446a89498d848fd3c301751c584217d59",
+      "c": "f337ff37cab8f89d7861075ec5ade4076216b8ec2db75bf67ffb573827d67921",
       "credits": [
         {
           "amount": "1",

@@ -17,7 +17,7 @@
 //!     `nonce_replayed` (409), and the dedup state survives a process
 //!     restart by replaying the NDJSON ledger.
 //!   - Active session-bound submit requires a valid W3 `signedWork`
-//!     (`boole.signed.v1` around `boole.signer.work.v1`) whose pk,
+//!     (`boole.signed.v1` around `boole.signer.work.v2`) whose pk,
 //!     route, nonce, requestHash, and workPayload bind to the submitted
 //!     body.
 //!   - Session activation/expiry is checked again at submit-time height.
@@ -317,13 +317,14 @@ fn signed_work_session(
     reward_recipient: &str,
 ) -> Value {
     let payload = json!({
-        "schema": "boole.signer.work.v1",
+        "schema": "boole.signer.work.v2",
         "route": "/submit",
         "familyId": "boole.protocol-invariant.v01",
         "verifierId": "lean-runner-v01",
         "fee": "0",
         "requestHash": canonical_payload_hash_hex(body),
         "nonce": nonce,
+        "rewardRecipient": reward_recipient,
         "workPayload": body,
     });
     let signed = key.sign(&payload).expect("sign work payload");
@@ -577,13 +578,14 @@ fn submit_rejects_request_hash_mismatch() {
     register_session(boot.addr, &session_pk, PK_REWARD);
     let body = scenario_body();
     let payload = json!({
-        "schema": "boole.signer.work.v1",
+        "schema": "boole.signer.work.v2",
         "route": "/submit",
         "familyId": "boole.protocol-invariant.v01",
         "verifierId": "lean-runner-v01",
         "fee": "0",
         "requestHash": ROOT_HEX,
         "nonce": "n-bad-request-hash",
+        "rewardRecipient": PK_REWARD,
         "workPayload": body,
     });
     let signed = key

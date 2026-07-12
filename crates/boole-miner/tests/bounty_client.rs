@@ -3,7 +3,9 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
-use boole_core::{verify_signature, verify_signature_with_network, SigningKeyV2};
+use boole_core::{
+    canonical_payload_hash_hex, verify_signature, verify_signature_with_network, SigningKeyV2,
+};
 use boole_miner::{BountyClient, BountyProofInputs, BountyProofResult, KeySigner};
 
 type CapturedRequest = Arc<Mutex<Option<(String, Vec<u8>)>>>;
@@ -100,7 +102,6 @@ fn test_submit_proof_ok_on_200_returns_accepted_duplicate_bounty() {
         bounty_id: "abc",
         signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({"proof": "x"}),
-        envelope_bytes: b"envelope-bytes",
         network_id: "boole-testnet",
     });
     match res {
@@ -129,8 +130,9 @@ fn test_submit_proof_ok_on_200_returns_accepted_duplicate_bounty() {
     assert_eq!(payload["schema"], "boole.bounty.proof.v1");
     assert_eq!(payload["bountyId"], "abc");
     assert_eq!(payload["prover"], key.pk_hex());
-    use sha2::{Digest, Sha256};
-    let expected = hex::encode(Sha256::digest(b"envelope-bytes"));
+    // §SC W1.b — proofHash is derived from the envelope's canonical JSON,
+    // the same computation the node re-runs before accepting the proof.
+    let expected = canonical_payload_hash_hex(&serde_json::json!({"proof": "x"}));
     assert_eq!(payload["proofHash"], expected);
     assert_eq!(payload["envelope"]["proof"], "x");
 }
@@ -143,7 +145,6 @@ fn test_submit_proof_not_found_on_404() {
         bounty_id: "missing-id",
         signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({}),
-        envelope_bytes: b"x",
         network_id: "boole-testnet",
     });
     assert_eq!(
@@ -162,7 +163,6 @@ fn test_submit_proof_terminal_on_409() {
         bounty_id: "abc",
         signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({}),
-        envelope_bytes: b"x",
         network_id: "boole-testnet",
     });
     assert_eq!(
@@ -181,7 +181,6 @@ fn test_submit_proof_no_verifier_on_501() {
         bounty_id: "abc",
         signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({}),
-        envelope_bytes: b"x",
         network_id: "boole-testnet",
     });
     assert_eq!(
@@ -203,7 +202,6 @@ fn test_submit_proof_bad_request_on_400() {
         bounty_id: "abc",
         signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({}),
-        envelope_bytes: b"x",
         network_id: "boole-testnet",
     });
     assert_eq!(
@@ -223,7 +221,6 @@ fn test_submit_proof_url_percent_encodes_bounty_id() {
         bounty_id: "weird id/with:slash",
         signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({}),
-        envelope_bytes: b"x",
         network_id: "boole-testnet",
     });
     let (headers, _body) = srv.captured().unwrap();
@@ -242,7 +239,6 @@ fn test_submit_proof_stamps_wire_network_id_and_uses_network_bound_digest() {
         bounty_id: "abc",
         signer: &KeySigner::new(test_key()),
         envelope: serde_json::json!({"proof": "x"}),
-        envelope_bytes: b"envelope-bytes",
         network_id: "boole-testnet",
     });
     let (_headers, body) = srv.captured().unwrap();

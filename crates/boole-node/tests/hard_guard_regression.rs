@@ -23,7 +23,8 @@ use std::thread;
 use std::time::Duration;
 
 use boole_core::{
-    parse_family_manifest, Bounty, BountyProofVerifier, FamilyManifestParseResult, SigningKeyV2,
+    canonical_payload_hash_hex, parse_family_manifest, Bounty, BountyProofVerifier,
+    FamilyManifestParseResult, SigningKeyV2,
 };
 use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
@@ -32,10 +33,6 @@ use serde_json::{json, Value};
 fn fresh_nonce() -> String {
     format!("nonce-{}", rand_suffix())
 }
-
-const PROOF_HASH_A: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
-const PROOF_HASH_B: &str = "bbbb000000000000000000000000000000000000000000000000000000000000";
-const PROOF_HASH_C: &str = "cccc000000000000000000000000000000000000000000000000000000000000";
 
 fn test_prover_key() -> SigningKeyV2 {
     SigningKeyV2::from_dev_id("hard-guard-test-prover")
@@ -86,7 +83,7 @@ fn write_family_manifest(dir: &Path, name: &str, family_id: &str) {
         "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
         "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
         "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
-        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024 },
+        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024, "maxHeartbeats": 400000, "maxRecDepth": 512 },
         "rewardPolicy": { "mode": "no_protocol_reward", "maxBlockRewardShareBps": 0 },
         "activationHeight": u64::MAX,
         "status": "experimental"
@@ -100,6 +97,7 @@ fn write_family_manifest(dir: &Path, name: &str, family_id: &str) {
 /// is parsed into a `FamilyManifest`, serialized canonically (omitting
 /// `signature`), signed, and the resulting hex64 dropped back into the
 /// raw JSON before disk write — mirrors the operator workflow.
+#[allow(clippy::too_many_arguments)]
 fn write_signed_family_manifest(
     dir: &Path,
     name: &str,
@@ -107,8 +105,17 @@ fn write_signed_family_manifest(
     activation_height: u64,
     max_shares_per_block: u64,
     max_reward_credit_per_block: &str,
+    // §SC W1 — `derive_bounty_settlement` derives ZERO credit for
+    // `no_protocol_reward` families regardless of caps, so tests that
+    // assert credit actually landing must sign a `capped_bonus` manifest.
+    reward_mode: &str,
     signing_key: &SigningKeyV2,
 ) {
+    let max_block_reward_share_bps = if reward_mode == "no_protocol_reward" {
+        0
+    } else {
+        10_000
+    };
     let body = json!({
         "version": "1",
         "familyId": family_id,
@@ -118,8 +125,8 @@ fn write_signed_family_manifest(
         "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
         "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
         "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
-        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024 },
-        "rewardPolicy": { "mode": "no_protocol_reward", "maxBlockRewardShareBps": 0 },
+        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024, "maxHeartbeats": 400000, "maxRecDepth": 512 },
+        "rewardPolicy": { "mode": reward_mode, "maxBlockRewardShareBps": max_block_reward_share_bps },
         "activationHeight": activation_height,
         "status": "experimental",
         "caps": {
@@ -298,12 +305,11 @@ fn http_get(addr: SocketAddr, path: &str) -> (u16, Value) {
     (status, parsed)
 }
 
-fn signed_proof_body(
-    key: &SigningKeyV2,
-    bounty_id: &str,
-    proof_hash: &str,
-    envelope: Value,
-) -> Value {
+fn signed_proof_body(key: &SigningKeyV2, bounty_id: &str, envelope: Value) -> Value {
+    // §SC W1.b — the node re-derives the proof hash from the envelope's
+    // canonical JSON and rejects mismatches, so the tests compute it the
+    // same way instead of claiming a dummy value.
+    let proof_hash = canonical_payload_hash_hex(&envelope);
     let payload = json!({
         "schema": "boole.bounty.proof.v1",
         "bountyId": bounty_id,
@@ -404,7 +410,7 @@ fn bounty_proofs_do_not_mutate_base_lane_status() {
     let (s_a, r_a) = http_post(
         boot.addr,
         "/bounties/gamma-1/proof",
-        &signed_proof_body(&prover, "gamma-1", PROOF_HASH_A, json!({})),
+        &signed_proof_body(&prover, "gamma-1", json!({})),
     );
     assert_eq!(s_a, 200, "gamma-1 accept: {r_a}");
     assert_eq!(r_a["accepted"], true);
@@ -412,7 +418,7 @@ fn bounty_proofs_do_not_mutate_base_lane_status() {
     let (s_b, r_b) = http_post(
         boot.addr,
         "/bounties/delta-1/proof",
-        &signed_proof_body(&prover, "delta-1", PROOF_HASH_B, json!({})),
+        &signed_proof_body(&prover, "delta-1", json!({})),
     );
     assert_eq!(s_b, 200, "delta-1 reject: {r_b}");
     assert_eq!(r_b["accepted"], false);
@@ -420,7 +426,7 @@ fn bounty_proofs_do_not_mutate_base_lane_status() {
     let (s_c, r_c) = http_post(
         boot.addr,
         "/bounties/gamma-1/proof",
-        &signed_proof_body(&prover, "gamma-1", PROOF_HASH_A, json!({})),
+        &signed_proof_body(&prover, "gamma-1", json!({})),
     );
     assert_eq!(s_c, 200, "gamma-1 dedup: {r_c}");
     assert_eq!(r_c["duplicate"], true);
@@ -447,7 +453,7 @@ fn bounty_proofs_do_not_mutate_base_lane_status() {
     let (s_d, r_d) = http_post(
         boot.addr,
         "/bounties/epsilon-1/proof",
-        &signed_proof_body(&prover, "epsilon-1", PROOF_HASH_C, json!({})),
+        &signed_proof_body(&prover, "epsilon-1", json!({})),
     );
     assert_eq!(s_d, 409, "epsilon-1 must hit terminal: {r_d}");
     let (_, final_status) = http_get(boot.addr, "/status");
@@ -485,6 +491,7 @@ fn promotion_active_does_not_alter_base_lane_status() {
         0,
         5,
         "0",
+        "no_protocol_reward",
         &signing_key,
     );
 
@@ -506,7 +513,7 @@ fn promotion_active_does_not_alter_base_lane_status() {
     let (s_a, r_a) = http_post(
         boot.addr,
         "/bounties/gamma-1/proof",
-        &signed_proof_body(&prover, "gamma-1", PROOF_HASH_A, json!({})),
+        &signed_proof_body(&prover, "gamma-1", json!({})),
     );
     assert_eq!(s_a, 200, "gamma-1 accept: {r_a}");
     assert_eq!(r_a["accepted"], true);
@@ -587,6 +594,9 @@ fn promoted_credit_lands_in_balance_and_preserves_hard_guard() {
     let _ = std::fs::remove_dir_all(&manifest_dir);
     std::fs::create_dir_all(&manifest_dir).expect("tmp manifest dir");
     let signing_key = SigningKeyV2::from_dev_id("op-s23");
+    // §SC W1 — S23 asserts the credit actually lands in the balance, so
+    // the family must be `capped_bonus`: under the W1 settlement rule a
+    // `no_protocol_reward` family derives provenance rows but zero credit.
     write_signed_family_manifest(
         &manifest_dir,
         "promo.json",
@@ -594,6 +604,7 @@ fn promoted_credit_lands_in_balance_and_preserves_hard_guard() {
         0,
         5,
         "100",
+        "capped_bonus",
         &signing_key,
     );
 
@@ -609,7 +620,7 @@ fn promoted_credit_lands_in_balance_and_preserves_hard_guard() {
     let (s_proof, r_proof) = http_post(
         promoted.addr,
         "/bounties/gamma-1/proof",
-        &signed_proof_body(&prover, "gamma-1", PROOF_HASH_A, json!({})),
+        &signed_proof_body(&prover, "gamma-1", json!({})),
     );
     assert_eq!(s_proof, 200, "gamma-1 accept: {r_proof}");
     assert_eq!(r_proof["accepted"], true);
@@ -722,7 +733,7 @@ fn boot_restores_unpromoted_bounty_shares_from_durable_audit_log() {
     let (s_a, r_a) = http_post(
         first.addr,
         "/bounties/gamma-1/proof",
-        &signed_proof_body(&prover, "gamma-1", PROOF_HASH_A, json!({})),
+        &signed_proof_body(&prover, "gamma-1", json!({})),
     );
     assert_eq!(s_a, 200, "first-boot accept must succeed: {r_a}");
     assert_eq!(r_a["accepted"], true, "first-boot accept: {r_a}");

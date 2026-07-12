@@ -2,8 +2,25 @@ use serde::{Deserialize, Serialize};
 
 use num_bigint::BigUint;
 
-use crate::block_builder::{CanonicalOrderKey, PromotedBountyCredit, PromotedBountyShare};
+use crate::block_builder::{CanonicalOrderKey, PromotedBountyShare};
 use crate::{difficulty_weight, parse_biguint_hex, Hex32};
+
+/// Evidence v2 (§SC reset window, ADR-0015 (b)) — the persisted form of the
+/// submitter's signed work envelope (`boole.signed.v1` envelope over a
+/// `boole.signer.work.v2` payload). A serializable mirror of
+/// `signed_envelope::SignedEnvelope` (which is not serde-derived); SC.1's
+/// enforcement reconstructs the digest and verifies `signature` against
+/// `pk` from exactly these fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareWorkAuthorization {
+    pub schema: String,
+    pub payload: serde_json::Value,
+    pub pk: String,
+    pub signature: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_id: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +37,13 @@ pub struct SelectedShareEvidence {
     /// unchanged); empty on shares submitted without a seed.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub seed_hex: String,
+    /// Evidence v2 (§SC reset window, ADR-0015 (b)) — the submitter's full
+    /// `boole.signer.work.v2` signed envelope, carried so replay can verify
+    /// that the block's reward routing was authorized by the share winner
+    /// (the v2 payload covers `rewardRecipient`). Optional in the schema:
+    /// SC.1 lands the enforcement that makes it required on named networks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_work: Option<ShareWorkAuthorization>,
 }
 
 impl SelectedShareEvidence {
@@ -67,18 +91,13 @@ pub struct PersistedBlock {
     pub dropped_kernel_reject: u64,
     pub truncated_by_kmax: u64,
     pub ts: u64,
-    /// S23b — bounty credits accrued by this block. Empty for base-only
-    /// blocks (the default), so old persisted blocks deserialize with
-    /// `Vec::new()`. `validate_shape` enforces hex-32 prover keys and
-    /// non-negative `u128` amounts.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub promoted_bounty_credits: Vec<PromotedBountyCredit>,
-    /// P1.3b — every bounty share promoted into this block (including
-    /// zero-credit shares), recorded so the bounty-event ledger's
-    /// `share_promoted` rows are re-derivable from the block store after a
-    /// crash mid-commit. NOT part of `block_hash` (consensus is unchanged);
-    /// this is node-local audit/recovery data. `validate_shape` enforces
-    /// hex-32 `proof_hash`/`prover`.
+    /// Preimage v3 (ADR-0015 (a)) — every bounty share promoted into this
+    /// block, each carrying its announced `reward`. COMMITTED into
+    /// `block_hash` since v3: these rows are the settlement inputs from
+    /// which replay derives credit amounts via `derive_bounty_settlement`
+    /// (the declared credit rows that v2 committed left the schema).
+    /// `validate_shape` enforces hex-32 `proof_hash`/`prover` and a decimal
+    /// `u128` `reward`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub promoted_bounty_shares: Vec<PromotedBountyShare>,
 }
@@ -134,19 +153,16 @@ impl PersistedBlock {
                 expected_weight
             );
         }
-        for credit in &self.promoted_bounty_credits {
-            Hex32::from_hex(&credit.prover)?;
-            if credit.amount.parse::<u128>().is_err() {
-                anyhow::bail!(
-                    "promotedBountyCredits[{}].amount must be u128 decimal, got {}",
-                    credit.bounty_id,
-                    credit.amount
-                );
-            }
-        }
         for share in &self.promoted_bounty_shares {
             Hex32::from_hex(&share.proof_hash)?;
             Hex32::from_hex(&share.prover)?;
+            if share.reward.parse::<u128>().is_err() {
+                anyhow::bail!(
+                    "promotedBountyShares[{}].reward must be u128 decimal, got {}",
+                    share.bounty_id,
+                    share.reward
+                );
+            }
         }
         Ok(())
     }

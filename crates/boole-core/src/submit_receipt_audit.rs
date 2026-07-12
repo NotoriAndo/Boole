@@ -309,8 +309,19 @@ fn validate_signed_work_lineage(idx: usize, lineage: &SubmitReceiptLineage) -> a
     }
 
     let payload = &signed_work.payload;
-    require_payload_str(idx, payload, "schema", "boole.signer.work.v1")?;
+    require_payload_str(idx, payload, "schema", "boole.signer.work.v2")?;
     require_payload_str(idx, payload, "route", "/submit")?;
+    // work.v2 (ADR-0015 (b)) — the signed payload must authorize exactly
+    // the reward recipient the receipt credits.
+    let signed_reward_recipient = payload_str(idx, payload, "rewardRecipient")?;
+    if signed_reward_recipient != receipt.reward_recipient {
+        anyhow::bail!(
+            "lineage {} rewardRecipient mismatch: signedWork {}, receipt {}",
+            idx,
+            signed_reward_recipient,
+            receipt.reward_recipient
+        );
+    }
     let nonce = payload_str(idx, payload, "nonce")?;
     if nonce != receipt.nonce {
         anyhow::bail!(

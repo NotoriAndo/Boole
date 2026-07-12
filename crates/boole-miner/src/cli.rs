@@ -749,7 +749,6 @@ pub fn run_bounty(args: BountyArgs) -> anyhow::Result<()> {
         bounty_id: &args.id,
         signer: signer.as_ref(),
         envelope: serde_json::json!({"bytes": hex::encode(&envelope_bytes)}),
-        envelope_bytes: &envelope_bytes,
         network_id: args.network.network_id(),
     });
     match result {

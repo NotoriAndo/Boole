@@ -25,7 +25,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
     agent_passport_events_for_receipt, canonical_payload_hash_hex, compute_block_reward_credits,
-    replay_blocks_allow_legacy_evidence_less, replay_blocks_with_genesis, ticket,
+    replay_blocks_allow_legacy_evidence_less, replay_blocks_with_genesis_and_registry, ticket,
     verify_signature_with_network, AdmissionDecision, BountyProofVerifier, BountyRegistry,
     BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport, CreateBountyInput,
     DifficultyRetargetPolicy, FamilyManifestRegistry, Hex32, Hex64, LegacyEvidenceOptIn,
@@ -1282,16 +1282,29 @@ impl LocalNodeState {
             state_dir::ensure_manifest(dir, &manifest)?;
         }
         let recovered = FileBlockStore::recover(&config.block_path)?;
+        // §SC reset window — the family manifest set loads BEFORE the boot
+        // replay: settlement derivation (ADR-0015 (a)) needs it to replay a
+        // chain carrying promoted bounty shares.
+        let family_manifest_registry = match config.family_manifests_dir.as_ref() {
+            Some(dir) => load_family_manifest_registry_from_dir(dir).map_err(|err| {
+                anyhow::anyhow!(
+                    "load family manifests from {}: {err}",
+                    dir.to_string_lossy()
+                )
+            })?,
+            None => FamilyManifestRegistry::new(),
+        };
         // Always route through boot_from_store so the reward-ledger path is
         // initialized uniformly. For an empty chain, replay returns the all-
         // zero genesis hash; the scenario's `genesis_c` (possibly overridden
         // via --genesis) is restored below so the runtime head matches the
         // configured genesis instead of the replay default.
-        let mut runtime = RuntimeAdmissionState::boot_from_store_with_bounty_ledger(
+        let mut runtime = RuntimeAdmissionState::boot_from_store_with_bounty_ledger_and_registry(
             runtime_config,
             &config.block_path,
             config.reward_ledger_path.clone(),
             config.bounty_event_ledger_path.clone(),
+            family_manifest_registry.clone(),
         )?;
         if recovered.size() == 0 {
             runtime.set_current_c(scenario.genesis_c.clone());
@@ -1335,15 +1348,6 @@ impl LocalNodeState {
             rebuild_bounty_side_pool(&mut bounty_side_pool, &bounty_registry, &events)
                 .map_err(|err| anyhow::anyhow!("rebuild bounty side-pool: {err}"))?;
         }
-        let family_manifest_registry = match config.family_manifests_dir.as_ref() {
-            Some(dir) => load_family_manifest_registry_from_dir(dir).map_err(|err| {
-                anyhow::anyhow!(
-                    "load family manifests from {}: {err}",
-                    dir.to_string_lossy()
-                )
-            })?,
-            None => FamilyManifestRegistry::new(),
-        };
         let session_store = match config.session_registry_path.as_ref() {
             Some(path) => Some(FileSessionStore::recover(path)?),
             None => None,
@@ -2836,7 +2840,7 @@ fn session_revoke_json(
 ///      `fixedRewardRecipient` (`reward_recipient_mismatch` else).
 ///   6. `signedWork` is a valid `boole.signed.v1` envelope whose pk
 ///      equals `submittedBy`, whose payload schema is
-///      `boole.signer.work.v1`, whose route is `/submit`, whose nonce
+///      `boole.signer.work.v2`, whose route is `/submit`, whose nonce
 ///      equals `session.nonce`, and whose requestHash matches the
 ///      canonical hash of the submitted work body.
 ///   7. The `(submittedBy, nonce)` pair has not been burned before;
@@ -2970,6 +2974,7 @@ fn submit_session_gate(
         session_obj,
         submitted_by,
         nonce,
+        reward_recipient,
         session,
         &state.network_id,
     )?;
@@ -3022,6 +3027,7 @@ fn verify_signed_submit_work(
     session_obj: &serde_json::Map<String, Value>,
     submitted_by: &str,
     nonce: &str,
+    reward_recipient: &str,
     session: &SessionState,
     node_network_id: &str,
 ) -> Result<VerifiedSubmitWork, HttpError> {
@@ -3058,7 +3064,7 @@ fn verify_signed_submit_work(
             "signed envelope pk must equal session.submittedBy",
         ));
     }
-    // P2.10 — the nested `boole.signer.work.v1` envelope is in-scope per
+    // P2.10 — the nested `boole.signer.work.v2` envelope is in-scope per
     // ADR-0003. Cross-check its optional `network_id` against the node's
     // pinned id before recomputing the network-bound digest.
     let signed_network_id = parse_envelope_network_id(signed_obj, node_network_id)?;
@@ -3075,10 +3081,24 @@ fn verify_signed_submit_work(
         .get("schema")
         .and_then(Value::as_str)
         .ok_or_else(|| HttpError::missing_field("session.signedWork.payload.schema"))?;
-    if payload_schema != "boole.signer.work.v1" {
+    if payload_schema != "boole.signer.work.v2" {
         return Err(HttpError::bad_payload(
             "session.signedWork.payload.schema",
-            "expected boole.signer.work.v1",
+            "expected boole.signer.work.v2",
+        ));
+    }
+    // work.v2 (ADR-0015 (b)) — the SIGNED payload names the reward
+    // recipient; it must equal the session block's recipient (itself bound
+    // to the registered fixedRewardRecipient above), so the ed25519
+    // signature covers where the reward routes.
+    let signed_reward_recipient = payload_obj
+        .get("rewardRecipient")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.signedWork.payload.rewardRecipient"))?;
+    if signed_reward_recipient != reward_recipient {
+        return Err(HttpError::bad_payload(
+            "session.signedWork.payload.rewardRecipient",
+            "signed rewardRecipient must equal session.rewardRecipient",
         ));
     }
     let route = payload_obj
@@ -3171,6 +3191,7 @@ fn compute_replay_matches_runtime(state: &LocalNodeState) -> bool {
     let Ok(replay) = replay_blocks_allow_legacy_evidence_less(
         recovered.blocks(),
         LegacyEvidenceOptIn::for_legacy_replay_only(),
+        state.runtime.family_registry(),
     ) else {
         return false;
     };
@@ -3975,6 +3996,22 @@ fn bounty_proof_prepare(
     }
     let envelope = payload_obj.get("envelope").cloned().unwrap_or(Value::Null);
 
+    // §SC W1.b — bind the claimed proofHash to the envelope it
+    // accompanies: the server re-derives
+    // `hex(SHA-256(canonical_json(envelope)))` (the same Boole canonical
+    // JSON the signing path hashes) and rejects a mismatch. This runs
+    // BEFORE the dedup peek so a forged hash can neither poison the
+    // dedup keyspace nor reach the registry/side pool/audit ledger —
+    // everything downstream (including the block.v3 preimage) may treat
+    // `proof_hash` as content-derived.
+    let expected_proof_hash = canonical_payload_hash_hex(&envelope);
+    if proof_hash != expected_proof_hash {
+        return Err(HttpError::proof_hash_mismatch(
+            expected_proof_hash,
+            proof_hash,
+        ));
+    }
+
     // 3) Dedup peek — wins over terminal status, nonce-replay, and
     //    verifier dispatch so an HTTP retry of the same envelope (same
     //    proofHash, same nonce) idempotently returns the cached
@@ -4427,8 +4464,8 @@ fn submit_json(
     let block_path = state.block_path.clone();
     // S23c — compute the promoted bounty selection at the latest known
     // height (`block_cache.len()` is the about-to-be-committed block's
-    // height). The selection feeds both the persisted block's
-    // `promoted_bounty_credits` and the merged reward-ledger event.
+    // height). Only the SHARES enter the block (preimage v3); credits are
+    // derived from them at commit/replay via `derive_bounty_settlement`.
     let promotion_height = state.runtime.cached_block_count() as u64;
     let selection = boole_core::select_promoted_bounty_selection(
         &state.bounty_side_pool,
@@ -4443,7 +4480,6 @@ fn submit_json(
             ts_raw,
             &accepted_tags,
             &selection.shares,
-            &selection.credits,
         )?;
     // N2.3 — record the now-credited proof's canon hash so a later submit of
     // the same proof (under any pk) is rejected by the check above. Recorded
@@ -4466,7 +4502,7 @@ fn submit_json(
     // P1.5a — drop shares already promoted into a committed block so the
     // next block does not re-promote the same proof and double-credit the
     // prover. We drain by the full `selection.shares` slice (not by the
-    // narrower `promoted_bounty_credits`) because zero-credit shares
+    // narrower derived credit rows) because zero-credit shares
     // still count as "promoted into this block" — they have flowed
     // through the selection gate and consumed the family's per-block
     // share quota.
@@ -4653,30 +4689,13 @@ fn append_block_bounty_events(
     let Some(bounty_event_path) = state.bounty_event_ledger_path.as_ref() else {
         return Ok(());
     };
-    for credit in &block.promoted_bounty_credits {
-        let event = json!({
-            "schemaVersion": 1,
-            "kind": "credit",
-            "height": block.height,
-            "c": block.c,
-            "familyId": credit.family_id,
-            "bountyId": credit.bounty_id,
-            "prover": credit.prover,
-            "amount": credit.amount,
-        });
-        FileBountyEventLedger::append(bounty_event_path, &event)?;
-    }
-    for share in &block.promoted_bounty_shares {
-        let event = json!({
-            "schemaVersion": 1,
-            "kind": "share_promoted",
-            "height": block.height,
-            "familyId": share.family_id,
-            "bountyId": share.bounty_id,
-            "proofHash": share.proof_hash,
-            "prover": share.prover,
-        });
-        FileBountyEventLedger::append(bounty_event_path, &event)?;
+    // §SC reset window — the SAME derivation the P1.3b boot heal and the N4
+    // reorg rebuild run (`derive_bounty_events`): credit rows come from
+    // `derive_bounty_settlement` over the committed shares, so the live
+    // ledger rows and every re-derivation are byte-identical.
+    let (credits, shares) = derive_bounty_events(block, state.runtime.family_registry())?;
+    for event in credits.iter().chain(shares.iter()) {
+        FileBountyEventLedger::append(bounty_event_path, event)?;
     }
     Ok(())
 }
@@ -4730,7 +4749,9 @@ pub(crate) fn ingest_announced_block(
         .runtime
         .config
         .genesis_spec(&state.network_id, &state.genesis_c);
-    if replay_blocks_with_genesis(&chain, &genesis).is_err() {
+    if replay_blocks_with_genesis_and_registry(&chain, &genesis, state.runtime.family_registry())
+        .is_err()
+    {
         return IngressBlockOutcome::Rejected;
     }
     // Same write ordering as the self-produce commit: block append →
@@ -4854,6 +4875,7 @@ pub(crate) fn ingest_candidate_chain(
                 &state.bounty_registry,
                 &mut state.bounty_side_pool,
                 &candidate,
+                state.runtime.family_registry(),
             ) {
                 eprintln!("boole-node: bounty state rebuild after reorg failed: {err:#}");
             }
@@ -4903,7 +4925,11 @@ fn rebuild_proof_dedup_mirror_after_reorg(
 /// original relative order and replace the block-driven rows with those derived
 /// from `adopted` (credit rows then share rows per block, in block order). Pure:
 /// no I/O, so it is unit-testable and the wiring below owns the file swap.
-fn rebuild_bounty_ledger_rows(existing: &[Value], adopted: &[PersistedBlock]) -> Vec<Value> {
+fn rebuild_bounty_ledger_rows(
+    existing: &[Value],
+    adopted: &[PersistedBlock],
+    family_registry: &boole_core::FamilyManifestRegistry,
+) -> anyhow::Result<Vec<Value>> {
     let mut rows: Vec<Value> = existing
         .iter()
         .filter(|event| {
@@ -4915,11 +4941,11 @@ fn rebuild_bounty_ledger_rows(existing: &[Value], adopted: &[PersistedBlock]) ->
         .cloned()
         .collect();
     for block in adopted {
-        let (credits, shares) = derive_bounty_events(block);
+        let (credits, shares) = derive_bounty_events(block, family_registry)?;
         rows.extend(credits);
         rows.extend(shares);
     }
-    rows
+    Ok(rows)
 }
 
 /// N4 — rebuild the node-local bounty state after a reorg has adopted `adopted`
@@ -4944,12 +4970,13 @@ fn rebuild_bounty_state_after_reorg(
     registry: &BountyRegistry,
     side_pool: &mut BountySidePool,
     adopted: &[PersistedBlock],
+    family_registry: &boole_core::FamilyManifestRegistry,
 ) -> anyhow::Result<()> {
     let Some(path) = ledger_path else {
         return Ok(());
     };
     let existing = FileBountyEventLedger::recover(path)?;
-    let rebuilt = rebuild_bounty_ledger_rows(&existing, adopted);
+    let rebuilt = rebuild_bounty_ledger_rows(&existing, adopted, family_registry)?;
     FileBountyEventLedger::rewrite_atomic(path, &rebuilt)?;
     *side_pool = BountySidePool::new();
     rebuild_bounty_side_pool(side_pool, registry, &rebuilt)
@@ -5110,7 +5137,6 @@ mod tests {
             dropped_kernel_reject: 0,
             truncated_by_kmax: 0,
             ts: 0,
-            promoted_bounty_credits: Vec::new(),
             promoted_bounty_shares: Vec::new(),
         };
 
@@ -5140,6 +5166,7 @@ mod tests {
                 canon_hash: (*h).to_string(),
                 proof_package: String::new(),
                 seed_hex: String::new(),
+                signed_work: None,
             })
             .collect();
         PersistedBlock {
@@ -5163,7 +5190,6 @@ mod tests {
             dropped_kernel_reject: 0,
             truncated_by_kmax: 0,
             ts: 0,
-            promoted_bounty_credits: Vec::new(),
             promoted_bounty_shares: Vec::new(),
         }
     }
@@ -5214,7 +5240,8 @@ mod tests {
 
     /// Route-driven `create`/`proof` rows carry a bounty announced off-chain;
     /// only `credit`/`share_promoted` rows mirror a block. A `PersistedBlock`
-    /// that promotes one bounty share/credit.
+    /// that promotes one bounty share (the credit row is re-derived from the
+    /// share's `reward` via the family registry).
     fn block_with_bounty_promotions(
         height: u64,
         prev_c: &str,
@@ -5225,19 +5252,54 @@ mod tests {
         amount: &str,
     ) -> PersistedBlock {
         let mut block = block_with_canon_hashes(height, prev_c, c, &[]);
-        block.promoted_bounty_credits = vec![boole_core::PromotedBountyCredit {
-            family_id: family_id.to_string(),
-            bounty_id: bounty_id.to_string(),
-            prover: PK_A.to_string(),
-            amount: amount.to_string(),
-        }];
         block.promoted_bounty_shares = vec![boole_core::PromotedBountyShare {
             family_id: family_id.to_string(),
             bounty_id: bounty_id.to_string(),
             proof_hash: proof_hash.to_string(),
             prover: PK_A.to_string(),
+            reward: amount.to_string(),
         }];
         block
+    }
+
+    /// Registry holding one eligible `capped_bonus` manifest for `family_id`
+    /// so `derive_bounty_events` settles a credit of
+    /// `min(reward, maxRewardCreditPerBlock)` per promoted share.
+    fn eligible_family_registry(family_id: &str) -> boole_core::FamilyManifestRegistry {
+        let manifest_json = serde_json::json!({
+            "version": "1",
+            "familyId": family_id,
+            "generatorHash": "abababababababababababababababababababababababababababababababab",
+            "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            "canonicalizerHash": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+            "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
+            "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
+            "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
+            "resourceLimits": {
+                "maxProofBytes": 16384,
+                "verifyTimeoutMs": 30000,
+                "maxDecls": 1024,
+                "maxHeartbeats": 400000,
+                "maxRecDepth": 512
+            },
+            "rewardPolicy": { "mode": "capped_bonus", "maxBlockRewardShareBps": 500 },
+            "activationHeight": 0,
+            "status": "experimental",
+            "caps": {
+                "maxSharesPerBlock": 4,
+                "maxScoreMultiplierBps": 10000,
+                "maxRewardCreditPerBlock": "1000000"
+            }
+        });
+        let manifest = match boole_core::parse_family_manifest(&manifest_json) {
+            boole_core::FamilyManifestParseResult::Ok(m) => *m,
+            boole_core::FamilyManifestParseResult::Err(e) => {
+                panic!("manifest fixture must parse: {e}")
+            }
+        };
+        let mut registry = boole_core::FamilyManifestRegistry::new();
+        registry.register(manifest);
+        registry
     }
 
     #[test]
@@ -5266,13 +5328,17 @@ mod tests {
 
         // New chain re-promotes the same bounty at height 0.
         let block = block_with_bounty_promotions(0, HASH_0, "y0c", "fam.a", "b1", HASH_1, "100");
-        let rows = rebuild_bounty_ledger_rows(&existing, std::slice::from_ref(&block));
+        let family_registry = eligible_family_registry("fam.a");
+        let rows =
+            rebuild_bounty_ledger_rows(&existing, std::slice::from_ref(&block), &family_registry)
+                .expect("rebuild rows from adopted chain");
 
         // Route rows preserved in original relative order at the front.
         assert_eq!(rows[0], create);
         assert_eq!(rows[1], proof);
         // Block rows re-derived from the adopted chain (credit then share).
-        let (credits, shares) = derive_bounty_events(&block);
+        let (credits, shares) =
+            derive_bounty_events(&block, &family_registry).expect("derive bounty events");
         assert_eq!(rows[2], credits[0]);
         assert_eq!(rows[3], shares[0]);
         assert_eq!(rows.len(), 4);
@@ -5338,8 +5404,14 @@ mod tests {
 
         // The adopted chain does NOT re-promote this proof.
         let adopted = vec![block_with_canon_hashes(0, HASH_0, "y0c", &[])];
-        rebuild_bounty_state_after_reorg(Some(path.as_path()), &registry, &mut side_pool, &adopted)
-            .expect("rebuild bounty state after reorg");
+        rebuild_bounty_state_after_reorg(
+            Some(path.as_path()),
+            &registry,
+            &mut side_pool,
+            &adopted,
+            &eligible_family_registry("fam.a"),
+        )
+        .expect("rebuild bounty state after reorg");
 
         // Side pool: stale entry gone; the now-un-promoted accepted proof is
         // pending again for its family.
@@ -5367,8 +5439,14 @@ mod tests {
         let registry = BountyRegistry::new();
         let mut side_pool = BountySidePool::new();
         let adopted = vec![block_with_canon_hashes(0, HASH_0, "y0c", &[])];
-        rebuild_bounty_state_after_reorg(None, &registry, &mut side_pool, &adopted)
-            .expect("no-op when no ledger configured");
+        rebuild_bounty_state_after_reorg(
+            None,
+            &registry,
+            &mut side_pool,
+            &adopted,
+            &boole_core::FamilyManifestRegistry::new(),
+        )
+        .expect("no-op when no ledger configured");
         assert_eq!(side_pool.total_share_count(), 0);
     }
 

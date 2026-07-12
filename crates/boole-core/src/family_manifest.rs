@@ -56,8 +56,19 @@ pub struct FamilyManifest {
 #[serde(rename_all = "camelCase")]
 pub struct FamilyResourceLimits {
     pub max_proof_bytes: u64,
+    /// Containment metadata since ADR-0016 (a): wall-clock is an
+    /// availability bound, never a verdict input. The verdict-committed
+    /// budget is `max_heartbeats`/`max_rec_depth`.
     pub verify_timeout_ms: u64,
     pub max_decls: u64,
+    /// ADR-0016 (b): the Lean step budget (`-D maxHeartbeats`) that IS the
+    /// verification verdict for this family. Committed to consensus via
+    /// the family manifest root (ADR-0015 (c)).
+    pub max_heartbeats: u64,
+    /// ADR-0016 (b-1): the recursion-depth budget (`-D maxRecDepth`),
+    /// committed alongside `max_heartbeats` so both verdict counters have
+    /// a consensus home.
+    pub max_rec_depth: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +123,12 @@ pub fn parse_family_manifest(input: &Value) -> FamilyManifestParseResult {
     };
     let Some(max_decls) = positive_u64(rl.get("maxDecls")) else {
         return FamilyManifestParseResult::Err("bad_resource_limit:maxDecls".to_string());
+    };
+    let Some(max_heartbeats) = positive_u64(rl.get("maxHeartbeats")) else {
+        return FamilyManifestParseResult::Err("bad_resource_limit:maxHeartbeats".to_string());
+    };
+    let Some(max_rec_depth) = positive_u64(rl.get("maxRecDepth")) else {
+        return FamilyManifestParseResult::Err("bad_resource_limit:maxRecDepth".to_string());
     };
 
     let Some(rp) = obj.get("rewardPolicy").and_then(Value::as_object) else {
@@ -170,6 +187,8 @@ pub fn parse_family_manifest(input: &Value) -> FamilyManifestParseResult {
             max_proof_bytes,
             verify_timeout_ms,
             max_decls,
+            max_heartbeats,
+            max_rec_depth,
         },
         reward_policy: FamilyRewardPolicy {
             mode: mode.to_string(),

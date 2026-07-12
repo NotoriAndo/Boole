@@ -973,3 +973,78 @@ claim 아님.
 
 추천 다음 작업: §SC 순서대로 리셋 창(SC.2+SC.3+SC.9) 착수 — SC.6이 선결이었고
 이제 닫힘. SC.4/SC.5/SC.7/SC.8은 병렬 후보.
+
+---
+
+# §SC 리셋 창 W1 — 스키마 브레이크 1회 (2026-07-11 착수)
+
+ADR-0015 (d)/(d-1) + ADR-0016 (e): 체인 데이터 형식을 깨는 변경 전부를 한 PR에.
+이후 SC.2 잔여(root 강제·golden vector)/SC.3/SC.9/SC.1은 enforcement-only.
+**closed-local — public claim 아님.**
+
+## W1 구성 (전부 한 리셋)
+- [x] preimage v3 (`b"block.v3"`): `promotedBountyShares`(+reward) 커밋, `promotedBountyCredits` 제거
+- [x] `PromotedBountyShare.reward` (decimal string) 신설
+- [x] `PersistedBlock.promoted_bounty_credits` 필드 제거 + validate_shape 이동
+- [ ] `derive_bounty_settlement(committed_rows, registry, height)` 합의 공유 함수 —
+      생산자/replay 동일 정책 (clamp = min(reward, budget_left), 구조 위반 typed reject,
+      no_protocol_reward는 credit 행 없음)
+- [x] replay가 선언 credit 가산 대신 위 함수로 재유도 (registry 파라미터 플럼빙)
+- [x] evidence v2: `SelectedShareEvidence.signed_work` 슬롯 (권한 증거 자리 — 강제는 SC.1)
+- [x] work.v2: `boole.signer.work.v2` — rewardRecipient가 서명 payload 안으로
+      (CLI 생산 + node gate + audit lineage)
+- [x] `FamilyManifest.resourceLimits.maxHeartbeats`/`maxRecDepth` 필수 양수 필드
+- [x] `GenesisSpec.params.family_manifest_root: Option<String>` (dev/testnet 초기 None)
+- [x] `CONSENSUS_RULE_VERSION` 2→3, preset `boole-testnet-1`→`boole-testnet-2`
+- [x] (2026-07-11 감사 5 편입) multiplier 합의 홈 = rule v3 Tier-2 상수 — 아래 W1.a
+- [x] (2026-07-11 감사 6 편입) proofHash 서버 유도 결박 — 아래 W1.b
+- [x] fixture 재생성: block-hash v3 / replay v1·v2 / runtime-smoke 6종 / manifests v1
+- [x] node runtime: `derive_bounty_events`·`derive_reward_event`가 유도 credit 사용
+- [x] focused + consensus 게이트(runtime-smoke-all, proof-to-block-benchmark 직접 확인)
+- [ ] NotoriAndo 커밋 → PR → CI green → merge → 보고
+
+## W1.a — MinShareScoreMultiplier 합의 홈 (2026-07-11 마스터플랜 감사 이슈 5, 사용자 승인: Tier-2 상수)
+
+ADR-0014는 Tier-3 node-local로 분류했으나 replay가 자기-선언 값의 산술 일관성만
+검사 → 소스 미결박. rule v3가 W1에서 이미 브레이크 중이므로 지금 상수로 고정
+(2차 브레이크 회피). 네트워크별 차등 근거 없음 → genesis param 대신 Tier-2.
+
+- [x] RED `replay_rejects_block_authored_score_multiplier`
+      (replay_fixtures.rs — 일관된 산술 + 비합의 multiplier → 거절, RED 실패 직접 확인)
+- [x] GREEN: `rules::MIN_SHARE_SCORE_MULTIPLIER_NANOS = 1_000_000_000` 신설,
+      `replay_evidence.rs`가 상수 일치 강제 (0-검사 대체) — replay_fixtures 15/15
+- [x] ADR-0014 amendment (c-1): Tier-3 → Tier-2 이동 기록
+- [x] focused: `cargo test -p boole-core --test replay_fixtures` — 15/15 GREEN
+
+## W1.b — proofHash 서버 유도 결박 (2026-07-11 마스터플랜 감사 이슈 6 = SC.2 18번 흡수)
+
+현재 node는 클라이언트 proofHash를 hex 형식만 검사 후 block.v3 preimage까지 전파.
+정의 확정: `proof_hash := hex(SHA-256(canonicalize(envelope)))` — 서명 경로와 동일한
+Boole canonical JSON (`canonical_payload_hash_hex`). miner의 원본 파일 바이트 해시는
+JSON 재직렬화로 서버와 어긋날 수 있어 canonical JSON으로 통일. node/miner/CLI 동일 계산.
+결박 지점은 intake(수령 시점) — replay 수준 재결박은 envelope가 블록에 없어 불가,
+offline 재검증은 audit ledger + deep verify 표면(SC.10)이 담당함을 문서에 명시.
+
+- [x] RED `bounty_rejects_claimed_proof_hash_not_matching_verified_bytes`
+      (bounty_proof_route.rs — 형식 유효·내용 불일치 proofHash가 200 통과함을 RED로 직접 확인)
+- [x] GREEN: node가 `canonical_payload_hash_hex(&envelope)` 재계산, 불일치 시
+      `proof_hash_mismatch` 거절 (dedup peek 이전) — bounty_proof_route 19/19
+- [x] miner `bounty_client`: envelope_bytes 해시 → canonical JSON 해시로 교체
+      — bounty_client 7/7
+- [x] CLI `bounty submit`: `--proof-hash` 생략 시 동일 계산으로 자동 산출,
+      제공 시 로컬 검증(`proof_hash_mismatch` typed, wire 도달 전) — bounty_submit_cli 7/7
+- [x] 기존 dummy proofHash 테스트 정리 (node 6파일/miner/cli)
+- [x] focused: bounty_proof_route 19/19 + audit persists 1/1×2 + ledger recovery 2/2
+      + verify-not-block-ready 1/1 + cross-network 5/5 + hard_guard 5/5
+      + miner 7/7 + cli 7/7
+- [x] SC.2/SC.7 문서에 W1 흡수 기록 + EXECUTION-ORDER 결정 로그
+- [x] (부수) hard_guard S23 테스트를 W1 정산 규칙에 정렬 — 기존 W1 잔여 fallout:
+      `no_protocol_reward` 가족은 credit 0이 새 규칙인데 테스트가 옛 기대(balance 100)
+      → manifest를 `capped_bonus`로 파라미터화 (제 slice와 무관, 원인 코드 확인 완료)
+
+비차단 후속 메모 (W1 범위 아님): `scripts/boole-model-benchmark.py`의 bounty
+mode는 서명 없는 body를 직접 POST(현행 signed.v1 route와 이미 비호환)하고
+proofHash를 attempt salt로 인위 유도(`derive_bounty_proof_hash`) — W1.b 결박
+정의(canonical JSON 해시)와도 어긋남. 스텁 테스트만 있어 self-test에는 영향
+없음. bounty mode를 다음에 실사용할 때 signed envelope + canonical 해시(고유성
+필요 시 envelope 안에 attempt salt 필드)로 정렬 필요.

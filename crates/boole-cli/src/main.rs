@@ -335,6 +335,11 @@ enum SignerCommand {
         /// Per-session nonce; must not have been seen by this signer before.
         #[arg(long)]
         nonce: String,
+        /// work.v2 (ADR-0015 (b)) — reward recipient pk this signature
+        /// authorizes (64 lowercase hex chars). Folded INTO the signed
+        /// payload so reward routing cannot be rewritten after signing.
+        #[arg(long = "reward-recipient")]
+        reward_recipient: String,
         /// JSON payload to sign (literal JSON or `@path` to load from file,
         /// matching `keys sign`).
         #[arg(long)]
@@ -442,10 +447,13 @@ enum BountyCommand {
         /// Bounty id whose verifier will judge the envelope.
         #[arg(long)]
         id: String,
-        /// 32-byte lowercase hex hash uniquely identifying the proof
-        /// payload (used for dedup).
+        /// 32-byte lowercase hex hash of the proof envelope, derived as
+        /// `hex(SHA-256(canonical_json(envelope)))` — the node re-runs
+        /// the same derivation and rejects mismatches (§SC W1.b).
+        /// Optional: omitted → computed from `--envelope`; provided →
+        /// verified locally against the computed value before posting.
         #[arg(long = "proof-hash")]
-        proof_hash: String,
+        proof_hash: Option<String>,
         /// Id of the stored v2 key used to sign the proof envelope. The
         /// derived ed25519 public key becomes the payload `prover` and
         /// envelope `pk`.
@@ -827,7 +835,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             } => bounty_submit(
                 network,
                 &id,
-                &proof_hash,
+                proof_hash.as_deref(),
                 &signing_key,
                 &envelope,
                 node.as_deref(),
@@ -964,6 +972,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 fee,
                 request_hash,
                 nonce,
+                reward_recipient,
                 payload,
                 json,
             } => signer_sign_work(
@@ -975,6 +984,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 &fee,
                 &request_hash,
                 &nonce,
+                &reward_recipient,
                 &payload,
                 json,
             ),
@@ -1261,9 +1271,14 @@ fn state_verify(blocks_path: &Path, json: bool) -> anyhow::Result<()> {
     // operator-supplied blocks file (may predate `selectedShareEvidence`),
     // so it opts into the legacy evidence-less path explicitly rather than
     // relying on strict `replay_blocks`.
+    // §SC reset window — offline CLI replay has no family manifest dir
+    // flag yet (SC.5 CLI genesis-aware transition); an empty registry
+    // means a chain carrying promoted bounty shares fails verify here
+    // with a typed unknown-family error instead of trusting amounts.
     let replay = boole_core::replay_blocks_allow_legacy_evidence_less(
         store.blocks(),
         boole_core::LegacyEvidenceOptIn::for_legacy_replay_only(),
+        &boole_core::FamilyManifestRegistry::new(),
     )
     .unwrap_or_else(|err| {
         if json {
@@ -1366,6 +1381,7 @@ fn replay_fixture(path: &Path, json: bool) -> anyhow::Result<()> {
     let replay = boole_core::replay_blocks_allow_legacy_evidence_less(
         &fixture.blocks,
         boole_core::LegacyEvidenceOptIn::for_legacy_replay_only(),
+        &boole_core::FamilyManifestRegistry::new(),
     )
     .unwrap_or_else(|err| {
         if json {
@@ -2252,7 +2268,7 @@ fn proof_signer_from(
 fn bounty_submit(
     network: NetworkPreset,
     id: &str,
-    proof_hash: &str,
+    proof_hash: Option<&str>,
     signing_key: &str,
     envelope: &str,
     node: Option<&str>,
@@ -2300,12 +2316,29 @@ fn bounty_submit(
         .map_err(|err| anyhow::anyhow!("resolve prover pk: {err}"))?;
 
     let envelope_value = read_json_arg(envelope, "envelope")?;
+    // §SC W1.b — derive the proof hash from the envelope's canonical
+    // JSON; the node re-runs the same computation and rejects any
+    // mismatch. A caller-provided --proof-hash is checked locally so a
+    // stale value fails here instead of as a server-side 400.
+    let derived_proof_hash = boole_core::canonical_payload_hash_hex(&envelope_value);
+    if let Some(claimed) = proof_hash {
+        if claimed != derived_proof_hash {
+            emit_typed_error(
+                "proof_hash_mismatch",
+                2,
+                serde_json::json!({
+                    "expected": derived_proof_hash,
+                    "got": claimed,
+                }),
+            );
+        }
+    }
     let url = node.unwrap_or("http://127.0.0.1:8080");
     let path = format!("/bounties/{id}/proof");
     let payload = serde_json::json!({
         "schema": "boole.bounty.proof.v1",
         "bountyId": id,
-        "proofHash": proof_hash,
+        "proofHash": derived_proof_hash,
         "prover": prover,
         "envelope": envelope_value,
         "validBefore": signed_payload_valid_before(),
@@ -3371,6 +3404,7 @@ fn signer_sign_work(
     fee: &str,
     request_hash: &str,
     nonce: &str,
+    reward_recipient: &str,
     payload_arg: &str,
     json: bool,
 ) -> anyhow::Result<()> {
@@ -3561,14 +3595,18 @@ fn signer_sign_work(
             }),
         );
     }
+    // work.v2 (ADR-0015 (b)) — `rewardRecipient` is inside the signed
+    // payload: the signature is the winner's authorization of the reward
+    // destination, which replay verifies against the committed block.
     let work_request_payload = serde_json::json!({
-        "schema": "boole.signer.work.v1",
+        "schema": "boole.signer.work.v2",
         "route": route,
         "familyId": family,
         "verifierId": verifier,
         "fee": fee,
         "requestHash": request_hash,
         "nonce": nonce,
+        "rewardRecipient": reward_recipient,
         "workPayload": payload,
     });
     let signed = signing_key

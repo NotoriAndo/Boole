@@ -33,7 +33,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use boole_core::{Bounty, BountyProofVerifier, SigningKeyV2};
+use boole_core::{canonical_payload_hash_hex, Bounty, BountyProofVerifier, SigningKeyV2};
 use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Value};
@@ -42,14 +42,11 @@ fn fresh_nonce() -> String {
     format!("nonce-{}", rand_suffix())
 }
 
-const PROOF_HASH_A: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
-
-fn signed_proof_body(
-    key: &SigningKeyV2,
-    bounty_id: &str,
-    proof_hash: &str,
-    envelope: Value,
-) -> Value {
+fn signed_proof_body(key: &SigningKeyV2, bounty_id: &str, envelope: Value) -> Value {
+    // §SC W1.b — the node re-derives the proof hash from the envelope's
+    // canonical JSON and rejects mismatches, so the test computes it the
+    // same way instead of claiming a dummy value.
+    let proof_hash = canonical_payload_hash_hex(&envelope);
     let payload = json!({
         "schema": "boole.bounty.proof.v1",
         "bountyId": bounty_id,
@@ -248,7 +245,7 @@ fn bounty_proof_verify_does_not_block_ready_probe() {
     let (proof_tx, proof_rx) = mpsc::channel::<(u16, Value)>();
     let worker = thread::spawn(move || {
         let key = SigningKeyV2::from_dev_id("bounty-verify-block-ready-test");
-        let body = signed_proof_body(&key, "slow-1", PROOF_HASH_A, json!({}));
+        let body = signed_proof_body(&key, "slow-1", json!({}));
         let (status, value) = http_post(addr, "/bounties/slow-1/proof", &body);
         proof_tx.send((status, value)).expect("proof channel");
     });

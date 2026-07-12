@@ -8,21 +8,22 @@
 //! `credit` totals against the replayed block store, the node refuses to boot
 //! with `--bounty-events` (an unbootable node, not a silent divergence).
 //!
-//! Closure mirrors the reward-ledger heal: each block now persists BOTH
-//! `promoted_bounty_credits` AND `promoted_bounty_shares` (the latter carrying
-//! the `proofHash` that is otherwise unrecoverable once the in-memory selection
-//! drops), so boot re-derives and appends the missing trailing rows from the
-//! block store. The re-derive is consensus-safe: `promoted_bounty_shares` is
-//! NOT part of `block_hash` (asserted below), so recording it changes no block
-//! identity. Healing BOTH rows (not just `credit`) is what prevents a
-//! double-promotion: a missing `share_promoted` row would let
-//! `rebuild_bounty_side_pool` treat the already-committed share as still
-//! pending and re-promote it.
+//! Closure mirrors the reward-ledger heal: each block persists
+//! `promoted_bounty_shares` (carrying the `proofHash` and announced `reward`
+//! that are otherwise unrecoverable once the in-memory selection drops), so
+//! boot re-derives and appends the missing trailing rows — credit rows are
+//! settled from the shares via the family registry. Healing BOTH row kinds
+//! (not just `credit`) is what prevents a double-promotion: a missing
+//! `share_promoted` row would let `rebuild_bounty_side_pool` treat the
+//! already-committed share as still pending and re-promote it.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use boole_core::{AdmissionDecision, PersistedBlock, PromotedBountyCredit, PromotedBountyShare};
+use boole_core::{
+    AdmissionDecision, FamilyManifestParseResult, FamilyManifestRegistry, PersistedBlock,
+    PromotedBountyShare,
+};
 use boole_node::{FileBlockStore, RuntimeAdmissionState, RuntimeConfig};
 use boole_testkit::rand_suffix;
 use serde::Deserialize;
@@ -93,16 +94,46 @@ fn promoted_shares() -> Vec<PromotedBountyShare> {
         bounty_id: BOUNTY.to_string(),
         proof_hash: PROOF_HASH.to_string(),
         prover: PROVER.to_string(),
+        reward: AMOUNT.to_string(),
     }]
 }
 
-fn promoted_credits() -> Vec<PromotedBountyCredit> {
-    vec![PromotedBountyCredit {
-        family_id: FAMILY.to_string(),
-        bounty_id: BOUNTY.to_string(),
-        prover: PROVER.to_string(),
-        amount: AMOUNT.to_string(),
-    }]
+/// Registry holding one eligible `capped_bonus` manifest for `FAMILY` so the
+/// commit/boot paths can derive the credit rows from the promoted shares
+/// (credit per share = min(reward, family per-block budget)).
+fn eligible_family_registry() -> FamilyManifestRegistry {
+    let manifest_json = serde_json::json!({
+        "version": "1",
+        "familyId": FAMILY,
+        "generatorHash": "abababababababababababababababababababababababababababababababab",
+        "verifierHash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "canonicalizerHash": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+        "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
+        "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
+        "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
+        "resourceLimits": {
+            "maxProofBytes": 16384,
+            "verifyTimeoutMs": 30000,
+            "maxDecls": 1024,
+            "maxHeartbeats": 400000,
+            "maxRecDepth": 512
+        },
+        "rewardPolicy": { "mode": "capped_bonus", "maxBlockRewardShareBps": 500 },
+        "activationHeight": 0,
+        "status": "experimental",
+        "caps": {
+            "maxSharesPerBlock": 4,
+            "maxScoreMultiplierBps": 10000,
+            "maxRewardCreditPerBlock": "1000000"
+        }
+    });
+    let manifest = match boole_core::parse_family_manifest(&manifest_json) {
+        FamilyManifestParseResult::Ok(m) => *m,
+        FamilyManifestParseResult::Err(e) => panic!("manifest fixture must parse: {e}"),
+    };
+    let mut registry = FamilyManifestRegistry::new();
+    registry.register(manifest);
+    registry
 }
 
 /// Load and configure the shared admission fixture (max thresholds so the lone
@@ -131,6 +162,7 @@ fn commit_block_with_promoted(dir: &Path) -> (RuntimeConfig, PathBuf, PersistedB
     let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
         .expect("runtime config boots from report");
     let mut runtime = RuntimeAdmissionState::new(config.clone());
+    runtime.set_family_registry(eligible_family_registry());
     runtime.set_current_c(fixture.constants.c.clone());
 
     let valid_op = fixture
@@ -155,17 +187,11 @@ fn commit_block_with_promoted(dir: &Path) -> (RuntimeConfig, PathBuf, PersistedB
             1_800_000_000_123,
             &accepted_tags,
             &promoted_shares(),
-            &promoted_credits(),
         )
         .expect("block with promoted bounty data committed");
 
-    // The persist fix records BOTH promoted rows on the block — the heal relies
-    // on re-deriving them from the block store, so guard the source here.
-    assert_eq!(
-        committed.block.promoted_bounty_credits.len(),
-        1,
-        "block must persist the promoted credit"
-    );
+    // The persist fix records the promoted shares on the block — the heal
+    // relies on re-deriving the credit rows from them, so guard the source.
     assert_eq!(
         committed.block.promoted_bounty_shares.len(),
         1,
@@ -186,6 +212,7 @@ fn commit_two_blocks_with_promoted(dir: &Path) -> (RuntimeConfig, PathBuf) {
     let config = RuntimeConfig::from_calibration_report(fixture.cfg, 60_000)
         .expect("runtime config boots from report");
     let mut runtime = RuntimeAdmissionState::new(config.clone());
+    runtime.set_family_registry(eligible_family_registry());
     runtime.set_current_c(fixture.constants.c.clone());
 
     let valid_op = fixture
@@ -210,7 +237,6 @@ fn commit_two_blocks_with_promoted(dir: &Path) -> (RuntimeConfig, PathBuf) {
             1_800_000_000_123,
             &accepted_tags,
             &promoted_shares(),
-            &promoted_credits(),
         )
         .expect("height0 block committed");
 
@@ -239,6 +265,7 @@ fn commit_two_blocks_with_promoted(dir: &Path) -> (RuntimeConfig, PathBuf) {
         bounty_id: BOUNTY.to_string(),
         proof_hash: PROOF_HASH_2.to_string(),
         prover: PROVER.to_string(),
+        reward: AMOUNT.to_string(),
     }];
     runtime
         .commit_next_block_for_current_c_with_promoted(
@@ -246,7 +273,6 @@ fn commit_two_blocks_with_promoted(dir: &Path) -> (RuntimeConfig, PathBuf) {
             1_800_000_061_123,
             &accepted_tags,
             &shares1,
-            &promoted_credits(),
         )
         .expect("height1 block committed");
 
@@ -290,11 +316,12 @@ fn boot(
     reward_path: PathBuf,
     bounty_path: PathBuf,
 ) -> anyhow::Result<RuntimeAdmissionState> {
-    RuntimeAdmissionState::boot_from_store_with_bounty_ledger(
+    RuntimeAdmissionState::boot_from_store_with_bounty_ledger_and_registry(
         config,
         block_path,
         Some(reward_path),
         Some(bounty_path),
+        eligible_family_registry(),
     )
 }
 
@@ -462,13 +489,12 @@ fn boot_still_bails_when_an_existing_credit_event_is_tampered() {
 }
 
 #[test]
-fn block_hash_is_unchanged_by_promoted_bounty_shares_field() {
-    // Consensus safety: promoted_bounty_shares is node-local audit data and
-    // must stay OUTSIDE the block-hash preimage (P1.3b posture, re-affirmed
-    // by preimage v2 — ADR-0014 (a)). The promoted bounty CREDITS are
-    // committed (they feed balances); the share audit rows are not. Compute
-    // the hash from a real committed block, then from a clone with the
-    // field cleared, and assert equality.
+fn block_hash_commits_promoted_bounty_shares_field() {
+    // Consensus posture (preimage v3 — ADR-0015 (a)): promoted_bounty_shares
+    // IS committed into the block-hash preimage (credits are re-derived from
+    // it at replay, so the shares must be tamper-evident). Compute the hash
+    // from a real committed block, then from a clone with the field cleared,
+    // and assert the hashes differ.
     let dir = tmp_dir("blockhash");
     let (_config, _block_path, block) = commit_block_with_promoted(&dir);
     assert!(
@@ -482,10 +508,10 @@ fn block_hash_is_unchanged_by_promoted_bounty_shares_field() {
     cleared.promoted_bounty_shares.clear();
     let without_shares = boole_core::block_hash(&cleared);
 
-    assert_eq!(
+    assert_ne!(
         with_shares.to_hex(),
         without_shares.to_hex(),
-        "promoted_bounty_shares must not influence block_hash"
+        "promoted_bounty_shares must be committed into block_hash (preimage v3)"
     );
 
     let _ = std::fs::remove_dir_all(&dir);

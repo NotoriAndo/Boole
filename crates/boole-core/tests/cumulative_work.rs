@@ -45,7 +45,6 @@ fn block(height: u64, t_block: &str) -> PersistedBlock {
         dropped_kernel_reject: 0,
         truncated_by_kmax: 0,
         ts: height * 1_000,
-        promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
     }
 }

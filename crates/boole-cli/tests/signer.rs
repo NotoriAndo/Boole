@@ -5,6 +5,10 @@ fn cli() -> Command {
     Command::new(env!("CARGO_BIN_EXE_boole-cli"))
 }
 
+/// work.v2 — reward recipient pk the signed payload authorizes. These tests
+/// have no submit flow, so any valid 64-char lowercase hex works.
+const REWARD_RECIPIENT: &str = "abababababababababababababababababababababababababababababababab";
+
 fn fresh_tmp(label: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "boole-cli-signer-{label}-{}-{}",
@@ -128,6 +132,8 @@ fn signer_sign_work_allowed_by_policy_emits_bound_signed_v1_without_secret() {
             &request_hash,
             "--nonce",
             "n1",
+            "--reward-recipient",
+            REWARD_RECIPIENT,
             "--payload",
             payload_text(),
             "--json",
@@ -154,13 +160,14 @@ fn signer_sign_work_allowed_by_policy_emits_bound_signed_v1_without_secret() {
     let signed = &env["result"]["envelope"];
     assert_eq!(signed["pk"], session_pk);
     let signed_payload = &signed["payload"];
-    assert_eq!(signed_payload["schema"], "boole.signer.work.v1");
+    assert_eq!(signed_payload["schema"], "boole.signer.work.v2");
     assert_eq!(signed_payload["route"], "/submit");
     assert_eq!(signed_payload["familyId"], "boole.protocol-invariant.v01");
     assert_eq!(signed_payload["verifierId"], "lean-runner-v01");
     assert_eq!(signed_payload["fee"], "1");
     assert_eq!(signed_payload["requestHash"], request_hash);
     assert_eq!(signed_payload["nonce"], "n1");
+    assert_eq!(signed_payload["rewardRecipient"], REWARD_RECIPIENT);
     assert_eq!(signed_payload["workPayload"], payload());
     assert!(
         !stdout_text.contains("\"sk\""),
@@ -202,6 +209,8 @@ fn signer_sign_work_rejects_request_hash_mismatch() {
             "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
             "--nonce",
             "n1",
+            "--reward-recipient",
+            REWARD_RECIPIENT,
             "--payload",
             payload_text(),
             "--json",
@@ -247,6 +256,8 @@ fn signer_sign_work_denies_route_not_in_session_envelope() {
             &request_hash,
             "--nonce",
             "n1",
+            "--reward-recipient",
+            REWARD_RECIPIENT,
             "--payload",
             payload_text(),
             "--json",
@@ -296,6 +307,8 @@ fn signer_sign_work_denies_over_fee_with_policy_denied() {
             &request_hash,
             "--nonce",
             "n1",
+            "--reward-recipient",
+            REWARD_RECIPIENT,
             "--payload",
             payload_text(),
             "--json",
@@ -342,6 +355,8 @@ fn signer_sign_work_rejects_duplicate_nonce() {
         &request_hash,
         "--nonce",
         "n-dup",
+        "--reward-recipient",
+        REWARD_RECIPIENT,
         "--payload",
         payload_text(),
         "--json",

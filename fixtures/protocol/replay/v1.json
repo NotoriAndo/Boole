@@ -1,7 +1,7 @@
 {
   "blocks": [
     {
-      "c": "3ac401a345c27e266387c9f084ef1aa94a2f4fb4764edca71f1ade48c1a6ddcc",
+      "c": "fc9fc8956b1e665b81862b021b2988ae71cb7f5a7eeb61f98ce2b2cbc311d9e5",
       "difficultyEpoch": 0,
       "difficultyWeight": "1",
       "droppedBelowMinScore": 0,
@@ -25,7 +25,7 @@
       "ts": 1700000000000
     },
     {
-      "c": "a75b21cbe77de38cf84728073e06eeef6bc58b71fd5a59b637947ccc1be8d700",
+      "c": "737e0fc494a37a3c90dbe66d23b2c133cf24bbfdc9137664e89464b4e7ab1040",
       "difficultyEpoch": 0,
       "difficultyWeight": "1",
       "droppedBelowMinScore": 1,
@@ -33,7 +33,7 @@
       "height": 1,
       "kmaxApplied": 3,
       "minShareScore": "20",
-      "prevC": "3ac401a345c27e266387c9f084ef1aa94a2f4fb4764edca71f1ade48c1a6ddcc",
+      "prevC": "fc9fc8956b1e665b81862b021b2988ae71cb7f5a7eeb61f98ce2b2cbc311d9e5",
       "proposerPk": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "selectedShareHashes": [
         "0303030303030303030303030303030303030303030303030303030303030303",
@@ -60,13 +60,13 @@
       "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "1"
     },
     "height": 2,
-    "latestC": "a75b21cbe77de38cf84728073e06eeef6bc58b71fd5a59b637947ccc1be8d700"
+    "latestC": "737e0fc494a37a3c90dbe66d23b2c133cf24bbfdc9137664e89464b4e7ab1040"
   },
   "generatedBy": "boole-core consensus fixture generator (preimage v2 reset, N5-pre.1)",
   "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",
   "rewardEvents": [
     {
-      "c": "3ac401a345c27e266387c9f084ef1aa94a2f4fb4764edca71f1ade48c1a6ddcc",
+      "c": "fc9fc8956b1e665b81862b021b2988ae71cb7f5a7eeb61f98ce2b2cbc311d9e5",
       "credits": [
         {
           "amount": "1",
@@ -84,7 +84,7 @@
       "height": 0
     },
     {
-      "c": "a75b21cbe77de38cf84728073e06eeef6bc58b71fd5a59b637947ccc1be8d700",
+      "c": "737e0fc494a37a3c90dbe66d23b2c133cf24bbfdc9137664e89464b4e7ab1040",
       "credits": [
         {
           "amount": "2",
@@ -104,7 +104,7 @@
   ],
   "source": {
     "hash": "crates/boole-core/src/hash.rs::block_hash",
-    "note": "originally exported from legacy-pof (scripts/export-replay-fixtures.ts); block hashes recomputed under the v2 preimage (ADR-0014 (a)) \u2014 the legacy TS chain.ts is no longer the hash reference"
+    "note": "originally exported from legacy-pof (scripts/export-replay-fixtures.ts); block hashes recomputed under the v2 preimage (ADR-0014 (a)) — the legacy TS chain.ts is no longer the hash reference"
   },
   "version": 1
 }

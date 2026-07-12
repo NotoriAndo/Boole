@@ -79,16 +79,8 @@ fn block_selection_orders_scores_above_u128_without_truncation() {
     ];
     let accepted = [1].into_iter().collect();
 
-    let result = build_block_selection(
-        chain_head,
-        &shares,
-        &cfg,
-        &accepted,
-        &BTreeSet::new(),
-        &[],
-        &[],
-    )
-    .expect("selection supports scores above u128");
+    let result = build_block_selection(chain_head, &shares, &cfg, &accepted, &BTreeSet::new(), &[])
+        .expect("selection supports scores above u128");
 
     let BuildSelectionResult::Ok(selection) = result else {
         panic!("expected proposer selection");
@@ -123,7 +115,6 @@ fn persisted_block_shape_accepts_large_decimal_min_share_score() {
         dropped_kernel_reject: 0,
         truncated_by_kmax: 0,
         ts: 1,
-        promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
     };
 
