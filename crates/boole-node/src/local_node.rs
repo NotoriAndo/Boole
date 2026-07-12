@@ -3458,8 +3458,11 @@ async fn bounty_proof_handler(
     let verifier = Arc::clone(&prepared.verifier);
     let bounty = prepared.bounty.clone();
     let envelope = prepared.envelope.clone();
+    // SC.2-f1 — hand the verifier the SAME artifact bytes phase 1 hashed
+    // as the proof identity, so judged bytes and identity cannot drift.
+    let artifact = prepared.artifact.clone();
     let outcome = match tokio::task::spawn_blocking(move || {
-        verifier.verify_with_evidence(&bounty, &envelope)
+        verifier.verify_artifact_with_evidence(&bounty, &envelope, &artifact)
     })
     .await
     {
@@ -3866,7 +3869,19 @@ enum PreparedProof {
 
 struct PreparedProofToVerify {
     bounty: boole_core::Bounty,
+    /// SC.2-f1 — the proof IDENTITY: domain-tagged hash of the
+    /// verifier-effective artifact (`bounty_proof_hash_hex`). Keys
+    /// dedup, the registry, the side pool, and the audit ledger.
     proof_hash: String,
+    /// W1.b — the wire-bound envelope hash the submitter claimed and
+    /// the node re-derived (`canonical_payload_hash_hex(envelope)`).
+    /// Recorded in the audit ledger for transport-level traceability.
+    envelope_hash: String,
+    /// SC.2-f1 — the verifier-effective artifact bytes `proof_hash`
+    /// commits. Phase 2 hands these to the verifier verbatim and the
+    /// audit ledger persists them so offline deep-verify re-executes
+    /// the same bytes the live verifier judged.
+    artifact: Vec<u8>,
     prover: String,
     envelope: Value,
     verifier: Arc<dyn BountyProofVerifier>,
@@ -4012,36 +4027,55 @@ fn bounty_proof_prepare(
         ));
     }
 
-    // 3) Dedup peek — wins over terminal status, nonce-replay, and
-    //    verifier dispatch so an HTTP retry of the same envelope (same
-    //    proofHash, same nonce) idempotently returns the cached
-    //    outcome instead of failing with `nonce_replayed`.
+    // 3) 501 — unknown verifier kind. Caller knows to retry with a node
+    //    that has the verifier wired in. Moved ahead of the dedup peek
+    //    (SC.2-f1): the dedup key is the verifier-effective artifact,
+    //    which only the verifier can derive.
+    let verifier = state
+        .bounty_verifiers
+        .get(&bounty.verifier.kind)
+        .cloned()
+        .ok_or_else(|| HttpError::no_verifier(&bounty.verifier.kind))?;
+
+    // SC.2-f1 — from here on `proof_hash` means the PROOF IDENTITY: the
+    // domain-tagged hash of the bytes the verifier actually judges, not
+    // of the envelope. A submitter field the verifier ignores (salt, a
+    // discarded Lean prefix) therefore cannot mint a fresh identity for
+    // one and the same proof. The W1.b envelopeHash gate above stays as
+    // the wire-integrity check; the envelope hash travels alongside for
+    // the audit ledger.
+    let envelope_hash = proof_hash;
+    let artifact = verifier
+        .effective_artifact(&bounty, &envelope)
+        .map_err(|detail| HttpError::bad_payload("envelope", detail))?;
+    let proof_hash = boole_core::bounty_proof_hash_hex(&artifact);
+
+    // 4) Dedup peek — wins over terminal status, nonce-replay, and the
+    //    verifier RUN so a retry of the same proof (same artifact, any
+    //    envelope salt) idempotently returns the cached outcome instead
+    //    of failing with `nonce_replayed`.
     if let Some(accepted) = state.bounty_registry.has_proof(id, &proof_hash) {
         let value = json!({
             "ok": true,
             "accepted": accepted,
             "duplicate": true,
+            // SC.2-f1 — surface both identities: the server-derived
+            // proof identity and the wire envelope hash the caller sent.
+            "proofHash": proof_hash,
+            "envelopeHash": envelope_hash,
             "bounty": serde_json::to_value(&bounty)
                 .expect("Bounty serializes to JSON via serde"),
         });
         return Ok(PreparedProof::Duplicate(value));
     }
 
-    // 4) P1.6b — soft per-signer replay probe. Runs after the dedup
+    // 5) P1.6b — soft per-signer replay probe. Runs after the dedup
     //    peek so HTTP idempotency wins over freshness, but before the
-    //    verifier and terminal gates so a stolen envelope re-aimed at a
-    //    fresh proofHash never reaches `lake exec`. The atomic
+    //    verifier run and terminal gates so a stolen envelope re-aimed
+    //    at a fresh proofHash never reaches `lake exec`. The atomic
     //    `(signer_pk, nonce)` burn happens in phase 3 regardless of the
     //    verifier's verdict — a rejected proof still consumes its nonce.
     check_signed_envelope_nonce_not_replayed(state, pk, &nonce)?;
-
-    // 5) 501 — unknown verifier kind. Caller knows to retry with a node
-    //    that has the verifier wired in.
-    let verifier = state
-        .bounty_verifiers
-        .get(&bounty.verifier.kind)
-        .cloned()
-        .ok_or_else(|| HttpError::no_verifier(&bounty.verifier.kind))?;
 
     // 6) 409 — terminal bounty. Comes after dedup so a duplicate post on
     //    a now-solved bounty short-circuits with `duplicate=true`.
@@ -4054,6 +4088,8 @@ fn bounty_proof_prepare(
         PreparedProofToVerify {
             bounty,
             proof_hash,
+            envelope_hash,
+            artifact,
             prover,
             envelope,
             verifier,
@@ -4077,6 +4113,8 @@ fn bounty_proof_finalize(
     let PreparedProofToVerify {
         bounty,
         proof_hash,
+        envelope_hash,
+        artifact,
         prover,
         envelope,
         verifier: _,
@@ -4160,7 +4198,10 @@ fn bounty_proof_finalize(
             "problemHash": bounty.problem_hash,
             "verifierKind": bounty.verifier.kind,
             "ts": now_ms,
-            "proofHash": proof_hash,
+            "proofHash": proof_hash.clone(),
+            // SC.2-f1 — transport-level identity alongside the proof
+            // identity: which exact wire envelope carried this proof.
+            "envelopeHash": envelope_hash.clone(),
             "solverPk": prover,
             "accepted": accepted,
             "reward": bounty.reward,
@@ -4182,6 +4223,17 @@ fn bounty_proof_finalize(
                     obj.insert(
                         "leanSource".to_string(),
                         Value::String(lean_source.to_string()),
+                    );
+                }
+                // SC.2-f1 — persist the EXACT bytes the live verifier
+                // judged (and `proofHash` commits), so offline
+                // deep-verify re-executes the same artifact instead of
+                // the raw submitter source (whose discarded prefix the
+                // live path never ran).
+                if let Ok(artifact_text) = String::from_utf8(artifact.clone()) {
+                    obj.insert(
+                        "effectiveArtifact".to_string(),
+                        Value::String(artifact_text),
                     );
                 }
                 if let Some(verifier_hash) = bounty
@@ -4218,6 +4270,12 @@ fn bounty_proof_finalize(
         "ok": true,
         "accepted": outcome.accepted,
         "duplicate": outcome.duplicate,
+        // SC.2-f1 — return both identities so callers can track the
+        // proof by its server-derived identity: `proofHash` commits the
+        // verifier-effective artifact; `envelopeHash` is the wire
+        // envelope hash the caller submitted (v1 wire field `proofHash`).
+        "proofHash": proof_hash,
+        "envelopeHash": envelope_hash,
         "bounty": serde_json::to_value(&outcome.bounty)
             .expect("Bounty serializes to JSON via serde"),
     }))

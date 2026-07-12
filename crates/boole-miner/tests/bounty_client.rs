@@ -108,10 +108,15 @@ fn test_submit_proof_ok_on_200_returns_accepted_duplicate_bounty() {
         BountyProofResult::Ok {
             accepted,
             duplicate,
+            proof_hash,
+            envelope_hash,
             bounty,
         } => {
             assert!(accepted);
             assert!(!duplicate);
+            // Canned 200 body carries neither identity field — both stay None.
+            assert_eq!(proof_hash, None);
+            assert_eq!(envelope_hash, None);
             assert_eq!(bounty["id"], "abc");
         }
         other => panic!("expected Ok, got {other:?}"),

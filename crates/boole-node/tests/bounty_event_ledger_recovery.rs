@@ -10,7 +10,10 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
-use boole_core::{canonical_payload_hash_hex, Bounty, BountyProofVerifier, SigningKeyV2};
+use boole_core::{
+    bounty_proof_hash_hex, canonical_payload_hash_hex, canonicalize, Bounty, BountyProofVerifier,
+    SigningKeyV2,
+};
 use boole_node::FileBountyEventLedger;
 use boole_node::{serve_local_node, LocalNodeConfig};
 // P0.1a — first proven call site for boole_testkit. The local rand_suffix()
@@ -242,7 +245,15 @@ fn recovered_event_is_byte_equal_to_appended_event() {
         "1111111111111111111111111111111111111111111111111111111111111111"
     );
     assert_eq!(ev["verifierKind"], "mock-accept");
-    assert_eq!(ev["proofHash"], canonical_payload_hash_hex(&json!({})));
+    // SC.2-f1 — proofHash is the domain-tagged verifier-effective
+    // artifact identity (default artifact = the envelope's canonical
+    // JSON for a verbatim mock verifier); envelopeHash records the
+    // wire-bound envelope hash alongside.
+    assert_eq!(
+        ev["proofHash"],
+        bounty_proof_hash_hex(&canonicalize(&json!({})))
+    );
+    assert_eq!(ev["envelopeHash"], canonical_payload_hash_hex(&json!({})));
     assert_eq!(ev["solverPk"], key.pk_hex());
     assert_eq!(ev["accepted"], true);
     assert_eq!(ev["reward"], "100");

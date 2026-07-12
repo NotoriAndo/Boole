@@ -22,7 +22,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use boole_core::validate_bounty_ledger_event;
+use boole_core::{bounty_proof_hash_hex, validate_bounty_ledger_event};
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
 use serde_json::Value;
 
@@ -150,6 +150,37 @@ pub fn deep_verify_bounty_events(
     Ok(report)
 }
 
+/// SC.2-f1 — the bytes offline re-execution runs, plus the identity
+/// check binding them to the ledger row: `effectiveArtifact` is REQUIRED
+/// on every accepted lean proof event, and the recorded `proofHash` must
+/// equal `bounty_proof_hash_hex(bytes)`. A mismatch means the row's
+/// identity was tampered — surfaced as a `proofHash` divergence without
+/// spawning any Lean process. A MISSING artifact is likewise a
+/// divergence, not a fallback: silently re-running the raw `leanSource`
+/// would (a) execute submitter bytes the live verifier never ran and
+/// (b) let an attacker strip the field to skip the identity check
+/// entirely (5th-review HIGH, downgrade bypass). There is no legacy
+/// ledger to stay compatible with — the §SC W1 reset window discarded
+/// every pre-v3 chain, and SC.2-f1 lands before any durable testnet-2
+/// ledger exists.
+///
+/// Errors are `(field, expected, actual)` divergence triples.
+fn reverify_execution_source(event: &Value) -> Result<&str, (String, String, String)> {
+    let Some(artifact) = event.get("effectiveArtifact").and_then(Value::as_str) else {
+        return Err((
+            "effectiveArtifact".to_string(),
+            "present".to_string(),
+            "missing".to_string(),
+        ));
+    };
+    let recorded = event.get("proofHash").and_then(Value::as_str).unwrap_or("");
+    let recomputed = bounty_proof_hash_hex(artifact.as_bytes());
+    if recorded != recomputed {
+        return Err(("proofHash".to_string(), recorded.to_string(), recomputed));
+    }
+    Ok(artifact)
+}
+
 /// Re-run Lean for a single accepted-lean proof event and produce zero
 /// or more divergences. An empty return means every recorded field
 /// reproduced byte-identically (or, for `accepted`, structurally) under
@@ -167,15 +198,18 @@ fn reverify_lean_event(event: &Value, checker_dir: &Path) -> Vec<DeepVerifyDiver
         .unwrap_or("")
         .to_string();
 
-    let lean_source = match event.get("leanSource").and_then(Value::as_str) {
-        Some(s) => s,
-        None => {
+    // SC.2-f1 — pick the bytes to re-execute and check the recorded
+    // proof identity against them BEFORE any Lean process is spawned
+    // (see `reverify_execution_source`).
+    let execution_source = match reverify_execution_source(event) {
+        Ok(source) => source,
+        Err((field, expected, actual)) => {
             divergences.push(DeepVerifyDivergence {
                 work_id,
                 proof_hash,
-                field: "leanSource".to_string(),
-                expected: "present".to_string(),
-                actual: "missing".to_string(),
+                field,
+                expected,
+                actual,
             });
             return divergences;
         }
@@ -223,7 +257,7 @@ fn reverify_lean_event(event: &Value, checker_dir: &Path) -> Vec<DeepVerifyDiver
         return divergences;
     }
     let proof_path = tmp_dir.join("Proof.lean");
-    if let Err(err) = std::fs::write(&proof_path, lean_source) {
+    if let Err(err) = std::fs::write(&proof_path, execution_source) {
         divergences.push(DeepVerifyDivergence {
             work_id,
             proof_hash,
@@ -578,5 +612,66 @@ mod tests {
             other => panic!("expected LedgerInvalid, got {other:?}"),
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // SC.2-f1 — offline deep-verify must execute the SAME bytes the live
+    // verifier judged: when the ledger row carries `effectiveArtifact`,
+    // those bytes (not the raw submitter `leanSource`, whose discarded
+    // prefix never ran online) are what the offline TCB re-elaborates.
+    #[test]
+    fn deep_verify_executes_same_effective_artifact_as_live_verifier() {
+        let artifact = "namespace M\n\ntheorem t : 1 + 1 = 2 :=\nby decide\n\nend M\n";
+        let event = serde_json::json!({
+            "proofHash": boole_core::bounty_proof_hash_hex(artifact.as_bytes()),
+            "leanSource": "theorem attacker_prefix : anything := by decide",
+            "effectiveArtifact": artifact,
+        });
+        let source = reverify_execution_source(&event).expect("artifact source resolves");
+        assert_eq!(
+            source, artifact,
+            "offline re-execution must run the recorded effective artifact, not raw leanSource"
+        );
+    }
+
+    // SC.2-f1 — a tampered ledger `proofHash` (one that does not equal
+    // the domain-tagged hash of the recorded artifact) must surface as a
+    // divergence BEFORE any Lean process is spawned.
+    #[test]
+    fn deep_verify_rejects_tampered_artifact_proof_hash() {
+        let artifact = "namespace M\n\ntheorem t : 1 + 1 = 2 :=\nby decide\n\nend M\n";
+        let tampered = "cccc000000000000000000000000000000000000000000000000000000000000";
+        let event = serde_json::json!({
+            "proofHash": tampered,
+            "leanSource": "theorem t : 1 + 1 = 2 := by decide",
+            "effectiveArtifact": artifact,
+        });
+        let (field, expected, actual) =
+            reverify_execution_source(&event).expect_err("tampered proofHash must diverge");
+        assert_eq!(field, "proofHash");
+        assert_eq!(
+            expected, tampered,
+            "expected = the (tampered) recorded value"
+        );
+        assert_eq!(
+            actual,
+            boole_core::bounty_proof_hash_hex(artifact.as_bytes()),
+            "actual = the identity recomputed from the recorded artifact"
+        );
+    }
+
+    // 5th-review HIGH (downgrade bypass) — a row with the artifact
+    // STRIPPED must diverge, never silently fall back to re-running the
+    // raw submitter source without an identity check.
+    #[test]
+    fn deep_verify_rejects_event_with_stripped_effective_artifact() {
+        let event = serde_json::json!({
+            "proofHash": "aaaa000000000000000000000000000000000000000000000000000000000000",
+            "leanSource": "theorem t : 1 + 1 = 2 := by decide",
+        });
+        let (field, expected, actual) = reverify_execution_source(&event)
+            .expect_err("missing effectiveArtifact must diverge, not fall back");
+        assert_eq!(field, "effectiveArtifact");
+        assert_eq!(expected, "present");
+        assert_eq!(actual, "missing");
     }
 }

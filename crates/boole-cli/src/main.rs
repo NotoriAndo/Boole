@@ -452,6 +452,10 @@ enum BountyCommand {
         /// the same derivation and rejects mismatches (§SC W1.b).
         /// Optional: omitted → computed from `--envelope`; provided →
         /// verified locally against the computed value before posting.
+        /// NOTE (SC.2-f1): this v1 wire field is the LEGACY ENVELOPE
+        /// hash; the server derives the proof identity separately and
+        /// returns it as `proofHash` (with `envelopeHash` alongside) in
+        /// the response — see `--json`.
         #[arg(long = "proof-hash")]
         proof_hash: Option<String>,
         /// Id of the stored v2 key used to sign the proof envelope. The

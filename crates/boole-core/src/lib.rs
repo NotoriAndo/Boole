@@ -62,7 +62,9 @@ pub use bounty_promotion::{
     derive_bounty_settlement, select_promoted_bounty_selection, select_promoted_bounty_shares,
     SETTLEMENT_ELIGIBLE_STATUSES,
 };
-pub use bounty_proof_verifier::{BountyProofVerifier, VerifyOutcome};
+pub use bounty_proof_verifier::{
+    bounty_proof_hash_hex, BountyProofVerifier, VerifyOutcome, BOUNTY_PROOF_HASH_DOMAIN,
+};
 pub use bounty_registry::{
     bounties_from_list, Bounty, BountyList, BountyRegistry, BountyVerifier, CreateBountyInput,
     SubmitProofInput, SubmitProofResult, UpdateStatusInput,
