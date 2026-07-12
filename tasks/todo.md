@@ -1048,3 +1048,38 @@ proofHash를 attempt salt로 인위 유도(`derive_bounty_proof_hash`) — W1.b 
 정의(canonical JSON 해시)와도 어긋남. 스텁 테스트만 있어 self-test에는 영향
 없음. bounty mode를 다음에 실사용할 때 signed envelope + canonical 해시(고유성
 필요 시 envelope 안에 attempt salt 필드)로 정렬 필요.
+
+## Review (리셋 창 W1)
+착륙 완료 (2026-07-12). PR #58 rebase-merge, main = `2f397a6`
+(코드 `13103b8` + python 계약 동기화 `74a3569`), NotoriAndo author.
+
+무엇을 했나 (쉬운 말): 테스트넷 전 마지막 "체인 데이터 형식 깨는 변경"을 전부 한
+번에 실었다. 핵심은 현상금 정산의 진실 소스 교체 — 지금까지는 블록이 "나 현상금
+얼마 받음"이라고 스스로 적으면 모든 노드가 그 금액을 그대로 믿었는데(감사가
+확인한 치명 구멍 GAP-02), 이제 블록에는 정산의 입력(승격된 증명 + 공고된
+현상금액)만 해시에 봉인해 싣고, 금액은 모든 노드가 같은 규칙(캡 한도로 자르기,
+자격 없는 family 거절, 무보상 family는 0)으로 각자 계산한다. 만드는 쪽과 검증하는
+쪽이 같은 함수 하나를 쓰므로 갈라질 수 없다. 함께 실은 것: 보상 주소가 서명
+범위에 들어간 새 서명 형식(work.v2), 서명 증거를 블록에 실을 자리(evidence v2),
+검증 예산 필드(manifest maxHeartbeats/maxRecDepth), genesis의 family root 자리,
+규칙 버전 3, testnet-2 리네임, 점수 하한 배율의 합의 상수화(W1.a), 현상금
+proofHash 서버 재유도(W1.b). 이후 §SC 잔여 slice는 형식을 다시 깨지 않고
+enforcement만 얹는다.
+
+검증:
+- 전 워크스페이스 컴파일 + fmt + clippy(-D warnings) clean
+- core 17 스위트 / node lib 49 + 테스트 바이너리 23종(p2p --include-ignored 포함)
+  / cli 6종 / miner / p2p 전부 green — 테스트 파일 ~40개를 새 스키마에 동기화
+- 골든 fixture 재생성: block-hash v3 + replay v1/v2 (regen 헬퍼를 --ignored
+  테스트로 상설화 — 다음 리셋 때 명령 1번)
+- consensus 티어 게이트 직접 확인: runtime-smoke-all 6/6 PASS +
+  proof-to-block-benchmark 7/7·17블록·replay 실패 0·divergence 0
+- CI: self-test pass(8m29s) + supply-chain pass(3m9s), 반송 1회(python 계약
+  테스트 2건 — 로컬 게이트에서 생략했던 티어; lessons에 적재)
+- working tree clean, origin/main == local HEAD == `2f397a6`
+
+claim 경계: closed-local 검증 + CI only. public mining/유료 API/leaderboard
+claim 아님.
+
+추천 다음 작업: SC.3(복구가 커밋 근거에서 재유도) 또는 병렬 SC.4/SC.5 —
+전부 enforcement-only라 리셋 없음.
