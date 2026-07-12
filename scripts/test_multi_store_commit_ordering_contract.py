@@ -88,17 +88,37 @@ class MultiStoreCommitOrderingContractTests(unittest.TestCase):
         )
 
     def test_bounty_helper_appends_credit_then_share_promoted(self) -> None:
+        # SC reset window (ADR-0015 (a)): the helper no longer builds the
+        # rows inline — it calls the SAME `derive_bounty_events` the P1.3b
+        # boot heal and the N4 reorg rebuild use (credit rows derived from
+        # committed shares via settlement), then appends credits before
+        # share_promoted rows. The row construction order itself is pinned
+        # in derive_bounty_events' body (runtime.rs).
         body = _read(LOCAL_NODE)
         start, end = _function_span(body, r"fn\s+append_block_bounty_events\s*\(")
         span = body[start:end]
-        credit = span.find('"kind": "credit"')
-        share = span.find('"kind": "share_promoted"')
+        derive = span.find("derive_bounty_events(")
+        chain = span.find("credits.iter().chain(shares.iter())")
         append = span.find("FileBountyEventLedger::append(")
+        self.assertNotEqual(
+            derive, -1, "the helper must derive rows via derive_bounty_events"
+        )
+        self.assertNotEqual(
+            chain, -1, "the helper must append credit rows before share_promoted rows"
+        )
         self.assertNotEqual(
             append, -1, "the helper must append to the bounty event ledger"
         )
-        self.assertNotEqual(credit, -1, "the helper must write credit rows")
-        self.assertNotEqual(share, -1, "the helper must write share_promoted rows")
+
+        runtime = _read(RUNTIME)
+        start, end = _function_span(runtime, r"fn\s+derive_bounty_events\s*\(")
+        span = runtime[start:end]
+        credit = span.find('"kind": "credit"')
+        share = span.find('"kind": "share_promoted"')
+        self.assertNotEqual(credit, -1, "derive_bounty_events must build credit rows")
+        self.assertNotEqual(
+            share, -1, "derive_bounty_events must build share_promoted rows"
+        )
         self.assertLess(
             credit,
             share,
