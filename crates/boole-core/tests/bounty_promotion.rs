@@ -32,6 +32,15 @@ fn manifest_value_with_credit(
     max_shares: u64,
     max_credit: &str,
 ) -> Value {
+    // ADR-0015 (c-1): `no_protocol_reward` families derive NO credit rows
+    // regardless of caps, so credit-clamp tests need `capped_bonus`. Keep
+    // `no_protocol_reward` for the zero-budget default so those tests also
+    // pin the mode gate.
+    let (mode, bps) = if max_credit == "0" {
+        ("no_protocol_reward", 0)
+    } else {
+        ("capped_bonus", 500)
+    };
     json!({
         "version": "1",
         "familyId": family_id,
@@ -41,8 +50,8 @@ fn manifest_value_with_credit(
         "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
         "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
         "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
-        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024 },
-        "rewardPolicy": { "mode": "no_protocol_reward", "maxBlockRewardShareBps": 0 },
+        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024, "maxHeartbeats": 400000, "maxRecDepth": 512 },
+        "rewardPolicy": { "mode": mode, "maxBlockRewardShareBps": bps },
         "activationHeight": activation_height,
         "status": "experimental",
         "caps": {
@@ -255,7 +264,7 @@ fn caps_present_but_other_field_constraints_apply() {
         "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
         "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
         "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
-        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024 },
+        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024, "maxHeartbeats": 400000, "maxRecDepth": 512 },
         "rewardPolicy": { "mode": "no_protocol_reward", "maxBlockRewardShareBps": 0 },
         "activationHeight": 0,
         "status": "experimental",
@@ -392,4 +401,31 @@ fn per_family_budgets_are_independent_across_families() {
         .collect();
     assert_eq!(gamma_credits, vec!["100", "50"]);
     assert_eq!(delta_credits, vec!["75"]);
+}
+
+#[test]
+fn no_protocol_reward_family_promotes_shares_but_derives_no_credits() {
+    // ADR-0015 (c-1) — a positive caps budget does not matter: the reward
+    // policy mode gates credit derivation, the committed shares remain as
+    // provenance only. Build the manifest value directly (the helper picks
+    // capped_bonus for positive budgets) and sign it BEFORE registration so
+    // the operator-signature gate stays green.
+    let mut pool = BountySidePool::new();
+    pool.insert(make_share_with_reward(FAMILY_ID, 1, 7));
+    let mut body = manifest_value_with_credit(FAMILY_ID, 0, 5, "1000000");
+    body["rewardPolicy"] = json!({ "mode": "no_protocol_reward", "maxBlockRewardShareBps": 0 });
+    let key = SigningKeyV2::from_dev_id(&format!("op-{FAMILY_ID}"));
+    let mut manifest = parse(&body);
+    let envelope = key.sign(&serde_json::to_value(&manifest).unwrap()).unwrap();
+    manifest.signature = Some(envelope.signature);
+    let mut registry = FamilyManifestRegistry::new();
+    registry.register(manifest);
+
+    let selection = select_promoted_bounty_selection(&pool, &registry, 100, &[key.pk_hex()]);
+    assert_eq!(selection.shares.len(), 1);
+    assert_eq!(selection.shares[0].reward, "7");
+    assert!(
+        selection.credits.is_empty(),
+        "no_protocol_reward must derive zero credit rows even with a positive caps budget"
+    );
 }

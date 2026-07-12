@@ -35,7 +35,9 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
-use boole_core::{Bounty, BountyProofVerifier, SigningKeyV2, VerifyOutcome};
+use boole_core::{
+    canonical_payload_hash_hex, Bounty, BountyProofVerifier, SigningKeyV2, VerifyOutcome,
+};
 use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
 use serde_json::{json, Map, Value};
@@ -44,15 +46,13 @@ fn fresh_nonce() -> String {
     format!("nonce-{}", rand_suffix())
 }
 
-const PROOF_HASH: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
 const LEAN_VERIFIER_HASH: &str = "abcd000000000000000000000000000000000000000000000000000000000000";
 
-fn signed_proof_body(
-    key: &SigningKeyV2,
-    bounty_id: &str,
-    proof_hash: &str,
-    envelope: Value,
-) -> Value {
+fn signed_proof_body(key: &SigningKeyV2, bounty_id: &str, envelope: Value) -> Value {
+    // §SC W1.b — the node re-derives the proof hash from the envelope's
+    // canonical JSON and rejects mismatches, so the test computes it the
+    // same way instead of claiming a dummy value.
+    let proof_hash = canonical_payload_hash_hex(&envelope);
     let payload = json!({
         "schema": "boole.bounty.proof.v1",
         "bountyId": bounty_id,
@@ -229,12 +229,7 @@ fn accepted_lean_proof_audit_event_records_checker_artifact_hash_from_verifier_e
     thread::sleep(Duration::from_millis(50));
 
     let key = SigningKeyV2::from_dev_id("bounty-checker-artifact-hash-test");
-    let body = signed_proof_body(
-        &key,
-        "lean-1",
-        PROOF_HASH,
-        json!({ "leanSource": LEAN_SOURCE }),
-    );
+    let body = signed_proof_body(&key, "lean-1", json!({ "leanSource": LEAN_SOURCE }));
     let (status, resp) = http_post(addr, "/bounties/lean-1/proof", &body);
     assert_eq!(status, 200, "expected 200, got {status}: {resp}");
     assert_eq!(resp["accepted"], true, "mock must accept: {resp}");

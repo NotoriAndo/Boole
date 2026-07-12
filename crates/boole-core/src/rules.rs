@@ -17,4 +17,23 @@
 /// v2: block_hash preimage v2 (ADR-0014 (a) / N5-pre.1) — the hash
 /// commits every replay-consumed block field, not just
 /// `prev_c ‖ share_hashes`.
-pub const CONSENSUS_RULE_VERSION: u32 = 2;
+///
+/// v3: §SC reset window (ADR-0015 (d) / ADR-0016 (e)) — block_hash
+/// preimage v3 (promoted bounty shares + reward committed, declared
+/// credit rows removed; replay derives settlement), signed work payload
+/// v2 (`boole.signer.work.v2` covers `rewardRecipient`), evidence v2
+/// (`signedWork` authorization slot), family manifest `maxHeartbeats`/
+/// `maxRecDepth` budget fields, genesis `familyManifestRoot` param.
+pub const CONSENSUS_RULE_VERSION: u32 = 3;
+
+/// §SC W1.a (ADR-0014 amendment 2026-07-11) — the min-share-score
+/// multiplier is a Tier-2 rule constant, fixed at 1.0 (10⁹ nanos) for
+/// every network running rule set v3. It was previously classified as
+/// Tier-3 node-local ops config, which left the block's self-declared
+/// `minShareScoreMultiplierNanos` bound only to its own arithmetic:
+/// replay recomputed `minShareScore` FROM the declared multiplier, so a
+/// proposer could move the share-score floor unilaterally and still
+/// pass. Replay now rejects any evidence-bearing block whose declared
+/// multiplier differs from this constant. Changing the value is a
+/// consensus change: bump `CONSENSUS_RULE_VERSION`.
+pub const MIN_SHARE_SCORE_MULTIPLIER_NANOS: u64 = 1_000_000_000;

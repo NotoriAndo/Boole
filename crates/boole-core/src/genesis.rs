@@ -44,6 +44,14 @@ pub struct GenesisParams {
     /// artifact (toolchain pin included); `None` = unpinned dev network.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checker_artifact_hash: Option<String>,
+    /// ADR-0015 (c): BLAKE3 root over the sorted, canonical-JSON family
+    /// manifest set this network settles bounties against. When pinned, a
+    /// named-network node whose local manifest set derives a different
+    /// root refuses to boot (SC.2 lands that enforcement); `None` =
+    /// unpinned dev network. `operator_signer_pks` is admission
+    /// convenience, not consensus — this root is the family authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family_manifest_root: Option<String>,
 }
 
 /// The state every participant starts from.
@@ -84,14 +92,15 @@ impl GenesisSpec {
 ///
 /// `boole-dev` mirrors the standard runtime-smoke scenario (relaxed: no
 /// seed requirement, unpinned checker, static difficulty).
-/// `boole-testnet-1` is the shared-testnet declaration — instance-numbered
-/// (a pre-launch reset mints `-2`, the ADR-0014 "boole-testnet" name is
-/// the LINE; the plain label also predates N5.2 as the P2.10 signing
-/// network id, which stays scenario-driven): seed binding required from
-/// height 0 (ADR-0014 (d)) and retargeting on; its checker pin stays
-/// `None` until the versioned checker release channel exists (the ops
-/// half of ADR-0014 (e) — a preset amendment lands it together with that
-/// channel, before the testnet launch).
+/// `boole-testnet-2` is the shared-testnet declaration — instance-numbered
+/// (the ADR-0015 (d) reset window retired `-1`; the ADR-0014
+/// "boole-testnet" name is the LINE, and the plain label also predates
+/// N5.2 as the P2.10 signing network id, which stays scenario-driven):
+/// seed binding required from height 0 (ADR-0014 (d)) and retargeting on;
+/// its checker pin stays `None` until SC.9 flips it with the versioned
+/// checker release channel (ADR-0016 (a)), and `family_manifest_root`
+/// stays `None` until SC.2 pins the launch manifest set — both before the
+/// testnet launch.
 pub fn network_genesis_preset(network_id: &str) -> Option<GenesisSpec> {
     let all_zero_anchor = "0".repeat(64);
     let t_max = format!("0x{}", "f".repeat(64));
@@ -107,13 +116,14 @@ pub fn network_genesis_preset(network_id: &str) -> Option<GenesisSpec> {
                 retarget: None,
                 seed_binding_required: false,
                 checker_artifact_hash: None,
+                family_manifest_root: None,
             },
             initial_state: GenesisInitialState {
                 genesis_c: all_zero_anchor,
             },
         }),
-        "boole-testnet-1" => Some(GenesisSpec {
-            network_id: "boole-testnet-1".to_string(),
+        "boole-testnet-2" => Some(GenesisSpec {
+            network_id: "boole-testnet-2".to_string(),
             params: GenesisParams {
                 consensus_rule_version: crate::rules::CONSENSUS_RULE_VERSION,
                 t_block: t_eased,
@@ -126,6 +136,7 @@ pub fn network_genesis_preset(network_id: &str) -> Option<GenesisSpec> {
                 }),
                 seed_binding_required: true,
                 checker_artifact_hash: None,
+                family_manifest_root: None,
             },
             initial_state: GenesisInitialState {
                 genesis_c: all_zero_anchor,

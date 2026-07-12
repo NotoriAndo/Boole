@@ -1,11 +1,13 @@
 # Next Slice — Golden Fixture Export
 
-> **Scope note (N5-pre.1, ADR-0014 (a))**: the block-hash and replay
-> fixtures described below are no longer TypeScript-exported. The block-hash
-> preimage v2 is defined by the Rust implementation
-> (`crates/boole-core/src/hash.rs::block_hash`), and
-> `fixtures/protocol/block-hash/v2.json` / `fixtures/protocol/replay/*.json`
-> are Rust-generated golden vectors — this is the "deliberate
+> **Scope note (N5-pre.1, ADR-0014 (a); preimage v3 since ADR-0015 (d))**:
+> the block-hash and replay fixtures described below are no longer
+> TypeScript-exported. The block-hash preimage (v3) is defined by the Rust
+> implementation (`crates/boole-core/src/hash.rs::block_hash`), and
+> `fixtures/protocol/block-hash/v3.json` / `fixtures/protocol/replay/*.json`
+> are Rust-generated golden vectors — regenerate after a deliberate
+> preimage change via the `--ignored` regen tests in
+> `block_hash_fixtures.rs` / `replay_fixtures.rs`. This is the "deliberate
 > protocol-change ADR" carve-out anticipated by the rule below. The other
 > TS-exported fixtures (block-builder, hash-pow, share-pool, ...) are
 > unchanged.

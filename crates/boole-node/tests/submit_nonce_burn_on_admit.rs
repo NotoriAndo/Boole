@@ -241,13 +241,14 @@ fn signed_work_session(
     reward_recipient: &str,
 ) -> Value {
     let payload = json!({
-        "schema": "boole.signer.work.v1",
+        "schema": "boole.signer.work.v2",
         "route": "/submit",
         "familyId": "boole.protocol-invariant.v01",
         "verifierId": "lean-runner-v01",
         "fee": "0",
         "requestHash": canonical_payload_hash_hex(body),
         "nonce": nonce,
+        "rewardRecipient": reward_recipient,
         "workPayload": body,
     });
     let signed = key.sign(&payload).expect("sign work payload");

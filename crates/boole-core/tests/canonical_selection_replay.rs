@@ -54,6 +54,7 @@ fn share(pk: &str, n: &str, j: &str, package_fill: u8) -> (SelectedShareEvidence
             canon_hash,
             proof_package,
             seed_hex: String::new(),
+            signed_work: None,
         },
         hash,
     )
@@ -88,7 +89,6 @@ fn block_with_shares(
         dropped_kernel_reject: 0,
         truncated_by_kmax: 0,
         ts: 1_700_000_000_000,
-        promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
     };
     block.c = block_hash(&block).to_hex();

@@ -36,6 +36,7 @@ fn spec(anchor: &str, k_max: u64, seed_required: bool) -> GenesisSpec {
             retarget: None,
             seed_binding_required: seed_required,
             checker_artifact_hash: None,
+            family_manifest_root: None,
         },
         initial_state: GenesisInitialState {
             genesis_c: anchor.to_string(),
@@ -80,6 +81,7 @@ fn share_at(prev_c: &str, pk: &str, j: &str, fill: u8) -> (SelectedShareEvidence
             canon_hash,
             proof_package: package_hex,
             seed_hex: String::new(),
+            signed_work: None,
         },
         hash,
     )
@@ -116,7 +118,6 @@ fn block_at(
         dropped_kernel_reject: 0,
         truncated_by_kmax: 0,
         ts: 1_700_000_000_000,
-        promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
     };
     block.c = block_hash(&block).to_hex();

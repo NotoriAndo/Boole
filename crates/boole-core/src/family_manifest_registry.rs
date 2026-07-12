@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 use crate::family_manifest::FamilyManifest;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FamilyManifestRegistry {
     by_id: BTreeMap<String, FamilyManifest>,
 }

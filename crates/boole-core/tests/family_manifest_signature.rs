@@ -23,7 +23,7 @@ fn base_manifest_value() -> Value {
         "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
         "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
         "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
-        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024 },
+        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024, "maxHeartbeats": 400000, "maxRecDepth": 512 },
         "rewardPolicy": { "mode": "capped_bonus", "maxBlockRewardShareBps": 500 },
         "activationHeight": 123000,
         "status": "experimental"

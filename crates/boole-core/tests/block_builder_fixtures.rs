@@ -68,7 +68,6 @@ fn block_builder_matches_typescript_golden_fixture() {
         &accepted,
         &BTreeSet::new(),
         &[],
-        &[],
     )
     .expect("build selection");
 

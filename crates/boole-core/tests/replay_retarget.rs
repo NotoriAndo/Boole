@@ -12,8 +12,8 @@
 
 use boole_core::{
     block_hash, expected_retarget_difficulty_for_height,
-    replay_blocks_with_retarget_allow_legacy_evidence_less, DifficultyRetargetPolicy, Hex32,
-    LegacyEvidenceOptIn, PersistedBlock,
+    replay_blocks_with_retarget_allow_legacy_evidence_less, DifficultyRetargetPolicy,
+    FamilyManifestRegistry, Hex32, LegacyEvidenceOptIn, PersistedBlock,
 };
 
 const ZERO: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -65,7 +65,6 @@ fn valid_chain(n: u64, span_ms: u64) -> Vec<PersistedBlock> {
             dropped_kernel_reject: 0,
             truncated_by_kmax: 0,
             ts: base_ts + h * span_ms,
-            promoted_bounty_credits: vec![],
             promoted_bounty_shares: vec![],
         };
         block.c = block_hash(&block).to_hex();
@@ -85,6 +84,7 @@ fn replay_accepts_correct_retargeted_chain() {
         INITIAL_T_BLOCK,
         &policy(),
         LegacyEvidenceOptIn::for_legacy_replay_only(),
+        &FamilyManifestRegistry::new(),
     );
     assert!(
         result.is_ok(),
@@ -103,6 +103,7 @@ fn replay_rejects_tampered_t_block_at_epoch_boundary() {
         INITIAL_T_BLOCK,
         &policy(),
         LegacyEvidenceOptIn::for_legacy_replay_only(),
+        &FamilyManifestRegistry::new(),
     )
     .expect_err("tampered t_block at the epoch boundary must be rejected");
     let msg = err.to_string();

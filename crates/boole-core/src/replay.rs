@@ -3,7 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::block::PersistedBlock;
+use crate::bounty_promotion::derive_bounty_settlement;
 use crate::difficulty::verify_block_ts_median_time_past;
+use crate::family_manifest_registry::FamilyManifestRegistry;
 use crate::replay_evidence::{
     verify_canonical_selection, verify_selected_share_evidence, EvidencePolicy,
 };
@@ -52,8 +54,9 @@ pub struct ReplayResult {
     pub latest_c: String,
     pub height: u64,
     /// Per-pk balances. Folds in BOTH base-lane proposer/share credits
-    /// (one unit per credit row) AND bounty-lane promoted credits
-    /// (`PromotedBountyCredit.amount` for each row in the block).
+    /// (one unit per credit row) AND bounty-lane credits derived from the
+    /// block's committed promoted shares via `derive_bounty_settlement`
+    /// (ADR-0015 (a) — never declared amounts).
     pub balances: BTreeMap<String, u128>,
     /// S23b — per-family bounty credit totals across all replayed
     /// blocks. Empty for chains with no promoted credits.
@@ -126,14 +129,18 @@ pub fn replay_blocks_with_retarget(
 /// N3-pre.1 — same as `replay_blocks_with_retarget`, but for a pre-evidence
 /// legacy chain. Requires an explicit `LegacyEvidenceOptIn` (test code /
 /// legacy-local replay callers only — see that type's doc comment).
+/// `registry` is the family manifest set bounty settlement derives against
+/// (ADR-0015 (a)); pass an empty registry for chains with no promoted
+/// bounty shares.
 pub fn replay_blocks_with_retarget_allow_legacy_evidence_less(
     blocks: &[PersistedBlock],
     initial_t_block: &str,
     policy: &crate::DifficultyRetargetPolicy,
     opt_in: LegacyEvidenceOptIn,
+    registry: &FamilyManifestRegistry,
 ) -> anyhow::Result<ReplayResult> {
     crate::validate_retargeted_difficulty(blocks, initial_t_block, policy)?;
-    replay_blocks_allow_legacy_evidence_less(blocks, opt_in)
+    replay_blocks_allow_legacy_evidence_less(blocks, opt_in, registry)
 }
 
 /// N3-pre.1 — the replay entry point every current node/CLI boot path
@@ -141,19 +148,30 @@ pub fn replay_blocks_with_retarget_allow_legacy_evidence_less(
 /// `selectedShareEvidence` is empty by default (see
 /// `replay_evidence::verify_selected_share_evidence`); this is a
 /// consensus-critical evidence requirement, not merely a shape check.
+///
+/// Replays against an EMPTY family registry: a chain containing promoted
+/// bounty shares is rejected here (unknown family). Bounty chains must go
+/// through a registry-aware entry point
+/// (`replay_blocks_with_genesis_and_registry` or the legacy variants).
 pub fn replay_blocks(blocks: &[PersistedBlock]) -> anyhow::Result<ReplayResult> {
-    replay_blocks_with_evidence_policy(blocks, EvidencePolicy::Strict)
+    replay_blocks_with_evidence_policy(
+        blocks,
+        EvidencePolicy::Strict,
+        &FamilyManifestRegistry::new(),
+    )
 }
 
 /// N3-pre.1 — replay a pre-evidence legacy chain (existing golden
 /// fixtures, hand-built test chains). Requires an explicit
 /// `LegacyEvidenceOptIn` — see that type's doc comment for the callers
-/// this is (and is not) meant for.
+/// this is (and is not) meant for. `registry` is the family manifest set
+/// bounty settlement derives against (ADR-0015 (a)).
 pub fn replay_blocks_allow_legacy_evidence_less(
     blocks: &[PersistedBlock],
     _opt_in: LegacyEvidenceOptIn,
+    registry: &FamilyManifestRegistry,
 ) -> anyhow::Result<ReplayResult> {
-    replay_blocks_with_evidence_policy(blocks, EvidencePolicy::AllowLegacyEvidenceLess)
+    replay_blocks_with_evidence_policy(blocks, EvidencePolicy::AllowLegacyEvidenceLess, registry)
 }
 
 /// N5.1 (ADR-0014 (c)/(d)) — genesis-aware replay: validates the chain
@@ -174,6 +192,20 @@ pub fn replay_blocks_with_genesis(
     blocks: &[PersistedBlock],
     spec: &crate::GenesisSpec,
 ) -> anyhow::Result<ReplayResult> {
+    replay_blocks_with_genesis_and_registry(blocks, spec, &FamilyManifestRegistry::new())
+}
+
+/// §SC reset window (ADR-0015 (a)) — genesis-aware replay with the family
+/// manifest registry bounty settlement derives against. Node ingest/reorg
+/// paths use this so chains carrying promoted bounty shares replay with
+/// the node's loaded manifest set. `replay_blocks_with_genesis` is the
+/// registry-less convenience wrapper (empty registry — bounty chains
+/// reject).
+pub fn replay_blocks_with_genesis_and_registry(
+    blocks: &[PersistedBlock],
+    spec: &crate::GenesisSpec,
+    registry: &FamilyManifestRegistry,
+) -> anyhow::Result<ReplayResult> {
     match &spec.params.retarget {
         Some(policy) => {
             crate::validate_retargeted_difficulty(blocks, &spec.params.t_block, policy)?
@@ -185,6 +217,7 @@ pub fn replay_blocks_with_genesis(
         EvidencePolicy::Strict,
         &spec.initial_state.genesis_c,
         Some(&spec.params),
+        registry,
     )
 }
 
@@ -212,12 +245,14 @@ fn validate_static_difficulty(
 fn replay_blocks_with_evidence_policy(
     blocks: &[PersistedBlock],
     evidence_policy: EvidencePolicy,
+    registry: &FamilyManifestRegistry,
 ) -> anyhow::Result<ReplayResult> {
     replay_blocks_with_rules(
         blocks,
         evidence_policy,
         "0000000000000000000000000000000000000000000000000000000000000000",
         None,
+        registry,
     )
 }
 
@@ -226,6 +261,7 @@ fn replay_blocks_with_rules(
     evidence_policy: EvidencePolicy,
     genesis_c: &str,
     genesis_params: Option<&crate::GenesisParams>,
+    registry: &FamilyManifestRegistry,
 ) -> anyhow::Result<ReplayResult> {
     // N3-pre.3 (review #3) — deterministic ts trust gate, upfront and
     // unconditional (both the retarget-aware and plain replay entry points,
@@ -316,7 +352,14 @@ fn replay_blocks_with_rules(
             let amount: u128 = credit.amount.parse()?;
             *balances.entry(credit.pk).or_insert(0) += amount;
         }
-        for credit in &block.promoted_bounty_credits {
+        // ADR-0015 (a) — bounty credits are DERIVED from the committed
+        // promoted-share rows with the same settlement function the
+        // producer used; the block declares settlement inputs, never
+        // credit outcomes. Structural violations (unknown/ineligible
+        // family, rows beyond caps) reject the block; amounts clamp.
+        for credit in
+            derive_bounty_settlement(&block.promoted_bounty_shares, registry, block.height)?
+        {
             let amount: u128 = credit.amount.parse()?;
             *balances.entry(credit.prover.clone()).or_insert(0) += amount;
             *bounty_credit_by_family

@@ -73,6 +73,7 @@ fn block_with_lean_bound_share(tamper: bool) -> PersistedBlock {
             canon_hash,
             proof_package,
             seed_hex: SEED_HEX.to_string(),
+            signed_work: None,
         }],
         min_share_score: "1".to_string(),
         min_share_score_multiplier_nanos: 1_000_000_000,
@@ -85,7 +86,6 @@ fn block_with_lean_bound_share(tamper: bool) -> PersistedBlock {
         dropped_kernel_reject: 0,
         truncated_by_kmax: 0,
         ts: 1_700_000_000_000,
-        promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
     };
     block.c = block_hash(&block).to_hex();

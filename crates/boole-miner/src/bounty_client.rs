@@ -21,11 +21,15 @@
 // Caller decides retry policy. The miner does NOT auto-retry 409 / 501 —
 // those are terminal for the (bounty_id, proof_hash) attempt.
 //
-// proof_hash is computed locally as SHA-256(envelope_bytes).
+// §SC W1.b — proof_hash is hex(SHA-256(canonical_json(envelope))), the
+// same derivation the node re-runs server-side before accepting the
+// proof. Hashing the raw envelope file bytes (the pre-W1.b scheme) broke
+// under JSON re-serialization on the wire — key order and whitespace are
+// not byte-stable — so both ends hash the Boole canonical JSON instead.
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use boole_core::canonical_payload_hash_hex;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 
 use crate::http_client::{percent_encode_component, HttpClient, HttpError};
 use crate::proof_signer::ProofSigner;
@@ -65,7 +69,6 @@ pub struct BountyProofInputs<'a> {
     /// node requires `envelope.pk == payload.prover`.
     pub signer: &'a dyn ProofSigner,
     pub envelope: Value,
-    pub envelope_bytes: &'a [u8],
     /// P2.10 — network id that scopes the produced `boole.signed.v1`
     /// envelope. Folded into the digest via `sign_for_network` and
     /// stamped on the wire body so the receiving node can verify
@@ -116,7 +119,7 @@ impl BountyClient {
     }
 
     pub fn submit_proof(&self, inputs: BountyProofInputs<'_>) -> BountyProofResult {
-        let proof_hash = hex::encode(Sha256::digest(inputs.envelope_bytes));
+        let proof_hash = canonical_payload_hash_hex(&inputs.envelope);
         let prover = match inputs.signer.pk_hex() {
             Ok(p) => p,
             Err(detail) => {

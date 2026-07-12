@@ -10,8 +10,8 @@
 //! use) — see `replay_blocks_allow_legacy_evidence_less`.
 
 use boole_core::{
-    block_hash, replay_blocks, replay_blocks_allow_legacy_evidence_less, LegacyEvidenceOptIn,
-    PersistedBlock,
+    block_hash, replay_blocks, replay_blocks_allow_legacy_evidence_less, FamilyManifestRegistry,
+    LegacyEvidenceOptIn, PersistedBlock,
 };
 
 const PREV_C: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -40,7 +40,6 @@ fn evidence_less_block() -> PersistedBlock {
         dropped_kernel_reject: 0,
         truncated_by_kmax: 0,
         ts: 1_700_000_000_000,
-        promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
     };
     block.c = block_hash(&block).to_hex();
@@ -73,6 +72,7 @@ fn legacy_evidence_less_block_requires_explicit_opt_in() {
     let replay = replay_blocks_allow_legacy_evidence_less(
         &[block],
         LegacyEvidenceOptIn::for_legacy_replay_only(),
+        &FamilyManifestRegistry::new(),
     )
     .expect("legacy opt-in must accept the pre-evidence block");
     assert_eq!(replay.height, 1);

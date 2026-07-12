@@ -51,14 +51,17 @@ pub use admission_types::{
 pub use agent_events::{
     agent_passport_events_for_receipt, AgentPassportEvent, AGENT_PASSPORT_EVENT_SCHEMA,
 };
-pub use block::{PersistedBlock, SelectedShareEvidence};
+pub use block::{PersistedBlock, SelectedShareEvidence, ShareWorkAuthorization};
 pub use block_builder::{
     build_block_selection, compare_canonical, BlockBuilderConfig, BuildSelectionResult,
     BuiltBlockSelection, CandidateShare, CanonicalOrderKey, PromotedBountyCredit,
     PromotedBountySelection, PromotedBountyShare,
 };
 pub use bounty_ledger::{validate_bounty_ledger_event, BountyEventLedger};
-pub use bounty_promotion::{select_promoted_bounty_selection, select_promoted_bounty_shares};
+pub use bounty_promotion::{
+    derive_bounty_settlement, select_promoted_bounty_selection, select_promoted_bounty_shares,
+    SETTLEMENT_ELIGIBLE_STATUSES,
+};
 pub use bounty_proof_verifier::{BountyProofVerifier, VerifyOutcome};
 pub use bounty_registry::{
     bounties_from_list, Bounty, BountyList, BountyRegistry, BountyVerifier, CreateBountyInput,
@@ -100,10 +103,11 @@ pub use rejection_log::{
 pub use replay::{
     compute_block_credits, compute_block_reward_credits, replay_blocks,
     replay_blocks_allow_legacy_evidence_less, replay_blocks_with_genesis,
-    replay_blocks_with_retarget, replay_blocks_with_retarget_allow_legacy_evidence_less,
-    LegacyEvidenceOptIn, PersistedCredit, PersistedRewardEvent, ReplayResult,
+    replay_blocks_with_genesis_and_registry, replay_blocks_with_retarget,
+    replay_blocks_with_retarget_allow_legacy_evidence_less, LegacyEvidenceOptIn, PersistedCredit,
+    PersistedRewardEvent, ReplayResult,
 };
-pub use rules::CONSENSUS_RULE_VERSION;
+pub use rules::{CONSENSUS_RULE_VERSION, MIN_SHARE_SCORE_MULTIPLIER_NANOS};
 pub use session_policy::{SessionPolicy, SessionState, SignerRequest};
 pub use share_pool::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
 pub use signed_envelope::{

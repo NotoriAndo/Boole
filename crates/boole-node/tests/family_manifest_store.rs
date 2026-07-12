@@ -33,7 +33,7 @@ fn write_manifest(dir: &Path, name: &str, family_id: &str) {
         "promptSpecHash": "0101010101010101010101010101010101010101010101010101010101010101",
         "calibrationReportHash": "2323232323232323232323232323232323232323232323232323232323232323",
         "testVectorsHash": "4545454545454545454545454545454545454545454545454545454545454545",
-        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024 },
+        "resourceLimits": { "maxProofBytes": 16384, "verifyTimeoutMs": 30000, "maxDecls": 1024, "maxHeartbeats": 400000, "maxRecDepth": 512 },
         "rewardPolicy": { "mode": "no_protocol_reward", "maxBlockRewardShareBps": 0 },
         "activationHeight": u64::MAX,
         "status": "experimental"

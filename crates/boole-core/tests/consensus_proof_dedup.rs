@@ -80,6 +80,7 @@ fn share_at(
             canon_hash,
             proof_package: package_hex.to_string(),
             seed_hex: String::new(),
+            signed_work: None,
         },
         hash,
     )
@@ -117,7 +118,6 @@ fn block_at(
         dropped_kernel_reject: 0,
         truncated_by_kmax: 0,
         ts,
-        promoted_bounty_credits: vec![],
         promoted_bounty_shares: vec![],
     };
     block.c = block_hash(&block).to_hex();
@@ -248,9 +248,8 @@ fn block_builder_excludes_already_credited_canon_hash() {
     let accepted_tags = BTreeSet::from([0u8]);
     let credited: BTreeSet<String> = BTreeSet::from([credited_evidence.canon_hash.clone()]);
 
-    let selection =
-        build_block_selection(GENESIS, &shares, &cfg, &accepted_tags, &credited, &[], &[])
-            .expect("selection must not error");
+    let selection = build_block_selection(GENESIS, &shares, &cfg, &accepted_tags, &credited, &[])
+        .expect("selection must not error");
     match selection {
         BuildSelectionResult::Ok(built) => {
             assert_eq!(

@@ -106,20 +106,23 @@ pub fn h_protocol(domain: &[u8], parts: &[&[u8]]) -> Hex32 {
     Hex32::from_bytes(*hasher.finalize().as_bytes())
 }
 
-/// Block hash, preimage v2 (ADR-0014 (a) / N5-pre.1): commits every
+/// Block hash, preimage v3 (ADR-0015 (a) / §SC reset window): commits every
 /// `PersistedBlock` field that replay/block-validation consumes to derive
-/// state, difficulty, or fork-choice — reward routing, bounty credit rows,
-/// and the ts/difficulty inputs — not just `prev_c ‖ share_hashes` (v1).
+/// state, difficulty, or fork-choice — reward routing, the promoted bounty
+/// share rows (with their announced `reward`), and the ts/difficulty inputs.
 /// Two blocks may share a hash only if replay derives identical state from
-/// them.
+/// them. v3 replaces the v2 `promotedBountyCredits` commitment: credit rows
+/// left the block schema entirely — replay re-derives them from the
+/// committed `promotedBountyShares` via `derive_bounty_settlement`, so the
+/// settlement inputs (not a declared outcome) are what the hash pins.
 ///
-/// Stays outside the preimage: `selected_share_evidence` and
-/// `promoted_bounty_shares` (schema-versioned side-band, ADR-0007 (d) /
-/// P1.3b), telemetry counters, and fields replay re-derives from committed
-/// inputs (`difficulty_weight` from `t_block`, `kmax_applied` from the
-/// share count). The stored `c` is never an input to its own hash.
+/// Stays outside the preimage: `selected_share_evidence` (schema-versioned
+/// side-band, ADR-0007 (d) / P1.3b), telemetry counters, and fields replay
+/// re-derives from committed inputs (`difficulty_weight` from `t_block`,
+/// `kmax_applied` from the share count). The stored `c` is never an input
+/// to its own hash.
 ///
-/// Encoding: BLAKE3 over `"block.v2" ‖ canonical-JSON` of the committed
+/// Encoding: BLAKE3 over `"block.v3" ‖ canonical-JSON` of the committed
 /// fields in their persisted (camelCase) representation — canonical JSON
 /// makes the variable-length fields unambiguous without hand-rolled length
 /// prefixes, and matches how `GenesisSpec.hash()` (N5.1) commits its spec.
@@ -132,13 +135,13 @@ pub fn block_hash(block: &crate::block::PersistedBlock) -> Hex32 {
         "selectedShareRewardPks": block.selected_share_reward_pks,
         "proposerPk": block.proposer_pk,
         "proposerRewardPk": block.proposer_reward_pk,
-        "promotedBountyCredits": block.promoted_bounty_credits,
+        "promotedBountyShares": block.promoted_bounty_shares,
         "ts": block.ts,
         "tBlock": block.t_block,
         "difficultyEpoch": block.difficulty_epoch,
     });
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"block.v2");
+    hasher.update(b"block.v3");
     hasher.update(&crate::canonical_json::canonicalize(&committed));
     Hex32::from_bytes(*hasher.finalize().as_bytes())
 }

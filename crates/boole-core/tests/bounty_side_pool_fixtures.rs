@@ -26,6 +26,7 @@ fn promoted_of(s: &BountyShare) -> PromotedBountyShare {
         bounty_id: s.bounty_id.clone(),
         proof_hash: s.proof_hash.clone(),
         prover: s.prover.clone(),
+        reward: s.reward.to_string(),
     }
 }
 
@@ -90,6 +91,7 @@ fn remove_promoted_is_no_op_for_unknown_share() {
         bounty_id: "bnty-zz".to_string(),
         proof_hash: "zz".to_string(),
         prover: inserted.prover.clone(),
+        reward: "0".to_string(),
     };
     let removed = pool.remove_promoted(&[unknown]);
 

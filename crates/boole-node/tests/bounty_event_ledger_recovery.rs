@@ -10,7 +10,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
-use boole_core::{Bounty, BountyProofVerifier, SigningKeyV2};
+use boole_core::{canonical_payload_hash_hex, Bounty, BountyProofVerifier, SigningKeyV2};
 use boole_node::FileBountyEventLedger;
 use boole_node::{serve_local_node, LocalNodeConfig};
 // P0.1a — first proven call site for boole_testkit. The local rand_suffix()
@@ -22,8 +22,6 @@ use serde_json::{json, Value};
 fn fresh_nonce() -> String {
     format!("nonce-{}", rand_suffix())
 }
-
-const PROOF_HASH_A: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
 
 fn prover_key() -> SigningKeyV2 {
     SigningKeyV2::from_dev_id("bounty-recovery-test-prover")
@@ -148,12 +146,11 @@ fn http_get(addr: SocketAddr, path: &str) -> (u16, Value) {
 
 /// Build a `boole.signed.v1` envelope around a `boole.bounty.proof.v1`
 /// payload signed by `key`.
-fn signed_proof_body(
-    key: &SigningKeyV2,
-    bounty_id: &str,
-    proof_hash: &str,
-    envelope: Value,
-) -> Value {
+fn signed_proof_body(key: &SigningKeyV2, bounty_id: &str, envelope: Value) -> Value {
+    // §SC W1.b — the node re-derives the proof hash from the envelope's
+    // canonical JSON and rejects mismatches, so the tests compute it the
+    // same way instead of claiming a dummy value.
+    let proof_hash = canonical_payload_hash_hex(&envelope);
     let payload = json!({
         "schema": "boole.bounty.proof.v1",
         "bountyId": bounty_id,
@@ -193,7 +190,7 @@ fn second_boot_replays_audit_log_to_restore_solved_status() {
     // Boot 1: submit accepted proof against gamma-1 → status flips to solved
     // and audit event is appended to the file.
     let (addr1, handle1) = boot_at(bounty_event_path.clone(), 1);
-    let body = signed_proof_body(&key, "gamma-1", PROOF_HASH_A, json!({}));
+    let body = signed_proof_body(&key, "gamma-1", json!({}));
     let (s1, r1) = http_post(addr1, "/bounties/gamma-1/proof", &body);
     assert_eq!(s1, 200);
     assert_eq!(r1["bounty"]["status"], "solved");
@@ -229,7 +226,7 @@ fn recovered_event_is_byte_equal_to_appended_event() {
     let key = prover_key();
 
     let (addr, handle) = boot_at(bounty_event_path.clone(), 1);
-    let body = signed_proof_body(&key, "gamma-1", PROOF_HASH_A, json!({}));
+    let body = signed_proof_body(&key, "gamma-1", json!({}));
     let (status, _) = http_post(addr, "/bounties/gamma-1/proof", &body);
     assert_eq!(status, 200);
     handle.join().expect("server").expect("server ok");
@@ -245,7 +242,7 @@ fn recovered_event_is_byte_equal_to_appended_event() {
         "1111111111111111111111111111111111111111111111111111111111111111"
     );
     assert_eq!(ev["verifierKind"], "mock-accept");
-    assert_eq!(ev["proofHash"], PROOF_HASH_A);
+    assert_eq!(ev["proofHash"], canonical_payload_hash_hex(&json!({})));
     assert_eq!(ev["solverPk"], key.pk_hex());
     assert_eq!(ev["accepted"], true);
     assert_eq!(ev["reward"], "100");

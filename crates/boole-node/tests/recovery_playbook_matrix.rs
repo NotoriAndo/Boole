@@ -159,7 +159,7 @@ fn row_power_loss_mid_commit_heals_on_reboot() {
 /// P1.3b follow-up — the same "power loss mid-commit" row also covers the
 /// NARROWER crash window between the reward append and the bounty-event
 /// appends. Boot re-derives the trailing `credit` + `share_promoted` rows from
-/// each block's persisted `promoted_bounty_credits`/`promoted_bounty_shares`
+/// each block's persisted `promoted_bounty_shares`
 /// instead of refusing to boot with `--bounty-events`. Fault-injection lives in
 /// `bounty_event_crash_heal::boot_heals_bounty_event_ledger_trailing_after_reward_written`.
 #[test]
