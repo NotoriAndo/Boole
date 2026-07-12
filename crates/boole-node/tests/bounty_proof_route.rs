@@ -92,6 +92,20 @@ fn boot_with_signed_nonce_ledger(
     max_requests: usize,
     signed_nonce_ledger_filename: Option<&str>,
 ) -> (SocketAddr, thread::JoinHandle<anyhow::Result<()>>, PathBuf) {
+    boot_with_custom_verifiers(
+        default_mock_verifiers(),
+        max_requests,
+        signed_nonce_ledger_filename,
+    )
+}
+
+/// SC.2-f1 — boot with a caller-supplied verifier map so a test can swap
+/// in a verifier whose `effective_artifact` ignores parts of the envelope.
+fn boot_with_custom_verifiers(
+    verifiers: HashMap<String, Arc<dyn BountyProofVerifier>>,
+    max_requests: usize,
+    signed_nonce_ledger_filename: Option<&str>,
+) -> (SocketAddr, thread::JoinHandle<anyhow::Result<()>>, PathBuf) {
     let dir = std::env::temp_dir().join(format!(
         "boole-s12-bounty-proof-{}-{}",
         std::process::id(),
@@ -109,7 +123,6 @@ fn boot_with_signed_nonce_ledger(
     let scenario = scenario_path();
     let block_path_for_thread = block_path.clone();
     let bounties_path = mock_bounty_fixture_path();
-    let verifiers = default_mock_verifiers();
     let handle = thread::spawn(move || {
         tx.send(()).expect("ready");
         serve_local_node(
@@ -206,6 +219,77 @@ fn proof_envelope_with_payload(key: &SigningKeyV2, payload: Value) -> Value {
         "pk": signed.pk,
         "signature": signed.signature,
     })
+}
+
+// SC.2-f1 — proof identity must commit the bytes the verifier actually
+// judges, not the raw envelope: a verifier that ignores `salt` must see
+// two envelopes differing only in `salt` as ONE proof. Before this
+// slice dedup keyed on the (envelope-derived) claimed hash, so the
+// second post below was a fresh accept — and on an already-solved
+// bounty, a 409 bounty_terminal — instead of duplicate=true.
+struct MockAcceptIgnoresSalt;
+impl BountyProofVerifier for MockAcceptIgnoresSalt {
+    fn verify(&self, _bounty: &Bounty, _envelope: &Value) -> Result<bool, String> {
+        Ok(true)
+    }
+    fn effective_artifact(&self, _bounty: &Bounty, envelope: &Value) -> Result<Vec<u8>, String> {
+        // Judge only the `proof` field — `salt` is submitter noise.
+        Ok(boole_core::canonicalize(
+            envelope.get("proof").unwrap_or(&Value::Null),
+        ))
+    }
+}
+
+#[test]
+fn bounty_dedups_on_verifier_effective_artifact() {
+    let mut verifiers: HashMap<String, Arc<dyn BountyProofVerifier>> = HashMap::new();
+    verifiers.insert("mock-accept".to_string(), Arc::new(MockAcceptIgnoresSalt));
+    let (addr, handle, dir) = boot_with_custom_verifiers(verifiers, 2, None);
+    let key = prover_key();
+
+    let env_a = json!({"proof": "x", "salt": "1"});
+    let envelope_hash_a = bound_hash(&env_a);
+    let body_a = signed_proof_body(&key, "gamma-1", &envelope_hash_a, env_a);
+    let (s1, r1) = http_post(addr, "/bounties/gamma-1/proof", &body_a);
+    assert_eq!(s1, 200, "first accept: {r1}");
+    assert_eq!(r1["accepted"], true);
+    assert_eq!(r1["duplicate"], false);
+    // SC.2-f1 — the response surfaces both identities.
+    assert_eq!(r1["envelopeHash"], envelope_hash_a);
+    let proof_identity = r1["proofHash"]
+        .as_str()
+        .expect("proofHash in response")
+        .to_string();
+    assert_ne!(
+        proof_identity, envelope_hash_a,
+        "proof identity must be the artifact hash, not the envelope hash"
+    );
+
+    // Fresh envelopeHash (salt differs) but identical verifier-effective
+    // artifact — the node must answer 200 duplicate=true.
+    let env_b = json!({"proof": "x", "salt": "2"});
+    let envelope_hash_b = bound_hash(&env_b);
+    let body_b = signed_proof_body(&key, "gamma-1", &envelope_hash_b, env_b);
+    let (s2, r2) = http_post(addr, "/bounties/gamma-1/proof", &body_b);
+    assert_eq!(
+        s2, 200,
+        "artifact-identical resubmission must short-circuit at dedup: {r2}"
+    );
+    assert_eq!(
+        r2["duplicate"], true,
+        "dedup must key on the verifier-effective artifact, not the envelope: {r2}"
+    );
+    assert_eq!(
+        r2["proofHash"], proof_identity,
+        "both submissions share one proof identity"
+    );
+    assert_eq!(
+        r2["envelopeHash"], envelope_hash_b,
+        "each response echoes its own wire envelope hash"
+    );
+
+    handle.join().expect("server thread").expect("server exits");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // §SC W1.b (masterplan audit 2026-07-11 item 6 / SC.2 second-review item

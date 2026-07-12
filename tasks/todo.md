@@ -1083,3 +1083,50 @@ claim 아님.
 
 추천 다음 작업: SC.3(복구가 커밋 근거에서 재유도) 또는 병렬 SC.4/SC.5 —
 전부 enforcement-only라 리셋 없음.
+
+---
+
+---
+
+# SC.2-f1 — proofHash를 verifier-effective artifact에 결박 (2026-07-12 착수, 운영자 채택 승인)
+
+3차 검토 1 반영: W1.b의 envelopeHash 결속은 유지하되, dedup·registry·side pool·
+블록 행·audit의 proof identity는 "verifier가 실제로 판정한 바이트"의 domain-separated
+해시로 교체. 무시 필드(salt)·`:=` prefix 변경으로 같은 증명이 다수 지문을 갖는 구멍 마감.
+스키마 무변경(값 유도 규칙만 변경), rule 범프 불요. spec = L1 master SC.2 착륙 노트 ②.
+
+- [x] RED `bounty_dedups_on_verifier_effective_artifact` (route — salt만 다른 재제출 → duplicate;
+      RED = trait 부재 컴파일 실패로 직접 확인)
+- [x] RED `proof_hash_commits_verifier_effective_artifact` (lean unit — salt/prefix 불변 artifact)
+- [x] GREEN: `BountyProofVerifier::effective_artifact` (기본 = canonical envelope,
+      lean = 합성 모듈 바이트 — verify가 동일 메서드로 유도해 판정 바이트=지문 구조 일치)
+      + `bounty_proof_hash_hex` (domain `boole.bounty.proof.v1\0`)
+- [x] node: verifier lookup을 dedup 앞으로, artifact proofHash로 dedup/registry/side pool/
+      audit 교체, audit 이벤트에 `envelopeHash` 동반 (envelopeHash wire 게이트는 불변)
+- [x] 기존 proofHash 값 단언 테스트 갱신 (ledger recovery)
+- [x] focused: bounty_proof_route 20/20 + lean unit 2/2 + ledger recovery 2/2
+      + audit persists 1/1×2 + verify-not-block-ready 1/1 + hard_guard 5/5
+- [ ] 게이트(production 티어): focused + runtime-smoke 확인 → NotoriAndo 커밋 → PR → CI → 머지
+
+## SC.2-f1 확장 (2026-07-12 4차 검토, 커밋 전 반영)
+- [x] HIGH: audit 이벤트에 `effectiveArtifact` 영속 + deep-verify가 그 바이트를 실행
+      + `bounty_proof_hash_hex` 재계산 대조(runner 실행 전) — RED 3종
+      (executes_same_artifact / rejects_tampered_proof_hash / legacy fallback)
+- [x] MEDIUM: 응답에 `{proofHash, envelopeHash}` (정상+duplicate), miner Ok 확장,
+      CLI/miner 문서에 "v1 wire proofHash = legacy envelope hash" 명문화
+- [x] MEDIUM: trait `verify_artifact_with_evidence` — route가 해시한 artifact를
+      verifier가 verbatim 실행 (기본 구현 위임, lean 오버라이드)
+- [x] 문서 잔여 5건: N5.3 본문 선결 H.1~H.4 / H.5 대안 삭제 / H.11 boole-mcp /
+      SC.10 gate 실체 파일 / SC.7 RED 2종(boot fail-fast·self-produce parity)
+- [ ] focused GREEN 확인 → NotoriAndo 커밋 → PR → CI → 머지
+
+## SC.2-f1 확장 2차 (2026-07-12 5차 검토, 커밋 전 반영)
+- [x] HIGH downgrade 우회 마감: deep-verify legacy fallback 제거 — accepted lean 행에
+      `effectiveArtifact` 부재 = divergence (RED
+      `deep_verify_rejects_event_with_stripped_effective_artifact`; 리셋 창 직후라
+      보존할 legacy 원장 없음 — 스키마 v2 대안 기각 기록)
+- [x] 합성 원장 CLI 테스트 2건(state_verify_deep_lean_cli) artifact 계약으로 갱신
+      (probe_effective_artifact 헬퍼 — live 경로와 동일 유도)
+- [x] 5차 2·3번(trait 필수화, wire v2 개명 + miner 응답 필수 검증) = SC.2-f2 이월 등록
+- [x] 5차 4번(SC.7 잔여·peer replay 이연) 기존 등록 확인 + claim 경계 재확인
+- [ ] 최종 focused GREEN → NotoriAndo 커밋 → PR → CI → 머지

@@ -30,14 +30,15 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
-const PROOF_HASH: &str = "aaaa000000000000000000000000000000000000000000000000000000000000";
 const PROVER: &str = "1100000000000000000000000000000000000000000000000000000000000000";
 // Ledger-event `problemHash` used by the two synthetic ndjson audit
 // events below. `deep_verify_bounty_events`/`reverify_lean_event` (the
 // actual CLI re-verification path exercised by these tests) never binds
-// this value to anything — it re-runs the *raw* recorded `leanSource`
-// through `LeanRunner::check_file` directly, with no `Bounty`/`statement`
-// in the loop. `validate_bounty_ledger_event` only requires 32-byte hex.
+// this value to anything — SC.2-f1: it re-runs the recorded
+// `effectiveArtifact` (the rendered module the live verifier judged)
+// through `LeanRunner::check_file` directly, after checking the recorded
+// `proofHash` equals `bounty_proof_hash_hex(artifact)`.
+// `validate_bounty_ledger_event` only requires 32-byte hex.
 const PROBLEM_HASH: &str = "9999999999999999999999999999999999999999999999999999999999999999";
 
 /// TB.2 — content hash of a bounty's commissioned `statement`, matching
@@ -135,6 +136,18 @@ fn probe_checker_artifact_hash(verifier_hash: &str, statement: &str, lean_source
         .to_string()
 }
 
+/// SC.2-f1 — derive the verifier-effective artifact exactly the way the
+/// live route does, so the synthetic ledger events carry the same bytes
+/// (and artifact-derived `proofHash`) a real node would have recorded.
+fn probe_effective_artifact(verifier_hash: &str, statement: &str, lean_source: &str) -> String {
+    let bounty = make_lean_bounty(verifier_hash, statement);
+    let envelope = json!({ "leanSource": lean_source });
+    let artifact = LeanBountyVerifier::new(canonical_checker_dir())
+        .effective_artifact(&bounty, &envelope)
+        .expect("lean verifier derives artifact");
+    String::from_utf8(artifact).expect("rendered module is UTF-8")
+}
+
 #[test]
 fn deep_verify_with_checker_dir_re_executes_lean_and_increments_reverified() {
     if !lake_and_lean_available() {
@@ -150,6 +163,8 @@ fn deep_verify_with_checker_dir_re_executes_lean_and_increments_reverified() {
     let lean_source = "theorem boole_deep_verify_accept : 2 + 2 = 4 := by\n  decide\n";
     let checker_artifact_hash =
         probe_checker_artifact_hash(&verifier_hash, "2 + 2 = 4", lean_source);
+    let effective_artifact = probe_effective_artifact(&verifier_hash, "2 + 2 = 4", lean_source);
+    let artifact_proof_hash = boole_core::bounty_proof_hash_hex(effective_artifact.as_bytes());
 
     let dir = std::env::temp_dir().join(format!("boole-deep-verify-ok-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -163,10 +178,11 @@ fn deep_verify_with_checker_dir_re_executes_lean_and_increments_reverified() {
         "problemHash": PROBLEM_HASH,
         "verifierKind": "lean",
         "ts": 1_800_000_000_000_i64,
-        "proofHash": PROOF_HASH,
+        "proofHash": artifact_proof_hash,
         "solverPk": PROVER,
         "accepted": true,
         "leanSource": lean_source,
+        "effectiveArtifact": effective_artifact,
         "verifierHash": verifier_hash,
         "checkerArtifactHash": checker_artifact_hash,
     });
@@ -224,6 +240,8 @@ fn deep_verify_reports_checker_artifact_hash_divergence_with_exit_3() {
         rand_suffix()
     );
     let lean_source = "theorem boole_deep_verify_divergence : 1 + 1 = 2 := by\n  decide\n";
+    let effective_artifact = probe_effective_artifact(&verifier_hash, "1 + 1 = 2", lean_source);
+    let artifact_proof_hash = boole_core::bounty_proof_hash_hex(effective_artifact.as_bytes());
 
     // Recorded hash is intentionally bogus; LeanRunner will compute the
     // real one and the comparison must surface a divergence on the
@@ -241,10 +259,11 @@ fn deep_verify_reports_checker_artifact_hash_divergence_with_exit_3() {
         "problemHash": PROBLEM_HASH,
         "verifierKind": "lean",
         "ts": 1_800_000_000_000_i64,
-        "proofHash": PROOF_HASH,
+        "proofHash": artifact_proof_hash,
         "solverPk": PROVER,
         "accepted": true,
         "leanSource": lean_source,
+        "effectiveArtifact": effective_artifact,
         "verifierHash": verifier_hash,
         "checkerArtifactHash": bogus_recorded,
     });

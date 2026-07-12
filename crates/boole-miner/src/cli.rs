@@ -755,6 +755,8 @@ pub fn run_bounty(args: BountyArgs) -> anyhow::Result<()> {
         BountyProofResult::Ok {
             accepted,
             duplicate,
+            proof_hash,
+            envelope_hash,
             bounty,
         } => {
             let envelope = serde_json::json!({
@@ -764,6 +766,10 @@ pub fn run_bounty(args: BountyArgs) -> anyhow::Result<()> {
                 "result": {
                     "accepted": accepted,
                     "duplicate": duplicate,
+                    // SC.2-f1 — server-derived proof identity + this
+                    // client's submitted envelope hash.
+                    "proofHash": proof_hash,
+                    "envelopeHash": envelope_hash,
                     "bounty": bounty,
                 },
             });

@@ -87,7 +87,24 @@ impl BountyProofVerifier for LeanBountyVerifier {
         bounty: &Bounty,
         envelope: &Value,
     ) -> Result<VerifyOutcome, String> {
-        let lean_source = envelope
+        let artifact = self.effective_artifact(bounty, envelope)?;
+        self.verify_artifact_with_evidence(bounty, envelope, &artifact)
+    }
+
+    /// SC.2-f1 — the checker elaborates EXACTLY the bytes the route
+    /// hashed as the proof identity: `artifact` is passed through to the
+    /// temp `Proof.lean` verbatim, so identity and judgement cannot
+    /// diverge even if the derivation ever changes.
+    fn verify_artifact_with_evidence(
+        &self,
+        bounty: &Bounty,
+        envelope: &Value,
+        artifact: &[u8],
+    ) -> Result<VerifyOutcome, String> {
+        // Early presence check keeps the pre-SC.2-f1 error precedence
+        // (missing leanSource surfaces before bounty-metadata errors);
+        // the judged bytes themselves are the `artifact`.
+        let _ = envelope
             .get("leanSource")
             .and_then(Value::as_str)
             .ok_or_else(|| "lean envelope missing string leanSource".to_string())?;
@@ -123,8 +140,10 @@ impl BountyProofVerifier for LeanBountyVerifier {
             });
         }
 
-        let proof_term = extract_proof_term(lean_source)?;
-        let rendered_module = render_bounty_lean_module(statement, proof_term);
+        // SC.2-f1 — the bytes handed to the checker ARE the artifact the
+        // route hashed as the proof identity (passed in verbatim).
+        let rendered_module = String::from_utf8(artifact.to_vec())
+            .map_err(|_| "lean effective artifact must be UTF-8".to_string())?;
 
         let tmp_dir = std::env::temp_dir().join(format!(
             "boole-lean-bounty-{}-{}-{}",
@@ -163,6 +182,27 @@ impl BountyProofVerifier for LeanBountyVerifier {
         let _ = std::fs::remove_dir_all(&tmp_dir);
         outcome
     }
+
+    /// SC.2-f1 — the artifact is the rendered module the checker
+    /// elaborates: pinned statement (from the bounty record) + the
+    /// submitter's proof term after `:=`. The submitter's own theorem
+    /// name/statement prefix and any extra envelope fields (salt, ...)
+    /// are discarded by construction, so they cannot mint distinct
+    /// proof identities for one and the same Lean run.
+    fn effective_artifact(&self, bounty: &Bounty, envelope: &Value) -> Result<Vec<u8>, String> {
+        let lean_source = envelope
+            .get("leanSource")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "lean envelope missing string leanSource".to_string())?;
+        let statement = bounty
+            .verifier
+            .metadata
+            .get("statement")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "lean bounty missing verifier.metadata.statement".to_string())?;
+        let proof_term = extract_proof_term(lean_source)?;
+        Ok(render_bounty_lean_module(statement, proof_term).into_bytes())
+    }
 }
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -178,6 +218,68 @@ fn random_suffix() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use boole_core::{bounty_proof_hash_hex, BountyVerifier};
+    use serde_json::json;
+
+    fn statement_bounty(statement: &str) -> Bounty {
+        let mut metadata = Map::new();
+        metadata.insert(
+            "statement".to_string(),
+            Value::String(statement.to_string()),
+        );
+        metadata.insert("verifierHash".to_string(), Value::String("22".repeat(32)));
+        Bounty {
+            id: "b1".to_string(),
+            domain: "test.lean".to_string(),
+            problem_hash: content_hash_hex(statement),
+            verifier: BountyVerifier {
+                kind: "lean-checker".to_string(),
+                metadata,
+            },
+            reward: "1".to_string(),
+            deadline: 0,
+            status: "open".to_string(),
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    // SC.2-f1 — the proof identity commits the verifier-effective
+    // artifact (the rendered module the checker elaborates), so
+    // submitter fields the verifier discards (`salt`, the theorem
+    // name/statement before `:=`) cannot mint distinct proofHashes for
+    // one and the same Lean run.
+    #[test]
+    fn proof_hash_commits_verifier_effective_artifact() {
+        let bounty = statement_bounty("1 + 1 = 2");
+        let verifier = LeanBountyVerifier::new("lean/checker");
+
+        let a = verifier
+            .effective_artifact(
+                &bounty,
+                &json!({"leanSource": "theorem mine : anything := by decide", "salt": "1"}),
+            )
+            .expect("artifact a");
+        let b = verifier
+            .effective_artifact(
+                &bounty,
+                &json!({"leanSource": "theorem other_name : ignored :=   by decide"}),
+            )
+            .expect("artifact b");
+
+        assert_eq!(
+            a, b,
+            "verifier-discarded prefix/salt must not change the artifact"
+        );
+        assert_eq!(bounty_proof_hash_hex(&a), bounty_proof_hash_hex(&b));
+        // Domain separation: the proof identity is not the bare SHA-256
+        // of the artifact bytes (nor any envelope-hash surface).
+        assert_ne!(
+            bounty_proof_hash_hex(&a),
+            hex::encode(Sha256::digest(&a)),
+            "bounty proof hash must be domain-tagged"
+        );
+    }
 
     #[test]
     fn verifier_defaults_to_enforced_isolation_and_log_is_an_explicit_opt_out() {

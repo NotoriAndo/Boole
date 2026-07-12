@@ -21,11 +21,19 @@
 // Caller decides retry policy. The miner does NOT auto-retry 409 / 501 —
 // those are terminal for the (bounty_id, proof_hash) attempt.
 //
-// §SC W1.b — proof_hash is hex(SHA-256(canonical_json(envelope))), the
-// same derivation the node re-runs server-side before accepting the
+// §SC W1.b — the v1 wire field `proofHash` is the LEGACY ENVELOPE HASH:
+// hex(SHA-256(canonical_json(envelope))), the same derivation the node
+// re-runs server-side as a wire-integrity gate before accepting the
 // proof. Hashing the raw envelope file bytes (the pre-W1.b scheme) broke
 // under JSON re-serialization on the wire — key order and whitespace are
 // not byte-stable — so both ends hash the Boole canonical JSON instead.
+//
+// SC.2-f1 — the PROOF IDENTITY is server-derived separately (the
+// domain-tagged hash of the verifier-effective artifact) and returned in
+// the response as `proofHash`, alongside `envelopeHash` (this client's
+// submitted value). A wire v2 will rename the request field to
+// `envelopeHash`; until then the request field name stays for
+// compatibility.
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use boole_core::canonical_payload_hash_hex;
@@ -82,6 +90,13 @@ pub enum BountyProofResult {
     Ok {
         accepted: bool,
         duplicate: bool,
+        /// SC.2-f1 — the server-derived proof identity (domain-tagged
+        /// hash of the verifier-effective artifact). `None` when talking
+        /// to a pre-SC.2-f1 node that does not return it.
+        proof_hash: Option<String>,
+        /// The wire envelope hash this client submitted (v1 wire field
+        /// `proofHash`), echoed back by the server.
+        envelope_hash: Option<String>,
         bounty: Value,
     },
     NotFound {
@@ -171,6 +186,8 @@ impl BountyClient {
             200 => BountyProofResult::Ok {
                 accepted: matches!(payload.get("accepted"), Some(Value::Bool(true))),
                 duplicate: matches!(payload.get("duplicate"), Some(Value::Bool(true))),
+                proof_hash: take_string(&payload, "proofHash"),
+                envelope_hash: take_string(&payload, "envelopeHash"),
                 bounty: payload.get("bounty").cloned().unwrap_or(Value::Null),
             },
             404 => BountyProofResult::NotFound {
