@@ -58,6 +58,27 @@ fn boot(
     genesis_override: Option<String>,
     p2p_listener: Option<TcpListener>,
 ) -> Boot {
+    boot_with_scenario(
+        tag,
+        scenario_path(),
+        state_dir,
+        network_id,
+        genesis_override,
+        p2p_listener,
+    )
+}
+
+/// SC.7 — variant taking the scenario path so a test can boot from a
+/// patched calibration (e.g. a non-consensus MinShareScoreMultiplier)
+/// while keeping the preset-matching genesis.
+fn boot_with_scenario(
+    tag: &str,
+    scenario: PathBuf,
+    state_dir: Option<PathBuf>,
+    network_id: Option<String>,
+    genesis_override: Option<String>,
+    p2p_listener: Option<TcpListener>,
+) -> Boot {
     let dir = std::env::temp_dir().join(format!(
         "boole-n52-binding-{tag}-{}-{}",
         std::process::id(),
@@ -70,7 +91,6 @@ fn boot(
     let (tx, rx) = mpsc::channel();
     let block_path = dir.join("blocks.ndjson");
     let rewards = dir.join("rewards.ndjson");
-    let scenario = scenario_path();
     let shutdown = Arc::new(Notify::new());
     let shutdown_for_node = shutdown.clone();
     let handle = thread::spawn(move || {
@@ -318,4 +338,45 @@ fn named_network_boot_binds_to_compiled_preset() {
         "refusal must name the network: {err}"
     );
     let _ = fs::remove_dir_all(&bad.dir);
+}
+
+// SC.7 (4th review) — on a NAMED network the admission floor must be the
+// consensus floor: a calibration whose MinShareScoreMultiplier diverges
+// from the Tier-2 rule constant refuses to boot (the builder commits the
+// constant regardless, so the divergent knob could only skew what this
+// node admits away from what every replay enforces). Unnamed/fixture
+// runs keep the knob as node-local ops config (ADR-0014 Tier-3).
+#[test]
+fn named_network_boot_fails_fast_on_non_consensus_multiplier() {
+    let raw = fs::read_to_string(scenario_path()).expect("scenario fixture");
+    let mut doc: Value = serde_json::from_str(&raw).expect("scenario json");
+    doc["cfg"]["MinShareScoreMultiplier"] = serde_json::json!(2.0);
+    let dir = std::env::temp_dir().join(format!(
+        "boole-sc7-multiplier-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("tmp dir");
+    let patched = dir.join("scenario.json");
+    fs::write(&patched, serde_json::to_string_pretty(&doc).expect("json")).expect("write");
+
+    let bad = boot_with_scenario(
+        "multiplier-diverged",
+        patched,
+        None,
+        Some("boole-dev".to_string()),
+        None,
+        None,
+    );
+    bad.shutdown.notify_one();
+    let joined = bad.handle.join().expect("server thread");
+    let err =
+        joined.expect_err("a non-consensus multiplier must refuse to boot on a named network");
+    assert!(
+        err.to_string().contains("MinShareScoreMultiplier"),
+        "refusal must name the knob: {err}"
+    );
+    let _ = fs::remove_dir_all(&bad.dir);
+    let _ = fs::remove_dir_all(&dir);
 }

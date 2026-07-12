@@ -1276,6 +1276,25 @@ impl LocalNodeState {
                      that name (ADR-0014 / N5.2)"
                 );
             }
+            // SC.7 — on a NAMED network the admission floor must be the
+            // consensus floor: the builder commits the Tier-2 rule
+            // constant (never the calibration knob), so a divergent
+            // knob would only skew what this node admits away from what
+            // every replay enforces. The knob stays a legitimate
+            // node-local lever for unnamed/fixture runs (ADR-0014 Tier-3
+            // admission classification); a named network refuses it.
+            if runtime_config.policy.min_share_score_multiplier_nanos
+                != boole_core::MIN_SHARE_SCORE_MULTIPLIER_NANOS
+            {
+                anyhow::bail!(
+                    "network {node_network_id} requires the consensus \
+                     MinShareScoreMultiplier ({} nanos, Tier-2 rule constant since rule \
+                     v3 — ADR-0014 (c-1)), but this node's calibration configures {} \
+                     nanos — refusing to boot with a non-consensus admission floor",
+                    boole_core::MIN_SHARE_SCORE_MULTIPLIER_NANOS,
+                    runtime_config.policy.min_share_score_multiplier_nanos
+                );
+            }
         }
         if let (Some(dir), Some(_)) = (config.state_dir.as_ref(), state_dir_guard.as_ref()) {
             let manifest = StateManifest::now(&node_network_id, BINARY_SHA, &genesis_spec_hash);

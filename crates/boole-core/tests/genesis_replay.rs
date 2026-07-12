@@ -92,6 +92,18 @@ fn block_at(
     t_block: &str,
     shares: Vec<(SelectedShareEvidence, String)>,
 ) -> PersistedBlock {
+    block_at_with_t_share(prev_c, t_block, T_MAX, shares)
+}
+
+/// SC.7 — variant that lets a test author the block's self-declared
+/// `t_share` (still arithmetically consistent with its `minShareScore`),
+/// so the genesis-binding rejection is the only thing that can fire.
+fn block_at_with_t_share(
+    prev_c: &str,
+    t_block: &str,
+    t_share: &str,
+    shares: Vec<(SelectedShareEvidence, String)>,
+) -> PersistedBlock {
     let evidence: Vec<SelectedShareEvidence> = shares.iter().map(|(e, _)| e.clone()).collect();
     let pks: Vec<String> = evidence.iter().map(|e| e.pk.clone()).collect();
     let hashes: Vec<String> = shares.iter().map(|(_, h)| h.clone()).collect();
@@ -107,12 +119,17 @@ fn block_at(
         selected_share_reward_pks: vec![],
         proposer_reward_pk: String::new(),
         selected_share_evidence: evidence,
-        min_share_score: "1".to_string(),
+        min_share_score: boole_core::min_share_score(
+            &boole_core::parse_biguint_hex(t_share).expect("t_share parses"),
+            1_000_000_000,
+        )
+        .expect("min share score computes")
+        .to_string(),
         min_share_score_multiplier_nanos: 1_000_000_000,
         kmax_applied,
         difficulty_epoch: 0,
         t_block: t_block.to_string(),
-        t_share: T_MAX.to_string(),
+        t_share: t_share.to_string(),
         difficulty_weight: "1".to_string(),
         dropped_below_min_score: 0,
         dropped_kernel_reject: 0,
@@ -217,5 +234,66 @@ fn replay_with_genesis_rejects_empty_seed_when_required() {
     assert!(
         err.to_string().contains("seed"),
         "expected a seed-binding error: {err}"
+    );
+}
+
+// SC.7 — the share threshold must come from the genesis commitment, not
+// the block's own claim ("the examinee writes the passing grade on the
+// answer sheet"). A block whose self-declared `t_share` diverges from
+// `GenesisSpec.params.t_share` is rejected even when its declared
+// `minShareScore` is arithmetically consistent with that self-declared
+// value.
+#[test]
+fn replay_rejects_block_whose_t_share_diverges_from_genesis() {
+    let divergent = vec![block_at_with_t_share(
+        ZEROS,
+        T_MAX,
+        T_EASED,
+        vec![share_at(ZEROS, PK_A, J_A, 0x11)],
+    )];
+
+    let err = replay_blocks_with_genesis(&divergent, &spec(ZEROS, 4, false))
+        .expect_err("a t_share diverging from the genesis commitment must reject");
+    assert!(
+        err.to_string().contains("t_share"),
+        "error should name the t_share divergence: {err}"
+    );
+
+    // Control: the same block shape with the genesis-committed t_share replays.
+    let aligned = vec![block_at_with_t_share(
+        ZEROS,
+        T_MAX,
+        T_MAX,
+        vec![share_at(ZEROS, PK_A, J_A, 0x11)],
+    )];
+    replay_blocks_with_genesis(&aligned, &spec(ZEROS, 4, false))
+        .expect("genesis-aligned t_share must replay");
+}
+
+// SC.7 (2nd review item 2) — the share-threshold verdict is a pure
+// function of (block, genesis/rule): `t_share`/`minShareScore` live
+// OUTSIDE the block.v3 preimage, so two blocks can share a hash while
+// declaring different thresholds — the genesis binding is what keeps one
+// hash from carrying two verdicts. Pinned: hash-equal variants exist,
+// and replay accepts exactly the genesis-committed one.
+#[test]
+fn same_block_hash_implies_same_share_threshold_verdict() {
+    let aligned =
+        block_at_with_t_share(ZEROS, T_MAX, T_MAX, vec![share_at(ZEROS, PK_A, J_A, 0x11)]);
+    let variant = block_at_with_t_share(
+        ZEROS,
+        T_MAX,
+        T_EASED,
+        vec![share_at(ZEROS, PK_A, J_A, 0x11)],
+    );
+    assert_eq!(
+        aligned.c, variant.c,
+        "t_share is outside the preimage — the variants must share one hash"
+    );
+
+    replay_blocks_with_genesis(&[aligned], &spec(ZEROS, 4, false))
+        .expect("the genesis-committed variant replays");
+    replay_blocks_with_genesis(&[variant], &spec(ZEROS, 4, false)).expect_err(
+        "the hash-equal variant with a divergent threshold must reject — one hash, one verdict",
     );
 }

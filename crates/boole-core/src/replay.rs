@@ -212,6 +212,13 @@ pub fn replay_blocks_with_genesis_and_registry(
         }
         None => validate_static_difficulty(blocks, &spec.params.t_block)?,
     }
+    // SC.7 — the share threshold comes from the genesis commitment, not
+    // the block's own claim. Unlike t_block, t_share has no retarget
+    // schedule (the retarget policy adjusts the proposer threshold
+    // only), so the binding is value equality at every height under
+    // both difficulty modes; a future t_share schedule would replace
+    // this with its own derivation.
+    validate_static_t_share(blocks, &spec.params.t_share)?;
     replay_blocks_with_rules(
         blocks,
         EvidencePolicy::Strict,
@@ -236,6 +243,25 @@ fn validate_static_difficulty(
                 block.height,
                 block.t_block,
                 initial_t_block
+            );
+        }
+    }
+    Ok(())
+}
+
+/// SC.7 — every block's self-declared `t_share` must equal the
+/// genesis-committed value. Value equality (not byte equality) so hex
+/// formatting differences cannot fork nodes.
+fn validate_static_t_share(blocks: &[PersistedBlock], genesis_t_share: &str) -> anyhow::Result<()> {
+    let expected = crate::parse_biguint_hex(genesis_t_share)?;
+    for block in blocks {
+        let got = crate::parse_biguint_hex(&block.t_share)?;
+        if got != expected {
+            anyhow::bail!(
+                "t_share mismatch at height {}: got {}, genesis commits {}",
+                block.height,
+                block.t_share,
+                genesis_t_share
             );
         }
     }

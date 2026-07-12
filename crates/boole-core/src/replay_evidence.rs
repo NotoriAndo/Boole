@@ -59,8 +59,8 @@ pub(crate) fn verify_selected_share_evidence(
     }
     let t_share = parse_biguint_hex(&block.t_share)?;
     let expected_min_share_score =
-        min_share_score(&t_share, block.min_share_score_multiplier_nanos)?.to_string();
-    if block.min_share_score != expected_min_share_score {
+        min_share_score(&t_share, block.min_share_score_multiplier_nanos)?;
+    if block.min_share_score != expected_min_share_score.to_string() {
         anyhow::bail!(
             "selected share evidence minShareScore mismatch: got {}, expected {}",
             block.min_share_score,
@@ -117,13 +117,32 @@ pub(crate) fn verify_selected_share_evidence(
         let n = Hex32::from_hex(&evidence.n)?;
         let j = Hex32::from_hex(&evidence.j)?;
         let canon_hash = Hex32::from_hex(&evidence.canon_hash)?;
-        let expected_share_hash = share_hash(&c, &pk, &n, &j, &canon_hash).to_hex();
+        let expected_share_hash_digest = share_hash(&c, &pk, &n, &j, &canon_hash);
+        let expected_share_hash = expected_share_hash_digest.to_hex();
         if expected_share_hash != block.selected_share_hashes[idx] {
             anyhow::bail!(
                 "selected share evidence shareHash mismatch at index {}: got {}, expected {}",
                 idx,
                 expected_share_hash,
                 block.selected_share_hashes[idx]
+            );
+        }
+
+        // SC.7 (masterplan audit item 1, Critical) — the committed floor
+        // is only meaningful if every selected share actually clears it:
+        // re-derive the share's score from its (already re-derived) hash
+        // — a pure function — and reject the block on any shortfall.
+        // Until this check, replay verified the DECLARED minimum's
+        // arithmetic but never ran the per-share predicate, so a block
+        // could commit shares below its own floor.
+        let score = crate::share_score(&expected_share_hash_digest);
+        if score < expected_min_share_score {
+            anyhow::bail!(
+                "selected share at index {} scores {}, below the committed minimum share \
+                 score {}",
+                idx,
+                score,
+                expected_min_share_score
             );
         }
 

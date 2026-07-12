@@ -106,16 +106,21 @@ impl BlockBuilderConfig {
         t_block: String,
         difficulty_epoch: u64,
     ) -> anyhow::Result<Self> {
+        // SC.7 — the committed multiplier (and the floor derived from
+        // it) comes from the Tier-2 rule constant, NEVER from the
+        // calibration knob: replay enforces the constant (W1.a), so a
+        // builder honoring a divergent local knob would produce blocks
+        // its own replay can never accept.
         let min_share_score = min_share_score(
             &policy.thresholds.t_share,
-            policy.min_share_score_multiplier_nanos,
+            crate::rules::MIN_SHARE_SCORE_MULTIPLIER_NANOS,
         )?;
         let t_block_value = parse_biguint_hex(&t_block)?;
         Ok(Self {
             t_block,
             t_share: format!("0x{:064x}", policy.thresholds.t_share),
             min_share_score,
-            min_share_score_multiplier_nanos: policy.min_share_score_multiplier_nanos,
+            min_share_score_multiplier_nanos: crate::rules::MIN_SHARE_SCORE_MULTIPLIER_NANOS,
             k_max: policy.k_max,
             difficulty_epoch,
             difficulty_weight: difficulty_weight(&t_block_value)?.to_string(),
