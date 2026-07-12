@@ -45,8 +45,12 @@ class ModelBenchmarkArtifactTests(unittest.TestCase):
         cfg = scenario["cfg"]
         for key in ["T_submit", "T_share", "T_block", "T_ticket"]:
             self.assertEqual(cfg[key], valid_report[key])
-        for key in ["MinShareScoreMultiplier", "L", "D_max", "EMAWindow", "M"]:
+        for key in ["L", "D_max", "EMAWindow", "M"]:
             self.assertEqual(cfg[key], valid_report[key])
+        # SC W1.a (rule set v3): the min-share-score multiplier's consensus
+        # source is the Tier-2 rule constant (1.0), no longer the
+        # calibration report — replay rejects any other declared value.
+        self.assertEqual(cfg["MinShareScoreMultiplier"], 1)
         self.assertEqual(cfg["K_max"], 100000)
         self.assertEqual(cfg["SharePoolGlobalCap"], 100000)
         self.assertEqual(cfg["ShareCapPerPK_Block"], 100000)
