@@ -65,6 +65,29 @@ fn calibration_policy_types_numeric_runtime_fields() {
         valid.report.perIpRateLimitPer60s as usize
     );
     assert_eq!(policy.min_share_score_multiplier_nanos, 2_000_000_000);
+
+    // SC.7 (3rd/4th review — validator/producer single source): the
+    // calibration knob stays parseable as node-local ops config, but the
+    // BLOCK BUILDER derives the committed multiplier (and the floor) from
+    // the Tier-2 rule constant, never from this knob — otherwise a node
+    // with a non-consensus calibration would produce blocks its own
+    // replay (which enforces the constant since W1.a) can never accept.
+    let cfg = boole_core::BlockBuilderConfig::from_policy(&policy)
+        .expect("builder config derives from policy");
+    assert_eq!(
+        cfg.min_share_score_multiplier_nanos,
+        boole_core::MIN_SHARE_SCORE_MULTIPLIER_NANOS,
+        "producer must emit the consensus rule constant, not the local knob"
+    );
+    assert_eq!(
+        cfg.min_share_score,
+        boole_core::min_share_score(
+            &policy.thresholds.t_share,
+            boole_core::MIN_SHARE_SCORE_MULTIPLIER_NANOS,
+        )
+        .expect("min share score computes"),
+        "the committed floor must be derived from the consensus constant"
+    );
 }
 
 #[test]

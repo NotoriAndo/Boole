@@ -266,6 +266,30 @@ fn replay_rejects_block_authored_score_multiplier() {
     assert_replay_error_contains(block, "consensus rule constant");
 }
 
+// SC.7 (masterplan audit item 1, Critical) — replay must re-derive every
+// selected share's ACTUAL score and reject the block when any share falls
+// below the committed minimum. Before this slice replay only checked the
+// declared minimum's arithmetic (t_share x multiplier); no code path ever
+// executed `share_score(rederived_share_hash) >= expected_min_share_score`,
+// so a block could commit shares below its own floor.
+#[test]
+fn replay_rejects_selected_share_below_committed_min_score() {
+    let mut block = evidence_backed_block();
+    // A tiny t_share makes the committed floor astronomically high
+    // (min = 2^256 / t_share), so the block's real share (score derived
+    // from its hash) is guaranteed below it. The declared minimum stays
+    // arithmetically consistent — only the per-share re-check can reject.
+    block.t_share = format!("0x{:064x}", 1);
+    block.min_share_score = min_share_score(
+        &parse_biguint_hex(&block.t_share).expect("t_share parses"),
+        block.min_share_score_multiplier_nanos,
+    )
+    .expect("min share score computes")
+    .to_string();
+
+    assert_replay_error_contains(block, "below the committed minimum share score");
+}
+
 fn assert_replay_error_contains(block: PersistedBlock, expected: &str) {
     let err = replay_blocks(&[block]).expect_err("tampered selected share evidence is rejected");
     assert!(

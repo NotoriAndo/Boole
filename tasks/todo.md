@@ -1130,3 +1130,33 @@ claim 아님.
 - [x] 5차 2·3번(trait 필수화, wire v2 개명 + miner 응답 필수 검증) = SC.2-f2 이월 등록
 - [x] 5차 4번(SC.7 잔여·peer replay 이연) 기존 등록 확인 + claim 경계 재확인
 - [ ] 최종 focused GREEN → NotoriAndo 커밋 → PR → CI → 머지
+
+---
+
+# SC.7 — share 문턱의 합의 결박 (2026-07-12 착수, 운영자 승인 "1번 진행해")
+
+Critical 감사 1번(per-share 점수 검증 부재) + t_share 자기 선언 + 생산자/검증자
+multiplier 단일 소스. 전부 enforcement-only(스키마 무변경).
+
+- [x] RED `replay_rejects_selected_share_below_committed_min_score` — 실패 직접 확인
+      (기준 미달 share 블록이 replay 통과함을 실증)
+- [x] RED `replay_rejects_block_whose_t_share_diverges_from_genesis` — 실패 직접 확인
+- [x] RED `same_block_hash_implies_same_share_threshold_verdict` — 실패 직접 확인
+      (t_share가 preimage 밖 → 같은 해시·다른 문턱 변종 실존을 테스트가 고정)
+- [x] GREEN A: replay가 모든 선택 share의 점수를 재계산해 committed floor 미달 시 거절
+      (`share_score(재유도 hash) >= min`) + genesis `t_share` 값 동등 결박
+      (retarget은 t_block만 조정 — 문서화) — replay 인접 12개 스위트 전부 GREEN
+- [x] RED `producer_never_emits_non_consensus_multiplier` (config_fixtures) — 실패 확인
+- [x] RED `named_network_boot_fails_fast_on_non_consensus_multiplier` (runtime_policy_boot)
+      — 실패 확인
+- [x] GREEN B: builder가 rule 상수 직접 커밋(`from_policy_with_t_block`) + **named
+      network** boot가 비합의 calibration 거부 — config_fixtures 6/6,
+      genesis_network_binding 4/4, runtime_policy_boot 9/9, builder 회귀 전부 GREEN
+      · 결정 기록: 거부 지점을 `from_calibration_report`(1차 시도)에서 named-network
+      preset 결박 분기(local_node.rs)로 이전 — admission 골든 fixture(multiplier 2,
+      합법적 node-local 설정·ADR-0014 Tier-3)와의 충돌 발견이 계기. 이름 붙은 망만
+      상수 강제, unnamed/fixture 런은 종전대로
+- [ ] `self_produced_block_survives_strict_replay` — SC.5(boot/live parity)로 위임
+      (genesis를 runtime에 배선하는 작업이 SC.5 본체와 중복; B1+B2가 구체 벡터 차단)
+- [ ] 합의 티어 게이트: runtime-smoke-all + proof-to-block-benchmark 직접 확인
+- [ ] NotoriAndo 커밋 → PR → CI → 머지 → 보고
