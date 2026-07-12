@@ -774,3 +774,12 @@ Some("boole-testnet")` 라벨). 노드 부팅 경로를 바꾸는 slice의 focus
 계열)를 반드시 포함할 것. 또한 기존에 라벨로 쓰이던 이름에 새 의미(컴파일
 preset)를 부여할 때는 사용처 grep을 구현 전에 — 이름 충돌은 컴파일 에러가
 아니라 런타임 거부로 나타난다.
+
+## L8 — 커밋 게이트에 python 계약 테스트 포함 (2026-07-12, CI 반송)
+리셋 창 PR에서 rust focused+smoke+clippy만 로컬 확인하고 push → CI self-test의
+python-script-tests 단계(스크립트 계약 테스트, scripts/test_*.py)에서 2건 FAIL
+반송. 원인: 소스-계약 테스트(코드 본문 grep)와 fixture-계약 테스트는 rust 게이트
+밖에 있는데, production 코드 구조 변경(함수 이동)과 fixture 값 변경이 이들을
+직접 깨뜨림. 규칙: **production 코드의 함수 시그니처/구조 변경 또는 fixture 값
+변경이 있는 slice는 커밋 전 `python3 -m unittest scripts.test_*` (또는 최소한
+변경 파일을 grep하는 계약 테스트 모듈)를 focused 게이트에 포함**한다.
