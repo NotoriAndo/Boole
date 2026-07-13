@@ -583,6 +583,13 @@ enum StateCommand {
         /// store's persisted Lean-bound shares (see above).
         #[arg(long)]
         blocks: Option<PathBuf>,
+        /// SC.5 — verify against a compiled network preset's genesis
+        /// (strict genesis-aware replay: anchor, k_max, difficulty, seed
+        /// policy, evidence — the same contract the node's boot and
+        /// ingest enforce). Without it, the legacy evidence-tolerant
+        /// replay is used (offline audit of pre-genesis fixture chains).
+        #[arg(long, value_enum)]
+        network: Option<NetworkPreset>,
         /// Run the P1.4 deep verification pass over the bounty audit
         /// ledger. Requires `--bounty-events`.
         #[arg(long)]
@@ -896,12 +903,14 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Some(Command::State { command }) => match command {
             StateCommand::Verify {
                 blocks,
+                network,
                 deep,
                 bounty_events,
                 lean_checker_dir,
                 json,
             } => state_verify_dispatch(
                 blocks.as_deref(),
+                network,
                 deep,
                 bounty_events.as_deref(),
                 lean_checker_dir.as_deref(),
@@ -1021,6 +1030,7 @@ struct ReplayFixture {
 
 fn state_verify_dispatch(
     blocks_path: Option<&Path>,
+    network: Option<NetworkPreset>,
     deep: bool,
     bounty_events_path: Option<&Path>,
     lean_checker_dir: Option<&Path>,
@@ -1049,7 +1059,7 @@ fn state_verify_dispatch(
             }),
         );
     });
-    state_verify(blocks, json)
+    state_verify(blocks, network, json)
 }
 
 /// The only family profile the live v1 mining path grinds today (see the
@@ -1225,7 +1235,11 @@ fn state_verify_deep(
 /// P2.5 — failures emit a typed `{ok:false, reason, ...}` envelope on
 /// stderr and exit with the rest-of-CLI contract: 2 for operator/usage
 /// errors (missing file), 3 for replay/state corruption.
-fn state_verify(blocks_path: &Path, json: bool) -> anyhow::Result<()> {
+fn state_verify(
+    blocks_path: &Path,
+    network: Option<NetworkPreset>,
+    json: bool,
+) -> anyhow::Result<()> {
     // P2.5: `--json` flips every exit path through the unified envelope
     // (`{"ok":..,"version":"v1","command":"state.verify",..}`) with
     // kebab-case `reason` tokens. Default-mode (PlainText) keeps the
@@ -1271,19 +1285,46 @@ fn state_verify(blocks_path: &Path, json: bool) -> anyhow::Result<()> {
             }),
         );
     });
-    // N3-pre.1 — `state verify` is an offline/local replay tool over an
-    // operator-supplied blocks file (may predate `selectedShareEvidence`),
-    // so it opts into the legacy evidence-less path explicitly rather than
-    // relying on strict `replay_blocks`.
+    // SC.5 — with `--network`, verify under the compiled preset's
+    // genesis: the SAME strict contract the node's boot and ingest
+    // enforce (one chain, one verdict, every path). Without it, the
+    // legacy evidence-tolerant replay remains for offline audits of
+    // pre-genesis fixture chains (N3-pre.1 posture).
     // §SC reset window — offline CLI replay has no family manifest dir
-    // flag yet (SC.5 CLI genesis-aware transition); an empty registry
-    // means a chain carrying promoted bounty shares fails verify here
-    // with a typed unknown-family error instead of trusting amounts.
-    let replay = boole_core::replay_blocks_allow_legacy_evidence_less(
-        store.blocks(),
-        boole_core::LegacyEvidenceOptIn::for_legacy_replay_only(),
-        &boole_core::FamilyManifestRegistry::new(),
-    )
+    // flag yet; an empty registry means a chain carrying promoted bounty
+    // shares fails verify here with a typed unknown-family error instead
+    // of trusting amounts.
+    let replay = match network {
+        Some(preset) => {
+            // Explicit preset→genesis mapping (the P2.10 envelope
+            // network_id "boole-testnet" names the LINE; the compiled
+            // genesis instance is versioned): a preset without a
+            // compiled genesis is a typed error, never a silent
+            // fallback to the legacy-tolerant replay.
+            let genesis_network_id = match preset {
+                NetworkPreset::Dev => "boole-dev",
+                NetworkPreset::Testnet => "boole-testnet-2",
+                NetworkPreset::Mainnet => {
+                    emit_typed_error(
+                        "no_compiled_genesis",
+                        2,
+                        serde_json::json!({
+                            "network": "mainnet",
+                            "detail": "mainnet has no compiled genesis preset yet",
+                        }),
+                    );
+                }
+            };
+            let spec = boole_core::network_genesis_preset(genesis_network_id)
+                .expect("compiled preset exists for the mapped id");
+            boole_core::replay_blocks_with_genesis(store.blocks(), &spec)
+        }
+        None => boole_core::replay_blocks_allow_legacy_evidence_less(
+            store.blocks(),
+            boole_core::LegacyEvidenceOptIn::for_legacy_replay_only(),
+            &boole_core::FamilyManifestRegistry::new(),
+        ),
+    }
     .unwrap_or_else(|err| {
         if json {
             state_verify_emit_err(

@@ -526,26 +526,12 @@ fn now_unix_ms() -> u128 {
 /// tight enough that a self-reported `ts` cannot pre-stage a large forward
 /// drift for a later median-time-past window. N3.3's p2p ingress is
 /// expected to reuse this same boundary guard for peer-submitted blocks.
-const BLOCK_TS_MAX_FUTURE_DRIFT_MS: u64 = 2 * 60 * 60 * 1000;
+const BLOCK_TS_MAX_FUTURE_DRIFT_MS: u64 = crate::runtime::BLOCK_TS_MAX_FUTURE_DRIFT_MS;
 
-/// Rejects a block `ts` that lies more than `BLOCK_TS_MAX_FUTURE_DRIFT_MS`
-/// ahead of `now_ms`. `now_ms` is threaded in explicitly (rather than read
-/// internally via `now_unix_ms`) so this stays a pure, directly
-/// unit-testable function; the real self-produce call site passes
-/// `now_unix_ms()`.
-fn check_block_ts_future_drift(ts_ms: u64, now_ms: u64) -> anyhow::Result<()> {
-    let max_allowed_ms = now_ms.saturating_add(BLOCK_TS_MAX_FUTURE_DRIFT_MS);
-    if ts_ms > max_allowed_ms {
-        anyhow::bail!(
-            "block ts {} exceeds the future-drift bound: now={} maxAllowedMs={} (driftBoundMs={})",
-            ts_ms,
-            now_ms,
-            max_allowed_ms,
-            BLOCK_TS_MAX_FUTURE_DRIFT_MS
-        );
-    }
-    Ok(())
-}
+// SC.5 — the guard itself moved to `runtime::check_block_ts_future_drift`
+// so the reorg candidate path (runtime) applies the SAME boundary as the
+// self-produce and extend-by-one ingest call sites here.
+use crate::runtime::check_block_ts_future_drift;
 
 fn now_unix_secs() -> u64 {
     SystemTime::now()
@@ -1314,16 +1300,21 @@ impl LocalNodeState {
             None => FamilyManifestRegistry::new(),
         };
         // Always route through boot_from_store so the reward-ledger path is
-        // initialized uniformly. For an empty chain, replay returns the all-
-        // zero genesis hash; the scenario's `genesis_c` (possibly overridden
-        // via --genesis) is restored below so the runtime head matches the
-        // configured genesis instead of the replay default.
-        let mut runtime = RuntimeAdmissionState::boot_from_store_with_bounty_ledger_and_registry(
+        // initialized uniformly. SC.5 (GAP-08) — the served node boots
+        // under the SAME genesis-aware strict replay live ingest/reorg
+        // use (one chain, one verdict), so the legacy evidence-less
+        // opt-in is structurally unreachable from here. For an empty
+        // chain, replay returns the spec's genesis anchor; the scenario's
+        // `genesis_c` (possibly overridden via --genesis) is restored
+        // below so the runtime head matches the configured genesis.
+        let boot_genesis = runtime_config.genesis_spec(&node_network_id, &scenario.genesis_c);
+        let mut runtime = RuntimeAdmissionState::boot_from_store_with_genesis(
             runtime_config,
             &config.block_path,
             config.reward_ledger_path.clone(),
             config.bounty_event_ledger_path.clone(),
             family_manifest_registry.clone(),
+            &boot_genesis,
         )?;
         if recovered.size() == 0 {
             runtime.set_current_c(scenario.genesis_c.clone());
