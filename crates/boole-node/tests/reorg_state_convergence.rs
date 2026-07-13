@@ -128,7 +128,16 @@ fn build_chain(
     let mut blocks = Vec::new();
     let mut prev_c = GENESIS_C.to_string();
     for h in 0..count {
-        let admit_ts: i64 = 1_800_000_000_000 + (h as i64) * 61_000;
+        // SC.5 — anchor the hand-built chain near the present: the reorg
+        // path now applies the same tip future-drift guard direct ingest
+        // uses, so a fixed far-future base (the old 1_800_000_000_000 ≈
+        // 2027) would be rejected as beyond the 2h allowance.
+        let base_ms: i64 = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_millis() as i64
+            - 3_600_000;
+        let admit_ts: i64 = base_ms + (h as i64) * 61_000;
         let mut body = base_body.clone();
         body.insert("c".to_string(), Value::String(prev_c.clone()));
         body.insert(

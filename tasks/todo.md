@@ -1160,3 +1160,36 @@ multiplier 단일 소스. 전부 enforcement-only(스키마 무변경).
       (genesis를 runtime에 배선하는 작업이 SC.5 본체와 중복; B1+B2가 구체 벡터 차단)
 - [ ] 합의 티어 게이트: runtime-smoke-all + proof-to-block-benchmark 직접 확인
 - [ ] NotoriAndo 커밋 → PR → CI → 머지 → 보고
+
+---
+
+# SC.5 — boot/live replay parity (2026-07-12 착수, 운영자 승인 "추천작업진행해")
+
+GAP-08 Critical: 재부팅 시 자기 디스크 체인엔 관용 검사(legacy opt-in, zero 앵커,
+k_max/seed 미강제), 네트워크 유입 체인엔 strict genesis 검사 — 같은 체인이 경로별로
+다르게 판정. + 2차 검토 9(reorg 후보가 future-drift 가드 우회) + SC.7 위임분
+(self-produce strict replay). spec = L1 master §SC.5.
+
+## 작업 항목 (TDD 순서)
+- [x] RED `boot_rejects_chain_rejected_by_live_ingest` — 4종 corpus(evidence-less /
+      k_max 초과 / 빈 seedHex(seed 필수 시) / 이질 앵커)를 boot·ingest 양쪽에 급식,
+      판정 동일 단언 (runtime_policy_boot 또는 신설 binary)
+- [x] GREEN: `boot_from_store*`가 `RuntimeConfig::genesis_spec()` 기반 strict replay로
+      전환, "no p2p ingest path yet" stale 주석 정정
+- [x] legacy 진입점(`LegacyEvidenceOptIn`)을 named network에서 구조적 접근 불가로
+- [x] RED `reorg_rejects_candidate_suffix_beyond_future_drift` — ingest는 거부하는
+      미래 ts suffix를 reorg가 채택하면 Fail (`check_block_ts_future_drift` 호출처가
+      local_node.rs:4426/:4722 2곳뿐 — sync_with_peer→reorg 경로 우회 확인됨)
+- [x] GREEN: reorg 후보 suffix의 near-tip 높이에 future-drift 가드 적용
+- [x] RED `self_produced_block_survives_strict_replay` (SC.7 위임) — commit 전
+      cache+block strict replay; genesis를 runtime에 배선(boot 전환과 같은 표면)
+- [x] CLI `state verify` genesis-aware 전환 — `--network` opt-in strict replay (preset→genesis 명시 매핑, 조용한 폴백 금지; mainnet은 typed 오류)
+- [x] store fixture 중 legacy 관용 의존분 전수 확인 — fallout 2건 수리: account_balance_route(legacy v1 시딩→라이브 커밋 전환; v2 golden은 t_block==t_share라 유효 genesis 불가 확인), reorg_state_convergence(미래 고정 ts→현재 기준 재정렬) (W1 리셋으로 대부분 재생성 —
+      잔존분만)
+- [ ] focused: runtime_policy_boot + replay_fixtures + reorg_state_convergence +
+      p2p_block_propagation(--include-ignored)
+- [ ] 합의 티어 게이트: runtime-smoke-all + proof-to-block-benchmark 직접 확인
+- [ ] NotoriAndo 커밋 → 브랜치 push → PR → CI green → auto-merge → remote 검증 → 보고
+
+주의: closed-local + CI only, public claim 아님. 진행 보고는 텔레그램(chat_id
+1311067056)으로.

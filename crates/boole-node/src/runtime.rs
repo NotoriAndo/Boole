@@ -148,6 +148,31 @@ impl RuntimeConfig {
     }
 }
 
+/// N2.2 — hard upper bound on how far a block `ts` may sit ahead of the
+/// node's clock ("future drift"): generous enough to absorb real clock
+/// skew between operators, tight enough that a self-reported `ts` cannot
+/// pre-stage a large forward drift for a later median-time-past window.
+/// SC.5 moved it here so self-produce, extend-by-one ingest, AND the
+/// reorg candidate path share one boundary.
+pub(crate) const BLOCK_TS_MAX_FUTURE_DRIFT_MS: u64 = 2 * 60 * 60 * 1000;
+
+/// Rejects a block `ts` that lies more than `BLOCK_TS_MAX_FUTURE_DRIFT_MS`
+/// ahead of `now_ms`. `now_ms` is threaded in explicitly so this stays a
+/// pure, directly unit-testable function.
+pub(crate) fn check_block_ts_future_drift(ts_ms: u64, now_ms: u64) -> anyhow::Result<()> {
+    let max_allowed_ms = now_ms.saturating_add(BLOCK_TS_MAX_FUTURE_DRIFT_MS);
+    if ts_ms > max_allowed_ms {
+        anyhow::bail!(
+            "block ts {} exceeds the future-drift bound: now={} maxAllowedMs={} (driftBoundMs={})",
+            ts_ms,
+            now_ms,
+            max_allowed_ms,
+            BLOCK_TS_MAX_FUTURE_DRIFT_MS
+        );
+    }
+    Ok(())
+}
+
 pub struct RuntimeCommittedBlock {
     pub block: PersistedBlock,
     pub dropped_stale_shares: usize,
@@ -190,6 +215,12 @@ pub struct RuntimeAdmissionState {
     /// node runs without family manifests: chains carrying promoted
     /// bounty shares then reject.
     family_registry: FamilyManifestRegistry,
+    /// SC.5 — the genesis spec this runtime booted under (present iff
+    /// booted via `boot_from_store_with_genesis`, i.e. every served
+    /// node). When present, the self-produce commit strict-replays
+    /// cache+block under it BEFORE anything reaches disk, so the node
+    /// can never persist a chain its own reboot would refuse.
+    boot_genesis: Option<boole_core::GenesisSpec>,
 }
 
 impl RuntimeAdmissionState {
@@ -203,6 +234,7 @@ impl RuntimeAdmissionState {
             reward_ledger_path: None,
             reward_ledger: None,
             family_registry: FamilyManifestRegistry::new(),
+            boot_genesis: None,
             config,
         }
     }
@@ -257,34 +289,86 @@ impl RuntimeAdmissionState {
         bounty_event_ledger_path: Option<PathBuf>,
         family_registry: FamilyManifestRegistry,
     ) -> anyhow::Result<Self> {
+        Self::boot_from_store_inner(
+            config,
+            block_path,
+            reward_ledger_path,
+            bounty_event_ledger_path,
+            family_registry,
+            None,
+        )
+    }
+
+    /// SC.5 (GAP-08) — genesis-aware boot: the node's OWN block store is
+    /// replayed under the SAME strict contract live ingest/reorg use
+    /// (`replay_blocks_with_genesis_and_registry` — anchor, difficulty,
+    /// k_max, seed policy, evidence all enforced). The node boot path
+    /// (`local_node`) always routes here, so the legacy evidence-less
+    /// opt-in below is structurally unreachable for a served network; it
+    /// survives only for pre-genesis fixture/test callers.
+    pub fn boot_from_store_with_genesis(
+        config: RuntimeConfig,
+        block_path: impl AsRef<Path>,
+        reward_ledger_path: Option<PathBuf>,
+        bounty_event_ledger_path: Option<PathBuf>,
+        family_registry: FamilyManifestRegistry,
+        genesis: &boole_core::GenesisSpec,
+    ) -> anyhow::Result<Self> {
+        Self::boot_from_store_inner(
+            config,
+            block_path,
+            reward_ledger_path,
+            bounty_event_ledger_path,
+            family_registry,
+            Some(genesis),
+        )
+    }
+
+    fn boot_from_store_inner(
+        config: RuntimeConfig,
+        block_path: impl AsRef<Path>,
+        reward_ledger_path: Option<PathBuf>,
+        bounty_event_ledger_path: Option<PathBuf>,
+        family_registry: FamilyManifestRegistry,
+        genesis: Option<&boole_core::GenesisSpec>,
+    ) -> anyhow::Result<Self> {
         let recovered = FileBlockStore::recover(block_path)?;
         let mut runtime = Self::new(config);
         runtime.family_registry = family_registry;
+        runtime.boot_genesis = genesis.cloned();
         // N1.3 (G2) — retarget-aware boot replay: when a retarget policy is
         // configured, fold its difficulty validation into replay (rejects a
         // forged epoch-boundary t_block) instead of a separate call.
         //
-        // N3-pre.1 — this replays the node's OWN local block store (never a
-        // peer-supplied chain: there is no p2p ingest path in this codebase
-        // yet), so it opts into the legacy evidence-less path. That keeps
-        // boot compatible with pre-evidence local chains/fixtures while a
-        // future p2p ingest replay path (not this function) stays on the
-        // strict `replay_blocks`/`replay_blocks_with_retarget` entry points,
-        // which have no parameter that could accept this opt-in.
-        let opt_in = LegacyEvidenceOptIn::for_legacy_replay_only();
-        let replay = match &runtime.config.difficulty_retarget {
-            Some(policy) => replay_blocks_with_retarget_allow_legacy_evidence_less(
+        // SC.5 — with a GenesisSpec the boot replay is the strict
+        // genesis-aware contract (one verdict for one chain, boot or
+        // live). The legacy evidence-less opt-in remains ONLY for
+        // pre-genesis fixture/test callers that boot without a spec; the
+        // served node path always passes one. (The pre-SC.5 comment
+        // claiming "there is no p2p ingest path in this codebase yet"
+        // was stale — N3.3/N4.3 landed ingest and reorg.)
+        let replay = if let Some(spec) = genesis {
+            replay_blocks_with_genesis_and_registry(
                 recovered.blocks(),
-                &format!("0x{:064x}", runtime.config.policy.thresholds.t_block),
-                policy,
-                opt_in,
+                spec,
                 &runtime.family_registry,
-            )?,
-            None => replay_blocks_allow_legacy_evidence_less(
-                recovered.blocks(),
-                opt_in,
-                &runtime.family_registry,
-            )?,
+            )?
+        } else {
+            let opt_in = LegacyEvidenceOptIn::for_legacy_replay_only();
+            match &runtime.config.difficulty_retarget {
+                Some(policy) => replay_blocks_with_retarget_allow_legacy_evidence_less(
+                    recovered.blocks(),
+                    &format!("0x{:064x}", runtime.config.policy.thresholds.t_block),
+                    policy,
+                    opt_in,
+                    &runtime.family_registry,
+                )?,
+                None => replay_blocks_allow_legacy_evidence_less(
+                    recovered.blocks(),
+                    opt_in,
+                    &runtime.family_registry,
+                )?,
+            }
         };
         // P1.3b — bounty-event ledger crash-mid-commit heal. The bounty-event
         // ledger is the LAST store written per block (block → reward →
@@ -548,6 +632,21 @@ impl RuntimeAdmissionState {
         let candidate_head = candidate
             .last()
             .ok_or_else(|| anyhow::anyhow!("reorg candidate chain is empty"))?;
+
+        // SC.5 (2nd review item 9) — the candidate path applies the same
+        // ts future-drift guard direct ingest applies to its tip.
+        // Replay's median-time-past check below is RELATIVE, so an
+        // all-future suffix would otherwise sail through and poison the
+        // retarget inputs once adopted. Tip-only on purpose: historical
+        // blocks are exempt (their ts sits in the past by construction —
+        // rejecting them would brick honest catch-up), and a chain whose
+        // interior runs ahead of a present-time tip trips the monotonic
+        // median check instead.
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        check_block_ts_future_drift(candidate_head.ts, now_ms)?;
 
         // 1. Strict replay from genesis (N5.1: the GenesisSpec is the
         //    consensus source — anchor, difficulty, k_max, seed policy).
@@ -909,6 +1008,22 @@ impl RuntimeAdmissionState {
         // is the only ordering where a crash between the two write steps
         // still leaves the on-disk store and the in-memory state in agreement.
         self.check_block_applicable(&block)?;
+        // SC.5 (SC.7 위임) — a genesis-booted runtime strict-replays the
+        // WHOLE chain-to-be (cache + candidate) before the append: prior
+        // to this, the commit path checked only linkage+shape, so a
+        // node whose local config diverged from its genesis could write
+        // a chain to disk that its own reboot (and every peer) rejects.
+        if let Some(genesis) = &self.boot_genesis {
+            let mut candidate = self.block_cache.clone();
+            candidate.push(block.clone());
+            replay_blocks_with_genesis_and_registry(&candidate, genesis, &self.family_registry)
+                .map_err(|err| {
+                    anyhow::anyhow!(
+                        "self-produced block at height {} fails the strict genesis replay                          this node itself enforces — refusing to commit it: {err:#}",
+                        block.height
+                    )
+                })?;
+        }
         FileBlockStore::append(block_path, &block)?;
         if let (Some(ledger_path), Some(ledger)) = (
             self.reward_ledger_path.as_ref(),
