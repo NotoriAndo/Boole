@@ -526,11 +526,10 @@ fn now_unix_ms() -> u128 {
 /// tight enough that a self-reported `ts` cannot pre-stage a large forward
 /// drift for a later median-time-past window. N3.3's p2p ingress is
 /// expected to reuse this same boundary guard for peer-submitted blocks.
-const BLOCK_TS_MAX_FUTURE_DRIFT_MS: u64 = crate::runtime::BLOCK_TS_MAX_FUTURE_DRIFT_MS;
-
-// SC.5 — the guard itself moved to `runtime::check_block_ts_future_drift`
-// so the reorg candidate path (runtime) applies the SAME boundary as the
-// self-produce and extend-by-one ingest call sites here.
+// SC.5 — the future-drift guard (and its bound constant) moved to
+// `runtime::check_block_ts_future_drift` so the reorg candidate path
+// (runtime) applies the SAME boundary as the self-produce and
+// extend-by-one ingest call sites here.
 use crate::runtime::check_block_ts_future_drift;
 
 fn now_unix_secs() -> u64 {
@@ -5582,14 +5581,20 @@ mod tests {
             .expect("ts within the future-drift bound must be accepted");
 
         // Exactly at the bound → still accepted (bound is inclusive).
-        check_block_ts_future_drift(now_ms + BLOCK_TS_MAX_FUTURE_DRIFT_MS, now_ms)
-            .expect("ts exactly at the future-drift bound must be accepted");
+        check_block_ts_future_drift(
+            now_ms + crate::runtime::BLOCK_TS_MAX_FUTURE_DRIFT_MS,
+            now_ms,
+        )
+        .expect("ts exactly at the future-drift bound must be accepted");
 
         // A ts far beyond the bound (a proposer trying to pre-stage a
         // large forward drift ahead of a later median-time-past window)
         // must be rejected.
-        let err = check_block_ts_future_drift(now_ms + BLOCK_TS_MAX_FUTURE_DRIFT_MS + 1, now_ms)
-            .expect_err("ts beyond the future-drift bound must be rejected");
+        let err = check_block_ts_future_drift(
+            now_ms + crate::runtime::BLOCK_TS_MAX_FUTURE_DRIFT_MS + 1,
+            now_ms,
+        )
+        .expect_err("ts beyond the future-drift bound must be rejected");
         let msg = err.to_string();
         assert!(
             msg.contains("future-drift"),
