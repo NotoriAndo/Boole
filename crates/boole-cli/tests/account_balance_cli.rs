@@ -5,7 +5,7 @@
 //! response shape. Mirrors the live-node testing pattern of
 //! `tests/node_block.rs` rather than mocking transport.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -13,29 +13,13 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use boole_core::{PersistedBlock, PersistedRewardEvent};
-use boole_node::FileBlockStore;
-use boole_node::FileRewardLedger;
 use boole_node::{serve_local_node, LocalNodeConfig};
 use boole_testkit::rand_suffix;
-use serde::Deserialize;
 use serde_json::Value;
+use std::net::TcpStream;
 
-const PK_2: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+const PK_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const PK_UNKNOWN: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-
-#[derive(Debug, Deserialize)]
-struct ReplayFixture {
-    blocks: Vec<PersistedBlock>,
-    #[serde(rename = "rewardEvents")]
-    reward_events: Vec<PersistedRewardEvent>,
-}
-
-fn replay_fixture() -> ReplayFixture {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/protocol/replay/v1.json");
-    let text = std::fs::read_to_string(&path).expect("read replay fixture");
-    serde_json::from_str(&text).expect("fixture parses")
-}
 
 fn scenario_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -56,13 +40,6 @@ fn boot_node_with_seeded_ledger(
     std::fs::create_dir_all(&dir).expect("tmp dir");
     let block_path = dir.join("blocks.ndjson");
     let reward_path = dir.join("rewards.ndjson");
-    let fix = replay_fixture();
-    for block in &fix.blocks {
-        FileBlockStore::append(&block_path, block).expect("append block");
-    }
-    for event in &fix.reward_events {
-        FileRewardLedger::append(&reward_path, event).expect("append reward");
-    }
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().expect("addr");
@@ -106,19 +83,44 @@ fn boot_node_with_seeded_ledger(
     (addr, handle, dir)
 }
 
+// SC.5 — the node boots under the strict genesis-aware replay, so the
+// legacy pre-evidence golden chain can no longer be seeded from disk;
+// the tests commit a real block through the live node instead (the
+// smoke step-0 share: mined AND proposed by PK_B, so balance "2").
+fn commit_smoke_block(addr: SocketAddr) {
+    let raw = std::fs::read_to_string(scenario_path()).expect("read scenario");
+    let scenario: Value = serde_json::from_str(&raw).expect("scenario json");
+    let body = serde_json::json!({"body": scenario["steps"][0]["body"], "canonTag": 0});
+    let body_str = serde_json::to_string(&body).expect("body json");
+    let request = format!(
+        "POST /submit HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body_str}",
+        body_str.len()
+    );
+    let mut stream = TcpStream::connect(addr).expect("connect");
+    stream.write_all(request.as_bytes()).expect("write");
+    let mut buf = Vec::new();
+    let _ = stream.read_to_end(&mut buf);
+    let raw = String::from_utf8_lossy(&buf);
+    assert!(
+        raw.lines().next().unwrap_or_default().contains("200"),
+        "smoke share must commit block 0: {raw}"
+    );
+}
+
 fn cli_url(addr: SocketAddr) -> String {
     format!("http://{addr}")
 }
 
 #[test]
 fn account_balance_cli_prints_json_envelope_with_flag() {
-    let (addr, handle, dir) = boot_node_with_seeded_ledger(1);
+    let (addr, handle, dir) = boot_node_with_seeded_ledger(2);
+    commit_smoke_block(addr);
     let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
         .args([
             "account",
             "balance",
             "--pk",
-            PK_2,
+            PK_B,
             "--node",
             &cli_url(addr),
             "--json",
@@ -137,17 +139,18 @@ fn account_balance_cli_prints_json_envelope_with_flag() {
     );
     let parsed: Value = serde_json::from_slice(&output.stdout).expect("stdout json");
     assert_eq!(parsed["ok"], true);
-    assert_eq!(parsed["pk"], PK_2);
-    assert_eq!(parsed["balance"], "3");
+    assert_eq!(parsed["pk"], PK_B);
+    assert_eq!(parsed["balance"], "2");
     handle.join().expect("server thread").expect("server exits");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn account_balance_cli_prints_bare_balance_without_json_flag() {
-    let (addr, handle, dir) = boot_node_with_seeded_ledger(1);
+    let (addr, handle, dir) = boot_node_with_seeded_ledger(2);
+    commit_smoke_block(addr);
     let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
-        .args(["account", "balance", "--pk", PK_2, "--node", &cli_url(addr)])
+        .args(["account", "balance", "--pk", PK_B, "--node", &cli_url(addr)])
         .output()
         .expect("run cli");
     assert!(
@@ -158,7 +161,7 @@ fn account_balance_cli_prints_bare_balance_without_json_flag() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_eq!(
         stdout.trim(),
-        "3",
+        "2",
         "non-json prints bare balance only: {stdout:?}"
     );
     handle.join().expect("server thread").expect("server exits");
