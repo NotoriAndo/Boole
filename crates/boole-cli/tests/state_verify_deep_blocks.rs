@@ -238,3 +238,54 @@ fn state_verify_deep_reports_divergence_on_tampered_canon() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// SC.10-i / ADR-0016 (c) — a persisted Lean-bound share that could not be
+/// re-verified (no `--lean-checker-dir` → `sharesSkipped > 0`) is a HARD
+/// failure by default. Without the strict gate an operator auditing a block
+/// store offline would read `ok:true` while no share was actually checked.
+#[test]
+fn deep_verify_strict_refuses_a_skipped_share() {
+    let dir = temp_dir("strict-skip");
+    let events_path = write_empty_bounty_events(&dir);
+    let blocks_path = dir.join("blocks.ndjson");
+    FileBlockStore::append(&blocks_path, &block_with_lean_bound_share(false))
+        .expect("append block");
+
+    // No `--lean-checker-dir` and no `--allow-skips`: the block's Lean-bound
+    // share can only be reported as skipped, which strict mode refuses.
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "state",
+            "verify",
+            "--deep",
+            "--bounty-events",
+            events_path.to_str().expect("utf8 events path"),
+            "--blocks",
+            blocks_path.to_str().expect("utf8 blocks path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "strict deep verify must exit 3 when a Lean-bound share is skipped; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let envelope: serde_json::Value =
+        serde_json::from_str(String::from_utf8_lossy(&output.stderr).trim())
+            .expect("strict-skip envelope JSON on stderr");
+    assert_eq!(envelope.get("ok"), Some(&serde_json::Value::Bool(false)));
+    assert!(
+        envelope
+            .get("sharesSkipped")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            >= 1,
+        "the refused envelope must report at least one skipped share"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
