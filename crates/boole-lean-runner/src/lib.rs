@@ -49,6 +49,7 @@
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -95,10 +96,25 @@ pub struct LeanRunnerConfig {
     pub verifier_hash: String,
     pub package_dir: PathBuf,
     pub checker_exe: String,
+    /// Wall-clock bound. SC.9a / ADR-0016 (a) — containment ONLY, never a
+    /// verdict input: expiring it yields `retryable_unavailable`, not a
+    /// reject. The verdict-bearing bound is the step budget below.
     pub timeout_ms: u64,
     pub memory_limit_mb: u64,
     pub output_limit_bytes: usize,
     pub isolation_mode: IsolationMode,
+    /// SC.9a / ADR-0016 (a)(b) — the committed step budget, forwarded to
+    /// the checker as `lean -D maxHeartbeats=<n>` (Lean counts this option
+    /// in thousands of raw heartbeats). This IS the verdict input: the same
+    /// proof bytes under the same budget exhaust it identically on every
+    /// node. The default mirrors `boole_core::BASE_LANE_MAX_HEARTBEATS`
+    /// (Tier-2 rule constant); the family lane overrides it from the
+    /// consensus-committed `FamilyManifest.resource_limits`.
+    pub max_heartbeats: u64,
+    /// Companion verdict-bearing counter, forwarded as
+    /// `lean -D maxRecDepth=<n>`. Default mirrors
+    /// `boole_core::BASE_LANE_MAX_REC_DEPTH` (ADR-0016 (b-1)).
+    pub max_rec_depth: u64,
 }
 
 impl LeanRunnerConfig {
@@ -111,6 +127,8 @@ impl LeanRunnerConfig {
             memory_limit_mb: 8192,
             output_limit_bytes: 64 * 1024,
             isolation_mode: IsolationMode::default(),
+            max_heartbeats: 400_000,
+            max_rec_depth: 512,
         }
     }
 
@@ -143,7 +161,55 @@ impl LeanRunnerConfig {
         self.isolation_mode = isolation_mode;
         self
     }
+
+    pub fn with_max_heartbeats(mut self, max_heartbeats: u64) -> Self {
+        self.max_heartbeats = max_heartbeats;
+        self
+    }
+
+    pub fn with_max_rec_depth(mut self, max_rec_depth: u64) -> Self {
+        self.max_rec_depth = max_rec_depth;
+        self
+    }
 }
+
+/// SC.9a / ADR-0016 (a)(a-3) — the three-state verdict contract. The
+/// verdict is a pure function of (proof bytes, pinned checker, committed
+/// step budget); wall-clock and rlimits are containment and may only ever
+/// surface as `RetryableUnavailable`, never as an accept or a reject.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum LeanVerdict {
+    /// The checker elaborated the proof within the committed budget and the
+    /// axiom audit passed.
+    Accepted,
+    /// Every node reaches this same reject from the same bytes: Lean
+    /// rejected the proof, the committed step budget ran out
+    /// (`budget_exceeded`), the source tried to redefine the budget
+    /// (`budget_override_forbidden`), or the axiom audit refused it.
+    DeterministicReject { reason: String },
+    /// Availability failure (wall-clock containment kill, signal death,
+    /// resource-limit kill). NOT a verdict: it must never advance a head or
+    /// checkpoint, and must never be translated into a consensus reject.
+    RetryableUnavailable { reason: String },
+}
+
+impl LeanVerdict {
+    pub fn is_retryable_unavailable(&self) -> bool {
+        matches!(self, LeanVerdict::RetryableUnavailable { .. })
+    }
+}
+
+/// Typed reason for a deterministic reject caused by exhausting the
+/// committed step budget (`maxHeartbeats`/`maxRecDepth`).
+pub const REJECT_BUDGET_EXCEEDED: &str = "budget_exceeded";
+/// Typed reason when the submitted source tries to (re)define the committed
+/// budget (`set_option maxHeartbeats ...`) — ADR-0016 (a-2).
+pub const REJECT_BUDGET_OVERRIDE_FORBIDDEN: &str = "budget_override_forbidden";
+/// Typed reason for an ordinary Lean elaboration failure.
+pub const REJECT_LEAN_REJECTED: &str = "lean_rejected";
+/// Typed reason when the ADR-0013 axiom audit refuses the proof.
+pub const REJECT_AXIOM_AUDIT: &str = "axiom_audit_rejected";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LeanRunnerEvidence {
@@ -157,6 +223,12 @@ pub struct LeanRunnerEvidence {
     pub timeout_ms: u64,
     pub memory_limit_mb: u64,
     pub output_limit_bytes: usize,
+    /// SC.9a — the committed step budget the checker actually ran under.
+    /// `#[serde(default)]` keeps pre-SC.9 recorded evidence deserializable.
+    #[serde(default)]
+    pub max_heartbeats: u64,
+    #[serde(default)]
+    pub max_rec_depth: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -167,6 +239,11 @@ pub struct LeanCheckResult {
     pub stderr: String,
     pub timed_out: bool,
     pub output_truncated: bool,
+    /// SC.9a / ADR-0016 (a-3) — three-state classification. `accepted`
+    /// stays the boolean shorthand (`verdict == Accepted`); consumers that
+    /// must not translate availability failures into consensus rejects
+    /// (the (a-3) invariant) branch on this field instead.
+    pub verdict: LeanVerdict,
     pub evidence: LeanRunnerEvidence,
 }
 
@@ -205,11 +282,17 @@ impl LeanRunner {
 
         let evidence = self.evidence()?;
 
+        // SC.9a / ADR-0016 (a)(b) — the committed step budget rides along
+        // as explicit checker args so the verdict never inherits Lean's own
+        // (uncommitted) defaults. `BooleCheck.Main` forwards them to the
+        // inner `lean` invocation as `-D maxHeartbeats=<n> -D maxRecDepth=<n>`.
         let mut primary_command = Command::new("lake");
         primary_command
             .arg("exec")
             .arg(&self.config.checker_exe)
             .arg(proof_path)
+            .arg(self.config.max_heartbeats.to_string())
+            .arg(self.config.max_rec_depth.to_string())
             .current_dir(&self.config.package_dir);
         let primary = self.run_sandboxed(primary_command).with_context(|| {
             format!(
@@ -220,6 +303,7 @@ impl LeanRunner {
         })?;
 
         if !primary.success {
+            let verdict = classify_failed_run(&primary);
             return Ok(LeanCheckResult {
                 accepted: false,
                 exit_code: primary.exit_code,
@@ -227,6 +311,7 @@ impl LeanRunner {
                 stderr: primary.stderr,
                 timed_out: primary.timed_out,
                 output_truncated: primary.output_truncated,
+                verdict,
                 evidence,
             });
         }
@@ -244,6 +329,8 @@ impl LeanRunner {
             .arg("--run")
             .arg(AXIOM_AUDIT_SCRIPT)
             .arg(proof_path)
+            .arg(self.config.max_heartbeats.to_string())
+            .arg(self.config.max_rec_depth.to_string())
             .current_dir(&self.config.package_dir);
         let audit = self.run_sandboxed(audit_command).with_context(|| {
             format!(
@@ -262,9 +349,10 @@ impl LeanRunner {
                 stderr: primary.stderr,
                 timed_out,
                 output_truncated,
+                verdict: LeanVerdict::Accepted,
                 evidence,
             }),
-            Err(reason) => {
+            Err((verdict, reason)) => {
                 let mut stderr = primary.stderr;
                 if !stderr.is_empty() && !stderr.ends_with('\n') {
                     stderr.push('\n');
@@ -278,6 +366,7 @@ impl LeanRunner {
                     stderr,
                     timed_out,
                     output_truncated,
+                    verdict,
                     evidence,
                 })
             }
@@ -387,17 +476,24 @@ impl LeanRunner {
     }
 
     pub fn evidence(&self) -> Result<LeanRunnerEvidence> {
+        // SC.9b / ADR-0016 (a-2) — record the toolchain the checker
+        // PROCESS actually runs under (package-dir dispatch), never the
+        // ambient PATH's lean/lake: an identity no proof was checked
+        // under is evidence of nothing.
+        let toolchain = effective_toolchain_identity(&self.config.package_dir)?;
         Ok(LeanRunnerEvidence {
             verifier_hash: self.config.verifier_hash.clone(),
             checker: format!("lake exec {}", self.config.checker_exe),
             checker_exe: self.config.checker_exe.clone(),
             checker_artifact_hash: checker_artifact_hash(&self.config.package_dir)?,
             package_dir: self.config.package_dir.display().to_string(),
-            lean_version: command_version("lean")?,
-            lake_version: command_version("lake")?,
+            lean_version: toolchain.lean_version,
+            lake_version: toolchain.lake_version,
             timeout_ms: self.config.timeout_ms,
             memory_limit_mb: self.config.memory_limit_mb,
             output_limit_bytes: self.config.output_limit_bytes,
+            max_heartbeats: self.config.max_heartbeats,
+            max_rec_depth: self.config.max_rec_depth,
         })
     }
 }
@@ -462,14 +558,58 @@ const AXIOM_AUDIT_DONE_SENTINEL: &str = "BOOLE_AXIOM_AUDIT_DONE";
 /// [`ALLOWED_AXIOMS`] AND the [`AXIOM_AUDIT_DONE_SENTINEL`] line is present;
 /// a missing sentinel (crash, timeout, kill) is rejection, never silent
 /// acceptance.
-fn enforce_axiom_allowlist(outcome: &SandboxedRunOutcome) -> std::result::Result<(), String> {
+fn enforce_axiom_allowlist(
+    outcome: &SandboxedRunOutcome,
+) -> std::result::Result<(), (LeanVerdict, String)> {
+    // SC.9a / ADR-0016 (a-3) — a containment kill of the audit process is an
+    // availability failure, never a verdict; everything below this guard is
+    // deterministic (same bytes + same budget reproduce it on every node).
     if outcome.timed_out {
-        return Err("axiom audit timed out".to_string());
+        return Err((
+            LeanVerdict::RetryableUnavailable {
+                reason: "containment_wall_clock_kill".to_string(),
+            },
+            "axiom audit timed out".to_string(),
+        ));
+    }
+    if outcome.exit_code < 0 {
+        return Err((
+            LeanVerdict::RetryableUnavailable {
+                reason: "containment_killed".to_string(),
+            },
+            "axiom audit killed before completion".to_string(),
+        ));
+    }
+    // SC.9a / ADR-0016 (a-2) layer 2 — the audit scans the raw source for
+    // budget-bearing option tokens and refuses with this typed marker.
+    if let Some(line) = combined_output(outcome)
+        .lines()
+        .find(|line| line.starts_with(BUDGET_OVERRIDE_MARKER_PREFIX))
+    {
+        return Err((
+            LeanVerdict::DeterministicReject {
+                reason: REJECT_BUDGET_OVERRIDE_FORBIDDEN.to_string(),
+            },
+            line.to_string(),
+        ));
+    }
+    if lean_output_reports_budget_exhaustion(&combined_output(outcome)) {
+        return Err((
+            LeanVerdict::DeterministicReject {
+                reason: REJECT_BUDGET_EXCEEDED.to_string(),
+            },
+            "axiom audit exhausted the committed step budget".to_string(),
+        ));
     }
     if !outcome.success {
-        return Err(format!(
-            "axiom audit process exited non-zero (exit_code={}): {}",
-            outcome.exit_code, outcome.stderr
+        return Err((
+            LeanVerdict::DeterministicReject {
+                reason: REJECT_AXIOM_AUDIT.to_string(),
+            },
+            format!(
+                "axiom audit process exited non-zero (exit_code={}): {}",
+                outcome.exit_code, outcome.stderr
+            ),
         ));
     }
     let mut saw_sentinel = false;
@@ -486,15 +626,75 @@ fn enforce_axiom_allowlist(outcome: &SandboxedRunOutcome) -> std::result::Result
         }
     }
     if !saw_sentinel {
-        return Err("axiom audit did not reach completion (missing sentinel)".to_string());
+        return Err((
+            LeanVerdict::DeterministicReject {
+                reason: REJECT_AXIOM_AUDIT.to_string(),
+            },
+            "axiom audit did not reach completion (missing sentinel)".to_string(),
+        ));
     }
     if !offending.is_empty() {
-        return Err(format!(
-            "proof depends on non-allowlisted axiom(s): {}",
-            offending.join(", ")
+        return Err((
+            LeanVerdict::DeterministicReject {
+                reason: REJECT_AXIOM_AUDIT.to_string(),
+            },
+            format!(
+                "proof depends on non-allowlisted axiom(s): {}",
+                offending.join(", ")
+            ),
         ));
     }
     Ok(())
+}
+
+/// Typed marker line `BooleCheck/Audit.lean` prints (and exits non-zero on)
+/// when the submitted source contains a budget-bearing option token —
+/// ADR-0016 (a-2) layer 2, independent of the Rust-side intake scan.
+const BUDGET_OVERRIDE_MARKER_PREFIX: &str = "BOOLE_BUDGET_OVERRIDE";
+
+fn combined_output(outcome: &SandboxedRunOutcome) -> String {
+    let mut combined = outcome.stdout.clone();
+    if !combined.is_empty() && !combined.ends_with('\n') {
+        combined.push('\n');
+    }
+    combined.push_str(&outcome.stderr);
+    combined
+}
+
+/// Lean's own diagnostics when a `-D maxHeartbeats`/`-D maxRecDepth` budget
+/// runs out. These strings are produced by the pinned toolchain, so they are
+/// as stable as the checker artifact itself (the pin covers `lean-toolchain`).
+fn lean_output_reports_budget_exhaustion(output: &str) -> bool {
+    output.contains("maximum number of heartbeats")
+        || output.contains("maximum recursion depth has been reached")
+}
+
+/// SC.9a / ADR-0016 (a-3) — classify a failed primary checker run into the
+/// three-state verdict contract: containment (wall-clock kill or signal
+/// death) is `retryable_unavailable`; everything else the checker itself
+/// reported is deterministic, with committed-budget exhaustion typed as
+/// `budget_exceeded`.
+fn classify_failed_run(outcome: &SandboxedRunOutcome) -> LeanVerdict {
+    if outcome.timed_out {
+        return LeanVerdict::RetryableUnavailable {
+            reason: "containment_wall_clock_kill".to_string(),
+        };
+    }
+    if outcome.exit_code < 0 {
+        // Signal death (RLIMIT_CPU SIGKILL, OOM kill, sandbox kill) carries
+        // no exit code; `run_sandboxed` records it as -1.
+        return LeanVerdict::RetryableUnavailable {
+            reason: "containment_killed".to_string(),
+        };
+    }
+    if lean_output_reports_budget_exhaustion(&combined_output(outcome)) {
+        return LeanVerdict::DeterministicReject {
+            reason: REJECT_BUDGET_EXCEEDED.to_string(),
+        };
+    }
+    LeanVerdict::DeterministicReject {
+        reason: REJECT_LEAN_REJECTED.to_string(),
+    }
 }
 
 struct DrainBuffer {
@@ -624,6 +824,16 @@ const FORBIDDEN_TOKENS: &[(&[u8], &str, TokenBoundary)] = &[
     (b"macro", "macro", TokenBoundary::Word),
     (b"initialize", "initialize", TokenBoundary::Word),
     (b"debug.", "debug.", TokenBoundary::PrefixOnly),
+    // SC.9a / ADR-0016 (a-2) layer 1 — the committed step budget is a
+    // ceiling the source cannot raise: `set_option maxHeartbeats <M>`
+    // (including `0` = unlimited) or `set_option maxRecDepth <M>` would
+    // override the runner's `-D` defaults and make the consensus budget
+    // advisory. Matching the bare option name (word boundary) rejects every
+    // spelling that could reach the option without flagging identifiers
+    // that merely contain the substring. Layer 2 is the raw-text scan in
+    // `BooleCheck/Audit.lean` (`BOOLE_BUDGET_OVERRIDE`).
+    (b"maxHeartbeats", "maxHeartbeats", TokenBoundary::Word),
+    (b"maxRecDepth", "maxRecDepth", TokenBoundary::Word),
 ];
 
 /// Import paths a submitted proof file may reference. ADR-0013's blacklist
@@ -1393,16 +1603,101 @@ fn collect_boole_check_sources(package_dir: &Path, out: &mut Vec<(String, Vec<u8
     Ok(())
 }
 
-fn command_version(command: &str) -> Result<String> {
-    let output = Command::new(command)
-        .arg("--version")
-        .stdin(Stdio::null())
-        .output()
-        .with_context(|| format!("failed to execute `{command} --version`"))?;
+/// SC.9b / ADR-0016 (a-2) — the executable toolchain identity of the
+/// checker PROCESS: `lean`/`lake` resolved exactly the way the sandboxed
+/// child resolves them (scrubbed environment, `cwd = package_dir`, elan
+/// dispatch by the package's `lean-toolchain` file). A bare
+/// `lean --version` from an arbitrary cwd can name a DIFFERENT toolchain
+/// than the one proofs are actually checked under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectiveToolchain {
+    /// Full `lake env lean --version` line (includes the platform triple).
+    pub lean_version: String,
+    /// Bare release commit hash parsed from the version line —
+    /// platform-independent identity of the Lean executable.
+    pub lean_githash: String,
+    /// Full `lake --version` line resolved from the package dir.
+    pub lake_version: String,
+}
+
+impl EffectiveToolchain {
+    /// The `X.Y.Z` token from the `lean --version` line.
+    pub fn lean_version_token(&self) -> Option<&str> {
+        parse_between(&self.lean_version, "version ", ",")
+    }
+
+    /// The version token from the `lake --version` line
+    /// (e.g. `5.0.0-src+f72c35b`).
+    pub fn lake_version_token(&self) -> Option<&str> {
+        let rest = self.lake_version.strip_prefix("Lake version ")?;
+        Some(rest.split_whitespace().next().unwrap_or(rest))
+    }
+}
+
+fn parse_between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let idx = text.find(start)? + start.len();
+    let rest = &text[idx..];
+    let stop = rest.find(end)?;
+    Some(&rest[..stop])
+}
+
+/// Identity queries are deterministic per package dir for the life of the
+/// process; cache them so per-proof `evidence()` calls do not re-spawn
+/// `lake` twice per verification.
+static EFFECTIVE_TOOLCHAIN_CACHE: Mutex<Option<HashMap<PathBuf, EffectiveToolchain>>> =
+    Mutex::new(None);
+
+pub fn effective_toolchain_identity(package_dir: &Path) -> Result<EffectiveToolchain> {
+    let key = package_dir
+        .canonicalize()
+        .unwrap_or_else(|_| package_dir.to_path_buf());
+    if let Ok(guard) = EFFECTIVE_TOOLCHAIN_CACHE.lock() {
+        if let Some(cached) = guard.as_ref().and_then(|map| map.get(&key)) {
+            return Ok(cached.clone());
+        }
+    }
+    let lean_version = effective_command_output(package_dir, &["env", "lean", "--version"])?;
+    let lean_githash = parse_between(&lean_version, "commit ", ",")
+        .ok_or_else(|| {
+            anyhow!("could not parse a commit githash out of lean version line: {lean_version}")
+        })?
+        .to_string();
+    let lake_version = effective_command_output(package_dir, &["--version"])?;
+    let toolchain = EffectiveToolchain {
+        lean_version,
+        lean_githash,
+        lake_version,
+    };
+    if let Ok(mut guard) = EFFECTIVE_TOOLCHAIN_CACHE.lock() {
+        guard
+            .get_or_insert_with(HashMap::new)
+            .insert(key, toolchain.clone());
+    }
+    Ok(toolchain)
+}
+
+/// Run `lake <args>` the way the checker child would see it: package dir as
+/// cwd and the same scrubbed environment (`resolved_child_path`), so elan
+/// dispatches by the package's `lean-toolchain` pin.
+fn effective_command_output(package_dir: &Path, args: &[&str]) -> Result<String> {
+    let mut command = Command::new("lake");
+    command
+        .args(args)
+        .current_dir(package_dir)
+        .stdin(Stdio::null());
+    configure_child_environment(&mut command);
+    let output = command.output().with_context(|| {
+        format!(
+            "failed to execute `lake {}` in {}",
+            args.join(" "),
+            package_dir.display()
+        )
+    })?;
     if !output.status.success() {
         return Err(anyhow!(
-            "`{} --version` failed: {}",
-            command,
+            "`lake {}` failed in {}: {}",
+            args.join(" "),
+            package_dir.display(),
             String::from_utf8_lossy(&output.stderr)
         ));
     }

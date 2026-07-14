@@ -117,7 +117,6 @@ fn create_accepts_known_metadata_keys_with_correct_types() {
             ("statement", json!("theorem t : 1 = 1 := rfl")),
             ("verifierHash", json!(VERIFIER_HASH)),
             ("profile", json!("v1-lenbound")),
-            ("maxSteps", json!(4096)),
             ("template", json!("parser-roundtrip.v01")),
         ]),
     ))
@@ -159,18 +158,27 @@ fn create_rejects_wrong_metadata_value_type() {
         .is_err(),
         "non-string statement must be rejected"
     );
-    // ...and maxSteps a non-negative integer.
+}
+
+/// SC.9a / ADR-0016 (b) — `maxSteps` is retired: no shipped verifier ever
+/// read it, and a metadata field that looks like a step budget but binds
+/// nothing invites exactly the "the budget is advisory" confusion the
+/// committed budget (family manifest `maxHeartbeats`/`maxRecDepth`,
+/// base-lane rule constants) removes. It is now an unknown key.
+#[test]
+fn create_rejects_retired_max_steps_key() {
+    let err = create(input(
+        "retired",
+        "lean.protocol-invariant",
+        metadata(&[
+            ("verifierHash", json!(VERIFIER_HASH)),
+            ("maxSteps", json!(4096)),
+        ]),
+    ))
+    .expect_err("retired maxSteps metadata must be rejected as unknown");
     assert!(
-        create(input(
-            "type-b",
-            "lean.protocol-invariant",
-            metadata(&[
-                ("verifierHash", json!(VERIFIER_HASH)),
-                ("maxSteps", json!("4096")),
-            ]),
-        ))
-        .is_err(),
-        "string maxSteps must be rejected"
+        err.contains("maxSteps"),
+        "error names the retired key: {err}"
     );
 }
 

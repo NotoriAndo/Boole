@@ -93,6 +93,8 @@ fn canonical_checker_artifact_hash_matches_readme_pin() {
                     timeout_ms: 5_000,
                     memory_limit_mb: 512,
                     output_limit_bytes: 64 * 1024,
+                    max_heartbeats: 400_000,
+                    max_rec_depth: 512,
                 })
             }
         })

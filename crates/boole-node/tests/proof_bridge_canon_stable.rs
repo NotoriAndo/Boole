@@ -21,6 +21,7 @@ fn synthetic_lean_result(lean_version: &str, lake_version: &str, stdout: &str) -
         stderr: String::new(),
         timed_out: false,
         output_truncated: false,
+        verdict: boole_lean_runner::LeanVerdict::Accepted,
         evidence: LeanRunnerEvidence {
             verifier_hash: "bridge-verifier-hash".to_string(),
             checker: "lake exec boole_check".to_string(),
@@ -33,6 +34,8 @@ fn synthetic_lean_result(lean_version: &str, lake_version: &str, stdout: &str) -
             timeout_ms: 5_000,
             memory_limit_mb: 8_192,
             output_limit_bytes: 65_536,
+            max_heartbeats: 400_000,
+            max_rec_depth: 512,
         },
     }
 }

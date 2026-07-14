@@ -37,3 +37,23 @@ pub const CONSENSUS_RULE_VERSION: u32 = 3;
 /// multiplier differs from this constant. Changing the value is a
 /// consensus change: bump `CONSENSUS_RULE_VERSION`.
 pub const MIN_SHARE_SCORE_MULTIPLIER_NANOS: u64 = 1_000_000_000;
+
+/// SC.9a (ADR-0016 (b)) — base-lane committed step budget: the
+/// `maxHeartbeats` value (Lean counts this option in thousands of raw
+/// heartbeats) every base-lane (v1-lenbound) Lean verification runs under.
+/// The verdict is a pure function of (proof bytes, pinned checker, this
+/// budget) — wall-clock and rlimits are containment only and never decide.
+/// Family-lane verifications commit their budget in
+/// `FamilyManifest.resource_limits.max_heartbeats` instead (same unit).
+///
+/// Calibration (closed local): 2× Lean's own 200 000 default, matching the
+/// default family-manifest convention; every v1-lenbound smoke/benchmark
+/// proof elaborates well under it. Changing the value is a consensus
+/// change: bump `CONSENSUS_RULE_VERSION`.
+pub const BASE_LANE_MAX_HEARTBEATS: u64 = 400_000;
+
+/// SC.9a (ADR-0016 (b-1)) — companion verdict-bearing counter for the base
+/// lane, forwarded as `lean -D maxRecDepth=<n>`. Mirrors Lean's own 512
+/// default and the family-manifest convention. Changing the value is a
+/// consensus change: bump `CONSENSUS_RULE_VERSION`.
+pub const BASE_LANE_MAX_REC_DEPTH: u64 = 512;

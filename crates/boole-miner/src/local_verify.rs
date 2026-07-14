@@ -229,9 +229,13 @@ impl Verifier for LeanVerifier {
             };
         }
 
+        // SC.9a / ADR-0016 (b) — the base lane runs under the Tier-2
+        // committed step budget; `timeout_ms` stays containment-only.
         let cfg = boole_lean_runner::LeanRunnerConfig::new("boole-miner-verifier")
             .with_package_dir(self.lean_dir.clone())
-            .with_timeout_ms(self.timeout.as_millis() as u64);
+            .with_timeout_ms(self.timeout.as_millis() as u64)
+            .with_max_heartbeats(boole_core::BASE_LANE_MAX_HEARTBEATS)
+            .with_max_rec_depth(boole_core::BASE_LANE_MAX_REC_DEPTH);
         let runner = boole_lean_runner::LeanRunner::new(cfg);
 
         let result = runner.check_file(&proof_path);
@@ -263,7 +267,11 @@ impl Verifier for LeanVerifier {
                     attempt_artifact_path: None,
                 }
             }
-            Ok(r) if r.timed_out => {
+            // SC.9a / ADR-0016 (a-3) — every availability failure (wall-clock
+            // containment kill, signal death) lands here, not only the
+            // timeout flag; a deterministic budget_exceeded reject does NOT
+            // (it falls through to the ElaborateFailed arm below).
+            Ok(r) if r.verdict.is_retryable_unavailable() => {
                 let elapsed = started.elapsed();
                 write_diagnostics(
                     &r.stdout,
@@ -477,5 +485,16 @@ mod tests {
             seen_mixed,
             "test sweep did not cover any mixed `=`/`≤` chain — broaden the seed list"
         );
+    }
+
+    /// SC.9a — the runner's default budget must mirror the base-lane Tier-2
+    /// rule constants, so a call site that forgets the explicit
+    /// `with_max_heartbeats`/`with_max_rec_depth` wiring still verifies
+    /// under the committed consensus budget rather than a drifted default.
+    #[test]
+    fn runner_default_budget_matches_base_lane_rule_constants() {
+        let config = boole_lean_runner::LeanRunnerConfig::new("parity-check");
+        assert_eq!(config.max_heartbeats, boole_core::BASE_LANE_MAX_HEARTBEATS);
+        assert_eq!(config.max_rec_depth, boole_core::BASE_LANE_MAX_REC_DEPTH);
     }
 }

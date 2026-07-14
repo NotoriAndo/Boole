@@ -193,24 +193,13 @@ impl TestLeanWorkspace {
     }
 
     fn write_checker_project(&self) {
-        self.write_checker_project_with_main(
-            r#"def main (args : List String) : IO UInt32 := do
-  let some proofPath := args.head?
-    | IO.eprintln "usage: boole_check <proof.lean>"; return 64
-  let output ← IO.Process.output {
-    cmd := "lean"
-    args := #[proofPath]
-  }
-  if output.stdout.length > 0 then
-    IO.print output.stdout
-  if output.stderr.length > 0 then
-    IO.eprint output.stderr
-  if output.exitCode == 0 then
-    return 0
-  else
-    return 1
-"#,
-        );
+        // SC.9a — the default fixture checker IS the production
+        // `BooleCheck/Main.lean` (pulled in verbatim at compile time, like
+        // the audit script below), so the budget-args contract between the
+        // runner and the checker can never drift in these tests.
+        self.write_checker_project_with_main(include_str!(
+            "../../../lean/checker/BooleCheck/Main.lean"
+        ));
     }
 
     fn write_checker_project_with_main(&self, main_lean: &str) {

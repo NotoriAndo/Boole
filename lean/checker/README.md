@@ -1,9 +1,11 @@
 # BooleCheck — Canonical Lean Proof Checker
 
 This is the reference checker that `boole-lean-runner` invokes via
-`lake exec boole_check <proof.lean>`. It is intentionally tiny: it shells
-out to the host `lean` executable, forwards the child's stdout/stderr, and
-returns 0 if and only if `lean` accepted the proof file.
+`lake exec boole_check <proof.lean> <maxHeartbeats> <maxRecDepth>`. It is
+intentionally tiny: it shells out to the host `lean` executable (forwarding
+the committed step budget as `-DmaxHeartbeats=<n> -DmaxRecDepth=<n>` —
+SC.9a / ADR-0016), forwards the child's stdout/stderr, and returns 0 if and
+only if `lean` accepted the proof file within that budget.
 
 ## Why this directory matters
 
@@ -31,7 +33,7 @@ smuggle a file in via a symlink that resolves outside the package.
 The hash of the files committed to this repo:
 
 ```
-13d365bdfae14b63b1e081db995a11e023565a80f1e8be28a21e814886e6883d
+1dd3055acb05142816f2082f0b3ad000c49513c3a2401572ec68703542042be1
 ```
 
 Recompute and verify with:
@@ -51,14 +53,19 @@ lake build boole_check
 
 ```bash
 cd lean/checker
-lake exec boole_check /path/to/proof.lean
+lake exec boole_check /path/to/proof.lean 400000 512
 ```
 
 The checker exits 0 on accepted proofs and non-zero on every other outcome
-(missing argument, lean not on PATH, lean rejected the proof). The Rust
-runner is responsible for sandboxing (process group, timeout, rlimits,
-output cap, env scrub, `sorry` detection) — this checker is the trust
-core, not the sandbox.
+(missing argument, lean not on PATH, lean rejected the proof, committed
+step budget exhausted). The two trailing args are the committed step
+budget (`maxHeartbeats` in Lean's thousands unit, `maxRecDepth`); when
+omitted (manual use) the inner `lean` falls back to its own defaults —
+`boole-lean-runner`, the only production caller, always passes them so the
+verdict is a pure function of (proof bytes, this checker, committed
+budget). The Rust runner is responsible for sandboxing (process group,
+wall-clock containment, rlimits, output cap, env scrub, `sorry` detection)
+— this checker is the trust core, not the sandbox.
 
 ## Toolchain
 
