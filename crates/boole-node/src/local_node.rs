@@ -1,6 +1,7 @@
 use crate::block_store::FileBlockStore;
 use crate::bounty_catalog_store::load_bounties_from_path;
 use crate::bounty_event_store::FileBountyEventLedger;
+use crate::checker_pin;
 use crate::family_manifest_store::load_family_manifest_registry_from_dir;
 use crate::http_error::HttpError;
 use crate::nonce_ledger::FileNonceLedger;
@@ -1252,6 +1253,24 @@ impl LocalNodeState {
         // network's preset — a diverging effective genesis must refuse to
         // boot instead of silently forking the named network.
         if let Some(preset) = boole_core::network_genesis_preset(&node_network_id) {
+            // SC.9b (ADR-0016 (a)/(a-2)) — when the network pins its
+            // checker and this node configures one, the local checker
+            // sources AND the executable toolchain it would run must be
+            // exactly the pinned release. Checked before the genesis gate
+            // so the refusal names the most specific divergence. A node
+            // with no checker configured has no Lean identity to verify
+            // (it produces no Lean verdicts); SC.10's ingest re-verify
+            // makes the checker itself mandatory on named networks.
+            if let (Some(pinned), Some(checker_dir)) = (
+                preset.params.checker_artifact_hash.as_ref(),
+                config.lean_checker_dir.as_ref(),
+            ) {
+                checker_pin::enforce_pinned_checker_toolchain(
+                    &node_network_id,
+                    pinned,
+                    checker_dir,
+                )?;
+            }
             let expected = preset.hash().to_hex();
             if genesis_spec_hash != expected {
                 anyhow::bail!(

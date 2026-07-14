@@ -97,10 +97,13 @@ impl GenesisSpec {
 /// "boole-testnet" name is the LINE, and the plain label also predates
 /// N5.2 as the P2.10 signing network id, which stays scenario-driven):
 /// seed binding required from height 0 (ADR-0014 (d)) and retargeting on;
-/// its checker pin stays `None` until SC.9 flips it with the versioned
-/// checker release channel (ADR-0016 (a)), and `family_manifest_root`
-/// stays `None` until SC.2 pins the launch manifest set — both before the
-/// testnet launch.
+/// its checker pin is `Some(<hash>)` since SC.9b (ADR-0016 (a) — the
+/// ADR-0014 (e) deferral resolved): the value mirrors the canonical
+/// `lean/checker` artifact hash pinned in `lean/checker/README.md` and
+/// declared by the release channel (`RELEASE-MANIFEST.json` + `SHA256SUMS`);
+/// `preset_pin_matches_released_checker_toolchain_manifest` enforces the
+/// agreement. `family_manifest_root` stays `None` until SC.2 pins the
+/// launch manifest set — before the testnet launch.
 pub fn network_genesis_preset(network_id: &str) -> Option<GenesisSpec> {
     let all_zero_anchor = "0".repeat(64);
     let t_max = format!("0x{}", "f".repeat(64));
@@ -135,7 +138,11 @@ pub fn network_genesis_preset(network_id: &str) -> Option<GenesisSpec> {
                     max_adjustment_factor: 4,
                 }),
                 seed_binding_required: true,
-                checker_artifact_hash: None,
+                // SC.9b — the canonical checker artifact (sources +
+                // toolchain pin), see lean/checker/README.md.
+                checker_artifact_hash: Some(
+                    "1dd3055acb05142816f2082f0b3ad000c49513c3a2401572ec68703542042be1".to_string(),
+                ),
                 family_manifest_root: None,
             },
             initial_state: GenesisInitialState {

@@ -1,0 +1,8 @@
+{
+  "schema": "boole.checker.release.v1",
+  "tag": "boole-checker-2026-07-13",
+  "checkerArtifactHash": "1dd3055acb05142816f2082f0b3ad000c49513c3a2401572ec68703542042be1",
+  "leanVersion": "4.29.1",
+  "leanGithash": "f72c35b3f637c8c6571d353742168ab66cc22c00",
+  "lakeVersion": "5.0.0-src+f72c35b"
+}

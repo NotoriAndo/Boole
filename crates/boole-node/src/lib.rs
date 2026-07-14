@@ -1,6 +1,7 @@
 mod block_store;
 mod bounty_catalog_store;
 mod bounty_event_store;
+mod checker_pin;
 mod deep_verify;
 mod durability;
 mod family_manifest_store;
