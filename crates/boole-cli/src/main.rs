@@ -605,6 +605,15 @@ enum StateCommand {
         /// eligible events under `leanProofsSkipped` instead.
         #[arg(long)]
         lean_checker_dir: Option<PathBuf>,
+        /// SC.10-i / ADR-0016 (c) — opt out of strict deep verification.
+        /// By default `--deep` treats any eligible Lean proof or share it
+        /// could not re-run (`leanProofsSkipped`/`sharesSkipped` > 0) as a
+        /// HARD failure (exit 3): "verification is the product", so a run
+        /// that never re-verified must not report `ok:true`. Pass
+        /// `--allow-skips` for an offline best-effort inventory that tolerates
+        /// skips (e.g. auditing without a checker dir / toolchain).
+        #[arg(long)]
+        allow_skips: bool,
         /// Emit JSON output.
         #[arg(long)]
         json: bool,
@@ -907,6 +916,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 deep,
                 bounty_events,
                 lean_checker_dir,
+                allow_skips,
                 json,
             } => state_verify_dispatch(
                 blocks.as_deref(),
@@ -914,6 +924,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 deep,
                 bounty_events.as_deref(),
                 lean_checker_dir.as_deref(),
+                allow_skips,
                 json,
             ),
         },
@@ -1034,6 +1045,7 @@ fn state_verify_dispatch(
     deep: bool,
     bounty_events_path: Option<&Path>,
     lean_checker_dir: Option<&Path>,
+    allow_skips: bool,
     json: bool,
 ) -> anyhow::Result<()> {
     if deep {
@@ -1047,7 +1059,7 @@ fn state_verify_dispatch(
                 }),
             );
         });
-        return state_verify_deep(events, lean_checker_dir, blocks_path, json);
+        return state_verify_deep(events, lean_checker_dir, blocks_path, allow_skips, json);
     }
     let blocks = blocks_path.unwrap_or_else(|| {
         emit_typed_error(
@@ -1102,6 +1114,7 @@ fn state_verify_deep(
     events_path: &Path,
     lean_checker_dir: Option<&Path>,
     blocks_path: Option<&Path>,
+    allow_skips: bool,
     json: bool,
 ) -> anyhow::Result<()> {
     let report = boole_node::deep_verify_bounty_events(events_path, lean_checker_dir)
@@ -1186,8 +1199,18 @@ fn state_verify_deep(
         );
     }
 
+    // SC.10-i / ADR-0016 (c) — "verification is the product": strict by
+    // default. A skip is a non-verification, so unless `--allow-skips` opts
+    // into a best-effort offline inventory, any eligible Lean proof or share
+    // we could not re-run (`leanProofsSkipped`/`sharesSkipped` > 0) refuses
+    // the run (exit 3). This makes it impossible for "never re-verified" to
+    // masquerade as `ok:true`.
+    let skipped_total = report.lean_proofs_skipped + shares_skipped;
+    let strict_skip_refused = !allow_skips && skipped_total > 0;
+    let ok = divergences.is_empty() && !strict_skip_refused;
+
     let envelope = serde_json::json!({
-        "ok": divergences.is_empty(),
+        "ok": ok,
         "eventsScanned": report.events_scanned,
         "leanProofsAccepted": report.lean_proofs_accepted,
         "leanProofsReverified": report.lean_proofs_reverified,
@@ -1197,16 +1220,19 @@ fn state_verify_deep(
         "canonReverified": canon_reverified,
         "leanReverified": lean_reverified,
         "sharesSkipped": shares_skipped,
+        "allowSkips": allow_skips,
+        "strictSkipRefused": strict_skip_refused,
         "divergences": divergences,
         "bountyEventsPath": events_path.to_string_lossy(),
     });
-    if !divergences.is_empty() {
-        // A divergence here means either a bounty event's recorded
+    if !divergences.is_empty() || strict_skip_refused {
+        // Two refusal modes share one exit-3 contract with the report on
+        // stderr: (1) a divergence — a bounty event's recorded
         // `checkerArtifactHash` did not match its re-execution, or a
         // persisted block's stored `proofPackage` did not match the canon
-        // recomputed from its re-derived Lean source. Mirror the
-        // rest-of-CLI contract: operation refused → exit 3 with the report
-        // on stderr.
+        // recomputed from its re-derived Lean source; (2) a strict skip —
+        // an eligible proof/share could not be re-verified and `--allow-skips`
+        // was not passed. Either way the operation is refused.
         eprintln!("{envelope}");
         std::process::exit(3);
     }

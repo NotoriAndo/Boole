@@ -112,6 +112,9 @@ fn deep_verify_counts_lean_proofs_and_skips_when_no_checker_dir_provided() {
     ];
     write_ndjson(&path, &events);
 
+    // `--allow-skips`: strict deep verify (SC.10-i) refuses a skipped
+    // eligible proof by default; this test pins the best-effort inventory
+    // path that tolerates skips when no checker dir is available.
     let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
         .args([
             "state",
@@ -119,6 +122,7 @@ fn deep_verify_counts_lean_proofs_and_skips_when_no_checker_dir_provided() {
             "--deep",
             "--bounty-events",
             path.to_str().expect("utf8 path"),
+            "--allow-skips",
             "--json",
         ])
         .output()
@@ -145,6 +149,72 @@ fn deep_verify_counts_lean_proofs_and_skips_when_no_checker_dir_provided() {
     assert_eq!(parsed.lean_proofs_reverified, 0);
     assert_eq!(parsed.lean_proofs_skipped, 1);
     assert!(parsed.divergences.is_empty());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// SC.10-i / ADR-0016 (c) — "verification is the product": by default a
+/// deep verify that could not re-run an eligible Lean proof (no checker
+/// dir → `leanProofsSkipped > 0`) is a HARD failure, not a silent `ok:true`
+/// inventory. The strict refusal exits 3 with the skip count on stderr so
+/// an operator/CI cannot mistake "never re-ran" for "re-verified".
+#[test]
+fn deep_verify_strict_refuses_a_skipped_lean_proof() {
+    let dir = std::env::temp_dir().join(format!(
+        "boole-cli-state-deep-strict-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let path = dir.join("bounty-events.ndjson");
+
+    // A single accepted-lean proof event: eligible for offline re-verify,
+    // so without a checker dir it lands in `leanProofsSkipped`.
+    let events = vec![serde_json::json!({
+        "schemaVersion": 1,
+        "kind": "proof",
+        "workId": "lean-1",
+        "problemHash": "9999000000000000000000000000000000000000000000000000000000000000",
+        "verifierKind": "lean",
+        "ts": 1_800_000_001_000_i64,
+        "proofHash": "aaaa000000000000000000000000000000000000000000000000000000000000",
+        "solverPk": "1100000000000000000000000000000000000000000000000000000000000000",
+        "accepted": true,
+        "leanSource": "theorem t : 1 + 1 = 2 := by decide\n",
+        "verifierHash": "abcd000000000000000000000000000000000000000000000000000000000000",
+        "checkerArtifactHash": "fedc000000000000000000000000000000000000000000000000000000000000",
+    })];
+    write_ndjson(&path, &events);
+
+    // No `--lean-checker-dir` and no `--allow-skips`: strict default.
+    let output = Command::new(env!("CARGO_BIN_EXE_boole-cli"))
+        .args([
+            "state",
+            "verify",
+            "--deep",
+            "--bounty-events",
+            path.to_str().expect("utf8 path"),
+            "--json",
+        ])
+        .output()
+        .expect("run boole-cli");
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "strict deep verify must exit 3 when an eligible Lean proof is skipped; stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let envelope: serde_json::Value =
+        serde_json::from_str(String::from_utf8_lossy(&output.stderr).trim())
+            .expect("strict-skip envelope JSON on stderr");
+    assert_eq!(envelope.get("ok"), Some(&serde_json::Value::Bool(false)));
+    assert_eq!(
+        envelope.get("leanProofsSkipped").and_then(|v| v.as_u64()),
+        Some(1),
+        "the refused envelope must still report the skip count"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
