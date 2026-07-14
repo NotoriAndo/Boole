@@ -112,6 +112,13 @@ run_logged lean-checker-build bash -c '
   lake build Boole.Family.V0Helpers boole_check
 '
 run_logged cargo-test cargo test --workspace --all-targets --locked --features boole-node/dev-mock-payment,boole-miner/dev-tools
+# SC.9c (ADR-0016 (a)/(a-1)) — the verdict corpus: the three-state Lean
+# verdict must match the committed golden fixture byte-for-byte. The
+# cross-platform four-job matrix lives in verdict-corpus.yml (the required
+# `verdict-corpus` aggregate); this stage keeps the corpus failing loudly,
+# by name, inside the single-command local gate too. Already-built by the
+# cargo-test stage above, so this re-run costs seconds.
+run_logged verdict-corpus cargo test -p boole-lean-runner --test verdict_corpus --locked
 LEGACY_POF_ROOT="${BOOLE_LEGACY_POF_ROOT:-$ROOT/../pof}"
 LEGACY_CHAIN_TS="$LEGACY_POF_ROOT/dispatcher/src/chain.ts"
 RUST_PARITY_STATUS="pass"

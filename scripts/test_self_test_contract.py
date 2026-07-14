@@ -138,6 +138,26 @@ class SelfTestContractTests(unittest.TestCase):
             "scripts/p2p-local-convergence-smoke.sh",
         )
 
+    def test_self_test_runs_verdict_corpus_stage(self) -> None:
+        # SC.9c (ADR-0016 (a)/(a-1)) — the verdict corpus pins that the
+        # three-state Lean verdict is a pure function of (proof bytes,
+        # pinned checker, committed budget). The dedicated four-job
+        # cross-platform gate lives in verdict-corpus.yml; this stage keeps
+        # the corpus visible (and failing loudly, by name) inside the
+        # single-command local gate as well.
+        body = _read(SELF_TEST)
+        self.assertRegex(
+            body,
+            re.compile(r"^\s*run_logged\s+verdict-corpus\b", re.MULTILINE),
+            "scripts/self-test.sh must run the verdict-corpus stage",
+        )
+        self.assertIn(
+            "--test verdict_corpus",
+            body,
+            "the verdict-corpus stage must run the boole-lean-runner "
+            "verdict_corpus golden test",
+        )
+
     def test_p2p_convergence_smoke_script_exists_and_asserts_convergence(self) -> None:
         smoke = ROOT / "scripts" / "p2p-local-convergence-smoke.sh"
         self.assertTrue(
