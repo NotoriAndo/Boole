@@ -819,3 +819,13 @@ dead-code(-D warnings) ② 수정한 crate(boole-node)만 전체 테스트하고
    정합 — 계약 자체를 nextest 격리 모델로 개정해야 함.
 3. 남은 독립 슬라이스(SC.4/SC.8 등)는 worktree 멀티에이전트 병렬로
    (N3-pre wave 전례).
+
+## L10 — `generate_from_hex`는 hex 디코드 실패에만 Err (SC.10-ii-a RED에서 실증)
+
+`family_v1_lenbound::generate_from_hex`는 `hex::decode` 결과를 그대로
+`generate_v1_lenbound(&bytes)`에 넘긴다. `generate_v1_lenbound`는 임의 길이
+바이트를 수용하므로, "짧은/긴 seed"는 유효한 인스턴스로 재파생된다. Err는
+오직 hex 디코드 실패(홀수 길이·비-hex 문자)일 때만 난다. 따라서 verifier
+entry의 `SourceRederiveFailed`를 RED로 유발하려면 4바이트 같은 짧은 seed가
+아니라 **디코드 불가능한 hex 문자열**("not-a-hex-seed" 등)을 써야 한다.
+ii-b/c/d에서 손상 seed 케이스를 쓸 때 동일하게 적용.
