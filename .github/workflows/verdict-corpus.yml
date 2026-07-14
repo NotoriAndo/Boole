@@ -1,0 +1,91 @@
+name: verdict-corpus
+
+# SC.9c (ADR-0016 (a)/(a-1)) — cross-platform verdict corpus, a REQUIRED
+# consensus gate: the three-state Lean verdict must be byte-identical on
+# every (platform × profile) a node might run, because a divergent verdict
+# is a fork vector. Four concrete jobs (Linux/macOS × debug/release) each
+# compare the fixed corpus against the committed golden fixture; the
+# always-created aggregate `verdict-corpus` job is the branch-protection
+# required check.
+#
+# Deliberately NOT path-filtered: a required check must run on every PR
+# (contrast the non-required, path-filtered macos-isolation canary —
+# ADR-0016 (a-1) records why their postures differ).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least-privilege token (mirrors ci.yml — N0-pre.2).
+permissions:
+  contents: read
+
+jobs:
+  corpus:
+    name: corpus (${{ matrix.os }}, ${{ matrix.profile }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      # A single divergent platform/profile must be visible on its own —
+      # do not cancel the siblings that would show WHICH combination forked.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        profile: [debug, release]
+    env:
+      RUST_TEST_THREADS: "1"
+    steps:
+      - name: Checkout
+        # Pinned to the same immutable SHA ci.yml uses (v6.0.3).
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install Rust toolchain
+        # Pinned to the same immutable SHA ci.yml uses.
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+
+      - name: Install Lean toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/v4.2.3/elan-init.sh -o /tmp/elan-init.sh
+          sh /tmp/elan-init.sh -y --default-toolchain leanprover/lean4:v4.29.1
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Build canonical checker
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd lean/checker
+          lake build Boole.Family.V0Helpers boole_check
+
+      - name: Run verdict corpus (debug)
+        if: matrix.profile == 'debug'
+        run: cargo test -p boole-lean-runner --test verdict_corpus --locked -- --nocapture
+
+      - name: Run verdict corpus (release)
+        if: matrix.profile == 'release'
+        run: cargo test -p boole-lean-runner --test verdict_corpus --locked --release -- --nocapture
+
+  # The single status branch protection requires. `if: always()` so the
+  # aggregate exists even when a matrix job fails — a required status that
+  # can be silently absent protects nothing.
+  verdict-corpus:
+    name: verdict-corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: corpus
+    if: always()
+    steps:
+      - name: Require all corpus jobs green
+        shell: bash
+        env:
+          CORPUS_RESULT: ${{ needs.corpus.result }}
+        run: |
+          set -euo pipefail
+          echo "corpus matrix result: ${CORPUS_RESULT}"
+          test "${CORPUS_RESULT}" = "success"

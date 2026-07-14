@@ -1,0 +1,39 @@
+{
+  "entries": [
+    {
+      "id": "accept_trivial_decide",
+      "verdict": "accepted"
+    },
+    {
+      "id": "reject_false_statement",
+      "reason": "lean_rejected",
+      "verdict": "deterministic_reject"
+    },
+    {
+      "id": "budget_exceeded_heartbeats",
+      "reason": "budget_exceeded",
+      "verdict": "deterministic_reject"
+    },
+    {
+      "id": "budget_exceeded_rec_depth",
+      "reason": "budget_exceeded",
+      "verdict": "deterministic_reject"
+    },
+    {
+      "id": "intake_rejects_budget_override_unlock",
+      "token": "maxHeartbeats",
+      "verdict": "intake_rejected"
+    },
+    {
+      "id": "intake_rejects_rec_depth_override",
+      "token": "maxRecDepth",
+      "verdict": "intake_rejected"
+    },
+    {
+      "id": "intake_rejects_sorry",
+      "token": "sorry",
+      "verdict": "intake_rejected"
+    }
+  ],
+  "schema": "boole.verdict-corpus.v1"
+}
