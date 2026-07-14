@@ -1,4 +1,5 @@
 mod block_store;
+mod block_verifier;
 mod bounty_catalog_store;
 mod bounty_event_store;
 mod checker_pin;
@@ -25,6 +26,7 @@ mod state_dir;
 mod work_manifest_store;
 
 pub use block_store::FileBlockStore;
+pub use block_verifier::{verify_lean_bound_share_evidence, ShareEvidenceVerdict};
 pub use bounty_catalog_store::load_bounties_from_path;
 pub use bounty_event_store::FileBountyEventLedger;
 pub use deep_verify::{

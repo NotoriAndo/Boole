@@ -23,8 +23,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use boole_core::{bounty_proof_hash_hex, validate_bounty_ledger_event};
-use boole_lean_runner::{LeanRunner, LeanRunnerConfig};
+use boole_lean_runner::{LeanRunner, LeanRunnerConfig, LeanVerdict};
 use serde_json::Value;
+
+use crate::ShareEvidenceVerdict;
 
 static REVERIFY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -412,123 +414,77 @@ pub fn deep_verify_block(
                 continue;
             };
 
-            // Re-derive the canonical Lean source from the seed — never trust
-            // a persisted source string.
-            let instance = match boole_core::family_v1_lenbound::generate_from_hex(&share.seed_hex)
-            {
-                Ok(inst) => inst,
-                Err(err) => {
+            let checker_dir =
+                lean_checker_dir.expect("checker dir present when checker hash present");
+            // The single verifier entry (SC.10-ii-a): re-derive the source
+            // from the seed, recompute the canon, and — when lake is ready —
+            // re-run the pinned checker. The audit maps its classification
+            // back onto the report counters; `lake_ready` is the audit's
+            // `run_lean` (a lake-less host stays a pure canon check).
+            match crate::verify_lean_bound_share_evidence(
+                &block.c,
+                share,
+                checker_dir,
+                checker_hash,
+                &verifier_hash,
+                lake_ready,
+            ) {
+                // Unreachable: the empty-seed shares are filtered above.
+                ShareEvidenceVerdict::NotLeanBound => {}
+                ShareEvidenceVerdict::SourceRederiveFailed { detail } => {
                     report.divergences.push(DeepVerifyDivergence {
                         work_id: block.c.clone(),
                         proof_hash: share.canon_hash.clone(),
                         field: "seedHex".to_string(),
                         expected: "valid v1-lenbound seed".to_string(),
-                        actual: err.to_string(),
+                        actual: detail,
                     });
-                    continue;
                 }
-            };
-            let lean_source = boole_core::family_v1_lenbound::render_canonical_proof(&instance);
-
-            // Canon recompute (pure): the stored proofPackage must equal the
-            // canon bound to the re-derived source + checker + verifier.
-            let recomputed =
-                boole_core::lean_bound_canon_package(&verifier_hash, checker_hash, &lean_source);
-            let recomputed_hex = hex::encode(&recomputed);
-            if recomputed_hex != share.proof_package {
-                report.divergences.push(DeepVerifyDivergence {
-                    work_id: block.c.clone(),
-                    proof_hash: share.canon_hash.clone(),
-                    field: "proofPackage".to_string(),
-                    expected: share.proof_package.clone(),
-                    actual: recomputed_hex,
-                });
-                continue;
-            }
-            report.canon_reverified += 1;
-
-            // Lean re-elaboration (gated): the canon binds the bare proof
-            // body, but the checker elaborates a full module — wrap the
-            // re-derived proof exactly as the verifier does before running.
-            if lake_ready {
-                let checker_dir = lean_checker_dir.expect("checker dir present when lake_ready");
-                let module = boole_core::family_v1_lenbound::lean_module(&instance, &lean_source);
-                match reverify_block_lean_source(&block.c, &share.canon_hash, &module, checker_dir)
-                {
-                    Some(div) => report.divergences.push(div),
-                    None => report.lean_reverified += 1,
+                ShareEvidenceVerdict::CanonMismatch { expected, actual } => {
+                    report.divergences.push(DeepVerifyDivergence {
+                        work_id: block.c.clone(),
+                        proof_hash: share.canon_hash.clone(),
+                        field: "proofPackage".to_string(),
+                        expected,
+                        actual,
+                    });
+                }
+                // Canon matched (all three arms below): count the pure canon
+                // reverify exactly as the inline version did before running
+                // — or skipping — Lean.
+                ShareEvidenceVerdict::LeanSkipped => {
+                    report.canon_reverified += 1;
+                }
+                ShareEvidenceVerdict::Lean(LeanVerdict::Accepted) => {
+                    report.canon_reverified += 1;
+                    report.lean_reverified += 1;
+                }
+                // ADR-0016 (a-3) — an availability failure names the runner,
+                // never the proof.
+                ShareEvidenceVerdict::Lean(verdict) if verdict.is_retryable_unavailable() => {
+                    report.canon_reverified += 1;
+                    report.divergences.push(DeepVerifyDivergence {
+                        work_id: block.c.clone(),
+                        proof_hash: share.canon_hash.clone(),
+                        field: "runner".to_string(),
+                        expected: "ok".to_string(),
+                        actual: format!("retryable_unavailable: {verdict:?}"),
+                    });
+                }
+                ShareEvidenceVerdict::Lean(_) => {
+                    report.canon_reverified += 1;
+                    report.divergences.push(DeepVerifyDivergence {
+                        work_id: block.c.clone(),
+                        proof_hash: share.canon_hash.clone(),
+                        field: "accepted".to_string(),
+                        expected: "true".to_string(),
+                        actual: "false".to_string(),
+                    });
                 }
             }
         }
     }
     Ok(report)
-}
-
-/// Re-elaborate a re-derived Lean source through `LeanRunner`; returns a
-/// divergence if the proof is not accepted (or the runner errors).
-fn reverify_block_lean_source(
-    block_c: &str,
-    canon_hash: &str,
-    module_text: &str,
-    checker_dir: &Path,
-) -> Option<DeepVerifyDivergence> {
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "boole-deep-verify-block-{}-{}",
-        std::process::id(),
-        REVERIFY_COUNTER.fetch_add(1, Ordering::Relaxed),
-    ));
-    if let Err(err) = std::fs::create_dir_all(&tmp_dir) {
-        return Some(DeepVerifyDivergence {
-            work_id: block_c.to_string(),
-            proof_hash: canon_hash.to_string(),
-            field: "tmpDir".to_string(),
-            expected: "writable".to_string(),
-            actual: err.to_string(),
-        });
-    }
-    let proof_path = tmp_dir.join("Proof.lean");
-    if let Err(err) = std::fs::write(&proof_path, module_text) {
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-        return Some(DeepVerifyDivergence {
-            work_id: block_c.to_string(),
-            proof_hash: canon_hash.to_string(),
-            field: "proofFile".to_string(),
-            expected: "writable".to_string(),
-            actual: err.to_string(),
-        });
-    }
-    let runner = LeanRunner::new(
-        LeanRunnerConfig::new("boole-deep-verify-block")
-            .with_package_dir(checker_dir.to_path_buf()),
-    );
-    let outcome = match runner.check_file(&proof_path) {
-        Ok(result) if result.accepted => None,
-        // SC.9a / ADR-0016 (a-3) — availability failure ≠ verdict: name
-        // the runner, not the proof.
-        Ok(result) if result.verdict.is_retryable_unavailable() => Some(DeepVerifyDivergence {
-            work_id: block_c.to_string(),
-            proof_hash: canon_hash.to_string(),
-            field: "runner".to_string(),
-            expected: "ok".to_string(),
-            actual: format!("retryable_unavailable: {:?}", result.verdict),
-        }),
-        Ok(_) => Some(DeepVerifyDivergence {
-            work_id: block_c.to_string(),
-            proof_hash: canon_hash.to_string(),
-            field: "accepted".to_string(),
-            expected: "true".to_string(),
-            actual: "false".to_string(),
-        }),
-        Err(err) => Some(DeepVerifyDivergence {
-            work_id: block_c.to_string(),
-            proof_hash: canon_hash.to_string(),
-            field: "runner".to_string(),
-            expected: "ok".to_string(),
-            actual: err.to_string(),
-        }),
-    };
-    let _ = std::fs::remove_dir_all(&tmp_dir);
-    outcome
 }
 
 #[cfg(test)]
