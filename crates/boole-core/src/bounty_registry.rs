@@ -379,18 +379,15 @@ fn validate_verifier_metadata(metadata: &Map<String, Value>) -> Result<(), Strin
                     ));
                 }
             }
-            "maxSteps" => {
-                if !value.is_u64() {
-                    return Err(
-                        "bounty verifier.metadata.maxSteps must be a non-negative integer"
-                            .to_string(),
-                    );
-                }
-            }
+            // SC.9a / ADR-0016 (b) — `maxSteps` is retired: it was never
+            // read by any verifier, and a metadata field that LOOKS like a
+            // step budget but binds nothing is exactly the ambiguity the
+            // committed budget (family manifest `maxHeartbeats`/
+            // `maxRecDepth`, base-lane rule constants) exists to remove.
             other => {
                 return Err(format!(
                     "bounty verifier.metadata key {other:?} is not accepted; \
-                     allowed keys: statement, verifierHash, profile, template, maxSteps"
+                     allowed keys: statement, verifierHash, profile, template"
                 ));
             }
         }

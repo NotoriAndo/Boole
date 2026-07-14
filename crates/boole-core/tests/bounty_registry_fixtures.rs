@@ -190,11 +190,7 @@ fn create_alpha() -> CreateBountyInput {
         domain: "lean.protocol-invariant".to_string(),
         problem_hash: hex_a(),
         verifier_kind: "lean".to_string(),
-        verifier_metadata: metadata(&[
-            ("verifierHash", json!(hex_b())),
-            ("profile", json!("v1")),
-            ("maxSteps", json!(4096)),
-        ]),
+        verifier_metadata: metadata(&[("verifierHash", json!(hex_b())), ("profile", json!("v1"))]),
         reward: 7,
         deadline: 1900000000000,
         ts: 1800000000000,

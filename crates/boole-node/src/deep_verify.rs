@@ -273,6 +273,19 @@ fn reverify_lean_event(event: &Value, checker_dir: &Path) -> Vec<DeepVerifyDiver
         LeanRunnerConfig::new(verifier_hash).with_package_dir(checker_dir.to_path_buf()),
     );
     match runner.check_file(&proof_path) {
+        // SC.9a / ADR-0016 (a-3) — an availability failure is not a
+        // re-verification verdict: report it as a runner problem the
+        // operator retries, never as an "accepted=false" divergence that
+        // reads like the proof no longer holds.
+        Ok(result) if result.verdict.is_retryable_unavailable() => {
+            divergences.push(DeepVerifyDivergence {
+                work_id,
+                proof_hash,
+                field: "runner".to_string(),
+                expected: "ok".to_string(),
+                actual: format!("retryable_unavailable: {:?}", result.verdict),
+            });
+        }
         Ok(result) => {
             if !result.accepted {
                 divergences.push(DeepVerifyDivergence {
@@ -490,6 +503,15 @@ fn reverify_block_lean_source(
     );
     let outcome = match runner.check_file(&proof_path) {
         Ok(result) if result.accepted => None,
+        // SC.9a / ADR-0016 (a-3) — availability failure ≠ verdict: name
+        // the runner, not the proof.
+        Ok(result) if result.verdict.is_retryable_unavailable() => Some(DeepVerifyDivergence {
+            work_id: block_c.to_string(),
+            proof_hash: canon_hash.to_string(),
+            field: "runner".to_string(),
+            expected: "ok".to_string(),
+            actual: format!("retryable_unavailable: {:?}", result.verdict),
+        }),
         Ok(_) => Some(DeepVerifyDivergence {
             work_id: block_c.to_string(),
             proof_hash: canon_hash.to_string(),

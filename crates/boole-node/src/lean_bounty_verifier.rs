@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use boole_core::{Bounty, BountyProofVerifier, VerifyOutcome};
-use boole_lean_runner::{IsolationMode, LeanRunner, LeanRunnerConfig};
+use boole_lean_runner::{IsolationMode, LeanCheckResult, LeanRunner, LeanRunnerConfig};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
@@ -52,6 +52,7 @@ fn content_hash_hex(text: &str) -> String {
 pub struct LeanBountyVerifier {
     checker_dir: PathBuf,
     isolation_mode: IsolationMode,
+    timeout_ms: Option<u64>,
 }
 
 impl LeanBountyVerifier {
@@ -59,6 +60,7 @@ impl LeanBountyVerifier {
         Self {
             checker_dir: checker_dir.into(),
             isolation_mode: IsolationMode::default(),
+            timeout_ms: None,
         }
     }
 
@@ -74,6 +76,40 @@ impl LeanBountyVerifier {
     pub fn isolation_mode(&self) -> IsolationMode {
         self.isolation_mode
     }
+
+    /// SC.9a — containment (wall-clock) tuning only, never a verdict input
+    /// (ADR-0016 (a)): expiring this bound surfaces as a retryable
+    /// availability error, not as a proof rejection.
+    pub fn with_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.timeout_ms = Some(timeout_ms);
+        self
+    }
+}
+
+/// SC.9a / ADR-0016 (a-3) — map the runner's three-state verdict into the
+/// `BountyProofVerifier` contract: a `retryable_unavailable` result is an
+/// availability ERROR (`Err`), so the caller's error path handles it and no
+/// bounty rejection is ever recorded from a containment kill; only real
+/// verdicts become a `VerifyOutcome`.
+fn outcome_from_check_result(result: &LeanCheckResult) -> Result<VerifyOutcome, String> {
+    if let boole_lean_runner::LeanVerdict::RetryableUnavailable { reason } = &result.verdict {
+        return Err(format!(
+            "retryable_unavailable: verifier availability failure ({reason}), not a verdict"
+        ));
+    }
+    // P1.4 — surface the LeanRunner's `checker_artifact_hash` so the bounty
+    // audit ledger pins the physical checker identity that adjudicated this
+    // proof. `verifierHash` is already covered by slice 19 from the bounty
+    // record; here we only add evidence the verifier alone can know.
+    let mut evidence: Map<String, Value> = Map::new();
+    evidence.insert(
+        "checkerArtifactHash".to_string(),
+        Value::String(result.evidence.checker_artifact_hash.clone()),
+    );
+    Ok(VerifyOutcome {
+        accepted: result.accepted,
+        evidence,
+    })
 }
 
 impl BountyProofVerifier for LeanBountyVerifier {
@@ -155,28 +191,15 @@ impl BountyProofVerifier for LeanBountyVerifier {
         let proof_path = tmp_dir.join("Proof.lean");
         std::fs::write(&proof_path, rendered_module).map_err(|err| err.to_string())?;
 
-        let runner = LeanRunner::new(
-            LeanRunnerConfig::new(verifier_hash)
-                .with_package_dir(self.checker_dir.clone())
-                .with_isolation_mode(self.isolation_mode),
-        );
+        let mut config = LeanRunnerConfig::new(verifier_hash)
+            .with_package_dir(self.checker_dir.clone())
+            .with_isolation_mode(self.isolation_mode);
+        if let Some(timeout_ms) = self.timeout_ms {
+            config = config.with_timeout_ms(timeout_ms);
+        }
+        let runner = LeanRunner::new(config);
         let outcome = match runner.check_file(&proof_path) {
-            Ok(result) => {
-                // P1.4 — surface the LeanRunner's `checker_artifact_hash`
-                // so the bounty audit ledger pins the physical checker
-                // identity that adjudicated this proof. `verifierHash` is
-                // already covered by slice 19 from the bounty record;
-                // here we only add evidence the verifier alone can know.
-                let mut evidence: Map<String, Value> = Map::new();
-                evidence.insert(
-                    "checkerArtifactHash".to_string(),
-                    Value::String(result.evidence.checker_artifact_hash.clone()),
-                );
-                Ok(VerifyOutcome {
-                    accepted: result.accepted,
-                    evidence,
-                })
-            }
+            Ok(result) => outcome_from_check_result(&result),
             Err(err) => Err(err.to_string()),
         };
         let _ = std::fs::remove_dir_all(&tmp_dir);
@@ -278,6 +301,81 @@ mod tests {
             bounty_proof_hash_hex(&a),
             hex::encode(Sha256::digest(&a)),
             "bounty proof hash must be domain-tagged"
+        );
+    }
+
+    fn check_result_with_verdict(
+        accepted: bool,
+        timed_out: bool,
+        verdict: boole_lean_runner::LeanVerdict,
+    ) -> boole_lean_runner::LeanCheckResult {
+        boole_lean_runner::LeanCheckResult {
+            accepted,
+            exit_code: if accepted { 0 } else { -1 },
+            stdout: String::new(),
+            stderr: String::new(),
+            timed_out,
+            output_truncated: false,
+            verdict,
+            evidence: boole_lean_runner::LeanRunnerEvidence {
+                verifier_hash: "vh".to_string(),
+                checker: "lake exec boole_check".to_string(),
+                checker_exe: "boole_check".to_string(),
+                checker_artifact_hash: "ah".to_string(),
+                package_dir: String::new(),
+                lean_version: String::new(),
+                lake_version: String::new(),
+                timeout_ms: 10_000,
+                memory_limit_mb: 8192,
+                output_limit_bytes: 64 * 1024,
+                max_heartbeats: 400_000,
+                max_rec_depth: 512,
+            },
+        }
+    }
+
+    /// SC.9a / ADR-0016 (a-3) — a containment kill maps to an availability
+    /// `Err`, never to a `VerifyOutcome{accepted:false}`: the bounty route's
+    /// error path returns without touching the registry or the event
+    /// ledger, so a slow verifier can never mint a consensus-visible
+    /// rejection for a proof a faster node would have judged.
+    #[test]
+    fn containment_kill_maps_to_retryable_error_not_a_reject_outcome() {
+        let containment = check_result_with_verdict(
+            false,
+            true,
+            boole_lean_runner::LeanVerdict::RetryableUnavailable {
+                reason: "containment_wall_clock_kill".to_string(),
+            },
+        );
+        let err = outcome_from_check_result(&containment)
+            .expect_err("containment kill must be an availability error, not an outcome");
+        assert!(
+            err.contains("retryable_unavailable"),
+            "availability error must be typed retryable: {err}"
+        );
+
+        let deterministic = check_result_with_verdict(
+            false,
+            false,
+            boole_lean_runner::LeanVerdict::DeterministicReject {
+                reason: "budget_exceeded".to_string(),
+            },
+        );
+        let outcome = outcome_from_check_result(&deterministic)
+            .expect("deterministic reject IS a verdict outcome");
+        assert!(
+            !outcome.accepted,
+            "budget_exceeded is a real reject verdict"
+        );
+
+        let accepted =
+            check_result_with_verdict(true, false, boole_lean_runner::LeanVerdict::Accepted);
+        let outcome = outcome_from_check_result(&accepted).expect("accept outcome");
+        assert!(outcome.accepted);
+        assert_eq!(
+            outcome.evidence.get("checkerArtifactHash"),
+            Some(&Value::String("ah".to_string()))
         );
     }
 

@@ -29,7 +29,7 @@ const createAlpha = {
   id: "alpha-1",
   domain: "lean.protocol-invariant",
   problemHash: HEX_A,
-  verifier: { kind: "lean", metadata: { verifierHash: HEX_B, profile: "v1", maxSteps: 4096 } },
+  verifier: { kind: "lean", metadata: { verifierHash: HEX_B, profile: "v1" } },
   reward: 7n,
   deadline: 1900000000000,
   ts: 1800000000000,

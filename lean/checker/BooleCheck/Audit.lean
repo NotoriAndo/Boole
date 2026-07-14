@@ -52,18 +52,45 @@ def declaredAxioms (baseEnv finalEnv : Environment) : Array Name := Id.run do
     st := (((Lean.CollectAxioms.collect name).run finalEnv).run st).snd
   return st.axioms
 
+/-- SC.9a / ADR-0016 (a-2) layer 2 — budget-bearing option names a submitted
+source must never mention. `set_option maxHeartbeats <M>` (including `0` =
+unlimited) or `set_option maxRecDepth <M>` would override the committed
+budget this audit itself elaborates under, making the consensus budget
+advisory. The scan is over the RAW source text (comments and strings
+included): deliberately stricter than the Rust-side intake scan, because
+this is the last line and must stay simple enough to be obviously right. -/
+def budgetOverrideTokens : List String := ["maxHeartbeats", "maxRecDepth"]
+
 def main (args : List String) : IO UInt32 := do
   let some proofPath := args.head?
-    | IO.eprintln "usage: boole_axiom_audit <proof.lean>"
+    | IO.eprintln "usage: boole_axiom_audit <proof.lean> [maxHeartbeats] [maxRecDepth]"
       return 64
   let input ← IO.FS.readFile proofPath
+  -- ADR-0016 (a-2) layer 2: refuse budget-override tokens BEFORE any of the
+  -- submitted file's content is parsed or elaborated. Independent of the
+  -- Rust-side intake scan: a source slipping past that layer still cannot
+  -- buy steps here.
+  for token in budgetOverrideTokens do
+    if (input.splitOn token).length > 1 then
+      IO.eprintln s!"BOOLE_BUDGET_OVERRIDE {token}"
+      return 1
+  -- SC.9a / ADR-0016 (a)(b) — elaborate under the SAME committed step
+  -- budget the primary checker ran under (runner passes it as trailing
+  -- args), so audit and primary cannot diverge on resource grounds.
+  let opts : Lean.Options := {}
+  let opts := match (args.drop 1).head?.bind (·.toNat?) with
+    | some maxHeartbeats => opts.set `maxHeartbeats maxHeartbeats
+    | none => opts
+  let opts := match (args.drop 2).head?.bind (·.toNat?) with
+    | some maxRecDepth => opts.set `maxRecDepth maxRecDepth
+    | none => opts
   let inputCtx := Lean.Parser.mkInputContext input proofPath
   let (header, parserState, msgs) ← Lean.Parser.parseHeader inputCtx
-  let (baseEnv, msgs) ← Lean.Elab.processHeader header {} msgs inputCtx
+  let (baseEnv, msgs) ← Lean.Elab.processHeader header opts msgs inputCtx
   if msgs.hasErrors then
     IO.eprintln "AUDIT_ERROR: header failed to process"
     return 1
-  let commandState := Lean.Elab.Command.mkState baseEnv msgs {}
+  let commandState := Lean.Elab.Command.mkState baseEnv msgs opts
   let frontendState ← Lean.Elab.IO.processCommands inputCtx parserState commandState
   if frontendState.commandState.messages.hasErrors then
     IO.eprintln "AUDIT_ERROR: elaboration failed"

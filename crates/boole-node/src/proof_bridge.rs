@@ -131,6 +131,15 @@ impl LeanProofBridge {
                 kind: "lean_runner_failed",
                 lean: Box::new(runner_error_result(err.to_string())),
             })?;
+        // SC.9a / ADR-0016 (a-3) — an availability failure (containment
+        // kill) is not a judgement of the proof: name it distinctly so an
+        // operator retries instead of discarding the proof as rejected.
+        if lean.verdict.is_retryable_unavailable() {
+            return Err(ProofBridgeError {
+                kind: "lean_runner_unavailable",
+                lean: Box::new(lean),
+            });
+        }
         if !lean.accepted {
             return Err(ProofBridgeError {
                 kind: "lean_rejected",
@@ -221,9 +230,13 @@ fn runner_error_result(error: String) -> LeanCheckResult {
         accepted: false,
         exit_code: -1,
         stdout: String::new(),
-        stderr: error,
+        stderr: error.clone(),
         timed_out: false,
         output_truncated: false,
+        // A runner-level error (spawn failure, missing package) is an
+        // availability condition, not a judgement of the proof bytes
+        // (ADR-0016 (a-3)).
+        verdict: boole_lean_runner::LeanVerdict::RetryableUnavailable { reason: error },
         evidence: boole_lean_runner::LeanRunnerEvidence {
             verifier_hash: String::new(),
             checker: "lake exec boole_check".to_string(),
@@ -235,6 +248,8 @@ fn runner_error_result(error: String) -> LeanCheckResult {
             timeout_ms: 0,
             memory_limit_mb: 0,
             output_limit_bytes: 0,
+            max_heartbeats: 0,
+            max_rec_depth: 0,
         },
     }
 }
