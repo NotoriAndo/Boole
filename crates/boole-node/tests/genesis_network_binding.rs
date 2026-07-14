@@ -380,3 +380,294 @@ fn named_network_boot_fails_fast_on_non_consensus_multiplier() {
     let _ = fs::remove_dir_all(&bad.dir);
     let _ = fs::remove_dir_all(&dir);
 }
+
+// ===== SC.9b (ADR-0016 (a)/(a-2)) — checker pin + executable toolchain =====
+//
+// `boole-testnet-2` pins `checker_artifact_hash` in its compiled preset. A
+// named-network boot that configures a Lean checker must refuse to come up
+// when (1) the local checker sources hash differently from the pin, or
+// (2) the released toolchain manifest (RELEASE-MANIFEST.json, the tag +
+// SHA256SUMS channel) disagrees with the pin or with the toolchain the
+// checker process would ACTUALLY execute (`lake env lean` resolved from the
+// package dir). A source-hash match with a different executable toolchain
+// is a typed refusal, not a warning.
+
+fn canonical_checker_dir() -> PathBuf {
+    repo_root().join("lean").join("checker")
+}
+
+fn lake_and_lean_available() -> bool {
+    std::process::Command::new("lake")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success())
+        && std::process::Command::new("lean")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
+}
+
+/// Copy the canonical checker package (pinned sources + release manifest,
+/// no `.lake` build outputs) into a tmp dir the test can tamper with.
+fn copy_checker(tag: &str) -> PathBuf {
+    let src = canonical_checker_dir();
+    let dst = std::env::temp_dir().join(format!(
+        "boole-sc9b-checker-{tag}-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    let _ = fs::remove_dir_all(&dst);
+    fs::create_dir_all(dst.join("BooleCheck")).expect("mk BooleCheck");
+    fs::create_dir_all(dst.join("Boole/Family")).expect("mk Boole/Family");
+    for rel in [
+        "lean-toolchain",
+        "lakefile.lean",
+        "lake-manifest.json",
+        "RELEASE-MANIFEST.json",
+        "BooleCheck/Main.lean",
+        "BooleCheck/Audit.lean",
+        "Boole/Family/V0Helpers.lean",
+    ] {
+        fs::copy(src.join(rel), dst.join(rel)).unwrap_or_else(|err| panic!("copy {rel}: {err}"));
+    }
+    dst
+}
+
+/// Boot under the pinned network name with a configured Lean checker dir.
+fn boot_testnet2_with_checker(tag: &str, checker_dir: PathBuf) -> Boot {
+    let dir = std::env::temp_dir().join(format!(
+        "boole-sc9b-boot-{tag}-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("tmp dir");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind http");
+    let addr = listener.local_addr().expect("http addr");
+    let (tx, rx) = mpsc::channel();
+    let block_path = dir.join("blocks.ndjson");
+    let rewards = dir.join("rewards.ndjson");
+    let shutdown = Arc::new(Notify::new());
+    let shutdown_for_node = shutdown.clone();
+    let handle = thread::spawn(move || {
+        tx.send(()).expect("ready");
+        serve_local_node_with_p2p(
+            listener,
+            LocalNodeConfig {
+                scenario_path: scenario_path(),
+                block_path,
+                reward_ledger_path: Some(rewards),
+                work_manifests_path: None,
+                bounties_path: None,
+                bounty_event_ledger_path: None,
+                bounty_verifiers: None,
+                family_manifests_dir: None,
+                operator_signer_pks: vec![],
+                session_registry_path: None,
+                submit_nonce_ledger_path: None,
+                signed_nonce_ledger_path: None,
+                submit_receipt_ledger_path: None,
+                receipt_commitment_ledger_path: None,
+                proof_dedup_ledger_path: None,
+                max_requests: None,
+                genesis_override: None,
+                state_dir: None,
+                network_id: Some("boole-testnet-2".to_string()),
+                lean_checker_dir: Some(checker_dir),
+                lean_checker_disabled: false,
+                http_rate_limit_per_60s: None,
+                allow_anonymous_submit: false,
+            },
+            P2pConfig {
+                listener: None,
+                peers: vec!["127.0.0.1:1".parse().expect("allowlist addr")],
+                rate_limit_per_60s: boole_node::DEFAULT_P2P_RATE_LIMIT_PER_60S,
+            },
+            Some(shutdown_for_node),
+        )
+    });
+    rx.recv().expect("server ready");
+    thread::sleep(Duration::from_millis(50));
+    Boot {
+        addr,
+        dir,
+        shutdown,
+        handle,
+    }
+}
+
+fn expect_boot_refusal(boot: Boot) -> String {
+    let _ = boot.addr;
+    boot.shutdown.notify_one();
+    let joined = boot.handle.join().expect("server thread");
+    let err = joined.expect_err("boot must refuse");
+    let _ = fs::remove_dir_all(&boot.dir);
+    err.to_string()
+}
+
+/// SC.9b — a checker whose sources hash differently from the network's
+/// compiled pin must refuse to boot, and the refusal must be the CHECKER
+/// gate (differential control: the untampered copy gets past the checker
+/// gate and fails on the later genesis gate instead).
+#[test]
+fn named_network_boot_refuses_on_checker_artifact_hash_mismatch() {
+    if !lake_and_lean_available() {
+        eprintln!("skipping checker pin boot test: lake/lean unavailable");
+        return;
+    }
+    // Tampered copy: any byte change to a pinned source moves the hash.
+    let tampered = copy_checker("tampered");
+    let main_path = tampered.join("BooleCheck/Main.lean");
+    let mut main_text = fs::read_to_string(&main_path).expect("read Main.lean");
+    main_text.push_str("\n-- tampered\n");
+    fs::write(&main_path, main_text).expect("tamper Main.lean");
+
+    let err = expect_boot_refusal(boot_testnet2_with_checker("mismatch", tampered.clone()));
+    assert!(
+        err.contains("checker_artifact_hash"),
+        "refusal must name the checker pin: {err}"
+    );
+    let _ = fs::remove_dir_all(&tampered);
+
+    // Differential control: the untampered copy passes the checker gate;
+    // this harness's genesis still diverges from the testnet-2 preset, so
+    // the boot fails on the GENESIS gate — proving the refusal above was
+    // the checker pin, not an unrelated boot failure.
+    let pristine = copy_checker("pristine");
+    let err = expect_boot_refusal(boot_testnet2_with_checker("control", pristine.clone()));
+    assert!(
+        !err.contains("checker_artifact_hash") && err.contains("genesis"),
+        "pristine checker must clear the checker gate (and fail later on \
+         genesis divergence in this harness): {err}"
+    );
+    let _ = fs::remove_dir_all(&pristine);
+}
+
+/// SC.9b — a source-hash match with a different executable Lean identity is
+/// a typed refusal: the release manifest declares the toolchain the pin was
+/// released with, and boot compares it to what the checker process would
+/// actually run (`lake env lean` in the package dir).
+#[test]
+fn named_network_boot_rejects_wrong_lean_version_or_githash() {
+    if !lake_and_lean_available() {
+        eprintln!("skipping lean identity boot test: lake/lean unavailable");
+        return;
+    }
+    let checker = copy_checker("wrong-lean");
+    let manifest_path = checker.join("RELEASE-MANIFEST.json");
+    let mut manifest: Value =
+        serde_json::from_str(&fs::read_to_string(&manifest_path).expect("read manifest"))
+            .expect("manifest json");
+    manifest["leanGithash"] = json!("0000000000000000000000000000000000000000");
+    manifest["leanVersion"] = json!("9.9.9");
+    fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).expect("json"),
+    )
+    .expect("doctor manifest");
+
+    let err = expect_boot_refusal(boot_testnet2_with_checker("wrong-lean", checker.clone()));
+    assert!(
+        err.contains("lean") && (err.contains("githash") || err.contains("version")),
+        "refusal must name the lean toolchain identity mismatch: {err}"
+    );
+    let _ = fs::remove_dir_all(&checker);
+}
+
+/// SC.9b — same contract for the Lake executable identity.
+#[test]
+fn named_network_boot_rejects_wrong_lake_version() {
+    if !lake_and_lean_available() {
+        eprintln!("skipping lake identity boot test: lake/lean unavailable");
+        return;
+    }
+    let checker = copy_checker("wrong-lake");
+    let manifest_path = checker.join("RELEASE-MANIFEST.json");
+    let mut manifest: Value =
+        serde_json::from_str(&fs::read_to_string(&manifest_path).expect("read manifest"))
+            .expect("manifest json");
+    manifest["lakeVersion"] = json!("0.0.0-bogus");
+    fs::write(
+        &manifest_path,
+        serde_json::to_string_pretty(&manifest).expect("json"),
+    )
+    .expect("doctor manifest");
+
+    let err = expect_boot_refusal(boot_testnet2_with_checker("wrong-lake", checker.clone()));
+    assert!(
+        err.contains("lake"),
+        "refusal must name the lake toolchain identity mismatch: {err}"
+    );
+    let _ = fs::remove_dir_all(&checker);
+}
+
+/// SC.9b — repo-level release-channel consistency (P3.6 subset: tag +
+/// SHA256SUMS): the compiled testnet preset pin, the release manifest, the
+/// SHA256SUMS file, and the actual checker sources in this repo must all
+/// agree, so the pin an operator verifies from the release channel is the
+/// pin the network enforces.
+#[test]
+fn preset_pin_matches_released_checker_toolchain_manifest() {
+    let preset = boole_core::network_genesis_preset("boole-testnet-2").expect("testnet-2 preset");
+    let pinned = preset
+        .params
+        .checker_artifact_hash
+        .expect("SC.9b flips the testnet checker pin to Some(<hash>) — ADR-0014 (e) resolved");
+
+    let dir = canonical_checker_dir();
+    let recomputed =
+        boole_lean_runner::checker_artifact_hash(&dir).expect("recompute checker artifact hash");
+    assert_eq!(
+        pinned, recomputed,
+        "the compiled preset pin must equal the repo checker's artifact hash"
+    );
+
+    let manifest: Value = serde_json::from_str(
+        &fs::read_to_string(dir.join("RELEASE-MANIFEST.json")).expect("release manifest exists"),
+    )
+    .expect("manifest json");
+    assert_eq!(manifest["schema"], "boole.checker.release.v1");
+    assert_eq!(
+        manifest["checkerArtifactHash"].as_str().expect("hash"),
+        pinned,
+        "release manifest must declare the pinned artifact hash"
+    );
+    for key in ["tag", "leanVersion", "leanGithash", "lakeVersion"] {
+        assert!(
+            manifest[key].as_str().is_some_and(|v| !v.is_empty()),
+            "release manifest must declare {key}"
+        );
+    }
+
+    // SHA256SUMS covers the manifest and every pinned source file, so the
+    // minimal release channel (git tag + this file) lets an operator verify
+    // a downloaded checker byte-for-byte.
+    let sums = fs::read_to_string(dir.join("SHA256SUMS")).expect("SHA256SUMS exists");
+    let mut covered = std::collections::BTreeSet::new();
+    for line in sums.lines().filter(|l| !l.trim().is_empty()) {
+        let (digest, rel) = line
+            .split_once("  ")
+            .unwrap_or_else(|| panic!("malformed SHA256SUMS line: {line}"));
+        let bytes = fs::read(dir.join(rel)).unwrap_or_else(|err| panic!("read {rel}: {err}"));
+        let actual = {
+            use sha2::{Digest, Sha256};
+            hex::encode(Sha256::digest(&bytes))
+        };
+        assert_eq!(digest, actual, "SHA256SUMS digest drift for {rel}");
+        covered.insert(rel.to_string());
+    }
+    for required in [
+        "RELEASE-MANIFEST.json",
+        "lean-toolchain",
+        "lakefile.lean",
+        "lake-manifest.json",
+        "BooleCheck/Main.lean",
+        "BooleCheck/Audit.lean",
+        "Boole/Family/V0Helpers.lean",
+    ] {
+        assert!(
+            covered.contains(required),
+            "SHA256SUMS must cover {required}"
+        );
+    }
+}
