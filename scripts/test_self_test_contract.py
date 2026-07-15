@@ -252,13 +252,26 @@ class SelfTestContractTests(unittest.TestCase):
             "--network-id boole-testnet-2",
             "refusing to boot a diverged genesis",
             "bootRefusedOnDivergedGenesis",
+            # SC.10-iv-b — the smoke must ALSO drive the committed
+            # lean-bound share into the pinned node and prove real Lean
+            # executed via the strict deep verify (no --allow-skips).
+            "testnet2-lenbound-share.v1.json",
+            "state verify --deep",
+            "leanReverified",
         ):
             self.assertIn(
                 marker,
                 smoke_body,
-                "the pinned-boot smoke must boot boole-testnet-2 AND pin the "
-                f"diverged-genesis refusal (missing marker: {marker!r})",
+                "the pinned-boot smoke must boot boole-testnet-2, pin the "
+                "diverged-genesis refusal AND prove live Lean via strict deep "
+                f"verify (missing marker: {marker!r})",
             )
+        self.assertNotIn(
+            "--allow-skips",
+            smoke_body,
+            "the pinned-boot smoke's deep verify must stay strict — "
+            "--allow-skips would let a skip-green run pass",
+        )
 
     def test_lean_checker_build_precedes_cargo_test(self) -> None:
         body = _read(SELF_TEST)
