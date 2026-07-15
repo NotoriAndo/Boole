@@ -156,6 +156,12 @@ run_capture_json local-mining-smoke "$MINING_JSON" ./scripts/local-mining-smoke.
 # different nodes; exercises share gossip + block announce/pull + sync).
 CONVERGENCE_JSON="$TMP_DIR/p2p-convergence.json"
 run_capture_json p2p-convergence "$CONVERGENCE_JSON" ./scripts/p2p-local-convergence-smoke.sh
+# SC.10-iv-b — first live boot of a checker-pinned named network: the
+# SC.9b checker-pin + executable-toolchain gate and the N5.2 genesis gate
+# run for real (bootable at all only since SC.10-iv-0), and the
+# diverged-genesis refusal control proves the gate did not soften.
+PINNED_BOOT_JSON="$TMP_DIR/testnet2-pinned-boot.json"
+run_capture_json testnet2-pinned-boot "$PINNED_BOOT_JSON" ./scripts/testnet2-pinned-boot-smoke.sh
 run_logged git-diff-check git diff --check
 
 GITLEAKS_STATUS="skipped"
@@ -164,7 +170,7 @@ if command -v gitleaks >/dev/null 2>&1; then
   GITLEAKS_STATUS="pass"
 fi
 
-python3 - "$SMOKE_JSON" "$BENCH_JSON" "$MINING_JSON" "$GITLEAKS_STATUS" "$RUST_PARITY_STATUS" "$CONVERGENCE_JSON" <<'PY'
+python3 - "$SMOKE_JSON" "$BENCH_JSON" "$MINING_JSON" "$GITLEAKS_STATUS" "$RUST_PARITY_STATUS" "$CONVERGENCE_JSON" "$PINNED_BOOT_JSON" <<'PY'
 import json
 import sys
 
@@ -174,6 +180,7 @@ mining = json.load(open(sys.argv[3]))
 gitleaks_status = sys.argv[4]
 rust_parity_status = sys.argv[5]
 convergence = json.load(open(sys.argv[6]))
+pinned_boot = json.load(open(sys.argv[7]))
 
 cases = smoke.get("cases", [])
 summary = benchmark.get("summary", {})
@@ -226,6 +233,17 @@ checks = [
         "convergedHeight": convergence.get("convergedHeight"),
         "convergedHead": convergence.get("convergedHead"),
         "replayDivergence": convergence.get("replayDivergence"),
+    },
+    {
+        "name": "testnet2-pinned-boot",
+        "ok": pinned_boot.get("ok") is True
+        and pinned_boot.get("bootRefusedOnDivergedGenesis") is True,
+        "claimBoundary": pinned_boot.get("claimBoundary"),
+        "publicMiningEvidence": pinned_boot.get("publicMiningEvidence"),
+        "networkId": pinned_boot.get("networkId"),
+        "checkerPinned": pinned_boot.get("checkerPinned"),
+        "ready": pinned_boot.get("ready"),
+        "bootRefusedOnDivergedGenesis": pinned_boot.get("bootRefusedOnDivergedGenesis"),
     },
     {"name": "git-diff-check", "ok": True},
     {"name": "gitleaks", "ok": gitleaks_status in {"pass", "skipped"}, "status": gitleaks_status},
