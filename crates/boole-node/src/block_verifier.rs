@@ -258,3 +258,59 @@ pub fn reverify_block_selected_shares(
         None => BlockReverifyOutcome::Verified,
     }
 }
+
+/// The chain-level fold of the block re-verify gate over a peer's FULL
+/// competing chain — the gate reorg (SC.10-ii-c) runs before adopting a
+/// candidate chain on a checker-pinned network.
+///
+/// Each block's base-lane evidence is re-verified by
+/// [`reverify_block_selected_shares`] under the SAME committed budget and
+/// pinned checker, so ingest and reorg reach the same accept / reject /
+/// unavailable decision from the same bytes (ADR-0016 (c-2)). The per-block
+/// outcomes fold with the same precedence as the per-share fold: a
+/// deterministic reject anywhere wins immediately (the chain can never be
+/// valid), otherwise the first availability failure defers the whole chain,
+/// otherwise the chain is `Verified`.
+///
+/// This re-verifies the full candidate from genesis; skipping an
+/// already-verified prefix is deferred to the SC.10-iii verified-prefix
+/// checkpoint store, which is the mechanism that records which blocks a node
+/// has already cleared.
+pub fn reverify_candidate_chain_selected_shares(
+    blocks: &[PersistedBlock],
+    checker_dir: &Path,
+    checker_artifact_hash: &str,
+    verifier_hash: &str,
+    max_heartbeats: u64,
+    max_rec_depth: u64,
+) -> BlockReverifyOutcome {
+    let mut retryable: Option<String> = None;
+    for (idx, block) in blocks.iter().enumerate() {
+        match reverify_block_selected_shares(
+            block,
+            checker_dir,
+            checker_artifact_hash,
+            verifier_hash,
+            max_heartbeats,
+            max_rec_depth,
+        ) {
+            BlockReverifyOutcome::Verified => {}
+            BlockReverifyOutcome::DeterministicReject { detail } => {
+                return BlockReverifyOutcome::DeterministicReject {
+                    detail: format!("block[{idx}] {detail}"),
+                };
+            }
+            BlockReverifyOutcome::RetryableUnavailable { detail } => {
+                // Remember the first availability failure but keep scanning:
+                // a later deterministic reject still wins.
+                if retryable.is_none() {
+                    retryable = Some(format!("block[{idx}] {detail}"));
+                }
+            }
+        }
+    }
+    match retryable {
+        Some(detail) => BlockReverifyOutcome::RetryableUnavailable { detail },
+        None => BlockReverifyOutcome::Verified,
+    }
+}
