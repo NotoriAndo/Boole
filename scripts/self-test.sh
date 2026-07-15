@@ -95,6 +95,19 @@ run_logged cargo-test-prewarm bash -c '
     fi
   done
 '
+# SC.10-iv-a — the Lean toolchain is REQUIRED by this gate. Several
+# lake-gated suites (verdict_corpus, the checker-pin boot tests) self-skip
+# green when lake/lean are missing, so without an explicit probe the gate
+# could only fail *incidentally* (lean-checker-build exiting 127) — and a
+# future removal or reordering of that build stage would let the required
+# lane go green having never executed Lean ("silent skip-green"). Probe
+# both binaries here, before every lake consumer, so a missing toolchain
+# is a typed gate failure on a stage that names the cause.
+run_logged lean-toolchain-required bash -c '
+  set -euo pipefail
+  lake --version
+  lean --version
+'
 # The cargo-test stage below runs deep_verify_block_roundtrip, which re-runs
 # the Lean checker (`lake exec boole_check`) on a re-derived proof that imports
 # `Boole.Family.V0Helpers`. The checker's `.lake/build` is gitignored, so a

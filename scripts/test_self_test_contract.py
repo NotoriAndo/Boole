@@ -174,6 +174,58 @@ class SelfTestContractTests(unittest.TestCase):
                 "3 statically-peered nodes",
             )
 
+    def test_self_test_has_lean_toolchain_required_stage(self) -> None:
+        # SC.10-iv-a — the required lane must FAIL, with a stage that names
+        # the cause, when the Lean toolchain is absent. Without this explicit
+        # probe the gate only fails *incidentally* (lean-checker-build's
+        # `lake build` exits 127), and several lake-gated test suites
+        # (e.g. verdict_corpus) self-skip green when lake/lean are missing —
+        # so a future removal or reordering of the build stage would let the
+        # required lane go green without ever executing Lean ("silent
+        # skip-green", banned by the SC.10 gate condition).
+        body = _read(SELF_TEST)
+        self.assertRegex(
+            body,
+            re.compile(r"^\s*run_logged\s+lean-toolchain-required\b", re.MULTILINE),
+            "scripts/self-test.sh must declare a `lean-toolchain-required` stage "
+            "that fails the gate when the Lean toolchain is absent",
+        )
+        stage = re.search(
+            r"^\s*run_logged\s+lean-toolchain-required\b.*?(?=^\s*run_logged\s|\Z)",
+            body,
+            re.MULTILINE | re.DOTALL,
+        )
+        assert stage is not None
+        for probe in ("lake --version", "lean --version"):
+            self.assertIn(
+                probe,
+                stage.group(0),
+                f"the lean-toolchain-required stage must probe `{probe}` so a "
+                "missing toolchain is a typed gate failure, not a silent skip",
+            )
+
+    def test_lean_toolchain_required_precedes_lean_checker_build(self) -> None:
+        # The explicit probe must run before the first lake consumer so a
+        # missing toolchain fails with the stage that names the real cause
+        # (and before every lake-gated cargo test that would self-skip).
+        body = _read(SELF_TEST)
+        toolchain_idx = body.find("run_logged lean-toolchain-required")
+        build_idx = body.find("run_logged lean-checker-build")
+        self.assertNotEqual(
+            toolchain_idx,
+            -1,
+            "self-test.sh is missing the lean-toolchain-required stage",
+        )
+        self.assertNotEqual(
+            build_idx, -1, "self-test.sh is missing the lean-checker-build stage"
+        )
+        self.assertLess(
+            toolchain_idx,
+            build_idx,
+            "lean-toolchain-required must run before lean-checker-build so a "
+            "missing toolchain fails on the stage that names the cause",
+        )
+
     def test_lean_checker_build_precedes_cargo_test(self) -> None:
         body = _read(SELF_TEST)
         lean_idx = body.find("run_logged lean-checker-build")
