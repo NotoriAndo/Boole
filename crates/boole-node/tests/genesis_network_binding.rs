@@ -601,6 +601,66 @@ fn named_network_boot_rejects_wrong_lake_version() {
     let _ = fs::remove_dir_all(&checker);
 }
 
+/// SC.10-iv-0 — a node's effective genesis must be ABLE to match a compiled
+/// preset that pins seed binding and a checker. Those are network identity
+/// declarations no calibration scenario can express, so `genesis_spec` must
+/// adopt them from the compiled preset; before this slice they were
+/// hardcoded (`false`/`None`/`None`), which made the boot genesis gate
+/// unpassable for `boole-testnet-2` under ANY scenario — the checker-pinned
+/// live path was structurally unbootable (the pristine-checker control
+/// above proves boot then died on the genesis gate). The Tier-1 threshold
+/// side of the gate keeps its meaning: a scenario whose
+/// t_block/t_share/k_max/retarget diverge from the preset must still refuse.
+#[test]
+fn genesis_spec_can_match_checker_pinned_preset_identity() {
+    // A calibration whose Tier-1 thresholds agree with the presets (both
+    // compiled presets share t_block/t_share/k_max); only the retarget
+    // schedule and the identity fields under test differ between them.
+    let fixture: Value =
+        serde_json::from_str(include_str!("../../../fixtures/protocol/admission/v1.json"))
+            .expect("fixture parses");
+    let testnet = boole_core::network_genesis_preset("boole-testnet-2").expect("testnet-2 preset");
+    let mut cfg = fixture["cfg"].clone();
+    cfg["T_block"] = json!(testnet.params.t_block.clone());
+    cfg["T_share"] = json!(testnet.params.t_share.clone());
+    cfg["K_max"] = json!(testnet.params.k_max);
+    let report: boole_core::CalibrationReport =
+        serde_json::from_value(cfg).expect("patched cfg parses");
+    let base_config =
+        boole_node::RuntimeConfig::from_calibration_report(report, 60_000).expect("runtime config");
+
+    // Control: the non-pinned compiled preset (`boole-dev`, identity fields
+    // false/None) matched under the previous hardcoded defaults and must
+    // keep matching after the preset-aware change.
+    let dev = boole_core::network_genesis_preset("boole-dev").expect("dev preset");
+    let dev_spec = base_config.genesis_spec("boole-dev", &dev.initial_state.genesis_c);
+    assert_eq!(
+        dev_spec.hash().to_hex(),
+        dev.hash().to_hex(),
+        "a threshold-matching node must keep matching the boole-dev preset"
+    );
+
+    // The checker-pinned preset: seed_binding_required=true and a Some(...)
+    // checker pin come from the PRESET, not the scenario.
+    let runtime_config = base_config
+        .with_difficulty_retarget(
+            testnet
+                .params
+                .retarget
+                .clone()
+                .expect("testnet-2 preset declares a retarget schedule"),
+        )
+        .expect("retarget config");
+    let spec = runtime_config.genesis_spec("boole-testnet-2", &testnet.initial_state.genesis_c);
+    assert_eq!(
+        spec.hash().to_hex(),
+        testnet.hash().to_hex(),
+        "genesis_spec must adopt the compiled preset's identity fields \
+         (seed_binding_required / checker_artifact_hash / family_manifest_root) \
+         so a threshold-matching node can boot the checker-pinned network"
+    );
+}
+
 /// SC.9b — repo-level release-channel consistency (P3.6 subset: tag +
 /// SHA256SUMS): the compiled testnet preset pin, the release manifest, the
 /// SHA256SUMS file, and the actual checker sources in this repo must all
