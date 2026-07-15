@@ -129,6 +129,10 @@ pub(crate) struct P2pMetrics {
     pub(crate) ingress_get_blocks_served: AtomicU64,
     pub(crate) sync_blocks_applied: AtomicU64,
     pub(crate) sync_reorgs_applied: AtomicU64,
+    /// SC.10-ii-c — competing peer chains whose pinned-checker re-verify could
+    /// not reach a verdict (containment / availability); deferred, not adopted
+    /// and not rejected (ADR-0016 (a-3)).
+    pub(crate) sync_reorgs_deferred: AtomicU64,
     pub(crate) sync_peer_failures: AtomicU64,
     pub(crate) egress_announces: AtomicU64,
     pub(crate) egress_failures: AtomicU64,
@@ -618,6 +622,14 @@ fn reorg_from_peer(
         // holds, or a lighter chain). Benign: keep our chain and let the next
         // poll re-check.
         CandidateChainOutcome::KeptCurrent => Ok(()),
+        // SC.10-ii-c — the pinned-checker re-verify hit an availability failure
+        // before fork-choice could adopt. Keep our chain and let the next poll
+        // retry when the checker recovers; this is not a peer fault, so it does
+        // NOT fail the sync round (ADR-0016 (a-3)).
+        CandidateChainOutcome::Deferred => {
+            metrics.sync_reorgs_deferred.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
         CandidateChainOutcome::Rejected => {
             metrics
                 .ingress_blocks_rejected

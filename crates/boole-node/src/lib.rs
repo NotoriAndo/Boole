@@ -27,8 +27,8 @@ mod work_manifest_store;
 
 pub use block_store::FileBlockStore;
 pub use block_verifier::{
-    reverify_block_selected_shares, verify_lean_bound_share_evidence, BlockReverifyOutcome,
-    ShareEvidenceVerdict,
+    reverify_block_selected_shares, reverify_candidate_chain_selected_shares,
+    verify_lean_bound_share_evidence, BlockReverifyOutcome, ShareEvidenceVerdict,
 };
 pub use bounty_catalog_store::load_bounties_from_path;
 pub use bounty_event_store::FileBountyEventLedger;

@@ -2129,6 +2129,11 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
             p2p.sync_reorgs_applied.load(Ordering::Relaxed),
         ),
         (
+            "boole_p2p_sync_reorgs_deferred_total",
+            "Competing peer chains deferred: pinned-checker re-verify hit an availability failure, not adopted and not rejected.",
+            p2p.sync_reorgs_deferred.load(Ordering::Relaxed),
+        ),
+        (
             "boole_p2p_sync_peer_failures_total",
             "Sync rounds aborted by peer connect/protocol/validation failures.",
             p2p.sync_peer_failures.load(Ordering::Relaxed),
@@ -4842,6 +4847,32 @@ fn reverify_ingested_block_shares(
     ))
 }
 
+/// SC.10-ii-c — the reorg-path counterpart of [`reverify_ingested_block_shares`]:
+/// re-run the pinned checker over EVERY block of a peer's competing chain
+/// under the committed base-lane budget, folding the per-block outcomes into
+/// one chain verdict. Returns `None` on the same closed-local / no-checker
+/// networks the ingest helper skips, so those paths keep their pre-SC.10
+/// behaviour (no Lean re-verify at reorg). The pin is the same identity boot's
+/// `enforce_pinned_checker_toolchain` proved the configured checker dir against.
+fn reverify_candidate_chain_shares(
+    state: &LocalNodeState,
+    candidate: &[PersistedBlock],
+) -> Option<BlockReverifyOutcome> {
+    let pinned = boole_core::network_genesis_preset(&state.network_id)?
+        .params
+        .checker_artifact_hash?;
+    let checker_dir = state.lean_checker_dir.as_ref()?;
+    let verifier_hash = boole_core::lean_bound_verifier_hash(BASE_LANE_VERIFIER_PROFILE);
+    Some(crate::reverify_candidate_chain_selected_shares(
+        candidate,
+        checker_dir,
+        &pinned,
+        &verifier_hash,
+        boole_core::BASE_LANE_MAX_HEARTBEATS,
+        boole_core::BASE_LANE_MAX_REC_DEPTH,
+    ))
+}
+
 /// N3.3 — validate and apply a peer-announced block. The ONLY validation
 /// policy is the strict replay path over the extended chain (the same
 /// checks the node's own boot replay runs, hardened by N3-pre):
@@ -4946,6 +4977,11 @@ pub(crate) enum CandidateChainOutcome {
     /// The candidate could not be parsed, or failed strict replay — never
     /// adopted (the current chain is left untouched).
     Rejected,
+    /// SC.10-ii-c — the candidate's pinned-checker re-verify hit a containment
+    /// / availability failure, so no adopt/reject verdict could be reached.
+    /// The current chain is left untouched and the next sync poll retries;
+    /// never adopted, never rejected, never fail-open (ADR-0016 (a-3)).
+    Deferred,
 }
 
 /// N4 — the sync-path trigger for the reorg primitive. `sync_with_peer` calls
@@ -4993,6 +5029,28 @@ pub(crate) fn ingest_candidate_chain(
             return CandidateChainOutcome::Rejected;
         };
         candidate.push(block);
+    }
+    // SC.10-ii-c (ADR-0016 (c)) — the strict replay inside
+    // `reorg_to_heavier_chain` proves the candidate's shape, selection and
+    // seed↔chain binding, but NOT that each share's `proofPackage` is the
+    // canon of a Lean-valid proof. On a checker-pinned network, re-run the
+    // pinned checker over every block's base-lane evidence under the committed
+    // budget BEFORE fork-choice adopts the chain: a deterministic reject means
+    // the chain can never be valid (reject), an availability failure defers
+    // (never a reject, never a fail-open adopt — ADR-0016 (a-3)). Closed-local
+    // / no-checker nodes skip this (helper returns `None`) and keep pre-SC.10
+    // behaviour. This is the SAME verifier entry, budget and pin the ingest
+    // path runs (`reverify_ingested_block_shares`), so both converge (c-2).
+    match reverify_candidate_chain_shares(state, &candidate) {
+        Some(BlockReverifyOutcome::DeterministicReject { detail }) => {
+            eprintln!("boole-node: p2p competing-chain reorg Lean re-verify rejected: {detail}");
+            return CandidateChainOutcome::Rejected;
+        }
+        Some(BlockReverifyOutcome::RetryableUnavailable { detail }) => {
+            eprintln!("boole-node: p2p competing-chain reorg Lean re-verify deferred: {detail}");
+            return CandidateChainOutcome::Deferred;
+        }
+        Some(BlockReverifyOutcome::Verified) | None => {}
     }
     let block_path = state.block_path.clone();
     let genesis = state

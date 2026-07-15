@@ -1302,3 +1302,32 @@ budget으로 pinned checker를 재실행한다(ADR-0016 (c)). closed-local/무-c
       (invalidAccepted 0 / chainDivergence 0). closed-local 검증만, public 아님.
 - 후속(ii-c): 동일 verifier 신원을 reorg 경로에 배선. (ii-d): admission 수렴 +
       self-produce parity + resource-limit 공유.
+
+---
+
+# SC.10-ii-c 계획 (peer-competing-chain reorg Lean 재검증)
+
+의도: ii-b가 head를 1칸 늘리는 단일 블록 ingest에 Lean 재검증 게이트를 배선했다.
+reorg 경로(피어의 FULL 경쟁 체인을 fork-choice로 채택)는 아직 구조 replay만 하고
+Lean 재검증을 안 한다. ADR-0016 (c)는 admission/ingest/reorg 3곳이 같은 verifier
+entry로 수렴할 것을 요구한다 — ii-c는 reorg를 배선한다. candidate 체인의 각 블록
+base-lane 증거를 채택 전에 committed budget으로 pinned checker에 재실행. closed-local
+/무-checker 노드는 스킵(pre-SC.10 동작 유지). bounty lane 재검증 안 함(ADR-0016 (d)).
+
+- [ ] RED/GREEN `reverify_candidate_chain_selected_shares` 체인 단위 fold —
+      ii-b 블록 fold를 candidate 각 블록에 적용, 같은 precedence:
+      deterministic reject 어디서든 즉시 승리(체인이 절대 유효할 수 없음) ⇒
+      합의 거부; 아니면 첫 availability 실패가 체인 전체를 defer; 아니면 Verified.
+      detail에 `block[idx]` prefix. BlockReverifyOutcome 재사용(신규 타입 없음).
+- [ ] reorg 배선(`ingest_candidate_chain`): candidate 파싱 후 `reorg_to_heavier_chain`
+      호출 전 재검증 게이트 → DeterministicReject⇒Rejected / RetryableUnavailable⇒
+      Deferred(신규 CandidateChainOutcome variant) / Verified·None⇒proceed.
+- [ ] `reorg_from_peer` consumer가 Deferred 처리: `sync_reorgs_deferred` 메트릭
+      bump, peer-fail 없이 hold(다음 poll 재시도). `boole_p2p_sync_reorgs_deferred_total`
+      메트릭 추가.
+- [ ] 단일 verifier 신원: ii-b와 동일 profile `v1-lenbound`/budget/pin —
+      ADR-0016 (c-2). full-candidate 재검증(genesis부터)은 최소 슬라이스; 이미
+      검증된 prefix 스킵 최적화는 SC.10-iii(verified-prefix checkpoint)로 이관.
+- 게이트: focused reorg_chain_reverify + ingest_block_reverify + block_evidence_verifier,
+      fmt/clippy 2종 0경고, runtime-smoke-all·proof-to-block-benchmark green
+      (consensus tier). closed-local 검증만, public claim 아님.
