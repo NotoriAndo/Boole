@@ -829,3 +829,28 @@ dead-code(-D warnings) ② 수정한 crate(boole-node)만 전체 테스트하고
 entry의 `SourceRederiveFailed`를 RED로 유발하려면 4바이트 같은 짧은 seed가
 아니라 **디코드 불가능한 hex 문자열**("not-a-hex-seed" 등)을 써야 한다.
 ii-b/c/d에서 손상 seed 케이스를 쓸 때 동일하게 적용.
+
+## L11 — 공유 함수의 "호출 교체"는 새 테스트만이 아니라 기존 소비자 테스트도 돌려라 (SC.10-ii-d-1 CI 반송에서 실증)
+
+SC.10-ii-d-1에서 replay 경로의 `validate_proof_package_shape` 호출을
+`validate_proof_package_with_limits`로 바꿨다. 새 테스트 파일
+(`replay_resource_limits.rs`)만 로컬 focused로 돌리고 커밋·push했는데, CI
+`self-test`가 반송됐다. 원인: 같은 코드 경로를 쓰는 **기존** 테스트
+`replay_fixtures::replay_rejects_selected_share_evidence_invalid_proof_package_shape`가
+shape 오류 메시지 "proofPackage invalid"를 기대하는데, 새 호출이 Decode(shape)
+오류까지 "exceeds resource limit" 메시지로 뭉갰다. 즉 하나의 검증 호출을
+교체하면서 그 함수가 원래 내던 **오류 범주별 메시지 계약**을 깼다.
+
+규칙:
+1. 공유/합의 함수의 호출을 **교체**할 때(새 함수 추가가 아니라), 그 함수가
+   내던 오류·반환 계약이 바뀌는지 먼저 확인하고, 바뀐다면 **기존 소비자 테스트
+   파일**을 focused 게이트에 반드시 포함한다. 이는 L8 규칙 2(2026-07-14 개정)의
+   "공유 표면 바꾸면 직접 소비자 테스트 파일 몇 개 focused로" 지침의 구체 사례다
+   — "새 기능=새 테스트"로 프레이밍하면 이 지침을 놓치기 쉽다.
+2. runtime-smoke-all/proof-to-block-benchmark는 **happy-path**라 거절 메시지
+   회귀를 못 잡는다. 거절·오류 경로를 바꿨으면 그 경로를 직접 찍는 focused
+   테스트(기존+신규)로 커버해야 하며, 합의 smoke green을 "거절 경로도 검증됨"으로
+   착각하지 않는다.
+3. 검증 호출을 자원한도용으로 바꿔도 **오류 범주는 보존**한다: shape/decode
+   실패와 자원한도 초과(TooLarge/TooManyDecls)는 서로 다른 거절이므로 메시지도
+   분리 유지한다(수용 경계는 동일하게 강화하되).
