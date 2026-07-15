@@ -1117,6 +1117,21 @@ impl RuntimeAdmissionState {
         }
         decision
     }
+
+    /// SC.10-ii-d-2 — drop an already-admitted share from the candidate set a
+    /// self-produced block draws on (`candidate_shares_for_current_c`). The
+    /// gossip-ingress Lean gate calls this when the pinned checker refuses
+    /// (or cannot reach a verdict on) a share structural admission accepted:
+    /// ADR-0016 (c-2) makes admission the producer's Lean gate, so a share
+    /// that did not clear it must never be assemblable into this node's own
+    /// block. The SharePool entry deliberately stays — like the
+    /// `duplicate_proof` peek in `ingress_admit_share`, the pool's
+    /// (pk, n, j, c) slot outlives the rejection, which also blocks an
+    /// identical re-announce until the pool prunes at the next commit.
+    pub fn retract_candidate(&mut self, share_hash: &str) {
+        self.candidates
+            .retain(|candidate| candidate.share_hash != share_hash);
+    }
 }
 
 fn required_string<'a>(body: &'a Map<String, Value>, key: &str) -> Result<&'a str, String> {

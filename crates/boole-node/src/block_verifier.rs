@@ -195,6 +195,63 @@ pub enum BlockReverifyOutcome {
     RetryableUnavailable { detail: String },
 }
 
+/// SC.10-ii-d-2 — the share-level fold of the single verifier entry: run
+/// [`verify_lean_bound_share_evidence`] over ONE share and map its verdict
+/// onto the same three-state outcome the block/chain folds use. This is the
+/// gate gossip admission (`ingress_admit_share`) runs before a peer-announced
+/// base-lane share may stay in the candidate pool on a checker-pinned
+/// network: ADR-0016 (c-2) makes admission the producer's Lean gate — a
+/// self-produced block re-runs nothing, so every share it may draw on must
+/// have cleared this exact entry under the committed budget.
+///
+/// `block_c` is the verifier-entry context label (the block hash at ingest,
+/// the share's chain anchor `c` at admission).
+pub fn reverify_share_evidence(
+    block_c: &str,
+    share: &SelectedShareEvidence,
+    checker_dir: &Path,
+    checker_artifact_hash: &str,
+    verifier_hash: &str,
+    max_heartbeats: u64,
+    max_rec_depth: u64,
+) -> BlockReverifyOutcome {
+    let verdict = verify_lean_bound_share_evidence(
+        block_c,
+        share,
+        checker_dir,
+        checker_artifact_hash,
+        verifier_hash,
+        true,
+        max_heartbeats,
+        max_rec_depth,
+    );
+    match verdict {
+        ShareEvidenceVerdict::NotLeanBound
+        | ShareEvidenceVerdict::LeanSkipped
+        | ShareEvidenceVerdict::Lean(LeanVerdict::Accepted) => BlockReverifyOutcome::Verified,
+        ShareEvidenceVerdict::SourceRederiveFailed { detail } => {
+            BlockReverifyOutcome::DeterministicReject {
+                detail: format!("source re-derive failed: {detail}"),
+            }
+        }
+        ShareEvidenceVerdict::CanonMismatch { expected, actual } => {
+            BlockReverifyOutcome::DeterministicReject {
+                detail: format!("canon mismatch: expected {expected}, recomputed {actual}"),
+            }
+        }
+        ShareEvidenceVerdict::Lean(LeanVerdict::DeterministicReject { reason }) => {
+            BlockReverifyOutcome::DeterministicReject {
+                detail: format!("Lean reject: {reason}"),
+            }
+        }
+        ShareEvidenceVerdict::Lean(LeanVerdict::RetryableUnavailable { reason }) => {
+            BlockReverifyOutcome::RetryableUnavailable {
+                detail: format!("unavailable: {reason}"),
+            }
+        }
+    }
+}
+
 /// Re-run the pinned checker over every base-lane share in `block` under the
 /// committed budget and fold the per-share verdicts into one block outcome.
 ///
@@ -213,42 +270,26 @@ pub fn reverify_block_selected_shares(
 ) -> BlockReverifyOutcome {
     let mut retryable: Option<String> = None;
     for (idx, share) in block.selected_share_evidence.iter().enumerate() {
-        let verdict = verify_lean_bound_share_evidence(
+        match reverify_share_evidence(
             &block.c,
             share,
             checker_dir,
             checker_artifact_hash,
             verifier_hash,
-            true,
             max_heartbeats,
             max_rec_depth,
-        );
-        match verdict {
-            ShareEvidenceVerdict::NotLeanBound
-            | ShareEvidenceVerdict::LeanSkipped
-            | ShareEvidenceVerdict::Lean(LeanVerdict::Accepted) => {}
-            ShareEvidenceVerdict::SourceRederiveFailed { detail } => {
+        ) {
+            BlockReverifyOutcome::Verified => {}
+            BlockReverifyOutcome::DeterministicReject { detail } => {
                 return BlockReverifyOutcome::DeterministicReject {
-                    detail: format!("share[{idx}] source re-derive failed: {detail}"),
+                    detail: format!("share[{idx}] {detail}"),
                 };
             }
-            ShareEvidenceVerdict::CanonMismatch { expected, actual } => {
-                return BlockReverifyOutcome::DeterministicReject {
-                    detail: format!(
-                        "share[{idx}] canon mismatch: expected {expected}, recomputed {actual}"
-                    ),
-                };
-            }
-            ShareEvidenceVerdict::Lean(LeanVerdict::DeterministicReject { reason }) => {
-                return BlockReverifyOutcome::DeterministicReject {
-                    detail: format!("share[{idx}] Lean reject: {reason}"),
-                };
-            }
-            ShareEvidenceVerdict::Lean(LeanVerdict::RetryableUnavailable { reason }) => {
+            BlockReverifyOutcome::RetryableUnavailable { detail } => {
                 // Remember the first availability failure but keep scanning:
                 // a later deterministic reject still wins.
                 if retryable.is_none() {
-                    retryable = Some(format!("share[{idx}] unavailable: {reason}"));
+                    retryable = Some(format!("share[{idx}] {detail}"));
                 }
             }
         }
