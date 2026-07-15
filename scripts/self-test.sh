@@ -236,14 +236,23 @@ checks = [
     },
     {
         "name": "testnet2-pinned-boot",
+        # SC.10-iv gate condition: real Lean must have executed in this
+        # lane (leanReverified >= 1) with ZERO skips — a skip-green run
+        # must fail the aggregate, not pass silently.
         "ok": pinned_boot.get("ok") is True
-        and pinned_boot.get("bootRefusedOnDivergedGenesis") is True,
+        and pinned_boot.get("bootRefusedOnDivergedGenesis") is True
+        and pinned_boot.get("leanReverified", 0) >= 1
+        and pinned_boot.get("sharesSkipped") == 0
+        and pinned_boot.get("leanProofsSkipped") == 0,
         "claimBoundary": pinned_boot.get("claimBoundary"),
         "publicMiningEvidence": pinned_boot.get("publicMiningEvidence"),
         "networkId": pinned_boot.get("networkId"),
         "checkerPinned": pinned_boot.get("checkerPinned"),
         "ready": pinned_boot.get("ready"),
         "bootRefusedOnDivergedGenesis": pinned_boot.get("bootRefusedOnDivergedGenesis"),
+        "leanReverified": pinned_boot.get("leanReverified"),
+        "sharesSkipped": pinned_boot.get("sharesSkipped"),
+        "leanProofsSkipped": pinned_boot.get("leanProofsSkipped"),
     },
     {"name": "git-diff-check", "ok": True},
     {"name": "gitleaks", "ok": gitleaks_status in {"pass", "skipped"}, "status": gitleaks_status},
