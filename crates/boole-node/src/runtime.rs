@@ -105,10 +105,29 @@ pub struct RuntimeConfig {
 impl RuntimeConfig {
     /// N5.1 (ADR-0014) — the GenesisSpec this node's consensus surface
     /// declares: Tier-1 params from the calibration policy + retarget
-    /// schedule, identity from the caller. `seed_binding_required` stays
-    /// false and the checker unpinned on the closed-local line — the
-    /// per-network presets (N5.2) flip them for `boole-testnet`.
+    /// schedule, identity from the caller.
+    ///
+    /// SC.10-iv-0 — `seed_binding_required`, `checker_artifact_hash` and
+    /// `family_manifest_root` are network identity DECLARATIONS no
+    /// calibration scenario can express: when `network_id` names a compiled
+    /// preset they are adopted from it, so a threshold-matching node can
+    /// actually boot the checker-pinned network (previously they were
+    /// hardcoded `false`/`None`/`None`, making the boot genesis gate
+    /// unpassable for `boole-testnet-2` under ANY scenario). The gate keeps
+    /// its Tier-1 meaning: a scenario whose t_block/t_share/k_max/retarget
+    /// diverge from the preset still refuses to boot under that name.
+    /// Off-preset (closed-local / fixture) networks keep the pre-N5.2
+    /// defaults: seed binding optional, no checker pin, no manifest root.
     pub fn genesis_spec(&self, network_id: &str, genesis_c: &str) -> boole_core::GenesisSpec {
+        let (seed_binding_required, checker_artifact_hash, family_manifest_root) =
+            match boole_core::network_genesis_preset(network_id) {
+                Some(preset) => (
+                    preset.params.seed_binding_required,
+                    preset.params.checker_artifact_hash,
+                    preset.params.family_manifest_root,
+                ),
+                None => (false, None, None),
+            };
         boole_core::GenesisSpec {
             network_id: network_id.to_string(),
             params: boole_core::GenesisParams {
@@ -117,9 +136,9 @@ impl RuntimeConfig {
                 t_share: format!("0x{:064x}", self.policy.thresholds.t_share),
                 k_max: self.policy.k_max as u64,
                 retarget: self.difficulty_retarget.clone(),
-                seed_binding_required: false,
-                checker_artifact_hash: None,
-                family_manifest_root: None,
+                seed_binding_required,
+                checker_artifact_hash,
+                family_manifest_root,
             },
             initial_state: boole_core::GenesisInitialState {
                 genesis_c: genesis_c.to_string(),
