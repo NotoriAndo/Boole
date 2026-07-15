@@ -68,11 +68,28 @@ pub fn validate_proof_package_with_policy(
     bytes: &[u8],
     policy: &CalibrationPolicy,
 ) -> ValidationResult {
-    if bytes.len() > policy.l {
+    validate_proof_package_with_limits(bytes, policy.l, policy.d_max)
+}
+
+/// Enforce an explicit proof-resource ceiling (byte length + declaration
+/// count) on a canonical package. This is the single enforcement body behind
+/// both admission (which sources the ceiling from the per-network
+/// calibration `CalibrationPolicy` via
+/// [`validate_proof_package_with_policy`]) and the replay/re-verify path
+/// (which sources the SAME committed base-lane ceiling from the rule
+/// constants `BASE_LANE_MAX_PROOF_BYTES` / `BASE_LANE_MAX_DECLS`). Keeping
+/// one body closes audit finding C-09: admission and replay can no longer
+/// diverge on how large a package they will accept (ADR-0016 (c-2)).
+pub fn validate_proof_package_with_limits(
+    bytes: &[u8],
+    max_proof_bytes: usize,
+    max_decls: usize,
+) -> ValidationResult {
+    if bytes.len() > max_proof_bytes {
         return ValidationResult::Err {
             reason: ValidationReason::TooLarge {
                 size: bytes.len(),
-                limit: policy.l as i64,
+                limit: max_proof_bytes as i64,
             },
         };
     }
@@ -86,19 +103,19 @@ pub fn validate_proof_package_with_policy(
         }
     };
 
-    if walked.size > policy.l {
+    if walked.size > max_proof_bytes {
         return ValidationResult::Err {
             reason: ValidationReason::TooLarge {
                 size: walked.size,
-                limit: policy.l as i64,
+                limit: max_proof_bytes as i64,
             },
         };
     }
-    if walked.decl_count > policy.d_max as u32 {
+    if walked.decl_count > max_decls as u32 {
         return ValidationResult::Err {
             reason: ValidationReason::TooManyDecls {
                 decl_count: walked.decl_count,
-                limit: policy.d_max as i64,
+                limit: max_decls as i64,
             },
         };
     }
