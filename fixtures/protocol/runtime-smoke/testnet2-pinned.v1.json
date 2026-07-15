@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "source": "derived from fixtures/protocol/runtime-smoke/v1.json; adds the boole-testnet-2 preset's difficultyRetarget so the effective genesis spec hash matches the compiled preset (SC.10-iv-b pinned-boot smoke)",
+  "cfg": {
+    "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_share": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_block": "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
+    "T_ticket": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "MinShareScoreMultiplier": 1.0,
+    "K_max": 4,
+    "ShareCapPerPK_Block": 2,
+    "L": 4096,
+    "D_max": 8,
+    "EMAWindow": 32,
+    "M": 1,
+    "perIpRateLimitPer60s": 1,
+    "provenance": "calibration-final"
+  },
+  "difficultyRetarget": {
+    "targetBlockMs": 60000,
+    "retargetEveryBlocks": 2,
+    "maxAdjustmentFactor": 4
+  },
+  "genesisC": "0000000000000000000000000000000000000000000000000000000000000000"
+}

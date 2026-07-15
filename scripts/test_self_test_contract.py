@@ -226,6 +226,40 @@ class SelfTestContractTests(unittest.TestCase):
             "missing toolchain fails on the stage that names the cause",
         )
 
+    def test_self_test_runs_testnet2_pinned_boot_smoke(self) -> None:
+        # SC.10-iv-b — the required lane must boot a checker-pinned named
+        # network for real (SC.9b pin + executable-toolchain gate, N5.2
+        # genesis gate made passable by SC.10-iv-0) and prove the diverged-
+        # genesis refusal still holds. Pinning the stage here keeps a future
+        # self-test edit from silently dropping the only live pinned-boot
+        # coverage in the gate.
+        body = _read(SELF_TEST)
+        self.assertRegex(
+            body,
+            re.compile(
+                r"^\s*run_capture_json\s+testnet2-pinned-boot\b.*"
+                r"testnet2-pinned-boot-smoke\.sh",
+                re.MULTILINE,
+            ),
+            "scripts/self-test.sh must run scripts/testnet2-pinned-boot-smoke.sh "
+            "via run_capture_json so the pinned-boot JSON verdict reaches the "
+            "final aggregation",
+        )
+        smoke = ROOT / "scripts" / "testnet2-pinned-boot-smoke.sh"
+        self.assertTrue(smoke.exists(), "pinned-boot smoke script must exist")
+        smoke_body = _read(smoke)
+        for marker in (
+            "--network-id boole-testnet-2",
+            "refusing to boot a diverged genesis",
+            "bootRefusedOnDivergedGenesis",
+        ):
+            self.assertIn(
+                marker,
+                smoke_body,
+                "the pinned-boot smoke must boot boole-testnet-2 AND pin the "
+                f"diverged-genesis refusal (missing marker: {marker!r})",
+            )
+
     def test_lean_checker_build_precedes_cargo_test(self) -> None:
         body = _read(SELF_TEST)
         lean_idx = body.find("run_logged lean-checker-build")
