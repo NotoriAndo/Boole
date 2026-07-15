@@ -110,8 +110,8 @@ pub use replay::{
     PersistedRewardEvent, ReplayResult,
 };
 pub use rules::{
-    BASE_LANE_MAX_HEARTBEATS, BASE_LANE_MAX_REC_DEPTH, CONSENSUS_RULE_VERSION,
-    MIN_SHARE_SCORE_MULTIPLIER_NANOS,
+    BASE_LANE_MAX_DECLS, BASE_LANE_MAX_HEARTBEATS, BASE_LANE_MAX_PROOF_BYTES,
+    BASE_LANE_MAX_REC_DEPTH, CONSENSUS_RULE_VERSION, MIN_SHARE_SCORE_MULTIPLIER_NANOS,
 };
 pub use session_policy::{SessionPolicy, SessionState, SignerRequest};
 pub use share_pool::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
@@ -130,9 +130,9 @@ pub use submit_receipt_audit::{
 };
 pub use validator::{
     decode_detail_from_json, decode_detail_json, validate_proof_package,
-    validate_proof_package_json, validate_proof_package_shape, validate_proof_package_with_policy,
-    validation_reason_from_json, validation_reason_json, DecodeDetail, ValidationReason,
-    ValidationResult,
+    validate_proof_package_json, validate_proof_package_shape, validate_proof_package_with_limits,
+    validate_proof_package_with_policy, validation_reason_from_json, validation_reason_json,
+    DecodeDetail, ValidationReason, ValidationResult,
 };
 pub use vault::{EncryptedVault, VaultError, VaultParams};
 pub use work_manifest::{

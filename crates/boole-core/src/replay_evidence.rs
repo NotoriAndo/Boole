@@ -2,9 +2,11 @@ use sha2::{Digest, Sha256};
 
 use crate::block::PersistedBlock;
 use crate::block_builder::{compare_canonical, select_qualifying_proposer};
+use crate::rules::{BASE_LANE_MAX_DECLS, BASE_LANE_MAX_PROOF_BYTES};
 use crate::{
     find_target_seed_j_index, min_share_score, parse_biguint_hex, share_hash,
-    validate_proof_package_shape, Hex32, ValidationResult, TARGET_SEED_J_INDEX_BOUND,
+    validate_proof_package_with_limits, Hex32, ValidationReason, ValidationResult,
+    TARGET_SEED_J_INDEX_BOUND,
 };
 
 /// N3-pre.1 — internal switch for how `verify_selected_share_evidence`
@@ -91,8 +93,32 @@ pub(crate) fn verify_selected_share_evidence(
                 "selected share evidence proofPackage hex invalid at index {idx}: {err}"
             )
         })?;
-        match validate_proof_package_shape(&package_bytes) {
+        // C-09 (ADR-0016 (c-2)) — replay enforces the SAME committed
+        // base-lane proof-resource ceiling admission applies, not just the
+        // package shape, so a peer chain or bootstrap snapshot cannot smuggle
+        // an oversized/over-declared package past re-verification. The two
+        // rejection categories stay distinct: a package that DECODES but
+        // exceeds the committed byte/decl ceiling is the resource-limit
+        // rejection this slice adds (the parity admission enforces), while a
+        // package that fails to decode is the pre-existing shape rejection —
+        // keeping its own message so that contract is unchanged.
+        match validate_proof_package_with_limits(
+            &package_bytes,
+            BASE_LANE_MAX_PROOF_BYTES as usize,
+            BASE_LANE_MAX_DECLS as usize,
+        ) {
             ValidationResult::Ok { .. } => {}
+            ValidationResult::Err {
+                reason:
+                    reason @ (ValidationReason::TooLarge { .. } | ValidationReason::TooManyDecls { .. }),
+            } => {
+                anyhow::bail!(
+                    "selected share evidence proofPackage exceeds the committed base-lane \
+                     resource limit at index {}: {:?}",
+                    idx,
+                    reason
+                );
+            }
             ValidationResult::Err { reason } => {
                 anyhow::bail!(
                     "selected share evidence proofPackage invalid at index {}: {:?}",

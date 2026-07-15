@@ -57,3 +57,24 @@ pub const BASE_LANE_MAX_HEARTBEATS: u64 = 400_000;
 /// default and the family-manifest convention. Changing the value is a
 /// consensus change: bump `CONSENSUS_RULE_VERSION`.
 pub const BASE_LANE_MAX_REC_DEPTH: u64 = 512;
+
+/// SC.10-ii-d (ADR-0016 (c-2), audit C-09) — base-lane committed
+/// proof-package byte ceiling: the maximum encoded canonical-proof length a
+/// base-lane (v1-lenbound) selected share may carry. Live admission already
+/// enforces this bound via the per-network calibration `L` (the closed-local
+/// base lane commits `16384` — see `fixtures/protocol/config/v1.json`); this
+/// rule constant is the SAME committed source the replay/re-verify path
+/// reads, so a peer chain or bootstrap snapshot cannot smuggle an oversized
+/// package past re-verification that admission would have rejected
+/// (disk/CPU/memory exhaustion, admission-parity break). Mirrors the
+/// family-manifest `maxProofBytes` convention. Changing the value is a
+/// consensus change: bump `CONSENSUS_RULE_VERSION`.
+pub const BASE_LANE_MAX_PROOF_BYTES: u64 = 16_384;
+
+/// SC.10-ii-d (ADR-0016 (c-2), audit C-09) — base-lane committed
+/// declaration-count ceiling, companion to `BASE_LANE_MAX_PROOF_BYTES`.
+/// Mirrors the base-lane calibration `D_max` (closed-local config commits
+/// `1024`) and the family-manifest `maxDecls` convention, enforced
+/// identically at admission and replay. Changing the value is a consensus
+/// change: bump `CONSENSUS_RULE_VERSION`.
+pub const BASE_LANE_MAX_DECLS: u64 = 1_024;
