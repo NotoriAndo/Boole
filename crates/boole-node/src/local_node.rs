@@ -27,11 +27,12 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use boole_core::{
     agent_passport_events_for_receipt, canonical_payload_hash_hex, compute_block_reward_credits,
-    replay_blocks_allow_legacy_evidence_less, replay_blocks_with_genesis_and_registry, ticket,
-    verify_signature_with_network, AdmissionDecision, BountyProofVerifier, BountyRegistry,
-    BountyShare, BountySidePool, BuildSelectionResult, CalibrationReport, CreateBountyInput,
-    DifficultyRetargetPolicy, FamilyManifestRegistry, Hex32, Hex64, LegacyEvidenceOptIn,
-    PersistedBlock, ReceiptCommitment, ReceiptCommitmentInput, SessionState, SubmitProofInput,
+    parse_submission_body, replay_blocks_allow_legacy_evidence_less,
+    replay_blocks_with_genesis_and_registry, ticket, verify_signature_with_network,
+    AdmissionDecision, BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool,
+    BuildSelectionResult, CalibrationReport, CreateBountyInput, DifficultyRetargetPolicy,
+    FamilyManifestRegistry, Hex32, Hex64, LegacyEvidenceOptIn, PersistedBlock, ReceiptCommitment,
+    ReceiptCommitmentInput, SelectedShareEvidence, SessionState, SubmitProofInput,
     UpdateStatusInput, VerifyOutcome, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
 };
 use boole_p2p::HeadSummary;
@@ -4873,6 +4874,38 @@ fn reverify_candidate_chain_shares(
     ))
 }
 
+/// SC.10-ii-d-2 — the gossip-admission counterpart of
+/// [`reverify_ingested_block_shares`]: re-run the pinned checker over ONE
+/// peer-announced share under the committed base-lane budget, IF this is a
+/// checker-pinned named network with a configured checker directory. Returns
+/// `None` when the network does not pin a checker (closed-local) or no
+/// checker dir is configured — those paths keep their pre-SC.10 behaviour
+/// (no Lean re-verify at gossip admission).
+///
+/// ADR-0016 (c-2): admission IS the producer's Lean gate — a self-produced
+/// block re-runs nothing over its own shares, so every share the candidate
+/// pool may feed it must have cleared the same single verifier entry ingest
+/// and reorg re-verification use, under the same committed budget and pin.
+fn reverify_announced_share(
+    state: &LocalNodeState,
+    share: &SelectedShareEvidence,
+) -> Option<BlockReverifyOutcome> {
+    let pinned = boole_core::network_genesis_preset(&state.network_id)?
+        .params
+        .checker_artifact_hash?;
+    let checker_dir = state.lean_checker_dir.as_ref()?;
+    let verifier_hash = boole_core::lean_bound_verifier_hash(BASE_LANE_VERIFIER_PROFILE);
+    Some(crate::reverify_share_evidence(
+        &share.c,
+        share,
+        checker_dir,
+        &pinned,
+        &verifier_hash,
+        boole_core::BASE_LANE_MAX_HEARTBEATS,
+        boole_core::BASE_LANE_MAX_REC_DEPTH,
+    ))
+}
+
 /// N3.3 — validate and apply a peer-announced block. The ONLY validation
 /// policy is the strict replay path over the extended chain (the same
 /// checks the node's own boot replay runs, hardened by N3-pre):
@@ -5256,9 +5289,10 @@ pub(crate) fn ingress_admit_share(
         canon_tag,
         None,
     );
-    if !matches!(decision, AdmissionDecision::Accepted { .. }) {
-        return rejected(decision.reject_code().unwrap_or("rejected"));
-    }
+    let share_hash = match &decision {
+        AdmissionDecision::Accepted { share_hash } => share_hash.to_hex(),
+        _ => return rejected(decision.reject_code().unwrap_or("rejected")),
+    };
     // N2.3 parity: the HTTP path peeks the proof-dedup ledger right after
     // admission; a proof already credited on this chain must be a typed
     // reject here too, not a silent pool entry.
@@ -5269,6 +5303,45 @@ pub(crate) fn ingress_admit_share(
         .is_some_and(|ledger| ledger.contains(&proof_canon_hash))
     {
         return rejected("duplicate_proof");
+    }
+    // SC.10-ii-d-2 (ADR-0016 (c-2), audit C-02) — on a checker-pinned
+    // network, a gossiped share must clear the SAME single Lean verifier
+    // entry ingest and reorg re-verification use before it may stay in the
+    // candidate pool: admission is the producer's Lean gate, and a
+    // self-produced block re-runs nothing over its own shares. The gate
+    // runs AFTER structural admission (ticket, seed binding, resource
+    // limits, PoW, rate, pool caps), so the expensive Lean step is never
+    // reachable by a share that did not pay PoW. On a refusal the share is
+    // retracted from the candidate set a self-produced block draws on; a
+    // deterministic reject and an availability failure are distinct typed
+    // rejects — the latter is never a fail-open admit (ADR-0016 (a-3)),
+    // and the peer may re-announce once the checker recovers.
+    let submission = match parse_submission_body(&body) {
+        Ok(submission) => submission,
+        // Unreachable after an Accepted admission (same parser, same body);
+        // kept as a typed reject for defence-in-depth.
+        Err(_) => return rejected("malformed_submission"),
+    };
+    let evidence = SelectedShareEvidence {
+        pk: submission.pk_hex,
+        n: submission.n_hex,
+        j: submission.j_hex,
+        c: submission.c_hex,
+        canon_hash: hex::encode(Sha256::digest(&submission.package_bytes)),
+        proof_package: hex::encode(&submission.package_bytes),
+        seed_hex: submission.seed_hex,
+        signed_work: None,
+    };
+    match reverify_announced_share(state, &evidence) {
+        None | Some(BlockReverifyOutcome::Verified) => {}
+        Some(BlockReverifyOutcome::DeterministicReject { .. }) => {
+            state.runtime.retract_candidate(&share_hash);
+            return rejected("lean_reverify_reject");
+        }
+        Some(BlockReverifyOutcome::RetryableUnavailable { .. }) => {
+            state.runtime.retract_candidate(&share_hash);
+            return rejected("lean_reverify_unavailable");
+        }
     }
     IngressShareOutcome::Admitted
 }
