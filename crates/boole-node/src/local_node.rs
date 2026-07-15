@@ -1,4 +1,5 @@
 use crate::block_store::FileBlockStore;
+use crate::block_verifier::BlockReverifyOutcome;
 use crate::bounty_catalog_store::load_bounties_from_path;
 use crate::bounty_event_store::FileBountyEventLedger;
 use crate::checker_pin;
@@ -2096,6 +2097,11 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
             "boole_p2p_ingress_blocks_rejected_total",
             "Gossip blocks refused by the strict validation path.",
             p2p.ingress_blocks_rejected.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_ingress_blocks_deferred_total",
+            "Gossip blocks deferred: pinned-checker re-verify hit an availability failure, not adopted and not rejected.",
+            p2p.ingress_blocks_deferred.load(Ordering::Relaxed),
         ),
         (
             "boole_p2p_ingress_block_announces_ignored_total",
@@ -4794,6 +4800,46 @@ pub(crate) enum IngressBlockOutcome {
     /// one (stale re-announce, or a gap that needs N3.4 initial sync).
     Ignored,
     Rejected,
+    /// SC.10-ii-b (ADR-0016 (a-3)) — the pinned checker could not reach a
+    /// verdict for at least one share (containment / availability failure)
+    /// and no share deterministically rejected. The block is neither adopted
+    /// nor rejected: the node holds at its current head and may retry later.
+    /// Never a consensus reject, never a fail-open accept.
+    Deferred,
+}
+
+/// SC.10-ii-b — the base-lane verifier profile the ingest re-verify grinds
+/// under. Mirrors the CLI audit's `DEEP_VERIFY_BLOCK_PROFILE`: `v1-lenbound`
+/// is the sole family the live path grinds, so admission, ingest re-verify
+/// and the offline audit all bind the same single verifier identity
+/// (ADR-0016 (c-2)).
+const BASE_LANE_VERIFIER_PROFILE: &str = "v1-lenbound";
+
+/// SC.10-ii-b — re-run the pinned checker over a peer block's base-lane
+/// share evidence under the committed budget, IF this is a checker-pinned
+/// named network with a configured checker directory. Returns `None` when
+/// the network does not pin a checker (closed-local) or no checker dir is
+/// configured — those paths keep their pre-SC.10 behaviour (no Lean
+/// re-verify at ingest). Boot's `enforce_pinned_checker_toolchain` has
+/// already proven the configured checker dir hashes to `pinned`, so the
+/// pin is the identity every honest share was bound under.
+fn reverify_ingested_block_shares(
+    state: &LocalNodeState,
+    block: &PersistedBlock,
+) -> Option<BlockReverifyOutcome> {
+    let pinned = boole_core::network_genesis_preset(&state.network_id)?
+        .params
+        .checker_artifact_hash?;
+    let checker_dir = state.lean_checker_dir.as_ref()?;
+    let verifier_hash = boole_core::lean_bound_verifier_hash(BASE_LANE_VERIFIER_PROFILE);
+    Some(crate::reverify_block_selected_shares(
+        block,
+        checker_dir,
+        &pinned,
+        &verifier_hash,
+        boole_core::BASE_LANE_MAX_HEARTBEATS,
+        boole_core::BASE_LANE_MAX_REC_DEPTH,
+    ))
 }
 
 /// N3.3 — validate and apply a peer-announced block. The ONLY validation
@@ -4839,6 +4885,25 @@ pub(crate) fn ingest_announced_block(
         .is_err()
     {
         return IngressBlockOutcome::Rejected;
+    }
+    // SC.10-ii-b (ADR-0016 (c)) — structural replay proves the block's
+    // shape, selection and seed↔chain binding, but NOT that each share's
+    // `proofPackage` is the canon of a Lean-valid proof. On a checker-pinned
+    // network, re-run the pinned checker over the base-lane evidence under
+    // the committed budget before adopting the block: a deterministic reject
+    // is a consensus reject, an availability failure defers (never a reject,
+    // never a fail-open accept — ADR-0016 (a-3)). Closed-local / no-checker
+    // nodes skip this (helper returns `None`) and keep pre-SC.10 behaviour.
+    match reverify_ingested_block_shares(state, &block) {
+        Some(BlockReverifyOutcome::DeterministicReject { detail }) => {
+            eprintln!("boole-node: p2p block ingest Lean re-verify rejected: {detail}");
+            return IngressBlockOutcome::Rejected;
+        }
+        Some(BlockReverifyOutcome::RetryableUnavailable { detail }) => {
+            eprintln!("boole-node: p2p block ingest Lean re-verify deferred: {detail}");
+            return IngressBlockOutcome::Deferred;
+        }
+        Some(BlockReverifyOutcome::Verified) | None => {}
     }
     // Same write ordering as the self-produce commit: block append →
     // reward-ledger append → in-memory apply (inside the runtime call) →

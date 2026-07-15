@@ -18,7 +18,7 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use boole_core::SelectedShareEvidence;
+use boole_core::{PersistedBlock, SelectedShareEvidence};
 use boole_lean_runner::{LeanRunner, LeanRunnerConfig, LeanVerdict};
 
 static REVERIFY_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -62,11 +62,17 @@ pub enum ShareEvidenceVerdict {
 ///      mismatch ⇒ `CanonMismatch`;
 ///   4. if `run_lean` is false ⇒ `LeanSkipped`;
 ///   5. otherwise wrap the re-derived proof exactly as the verifier does and
-///      run the pinned checker, returning `Lean(verdict)`. A runner launch
-///      failure is `RetryableUnavailable` (availability, never a reject).
+///      run the pinned checker under the committed step budget
+///      (`max_heartbeats`/`max_rec_depth`), returning `Lean(verdict)`. A
+///      runner launch failure is `RetryableUnavailable` (availability, never
+///      a reject).
 ///
 /// `checker_dir` is the node's pinned checker directory; `checker_artifact_hash`
 /// must be the hash of that same directory (the caller computes it once).
+/// `max_heartbeats`/`max_rec_depth` are the committed base-lane budget the
+/// checker must run under, so every path (audit / ingest / reorg / admission)
+/// grinds the same proof under the same ceiling (ADR-0016 (a-2), (c-2)).
+#[allow(clippy::too_many_arguments)]
 pub fn verify_lean_bound_share_evidence(
     block_c: &str,
     share: &SelectedShareEvidence,
@@ -74,6 +80,8 @@ pub fn verify_lean_bound_share_evidence(
     checker_artifact_hash: &str,
     verifier_hash: &str,
     run_lean: bool,
+    max_heartbeats: u64,
+    max_rec_depth: u64,
 ) -> ShareEvidenceVerdict {
     if share.seed_hex.is_empty() {
         return ShareEvidenceVerdict::NotLeanBound;
@@ -111,13 +119,26 @@ pub fn verify_lean_bound_share_evidence(
     // checker elaborates a full module — wrap the re-derived proof exactly
     // as the verifier does before running.
     let module = boole_core::family_v1_lenbound::lean_module(&instance, &lean_source);
-    ShareEvidenceVerdict::Lean(run_pinned_checker(block_c, &module, checker_dir))
+    ShareEvidenceVerdict::Lean(run_pinned_checker(
+        block_c,
+        &module,
+        checker_dir,
+        max_heartbeats,
+        max_rec_depth,
+    ))
 }
 
-/// Elaborate a re-derived Lean module through the pinned `LeanRunner` and
-/// return its three-state verdict. A runner launch failure maps to
-/// `RetryableUnavailable` (ADR-0016 (a-3): availability, never a reject).
-fn run_pinned_checker(block_c: &str, module_text: &str, checker_dir: &Path) -> LeanVerdict {
+/// Elaborate a re-derived Lean module through the pinned `LeanRunner` under
+/// the committed step budget and return its three-state verdict. A runner
+/// launch failure maps to `RetryableUnavailable` (ADR-0016 (a-3):
+/// availability, never a reject).
+fn run_pinned_checker(
+    block_c: &str,
+    module_text: &str,
+    checker_dir: &Path,
+    max_heartbeats: u64,
+    max_rec_depth: u64,
+) -> LeanVerdict {
     let tmp_dir = std::env::temp_dir().join(format!(
         "boole-share-verify-{}-{}",
         std::process::id(),
@@ -136,7 +157,10 @@ fn run_pinned_checker(block_c: &str, module_text: &str, checker_dir: &Path) -> L
         };
     }
     let runner = LeanRunner::new(
-        LeanRunnerConfig::new("boole-share-verify").with_package_dir(checker_dir.to_path_buf()),
+        LeanRunnerConfig::new("boole-share-verify")
+            .with_package_dir(checker_dir.to_path_buf())
+            .with_max_heartbeats(max_heartbeats)
+            .with_max_rec_depth(max_rec_depth),
     );
     let verdict = match runner.check_file(&proof_path) {
         Ok(result) => result.verdict,
@@ -146,4 +170,91 @@ fn run_pinned_checker(block_c: &str, module_text: &str, checker_dir: &Path) -> L
     };
     let _ = std::fs::remove_dir_all(&tmp_dir);
     verdict
+}
+
+/// The block-level fold of the single share verifier entry over a peer
+/// block's base-lane `selectedShareEvidence` — the gate ingest and reorg
+/// (SC.10-ii-b/c) run before adopting a block on a checker-pinned network.
+///
+/// Only the base lane is re-verified here: promoted bounty shares are NOT
+/// peer-re-verified (ADR-0016 (d)), so `promoted_bounty_shares` is untouched.
+#[derive(Debug, Clone)]
+pub enum BlockReverifyOutcome {
+    /// Every base-lane share accepted, was not Lean-bound, or was skipped —
+    /// the block clears the Lean re-verify gate.
+    Verified,
+    /// At least one share is a deterministic failure (source re-derive, canon
+    /// mismatch, or Lean `DeterministicReject`). The block is a consensus
+    /// reject and must not be adopted.
+    DeterministicReject { detail: String },
+    /// At least one share hit a containment / availability failure (Lean
+    /// `RetryableUnavailable`) and no share deterministically rejected. The
+    /// block is deferred — the node cannot adopt it or advance its head, but
+    /// it is never a consensus reject and never a fail-open accept
+    /// (ADR-0016 (a-3)).
+    RetryableUnavailable { detail: String },
+}
+
+/// Re-run the pinned checker over every base-lane share in `block` under the
+/// committed budget and fold the per-share verdicts into one block outcome.
+///
+/// Deterministic rejects win over retryable-unavailable: a single provably
+/// invalid share rejects the whole block regardless of any concurrent
+/// availability failure, since the block can never be valid. Only when no
+/// share deterministically rejects does an availability failure defer the
+/// block (never reject, never fail-open accept).
+pub fn reverify_block_selected_shares(
+    block: &PersistedBlock,
+    checker_dir: &Path,
+    checker_artifact_hash: &str,
+    verifier_hash: &str,
+    max_heartbeats: u64,
+    max_rec_depth: u64,
+) -> BlockReverifyOutcome {
+    let mut retryable: Option<String> = None;
+    for (idx, share) in block.selected_share_evidence.iter().enumerate() {
+        let verdict = verify_lean_bound_share_evidence(
+            &block.c,
+            share,
+            checker_dir,
+            checker_artifact_hash,
+            verifier_hash,
+            true,
+            max_heartbeats,
+            max_rec_depth,
+        );
+        match verdict {
+            ShareEvidenceVerdict::NotLeanBound
+            | ShareEvidenceVerdict::LeanSkipped
+            | ShareEvidenceVerdict::Lean(LeanVerdict::Accepted) => {}
+            ShareEvidenceVerdict::SourceRederiveFailed { detail } => {
+                return BlockReverifyOutcome::DeterministicReject {
+                    detail: format!("share[{idx}] source re-derive failed: {detail}"),
+                };
+            }
+            ShareEvidenceVerdict::CanonMismatch { expected, actual } => {
+                return BlockReverifyOutcome::DeterministicReject {
+                    detail: format!(
+                        "share[{idx}] canon mismatch: expected {expected}, recomputed {actual}"
+                    ),
+                };
+            }
+            ShareEvidenceVerdict::Lean(LeanVerdict::DeterministicReject { reason }) => {
+                return BlockReverifyOutcome::DeterministicReject {
+                    detail: format!("share[{idx}] Lean reject: {reason}"),
+                };
+            }
+            ShareEvidenceVerdict::Lean(LeanVerdict::RetryableUnavailable { reason }) => {
+                // Remember the first availability failure but keep scanning:
+                // a later deterministic reject still wins.
+                if retryable.is_none() {
+                    retryable = Some(format!("share[{idx}] unavailable: {reason}"));
+                }
+            }
+        }
+    }
+    match retryable {
+        Some(detail) => BlockReverifyOutcome::RetryableUnavailable { detail },
+        None => BlockReverifyOutcome::Verified,
+    }
 }
