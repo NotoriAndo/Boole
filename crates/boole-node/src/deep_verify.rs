@@ -428,6 +428,8 @@ pub fn deep_verify_block(
                 checker_hash,
                 &verifier_hash,
                 lake_ready,
+                boole_core::BASE_LANE_MAX_HEARTBEATS,
+                boole_core::BASE_LANE_MAX_REC_DEPTH,
             ) {
                 // Unreachable: the empty-seed shares are filtered above.
                 ShareEvidenceVerdict::NotLeanBound => {}

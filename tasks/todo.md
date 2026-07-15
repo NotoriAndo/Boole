@@ -1273,3 +1273,32 @@ containment 전용으로 강등. spec = L1 master §SC.9. manifest 스키마분
 - [ ] ③ SC.4/SC.8 worktree 멀티에이전트 병렬 착수 (SC.9 착륙 후)
 
 주의: "full green 없이 main 금지" 불변량 무변경 — CI required checks가 강제.
+
+---
+
+# SC.10-ii-b 착륙 기록 (peer-block ingest Lean 재검증)
+
+의도: 구조 replay는 블록의 모양·선택·seed↔chain 결속만 증명하고, 각 share의
+`proofPackage`가 Lean-유효 증명의 canon인지는 증명하지 않는다. checker-pinned
+named network에서 피어 블록을 채택하기 전에, base-lane 증거에 대해 committed
+budget으로 pinned checker를 재실행한다(ADR-0016 (c)). closed-local/무-checker
+노드는 스킵(helper `None`)해 pre-SC.10 동작 유지. bounty lane은 재검증 안 함
+(ADR-0016 (d)).
+
+- [x] RED/GREEN `reverify_block_selected_shares` 블록 단위 fold — 3-state:
+      전부 accept/not-lean-bound/skip ⇒ Verified; deterministic 실패(source
+      re-derive / canon mismatch / Lean DeterministicReject) ⇒ 합의 거부;
+      availability 실패(Lean RetryableUnavailable) ⇒ Deferred(거부도 fail-open
+      accept도 아님, ADR-0016 (a-3)). deterministic이 retryable을 이긴다.
+- [x] ingest 배선(`ingest_announced_block`): replay 통과 후 채택 전 재검증 게이트
+      → Rejected / Deferred(신규 IngressBlockOutcome variant) / continue.
+      announce·sync 두 consumer가 Deferred 처리(메트릭 bump, sync는 peer-fail
+      없이 hold). `boole_p2p_ingress_blocks_deferred_total` 메트릭 추가.
+- [x] 단일 verifier 신원: ingest는 CLI audit과 동일 profile `v1-lenbound`,
+      동일 committed budget(BASE_LANE_MAX_HEARTBEATS/REC_DEPTH), 동일 pin
+      (`network_genesis_preset(...).checker_artifact_hash`) — ADR-0016 (c-2).
+- 검증: focused block_evidence_verifier 4/4 + ingest_block_reverify 3/3,
+      fmt/clippy 2종 0경고, runtime-smoke-all·proof-to-block-benchmark green
+      (invalidAccepted 0 / chainDivergence 0). closed-local 검증만, public 아님.
+- 후속(ii-c): 동일 verifier 신원을 reorg 경로에 배선. (ii-d): admission 수렴 +
+      self-produce parity + resource-limit 공유.

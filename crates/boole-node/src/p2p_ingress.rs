@@ -120,6 +120,10 @@ pub(crate) struct P2pMetrics {
     pub(crate) ingress_shares_rejected: AtomicU64,
     pub(crate) ingress_blocks_ingested: AtomicU64,
     pub(crate) ingress_blocks_rejected: AtomicU64,
+    /// SC.10-ii-b — peer blocks whose pinned-checker re-verify could not
+    /// reach a verdict (containment / availability); deferred, not adopted
+    /// and not rejected (ADR-0016 (a-3)).
+    pub(crate) ingress_blocks_deferred: AtomicU64,
     pub(crate) ingress_block_announces_ignored: AtomicU64,
     pub(crate) ingress_rate_limited_drops: AtomicU64,
     pub(crate) ingress_get_blocks_served: AtomicU64,
@@ -398,6 +402,13 @@ fn handle_connection(
                             .ingress_blocks_rejected
                             .fetch_add(1, Ordering::Relaxed);
                     }
+                    IngressBlockOutcome::Deferred => {
+                        // SC.10-ii-b — the pinned checker could not reach a
+                        // verdict; hold at the current head, do not adopt.
+                        metrics
+                            .ingress_blocks_deferred
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
                 }
             }
             Ok(Frame::GetBlocks { from, to }) => {
@@ -548,6 +559,18 @@ fn sync_with_peer(
                     return Err(FrameError::Malformed {
                         detail: "peer served a block that failed strict validation".to_string(),
                     });
+                }
+                IngressBlockOutcome::Deferred => {
+                    // SC.10-ii-b (ADR-0016 (a-3)) — the pinned checker could
+                    // not reach a verdict for this block (availability, not a
+                    // reject). We cannot adopt it, so nothing built on it can
+                    // extend our head either: stop this peer's sync WITHOUT a
+                    // peer failure and hold at the current head. The next poll
+                    // retries once the checker is available again.
+                    metrics
+                        .ingress_blocks_deferred
+                        .fetch_add(1, Ordering::Relaxed);
+                    return Ok(());
                 }
             }
         }

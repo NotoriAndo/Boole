@@ -14,6 +14,7 @@ use std::path::PathBuf;
 
 use boole_core::{
     family_v1_lenbound, lean_bound_canon_package, lean_bound_verifier_hash, SelectedShareEvidence,
+    BASE_LANE_MAX_HEARTBEATS, BASE_LANE_MAX_REC_DEPTH,
 };
 use boole_node::{verify_lean_bound_share_evidence, ShareEvidenceVerdict};
 use sha2::{Digest, Sha256};
@@ -87,6 +88,8 @@ fn entry_skips_lean_when_run_lean_false_on_matching_canon() {
         &checker_hash,
         &verifier_hash,
         false, // audit path with lake unavailable: canon checked, Lean not run
+        BASE_LANE_MAX_HEARTBEATS,
+        BASE_LANE_MAX_REC_DEPTH,
     );
     assert!(
         matches!(verdict, ShareEvidenceVerdict::LeanSkipped),
@@ -104,6 +107,8 @@ fn entry_reports_canon_mismatch_on_tampered_package() {
         &checker_hash,
         &verifier_hash,
         true,
+        BASE_LANE_MAX_HEARTBEATS,
+        BASE_LANE_MAX_REC_DEPTH,
     );
     assert!(
         matches!(verdict, ShareEvidenceVerdict::CanonMismatch { .. }),
@@ -122,6 +127,8 @@ fn entry_reports_not_lean_bound_on_empty_seed() {
         &checker_hash,
         &verifier_hash,
         true,
+        BASE_LANE_MAX_HEARTBEATS,
+        BASE_LANE_MAX_REC_DEPTH,
     );
     assert!(
         matches!(verdict, ShareEvidenceVerdict::NotLeanBound),
@@ -142,6 +149,8 @@ fn entry_reports_source_rederive_failed_on_bad_seed() {
         &checker_hash,
         &verifier_hash,
         true,
+        BASE_LANE_MAX_HEARTBEATS,
+        BASE_LANE_MAX_REC_DEPTH,
     );
     assert!(
         matches!(verdict, ShareEvidenceVerdict::SourceRederiveFailed { .. }),
