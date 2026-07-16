@@ -273,6 +273,86 @@ class SelfTestContractTests(unittest.TestCase):
             "--allow-skips would let a skip-green run pass",
         )
 
+    def test_self_test_runs_testnet2_lean_invalid_injection_smoke(self) -> None:
+        # SC.10-iv-c — the SC.10 completion gate (L1 master §SC.10, promoted
+        # recommended→MANDATORY by the 2026-07-12 third review): a
+        # structurally-valid but Lean-invalid share/block injected into a
+        # checker-pinned multi-node network must be adopted by NO node. The
+        # positive lane (iv-b) proves real Lean runs; this stage is the
+        # negative differential — without it, the required lane never
+        # observes a live rejection, so a regression that fail-opens the
+        # consensus re-verification gate would stay green.
+        body = _read(SELF_TEST)
+        self.assertRegex(
+            body,
+            re.compile(
+                r"^\s*run_capture_json\s+testnet2-lean-invalid-injection\b.*"
+                r"testnet2-lean-invalid-injection-smoke\.sh",
+                re.MULTILINE,
+            ),
+            "scripts/self-test.sh must run "
+            "scripts/testnet2-lean-invalid-injection-smoke.sh via "
+            "run_capture_json so the injection verdict reaches the final "
+            "aggregation (SC.10 mandatory gate)",
+        )
+        smoke = ROOT / "scripts" / "testnet2-lean-invalid-injection-smoke.sh"
+        self.assertTrue(
+            smoke.exists(),
+            "scripts/testnet2-lean-invalid-injection-smoke.sh must exist "
+            "(SC.10-iv-c mandatory gate)",
+        )
+        smoke_body = _read(smoke)
+        for marker in (
+            # the injection runs on the checker-pinned named network — the
+            # only lane where consensus Lean re-verification is active
+            "--network-id boole-testnet-2",
+            # a faulty producer boots the SAME named network checker-off, so
+            # its own admission gate is inactive and it will assemble and
+            # gossip a block carrying the proof-invalid share
+            "--lean-checker-disabled",
+            # committed Lean-invalid fixture (generator-pinned, like the
+            # honest iv-b share fixture)
+            "testnet2-lean-invalid.v1.json",
+            # honest differential control: the same lane must still accept
+            # the committed lean-bound share and converge
+            "testnet2-lenbound-share.v1.json",
+            # the mandatory assertion: the injected block is adopted by
+            # zero honest nodes
+            "invalidBlockAdoptedBy",
+            # rejection must be OBSERVED live (counter moved), not inferred
+            # from a block that silently never arrived
+            "boole_p2p_ingress_blocks_rejected_total",
+        ):
+            self.assertIn(
+                marker,
+                smoke_body,
+                "the lean-invalid injection smoke must inject on the pinned "
+                "network via a checker-off producer, use the committed "
+                "fixtures and assert observed zero adoption (missing marker: "
+                f"{marker!r})",
+            )
+
+    def test_self_test_aggregation_gates_lean_invalid_injection(self) -> None:
+        # The aggregation must HARD-GATE the injection verdict: zero honest
+        # nodes adopted the invalid block, every honest node OBSERVABLY
+        # rejected it at ingest re-verification, and the honest differential
+        # control still converged. A smoke that merely runs (ok=true)
+        # without these fields must fail the aggregate — otherwise the
+        # mandatory assertion can rot silently.
+        body = _read(SELF_TEST)
+        for needle in (
+            '"name": "testnet2-lean-invalid-injection"',
+            'get("invalidBlockAdoptedBy") == 0',
+            'get("invalidBlockRejectedByIngest") is True',
+            'get("honestConvergedHeight") == 1',
+        ):
+            self.assertIn(
+                needle,
+                body,
+                "self-test.sh final aggregation must gate the lean-invalid "
+                f"injection fields (missing: {needle!r})",
+            )
+
     def test_lean_checker_build_precedes_cargo_test(self) -> None:
         body = _read(SELF_TEST)
         lean_idx = body.find("run_logged lean-checker-build")

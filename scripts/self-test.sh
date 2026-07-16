@@ -162,6 +162,14 @@ run_capture_json p2p-convergence "$CONVERGENCE_JSON" ./scripts/p2p-local-converg
 # diverged-genesis refusal control proves the gate did not soften.
 PINNED_BOOT_JSON="$TMP_DIR/testnet2-pinned-boot.json"
 run_capture_json testnet2-pinned-boot "$PINNED_BOOT_JSON" ./scripts/testnet2-pinned-boot-smoke.sh
+# SC.10-iv-c — the SC.10 completion gate (mandatory): a structurally-valid
+# but proof-invalid share injected into the checker-pinned named network via
+# a checker-off faulty producer must be adopted by NO honest node — every
+# honest node observably rejects the gossiped invalid block at ingest Lean
+# re-verify, while the honest differential control still converges. iv-b
+# proves live Lean accepts; this proves it rejects.
+LEAN_INVALID_JSON="$TMP_DIR/testnet2-lean-invalid-injection.json"
+run_capture_json testnet2-lean-invalid-injection "$LEAN_INVALID_JSON" ./scripts/testnet2-lean-invalid-injection-smoke.sh
 run_logged git-diff-check git diff --check
 
 GITLEAKS_STATUS="skipped"
@@ -170,7 +178,7 @@ if command -v gitleaks >/dev/null 2>&1; then
   GITLEAKS_STATUS="pass"
 fi
 
-python3 - "$SMOKE_JSON" "$BENCH_JSON" "$MINING_JSON" "$GITLEAKS_STATUS" "$RUST_PARITY_STATUS" "$CONVERGENCE_JSON" "$PINNED_BOOT_JSON" <<'PY'
+python3 - "$SMOKE_JSON" "$BENCH_JSON" "$MINING_JSON" "$GITLEAKS_STATUS" "$RUST_PARITY_STATUS" "$CONVERGENCE_JSON" "$PINNED_BOOT_JSON" "$LEAN_INVALID_JSON" <<'PY'
 import json
 import sys
 
@@ -181,6 +189,7 @@ gitleaks_status = sys.argv[4]
 rust_parity_status = sys.argv[5]
 convergence = json.load(open(sys.argv[6]))
 pinned_boot = json.load(open(sys.argv[7]))
+lean_invalid = json.load(open(sys.argv[8]))
 
 cases = smoke.get("cases", [])
 summary = benchmark.get("summary", {})
@@ -253,6 +262,26 @@ checks = [
         "leanReverified": pinned_boot.get("leanReverified"),
         "sharesSkipped": pinned_boot.get("sharesSkipped"),
         "leanProofsSkipped": pinned_boot.get("leanProofsSkipped"),
+    },
+    {
+        "name": "testnet2-lean-invalid-injection",
+        # SC.10 mandatory gate: the injected proof-invalid block must be
+        # adopted by NO honest node, every honest node must OBSERVABLY
+        # reject it at ingest re-verification, and the honest differential
+        # control must still converge to height 1. A run that merely
+        # completed (ok=true) without these must fail the aggregate.
+        "ok": lean_invalid.get("ok") is True
+        and lean_invalid.get("invalidBlockAdoptedBy") == 0
+        and lean_invalid.get("invalidBlockRejectedByIngest") is True
+        and lean_invalid.get("honestConvergedHeight") == 1,
+        "claimBoundary": lean_invalid.get("claimBoundary"),
+        "publicMiningEvidence": lean_invalid.get("publicMiningEvidence"),
+        "networkId": lean_invalid.get("networkId"),
+        "honestNodes": lean_invalid.get("honestNodes"),
+        "faultyProducers": lean_invalid.get("faultyProducers"),
+        "invalidBlockAdoptedBy": lean_invalid.get("invalidBlockAdoptedBy"),
+        "invalidBlockRejectedByIngest": lean_invalid.get("invalidBlockRejectedByIngest"),
+        "honestConvergedHeight": lean_invalid.get("honestConvergedHeight"),
     },
     {"name": "git-diff-check", "ok": True},
     {"name": "gitleaks", "ok": gitleaks_status in {"pass", "skipped"}, "status": gitleaks_status},
