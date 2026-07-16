@@ -854,3 +854,37 @@ shape 오류 메시지 "proofPackage invalid"를 기대하는데, 새 호출이 
 3. 검증 호출을 자원한도용으로 바꿔도 **오류 범주는 보존**한다: shape/decode
    실패와 자원한도 초과(TooLarge/TooManyDecls)는 서로 다른 거절이므로 메시지도
    분리 유지한다(수용 경계는 동일하게 강화하되).
+
+---
+
+# 2026-07-16 — 로컬 다중노드 스모크의 rate-limit 함정 (loopback = 단일 IP + 티켓 dedup)
+
+SC.10-iv-c(3-노드 Lean-invalid 주입 스모크) 개발 중, 정직 대조군 share
+제출이 두 번 연속 rate-limit으로 거절됐다. 원인 2단계:
+
+1. **IpQuota**: p2p ingress 재admit은 admission rate limiter를 peer IP로
+   재사용한다(N3.2/ADR-0009 (c)). loopback에선 모든 노드가 127.0.0.1이라,
+   gossip으로 들어온 주입 share가 정직 노드의 per-IP 쿼터(scenario
+   `perIpRateLimitPer60s: 1`)를 소진 → 이후 정직 HTTP 제출이 IpQuota 거절.
+   해결: `perIpRateLimitPer60s`는 GenesisParams가 아니라 Tier-3 노드-로컬
+   knob이므로(genesis hash 불변), 이 값만 올린 전용 시나리오 fixture
+   (`testnet2-pinned-highrate.v1.json`)로 교체. 이름 붙은 망의 genesis 게이트는
+   그대로 통과(t_block/t_share/k_max/retarget 동일).
+
+2. **PkQuota**: per-PK 쿼터는 티켓 `(pk, c, n)`에 걸린다 —
+   `ceiling = tickets * M`, 티켓은 `(pk,c,n)` distinct일 때만 증가하고
+   같은 `(pk,c,n)`은 dedup으로 재관측 안 됨(rate_limiter.rs). 주입 fixture와
+   정직 fixture가 **같은 nonce `n`**을 쓰면, 먼저 들어온 주입 share가 유일한
+   티켓 쿼터를 소진하고 정직 share는 새 티켓을 못 얻어 PkQuota 거절.
+   해결: 주입 fixture에 **다른 nonce `n`** 부여(seed도 함께 재유도) → 각
+   share가 자기 티켓을 들고 옴.
+
+규칙:
+- 로컬 loopback 다중노드 스모크를 설계할 때, gossip 재admit이 **admission
+  rate limiter(IP·PK 둘 다)**를 소비한다는 걸 전제한다. 같은 IP(127.0.0.1)와
+  같은 `(pk,c,n)` 티켓을 공유하는 노드/share는 서로의 쿼터를 잠식한다.
+- 대조군과 주입 share는 **서로 다른 nonce**로 티켓을 분리한다. 시나리오의
+  rate-limit knob이 부족하면 그 knob만 올린 전용 fixture를 만들되, 그 값이
+  genesis hash(GenesisParams)에 안 들어가는 Tier-3 knob인지 먼저 확인한다.
+- 증상이 "1차 IpQuota → 고치니 2차 PkQuota"처럼 순차로 드러날 수 있으니,
+  rate-limit 거절은 IP·PK·티켓 세 축을 모두 점검한다.
