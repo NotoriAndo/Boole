@@ -322,6 +322,10 @@ class SelfTestContractTests(unittest.TestCase):
             # rejection must be OBSERVED live (counter moved), not inferred
             # from a block that silently never arrived
             "boole_p2p_ingress_blocks_rejected_total",
+            # SC.10-iii-b — the smoke also asserts the verified-prefix
+            # checkpoint advances only for a Lean-re-verified ingest
+            "verifiedCheckpointHeight",
+            "checkpointAdvancedOnIngest",
         ):
             self.assertIn(
                 marker,
@@ -345,6 +349,11 @@ class SelfTestContractTests(unittest.TestCase):
             'get("invalidBlockAdoptedBy") == 0',
             'get("invalidBlockRejectedByIngest") is True',
             'get("honestConvergedHeight") == 1',
+            # SC.10-iii-b — verified-prefix checkpoint advance semantics are
+            # gated in the same aggregation.
+            'get("checkpointAdvancedOnIngest") is True',
+            'get("checkpointNotAdvancedOnSelfProduce") is True',
+            'get("checkpointNotAdvancedOnReject") is True',
         ):
             self.assertIn(
                 needle,

@@ -30,7 +30,7 @@
 //! the whole new one — never a torn mix that could mark an unverified prefix
 //! as verified. A partial/corrupt file reads as ABSENT, which is safe.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -76,6 +76,41 @@ impl VerifiedPrefixCheckpoint {
             && self.max_heartbeats == identity.max_heartbeats
             && self.max_rec_depth == identity.max_rec_depth
     }
+}
+
+/// The checkpoint file path for a node whose block store is at `block_path`.
+/// A sibling of the block store (`<stem>.checkpoint.json`), so the checkpoint
+/// lives beside the exact chain it certifies and is scoped per store path
+/// (matching how the reward ledger is a sibling path).
+pub fn checkpoint_path_for(block_path: &Path) -> PathBuf {
+    block_path.with_extension("checkpoint.json")
+}
+
+/// Build the checkpoint a verified commit at `height` / `block_hash` should
+/// persist, or `None` when the node is not checker-pinned.
+///
+/// `checker_artifact_hash` is `Some` only on a checker-pinned named network —
+/// the only lane where the node produces Lean verdicts. A closed-local /
+/// no-checker node ran no checker, so it has no verified prefix to record and
+/// this returns `None` (the caller writes nothing, keeping pre-SC.10
+/// behaviour). ADR-0016 (c): the checkpoint records what THIS node itself
+/// Lean-re-verified.
+pub fn build_verified_checkpoint(
+    genesis_spec_hash: &str,
+    checker_artifact_hash: Option<&str>,
+    max_heartbeats: u64,
+    max_rec_depth: u64,
+    height: u64,
+    block_hash: &str,
+) -> Option<VerifiedPrefixCheckpoint> {
+    Some(VerifiedPrefixCheckpoint {
+        genesis_spec_hash: genesis_spec_hash.to_string(),
+        height,
+        block_hash: block_hash.to_string(),
+        checker_artifact_hash: checker_artifact_hash?.to_string(),
+        max_heartbeats,
+        max_rec_depth,
+    })
 }
 
 /// Atomically persist `checkpoint` to `path` (whole-or-nothing replace).
@@ -195,6 +230,49 @@ mod tests {
         assert_eq!(read.height, 9);
         assert_eq!(read.block_hash, "block-hash-at-9");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn checkpoint_path_is_a_sibling_of_the_block_store() {
+        let p = checkpoint_path_for(std::path::Path::new("/data/node1-blocks.ndjson"));
+        assert_eq!(
+            p,
+            std::path::PathBuf::from("/data/node1-blocks.checkpoint.json")
+        );
+        // No extension on the store path still yields a sibling checkpoint.
+        let p2 = checkpoint_path_for(std::path::Path::new("/data/blocks"));
+        assert_eq!(p2, std::path::PathBuf::from("/data/blocks.checkpoint.json"));
+    }
+
+    #[test]
+    fn build_verified_checkpoint_is_none_without_a_checker_pin() {
+        // A closed-local / no-checker node produced no Lean verdicts, so there
+        // is no verified prefix to record.
+        assert!(build_verified_checkpoint("gen", None, 400_000, 512, 5, "head-hash").is_none());
+    }
+
+    #[test]
+    fn build_verified_checkpoint_carries_the_head_and_identity() {
+        let cp = build_verified_checkpoint(
+            "genesis-abc",
+            Some("checker-1dd3055a"),
+            400_000,
+            512,
+            9,
+            "block-hash-at-9",
+        )
+        .expect("checker-pinned node records a checkpoint");
+        assert_eq!(
+            cp,
+            VerifiedPrefixCheckpoint {
+                genesis_spec_hash: "genesis-abc".to_string(),
+                height: 9,
+                block_hash: "block-hash-at-9".to_string(),
+                checker_artifact_hash: "checker-1dd3055a".to_string(),
+                max_heartbeats: 400_000,
+                max_rec_depth: 512,
+            }
+        );
     }
 
     #[test]

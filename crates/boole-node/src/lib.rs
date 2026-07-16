@@ -35,7 +35,8 @@ pub use block_verifier::{
 pub use bounty_catalog_store::load_bounties_from_path;
 pub use bounty_event_store::FileBountyEventLedger;
 pub use checkpoint::{
-    read_checkpoint, write_checkpoint, CheckpointIdentity, VerifiedPrefixCheckpoint,
+    build_verified_checkpoint, checkpoint_path_for, read_checkpoint, write_checkpoint,
+    CheckpointIdentity, VerifiedPrefixCheckpoint,
 };
 pub use deep_verify::{
     deep_verify_block, deep_verify_bounty_events, DeepVerifyBlockReport, DeepVerifyDivergence,

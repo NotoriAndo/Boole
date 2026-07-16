@@ -233,6 +233,21 @@ invalid_block_adopted_by = sum(
     if request_json(p, "GET", "/status").get("c") == c_bad
 )
 
+
+def checkpoint_height(port):
+    # SC.10-iii — the node-local verified-prefix checkpoint height, or None.
+    return request_json(port, "GET", "/status").get("verifiedCheckpointHeight")
+
+
+# SC.10-iii-b — a REJECTED block must not advance any verified-prefix
+# checkpoint: both honest nodes refused the injected block, so neither has
+# Lean-re-verified anything, so neither has recorded a checkpoint.
+checkpoint_after_reject = {p: checkpoint_height(p) for p in HONEST_PORTS}
+if any(v is not None for v in checkpoint_after_reject.values()):
+    raise SystemExit(
+        f"a rejected injection must not advance a checkpoint: {checkpoint_after_reject}"
+    )
+
 # ---- Phase 2: honest differential control. An honest lean-bound share into
 # H1 self-produces a valid block on the same genesis anchor; H2 re-runs real
 # Lean at ingest and accepts, so both honest nodes converge to height 1.
@@ -268,6 +283,24 @@ if converged_head != c_good:
         f"converged head {converged_head} != honest-produced head {c_good}"
     )
 
+# SC.10-iii-b — the INGESTING honest node (H2) re-ran real Lean over the valid
+# block at ingest and durably committed it, so its verified-prefix checkpoint
+# advanced to height 1. The PRODUCER (H1) self-produced via HTTP submit, which
+# is not a Lean re-verify path, so its checkpoint did NOT advance: the
+# checkpoint records only what THIS node itself re-verified (ADR-0016 (c)).
+ingester_checkpoint = checkpoint_height(http_h2)
+producer_checkpoint = checkpoint_height(http_h1)
+if ingester_checkpoint != 1:
+    raise SystemExit(
+        f"ingesting node's checkpoint must advance to 1 after Lean re-verify, "
+        f"got {ingester_checkpoint}"
+    )
+if producer_checkpoint is not None:
+    raise SystemExit(
+        f"self-producing node must not advance a verified-prefix checkpoint, "
+        f"got {producer_checkpoint}"
+    )
+
 print(json.dumps({
     "ok": True,
     "kind": "testnet2-lean-invalid-injection-smoke",
@@ -288,6 +321,13 @@ print(json.dumps({
     "honestConvergedHeight": honest_converged_height,
     "convergedHead": converged_head,
     "invalidHead": c_bad,
+    # SC.10-iii-b — verified-prefix checkpoint advance semantics.
+    "checkpointAdvancedOnIngest": ingester_checkpoint == 1,
+    "checkpointNotAdvancedOnSelfProduce": producer_checkpoint is None,
+    "checkpointNotAdvancedOnReject": all(
+        v is None for v in checkpoint_after_reject.values()
+    ),
+    "ingesterCheckpointHeight": ingester_checkpoint,
 }, separators=(",", ":")))
 PY
 
