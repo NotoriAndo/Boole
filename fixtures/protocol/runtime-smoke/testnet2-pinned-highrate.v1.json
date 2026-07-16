@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "source": "derived from fixtures/protocol/runtime-smoke/testnet2-pinned.v1.json (SC.10-iv-c): identical Tier-1 params (T_block/T_share/K_max/difficultyRetarget) so the effective genesis spec hash still matches the boole-testnet-2 compiled preset, but perIpRateLimitPer60s is raised so a 3-node loopback mesh (all peers share 127.0.0.1) does not exhaust the admission per-IP quota with gossip traffic. perIpRateLimitPer60s is a node-local Tier-3 calibration knob and is NOT part of GenesisParams, so raising it does not change the network identity.",
+  "cfg": {
+    "T_submit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_share": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "T_block": "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
+    "T_ticket": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "MinShareScoreMultiplier": 1.0,
+    "K_max": 4,
+    "ShareCapPerPK_Block": 2,
+    "L": 4096,
+    "D_max": 8,
+    "EMAWindow": 32,
+    "M": 1,
+    "perIpRateLimitPer60s": 1000,
+    "provenance": "calibration-final"
+  },
+  "difficultyRetarget": {
+    "targetBlockMs": 60000,
+    "retargetEveryBlocks": 2,
+    "maxAdjustmentFactor": 4
+  },
+  "genesisC": "0000000000000000000000000000000000000000000000000000000000000000"
+}
