@@ -323,6 +323,11 @@ pub(crate) struct LocalNodeState {
     /// `/status` as `genesisSpecHash`.
     genesis_spec_hash: String,
     block_path: PathBuf,
+    /// SC.10-iii — the node-local verified-prefix checkpoint file, a sibling
+    /// of `block_path`. Written after a peer block this node Lean-re-verified
+    /// is durably committed (ingest/reorg), read at boot to skip
+    /// re-verification below it. Never consensus data.
+    checkpoint_path: PathBuf,
     report: CalibrationReport,
     /// P2.6 — Unix epoch millis captured the moment the runtime hand-off
     /// completes (post-replay, pre-`axum::serve`). Surfaced through
@@ -1398,12 +1403,14 @@ impl LocalNodeState {
             Some(path) => Some(FileReceiptStore::recover(path)?),
             None => None,
         };
+        let checkpoint_path = crate::checkpoint::checkpoint_path_for(&config.block_path);
         Ok(Self {
             runtime,
             disk_full: Arc::new(AtomicBool::new(false)),
             genesis_c: scenario.genesis_c,
             genesis_spec_hash,
             block_path: config.block_path,
+            checkpoint_path,
             report: scenario.cfg,
             started_at_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -3269,6 +3276,13 @@ fn status_json(state: &LocalNodeState) -> anyhow::Result<Value> {
         // N5.2 — the content-addressed genesis identity (GenesisSpec.hash())
         // peers compare in Hello and the state manifest records.
         "genesisSpecHash": state.genesis_spec_hash,
+        // SC.10-iii — the highest height this node has itself Lean-re-verified
+        // (the verified-prefix checkpoint), or null when none is recorded
+        // (fresh / closed-local node). Node-local, non-consensus.
+        "verifiedCheckpointHeight": crate::checkpoint::read_checkpoint(&state.checkpoint_path)
+            .ok()
+            .flatten()
+            .map(|checkpoint| checkpoint.height),
         "replayHeight": height,
         "replayLatestC": head,
         "replayMatchesRuntime": compute_replay_matches_runtime(state),
@@ -4958,17 +4972,26 @@ pub(crate) fn ingest_announced_block(
     // is a consensus reject, an availability failure defers (never a reject,
     // never a fail-open accept — ADR-0016 (a-3)). Closed-local / no-checker
     // nodes skip this (helper returns `None`) and keep pre-SC.10 behaviour.
-    match reverify_ingested_block_shares(state, &block) {
+    // SC.10-iii-b — `Some(Verified)` means the pinned checker actually ran
+    // over this block's base-lane evidence and accepted it, so this node has
+    // itself Lean-re-verified the block and may advance its verified-prefix
+    // checkpoint below. `None` means no checker is pinned (closed-local): no
+    // Lean verdict was produced, so the checkpoint must NOT advance.
+    let lean_reverified = match reverify_ingested_block_shares(state, &block) {
         Some(BlockReverifyOutcome::DeterministicReject { detail }) => {
             eprintln!("boole-node: p2p block ingest Lean re-verify rejected: {detail}");
             return IngressBlockOutcome::Rejected;
         }
         Some(BlockReverifyOutcome::RetryableUnavailable { detail }) => {
+            // Deferred returns here, BEFORE the durable commit and checkpoint
+            // write below: an availability failure moves neither the head nor
+            // the checkpoint (ADR-0016 (a-3), (c-1)).
             eprintln!("boole-node: p2p block ingest Lean re-verify deferred: {detail}");
             return IngressBlockOutcome::Deferred;
         }
-        Some(BlockReverifyOutcome::Verified) | None => {}
-    }
+        Some(BlockReverifyOutcome::Verified) => true,
+        None => false,
+    };
     // Same write ordering as the self-produce commit: block append →
     // reward-ledger append → in-memory apply (inside the runtime call) →
     // bounty-event rows → proof-dedup mirror.
@@ -4996,7 +5019,41 @@ pub(crate) fn ingest_announced_block(
             }
         }
     }
+    // SC.10-iii-b — the block is now durably on the chain, so (per the
+    // ADR-0016 (c-1) order: Lean success → chain durable write → checkpoint
+    // durable write) advance the verified-prefix checkpoint to it. Only when
+    // this node itself Lean-re-verified the block (a self-produced block or a
+    // no-checker node never advances the checkpoint).
+    if lean_reverified {
+        advance_verified_checkpoint(state, &block);
+    }
     IngressBlockOutcome::Ingested
+}
+
+/// SC.10-iii-b — persist the verified-prefix checkpoint to the block after a
+/// peer block this node Lean-re-verified has been durably committed. The
+/// checkpoint binds the identity a boot must re-match (ADR-0016 (c-1)):
+/// genesis spec hash, the committed base-lane budget, the pinned checker, and
+/// the new head hash/height. A no-op on a non-checker-pinned network (the
+/// checker hash is `None`), and a write failure is logged, never fatal — a
+/// missing checkpoint is safe (the node just re-verifies from genesis).
+fn advance_verified_checkpoint(state: &LocalNodeState, block: &PersistedBlock) {
+    let checker_pin = boole_core::network_genesis_preset(&state.network_id)
+        .and_then(|preset| preset.params.checker_artifact_hash);
+    let height = state.runtime.cached_block_count() as u64;
+    let Some(checkpoint) = crate::checkpoint::build_verified_checkpoint(
+        &state.genesis_spec_hash,
+        checker_pin.as_deref(),
+        boole_core::BASE_LANE_MAX_HEARTBEATS,
+        boole_core::BASE_LANE_MAX_REC_DEPTH,
+        height,
+        &block.c,
+    ) else {
+        return;
+    };
+    if let Err(err) = crate::checkpoint::write_checkpoint(&state.checkpoint_path, &checkpoint) {
+        eprintln!("boole-node: verified-prefix checkpoint write failed: {err:#}");
+    }
 }
 
 /// N4 — outcome of evaluating a peer's FULL competing chain during sync.

@@ -270,10 +270,16 @@ checks = [
         # reject it at ingest re-verification, and the honest differential
         # control must still converge to height 1. A run that merely
         # completed (ok=true) without these must fail the aggregate.
+        # SC.10-iii-b also gates here: the ingesting honest node's
+        # verified-prefix checkpoint advanced to 1 (Lean re-verify at ingest),
+        # while self-produce and the rejected injection advanced nothing.
         "ok": lean_invalid.get("ok") is True
         and lean_invalid.get("invalidBlockAdoptedBy") == 0
         and lean_invalid.get("invalidBlockRejectedByIngest") is True
-        and lean_invalid.get("honestConvergedHeight") == 1,
+        and lean_invalid.get("honestConvergedHeight") == 1
+        and lean_invalid.get("checkpointAdvancedOnIngest") is True
+        and lean_invalid.get("checkpointNotAdvancedOnSelfProduce") is True
+        and lean_invalid.get("checkpointNotAdvancedOnReject") is True,
         "claimBoundary": lean_invalid.get("claimBoundary"),
         "publicMiningEvidence": lean_invalid.get("publicMiningEvidence"),
         "networkId": lean_invalid.get("networkId"),
@@ -282,6 +288,10 @@ checks = [
         "invalidBlockAdoptedBy": lean_invalid.get("invalidBlockAdoptedBy"),
         "invalidBlockRejectedByIngest": lean_invalid.get("invalidBlockRejectedByIngest"),
         "honestConvergedHeight": lean_invalid.get("honestConvergedHeight"),
+        "checkpointAdvancedOnIngest": lean_invalid.get("checkpointAdvancedOnIngest"),
+        "checkpointNotAdvancedOnSelfProduce": lean_invalid.get("checkpointNotAdvancedOnSelfProduce"),
+        "checkpointNotAdvancedOnReject": lean_invalid.get("checkpointNotAdvancedOnReject"),
+        "ingesterCheckpointHeight": lean_invalid.get("ingesterCheckpointHeight"),
     },
     {"name": "git-diff-check", "ok": True},
     {"name": "gitleaks", "ok": gitleaks_status in {"pass", "skipped"}, "status": gitleaks_status},
