@@ -142,6 +142,54 @@ pub fn read_checkpoint(path: &Path) -> anyhow::Result<Option<VerifiedPrefixCheck
     Ok(serde_json::from_str(line).ok())
 }
 
+/// SC.10-iii-c — whether a persisted checkpoint survives a boot.
+///
+/// It survives iff its identity matches this boot's (genesis / checker /
+/// budget) AND — when the on-disk chain already contains the block at the
+/// checkpoint height — that block's hash matches the checkpoint's. When the
+/// chain is SHORTER than the checkpoint height (a re-bootstrap with a wiped
+/// store), the block-hash check is deferred to sync (SC.10-iii-c-2), so
+/// `block_hash_at_height` is `None` and the checkpoint survives on identity
+/// alone. Any mismatch ⇒ the checkpoint must be discarded, so it can never
+/// let a later re-verification be skipped across a genesis/checker/budget
+/// change or onto a different prefix (ADR-0016 (c-1)).
+pub fn checkpoint_survives_boot(
+    checkpoint: &VerifiedPrefixCheckpoint,
+    identity: &CheckpointIdentity<'_>,
+    block_hash_at_height: Option<&str>,
+) -> bool {
+    checkpoint.identity_matches(identity)
+        && block_hash_at_height.is_none_or(|hash| hash == checkpoint.block_hash)
+}
+
+/// SC.10-iii-c — read the checkpoint at `path` and DELETE it if it does not
+/// survive this boot (identity/prefix mismatch, or the node is no longer
+/// checker-pinned so `identity` is `None`). Returns the surviving checkpoint,
+/// or `None` when it was absent or discarded.
+///
+/// Discarding a stale checkpoint is always safe: the node then re-verifies
+/// from genesis exactly like a fresh node. A missing file is a no-op.
+pub fn validate_or_discard_checkpoint_at_boot(
+    path: &Path,
+    identity: Option<&CheckpointIdentity<'_>>,
+    block_hash_at_height: Option<&str>,
+) -> anyhow::Result<Option<VerifiedPrefixCheckpoint>> {
+    let Some(checkpoint) = read_checkpoint(path)? else {
+        return Ok(None);
+    };
+    let survives =
+        identity.is_some_and(|id| checkpoint_survives_boot(&checkpoint, id, block_hash_at_height));
+    if survives {
+        return Ok(Some(checkpoint));
+    }
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err.into()),
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,5 +360,123 @@ mod tests {
             max_rec_depth: 1,
             ..base
         }));
+    }
+
+    fn matching_identity() -> CheckpointIdentity<'static> {
+        CheckpointIdentity {
+            genesis_spec_hash: "genesis-abc",
+            checker_artifact_hash: "checker-1dd3055a",
+            max_heartbeats: 400_000,
+            max_rec_depth: 512,
+        }
+    }
+
+    #[test]
+    fn checkpoint_survives_boot_accepts_matching_identity_and_prefix() {
+        let cp = sample();
+        assert!(checkpoint_survives_boot(
+            &cp,
+            &matching_identity(),
+            Some("block-hash-at-7")
+        ));
+    }
+
+    #[test]
+    fn checkpoint_survives_boot_defers_prefix_check_when_chain_is_shorter() {
+        // Re-bootstrap (wiped store): the chain has no block at the checkpoint
+        // height yet, so the block-hash check is deferred to sync — identity
+        // alone keeps the checkpoint.
+        let cp = sample();
+        assert!(checkpoint_survives_boot(&cp, &matching_identity(), None));
+    }
+
+    #[test]
+    fn checkpoint_survives_boot_rejects_a_prefix_mismatch() {
+        let cp = sample();
+        assert!(!checkpoint_survives_boot(
+            &cp,
+            &matching_identity(),
+            Some("a-different-block-hash")
+        ));
+    }
+
+    #[test]
+    fn checkpoint_survives_boot_rejects_an_identity_mismatch() {
+        let cp = sample();
+        let stale = CheckpointIdentity {
+            genesis_spec_hash: "genesis-DIFFERENT",
+            ..matching_identity()
+        };
+        // Even with a matching prefix hash, a stale identity fails.
+        assert!(!checkpoint_survives_boot(
+            &cp,
+            &stale,
+            Some("block-hash-at-7")
+        ));
+    }
+
+    #[test]
+    fn validate_or_discard_keeps_a_matching_checkpoint() {
+        let dir = scratch_dir("keep");
+        let path = dir.join("checkpoint.json");
+        let cp = sample();
+        write_checkpoint(&path, &cp).expect("write");
+        let kept = validate_or_discard_checkpoint_at_boot(
+            &path,
+            Some(&matching_identity()),
+            Some("block-hash-at-7"),
+        )
+        .expect("validate")
+        .expect("kept");
+        assert_eq!(kept, cp);
+        assert!(path.exists(), "a surviving checkpoint stays on disk");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn validate_or_discard_deletes_a_stale_or_diverged_checkpoint() {
+        for (tag, identity, block_hash) in [
+            (
+                "genesis",
+                Some(CheckpointIdentity {
+                    genesis_spec_hash: "genesis-DIFFERENT",
+                    ..matching_identity()
+                }),
+                Some("block-hash-at-7"),
+            ),
+            (
+                "budget",
+                Some(CheckpointIdentity {
+                    max_heartbeats: 1,
+                    ..matching_identity()
+                }),
+                Some("block-hash-at-7"),
+            ),
+            ("prefix", Some(matching_identity()), Some("other-hash")),
+            // No checker pinned now ⇒ any checkpoint is stale.
+            ("no-checker", None, Some("block-hash-at-7")),
+        ] {
+            let dir = scratch_dir(&format!("discard-{tag}"));
+            let path = dir.join("checkpoint.json");
+            write_checkpoint(&path, &sample()).expect("write");
+            let out = validate_or_discard_checkpoint_at_boot(&path, identity.as_ref(), block_hash)
+                .expect("validate");
+            assert!(out.is_none(), "{tag}: stale checkpoint must be discarded");
+            assert!(
+                !path.exists(),
+                "{tag}: discarded checkpoint must be deleted"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    #[test]
+    fn validate_or_discard_is_a_noop_when_absent() {
+        let dir = scratch_dir("absent");
+        let path = dir.join("nope.json");
+        let out = validate_or_discard_checkpoint_at_boot(&path, Some(&matching_identity()), None)
+            .expect("validate");
+        assert!(out.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

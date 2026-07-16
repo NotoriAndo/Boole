@@ -1347,6 +1347,42 @@ impl LocalNodeState {
         if runtime.current_c().is_none() {
             runtime.set_current_c(scenario.genesis_c.clone());
         }
+        // SC.10-iii-c — validate the persisted verified-prefix checkpoint and
+        // discard a stale one before it can be trusted. A checkpoint written
+        // under a different genesis/checker/budget, or onto a prefix this
+        // boot's chain no longer matches, must never let a later
+        // re-verification be skipped across that change (ADR-0016 (c-1)).
+        // Discarding is always safe: the node re-verifies from genesis.
+        let checkpoint_path = crate::checkpoint::checkpoint_path_for(&config.block_path);
+        {
+            let checker_pin = boole_core::network_genesis_preset(&node_network_id)
+                .and_then(|preset| preset.params.checker_artifact_hash);
+            let identity =
+                checker_pin
+                    .as_deref()
+                    .map(|hash| crate::checkpoint::CheckpointIdentity {
+                        genesis_spec_hash: &genesis_spec_hash,
+                        checker_artifact_hash: hash,
+                        max_heartbeats: boole_core::BASE_LANE_MAX_HEARTBEATS,
+                        max_rec_depth: boole_core::BASE_LANE_MAX_REC_DEPTH,
+                    });
+            // The block hash at the checkpoint height, when the recovered chain
+            // already reaches it (a normal restart). A shorter chain (wiped
+            // store / re-bootstrap) defers the prefix check to sync (iii-c-2).
+            let block_hash_at_height = crate::checkpoint::read_checkpoint(&checkpoint_path)
+                .ok()
+                .flatten()
+                .and_then(|checkpoint| (checkpoint.height as usize).checked_sub(1))
+                .and_then(|index| runtime.cached_blocks().get(index))
+                .map(|block| block.c.clone());
+            if let Err(err) = crate::checkpoint::validate_or_discard_checkpoint_at_boot(
+                &checkpoint_path,
+                identity.as_ref(),
+                block_hash_at_height.as_deref(),
+            ) {
+                eprintln!("boole-node: verified-prefix checkpoint validation failed: {err:#}");
+            }
+        }
         let work_manifests = match config.work_manifests_path.as_ref() {
             Some(path) => load_work_manifests_from_path(path)?,
             None => Vec::new(),
@@ -1403,7 +1439,6 @@ impl LocalNodeState {
             Some(path) => Some(FileReceiptStore::recover(path)?),
             None => None,
         };
-        let checkpoint_path = crate::checkpoint::checkpoint_path_for(&config.block_path);
         Ok(Self {
             runtime,
             disk_full: Arc::new(AtomicBool::new(false)),
