@@ -888,3 +888,29 @@ SC.10-iv-c(3-노드 Lean-invalid 주입 스모크) 개발 중, 정직 대조군 
   genesis hash(GenesisParams)에 안 들어가는 Tier-3 knob인지 먼저 확인한다.
 - 증상이 "1차 IpQuota → 고치니 2차 PkQuota"처럼 순차로 드러날 수 있으니,
   rate-limit 거절은 IP·PK·티켓 세 축을 모두 점검한다.
+
+---
+
+# 2026-07-16 — macOS syspolicyd 스톨: cargo test EXEC는 막혀도 컴파일은 된다
+
+SC.10-iii-b 개발 중 이 머신의 macOS Gatekeeper(syspolicyd)가 심하게 thrash(20~87% CPU)
+하며 `cargo test`가 20분+ 멈춤. 원인 분리: **컴파일은 되는데 갓 빌드된 테스트
+바이너리의 EXEC 시점에 syspolicyd 서명 검증이 무한정 지연**된다(clippy도 갓 빌드된
+proc-macro dylib 로드에서 같은 스톨). `cargo test -p X --lib --no-run`(컴파일만,
+실행 안 함)은 **정상 완료**로 확인 — 즉 타입/borrow 검증은 로컬에서 가능하고,
+테스트 실행만 막힌다.
+
+규칙 (이 머신이 이 상태일 때):
+- 로컬 게이트를 **컴파일 검증**으로 대체: `cargo test --lib --no-run` 또는
+  `cargo check`로 타입/borrow 오류를 잡는다(빠름, exec 없음). `cargo fmt --check`,
+  `bash -n`, python 계약 테스트, self-test 집계 python mock 실행은 전부 로컬에서
+  정상(파이썬/rustfmt는 안정 서명 바이너리라 스톨 없음).
+- **테스트 실행(RED/GREEN)·smoke·clippy 2종은 CI(ubuntu, Gatekeeper 없음)로
+  강제**. CI self-test가 lib 테스트 + smoke를 돌리므로 CI green이 실행 검증을 담당.
+  이는 L8 "CI 반송 1회가 항상-로컬-full보다 싸다"의 연장 — 여기선 로컬 exec가
+  아예 불가라 CI가 유일 실행 경로.
+- 스톨 진단: `ps aux | grep syspolicyd`(CPU%) + `find target/debug -newermt '-60 seconds'`
+  (아티팩트 0이면 컴파일 스톨, 아티팩트 있는데 test result 없으면 exec 스톨).
+  killed 후 `--no-run` 재시도로 컴파일 완료 여부를 먼저 가른다.
+- 커밋 전제: 로컬에서 **컴파일 clean + fmt + 계약 + 집계 mock**을 확인하고,
+  실행 검증은 CI에 위임한다고 보고에 명시(맹목 push 아님 — 검증 가능한 건 다 검증).
