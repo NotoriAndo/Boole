@@ -3,6 +3,7 @@ mod block_verifier;
 mod bounty_catalog_store;
 mod bounty_event_store;
 mod checker_pin;
+mod checkpoint;
 mod deep_verify;
 mod durability;
 mod family_manifest_store;
@@ -33,6 +34,9 @@ pub use block_verifier::{
 };
 pub use bounty_catalog_store::load_bounties_from_path;
 pub use bounty_event_store::FileBountyEventLedger;
+pub use checkpoint::{
+    read_checkpoint, write_checkpoint, CheckpointIdentity, VerifiedPrefixCheckpoint,
+};
 pub use deep_verify::{
     deep_verify_block, deep_verify_bounty_events, DeepVerifyBlockReport, DeepVerifyDivergence,
     DeepVerifyError, DeepVerifyReport,
