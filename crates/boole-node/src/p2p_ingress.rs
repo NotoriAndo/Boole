@@ -124,6 +124,10 @@ pub(crate) struct P2pMetrics {
     /// reach a verdict (containment / availability); deferred, not adopted
     /// and not rejected (ADR-0016 (a-3)).
     pub(crate) ingress_blocks_deferred: AtomicU64,
+    /// SC.10-iii-c-2 — peer blocks adopted WITHOUT running the pinned checker
+    /// because they fall within this node's verified-prefix checkpoint
+    /// (`assumevalid`); structural replay still ran. Node-local perf state.
+    pub(crate) ingress_blocks_reverify_skipped_via_checkpoint: AtomicU64,
     pub(crate) ingress_block_announces_ignored: AtomicU64,
     pub(crate) ingress_rate_limited_drops: AtomicU64,
     pub(crate) ingress_get_blocks_served: AtomicU64,

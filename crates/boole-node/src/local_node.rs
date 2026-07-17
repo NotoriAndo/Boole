@@ -328,6 +328,11 @@ pub(crate) struct LocalNodeState {
     /// is durably committed (ingest/reorg), read at boot to skip
     /// re-verification below it. Never consensus data.
     checkpoint_path: PathBuf,
+    /// SC.10-iii-c — the verified-prefix checkpoint that survived boot
+    /// validation (identity/prefix matched), or `None`. Ingest consults it to
+    /// skip the pinned-checker re-verify for blocks within the trusted prefix
+    /// (`assumevalid`); it is cleared if a re-synced chain diverges from it.
+    verified_prefix_checkpoint: Option<crate::checkpoint::VerifiedPrefixCheckpoint>,
     report: CalibrationReport,
     /// P2.6 — Unix epoch millis captured the moment the runtime hand-off
     /// completes (post-replay, pre-`axum::serve`). Surfaced through
@@ -1354,7 +1359,7 @@ impl LocalNodeState {
         // re-verification be skipped across that change (ADR-0016 (c-1)).
         // Discarding is always safe: the node re-verifies from genesis.
         let checkpoint_path = crate::checkpoint::checkpoint_path_for(&config.block_path);
-        {
+        let verified_prefix_checkpoint = {
             let checker_pin = boole_core::network_genesis_preset(&node_network_id)
                 .and_then(|preset| preset.params.checker_artifact_hash);
             let identity =
@@ -1375,14 +1380,21 @@ impl LocalNodeState {
                 .and_then(|checkpoint| (checkpoint.height as usize).checked_sub(1))
                 .and_then(|index| runtime.cached_blocks().get(index))
                 .map(|block| block.c.clone());
-            if let Err(err) = crate::checkpoint::validate_or_discard_checkpoint_at_boot(
+            // The surviving checkpoint (identity/prefix matched) is kept so
+            // ingest can skip re-verification within its trusted prefix
+            // (SC.10-iii-c-2). A stale one is discarded here and returns None.
+            match crate::checkpoint::validate_or_discard_checkpoint_at_boot(
                 &checkpoint_path,
                 identity.as_ref(),
                 block_hash_at_height.as_deref(),
             ) {
-                eprintln!("boole-node: verified-prefix checkpoint validation failed: {err:#}");
+                Ok(checkpoint) => checkpoint,
+                Err(err) => {
+                    eprintln!("boole-node: verified-prefix checkpoint validation failed: {err:#}");
+                    None
+                }
             }
-        }
+        };
         let work_manifests = match config.work_manifests_path.as_ref() {
             Some(path) => load_work_manifests_from_path(path)?,
             None => Vec::new(),
@@ -1446,6 +1458,7 @@ impl LocalNodeState {
             genesis_spec_hash,
             block_path: config.block_path,
             checkpoint_path,
+            verified_prefix_checkpoint,
             report: scenario.cfg,
             started_at_ms: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -2145,6 +2158,11 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
             "boole_p2p_ingress_blocks_deferred_total",
             "Gossip blocks deferred: pinned-checker re-verify hit an availability failure, not adopted and not rejected.",
             p2p.ingress_blocks_deferred.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_ingress_blocks_reverify_skipped_via_checkpoint_total",
+            "Gossip blocks adopted without running the pinned checker because they fall within the verified-prefix checkpoint (assumevalid); structural replay still ran.",
+            p2p.ingress_blocks_reverify_skipped_via_checkpoint.load(Ordering::Relaxed),
         ),
         (
             "boole_p2p_ingress_block_announces_ignored_total",
@@ -5007,26 +5025,57 @@ pub(crate) fn ingest_announced_block(
     // is a consensus reject, an availability failure defers (never a reject,
     // never a fail-open accept — ADR-0016 (a-3)). Closed-local / no-checker
     // nodes skip this (helper returns `None`) and keep pre-SC.10 behaviour.
+    // SC.10-iii-c-2 (assumevalid) — if this block falls within a verified-
+    // prefix checkpoint this node already trusts, skip the (expensive) pinned-
+    // checker re-verify: structural replay above already proved shape/linkage,
+    // and the checkpoint attests the Lean validity of this prefix. At the
+    // checkpoint height a hash mismatch means the re-synced chain diverged
+    // from the trusted prefix — discard the checkpoint and re-verify in full
+    // (nothing above a divergence may be skipped).
+    let skip_decision = crate::checkpoint::checkpoint_skip_decision(
+        state.verified_prefix_checkpoint.as_ref(),
+        block.height,
+        &block.c,
+    );
+    if skip_decision == crate::checkpoint::CheckpointSkipDecision::DivergedDiscardThenReverify {
+        state.verified_prefix_checkpoint = None;
+        let checkpoint_path = state.checkpoint_path.clone();
+        let _ = std::fs::remove_file(&checkpoint_path);
+        eprintln!(
+            "boole-node: verified-prefix checkpoint diverged from the re-synced chain; discarded"
+        );
+    }
     // SC.10-iii-b — `Some(Verified)` means the pinned checker actually ran
     // over this block's base-lane evidence and accepted it, so this node has
     // itself Lean-re-verified the block and may advance its verified-prefix
     // checkpoint below. `None` means no checker is pinned (closed-local): no
     // Lean verdict was produced, so the checkpoint must NOT advance.
-    let lean_reverified = match reverify_ingested_block_shares(state, &block) {
-        Some(BlockReverifyOutcome::DeterministicReject { detail }) => {
-            eprintln!("boole-node: p2p block ingest Lean re-verify rejected: {detail}");
-            return IngressBlockOutcome::Rejected;
-        }
-        Some(BlockReverifyOutcome::RetryableUnavailable { detail }) => {
-            // Deferred returns here, BEFORE the durable commit and checkpoint
-            // write below: an availability failure moves neither the head nor
-            // the checkpoint (ADR-0016 (a-3), (c-1)).
-            eprintln!("boole-node: p2p block ingest Lean re-verify deferred: {detail}");
-            return IngressBlockOutcome::Deferred;
-        }
-        Some(BlockReverifyOutcome::Verified) => true,
-        None => false,
-    };
+    let lean_reverified =
+        if skip_decision == crate::checkpoint::CheckpointSkipDecision::SkipReverify {
+            // assumevalid skip: adopted without running the checker. The block is
+            // already within the checkpoint's prefix, so it does not advance it.
+            state
+                .p2p_metrics
+                .ingress_blocks_reverify_skipped_via_checkpoint
+                .fetch_add(1, Ordering::Relaxed);
+            false
+        } else {
+            match reverify_ingested_block_shares(state, &block) {
+                Some(BlockReverifyOutcome::DeterministicReject { detail }) => {
+                    eprintln!("boole-node: p2p block ingest Lean re-verify rejected: {detail}");
+                    return IngressBlockOutcome::Rejected;
+                }
+                Some(BlockReverifyOutcome::RetryableUnavailable { detail }) => {
+                    // Deferred returns here, BEFORE the durable commit and
+                    // checkpoint write below: an availability failure moves neither
+                    // the head nor the checkpoint (ADR-0016 (a-3), (c-1)).
+                    eprintln!("boole-node: p2p block ingest Lean re-verify deferred: {detail}");
+                    return IngressBlockOutcome::Deferred;
+                }
+                Some(BlockReverifyOutcome::Verified) => true,
+                None => false,
+            }
+        };
     // Same write ordering as the self-produce commit: block append →
     // reward-ledger append → in-memory apply (inside the runtime call) →
     // bounty-event rows → proof-dedup mirror.

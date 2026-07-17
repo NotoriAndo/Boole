@@ -362,6 +362,63 @@ class SelfTestContractTests(unittest.TestCase):
                 f"injection fields (missing: {needle!r})",
             )
 
+    def test_self_test_runs_checkpoint_resync_skip_smoke(self) -> None:
+        # SC.10-iii-c-2 — the verified-prefix checkpoint assumevalid re-sync
+        # skip: a node that re-bootstraps (store wiped, checkpoint kept) must
+        # re-sync its verified prefix WITHOUT re-running the pinned checker.
+        # Pinning the stage keeps a future self-test edit from silently
+        # dropping the only coverage that the skip actually fires.
+        body = _read(SELF_TEST)
+        self.assertRegex(
+            body,
+            re.compile(
+                r"^\s*run_capture_json\s+testnet2-checkpoint-resync\b.*"
+                r"testnet2-checkpoint-resync-skip-smoke\.sh",
+                re.MULTILINE,
+            ),
+            "scripts/self-test.sh must run "
+            "scripts/testnet2-checkpoint-resync-skip-smoke.sh via "
+            "run_capture_json (SC.10-iii-c-2 assumevalid skip gate)",
+        )
+        smoke = ROOT / "scripts" / "testnet2-checkpoint-resync-skip-smoke.sh"
+        self.assertTrue(
+            smoke.exists(),
+            "scripts/testnet2-checkpoint-resync-skip-smoke.sh must exist "
+            "(SC.10-iii-c-2)",
+        )
+        smoke_body = _read(smoke)
+        for marker in (
+            # the pinned honest node runs real Lean on first ingest
+            "--lean-checker-dir",
+            "testnet2-lenbound-share.v1.json",
+            # the metric that proves the re-verify was actually skipped
+            "boole_p2p_ingress_blocks_reverify_skipped_via_checkpoint_total",
+            # the mandatory assertion
+            "reverifySkippedOnResync",
+        ):
+            self.assertIn(
+                marker,
+                smoke_body,
+                "the checkpoint-resync smoke must boot a checker-pinned node, "
+                "drive the committed fixture, and assert the Lean re-verify was "
+                f"skipped on re-sync (missing marker: {marker!r})",
+            )
+
+    def test_self_test_aggregation_gates_checkpoint_resync(self) -> None:
+        body = _read(SELF_TEST)
+        for needle in (
+            '"name": "testnet2-checkpoint-resync"',
+            'get("skipCounterAfterFirstIngest") == 0',
+            'get("reverifySkippedOnResync") is True',
+            'get("headMatchesFirstVerified") is True',
+        ):
+            self.assertIn(
+                needle,
+                body,
+                "self-test.sh final aggregation must gate the checkpoint-resync "
+                f"skip fields (missing: {needle!r})",
+            )
+
     def test_lean_checker_build_precedes_cargo_test(self) -> None:
         body = _read(SELF_TEST)
         lean_idx = body.find("run_logged lean-checker-build")
