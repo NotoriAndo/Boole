@@ -3,6 +3,7 @@
 //! This crate is intentionally small at first. It will grow by matching
 //! TypeScript-generated golden fixtures from `legacy-pof`.
 
+pub mod accounting;
 pub mod admission;
 pub mod admission_types;
 pub mod agent_events;

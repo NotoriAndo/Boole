@@ -206,12 +206,20 @@ fn settlement_report(receipts: &[SubmitReceipt]) -> anyhow::Result<SubmitReceipt
     let mut reputation: BTreeMap<String, (u64, u128)> = BTreeMap::new();
     for receipt in receipts {
         let amount: u128 = receipt.reward_amount.parse()?;
-        *rewards.entry(receipt.reward_recipient.clone()).or_insert(0) += amount;
+        crate::accounting::checked_credit(&mut rewards, &receipt.reward_recipient, amount)?;
         let entry = reputation
             .entry(receipt.submitted_by.clone())
             .or_insert((0, 0));
-        entry.0 += 1;
-        entry.1 += amount;
+        entry.0 = entry
+            .0
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("submit-receipt reputation count overflow"))?;
+        entry.1 = entry.1.checked_add(amount).ok_or_else(|| {
+            anyhow::anyhow!(
+                "submit-receipt reputation reward overflow for {}",
+                receipt.submitted_by
+            )
+        })?;
     }
     Ok(SubmitReceiptSettlementReport {
         reward_credits: rewards

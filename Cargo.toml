@@ -73,3 +73,7 @@ unsafe_code = "deny"
 # stay on unwind so `#[should_panic]` tests keep working.
 [profile.release]
 panic = "abort"
+# SC.4 (GAP-04) — a second line under the checked-arithmetic accounting folds:
+# a would-be overflow anywhere (not only the audited accounting paths) aborts
+# the release build rather than silently wrapping to a wrong value.
+overflow-checks = true

@@ -376,7 +376,7 @@ fn replay_blocks_with_rules(
 
         for credit in compute_block_reward_credits(block)? {
             let amount: u128 = credit.amount.parse()?;
-            *balances.entry(credit.pk).or_insert(0) += amount;
+            crate::accounting::checked_credit(&mut balances, &credit.pk, amount)?;
         }
         // ADR-0015 (a) — bounty credits are DERIVED from the committed
         // promoted-share rows with the same settlement function the
@@ -387,10 +387,12 @@ fn replay_blocks_with_rules(
             derive_bounty_settlement(&block.promoted_bounty_shares, registry, block.height)?
         {
             let amount: u128 = credit.amount.parse()?;
-            *balances.entry(credit.prover.clone()).or_insert(0) += amount;
-            *bounty_credit_by_family
-                .entry(credit.family_id.clone())
-                .or_insert(0) += amount;
+            crate::accounting::checked_credit(&mut balances, &credit.prover, amount)?;
+            crate::accounting::checked_credit(
+                &mut bounty_credit_by_family,
+                &credit.family_id,
+                amount,
+            )?;
         }
         latest_c = block.c.clone();
     }
