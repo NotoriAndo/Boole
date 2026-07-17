@@ -1428,3 +1428,15 @@ Lean 재검증을 스킵. closed-local + CI only.
 
 주의: iii-b/c/d는 consensus-adjacent(ingest/reorg/boot) — checker-pinned 테스트
 하네스 필요. 슬라이스별 TDD → focused → CI. public claim 아님.
+
+---
+
+# SC.10-iii-c-2 착륙 기록 (assumevalid 재검증 스킵)
+
+재부팅으로 로컬 exec 회복 후 로컬 스모크 검증하며 진행. `checkpoint_skip_decision`
+순수 함수(스킵/정상/발산) + ingest 배선(boot-load된 checkpoint 소비, 스킵 시
+메트릭 bump·전진 안 함, 발산 시 폐기). 재-부트스트랩 스모크(저장소 삭제·checkpoint
+유지→재sync에서 Lean 스킵 0→1, 동일 head 재수렴) 로컬 PASS. 순수 함수 단위
+테스트 6종은 CI cargo-test(로컬 test-binary exec는 여전히 syspolicyd 스톨,
+스모크=prod 바이너리는 정상). self-test 집계가 skip0→재sync스킵→동일head 강제.
+잔여: iii-d(reorg/rollback checkpoint 안전) → SC.10 wave 종결.
