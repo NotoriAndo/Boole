@@ -125,6 +125,21 @@ run_logged lean-checker-build bash -c '
   lake build Boole.Family.V0Helpers boole_check
 '
 run_logged cargo-test cargo test --workspace --all-targets --locked --features boole-node/dev-mock-payment,boole-miner/dev-tools
+# SC.8 (GAP-13) — the multiprocess suites are `#[ignore = "needs-multiprocess"]`
+# so the default `cargo test` above skips them; without this stage the core
+# N5.2 behaviours (genesis boot binding, share/block gossip, initial sync)
+# run in NO required gate. Run each binary explicitly with --include-ignored,
+# serially (RUST_TEST_THREADS=1 is exported) to avoid loopback port contention
+# across binaries. Named by binary (not `--include-ignored` workspace-wide) so
+# a new multiprocess test file cannot be added silently outside this lane.
+for mp_test in \
+  genesis_network_binding \
+  p2p_block_propagation \
+  p2p_initial_sync \
+  p2p_share_propagation; do
+  run_logged "needs-multiprocess-${mp_test}" \
+    cargo test -p boole-node --test "$mp_test" --locked -- --include-ignored
+done
 # SC.9c (ADR-0016 (a)/(a-1)) — the verdict corpus: the three-state Lean
 # verdict must match the committed golden fixture byte-for-byte. The
 # cross-platform four-job matrix lives in verdict-corpus.yml (the required

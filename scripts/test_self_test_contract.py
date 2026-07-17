@@ -464,6 +464,43 @@ class SelfTestContractTests(unittest.TestCase):
                 f"fields (missing: {needle!r})",
             )
 
+    def test_self_test_runs_needs_multiprocess_lane(self) -> None:
+        # SC.8 (GAP-13) — the `#[ignore = "needs-multiprocess"]` suites
+        # (genesis boot binding, share/block gossip, initial sync) are skipped
+        # by the default `cargo test`, so without an explicit --include-ignored
+        # stage the core N5.2 behaviours run in NO required gate. Pin the lane
+        # by BINARY NAME (not just a count) so a new multiprocess test file
+        # cannot be added silently outside it.
+        body = _read(SELF_TEST)
+        self.assertIn(
+            "--include-ignored",
+            body,
+            "scripts/self-test.sh must run a needs-multiprocess lane with "
+            "--include-ignored so the ignored suites execute in CI",
+        )
+        for binary in (
+            "genesis_network_binding",
+            "p2p_block_propagation",
+            "p2p_initial_sync",
+            "p2p_share_propagation",
+        ):
+            self.assertRegex(
+                body,
+                re.compile(
+                    rf"--test\s+(?:\"?\$mp_test\"?|{re.escape(binary)})",
+                    re.MULTILINE,
+                ),
+                f"self-test.sh must run the {binary!r} multiprocess binary",
+            )
+            # The binary must be named in the lane (loop list or an explicit
+            # invocation), not merely reachable via the workspace default.
+            self.assertIn(
+                binary,
+                body,
+                f"self-test.sh must name the {binary!r} multiprocess binary in "
+                "the needs-multiprocess lane",
+            )
+
     def test_lean_checker_build_precedes_cargo_test(self) -> None:
         body = _read(SELF_TEST)
         lean_idx = body.find("run_logged lean-checker-build")
