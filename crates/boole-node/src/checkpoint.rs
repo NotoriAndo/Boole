@@ -246,6 +246,25 @@ pub fn checkpoint_skip_decision(
     }
 }
 
+/// SC.10-iii-d — whether a verified-prefix checkpoint survives a chain change
+/// (a reorg, or a block-store rollback/truncation that a later sync regrows).
+///
+/// Unlike boot (which DEFERS the prefix check when the chain is shorter than
+/// the checkpoint, so a legitimate re-bootstrap can re-sync the same prefix),
+/// a reorg has ACTIVELY rewritten the chain: the checkpoint survives ONLY if
+/// the new chain still has the checkpoint's exact block at the checkpoint
+/// height. A shorter new chain (`None`) or a different hash means the reorg
+/// diverged below the checkpoint — it is invalidated, so the old chain's
+/// verification can never be reused on the new prefix (ADR-0016 (c-1):
+/// `reorg_below_checkpoint_invalidates_checkpoint`,
+/// `block_store_rollback_cannot_reuse_future_checkpoint`).
+pub fn checkpoint_survives_reorg(
+    checkpoint: &VerifiedPrefixCheckpoint,
+    block_hash_at_height: Option<&str>,
+) -> bool {
+    block_hash_at_height == Some(checkpoint.block_hash.as_str())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -584,5 +603,31 @@ mod tests {
             checkpoint_skip_decision(Some(&cp), 7, "block-hash-at-7"),
             CheckpointSkipDecision::RunReverify
         );
+    }
+
+    #[test]
+    fn checkpoint_survives_a_reorg_that_keeps_the_prefix_block() {
+        let cp = sample();
+        assert!(checkpoint_survives_reorg(&cp, Some("block-hash-at-7")));
+    }
+
+    #[test]
+    fn checkpoint_is_invalidated_when_a_reorg_diverges_below_it() {
+        let cp = sample();
+        // A different block at the checkpoint height: the reorg rewrote the
+        // prefix, so the old verification cannot be reused.
+        assert!(!checkpoint_survives_reorg(
+            &cp,
+            Some("a-reorged-block-hash")
+        ));
+    }
+
+    #[test]
+    fn checkpoint_is_invalidated_when_the_new_chain_is_shorter_than_it() {
+        let cp = sample();
+        // A reorg / rollback to a chain shorter than the checkpoint height has
+        // no block there: unlike boot, this is an ACTIVE rewrite and must
+        // invalidate (a future checkpoint can never be reused).
+        assert!(!checkpoint_survives_reorg(&cp, None));
     }
 }

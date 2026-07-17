@@ -5262,6 +5262,35 @@ pub(crate) fn ingest_candidate_chain(
             ) {
                 eprintln!("boole-node: bounty state rebuild after reorg failed: {err:#}");
             }
+            // SC.10-iii-d — a reorg has rewritten the chain. If it diverged
+            // below this node's verified-prefix checkpoint (the adopted chain's
+            // block at the checkpoint height differs, or the chain is now
+            // shorter than the checkpoint), the old chain's Lean verification no
+            // longer applies to this prefix: invalidate the checkpoint so it can
+            // never let a later re-verification be skipped onto the reorged
+            // chain (ADR-0016 (c-1)).
+            let checkpoint_invalidated =
+                state
+                    .verified_prefix_checkpoint
+                    .as_ref()
+                    .is_some_and(|checkpoint| {
+                        let block_hash_at_height = (checkpoint.height as usize)
+                            .checked_sub(1)
+                            .and_then(|index| candidate.get(index))
+                            .map(|block| block.c.as_str());
+                        !crate::checkpoint::checkpoint_survives_reorg(
+                            checkpoint,
+                            block_hash_at_height,
+                        )
+                    });
+            if checkpoint_invalidated {
+                state.verified_prefix_checkpoint = None;
+                let checkpoint_path = state.checkpoint_path.clone();
+                let _ = std::fs::remove_file(&checkpoint_path);
+                eprintln!(
+                    "boole-node: verified-prefix checkpoint invalidated by a reorg below it; discarded"
+                );
+            }
             CandidateChainOutcome::Reorged { new_head_height }
         }
         Ok(ReorgOutcome::KeptCurrent) => CandidateChainOutcome::KeptCurrent,
