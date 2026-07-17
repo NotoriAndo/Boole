@@ -190,6 +190,62 @@ pub fn validate_or_discard_checkpoint_at_boot(
     Ok(None)
 }
 
+/// SC.10-iii-c-2 — what a checker-pinned node should do about the pinned-checker
+/// re-verify for a block it is about to ingest, given its verified-prefix
+/// checkpoint. This is the Bitcoin `assumevalid` shape: below a checkpoint the
+/// operator has already verified, the (expensive) Lean re-verify is skipped;
+/// everything at or above it is fully re-verified. Structural replay ALWAYS
+/// runs regardless — only the Lean step is affected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckpointSkipDecision {
+    /// The block lies strictly within the trusted verified prefix (its post-
+    /// commit height is below the checkpoint height, or it IS the checkpoint
+    /// block and its hash matches). Skip the Lean re-verify and adopt.
+    SkipReverify,
+    /// No checkpoint covers this block (none present, or the block is at or
+    /// above the checkpoint height and not the checkpoint block). Run the
+    /// normal Lean re-verify.
+    RunReverify,
+    /// The block completes the checkpoint height but its hash does NOT match
+    /// the checkpoint's prefix: the re-synced chain diverges from what this
+    /// node verified. Discard the checkpoint, then run the normal Lean
+    /// re-verify (nothing above a divergence may be skipped).
+    DivergedDiscardThenReverify,
+}
+
+/// Decide the re-verify action for `block` (identified by its post-commit
+/// height `block_height + 1` and head hash `block_c`) under `checkpoint`.
+///
+/// `block_height` is the block's own height field; `new_height = block_height
+/// + 1` is the chain length after committing it, which is what a checkpoint
+/// height counts. The checkpoint block is the one whose commit brings the
+/// chain to exactly `checkpoint.height`, and its head hash is
+/// `checkpoint.block_hash`.
+pub fn checkpoint_skip_decision(
+    checkpoint: Option<&VerifiedPrefixCheckpoint>,
+    block_height: u64,
+    block_c: &str,
+) -> CheckpointSkipDecision {
+    let Some(checkpoint) = checkpoint else {
+        return CheckpointSkipDecision::RunReverify;
+    };
+    let new_height = block_height + 1;
+    if new_height < checkpoint.height {
+        // Strictly below the checkpoint block: structural linkage (enforced by
+        // replay) ties this block to the checkpoint block whose hash is
+        // verified below, so it is within the trusted prefix.
+        CheckpointSkipDecision::SkipReverify
+    } else if new_height == checkpoint.height {
+        if block_c == checkpoint.block_hash {
+            CheckpointSkipDecision::SkipReverify
+        } else {
+            CheckpointSkipDecision::DivergedDiscardThenReverify
+        }
+    } else {
+        CheckpointSkipDecision::RunReverify
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,5 +534,55 @@ mod tests {
             .expect("validate");
         assert!(out.is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn skip_decision_runs_reverify_when_no_checkpoint() {
+        assert_eq!(
+            checkpoint_skip_decision(None, 0, "any"),
+            CheckpointSkipDecision::RunReverify
+        );
+    }
+
+    #[test]
+    fn skip_decision_skips_below_the_checkpoint_height() {
+        // sample() has height 7: a block whose post-commit height (2+1=3) is
+        // below 7 is within the trusted prefix.
+        let cp = sample();
+        assert_eq!(
+            checkpoint_skip_decision(Some(&cp), 2, "irrelevant-below-hash"),
+            CheckpointSkipDecision::SkipReverify
+        );
+    }
+
+    #[test]
+    fn skip_decision_skips_the_checkpoint_block_when_its_hash_matches() {
+        // block_height 6 -> new_height 7 == checkpoint height; matching hash.
+        let cp = sample();
+        assert_eq!(
+            checkpoint_skip_decision(Some(&cp), 6, "block-hash-at-7"),
+            CheckpointSkipDecision::SkipReverify
+        );
+    }
+
+    #[test]
+    fn skip_decision_diverges_when_the_checkpoint_block_hash_differs() {
+        // block_height 6 -> new_height 7 == checkpoint height; WRONG hash: the
+        // re-synced chain reached a different prefix tip.
+        let cp = sample();
+        assert_eq!(
+            checkpoint_skip_decision(Some(&cp), 6, "a-different-tip-hash"),
+            CheckpointSkipDecision::DivergedDiscardThenReverify
+        );
+    }
+
+    #[test]
+    fn skip_decision_runs_reverify_above_the_checkpoint() {
+        // block_height 7 -> new_height 8 > checkpoint height 7.
+        let cp = sample();
+        assert_eq!(
+            checkpoint_skip_decision(Some(&cp), 7, "block-hash-at-7"),
+            CheckpointSkipDecision::RunReverify
+        );
     }
 }

@@ -170,6 +170,12 @@ run_capture_json testnet2-pinned-boot "$PINNED_BOOT_JSON" ./scripts/testnet2-pin
 # proves live Lean accepts; this proves it rejects.
 LEAN_INVALID_JSON="$TMP_DIR/testnet2-lean-invalid-injection.json"
 run_capture_json testnet2-lean-invalid-injection "$LEAN_INVALID_JSON" ./scripts/testnet2-lean-invalid-injection-smoke.sh
+# SC.10-iii-c-2 — verified-prefix checkpoint assumevalid re-sync skip: a node
+# that Lean-re-verified a prefix, then re-bootstraps (store wiped, checkpoint
+# kept), re-syncs that prefix WITHOUT re-running the pinned checker (skip
+# counter 0 -> 1), re-converging to the same head.
+CHECKPOINT_RESYNC_JSON="$TMP_DIR/testnet2-checkpoint-resync.json"
+run_capture_json testnet2-checkpoint-resync "$CHECKPOINT_RESYNC_JSON" ./scripts/testnet2-checkpoint-resync-skip-smoke.sh
 run_logged git-diff-check git diff --check
 
 GITLEAKS_STATUS="skipped"
@@ -178,7 +184,7 @@ if command -v gitleaks >/dev/null 2>&1; then
   GITLEAKS_STATUS="pass"
 fi
 
-python3 - "$SMOKE_JSON" "$BENCH_JSON" "$MINING_JSON" "$GITLEAKS_STATUS" "$RUST_PARITY_STATUS" "$CONVERGENCE_JSON" "$PINNED_BOOT_JSON" "$LEAN_INVALID_JSON" <<'PY'
+python3 - "$SMOKE_JSON" "$BENCH_JSON" "$MINING_JSON" "$GITLEAKS_STATUS" "$RUST_PARITY_STATUS" "$CONVERGENCE_JSON" "$PINNED_BOOT_JSON" "$LEAN_INVALID_JSON" "$CHECKPOINT_RESYNC_JSON" <<'PY'
 import json
 import sys
 
@@ -190,6 +196,7 @@ rust_parity_status = sys.argv[5]
 convergence = json.load(open(sys.argv[6]))
 pinned_boot = json.load(open(sys.argv[7]))
 lean_invalid = json.load(open(sys.argv[8]))
+checkpoint_resync = json.load(open(sys.argv[9]))
 
 cases = smoke.get("cases", [])
 summary = benchmark.get("summary", {})
@@ -292,6 +299,26 @@ checks = [
         "checkpointNotAdvancedOnSelfProduce": lean_invalid.get("checkpointNotAdvancedOnSelfProduce"),
         "checkpointNotAdvancedOnReject": lean_invalid.get("checkpointNotAdvancedOnReject"),
         "ingesterCheckpointHeight": lean_invalid.get("ingesterCheckpointHeight"),
+    },
+    {
+        "name": "testnet2-checkpoint-resync",
+        # SC.10-iii-c-2 gate: a node re-bootstrapping (store wiped, checkpoint
+        # kept) re-syncs its verified prefix WITHOUT re-running Lean — the
+        # first ingest ran the checker (skip 0), the re-sync skipped it
+        # (skip >= 1), and the node re-converged to the same head.
+        "ok": checkpoint_resync.get("ok") is True
+        and checkpoint_resync.get("skipCounterAfterFirstIngest") == 0
+        and checkpoint_resync.get("reverifySkippedOnResync") is True
+        and checkpoint_resync.get("headMatchesFirstVerified") is True
+        and checkpoint_resync.get("resyncedHeight") == 1,
+        "claimBoundary": checkpoint_resync.get("claimBoundary"),
+        "publicMiningEvidence": checkpoint_resync.get("publicMiningEvidence"),
+        "networkId": checkpoint_resync.get("networkId"),
+        "checkpointHeightBeforeRestart": checkpoint_resync.get("checkpointHeightBeforeRestart"),
+        "skipCounterAfterFirstIngest": checkpoint_resync.get("skipCounterAfterFirstIngest"),
+        "skipCounterAfterResync": checkpoint_resync.get("skipCounterAfterResync"),
+        "reverifySkippedOnResync": checkpoint_resync.get("reverifySkippedOnResync"),
+        "headMatchesFirstVerified": checkpoint_resync.get("headMatchesFirstVerified"),
     },
     {"name": "git-diff-check", "ok": True},
     {"name": "gitleaks", "ok": gitleaks_status in {"pass", "skipped"}, "status": gitleaks_status},
