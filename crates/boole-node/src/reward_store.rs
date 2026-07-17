@@ -78,9 +78,11 @@ pub fn verify_ledger_matches_replay(
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("bountyLedger credit event missing amount"))?
                 .parse()?;
-            *ledger_credit_by_family
-                .entry(family_id.to_string())
-                .or_insert(0) += amount;
+            boole_core::accounting::checked_credit(
+                &mut ledger_credit_by_family,
+                family_id,
+                amount,
+            )?;
         }
         for (family_id, replay_amount) in replay_bounty_credit_by_family {
             let ledger_amount = ledger_credit_by_family.get(family_id).copied().unwrap_or(0);
@@ -146,7 +148,7 @@ impl FileRewardLedger {
             if amount == 0 {
                 anyhow::bail!("rewardLedger: credit amount must be positive");
             }
-            *self.balances.entry(pk.clone()).or_insert(0) += amount;
+            boole_core::accounting::checked_credit(&mut self.balances, pk, amount)?;
         }
         self.events.push(event);
         Ok(())

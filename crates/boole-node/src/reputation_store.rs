@@ -67,9 +67,18 @@ impl FileReputationLedger {
         validate_event(&event)?;
         let amount: u128 = event.verified_reward_amount.parse()?;
         let entry = self.stats.entry(event.agent_pk.clone()).or_default();
-        entry.accepted_submits += event.accepted_submits;
-        entry.verified_reward_amount += amount;
-        entry.event_count += 1;
+        entry.accepted_submits = entry
+            .accepted_submits
+            .checked_add(event.accepted_submits)
+            .ok_or_else(|| anyhow::anyhow!("reputation accepted_submits overflow"))?;
+        entry.verified_reward_amount = entry
+            .verified_reward_amount
+            .checked_add(amount)
+            .ok_or_else(|| anyhow::anyhow!("reputation verified_reward_amount overflow"))?;
+        entry.event_count = entry
+            .event_count
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("reputation event_count overflow"))?;
         self.events.push(event);
         Ok(())
     }
