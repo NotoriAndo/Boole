@@ -419,6 +419,51 @@ class SelfTestContractTests(unittest.TestCase):
                 f"skip fields (missing: {needle!r})",
             )
 
+    def test_self_test_runs_checkpoint_divergence_smoke(self) -> None:
+        # SC.10-iii-d — a verified-prefix checkpoint that no longer matches the
+        # actual chain (rollback / reorg divergence) must NOT be reused to skip
+        # re-verification. Pinning the stage keeps the safety guard covered.
+        body = _read(SELF_TEST)
+        self.assertRegex(
+            body,
+            re.compile(
+                r"^\s*run_capture_json\s+testnet2-checkpoint-diverge\b.*"
+                r"testnet2-checkpoint-divergence-discard-smoke\.sh",
+                re.MULTILINE,
+            ),
+            "scripts/self-test.sh must run "
+            "scripts/testnet2-checkpoint-divergence-discard-smoke.sh via "
+            "run_capture_json (SC.10-iii-d rollback/reorg safety gate)",
+        )
+        smoke = ROOT / "scripts" / "testnet2-checkpoint-divergence-discard-smoke.sh"
+        self.assertTrue(smoke.exists(), "the checkpoint-divergence smoke must exist")
+        smoke_body = _read(smoke)
+        for marker in (
+            "--lean-checker-dir",
+            "block_hash",
+            "boole_p2p_ingress_blocks_reverify_skipped_via_checkpoint_total",
+            "divergentCheckpointNotReused",
+        ):
+            self.assertIn(
+                marker,
+                smoke_body,
+                "the checkpoint-divergence smoke must tamper the checkpoint's "
+                "block hash and assert the re-verify was NOT skipped "
+                f"(missing marker: {marker!r})",
+            )
+        for needle in (
+            '"name": "testnet2-checkpoint-diverge"',
+            'get("divergentCheckpointNotReused") is True',
+            'get("skipCounterAfterResync") == 0',
+            'get("convergedToRealHead") is True',
+        ):
+            self.assertIn(
+                needle,
+                body,
+                "self-test.sh final aggregation must gate the checkpoint-diverge "
+                f"fields (missing: {needle!r})",
+            )
+
     def test_lean_checker_build_precedes_cargo_test(self) -> None:
         body = _read(SELF_TEST)
         lean_idx = body.find("run_logged lean-checker-build")

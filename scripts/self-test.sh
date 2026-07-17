@@ -176,6 +176,12 @@ run_capture_json testnet2-lean-invalid-injection "$LEAN_INVALID_JSON" ./scripts/
 # counter 0 -> 1), re-converging to the same head.
 CHECKPOINT_RESYNC_JSON="$TMP_DIR/testnet2-checkpoint-resync.json"
 run_capture_json testnet2-checkpoint-resync "$CHECKPOINT_RESYNC_JSON" ./scripts/testnet2-checkpoint-resync-skip-smoke.sh
+# SC.10-iii-d — a verified-prefix checkpoint that no longer matches the actual
+# chain (rollback / reorg divergence) must NOT be reused to skip
+# re-verification: the node discards it and re-runs the pinned checker (skip
+# counter stays 0), still converging to the real head.
+CHECKPOINT_DIVERGE_JSON="$TMP_DIR/testnet2-checkpoint-diverge.json"
+run_capture_json testnet2-checkpoint-diverge "$CHECKPOINT_DIVERGE_JSON" ./scripts/testnet2-checkpoint-divergence-discard-smoke.sh
 run_logged git-diff-check git diff --check
 
 GITLEAKS_STATUS="skipped"
@@ -184,7 +190,7 @@ if command -v gitleaks >/dev/null 2>&1; then
   GITLEAKS_STATUS="pass"
 fi
 
-python3 - "$SMOKE_JSON" "$BENCH_JSON" "$MINING_JSON" "$GITLEAKS_STATUS" "$RUST_PARITY_STATUS" "$CONVERGENCE_JSON" "$PINNED_BOOT_JSON" "$LEAN_INVALID_JSON" "$CHECKPOINT_RESYNC_JSON" <<'PY'
+python3 - "$SMOKE_JSON" "$BENCH_JSON" "$MINING_JSON" "$GITLEAKS_STATUS" "$RUST_PARITY_STATUS" "$CONVERGENCE_JSON" "$PINNED_BOOT_JSON" "$LEAN_INVALID_JSON" "$CHECKPOINT_RESYNC_JSON" "$CHECKPOINT_DIVERGE_JSON" <<'PY'
 import json
 import sys
 
@@ -197,6 +203,7 @@ convergence = json.load(open(sys.argv[6]))
 pinned_boot = json.load(open(sys.argv[7]))
 lean_invalid = json.load(open(sys.argv[8]))
 checkpoint_resync = json.load(open(sys.argv[9]))
+checkpoint_diverge = json.load(open(sys.argv[10]))
 
 cases = smoke.get("cases", [])
 summary = benchmark.get("summary", {})
@@ -319,6 +326,24 @@ checks = [
         "skipCounterAfterResync": checkpoint_resync.get("skipCounterAfterResync"),
         "reverifySkippedOnResync": checkpoint_resync.get("reverifySkippedOnResync"),
         "headMatchesFirstVerified": checkpoint_resync.get("headMatchesFirstVerified"),
+    },
+    {
+        "name": "testnet2-checkpoint-diverge",
+        # SC.10-iii-d gate: a checkpoint that no longer matches the actual
+        # chain (rollback / reorg divergence) is NOT reused to skip — the node
+        # re-verifies (skip counter stays 0) and still converges to the real
+        # head. block_store_rollback_cannot_reuse_future_checkpoint.
+        "ok": checkpoint_diverge.get("ok") is True
+        and checkpoint_diverge.get("divergentCheckpointNotReused") is True
+        and checkpoint_diverge.get("skipCounterAfterResync") == 0
+        and checkpoint_diverge.get("convergedToRealHead") is True,
+        "claimBoundary": checkpoint_diverge.get("claimBoundary"),
+        "publicMiningEvidence": checkpoint_diverge.get("publicMiningEvidence"),
+        "networkId": checkpoint_diverge.get("networkId"),
+        "checkpointTampered": checkpoint_diverge.get("checkpointTampered"),
+        "skipCounterAfterResync": checkpoint_diverge.get("skipCounterAfterResync"),
+        "divergentCheckpointNotReused": checkpoint_diverge.get("divergentCheckpointNotReused"),
+        "convergedToRealHead": checkpoint_diverge.get("convergedToRealHead"),
     },
     {"name": "git-diff-check", "ok": True},
     {"name": "gitleaks", "ok": gitleaks_status in {"pass", "skipped"}, "status": gitleaks_status},

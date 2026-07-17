@@ -1440,3 +1440,19 @@ Lean 재검증을 스킵. closed-local + CI only.
 테스트 6종은 CI cargo-test(로컬 test-binary exec는 여전히 syspolicyd 스톨,
 스모크=prod 바이너리는 정상). self-test 집계가 skip0→재sync스킵→동일head 강제.
 잔여: iii-d(reorg/rollback checkpoint 안전) → SC.10 wave 종결.
+
+---
+
+# SC.10-iii-d 착륙 기록 (reorg/rollback checkpoint 안전) — SC.10 wave 종결
+
+`checkpoint_survives_reorg` 순수 함수(정확 일치만 생존, 짧은 chain/불일치=무효) +
+reorg 경로(ingest_candidate_chain) 배선: reorg가 checkpoint 아래에서 갈라지면
+(채택된 chain의 그 높이 블록 해시 불일치 or chain이 더 짧음) checkpoint 무효화
+(in-memory None + 파일 삭제). 롤백 안전 스모크: 저장소 비우고 checkpoint의
+block_hash를 틀린 값으로 변조→재sync에서 그 checkpoint는 재사용되지 않고(스킵
+카운터 0 유지) 재검증 후 실제 head로 수렴. 로컬 PASS. self-test 집계가
+divergentCheckpointNotReused∧skip0∧convergedToRealHead 강제.
+
+**SC.10 wave 종결**: ii(a~d) + iii(a/b/c-1/c-2/d) + iv(0/a/b/c) 전부 착륙.
+verified-prefix checkpoint 기록·전진·부팅검증·assumevalid 스킵·reorg/rollback
+안전까지 완결. closed-local + CI only.

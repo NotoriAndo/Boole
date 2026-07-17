@@ -36,8 +36,9 @@ pub use bounty_catalog_store::load_bounties_from_path;
 pub use bounty_event_store::FileBountyEventLedger;
 pub use checkpoint::{
     build_verified_checkpoint, checkpoint_path_for, checkpoint_skip_decision,
-    checkpoint_survives_boot, read_checkpoint, validate_or_discard_checkpoint_at_boot,
-    write_checkpoint, CheckpointIdentity, CheckpointSkipDecision, VerifiedPrefixCheckpoint,
+    checkpoint_survives_boot, checkpoint_survives_reorg, read_checkpoint,
+    validate_or_discard_checkpoint_at_boot, write_checkpoint, CheckpointIdentity,
+    CheckpointSkipDecision, VerifiedPrefixCheckpoint,
 };
 pub use deep_verify::{
     deep_verify_block, deep_verify_bounty_events, DeepVerifyBlockReport, DeepVerifyDivergence,
