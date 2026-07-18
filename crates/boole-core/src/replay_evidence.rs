@@ -3,6 +3,7 @@ use sha2::{Digest, Sha256};
 use crate::block::PersistedBlock;
 use crate::block_builder::{compare_canonical, select_qualifying_proposer};
 use crate::rules::{BASE_LANE_MAX_DECLS, BASE_LANE_MAX_PROOF_BYTES};
+use crate::share_authorization::verify_share_work_authorization;
 use crate::{
     find_target_seed_j_index, min_share_score, parse_biguint_hex, share_hash,
     validate_proof_package_with_limits, Hex32, ValidationReason, ValidationResult,
@@ -189,6 +190,62 @@ pub(crate) fn verify_selected_share_evidence(
                 evidence.seed_hex
             );
         }
+
+        // SC.1 (ADR-0015 (b)/(b-1)) — reward ownership binding, enforced
+        // whenever the submitter's signed work.v2 authorization is present
+        // in evidence. The identity chain and the committed reward routing
+        // must be exactly what the winner signed; a block routing a share's
+        // reward anywhere else is excluded. Absent `signed_work` stays
+        // accepted on this slice — requiring it on named networks is the
+        // SC.1-d flip.
+        if let Some(auth) = &evidence.signed_work {
+            let verified = verify_share_work_authorization(auth).map_err(|err| {
+                anyhow::anyhow!("selected share evidence signedWork invalid at index {idx}: {err}")
+            })?;
+            if verified.signer_pk != evidence.pk {
+                anyhow::bail!(
+                    "selected share evidence signedWork signer mismatch at index {}: \
+                     envelope pk {}, evidence pk {}",
+                    idx,
+                    verified.signer_pk,
+                    evidence.pk
+                );
+            }
+            if verified.work_pk != evidence.pk {
+                anyhow::bail!(
+                    "selected share evidence signedWork workPayload pk mismatch at index {}: \
+                     signed {}, evidence pk {}",
+                    idx,
+                    verified.work_pk,
+                    evidence.pk
+                );
+            }
+            if verified.work_n != evidence.n
+                || verified.work_j != evidence.j
+                || verified.work_c != evidence.c
+                || verified.work_bytes_hex != evidence.proof_package
+            {
+                anyhow::bail!(
+                    "selected share evidence signedWork workPayload does not describe the \
+                     committed share at index {}",
+                    idx
+                );
+            }
+            let committed_reward_pk = if block.selected_share_reward_pks.is_empty() {
+                evidence.pk.as_str()
+            } else {
+                block.selected_share_reward_pks[idx].as_str()
+            };
+            if committed_reward_pk != verified.reward_recipient {
+                anyhow::bail!(
+                    "selected share reward pk at index {} is not authorized by the winning \
+                     share's signedWork: committed {}, signed rewardRecipient {}",
+                    idx,
+                    committed_reward_pk,
+                    verified.reward_recipient
+                );
+            }
+        }
     }
 
     Ok(())
@@ -215,10 +272,15 @@ pub(crate) fn verify_selected_share_evidence(
 ///
 /// Pool-global optimality ("was this really the pool's top-k") is NOT
 /// checkable from a single block — the replayer never had the candidate
-/// pool the proposer chose from — and stays an explicit non-goal, along
-/// with cross-checking the block's declared `proposerPk` identity/reward
-/// field against the qualifying share (that field is reward routing, not
-/// part of the selection shape this check re-derives).
+/// pool the proposer chose from — and stays an explicit non-goal.
+///
+/// SC.1 (ADR-0015 (b-1), C-05) — the former second non-goal is closed:
+/// the block's declared `proposerPk` MUST equal the qualifying winner
+/// this check re-derives, and when the winner's evidence carries a
+/// signed work.v2 authorization, `proposerRewardPk` MUST equal the
+/// recipient signed there (the proposer IS a share winner, so the
+/// share-level authorization covers proposer routing — no separate
+/// block signature exists by design).
 ///
 /// A no-op for a block with empty `selectedShareEvidence`: the canonical
 /// order is defined over the evidence's `(pk, n, j)` triples, which only
@@ -252,11 +314,51 @@ pub(crate) fn verify_canonical_selection(block: &PersistedBlock) -> anyhow::Resu
     let (winner_index, _tied_proposer_count) =
         select_qualifying_proposer(share_hashes, &block.t_block)?;
 
-    if winner_index.is_none() {
+    let Some(winner_index) = winner_index else {
         anyhow::bail!(
             "no selected share satisfies T_block; replay found no proposer among {} shares",
             block.selected_share_hashes.len()
         );
+    };
+
+    // SC.1 (ADR-0015 (b-1) extension, C-05) — the declared proposer must
+    // BE the winner replay just re-derived; without this equality the
+    // proposer-routing authorization below would be vacuous (any pk could
+    // claim proposerhood and route the proposer reward).
+    let winner_pk = &block.selected_share_pks[winner_index];
+    if block.proposer_pk != *winner_pk {
+        anyhow::bail!(
+            "block proposerPk {} does not equal the replay-derived qualifying winner {} \
+             (index {})",
+            block.proposer_pk,
+            winner_pk,
+            winner_index
+        );
+    }
+
+    // SC.1 (ADR-0015 (b)) — proposer routing rides the winner's own
+    // share-level authorization: when present, the committed (or
+    // identity-fallback) proposer reward destination must equal the
+    // recipient the winner signed.
+    if let Some(auth) = &block.selected_share_evidence[winner_index].signed_work {
+        let verified = verify_share_work_authorization(auth).map_err(|err| {
+            anyhow::anyhow!(
+                "winning share evidence signedWork invalid at index {winner_index}: {err}"
+            )
+        })?;
+        let committed_proposer_reward_pk = if block.proposer_reward_pk.is_empty() {
+            block.proposer_pk.as_str()
+        } else {
+            block.proposer_reward_pk.as_str()
+        };
+        if committed_proposer_reward_pk != verified.reward_recipient {
+            anyhow::bail!(
+                "proposer reward pk {} is not authorized by the winning share's signedWork: \
+                 signed rewardRecipient {}",
+                committed_proposer_reward_pk,
+                verified.reward_recipient
+            );
+        }
     }
 
     Ok(())

@@ -1456,3 +1456,29 @@ divergentCheckpointNotReused∧skip0∧convergedToRealHead 강제.
 **SC.10 wave 종결**: ii(a~d) + iii(a/b/c-1/c-2/d) + iv(0/a/b/c) 전부 착륙.
 verified-prefix checkpoint 기록·전진·부팅검증·assumevalid 스킵·reorg/rollback
 안전까지 완결. closed-local + CI only.
+
+---
+
+# SC.1 — proposer/share reward ownership binding (GAP-05, ADR-0015 (b)/(b-1))
+
+plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
+스키마 분은 리셋 창(PR #58) 착륙 완료 — 잔여는 전부 enforcement-only(rule v3 유지).
+방향 검증: 결정로그 4개 주장 전부 main 990a1fe 코드와 일치 확인.
+
+- [ ] SC.1-a replay 검증기 (verify-when-present + proposer==winner)
+      - [x] RED 4종 신설 (reward_authorization_replay.rs): identity chain /
+            share reward 미승인 / proposer reward 미승인 / proposer!=winner —
+            전부 기대대로 실패 확인 (replay가 무권한 라우팅 수용)
+      - [x] share_authorization.rs 신설 (봉투-내재 공유 검증기 +
+            SIGNER_WORK_V2_SCHEMA 상수) — audit와 공유, node/ingress가 SC.1-b에서 재사용
+      - [x] replay_evidence.rs 배선 (evidence 존재 시 invariant 강제 +
+            verify_canonical_selection에 proposer==winner + proposer reward 승인)
+      - [x] evidence_backed_block proposer=winner 교정 + v2.json 재생성
+            (proposerPk→1111, credits 병합 {1111:2}, regen 헬퍼가 credits/balances 재유도)
+      - [x] focused 게이트 GREEN (영향권 테스트 바이너리 18종 — 전체 crate 실행은
+            syspolicyd 스톨로 중단, lessons.md 기록. full은 CI가 강제)
+      - [x] fmt + clippy 2종 (CI-동일, -D warnings) 통과
+      - [ ] 커밋 → PR → CI green → merge
+- [ ] SC.1-b 봉투 보존 배선 (submit→candidate→evidence→gossip 왕복)
+- [ ] SC.1-c testnet2 fixture/스모크 세션 이행 (강제 없음, 전면 재생성)
+- [ ] SC.1-d named 강제 반전 (testnet-2 전용 술어, replay에 network_id 스레딩)

@@ -126,21 +126,15 @@ fn replay_credits_reward_override_fields_not_mining_identity_fields() {
 
     let replay = replay_blocks(&[block]).expect("reward override block replays");
     assert_eq!(replay.balances.get(reward_pk).copied(), Some(2));
-    assert_eq!(
-        replay
-            .balances
-            .get("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-            .copied(),
-        None,
-        "proposer identity must not receive reward when proposerRewardPk is set"
-    );
+    // SC.1 — proposer_pk == winner pk == the share mining identity, so a
+    // single absence assertion covers both identity fields.
     assert_eq!(
         replay
             .balances
             .get("1111111111111111111111111111111111111111111111111111111111111111")
             .copied(),
         None,
-        "share mining identity must not receive reward when selectedShareRewardPks is set"
+        "mining/proposer identity must not receive reward when reward overrides are set"
     );
 }
 
@@ -318,7 +312,9 @@ fn evidence_backed_block() -> PersistedBlock {
         height: 0,
         prev_c: prev_c.to_string(),
         c: String::new(),
-        proposer_pk: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        // SC.1 — the proposer IS the qualifying winner; replay now
+        // enforces the equality, so the test block declares it honestly.
+        proposer_pk: pk.to_string(),
         selected_share_hashes: vec![share_hash],
         selected_share_pks: vec![pk.to_string()],
         selected_share_reward_pks: vec![],
@@ -364,11 +360,14 @@ fn valid_pofp_v2_package_hex() -> String {
     hex::encode(bytes)
 }
 
-/// Deliberate-regen helper (NOT part of the suite): after a preimage
-/// change (reset window), recompute each fixture's block `c` chain, the
-/// reward events' `c`, and `expected.latestC`, then rewrite the files.
-/// Balances and credits are content-derived and unchanged by a preimage
-/// bump. Run: `cargo test -p boole-core --test replay_fixtures -- --ignored`
+/// Deliberate-regen helper (NOT part of the suite): after a preimage or
+/// consensus-field change, recompute each fixture's block `c` chain, the
+/// reward events (`c` AND credits — SC.1 changed v2's proposerPk, which
+/// moves the credit rows), `expected.balances`, and `expected.latestC`,
+/// then rewrite the files. Credits/balances are re-derived with the same
+/// `compute_block_reward_credits` replay uses, so the helper stays
+/// idempotent for fixtures whose routing did not change.
+/// Run: `cargo test -p boole-core --test replay_fixtures -- --ignored`
 #[test]
 #[ignore = "regen helper — rewrites the golden fixtures from the current preimage"]
 fn regen_replay_golden_fixtures() {
@@ -390,12 +389,33 @@ fn regen_replay_golden_fixtures() {
             prev_c = block.c.clone();
             new_cs.push(block.c.clone());
         }
+        let mut balances: BTreeMap<String, u128> = BTreeMap::new();
+        let mut credits_per_block = Vec::with_capacity(blocks.len());
+        for block in &blocks {
+            let credits = compute_block_reward_credits(block).expect("credits compute");
+            for credit in &credits {
+                let amount: u128 = credit.amount.parse().expect("credit amount parses");
+                *balances.entry(credit.pk.clone()).or_insert(0) += amount;
+            }
+            credits_per_block.push(credits);
+        }
         value["blocks"] = serde_json::to_value(&blocks).expect("blocks serialize");
         if let Some(events) = value["rewardEvents"].as_array_mut() {
-            for (event, c) in events.iter_mut().zip(new_cs.iter()) {
+            for (event, (c, credits)) in events
+                .iter_mut()
+                .zip(new_cs.iter().zip(credits_per_block.iter()))
+            {
                 event["c"] = serde_json::json!(c);
+                event["credits"] = serde_json::to_value(credits).expect("credits serialize");
             }
         }
+        value["expected"]["balances"] = serde_json::to_value(
+            balances
+                .into_iter()
+                .map(|(pk, amount)| (pk, amount.to_string()))
+                .collect::<BTreeMap<_, _>>(),
+        )
+        .expect("balances serialize");
         if let Some(latest) = new_cs.last() {
             value["expected"]["latestC"] = serde_json::json!(latest);
         }

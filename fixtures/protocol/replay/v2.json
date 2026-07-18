@@ -1,7 +1,7 @@
 {
   "blocks": [
     {
-      "c": "f337ff37cab8f89d7861075ec5ade4076216b8ec2db75bf67ffb573827d67921",
+      "c": "9a229079484363abba38a0116028c217dc953cfdfae70e86965eecb1b34307f0",
       "difficultyEpoch": 0,
       "difficultyWeight": "1",
       "droppedBelowMinScore": 0,
@@ -11,7 +11,7 @@
       "minShareScore": "1",
       "minShareScoreMultiplierNanos": 1000000000,
       "prevC": "0000000000000000000000000000000000000000000000000000000000000000",
-      "proposerPk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "proposerPk": "1111111111111111111111111111111111111111111111111111111111111111",
       "selectedShareEvidence": [
         {
           "c": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -36,25 +36,20 @@
   ],
   "expected": {
     "balances": {
-      "1111111111111111111111111111111111111111111111111111111111111111": "1",
-      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "1"
+      "1111111111111111111111111111111111111111111111111111111111111111": "2"
     },
     "height": 1,
-    "latestC": "f337ff37cab8f89d7861075ec5ade4076216b8ec2db75bf67ffb573827d67921"
+    "latestC": "9a229079484363abba38a0116028c217dc953cfdfae70e86965eecb1b34307f0"
   },
   "generatedBy": "boole-core consensus fixture generator",
   "genesisC": "0000000000000000000000000000000000000000000000000000000000000000",
   "rewardEvents": [
     {
-      "c": "f337ff37cab8f89d7861075ec5ade4076216b8ec2db75bf67ffb573827d67921",
+      "c": "9a229079484363abba38a0116028c217dc953cfdfae70e86965eecb1b34307f0",
       "credits": [
         {
-          "amount": "1",
+          "amount": "2",
           "pk": "1111111111111111111111111111111111111111111111111111111111111111"
-        },
-        {
-          "amount": "1",
-          "pk": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       ],
       "height": 0

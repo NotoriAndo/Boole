@@ -317,8 +317,18 @@ fn validate_signed_work_lineage(idx: usize, lineage: &SubmitReceiptLineage) -> a
     }
 
     let payload = &signed_work.payload;
-    require_payload_str(idx, payload, "schema", "boole.signer.work.v2")?;
-    require_payload_str(idx, payload, "route", "/submit")?;
+    require_payload_str(
+        idx,
+        payload,
+        "schema",
+        crate::share_authorization::SIGNER_WORK_V2_SCHEMA,
+    )?;
+    require_payload_str(
+        idx,
+        payload,
+        "route",
+        crate::share_authorization::SIGNER_WORK_ROUTE,
+    )?;
     // work.v2 (ADR-0015 (b)) — the signed payload must authorize exactly
     // the reward recipient the receipt credits.
     let signed_reward_recipient = payload_str(idx, payload, "rewardRecipient")?;

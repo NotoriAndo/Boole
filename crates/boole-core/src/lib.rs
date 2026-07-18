@@ -32,6 +32,7 @@ pub mod replay;
 pub(crate) mod replay_evidence;
 pub mod rules;
 pub mod session_policy;
+pub mod share_authorization;
 pub mod share_pool;
 pub mod signed_envelope;
 pub mod submission_pow;
@@ -115,6 +116,10 @@ pub use rules::{
     BASE_LANE_MAX_REC_DEPTH, CONSENSUS_RULE_VERSION, MIN_SHARE_SCORE_MULTIPLIER_NANOS,
 };
 pub use session_policy::{SessionPolicy, SessionState, SignerRequest};
+pub use share_authorization::{
+    verify_share_work_authorization, VerifiedShareAuthorization, SIGNER_WORK_ROUTE,
+    SIGNER_WORK_V2_SCHEMA,
+};
 pub use share_pool::{AcceptResult, PoolShare, SharePool, SharePoolRejectReason};
 pub use signed_envelope::{
     canonical_payload_hash_hex, signing_digest_hex, verify_signature,
