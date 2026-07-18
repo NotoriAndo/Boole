@@ -60,6 +60,7 @@ fn block_selection_orders_scores_above_u128_without_truncation() {
             canon_hash: "00".repeat(32),
             proof_package: String::new(),
             seed_hex: String::new(),
+            signed_work: None,
         },
         CandidateShare {
             label: "also-larger-than-u128-but-smaller".to_string(),
@@ -75,6 +76,7 @@ fn block_selection_orders_scores_above_u128_without_truncation() {
             canon_hash: "00".repeat(32),
             proof_package: String::new(),
             seed_hex: String::new(),
+            signed_work: None,
         },
     ];
     let accepted = [1].into_iter().collect();

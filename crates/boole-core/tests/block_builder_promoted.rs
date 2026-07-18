@@ -53,6 +53,7 @@ fn make_share(pk_byte: u8, score: u64) -> CandidateShare {
         canon_hash: String::new(),
         proof_package: String::new(),
         seed_hex: String::new(),
+        signed_work: None,
     }
 }
 

@@ -442,7 +442,7 @@ fn submit_replayed_nonce_returns_nonce_replayed() {
     let session_pk = key.pk_hex();
     register_session(boot.addr, &session_pk, PK_REWARD);
 
-    let body = scenario_body();
+    let body = session_body(&key);
     let session = signed_work_session(&key, &body, "n-replay", PK_REWARD);
 
     let (status_first, value_first) = http_post(
@@ -483,7 +483,7 @@ fn submit_nonce_dedup_survives_restart() {
     let key = SigningKeyV2::from_dev_id("n21-restart");
     let session_pk = key.pk_hex();
     register_session(first.addr, &session_pk, PK_REWARD);
-    let body = scenario_body();
+    let body = session_body(&key);
     let session = signed_work_session(&key, &body, "n-restart", PK_REWARD);
     let (status_first, value_first) = http_post(
         first.addr,
@@ -576,7 +576,7 @@ fn submit_rejects_request_hash_mismatch() {
     let key = SigningKeyV2::from_dev_id("n21-request-hash");
     let session_pk = key.pk_hex();
     register_session(boot.addr, &session_pk, PK_REWARD);
-    let body = scenario_body();
+    let body = session_body(&key);
     let payload = json!({
         "schema": "boole.signer.work.v2",
         "route": "/submit",
@@ -606,7 +606,7 @@ fn submit_rejects_request_hash_mismatch() {
     let (status, value) = http_post(
         boot.addr,
         "/submit",
-        &submit_envelope(scenario_body(), Some(session)),
+        &submit_envelope(session_body(&key), Some(session)),
     );
     assert_eq!(
         status, 400,
@@ -693,7 +693,7 @@ fn rejected_admission_does_not_burn_submit_nonce() {
     let session_pk = key.pk_hex();
     register_session(boot.addr, &session_pk, PK_REWARD);
 
-    let mut bad_body = scenario_body();
+    let mut bad_body = session_body(&key);
     bad_body["c"] = json!(ROOT_HEX);
     let bad_session = signed_work_session(&key, &bad_body, "n-retry-after-reject", PK_REWARD);
     let (bad_status, bad_value) = http_post(
@@ -710,7 +710,7 @@ fn rejected_admission_does_not_burn_submit_nonce() {
         "bad admission must be rejected by admission, not session gate: {bad_value}"
     );
 
-    let good_body = scenario_body();
+    let good_body = session_body(&key);
     let good_session = signed_work_session(&key, &good_body, "n-retry-after-reject", PK_REWARD);
     let (good_status, good_value) = http_post(
         boot.addr,
@@ -739,9 +739,10 @@ fn session_bound_submit_credits_fixed_reward_recipient_not_body_pk() {
     let session_pk = key.pk_hex();
     register_session(boot.addr, &session_pk, PK_OTHER);
 
-    let body = scenario_body();
+    // SC.1-b (ADR-0015 (b-1)): the body mines under the session identity;
+    // the cold-wallet property under test is reward != mining pk.
+    let body = session_body(&key);
     let request_hash = canonical_payload_hash_hex(&body);
-    assert_eq!(body["pk"], PK_OWNER, "fixture body should mine as PK_OWNER");
     let session = signed_work_session(&key, &body, "n-reward-recipient", PK_OTHER);
     let (submit_status, submit_value) =
         http_post(boot.addr, "/submit", &submit_envelope(body, Some(session)));
@@ -754,8 +755,9 @@ fn session_bound_submit_credits_fixed_reward_recipient_not_body_pk() {
         "session-bound submit must be accepted: {submit_value}"
     );
     assert_eq!(
-        submit_value["block"]["proposerPk"], PK_OWNER,
-        "block proposer identity remains the proof/mining pk"
+        submit_value["block"]["proposerPk"],
+        json!(session_pk),
+        "block proposer identity remains the proof/mining pk (= session identity)"
     );
     assert_eq!(
         submit_value["block"]["proposerRewardPk"], PK_OTHER,
@@ -775,7 +777,7 @@ fn session_bound_submit_credits_fixed_reward_recipient_not_body_pk() {
     assert_eq!(receipt["requestHash"], request_hash);
     assert_eq!(receipt["blockHeight"], submit_value["block"]["height"]);
     assert_eq!(receipt["blockC"], submit_value["block"]["c"]);
-    assert_eq!(receipt["proposerPk"], PK_OWNER);
+    assert_eq!(receipt["proposerPk"], json!(session_pk));
     assert_eq!(receipt["rewardRecipient"], PK_OTHER);
     assert_eq!(receipt["rewardAmount"], "2");
 
@@ -802,7 +804,7 @@ fn session_bound_submit_credits_fixed_reward_recipient_not_body_pk() {
     );
 
     let (body_pk_status, body_pk_balance) =
-        http_get(boot.addr, &format!("/account/{PK_OWNER}/balance"));
+        http_get(boot.addr, &format!("/account/{session_pk}/balance"));
     assert_eq!(
         body_pk_status, 200,
         "body pk balance route failed: {body_pk_balance}"
@@ -811,6 +813,90 @@ fn session_bound_submit_credits_fixed_reward_recipient_not_body_pk() {
         body_pk_balance["balance"], "0",
         "session-bound reward must not be credited to the raw submit body pk"
     );
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = fs::remove_dir_all(&paths.dir);
+}
+
+/// SC.1-b (ADR-0015 (b-1)) — the scenario body mined under the session
+/// identity: the identity chain requires `body.pk == session.submittedBy`.
+fn session_body(key: &SigningKeyV2) -> Value {
+    let mut body = scenario_body();
+    body["pk"] = json!(key.pk_hex());
+    body
+}
+
+// SC.1-b (ADR-0015 (b-1)) — one identity signs, submits, and appears in
+// evidence. A session must not submit work mined under a foreign pk:
+// the resulting block's evidence could never satisfy replay's
+// `evidence.pk == envelope signer` equality, so the gate rejects it
+// up front with a typed error instead of building a self-rejecting block.
+#[test]
+fn submit_rejects_session_work_pk_mismatch() {
+    let paths = BootPaths::new("work-pk-mismatch");
+    let boot = boot_with(&paths, 2);
+
+    let key = SigningKeyV2::from_dev_id("sc1b-work-pk-mismatch");
+    register_session(boot.addr, &key.pk_hex(), PK_REWARD);
+
+    let body = scenario_body();
+    assert_eq!(
+        body["pk"], PK_OWNER,
+        "fixture body must mine under a pk that differs from the session identity"
+    );
+    let session = signed_work_session(&key, &body, "n-work-pk-mismatch", PK_REWARD);
+    let (status, value) = http_post(boot.addr, "/submit", &submit_envelope(body, Some(session)));
+    assert_eq!(
+        status, 403,
+        "foreign-pk work must be rejected: status={status}, body={value}"
+    );
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["reason"], "work_pk_mismatch");
+
+    boot.handle.join().expect("server thread").expect("exits");
+    let _ = fs::remove_dir_all(&paths.dir);
+}
+
+// SC.1-b (ADR-0015 (b)) — the gate-verified authorization must survive
+// into the committed block's evidence so peer replay has material to
+// verify reward routing against. Asserted on the PERSISTED block (the
+// consensus artifact), not the HTTP response summary.
+#[test]
+fn session_submit_block_evidence_carries_signed_work() {
+    let paths = BootPaths::new("evidence-carries-auth");
+    // max_requests counts CONNECTIONS (register + submit = 2); an
+    // over-count hangs the final join (tasks/lessons.md 2026-05-10).
+    let boot = boot_with(&paths, 2);
+
+    let key = SigningKeyV2::from_dev_id("sc1b-evidence-auth");
+    let session_pk = key.pk_hex();
+    register_session(boot.addr, &session_pk, PK_REWARD);
+
+    let body = session_body(&key);
+    let session = signed_work_session(&key, &body, "n-evidence-auth", PK_REWARD);
+    let signed_work = session["signedWork"].clone();
+    let (status, value) = http_post(boot.addr, "/submit", &submit_envelope(body, Some(session)));
+    assert_eq!(status, 200, "submit must reach admission: {value}");
+    assert_eq!(
+        value["accepted"], true,
+        "session submit mining under the session identity must be accepted: {value}"
+    );
+
+    let blocks_raw =
+        fs::read_to_string(paths.dir.join("blocks.ndjson")).expect("block store exists");
+    let block: Value =
+        serde_json::from_str(blocks_raw.lines().next().expect("one block")).expect("block json");
+    let evidence = &block["selectedShareEvidence"][0];
+    assert_eq!(evidence["pk"], json!(session_pk));
+    let auth = &evidence["signedWork"];
+    assert_eq!(
+        auth["pk"], signed_work["pk"],
+        "persisted evidence must carry the submitter-signed work envelope: {block}"
+    );
+    assert_eq!(auth["signature"], signed_work["signature"]);
+    assert_eq!(auth["payload"], signed_work["payload"]);
+    assert_eq!(block["selectedShareRewardPks"][0], json!(PK_REWARD));
+    assert_eq!(block["proposerRewardPk"], json!(PK_REWARD));
 
     boot.handle.join().expect("server thread").expect("exits");
     let _ = fs::remove_dir_all(&paths.dir);

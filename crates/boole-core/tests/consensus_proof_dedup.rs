@@ -231,6 +231,7 @@ fn block_builder_excludes_already_credited_canon_hash() {
         canon_hash: evidence.canon_hash.clone(),
         proof_package: evidence.proof_package.clone(),
         seed_hex: String::new(),
+        signed_work: None,
     };
     let shares = vec![
         candidate(&credited_evidence, &credited_hash),

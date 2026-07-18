@@ -12,7 +12,7 @@ use boole_core::{
     AdmissionParsedDeps, BlockBuilderConfig, BuildSelectionResult, CalibrationPolicy,
     CalibrationReport, CandidateShare, DifficultyEvidence, DifficultyRetargetPolicy,
     FamilyManifestRegistry, LegacyEvidenceOptIn, PersistedBlock, PersistedRewardEvent, PoolShare,
-    RateLimiter, SelectedShareEvidence, SharePool,
+    RateLimiter, SelectedShareEvidence, SharePool, ShareWorkAuthorization,
 };
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -907,9 +907,10 @@ impl RuntimeAdmissionState {
                 canon_hash: share.canon_hash.clone(),
                 proof_package: share.proof_package.clone(),
                 seed_hex: share.seed_hex.clone(),
-                // Evidence v2 slot — SC.1 wires the submit-path signed
-                // work envelope through CandidateShare into here.
-                signed_work: None,
+                // Evidence v2 (ADR-0015 (b)) — the submit-path signed work
+                // envelope, preserved on the candidate at admission, becomes
+                // replay-verifiable evidence here (SC.1-b).
+                signed_work: share.signed_work.clone(),
             })
             .collect::<Vec<_>>();
         let proposer = selection
@@ -1086,16 +1087,22 @@ impl RuntimeAdmissionState {
         body: &Map<String, Value>,
         canon_tag: u8,
     ) -> AdmissionDecision {
-        self.admit_body_with_canon_tag_and_reward_pk(now, ip, body, canon_tag, None)
+        self.admit_body_with_submitter_context(now, ip, body, canon_tag, None, None)
     }
 
-    pub fn admit_body_with_canon_tag_and_reward_pk(
+    /// SC.1 (ADR-0015 (b)) — admission with the submitter's session
+    /// context: the session-bound reward sink and the signed work.v2
+    /// authorization, both preserved on the admitted `CandidateShare` so
+    /// block production can commit them into evidence. Anonymous
+    /// (dev-lane) callers pass `None, None`.
+    pub fn admit_body_with_submitter_context(
         &mut self,
         now: i64,
         ip: &str,
         body: &Map<String, Value>,
         canon_tag: u8,
         reward_pk: Option<&str>,
+        signed_work: Option<&ShareWorkAuthorization>,
     ) -> AdmissionDecision {
         let submission = match parse_submission_body(body) {
             Ok(submission) => submission,
@@ -1132,6 +1139,7 @@ impl RuntimeAdmissionState {
                 canon_hash,
                 proof_package,
                 seed_hex: submission.seed_hex,
+                signed_work: signed_work.cloned(),
             });
         }
         decision

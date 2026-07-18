@@ -3670,7 +3670,7 @@ fn signer_sign_work(
     // payload: the signature is the winner's authorization of the reward
     // destination, which replay verifies against the committed block.
     let work_request_payload = serde_json::json!({
-        "schema": "boole.signer.work.v2",
+        "schema": boole_core::SIGNER_WORK_V2_SCHEMA,
         "route": route,
         "familyId": family,
         "verifierId": verifier,

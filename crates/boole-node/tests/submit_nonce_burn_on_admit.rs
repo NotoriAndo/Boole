@@ -60,6 +60,14 @@ fn scenario_path() -> PathBuf {
 
 /// The runtime-smoke v1 fixture share — admission accepts it (with the Lean
 /// checker disabled) so it can stand in for a winning submit.
+/// SC.1-b (ADR-0015 (b-1)) — the scenario body mined under the session
+/// identity: the identity chain requires `body.pk == session.submittedBy`.
+fn session_body(key: &SigningKeyV2) -> Value {
+    let mut body = scenario_body();
+    body["pk"] = json!(key.pk_hex());
+    body
+}
+
 fn scenario_body() -> Value {
     let raw = fs::read_to_string(scenario_path()).expect("scenario file");
     let scenario: Value = serde_json::from_str(&raw).expect("scenario json");
@@ -278,7 +286,7 @@ fn accepted_submit_burns_nonce_once() {
     let boot = boot_with(&paths, 3);
 
     let key = register_session_returning(&boot);
-    let body = scenario_body();
+    let body = session_body(&key);
     let nonce = fresh_nonce();
     let session = signed_work_session(&key, &body, &nonce, PK_REWARD);
 
@@ -331,7 +339,7 @@ fn rejected_submit_keeps_nonce_reusable() {
     // A share whose `c` does not match the chain head: admission rejects it.
     // Sign the signedWork over this exact (tampered) body so the binding holds
     // and the reject lands in admission, not in the signature/session gate.
-    let mut bad_body = scenario_body();
+    let mut bad_body = session_body(&key);
     bad_body["c"] = json!("1111111111111111111111111111111111111111111111111111111111111111");
     let bad_session = signed_work_session(&key, &bad_body, &nonce, PK_REWARD);
 
@@ -353,7 +361,7 @@ fn rejected_submit_keeps_nonce_reusable() {
 
     // Same nonce, now a winning share. If the rejected attempt had burned the
     // nonce this would come back 409 nonce_replayed; instead it must admit.
-    let good_body = scenario_body();
+    let good_body = session_body(&key);
     let good_session = signed_work_session(&key, &good_body, &nonce, PK_REWARD);
     let (status_good, value_good) = http_post(
         boot.addr,

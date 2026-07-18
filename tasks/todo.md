@@ -1465,7 +1465,8 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
 스키마 분은 리셋 창(PR #58) 착륙 완료 — 잔여는 전부 enforcement-only(rule v3 유지).
 방향 검증: 결정로그 4개 주장 전부 main 990a1fe 코드와 일치 확인.
 
-- [ ] SC.1-a replay 검증기 (verify-when-present + proposer==winner)
+- [x] SC.1-a replay 검증기 (verify-when-present + proposer==winner) —
+      ✅ 착륙 2026-07-18, PR #82 cb6e92c, CI green(self-test·supply-chain·verdict-corpus)
       - [x] RED 4종 신설 (reward_authorization_replay.rs): identity chain /
             share reward 미승인 / proposer reward 미승인 / proposer!=winner —
             전부 기대대로 실패 확인 (replay가 무권한 라우팅 수용)
@@ -1478,7 +1479,17 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
       - [x] focused 게이트 GREEN (영향권 테스트 바이너리 18종 — 전체 crate 실행은
             syspolicyd 스톨로 중단, lessons.md 기록. full은 CI가 강제)
       - [x] fmt + clippy 2종 (CI-동일, -D warnings) 통과
-      - [ ] 커밋 → PR → CI green → merge
-- [ ] SC.1-b 봉투 보존 배선 (submit→candidate→evidence→gossip 왕복)
+      - [x] 커밋 d526573 → PR #82 → CI green → squash merge cb6e92c → remote 검증
+- [◐] SC.1-b 봉투 보존 배선 (submit→candidate→evidence→gossip 왕복)
+      - [x] RED 4종: 세션 2종(work_pk_mismatch 403 / evidence signedWork 운반)은 로컬 확인,
+            p2p 2종(roundtrip 보존 / 위조 봉투 ingress 거절)은 **CI 스크래치 브랜치로 RED 실증**
+            (sc1b-red-check run 29646264167 — admitted=1/rejected=0, evidence signedWork Null.
+            로컬 test-binary exec가 syspolicyd 스톨로 불능이라 SC.10-iii-c-2 선례대로 CI 이관.
+            ※ 로컬 exec는 재부팅으로 회복된 전례 있음)
+      - [x] 구현: 게이트 봉투 보존(CheckedSubmitSession.signed_work) + body.pk==submittedBy
+            typed 거절(work_pk_mismatch) + 서명 body 정규형 강제 + CandidateShare 슬롯 +
+            runtime evidence 채움 + egress signedWork 동봉 + ingress 봉투-내재 검증(공유 헬퍼)
+      - [x] typecheck + fmt + clippy 2종 clean (테스트 GREEN은 CI가 실증)
+      - [ ] 커밋 → PR → CI green → merge → 스크래치 브랜치 삭제
 - [ ] SC.1-c testnet2 fixture/스모크 세션 이행 (강제 없음, 전면 재생성)
 - [ ] SC.1-d named 강제 반전 (testnet-2 전용 술어, replay에 network_id 스레딩)

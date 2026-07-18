@@ -32,8 +32,9 @@ use boole_core::{
     AdmissionDecision, BountyProofVerifier, BountyRegistry, BountyShare, BountySidePool,
     BuildSelectionResult, CalibrationReport, CreateBountyInput, DifficultyRetargetPolicy,
     FamilyManifestRegistry, Hex32, Hex64, LegacyEvidenceOptIn, PersistedBlock, ReceiptCommitment,
-    ReceiptCommitmentInput, SelectedShareEvidence, SessionState, SubmitProofInput,
-    UpdateStatusInput, VerifyOutcome, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
+    ReceiptCommitmentInput, SelectedShareEvidence, SessionState, ShareWorkAuthorization,
+    SubmitProofInput, UpdateStatusInput, VerifyOutcome, WorkManifest, SIGNED_ENVELOPE_SCHEMA,
+    SIGNER_WORK_V2_SCHEMA,
 };
 use boole_p2p::HeadSummary;
 use serde::Deserialize;
@@ -2954,12 +2955,17 @@ struct CheckedSubmitSession {
     reward_recipient: String,
     request_hash: String,
     route: String,
+    /// SC.1-b (ADR-0015 (b)) — the gate-verified signed work envelope,
+    /// RETAINED (not discarded) so admission can preserve it on the
+    /// candidate and block production can commit it into evidence.
+    signed_work: ShareWorkAuthorization,
 }
 
 #[derive(Debug, Clone)]
 struct VerifiedSubmitWork {
     request_hash: String,
     route: String,
+    signed_work: ShareWorkAuthorization,
 }
 
 /// Parsed wallet-submit envelope after the state-free validation gate.
@@ -3095,6 +3101,7 @@ fn submit_session_gate(
         reward_recipient: reward_recipient.to_string(),
         request_hash: verified_work.request_hash,
         route: verified_work.route,
+        signed_work: verified_work.signed_work,
     }))
 }
 
@@ -3181,10 +3188,10 @@ fn verify_signed_submit_work(
         .get("schema")
         .and_then(Value::as_str)
         .ok_or_else(|| HttpError::missing_field("session.signedWork.payload.schema"))?;
-    if payload_schema != "boole.signer.work.v2" {
+    if payload_schema != SIGNER_WORK_V2_SCHEMA {
         return Err(HttpError::bad_payload(
             "session.signedWork.payload.schema",
-            "expected boole.signer.work.v2",
+            format!("expected {SIGNER_WORK_V2_SCHEMA}"),
         ));
     }
     // work.v2 (ADR-0015 (b)) — the SIGNED payload names the reward
@@ -3230,6 +3237,32 @@ fn verify_signed_submit_work(
             "signed workPayload must equal submitted body",
         ));
     }
+    // SC.1-b (ADR-0015 (b-1)) — one identity signs, submits, and appears
+    // in evidence: the signed body must mine under the session identity,
+    // or the resulting block's evidence could never satisfy replay's
+    // `evidence.pk == envelope signer` equality.
+    let work_pk = work_payload
+        .get("pk")
+        .and_then(Value::as_str)
+        .ok_or_else(|| HttpError::missing_field("session.signedWork.payload.workPayload.pk"))?;
+    if work_pk != submitted_by {
+        return Err(HttpError::work_pk_mismatch(submitted_by, work_pk));
+    }
+    // SC.1-b — the signed body must already be in canonical wire form:
+    // admission left-pads short `n`/`j`/`nonceS` before the body reaches
+    // evidence and gossip, so a short-form signed body would produce
+    // evidence fields that no longer match the signed workPayload and
+    // replay would reject the producer's own block.
+    if let Some(body_obj) = work_body.as_object() {
+        let mut normalized = body_obj.clone();
+        normalize_pow_fields(&mut normalized);
+        if &normalized != body_obj {
+            return Err(HttpError::bad_payload(
+                "session.signedWork.payload.workPayload",
+                "signed body fields n/j/nonceS must be canonical 64-char hex",
+            ));
+        }
+    }
     let request_hash = payload_obj
         .get("requestHash")
         .and_then(Value::as_str)
@@ -3261,6 +3294,13 @@ fn verify_signed_submit_work(
     Ok(VerifiedSubmitWork {
         request_hash: request_hash.to_string(),
         route: route.to_string(),
+        signed_work: ShareWorkAuthorization {
+            schema: schema.to_string(),
+            payload: payload.clone(),
+            pk: pk.to_string(),
+            signature: signature.to_string(),
+            network_id: signed_network_id.map(|s| s.to_string()),
+        },
     })
 }
 
@@ -4541,12 +4581,13 @@ fn submit_json(
         .runtime
         .observe_ticket_from_body(&body)
         .map_err(|err| anyhow::anyhow!(err))?;
-    let decision = state.runtime.admit_body_with_canon_tag_and_reward_pk(
+    let decision = state.runtime.admit_body_with_submitter_context(
         ts_i64,
         peer_ip,
         &body,
         canon_tag,
         checked_session.map(|session| session.reward_recipient.as_str()),
+        checked_session.map(|session| &session.signed_work),
     );
     let AdmissionDecision::Accepted { share_hash } = decision else {
         return Ok(json!({
@@ -4583,7 +4624,13 @@ fn submit_json(
     // announce it to the static peer set regardless of whether a block
     // gets built below (a NoProposer accept is still a pool entry worth
     // propagating). Fire-and-forget by design.
-    announce_admitted_share(state, &body, canon_tag, ts_raw);
+    announce_admitted_share(
+        state,
+        &body,
+        canon_tag,
+        ts_raw,
+        checked_session.map(|session| &session.signed_work),
+    );
     // P1.3a (L7) — burn (submittedBy, nonce) to disk BEFORE any block
     // disk write. A crash that lands the block but not the burn leaves
     // an irrecoverable replay window because recovery cannot tell that
@@ -4773,6 +4820,7 @@ fn announce_admitted_share(
     body: &serde_json::Map<String, Value>,
     canon_tag: u8,
     ts_raw: u64,
+    signed_work: Option<&ShareWorkAuthorization>,
 ) {
     let Some(sender) = state.p2p_egress.as_ref() else {
         return;
@@ -4780,11 +4828,22 @@ fn announce_admitted_share(
     // The same `/submit` envelope shape the local admission consumed
     // (ADR-0009 (b)) — the receiving peer re-parses it through the exact
     // local validation path, so no second wire schema exists.
-    let submission = json!({
+    //
+    // SC.1-b (ADR-0015 (b-1)) — a session-bound share's signed work.v2
+    // authorization rides the wire too: the receiving peer re-verifies it
+    // envelope-intrinsically (it cannot consult this node's session
+    // registry) and preserves it into its own candidate, so the reward
+    // authorization survives gossip end-to-end.
+    let mut submission = json!({
         "body": body,
         "canonTag": canon_tag,
         "ts": ts_raw,
     });
+    if let Some(auth) = signed_work {
+        if let Ok(value) = serde_json::to_value(auth) {
+            submission["signedWork"] = value;
+        }
+    }
     let _ = sender.send(EgressEvent::Share(ShareAnnouncement {
         submission,
         head: head_summary(state),
@@ -5449,15 +5508,46 @@ pub(crate) fn ingress_admit_share(
         .cloned()
         .unwrap_or_else(|| envelope.clone());
     normalize_pow_fields(&mut body);
+    // SC.1-b (ADR-0015 (b-1)) — a relayed authorization is re-verified
+    // envelope-intrinsically (signature incl. its own network binding,
+    // schema/route/requestHash, identity chain) with the SAME shared
+    // function replay enforcement uses. A session-registry lookup is
+    // deliberately absent: peers cannot see the submitter's registry, so
+    // consensus-level validation must not depend on it. An invalid
+    // envelope is a typed reject — a peer must never launder an
+    // authorization the submitter did not sign into its candidate set.
+    let mut reward_pk: Option<String> = None;
+    let mut signed_work: Option<ShareWorkAuthorization> = None;
+    if let Some(raw) = envelope.get("signedWork") {
+        let Ok(auth) = serde_json::from_value::<ShareWorkAuthorization>(raw.clone()) else {
+            return rejected("invalid_share_authorization");
+        };
+        let Ok(verified) = boole_core::verify_share_work_authorization(&auth) else {
+            return rejected("invalid_share_authorization");
+        };
+        let body_field = |field: &str| body.get(field).and_then(Value::as_str).unwrap_or("");
+        let identity_holds = verified.signer_pk == verified.work_pk
+            && verified.work_pk == body_field("pk")
+            && verified.work_n == body_field("n")
+            && verified.work_j == body_field("j")
+            && verified.work_c == body_field("c")
+            && verified.work_bytes_hex == body_field("bytes");
+        if !identity_holds {
+            return rejected("invalid_share_authorization");
+        }
+        reward_pk = Some(verified.reward_recipient);
+        signed_work = Some(auth);
+    }
     if state.runtime.observe_ticket_from_body(&body).is_err() {
         return rejected("ticket_observe_failed");
     }
-    let decision = state.runtime.admit_body_with_canon_tag_and_reward_pk(
+    let decision = state.runtime.admit_body_with_submitter_context(
         ts_raw as i64,
         peer_ip,
         &body,
         canon_tag,
-        None,
+        reward_pk.as_deref(),
+        signed_work.as_ref(),
     );
     let share_hash = match &decision {
         AdmissionDecision::Accepted { share_hash } => share_hash.to_hex(),
@@ -5567,6 +5657,13 @@ mod tests {
             reward_recipient: PK_B.to_string(),
             request_hash: HASH_1.to_string(),
             route: "/submit".to_string(),
+            signed_work: ShareWorkAuthorization {
+                schema: SIGNED_ENVELOPE_SCHEMA.to_string(),
+                payload: serde_json::json!({}),
+                pk: PK_A.to_string(),
+                signature: String::new(),
+                network_id: None,
+            },
         };
         let block = PersistedBlock {
             height: 0,
