@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use crate::block::ShareWorkAuthorization;
 use crate::{difficulty_weight, min_share_score, parse_biguint_hex, CalibrationPolicy};
 use num_bigint::BigUint;
 use num_traits::Zero;
@@ -83,6 +84,12 @@ pub struct CandidateShare {
     /// canonical Lean source; carried into `SelectedShareEvidence` at commit.
     #[serde(default)]
     pub seed_hex: String,
+    /// SC.1 (ADR-0015 (b)) — the submitter-signed work.v2 authorization
+    /// this share was admitted with; carried into
+    /// `SelectedShareEvidence.signed_work` at commit so replay can verify
+    /// reward routing. `None` = anonymous (dev-lane) share.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_work: Option<ShareWorkAuthorization>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

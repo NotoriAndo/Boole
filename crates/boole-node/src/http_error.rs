@@ -110,6 +110,19 @@ impl HttpError {
             .with_extra("actual", Value::String(actual.into()))
     }
 
+    /// `POST /submit` when the signed workPayload mines under a pk that
+    /// differs from `session.submittedBy`. SC.1-b (ADR-0015 (b-1)): one
+    /// identity signs, submits, and appears in evidence — a session
+    /// submitting work mined under a foreign pk would produce a block
+    /// whose evidence can never satisfy replay's
+    /// `evidence.pk == envelope signer` equality, so the gate rejects
+    /// it up front.
+    pub fn work_pk_mismatch(expected: impl Into<String>, actual: impl Into<String>) -> Self {
+        Self::new(403, "work_pk_mismatch")
+            .with_extra("expected", Value::String(expected.into()))
+            .with_extra("actual", Value::String(actual.into()))
+    }
+
     /// `POST /submit` when the `(submittedBy, nonce)` pair has already
     /// been admitted. Dedup state is persistent (NDJSON ledger) so
     /// restart-replay still rejects.

@@ -8,8 +8,12 @@
 //! `Hello` carrying a mismatched `network_id` is a typed disconnect before
 //! any frame is processed (ADR-0009 (d)/(e)).
 //!
-//! Block propagation is explicitly out of scope (N3.3): B's height must stay
-//! at genesis even after the gossiped share lands in its pool.
+//! Since N3.3 landed, A's committed block may legitimately propagate to B
+//! on a parallel connection, so share-crossing is asserted via the
+//! monotonic admitted counter, never a pool-size or height snapshot.
+//!
+//! SC.1-b adds the reward-authorization roundtrip: the signed work.v2
+//! envelope must survive egress → wire → ingress → candidate → evidence.
 
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
@@ -93,6 +97,18 @@ fn boot_with_p2p(
     peers: Vec<SocketAddr>,
     allow_anonymous_submit: bool,
 ) -> Boot {
+    boot_with_p2p_sessions(tag, p2p_listener, peers, allow_anonymous_submit, false)
+}
+
+/// SC.1-b — same boot, optionally with the session registry + submit-nonce
+/// ledger wired in so the node accepts session-bound (signed-work) submits.
+fn boot_with_p2p_sessions(
+    tag: &str,
+    p2p_listener: Option<TcpListener>,
+    peers: Vec<SocketAddr>,
+    allow_anonymous_submit: bool,
+    with_sessions: bool,
+) -> Boot {
     let dir = std::env::temp_dir().join(format!(
         "boole-n32-gossip-{tag}-{}-{}",
         std::process::id(),
@@ -106,6 +122,8 @@ fn boot_with_p2p(
     let block_path = dir.join("blocks.ndjson");
     let rewards = dir.join("rewards.ndjson");
     let dedup = dir.join("proof-dedup.ndjson");
+    let sessions = with_sessions.then(|| dir.join("sessions.ndjson"));
+    let nonces = with_sessions.then(|| dir.join("submit-nonces.ndjson"));
     let scenario = scenario_path();
     let shutdown = Arc::new(Notify::new());
     let shutdown_for_node = shutdown.clone();
@@ -123,8 +141,8 @@ fn boot_with_p2p(
                 bounty_verifiers: None,
                 family_manifests_dir: None,
                 operator_signer_pks: vec![],
-                session_registry_path: None,
-                submit_nonce_ledger_path: None,
+                session_registry_path: sessions,
+                submit_nonce_ledger_path: nonces,
                 signed_nonce_ledger_path: None,
                 submit_receipt_ledger_path: None,
                 receipt_commitment_ledger_path: None,
@@ -210,12 +228,6 @@ fn share_pool_size(addr: SocketAddr) -> u64 {
         .expect("sharePoolSize")
 }
 
-fn height(addr: SocketAddr) -> u64 {
-    http_get_json(addr, "/status")["height"]
-        .as_u64()
-        .expect("height")
-}
-
 /// Scrape one counter value from `/metrics` (Prometheus text format).
 fn metric_value(addr: SocketAddr, name: &str) -> u64 {
     let raw = "GET /metrics HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
@@ -265,28 +277,355 @@ fn share_submitted_to_a_appears_in_b_candidate_pool() {
     assert_eq!(status, 200, "submit to A: {v0}");
     assert_eq!(v0["accepted"], json!(true), "A must admit the share: {v0}");
 
-    // The share must cross to B via ShareAnnounce and re-enter B's pool
-    // through the same admission path.
+    // The share must cross to B via ShareAnnounce and re-enter B's
+    // admission path. Wait on the ADMITTED counter, not a pool-size
+    // snapshot: A's egress sends the ShareAnnounce and the BlockAnnounce
+    // for its own committed block on separate connections that B handles
+    // concurrently, so B may legitimately adopt A's block (N3.3
+    // announce/pull) and prune the pool entry before a poll observes it.
+    // The counter is monotonic and therefore race-free. (The former
+    // `height == 0` scope pin dated from pre-N3.3, when block propagation
+    // did not exist; it only held by that same timing accident.)
     wait_until(
-        "share to appear in B's candidate pool",
+        "B to count the gossip-admitted share",
         Duration::from_secs(10),
-        || share_pool_size(b.addr) == 1,
-    );
-
-    // Scope pin: share gossip only. Block propagation is N3.3, so B's chain
-    // must still be at genesis height even though A committed a block.
-    assert_eq!(
-        height(b.addr),
-        0,
-        "B must not gain a block from N3.2 gossip"
-    );
-    assert_eq!(
-        metric_value(b.addr, "boole_p2p_ingress_shares_admitted_total"),
-        1,
-        "B must count exactly one gossip-admitted share"
+        || metric_value(b.addr, "boole_p2p_ingress_shares_admitted_total") == 1,
     );
 
     stop(a);
+    stop(b);
+}
+
+// ------------------------------------------------------------------
+// SC.1-b (ADR-0015 (b-1)) — reward authorization must survive gossip.
+// Minimal session/signing helpers mirroring submit_session_policy.rs
+// (the canonical gate contract lives there; these only produce a valid
+// session-bound submit for the roundtrip).
+// ------------------------------------------------------------------
+
+const AUTH_AGENT_PK: &str = "3434343434343434343434343434343434343434343434343434343434343434";
+const AUTH_RECIPIENT: &str = "5656565656565656565656565656565656565656565656565656565656565656";
+const AUTH_ROOT: &str = "7878787878787878787878787878787878787878787878787878787878787878";
+
+fn register_session(addr: SocketAddr, session_pk: &str, fixed_reward_recipient: &str) {
+    let owner = boole_core::SigningKeyV2::from_dev_id("n32-roundtrip-owner");
+    let payload = json!({
+        "schema": "boole.sessions.register.v1",
+        "session": {
+            "sessionPk": session_pk,
+            "ownerPk": owner.pk_hex(),
+            "agentPk": AUTH_AGENT_PK,
+            "fixedRewardRecipient": fixed_reward_recipient,
+            "allowedFamilyRoot": AUTH_ROOT,
+            "maxFeePerRequest": "12",
+            "activationHeight": 0,
+            "expiryHeight": 100,
+            "revoked": false,
+            "policyHash": AUTH_ROOT,
+        },
+        "currentHeight": 0,
+        "validBefore": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() + 60)
+            .unwrap_or(u64::MAX / 2),
+        "nonce": format!("reg-{}", rand_suffix()),
+    });
+    let signed = owner.sign(&payload).expect("sign register payload");
+    let envelope = json!({
+        "schema": signed.schema,
+        "payload": signed.payload,
+        "pk": signed.pk,
+        "signature": signed.signature,
+    });
+    let (status, value) = http_post(addr, "/sessions", &envelope);
+    assert_eq!(status, 200, "register failed: status={status}, {value}");
+}
+
+fn signed_work_session(
+    key: &boole_core::SigningKeyV2,
+    body: &Value,
+    nonce: &str,
+    reward_recipient: &str,
+) -> Value {
+    let payload = json!({
+        "schema": "boole.signer.work.v2",
+        "route": "/submit",
+        "familyId": "boole.protocol-invariant.v01",
+        "verifierId": "lean-runner-v01",
+        "fee": "0",
+        "requestHash": boole_core::canonical_payload_hash_hex(body),
+        "nonce": nonce,
+        "rewardRecipient": reward_recipient,
+        "workPayload": body,
+    });
+    let signed = key.sign(&payload).expect("sign work payload");
+    json!({
+        "submittedBy": key.pk_hex(),
+        "rewardRecipient": reward_recipient,
+        "nonce": nonce,
+        "signedWork": {
+            "schema": signed.schema,
+            "payload": signed.payload,
+            "pk": signed.pk,
+            "signature": signed.signature,
+        }
+    })
+}
+
+/// SC.1-b — the submitter-signed reward authorization admitted by A must
+/// ride `ShareAnnounce` (asserted on the captured wire frame), survive B's
+/// re-admission into its candidate pool, and land in the evidence of a
+/// block B builds — so a PEER-built block carries the material replay
+/// needs to verify reward routing (ADR-0015 (b-1): the authorization
+/// survives gossip end-to-end).
+#[test]
+#[ignore = "needs-multiprocess"]
+fn p2p_share_roundtrip_preserves_reward_authorization() {
+    let steps = multiminer_steps();
+
+    // The test IS the wire between A and B. On this scenario every accepted
+    // submit builds a block instantly, so with a direct A→B link B races
+    // between (admit relayed share) and (adopt A's announced block, which
+    // prunes the pool) — structurally flaky. Instead the test receives A's
+    // egress frames on a relay listener (A's BlockAnnounce goes nowhere)
+    // and forwards the captured ShareAnnounce to B, which never sees A's
+    // block and deterministically builds its own over the relayed share.
+    let relay = TcpListener::bind("127.0.0.1:0").expect("bind relay");
+    let relay_addr = relay.local_addr().expect("relay addr");
+    let b_p2p = TcpListener::bind("127.0.0.1:0").expect("bind b p2p");
+    let b_p2p_addr = b_p2p.local_addr().expect("b p2p addr");
+
+    // A accepts only session-bound submits; B allows one anonymous submit
+    // to trigger its own block build over the relayed candidate. B's
+    // allowlist covers loopback so the test can connect as its peer.
+    let a = boot_with_p2p_sessions("a-auth", None, vec![relay_addr], false, true);
+    let b = boot_with_p2p(
+        "b-auth",
+        Some(b_p2p),
+        vec!["127.0.0.1:1".parse().expect("allowlist addr")],
+        true,
+    );
+
+    let key = boole_core::SigningKeyV2::from_dev_id("n32-roundtrip-auth");
+    let session_pk = key.pk_hex();
+    register_session(a.addr, &session_pk, AUTH_RECIPIENT);
+
+    // The share mines under the session identity (body.pk == submittedBy,
+    // ADR-0015 (b-1) identity chain) and routes its reward to a cold wallet.
+    let mut body = steps[0]["body"].clone();
+    body["pk"] = json!(session_pk);
+    let session = signed_work_session(&key, &body, "n-roundtrip-auth", AUTH_RECIPIENT);
+    let signed_work = session["signedWork"].clone();
+    let envelope = json!({
+        "body": body,
+        "session": session,
+        "canonTag": steps[0]["canonTag"],
+        "ts": steps[0]["ts"],
+    });
+    let (status, v0) = http_post(a.addr, "/submit", &envelope);
+    assert_eq!(status, 200, "submit to A: {v0}");
+    assert_eq!(v0["accepted"], json!(true), "A must admit the share: {v0}");
+
+    // Egress half: capture A's ShareAnnounce off the wire. Each egress
+    // event dials a fresh connection (Hello exchange first — the dialer
+    // validates the reply, so mimic B's identity exactly).
+    let transport = TcpTransport::new();
+    let our_hello = || Frame::Hello {
+        protocol_version: PROTOCOL_VERSION,
+        consensus_rule_version: CONSENSUS_RULE_VERSION,
+        network_id: "boole-mvp".to_string(),
+        genesis_hash: scenario_spec_hash(),
+        head: HeadSummary {
+            height: 0,
+            c: scenario_genesis_c(),
+        },
+    };
+    let captured = {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut captured = None;
+        while captured.is_none() {
+            assert!(
+                Instant::now() < deadline,
+                "timed out capturing A's ShareAnnounce on the relay listener"
+            );
+            let (stream, _) = relay.accept().expect("accept A's egress dial");
+            let mut conn = TcpTransport::conn_from_stream(stream).expect("relay conn");
+            match transport.recv_frame(&mut conn) {
+                Ok(Frame::Hello { .. }) => {}
+                other => panic!("A's egress must open with a Hello, got {other:?}"),
+            }
+            transport
+                .send_frame(&mut conn, &our_hello())
+                .expect("reply hello to A");
+            // One event per connection: keep a ShareAnnounce, drop anything
+            // else (e.g. the BlockAnnounce for A's own block).
+            if let Ok(Frame::ShareAnnounce { submission }) = transport.recv_frame(&mut conn) {
+                captured = Some(submission);
+            }
+        }
+        captured.expect("captured submission")
+    };
+    let auth_on_wire = captured
+        .get("signedWork")
+        .cloned()
+        .expect("A's egress must attach the signed authorization to the wire submission");
+    assert_eq!(auth_on_wire["pk"], signed_work["pk"]);
+    assert_eq!(auth_on_wire["signature"], signed_work["signature"]);
+    assert_eq!(auth_on_wire["payload"], signed_work["payload"]);
+
+    // Ingress half: forward the captured frame to B as an allowlisted peer.
+    let mut conn = transport.connect(&b_p2p_addr).expect("connect to B");
+    transport
+        .send_frame(&mut conn, &our_hello())
+        .expect("hello to B");
+    match transport.recv_frame(&mut conn) {
+        Ok(Frame::Hello { .. }) => {}
+        other => panic!("B must reply with its own Hello, got {other:?}"),
+    }
+    transport
+        .send_frame(
+            &mut conn,
+            &Frame::ShareAnnounce {
+                submission: captured,
+            },
+        )
+        .expect("forward captured share to B");
+
+    wait_until(
+        "relayed authorized share to enter B's pool",
+        Duration::from_secs(10),
+        || share_pool_size(b.addr) >= 1,
+    );
+
+    // Trigger a block build on B: its selection draws on the pool holding
+    // the relayed (authorized) share plus this anonymous one (K_max = 4).
+    let (status, v1) = http_post(b.addr, "/submit", &submit_envelope(&steps[1]));
+    assert_eq!(status, 200, "submit to B: {v1}");
+    assert_eq!(v1["accepted"], json!(true), "B must admit and build: {v1}");
+
+    // The consensus artifact is the PERSISTED block: the relayed share's
+    // evidence must carry the original signed envelope, and the committed
+    // reward routing must be the signed recipient.
+    let blocks_raw = fs::read_to_string(b.dir.join("blocks.ndjson")).expect("B block store exists");
+    let block: Value = serde_json::from_str(blocks_raw.lines().next().expect("B built one block"))
+        .expect("B block json");
+    let evidence = block["selectedShareEvidence"]
+        .as_array()
+        .expect("evidence array");
+    let idx = evidence
+        .iter()
+        .position(|entry| entry["pk"] == json!(session_pk))
+        .expect("relayed authorized share must be selected into B's block");
+    let auth = &evidence[idx]["signedWork"];
+    assert_eq!(
+        auth["pk"], signed_work["pk"],
+        "gossip must preserve the reward authorization into peer evidence: {block}"
+    );
+    assert_eq!(auth["signature"], signed_work["signature"]);
+    assert_eq!(auth["payload"], signed_work["payload"]);
+    assert_eq!(
+        block["selectedShareRewardPks"][idx],
+        json!(AUTH_RECIPIENT),
+        "B must commit the signed reward recipient for the relayed share: {block}"
+    );
+
+    stop(a);
+    stop(b);
+}
+
+/// SC.1-b RED — a relayed share carrying an INVALID authorization is a
+/// typed ingress reject, never a silent pool entry: a peer must not
+/// launder an envelope the submitter never signed into its candidate set.
+#[test]
+#[ignore = "needs-multiprocess"]
+fn ingress_rejects_share_with_invalid_authorization() {
+    let steps = multiminer_steps();
+
+    let b_p2p = TcpListener::bind("127.0.0.1:0").expect("bind b p2p");
+    let b_p2p_addr = b_p2p.local_addr().expect("b p2p addr");
+
+    // Loopback is allowlisted; the Hello below matches B's identity, so
+    // the only rejection surface left is the share authorization check.
+    let b = boot_with_p2p(
+        "b-invalid-auth",
+        Some(b_p2p),
+        vec!["127.0.0.1:1".parse().expect("allowlist addr")],
+        false,
+    );
+
+    let transport = TcpTransport::new();
+    let mut conn = transport.connect(&b_p2p_addr).expect("connect to B");
+    transport
+        .send_frame(
+            &mut conn,
+            &Frame::Hello {
+                protocol_version: PROTOCOL_VERSION,
+                consensus_rule_version: CONSENSUS_RULE_VERSION,
+                network_id: "boole-mvp".to_string(),
+                genesis_hash: scenario_spec_hash(),
+                head: HeadSummary {
+                    height: 0,
+                    c: scenario_genesis_c(),
+                },
+            },
+        )
+        .expect("send matching hello");
+    match transport.recv_frame(&mut conn) {
+        Ok(Frame::Hello { .. }) => {}
+        other => panic!("B must reply with its own Hello, got {other:?}"),
+    }
+
+    // Well-formed hex shapes but a signature no key ever produced: the
+    // envelope-intrinsic verification must fail, and the share must not
+    // enter the pool.
+    let submission = json!({
+        "body": steps[2]["body"].clone(),
+        "canonTag": steps[2]["canonTag"].clone(),
+        "ts": steps[2]["ts"].clone(),
+        "signedWork": {
+            "schema": "boole.signed.v1",
+            "payload": {
+                "schema": "boole.signer.work.v2",
+                "route": "/submit",
+                "fee": "0",
+                "requestHash": "11".repeat(32),
+                "nonce": "n-forged",
+                "rewardRecipient": "22".repeat(32),
+                "workPayload": steps[2]["body"].clone(),
+            },
+            "pk": steps[2]["body"]["pk"].clone(),
+            "signature": "33".repeat(64),
+        },
+    });
+    transport
+        .send_frame(&mut conn, &Frame::ShareAnnounce { submission })
+        .expect("send share with forged authorization");
+
+    {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if metric_value(b.addr, "boole_p2p_ingress_shares_rejected_total") >= 1 {
+                break;
+            }
+            if Instant::now() >= deadline {
+                panic!(
+                    "timed out waiting for B to count the rejected share; \
+                     admitted={} rejected={} malformed={} pool={}",
+                    metric_value(b.addr, "boole_p2p_ingress_shares_admitted_total"),
+                    metric_value(b.addr, "boole_p2p_ingress_shares_rejected_total"),
+                    metric_value(b.addr, "boole_p2p_ingress_malformed_frame_drops_total"),
+                    share_pool_size(b.addr),
+                );
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+    assert_eq!(
+        share_pool_size(b.addr),
+        0,
+        "a share with a forged authorization must never reach B's pool"
+    );
+
     stop(b);
 }
 
