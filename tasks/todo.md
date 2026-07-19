@@ -1615,5 +1615,17 @@ timeout≠hardness, 실패 결과 그대로 보존.
       창발 답+공개 seed 선택에 내재. "ZK 전체 실패" 아님 — 처분 = Rust/Aeneas
       별도 Phase 0(하네스 재사용) + ZK는 Bounty lane·장기 recursive-chain-proof
       이동, v1-lenbound 임시 안전망 유지, ADR-0017 미확정 유지).
-- [ ] DC.6 커밋 게이트: feature branch → PR → CI self-test·supply-chain green →
-      머지 → remote 검증 → 한국어 최종 보고 (public/API benchmark claim 아님 명시).
+- [x] DC.6 커밋 게이트 완료: PR #87 squash 머지 `2a9c912` (CI self-test·
+      supply-chain·corpus 4-env·verdict-corpus 전부 green), remote 검증
+      (local==origin/main), 한국어 최종 보고 (public/API benchmark claim 아님
+      명시).
+- [ ] **후속 (운영자 결정 대기)**: dual-cert NO-GO 후 base-lane 방향 논의
+      진행 중 (2026-07-19 텔레그램·리뷰 교환) — PoVFN(Proof-of-Verifiable-
+      Full-Node, 보관+검증+재귀 ZK 증명) 목표 아키텍처안 + 레인 배치안
+      (Base=PoVFN / Bounty=실물 최적화 / Corpus 제품=산출물 정제 / 연구=
+      초최적화 family). transform.v0은 Base 부적격 판정(리뷰 정정 2건 수용:
+      succinct 랩핑 가능성·개정 R4 반영, 결론 불변). 탐색·평가·비교 문서 =
+      local-docs/zk-base-lane-requirements-exploration·zk-povfn-comparison·
+      zk-circuit-transform-assessment (전부 2026-07-19). 결정 시 PoVFN
+      Phase 0 (1순위 kill-question = Rust Lean-커널 체커 zkVM 사이클 실측)
+      착수 — 그 전 production/합의/ADR 확정 금지 유지.
