@@ -1619,13 +1619,21 @@ timeout≠hardness, 실패 결과 그대로 보존.
       supply-chain·corpus 4-env·verdict-corpus 전부 green), remote 검증
       (local==origin/main), 한국어 최종 보고 (public/API benchmark claim 아님
       명시).
-- [ ] **후속 (운영자 결정 대기)**: dual-cert NO-GO 후 base-lane 방향 논의
-      진행 중 (2026-07-19 텔레그램·리뷰 교환) — PoVFN(Proof-of-Verifiable-
-      Full-Node, 보관+검증+재귀 ZK 증명) 목표 아키텍처안 + 레인 배치안
-      (Base=PoVFN / Bounty=실물 최적화 / Corpus 제품=산출물 정제 / 연구=
-      초최적화 family). transform.v0은 Base 부적격 판정(리뷰 정정 2건 수용:
-      succinct 랩핑 가능성·개정 R4 반영, 결론 불변). 탐색·평가·비교 문서 =
-      local-docs/zk-base-lane-requirements-exploration·zk-povfn-comparison·
-      zk-circuit-transform-assessment (전부 2026-07-19). 결정 시 PoVFN
-      Phase 0 (1순위 kill-question = Rust Lean-커널 체커 zkVM 사이클 실측)
-      착수 — 그 전 production/합의/ADR 확정 금지 유지.
+- [x] base-lane 방향 논의 종결·배치 합의 (2026-07-19, 텔레그램·터미널 3라운드):
+      transform.v0은 Base 부적격 확정(리뷰 정정 2건 수용: succinct 랩핑
+      가능성·개정 R4 반영, 결론 불변) → Bounty 상품으로 재배치. **운영자
+      명확화 3건 합의·정의 고정**: ① "외부 가치" = Base 결과를 사용하는 독립
+      소비자 존재 + 소비자의 계산/신뢰 비용 실감소 (Boole 이용 지갑·브리지
+      포함; 판정은 산출물로 — boole-light/브리지 verifier/안전한 pruning 중
+      1개가 실제 proof 소비) ② 오프체인 대체 테스트 → 보증 프리미엄 테스트로
+      정정(중앙/서명만/L1 보증 3층 비교, corpus 제품 KPI — 합의 규칙 아님)
+      ③ PoVFN = 목표 아키텍처 **후보**·채택 미결정, 게이트 = PoVFN Phase 0,
+      v1-lenbound 제거는 GO 후에만. **최종 배치**: Base 후보=PoVFN / Bounty=
+      실물 회로·Rust·EVM 최적화 / Corpus 제품=산출물 정제(오프체인) / 연구
+      후보=초최적화 family / Hash=초기 sybil·박자·재편성 방어. AI 성능 판정은
+      온체인 금지, 오프체인 승격 게이트 전용. 문서 = local-docs 탐색·비교·평가
+      3건 + EXECUTION-ORDER 결정 로그 (2026-07-19).
+- [ ] **PoVFN Phase 0 착수 대기 (운영자 지시 필요)**: 1순위 kill-question =
+      Rust Lean-커널 체커의 zkVM 사이클 실측 (P0-i), 이어 pk-고유 인코딩 보관
+      증명 비용(P0-ii)·분배 시뮬레이션(P0-iii)·결박 bytes-level(P0-iv).
+      착수 전 production/합의/ADR 확정 금지 유지.
