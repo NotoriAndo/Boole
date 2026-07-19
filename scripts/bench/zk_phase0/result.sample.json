@@ -1,0 +1,158 @@
+{
+  "field": "2^31-1",
+  "primary_attacker": "propagation (solver-free, O(n))",
+  "bands": [
+    {
+      "band": "w3_d2_k1",
+      "width": 3,
+      "depth": 2,
+      "mutations": 1,
+      "num_vars": 12,
+      "num_constraints": 8,
+      "prop_attack_median_ms": 0.0098,
+      "prop_attack_max_ms": 0.0174,
+      "prop_attack_p95_ms": 0.0134,
+      "verify_median_ms": 0.0049,
+      "asymmetry_ratio_attack_over_verify": 2.0,
+      "underconstraint_cert_rate": 0.483,
+      "z3_crosscheck": {
+        "agree": 20,
+        "disagree": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "band": "w5_d5_k1",
+      "width": 5,
+      "depth": 5,
+      "mutations": 1,
+      "num_vars": 33,
+      "num_constraints": 29,
+      "prop_attack_median_ms": 0.0336,
+      "prop_attack_max_ms": 0.0454,
+      "prop_attack_p95_ms": 0.0431,
+      "verify_median_ms": 0.0188,
+      "asymmetry_ratio_attack_over_verify": 1.785,
+      "underconstraint_cert_rate": 0.5,
+      "z3_crosscheck": {
+        "agree": 20,
+        "disagree": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "band": "w8_d10_k3",
+      "width": 8,
+      "depth": 10,
+      "mutations": 3,
+      "num_vars": 102,
+      "num_constraints": 96,
+      "prop_attack_median_ms": 0.1099,
+      "prop_attack_max_ms": 0.1256,
+      "prop_attack_p95_ms": 0.1217,
+      "verify_median_ms": 0.0637,
+      "asymmetry_ratio_attack_over_verify": 1.725,
+      "underconstraint_cert_rate": 0.7,
+      "z3_crosscheck": {
+        "agree": 0,
+        "disagree": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "band": "w12_d16_k4",
+      "width": 12,
+      "depth": 16,
+      "mutations": 4,
+      "num_vars": 256,
+      "num_constraints": 249,
+      "prop_attack_median_ms": 0.2618,
+      "prop_attack_max_ms": 0.2989,
+      "prop_attack_p95_ms": 0.2885,
+      "verify_median_ms": 0.1536,
+      "asymmetry_ratio_attack_over_verify": 1.704,
+      "underconstraint_cert_rate": 0.633,
+      "z3_crosscheck": {
+        "agree": 0,
+        "disagree": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "band": "w16_d24_k6",
+      "width": 16,
+      "depth": 24,
+      "mutations": 6,
+      "num_vars": 508,
+      "num_constraints": 499,
+      "prop_attack_median_ms": 0.5232,
+      "prop_attack_max_ms": 0.5636,
+      "prop_attack_p95_ms": 0.5531,
+      "verify_median_ms": 0.3054,
+      "asymmetry_ratio_attack_over_verify": 1.713,
+      "underconstraint_cert_rate": 0.783,
+      "z3_crosscheck": {
+        "agree": 0,
+        "disagree": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "band": "w20_d32_k8",
+      "width": 20,
+      "depth": 32,
+      "mutations": 8,
+      "num_vars": 856,
+      "num_constraints": 845,
+      "prop_attack_median_ms": 0.8806,
+      "prop_attack_max_ms": 0.9372,
+      "prop_attack_p95_ms": 0.9264,
+      "verify_median_ms": 0.5189,
+      "asymmetry_ratio_attack_over_verify": 1.697,
+      "underconstraint_cert_rate": 0.833,
+      "z3_crosscheck": {
+        "agree": 0,
+        "disagree": 0,
+        "unknown": 0
+      }
+    }
+  ],
+  "gates": {
+    "S1_shortcut_resistance": {
+      "max_attack_ms_across_all_bands": 0.9372,
+      "all_bands_under_1s": true,
+      "verdict": "FAIL(no-go)",
+      "note": "propagation attack is <1s in every band -> obfuscated PoW"
+    },
+    "S2_verification_asymmetry": {
+      "attack_over_verify_ratio_range": [
+        1.697,
+        2.0
+      ],
+      "target": ">=100x",
+      "verdict": "FAIL",
+      "note": "attacker and verifier are both O(n); no asymmetry"
+    },
+    "S3_difficulty_axis_monotonicity": {
+      "attack_ms_monotone_in_size": true,
+      "verdict": "MONOTONE_BUT_TRIVIAL",
+      "note": "cost grows O(n) but never exceeds ~1ms; monotone axis does not create hardness"
+    },
+    "S5_cherry_picking": {
+      "densest_band": "w20_d32_k8",
+      "order_statistics": {
+        "min_solve_ms_bestof_1": 0.93721,
+        "p_cert_in_1_draws": 0.833,
+        "min_solve_ms_bestof_10": 0.84887,
+        "p_cert_in_10_draws": 1.0,
+        "min_solve_ms_bestof_100": 0.81675,
+        "p_cert_in_100_draws": 1.0,
+        "min_solve_ms_bestof_1000": 0.81675,
+        "p_cert_in_1000_draws": 1.0
+      },
+      "verdict": "MOOT",
+      "note": "base difficulty ~0, so best-of-N has nothing to erode; ticket-cost economics moot"
+    }
+  },
+  "overall": "NO-GO (feed-forward underconstraint family; see report)"
+}

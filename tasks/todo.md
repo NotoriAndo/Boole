@@ -1543,4 +1543,15 @@ docs-only 기록 — 플랜 본문은 local-docs (gitignored), 이 엔트리는 
       운영 공백에 "운영 경계" 명시(testnet-3 스모크 전용·외부 운영 금지,
       ZK.4 최우선) ④ lessons 3번 규칙 강화(계산 코드 확인 전 커버리지
       서술 금지).
-- [ ] 다음: ZK.0 오프체인 스파이크 착수 (로컬 솔버/모델만 — paid 금지)
+- [x] ZK.0 오프체인 스파이크 실행·**NO-GO 판정 (2026-07-19)**: 하네스
+      `scripts/bench/zk_phase0/`(z3-solver 5.0 로컬, 오프체인·paid 없음) 구축·
+      실행. `zk-r1cs-underconstraint.v1` 성립 안 함 — S1 FAIL(솔버-불요 O(n)
+      propagation attack이 전 밴드 <1ms, 난이도 무영향; Z3 교차검증으로 완전성
+      확인), S2 FAIL(비대칭 ~1.7×), S3 monotone-but-trivial, S5 moot. 재설계
+      재시도(checkpoint-inversion)도 구조-인지 공격자에 O(1) 붕괴. 원리적
+      no-go(생성기 전지식=지름길). 리포트 `local-docs/zk-family-phase0-report.md`.
+      lessons에 "SMT-timeout≠hardness" + 트릴레마 규칙 기록. 문서 반영(L1 master
+      §ZK·EXECUTION-ORDER [12]·결정 로그).
+- [ ] **운영자 결정 대기**: base-family 후보 재결정 (① Rust/Aeneas 재부상=리포트
+      §7 추천 / ② ZK correctness / ③ lenbound 상태유지+Aeneas ZK.0). ADR-0017을
+      base-family 결정으로 재범위화.
