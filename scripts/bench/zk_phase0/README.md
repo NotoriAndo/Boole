@@ -39,8 +39,16 @@ Reproduces: determinism self-check, the S1/S2/S3/S5 gate experiment
 
 ## Headline result
 
-**NO-GO.** A feed-forward gadget circuit is broken in O(n) by forward
-re-evaluation (no solver), independent of the difficulty band; the salvage
-structure that makes Z3 time out is inverted in ~1µs by a structure-aware
-attacker. Root cause: a deterministic open-source generator cannot hide
-"planted freedom" from an attacker who knows the generator.
+**NO-GO — scoped to the two designs actually tested (2026-07-19 operator
+correction).** A constraint-deletion feed-forward gadget circuit is broken in
+O(n) by forward re-evaluation (no solver), independent of the difficulty band;
+the checkpoint-squaring salvage structure that makes Z3 time out is inverted
+in ~1µs by a structure-aware attacker. In both designs the generator itself
+plants the freedom the miner is asked to find, and that planted structure is
+recovered by a generator-aware attacker.
+
+This spike does **not** establish that every public, deterministic
+underconstraint family is impossible — that generalization is an unverified
+hypothesis. A successor candidate whose BUG/SAFE answer is emergent rather
+than planted (`zk-circuit-uniqueness-dual-cert.v0`) is evaluated separately
+in `../zk_dualcert_phase0/`.

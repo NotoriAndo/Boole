@@ -8,8 +8,10 @@ bypass path lets the public output change. If the checkpoint map is one-way, the
 attacker must brute-force / algebraically invert it.
 
 This probe builds exactly that structure with r 'mixing' rounds and asks whether
-Z3's solve time (a strong attacker) grows with r. If it does not, no gadget-based
-underconstraint family is salvageable and ZK.0 escalates to a family swap.
+Z3's solve time (a strong attacker) grows with r. If it does not, this
+particular planted-freedom salvage fails and ZK.0 escalates to a family swap.
+The verdict is candidate-specific: it does not by itself rule out families
+whose answer is emergent rather than planted (2026-07-19 scope correction).
 """
 from __future__ import annotations
 

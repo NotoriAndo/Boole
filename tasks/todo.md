@@ -1548,10 +1548,72 @@ docs-only 기록 — 플랜 본문은 local-docs (gitignored), 이 엔트리는 
       실행. `zk-r1cs-underconstraint.v1` 성립 안 함 — S1 FAIL(솔버-불요 O(n)
       propagation attack이 전 밴드 <1ms, 난이도 무영향; Z3 교차검증으로 완전성
       확인), S2 FAIL(비대칭 ~1.7×), S3 monotone-but-trivial, S5 moot. 재설계
-      재시도(checkpoint-inversion)도 구조-인지 공격자에 O(1) 붕괴. 원리적
-      no-go(생성기 전지식=지름길). 리포트 `local-docs/zk-family-phase0-report.md`.
-      lessons에 "SMT-timeout≠hardness" + 트릴레마 규칙 기록. 문서 반영(L1 master
-      §ZK·EXECUTION-ORDER [12]·결정 로그).
-- [ ] **운영자 결정 대기**: base-family 후보 재결정 (① Rust/Aeneas 재부상=리포트
-      §7 추천 / ② ZK correctness / ③ lenbound 상태유지+Aeneas ZK.0). ADR-0017을
-      base-family 결정으로 재범위화.
+      재시도(checkpoint-inversion)도 구조-인지 공격자에 O(1) 붕괴. 리포트
+      `local-docs/zk-family-phase0-report.md`. lessons에 "SMT-timeout≠hardness"
+      + 트릴레마 규칙 기록. 문서 반영(L1 master §ZK·EXECUTION-ORDER [12]·결정
+      로그).
+- [x] NO-GO **판정 범위 한정 (2026-07-19 운영자 정정)**: NO-GO는 실측한 두
+      설계 — ① 제약 삭제형 feed-forward 회로 ② checkpoint-squaring 재설계 —
+      에만 성립한다. "모든 공개·결정적 underconstraint family가 원리적으로
+      불가능하다"는 일반화는 실측으로 증명된 바 없으므로 **미검증 가설**로
+      강등 (report·README·salvage_probe 주석·lessons 규칙3·EXECUTION-ORDER·
+      L1 master 문구 정정).
+- [x] 운영자 결정 (2026-07-19): 새 Base 후보 `zk-circuit-uniqueness-dual-cert.v0`
+      를 production 구현 전에 Phase 0 오프체인 실험 (§ZK-DC 참조). ADR-0017
+      확정·ZK.1 이후 작성은 실험 결과 전 금지 유지.
+
+---
+
+# §ZK-DC — zk-circuit-uniqueness-dual-cert.v0 Phase 0 오프체인 실험 (2026-07-19, 운영자 지시)
+
+핵심 질문: "Hash가 생성한 회로의 출력이 주어진 입력에서 유일한가?" 채굴자는
+BUG(대체 witness 반례) 또는 SAFE(D(seed) UNSAT의 LRAT certificate) 중 하나를
+제출한다. D(seed) = Circuit(seed, public_input, w) AND output(w) != reference_output.
+생성기는 기준 witness 만족만 보장하고 두 번째 witness 존재 여부를 결정·노출하지
+않는다 (정답 라벨·mutation trace·alternate witness 심기 금지).
+
+절대 착수 금지 (실험 GO 확정 전): production 코드 / 합의 스키마 / witnessHex·
+evidence 변경 / checker pin·SHA256SUMS 변경 / rule version·testnet 범프 / miner
+배선 / ADR-0017 Accepted / 기존 ZK.1~ZK.7 실행 / v1-lenbound 삭제.
+실행 규칙: 로컬 도구만(cadical·kissat·z3-python·pinned Lean v4.29.1), 유료 API
+금지, 기본 run은 임시 결과 파일에 기록(tracked sample 갱신은 명시적 별도 명령),
+timeout≠hardness, 실패 결과 그대로 보존.
+
+- [x] DC.0 문서 정정 (docs-only, `316ad7c`): 기존 ZK.0 NO-GO를 candidate-specific
+      으로 한정, 보편 명제("결정적 오픈소스 생성기는 …할 수 없다")를 삭제 또는
+      미검증 가설로 강등 — tracked: `scripts/bench/zk_phase0/README.md` 헤드라인·
+      `salvage_probe.py` 주석·`tasks/lessons.md` 규칙3·본 todo 엔트리 / untracked:
+      `local-docs/zk-family-phase0-report.md`·EXECUTION-ORDER·L1 master.
+- [x] DC.1 하네스 골격 (`713c1ef`): `scripts/bench/zk_dualcert_phase0/` — XOF 결정적 생성기
+      (P0-A Boolean 축소 모델: planted 기준 witness, 관계형 제약, 출력 변수),
+      canonical CNF encoder(byte-identical DIMACS), BUG verifier, native LRAT
+      checker(파이썬 독립 구현), pinned Lean v4.29.1
+      `Std.Tactic.BVDecide.LRAT.Checker` 배선(별도 실험용 Lean 프로젝트, 기존
+      `lean/checker` pinned 파일 무변경), 구조 공격자(propagation·의존 그래프·
+      자유 변수·GF(2) Gaussian·기준 witness 국소 교란·seed 분기 예측·certificate
+      재사용), solver portfolio(cadical --lrat·kissat·z3), benchmark runner,
+      self-check 테스트, 재현 README.
+- [x] DC.2 S0 게이트 — **PASS** (2026-07-19 full run): byte-identical 회로·CNF
+      (독립 프로세스 재실행 포함) + tiny 밴드 80 seeds 전수검사 BUG 58/SAFE 22,
+      매 seed 정확히 한 경로 성립, brute-force·솔버·증서 경로 판정 100% 일치.
+- [x] DC.3 S1~S7 실측 (P0-A, full: 384 seeds/32 밴드/78분, UNDECIDED 5 별도
+      보존) — **S2·S3·S5·S6 FAIL / S0·S7 PASS / S1·S4 부분**: 범위 한정 긍정 =
+      구조 지름길 미재현(경계 밴드 구조공격 판정률 42~75%, planted-freedom 누출은
+      창발 설계로 고쳐짐) + 밀도 축의 BUG:SAFE 단조 제어(12:0→1:11). 실패 = BUG
+      비대칭 0.88×/SAFE 3~10×(목표 100×, CDCL 풀이시간≈LRAT 크기≈검증시간 결합),
+      난이도는 랜덤 3-SAT 경계에서만 발생하며 SAFE 증서 44~72MB·Lean 1.1~1.8s·
+      RSS ~330MB로 폭발(S6), min-of-1000 골라잡기 이득 최대 270×·BUG 100% 수렴·
+      통제책 없음(S5).
+- [x] DC.4 P0-B — **미착수 확정**: 스펙 규칙 "P0-A 전 게이트 통과 시에만 진행"
+      에 따라 착수하지 않음 (P0-A 게이트 실패).
+- [x] DC.5 산출물: raw JSON `local-docs/zk-dualcert-phase0-raw-2026-07-19.json`
+      (384 seeds 전량·환경·버전·timeout 별도 보존) + 커밋 샘플
+      `result.sample.json`(명시적 별도 명령으로 갱신) + 리포트
+      `local-docs/zk-dualcert-phase0-report.md` — 첫 줄
+      **`NO-GO — ZK Base 후보 폐기`** (candidate-specific, 재설계 비추천 근거 포함:
+      S2/S6은 resolution 증명크기 하한과 LRAT 선형 검증의 구조적 결합, S5는
+      창발 답+공개 seed 선택에 내재. "ZK 전체 실패" 아님 — 처분 = Rust/Aeneas
+      별도 Phase 0(하네스 재사용) + ZK는 Bounty lane·장기 recursive-chain-proof
+      이동, v1-lenbound 임시 안전망 유지, ADR-0017 미확정 유지).
+- [ ] DC.6 커밋 게이트: feature branch → PR → CI self-test·supply-chain green →
+      머지 → remote 검증 → 한국어 최종 보고 (public/API benchmark claim 아님 명시).
