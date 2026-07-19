@@ -1633,7 +1633,44 @@ timeout≠hardness, 실패 결과 그대로 보존.
       후보=초최적화 family / Hash=초기 sybil·박자·재편성 방어. AI 성능 판정은
       온체인 금지, 오프체인 승격 게이트 전용. 문서 = local-docs 탐색·비교·평가
       3건 + EXECUTION-ORDER 결정 로그 (2026-07-19).
-- [ ] **PoVFN Phase 0 착수 대기 (운영자 지시 필요)**: 1순위 kill-question =
-      Rust Lean-커널 체커의 zkVM 사이클 실측 (P0-i), 이어 pk-고유 인코딩 보관
-      증명 비용(P0-ii)·분배 시뮬레이션(P0-iii)·결박 bytes-level(P0-iv).
-      착수 전 production/합의/ADR 확정 금지 유지.
+- [x] PoVFN Phase 0-A 착수 (2026-07-19 운영자 지시문 + "즉시 착수해", 지시문
+      검증 회신의 해석 4건 포함: P단계 상한=export 결박+커널 검사(elaborator
+      비증명)·환경 커밋 분리 측정·재귀 미실측 시 배치 실측만으로 GO 판단·
+      reward pk 변조는 ZK 공개입력 층).
+
+---
+
+# §PoVFN-A — Proof-of-Verifiable-Full-Node Phase 0-A (2026-07-19 운영자 지시문)
+
+핵심 질문: "Boole의 실제 Lean 검증을 블록 생성 속도에 맞춰 작은 ZK proof로
+압축할 수 있는가?" 하네스 `scripts/bench/povfn_phase0/`, 보고서
+`local-docs/povfn-phase0-a-kernel-zkvm-report.md` (첫 줄 GO/REDESIGN/NO-GO).
+금지: 합의 코드/checker pin/스키마/testnet 변경, PoVFN 채굴권·보관 구현,
+기존 Base 삭제, 공개 성능 주장, Lean 커널 신규 구현. K단계(커널 항 검증)와
+P단계(package 전체 검증)를 절대 혼동 금지.
+
+- [x] A1 §1 검증 경로 조사 완료 — proof package=86바이트 POFP-v2(소스는 seed
+      재유도), pinned 경로=`lake exec boole_check`+Audit, guard=토큰 11종·
+      import 화이트리스트·16KB/1024decl 한도, 블록 박자=60s·k_max 4 (보고서
+      §1에 파일 경로와 함께 기록).
+- [x] A1 §3 호환성 — lean4export(v4.29.1 오버라이드, format 3.1.0) +
+      nanoda_lib(f58f2f6, 패치 2건 기록) + leanchecker 3자 차등: 실 fixture·
+      합성 seed 전 케이스 판정 일치, false accept 0, 변조 매트릭스(명제 치환·
+      리터럴·손상·절단·axiom 주입·거짓 명제·예산 초과) 전부 정상 거절. 핵심
+      실측: exit code만으론 P단계 결박 불가 → 기대-명제 구조해시 검사 구현.
+- [x] A2 §4 zkVM 게스트 — RISC Zero 3.0.6 고정, nanoda 게스트 이식(직렬 경로,
+      reader 패치), journal 결박 9필드+명제 구조해시, 변조 flip·fail-closed
+      (게스트 panic=proof 불가) 확인.
+- [x] A2 §5 밴드 — Real 364KB/206decl: native 8.7ms → zkVM 244,211,417
+      cycles/3.09s(실행) / Syn1 4.36MB: 3.45B cycles. **composite proving은
+      CPU에서 ≥3,690s 하한에서 운영자 지시로 중단**
+      (`operator_cancelled_cpu_budget` — proof 실패·암호학적 NO-GO 아님).
+      verify 시간·proof 크기·succinct·GPU = 미측정으로 정직 기록.
+- [x] A3 §6 배치·재귀 — 미실측 (중단 지시로 미착수, 산술 유도만 분리 기록).
+- [x] §7~8 판정·보고서 — **`REDESIGN — PoVFN Phase 0-A` (예비)**: 실행·호환성·
+      결박 성공 / CPU proving 블록 예산 246×+ 초과. 리포트
+      `local-docs/povfn-phase0-a-kernel-zkvm-report.md`, raw
+      `local-docs/povfn-phase0-a-raw-2026-07-19.json`, 커밋 샘플
+      `scripts/bench/povfn_phase0/result.sample.json`. §9 준수: 후속(게스트
+      최적화 재실측/GPU 실측/폴백 범위 축소)은 전부 **운영자 결정 대기** —
+      자동 진행 없음, Base family·합의 코드 무변경.

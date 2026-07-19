@@ -1,0 +1,321 @@
+{
+  "note": "committed sample of the Phase 0-A run (2026-07-19). Full narrative: local-docs/povfn-phase0-a-kernel-zkvm-report.md",
+  "preliminary_verdict": "REDESIGN",
+  "a1_differential": {
+    "experiment": "povfn-phase0-a1-differential",
+    "machine": "Darwin Kernel Version 25.5.0: Tue Jun  9 22:28:34 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T6041",
+    "pins": "see PINS.md",
+    "budgets": {
+      "maxHeartbeats": "400000",
+      "maxRecDepth": "512",
+      "allowed_axioms": [
+        "propext",
+        "Classical.choice",
+        "Quot.sound"
+      ]
+    },
+    "cases": [
+      {
+        "case": "valid-Real",
+        "seed": "41031c76ab1e040a8423a560e5fbc4ef9ece71641cba2d95026d55202808aabe",
+        "kind": "valid",
+        "module_bytes": 602,
+        "export_bytes": 372372,
+        "elaborate_s": {
+          "median": 0.3620840409999997,
+          "n": 3
+        },
+        "export_s": {
+          "median": 0.4014277920000002,
+          "n": 3
+        },
+        "nanoda_s": {
+          "median": 0.008694917000000135,
+          "n": 3
+        },
+        "nanoda_accepted": true,
+        "binding": {
+          "target_present": true,
+          "expected_hash_ok": true,
+          "statement_match": true
+        },
+        "boole_check": {
+          "accepted": true,
+          "wall_s": 0.4712070000000006
+        },
+        "leanchecker": {
+          "accepted": true,
+          "wall_s": 0.2536765000000001
+        },
+        "all_judges_agree": true
+      },
+      {
+        "case": "valid-Syn0",
+        "seed": "dd7074526af767ef7cf6521fcab394219aec4006f117e7a55c389e40689c0007",
+        "kind": "valid-synthetic",
+        "module_bytes": 663,
+        "export_bytes": 381450,
+        "elaborate_s": {
+          "median": 0.3571757499999997,
+          "n": 3
+        },
+        "export_s": {
+          "median": 0.39800820799999936,
+          "n": 3
+        },
+        "nanoda_s": {
+          "median": 0.009078458000000289,
+          "n": 3
+        },
+        "nanoda_accepted": true,
+        "binding": {
+          "target_present": true,
+          "expected_hash_ok": true,
+          "statement_match": true
+        },
+        "boole_check": {
+          "accepted": true,
+          "wall_s": 0.4673052920000007
+        },
+        "leanchecker": {
+          "accepted": true,
+          "wall_s": 0.25169058300000025
+        },
+        "all_judges_agree": true
+      },
+      {
+        "case": "valid-Syn1",
+        "seed": "0c2a98afa0450832209763519586d21da3e445262a285100d2713fc58d887fa6",
+        "kind": "valid-synthetic",
+        "module_bytes": 463,
+        "export_bytes": 4464621,
+        "elaborate_s": {
+          "median": 0.35693645799999985,
+          "n": 3
+        },
+        "export_s": {
+          "median": 0.5053180829999988,
+          "n": 3
+        },
+        "nanoda_s": {
+          "median": 0.09935962499999995,
+          "n": 3
+        },
+        "nanoda_accepted": true,
+        "binding": {
+          "target_present": true,
+          "expected_hash_ok": true,
+          "statement_match": true
+        },
+        "boole_check": {
+          "accepted": true,
+          "wall_s": 0.46684366699999913
+        },
+        "leanchecker": {
+          "accepted": true,
+          "wall_s": 0.25686191700000016
+        },
+        "all_judges_agree": true
+      },
+      {
+        "case": "binding-wrong-seed",
+        "kind": "binding-tamper",
+        "kernel_accepted": true,
+        "binding_rejected": true,
+        "pass": true
+      },
+      {
+        "case": "tamper-stmt-literal",
+        "kind": "export-tamper",
+        "note": "statement literal swap; may stay kernel-valid, binding must catch",
+        "kernel_accepted": true,
+        "kernel_rc": 0,
+        "expect_kernel_reject": false,
+        "p_stage_accepted": false,
+        "pass": true
+      },
+      {
+        "case": "tamper-proof-node",
+        "kind": "export-tamper",
+        "note": "dangling expr reference in proof DAG",
+        "kernel_accepted": false,
+        "kernel_rc": 101,
+        "expect_kernel_reject": true,
+        "p_stage_accepted": false,
+        "pass": true
+      },
+      {
+        "case": "tamper-truncate",
+        "kind": "export-tamper",
+        "note": "kernel may accept remaining decls; target-present must catch",
+        "kernel_accepted": true,
+        "kernel_rc": 0,
+        "expect_kernel_reject": false,
+        "p_stage_accepted": false,
+        "pass": true
+      },
+      {
+        "case": "tamper-axiom-inject",
+        "kind": "export-tamper",
+        "note": "unpermitted axiom present in export (allowlist hard error)",
+        "kernel_accepted": false,
+        "kernel_rc": 1,
+        "expect_kernel_reject": true,
+        "p_stage_accepted": false,
+        "pass": true
+      },
+      {
+        "case": "elab-corpus-false",
+        "kind": "elaboration-layer",
+        "note": "false statement fails elaboration",
+        "elaboration_ok": false,
+        "pass": true
+      },
+      {
+        "case": "elab-budget-heartbeats",
+        "kind": "elaboration-layer",
+        "note": "exceeds pinned maxHeartbeats at elaboration",
+        "elaboration_ok": false,
+        "pass": true
+      }
+    ],
+    "all_pass": true
+  },
+  "a2_zkvm_and_cancellation": {
+    "experiment": "povfn-phase0-a",
+    "date": "2026-07-19",
+    "preliminary_verdict": "REDESIGN",
+    "machine": {
+      "os": "macOS 26.5.2 (Darwin 25.5.0) arm64",
+      "cpu_cores": 16,
+      "ram_bytes": 68719476736
+    },
+    "pins": {
+      "lean_toolchain": "leanprover/lean4:v4.29.1 (githash f72c35b3f637c8c6571d353742168ab66cc22c00, same as consensus pin; consensus checker untouched)",
+      "checker_artifact_hash": "1dd3055acb05142816f2082f0b3ad000c49513c3a2401572ec68703542042be1",
+      "lean4export": "branch bump_to_v4.29.0-rc8, commit 9fd1dbd65294ff8eac2d04382144eac95fb3abbb, lean-toolchain overridden to v4.29.1, format 3.1.0",
+      "nanoda_lib": "commit f58f2f6d535e189a40fcb02ede8eb95f97a92d37 (v0.4.10-beta), local patches: [workspace] isolation + pub to_export_file_from_reader",
+      "risc0": "cargo-risczero 3.0.6, r0vm 3.0.6, rzup rust 1.97.0 (guest), host rustc 1.95.0",
+      "guest_image_id": "[638530496, 3546273443, 3321950011, 1104897151, 1842593338, 556192583, 2770242847, 4099597801]",
+      "build_mode": "release (workspace profile: opt-level 3, lto, debug=1)"
+    },
+    "fixture": {
+      "seed_hex": "41031c76ab1e040a8423a560e5fbc4ef9ece71641cba2d95026d55202808aabe",
+      "seed_source": "fixtures/protocol/runtime-smoke/testnet2-lenbound-share.v1.json (real runtime-smoke fixture)",
+      "canon_package_hash": "6f74a8d8e14c672d4331793de0d7fc1ddb8ccb6c9970692516d493e6eb158d60",
+      "export_sha256": {
+        "ProofReal.ndjson": "257bc79233baa6108687d41a50d397490a9dc234befc84e20f229a75c002d6fe",
+        "ProofSyn0.ndjson": "252b7cda743d75e5d8e096d8a45e2cc83a309749edb470d975b16e720792d6d3",
+        "ProofSyn1.ndjson": "de3cb7ecf5c8c5f5b9c1d25ea32cd4a072b93bc750485bf825b205d760c9b42a"
+      }
+    },
+    "a1_differential": {
+      "native_times_real_band": {
+        "elaborate_median_s": 0.362,
+        "export_median_s": 0.401,
+        "nanoda_median_s": 0.0087,
+        "boole_check_wall_s": 0.471,
+        "leanchecker_wall_s": 0.254
+      },
+      "judges_agree_all_valid_cases": true,
+      "false_accepts": 0,
+      "cases": "3 valid (1 real + 2 synthetic) + wrong-seed binding + 4 export tampers + 2 elaboration-layer; all pass; full JSON in result.sample.json"
+    },
+    "a2_zkvm": {
+      "bands": {
+        "Real": {
+          "label": "real fixture seed",
+          "export_bytes": 372372,
+          "decl_count": 206,
+          "user_cycles_segment_sum": 244211417,
+          "segments": 276,
+          "execute_s": 3.087,
+          "journal": {
+            "fields": [
+              "network_id",
+              "rule_version",
+              "family",
+              "checker_artifact_hash",
+              "package_hash",
+              "seed_hex",
+              "thm_full_name",
+              "reward_pk",
+              "job_scope",
+              "export_sha256",
+              "stmt_hash",
+              "decl_count",
+              "accepted"
+            ],
+            "accepted": true,
+            "stmt_hash": "00ffa64c8d85abb1c7d568a6d5e5eaf1bc85a825749e252edbd182c85ae82577",
+            "stmt_hash_matches_expected": true
+          }
+        },
+        "Syn0": {
+          "label": "synthetic seed, small closure",
+          "user_cycles_segment_sum": 249575131,
+          "segments": 282,
+          "execute_s": 3.1,
+          "stmt_hash_matches_expected": true
+        },
+        "Syn1": {
+          "label": "synthetic seed, large closure (sortAsc/dedup lemmas)",
+          "export_bytes": 4464244,
+          "user_cycles_segment_sum": 3447330953,
+          "segments": 4197,
+          "execute_s": 56.1,
+          "stmt_hash_matches_expected": true
+        }
+      },
+      "tamper_fail_closed": {
+        "stmt-literal": {
+          "kernel_valid_different_statement": true,
+          "journal_stmt_hash_matches_expected": false,
+          "verdict": "verifier-side journal comparison rejects; PASS"
+        },
+        "proof-node": {
+          "guest_exit": 101,
+          "verdict": "guest panic, no proof can exist; PASS (fail-closed)"
+        }
+      },
+      "composite_prove_real_band": {
+        "status": "operator_cancelled_cpu_budget",
+        "completed": false,
+        "prove_time_lower_bound_seconds": 3690,
+        "reason": "commodity-CPU proving exceeded the 60-second block budget by a large margin",
+        "command": "/usr/bin/time -l ./target/release/host work/checker-export/ProofReal.ndjson work/binding-real.json prove 00ffa64c8d85abb1c7d568a6d5e5eaf1bc85a825749e252edbd182c85ae82577",
+        "started_at": "2026-07-19T22:07:00+09:00",
+        "cancel_requested_at": "2026-07-19T23:08:12+09:00",
+        "terminated_at": "2026-07-19T23:08:31+09:00",
+        "termination": "SIGINT insufficient; SIGTERM succeeded; no SIGKILL needed",
+        "at_cancellation": {
+          "r0vm_cpu_percent": 1530.8,
+          "r0vm_rss_fraction_of_64g": 0.15,
+          "r0vm_cpu_time_minutes": 878.9,
+          "prover_backend_observed": "CPU (no Metal/GPU engagement observed; ~10-15 cores busy)"
+        },
+        "stdout_stderr": "both empty at kill time (/usr/bin/time buffers until exit); cancel-state transcript preserved in this record",
+        "prover_checkpoints": "none preserved - r0vm exposes no official resumable checkpoint for an in-flight prove; no CPU work was spent serializing state",
+        "not_recorded_as": "NOT a proof failure and NOT a cryptographic NO-GO; execution/compatibility/binding all succeeded"
+      },
+      "not_measured": [
+        "final composite proof size (run cancelled)",
+        "composite receipt verify time (run cancelled)",
+        "succinct/groth16 compression cost (not started)",
+        "Large-band (Syn1) proving (not started, forbidden after cancellation)",
+        "GPU proving (forbidden after cancellation)",
+        "batch/recursive aggregation proving (not started)"
+      ]
+    },
+    "block_budget_comparison": {
+      "note": "no consensus throughput target beyond target_block_ms=60000, k_max=4 (boole-testnet-2); reference table per directive",
+      "measured_lower_bound_one_proof_cpu_s": 3690,
+      "vs_block_time": {
+        "5s": ">= 738x over budget",
+        "10s": ">= 369x over budget",
+        "30s": ">= 123x over budget",
+        "60s": ">= 61.5x over budget (x4 shares/block => >= 246x)"
+      }
+    }
+  }
+}
