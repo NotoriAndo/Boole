@@ -63,9 +63,33 @@ value is limited to calibration + circuit-safety corpus + liveness.
 - **S6** certificate bytes + Lean verification cost
 - **S7** `canon = f(seed, outcome_tag, certificate_bytes)` binding prototype
 
-## Status
+## Headline result (2026-07-19 full run, 384 seeds / 32 bands)
 
-Experiment harness; verdict lives in the report and in the committed
-`result.sample.json` gate section. Until a GO verdict exists, the candidate is
-recorded as UNVERIFIED and nothing here touches consensus code, schemas,
-checker pins, or rule versions.
+**NO-GO — candidate-specific** (`zk-circuit-uniqueness-dual-cert.v0`, P0-A;
+P0-B not started per the "all P0-A gates must pass first" rule).
+
+- S0 PASS (byte-identical regeneration; exhaustive tiny-band ground truth
+  58 BUG / 22 SAFE, certificates always agree with brute force).
+- Scoped positive: the zk_phase0 planted-freedom collapse did NOT reproduce —
+  at boundary densities structural attackers decide only 42–75% and SAT
+  solvers must do real search. Emergent-answer generation fixes that leak.
+- S2 FAIL: BUG search/verify 0.88x median (verify has an O(n) regeneration
+  floor); SAFE prove/Lean-verify 3–10x. Target was >= 100x on each path —
+  CDCL solve time and LRAT verify time are both ~linear in the same
+  resolution-proof size, so "hard to solve" and "cheap to verify" cannot
+  coexist in an LRAT-certified SAFE path.
+- S3 FAIL: all six per-axis sweeps stay in the ms range; hardness appears
+  only at the pure planted 3-SAT phase boundary (random k-SAT hardness, i.e.
+  PoW-shaped, not circuit-safety reasoning) where it is fused to S6 blowup
+  and timeout tails.
+- S5 FAIL: bootstrap min-of-1000 seed grinding yields ~1.5 ms BUG instances
+  in every band (gain up to 270x, argmin 100% BUG); emergent answers leave no
+  in-family control.
+- S6 FAIL: in the only hard regime, SAFE LRAT certificates reach 44–72 MB;
+  pinned Lean verification costs 1.1–1.8 s wall / ~330 MB peak RSS per seed.
+- S7 PASS (canon binding prototype, 379/379).
+
+Verdict + full numbers: `../../../local-docs/zk-dualcert-phase0-report.md`
+(raw JSON preserved alongside it). The candidate is retired; nothing here
+touches consensus code, schemas, checker pins, or rule versions. Closed local
+measurement only — not a public mining/benchmark claim.

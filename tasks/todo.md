@@ -1579,12 +1579,12 @@ evidence 변경 / checker pin·SHA256SUMS 변경 / rule version·testnet 범프 
 금지, 기본 run은 임시 결과 파일에 기록(tracked sample 갱신은 명시적 별도 명령),
 timeout≠hardness, 실패 결과 그대로 보존.
 
-- [ ] DC.0 문서 정정 (docs-only): 기존 ZK.0 NO-GO를 candidate-specific으로
-      한정, 보편 명제("결정적 오픈소스 생성기는 …할 수 없다")를 삭제 또는
+- [x] DC.0 문서 정정 (docs-only, `316ad7c`): 기존 ZK.0 NO-GO를 candidate-specific
+      으로 한정, 보편 명제("결정적 오픈소스 생성기는 …할 수 없다")를 삭제 또는
       미검증 가설로 강등 — tracked: `scripts/bench/zk_phase0/README.md` 헤드라인·
       `salvage_probe.py` 주석·`tasks/lessons.md` 규칙3·본 todo 엔트리 / untracked:
       `local-docs/zk-family-phase0-report.md`·EXECUTION-ORDER·L1 master.
-- [ ] DC.1 하네스 골격: `scripts/bench/zk_dualcert_phase0/` — XOF 결정적 생성기
+- [x] DC.1 하네스 골격 (`713c1ef`): `scripts/bench/zk_dualcert_phase0/` — XOF 결정적 생성기
       (P0-A Boolean 축소 모델: planted 기준 witness, 관계형 제약, 출력 변수),
       canonical CNF encoder(byte-identical DIMACS), BUG verifier, native LRAT
       checker(파이썬 독립 구현), pinned Lean v4.29.1
@@ -1593,18 +1593,27 @@ timeout≠hardness, 실패 결과 그대로 보존.
       자유 변수·GF(2) Gaussian·기준 witness 국소 교란·seed 분기 예측·certificate
       재사용), solver portfolio(cadical --lrat·kissat·z3), benchmark runner,
       self-check 테스트, 재현 README.
-- [ ] DC.2 S0 게이트: 같은 seed → byte-identical 회로·CNF(전체 canonical bytes
-      비교, 프로세스 재실행 포함) + 작은 문제 전수검사로 BUG/SAFE 정확히 하나
-      성립 확인 + BUG cert 수리 ⟺ D SAT 일치 확인.
-- [ ] DC.3 S1~S7 실측 (P0-A): S1 지름길(포트폴리오 공격자 기준, 전 밴드 <1s면
-      NO-GO) / S2 양 경로 solve/verify 비대칭 ≥100× (Lean 실측 포함) / S3 축별
-      단독 난이도 조절(median·p90·p95·p99·timeout율) / S4 BUG:SAFE 분포·liveness /
-      S5 min-of-N bootstrap 골라잡기 / S6 certificate 크기·Lean 검증 비용 /
-      S7 canon = f(seed, outcome_tag, certificate_bytes) bytes-level 프로토타입.
-- [ ] DC.4 P0-B (P0-A 전 게이트 통과 시에만): 작은 prime-field R1CS →
-      결정적 CNF 변환 + 작은 field 전수검사로 의미 등가 확인 + 게이트 재실측.
-      Boolean만 통과하고 R1CS 실패면 최종 NO-GO.
-- [ ] DC.5 산출물: 원시 결과 JSON(환경·버전·seed·개별/집계·timeout 별도 보존) +
-      `local-docs/zk-dualcert-phase0-report.md` (첫 줄 GO/REDESIGN/NO-GO).
+- [x] DC.2 S0 게이트 — **PASS** (2026-07-19 full run): byte-identical 회로·CNF
+      (독립 프로세스 재실행 포함) + tiny 밴드 80 seeds 전수검사 BUG 58/SAFE 22,
+      매 seed 정확히 한 경로 성립, brute-force·솔버·증서 경로 판정 100% 일치.
+- [x] DC.3 S1~S7 실측 (P0-A, full: 384 seeds/32 밴드/78분, UNDECIDED 5 별도
+      보존) — **S2·S3·S5·S6 FAIL / S0·S7 PASS / S1·S4 부분**: 범위 한정 긍정 =
+      구조 지름길 미재현(경계 밴드 구조공격 판정률 42~75%, planted-freedom 누출은
+      창발 설계로 고쳐짐) + 밀도 축의 BUG:SAFE 단조 제어(12:0→1:11). 실패 = BUG
+      비대칭 0.88×/SAFE 3~10×(목표 100×, CDCL 풀이시간≈LRAT 크기≈검증시간 결합),
+      난이도는 랜덤 3-SAT 경계에서만 발생하며 SAFE 증서 44~72MB·Lean 1.1~1.8s·
+      RSS ~330MB로 폭발(S6), min-of-1000 골라잡기 이득 최대 270×·BUG 100% 수렴·
+      통제책 없음(S5).
+- [x] DC.4 P0-B — **미착수 확정**: 스펙 규칙 "P0-A 전 게이트 통과 시에만 진행"
+      에 따라 착수하지 않음 (P0-A 게이트 실패).
+- [x] DC.5 산출물: raw JSON `local-docs/zk-dualcert-phase0-raw-2026-07-19.json`
+      (384 seeds 전량·환경·버전·timeout 별도 보존) + 커밋 샘플
+      `result.sample.json`(명시적 별도 명령으로 갱신) + 리포트
+      `local-docs/zk-dualcert-phase0-report.md` — 첫 줄
+      **`NO-GO — ZK Base 후보 폐기`** (candidate-specific, 재설계 비추천 근거 포함:
+      S2/S6은 resolution 증명크기 하한과 LRAT 선형 검증의 구조적 결합, S5는
+      창발 답+공개 seed 선택에 내재. "ZK 전체 실패" 아님 — 처분 = Rust/Aeneas
+      별도 Phase 0(하네스 재사용) + ZK는 Bounty lane·장기 recursive-chain-proof
+      이동, v1-lenbound 임시 안전망 유지, ADR-0017 미확정 유지).
 - [ ] DC.6 커밋 게이트: feature branch → PR → CI self-test·supply-chain green →
       머지 → remote 검증 → 한국어 최종 보고 (public/API benchmark claim 아님 명시).

@@ -93,11 +93,22 @@ def band_axes(mode: str) -> dict[str, list[Params]]:
         ],
     }
     if mode == "full":
-        # Escalation probe: can ANY size push the portfolio attacker into a
-        # non-trivial regime near the BUG/SAFE boundary density? (S1/S3/S6)
+        # Escalation probe: does size alone create hardness at base pins? (S3)
         axes["escalation"] = [
             _mk(n, rc, BASE["rx"], BASE["rg"], BASE["out"], BASE["k"])
             for n, rc in [(480, 3.0), (480, 3.5), (960, 3.0), (960, 3.5), (1920, 3.2)]
+        ]
+        # Boundary probe: minimal public pins, pure planted k-SAT around the
+        # SAFE-side transition — the only regime where solving was observed to
+        # be non-trivial. Measures the S2/S6 cost of that hardness.
+        axes["boundary"] = [
+            _mk(n, rc, 0.0, 0.0, BASE["out"], 3, pub_ratio=0.02)
+            for n, rc in [(500, 4.8), (500, 5.2), (500, 5.6), (500, 6.0), (1000, 5.6)]
+        ]
+        # k=4 wall: the observed miner-side liveness cliff (timeout-dominated).
+        axes["k4wall"] = [
+            _mk(200, rc, 0.0, 0.0, BASE["out"], 4, pub_ratio=0.02)
+            for rc in [9.9, 10.5]
         ]
     return axes
 
@@ -271,7 +282,7 @@ def run_seed(
             "prove_s": res_cad.wall_s,
             "lrat_bytes": len(lrat_text),
         }
-        if len(lrat_text) <= 64 * 1024 * 1024:
+        if len(lrat_text) <= 16 * 1024 * 1024:
             t0 = time.perf_counter()
             nat = check_lrat(c.n_vars, d_clauses, lrat_text)
             safe["native_check_s"] = time.perf_counter() - t0
