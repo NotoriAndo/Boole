@@ -1480,7 +1480,7 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
             syspolicyd 스톨로 중단, lessons.md 기록. full은 CI가 강제)
       - [x] fmt + clippy 2종 (CI-동일, -D warnings) 통과
       - [x] 커밋 d526573 → PR #82 → CI green → squash merge cb6e92c → remote 검증
-- [◐] SC.1-b 봉투 보존 배선 (submit→candidate→evidence→gossip 왕복)
+- [x] SC.1-b 봉투 보존 배선 — ✅ 착륙 2026-07-19, PR #83 squash ecf4263, CI green
       - [x] RED 4종: 세션 2종(work_pk_mismatch 403 / evidence signedWork 운반)은 로컬 확인,
             p2p 2종(roundtrip 보존 / 위조 봉투 ingress 거절)은 **CI 스크래치 브랜치로 RED 실증**
             (sc1b-red-check run 29646264167 — admitted=1/rejected=0, evidence signedWork Null.
@@ -1490,6 +1490,39 @@ plan: /Users/seoyong/.claude/plans/cozy-wiggling-lobster.md (2026-07-18 승인).
             typed 거절(work_pk_mismatch) + 서명 body 정규형 강제 + CandidateShare 슬롯 +
             runtime evidence 채움 + egress signedWork 동봉 + ingress 봉투-내재 검증(공유 헬퍼)
       - [x] typecheck + fmt + clippy 2종 clean (테스트 GREEN은 CI가 실증)
-      - [ ] 커밋 → PR → CI green → merge → 스크래치 브랜치 삭제
+      - [x] 커밋 cea7011 → PR #83 → CI green → squash merge ecf4263 → 브랜치/스크래치 정리
+      - [x] CI 반송 2건 처리: ① 신규 테스트 max_requests 과다(3>2연결)로 self-test hang
+            (lessons.md 재발 기록) ② p2p roundtrip을 wire-중계(MITM) 구조로 재설계 —
+            즉시-블록 시나리오에서 pool 스냅샷이 블록 채택과 경합(구조적 플레이크).
+            같은 경합이 잠재해 있던 기존 base 테스트도 단조 admitted 카운터로 견고화
+            (pre-N3.3의 height==0 scope pin 제거 — PR 본문 명시)
 - [ ] SC.1-c testnet2 fixture/스모크 세션 이행 (강제 없음, 전면 재생성)
 - [ ] SC.1-d named 강제 반전 (testnet-2 전용 술어, replay에 network_id 스레딩)
+
+---
+
+# §ZK — base family 교체 플랜 채택 기록 (2026-07-19, 운영자 지시 "1번으로 진행")
+
+docs-only 기록 — 플랜 본문은 local-docs (gitignored), 이 엔트리는 결정의 repo 흔적.
+
+- [x] 운영자 지시 (2026-07-18 텔레그램): 공식 base family를 v1-lenbound에서
+      hash-generated ZK circuit verification family로 완전 교체 (재포장 금지,
+      정상 작동 후 운영 경로 삭제). 채굴자 실제 제출 답의 블록 결박 필수
+      (정답 템플릿 재유도 금지), 전 노드 독립 재검증, Base/Bounty lane 분리,
+      외부 저장소 불가져옴, D2 재정의 + P0 승격.
+- [x] 방향 평가 3건 승인·플랜 편입: R1 지름길 함정(생성기 전지식 공격자의
+      솔버 붕괴 위험) → 오프체인 스파이크(ZK.0)를 ADR 선결 go/no-go로 신설 /
+      R2 정직 라벨(base lane 가치 = 캘리브레이션+corpus+liveness, E층 탈출
+      클레임 금지) / R3 답 결박 = canon f(seed)→f(seed,witness) 합의 계약
+      변경으로 4경로(admission/ingest/reorg/replay) 전부 영향권.
+- [x] 플랜 작성 (기존 master plan과 동일 9-필드 해상도): L1 master §ZK 신설
+      (ZK.0 스파이크 → ADR-0017 → ZK.1~ZK.2 순수 추가 → ZK.3 리셋 창
+      (helper 재핀+witnessHex+rule v4+boole-testnet-3) → ZK.4~ZK.7 →
+      ZK.8 기본 전환 → ZK.9 lenbound 삭제) + §2 invariant 2 개정(답 결박)
+      + base family 북극성 배너 + 추천 실행 순서/한 줄 요약 갱신 +
+      EXECUTION-ORDER 본선 [12]/[D2] 재정의 + 결정 로그 + thesis §12 개정.
+- [x] 순서 binding: §SC 잔여(SC.1-c/d·SC.2 잔여·SC.3)는 그대로 진행,
+      ZK.0 스파이크는 즉시 병렬 가능, ZK.3 창은 §SC 잔여 착륙 후.
+      지시문 편차 1건 명시: SC.2 root 강제 메커니즘은 testnet-2 세트로
+      선착륙, launch set 확정만 ZK.3 창 이관.
+- [ ] 다음: ZK.0 오프체인 스파이크 착수 (로컬 솔버/모델만 — paid 금지)
