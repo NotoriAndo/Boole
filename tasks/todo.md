@@ -1535,4 +1535,12 @@ docs-only 기록 — 플랜 본문은 local-docs (gitignored), 이 엔트리는 
       불가" 표현 폐기 → "잘못된 witness를 싸고 결정적으로 거절" +
       underconstraint 정의(공개 입출력·유일성 범위)를 ADR 9항으로 ⑤ 후반
       slice 9-필드 전수 보충. lessons.md에 재발 방지 규칙 5건 기록.
+- [x] 운영자 2차 재검수 반영 (2026-07-19 동일자): ① (핵심) 신규 helper를
+      CHECKER_PINNED_FILES에 명시 추가 — 지문은 pinned 목록+BooleCheck/**만
+      해시(코드 확인, 초판 "전체 해시" 서술 정정), 신규 RED
+      checker_artifact_hash_covers_zk_helper 추가 ② 재번호 잔재 4건 정리
+      (ZK.2 배선 참조 2건·PM.5 흡수 표기·ZK.0 게이트 수 3→4) ③ ZK.3~ZK.4
+      운영 공백에 "운영 경계" 명시(testnet-3 스모크 전용·외부 운영 금지,
+      ZK.4 최우선) ④ lessons 3번 규칙 강화(계산 코드 확인 전 커버리지
+      서술 금지).
 - [ ] 다음: ZK.0 오프체인 스파이크 착수 (로컬 솔버/모델만 — paid 금지)
