@@ -1705,3 +1705,32 @@ P단계(package 전체 검증)를 절대 혼동 금지.
       liveness·보안 바닥 / **최종 Base Family=미결정** — Hash+인프라를 최종
       Base로 확정하지 않음. 다음 트랙(신규 Base 후보 탐색 / Bounty 수요 /
       PoVFN CPU 인프라 연구 / LI-Bounty 레인 설계)은 운영자 지시 대기.
+
+---
+
+# §SP-P0 — zk-formal-selfplay.v0 결정 페이퍼 (2026-07-20, 운영자 "진행해")
+
+- [x] 후보 탐색·정제: selfplay-conjecture(양방향 증명 시장 — 문제 출처를
+      공개 생성기/고정 corpus/체인 자신이 아닌 **채굴자 간 커밋된 비밀**로)
+      → 운영자 ZK 도메인 특정(`zk-formal-selfplay.v0`: 체인이 유한체·다항식·
+      R1CS·range check·commitment 재료 배정, LLM 출제자가 정리+증명 커밋,
+      해결자 무작위 배정, pinned Lean 판정). 선행 실증: STP(barely-provable
+      커리큘럼 무한 생성, LeanWorkbook 2배)·MINIMO(공리만으로 자가 생성)·
+      DeepSeek-Prover(합성 corpus 성능 향상)·PSV(Rust/Verus 확장 경로).
+- [x] SP-P0-paper 작성 — **첫 줄 판정: `PROCEED-TO-HARNESS`** (채택 아님,
+      선결 2건 + kill gate 9종 전제): 영합 코어 게임 분석(담합·보류·티켓
+      소각·자기해결 전부 대수적 적자 — 해결 보상 원천=출제자 본드 한정 +
+      생존 보조금 α<티켓비용 캡), 공급 분석(LI형 페이퍼-반증 불성립 — 명제
+      공간은 조합적 고갈 불가, 최전선은 해결자와 동행), ZK 기초 라이브러리
+      v0 스펙(protocol-owned 300~800줄·신규 axiom 0·암호 경도 axiom 불가라
+      도메인="ZK 구성물의 대수 수학" 정직 라벨), 명제 정규화(stmt_hash 재사용
+      — de Bruijn 알파-동치 공짜)·캡, LI 기계 전부 상속(보상 가중 레인·epoch
+      원자 정산·commit-reveal·p95 예산). 페이퍼
+      `local-docs/zk-formal-selfplay-p0-paper-2026-07-20.md`.
+- [ ] **선결 1 (별도 승인)**: ZK 기초 라이브러리 v0 저작 (전문가 1~2주 규모,
+      하네스 물리적 전제).
+- [ ] **선결 2**: 게임 파라미터 에이전트 시뮬레이션 (로컬 파이썬, LLM 불요 —
+      α<c_t 영역에서 정직 EV 동시 양수 + 전 담합 전략 적자 수치 확인).
+- [ ] 하네스 2단계 (선결 통과 후): 로컬 LLM 출제/해결 + 도구 포트폴리오
+      바닥, kill gate 9종. 게이트 사망 시 후보 한정 REJECT(전례 규율).
+      전 과정 코드·합의·checker pin·기존 Base 무변경.
