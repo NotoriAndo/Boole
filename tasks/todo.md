@@ -1692,6 +1692,16 @@ P단계(package 전체 검증)를 절대 혼동 금지.
       결정 A(역할 재정의 수용) + 결정 B(genesis snapshot: protocol-owned vs
       hash-고정 스냅샷). R 거부 시 REJECT-AS-BASE 전환. 페이퍼
       `local-docs/lean-library-improvement-p0-paper-2026-07-20.md`.
-- [ ] **운영자 결정 대기 (R·A·B)** — 결정 시 개정판 페이퍼(스냅샷 후보 특정
-      시 포화 속도 수치 시뮬레이션 포함) → PROCEED-TO-HARNESS 여부 재판정.
-      승인 전 하네스·코드·합의·기존 Base 무변경 유지.
+- [x] 운영자 결정 (2026-07-20): **재설계 R 거부 → 전환 조항에 따라
+      `REJECT-AS-BASE` (후보 한정) 확정.** 근거: R 수용 = "외부 수요 없이
+      지속 작업을 만드는 Base" 요구사항의 포기이며, snapshot은 무한 공급의
+      해결이 아니라 포화 지연(유한·조회 재제출·검색 우위·외부 저장소 불사용
+      의도 약화). 처분: 객관 점수·baseline·조작 방지 설계는 **Bounty·corpus
+      제품의 선택적 LI 레인**으로 보존 / snapshot 수입·LI 하네스는 Base 목적
+      미진행 / Bounty corpus 축적 후 비합의 보상 레인으로 재검토. 문서 정정
+      4건 반영(고정 비율 예산 제거·p95/최악 기준·의존성 폐포 전체 측정·전
+      비용 항목 비증가 조건). **현재 상태 (운영자 확정)**: PoVFN=검증·정산·
+      보관 인프라 후보(CPU 전용) / LI=Bounty·corpus 개선 레인 / Hash=임시
+      liveness·보안 바닥 / **최종 Base Family=미결정** — Hash+인프라를 최종
+      Base로 확정하지 않음. 다음 트랙(신규 Base 후보 탐색 / Bounty 수요 /
+      PoVFN CPU 인프라 연구 / LI-Bounty 레인 설계)은 운영자 지시 대기.
