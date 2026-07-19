@@ -1,0 +1,15 @@
+[package]
+name = "lean_kernel_guest"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+risc0-zkvm = { version = "^3.0.6", default-features = false, features = ['std'] }
+nanoda_lib = { path = "../../../vendor/nanoda_lib" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+stmt_hash = { path = "../../stmt_hash" }
+

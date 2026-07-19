@@ -1,0 +1,4 @@
+vendor/
+work/
+*.ndjson
+derive_module/target/

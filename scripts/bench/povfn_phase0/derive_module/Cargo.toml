@@ -1,0 +1,11 @@
+[package]
+name = "povfn-derive-module"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+boole-core = { path = "../../../../crates/boole-core" }
+hex = "0.4"
+sha2 = "0.10"
+
+[workspace]
