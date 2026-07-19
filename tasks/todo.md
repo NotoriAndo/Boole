@@ -1674,3 +1674,24 @@ P단계(package 전체 검증)를 절대 혼동 금지.
       `scripts/bench/povfn_phase0/result.sample.json`. §9 준수: 후속(게스트
       최적화 재실측/GPU 실측/폴백 범위 축소)은 전부 **운영자 결정 대기** —
       자동 진행 없음, Base family·합의 코드 무변경.
+
+---
+
+# §LI-P0 — lean-library-improvement.v0 결정 페이퍼 (2026-07-20, 운영자 지시)
+
+- [x] LI-P0-paper 작성 완료 — **첫 줄 판정: `REDESIGN-PAPER`**. 9개 결정사항
+      중 8개 확정(역할=보상 가중 레인·liveness는 Hash / 강제 배정=seed 전
+      등록+H(seed‖pk) / 사전식 점수(axiom 무·재검증 통과 입장권 → export
+      bytes ↓ → deps ↓ → heartbeats ↓, novelty·실행시간 금지) / epoch 원자적
+      baseline+commit-reveal / 조작 방지 7종 / native Lean 판정+예산 캡 /
+      PoVFN=CPU 인프라 분리·GPU 전면 불사용 / corpus=오프체인 KPI / 하네스
+      kill gate 6종). **승패 게이트인 공급 지속성은 현 자산 기준 정량 부정**:
+      lenbound corpus는 일반 합성 lemma 1~2개로 전 family 증명이 붕괴해 첫
+      몇 epoch 내 포화, Bounty 유입 0 — snapshot 없이는 1년 불성립. 필요
+      결정: 재설계 R("무한 자율 공급"→"고갈 시 우아한 침묵+수요-결합") +
+      결정 A(역할 재정의 수용) + 결정 B(genesis snapshot: protocol-owned vs
+      hash-고정 스냅샷). R 거부 시 REJECT-AS-BASE 전환. 페이퍼
+      `local-docs/lean-library-improvement-p0-paper-2026-07-20.md`.
+- [ ] **운영자 결정 대기 (R·A·B)** — 결정 시 개정판 페이퍼(스냅샷 후보 특정
+      시 포화 속도 수치 시뮬레이션 포함) → PROCEED-TO-HARNESS 여부 재판정.
+      승인 전 하네스·코드·합의·기존 Base 무변경 유지.
