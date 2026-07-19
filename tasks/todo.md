@@ -1525,4 +1525,14 @@ docs-only 기록 — 플랜 본문은 local-docs (gitignored), 이 엔트리는 
       ZK.0 스파이크는 즉시 병렬 가능, ZK.3 창은 §SC 잔여 착륙 후.
       지시문 편차 1건 명시: SC.2 root 강제 메커니즘은 testnet-2 세트로
       선착륙, launch set 확정만 ZK.3 창 이관.
+- [x] 운영자 플랜 리뷰 정정 5건 반영 (2026-07-19 동일자): ① ZK.0에 S5
+      골라잡기(best-of-N seed 선택) 실험 + ADR 8항 완화 확정 신설 — 티켓
+      1:1은 재답만 막고 문제 선택은 못 막음 ② 구 ZK.4(4경로 강제)·구
+      ZK.5(난이도 밴드)를 ZK.3 창에 흡수, "활성화=최후 커밋" 원칙 명문화
+      (활성-미강제 틈 제거), 후속 재번호(ZK.4 miner→ZK.7 삭제) ③ checker
+      배포물 전수 갱신 목록(sums 스크립트 FILES 하드코딩·SHA256SUMS·README
+      지문·release 계약 테스트) + helper 경로 Boole/Family/로 정정 ④ "위조
+      불가" 표현 폐기 → "잘못된 witness를 싸고 결정적으로 거절" +
+      underconstraint 정의(공개 입출력·유일성 범위)를 ADR 9항으로 ⑤ 후반
+      slice 9-필드 전수 보충. lessons.md에 재발 방지 규칙 5건 기록.
 - [ ] 다음: ZK.0 오프체인 스파이크 착수 (로컬 솔버/모델만 — paid 금지)
