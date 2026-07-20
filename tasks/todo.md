@@ -1751,3 +1751,30 @@ P단계(package 전체 검증)를 절대 혼동 금지.
       REDESIGN 회귀. 착수는 운영자 승인 대기.
 - [ ] 재설계 ③ (1단계 통과 시에만): 최소 ZK 라이브러리(유한체+간단 회로만)
       + 소형 LLM 스파이크. 전 과정 코드·합의·checker pin·기존 Base 무변경.
+
+---
+
+# §ZK-POR — zk-proof-or-refute.v0 Phase 0 (2026-07-20, 운영자 지시문 "시작해")
+
+- [x] 사전등록 결정 5건 + 실험자-참가자 규율 동결
+      (`local-docs/zk-proof-or-refute-phase0-prereg-2026-07-20.md`): 제출물
+      문법 계약(∀+전제→결론, 반례=값+전제성립증명+결론부정증명 3종, 중첩
+      existential 제외) / 모델 등급(AUTO·gemma4:26b·claude-fable-5=본 CLI,
+      Claude 출력은 S3 전용·S9 학습 제외→C·D 둘 다 로컬 모델) / 킬 순서
+      S0→S1→S2→S4/S5→S3→S6/S7→S8→S9 / 30문제 파일럿 / S9 중앙 합성 C 정의.
+- [x] 하네스 `scripts/bench/zk_proof_or_refute_phase0/`: protocol-owned ZK
+      라이브러리(Fp·비트·range·boolean·다항식·R1CS) + 커널 검증 기초 정리
+      20개(pinned v4.29.1, 기존 checker 무변경) / 결정적 mutation 생성기
+      (라벨·증명·반례 미심음) / 독립 brute-force oracle(측정 전용) / 실제
+      intake 규율 Lean 검증기 / 고정 자동화 포트폴리오 + S1 구조 공격자.
+- [x] **판정: NO-GO — zk-proof-or-refute.v0 (후보 한정, S2 조기 종료)**.
+      S0 PASS(결정성) / S1 PASS(구조 공격자 라벨 정확도 0.65 < 다수 0.72 <
+      임계 0.90 — 누출 약함) / **S2 FAIL(자동화 92%, 전 밴드 ≥90%, 라벨 100%
+      판정 — 임계 50%)**. 근본 원인: 소형 유계-산술 ZK 라이브러리는 결정절차
+      (omega/decide+열거)의 본진이라 자동화가 천장을 침 — 자동화 압도 난이도는
+      무계·비선형·중첩 existential에서만 나오나 사전등록 v0가 배제(동결). S3~S9
+      = `not_run_due_to_preregistered_early_kill`. "모든 유용 Family 불가능"
+      확대 금지. 보고서 `local-docs/zk-proof-or-refute-phase0-report.md`, raw
+      `...-raw-2026-07-20.json`. 재도전은 범위 확장(무계/회로 충족성)의 신규
+      사전등록 필요 — 본 판정 사후 수정 아님. 코드·합의·checker pin·기존 Base
+      무변경.
