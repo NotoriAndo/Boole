@@ -95,11 +95,24 @@ pub(crate) fn derive_bounty_events(
     Ok((credits, shares))
 }
 
+/// BF.0 — runtime-only useful-work scaffold switch. `Disabled` is the
+/// default and must leave every consensus surface and on-disk footprint
+/// byte-identical to a pre-BF node; `TestnetScaffold` is an explicit
+/// closed-testnet opt-in for the future useful-work lane. This mode is
+/// never part of the genesis surface or the block hash preimage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UsefulBaseMode {
+    #[default]
+    Disabled,
+    TestnetScaffold,
+}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
     pub policy: CalibrationPolicy,
     pub admission_window_ms: i64,
     pub difficulty_retarget: Option<DifficultyRetargetPolicy>,
+    pub useful_base_mode: UsefulBaseMode,
 }
 
 impl RuntimeConfig {
@@ -154,6 +167,7 @@ impl RuntimeConfig {
             policy: calibration_policy(&report)?,
             admission_window_ms,
             difficulty_retarget: None,
+            useful_base_mode: UsefulBaseMode::Disabled,
         })
     }
 
@@ -164,6 +178,12 @@ impl RuntimeConfig {
         policy.validate().map_err(|err| err.to_string())?;
         self.difficulty_retarget = Some(policy);
         Ok(self)
+    }
+
+    /// BF.0 — explicit opt-in only; nothing in the runtime reads this yet.
+    pub fn with_useful_base_mode(mut self, mode: UsefulBaseMode) -> Self {
+        self.useful_base_mode = mode;
+        self
     }
 }
 
