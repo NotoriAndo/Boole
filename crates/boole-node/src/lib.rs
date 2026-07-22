@@ -62,7 +62,7 @@ pub use reputation_store::{
     FileReputationLedger, PersistedReputationEvent, REPUTATION_EVENT_SCHEMA,
 };
 pub use reward_store::{verify_ledger_matches_replay, FileRewardLedger};
-pub use runtime::{ReorgOutcome, RuntimeAdmissionState, RuntimeConfig};
+pub use runtime::{ReorgOutcome, RuntimeAdmissionState, RuntimeConfig, UsefulBaseMode};
 pub use runtime_smoke::{
     run_runtime_smoke, run_runtime_smoke_multi_scenario, run_runtime_smoke_scenario,
     run_runtime_smoke_scenario_file, RuntimeSmokeBlockOutput, RuntimeSmokeInput,
