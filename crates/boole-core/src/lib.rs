@@ -38,6 +38,7 @@ pub mod signed_envelope;
 pub mod submission_pow;
 pub mod submit_receipt_audit;
 pub mod telemetry;
+pub mod useful_work;
 pub mod validator;
 pub mod vault;
 pub mod work_manifest;
