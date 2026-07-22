@@ -1,0 +1,152 @@
+{
+  "authority": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "domain": "boole.useful-work.registry.v0",
+  "entries": [
+    {
+      "eligible": true,
+      "source": {
+        "kind": "protocolKLadder",
+        "ladderId": "k-ladder-sumcheck",
+        "step": 3
+      },
+      "specFidelity": "strictAudited",
+      "task": {
+        "componentId": "full-round",
+        "propertyId": "constraint-completeness",
+        "specId": "k-ladder-sumcheck-step3",
+        "specVersion": 1,
+        "taskKind": {
+          "inputArtifactDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": "auditExisting",
+          "targetReleaseDigest": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "variantId": "v1"
+      }
+    },
+    {
+      "eligible": true,
+      "source": {
+        "commit": "7777777777777777777777777777777777777777",
+        "kind": "pinnedZkRelease",
+        "license": "GPL-3.0",
+        "repoUrl": "https://github.com/iden3/circomlib",
+        "sourceHash": "8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "specFidelity": "strictAudited",
+      "task": {
+        "componentId": "full-round",
+        "propertyId": "constraint-completeness",
+        "specId": "poseidon-circomlib",
+        "specVersion": 1,
+        "taskKind": {
+          "inputArtifactDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": "auditExisting",
+          "targetReleaseDigest": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "variantId": "circom-bn254"
+      }
+    },
+    {
+      "eligible": true,
+      "source": {
+        "adapterCardId": "fflonk-round-trip-r5",
+        "goldenDigest": "9999999999999999999999999999999999999999999999999999999999999999",
+        "kind": "strictReadyAdapter"
+      },
+      "specFidelity": "strictAudited",
+      "task": {
+        "componentId": "full-round",
+        "propertyId": "constraint-completeness",
+        "specId": "fflonk-serialization",
+        "specVersion": 1,
+        "taskKind": {
+          "inputArtifactDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": "auditExisting",
+          "targetReleaseDigest": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "variantId": "r5-card"
+      }
+    }
+  ],
+  "expectedEligibleTaskIds": [
+    "59633dd3407eeb8cc850186a3cfe200ce41856bbf52807ce434eb1995ac448c7",
+    "5ae3d2152aa1b8dd3c9bca6fc1d2dc72fb98919b6a90abab2d0e9c4495988248",
+    "81993cb886f410563e93fda9ebf7352bc0f3d1309f08090f5f7928e2d35d624a"
+  ],
+  "expectedRegistryRoot": "c098a5bbc10dc7d9a39693ffa0f2b939c1852a64ce522b71ef5b1873501e37b6",
+  "rejectedEntries": [
+    {
+      "entry": {
+        "eligible": true,
+        "source": {
+          "kind": "communityUpload",
+          "url": "https://example.com"
+        },
+        "specFidelity": "strictAudited",
+        "task": {
+          "componentId": "full-round",
+          "propertyId": "constraint-completeness",
+          "specId": "spec-x",
+          "specVersion": 1,
+          "taskKind": {
+            "inputArtifactDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "kind": "auditExisting",
+            "targetReleaseDigest": "2222222222222222222222222222222222222222222222222222222222222222"
+          },
+          "variantId": "v1"
+        }
+      },
+      "reason": "unknown-task-source"
+    },
+    {
+      "entry": {
+        "eligible": true,
+        "source": {
+          "commit": "main",
+          "kind": "pinnedZkRelease",
+          "license": "GPL-3.0",
+          "repoUrl": "https://github.com/iden3/circomlib",
+          "sourceHash": "8888888888888888888888888888888888888888888888888888888888888888"
+        },
+        "specFidelity": "strictAudited",
+        "task": {
+          "componentId": "full-round",
+          "propertyId": "constraint-completeness",
+          "specId": "spec-y",
+          "specVersion": 1,
+          "taskKind": {
+            "inputArtifactDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "kind": "auditExisting",
+            "targetReleaseDigest": "2222222222222222222222222222222222222222222222222222222222222222"
+          },
+          "variantId": "v1"
+        }
+      },
+      "reason": "invalid-commit"
+    },
+    {
+      "entry": {
+        "eligible": true,
+        "source": {
+          "adapterCardId": "fflonk-round-trip-r5",
+          "goldenDigest": "9999999999999999999999999999999999999999999999999999999999999999",
+          "kind": "strictReadyAdapter"
+        },
+        "specFidelity": "pending",
+        "task": {
+          "componentId": "full-round",
+          "propertyId": "constraint-completeness",
+          "specId": "spec-z",
+          "specVersion": 1,
+          "taskKind": {
+            "inputArtifactDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+            "kind": "auditExisting",
+            "targetReleaseDigest": "2222222222222222222222222222222222222222222222222222222222222222"
+          },
+          "variantId": "v1"
+        }
+      },
+      "reason": "eligible-requires-strict-audit"
+    }
+  ]
+}
