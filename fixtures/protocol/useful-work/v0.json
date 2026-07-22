@@ -1,0 +1,89 @@
+{
+  "domain": "boole.useful-work.v0",
+  "rejectedTasks": [
+    {
+      "reason": "build-new-carries-digest",
+      "task": {
+        "componentId": "verifier-equation",
+        "propertyId": "acceptance-soundness",
+        "specId": "groth16-paper-3.2",
+        "specVersion": 1,
+        "taskKind": {
+          "inputArtifactDigest": "3333333333333333333333333333333333333333333333333333333333333333",
+          "kind": "buildNew"
+        },
+        "variantId": "bn254"
+      }
+    },
+    {
+      "reason": "audit-existing-missing-digest",
+      "task": {
+        "componentId": "full-round",
+        "propertyId": "constraint-completeness",
+        "specId": "poseidon-circomlib",
+        "specVersion": 2,
+        "taskKind": {
+          "inputArtifactDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": "auditExisting"
+        },
+        "variantId": "circom-bn254"
+      }
+    },
+    {
+      "reason": "unknown-task-kind",
+      "task": {
+        "componentId": "verifier-equation",
+        "propertyId": "acceptance-soundness",
+        "specId": "groth16-paper-3.2",
+        "specVersion": 1,
+        "taskKind": {
+          "kind": "governanceOverride"
+        },
+        "variantId": "bn254"
+      }
+    }
+  ],
+  "validSubmissions": [
+    {
+      "expectedSubmissionId": "55174b97f61f500456bf7cd9a2af0e120f8ea7461e50c9aec2918b209e878d01",
+      "submission": {
+        "artifactRoot": "7171717171717171717171717171717171717171717171717171717171717171",
+        "implementationDigest": "5252525252525252525252525252525252525252525252525252525252525252",
+        "releaseDigest": "5353535353535353535353535353535353535353535353535353535353535353",
+        "rewardPk": "6161616161616161616161616161616161616161616161616161616161616161",
+        "sourceRoot": "5151515151515151515151515151515151515151515151515151515151515151",
+        "taskId": "79aeac9dfce5309924462487e682925435d7cca285cea5cfc87658499aea128d"
+      }
+    }
+  ],
+  "validTasks": [
+    {
+      "expectedTaskId": "caf0b35865044793b60e4166a41f68ca3c515395251744cac284590308923355",
+      "task": {
+        "componentId": "verifier-equation",
+        "propertyId": "acceptance-soundness",
+        "specId": "groth16-paper-3.2",
+        "specVersion": 1,
+        "taskKind": {
+          "kind": "buildNew"
+        },
+        "variantId": "bn254"
+      }
+    },
+    {
+      "expectedTaskId": "79aeac9dfce5309924462487e682925435d7cca285cea5cfc87658499aea128d",
+      "task": {
+        "componentId": "full-round",
+        "propertyId": "constraint-completeness",
+        "specId": "poseidon-circomlib",
+        "specVersion": 2,
+        "taskKind": {
+          "inputArtifactDigest": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": "auditExisting",
+          "targetReleaseDigest": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "variantId": "circom-bn254"
+      }
+    }
+  ]
+}
