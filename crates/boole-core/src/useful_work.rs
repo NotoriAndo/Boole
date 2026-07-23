@@ -138,7 +138,7 @@ fn digest(value: &str, field: &'static str) -> Result<Hex32, UsefulWorkError> {
 
 /// Length-prefixed field framing: no two distinct field sequences share
 /// canonical bytes (prevents concatenation-boundary collisions).
-fn push_field(out: &mut Vec<u8>, field: &[u8]) {
+pub(crate) fn push_field(out: &mut Vec<u8>, field: &[u8]) {
     out.extend_from_slice(&(field.len() as u64).to_le_bytes());
     out.extend_from_slice(field);
 }
