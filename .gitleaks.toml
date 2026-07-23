@@ -1,0 +1,17 @@
+# Gitleaks config — extends the default ruleset unchanged except for the
+# allowlist below.
+#
+# BF.5-pre: `fixtures/useful-product/golden/` holds pinned PUBLIC
+# experiment artifacts (closed-local test reward keys, proofs,
+# verification keys). The 64-hex "reward_key" values there are protocol
+# test identities, not credentials; the bytes are integrity-pinned by
+# the fixture's SHA256SUMS and release roots, so they cannot be
+# rewritten to dodge the scanner. Scope is this one directory — every
+# other path keeps the full default ruleset.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Pinned public useful-product golden fixtures (BF.5-pre) — public test values, integrity enforced by SHA256SUMS"
+paths = ['''fixtures/useful-product/golden/.*''']
