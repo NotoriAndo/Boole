@@ -1,0 +1,54 @@
+{
+  "circom": {
+    "version": "2.2.3",
+    "path": "/private/tmp/boole-circom-v2.2.3/target/release/circom",
+    "hashed_files": [
+      {
+        "path": "/private/tmp/boole-circom-v2.2.3/target/release/circom",
+        "sha256": "63f8143904a89f822d8d0796aa9d7f85537ad0d641b419af7fdcf34591302f2a"
+      }
+    ]
+  },
+  "node": {
+    "version": "v22.22.0",
+    "path": "/opt/homebrew/opt/node@22/bin/node",
+    "hashed_files": [
+      {
+        "path": "/opt/homebrew/opt/node@22/bin/node",
+        "sha256": "0f1358a1834ae9daef46498df00c418b9152045fd9b58f53d8234c4b63f7e92c"
+      }
+    ]
+  },
+  "snarkjs": {
+    "version": "0.7.6",
+    "path": "/Users/seoyong/projects/Boole/local-docs/zk-ladder-p5-product-bridge-2026-07-21/node_modules/.bin/snarkjs",
+    "module_path": "/Users/seoyong/projects/Boole/local-docs/zk-ladder-p5-product-bridge-2026-07-21/node_modules/snarkjs",
+    "hashed_files": [
+      {
+        "path": "/Users/seoyong/projects/Boole/local-docs/zk-ladder-p5-product-bridge-2026-07-21/node_modules/snarkjs/package.json",
+        "sha256": "c13e8b41f857ec6f78d7476d44eb3132ae19a2a75ddaee893ea7c88610a58ec8"
+      },
+      {
+        "path": "/Users/seoyong/projects/Boole/local-docs/zk-ladder-p5-product-bridge-2026-07-21/node_modules/snarkjs/build/cli.cjs",
+        "sha256": "6d787e37a4d1a2c6dd6032dadca09c0b3b007d4d4578bb6232a98136555d051a"
+      }
+    ]
+  },
+  "solc": {
+    "version": "0.8.30+commit.73712a01.Emscripten.clang",
+    "hashed_files": [
+      {
+        "path": "/Users/seoyong/projects/Boole/local-docs/supply-chain-fidelity-p0-2026-07-22/node_modules/solc/package.json",
+        "sha256": "d3059631769ee89e919b784e84566f7853300d5353b624f348d567577cf5c384"
+      },
+      {
+        "path": "/Users/seoyong/projects/Boole/local-docs/supply-chain-fidelity-p0-2026-07-22/node_modules/solc/soljson.js",
+        "sha256": "3bb491a777f76dff9b2fe73ce29ca20e21a971b59a2f2cf8f73415424f00be06"
+      },
+      {
+        "path": "/Users/seoyong/projects/Boole/local-docs/supply-chain-fidelity-p0-2026-07-22/pnpm-lock.yaml",
+        "sha256": "fb916008b76005c4eaa48a8c178bbdbeef36e0bd8f7fcc17f96059ff563b3332"
+      }
+    ]
+  }
+}

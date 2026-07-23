@@ -1,0 +1,15 @@
+{
+  "task_id": "boole:p7-quadrivariate-round:v0",
+  "epoch": "p0-2026-07-22",
+  "run_label": "strong-r1",
+  "model": "gpt-5.6-sol",
+  "reward_key": "2e48e3a2554df242cdcf05ece963606b12f364bd6e18b920b8830e1525b8d475",
+  "lean_seconds": 2.274225708,
+  "circuit_check_seconds": 1.7356492920000002,
+  "toolchain": {
+    "circom": "2.2.3",
+    "snarkjs": "0.7.6",
+    "solc": "0.8.30",
+    "node": "v22.22.0"
+  }
+}

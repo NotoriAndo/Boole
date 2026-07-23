@@ -1,0 +1,37 @@
+{
+  "schema": "boole.zk-release-contract.v0",
+  "task_id": "boole-poseidon-bn254-t3-release-v0",
+  "epoch": 0,
+  "reward_pk": "b001eb001eb001eb001eb001eb001eb001eb001eb001eb001eb001eb001eb001e",
+  "semantic_variant_id": "poseidon:96f432a388cb31a9b6947f29",
+  "source_provenance": {
+    "repository": "iden3/circomlib",
+    "commit": "35e54ea21da3e8762557234298dbb553c175ea8d"
+  },
+  "expected_input": [1, 2],
+  "expected_public_output": "7853200120776062878684798364095072458815029376092732009249414926327459813530",
+  "toolchain_lock_sha256": "47a2aea87f06989fd1c6ce7b871c8981da5f4e8f64ebd232926c2b9cc4d402d7",
+  "source_files": {
+    "source/main.circom": "c0e22729c16dac55d6777c5d01bc2e076e7c2cd2e4b4661db17a90b9e8eeab4c",
+    "source/poseidon.circom": "2582464669b69827164bd08ee0337997e1957f2ab4f00cdd86d533ca5e9d9234",
+    "source/poseidon_constants.circom": "94c9e4b5ea891ab4d1ba626f1d719f8c661014d9b628f6096c803f75f39e3eee"
+  },
+  "circom": {
+    "version": "2.2.3",
+    "binary_sha256": "63f8143904a89f822d8d0796aa9d7f85537ad0d641b419af7fdcf34591302f2a",
+    "flags": ["--r1cs", "--wasm", "--sym", "--O0", "--inspect"],
+    "field": "bn128"
+  },
+  "node": {
+    "version": "v22.22.0"
+  },
+  "snarkjs": {
+    "version": "0.7.6"
+  },
+  "solc": {
+    "package_version": "0.8.30",
+    "optimizer": false,
+    "metadata_bytecode_hash": "none",
+    "evm_version": "paris"
+  }
+}

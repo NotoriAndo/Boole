@@ -1,0 +1,29 @@
+{
+  "label": "strong-r1",
+  "model": "gpt-5.6-sol",
+  "accepted": true,
+  "package_seconds": 3.299000916,
+  "payload_bytes": 68152,
+  "files": 15,
+  "release_root": "cd4d71aadfba857f5662b426a1f27a788b1ba1bc5ed9303286188de88f06ed54",
+  "manifest_valid": true,
+  "reward_swap_rejected": true,
+  "groth16_verified": true,
+  "evm": {
+    "accepted": true,
+    "deployment_status": 1,
+    "deployment_gas": "433851",
+    "address": "0xe78A0F7E598Cc8b0Bb87894B0F60dD2a88d6a8Ab",
+    "runtime_bytes": 1762,
+    "runtime_sha256": "072fc27aad33d1dcd4cf473fe985f0fe013c570964825064dd68ee1d04ee1c72",
+    "runtime_exact": true,
+    "honest": {
+      "accepted": true,
+      "reverted": false
+    },
+    "changed_public": {
+      "accepted": false,
+      "reverted": false
+    }
+  }
+}
