@@ -1,0 +1,17 @@
+{
+  "accepted": true,
+  "deployment_status": 1,
+  "deployment_gas": "433851",
+  "address": "0xe78A0F7E598Cc8b0Bb87894B0F60dD2a88d6a8Ab",
+  "runtime_bytes": 1762,
+  "runtime_sha256": "072fc27aad33d1dcd4cf473fe985f0fe013c570964825064dd68ee1d04ee1c72",
+  "runtime_exact": true,
+  "honest": {
+    "accepted": true,
+    "reverted": false
+  },
+  "changed_public": {
+    "accepted": false,
+    "reverted": false
+  }
+}

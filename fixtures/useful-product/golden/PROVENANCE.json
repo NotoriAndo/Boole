@@ -1,0 +1,52 @@
+{
+  "domain": "boole.useful-work.golden-fixtures.v0",
+  "importRule": "files <= 64 KiB are imported; larger release files stay hash references pinned by the packet's own manifest.json",
+  "ciRule": "CI golden input is ONLY this directory - tests must never read local-docs (BF.5 rule)",
+  "items": [
+    {
+      "id": "adapter-r5-gnark-crypto",
+      "description": "ADAPTER-P0-R5 strict-blind-passed serialization_binding card (vector length bound contract)",
+      "origin": "upstream",
+      "upstream": {
+        "repository": "https://github.com/Consensys/gnark-crypto",
+        "commit": "d2be131b61e30f5a786edc721c48b9cbc9228572",
+        "path": "ecc/grumpkin/marshal.go"
+      },
+      "license": "Apache-2.0",
+      "licenseFile": "licenses/LICENSE-Apache-2.0.txt",
+      "localSource": "local-docs/adapter-p0-r5-2026-07-22/r5-card.json",
+      "anchors": {
+        "adapterId": "4578fde8cec5ac6f6f857276e8a6a3c508ce8038be7a59ba17cbec048238f3af"
+      }
+    },
+    {
+      "id": "llm-mining-strong-r1",
+      "description": "LLM-MINING-P0 strong-model GO product: full 15-file release package (Lean proof + Circom + Groth16 + Solidity verifier + EVM result)",
+      "origin": "boole-closed-experiment",
+      "experiment": "local-docs/llm-mining-p0-2026-07-22 (run strong-r1, model gpt-5.6-sol)",
+      "license": "Apache-2.0 AND GPL-3.0",
+      "licenseNote": "LLM-written Lean/Circom sources under the repo Apache-2.0; snarkjs-generated Verifier.sol carries its own GPL-3.0 SPDX header",
+      "licenseFile": "licenses/LICENSE-GPL-3.0.txt",
+      "localSource": "local-docs/llm-mining-p0-2026-07-22/llm-runs/strong-r1/product",
+      "anchors": {
+        "releaseRoot": "cd4d71aadfba857f5662b426a1f27a788b1ba1bc5ed9303286188de88f06ed54"
+      }
+    },
+    {
+      "id": "supply-chain-poseidon",
+      "description": "SUPPLY-CHAIN-FIDELITY-P0 GO release: circomlib Poseidon -> R1CS/WASM -> Groth16 -> Solidity -> EVM (small files imported, large artifacts hash-referenced)",
+      "origin": "upstream",
+      "upstream": {
+        "repository": "https://github.com/iden3/circomlib",
+        "commit": "35e54ea21da3e8762557234298dbb553c175ea8d",
+        "path": "circuits/poseidon.circom"
+      },
+      "license": "GPL-3.0",
+      "licenseFile": "licenses/LICENSE-GPL-3.0.txt",
+      "localSource": "local-docs/supply-chain-fidelity-p0-2026-07-22/package",
+      "anchors": {
+        "releaseRoot": "c90f29a1992f4d51d38de4cbecae270ff76e91d15b96910e7b182092a8c62c0a"
+      }
+    }
+  ]
+}

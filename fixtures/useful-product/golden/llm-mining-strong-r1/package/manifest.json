@@ -1,0 +1,86 @@
+{
+  "schema": "boole.llm-mining-product.v0",
+  "task_id": "boole:p7-quadrivariate-round:v0",
+  "epoch": "p0-2026-07-22",
+  "run_label": "strong-r1",
+  "model": "gpt-5.6-sol",
+  "reward_key": "2e48e3a2554df242cdcf05ece963606b12f364bd6e18b920b8830e1525b8d475",
+  "files": [
+    {
+      "path": "artifacts/main.r1cs",
+      "bytes": 956,
+      "sha256": "86b82ca723eae903bd30e1b7220a9ba3e4e13e0f52b3700916d25daeec731b28"
+    },
+    {
+      "path": "artifacts/main.sym",
+      "bytes": 193,
+      "sha256": "24cb9c829593bbb22c1175e8e26f5bb616ba7a9a68a539a2c834d514d37a77d1"
+    },
+    {
+      "path": "artifacts/main.wasm",
+      "bytes": 34731,
+      "sha256": "aafddd2acb2b750cf4f64ae7160bef0f1bac75657e6a1dea99ed7f7c17558d8b"
+    },
+    {
+      "path": "artifacts/valid.wtns",
+      "bytes": 428,
+      "sha256": "bde32e277589390f5adf6a56885906ee17060b986b02af30164f314be3b57492"
+    },
+    {
+      "path": "deploy/Verifier.sol",
+      "bytes": 8225,
+      "sha256": "d34513ec7dcb3a4e8eae2c9e5a17c7e555e38a033bff29544589f0e3ba63c486"
+    },
+    {
+      "path": "deploy/deployment.json",
+      "bytes": 8618,
+      "sha256": "2d65894a710d7c4c0f00c05f259237c7a09a6122f0982e6daa4c4e9c36dc2edf"
+    },
+    {
+      "path": "deploy/verification_key.json",
+      "bytes": 3475,
+      "sha256": "092ffb18b26c5f23a75da0c59ffc3fa7067a1fd2321f7b5b50c7f3d1ce3b9fe2"
+    },
+    {
+      "path": "meta/contract.json",
+      "bytes": 409,
+      "sha256": "abaeb47b29a961d4ac3591c95a8a14d582a4468479c08a679c00ecca80613e39"
+    },
+    {
+      "path": "meta/input.json",
+      "bytes": 97,
+      "sha256": "c955d1bcd660f51fa374395e72662d28dd86b683c3b2fed59afde35d53757ee7"
+    },
+    {
+      "path": "proof/evm-result.json",
+      "bytes": 411,
+      "sha256": "ad0a3dd674da8bb4993041147de291812c4370ab438f1870973908056aee707a"
+    },
+    {
+      "path": "proof/proof.json",
+      "bytes": 805,
+      "sha256": "1670bcd10c3d702bac6143927707038869ab5a9e91c1ee1323ac331833a95a9d"
+    },
+    {
+      "path": "proof/public.json",
+      "bytes": 30,
+      "sha256": "546d1b3a2d065602a6b894b6a32693e33d2f91722fda83a21ee8e80d1e707bf2"
+    },
+    {
+      "path": "setup/main_final.zkey",
+      "bytes": 6324,
+      "sha256": "05c1d3f49b8d946eca4407697740242c60f020867b4fa80e551ba82d228dc294"
+    },
+    {
+      "path": "source/Submission.lean",
+      "bytes": 2848,
+      "sha256": "d68ee430290395552ad7816d1914b3e45cde91f51930a59d55a4bdc14df3f764"
+    },
+    {
+      "path": "source/main.circom",
+      "bytes": 602,
+      "sha256": "47cff948b66f504e5e1e3fcddf2708a6d8bd7d782de98e008fbd75cbcf2919bd"
+    }
+  ],
+  "release_root": "cd4d71aadfba857f5662b426a1f27a788b1ba1bc5ed9303286188de88f06ed54"
+}
