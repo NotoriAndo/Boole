@@ -24,6 +24,10 @@ P1.2 closure note: the contract enumerates EVERY NDJSON append ledger so
 a new on-disk write site cannot ship without joining the durable path.
 `signed_nonce_ledger.rs` (the P1.6b per-signer nonce burn ledger) was the
 last live append store missing from this set; it is now pinned here.
+
+BF.4: `useful_work_store.rs` (useful-work event log + spent mirror)
+joins the set — it reuses the shared durable-append helper and the
+stable-prefix recover path from day one.
 """
 from __future__ import annotations
 
@@ -44,6 +48,7 @@ DURABLE_STORES = {
     "bounty_event_store.rs",
     "signed_nonce_ledger.rs",
     "proof_dedup_ledger.rs",
+    "useful_work_store.rs",
 }
 
 
