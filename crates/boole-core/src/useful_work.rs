@@ -19,9 +19,13 @@ use thiserror::Error;
 use crate::hash::{h_protocol, Hex32};
 
 /// Domain tags — task and submission identities must never collide even
-/// on identical canonical bytes (C2 domain separation).
+/// on identical canonical bytes (C2 domain separation). The assignment
+/// and commitment domains are deliberately distinct from the hash-lane
+/// `target_seed` domains (BF.2 conflict rule: no name/domain sharing).
 const TASK_ID_DOMAIN: &[u8] = b"boole.useful-work.task-id.v0";
 const SUBMISSION_ID_DOMAIN: &[u8] = b"boole.useful-work.submission-id.v0";
+const ASSIGNMENT_DOMAIN: &[u8] = b"boole.useful-work.assignment.v0";
+const COMMITMENT_DOMAIN: &[u8] = b"boole.useful-work.commitment.v0";
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum UsefulWorkError {
@@ -315,4 +319,209 @@ pub fn transition(state: TaskState, event: TaskEvent) -> Result<TaskState, TaskT
         (Registered, Expire) | (Assigned, Expire) | (Committed, Expire) => Ok(Expired),
         (from, event) => Err(TaskTransitionError::InvalidTransition { from, event }),
     }
+}
+
+// ---------------------------------------------------------------------
+// BF.2 — pre-registration, forced assignment, result commitment
+// ---------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum AssignmentError {
+    #[error("ticket has no mock issuance record")]
+    TicketNotIssued,
+    #[error("ticket already spent this epoch")]
+    TicketAlreadySpent,
+    #[error("eligible list is not sorted by task_id ascending")]
+    EligibleListNotSorted,
+    #[error("weight table must match the eligible list with a positive total")]
+    InvalidWeightTable,
+    #[error("ticket id already issued")]
+    DuplicateTicketIssue,
+}
+
+impl AssignmentError {
+    /// Stable machine-readable label — part of the fixture contract.
+    pub fn label(&self) -> &'static str {
+        match self {
+            AssignmentError::TicketNotIssued => "ticket-not-issued",
+            AssignmentError::TicketAlreadySpent => "ticket-already-spent",
+            AssignmentError::EligibleListNotSorted => "eligible-list-not-sorted",
+            AssignmentError::InvalidWeightTable => "invalid-weight-table",
+            AssignmentError::DuplicateTicketIssue => "duplicate-ticket-issue",
+        }
+    }
+}
+
+/// C3 — the empty eligible list is a normal, typed outcome: no modulo is
+/// executed, no reward can arise, and the Hash lane keeps producing
+/// blocks. `NoEligibleTask` also leaves the ticket unspent (see
+/// [`settle_assignment`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssignmentOutcome {
+    Assigned { task_id: Hex32, task_index: u64 },
+    NoEligibleTask,
+}
+
+/// A1 — testnet-only mock ticket ledger: an issuance record plus a
+/// per-epoch spent set. What a ticket costs (currency, refunds, expiry)
+/// is deliberately NOT decided here — that is the Economic ADR's job.
+#[derive(Debug, Clone, Default)]
+pub struct MockTicketLedger {
+    issued: std::collections::BTreeMap<Hex32, u64>,
+    spent: std::collections::BTreeSet<(u64, Hex32)>,
+}
+
+impl MockTicketLedger {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn issue(&mut self, ticket_id: Hex32, epoch: u64) -> Result<(), AssignmentError> {
+        if self.issued.contains_key(&ticket_id) {
+            return Err(AssignmentError::DuplicateTicketIssue);
+        }
+        self.issued.insert(ticket_id, epoch);
+        Ok(())
+    }
+
+    pub fn is_issued(&self, ticket_id: &Hex32) -> bool {
+        self.issued.contains_key(ticket_id)
+    }
+
+    pub fn is_spent(&self, ticket_id: &Hex32, epoch: u64) -> bool {
+        self.spent.contains(&(epoch, *ticket_id))
+    }
+}
+
+fn require_sorted(eligible_tasks: &[TaskSpecIdentity]) -> Result<(), AssignmentError> {
+    let sorted = eligible_tasks
+        .windows(2)
+        .all(|pair| pair[0].task_id() <= pair[1].task_id());
+    if !sorted {
+        return Err(AssignmentError::EligibleListNotSorted);
+    }
+    Ok(())
+}
+
+fn assignment_draw(epoch_seed: &Hex32, ticket_id: &Hex32) -> u128 {
+    let mut bytes = Vec::new();
+    push_field(&mut bytes, epoch_seed.as_bytes());
+    push_field(&mut bytes, ticket_id.as_bytes());
+    let digest = h_protocol(ASSIGNMENT_DOMAIN, &[&bytes]);
+    let mut head = [0u8; 16];
+    head.copy_from_slice(&digest.as_bytes()[..16]);
+    u128::from_be_bytes(head)
+}
+
+/// B2 — forced assignment: `task_index = H(domain ‖ epoch_seed ‖
+/// ticket_id) mod eligible_tasks.length`, `assigned_task =
+/// eligible_tasks[task_index]`. **`task_id` is the assignment result,
+/// never a hash input** — the hash has no miner-chosen variable, so
+/// trying different tasks (min(N) cherry-picking) is structurally
+/// absent; the only lever is another prepaid ticket. Assignment is per
+/// ticket, not per pk: Sybil keys buy nothing.
+///
+/// `eligible_tasks` must be the BF.1a frozen list in its published
+/// task_id-ascending order — enforced, not assumed, so every node
+/// re-derives the identical assignment.
+pub fn assign_task(
+    epoch_seed: &Hex32,
+    ticket_id: &Hex32,
+    eligible_tasks: &[TaskSpecIdentity],
+    ledger: &MockTicketLedger,
+) -> Result<AssignmentOutcome, AssignmentError> {
+    if !ledger.is_issued(ticket_id) {
+        return Err(AssignmentError::TicketNotIssued);
+    }
+    require_sorted(eligible_tasks)?;
+    if eligible_tasks.is_empty() {
+        return Ok(AssignmentOutcome::NoEligibleTask);
+    }
+    let index = (assignment_draw(epoch_seed, ticket_id) % eligible_tasks.len() as u128) as u64;
+    Ok(AssignmentOutcome::Assigned {
+        task_id: eligible_tasks[index as usize].task_id(),
+        task_index: index,
+    })
+}
+
+/// B2 — weighted variant: only a deterministic weight table frozen
+/// BEFORE the seed is allowed; the table must cover the eligible list
+/// exactly and have a positive total.
+pub fn assign_task_weighted(
+    epoch_seed: &Hex32,
+    ticket_id: &Hex32,
+    eligible_tasks: &[TaskSpecIdentity],
+    weights: &[u64],
+    ledger: &MockTicketLedger,
+) -> Result<AssignmentOutcome, AssignmentError> {
+    if !ledger.is_issued(ticket_id) {
+        return Err(AssignmentError::TicketNotIssued);
+    }
+    require_sorted(eligible_tasks)?;
+    if eligible_tasks.is_empty() {
+        return Ok(AssignmentOutcome::NoEligibleTask);
+    }
+    if weights.len() != eligible_tasks.len() {
+        return Err(AssignmentError::InvalidWeightTable);
+    }
+    let total: u128 = weights.iter().map(|w| *w as u128).sum();
+    if total == 0 {
+        return Err(AssignmentError::InvalidWeightTable);
+    }
+    let mut draw = assignment_draw(epoch_seed, ticket_id) % total;
+    for (index, weight) in weights.iter().enumerate() {
+        let weight = *weight as u128;
+        if draw < weight {
+            return Ok(AssignmentOutcome::Assigned {
+                task_id: eligible_tasks[index].task_id(),
+                task_index: index as u64,
+            });
+        }
+        draw -= weight;
+    }
+    unreachable!("draw < total by construction");
+}
+
+/// C3 — settlement: a ticket is spent only when it actually received a
+/// task. `NoEligibleTask` is a no-op — the ticket stays unspent and can
+/// be re-used next epoch; it is never burned and no reward can arise.
+pub fn settle_assignment(
+    ledger: &mut MockTicketLedger,
+    ticket_id: &Hex32,
+    epoch: u64,
+    outcome: &AssignmentOutcome,
+) -> Result<(), AssignmentError> {
+    match outcome {
+        AssignmentOutcome::NoEligibleTask => Ok(()),
+        AssignmentOutcome::Assigned { .. } => {
+            if ledger.is_spent(ticket_id, epoch) {
+                return Err(AssignmentError::TicketAlreadySpent);
+            }
+            ledger.spent.insert((epoch, *ticket_id));
+            Ok(())
+        }
+    }
+}
+
+/// C2 — result commitment: `H(domain ‖ task_id ‖ spec_version ‖ epoch ‖
+/// reward_pk ‖ submission_id ‖ nonce)`. The problem side is bound via
+/// `task_id`, the result side via `submission_id` (which already covers
+/// `artifact_root` without self-reference — see
+/// [`SubmissionIdentity::submission_id`]).
+pub fn result_commitment(
+    task_id: &Hex32,
+    spec_version: u32,
+    epoch: u64,
+    reward_pk: &Hex32,
+    submission_id: &Hex32,
+    nonce: &Hex32,
+) -> Hex32 {
+    let mut bytes = Vec::new();
+    push_field(&mut bytes, task_id.as_bytes());
+    push_field(&mut bytes, &spec_version.to_le_bytes());
+    push_field(&mut bytes, &epoch.to_le_bytes());
+    push_field(&mut bytes, reward_pk.as_bytes());
+    push_field(&mut bytes, submission_id.as_bytes());
+    push_field(&mut bytes, nonce.as_bytes());
+    h_protocol(COMMITMENT_DOMAIN, &[&bytes])
 }
