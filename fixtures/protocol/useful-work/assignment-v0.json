@@ -1,0 +1,82 @@
+{
+  "assignments": [
+    {
+      "expectedTaskId": "65e7c267e66d914d02ab6872919d75e9264eb6d8e8046e96b29e1e472b3699b1",
+      "expectedTaskIndex": 2,
+      "ticketId": "0101010101010101010101010101010101010101010101010101010101010101"
+    },
+    {
+      "expectedTaskId": "1f51c5272110a5f632fd3f5a23587acdcbb054238d83b70bfa0f11c2271d28a2",
+      "expectedTaskIndex": 1,
+      "ticketId": "0202020202020202020202020202020202020202020202020202020202020202"
+    },
+    {
+      "expectedTaskId": "a3cde1ec21083c03a19b82fce01d72fa31dc3f2610a37ddfdad18e3106ddae24",
+      "expectedTaskIndex": 3,
+      "ticketId": "0303030303030303030303030303030303030303030303030303030303030303"
+    }
+  ],
+  "commitment": {
+    "epoch": 7,
+    "expectedCommitment": "2226205410d4e6aabb18717e0654372d686371cf28c6403f58bc5ac77c7c3b5c",
+    "nonce": "5151515151515151515151515151515151515151515151515151515151515151",
+    "rewardPk": "3131313131313131313131313131313131313131313131313131313131313131",
+    "specVersion": 1,
+    "submissionId": "4141414141414141414141414141414141414141414141414141414141414141",
+    "taskId": "2121212121212121212121212121212121212121212121212121212121212121"
+  },
+  "domain": "boole.useful-work.assignment.v0",
+  "eligibleTasks": [
+    {
+      "componentId": "full-round",
+      "propertyId": "constraint-completeness",
+      "specId": "spec-01",
+      "specVersion": 1,
+      "taskKind": {
+        "kind": "buildNew"
+      },
+      "variantId": "v1"
+    },
+    {
+      "componentId": "full-round",
+      "propertyId": "constraint-completeness",
+      "specId": "spec-04",
+      "specVersion": 1,
+      "taskKind": {
+        "kind": "buildNew"
+      },
+      "variantId": "v1"
+    },
+    {
+      "componentId": "full-round",
+      "propertyId": "constraint-completeness",
+      "specId": "spec-03",
+      "specVersion": 1,
+      "taskKind": {
+        "kind": "buildNew"
+      },
+      "variantId": "v1"
+    },
+    {
+      "componentId": "full-round",
+      "propertyId": "constraint-completeness",
+      "specId": "spec-02",
+      "specVersion": 1,
+      "taskKind": {
+        "kind": "buildNew"
+      },
+      "variantId": "v1"
+    },
+    {
+      "componentId": "full-round",
+      "propertyId": "constraint-completeness",
+      "specId": "spec-00",
+      "specVersion": 1,
+      "taskKind": {
+        "kind": "buildNew"
+      },
+      "variantId": "v1"
+    }
+  ],
+  "epochSeed": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}
