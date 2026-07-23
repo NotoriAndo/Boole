@@ -24,6 +24,7 @@ mod runtime_smoke;
 mod session_store;
 mod signed_nonce_ledger;
 mod state_dir;
+mod useful_product_verifier;
 mod useful_work_store;
 mod work_manifest_store;
 
@@ -72,6 +73,10 @@ pub use runtime_smoke::{
 pub use session_store::FileSessionStore;
 pub use state_dir::{
     acquire as acquire_state_dir, ensure_manifest, StateDirError, StateDirGuard, StateManifest,
+};
+pub use useful_product_verifier::{
+    AdapterActivationError, AdapterActivationSet, DeterministicBudget, PacketAuditOutcome,
+    PacketAuditReject, PinnedPacketDigestAdapter, UsefulProductAdapter, RELEASE_DIGEST_BUDGET,
 };
 pub use useful_work_store::{
     FileUsefulWorkStore, RewardRecord, UsefulWorkEvent, USEFUL_WORK_STORE_FILE,
