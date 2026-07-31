@@ -2117,3 +2117,39 @@ c6e6730e…(3195). 상태 블록 손 편집 0 — 전부 사슬 기계가 갱신
       이행됐음을 확인. 누락 3건(raw-result-v4·rp7-v2·contract-v3)의
       필드 점검표를 addendum 기록으로 보완. 상태·판정 불변, 파일 바이트
       무변경. lessons.md에 "봉투 약속 줄 단위 재독" 규칙 추가.
+
+---
+
+# §OW: 관측 창 RP.2~RP.4 (OBSERVATION-WINDOW-RP2-4-P0, 2026-07-31)
+
+승인: 봉투 25acd622…(message 3257) → 이벤트 9491d87a…. 판정
+**RP2-4-COMPLETE-PAUSED-COST-REVIEW**.
+
+- [x] 무결성 — RP.1 동결물 72/72 재계산 + 오프라인 inventory 재생성
+      byte-identical (이전 저장소 3곳 재해결 흐름 재현).
+- [x] RP.2 — RED→GREEN 12/12, 전환 183 정규화(충돌 0·창세 제외 2·
+      체크포인트 예상 일치). 창세 체인 버그 1건 테스트가 잡음.
+- [x] 취득 — 스냅샷 199/199, 6.54GB(상한 20GB), 실패 0, 재개가능 fetcher.
+- [x] RP.3 — RED→GREEN 11/11, gross 17,548, 격리 118,460, 게이트 clean.
+      property 어휘 발명 시도가 동결 스키마 enum에 거절돼 판독으로 교체.
+- [x] RP.4 — RED→GREEN 11/11, 7관문 3상태: eligible 0(NEEDS_SPEC·budget
+      pending 반올림 없음), audit 풀 16,763, fail 785, 라이선스 결측 0.
+- [x] 중간보고 2 — checkpoint-rp4.md(§7.2 의무 수치 + RP.5 120 층화
+      표본 비용 추정) 발행 후 PAUSED-COST-REVIEW 정지. RP.5 미실행.
+- [x] 기록 observation-window-rp2-4.json(fab8439a…), 문서 4곳 갱신.
+
+## Review
+- **결과**: 유입 축 측정의 기계 구간 완주. eligible 0은 명세 결박 전의
+  정직한 상태 — RP.5(층화 120 표본 결박 시도)가 다음 관문.
+- **게이트**: LLM 0, 유료 0, 상태 블록 무접촉, 커밋 0, 상한 전부 준수.
+- **claim boundary**: gross≠공급. closed local 측정.
+
+## §OW 후속 메모 (2026-07-31)
+- 사슬 verify-final은 현재 coverage_gap(신규 작업 파일 미결박)으로
+  fail-closed — R12 설계상 "새 세대(v7) 필요" 정상 신호. 결박은 사슬
+  자체 승인 게이트가 있어 별도 진행(RP.5 봉투에 동반 또는 단독).
+  상태 블록·기존 세대 검증은 무영향.
+
+## §OW 후속 완료 — 사슬 v7 결박 (2026-07-31, proposal 4adbe961… 승인 3263)
+- [x] 신규 파일 15개 결박(값 변경 0) → 사슬 12세대, verify-final
+      **green 복원** (approved 203). 상태 블록 값 불변 재게시.
