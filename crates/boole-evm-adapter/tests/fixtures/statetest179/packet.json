@@ -1,0 +1,54 @@
+{
+  "adapter": "evm-statetest.v0",
+  "engine": {
+    "name": "ethereum-spec-evm",
+    "entrypoint": "t8n",
+    "source": "ethereum/execution-specs",
+    "commit": "2282c757b3699d506de112b8a48b6b538df7ed1f",
+    "describe": "tests@v20.0.1-14-g2282c757",
+    "python_package": "ethereum",
+    "python_package_version": "2.19.0"
+  },
+  "chain": {
+    "fork": "Cancun",
+    "chain_id": 1
+  },
+  "input_files": [
+    "alloc.json",
+    "env.json",
+    "txs.json"
+  ],
+  "input_digest": "sha256:6fbf6255820ef47b7302eb3f8fd9d8bab79a1ef58046eaa01a6b0858cc640b1a",
+  "expected": {
+    "post_alloc": {
+      "0x4f3f701464972e74606d6ea82d4d3080599a0e79": {
+        "balance": "0x2e",
+        "code": "0x6000355415600957005b60203560003555"
+      },
+      "0xb4749744885eb1b84835f2745a646f4ab9e60fd2": {
+        "balance": "0x5e6cf4ec",
+        "code": "0x7f00000000000000000000000100000000000000000000000000000000000000007f0000000000000000000000004f3f701464972e74606d6ea82d4d3080599a0e797fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe7f0000000000000000000000004f3f701464972e74606d6ea82d4d3080599a0e797fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f000000000000000000000000000000000000000000000000000000000000c3506f515480126a50a173506e06676212925560005155",
+        "storage": {
+          "0x0000000000000000000000000000000000000000000000000000000000000000": "0x515480126a50a173506e066762129255"
+        }
+      },
+      "0x2e3d0156d2b99a6eacba540c55f423c8f5a33143": {
+        "balance": "0xde0b6b348efeeec",
+        "nonce": "0x1"
+      }
+    },
+    "state_root": "0xf1bf91e7c82c302c2e5b1a368117587fbb6b59ddab54dc5adf066d0968898609"
+  },
+  "representative": {
+    "domain": "evm-execution",
+    "kind": "conformance_test",
+    "source_test": "tests/ported_static/stRandom/test_random_statetest179.py",
+    "ported_from": "state_tests/stRandom/randomStatetest179Filler.json",
+    "semantic_digest": "sha256:0012e146ca94838b99276d5986d275dec36827e221922b5fa9b1a925ade5bddd",
+    "official_post_assertion": {
+      "target_storage_slot0": "0x515480126a50a173506e066762129255",
+      "sender_nonce": "0x1"
+    }
+  },
+  "claim_guard": "EVM-ADAPTER-REPRESENTATIVE only; NOT supply, NOT mineable, NOT 7125-verified; closed-local, not public-network. mineable_now=0."
+}
