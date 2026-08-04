@@ -1,0 +1,20 @@
+{
+  "0x4f3f701464972e74606d6ea82d4d3080599a0e79": {
+    "code": "0x6000355415600957005b60203560003555",
+    "balance": "0x2e",
+    "nonce": "0x0",
+    "storage": {}
+  },
+  "0xb4749744885eb1b84835f2745a646f4ab9e60fd2": {
+    "code": "0x7f00000000000000000000000100000000000000000000000000000000000000007f0000000000000000000000004f3f701464972e74606d6ea82d4d3080599a0e797fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe7f0000000000000000000000004f3f701464972e74606d6ea82d4d3080599a0e797fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f000000000000000000000000000000000000000000000000000000000000c3506f515480126a50a173506e06676212925560005155",
+    "balance": "0x0",
+    "nonce": "0x0",
+    "storage": {}
+  },
+  "0x2e3d0156d2b99a6eacba540c55f423c8f5a33143": {
+    "code": "0x",
+    "balance": "0xDE0B6B3A7640000",
+    "nonce": "0x0",
+    "storage": {}
+  }
+}

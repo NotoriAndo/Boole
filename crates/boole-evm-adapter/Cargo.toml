@@ -1,0 +1,24 @@
+[package]
+name = "boole-evm-adapter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+# Gate-fitness representative crate (operator msg 3459). It carries ONE
+# EVM state-transition representative through a common adapter seam that
+# mirrors `boole-node::UsefulProductAdapter`; it is NOT wired into the
+# consensus/runtime path and makes no supply/mineable claim. publish =
+# false blocks an accidental `cargo publish` and tells cargo-deny the
+# sibling path deps are intentional.
+publish = false
+
+[dependencies]
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+# P0.6 — inherit the workspace-wide deny set (unsafe_code = "deny").
+[lints]
+workspace = true

@@ -2153,3 +2153,192 @@ c6e6730e…(3195). 상태 블록 손 편집 0 — 전부 사슬 기계가 갱신
 ## §OW 후속 완료 — 사슬 v7 결박 (2026-07-31, proposal 4adbe961… 승인 3263)
 - [x] 신규 파일 15개 결박(값 변경 0) → 사슬 12세대, verify-final
       **green 복원** (approved 203). 상태 블록 값 불변 재게시.
+
+---
+
+# §RP5: 기계-only 결박 측정 (RP5-EXECUTION-P0, 2026-08-01)
+
+사전등록 v1→v2→v3 (운영자 감사 5구멍 수정, v2 표본 112건
+INFEASIBLE 보존), 표본 120 동결(ef4aea52…), 실행 봉투 86e55ab9…(3282).
+판정 **RP5-COMPLETE-120**.
+
+- [x] 표본 — 2단 시드(dcf5bfc6…+72bc9e31…), 적응 상한 15/10/8/8,
+      배치 4×30 층균형, v2 중복 3건 공개, 재현 결정성.
+- [x] 하네스 — RED→GREEN 11/11: 탐색 순서 고정(아카이브 문서/벡터 →
+      컴포넌트 내 고정 인용 → 표준기관), 모호=성공 불인정, 상한 거절,
+      whitelist 밖 fetch 금지, 판단 주입 0.
+- [x] 실행 — 배치 4개 전부(20.4초, HTTP 5회, 0.8MB). 분모 120 보존.
+- [x] 결과 — BOUND 20 / AMBIGUOUS 95 / NOT_FOUND 5. 유일 허용 해석:
+      기계-only 절차의 표본 결박률 16.7%, Wilson 95% [11.1, 24.3]%.
+      층별 CI 병기. BOUND≠eligible≠공급.
+- [x] 기록 — rp5-execution.json(eedb05df…), checkpoint-rp5-run.md,
+      card-results 120행. 문서 4곳 갱신.
+
+## Review
+- **결과**: 유입 축 측정의 첫 실측 수치 확보. 다음 설계 지점 = AMBIGUOUS
+  95(보조 측정, 모델 다양성 연동)·BOUND 20의 잔여 관문.
+- **게이트**: LLM 0, 유료 0, 상한 대비 비용 미미, 상태 블록 무접촉,
+  커밋 0. claim 경계 준수.
+
+## §RP5 후속 — 4차 감사 정정 + 사슬 v8 (2026-08-01)
+- [x] 결함 공개 successor — rp5-execution-addendum.json(8f49ba00…):
+      배치 경계 정지권 생략·총 상한 기계적 미강제(실측 0.81MB 사후
+      검증) 인정. 수치 판정 RP5-COMPLETE-120 유지(운영자 처분).
+      lessons.md 재발 방지 2규칙.
+- [x] 사슬 v8 — RP.5 산출물 10개 결박(값 변경 0, proposal be1d677c…
+      승인 3286) → 13세대, verify-final green.
+
+# §BOUND20-REVIEW: 잔여 관문 검토 (BOUND20-REVIEW-P0, 2026-08-01)
+
+single-family fresh-context review. 봉투 1a8173ff…(승인 3292), 동결 설계
+`bound20-residual-gates-v2-2026-08-01.md`. 판정 **BOUND20-REVIEW-COMPLETE-20**.
+
+- [x] 하네스 — RED→GREEN 16/16: 검증자는 **형식만** 검사(양측 위치·인용
+      없는 성공 주장은 DEFER 강등, 판정 편집·승격 0), 패키저는 digest 동결·
+      절단 명명, tally는 CONTRACT-DRAFTABLE만 성공 계상.
+- [x] 번들 — 20 카드 프로즌 bundle(digest 불일치 0, 절단 7건 상한 내),
+      instructions_sha256 df658599…, manifest_sha256 3dcf2e54…
+- [x] 검토 — 격리 fresh-context 세션 20개(카드별 고정 자료만), 재호출 0,
+      서브에이전트 20/24, 전 카드 strict JSON 유효, 출력 그대로 보존.
+- [x] 집계 — CONTRACT-DRAFTABLE 3(성공) / VECTOR-ONLY 1(불포함, 유한
+      벡터 일치) / MAPPING-AMBIGUOUS 9 / SPEC-WEAK 7 / DEFER 0, 형식 강등
+      0, 분모 20 보존. CD = 67f371ad(miden-vm)·83ea1ed6(garaga)·
+      92b51438(kimchi). 층: circuit CD1·pf-sys CD1·zkvm CD1, tooling CD0.
+- [x] 기록 — bound20-review.md·bound20-review.json·bound20-review/. 문서
+      4곳 갱신.
+
+## Review
+- **결과**: RP.5 BOUND 20의 결박 품질을 판정 — 명세계약 초안 가능 후보
+  3건 확보(다음 단계 = Lean 문면화·strict task 발급, 별도 승인). 후보 ≠
+  공급·reward-ready. AMBIGUOUS 95·모집단 외삽 금지.
+- **정직 고지**: a16635936e(android.rs) 도구 18회·143.4s(원문 16개·번들
+  181KB, 판정 비성공 SPEC-WEAK라 위험 없음) / ed7a89d46c(web.rs)
+  rationale 한국어(형식 유효, 보존).
+- **게이트**: 같은 Claude 계열 = 독립 감사 아님(same-family caveat).
+  LLM 유료 0, 네트워크 0, 상태 블록 무접촉, 커밋 0. claim 경계 준수.
+
+# §BOUND20-CONTRACT: 명세계약 초안 → Lean 게이트 (2026-08-01)
+
+single-family. BOUND-20 검토가 뽑은 CONTRACT-DRAFTABLE 3건(miden-vm·garaga·
+kimchi)을 2조각으로 진행. 결과 문서는 local-docs(gitignored), 커밋 0.
+
+## 조각 1 — 명세계약 초안 (BOUND20-CONTRACT-DRAFT-S1, 판정 S1-DRAFT-COMPLETE)
+봉투 `1d39e792…`, 승인 이벤트 `90ff0a23…`.
+
+- [x] 초안 — 카드별 fresh-context 서브에이전트가 사양만 보고 명세계약
+      초안(5필드 + Lean 명제 스케치) 작성(기대 판정 미상속).
+- [x] 형식 재검사 — 필수 5필드·금지 키토큰·Lean 명제 형식(증명 본문
+      없음·∀ 일반성)만. 컴파일 안 함. DRAFTED 3 / DRAFT-BLOCKED 0 / 분모 3.
+- [x] 초안 지문 — miden `002e842e…`·garaga `04fd0136…`·kimchi `1d07d361…`.
+      참조 벡터 0, 결속 다이제스트 PENDING.
+- [x] 오탐 1건 자체 교정 — 검사기가 주석 속 영단어 "by"를 tactic으로 오인.
+      주석 blank 후 재스캔, 초안 내용·판정 무편집(운영자 교정 아님 → lessons 제외).
+- [x] 기록 — bound20-contract-drafts.json/.md, bound20-contracts/<card>.draft.json.
+
+## 조각 2 — Lean 명제 게이트 (BOUND20-CONTRACT-COMPILE-S2, 판정 S2-GATE-COMPLETE)
+봉투 `f81b12e7…`(승인 3306), 승인 이벤트 `d1c107b2…`.
+
+- [x] 게이트 — 조각 1 명제 3건을 바이트 그대로(수정 0) 진짜 검증기에 투입.
+      2프로세스: boole_check elaborate + Audit.lean 공리 폐포 감사(예산
+      400000/512, 핀 v4.29.1, checker `1dd3055a…`). 금지토큰 사전스캔만 Python 미러링.
+- [x] 결과 — ELABORATED 3 / COMPILE-BLOCKED 0 / 분모 3, proved:false 고정.
+      공리 miden `[]`·garaga `[Quot.sound, propext]`·kimchi `[]` 전부 허용목록
+      {propext, Classical.choice, Quot.sound} ⊆.
+- [x] statement_digest 동결 3건(초안 지문과 바이트 동일·게이트후 발행 의미).
+- [x] 예고 위험 검증 — miden docstring `debug.mem`이 금지접두사 `debug.`에
+      걸릴 뻔했으나 주석 blank로 통과.
+- [x] 기록 — bound20-contract-compile.json/.md, bound20-contracts/<card>.compiled.json.
+
+## Review
+- **결과**: 초안 3건이 실제 Lean 검증기에서 elaborate + 공리 허용목록 통과.
+  단 "형식 맞고 공리 깨끗"까지 — 증명·발급 아님. ELABORATED ≠ proven ≠
+  strict ≠ 공급.
+- **결속 다이제스트 제외**: source(고정 discovery row 부재)·target(릴리스
+  아카이브 sha256 + 레지스트리 대조로 네트워크 필요)라 조각 2에서 뺌 →
+  별도 슬라이스. PENDING-SLICE-LATER 유지.
+- **한계**: 명제가 명세를 충실히 담았는지는 여전히 사람 판정(same-family).
+  금지토큰 사전스캔은 검증기 규칙 재현(elaborate·공리감사는 실제 Lean).
+- **게이트**: 커밋 0·네트워크 0·유료 0·consensus 코드 무수정·상태 블록 무접촉.
+  상태 불변(STRICT_READY=1/REWARD_READY=0/RP0-MD=HOLD/BF.7=HOLD/Base=false).
+  public/API benchmark claim 아님. closed-local.
+
+## 조각 — garaga v2 명제 재작성 (BOUND20 garaga, 실행: 봉투 승인 3382)
+2-artifact 승인: DESIGN `2516539e…`(승인 3380) → 동결 봉투 `5292352c…`(승인 3382).
+승인 이벤트 `76fcd328…`, 제안서 `d3a662da…`. 전 gitignored, 커밋/네트워크 0.
+
+- [x] v1 공허성 제거 — v1은 `expand_message_xmd_spec`이 자기 정의=자기 정의(rfl 항진)라
+      반증 불가였고 오버사이즈 DST에 `none`(실코드 반대)을 반환. v2는 implModel(실제 Rust
+      expand_message_xmd+construct_dst_prime 반영) ↔ specModel(RFC 9380 §5.3.1+§5.3.3에서
+      독립 구성, 오버사이즈 DST 해시 분기 포함)의 일치를 묻는 형태로 재작성.
+- [x] 추상 해시 H(옵션 A) — 일치는 임의 H에 대한 바이트 조립 알고리즘. 증거는 비-SHA256
+      토이 해시로 #eval/decide 실행(SHA-256·RFC 벡터 주장 아님; Appendix K 미보유).
+- [x] Lean 4종 증거 — GaragaExpandXmdV2.lean elaborate exit0 + `#eval sampleAgree`=true(6케이스,
+      오버사이즈 DST 포함); GaragaXmdNonVacuity.lean elaborate exit0 + 두 반증정리
+      badDrop_is_false/noOver_is_false 공리무의존(#print axioms, native_decide 미사용).
+      XOR을 UInt8.xor 대신 구조적 비트연산으로 구현해 propext/Quot.sound 회피.
+- [x] v2 계약 초안 방출 — `83ea1ed6….v2.draft.json`(record_type bound20_contract_draft_v2,
+      schema 2.0), statement_digest=`93f82242…`(=lean 명제 sha), record_sha256=`3f3171c5…`,
+      index=`cb6863a7…`. trust_root after_tree=`990c2b79…`(Rust 실내용 sha 일치).
+- [x] RED→GREEN 음성검사 6종 — (a)Rust 변조 (b)명제 비elaborate (c)reward/answer 키주입
+      (d)재공허화 (e)오버사이즈 DST 제거 (f)trust-root 불일치. 가드 무력화 시 6/6 통과(RED),
+      실제 가드 시 6/6 거절(GREEN).
+
+## Review — garaga v2
+- **결과**: v1의 정의적 공허성 제거(반증 가능해짐). 단 명제 재작성일 뿐 — 증명·판정·후속
+      id 아님. proved:false, changes_status:false, 상태 HOLD 불변.
+- **한계**: 충실성 간극이 implModel↔Rust / specModel↔RFC 사람검토로 이동. 추상 H 조립
+      일치를 토이 해시로 확인한 것이며 SHA-256/RFC 벡터 검증 아님. 독립검증 아님·보상 아님.
+- **게이트**: 전 gitignored, 동결 v1 무편집, tracked tree(tasks/*.md 외) 무변화, HEAD 03ef1cc
+      불변, 커밋/PR/네트워크/유료 0, consensus·상태 블록 무접촉. public/API benchmark claim 아님.
+
+## 조각 — EVM 어댑터 대표 1건 (gate-fitness, 운영자 승인 msg 3459)
+목표: 새 EVM 엔진 구현 금지 — 기존 검증 엔진(EELS)을 버전+lockfile로 고정해 연결.
+공통 어댑터 인터페이스로 공식 EVM 대표 1건을 accept 시키고, 입력/기대출력/최종상태 변조가
+각각 정확한 이유로 거절되게 한다. 성공 판정은 **EVM-ADAPTER-REPRESENTATIVE-PASS만** —
+"7,125 검증/채굴가능/공급확정"으로 부풀리지 않는다. Solidity/Rust/Base/보상/공개벤치 범위 밖.
+
+기준선(사전):
+- ZK 대표 실행(항목1) — Lean 판정기가 오늘 이 머신에서 실제 실행 확인: 유효증명 Accepted
+  (`lake exec boole_check` exit0 3.04s + 공리감사 `BOOLE_AXIOM_AUDIT_DONE` 3.62s),
+  거짓증명 DeterministicReject(`decide proved 1+1=3 is false` exit1 0.43s). closed-local.
+- EVM 엔진 feasibility — EELS 체크아웃 `2282c757…`(tests@v20.0.1-14), `ethereum-spec-evm t8n`,
+  Cancun fork 존재, .venv 준비됨(sync 불요). 골든 실행: 대표 vector(statetest179)를 t8n으로
+  돌려 공식 선언 post 정확 재현 — target.storage[0]=0x515480126a50a173506e066762129255,
+  sender.nonce=0x1, rejected=[], stateRoot=0xf1bf91e7…. (closed-local, 공개 아님)
+
+- [x] 새 경량 크레이트 `boole-evm-adapter` — boole-node `UsefulProductAdapter`/`PacketAuditOutcome`
+      /`DeterministicBudget` seam을 미러링(corresponding). boole-node/Lean 경로 무접촉, 의존 최소
+      (hex/serde/serde_json/sha2/thiserror만). publish=false, workspace lints 상속.
+- [x] `EvmStateTestAdapter::audit` — packet(alloc/env/txs + input_digest + expected{post_alloc,
+      state_root} + 엔진핀 Cancun/chainid1/commit) 읽고 핀 엔진 t8n 실행 → 3게이트:
+      (a) 원시 파일 바이트 digest ≠ 핀 → InputDigestMismatch (입력 변조, 엔진 실행 전 거절)
+      (b) 엔진 post_alloc ≠ expected → ExpectedPostAllocMismatch (기대출력 변조)
+      (c) 엔진 stateRoot ≠ expected → ExpectedStateRootMismatch (최종상태 변조)
+      엔진 부재/오류 → RetryableUnavailable/EngineError(환경실패 구분, 자동수정 루프 금지).
+- [x] focused test `tests/evm_statetest_representative.rs` — 엔진은 gitignore라 env
+      `BOOLE_EVM_ENGINE` 없으면 skip(CI 컴파일만). RED(스텁, `audit not implemented`로
+      Accepted 실패)→GREEN: 유효 accept(stateRoot 0xf1bf91e7…898609) + 3변조 각각 거절 1 passed.
+- [ ] fmt+clippy 2종 → NotoriAndo 커밋 → branch push → PR → CI self-test/supply-chain green → merge.
+
+## Review — EVM 어댑터 대표
+- **결과 (판정 = EVM-ADAPTER-REPRESENTATIVE-PASS, 그 이상 아님)**: 공식 EVM 대표 1건
+      (statetest179, EELS `2282c757…` 엔진 `ethereum-spec-evm t8n`, Cancun/chainId1 핀)을
+      새 엔진 구현 없이 기존 검증 엔진에 연결. 공통 어댑터 seam(boole-node 미러)으로 유효
+      fixture accept + 3변조(입력/기대출력/최종상태) 각각 **다른 이유**로 거절 확인.
+      focused test 1 passed (0.76s 실행, 컴파일 9m51s는 이 머신 IO 경합).
+- **판정 분리**: driver/proof-intake/verify 의미 분리와 동일하게 — 이건 대표 1건 seam-fitness
+      실행일 뿐. supply/mineable/7125-verified 아님. `mineable_now=0` 불변, consensus/runtime
+      경로 무접촉, Lean 경로 판정 무변화.
+- **엔진 핀**: EELS commit 2282c757b3699d506de112b8a48b6b538df7ed1f (tests@v20.0.1-14),
+      python `ethereum` 2.19.0, .venv 고정. 엔진은 gitignored 로컬 체크아웃 → CI에서는
+      `BOOLE_EVM_ENGINE` 미설정으로 test skip(컴파일만), 커밋된 fixture는 엔진-독립.
+- **비밀키 미커밋(엔진 사전서명)**: txs fixture에 sender `secretKey`를 넣지 않는다 —
+      gitleaks generic-api-key로 잡히는 것 회피 + 저장소에 개인키 0. 대신 핀 엔진으로 tx를
+      한 번 서명(`--output.body`)해 엔진이 만든 (v,r,s)를 그대로 넣었다(손서명 위험 0).
+      재실행 결과 stateRoot 불변(0xf1bf91e7…898609)으로 서명 정합 확인. gitleaks staged 스캔
+      clean. `.gitleaks.toml`(보안설정) 무편집.
+- **한계/승격 항목(범위 밖)**: 실행 바이너리를 핀 commit과 대조하는 provenance 검증,
+      boole-node 실 seam 배선, Solidity/Rust/Base/보상/공개벤치는 모두 이번 범위 밖.
+- **게이트**: fmt 통과, clippy 확인, `git diff --check` clean, pycache 없음,
+      NotoriAndo author 커밋 → branch → PR → CI self-test/supply-chain green → merge 예정.
+      public/API benchmark claim 아님. closed-local, not public-network.
