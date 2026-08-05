@@ -19,6 +19,13 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 
+# EVM zkVM verifier-only path (ADR-0018). Compressed-STARK verification ONLY:
+# `default-features = false` keeps the `ark` (Groth16/Plonk on-chain) feature
+# OFF, so no arkworks tree is pulled; and this crate depends on sp1-verifier
+# ALONE — NO sp1-sdk, NO sp1-prover, NO proving-key. Exact-version pin, no git
+# source. Preflight-gated: added only after the supply-chain checks are recorded.
+sp1-verifier = { version = "=6.3.1", default-features = false }
+
 # P0.6 — inherit the workspace-wide deny set (unsafe_code = "deny").
 [lints]
 workspace = true
