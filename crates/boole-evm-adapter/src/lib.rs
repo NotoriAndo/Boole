@@ -48,8 +48,9 @@
 //! adapter's C7 split).
 
 /// Verifier-only compressed-STARK check for the frozen EVM zkVM feasibility
-/// proof (ADR-0018). Off-consensus, default OFF, no prover/proving-key
-/// dependency; `mineable_now` stays 0.
+/// proof (ADR-0018). Off-consensus, default OFF; no proof-generation call and
+/// no DIRECT prover / proving-key dependency (indirect prover code is still in
+/// the build graph via upstream packaging); `mineable_now` stays 0.
 pub mod zk_verify;
 
 use std::path::{Path, PathBuf};

@@ -9,7 +9,11 @@
 //! * OUTSIDE the consensus path; this crate is `publish = false` and is not
 //!   wired into `boole-core` / `boole-lean-runner` / the node.
 //! * Default OFF; reuses the single existing frozen proof; generates 0 new
-//!   proofs; carries NO prover / proving-key dependency.
+//!   proofs. Makes NO proof-generation call and carries NO proving-key and NO
+//!   DIRECT prover dependency. (Upstream packaging still pulls indirect prover
+//!   code -- `slop-basefold-prover` -- into the BUILD graph; Boole never calls
+//!   it. We claim only that Boole's CALLS are verifier-only, not the whole
+//!   dependency graph.)
 //! * Does NOT change EVM `mineable_now` (stays 0) or any reward / Base state.
 //! * The ELF -> vk identity is confirmed ONCE, out of band (boot / release);
 //!   this type never regenerates the vk and never runs prover setup.

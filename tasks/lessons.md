@@ -1257,3 +1257,9 @@ NO-GO. 여기서 얻은, 앞으로 **모든 채굴 문제 family 후보**에 적
 - **규칙 1 (CI 명령을 그대로 로컬 재현)**: 게이트 통과를 주장하기 전에 로컬에서 **CI가 실제로 실행하는 명령을 문자 그대로** 돌린다(여기선 `cargo audit --deny warnings`). 더 약한 변형(`cargo audit`)의 green은 게이트 green이 아니다. 워크플로우 YAML에서 실제 실행 라인을 먼저 확인한다.
 - **규칙 2 (예외는 게이트를 구성하는 모든 도구에 대칭 반영)**: advisory 예외를 승인받으면 deny.toml **과** `.cargo/audit.toml`에 **동일 ID·동일 사유·동일 재검토 기한**으로 함께 넣는다. cargo-audit은 `.cargo/audit.toml`의 `[advisories] ignore`를 자동 소비하며, `--deny warnings`는 나머지 권고에는 그대로 적용되므로 승인 범위(그 2건)만 좁게 열고 다른 신규 advisory는 여전히 CI를 red로 만든다(STOP 조건 보존).
 - **경계**: 이번 실패는 **새 advisory가 아니라** 이미 승인된 동일 2건이 두 번째 도구에서 재노출된 것 → operator의 "다른 advisory 나오면 STOP" 조건 불발동. 승인 범위 내 대칭 반영으로 처리, 신규 취약점/yanked/git 의존성은 없음.
+
+## 2026-08-06 — squash 머지가 커밋 author 이메일을 규정값에서 벗어나게 함 (운영자 msg 3522)
+- **위반 기록**: PR #109의 로컬 커밋 4개는 author·committer 모두 규정값 `NotoriAndo <281125350+NotoriAndo@users.noreply.github.com>`였는데, GitHub **서버측 squash 머지**가 만든 main 커밋 `34b24ef`의 author는 `NotoriAndo <andonotori@gmail.com>`(계정 기본 이메일), committer는 `GitHub`가 됐다. Claude/Anthropic attribution은 없고 이름은 NotoriAndo로 동일하지만, **규정 이메일과 불일치**한다. 이미 머지된 이력은 다시 쓰지 않는다(운영자 지시).
+- **근본 원인**: `gh pr merge --squash`는 브랜치 커밋을 버리고 GitHub가 새 커밋을 계정 이메일로 **재저작**한다 — 내 로컬 `--author`/config(noreply)는 무시된다. 계정에 noreply 강제 설정이 없으면 공개 이메일(andonotori@gmail.com)이 쓰인다.
+- **규칙 (다음 커밋부터)**: main 반영 시 **`gh pr merge --rebase`**를 쓴다. rebase 머지는 내 브랜치 커밋을 그대로 replay하므로 author=noreply가 보존된다(squash는 안 됨). repo가 rebase 머지를 허용함(확인함). 머지 후 `git log -1 --format='%ae'`로 author 이메일이 규정값인지 반드시 검증한다.
+- **보고 규칙 보강**: "author NotoriAndo 확인"을 이름만 보고 판단하지 말고 **이메일까지** 대조한다. 머지 방식(squash/rebase/merge)에 따라 최종 main 커밋의 author가 로컬 커밋과 달라질 수 있으므로, 최종 검증은 반드시 **main의 머지 커밋**에서 `%an <%ae>`로 확인한다.
