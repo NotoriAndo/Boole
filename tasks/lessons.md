@@ -1250,3 +1250,10 @@ NO-GO. 여기서 얻은, 앞으로 **모든 채굴 문제 family 후보**에 적
 - **verifier-only 주장 범위**: 검증 전용 크레이트라도 상류 패키징 때문에 prover 계열(예: `slop-basefold-prover`)이 **간접 빌드 의존성**으로 딸려올 수 있다. 그럴 땐 "의존성 그래프 전체가 verifier-only"라 하지 말고 "**우리 코드의 호출**만 verifier-only(테스트로 고정)"라고 범위를 좁혀 주장한다. 직접 의존성에 `sp1-sdk`/`sp1-prover`가 없음을 매니페스트 파싱 테스트로 고정하면 CI가 회귀를 강제한다.
 - **로컬 clippy가 값어치 하는 순간**: 무거운 트리를 새로 끌어오는 크레이트는 CI 반송 1회 비용이 크므로, 커밋 전에 **그 크레이트에 한해** `cargo clippy -p <crate> --all-targets -- -D warnings`를 한 번 돌려 내 코드의 lint(예: `manual_pattern_char_comparison`)를 미리 잡는다. 워크스페이스 전체 clippy는 CI에 맡긴다(로컬 상한 규칙과 정합).
 - **역직렬화 방어**: 외부 파일을 bincode로 읽는 경로(여기선 sp1-verifier가 내부에서 `bincode::deserialize`)는 신뢰 경계다. 넘기기 **전에** 입력 바이트 상한을 걸어 초과·파싱 실패를 거절한다(무한 할당 방어). 상한은 입력 바이트에만 적용되며 합의값을 바꾸지 않는다.
+
+## 2026-08-06 — 로컬 audit가 CI와 다른 플래그라 false-green (supply-chain CI 반송)
+- **실수**: 로컬에서 `cargo audit`(플래그 없음)를 돌려 exit 0을 보고 "audit 통과"로 판단했는데, CI(`.github/workflows/ci.yml` L137)는 `cargo audit --deny warnings`를 돌린다. `--deny warnings`는 `unmaintained` 권고까지 에러로 승격시켜, `deny.toml`에만 넣은 예외 2건(RUSTSEC-2021-0139, RUSTSEC-2025-0141)이 cargo-audit 쪽에서 그대로 실패 → supply-chain job red. self-test/corpus는 전부 green이었다.
+- **근본 원인**: supply-chain 게이트는 cargo-deny **와** cargo-audit **두 도구**로 구성되는데, 예외를 deny.toml(한쪽)에만 반영하고 cargo-audit(다른 쪽)에는 안 넣었다. 게다가 로컬 audit 호출이 CI 호출과 **플래그가 달라** 그 누락을 로컬에서 못 잡았다.
+- **규칙 1 (CI 명령을 그대로 로컬 재현)**: 게이트 통과를 주장하기 전에 로컬에서 **CI가 실제로 실행하는 명령을 문자 그대로** 돌린다(여기선 `cargo audit --deny warnings`). 더 약한 변형(`cargo audit`)의 green은 게이트 green이 아니다. 워크플로우 YAML에서 실제 실행 라인을 먼저 확인한다.
+- **규칙 2 (예외는 게이트를 구성하는 모든 도구에 대칭 반영)**: advisory 예외를 승인받으면 deny.toml **과** `.cargo/audit.toml`에 **동일 ID·동일 사유·동일 재검토 기한**으로 함께 넣는다. cargo-audit은 `.cargo/audit.toml`의 `[advisories] ignore`를 자동 소비하며, `--deny warnings`는 나머지 권고에는 그대로 적용되므로 승인 범위(그 2건)만 좁게 열고 다른 신규 advisory는 여전히 CI를 red로 만든다(STOP 조건 보존).
+- **경계**: 이번 실패는 **새 advisory가 아니라** 이미 승인된 동일 2건이 두 번째 도구에서 재노출된 것 → operator의 "다른 advisory 나오면 STOP" 조건 불발동. 승인 범위 내 대칭 반영으로 처리, 신규 취약점/yanked/git 의존성은 없음.
