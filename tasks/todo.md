@@ -2342,3 +2342,78 @@ kimchi)을 2조각으로 진행. 결과 문서는 local-docs(gitignored), 커밋
 - **게이트**: fmt 통과, clippy 확인, `git diff --check` clean, pycache 없음,
       NotoriAndo author 커밋 → branch → PR → CI self-test/supply-chain green → merge 예정.
       public/API benchmark claim 아님. closed-local, not public-network.
+
+## Review — EVM state-test adapter census (7,125 anchors, Option 1)
+- **Scope (operator msg 3470/3473 frozen)**: measure ONLY "number of EVM
+      cases verifiable by the current state-test adapter". No inflation to
+      mineable / supply / independent verification. Pinned checkout
+      `execution-specs` git `2282c757` (EELS `ethereum-execution` 2.19.0),
+      reference t8n runs in-process (fill WITHOUT `--evm-bin`), dedicated
+      venv from the checkout's own uv.lock, network OFF (blackhole proxies).
+- **Ground truth (non-circular)**: pass gate = author-declared Account
+      postcondition only (`verify_post_alloc` -> `check_alloc`, only
+      `model_fields_set` ∩ {nonce,balance,code,storage}; None = must-not-exist).
+      Engine `stateRoot` recorded but NEVER the pass gate. Vacuous author-post
+      -> ORACLE-UNUSABLE, not a pass.
+- **Result — CASE level (fill-executable set, 100% COMPLETE)**:
+      collect-only catalog 62,025 state_test cases; fill deterministically
+      deselects 1,979 collect-only phantoms (1,891 = non-deployed
+      Constantinople fork, executed 0 across all 102 shards; 88 = fork/param
+      combos excluded by fill markers — all reproduced as deselections in
+      isolation, genuine not-run gap = 0). fill-executable set = 60,046, all
+      executed to a verdict. Buckets: EXECUTABLE-PASS **52,875**,
+      ORACLE-UNUSABLE 7,091, ENGINE-SKIP 80, EXECUTION-MISMATCH/
+      INCOMPLETE-FIXTURE/UNSUPPORTED-FORK/TIMEOUT/HARNESS-ERROR all 0.
+- **Headline (only claim)**: verifiable EVM case count = **52,875**
+      (EXECUTABLE-PASS only). Run finished all 102 shards rc=0 in 666s,
+      no kill, no wall-cap.
+- **Result — ANCHOR level (7,125)**: src/ definitions 2,825 ->
+      STATE-TEST-ADAPTER-NOT-APPLICABLE (candidates for other EVM problem
+      types, not failures). tests/ 4,300 test functions ->
+      HAS-STATE-TEST 2,681 / FORMAT-UNSUPPORTED 271 / NOT-COLLECTED 1,348
+      (amsterdam/osaka future-fork EIPs + loader/genesis helpers). Of
+      HAS-STATE-TEST: ALL-CASES-PASS 2,608, PARTIAL-CASES-PASS 5,
+      NO-CASE-PASS 68. The 68 NO-CASE-PASS are NOT adapter failures: 64 are
+      ORACLE-UNUSABLE functions (author post asserts tx-rejection, no Account
+      state to check) + 4 ENGINE-SKIP; 0 mismatch, 0 harness-error.
+- **Discipline**: RED->GREEN 13 classifier unit tests (all pass), small
+      deterministic sample (homestead) confirmed executability, then bounded
+      full run under the same code/approval — no per-problem fixes/retries.
+      Raw facts stored per case; buckets DERIVED at aggregation (refinable
+      without re-run; that is how the 80 ENGINE-SKIP were reclassified from
+      HARNESS-ERROR without re-running). Artifacts in gitignored local-docs
+      (`evm-execution-census-p0/`): CENSUS-SPEC.md, harness/, out/records/,
+      out/census_summary.json.
+- **Boundary**: closed-local measurement. NOT public/API benchmark, NOT
+      mineable/supply/leaderboard, NOT independent verification. `mineable_now`
+      unchanged; consensus/runtime/Lean paths untouched.
+
+## 2026-08-05 — EVM verifier-only 대표 1건 수직 시제품 (ADR-0018, 운영자 msg 3513/3516/3518)
+- **한 일**: `boole-evm-adapter`(합의 경로 밖, `publish=false`)에 sp1-verifier
+      `=6.3.1`(`default-features=false`) 검증 전용 경로를 추가. 새 모듈
+      `zk_verify`: `CompressedProofVerifier`가 미리 적재한 고정 vkey 해시로
+      compressed STARK를 **검증만** 호출(`SP1CompressedVerifierRaw::verify_with_public_values`),
+      prover/proving-key/증명생성 API 없음. 역직렬화(bincode) **이전에** proof 크기
+      상한(`MAX_COMPRESSED_PROOF_BYTES` = 4 MiB) 적용.
+- **공급망 preflight (msg 3516)**: 추가 crate 121개(전부 crates.io, git 0, yanked 0),
+      라이선스/bans/sources 통과. cargo deny는 `unmaintained` 2건에서만 FAILED —
+      RUSTSEC-2021-0139(ansi_term), RUSTSEC-2025-0141(bincode). cargo audit는 동일 2건을
+      허용 경고로 통과(exit 0). 그래서 멈추고 보고 → 운영자 msg 3518이 이 2건만
+      deny.toml 예외 승인(사유·의존 경로·재검토 2026-11-05 주석). 다른 advisory/취약점
+      /yanked/git 없음 재확인 후 진행.
+- **ADR-0018 1회 정정 (msg 3518)**: 결정 (f)에 (i) production은 검증 API만 호출·prover
+      /proving-key/증명생성 없음(테스트로 고정), (ii) sp1-verifier 6.3.1 상류 패키징 탓
+      `slop-basefold-prover`가 **간접 빌드 의존성**으로 포함되므로 "의존성 그래프 전체가
+      verifier-only"라 주장하지 않음 — 명시. (ADR는 git-ignored 샌드박스, PR에 미포함.)
+- **TDD**: RED(모듈 부재 컴파일 실패) → GREEN. `tests/zk_verify_bounds.rs` 5건 —
+      초과→`ProofTooLarge`(역직렬화 전), at-cap/garbage/empty→`ProofRejected`, 직접
+      의존성 verifier-only 고정. 전부 synthetic·CI 실행형(프로즌 샌드박스 불요).
+- **게이트**: focused 5/5 PASS, 기존 `evm_statetest_representative` 회귀 없음,
+      `cargo fmt --check` CLEAN, `cargo clippy -p boole-evm-adapter --all-targets -D warnings`
+      0 경고(로컬에서 `manual_pattern_char_comparison` 1건 잡아 수정 → CI 반송 회피),
+      `cargo deny` exit 0, `cargo audit` exit 0.
+- **CI 빌드비용 실측**: sp1-verifier 트리(slop-*/p3-*/sp1-hypercube) 최초 풀 빌드
+      10분+, clippy check-build ~1분(캐시 후). 워크스페이스 전체 빌드에 이 트리가 더해짐.
+- **경계**: 합의 경로 밖·기본 OFF·기존 단건 증명 재사용(새 증명 0)·prover 의존성 0.
+      `mineable_now`=0 유지, reward/Base 변경 없음, 합의 연결/활성화 없음. closed-local,
+      public/API/leaderboard 주장 아님.

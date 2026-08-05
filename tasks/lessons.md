@@ -1218,3 +1218,42 @@ NO-GO. 여기서 얻은, 앞으로 **모든 채굴 문제 family 후보**에 적
 - **실수**: P2 census 보고에서 "40,112를 하드코딩하지 않고 실제 바이트에서 유도"라고 했다. 실제로는 각 도메인 수치를 파일 행에서 먼저 계산한 뒤, 코드 안의 기대 상수(40,112·16,763·7,125 등)와 `assert`로 대조하는 구조였다. 결과 조작은 아니지만 "하드코딩이 전혀 없다"는 표현은 부정확하다.
 - **규칙**: 검산 상수를 코드에 두면 보고 문구는 "하드코딩 없음"이 아니라 **"실제 바이트에서 유도한 뒤 사전 기대값과 대조(reconcile)했다"**로 쓴다. 유도(derive)와 검산(reconcile)을 항상 구분해 서술한다.
 - **경계**: 검산 상수 자체는 결정성·회귀 방지에 유용하므로 제거할 필요는 없다(운영자 판단, 재작업 불요). 표현만 교정한다.
+
+## 2026-08-04 — EVM census 측정 무결성 5건 (state-test 어댑터 전수)
+- **실수 1 (범위 언더카운트)**: fixture-format 토큰이 항상 파라미터 끝에 오는 줄 알고 `-state_test]` 접미사로 셌다가 8,069로 나왔다. 실제로는 format이 파라미터 중간에도 온다(`[fork_Berlin-state_test-below_intrinsic_False-...]`). 하이픈 토큰 분해 후 알려진 format 집합과 정확 매칭하니 **62,025**였다 — 7.7배 언더카운트.
+- **실수 2 (stdout 스크래핑 불신)**: `fill --collect-only -q` 출력을 줄 단위로 파싱했더니 버퍼링으로 nodeid가 연결(한 줄에 여러 개)·분할(중간 개행)되어 파일 189,583줄 vs pytest 보고 232,014로 어긋났다. → 권위 있는 열거는 stdout이 아니라 pytest 훅(`pytest_collection_modifyitems`에서 `item.nodeid` 덤프)에서 받아야 한다(190,421 확정).
+- **실수 3 (엔진 바인딩)**: 참조 t8n을 `--evm-bin <ethereum-spec-evm>`로 넘겼다가 `UnknownCLIError`. EELS 참조 t8n은 외부 바이너리가 아니라 **`--evm-bin` 없을 때의 in-process 기본 도구**(`TransitionTool.default_tool=ExecutionSpecsTransitionTool`)다 — 고정 `ethereum-execution` 패키지를 라이브러리로 실행. `--evm-bin`을 빼는 게 정답. (이건 의존성 결함이 아닌 호출 방식 문제라 rule 9 BLOCKED-ENV 아님.)
+- **실수 4 (skip ≠ error)**: pytest `Skipped`(저자가 "EELS bug: modexp U256 overflow before Osaka, issue #1465"로 명시 스킵)를 HARNESS-ERROR로 분류했다. skip은 참조 엔진의 알려진 버그를 저자가 선언한 것 — 통과도, 어댑터 실패도, mismatch도 아닌 **ENGINE-SKIP** 별도 버킷이어야 한다.
+- **실수 5 (분류를 레코드에 고정)**: 처음엔 각 케이스 레코드에 최종 bucket을 박아 저장했다. 분류 기준을 고치면(위 실수 4) 재실행해야 재분류되는 구조. → 레코드는 **원시 사실(outcome/exc_type/exc_msg/oracle_vacuous)만** 저장하고 bucket은 **집계 시 도출**하게 바꿔, 재실행 없이 분류를 정련했다.
+- **규칙**: (a) 파생 식별자(format 등)는 위치 가정 말고 토큰 분해로 정확 매칭. (b) 대량 열거의 진실은 stdout이 아니라 프로그램 훅에서. (c) skip/xfail은 실패와 분리해 별도 상태로. (d) 원시 관측과 파생 판정을 분리 저장해 재실행 없이 재분류 가능하게. (e) 도구 바인딩 실패는 "의존성 결함"과 "호출 방식 오류"를 먼저 구분(후자는 BLOCKED-ENV 아님).
+- **경계**: 값(62,025 케이스, EXECUTABLE-PASS 수)은 "현재 state-test 어댑터로 검증 가능한 EVM case 수"로만 보고 — 채굴 가능·공급량·독립 검증으로 확대 금지(운영자 msg 3470/3473).
+
+## 2026-08-05 — zkVM 검증기 표현·안전장치 정정 5건 (운영자 msg 3500)
+- **실수 1 (독립성 과잉)**: SP1 증명 검증 실행파일을 "독립 검증기(independent verifier)"라 불렀다. 실제로는 증명기와 **같은 SP1 SDK·같은 작성자**가 만든 별개 바이너리일 뿐 — 제3자 독립이 아니다. → "별도 검증 실행파일(separate verification executable)"로 표기하고, 독립성은 주장하지 않는다.
+- **실수 2 (무증명 테스트를 증명 공격으로 분류)**: 거절 테스트 3종을 "증명 위조 3종"으로 뭉뚱그렸다. 그중 값 0x01→0x00 변조는 STARK 증명 없이 실행 결과+예측치만 대조한 것 — 증명 공격이 아니라 **무증명 의미조작**이다. → "증명 공격 2종(tamper, cross-header) + 무증명 의미조작 1종"으로 분류한다.
+- **실수 3 (재사용 검증기가 동결 신분을 강제 안 함)**: 검증기가 ELF sha256·vk를 **찍기만 하고** 동결값과 다를 때 자동 거절하지 않았다. 이번 판정은 사람이 로그로 대조해 유효했지만, 재사용 안전 검증기로는 부족. → 코드가 동결 ELF/vk 불일치 시 **하드 거절(exit 1)**하게 강제하고, ELF 게이트는 값비싼 setup 전에 즉시 발동(fail-fast).
+- **실수 4 (1회성 비용을 verify 시간에 합산)**: "verify ~6분"이라 보고했지만 그 6분은 사실상 ProverClient recursion setup(~317s)+vk 재생성(~37s)의 1회성 비용이었다. 순수 crypto verify는 **~0.9초**. → 준비(1회성)와 순수 verify를 **분리 측정**해 보고한다 — 실비용을 준비비용에 묻지 않는다.
+- **실수 5 (단일 포크 하드코딩을 일반 지원으로)**: guest가 `SpecId::CANCUN`을 하드코딩(선언 fork 무시)하는데 "일반 EVM 실행"처럼 읽힐 표현을 썼다. → **Cancun 전용**임을 명시하고 다른 포크 지원은 주장 금지(engine.rs 위치 명기).
+- **규칙(메타)**: 동결 대상(guest/ELF/증명)은 증명 후 절대 수정 금지 — 검증 **도구** 강화가 필요하면 원본 기록을 보존한 채 **별도 successor(새 해시)**로 만들고 같은 기존 증명에 재검증한다. 그래야 "no code changes after first proof" 동결원칙과 하드닝 요구를 동시에 만족한다. 새 증명은 만들지 않는다.
+- **경계**: 결과 판정(EVM-ZKVM-FEASIBILITY-PASS)은 유효 — 표현·안전장치만 교정. 여전히 미증명: mineability, 전체 52,875건, 다른 포크, 저비용 프로덕션 검증. mineable_now 0 유지, public/API 아님.
+
+## 2026-08-05 — 동결 소스를 같은 경로에 덮어써 보존 주장 파손 (운영자 msg 3503)
+- **실수**: msg 3500의 "검증기 강화"를 구현하며 강화본을 원 verifier와 **같은 경로**(project/verifier/src/main.rs)에 덮어썼다. 그 파일은 최초 동결 목록(source-freeze.txt)에 해시 1eae9eed로 올라 있어, 재검사하면 그 1건이 FAILED가 된다. 증명·게스트는 온전하지만 "원 검증기 소스까지 그대로 보존됐다"는 주장이 깨졌다.
+- **규칙**: 동결 목록에 오른 파일은 후속 개선이라도 **같은 경로에서 변형 금지**. successor는 (a) 새 경로에 만들거나 (b) 변경 전 원본을 별도 경로로 먼저 아카이브한 뒤 진행한다. 동결 산출물 수정 전에 "이 경로가 동결 목록에 있는가"를 먼저 확인한다.
+- **복구(정직 원칙)**: 원본을 byte-exact로 되살릴 수 있을 때만 "보존"을 주장한다. 여기선 강화 편집 4개가 전부 정확 문자열 치환이라 사본에서 역으로 되돌려 원본을 결정론적으로 재구성했고, 해시가 1eae9eed와 재확인 MATCH된 뒤에야 보존을 주장했다. print 출력에서 재구성하는 식의 근사 복원으로 보존을 주장하지 않는다. 복구 불가면 "바이트 미보존, 해시·로그만 보존"이라고 명시(지어내지 않기).
+- **부수 교정(측정 표현)**: 순수 verify 0.9초를 "실제 블록 검증시간"처럼 읽히게 쓰지 않는다 — 그것은 준비 후 client.verify() 함수만의 시간이고, 파일읽기·정답조건검사·production 배선은 제외라 end-to-end 블록 검증시간은 미측정이다. 격리 측정치와 전체 경로 비용을 항상 구분해 서술한다.
+
+## 2026-08-05 — 공급망 preflight: cargo deny와 cargo audit의 `unmaintained` 처리 비대칭
+- **핵심 사실**: `cargo audit`는 `unmaintained` 권고를 **경고(허용)**로 통과(exit 0)시키지만, `deny.toml`이 `[advisories] version=2, ignore=[]`인 `cargo deny`는 동일 권고를 **에러**로 처리(exit 1)한다. 즉 audit가 통과해도 deny가 막힐 수 있다 — 둘 중 하나만 보면 오판한다.
+- **규칙(무거운 의존성 추가 전 preflight)**: 새 registry 의존성을 넣기 전에 **별도 feature branch**에서 Cargo.lock 갱신 후 `cargo tree` + `cargo deny --all-features check advisories bans licenses sources` + `cargo audit`를 먼저 돌린다. deny가 무수정 통과하는지, 통과하려면 `deny.toml` 변경(license allow/advisory ignore/bans skip/source 예외)이 필요한지 판별한다. 정책 파일 변경이 필요하면 **직접 수정하지 말고** 정확한 항목·사유·의존 경로를 보고하고 승인받는다(운영자 msg 3516 프로토콜).
+- **advisory 예외를 승인받았을 때**: `ignore`는 **정확한 RUSTSEC ID만** 좁게 넣고, 각 항목에 (a) 사유(취약점 아님/유지중단), (b) 유입 의존 경로, (c) 재검토 기한을 주석으로 남긴다. 와일드카드·광범위 skip 금지. 유지되는 상류 릴리스가 나오면 제거하도록 기한을 건다.
+- **verifier-only 주장 범위**: 검증 전용 크레이트라도 상류 패키징 때문에 prover 계열(예: `slop-basefold-prover`)이 **간접 빌드 의존성**으로 딸려올 수 있다. 그럴 땐 "의존성 그래프 전체가 verifier-only"라 하지 말고 "**우리 코드의 호출**만 verifier-only(테스트로 고정)"라고 범위를 좁혀 주장한다. 직접 의존성에 `sp1-sdk`/`sp1-prover`가 없음을 매니페스트 파싱 테스트로 고정하면 CI가 회귀를 강제한다.
+- **로컬 clippy가 값어치 하는 순간**: 무거운 트리를 새로 끌어오는 크레이트는 CI 반송 1회 비용이 크므로, 커밋 전에 **그 크레이트에 한해** `cargo clippy -p <crate> --all-targets -- -D warnings`를 한 번 돌려 내 코드의 lint(예: `manual_pattern_char_comparison`)를 미리 잡는다. 워크스페이스 전체 clippy는 CI에 맡긴다(로컬 상한 규칙과 정합).
+- **역직렬화 방어**: 외부 파일을 bincode로 읽는 경로(여기선 sp1-verifier가 내부에서 `bincode::deserialize`)는 신뢰 경계다. 넘기기 **전에** 입력 바이트 상한을 걸어 초과·파싱 실패를 거절한다(무한 할당 방어). 상한은 입력 바이트에만 적용되며 합의값을 바꾸지 않는다.
+
+## 2026-08-06 — 로컬 audit가 CI와 다른 플래그라 false-green (supply-chain CI 반송)
+- **실수**: 로컬에서 `cargo audit`(플래그 없음)를 돌려 exit 0을 보고 "audit 통과"로 판단했는데, CI(`.github/workflows/ci.yml` L137)는 `cargo audit --deny warnings`를 돌린다. `--deny warnings`는 `unmaintained` 권고까지 에러로 승격시켜, `deny.toml`에만 넣은 예외 2건(RUSTSEC-2021-0139, RUSTSEC-2025-0141)이 cargo-audit 쪽에서 그대로 실패 → supply-chain job red. self-test/corpus는 전부 green이었다.
+- **근본 원인**: supply-chain 게이트는 cargo-deny **와** cargo-audit **두 도구**로 구성되는데, 예외를 deny.toml(한쪽)에만 반영하고 cargo-audit(다른 쪽)에는 안 넣었다. 게다가 로컬 audit 호출이 CI 호출과 **플래그가 달라** 그 누락을 로컬에서 못 잡았다.
+- **규칙 1 (CI 명령을 그대로 로컬 재현)**: 게이트 통과를 주장하기 전에 로컬에서 **CI가 실제로 실행하는 명령을 문자 그대로** 돌린다(여기선 `cargo audit --deny warnings`). 더 약한 변형(`cargo audit`)의 green은 게이트 green이 아니다. 워크플로우 YAML에서 실제 실행 라인을 먼저 확인한다.
+- **규칙 2 (예외는 게이트를 구성하는 모든 도구에 대칭 반영)**: advisory 예외를 승인받으면 deny.toml **과** `.cargo/audit.toml`에 **동일 ID·동일 사유·동일 재검토 기한**으로 함께 넣는다. cargo-audit은 `.cargo/audit.toml`의 `[advisories] ignore`를 자동 소비하며, `--deny warnings`는 나머지 권고에는 그대로 적용되므로 승인 범위(그 2건)만 좁게 열고 다른 신규 advisory는 여전히 CI를 red로 만든다(STOP 조건 보존).
+- **경계**: 이번 실패는 **새 advisory가 아니라** 이미 승인된 동일 2건이 두 번째 도구에서 재노출된 것 → operator의 "다른 advisory 나오면 STOP" 조건 불발동. 승인 범위 내 대칭 반영으로 처리, 신규 취약점/yanked/git 의존성은 없음.

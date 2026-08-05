@@ -47,6 +47,11 @@
 //! is never counted as an accept or a reject (mirrors the digest
 //! adapter's C7 split).
 
+/// Verifier-only compressed-STARK check for the frozen EVM zkVM feasibility
+/// proof (ADR-0018). Off-consensus, default OFF, no prover/proving-key
+/// dependency; `mineable_now` stays 0.
+pub mod zk_verify;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

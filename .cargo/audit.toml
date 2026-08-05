@@ -1,0 +1,26 @@
+# cargo-audit configuration.
+#
+# CI runs `cargo audit --deny warnings`, which promotes every advisory --
+# including the non-vulnerability `unmaintained` class -- to a hard error.
+# The two IDs below are the SAME upstream-only `unmaintained` advisories that
+# `deny.toml` already ignores (ADR-0018, operator msg 3518): they are NOT
+# vulnerabilities, NOT yanked, and are reachable ONLY through the sp1-verifier
+# 6.3.1 compressed-STARK verification tree pulled by `boole-evm-adapter`. No
+# safe upgrade exists while sp1-verifier pins them transitively.
+#
+# This mirrors deny.toml so the local and CI supply-chain gates agree. Only
+# these two IDs are ignored; every OTHER advisory (and all `unmaintained`
+# outside this list) still fails `--deny warnings`.
+#
+# Reviewed 2026-08-06 -- RE-REVIEW BY 2026-11-05 (drop if a maintained release
+# lands or the sp1-verifier tree stops pulling them).
+[advisories]
+ignore = [
+  # ansi_term 0.12.1 -- RUSTSEC-2021-0139 (unmaintained; upstream "no safe upgrade").
+  # Path: boole-evm-adapter -> sp1-verifier -> ... -> tracing-forest -> ansi_term.
+  "RUSTSEC-2021-0139",
+  # bincode 1.3.3 -- RUSTSEC-2025-0141 (unmaintained). boole-evm-adapter caps proof
+  # bytes BEFORE the bincode-backed deserializer runs.
+  # Path: boole-evm-adapter -> sp1-verifier -> ... -> sp1-primitives -> bincode.
+  "RUSTSEC-2025-0141",
+]
