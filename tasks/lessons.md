@@ -1279,3 +1279,9 @@ NO-GO. 여기서 얻은, 앞으로 **모든 채굴 문제 family 후보**에 적
 - **규칙 2 (캐시 fingerprint 보존)**: 캐시된 무거운 의존 트리를 재사용하려면 **기본 플래그**를 유지한다. `CARGO_PROFILE_TEST_DEBUG=0`·임의 `RUSTFLAGS` 변경은 그 프로파일 **모든 크레이트**의 fingerprint를 바꿔 sp1-verifier 트리 전체 재빌드(10분+)를 유발한다. 안전하게 토글 가능한 건 `CARGO_INCREMENTAL`뿐(의존 fingerprint에 안 들어감).
 - **규칙 3 (빌드 중단은 top cargo만)**: 중단하려면 최상위 `cargo` 프로세스만 kill한다. `pkill -f "crate-name crossbeam"`처럼 개별 의존 rustc를 죽이면 부분 아티팩트가 남아 cargo가 재빌드→연쇄된다. 완료된 의존 아티팩트는 원자적으로 기록돼 재사용된다.
 - **규칙 4 (로컬 heavy는 폴백, CI가 구속 게이트)**: 로컬 heavy 빌드가 환경(데몬 러너웨이 등)에 막히면 세션을 태우지 말고 CI(clean ubuntu-latest, syspolicyd 없음)를 구속 게이트로 삼는다(CLAUDE.md: full 검증은 CI). 단 보고에 "로컬 heavy 테스트는 환경 차단, CI가 실행"을 **정직하게** 명시하고, 가능한 독립 증거(예: production 함수 round-trip Ok)를 함께 제시한다.
+
+## 2026-08-06 — 도메인별 합의 경로 신설 금지: 합의 변경은 BF.7 공통 경로에서 한 번만 (운영자 msg 3544)
+- **결정/교훈**: EVM 같은 단일 도메인을 위해 독립 합의 경로(`block.v4` EVM 전용 바인딩·genesis pin)를 먼저 만들면, 기존 BF.7 공통 multi-adapter receipt 경로와 **합의 경로가 둘로 갈린다**. 나중에 다시 하나로 합쳐야 하고 "합의 변경은 한 번만" 원칙이 깨진다. → 도메인별 합의 경로를 신설하지 않는다.
+- **규칙 (합의 변경 순서)**: 새 도메인(EVM 등)의 검증을 합의에 넣을 때는 (a) 전 도메인 통합 채굴자격 census로 요구사항을 모으고 → (b) 공통 task/receipt 형식을 먼저 확정한 뒤 → (c) 그 공통 경로(BF.7)에 편입하고 → (d) 도메인 차이는 **adapter 교체**로만 흡수한다. 합의 변경(룰버전 bump·바인딩 확장)은 이 공통 경로에서 **딱 한 번** 수행한다.
+- **규칙 (feasibility fixture ≠ 합의 형식)**: feasibility 실험이 고정한 vk·public-values 헤더 배치는 **대표 fixture일 뿐** 합의 형식·genesis pin이 아니다. 공통 형식 확정 전에는 그 배치를 genesis에 못박거나 receipt 형식으로 동결하지 않는다(잠정 유지). 그래야 공통 형식이 배치를 바꿔도 합의 재변경이 안 든다.
+- **적용**: ADR-0019의 EVM 전용 Stage 2를 보류하고 BF.7 공통 경로 편입으로 재조정. 이미 머지된 Stage 1 bridge(default-OFF·미배선·adapter 모양)는 공통 경로가 소비할 형태라 무영향. 코드·genesis·룰버전·mineable_now 무변경.
