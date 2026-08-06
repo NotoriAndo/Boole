@@ -2486,3 +2486,51 @@ reward·Base 무변경. mineable_now=0. public/API/leaderboard 주장 아님. CI
 ADR 게이트 1–2를 부분 진전(node-path 게이트 3–7은 미접촉). **다음 단계 — default-OFF
 검증기의 런타임/노드 배선(ADR 결정(e) Stage 2 + 게이트 1 "node path"·3–7)은 별도 운영자
 승인 필요(msg 3530)**. 그 설계·구현은 이번 종결 범위 밖이며 승인 전 진행 금지.
+
+---
+
+# EVM 검증기 node-side bridge qualification — ADR-0019 Stage 1 (2026-08-06, 운영자 msg 3538→3540 승인)
+
+한 줄: 동결 EVM 압축-STARK 검증기를 노드의 블록-판정 결과타입(`BlockReverifyOutcome`)에
+맞춰 **자격검증(qualify)**만 했다 — 실제 블록 판정 경로·블록 EVM 필드는 **전혀 손대지
+않았다**. 라벨 `EVM-NODE-BRIDGE-QUALIFIED, live node-path gate pending`. "node path
+integrated" 아님, "ADR-0018 게이트 1 완료" 아님.
+
+## 승인 경위
+- msg 3538: ADR-0019 v2 중 C1–C4·D2·D4 Stage 1·Stage 1 구현계획만 승인. production
+  활성화 통로·genesis 변경·block.v4·룰버전·consensus/reward/Base/mineable_now 변경 불승인.
+  ADR 상태 "Accepted — Stage 1 only; Stage 2 Proposed".
+- msg 3540(좁힌 Stage 1 확정): Stage 1은 live funnel 연결이 **아니라** node-side verifier
+  bridge qualification이라고 ADR에 정정 기록. 실제 블록 판정 경로·블록 EVM 필드 무수정.
+  고정 vk 게이트 함수 + 결정적 합격/거절 변환기를 한 PR RED→GREEN. 증명 바이트 부재에
+  따른 `RetryableUnavailable`은 Stage 2 전송 경로 책임(Stage 1엔 그 경로 없음).
+
+## 한 일 (한 PR, RED→GREEN)
+- 신규 leaf 모듈 `crates/boole-node/src/evm_bridge.rs` (in-module `#[cfg(test)]` 테스트만).
+  - `evm_verify_outcome_to_reverify(VerifyOutcome) -> BlockReverifyOutcome`: 결정적
+    합격/거절 변환기. `Accepted→Verified`, 각 `Rejected(_)→DeterministicReject{게이트명 detail}`.
+    **`RetryableUnavailable` arm 없음** — pure in-process verify라 가용성 실패 불가(Stage 2).
+  - `qualify_evm_proof(&CompressedProofVerifier, proof_bytes, public_values) -> …`:
+    고정 vk(`CompressedProofVerifier::frozen()`) 게이트 함수.
+- `boole-node`에 `boole-evm-adapter` 정규 의존성 추가(Cargo.toml/Cargo.lock 1줄). deny.toml/
+  `.cargo/audit.toml`은 이미 워크스페이스 수준으로 sp1 트리 advisory allowlist 중이라 무변경.
+- `lib.rs`: `mod evm_bridge;` + 두 함수 re-export.
+- **기존 판정 경로·블록 struct 무수정** → C1(판정 불변)은 구성상 성립(건드린 경로 없음).
+
+## 검증 (로컬 focused gate)
+- RED: `accepted_maps_to_verified`가 stub에서 실패(예상) 확인. (sp1 트리 최초 로컬 빌드 54분 —
+  1회성 캐시 비용, wedge 아님.)
+- GREEN: `cargo test -p boole-node --lib evm_bridge` → **11/11 PASS**(0.90s). 매핑 5 +
+  실제 fixture ACCEPT 1 + 거절 매트릭스 5(oversized·short pv·admission-header 변조·
+  pv 본문 변조→crypto·proof 바이트 변조→crypto). 실제 동결 증명이 `Verified`로 자격통과.
+- `cargo fmt -p boole-node --check` PASS, `git diff --check` clean, `scripts/__pycache__/` 없음.
+- clippy 2종(`--workspace --all-targets` / `+features`) 게이트 통과 확인.
+- **머지 경로**: `feat/evm-node-bridge-qualify` → PR → CI `self-test`+`supply-chain` green →
+  **rebase merge**(author `NotoriAndo <…@users.noreply.github.com>` 보존). 머지 후 origin/main
+  으로 검증. (커밋/PR/CI run 링크는 최종 보고에 기재.)
+
+## 경계
+- consensus·`mineable_now`(0 유지)·reward·Base 무변경. EVM 검증기 default-OFF 유지.
+- Stage 2로 이월(별도 승인 필요): funnel 호출부(`reverify_block_selected_shares`), 블록
+  EVM-evidence 필드, `RetryableUnavailable` 전송 경로, genesis 핀·block.v4·룰버전 3→4.
+- public/API/mining/leaderboard 주장 아님. closed-local qualification.

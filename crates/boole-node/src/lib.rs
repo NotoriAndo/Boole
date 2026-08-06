@@ -6,6 +6,7 @@ mod checker_pin;
 mod checkpoint;
 mod deep_verify;
 mod durability;
+mod evm_bridge;
 mod family_manifest_store;
 mod http_error;
 mod lean_bounty_verifier;
@@ -46,6 +47,7 @@ pub use deep_verify::{
     deep_verify_block, deep_verify_bounty_events, DeepVerifyBlockReport, DeepVerifyDivergence,
     DeepVerifyError, DeepVerifyReport,
 };
+pub use evm_bridge::{evm_verify_outcome_to_reverify, qualify_evm_proof};
 pub use family_manifest_store::{load_family_manifest_registry_from_dir, FamilyManifestStoreError};
 pub use lean_bounty_verifier::LeanBountyVerifier;
 pub use local_node::{
