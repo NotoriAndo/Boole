@@ -23,6 +23,11 @@ anyhow.workspace = true
 axum.workspace = true
 blake3.workspace = true
 boole-core = { path = "../boole-core" }
+# ADR-0019 Stage 1 (EVM-NODE-BRIDGE-QUALIFIED): the frozen verifier-only
+# compressed-STARK EVM checker. Linked so the node-side bridge can be qualified
+# against the consensus outcome type; NOT wired into any block-verdict path, and
+# no prover (`sp1-verifier`, `default-features = false`) enters the graph.
+boole-evm-adapter = { path = "../boole-evm-adapter" }
 boole-lean-runner = { path = "../boole-lean-runner" }
 boole-p2p = { path = "../boole-p2p" }
 clap.workspace = true

@@ -421,6 +421,7 @@ dependencies = [
  "axum",
  "blake3",
  "boole-core",
+ "boole-evm-adapter",
  "boole-lean-runner",
  "boole-p2p",
  "boole-testkit",
