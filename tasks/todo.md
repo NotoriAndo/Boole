@@ -2417,3 +2417,59 @@ kimchi)을 2조각으로 진행. 결과 문서는 local-docs(gitignored), 커밋
 - **경계**: 합의 경로 밖·기본 OFF·기존 단건 증명 재사용(새 증명 0)·prover 의존성 0.
       `mineable_now`=0 유지, reward/Base 변경 없음, 합의 연결/활성화 없음. closed-local,
       public/API/leaderboard 주장 아님.
+
+## 2026-08-06 — EVM 실제 동결 증명 ACCEPT + 신원 고정 (ADR-0018, 운영자 msg 3522/3526, A 승인)
+계획 (한 슬라이스): 거절 안전장치(PR #109)에서 → "실제 증명을 받아들이는 검증기"로.
+
+- [x] **1. 샌드박스 1회 변환** (git-ignored `local-docs/evm-zkvm-feasibility/`, SDK 有):
+      `proof-single.bin`(SDK wrapper `SP1ProofWithPublicValues`)을 verify-only
+      `sp1-verifier`가 소비 가능한 3종 바이트로 변환 — (a)`proof-compressed.bin`
+      = `bincode(SP1Proof)` (b)`vk-hash.bin` = `bincode([SP1Field;8])`(KoalaBear
+      vk 해시) (c)`public-values.bin`(782B). 변환 도구(`project/transcode`)가
+      **정확히 production 크레이트** `SP1CompressedVerifierRaw::verify_with_public_values`
+      로 round-trip(Ok)을 증명한 뒤에만 파일 기록. SDK는 Boole 워크스페이스에
+      추가하지 않음(샌드박스 전용). 원본 wrapper digest·SP1 SDK 6.3.1·circuit v6.1.0·
+      변환 전후 digest 기록.
+- [x] **2. CI fixture 커밋**: 3종을 `fixtures/evm-zkvm/`에 + `SHA256SUMS` + `PROVENANCE.md`.
+      proof digest는 **fixture 무결성 확인 전용** — "이 증명만 수락"하는 production
+      조건 아님(다른 유효 증명 원천거절 안 함). gitleaks 예외는 실제 탐지 시에만 좁게.
+- [x] **3. 검증기 API 변경**: `CompressedProofVerifier::frozen()` — 고정 vk를 상수로
+      내장(`include_bytes!` vk-hash.bin), 호출자가 임의 vk 주입 불가(vk 받는 생성자는
+      `#[cfg(test)] pub(crate)`로만). 파이프라인: size gate → **입장검사(admission,
+      비암호)** → **암호 검증(crypto)**. 암호결박 범위 = public values 바이트까지로만
+      표기. task_contract(pv off 0)·fork(64)·author_oracle(128) 3종을 프로즌 digest
+      상수와 비교하는 admission은 "외부 입장검사"로 분리 표기(암호결박이라 부르지 않음).
+- [x] **4. RED→GREEN 매트릭스**: ACCEPT(실제 증명+실제 pv) / REJECT 7종 —
+      wrong proof·wrong vk·wrong public-values(비-admission 필드 변조→crypto)·
+      wrong task_contract·wrong fork·wrong author_oracle(→admission)·oversized.
+      가능하면 ACCEPT도 CI가 검사(fixture 동봉, env-gate 스킵 아님).
+- [ ] **5. 게이트→머지**: focused test + fmt + clippy 2종 → 최신 main 새 브랜치 →
+      PR → CI green → **rebase merge**(author noreply 보존). consensus·`mineable_now`·
+      reward·Base 무변경. `mineable_now`=0 유지, closed-local, public/API/leaderboard 주장 아님.
+
+### Review (2026-08-06)
+
+**한 일** — 거절-전용(PR #109)에서 "실제 동결 증명을 받아들이는 검증기"로 승격.
+- fixture 3종 + `SHA256SUMS` + `PROVENANCE.md`를 `fixtures/evm-zkvm/`에 추가
+  (proof-compressed 1,272,546 B / vk-hash 32 B / public-values 782 B; `shasum -c` OK).
+- `zk_verify.rs`: `CompressedProofVerifier::frozen()`가 vk-hash.bin을 `include_bytes!`로
+  내장, vk-주입 생성자는 `#[cfg(test)] pub(crate)`. 3-gate = size → admission(비암호,
+  task_contract/fork/author_oracle 프로즌 상수 대조) → crypto(`SP1CompressedVerifierRaw`).
+- `tests/zk_verify_accept.rs`(신규): ACCEPT 1 + REJECT 6(tampered proof·비-admission pv
+  변조→crypto·task_contract·fork·author_oracle·short pv). `zk_verify_bounds.rs`: oversized +
+  parse-gate + "sp1-verifier verify-only(Cargo.toml)" 계약 유지. REJECT 7종 요건 충족.
+
+**로컬 검증(정직 기재)** — 무거운 codegen 테스트는 **환경 차단**.
+- `cargo fmt -p boole-evm-adapter --check` PASS, `git diff --check` clean.
+- `cargo check -p boole-evm-adapter --tests` **EXIT 0** — lib+두 테스트파일 타입/보로우/
+  `include_bytes!` 경로/`sp1-verifier` 시그니처 정합 확인(codegen 없어 wedge 회피).
+- **런타임 ACCEPT/REJECT 로컬 실행 불가**: macOS `syspolicyd` 러너웨이(~73–90% CPU)로
+  sp1-verifier STARK codegen이 반복 wedge(rustc ~18s 후 0% CPU 정지, 4회+). 로컬 heavy
+  게이트 포기 → **CI(clean ubuntu-latest)가 구속 게이트**(CLAUDE.md: full 검증은 CI).
+- ACCEPT crypto 경로는 **독립 입증됨**: 변환 도구가 production 함수
+  `SP1CompressedVerifierRaw::verify_with_public_values`로 round-trip Ok(0.924s).
+
+**남은 것(item 5)** — 커밋 → `feat/evm-zkvm-accept-slice` push → PR → **CI self-test +
+supply-chain green** → **rebase merge**(author noreply 검증) → origin/main == local HEAD.
+gitleaks는 커밋 후 git-mode로 재확인, 탐지 시에만 `fixtures/evm-zkvm/.*` 좁게 예외.
+consensus·`mineable_now`·reward·Base 무변경 확인. mineable_now=0. public/API/leaderboard 주장 아님.

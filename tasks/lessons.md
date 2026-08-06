@@ -1263,3 +1263,19 @@ NO-GO. 여기서 얻은, 앞으로 **모든 채굴 문제 family 후보**에 적
 - **근본 원인**: `gh pr merge --squash`는 브랜치 커밋을 버리고 GitHub가 새 커밋을 계정 이메일로 **재저작**한다 — 내 로컬 `--author`/config(noreply)는 무시된다. 계정에 noreply 강제 설정이 없으면 공개 이메일(andonotori@gmail.com)이 쓰인다.
 - **규칙 (다음 커밋부터)**: main 반영 시 **`gh pr merge --rebase`**를 쓴다. rebase 머지는 내 브랜치 커밋을 그대로 replay하므로 author=noreply가 보존된다(squash는 안 됨). repo가 rebase 머지를 허용함(확인함). 머지 후 `git log -1 --format='%ae'`로 author 이메일이 규정값인지 반드시 검증한다.
 - **보고 규칙 보강**: "author NotoriAndo 확인"을 이름만 보고 판단하지 말고 **이메일까지** 대조한다. 머지 방식(squash/rebase/merge)에 따라 최종 main 커밋의 author가 로컬 커밋과 달라질 수 있으므로, 최종 검증은 반드시 **main의 머지 커밋**에서 `%an <%ae>`로 확인한다.
+
+## 2026-08-06 — SP1 6.3.1 verify glue: 필드는 KoalaBear, wire form은 `bincode(SP1Proof enum)` (경험적 확정)
+
+- **실수(잠재)**: `sp1-verifier` 문서 예제를 그대로 베끼면 두 지점에서 틀린다. (1) 예제의 `vk.hash_babybear()`는 SP1 6.3.1에 **없다** — 6.3.1의 `SP1Field`는 KoalaBear라 실제 메서드는 `vk.hash_koalabear()`(`[SP1Field; 8]` 반환). (2) 예제가 암시하는 "inner-struct" proof 인코딩으로 `bincode`하면 `SP1CompressedVerifierRaw::verify_with_public_values`가 "invalid proof type"으로 거절한다.
+- **근본 원인**: 크레이트 문서(예제)와 실제 배포된 impl의 필드/타입이 버전에 따라 어긋난다. 문서만 읽고 wire form을 확정하면 컴파일은 되지만 런타임에 거절된다.
+- **규칙 1 (필드는 컴파일러가 제안한 메서드로 확인)**: SP1 verify glue를 붙일 때 vk 해시 메서드는 문서 예제를 베끼지 말고 SDK가 컴파일-시 제안하는 실제 메서드(`hash_koalabear`)로 확정한다. `vkey_hash`는 `bincode([SP1Field;8])`(32 B).
+- **규칙 2 (wire form은 production 함수로 round-trip 확정)**: 문서와 impl이 wire format에서 어긋나면 어느 한쪽을 읽어 추정하지 말고 **실제 production 함수**(`SP1CompressedVerifierRaw::verify_with_public_values`)로 round-trip Ok를 받아 확정한다. 이번엔 `bincode(&SP1Proof)`(ENUM 인코딩)만 통과(pure verify 0.924s). pv는 `pv.to_vec()`(782 B), 헤더 = 6×32B digest(task_contract@0, case_or_batch_root@32, fork@64, canonical_input@96, author_oracle@128, observed_accounts@160).
+
+## 2026-08-06 — 무거운 크레이트(sp1-verifier STARK) 로컬 빌드 wedge + cargo 캐시 규율
+
+- **증상**: `cargo test -p boole-evm-adapter`(lib+테스트 바이너리 codegen)가 반복적으로 wedge — rustc가 ~18s 컴파일 후 **0% CPU로 완전 정지**(TIME 불변, sleeping/uninterruptible). macOS `syspolicyd`가 동시에 러너웨이(~73–90% CPU, 7일 uptime 누적 2834 CPU-min). 4회+ 재현. `rustc hello.rs`는 <0.5s로 정상 → 툴체인 자체는 멀쩡, wedge는 **부하 하의 무거운 STARK codegen에 국한**.
+- **근본 원인**: sp1-verifier 압축-STARK verify 경로가 각 테스트 바이너리마다 거대한 LLVM IR로 monomorphize된다. 여기에 시스템 데몬 러너웨이가 겹치면 codegen rustc가 블록된다(sudo/사용자 개입 없이 못 고침).
+- **규칙 1 (codegen 없이 정합성 확인)**: 무거운 크레이트는 커밋 전 최소 신호로 `cargo check -p <crate> --tests`(타입/보로우/`include_bytes!` 경로/의존 API 시그니처, **codegen 없음** → wedge 회피)를 쓴다. 런타임 동작은 CI가 실행. `cargo check`는 deps를 rmeta로만 검사하므로 STARK codegen을 트리거하지 않는다.
+- **규칙 2 (캐시 fingerprint 보존)**: 캐시된 무거운 의존 트리를 재사용하려면 **기본 플래그**를 유지한다. `CARGO_PROFILE_TEST_DEBUG=0`·임의 `RUSTFLAGS` 변경은 그 프로파일 **모든 크레이트**의 fingerprint를 바꿔 sp1-verifier 트리 전체 재빌드(10분+)를 유발한다. 안전하게 토글 가능한 건 `CARGO_INCREMENTAL`뿐(의존 fingerprint에 안 들어감).
+- **규칙 3 (빌드 중단은 top cargo만)**: 중단하려면 최상위 `cargo` 프로세스만 kill한다. `pkill -f "crate-name crossbeam"`처럼 개별 의존 rustc를 죽이면 부분 아티팩트가 남아 cargo가 재빌드→연쇄된다. 완료된 의존 아티팩트는 원자적으로 기록돼 재사용된다.
+- **규칙 4 (로컬 heavy는 폴백, CI가 구속 게이트)**: 로컬 heavy 빌드가 환경(데몬 러너웨이 등)에 막히면 세션을 태우지 말고 CI(clean ubuntu-latest, syspolicyd 없음)를 구속 게이트로 삼는다(CLAUDE.md: full 검증은 CI). 단 보고에 "로컬 heavy 테스트는 환경 차단, CI가 실행"을 **정직하게** 명시하고, 가능한 독립 증거(예: production 함수 round-trip Ok)를 함께 제시한다.
