@@ -1,0 +1,33 @@
+[package]
+name = "boole-emitter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+# Domain-common emitter contract (EmitterResultV1 / EmitterOutputV1) and the
+# per-domain converters that expand one p2 census anchor into 0..N normalized
+# task records or exactly one deterministic zero_reason. This is a
+# NON-consensus, offline census utility: it never touches admission, replay,
+# block building, or reward paths, and produces no on-chain artifact. It reuses
+# boole-core's BLAKE3 `h_protocol` for derived identities so the contract's
+# digests are byte-faithful to the protocol hashing convention.
+publish = false
+
+# Inherit `[workspace.lints]` (unsafe_code = "deny") — required for every
+# member crate by scripts/test_workspace_invariants_contract.py.
+[lints]
+workspace = true
+
+[dependencies]
+boole-core = { path = "../boole-core" }
+hex.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+# Integration tests (tests/contract.rs) build hex/serde_json digests and parse
+# the representative-anchor fixture directly.
+[dev-dependencies]
+hex.workspace = true
+serde_json.workspace = true

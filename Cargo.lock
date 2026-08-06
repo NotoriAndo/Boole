@@ -348,6 +348,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "boole-emitter"
+version = "0.1.0"
+dependencies = [
+ "boole-core",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "boole-evm-adapter"
 version = "0.1.0"
 dependencies = [

@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/boole-core",
+  "crates/boole-emitter",
   "crates/boole-cli",
   "crates/boole-evm-adapter",
   "crates/boole-node",

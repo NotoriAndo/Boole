@@ -1,0 +1,13 @@
+{
+  "anchor_ready": true,
+  "ecosystem": "rust",
+  "identity": "attributes.meta",
+  "kind": "rust_rule",
+  "license": "MIT OR Apache-2.0",
+  "line_start": 96,
+  "schema_cluster": "attributes",
+  "semantic_digest": "sha256:90c3bb92e16e7891e7e2004f170ccb7e2179ffaf5030c7f7a89053af3338596a",
+  "source_commit": "afdc77bab886d4455c11247cdd32391bfab636ae",
+  "source_path": "src/attributes.md",
+  "strict_ready": false
+}

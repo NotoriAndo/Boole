@@ -2564,3 +2564,48 @@ integrated" 아님, "ADR-0018 게이트 1 완료" 아님.
   기록(ADR-0019·todo·lessons)만 갱신하는 docs-only 결정.
 - ADR-0019 로컬 문서(git-ignored)에 동일 결정 기록(Status + "Stage 2 HELD — folded into
   BF.7" subsection). public/API/mining/leaderboard 주장 아님.
+
+---
+
+# boole-emitter 공통 계약 검사기 + Rust 대표 anchor zero 경로 (2026-08-07, 운영자 msg 3570·3573)
+
+한 줄: 신규 leaf 크레이트 `boole-emitter`를 **공통 계약 검사기 + zero 결과 생성기**로 도입 —
+canonical-JSON·digest·XOR 불변식을 RED→GREEN으로 고정하고, Rust 대표 anchor(attributes.meta)
+1건을 `TASK-CONTRACT-UNMATERIALIZED` zero 결과(Stage A `TASK-CONTRACT-MISSING`)로 결정적 변환.
+consensus·census 집계·문제 수 발표·mineable_now 무변경.
+
+## 한 일 (RED→GREEN)
+- **신규 크레이트** `crates/boole-emitter`(workspace member 추가, `[lints] workspace = true`).
+  boole-core만 의존(파생 identity는 BLAKE3 `h_protocol` 재사용, 증거는 SHA-256).
+- `canonical_json.rs` — **신규 규격** `boole.canonical-json.v1`: 키 정렬(코드포인트),
+  compact separators, `allow_nan=false`, duplicate-key 거절, 정수 전용, ensure_ascii(비BMP는
+  UTF-16 surrogate pair). 고정 test vector 11개(3개 ERROR 케이스 포함).
+- `digest.rs` — 태그드 `Digest{algorithm, hex}`, `raw()`, `push_field`(u64_le(len)++bytes),
+  `protocol_digest`(BLAKE3), `sha256_digest`(증거).
+- `identity.rs` — `rust_anchor_binding_digest`(§3 결정적 preimage: domain_tag=rust,
+  source_commit, source_path, line_start(u64_le), kind, raw(semantic_digest), identity).
+- `result.rs` — `EmitterResultV1` envelope + XOR 불변식(`validate_xor`), `ZeroReason`(+`missing`),
+  `ZeroReasonCode`(msg 3573: `TASK-CONTRACT-UNMATERIALIZED`), `StageA`(`TASK-CONTRACT-MISSING` 추가).
+- `rust_domain.rs` — `convert_rust_anchor`: Rust Reference anchor를 zero 결과로 변환
+  (tasks=[], code=TASK-CONTRACT-UNMATERIALIZED, missing=[statement,oracle,work_product_contract],
+  근거 digest=SHA-256(canonical-JSON 증거), Stage A=TASK-CONTRACT-MISSING; 승격 금지).
+- 프로즌 계약서(local-docs) §10/§1에 msg 3573 정정 반영: 코드명·`missing` 필드·Stage A 상태.
+
+## 검증 (로컬 focused gate)
+- **RED**: canonical_json 11개 전부 `not yet implemented`(todo! panic)로 실패 확인.
+- **GREEN**: `cargo test -p boole-emitter` → **21/21 PASS**(canonical_json 11 + contract 10, 0.07s).
+  contract = digest 결정성/순서민감성 4 + XOR 4 + Rust 대표 zero 경로 2.
+- `cargo fmt -p boole-emitter --check` / `cargo clippy -p boole-emitter --all-targets -D warnings`
+  게이트(신규 leaf 크레이트 스코프 — sp1 트리 무접촉). full workspace clippy 2종은 CI가 구속.
+- `git diff --check` clean, `scripts/__pycache__/` 없음.
+
+## 경계
+- consensus·admission·replay·reward·Base·`mineable_now`(0 유지) **무변경**. 크레이트는
+  NON-consensus 오프라인 census 유틸(온체인 산출물 없음).
+- Rust 3,293 전수 실행·census 집계·문제 수 발표 **안 함**. 이 zero 결과는 "Rust 문제 0개"가
+  아니라 "현재 Rust Reference anchor에는 runnable task 계약이 아직 없음".
+- public/API/mining/leaderboard 주장 아님. closed-local 계약 검증만.
+
+## 다음 (별도 제출)
+- 대표 검증 완료 후: **Rust runnable task family 설계안**(anchor ↔ 실제 rustc 구현·공식
+  입력/기대결과·제출 산출물·checker·난이도 축 짝짓기). 문제별 수동 수정 금지. 문서 먼저.
