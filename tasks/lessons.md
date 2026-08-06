@@ -1285,3 +1285,10 @@ NO-GO. 여기서 얻은, 앞으로 **모든 채굴 문제 family 후보**에 적
 - **규칙 (합의 변경 순서)**: 새 도메인(EVM 등)의 검증을 합의에 넣을 때는 (a) 전 도메인 통합 채굴자격 census로 요구사항을 모으고 → (b) 공통 task/receipt 형식을 먼저 확정한 뒤 → (c) 그 공통 경로(BF.7)에 편입하고 → (d) 도메인 차이는 **adapter 교체**로만 흡수한다. 합의 변경(룰버전 bump·바인딩 확장)은 이 공통 경로에서 **딱 한 번** 수행한다.
 - **규칙 (feasibility fixture ≠ 합의 형식)**: feasibility 실험이 고정한 vk·public-values 헤더 배치는 **대표 fixture일 뿐** 합의 형식·genesis pin이 아니다. 공통 형식 확정 전에는 그 배치를 genesis에 못박거나 receipt 형식으로 동결하지 않는다(잠정 유지). 그래야 공통 형식이 배치를 바꿔도 합의 재변경이 안 든다.
 - **적용**: ADR-0019의 EVM 전용 Stage 2를 보류하고 BF.7 공통 경로 편입으로 재조정. 이미 머지된 Stage 1 bridge(default-OFF·미배선·adapter 모양)는 공통 경로가 소비할 형태라 무영향. 코드·genesis·룰버전·mineable_now 무변경.
+
+## 2026-08-06 — 규격(spec) 존재 ≠ runnable task 계약 존재: zero_reason는 TASK-CONTRACT-UNMATERIALIZED (운영자 msg 3573)
+- **정정 기록**: Rust 대표 anchor(attributes.meta)의 zero 결과 코드를 처음에 `SPEC-UNMATERIALIZED`로 설계했다. 운영자가 정정: rust-lang/reference의 rule은 그 자체가 **written spec**이므로 "spec이 없다"는 틀린 진술이다. 없는 것은 **runnable task 계약**(statement·oracle·work_product_contract)이다 → 코드명 `TASK-CONTRACT-UNMATERIALIZED`.
+- **근본 원인**: "변환기가 task를 못 만든다"는 관찰을 곧바로 "규격 미성숙"으로 라벨링했다. 두 층위가 다르다 — (1) 규격 텍스트의 존재/부재와 (2) 그 규격에서 **실행 가능한 과제 계약**의 materialize 여부. Reference anchor는 (1)은 있고 (2)가 없다.
+- **규칙 1 (zero_reason 코드 선택)**: anchor가 이미 규격(spec)을 참조/구현하는데 실행 계약만 없으면 `TASK-CONTRACT-UNMATERIALIZED`를 쓴다. 이 코드는 `missing ⊆ {statement, oracle, work_product_contract}`(빠진 계약 조각)와 근거 digest(SHA-256)를 **반드시** 함께 싣는다. 규격 자체가 아예 없을 때만 다른 코드를 고려한다.
+- **규칙 2 (Stage A 승격 금지)**: 실행 계약 부재가 유일한 blocker인 anchor의 Stage A 상태는 `TASK-CONTRACT-MISSING`이며 `RUNNABLE-TASK-EMITTER-PRESENT`로 **승격하지 않는다**. Stage A 상태는 zero_reason 코드가 아니다(별도 축).
+- **규칙 3 (의미 오남용 금지)**: 이 zero 결과는 "Rust 문제 0개"가 **아니라** "현재 Rust Reference anchor에는 runnable task 계약이 아직 없음"을 뜻한다. census 집계·문제 수 발표로 확대 해석 금지. 새 크레이트는 "문제 생성기"가 아니라 공통 계약 검사기 + zero 결과 생성기로만 취급한다.
