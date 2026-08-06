@@ -2443,7 +2443,7 @@ kimchi)을 2조각으로 진행. 결과 문서는 local-docs(gitignored), 커밋
       wrong proof·wrong vk·wrong public-values(비-admission 필드 변조→crypto)·
       wrong task_contract·wrong fork·wrong author_oracle(→admission)·oversized.
       가능하면 ACCEPT도 CI가 검사(fixture 동봉, env-gate 스킵 아님).
-- [ ] **5. 게이트→머지**: focused test + fmt + clippy 2종 → 최신 main 새 브랜치 →
+- [x] **5. 게이트→머지**: focused test + fmt + clippy 2종 → 최신 main 새 브랜치 →
       PR → CI green → **rebase merge**(author noreply 보존). consensus·`mineable_now`·
       reward·Base 무변경. `mineable_now`=0 유지, closed-local, public/API/leaderboard 주장 아님.
 
@@ -2469,7 +2469,20 @@ kimchi)을 2조각으로 진행. 결과 문서는 local-docs(gitignored), 커밋
 - ACCEPT crypto 경로는 **독립 입증됨**: 변환 도구가 production 함수
   `SP1CompressedVerifierRaw::verify_with_public_values`로 round-trip Ok(0.924s).
 
-**남은 것(item 5)** — 커밋 → `feat/evm-zkvm-accept-slice` push → PR → **CI self-test +
-supply-chain green** → **rebase merge**(author noreply 검증) → origin/main == local HEAD.
-gitleaks는 커밋 후 git-mode로 재확인, 탐지 시에만 `fixtures/evm-zkvm/.*` 좁게 예외.
-consensus·`mineable_now`·reward·Base 무변경 확인. mineable_now=0. public/API/leaderboard 주장 아님.
+**머지 완료(item 5)** — 로컬 커밋 `af8a4d5` → `feat/evm-zkvm-accept-slice` push → PR #111 →
+**CI self-test + supply-chain + corpus 4종 green** → **rebase 자동 머지** → main 커밋 `cb6a817`.
+검증: main author = `NotoriAndo <…@users.noreply.github.com>`(noreply 보존, PR #109 squash 교훈 반영),
+local main == origin/main == `cb6a817`, working tree clean, feature 브랜치 삭제(로컬+원격).
+gitleaks git-mode 재검사 → leak 없음 → `.gitleaks.toml` 예외 미추가. consensus·`mineable_now`·
+reward·Base 무변경. mineable_now=0. public/API/leaderboard 주장 아님. CI run:
+`actions/runs/31060765040`.
+
+### 종결 (2026-08-06, 운영자 msg 3530 승인)
+
+이 in-repo verifier-only ACCEPT 실험을 **CLOSED**로 종결한다. 성공 기록은 ADR-0018
+(`local-docs/adr/0018-…`, git-ignored 설계문서)의 "Follow-on record (2026-08-06)" 섹션에
+남겼다 — 검증경로를 샌드박스→추적 크레이트 `boole-evm-adapter`로 이관, ceiling
+`EVM-ZKVM-FEASIBILITY-PASS` 도달, 여전히 Stage-1(consensus 밖·default-OFF·mineable_now=0),
+ADR 게이트 1–2를 부분 진전(node-path 게이트 3–7은 미접촉). **다음 단계 — default-OFF
+검증기의 런타임/노드 배선(ADR 결정(e) Stage 2 + 게이트 1 "node path"·3–7)은 별도 운영자
+승인 필요(msg 3530)**. 그 설계·구현은 이번 종결 범위 밖이며 승인 전 진행 금지.
