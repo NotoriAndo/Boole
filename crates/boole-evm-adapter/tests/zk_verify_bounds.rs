@@ -1,30 +1,33 @@
 //! RED->GREEN bounds for the verifier-only compressed-STARK path (ADR-0018,
-//! operator msg 3518).
+//! operator msg 3518/3526).
 //!
-//! These are SYNTHETIC and CI-runnable: they never touch the frozen sandbox
-//! proof (which lives in a git-ignored tree). They pin the two guarantees the
-//! operator required for the bincode-backed deserializer (RUSTSEC-2025-0141,
-//! `bincode` unmaintained): an explicit proof-size cap enforced BEFORE
-//! deserialization, and rejection of BOTH oversized and unparseable input.
-//! They also pin that this crate's DIRECT sp1 dependency is verifier-only
-//! (no `sp1-sdk` / `sp1-prover`), matching ADR-0018 decision (f).
+//! These pin the SIZE and PARSE gates: an explicit proof-size cap enforced
+//! BEFORE the bincode-backed deserializer (RUSTSEC-2025-0141, `bincode`
+//! unmaintained), and rejection of BOTH oversized and unparseable proof bytes.
+//! The parse-gate cases carry the real frozen public values so they pass the
+//! admission gate and actually reach the crypto/parse step; only the oversized
+//! case fires earlier (the size gate precedes admission). They also pin that
+//! this crate's DIRECT sp1 dependency is verifier-only (no `sp1-sdk` /
+//! `sp1-prover`), matching ADR-0018 decision (f).
 
 use boole_evm_adapter::zk_verify::{
     CompressedProofVerifier, VerifyOutcome, VerifyReject, MAX_COMPRESSED_PROOF_BYTES,
 };
 
-/// A dummy preloaded vkey hash. The size/parse gates fire before the vkey is
-/// ever consulted, so its exact value is irrelevant to these tests.
-fn dummy_vkey_hash() -> Vec<u8> {
-    vec![0u8; 32]
-}
+/// The real frozen public values, whose header passes the admission gate, so a
+/// parse-gate test reaches the crypto/parse step instead of stopping earlier.
+const FROZEN_PV: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/evm-zkvm/public-values.bin"
+));
 
 /// Oversized input is rejected by the size gate BEFORE any deserialization —
 /// the distinct `ProofTooLarge` variant (not a parse error) proves the cap
-/// fired first, so a hostile blob never reaches the bincode allocator.
+/// fired first, so a hostile blob never reaches the bincode allocator. The size
+/// gate precedes the admission gate, so empty public values are fine here.
 #[test]
 fn oversized_proof_is_rejected_before_deserialization() {
-    let verifier = CompressedProofVerifier::new(dummy_vkey_hash());
+    let verifier = CompressedProofVerifier::frozen();
     let proof = vec![0u8; MAX_COMPRESSED_PROOF_BYTES + 1];
     match verifier.verify(&proof, &[]) {
         VerifyOutcome::Rejected(VerifyReject::ProofTooLarge { len, max }) => {
@@ -35,16 +38,17 @@ fn oversized_proof_is_rejected_before_deserialization() {
     }
 }
 
-/// A blob EXACTLY at the cap passes the (inclusive) size gate and proceeds to
-/// deserialization, which fails on non-proof bytes -> `ProofRejected`. This
-/// pins the boundary AND that a parse failure is a reject, not an accept.
+/// A blob EXACTLY at the cap passes the (inclusive) size gate and the admission
+/// gate (real pv), then fails deserialization on non-proof bytes ->
+/// `ProofRejected`. This pins the boundary AND that a parse failure is a reject,
+/// not an accept.
 #[test]
 fn at_cap_nonproof_passes_size_gate_then_parse_rejects() {
-    let verifier = CompressedProofVerifier::new(dummy_vkey_hash());
+    let verifier = CompressedProofVerifier::frozen();
     // 0xFF prefix forces an immediate invalid-enum-tag deserialize error, so
     // the check is fast and deterministic despite the full-size buffer.
     let proof = vec![0xffu8; MAX_COMPRESSED_PROOF_BYTES];
-    match verifier.verify(&proof, &[]) {
+    match verifier.verify(&proof, FROZEN_PV) {
         VerifyOutcome::Rejected(VerifyReject::ProofRejected { .. }) => {}
         other => panic!("expected ProofRejected (parse), got {other:?}"),
     }
@@ -54,18 +58,18 @@ fn at_cap_nonproof_passes_size_gate_then_parse_rejects() {
 /// are rejected (never accepted).
 #[test]
 fn small_garbage_proof_is_rejected() {
-    let verifier = CompressedProofVerifier::new(dummy_vkey_hash());
-    match verifier.verify(&[0xff, 0xff, 0xff, 0xff, 0x00, 0x01], &[]) {
+    let verifier = CompressedProofVerifier::frozen();
+    match verifier.verify(&[0xff, 0xff, 0xff, 0xff, 0x00, 0x01], FROZEN_PV) {
         VerifyOutcome::Rejected(VerifyReject::ProofRejected { .. }) => {}
         other => panic!("expected ProofRejected, got {other:?}"),
     }
 }
 
-/// Empty input is not a valid proof and is rejected.
+/// Empty proof input is not a valid proof and is rejected.
 #[test]
 fn empty_proof_is_rejected() {
-    let verifier = CompressedProofVerifier::new(dummy_vkey_hash());
-    match verifier.verify(&[], &[]) {
+    let verifier = CompressedProofVerifier::frozen();
+    match verifier.verify(&[], FROZEN_PV) {
         VerifyOutcome::Rejected(VerifyReject::ProofRejected { .. }) => {}
         other => panic!("expected ProofRejected, got {other:?}"),
     }
