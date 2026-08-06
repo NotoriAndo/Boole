@@ -2534,3 +2534,33 @@ integrated" 아님, "ADR-0018 게이트 1 완료" 아님.
 - Stage 2로 이월(별도 승인 필요): funnel 호출부(`reverify_block_selected_shares`), 블록
   EVM-evidence 필드, `RetryableUnavailable` 전송 경로, genesis 핀·block.v4·룰버전 3→4.
 - public/API/mining/leaderboard 주장 아님. closed-local qualification.
+
+---
+
+# 결정 기록: EVM 전용 Stage 2 보류 → BF.7 공통 multi-adapter receipt 경로 편입 (2026-08-06, 운영자 msg 3544)
+
+한 줄: EVM 전용 Stage 2·`block.v4`·genesis pin 계획을 **보류**하고, 도메인별 합의 경로를
+새로 만들지 않는다 — BF.7 공통 multi-adapter receipt 경로에 편입해 **합의 변경은 한 번만**
+수행한다. 코드·genesis·룰버전·`mineable_now` 무변경(문서 결정만).
+
+## 결정
+- **EVM 전용 Stage 2 보류**: ADR-0019의 EVM 전용 Stage 2·`block.v4` 판정-바인딩·genesis
+  `EvmVerifierPin`(D3)을 독립 합의 경로로 구현하지 않는다. ADR의 해당 설계문은 역사적
+  맥락으로만 보존하고 이 결정이 상위(supersede).
+- **이유 — 합의 변경 1회 원칙**: EVM 전용 합의 경로를 만들면 기존 BF.7 공통 receipt 경로와
+  **두 경로**가 병존한다. 대신 순서: (a) 전 도메인 통합 채굴자격(`mineable`) census →
+  (b) 공통 task/receipt 형식 확정 → (c) EVM Stage 2를 BF.7 공통 경로에 편입 → (d) 도메인
+  adapter만 교체 가능 → (e) 합의 변경은 그때 **한 번만**. 도메인별 합의 경로 신설 금지.
+- **현재 고정 vk·public-values 헤더 = feasibility 대표 fixture일 뿐**: Stage 1이 쓰는
+  `FROZEN_VKEY_HASH`와 192B public-values/admission-header 배치는 `EVM-ZKVM-FEASIBILITY-PASS`
+  대표 fixture이며 **합의 형식도 genesis pin도 아니다**. BF.7 공통 형식이 확정되면 배치가
+  바뀔 수 있으므로 그 전까지 genesis 못박기·receipt 형식 동결 금지(잠정 유지).
+- **Stage 1(머지본)은 무영향**: `crates/boole-node/src/evm_bridge.rs`(PR #113 / `0a11afab`)는
+  default-OFF·미배선·adapter 모양 자격검증기라 되돌릴 것 없음 — BF.7 통합이 나중에 소비할
+  도메인 adapter 모양 그대로 유지.
+
+## 경계
+- 코드·genesis·`consensus_rule_version`·`mineable_now`(0 유지)·reward·Base **무변경**. 문서
+  기록(ADR-0019·todo·lessons)만 갱신하는 docs-only 결정.
+- ADR-0019 로컬 문서(git-ignored)에 동일 결정 기록(Status + "Stage 2 HELD — folded into
+  BF.7" subsection). public/API/mining/leaderboard 주장 아님.
