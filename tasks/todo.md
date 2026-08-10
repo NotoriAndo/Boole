@@ -2643,3 +2643,26 @@ consensus·census 집계·문제 수 발표·mineable_now 무변경.
 
 ## 보고
 Telegram chat_id 1311067056, 한국어 쉬운 말. public/API/mining/leaderboard 주장 아님 — closed-local만.
+
+---
+
+# EVM-P0 eligibility freeze → tracked evidence record (operator msg 3708)
+
+## 결론
+`EVM-P0-MINEABLE-ELIGIBLE = 6,767` 확정 산출물(계약·보존식·원장/증명 해시·경계)을 추적 문서
+`docs/evm-census-p0-eligibility-freeze.md`에 append-only로 고정. 원장·증명 **원본은 gitignored
+샌드박스에 유지**, 해시 + 계보만 in-tree. 발급 가능 수이며 네트워크 활성화 아님(mineable_now=0).
+
+## 계획/진행
+- [x] v1.5 계약 Accepted → emitter 1회 재실행 → 보존식 `6,855 = 6,767 + 79 + 7 + 2` 성립 → FROZEN.
+- [x] S9 일반 검증기 RED→GREEN (admission 10/10, proof-layer 11/11): 잘못된
+      task/input/oracle/fork/policy/acd/vk/proof + cross-case pv#1 전부 거절. consensus/BF.7 미연결.
+- [x] S10 양성 증명 1건(정렬상 첫 duplicate non-survivor, 발급 6,767 밖): 압축 STARK 1회·재시도 0,
+      4h/48GiB 이내. verify-probe ACCEPT, 음성 거절표 전부 통과.
+- [x] 전수 census 6,767: 9개 축 완비, distinct pv#1 = 6,767, CERTIFIED.
+- [x] 추적 문서 작성 + docs-smoke 핀(ceiling label·보존식·mineable_now=0·non-claim) → docs-smoke PASS.
+- [ ] branch → PR → CI self-test + supply-chain green → main 머지 → 원격 검증(진행 중).
+
+## 경계
+public/API/mining/leaderboard 주장 아님. 합의·BF.7 미연결. reward/Base 미변경. mineable_now=0 유지.
+원본은 샌드박스에만, in-tree는 해시+계보만.
