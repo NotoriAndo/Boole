@@ -251,6 +251,36 @@ require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "12
 require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "+ 0 PINNED-ENGINE-DIVERGENCE"
 require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "successor MINEABLE-ELIGIBLE                       = 1408"
 
+# Rust execution-proof P1 — frozen-snapshot task eligibility freeze (append-only
+# attestation). Separate successor to the compile-only Rust Reference P0 (which stays
+# at RUST-REFERENCE-P0-MINEABLE-ELIGIBLE = 0, untouched): wraps each runnable rust-lang/
+# rust test into a per-edition SP1 guest, executes it under an 8M-cycle ceiling, and
+# counts eligibility by whether the guest runs to a fixed 20-byte completion sentinel.
+# Records the ceiling label (N = 2,461 files / 2,504 tasks), the fixed task unit, the
+# per-task-differing guest ELF/vk binding, the full + census conservation identities at
+# both units, the corpus fingerprint, and the closed-local boundary. Guest/host impl,
+# corpus, wrapped guests, census ledgers, and the representative proof stay in the
+# git-ignored sandbox; only hashes + lineage + conservation are tracked here. These pins
+# keep the ceiling label, conservation identities, engine binding, and non-activation
+# boundary from silently rotting.
+require_file docs/rust-execution-proof-p1-eligibility-freeze.md
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "RUST-EXECUTION-PROOF-P1-MINEABLE-ELIGIBLE = 2,461 files / 2,504 tasks"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "RUST-FROZEN-SNAPSHOT-MINEABLE-ELIGIBLE = 2,461 (files)"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "RUST-REFERENCE-P0-MINEABLE-ELIGIBLE = 0"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Why public test source is not answer leakage"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "files 26,235 == 26,235"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "tasks 28,735 == 28,735"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "2,895 candidates = 2,462 MINEABLE-ELIGIBLE"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Per-task ELF/vk differ"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Task-unit 2,504 is a projection"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "af8c179cf544f544c80eb9a23f19be2006fe2bea931e7f965f1ed77b09f7299c"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "0x0038de3b51dcfe81fa915df141a0b5c88e73b727b52f601f2561fe472b947c96"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "e7795af6d2449fb05a6393c3320ced873a999eb3"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "7b7225bf6279fe827e314bb75e6a754ff3c733c444aa581cdea9e46a26df74dd"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "mineable_now"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "issuable problem count, not network activation"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "not a public-network / leaderboard / paid-API / production claim"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
