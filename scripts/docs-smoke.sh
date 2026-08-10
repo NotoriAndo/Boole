@@ -166,6 +166,19 @@ require_text docs/migration-status-and-next-steps.md "Superseded"
 require_text docs/migration-status-and-next-steps.md "casesPassed: 7"
 require_text docs/boole-node-cli-parity-plan.md "D3.2 (done"
 
+# EVM census P0 — case-task-binding eligibility freeze (append-only attestation).
+# Records the frozen contract, conservation identity, ledger/proof hashes, and the
+# closed-local boundary. Originals stay in the git-ignored sandbox; only hashes +
+# lineage are tracked here. These pins keep the record's ceiling label, conservation
+# identity, and non-activation boundary from silently rotting.
+require_file docs/evm-census-p0-eligibility-freeze.md
+require_text docs/evm-census-p0-eligibility-freeze.md "EVM-P0-MINEABLE-ELIGIBLE = 6,767"
+require_text docs/evm-census-p0-eligibility-freeze.md "S-CONTRACT-FREEZE-v1.5"
+require_text docs/evm-census-p0-eligibility-freeze.md "6,855 = 6,767 emitted + 79 duplicate + 7 deferred-lossy + 2 deferred-provenance"
+require_text docs/evm-census-p0-eligibility-freeze.md "mineable_now stays 0"
+require_text docs/evm-census-p0-eligibility-freeze.md "issuable problem count, not network activation"
+require_text docs/evm-census-p0-eligibility-freeze.md "not a public-network / leaderboard / paid-API / production claim"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
