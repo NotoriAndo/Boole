@@ -2782,3 +2782,57 @@ tactic 배터리 미적용. 최종 라벨 분리 확정.
 ## 경계
 public/API/mining/leaderboard 주장 아님. 합의·BF.7·reward·Base 미변경. closed-local only. 원본 대형 원장
 (anchor 원장·소스 스냅샷·emitter)은 gitignored 샌드박스에만, in-tree는 해시+계보+보존식만.
+
+---
+
+# Solidity semantic P1 — EVM 실행증명 인구조사 종결 (2026-08-10, 운영자 msg 3736/3739/3742)
+
+목표: compile-only Solidity P0가 유보(`DEFERRED-EVM-REQUIRED`)한 1,670 semanticTests를 **실제 EVM 실행
+케이스**로 물질화해, 각 케이스에 대해 "정확한 EVM 실행"의 압축 zkVM 증명(SP1)을 만들 수 있는지로 채굴가능
+문제 수 N을 확정. 공개된 기대출력은 답 유출 아님(채굴 산출물은 출력값이 아니라 실행 증명). 실제 증명이 이미
+생성된 fixture만 제외.
+
+## 실행 (docs-only, append-only)
+- [x] 입력 동결(`input-freeze.json`): semanticTests 코퍼스 aggregate sha256 `f0af98e6…`(1,670 파일,
+      freeze 시점 byte-exact 재현 확인), 핀 solc 0.8.36 `ccb677d5…`, 엔진 `sp1=6.3.1 / revm=38.0.0 /
+      alloy=1.5.6`, 자원정책(8M cycle 상한·network 0·retries 0).
+- [x] Level 0 파일원장(`file-ledger-step2.json`): `1,670 = 1,519 CASES-MATERIALIZED + 109
+      HARNESS-UNSUPPORTED + 42 NO-RUNNABLE-CASE + 0 ERROR`.
+- [x] Level A 컴파일분류(`compile-ledger-v2.json`, 각 test 저자지정 컴파일설정 준수·viaIR 전역적용 금지 —
+      운영자 msg 3739): `1,519 = 1,474 CANDIDATE + 20 EVM-VERSION-OUT-OF-PIN + 23 ABI-ENCODER-V1-REQUIRED
+      + 2 SOLC-0.8.36-INCOMPATIBLE`. 후보 1,510→**1,474** 정정.
+- [x] 대표 관문: `array/fixed_arrays_in_constructors.sol` 실제 압축증명 1회 생성(`vk 0x004a7485…`,
+      circuit `v6.1.0`, `verify: accepted`, proof.bin `96a7ef57…`). → 답확정 fixture로 최종 후보에서 제외.
+- [x] 태스크 단위 동결(실행 전 확정 — msg 3742): 1 `.sol` + 순서있는 전체 call 번들 = 1 태스크.
+      legacy/viaIR "also"는 같은 의미태스크의 컴파일 파이프라인 변형 → 분할 안 함. 파라미터 스윕 없음.
+- [x] 전수 실행(1,474): native revm/Cancun 왕복검사(`verify-ledger-all.json`: 1,418 ACCEPT / 42 MISMATCH
+      / 14 ORACLE_UNSUPPORTED) + SP1 cycle 측정(`cycles-all.json`: ≤8M 1,453 / >8M 21).
+- [x] Level B 케이스원장(`case-ledger-v2.json`, 단일 primary bucket 우선순위 fixture→oracle-fail→cost→
+      dup→eligible, 보존식 OK·0 error): `1,474 = 1,396 MINEABLE-ELIGIBLE(N) + 1 EXCLUDED-PROOF-FIXTURE
+      + 0 DUPLICATE + 44 UNSUPPORTED-ORACLE + 12 EXECUTION-MISMATCH + 21 DEFERRED-HIGH-COST`.
+- [x] 경계 무모호성: 최대 eligible 7,308,504 cycle(`bytesx_v2.sol`, 8M 아래 691,496 여유), 최소 deferred
+      8,700,111 → 8M 선 넘는 gap ~1.39M ≫ placeholder/real digest drift ≤~1,000.
+- [x] 동결 문서(`docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md`, append-only Entry 1)
+      + docs-smoke.sh 핀 블록.
+- [ ] docs-smoke.sh PASS + `git diff --check` PASS → commit(NotoriAndo, AI attribution 없음) → branch push
+      → PR → CI self-test·supply-chain green → merge → local main == origin/main → working tree clean.
+
+## 리뷰 (Entry 1 완료 — N=1,396)
+- 결과: **SOLIDITY-EVM-EXECUTION-PROOF-P1-MINEABLE-ELIGIBLE = 1396**. N은 엄격한 하한 — N에 든 모든
+  케이스는 저자오라클 왕복검사 통과 **and** 8M cycle 이하. 공개 기대출력은 답 유출 아님(P0 compile-only의
+  answer-leakage와 구분): 채굴 산출물은 출력값 O가 아니라 "EVM이 바이트코드를 실행해 O를 냈다"는 압축 STARK
+  증명이라, O를 알아도 유효 실행증명 생성을 지름길로 만들지 못함.
+- 3개 배제군: `UNSUPPORTED-ORACLE 44`(host globals·CREATE nonce·isoltest account·anonymous events·
+  sub-4byte revert 비교기 한계·indexed-dynamic) + `EXECUTION-MISMATCH 12`(host 무관·faithful 물질화인데
+  관측≠오라클 — 후속 포렌식, 일부는 오라클 기록 아티팩트일 수 있음) + `DEFERRED-HIGH-COST 21`(>8M, 11건은
+  16M 측정캡). 셋 다 N에서 보수적으로 제외.
+- 엔진 동결: guest = 진짜 EVM(revm, Cancun, deployer nonce 0, basefee 0). isoltest MockedHost quirk는
+  재현하지 않음 → host 의존 오라클은 UNSUPPORTED-ORACLE로 버킷팅(엔진·vk 동결 유지). 증명 결속 =
+  guest ELF(`1599d54f…`) + vk(`0x004a7485…`) + SP1 verifier digest.
+- 도메인 소계 갱신: `EVM 6,767 + Solidity-compile P0 0 + Solidity-semantic P1 1,396 + zk-native P0 0 =
+  8,163`. (Solidity P0와 P1은 같은 코퍼스의 다른 계열 — P0가 유보한 1,670을 P1이 물질화.)
+
+## 경계
+public/API/mining/leaderboard 주장 아님. 합의·BF.7·reward·Base 미변경. mineable_now=0. closed-local only.
+guest/host 구현·핀 컴파일러·코퍼스·물질화 케이스·run 원장·대표 증명은 gitignored 샌드박스에만, in-tree는
+해시+코퍼스 지문+보존식+계보만. DEFERRED-HIGH-COST 21·EXECUTION-MISMATCH 12는 폐기가 아니라 유보(후속).

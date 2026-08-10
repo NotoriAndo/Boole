@@ -1339,3 +1339,55 @@ NO-GO. 여기서 얻은, 앞으로 **모든 채굴 문제 family 후보**에 적
   조건**만 primary bucket으로 넣는다(`16,763 = 0 + 16,763 NEEDS-SPEC`). 나머지 미충족 조건
   (NO-DETERMINISTIC-BUDGET·GENERALITY-UNRESOLVED)은 같은 행의 **보조 상태**로만 적고 분모에 별도
   16,763씩 더하지 않는다.
+
+## 2026-08-10 — 후보 수는 각 test의 저자지정 컴파일 설정을 존중해야: viaIR 전역적용 금지 (운영자 msg 3739)
+- **정정 기록**: Solidity semantic P1 실행증명 인구조사에서, 저자 gas 오라클을 맞추려고 전 후보에 viaIR을
+  **전역 적용**한 v1 아티팩트로 후보를 1,510건으로 셌다. 운영자 정정: 각 test는 저자가 지정한
+  compiler/optimizer/viaIR/EVMVersion 설정을 그대로 따라야 하며, gas를 수반하는 케이스는 **저자의 정확한
+  컴파일 설정과 일치할 때만** 유지한다. viaIR 전역 적용은 gas를 수반하는 바이트코드를 바꿔 오라클을
+  어긋나게 한다. 8M 초과 여부도 전역 가정이 아니라 **전수 execute 결과로 케이스별 판정**해야 한다. →
+  저자설정 준수 v2 아티팩트로 재분류, 후보 1,510→**1,474** 정정.
+- **근본 원인**: "오라클을 맞추기 위한 편의(전역 viaIR)"를 "저자가 실제로 의도한 컴파일 계약"보다 우선했다.
+  gas는 컴파일 파이프라인(legacy vs IR·optimize·runs)에 민감한데 전역 스위치가 그 계약을 조용히 바꿨다.
+- **규칙 1 (저자 컴파일 설정 = 계약)**: 컴파일 기반 인구조사에서 각 test의 `compileViaYul`/`optimize`/
+  `optimize-runs`/`EVMVersion`/`revertStrings` 등 저자지정 설정을 **개별적으로** 존중한다. 전역 스위치로
+  통일하지 않는다. gas/opcode 수처럼 파이프라인 민감 값이 오라클에 걸리면, 저자설정과 정확히 일치하는
+  아티팩트로만 후보에 넣는다.
+- **규칙 2 (전역 가정 대신 전수 판정)**: "이 부류는 다 8M 넘겠지" 같은 전역 추정으로 버킷을 나누지 않는다.
+  자원 상한(cycle/시간) 판정은 **케이스별 실측 execute 결과**로 한다. 경계 케이스가 상한 근처면 측정
+  drift(placeholder vs real digest 등)보다 gap이 충분히 큰지 확인해 무모호성을 문서화한다.
+
+## 2026-08-10 — 실행 전 태스크 단위 고정 + 배제 버킷 단일화(중복 차감 금지) + 증명 결속 정확 기록 (운영자 msg 3742)
+- **정정 기록**: 대표 케이스에 실제 압축증명을 만든 뒤, 그 케이스를 "fixture이면서 동시에 duplicate 후보"로
+  이중 차감할 뻔했고, 전수 실행에 들어가기 전 태스크 단위(1 파일 = 1 태스크인지, 파라미터 변형별 분할인지)를
+  명시적으로 고정하지 않은 채 진행하려 했다. 운영자 지시로 (a) 대표 증명 케이스는 답확정 fixture이니 최종
+  후보에서 빼되 **한 버킷(EXCLUDED-PROOF-FIXTURE)에만** 넣고 duplicate로 또 빼지 않음, (b) **실행 전에**
+  태스크 단위를 확정(1 `.sol` + 순서있는 전체 call 번들 = 1 태스크; legacy/viaIR "also"는 같은 의미태스크의
+  컴파일 변형이라 분할 안 함), (c) SP1을 정확히 기록(package 6.3.1, circuit `v6.1.0`, 결속 = guest ELF +
+  vk + verifier digest)하도록 정정.
+- **근본 원인**: (1) 한 케이스가 여러 배제 사유에 해당할 때 보존식에서 **두 번** 빼면 N이 왜곡된다. (2)
+  결과를 본 뒤 태스크 단위를 바꾸면 분모가 사후조작된다. (3) 증명 시스템 버전을 뭉뚱그리면(package vs
+  circuit vs 결속 기준) 재현·검증이 흔들린다.
+- **규칙 1 (단일 primary bucket, 우선순위 고정)**: 각 후보는 **정확히 하나의** primary bucket에만 든다.
+  우선순위를 코드로 못박는다(예: `fixture → oracle-fail → cost → duplicate → eligible`). 한 케이스가
+  fixture이자 duplicate여도 fixture 한 곳에만. 보존식은 자동 정합성 검사(총합 == 분모, 0 error)로 증명한다.
+- **규칙 2 (분모·단위는 결과 보기 전에 동결)**: 태스크 단위(파일 단위 vs 파라미터 변형 단위)와 후보 분모는
+  **전수 실행 전에** 명시·문서화하고, 결과를 본 뒤 바꾸지 않는다. 공식 harness가 같은 파일을 독립 파라미터
+  변형으로 전개하면 변형별로 쪼개고, 아니면 파일+순서있는 번들을 1 태스크로 고정한다.
+- **규칙 3 (증명 시스템 정확 기록)**: zkVM 증명을 기록할 때 **package 버전**(sp1 6.3.1), **증명 회로
+  표기**(v6.1.0), **실제 결속 기준**(guest ELF sha256 + vk_bytes32 + verifier digest)을 구분해 모두 적는다.
+  하나로 뭉뚱그리지 않는다 — 결속은 엔진 동결이고, 엔진을 바꾸면 ELF·vk가 바뀐다.
+- **규칙 4 (per-case 버킷팅으로 census 무중단)**: 오라클 재구성 실패·harness 오류는 전체 census를 죽이지
+  않고 케이스별 verdict(ORACLE_UNSUPPORTED/MISMATCH)로 버킷팅한다. 파서/비교기에 예외 경계를 두어 한 건의
+  이상이 나머지 1,473건 측정을 막지 못하게 한다.
+
+## 2026-08-10 — SP1 cycle 측정 gotcha: gas 경로 필수 + JSON 키 순서가 명령수를 바꿈 (자기 개선, 기술 함정)
+- **맥락**: prove 경로와 byte-parity인 in-process `execute`로 1,474건 cycle을 재려 했는데, 두 함정에 걸렸다.
+- **규칙 1 (opcode_counts는 gas 경로에서만 채워짐)**: SP1 `report.total_instruction_count()`가 합산하는
+  `opcode_counts`는 gas 계산 경로(`vm/gas.rs`)에서만 증가한다. `.calculate_gas(false)`를 주면 0이 나온다.
+  cycle을 재려면 gas 계산을 **켠 채** execute하고, 모든 옵션을 prove 경로와 동일(기본값)하게 둔다.
+- **규칙 2 (JSON 키 순서가 guest 파싱 명령수를 바꿈)**: `serde_json::json!`은 `Value::Object`(BTreeMap →
+  **알파벳 키순**)를 만들지만 `#[derive(Serialize)]` struct는 **선언순**으로 직렬화한다. guest가 파싱하는
+  입력 JSON의 키순이 다르면 파싱 명령수(~수백 cycle)가 달라져 canonical과 어긋난다. host가 만드는 입력은
+  canonical node가 쓰는 것과 **동일 키순**(선언순 struct)으로 맞춘다. 헤더 digest 값 의존 경로도 real vs
+  placeholder에서 ≤~1,000 cycle drift가 나므로, 경계(상한 근처) 케이스는 gap이 그 drift보다 큰지 확인한다.

@@ -222,6 +222,30 @@ require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "issua
 require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "confirmed numeric subtotal"
 require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "not a public-network / leaderboard / paid-API / production claim"
 
+# Solidity semantic P1 — EVM execution-proof task eligibility freeze (append-only
+# attestation). Successor to the compile-only Solidity census P0: materializes the
+# 1,670 deferred semanticTests into real EVM execution cases and decides eligibility by
+# whether a compressed SP1 proof of correct execution can be produced within an 8M-cycle
+# ceiling. Records the ceiling label (N=1,396), the fixed task unit, the frozen guest
+# ELF/vk binding, the three-level conservation identity, the corpus fingerprint, and the
+# closed-local boundary. Guest/host impl, corpus, materialized cases, run ledgers, and
+# the representative proof stay in the git-ignored sandbox; only hashes + lineage +
+# conservation are tracked here. These pins keep the ceiling label, the conservation
+# identities, the engine binding, and the non-activation boundary from silently rotting.
+require_file docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "SOLIDITY-EVM-EXECUTION-PROOF-P1-MINEABLE-ELIGIBLE = 1396"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "public expected outputs are not answer leakage"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "plus its ordered full call bundle"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "1,670 total_files = 1,519 CASES-MATERIALIZED"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "1,519 = 1,474 COMPILE-MATERIALIZED-CANDIDATE"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "1,474 = 1,396 MINEABLE-ELIGIBLE"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "1599d54fd75ef48742a9ec460628b6caba68d7a4f33a9c615707b713465d37a2"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "0x004a748560e6b44075bd4fc72a0e88bcef34a91c6d3a47b37a4416d13126b207"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "f0af98e63cde61a6399929f38daa70e694aa929f65c28e7071c624ddf9661f28"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "mineable_now"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "issuable problem count, not network activation"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "not a public-network / leaderboard / paid-API / production claim"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
