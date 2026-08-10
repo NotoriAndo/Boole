@@ -245,6 +245,11 @@ require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "f0
 require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "mineable_now"
 require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "issuable problem count, not network activation"
 require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "not a public-network / leaderboard / paid-API / production claim"
+# Entry 2 — execution-mismatch-reclaim-v1 (append-only successor; Entry 1 N=1396 unchanged)
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "SOLIDITY-EVM-EXECUTION-PROOF-P1-MINEABLE-ELIGIBLE-SUCCESSOR = 1408"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "12 EXECUTION-MISMATCH = 5 AUTHOR-ORACLE-MISREAD"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "+ 0 PINNED-ENGINE-DIVERGENCE"
+require_text docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md "successor MINEABLE-ELIGIBLE                       = 1408"
 
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"

@@ -1391,3 +1391,26 @@ NO-GO. 여기서 얻은, 앞으로 **모든 채굴 문제 family 후보**에 적
   입력 JSON의 키순이 다르면 파싱 명령수(~수백 cycle)가 달라져 canonical과 어긋난다. host가 만드는 입력은
   canonical node가 쓰는 것과 **동일 키순**(선언순 struct)으로 맞춘다. 헤더 digest 값 의존 경로도 real vs
   placeholder에서 ≤~1,000 cycle drift가 나므로, 경계(상한 근처) 케이스는 gap이 그 drift보다 큰지 확인한다.
+
+## 2026-08-10 — isoltest calldata/return은 raw-hex UNPADDED: 워드패딩하면 오라클·입력이 오손된다 (census 툴링 함정)
+- **맥락**: Solidity semantic P1의 `EXECUTION-MISMATCH 12`건을 읽기전용 감사했더니 **전부** 엔진 발산이
+  아니라 우리 census 툴링이 isoltest 인코딩 문법을 잘못 구현한 결함이었다(materializer 7 + extractor 5).
+- **근본 원인**: isoltest 문법에서 `hex"…"` 바이트런은 calldata/return에 **raw·unpadded**로 붙고, 반환
+  `bytes memory` blob 안의 4바이트 함수 selector도 워드경계가 아니라 **바이트 연속**으로 packed된다. 빈
+  문자열 `""` 인자는 `offset(0x20), length(0x00)`으로 ABI 인코딩된다. 이 세 규칙을 어기고 매 토큰을 32바이트
+  워드로 패딩하면: (a) **입력**이 오손돼(`msg.data.length` 36≠8, sub-4byte fallback 탐침이 진짜 selector로
+  승격, dynamic-array offset `0x63`가 패딩을 가리킴) 엔진이 잘못된 바이트를 정확히 실행하고, (b) **오라클**이
+  자기모순이 돼(bytes 길이헤더 < 워드패딩된 실제 내용) 정합 ABI를 낸 엔진 출력과 어긋난다.
+- **규칙 1 (원본 스펙에서 독립 재구성으로 검증)**: 관측≠오라클이면 엔진을 의심하기 전에 **원본 코퍼스 스펙**
+  (isoltest `// ----`)에서 기대값을 진짜 인코딩 규칙으로 **독립 재구성**해 관측과 대조한다. 재구성==관측이면
+  결함은 우리 오라클 추출기이지 엔진이 아니다. 5건 모두 이 방법으로 엔진 정답을 증명(재실행 불필요).
+- **규칙 2 (읽기전용 감사 = 동결물 불변, 정정입력 재실행은 허용)**: 동결 증명계에서 "읽기전용"은 **동결
+  아티팩트(ELF/vk/코퍼스/확정 원장) 무변경**을 뜻한다. vk는 **ELF에 결속**(입력 아님)이므로, **동일** 동결
+  바이너리를 **정정** 입력에 재실행해 eligibility를 증명하는 건 동결 위반이 아니다. 정정입력·재구성은 새
+  샌드박스 디렉터리에만 쓰고 동결 census는 절대 mutate하지 않는다.
+- **규칙 3 (회수는 append-only successor로, 원본 N 불변)**: 확정·머지된 동결치(N=1396)는 재작성하지 않는다.
+  결함확인 범위만 재계산해 **새 Entry(successor label)**로 더한다(1396 불변 + reclaim 12 = 1408). 회수 불가
+  사유는 `PINNED-ENGINE-DIVERGENCE` 하나뿐이며, 그게 0이면 전건 회수 가능. 5버킷 분류는 상호배타·전수.
+- **규칙 4 (비교기 비대칭도 기록)**: `verify.mjs`는 revert 워드의 4바이트 selector는 un-pad하지만
+  success return은 안 한다. 근본결함은 상류(추출기 오독)지만, 이런 비교기 비대칭을 같이 기록해 두면 다음
+  census에서 성공/실패 경로를 대칭으로 처리하도록 설계할 수 있다.
