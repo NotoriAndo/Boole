@@ -2609,3 +2609,37 @@ consensus·census 집계·문제 수 발표·mineable_now 무변경.
 ## 다음 (별도 제출)
 - 대표 검증 완료 후: **Rust runnable task family 설계안**(anchor ↔ 실제 rustc 구현·공식
   입력/기대결과·제출 산출물·checker·난이도 축 짝짓기). 문제별 수동 수정 금지. 문서 먼저.
+
+---
+
+# Input-Recovery Successor Slice (operator msg 3627 — v1.2 지속-worker 보류)
+
+상태 정정 기록: `local-docs/evm-execution-census-p0/INPUT-RECOVERY-STATE-v1.md`
+(`RECORDED-7306` / `INPUT-ARTIFACTS-MISSING` / `REPRODUCIBILITY-BLOCKED`, additive — 기존 기록 무변경).
+
+## 배경 (한 줄)
+7,306 문제 수가 가리키는 **실제 입력 파일(canonical_input)과 두 pinned 원장이 물리적으로 없음** →
+문제 수를 입력에서 독립 재현 불가. 그래서 v1.2 지속-worker 구현을 멈추고 **입력 복구를 먼저** 한다.
+
+## 제약 (binding)
+- **네트워크 금지.** 로컬 고정본만: `execution-specs` 편집설치 checkout + census venv + census 원장
+  (`out/records/*.jsonl`, `out/mining_ledger_*.json`) + 8개 제외 fixture(`local-docs/evm-zkvm-feasibility/project/cases/`).
+- **문제별 예외·수동수정 금지.** canonicalizer는 결정적이어야 하고 8개 fixture 전부 byte-identical 재현.
+- 기존 기록 무변경(v1.1 BLOCKED-BUDGET 등 보존). 새 증명·consensus·reward·Base 변경 금지. commit 없음(gitignored).
+- git 복원 우선(재발명보다) — history에 canonicalizer가 남아있으면 그걸 복원.
+
+## 계획 항목
+- [x] archaeology 서브에이전트: lost canonicalizer는 세션 scratchpad에 byte-identical 생존 확인
+      (git 이력 아님 — local-docs 전체가 gitignore). canonical_input 포맷은 guest engine.rs 역직렬화기로 확정.
+- [x] canonicalizer RED→GREEN (T1): 8 fixture 알려진 canonical_input을 oracle로, `canon.py`가 8/8 byte-identical.
+- [x] 7,838 선별 독립 재도출 (T2): 스키마 분류기가 10,174→정확히 7,838 (pinned nodeid 집합 완전 일치).
+- [x] 7,838 canonical input 재생성 (T3): `canon.py`가 manifest를 byte-identical 재현, per-case 불일치 0.
+- [x] 7,306 원장 정합 (T4): 모든 instance_payload_sha256 == sha256(재생성 canonical_input), 불일치 0.
+- [x] pinned 해시 정확 대조: `full_runinput_7838.json == 959617fe…` MATCH,
+      `census_ledger_7306_v1.json == a59e4bb2…` MATCH (둘 다 일치).
+- [x] **`RECOVERED-BYTE-IDENTICAL`** 확정 + 실제 파일 + SHA-256 manifest 영구 보존:
+      `local-docs/evm-execution-census-p0/recovered/` (canon.py·두 원장·선별·fixture 소스·재생성 harness·manifest·README).
+- [ ] (다음, operator 승인 하) v1.2 지속-worker Stage-1 재개 — msg 3625 구조(worker 1회 준비 + supervisor 60s/case).
+
+## 보고
+Telegram chat_id 1311067056, 한국어 쉬운 말. public/API/mining/leaderboard 주장 아님 — closed-local만.

@@ -1292,3 +1292,18 @@ NO-GO. 여기서 얻은, 앞으로 **모든 채굴 문제 family 후보**에 적
 - **규칙 1 (zero_reason 코드 선택)**: anchor가 이미 규격(spec)을 참조/구현하는데 실행 계약만 없으면 `TASK-CONTRACT-UNMATERIALIZED`를 쓴다. 이 코드는 `missing ⊆ {statement, oracle, work_product_contract}`(빠진 계약 조각)와 근거 digest(SHA-256)를 **반드시** 함께 싣는다. 규격 자체가 아예 없을 때만 다른 코드를 고려한다.
 - **규칙 2 (Stage A 승격 금지)**: 실행 계약 부재가 유일한 blocker인 anchor의 Stage A 상태는 `TASK-CONTRACT-MISSING`이며 `RUNNABLE-TASK-EMITTER-PRESENT`로 **승격하지 않는다**. Stage A 상태는 zero_reason 코드가 아니다(별도 축).
 - **규칙 3 (의미 오남용 금지)**: 이 zero 결과는 "Rust 문제 0개"가 **아니라** "현재 Rust Reference anchor에는 runnable task 계약이 아직 없음"을 뜻한다. census 집계·문제 수 발표로 확대 해석 금지. 새 크레이트는 "문제 생성기"가 아니라 공통 계약 검사기 + zero 결과 생성기로만 취급한다.
+
+## 2026-08-07 — 오프라인 빌드 "불가" 오진단 금지: 전용 샌드박스 CARGO_HOME/env.sh 먼저 적용 (운영자 msg 3622)
+- **정정 기록**: SP1 measurement 러너를 빌드하려고 `cargo metadata --offline`를 돌렸다가 실패("crates.io index 검색 필요")를 보고, "sp1-sdk 미보유 → 오프라인 빌드 불가 → GATE-FAIL"로 성급히 결론냈다. 운영자 정정: 이 프로젝트는 전용 **feasibility 샌드박스**(`local-docs/evm-zkvm-feasibility/{.cargo,.rustup,.sp1}` + `env.sh`)를 쓰며, 실패 원인은 "의존성 미보유"가 아니라 **샌드박스 CARGO_HOME을 적용하지 않고 사용자 전역 `~/.cargo`로 돌린 것**이었다. `source env.sh` 후 `cargo metadata --offline`는 **성공**하고 sp1-sdk-6.3.1(crate+src)이 샌드박스 레지스트리 캐시에 존재한다.
+- **근본 원인**: (1) 전용 샌드박스 env 존재를 확인하지 않고 기본 환경에서 도구를 실행. (2) "캐시에 없음"이라는 환경-국소 증상을 "의존성이 세상에 없음"이라는 전역 결론으로 비약. (3) "fully vendored"라는 코드 주석 표현도 실제 `vendor/` 디렉터리가 아니라 **sandbox-local registry cache**를 뜻하는데 문자 그대로 받아 기록.
+- **규칙 1 (샌드박스 env 우선 확인)**: 격리 샌드박스가 있는 작업(SP1 등)에서 빌드/오프라인 해석 실패를 진단하기 전에 **반드시** 프로젝트 루트의 `env.sh`/`.cargo`/`.rustup` 존재를 먼저 찾고, 있으면 `source`한 상태로 재현한다. 전역 `~/.cargo`/`~/.rustup`로 낸 실패는 진단 근거로 쓰지 않는다.
+- **규칙 2 (환경-국소 vs 전역 구분)**: "offline 해석 실패"는 (a) 의존성 부재와 (b) 잘못된 CARGO_HOME/캐시 미참조 두 원인이 있다. GATE-FAIL·BLOCKED 같은 강한 판정을 내리기 전에 올바른 env에서 재확인하여 (a)와 (b)를 반드시 구분한다. 진짜 (a)일 때만 "특정 crate 이름·버전·다운로드량"을 근거로 네트워크 승인을 요청한다.
+- **규칙 3 (표현 정정)**: 빌드 방식을 "fully vendored"로 기술하지 않는다 — 실제 `vendor/`가 없으면 "sandbox-local registry cache (offline)"로 정확히 적는다.
+- **규칙 4 (debug≠release 성능 결론 유보)**: 이전 세션이 남긴 `target/debug/*` 바이너리로 측정한 건당 시간(예: SP1 execute >120s)을 release 성능으로 일반화하지 않는다. 운영자가 요구한 release 빌드로 **동일 프로세스 구조**로 실측하기 전에는 예산(60s/건·12h) 초과를 단정하지 않는다.
+
+## 2026-08-07 — 산출물 "MISSING/소실" 선언 전 scratchpad(`/private/tmp/…`)까지 검색 (자기 정정)
+- **정정 기록**: 7,306 census의 pinned 입력 원장 2개와 canonicalizer가 "물리적으로 없다(MISSING)"고 상태 기록(`INPUT-RECOVERY-STATE-v1.md` §2)에 적었다. 근거는 "두 working dir 전수 `find`가 build-artifact 이름 우연만 찾음". 그러나 실제로는 세 파일 모두 **세션 scratchpad**(`/private/tmp/claude-501/…/scratchpad`)에 byte-identical로 생존해 있었고 pinned sha256과 정확히 일치했다. `find`가 두 git working dir만 훑고 scratchpad를 제외해서 생긴 **오판**.
+- **근본 원인**: (1) "소실" 같은 강한 결론을 내리면서 검색 범위에서 세션 작업이 실제로 쌓이는 scratchpad를 빠뜨림 — 이 프로젝트의 census/zkvm 작업물 상당수가 `local-docs`가 아니라 scratchpad에 산다. (2) `local-docs` 전체가 `.gitignore`라 git 이력엔 원리적으로 없음을 알면서도, 그렇다면 "온디스크 어디에 있나"의 검색 대상에 scratchpad를 포함하지 않음.
+- **규칙 1 (검색 범위)**: 산출물 부재/소실을 선언하기 전, git working dir뿐 아니라 **세션 scratchpad 디렉터리 전체**(`/private/tmp/claude-*/…/scratchpad`)와 알려진 산출 경로(예: sandbox `project/cases`)까지 반드시 훑는다. pinned 해시가 있으면 파일명이 아니라 **내용 해시**로도 탐색(예: 후보 파일들 `shasum -a 256` 후 목표값 매칭).
+- **규칙 2 (강한 판정 유보)**: `MISSING`/`REPRODUCIBILITY-BLOCKED`/`LOST` 같은 판정은 "내가 찾은 범위에서 못 찾음"이 아니라 "가능한 모든 온디스크 위치를 훑고도 없음"일 때만 쓴다. 상태 기록에 **검색이 커버한 범위를 명시**(예: "두 working dir만; scratchpad 미포함")해 오판을 추적 가능하게 남긴다.
+- **규칙 3 (복구 vs 재구성 구분)**: 원본이 온디스크에 byte-identical로 살아있으면 "재구성(reconstruction)"이 아니라 "원본 그대로 복구(byte-identical recovery)"라고 정확히 부른다. 그리고 scratchpad는 세션 정리 시 삭제될 수 있으므로 즉시 durable(gitignored local-docs)로 복사 + SHA-256 manifest 고정.
