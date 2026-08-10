@@ -181,18 +181,22 @@ require_text docs/evm-census-p0-eligibility-freeze.md "not a public-network / le
 
 # Solidity census P0 — generative task-family eligibility freeze (append-only
 # attestation). Records the two sub-families, the pinned soljson.js 0.8.36 verifier,
-# per-corpus conservation identities, corpus fingerprints, and the closed-local
-# boundary. Corpora and family impl stay in the git-ignored sandbox; only hashes +
-# lineage are tracked here. These pins keep the record's ceiling label, conservation
-# identities, and non-activation boundary from silently rotting.
+# the mandatory trivial-construction gate (N=0), the two-stage conservation identity
+# (Stage A 12,931 / Stage B 6,652), the 709 successor split, corpus fingerprints, and
+# the closed-local boundary. Corpora and family impl stay in the git-ignored sandbox;
+# only hashes + lineage are tracked here. These pins keep the record's ceiling label,
+# conservation identities, and non-activation boundary from silently rotting.
 require_file docs/solidity-census-p0-eligibility-freeze.md
-require_text docs/solidity-census-p0-eligibility-freeze.md "SOLIDITY-P0-MINEABLE-ELIGIBLE = 4"
-require_text docs/solidity-census-p0-eligibility-freeze.md "4 = N_A(2) + N_B(2)"
+require_text docs/solidity-census-p0-eligibility-freeze.md "SOLIDITY-P0-MINEABLE-ELIGIBLE = 0"
+require_text docs/solidity-census-p0-eligibility-freeze.md "INELIGIBLE-TRIVIAL-CONSTRUCTION"
 require_text docs/solidity-census-p0-eligibility-freeze.md "pinned soljson.js 0.8.36"
-require_text docs/solidity-census-p0-eligibility-freeze.md "syntaxTests: 3,547 = 2 COUNTED + 2,322 TEMPLATE-NONCOMPILING + 1,223 SPEC-UNSUPPORTED"
-require_text docs/solidity-census-p0-eligibility-freeze.md "smtCheckerTests: 1,435 = 2 COUNTED + 28 INCOMPATIBLE-0.8.36 + 1,405 SPEC-UNSUPPORTED"
-require_text docs/solidity-census-p0-eligibility-freeze.md "semanticTests deferred as DEFERRED-EVM-REQUIRED"
-require_text docs/solidity-census-p0-eligibility-freeze.md "mineable_now stays 0"
+require_text docs/solidity-census-p0-eligibility-freeze.md "12,931 = 6,652 test-file bundle"
+require_text docs/solidity-census-p0-eligibility-freeze.md "0 MINEABLE-ELIGIBLE"
+require_text docs/solidity-census-p0-eligibility-freeze.md "2,628 NO-FRESH-INSTANCE"
+require_text docs/solidity-census-p0-eligibility-freeze.md "1,670 DEFERRED-EVM-REQUIRED"
+require_text docs/solidity-census-p0-eligibility-freeze.md "709 SUCCESSOR-OUT-OF-SCOPE"
+require_text docs/solidity-census-p0-eligibility-freeze.md "1,670 = 1,498"
+require_text docs/solidity-census-p0-eligibility-freeze.md "mineable_now"
 require_text docs/solidity-census-p0-eligibility-freeze.md "issuable problem count, not network activation"
 require_text docs/solidity-census-p0-eligibility-freeze.md "not a public-network / leaderboard / paid-API / production claim"
 

@@ -2700,20 +2700,31 @@ Solidity 발급 수 0을 **정직하게 회수**. 공개 테스트를 정답 문
 - [x] sub-family B 대표 관문 TDD 구현·검증 — 4패턴×9행 = 36/36 GREEN (합성 등가식 ACCEPT, 원본 P·
       여집합·항진·모순·단일변수·문법외 `^`·무관변수 전부 REJECT; host 진리표 교차검증 일치).
 - [x] 전체 anchor 1회 cascade — A: `3,547 = 2 + 2,322 + 1,223`, B: `1,435 = 2 + 28 + 1,405`,
-      WITNESS-REJECTED=0 (둘 다). N_A=2, N_B=2.
-- [x] 보존식·최종 원장 동결 → `SOLIDITY-P0-MINEABLE-ELIGIBLE = 4 = N_A(2) + N_B(2)`,
-      `docs/solidity-census-p0-eligibility-freeze.md` append + docs-smoke 핀 → PR → CI green → main.
+      WITNESS-REJECTED=0 (둘 다). 후보 anchor N_A=2, N_B=2 (아직 최종 아님 — trivial 관문 대상).
+- [x] trivial-construction 관문 (운영자 msg 3722) — B 2건: 진리표→표준 DNF/CNF/QM-최소화 3종을 기계
+      생성해 제출, 셋 다 ACCEPT(문법·크기 내) → `INELIGIBLE-TRIVIAL-CONSTRUCTION`. A 2건: 고정 보편식
+      `p0 < p1` 하나가 두 anchor 모두 ACCEPT → 인스턴스별 합성 부재, 동일 triviality. A 24/24 battery는
+      여전히 통과(soundness는 정상). SMT hard-error 0 / unknown-timeout 0.
+- [x] 운영자 판정(msg 3724) — 옵션 1 승인: 후보 4건 전부 trivial → 최종
+      `SOLIDITY-P0-MINEABLE-ELIGIBLE = 0`. 문서·docs-smoke 핀 N=0 재작성 → PR #117 → CI green → main.
 
-## 리뷰 (Entry 1 완료)
-- 결과: **SOLIDITY-P0-MINEABLE-ELIGIBLE = 4** (N_A=2 syntaxTests, N_B=2 smtCheckerTests). 작지만
-  엄밀 검증된 정직한 floor. 컴파일러 테스트 코퍼스는 문제은행이 아니라 컴파일러 검사용이라 대다수가
-  음성 테스트/실행-의존 feature → bounded 식 합성 + 비공허성-by-rule + 원본거절 + 1회컴파일 판정으로
-  회수 가능한 건 소수.
-- semanticTests(1,670)는 adjustment 2에 따라 `DEFERRED-EVM-REQUIRED`로 미집계. 보수적 해석 채택.
-  잠재적 정직한 확장(semanticTests를 A의 compile-repair template로 재사용 — A 검증은 compile-only)은
-  자율 채택하지 않고 append 가능한 후속 항목으로 남김. → 사용자에게 옵션으로 보고.
-- 동결 문서는 append-only: 코퍼스 fingerprint(A `ec0fdc62…`, B `b05d389d…`), 핀 soljson.js 0.8.36
-  (sha256 `ccb677d5…`), 4개 counted 파일 해시, 원장/구현 해시 in-tree. 원본은 gitignored 샌드박스.
+## 리뷰 (Entry 1 완료 — N=0)
+- 결과: **SOLIDITY-P0-MINEABLE-ELIGIBLE = 0**. 후보는 A 2 + B 2 = 4건 나왔으나, 운영자가 요구한 필수
+  trivial-construction 관문에서 4건 전부 탈락. B는 진리표에서 표준 DNF/CNF/QM-최소화가 전부 문법 내
+  ACCEPT(문법 `! && || == !=`가 함수완전 + 크기 상한 없음), A는 단일 보편식 `p0 < p1`이 모든 anchor를
+  ACCEPT(요구가 "임의의 유효 bool 식"이라 목표관계 부재) → 둘 다 기계적으로 풀려 정직한 난이도 바닥이
+  아님. 그래서 문자 그대로의 2가 아니라 일관된 0으로 종결.
+- 이는 Solidity가 영구히 불가능하다는 뜻이 아니라, **현재 동결 P0 코퍼스 + 이 컴파일러 전용 A/B 계열**이
+  정확히 0이라는 뜻. semanticTests(1,670, `DEFERRED-EVM-REQUIRED`)와 후속 테스트(709,
+  `SUCCESSOR-OUT-OF-SCOPE`)는 폐기가 아니라 후속 범위. 계열 재설계는 이번 wave 범위 아님.
+- 보존식(FROZEN): Stage A `12,931 = 6,652 + 5,726 + 288 + 214 + 51`; Stage B
+  `6,652 = 0 + 2,322 + 28 + 2,628 + 1,670 + 4`; `709 = 7,361 − 6,652 SUCCESSOR-OUT-OF-SCOPE`;
+  semanticTests `1,670 = 1,498 + 172` (전부 DEFERRED-EVM-REQUIRED). 5,450→0 = 직접경로 답 유출 +
+  생성경로 triviality/생성불가.
+- 동결 문서: 최종 원장 0행(`final_task_ledger.json`=`[]`, 답 저장 없음 vacuous), trivial 증거 원장 4건
+  (발급 태스크 아님, 배제 증거), 코퍼스 fingerprint(syntax `ec0fdc62…`, smt `b05d389d…`,
+  semantic `e0b9d4c3…`), 핀 soljson.js 0.8.36 sha256 `ccb677d5…`, 모듈/원장 해시 in-tree. 원본은
+  gitignored 샌드박스.
 
 ## 경계
 public/API/mining/leaderboard 주장 아님. 합의·BF.7 미연결. closed-local only. mineable_now=0 유지.
