@@ -2740,3 +2740,45 @@ public/API/mining/leaderboard 주장 아님. 합의·BF.7 미연결. closed-loca
 
 ## 경계
 public/API/mining/leaderboard 주장 아님. 합의·BF.7 미연결. closed-local only. 아직 숫자·커밋 아님.
+
+---
+
+# zk-native release-audit 인구조사 P0 — 단일 wave 종결 (2026-08-10, 운영자 msg 3727/3728/3730)
+
+목표: 동결된 zk-native release-audit anchor에서 채굴 가능(mineable-eligible) 문제 수 N을 확정하거나
+N=0을 증명. 방향 검증에서 코퍼스↔방법 불일치를 발견(운영자 msg 3729 direction-check) → 운영자 확정
+(msg 3730): **동결 16,763건은 Lean 정리 문제가 아니라 zk-native 소스 release-audit anchor**. Lean 전용
+tactic 배터리 미적용. 최종 라벨 분리 확정.
+
+## 실행 (docs-only, append-only)
+- [x] STOP 게이트 확인: audit-pool anchor 수 = **16,763** (기존 동결과 일치);
+      `observation-window-rp2-4.json` sha256 `fab8439a…` 일치; 보존식 일치 → STOP 미발동.
+- [x] 동결 입력 digest 전수 재계산(`shasum -a 256`): gate-results `0dd847fb…`, gross-candidates
+      `fd584ec0…`, source-universe(54 repos) `54aa8fb1…`, canonical-transitions(183) `14abf11c…`,
+      archive-manifest(199) `e9ea9b54…`, window-end-presence `a1c5d620…`, checkpoint-rp4 `9361be51…`,
+      emitter `19058c28…`. Lean toolchain `leanprover/lean4:v4.29.1`.
+- [x] anchor→source 진짜 결속 교차검증: gross-candidates row0와 gate-results row0가 동일 `task_id`
+      (`05a3eeff…`)·동일 input/target digest(`2ea93dbd…`/`0e8fbe0a…`) 공유 → 실제 저장소
+      (`0xMiden/miden-vm`)·경로·커밋·내용해시 결속. 가짜 seed 아님.
+- [x] N=0 근거: 16,763건 전부 `spec_fixed`/`deterministic_budget`/`generic_theorem_exclusion` 3개
+      spec 게이트 pending 16,763/16,763 + 오라클/체커 부재 → `eligible = 0`.
+- [x] 동결 문서 작성: `docs/zk-native-release-audit-census-p0-eligibility-freeze.md` (append-only Entry 1).
+- [x] docs-smoke.sh 핀 블록 추가 → `docs-smoke: PASS`, `git diff --check` PASS.
+- [ ] commit(NotoriAndo, AI attribution 없음) → branch push → PR → CI self-test·supply-chain·verdict-corpus
+      green → **rebase merge** → local main == origin/main → working tree clean.
+
+## 리뷰 (Entry 1 완료 — N=0)
+- 결과: **ZK-NATIVE-RELEASE-AUDIT-P0-MINEABLE-ELIGIBLE = 0**, **LEAN-P0 = CORPUS-NOT-MATERIALIZED**
+  (엄격히 분리, "ZK-NATIVE/LEAN-P0 = 0" 표현 금지). 16,763 anchor는 실제 소스 결속은 진짜지만 검증 계약
+  (고정 spec·오라클/체커·결정론적 예산·일반성 근거)이 전무 → 발급 가능 태스크 0.
+- 보존식(FROZEN): 첫 미충족 조건만 primary bucket으로 — `16,763 = 0 MINEABLE-ELIGIBLE + 16,763
+  NEEDS-SPEC`. NO-DETERMINISTIC-BUDGET·GENERALITY-UNRESOLVED는 같은 16,763행의 **보조 상태**로만 기록
+  (분모에 중복 가산 금지).
+- 기존 Lean 체커(`v1-lenbound` 계열)는 이 소스-audit anchor와 배선 경로가 없어 미적용. 코퍼스에 .lean
+  파일 0·Lean 정리 태스크 0이므로 Lean 문제 수를 0으로도 주장하지 않음(CORPUS-NOT-MATERIALIZED).
+- 경계: N>0은 새 audit spec·오라클/체커·예산 설계가 필요 — 이번 P0 범위 밖. mineable_now=0.
+- 도메인 소계: `EVM 6,767 + Solidity P0 0 + zk-native release-audit P0 0 = 6,767`. Lean은 미합산.
+
+## 경계
+public/API/mining/leaderboard 주장 아님. 합의·BF.7·reward·Base 미변경. closed-local only. 원본 대형 원장
+(anchor 원장·소스 스냅샷·emitter)은 gitignored 샌드박스에만, in-tree는 해시+계보+보존식만.

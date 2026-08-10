@@ -200,6 +200,28 @@ require_text docs/solidity-census-p0-eligibility-freeze.md "mineable_now"
 require_text docs/solidity-census-p0-eligibility-freeze.md "issuable problem count, not network activation"
 require_text docs/solidity-census-p0-eligibility-freeze.md "not a public-network / leaderboard / paid-API / production claim"
 
+# zk-native release-audit census P0 — anchor eligibility freeze (append-only
+# attestation). Records the two separate ceiling labels (zk-native N=0 and Lean
+# corpus-not-materialized), the 16,763-anchor conservation identity, the genuine
+# anchor->source binding basis, the reason the v1-lenbound Lean checker is not
+# applied, and the closed-local boundary. The anchor ledger / source snapshots /
+# emitter stay in the git-ignored sandbox; only hashes + lineage + conservation are
+# tracked here. These pins keep the two ceiling labels, the conservation identity,
+# and the non-activation boundary from silently rotting.
+require_file docs/zk-native-release-audit-census-p0-eligibility-freeze.md
+require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "ZK-NATIVE-RELEASE-AUDIT-P0-MINEABLE-ELIGIBLE = 0"
+require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "LEAN-P0 = CORPUS-NOT-MATERIALIZED"
+require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "16,763 NEEDS-SPEC"
+require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "boole.zk-native.release-audit.v1"
+require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "AuditExisting"
+require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "not a fake seed"
+require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "fab8439a4fa9b5062cebf931e155d68cc469661e3f7e2c9556b7bd07c7792bc6"
+require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "v1-lenbound"
+require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "mineable_now"
+require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "issuable problem count, not network activation"
+require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "confirmed numeric subtotal"
+require_text docs/zk-native-release-audit-census-p0-eligibility-freeze.md "not a public-network / leaderboard / paid-API / production claim"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
