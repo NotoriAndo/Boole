@@ -2661,8 +2661,71 @@ Telegram chat_id 1311067056, 한국어 쉬운 말. public/API/mining/leaderboard
       4h/48GiB 이내. verify-probe ACCEPT, 음성 거절표 전부 통과.
 - [x] 전수 census 6,767: 9개 축 완비, distinct pv#1 = 6,767, CERTIFIED.
 - [x] 추적 문서 작성 + docs-smoke 핀(ceiling label·보존식·mineable_now=0·non-claim) → docs-smoke PASS.
-- [ ] branch → PR → CI self-test + supply-chain green → main 머지 → 원격 검증(진행 중).
+- [x] branch → PR #116 → CI self-test(11m49s) + supply-chain(3m24s) green → main 머지
+      (merge commit `ab5c4dea…`) → 원격 검증 local HEAD == origin/main → working tree clean.
 
 ## 경계
 public/API/mining/leaderboard 주장 아님. 합의·BF.7 미연결. reward/Base 미변경. mineable_now=0 유지.
 원본은 샌드박스에만, in-tree는 해시+계보만.
+
+---
+
+# Solidity P0 실물 family — 생성형(generative) 방법론 (operator msg 3711 step 1 + msg 3714)
+
+## 목표
+Solidity 발급 수 0을 **정직하게 회수**. 공개 테스트를 정답 문제가 아니라 **새 문제 template**로만 사용.
+직답(direct-answer) family는 정답 co-location 때문에 이미 NO-GO(2026-08-07). 생성형 family는 정답
+유출을 원천 우회한다. 결과: `SOLIDITY-P0-MINEABLE-ELIGIBLE=N` (또는 구조적 실패 시 =0).
+
+## 방법론 (msg 3714, 8개 조항)
+1. solc+Z3 오프라인 = 준비 관문일 뿐, 문제 수에 안 셈.
+2. 공개 테스트 = 새 문제 template로만.
+3. 서로 겹치지 않는 두 sub-family, anchor당 최대 1 task:
+   - A. syntax/semantic → typed-hole compile-repair (front-end only, EVM 실행 불필요)
+   - B. SMT → bounded expression synthesis (SMTChecker/Z3, EVM 실행 불필요)
+4. 각 sub-family 결정적 대표 패턴 최대 3개만 시험. 문제별 수동수정 금지.
+5. 필수 6조건: 원본 공개답 REJECT / 새 문제 답이 task·checker 바이트에 없음 / worker 합성 + verifier
+   compiler 1회 / trivial 전부 REJECT / 대표 답은 fixture로 제외 / 전수 답 미리 생성·저장 안 함.
+6. 한 sub-family라도 대표 관문 통과 → 승인 대기 없이 해당 전체 anchor 정확히 1회 변환·검증·집계.
+7. 둘 다 구조적 실패 → `SOLIDITY-P0-MINEABLE-ELIGIBLE=0` 종결.
+8. 성공 → 보존식·최종 원장 동결 → `SOLIDITY-P0-MINEABLE-ELIGIBLE=N` 확정.
+
+## 진행
+- [x] 준비 관문(prep gate) — 핀 soljson.js 0.8.36(sha256 `ccb677d5…`), Node v22, 오프라인.
+      front-end 정상 컴파일/오류 거절 확인; SMTChecker 위반=반례·안전=증명 확인(Z3-in-WASM 작동).
+      → sub-family A/B 둘 다 실행 가능. (숫자에 안 셈)
+- [x] 대표 패턴 설계 확인 — msg 3714/3716 8조항 + 8조정으로 확정, 승인 대기 없이 cascade 진행 사전 허가.
+- [x] sub-family A 대표 관문 TDD 구현·검증 — 3패턴×8행 = 24/24 GREEN (원본 int식·리터럴·단일변수·
+      미사용변수·문법외 조건식·산술 전부 REJECT).
+- [x] sub-family B 대표 관문 TDD 구현·검증 — 4패턴×9행 = 36/36 GREEN (합성 등가식 ACCEPT, 원본 P·
+      여집합·항진·모순·단일변수·문법외 `^`·무관변수 전부 REJECT; host 진리표 교차검증 일치).
+- [x] 전체 anchor 1회 cascade — A: `3,547 = 2 + 2,322 + 1,223`, B: `1,435 = 2 + 28 + 1,405`,
+      WITNESS-REJECTED=0 (둘 다). N_A=2, N_B=2.
+- [x] 보존식·최종 원장 동결 → `SOLIDITY-P0-MINEABLE-ELIGIBLE = 4 = N_A(2) + N_B(2)`,
+      `docs/solidity-census-p0-eligibility-freeze.md` append + docs-smoke 핀 → PR → CI green → main.
+
+## 리뷰 (Entry 1 완료)
+- 결과: **SOLIDITY-P0-MINEABLE-ELIGIBLE = 4** (N_A=2 syntaxTests, N_B=2 smtCheckerTests). 작지만
+  엄밀 검증된 정직한 floor. 컴파일러 테스트 코퍼스는 문제은행이 아니라 컴파일러 검사용이라 대다수가
+  음성 테스트/실행-의존 feature → bounded 식 합성 + 비공허성-by-rule + 원본거절 + 1회컴파일 판정으로
+  회수 가능한 건 소수.
+- semanticTests(1,670)는 adjustment 2에 따라 `DEFERRED-EVM-REQUIRED`로 미집계. 보수적 해석 채택.
+  잠재적 정직한 확장(semanticTests를 A의 compile-repair template로 재사용 — A 검증은 compile-only)은
+  자율 채택하지 않고 append 가능한 후속 항목으로 남김. → 사용자에게 옵션으로 보고.
+- 동결 문서는 append-only: 코퍼스 fingerprint(A `ec0fdc62…`, B `b05d389d…`), 핀 soljson.js 0.8.36
+  (sha256 `ccb677d5…`), 4개 counted 파일 해시, 원장/구현 해시 in-tree. 원본은 gitignored 샌드박스.
+
+## 경계
+public/API/mining/leaderboard 주장 아님. 합의·BF.7 미연결. closed-local only. mineable_now=0 유지.
+원본은 샌드박스에만, in-tree는 해시+fingerprint+계보만.
+
+## sandbox / 도구
+- sandbox: `local-docs/langspec-universe-p0-2026-07-23/solidity-family-impl/` (gitignored).
+- 핀 컴파일러: `…/anchored-obligation-p2-2026-07-23/solidity-runtime/` node_modules의 solc 0.8.36
+  (soljson.js sha256 `ccb677d54dfab2a9b30084eec6bb396c93eb86d58b42cc00267fd0f54f391f32`).
+- native solc 소스 빌드는 오프라인 불가(submodule 비어있음·Boost/Z3/emscripten 없음) → soljson.js 경로 채택.
+- anchor 코퍼스: `current-solidity.json` (syntaxTests 3,547 / semanticTests 1,670 / smtCheckerTests 1,435).
+  실제 universe는 "핀 solc로 깨끗이 컴파일되는 base" 부분집합 → N은 cascade에서 창발.
+
+## 경계
+public/API/mining/leaderboard 주장 아님. 합의·BF.7 미연결. closed-local only. 아직 숫자·커밋 아님.
