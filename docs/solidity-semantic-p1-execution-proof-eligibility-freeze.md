@@ -267,3 +267,137 @@ by the git-ignored sandbox run recorded above, not by CI.
   hashes, the corpus fingerprint, conservation identities, and lineage so the freeze is
   durable in-tree — closed-local validation only.
 * This record is **not a public-network / leaderboard / paid-API / production claim**.
+
+---
+
+## Entry 2 — 2026-08-10 · execution-mismatch-reclaim-v1 / successor N = 1408
+
+### Result in one line
+
+A **read-only** forensic audit of the **12** `EXECUTION-MISMATCH` cases Entry 1 deferred
+found **every one** to be a defect in *our own census tooling* — never a divergence of
+the frozen execution engine — so all 12 are false-exclusions and the corrected successor
+count is **SOLIDITY-EVM-EXECUTION-PROOF-P1-MINEABLE-ELIGIBLE-SUCCESSOR = 1408**
+(`1396 + 12`). **Entry 1's frozen `N = 1396` is not modified**; this entry is an
+append-only successor that adds the reclaimed 12 on top of it.
+
+### Scope and read-only discipline
+
+The audit touched **nothing** frozen. The guest ELF (`sha256 1599d54f…`), the verifying
+key (`0x004a7485…`), the pinned compiler, the `semanticTests` corpus fingerprint, the
+1,474 canonical inputs, the native-exec observed outputs, and Entry 1's ledgers and
+`N = 1396` all stay byte-identical. "Read-only" here means: the frozen artifacts are
+never mutated. Re-running the **same** frozen native-exec binary and the **same** frozen
+SP1 guest ELF on *corrected* input is permitted and is not a change to any frozen record —
+the vk binds the **ELF**, not the input, so proving eligibility on a fixed input exercises
+exactly the frozen engine. Corrected inputs and reconstructions are written only to a
+fresh `zkvm/reclaim/` sandbox directory.
+
+### Cause classification (the five buckets, exhaustive over the 12)
+
+```
+12 EXECUTION-MISMATCH = 5 AUTHOR-ORACLE-MISREAD   (census extractor recorded a malformed expected value)
+                      + 7 HARNESS-DEFECT          (materializer corrupted the call input before execution)
+                      + 0 CANONICALIZER-DEFECT    (verify.mjs comparator bug)
+                      + 0 PINNED-ENGINE-DIVERGENCE(frozen engine genuinely diverges — would NOT be reclaimable)
+                      + 0 UNRESOLVED
+```
+
+Because **0** cases are `PINNED-ENGINE-DIVERGENCE`, the reclaim scope is the full 12: every
+mismatch is our-tooling, and the frozen engine's observed output was correct in all 12.
+Per-case:
+
+| # | nodeid | cause | defect fingerprint |
+| --- | --- | --- | --- |
+| 1 | `smoke/basic.sol` (call 8) | HARNESS-DEFECT | `k()` calldata word-padded to 36 B; correct raw is 8 B → `msg.data.length` should be 8 |
+| 2 | `fallback/short_data_calls_fallback.sol` (calls 0,2,4,6,8) | HARNESS-DEFECT | sub-4-byte raw runs right-padded to 32 B, breaking fallback dispatch (`d88e0b`→`d88e0b00` = `fow()` selector) |
+| 3 | `smoke/fallback.sol` (calls 3,9) | HARNESS-DEFECT | raw 2-byte fallback data (`0x42ef`, `0xfefe`) word-padded |
+| 4 | `revertStrings/empty_v2.sol` (call 1) | HARNESS-DEFECT | `g(string)` with `""` under-encoded (selector only) → "tuple data too short" revert instead of `offset,len` |
+| 5 | `inlineAssembly/keccak_optimization_bug_string.sol` (call 0) | HARNESS-DEFECT | `f(string)` with `""` under-encoded (selector only) |
+| 6 | `abicoder/calldataDecoding/array/calldata_array_indexing_dynamic_v2.sol` (call 8) | HARNESS-DEFECT | `bytes[2]` raw-hex elements right-padded, breaking isoltest offsets (`0x63`) that assume unpadded layout |
+| 7 | `abicoder/calldataDecoding/array/calldata_array_multi_dynamic_v2.sol` (calls 4,5) | HARNESS-DEFECT | `bytes[]` raw-hex elements right-padded, same offset breakage |
+| 8 | `abicoder/calldataDecoding/array/calldata_array_dynamic_static_dynamic_v2.sol` | AUTHOR-ORACLE-MISREAD | extractor word-padded a 4-byte selector (`eccb829a`) embedded inside a returned `bytes` blob |
+| 9 | `abicoder/calldataDecoding/array/calldata_array_static_dynamic_static_v2.sol` | AUTHOR-ORACLE-MISREAD | same: embedded selectors (`15cfcc01`,`dc0ee233`) word-padded in the recorded oracle |
+| 10 | `abicoder/cleanup/dynamic_array_v2.sol` | AUTHOR-ORACLE-MISREAD | same: embedded selector (`304a4c23`) word-padded |
+| 11 | `abicoder/cleanup/static_array_v2.sol` | AUTHOR-ORACLE-MISREAD | same: embedded selector (`78b86ac6`) word-padded |
+| 12 | `abicoder/cleanup/struct_v2.sol` | AUTHOR-ORACLE-MISREAD | same: embedded selector (`b63240b0`) word-padded |
+
+### Why HARNESS-DEFECT (7): materializer corrupted the input, engine executed it correctly
+
+The isoltest calldata grammar appends `hex"…"` byte runs **raw and unpadded**; bare `""`
+string args ABI-encode as `offset(0x20), length(0x00)`. The frozen materializer instead
+right-padded raw byte runs to a 32-byte word (or, for `""`, emitted only the selector).
+That corrupted the *input the engine was asked to run* — e.g. `msg.data.length` observed
+36 instead of 8, or a sub-4-byte fallback probe promoted into a real 4-byte selector, or a
+dynamic-array offset (`0x63`) pointing into padding. The engine faithfully executed the
+corrupted bytes, so its output "mismatched" the (correct) author oracle.
+
+**Proof (execution, frozen binaries).** For each of the 7 the corrected calldata was
+rebuilt in the sandbox (`zkvm/reclaim/build_corrected_input.mjs`), then run through the
+**frozen** native-exec engine and scored by the **frozen** canonicalizer
+(`zkvm/verify.mjs`): **7 / 7 `ACCEPT`, 0 `MISMATCH`**. Re-measuring the corrected inputs
+on the **frozen** guest ELF (`exec-many`, `1599d54f…`) gives cycles **751,326 –
+3,461,571** — max **3,461,571**, i.e. **4,538,429** cycles under the 8,000,000 ceiling.
+All 7 are therefore genuinely `MINEABLE-ELIGIBLE`.
+
+### Why AUTHOR-ORACLE-MISREAD (5): the recorded oracle was malformed, the engine's ABI was correct
+
+For these 5 the *input* was fine; the **recorded expected value** was wrong. The census
+extractor built each `return_words` oracle by word-padding **every** isoltest return
+token — including 4-byte function selectors that appear *inside* a returned `bytes memory`
+blob. Real ABI packs those selectors byte-contiguous inside the blob, not on 32-byte word
+boundaries, so the recorded oracle is **self-inconsistent**: its `bytes` length header
+contradicts its own (over-long, word-padded) content. The frozen engine emitted the
+**correct** ABI. `verify.mjs` un-pads a 4-byte selector for a *revert* word
+(`expectedRevertHex`) but not for a *success* return (`expectedReturnHex`), so the
+malformed success oracle was flagged as a mismatch.
+
+**Proof (read-only, no engine re-run).** From each isoltest `// ----` return spec the
+correct `abi.encode(bytes …)` was reconstructed independently under the true
+raw-hex-unpadded rule (`zkvm/reclaim/reconstruct_misread.mjs`); **all 5 reconstructions
+equal the frozen engine's already-recorded observed output** (13 mismatched call rows,
+all match). The 5 kept their un-corrupted frozen census cycle counts **1,278,924 –
+3,065,090** (max **3,065,090** ≤ 8M), so they too are genuinely `MINEABLE-ELIGIBLE`.
+
+### Reclaim identity (FROZEN)
+
+```
+Entry 1  N (frozen, unchanged)                         = 1396
+       + reclaimed false-exclusions (all 12 our-tooling) =   12
+       ------------------------------------------------------------
+       successor MINEABLE-ELIGIBLE                       = 1408
+```
+
+The reclaim subtracts the 12 from Entry 1's `EXECUTION-MISMATCH` bucket (`12 → 0`) and
+adds them to `MINEABLE-ELIGIBLE`; no other Entry 1 bucket changes. `PINNED-ENGINE-DIVERGENCE`
+is the only cause that would **not** be reclaimable, and it is empty. Entry 1's ledgers,
+hashes, and `N = 1396` are the immutable v1 attestation; **1408 is the corrected successor
+count that supersedes 1396 going forward**, established by the sandbox reclaim run recorded
+below (CI attests the record is intact, it does not recompute the audit).
+
+### Reclaim artifact hashes (git-ignored sandbox; hash-pinned here)
+
+| artifact | role | sha256 |
+| --- | --- | --- |
+| `zkvm/reclaim/build_corrected_input.mjs` | rebuild corrected calldata for the 7 HARNESS cases | `aa62c15a35c6d02023e67c12e822629b26a0c5dd05f79c5d0d252390f2ee57fd` |
+| `zkvm/reclaim/reconstruct_misread.mjs` | independent ABI reconstruction for the 5 MISREAD cases | `950dd91c48f8818b9e531cf6522697dce1451a455b195a77e34ee92dd83ebdf3` |
+| `zkvm/reclaim/corrected-input.json` | 7 corrected canonical inputs | `ad5554e58ac4152d0790c0c7531f5c90d7bf3fddc3536813426c8fcd8baf6240` |
+| `zkvm/reclaim/corrected-output.json` | frozen native-exec on corrected inputs | `9c1ce796e1827116869ad2f39dee4b9dcbac6c849c681d808077de8974c683c7` |
+| `zkvm/reclaim/corrected-ledger.json` | frozen `verify.mjs` verdicts (7/7 ACCEPT) | `b4dbae4882fb6423c644bfa629c0e5253d967a38b738013805d2bd0a6e45a454` |
+| `zkvm/reclaim/corrected-cycles.json` | frozen guest ELF `exec-many` cycles (all ≤ 8M) | `3e106889cc8f10a071a6c0ba7b09422d5e73bdb66df5d4528cb665df07c771af` |
+
+The frozen guest ELF `sha256 1599d54f…`, vk `0x004a7485…`, and all Entry 1 census hashes
+are unchanged and remain pinned in Entry 1's binding tables above.
+
+### Boundary / non-claims (Entry 2)
+
+* **Entry 1's `N = 1396` is not rewritten.** This entry is append-only; it declares a
+  distinct successor label `…-SUCCESSOR = 1408` and does not alter any Entry 1 line.
+* All 12 reclaimed cases are false-exclusions caused by **our census tooling** (materializer
+  / extractor), proven by re-running the **frozen** engine on corrected input (7/7 ACCEPT)
+  and by independent ABI reconstruction matching the frozen observed output (5/5). The
+  engine was correct in every one; **0** cases are `PINNED-ENGINE-DIVERGENCE`.
+* The successor count 1408 is an **issuable problem count, not network activation**;
+  `mineable_now` stays **0**. No consensus / BF.7 / mining / reward / paid-API change.
+* This record is **not a public-network / leaderboard / paid-API / production claim** —
+  closed-local, non-consensus evidence only.

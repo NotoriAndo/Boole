@@ -2814,8 +2814,9 @@ public/API/mining/leaderboard 주장 아님. 합의·BF.7·reward·Base 미변�
       8,700,111 → 8M 선 넘는 gap ~1.39M ≫ placeholder/real digest drift ≤~1,000.
 - [x] 동결 문서(`docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md`, append-only Entry 1)
       + docs-smoke.sh 핀 블록.
-- [ ] docs-smoke.sh PASS + `git diff --check` PASS → commit(NotoriAndo, AI attribution 없음) → branch push
+- [x] docs-smoke.sh PASS + `git diff --check` PASS → commit(NotoriAndo, AI attribution 없음) → branch push
       → PR → CI self-test·supply-chain green → merge → local main == origin/main → working tree clean.
+      **merged 3ec0111** (`docs(census): freeze Solidity semantic P1 EVM execution-proof eligibility (N=1396)`).
 
 ## 리뷰 (Entry 1 완료 — N=1,396)
 - 결과: **SOLIDITY-EVM-EXECUTION-PROOF-P1-MINEABLE-ELIGIBLE = 1396**. N은 엄격한 하한 — N에 든 모든
@@ -2836,3 +2837,39 @@ public/API/mining/leaderboard 주장 아님. 합의·BF.7·reward·Base 미변�
 public/API/mining/leaderboard 주장 아님. 합의·BF.7·reward·Base 미변경. mineable_now=0. closed-local only.
 guest/host 구현·핀 컴파일러·코퍼스·물질화 케이스·run 원장·대표 증명은 gitignored 샌드박스에만, in-tree는
 해시+코퍼스 지문+보존식+계보만. DEFERRED-HIGH-COST 21·EXECUTION-MISMATCH 12는 폐기가 아니라 유보(후속).
+
+---
+
+# Solidity semantic P1 — Entry 2: EXECUTION-MISMATCH 12건 읽기전용 원인감사 + reclaim (운영자 msg 3744)
+
+지시(msg 3744): 12건 **읽기전용** 원인감사. 기존 1,396 동결기록 **수정 금지**, 회수건은 **successor 부록**으로
+추가. 원인별 5버킷 분류(AUTHOR-ORACLE-MISREAD / CANONICALIZER-DEFECT / PINNED-ENGINE-DIVERGENCE /
+HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 Rust·Ethereum-consensus로.
+
+- [x] 12건 전수 분류: **5 AUTHOR-ORACLE-MISREAD + 7 HARNESS-DEFECT + 0 CANONICALIZER-DEFECT +
+      0 PINNED-ENGINE-DIVERGENCE + 0 UNRESOLVED**. 12건 모두 우리 census 툴링 결함(엔진은 매건 정답) →
+      전건 false-exclusion, 전건 reclaim 가능(엔진발산 0이라 비회수 사유 없음).
+- [x] HARNESS 7건 증명(실행, 동결 바이너리): 오손된 calldata를 샌드박스에서 정정(`reclaim/build_corrected_input.mjs`,
+      isoltest 원칙 — `hex""`는 raw unpadded, 빈 `""`는 offset+length) → **동결** native-exec 재실행 →
+      **동결** `verify.mjs` 채점 = **7/7 ACCEPT**. 정정입력 cycle 재측정(**동결** guest ELF `1599d54f…`
+      `exec-many`) = 751,326~3,461,571(max 3.46M, 8M 아래 4.54M 여유) → 전건 eligible.
+- [x] MISREAD 5건 증명(읽기전용, 엔진 재실행 없음): isoltest `// ----` 스펙에서 올바른 `abi.encode(bytes)`
+      독립 재구성(`reclaim/reconstruct_misread.mjs`, 반환 blob 내부의 4바이트 selector는 워드패딩 아님) =
+      **동결 관측출력과 5/5(13행) 일치**. 기록 오라클은 자기모순(길이헤더 vs 워드패딩 내용), 관측은 정합 ABI.
+      입력 무오손이라 동결 census cycle 유효 = 1,278,924~3,065,090(max 3.07M ≤8M) → 전건 eligible.
+- [x] reclaim 항등식: `Entry 1 N 1396(불변) + reclaim 12 = successor 1408`. `EXECUTION-MISMATCH 12→0`,
+      `MINEABLE-ELIGIBLE`에 +12. 다른 버킷 불변.
+- [x] 동결문서 append-only Entry 2 작성(`…-SUCCESSOR = 1408`, Entry 1 한 줄도 안 건드림) + docs-smoke.sh
+      Entry 2 핀 4줄 추가. `docs-smoke: PASS`, `git diff --check` PASS.
+- [ ] commit(NotoriAndo, AI attribution 없음) → feature branch push → PR → CI self-test·supply-chain green
+      → merge → local main == origin/main → working tree clean → 텔레그램(chat 1311067056) 한국어 완료보고.
+- [ ] (다음) Rust·Ethereum-consensus 도메인 census.
+
+## 리뷰 (Entry 2 — reclaim / successor N=1,408)
+- 결과 한 줄: EXECUTION-MISMATCH 12건은 **전부** 우리 census 툴링 결함(materializer 오손 7 + extractor 오독 5),
+  **엔진 발산 0**. 동결엔진을 정정입력에 재실행(7/7 ACCEPT)·독립 ABI 재구성(5/5 일치)으로 증명 → 전건 회수.
+  Entry 1의 1,396은 불변 v1 동결, 1,408이 정정 후속치.
+- 읽기전용 규율: 동결 ELF/vk/코퍼스/1,396 원장 무변경. "읽기전용"=동결물 불변; **동일** 동결 바이너리를
+  **정정** 입력에 재실행하는 건 vk가 ELF에 결속(입력 아님)이라 동결 위반 아님. 정정입력·재구성은 새 `reclaim/`
+  샌드박스에만 기록.
+- 도메인 소계(후속치 반영): Solidity-semantic P1 = 1,396(v1 동결) → **1,408**(successor). 다른 도메인 불변.
