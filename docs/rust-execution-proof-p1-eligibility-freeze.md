@@ -272,3 +272,120 @@ is established by the git-ignored sandbox run recorded above, not by CI.
   an offline SP1 zkVM program connected to no consensus path.
 * This record is **not a public-network / leaderboard / paid-API / production claim** —
   closed-local, non-consensus evidence only.
+
+---
+
+## Entry 2 — 2026-08-11 · proof-statement-dedup-v1 / N = 687 distinct verifiable proof statements
+
+### Result in one line
+
+Re-auditing Entry 1's task unit under a **proof-statement** lens — the honest unit a miner
+is actually paid for — the successor ceiling is
+**RUST-EXECUTION-PROOF-P1-MINEABLE-ELIGIBLE = 687 distinct verifiable proof statements**
+(successor to Entry 1's `2,461 files / 2,504 tasks`, which stays as the prior file/task-unit
+reference; Entry 1 and the preamble are unchanged). The current guest harness commits
+**only** the fixed 20-byte completion sentinel to the public values and takes empty guest
+input, so a task's source / revision / compiler flags / edition-target / task identity are
+**not** bound inside the verified statement. The proof statement therefore reduces to a
+function of the verifying key alone, and every task sharing a vk is satisfiable by one proof.
+Of the 2,499 execution-eligible tasks (2,504 minus the 5 non-execution oracles) only **688**
+distinct proof statements exist; one is already answered by the representative's real proof,
+leaving **687** newly mineable.
+
+### Why the count moved (2,499 → 687)
+
+`proof_statement_digest = SHA-256( vk ∥ input_digest ∥ expected_pv_digest ∥ verifier_contract )`
+
+with the three non-vk components CONSTANT across the whole family:
+
+* `input_digest       = e3b0c442…b855` — SHA-256 of the empty guest stdin
+* `expected_pv_digest = 48b1336c…b2f2` — SHA-256 of the 20-byte sentinel `RUST-EXECUTION-PROOF`
+* `verifier_contract  = 79febbe6…0ebc` — SHA-256 of `SP1-COMPRESSED|circuit=v6.1.0|sp1-zkvm=6.3.1|target=riscv64im-succinct-zkvm-elf`
+
+So `proof_statement_digest` is a **bijection with vk**: the measured distinct vk count among
+the eligible pool = **688** = the measured distinct proof-statement count. Distinct guest
+ELFs = **698**, i.e. 10 ELFs collapse onto an already-seen vk (identical circuit ⇒ identical
+statement); **0** ELFs mapped to two different vks (the vk derivation is deterministic).
+
+### Proof-reuse binding gap (operator gate item 4) — honest finding
+
+The audit explicitly checked whether the source digest / revision / compiler flags /
+edition-target / task identity are inside the **verified public values**, not merely in
+emitter metadata. They are **not**: the guest commits the constant sentinel and nothing
+task-specific. Proof reuse across same-vk tasks is therefore **possible**, and the honest
+mineable unit is the distinct-proof-statement count, not the file or task count. Binding the
+task identity into the public values (so each task becomes its own statement) is recorded as
+follow-on scope, not done here.
+
+### Task materialization (operator gate step 2)
+
+The 43 projected revision variants were materialized as independent tasks, each built exactly
+once with its official `compiletest` settings applied verbatim (`compiletest` maps `-` → `_`
+for `--cfg`, e.g. revision `randomize-layout` → `--cfg randomize_layout`; nightly `-Z` flags
+pass through). 81 revision-tasks resulted: **76** reached the completion sentinel
+(MINEABLE-ELIGIBLE candidates) and **5** did not, booked NON-EXECUTION-ORACLE —
+`mut-ref-mut[classic2024]`, `mut-ref-mut[structural2024]`, `static-mut-refs[e2024]`,
+`defaulted-never-note[e2024]`, `empty-supertrait-with-nonempty-supersupertrait[dump]`. Real
+flag application was confirmed, e.g. `randomize.rs[randomize-layout]` built under
+`-Zrandomize-layout -Zlayout-seed=2`. All 4 parent files keep ≥1 eligible revision, so the
+Entry-1 file-unit 2,461 is unchanged.
+
+### Representative (move-4) accounting
+
+The representative's real compressed proof (`zkvm/rep-out/proof.bin`, SHA-256 `74854f93…`,
+4,674 cycles) is bound to vk `0x0038de3b…` / ELF `af8c179c…` and is **not** part of the
+2,504 denominator. Under the statement lens its vk is shared by **122** census tasks (across
+2 distinct guest ELFs `bcbabb13…`, `0803ca1e…`); all 122 are therefore already answered by
+that one existing proof and are booked ANSWERED-PROOF-FIXTURE, not mineable. The cross-use
+test below verifies that move-4's proof genuinely accepts against those same-vk tasks.
+
+### Cross-use verification (operator gate item 6)
+
+One cross-use REJECT/ACCEPT test on representative collision groups, using the existing
+move-4 proof and **no** new proof generation (`xtest/crossuse-result.txt`, SHA-256
+`8229606a…`):
+
+* move-4 proof vs its own ELF (vk `0x0038de3b…`) → **ACCEPT**
+* move-4 proof vs a DIFFERENT ELF `bcbabb13…` deriving the SAME vk → **ACCEPT** — one proof
+  satisfies a different task, i.e. the dedup criterion holds
+* move-4 proof vs an ELF deriving a DIFFERENT vk `0x006a8e87…` (the largest, 1,570-task
+  collision group) → **REJECT** (`sp1 vk hash mismatch`): a distinct statement; cross-use is
+  cryptographically prevented
+
+### Conservation identity (task unit, 8 buckets)
+
+Every one of the 2,504 fixed tasks falls in exactly one bucket:
+
+```
+2,504 =   687  MINEABLE-ELIGIBLE          distinct un-answered proof statements — the ceiling
+      +     5  NON-EXECUTION-ORACLE       materialized revisions that never complete
+      + 1,690  DUPLICATE-PROOF-STATEMENT  same statement as a survivor; one proof covers them
+      +   122  ANSWERED-PROOF-FIXTURE     share the representative's vk; answered by 74854f93…
+      +     0  DEFERRED-HIGH-COST
+      +     0  TIMEOUT
+      +     0  ERROR
+      +     0  UNRESOLVED
+```
+
+### Binding manifest
+
+Per-task binding keys — revision-applied source digest, per-task guest ELF digest, per-task
+vk digest, the common verifier contract, execute cycles, the sentinel completion oracle
+(`pv_len`), the `proof_statement_digest`, and the `task_identity_digest` that is **not** bound
+in-circuit — are recorded for all 2,504 tasks in `binding-manifest.jsonl` (SHA-256
+`c1785e0f…`). The statement roll-up is `statement-summary.json` (SHA-256 `64217a9b…`);
+per-distinct-ELF vk / cycles / sentinel telemetry is `elfvk-out.jsonl` (SHA-256 `a1da0cbc…`);
+revision-task telemetry is the `mat-out-*.jsonl` set (concatenated SHA-256 `6bfc9afc…`). All
+stay in the git-ignored sandbox; only these fingerprints are tracked here.
+
+### Boundary / non-claims (Entry 2)
+
+* Entry 1 and the preamble above are **byte-unchanged**; **687** is recorded here as the
+  **successor** proof-statement count, keeping 2,461 files / 2,504 tasks as the prior
+  file/task-unit reference.
+* **687 is a distinct-proof-statement count** — not a file count, not a vk-activation claim;
+  `mineable_now` stays **0**.
+* The drop from 2,499 to 687 reflects the current harness binding only the sentinel; it is a
+  faithfully-reported property of this harness, not a defect found in the corpus.
+* No consensus / BF.7 / mining / reward / Base / paid-API change; closed-local, non-consensus
+  evidence only — **not a public-network / leaderboard / paid-API / production claim**.
