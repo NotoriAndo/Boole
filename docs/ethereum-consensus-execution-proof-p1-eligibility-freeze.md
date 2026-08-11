@@ -267,3 +267,183 @@ only if `NO-CRYPTO-REACHABLE ≥ 1`. That investigation lands in a later entry.
 * This is an **issuable-problem-count investigation, not network activation**; no
   consensus / BF.7 / mining / reward / Base / paid-API change was made. Closed-local,
   non-consensus evidence only — not a public-network / leaderboard / paid-API / production claim.
+
+---
+
+## Entry 2 — 2026-08-11 · stf-crypto-call-path-census / N still NOT-YET-DETERMINED (2,293 NO-CRYPTO candidates, not mineable)
+
+### Result in one line
+
+The successor call-path census promised in Entry 1 is complete. Running the **frozen
+observation-only instrumented native harness** over the 4,231 executable STF candidates
+(phase0→deneb) exactly once — with electra+fulu (2,880) statically CLIENT-FORK-UNSUPPORTED
+— classifies all **7,111** candidates by their **actual observed crypto-call path** into
+six mutually-exclusive buckets, conserving exactly. **2,293** candidates reach **no BLS and
+no KZG call** for their frozen input (`NO-CRYPTO-REACHED-FOR-FROZEN-INPUT`, the bucket
+Entry 1 called `NO-CRYPTO-REACHABLE`, renamed per operator msg 3786):
+`STF-CRYPTO-CALL-PATH-CENSUS-COMPLETE`. **2,293 is a candidate count, not a mineable
+count.** The domain stays **NOT-YET-DETERMINED**, `mineable_now = 0`, and the integrated
+confirmed subtotal **10,674** is **unchanged**.
+
+### Measurement freeze (SHA-256 pinned before any result was inspected)
+
+Observation-only instrumentation: a thread-local counter increments at the entry of each
+real BLS/KZG function; it does not affect any return value, error, post-state, or
+serialization. Audit harness + counters only — no production / guest / consensus logic
+changed; `blst` 0.3.17 and `c-kzg` 2.1.8 are **not** swapped (workspace pins identical to
+Entry 1). The full freeze manifest (corpus digests, candidate lists, pre/post source,
+binary, classifier, execution order) is pinned in the git-ignored sandbox
+`census-freeze/MEASUREMENT-FREEZE.md`.
+
+| field | value |
+| --- | --- |
+| client checkout | `5031d31e318dd861cf3373702c5d92f085d926e4` (unchanged from Entry 1) |
+| BLS / KZG backend | `blst` 0.3.11→lock 0.3.17 / `c-kzg` 2.1.0→lock 2.1.8 (unchanged; no substitution) |
+| instrumented census binary sha256 | `3239543b979db1956d816b6abc91fc91a3a0c5d81fa0a6325dd28ddca7eb3648` |
+| stock reference binary sha256 | `a102a87f9e94b0d4a460e424fdf98679e927d720bbf091a2672bfa006b931acc` |
+| execution order | fixed nodeid ascending, `--test-threads=1`, exactly one pass, no retry |
+
+**Pre-result gates (all PASS, recorded before results):**
+
+* **MAP-COMPLETE** — exhaustive crypto-call map: 5 BLS + 6 KZG entry points instrumented;
+  the only STF-path c-kzg touch is the trusted-setup load at `context.rs:205` (Context
+  construction, outside the per-case counter bracket). No FFI / re-export bypass. No gap.
+* **Transparency gate** — stock vs instrumented on the bundled 279 official vectors: all
+  279 per-case outcomes byte-identical (digest
+  `0695d93b55cfccf33d89f34af4a008c2649b44b1b8c6a716091b69a57deed977`), 279/279 pass. The
+  binaries differ in content, so the instrumentation is real yet decision-transparent — no
+  `INSTRUMENTATION-NONTRANSPARENT` trigger.
+* **RED→GREEN fixture gate** (nodeid ascending): KZG-forced fixture → kzg counter fires
+  (bls 0 / kzg 1); no-crypto fixture → 0/0; BLS-forced fixture → bls 1 / kzg 0; a
+  spec-drift panic case → recorded `panic` (not mis-scored as a 0-call); the clean case
+  after it → 0/0 (counters reset after a caught panic; no contamination).
+
+### Six-bucket classification (CENSUS-COMPLETE; conservation exact)
+
+Priority cascade, first match wins, per candidate: (1) electra/fulu →
+CLIENT-FORK-UNSUPPORTED; (2) execution did not reproduce the frozen expected outcome (Trial
+`err` or `panic`) → UNRESOLVED; (3) BLS>0 ∧ KZG>0 → BLS-AND-KZG-REQUIRED; (4) BLS>0 →
+BLS-REQUIRED; (5) KZG>0 → KZG-REQUIRED; (6) BLS=0 ∧ KZG=0 →
+NO-CRYPTO-REACHED-FOR-FROZEN-INPUT.
+
+```
+7,111 = 2,293 NO-CRYPTO-REACHED-FOR-FROZEN-INPUT + 1,830 BLS-REQUIRED + 0 KZG-REQUIRED + 0 BLS-AND-KZG-REQUIRED + 2,880 CLIENT-FORK-UNSUPPORTED + 108 UNRESOLVED
+```
+
+| bucket | count | meaning |
+| --- | ---: | --- |
+| NO-CRYPTO-REACHED-FOR-FROZEN-INPUT | 2,293 | no BLS/KZG call observed for the frozen input — candidate only |
+| BLS-REQUIRED | 1,830 | ≥1 BLS call, 0 KZG |
+| KZG-REQUIRED | 0 | — |
+| BLS-AND-KZG-REQUIRED | 0 | — |
+| CLIENT-FORK-UNSUPPORTED | 2,880 | electra 1,451 + fulu 1,429 (never executed) |
+| UNRESOLVED | 108 | execution did not reproduce the frozen outcome (spec drift) |
+
+Record-set integrity: 4,231 expected executable == 4,231 records emitted, 0 duplicate, 0
+unexpected, 0 missing, 0 many-to-many. The harness-emitted record names equal the frozen
+candidate list exactly — a proven bijection (the `heck::to_snake_case` collapse of the raw
+`__` directory names, 0 collisions).
+
+### Per-fork × bucket
+
+| fork | NO-CRYPTO | BLS | KZG | BLS+KZG | FORK-UNSUP | UNRES | total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| phase0 | 329 | 255 | 0 | 0 | 0 | 0 | 584 |
+| altair | 363 | 402 | 0 | 0 | 0 | 0 | 765 |
+| bellatrix | 447 | 386 | 0 | 0 | 0 | 0 | 833 |
+| capella | 562 | 435 | 0 | 0 | 0 | 0 | 997 |
+| deneb | 592 | 352 | 0 | 0 | 0 | 108 | 1,052 |
+| electra | 0 | 0 | 0 | 0 | 1,451 | 0 | 1,451 |
+| fulu | 0 | 0 | 0 | 0 | 1,429 | 0 | 1,429 |
+
+### Outcome + crypto-call totals (executed 4,231)
+
+```
+ok  (frozen outcome reproduced)   4,123   (success 2,595 + reject/no-post 1,528)
+err (ran, disagreed with vector)     31
+panic (assertion/harness abort)      77
+timeout                               0    (no timeout mechanism; run completed)
+total BLS calls                  62,603
+total KZG calls                       0
+```
+
+**KZG = 0 confirmed by both conditions** (operator msg 3786): (1) 0 STF-map paths reach any
+KZG entry point, and (2) runtime KZG-call sum over the 4,231 executed STF cases = 0. The
+standalone `kzg` runner is not one of the 8 STF runners and is not mixed into this count.
+
+**UNRESOLVED = within-deneb spec drift.** All 108 are valid deneb blocks the v1.6.1 vectors
+expect to apply but the Deneb-era v1.4.0 client mis-handles (valid 2,703 − success 2,595 =
+108); not one invalid / rejection case drifted. Per the cascade, execution that fails to
+reproduce the frozen outcome cannot certify a crypto path, so it is UNRESOLVED — never
+counted as a no-crypto or a success. By handler (all deneb): sanity/blocks 56,
+transition/core 30, random 16, finality 5, block_header 1.
+
+### Status: 2,293 is a candidate count, not a mineable count
+
+`NO-CRYPTO-REACHED-FOR-FROZEN-INPUT = 2,293` means only "no BLS/KZG call was observed for
+that frozen input on this client." It is **not** guest-buildable, **not** mineable-eligible,
+and **not** a finalized number. The issuable P1 eligible count stays **NOT-YET-DETERMINED**;
+this entry contributes **no** confirmed number.
+
+### Cross-domain running subtotal (this record's problem-count impact = 0)
+
+The **integrated confirmed subtotal 10,674 is unchanged** (byte-identical to Entry 1):
+
+```
+EVM P0                            6,767   (docs/evm-census-p0-eligibility-freeze.md)
+Solidity-semantic P1              1,408   (docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md, successor)
+Rust execution-proof P1           2,499   (docs/rust-execution-proof-p1-eligibility-freeze.md, successor)
+Solidity P0                           0   (docs/solidity-census-p0-eligibility-freeze.md)
+zk-native release-audit P0            0   (docs/zk-native-release-audit-census-p0-eligibility-freeze.md)
+---------------------------------------
+integrated confirmed subtotal    10,674
+Ethereum-consensus P1        NOT-YET-DETERMINED   (this record; contributes no number)
+Lean                    CORPUS-NOT-MATERIALIZED   (contributes no number)
+```
+
+`mineable_now = 0` unchanged. This record modifies **no** other domain's number.
+
+### Lineage (git-ignored sandbox; hash-pinned here)
+
+| artifact | role | sha256 |
+| --- | --- | --- |
+| `census-freeze/MEASUREMENT-FREEZE.md` | full pre-result freeze manifest (corpus, lists, source, binary, classifier, order) | `ecc6870931a80da094c357d2f74beb3f16cd8a40647f5e96e76155794a01f6f4` |
+| `census-freeze/census-records.tsv` | per-case `name/bls/kzg/outcome`, 4,231 rows (single pass) | `d752378350bc3f0aec857ec236ab734e0b834b490ddd426fcadaa4dc6fb69a84` |
+| `census-freeze/CENSUS-RESULTS.md` | six-bucket result + cross-tabs narrative | `4af09a227d4be084fcefb88cc728d0cded147a5cad39dd2656f59e02f2b26db8` |
+| `census-freeze/CENSUS-RESULTS.txt` | classifier raw output (conservation + per-handler) | `706c12e1dc912d81fc672e23dcccd1e4298a983d44729b94797ae8a566742d63` |
+| `census-freeze/executable-4231.canonical.txt` | frozen executable candidate list (harness-canonical) | `57f0e98d6bad290bd4d64616ae759b1cf01ff5805f198f9166213d9846b4aa06` |
+
+### CI scope (what green attests)
+
+CI (`self-test`, `supply-chain`) does **not** re-run the census. It verifies that this
+freeze record is intact and the repo has no regression (`docs-smoke.sh` pins the census
+label, the six-bucket conservation identity, the candidate-not-mineable statement, and the
+census-records digest). The bucket counts are established by the git-ignored sandbox run
+recorded above, not by CI.
+
+### Successor scope (authorized; separate entry)
+
+The census clears Entry 1's precondition (`NO-CRYPTO-REACHED-FOR-FROZEN-INPUT ≥ 1`: 2,293 ≥
+1). Per operator msg 3792 a successor step is authorized: build **one shared** SP1 guest for
+the 2,293 that keeps `blst`/`c-kzg` unswapped and is **fail-closed** at the BLS/KZG boundary
+(any crypto call → `CRYPTO-PATH-REACHED` reject), binds full task identity into the public
+values, and passes representative RED→GREEN + resource + one-proof gates before any
+2,293-wide re-execution. That build, its gates, and the resulting `2,293 = MINEABLE-ELIGIBLE
++ …` conservation land in a **later entry**; no guest build, proof, or mineable
+finalization is recorded here. UNRESOLVED 108 and BLS-REQUIRED 1,830 are preserved outside
+the successor scope.
+
+### Boundary / non-claims (Entry 2)
+
+* **NOT-YET-DETERMINED unchanged.** `2,293 NO-CRYPTO-REACHED-FOR-FROZEN-INPUT` is a candidate
+  count, not a mineable count, not an eligible count, not a zero. `mineable_now` stays 0.
+* The census is **observation-only**: no production / guest / consensus code changed;
+  `blst`/`c-kzg` not substituted; decision-transparent at 279/279.
+* **KZG-REQUIRED = 0** and **BLS-AND-KZG-REQUIRED = 0** for this client on the STF path,
+  confirmed by both map and runtime. This does not claim KZG is unreachable in general.
+* The **integrated confirmed subtotal 10,674** and `mineable_now = 0` are **unchanged**;
+  this record contributes no number and edits no other domain's count.
+* This is an **issuable-problem-count investigation, not network activation**; no
+  consensus / BF.7 / mining / reward / Base / paid-API change was made. Closed-local,
+  non-consensus evidence only — not a public-network / leaderboard / paid-API / production claim.
+* **Entry 1 and the preamble remain byte-unchanged.**

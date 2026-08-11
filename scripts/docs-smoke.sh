@@ -368,6 +368,14 @@ require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "d
 require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "mineable_now"
 require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "issuable-problem-count investigation, not network activation"
 require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "not a public-network / leaderboard / paid-API / production claim"
+# Entry 2 — STF crypto-call-path census (append-only). The frozen instrumented native
+# harness ran the 4,231 executable STF candidates exactly once and classified all 7,111
+# by observed crypto-call path into six conserving buckets. 2,293 NO-CRYPTO is a candidate
+# count, NOT mineable; domain stays NOT-YET-DETERMINED, 10,674 and mineable_now=0 unchanged.
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "STF-CRYPTO-CALL-PATH-CENSUS-COMPLETE"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "7,111 = 2,293 NO-CRYPTO-REACHED-FOR-FROZEN-INPUT + 1,830 BLS-REQUIRED + 0 KZG-REQUIRED + 0 BLS-AND-KZG-REQUIRED + 2,880 CLIENT-FORK-UNSUPPORTED + 108 UNRESOLVED"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "2,293 is a candidate count, not a mineable count"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "d752378350bc3f0aec857ec236ab734e0b834b490ddd426fcadaa4dc6fb69a84"
 
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
