@@ -303,6 +303,18 @@ require_text docs/rust-execution-proof-p1-eligibility-freeze.md "8229606a"
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "-Zrandomize-layout -Zlayout-seed=2"
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Entry 1 and the preamble above are **byte-unchanged**"
 
+# Entry 3 (append-only retraction of Entry 2's headline). Pins the reclassification of 687
+# to a diagnostic UNBOUND-PROOF-STATEMENT-COUNT, the root-cause label, the task-binding v2
+# public-values layout, and the redefined content-duplicate criterion. Entries 1 and 2 stay
+# byte-unchanged; these pins guard the correction from silently rotting.
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "task-binding-v2-retraction"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "UNBOUND-PROOF-STATEMENT-COUNT = 687"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "HARNESS-UNBOUND-TASK-IDENTITY"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "687 is NOT a MINEABLE-ELIGIBLE count"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "task_binding_digest_committed (32B) || completion_sentinel (20B)"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "TRUE-CONTENT-DUPLICATE"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Entry 1 and Entry 2 remain byte-unchanged"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
