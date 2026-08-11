@@ -389,3 +389,50 @@ stay in the git-ignored sandbox; only these fingerprints are tracked here.
   faithfully-reported property of this harness, not a defect found in the corpus.
 * No consensus / BF.7 / mining / reward / Base / paid-API change; closed-local, non-consensus
   evidence only — **not a public-network / leaderboard / paid-API / production claim**.
+
+---
+
+## Entry 3 — 2026-08-11 · task-binding-v2-retraction / Entry 2's 687 reclassified to a diagnostic
+
+### Correction in one line
+
+Entry 2's headline is **retracted**: the value **687 is NOT a MINEABLE-ELIGIBLE count** and
+is preserved only as a diagnostic, **UNBOUND-PROOF-STATEMENT-COUNT = 687**. Entry 1 and Entry
+2 are left byte-unchanged (append-only); this entry supersedes Entry 2's ceiling label. The
+real successor count is pending the task-binding v2 re-census described below.
+
+### Root cause: HARNESS-UNBOUND-TASK-IDENTITY
+
+Entry 2 correctly measured that, under the current guest harness, the number of distinct
+verifiable proof statements is 687 — but that scarcity is a **harness defect, not a corpus
+property**. The guest commits only the fixed 20-byte completion sentinel to the public values
+and takes empty input, so a task's source / revision / compiler flags / edition / target /
+pinned toolchain / task identity are **not bound** inside the verified statement. One proof is
+therefore reusable across every task that shares a verifying key. Counting distinct statements
+under an unbound harness **undercounts** the real mineable tasks; the fix is to **bind task
+identity into the proof**, not to accept 687.
+
+### Task-binding v2 (in progress; the final count lands in a later entry)
+
+* Guest public values become `task_binding_digest_committed (32B) || completion_sentinel (20B)`,
+  where the committed digest binds source bytes, revision, compiler flags, edition, target,
+  pinned toolchain, oracle/completion contract, resource-policy, and corpus task identity. The
+  guest's own ELF/vk are bound by the verifier's setup-and-verify step against the frozen
+  ledger, not baked into the committed constant, to avoid a hash⇄ELF cycle.
+* The verifier **recomputes** the expected digest from the frozen task ledger and ACCEPTs only
+  on an exact match — a submitter-asserted digest is never trusted.
+* Content-duplicate is redefined: two tasks are duplicates only when source + revision + flags
+  + edition + target + toolchain + ELF + oracle contract + task contract + task binding are all
+  identical (`TRUE-CONTENT-DUPLICATE`), never merely a shared vk.
+* The final conservation will be `2,504 = MINEABLE-ELIGIBLE + NON-EXECUTION-ORACLE (5) +
+  TRUE-CONTENT-DUPLICATE + ANSWERED-PROOF-FIXTURE + DEFERRED-HIGH-COST + TIMEOUT + ERROR +
+  UNRESOLVED`, with the real MINEABLE-ELIGIBLE reported as the successor value; if it differs
+  from 2,499 it is flagged on the first line of that entry.
+
+### Boundary / non-claims (Entry 3)
+
+* This is an **append-only correction**; Entry 1 and Entry 2 remain byte-unchanged. 687 is
+  retained solely as `UNBOUND-PROOF-STATEMENT-COUNT`, a defect-discovery diagnostic, and is
+  **not** a mineable count. `mineable_now` stays 0.
+* No consensus / BF.7 / mining / reward / paid-API change; closed-local, non-consensus evidence
+  only — not a public-network / leaderboard / paid-API / production claim.
