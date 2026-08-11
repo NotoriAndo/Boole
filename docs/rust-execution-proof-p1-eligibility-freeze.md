@@ -436,3 +436,154 @@ identity into the proof**, not to accept 687.
   **not** a mineable count. `mineable_now` stays 0.
 * No consensus / BF.7 / mining / reward / paid-API change; closed-local, non-consensus evidence
   only — not a public-network / leaderboard / paid-API / production claim.
+
+## Entry 4 — 2026-08-11 · task-binding-v2-recensus / N = 2,499 MINEABLE-ELIGIBLE tasks (successor to Entry 2's retracted 687)
+
+### Successor value in one line
+
+The task-binding v2 re-census resolves the successor promised by Entry 3:
+**RUST-EXECUTION-PROOF-P1-MINEABLE-ELIGIBLE-SUCCESSOR = 2,499 tasks** (of the 2,504-task frozen
+census; the remaining 5 are NON-EXECUTION-ORACLE). This successor **does not diverge from 2,499**,
+so no first-line divergence flag is raised (Entry 3 promised to flag a divergence only if the real
+count differed from 2,499). Entry 2's headline 687 stays retracted and is kept solely as the
+diagnostic **UNBOUND-PROOF-STATEMENT-COUNT = 687**; Entries 1-3 and the preamble are left
+byte-unchanged (append-only).
+
+### What changed vs the 687 defect
+
+Under the v1 harness every guest committed only the constant 20-byte completion sentinel with empty
+input, so distinct verifiable proof statements collapsed onto distinct verifying keys — 687 of them
+— and one proof was reusable across every task sharing a vk (Entry 2 / Entry 3). The v2 guest bakes
+a per-task `identity_digest (32B)` as a committed constant and commits
+`identity_digest (32B) || RUST-EXECUTION-PROOF (20B)` = 52 bytes on normal completion, so each task
+gets a distinct committed constant → distinct ELF → distinct vk. The re-census observed
+**2,499 distinct task_binding_digest values over the 2,499 mineable tasks (zero collapse)** — the
+687 → 2,499 de-collapse is realized on the real corpus, not asserted.
+
+### Conservation (item 9)
+
+Exactly one build+execute per task under the v2 guest, one pass, no per-task retry, 8,000,000-cycle
+ceiling:
+
+```
+2,504 = 2,499 MINEABLE-ELIGIBLE
+      +     5 NON-EXECUTION-ORACLE
+      +     0 TRUE-CONTENT-DUPLICATE
+      +     0 ANSWERED-PROOF-FIXTURE
+      +     0 DEFERRED-HIGH-COST
+      +     0 TIMEOUT
+      +     0 ERROR
+      +     0 UNRESOLVED
+```
+
+* All 2,499 mineable rows committed a 52-byte public value equal to
+  `identity_digest || RUST-EXECUTION-PROOF`, verified byte-exact against the digest recomputed from
+  the frozen task tuple (**integrity_failures = 0**). Observed guest cycle counts span 4,750 –
+  5,095,270, all within the 8,000,000 ceiling (0 DEFERRED-HIGH-COST).
+* **TRUE-CONTENT-DUPLICATE = 0**: content-duplicate now requires source + revision + flags + edition
+  + target + toolchain + ELF + oracle contract + task contract + task binding to all be identical
+  (equal `task_binding_digest`); no two of the 2,499 tasks coincide. The v1 shared-vk "duplicates"
+  are not content duplicates.
+* **ANSWERED-PROOF-FIXTURE = 0**: the representative proof was built for a corpus-**outside** move-4
+  fixture, so its `task_binding_digest` matches no corpus task and it answers zero candidates.
+* The 5 NON-EXECUTION-ORACLE tasks (unchanged from Entry 1 / Entry 2) are excluded from
+  build/execute and booked directly.
+
+### Pinned task-binding v2 identity scheme
+
+`identity_digest = SHA-256(canonical)` over nine newline-joined labelled fields
+(`v=rustexec-task-binding-v2`): source_sha256, revision, compile_flags, edition, target,
+toolchain_sha256, oracle_sha256, resource_sha256, rel. `task_binding_digest` appends `elf_sha256`
+(the built guest ELF) and is the ledger / dedup key; the ELF/vk binding is enforced by the
+verifier's setup(ELF) → vk → verify against the frozen ledger, never baked into the committed
+constant (avoids a hash⇄ELF cycle). Pinned anchors:
+
+* CORPUS_COMMIT = e7795af6d2449fb05a6393c3320ced873a999eb3
+* TARGET = riscv64im-succinct-zkvm-elf
+* TOOLCHAIN_DIGEST = 038d31ee96e45e0e6fb9b78a6a3670c3851a5197e4704f7c03c257741b2f46c0
+* ORACLE_CONTRACT_DIGEST = 82b17533145056cb19fd89c2c3d3d69b1b691685daf59329888ea2635bae7f21
+* RESOURCE_POLICY_DIGEST = 0e3fd2261daf27f542764acf78ecbeeb3b51075aec12dc2b87dff7780489b465
+
+### Representative gate (items 5-6) — verifier battery
+
+One task-binding-v2 compressed proof over the corpus-outside move-4 fixture, verified against the
+digest recomputed from the ledger (a submitter-asserted digest is never trusted):
+
+* v2 representative ELF sha256   = 8529068f51fc37bef8df5d135148218b783667fea3114fcd18e5044548dc1a9a
+* v2 representative proof sha256 = 96a7f2c851165d7bf8ac4864c382d1b0782d11ee51def9f44e4f3c2901537047
+* v2 representative vk           = 0x00916c22e8283a8801c8e75c3beb6a7511974816130d8e939973badb51389f39
+* move-4 identity_digest         = 028f1699c130b912fd43e75cf04a0084993bd3c68a252d683181ff508e175162
+* move-4 task_binding_digest     = 4ed8e2e774bb19fc2d2107168aa6c5e208936d7ce7750fc8f2582facb038e6ca (corpus-OUTSIDE)
+* v1 (pre-fix) ELF sha256        = af8c179cf544f544c80eb9a23f19be2006fe2bea931e7f965f1ed77b09f7299c
+* v1 (pre-fix) vk                = 0x0038de3b51dcfe81fa915df141a0b5c88e73b727b52f601f2561fe472b947c96
+
+The distinct v2 vk (0x00916c22…) vs v1 vk (0x0038de3b…) confirms the de-collapse on a real ELF.
+Battery outcomes:
+
+```
+T1 GREEN correct-binding            -> ACCEPT  (pv_ok=true,  verify_ok=true)
+T2 RED   cross-use-to-other-task    -> REJECT  (pv-mismatch: distinct identity_digest)
+T3 RED   old-v1-sentinel-only-proof -> REJECT  (pv_len=20, pv_ok=false)
+T4 RED   wrong-ELF/vk               -> REJECT  (sp1 vk hash mismatch)
+```
+
+Every item-5 reuse scenario (different source / revision / flags / edition / target / task identity)
+reduces to T2; only the genuine task's proof (T1) ACCEPTs.
+
+### Ledger fingerprints (closed-local artifacts)
+
+* v2-ledger.jsonl   sha256 = 9d7662622cc57e07e4d176166a5f213dca68c3a97f2b58650af882c162124af7 (2,504 rows)
+* v2-manifest.jsonl sha256 = f8f0f76f265506b8e6b5ded6cf30fe1aac6826f45716b36757e6618cc1d21924
+* v2-summary.json   sha256 = abd40f6a3bdf1a47ca77d8732410ca9089b8dfdf20414ebef5f2741493704e06
+
+### Persistent-worker equivalence gate (execution-method lineage)
+
+The census executed each task exactly once, but across two execution methods during production: an
+initial batch under the one-shot isolated executor (`rexec`, a fresh SP1 `ProverClient` per task) and
+the remainder under a persistent execute daemon (`rexecd`, one `ProverClient` reused across many
+ELFs, ~70x faster). Before sealing, the two methods were proven cryptographically equivalent on seven
+corpus-**outside** fixtures wrapped with the identical v2 census wrapper (all PASS):
+
+```
+1 isolated vs persistent  : identical exit status, cycles, 52-byte public values, task_binding digest
+                            (eqv-1..5; e.g. eqv-1 cycles=4750 both, pv=identity(32B)||SENTINEL(20B))
+2 order independence      : A->B == B->A ; in A->B->A the two A results are byte-identical
+3 error isolation         : after an intentional panic (pv_len=0, not the 52-byte success) and an
+                            intentional cycle-limit overflow (status=overlimit, cycles=8,000,000), a
+                            normal fixture executes identically to its isolated baseline — no input,
+                            output, or memory state from a prior task leaks into the next
+```
+
+SP1 `execute(ELF, empty_stdin)` is a pure function of the ELF, so the persistent daemon cannot differ
+from isolated execution; the battery confirms this empirically. **Census-scale confirmation:** a full
+pure-persistent re-execution of all 2,504 tasks (fresh output, no resume from the sealed rows)
+reproduces the sealed `v2-ledger.jsonl` **byte-for-byte** (identical sha256
+9d7662622cc57e07e4d176166a5f213dca68c3a97f2b58650af882c162124af7), so every sealed row equals its
+persistent-method value regardless of which method originally produced it. No re-seal is performed —
+the sealed ledger stays authoritative; this is confirmatory evidence per the equivalence gate.
+
+Execution lineage / runner digests (closed-local):
+
+* isolated executor  `rexec`   binary sha256 = 56bed1635849c2195ef189f0ba2c5df3313ead5e0c5dc7cdc3b29cad155cdc99
+* persistent daemon  `rexecd`  binary sha256 = 2c9e6221bb7e6e61340745ef201dc3b09cb9570896ab624e730a65b58dbff2da
+* `rexec` source sha256   = da6af6e161ae7698fa08f1a2411844e4dd4085fcf8f156bd64105e2a896273b4
+* `rexecd` source sha256  = daed2034df6ccb7352af13f53896361d507a14d56ffc8a7e5256a5b0148fe302
+* census runner sha256    = dcabe511d2f9952a8af2d6afe76c91bff04354b41b5124fea0306fa711e2f543
+* census launcher sha256  = 069d1941908ccd88c73084c03d10552780dbb68ff09a1dbe506736b80073fa0f
+* v2common.py sha256      = 279757d6df10fd723dcb4c3517b2812c4de31863613bb50594424792b174eff9
+* equivalence report `eqv-report.json`     sha256 = b3060c0ac92510618486b6ace38dc7096d4368e4c3720e8f4909254b3104fe7b (PASS, 7 fixtures)
+* equivalence fixtures `eqv-fixtures.json` sha256 = 8939d98da2eacaa821a846113345e25ec664908cc8c9ae1a56557e045ba6cd38
+* execution lineage `v2-execution-lineage.json` sha256 = 12f40f111fb8c9e54f9dc1f15ac4b875e27f4716a95b37d6b8469b456e63beb0
+
+Because the sealed ledger is byte-reproducible by the persistent method alone and the isolated method
+is proven equivalent, the sealed count and every per-row value are method-independent: **each task
+executed exactly once, under two cryptographically-equivalent execution methods.**
+
+### Boundary / non-claims (Entry 4)
+
+* **Append-only**: Entries 1-3 and the preamble remain byte-unchanged. This entry supplies the
+  successor MINEABLE-ELIGIBLE = 2,499 promised by Entry 3; 687 stays retracted as
+  UNBOUND-PROOF-STATEMENT-COUNT, a defect diagnostic, not a mineable count.
+* This is an **issuable problem count, not network activation**; `mineable_now` stays 0.
+* No consensus / BF.7 / mining / reward / paid-API change; closed-local, non-consensus evidence only
+  — not a public-network / leaderboard / paid-API / production claim.
