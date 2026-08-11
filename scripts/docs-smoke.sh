@@ -281,6 +281,28 @@ require_text docs/rust-execution-proof-p1-eligibility-freeze.md "mineable_now"
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "issuable problem count, not network activation"
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "not a public-network / leaderboard / paid-API / production claim"
 
+# Entry 2 (append-only successor: proof-statement dedup). Pins the successor headline,
+# the statement digest definition, the proof-reuse binding gap, the 8-bucket task
+# conservation, the canonical constants, and the per-task binding-manifest fingerprints
+# so the re-audited count and its evidence cannot silently drift. Entry 1 pins above are
+# untouched — both units stay recorded side by side.
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "proof-statement-dedup-v1 / N = 687 distinct verifiable proof statements"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "RUST-EXECUTION-PROOF-P1-MINEABLE-ELIGIBLE = 687 distinct verifiable proof statements"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "proof_statement_digest = SHA-256( vk"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "is a **bijection with vk**"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Proof reuse across same-vk tasks is therefore **possible**"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "687  MINEABLE-ELIGIBLE"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "1,690  DUPLICATE-PROOF-STATEMENT"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "122  ANSWERED-PROOF-FIXTURE"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "5  NON-EXECUTION-ORACLE"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "e3b0c442"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "48b1336c"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "79febbe6"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "c1785e0f"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "8229606a"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "-Zrandomize-layout -Zlayout-seed=2"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Entry 1 and the preamble above are **byte-unchanged**"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
