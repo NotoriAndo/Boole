@@ -536,6 +536,49 @@ reduces to T2; only the genuine task's proof (T1) ACCEPTs.
 * v2-manifest.jsonl sha256 = f8f0f76f265506b8e6b5ded6cf30fe1aac6826f45716b36757e6618cc1d21924
 * v2-summary.json   sha256 = abd40f6a3bdf1a47ca77d8732410ca9089b8dfdf20414ebef5f2741493704e06
 
+### Persistent-worker equivalence gate (execution-method lineage)
+
+The census executed each task exactly once, but across two execution methods during production: an
+initial batch under the one-shot isolated executor (`rexec`, a fresh SP1 `ProverClient` per task) and
+the remainder under a persistent execute daemon (`rexecd`, one `ProverClient` reused across many
+ELFs, ~70x faster). Before sealing, the two methods were proven cryptographically equivalent on seven
+corpus-**outside** fixtures wrapped with the identical v2 census wrapper (all PASS):
+
+```
+1 isolated vs persistent  : identical exit status, cycles, 52-byte public values, task_binding digest
+                            (eqv-1..5; e.g. eqv-1 cycles=4750 both, pv=identity(32B)||SENTINEL(20B))
+2 order independence      : A->B == B->A ; in A->B->A the two A results are byte-identical
+3 error isolation         : after an intentional panic (pv_len=0, not the 52-byte success) and an
+                            intentional cycle-limit overflow (status=overlimit, cycles=8,000,000), a
+                            normal fixture executes identically to its isolated baseline — no input,
+                            output, or memory state from a prior task leaks into the next
+```
+
+SP1 `execute(ELF, empty_stdin)` is a pure function of the ELF, so the persistent daemon cannot differ
+from isolated execution; the battery confirms this empirically. **Census-scale confirmation:** a full
+pure-persistent re-execution of all 2,504 tasks (fresh output, no resume from the sealed rows)
+reproduces the sealed `v2-ledger.jsonl` **byte-for-byte** (identical sha256
+9d7662622cc57e07e4d176166a5f213dca68c3a97f2b58650af882c162124af7), so every sealed row equals its
+persistent-method value regardless of which method originally produced it. No re-seal is performed —
+the sealed ledger stays authoritative; this is confirmatory evidence per the equivalence gate.
+
+Execution lineage / runner digests (closed-local):
+
+* isolated executor  `rexec`   binary sha256 = 56bed1635849c2195ef189f0ba2c5df3313ead5e0c5dc7cdc3b29cad155cdc99
+* persistent daemon  `rexecd`  binary sha256 = 2c9e6221bb7e6e61340745ef201dc3b09cb9570896ab624e730a65b58dbff2da
+* `rexec` source sha256   = da6af6e161ae7698fa08f1a2411844e4dd4085fcf8f156bd64105e2a896273b4
+* `rexecd` source sha256  = daed2034df6ccb7352af13f53896361d507a14d56ffc8a7e5256a5b0148fe302
+* census runner sha256    = dcabe511d2f9952a8af2d6afe76c91bff04354b41b5124fea0306fa711e2f543
+* census launcher sha256  = 069d1941908ccd88c73084c03d10552780dbb68ff09a1dbe506736b80073fa0f
+* v2common.py sha256      = 279757d6df10fd723dcb4c3517b2812c4de31863613bb50594424792b174eff9
+* equivalence report `eqv-report.json`     sha256 = b3060c0ac92510618486b6ace38dc7096d4368e4c3720e8f4909254b3104fe7b (PASS, 7 fixtures)
+* equivalence fixtures `eqv-fixtures.json` sha256 = 8939d98da2eacaa821a846113345e25ec664908cc8c9ae1a56557e045ba6cd38
+* execution lineage `v2-execution-lineage.json` sha256 = 12f40f111fb8c9e54f9dc1f15ac4b875e27f4716a95b37d6b8469b456e63beb0
+
+Because the sealed ledger is byte-reproducible by the persistent method alone and the isolated method
+is proven equivalent, the sealed count and every per-row value are method-independent: **each task
+executed exactly once, under two cryptographically-equivalent execution methods.**
+
 ### Boundary / non-claims (Entry 4)
 
 * **Append-only**: Entries 1-3 and the preamble remain byte-unchanged. This entry supplies the

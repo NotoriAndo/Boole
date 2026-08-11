@@ -336,6 +336,13 @@ require_text docs/rust-execution-proof-p1-eligibility-freeze.md "4ed8e2e774bb19f
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "9d7662622cc57e07e4d176166a5f213dca68c3a97f2b58650af882c162124af7"
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "cross-use-to-other-task"
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Entries 1-3 and the preamble remain byte-unchanged"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Persistent-worker equivalence gate (execution-method lineage)"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "pure-persistent re-execution of all 2,504 tasks"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "two cryptographically-equivalent execution methods"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "56bed1635849c2195ef189f0ba2c5df3313ead5e0c5dc7cdc3b29cad155cdc99"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "2c9e6221bb7e6e61340745ef201dc3b09cb9570896ab624e730a65b58dbff2da"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "b3060c0ac92510618486b6ace38dc7096d4368e4c3720e8f4909254b3104fe7b"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "12f40f111fb8c9e54f9dc1f15ac4b875e27f4716a95b37d6b8469b456e63beb0"
 
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
