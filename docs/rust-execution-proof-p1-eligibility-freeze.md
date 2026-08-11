@@ -587,3 +587,22 @@ executed exactly once, under two cryptographically-equivalent execution methods.
 * This is an **issuable problem count, not network activation**; `mineable_now` stays 0.
 * No consensus / BF.7 / mining / reward / paid-API change; closed-local, non-consensus evidence only
   — not a public-network / leaderboard / paid-API / production claim.
+
+## Entry 5 — 2026-08-11 · execution-method framing correction (append-only, count unchanged)
+
+Entry 4's equivalence subsection summarised the sealed census as "each task executed exactly once,
+under two cryptographically-equivalent execution methods." Across the whole process that phrasing is
+imprecise: after the initial mixed-method run, a **separate** full re-execution was performed, so some
+tasks were executed more than once over the course of the work. The accurate framing:
+
+**Separately from the initial mixed-method execution, a frozen persistent worker performed an
+authoritative execution running each of the 2,504 tasks exactly once, and the two resulting ledgers
+were byte-for-byte identical (sha256 9d7662622cc57e07e4d176166a5f213dca68c3a97f2b58650af882c162124af7).**
+
+The frozen persistent worker's single-pass run is the authoritative execution; the initial mixed run
+(some rows via isolated `rexec`, the rest via persistent `rexecd`) is the earlier, superseded pass,
+retained only as history. Byte-identical ledgers make the choice immaterial to every value.
+
+This corrects the wording only — the count is unchanged: **RUST-EXECUTION-PROOF-P1-MINEABLE-ELIGIBLE
+= 2,499** stands and the equivalence verdict (PASS) is unchanged. Entries 1-4 and the preamble remain
+byte-unchanged (append-only).

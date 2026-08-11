@@ -343,6 +343,9 @@ require_text docs/rust-execution-proof-p1-eligibility-freeze.md "56bed1635849c21
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "2c9e6221bb7e6e61340745ef201dc3b09cb9570896ab624e730a65b58dbff2da"
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "b3060c0ac92510618486b6ace38dc7096d4368e4c3720e8f4909254b3104fe7b"
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "12f40f111fb8c9e54f9dc1f15ac4b875e27f4716a95b37d6b8469b456e63beb0"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "execution-method framing correction"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "authoritative execution running each of the 2,504 tasks exactly once"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Entries 1-4 and the preamble remain"
 
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
