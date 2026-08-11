@@ -315,6 +315,28 @@ require_text docs/rust-execution-proof-p1-eligibility-freeze.md "task_binding_di
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "TRUE-CONTENT-DUPLICATE"
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Entry 1 and Entry 2 remain byte-unchanged"
 
+# Entry 4 (append-only successor to Entry 2's retracted 687). Pins the task-binding v2
+# re-census successor value 2,499, the 8-bucket conservation, the pinned identity scheme
+# and anchors, the representative verifier battery, and the ledger fingerprints. Entries
+# 1-3 and the preamble stay byte-unchanged; these pins guard the successor from rotting.
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "task-binding-v2-recensus"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "RUST-EXECUTION-PROOF-P1-MINEABLE-ELIGIBLE-SUCCESSOR = 2,499 tasks"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "does not diverge from 2,499"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "2,504 = 2,499 MINEABLE-ELIGIBLE"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "TRUE-CONTENT-DUPLICATE = 0"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "ANSWERED-PROOF-FIXTURE = 0"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "integrity_failures = 0"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "v=rustexec-task-binding-v2"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "038d31ee96e45e0e6fb9b78a6a3670c3851a5197e4704f7c03c257741b2f46c0"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "82b17533145056cb19fd89c2c3d3d69b1b691685daf59329888ea2635bae7f21"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "0e3fd2261daf27f542764acf78ecbeeb3b51075aec12dc2b87dff7780489b465"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "8529068f51fc37bef8df5d135148218b783667fea3114fcd18e5044548dc1a9a"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "0x00916c22e8283a8801c8e75c3beb6a7511974816130d8e939973badb51389f39"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "4ed8e2e774bb19fc2d2107168aa6c5e208936d7ce7750fc8f2582facb038e6ca"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "9d7662622cc57e07e4d176166a5f213dca68c3a97f2b58650af882c162124af7"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "cross-use-to-other-task"
+require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Entries 1-3 and the preamble remain byte-unchanged"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
