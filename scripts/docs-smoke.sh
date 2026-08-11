@@ -347,6 +347,28 @@ require_text docs/rust-execution-proof-p1-eligibility-freeze.md "execution-metho
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "authoritative execution running each of the 2,504 tasks exactly once"
 require_text docs/rust-execution-proof-p1-eligibility-freeze.md "Entries 1-4 and the preamble remain"
 
+# Ethereum-consensus execution-proof P1 — STF-guest gate closure freeze (append-only
+# attestation). Records the SP1 riscv64 guest build closure for ONE exact combination
+# (ethereum-consensus@5031d31e + upstream blst/c-kzg + no-patch + SP1 riscv64 guest):
+# corpus materialized (7,111 STF candidates), native gate 279/279, guest build rc=101
+# with no official SP1 drop-in for blst 0.3.17 or c-kzg 2.1.8. The domain is recorded as
+# NOT-YET-DETERMINED (never 0); the integrated confirmed subtotal 10,674 and
+# mineable_now=0 are unchanged; the 7,111 candidates stay a candidate inventory.
+require_file docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "ETHEREUM-CONSENSUS-EXECUTION-PROOF-P1-MINEABLE-ELIGIBLE = NOT-YET-DETERMINED"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "CORPUS-MATERIALIZED"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "STF-NATIVE-GATE-VALIDATED-279-OF-279"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "STF-GUEST-INCOMPATIBLE-NO-OFFICIAL-PATCH"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "ethereum-consensus@5031d31e + upstream blst/c-kzg + no-patch + SP1 riscv64 guest"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "5031d31e318dd861cf3373702c5d92f085d926e4"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "de67682195ca04869a61eeb1a57320153fe891ff3092e2ff0b946a66dbbb99fb"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "54,452 = 7,111 STF-CANDIDATE + 47,341 NON-STF-NO-RUNNABLE-TASK"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "integrated confirmed subtotal    10,674"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "does **not** state \"the STF axis is closed\""
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "mineable_now"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "issuable-problem-count investigation, not network activation"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "not a public-network / leaderboard / paid-API / production claim"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"
