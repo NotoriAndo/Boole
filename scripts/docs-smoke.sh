@@ -376,6 +376,15 @@ require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "S
 require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "7,111 = 2,293 NO-CRYPTO-REACHED-FOR-FROZEN-INPUT + 1,830 BLS-REQUIRED + 0 KZG-REQUIRED + 0 BLS-AND-KZG-REQUIRED + 2,880 CLIENT-FORK-UNSUPPORTED + 108 UNRESOLVED"
 require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "2,293 is a candidate count, not a mineable count"
 require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "d752378350bc3f0aec857ec236ab734e0b834b490ddd426fcadaa4dc6fb69a84"
+# Entry 3 — successor one-proof gate PASS (append-only). One SP1 compressed proof of the
+# frozen crypto-fail-closed v2 guest on the out-of-corpus calibration fixture was produced
+# exactly once (0 retries) within the wall/RSS/size envelope; real vk ACCEPT, cross-task and
+# tampered REJECT. Establishes proof-issuance feasibility + resource cost only — NOT a 2,293
+# result, NOT mineable. Domain stays NOT-YET-DETERMINED, 10,674 and mineable_now=0 unchanged.
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "STF-SUCCESSOR-ONE-PROOF-GATE-PASS"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "proof-issuance feasibility"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "run2-lowmem-serial-d026acb446de"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "50616853d5055eebed2ccadfb843d3429150f04f3f133f0af2585efa645b6b36"
 
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"

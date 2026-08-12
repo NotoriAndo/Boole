@@ -447,3 +447,155 @@ the successor scope.
   consensus / BF.7 / mining / reward / Base / paid-API change was made. Closed-local,
   non-consensus evidence only — not a public-network / leaderboard / paid-API / production claim.
 * **Entry 1 and the preamble remain byte-unchanged.**
+
+---
+
+## Entry 3 — 2026-08-12 · stf-successor-one-proof-gate / proof-issuance feasibility PASS (N still NOT-YET-DETERMINED)
+
+### Result in one line
+
+The successor **one-proof gate** promised in Entry 2 (the resource + single-proof
+precondition that must hold before any 2,293-wide execution) **passed**. One SP1
+**compressed** proof of the frozen crypto-fail-closed v2 guest, on the pre-registered
+out-of-corpus **calibration** fixture (byte-identical to the F-OP `block_header` case but
+a **separate task identity**), was produced **exactly once (0 retries)** inside the
+authorized envelope, and it (a) passes **real SP1 vk verification** bound to its frozen
+descriptor (**ACCEPT**), (b) is **rejected** against a cross-task descriptor
+(**REJECT**), and (c) is **rejected** after a 1-byte public-values tamper (**REJECT**):
+`STF-SUCCESSOR-ONE-PROOF-GATE-PASS`. This establishes **proof-issuance feasibility** and
+its measured resource cost; it is **not** a guest-wide build, **not** a 2,293 result, and
+**not** a mineable count. The domain stays **NOT-YET-DETERMINED**, `mineable_now = 0`, and
+the integrated confirmed subtotal **10,674** is **unchanged**.
+
+### Measurement freeze (SHA-256 pinned before the proof was run)
+
+The single authorized attempt was pre-registered and hash-frozen before firing
+(`run2-PREREG-FREEZE.json`); an earlier attempt on the same frozen ELF/input (run-1) is
+preserved as **consumed** (`run1_*`) and produced no proof (see run-1 note). The proof ran
+offline (`CARGO_NET_OFFLINE=true`; compressed STARK needs no trusted-setup download).
+
+| field | value |
+| --- | --- |
+| client checkout | `5031d31e318dd861cf3373702c5d92f085d926e4` (unchanged from Entry 1) |
+| run id (frozen) | `run2-lowmem-serial-d026acb446de` |
+| pre-registration freeze hash | `c79814f730e40c3a081df161a50c04fe8a4270381d57f7d7da3d9d14cdf3b880` |
+| guest ELF sha256 | `9eb562bb230015230c2a24377f1ff9df32d2fedd0a9eab959ad5de8dd9e71351` |
+| guest vk (bytes32) | `0x007ea5f61663a58247895f2ddf9044fd7edbb4eaf9a75a6b7979b67cd6014507` |
+| calibration input sha256 | `e3311e587f5a164e2850f0c9dadd8a333787976cc00ae00ed59b74c825a1270e` |
+| SP1 low-mem serial env sha256 | `c1670c2517a752b874b8996746b539f7b6d41c619ee48c5d60db9bd6ef596a66` |
+| SP1 SDK | `6.3.1`, CPU prover, **compressed** mode |
+| execution order | exactly one `prove`, **0 retries**, 1-second raw memory sampling |
+
+**Pre-result gates (all PASS, recorded before the verdict):**
+
+* **vk guard** — the guest vk re-derived at prove time equals the frozen vk
+  `0x007ea5f6…`; proving was attempted on the correct guest (`setup_frozen_vk` bails
+  otherwise).
+* **Envelope** — hard caps wall ≤ 4 h, RSS ≤ 48 GiB, proof size ≤ 4 MiB, retries = 0; a
+  watchdog sampled the prover process tree every 1 s.
+* **Config under test (operator directive 3822)** — SP1 low-memory **serial** config:
+  every `SP1_WORKER_NUM_*=1` and every `SP1_WORKER_*_BUFFER_SIZE=1` (≥1 required),
+  `RAYON_NUM_THREADS=4`, arities 4, `VERIFY_INTERMEDIATES=true`, `SHARD_SIZE=4194304`,
+  `MINIMAL_TRACE_CHUNK_THRESHOLD=8388608`. `TRACE_CHUNK_SLOTS=2` is a **NO-OP on this
+  macOS / portable executor** (effective only on x86_64-linux native); this run therefore
+  measures the **worker/buffer serialization + Rayon=4 effect only**.
+
+### One-proof gate result (produced exactly once; NOT re-proved)
+
+| field | value |
+| --- | --- |
+| status | **PROOF-GREEN** (`prove_rc=0`, `retries=0`, `kill_reason=none`) |
+| elapsed | **4,692 s ≈ 1 h 18 m** (cap 14,400 s — held) |
+| peak process-tree RSS | **35.46 GiB** (cap 48 GiB — held) |
+| peak swap used | **9,732 MiB ≈ 9.5 GiB** (baseline at t=0; declined during the run — no added saturation) |
+| compressed proof size | **1,272,793 B = 1.214 MiB** (cap 4 MiB — held) |
+
+Cryptographic task-binding gate (re-runnable checks; NOT re-proving):
+
+| check | descriptor | result | want |
+| --- | --- | --- | --- |
+| calibration | `…calibration_proofcost::fop_same_bytes_v2_oneshot` (tc(v2) `af0fcc73…`) | **ACCEPT** | ACCEPT |
+| cross-task | real F-OP `…pyspec_tests::basic_block_header` (tc(v2) `dcaa13eb…`) | **REJECT** | REJECT |
+| tampered | pv[0] `0xe6→0xe7`, verify vs calibration | **REJECT** (`Invalid public values`) | REJECT |
+
+Public values bound in the ACCEPT proof: version_tag `e684abb4…`, task_contract(v2)
+`af0fcc73…`, result_digest (post_state_root) `18df6cd7…`, outcome `0x01`,
+crypto_call_free `0x01`. The proof verifies **only** under its frozen task identity — a
+different task or a mutated byte fails real vk verification.
+
+### run-1 note (preserved as consumed; cause NOT re-attributed)
+
+An earlier attempt on the same frozen ELF/input under a non-serial config received an
+**external SIGKILL (rc=137) at ~91 s** with no proof artifact; it is labelled
+`EXTERNAL-SIGKILL / KILL-CAUSE-UNATTRIBUTED` (memory pressure is the leading hypothesis,
+but no kernel kill line / Jetsam report confirmed the direct cause). run-2 reached a
+**higher** RSS peak (35.46 vs 22.58 GiB) yet **completed** with swap at baseline; the
+serial config appears to have lowered peak memory bursts. This is an **observation** —
+run-1's direct kill cause is **not** retroactively re-attributed.
+
+### Cross-domain running subtotal (this record's problem-count impact = 0)
+
+The **integrated confirmed subtotal 10,674 is unchanged** (byte-identical to Entry 1):
+
+```
+EVM P0                            6,767   (docs/evm-census-p0-eligibility-freeze.md)
+Solidity-semantic P1              1,408   (docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md, successor)
+Rust execution-proof P1           2,499   (docs/rust-execution-proof-p1-eligibility-freeze.md, successor)
+Solidity P0                           0   (docs/solidity-census-p0-eligibility-freeze.md)
+zk-native release-audit P0            0   (docs/zk-native-release-audit-census-p0-eligibility-freeze.md)
+---------------------------------------
+integrated confirmed subtotal    10,674
+Ethereum-consensus P1        NOT-YET-DETERMINED   (this record; contributes no number)
+Lean                    CORPUS-NOT-MATERIALIZED   (contributes no number)
+```
+
+`mineable_now = 0` unchanged. This record modifies **no** other domain's number.
+
+### Lineage (git-ignored sandbox; hash-pinned here)
+
+| artifact | role | sha256 |
+| --- | --- | --- |
+| `successor-harness/run2-PREREG-FREEZE.json` | pre-registration + hash freeze (frozen before firing) | `ff2a3d949158062caf9bb0f5ee1f589992d78fa05b993ceac39e7fd2d34d3835` |
+| `successor-harness/run2_proof_oneshot_result.json` | machine result record (status, caps, verify outcomes) | `365a3a1a0c507756841feac689a9a5ab5ec029c0a738f5b80b19a9393baf848b` |
+| `successor-harness/run2_proof_oneshot.log` | full one-shot prove + verify transcript | `48e66a479c8dbfaf429823f69fddff7edff09e3150d26823c40722a2bd608b2a` |
+| `successor-harness/run2_mem_samples.csv` | 1-second raw memory samples (4,513 rows) | `74892f24ef63eab3c6b2164ff18bada8314f0f998f8405d4492e84cbf51ce8de` |
+| `successor-harness/run2_calib_proof_compressed.bin` | the compressed proof (1.214 MiB) | `50616853d5055eebed2ccadfb843d3429150f04f3f133f0af2585efa645b6b36` |
+| `successor-harness/PROOF-ONESHOT-GREEN.md` | run-2 PROOF-GREEN attestation (sandbox) | `6f95537edf8f3d6cec9cfcb1fb50101fd485f61031f89be173bb434e09903b6b` |
+
+### CI scope (what green attests)
+
+CI (`self-test`, `supply-chain`) does **not** re-run the proof. It verifies that this
+freeze record is intact and the repo has no regression (`docs-smoke.sh` pins the
+one-proof-gate label, the frozen run id, the compressed-proof digest, and the unchanged
+integrated subtotal). The PROOF-GREEN verdict and the resource cost are established by the
+git-ignored sandbox run recorded above, not by CI.
+
+### Successor scope (authorized; separate entry)
+
+With proof-issuance feasibility established, the successor step (operator directive 3828)
+is: build **one shared** crypto-fail-closed SP1 guest covering **all 5 STF runners and 30
+handlers** for the 2,293 NO-CRYPTO candidates — **no per-problem guest, vk, or exception
+patch** — pass a representative **6-positive / 2-crypto-negative RED→GREEN** gate, then
+freeze ELF/vk/ledger/config and run the 2,293 **EXECUTE** exactly once. The resulting
+`2,293 = MINEABLE-ELIGIBLE + …` conservation and the finalized `MINEABLE-ELIGIBLE = N`
+(recorded only if it conserves) land in a **later entry**; no 2,293-wide result or mineable
+finalization is recorded here. BLS-REQUIRED 1,830, UNRESOLVED 108, and
+CLIENT-FORK-UNSUPPORTED 2,880 stay outside the successor scope.
+
+### Boundary / non-claims (Entry 3)
+
+* **NOT-YET-DETERMINED unchanged.** run-2 is a **single calibration proof** on the
+  F-OP-same-bytes out-of-corpus fixture (separate identity), establishing feasibility +
+  cost + task-binding soundness — **not** a 2,293 result, **not** a mineable count, **not**
+  an eligible count, **not** a zero. `mineable_now` stays 0.
+* The proof is **task-bound**: it accepts only its frozen descriptor and rejects cross-task
+  and tampered proofs under real SP1 vk verification. `blst`/`c-kzg` remain unswapped; the
+  guest is crypto-fail-closed (this proof is on a NO-CRYPTO path).
+* Produced **exactly once** (0 retries) within the wall/RSS/size envelope; no same-host
+  re-tune. run-1 preserved as consumed; its kill cause is not re-attributed.
+* The **integrated confirmed subtotal 10,674** and `mineable_now = 0` are **unchanged**;
+  this record contributes no number and edits no other domain's count.
+* This is an **issuable-problem-count investigation, not network activation**; no
+  consensus / BF.7 / mining / reward / Base / paid-API change was made. Closed-local,
+  non-consensus evidence only — not a public-network / leaderboard / paid-API / production claim.
+* **Entry 1, Entry 2, and the preamble remain byte-unchanged.**
