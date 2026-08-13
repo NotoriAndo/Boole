@@ -599,3 +599,195 @@ CLIENT-FORK-UNSUPPORTED 2,880 stay outside the successor scope.
   consensus / BF.7 / mining / reward / Base / paid-API change was made. Closed-local,
   non-consensus evidence only — not a public-network / leaderboard / paid-API / production claim.
 * **Entry 1, Entry 2, and the preamble remain byte-unchanged.**
+
+---
+
+## Entry 4 — 2026-08-13 · stf-successor 2,293 EXECUTE census conservation PASS (cycle-band candidates only; NO mineable determination)
+
+### Result in one line
+
+The full **2,293-row EXECUTE census** of the frozen shared successor guest (the run
+authorized in Entry 3's successor scope) completed with a conservation-verified exact
+partition: `STF-SUCCESSOR-2293-EXECUTE-CENSUS-CONSERVATION-PASS` —
+**2,293 = 2,292 MONOLITHIC-EXECUTE-ELIGIBLE + 1 CHUNKING-CANDIDATE** (every executed row
+ACCEPT `0x01` with `crypto_call_free = 0x01`; 0 failures, 0 decode errors, 0 crypto-path
+rows, 0 duplicates, 0 missing). Applying the common resource policy (adopted **after**
+measurement, on criteria **independent** of the census distribution) splits the executed
+set by cycle cost only:
+**2,293 = 2,206 MONOLITHIC-CYCLE-BAND-CANDIDATE + 86 CHUNKING-REQUIRED + 1 CHUNKING-CANDIDATE**.
+Per operator instruction (2026-08-13, msg 3851) the 2,206 are recorded **only** as
+cycle-band candidates: **NO mineable determination** is made here — the finalized
+`MINEABLE-ELIGIBLE = N` anticipated by Entry 3's successor scope does **not** land in this
+entry and is blocked until the proving-band verification and the chunked-execution family
+complete. The domain stays **NOT-YET-DETERMINED**, `mineable_now = 0`, and the integrated
+confirmed subtotal **10,674** is **unchanged**.
+
+### Frozen census identity (identical for every authoritative row)
+
+| field | value |
+| --- | --- |
+| client checkout | `5031d31e318dd861cf3373702c5d92f085d926e4` (unchanged from Entry 1) |
+| shared guest ELF sha256 | `fea14d20387282beae9a979c3f090bc77205120ec75c8a703a705a177c6f7dc8` |
+| guest vk (bytes32) | `0x0003a9adb0cf23bdc62009d9ab633d651c91fb59d976a0b4467efef8c912dc59` |
+| manifest (2,293 rows) sha256 | `3a361b7961c4d07b6ae920b5be9876a10f88b43801d2849d3681059f1affcae0` |
+| mode | SP1 6.3.1 **EXECUTE** (no proofs produced or consumed by the census) |
+| retired pre-refix pair | ELF `a862aeee…` / vk `0x002606c0…` (general sanity-parser fix, no per-fixture patch; gate RED 8/10 → GREEN 10/10 re-freeze; sandbox `REP-GATE-GREEN-FREEZE.md`) |
+
+One shared crypto-fail-closed guest covers all rows — **no per-problem guest, vk,
+exception patch, or per-nodeid retry**. Every row's `task_contract(v2)` was independently
+recomputed host-side from the raw input bytes and matched against the guest's committed
+public values.
+
+### Execution provenance (three passes + one operator-ordered abort; no `--resume` anywhere)
+
+| pass | rows | disposition |
+| --- | --- | --- |
+| pass 1 (10-worker, retired ELF `a862aeee…`) | 451 | **STALE — discarded** (superseded by the guest re-freeze) |
+| pass 2 (10-worker, ELF `fea14d20…`) | 997 | **ABORTED-HOST-WATCHDOG-PANIC — discarded** (memory-pressure Jetsam → kernel watchdog panic, host reboot); kept only as a cross-check corpus |
+| run3b (hardened sequential runner, concurrency = 1) | **1,126** | **PARTIAL-FROZEN-AUTHORITATIVE** (indexes 0–1,125; outcome tally `{0x01: 1,126}`; rows aggregate `4cb7d24f…`) |
+| aborted case (i = 1126) | 1 | **ABORTED-FOR-CHUNKING / CHUNKING-CANDIDATE** (operator order; see below) |
+| run3c (same runner/ELF/vk/manifest, new run id, index range [1127, 2293)) | **1,166** | **SUBSET-COMPLETE** (outcome tally `{0x01: 1,166}`; rows aggregate `66891537…`) |
+
+* **Sealed row aggregates** — run3b
+  `4cb7d24fbe38ef5f84ec7f3105b688c2cff306a0e7e3bd1efe3d11f13c62726f`; run3c
+  `66891537835b845ea16a1d0a4e02841e60a72fb811cfe112dfe37b4edd0909f8` (each re-verified
+  row-by-row and re-matched against its sealed marker during synthesis, before the final
+  census-wide marker was written).
+* **Cross-check** — the 997 discarded pass-2 rows overlap run3b on all 997 indexes and are
+  **byte-identical 997/997 (0 mismatches)** across
+  `nodeid / outcome / crypto_free / result_digest / task_contract / cycles / gas`; the
+  panic run corroborates, but does not constitute, the authoritative results.
+* **Aborted case** — `mainnet::phase0::sanity::slots::pyspec_tests::historical_accumulator`
+  (i = 1126): an **8,192-slot** (`SLOTS_PER_HISTORICAL_ROOT`) monolithic EXECUTE, estimated
+  **~8.8e12 cycles ≈ 128×** the largest completed row (69.9e9). Terminated by operator
+  order (msg 3843) via graceful SIGTERM after ~7 h 10 m CPU-active execution; **0 surviving
+  guest processes, no retry**. Classified **NOT a failure, NOT mineable**; in-flight raw
+  inputs hash-preserved (`451e22f5…`, `60fc4b1d…`); expected `task_contract(v2)`
+  `8bde9145dd25d4ad9d7a8327aee7871360f0088a86fd8fb4bde92b13b6f83e43`.
+
+### Hardened runner + separated completion markers
+
+* Per-row durability `tmp → fsync → atomic rename → dir fsync`; frozen ELF/vk/manifest
+  sha re-checked at startup and per row; free-memory guard between rows; **0 retries,
+  0 per-problem patches**. Runner selftest **18/18**, synthesis selftest **8/8**
+  (RED→GREEN before each run).
+* run3c's `SUBSET-COMPLETE.json` attests **only** "1,166 continuation rows done" (operator
+  correction, msg 3846). The census-wide marker `census-final-20260813/COMPLETE.json` was
+  generated **separately and only after**: both row dirs re-verified row-by-row → sealed
+  aggregates re-matched → the exact partition `1,126 + 1 + 1,166 = 2,293` held with
+  0 duplicates / 0 missing → the conservation equation passed.
+
+### Conservation result + measured cycle distribution
+
+**`2,293 = 2,292 MONOLITHIC-EXECUTE-ELIGIBLE + 1 CHUNKING-CANDIDATE`** — all 2,292
+executed rows returned ACCEPT with `crypto_call_free`; 0 `EXECUTE_MISMATCH`,
+0 `CRYPTO_PATH_REACHED`, 0 `DECODE_ERROR`, 0 `UNSUPPORTED`.
+
+| stat (RISC-V cycles, n = 2,292) | value |
+| --- | --- |
+| min / p50 / p90 | 1,483,221 / 174,008,769 / 446,657,506 |
+| p99 / max | 20,204,807,813 / 69,876,598,068 |
+| total | 1,758,447,705,894 (≈ 1.76e12) |
+
+### Common resource policy → cycle-band split (NO mineable determination)
+
+* **Adoption** — `EC-STF-P1-RESOURCE-POLICY-v1` was adopted **after** the Entry 3 run-2
+  measurement, on criteria **independent of the 2,293 census distribution** (anchor: the
+  430,618,868-cycle calibration proof at 4,692 s inside the authorized 14,400 s / 48 GiB
+  envelope) — **not a pre-freeze** (operator correction, msg 3846). Policy sha256
+  `41a79e249d8e70f9a832f1346ac7e4c9a2875b8ec4047f12869a78bfd3511f7c` (supersedes the
+  wording-only `a5ffc5b2…`; threshold and rule byte-identical).
+* **Threshold** — `T = floor(430,618,868 × 14,400/4,692 × 0.75) = 991,194,325 cycles`,
+  applied **uniformly — no per-nodeid exceptions**.
+* **Split** —
+  **`2,293 = 2,206 MONOLITHIC-CYCLE-BAND-CANDIDATE + 86 CHUNKING-REQUIRED + 1 CHUNKING-CANDIDATE`**.
+  Naming note: the sandbox artifact `PROVISIONAL-CLASSIFICATION.json` labels the 2,206-row
+  set `MINEABLE-ELIGIBLE` with an explicit provisional / finalization-blocked marker; per
+  operator instruction (msg 3851) this ledger records that set **only** as
+  `MONOLITHIC-CYCLE-BAND-CANDIDATE` — membership in the cycles ≤ T band, **not** an
+  eligibility or mineable determination. The band becomes decidable only via the
+  calibration-covered proving-band verification (successor scope below).
+* **The 86 CHUNKING-REQUIRED rows** are all **mainnet-preset** (0 minimal):
+  `sanity::slots` 30 (6 per fork × phase0/altair/bellatrix/capella/deneb; top
+  `double_empty_epoch` ≈ 69.9e9 cycles), `phase0::rewards` 44 (basic 19, leak 15,
+  random 10), `phase0::epoch_processing::rewards_and_penalties` 12; smallest over-T row
+  1,030,350,809 cycles.
+
+### Cross-domain running subtotal (this record's problem-count impact = 0)
+
+The **integrated confirmed subtotal 10,674 is unchanged** (byte-identical to Entry 1):
+
+```
+EVM P0                            6,767   (docs/evm-census-p0-eligibility-freeze.md)
+Solidity-semantic P1              1,408   (docs/solidity-semantic-p1-execution-proof-eligibility-freeze.md, successor)
+Rust execution-proof P1           2,499   (docs/rust-execution-proof-p1-eligibility-freeze.md, successor)
+Solidity P0                           0   (docs/solidity-census-p0-eligibility-freeze.md)
+zk-native release-audit P0            0   (docs/zk-native-release-audit-census-p0-eligibility-freeze.md)
+---------------------------------------
+integrated confirmed subtotal    10,674
+Ethereum-consensus P1        NOT-YET-DETERMINED   (this record; contributes no number)
+Lean                    CORPUS-NOT-MATERIALIZED   (contributes no number)
+```
+
+`mineable_now = 0` unchanged. This record modifies **no** other domain's number.
+
+### Lineage (git-ignored sandbox; hash-pinned here)
+
+| artifact | role | sha256 |
+| --- | --- | --- |
+| `successor-harness/census-run3b-20260812/FROZEN-PARTIAL.json` | partial freeze record incl. aborted-case lineage | `7617468f187bad5fd9b5dd15fad1283ce29c4985696859108a9b8a32e729e1e1` |
+| `successor-harness/census-run3b-20260812/SHA256SUMS` | per-file digests: 1,126 rows + abort raw evidence + log | `0c469fba592d304e89c342e2b5ac15b714595a3275d4549498e36c2b3833e7f6` |
+| `successor-harness/census-run3b-20260812.log` | run3b full runner transcript | `0b261f18d4d472e5e2636808bdc721686775ffd605a62d2f093beaedbc491858` |
+| `successor-harness/census-run3c-20260813/SUBSET-COMPLETE.json` | continuation subset marker (1,166 rows only) | `ea8a0e4b56a2b580b7625d2eb187cb2a9637832887dbbca8efaa72905502520c` |
+| `successor-harness/census-run3c-20260813.log` | run3c full runner transcript | `68dc1c2bffb7e2b1d35e7a9804e3a6dc7c577d0397c31b98d05ef82786f0df7f` |
+| `successor-harness/census-final-20260813/COMPLETE.json` | conservation-verified census-wide final marker | `b9da6d51df6b8a6674243d07157598bb503b3dcf05aa7449fdc2e712437f095c` |
+| `successor-harness/census-final-20260813/PROVISIONAL-CLASSIFICATION.json` | policy application output (2,206 / 86 / 1) | `ee864362d833d1f6e15a72f157b124d596b61ef649c23e4f8d80aadb94476241` |
+| `successor-harness/resource-policy-v1.json` | common resource policy (T, uniform rule) | `41a79e249d8e70f9a832f1346ac7e4c9a2875b8ec4047f12869a78bfd3511f7c` |
+| `successor-harness/census_run3.py` | hardened sequential runner (range-capable) | `3b7a135ae62e7e349852222802b98abba40e306e725f9f8533e15eadce76b855` |
+| `successor-harness/census_synthesize.py` | conservation synthesis (final-marker writer) | `64b17024305bb5522673e2b62a5cfa38139e61aa9bb1f50cc62aa59add251303` |
+| `successor-harness/apply_resource_policy.py` | uniform policy applier | `f48127880e4105082a49e182989ab6ef30c08dfe3599b941d4caa1cbf4a5bd03` |
+
+### CI scope (what green attests)
+
+CI (`self-test`, `supply-chain`) does **not** re-run the census. It verifies that this
+freeze record is intact and the repo has no regression (`docs-smoke.sh` pins the census
+label, both conservation equations, the threshold, and the run3b aggregate). The census
+results are established by the git-ignored sandbox artifacts hashed above, not by CI.
+
+### Successor scope (authorized; separate entries)
+
+Operator directive (2026-08-13, msg 3851) — none of this lands in this entry:
+
+* **Proving-band verification** — freeze the resource axes (cycles, gas, input size,
+  public-values size, shard/SP1 report) **before** analysis; produce and verify a real
+  compressed proof of an out-of-corpus calibration fixture byte-identical to a candidate,
+  within 4 h / 48 GiB / 4 MiB; only cases whose resource vector is covered by the
+  calibration vector on **every** axis may become `MONOLITHIC-MINEABLE`; cross-task and
+  tampered proofs must REJECT; candidate consumption 0; no post-hoc threshold adjustment.
+* **Chunked-execution family** for the 86 + 1 rows — fixed slot-interval chunks, each
+  bound to parent task / sequence number / range / start & end state roots / fork /
+  policy / live challenge; chain linkage (previous chunk's end root = next chunk's start
+  root; final root = the official oracle); REJECT on omission, duplication, reorder, or
+  cross-proof; corpus-wide materialization only after one out-of-corpus chunk proof is
+  GREEN.
+* **Accounting separation** — logical problem count vs actual mining work-unit count;
+  parent and chunks never double-counted.
+
+### Boundary / non-claims (Entry 4)
+
+* **NO mineable determination.** 2,206 is a cycle-band candidate count under policy
+  threshold T — **not** an eligible count, **not** a mineable count, **not** finalized,
+  and **not** a zero. Entry 3's anticipated "finalized `MINEABLE-ELIGIBLE = N`" is
+  explicitly deferred; `mineable_now` stays 0.
+* **EXECUTE-mode observation only** — the census produced and consumed no proofs; the
+  only proof remains Entry 3's single calibration proof. `blst`/`c-kzg` remain unswapped;
+  the guest is crypto-fail-closed; all 2,292 executed rows committed
+  `crypto_call_free = 0x01`.
+* The aborted 8,192-slot case is counted **neither as a failure nor as mineable**; it
+  awaits the chunked-execution family.
+* The **integrated confirmed subtotal 10,674** and `mineable_now = 0` are **unchanged**;
+  this record contributes no number and edits no other domain's count.
+* This is an **issuable-problem-count investigation, not network activation**; no
+  consensus / BF.7 / mining / reward / Base / paid-API change was made. Closed-local,
+  non-consensus evidence only — not a public-network / leaderboard / paid-API / production claim.
+* **Entry 1, Entry 2, Entry 3, and the preamble remain byte-unchanged.**
