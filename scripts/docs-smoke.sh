@@ -385,6 +385,18 @@ require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "S
 require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "proof-issuance feasibility"
 require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "run2-lowmem-serial-d026acb446de"
 require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "50616853d5055eebed2ccadfb843d3429150f04f3f133f0af2585efa645b6b36"
+# Entry 4 — 2,293 EXECUTE census conservation PASS (append-only). The frozen shared guest
+# ran the full census (1,126 frozen partial + 1 operator-aborted 8,192-slot case + 1,166
+# continuation, no --resume); exact partition conserved: 2,292 executed rows all ACCEPT +
+# crypto_call_free, the aborted case held as CHUNKING-CANDIDATE. The uniform resource policy
+# splits by cycle cost only; the 2,206 are recorded ONLY as MONOLITHIC-CYCLE-BAND-CANDIDATE —
+# NO mineable determination. Domain stays NOT-YET-DETERMINED, 10,674 and mineable_now=0 unchanged.
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "STF-SUCCESSOR-2293-EXECUTE-CENSUS-CONSERVATION-PASS"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "2,293 = 2,292 MONOLITHIC-EXECUTE-ELIGIBLE + 1 CHUNKING-CANDIDATE"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "2,293 = 2,206 MONOLITHIC-CYCLE-BAND-CANDIDATE + 86 CHUNKING-REQUIRED + 1 CHUNKING-CANDIDATE"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "991,194,325"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "NO mineable determination"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "4cb7d24fbe38ef5f84ec7f3105b688c2cff306a0e7e3bd1efe3d11f13c62726f"
 
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"

@@ -1414,3 +1414,17 @@ NO-GO. 여기서 얻은, 앞으로 **모든 채굴 문제 family 후보**에 적
 - **규칙 4 (비교기 비대칭도 기록)**: `verify.mjs`는 revert 워드의 4바이트 selector는 un-pad하지만
   success return은 안 한다. 근본결함은 상류(추출기 오독)지만, 이런 비교기 비대칭을 같이 기록해 두면 다음
   census에서 성공/실패 경로를 대칭으로 처리하도록 설계할 수 있다.
+
+## 2026-08-13 — 운영자 정정 (Telegram 3846, eth-consensus P1 census)
+
+- **규칙 1 (정책 명명: "사전동결" 남용 금지)**: 이미 수행된 실측(run-2)에서 도출한 기준을
+  "사전동결(pre-freeze)"이라 부르지 않는다. 정확한 표현은 **"실측 후, 대상 분포와 독립인 기준으로
+  채택(adopted post-measurement, distribution-independent)"**. "사전"은 오직 그 기준이 적용될
+  데이터가 아직 생성되기 전이라는 뜻으로만 제한적으로 쓰고, 근거 데이터가 사후 실측이면 채택으로 명명.
+- **규칙 2 (부분 완료 표식과 최종 표식 분리)**: subset 실행의 COMPLETE는 그 subset의 완료만
+  의미한다. 전체 census의 최종 표식은 모든 소스(부분 동결 + 중단 case + continuation)의 합이
+  총계와 정확히 일치(보존식)함을 별도 검증한 뒤 **별도 파일로** 생성한다. 이름부터 구분(SUBSET-COMPLETE
+  vs 최종 COMPLETE).
+- **규칙 3 (확정 금지 게이트)**: 분할(chunking) family가 완성되기 전에는 MINEABLE-ELIGIBLE을
+  확정하지 않는다 — 산출물 라벨·필드명에 PROVISIONAL을 명시(FINAL- 접두어 금지), mineable_now=0
+  불변. 확정처럼 읽히는 이름(FINAL-CLASSIFICATION 등)을 잠정 산출물에 붙이지 말 것.
