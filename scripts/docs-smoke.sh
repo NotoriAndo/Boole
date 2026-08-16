@@ -398,6 +398,27 @@ require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "9
 require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "NO mineable determination"
 require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "4cb7d24fbe38ef5f84ec7f3105b688c2cff306a0e7e3bd1efe3d11f13c62726f"
 
+# Entry 5 — minimal-6 proving-band adjudication (append-only). 18 real one-shot compressed
+# SP1 proofs (12 sealed in calib-3865 + 6 in min6-3893, 6/6 PASS, 0 retries, 0 resume) dominate
+# every one of the 2,206 band rows on all five axes at once, by a SINGLE representative per row.
+# Entry 4's cycle-band candidates are upgraded to MONOLITHIC-MINEABLE-ELIGIBLE = 2,206; subtotal
+# 10,674 -> 12,880. The wave-2 driver hard-stopped in its own adjudication step (it counted only
+# that wave's 6 reps, got 2,203, compared against 2,206); that self-check contradicted the
+# pre-registered rule R-6/6 and the freeze's own coverage table, so the frozen rule governs. The
+# STOP record and the defective aggregation code are preserved unmodified and the number rests on
+# an independent auditor (8/8 negative controls). mineable_now stays 0; the ceiling label stays
+# NOT-YET-DETERMINED because 86 CHUNKING-REQUIRED + 1 ABORTED-CHUNKING remain undetermined.
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "STF-SUCCESSOR-MONOLITHIC-MINEABLE-ELIGIBLE-2206-SEALED"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "2,293 = 2,206 MONOLITHIC-MINEABLE-ELIGIBLE + 86 CHUNKING-REQUIRED + 1 ABORTED-CHUNKING"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "integrated confirmed subtotal = 10,674 + 2,206 = 12,880"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "dominated on all five measured axes at once by a"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "not** a mathematical upper bound on"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "no monotonicity theorem over SP1's source is asserted"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "STOP record and the defective aggregation code are preserved unmodified"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "ABORTED-HARNESS-POSTPROCESS"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "b2948123c3691837875b01cd301868fce66a74dfb048e19b2afc3aa6e4aca930"
+require_text docs/ethereum-consensus-execution-proof-p1-eligibility-freeze.md "8eb8bde45b88fb1aa0a488f99d3c5ba08d8e5f489a64a07ff8e3e438dfa98c72"
+
 require_file docs/boole-mcp-e2e.md
 require_text docs/boole-mcp-e2e.md "boole-mcp end-to-end smoke (external-user path)"
 require_text docs/boole-mcp-e2e.md "closed local smoke; not public-network mining"

@@ -791,3 +791,208 @@ Operator directive (2026-08-13, msg 3851) — none of this lands in this entry:
   consensus / BF.7 / mining / reward / Base / paid-API change was made. Closed-local,
   non-consensus evidence only — not a public-network / leaderboard / paid-API / production claim.
 * **Entry 1, Entry 2, Entry 3, and the preamble remain byte-unchanged.**
+
+---
+
+## Entry 5 — 2026-08-16 · stf-successor minimal-6 proving-band adjudication / MONOLITHIC-MINEABLE-ELIGIBLE = 2,206 (subtotal 12,880; `mineable_now` still 0)
+
+### Result in one line
+
+The proving-band verification authorized in Entry 4's successor scope completed:
+`STF-SUCCESSOR-MONOLITHIC-MINEABLE-ELIGIBLE-2206-SEALED` —
+**2,293 = 2,206 MONOLITHIC-MINEABLE-ELIGIBLE + 86 CHUNKING-REQUIRED + 1 ABORTED-CHUNKING**,
+integrated confirmed subtotal **10,674 + 2,206 = 12,880**, `mineable_now` **still 0**.
+Entry 4's 2,206 **MONOLITHIC-CYCLE-BAND-CANDIDATE** rows are hereby upgraded to
+**MONOLITHIC-MINEABLE-ELIGIBLE** on the strength of **18 real one-shot compressed SP1
+proofs** whose measured resource vectors dominate every one of the 2,206 rows on **all
+five axes at once, by a single representative per row**. The `1 ABORTED-CHUNKING` row is
+Entry 4's operator-aborted 8,192-slot case (i = 1126), renamed but unchanged in
+substance; it and the 86 `CHUNKING-REQUIRED` rows remain undetermined, which is why the
+preamble ceiling label stays **NOT-YET-DETERMINED**.
+
+### Frozen proving identity (v3 r2; unchanged across both proof waves)
+
+| field | value |
+| --- | --- |
+| guest ELF sha256 | `3ac9007fc9b4ff3e29488f400506edabd8dcf643c9db34022a32f58ab8ad63e2` |
+| guest vk (bytes32) | `0x004724e8dff283f5e66d4826ee6128999a0ca60317b74e00242af4f2dbd8a10f` |
+| manifest (2,293 rows) sha256 | `3a361b7961c4d07b6ae920b5be9876a10f88b43801d2849d3681059f1affcae0` (**identical to Entry 4**) |
+| resource policy sha256 | `41a79e249d8e70f9a832f1346ac7e4c9a2875b8ec4047f12869a78bfd3511f7c` |
+| `successor-prove` sha256 | `ec7c8966dacc3a71cf8cddd4f19a7f7f6c480e03962c9ed79f97d4ad219d5efe` |
+| `successor-splice` sha256 | `0ea4a86bf96cfee67ad0d048eec2c4c856523895b46e0198bd9455b5ce984c55` |
+| SP1 serial env sha256 | `c1670c2517a752b874b8996746b539f7b6d41c619ee48c5d60db9bd6ef596a66` |
+| prover | SP1 6.3.1 CPU, **compressed** proofs, offline (`CARGO_NET_OFFLINE=true`), **SP1 source unmodified** |
+| caps per proof | 4 h wall / 48 GiB RSS / 4 MiB proof |
+
+### The five domination axes and the rule
+
+```
+shards_total_core_proofs · shards_execution_splices · shards_memory
+memory_finalize_events   · touched_addresses
+
+representative r dominates row x   iff   r[a] >= x[a] for ALL five axes a
+```
+
+Domination must be satisfied by **one single representative per row** — not assembled
+per-axis from different representatives. `touched_addresses` is **splicer-only**
+instrumentation that appears in no SP1 prove log; it is measured and enforced by the
+splicer at the fixture gate. The frozen mapping also records
+`robust_without_touched_addresses: true` — the identical representative set is selected
+on the remaining four axes alone.
+
+### The K = 18 cover (12 + 6, both waves real proofs)
+
+| wave | representatives | disposition |
+| --- | --- | --- |
+| `calib-3865` | 3, 239, 243, 250, 402, 459, 463, 470, 696, 736, 972, 1100 | **12 / 12 PASS** (sealed 2026-08-14) |
+| `min6-3893` | 266, 679, 740, 747, 756, 764 | **6 / 6 PASS** (this entry) |
+
+The 6 are exactly the band's Pareto maxima not already proved: **necessary** (each is
+dominated by no other band row, so no covering set can omit it) and **irredundant**
+(dropping i=266 loses 2 rows, i=679 1, i=740 1, i=747 1, i=756 18, i=764 17). Three band
+rows — **971, 972, 1100** — are dominated **only** by representatives 972 and 1100, i.e.
+by the previously-proved 12; the cover is the union of all 18 and was frozen that way
+before any wave-2 proof was attempted.
+
+### Pre-registration discipline (freeze before results, twice)
+
+* `MIN6-PROOF-FREEZE-3889.md` sealed the 6-row list, the 18-representative list, the
+  2,206-row mapping, the caps, the verification matrix and the adjudication rules
+  **before any proof was attempted**.
+* **Wave 1 was aborted and is never counted.** Its recording harness died writing its
+  first result (`KeyError: 'touched_addresses'` — the driver compared prove-log output
+  against an axis no prove log carries). Preserved in full as
+  `ABORTED-HARNESS-POSTPROCESS`, `usable_for_numbers: false`, `counted_proofs: 0`; its
+  one successful proof is reference evidence only and is used in **no** number here.
+* The recording defect was fixed and proved fixed **with zero proving**: a 9-case
+  post-processing regression suite driving the real driver went **RED 1/9** on a
+  mechanical reconstruction of the pre-fix driver → **GREEN 9/9** on the fixed one.
+* `MIN6-WAVE2-FREEZE-3893.md` then re-froze the corrected harness, its record schema and
+  a new run id **before** wave 2 started. Representatives, mapping, thresholds and
+  fixture identity were **not** changed. Wave 2 ran 6 proofs at concurrency 1, exactly
+  one attempt each, **0 retries, 0 resume**.
+
+### Wave-2 gate and proof results
+
+**Fixture gate (before any proving), 6 / 6 PASS** — out-of-corpus fixtures with execution
+bytes identical to their candidates (`cycles`/`gas`/`result_digest` equal), **separate
+task contracts**, **fresh challenges** (zero overlap with the aborted wave-1 registry),
+exact five-axis equality including `memory_shard_final_lens`, **candidate consumption 0**.
+
+| i | wall | peak RSS | proof bytes | core proofs | exec splices | memory shards |
+| --- | --- | --- | --- | --- | --- | --- |
+| 266 | 5,301 s | 29.40 GiB | 1,272,857 | 76 | 71 | 5 |
+| 679 | 6,435 s | 31.88 GiB | 1,272,857 | 91 | 87 | 4 |
+| 740 | 5,718 s | 31.36 GiB | 1,272,857 | 82 | 78 | 4 |
+| 747 | 5,729 s | 33.75 GiB | 1,272,857 | 81 | 77 | 4 |
+| 756 | 5,256 s | 34.89 GiB | 1,272,857 | 74 | 69 | 5 |
+| 764 | 5,287 s | 29.76 GiB | 1,272,857 | 75 | 70 | 5 |
+
+All six inside the caps. All six carry the **complete nine-check verification matrix
+green**: real `sp1 vk ACCEPT`, `pv identity exec==prove==verify`, `verify_pv ACCEPT`,
+`replay REJECT`, `stale REJECT`, `cross-task REJECT`, `wrong-policy REJECT`,
+`tamper REJECT`, `shard structure == sealed measurement`.
+
+### The adjudication defect, its STOP, and the independent audit
+
+Wave 2 produced 6/6 PASS and then **hard-stopped in its own adjudication step**. The
+driver's self-check counted only the six representatives proved in *that wave*, obtained
+**2,203**, compared it against 2,206 and raised `PhaseStop`; `PROOF-STOP.json` was written
+with `numbers_confirmed: false`.
+
+**That assertion was a defect in this harness, not a verification failure.** The mapping
+is a K = 18 cover, and `MIN6-PROOF-FREEZE-3889.md` §3 had already printed `i=972 2` and
+`i=1100 1` in its per-representative coverage table — 2,203 was derivable from the frozen
+artifact **before** any proving started. The same freeze states rule **R-6/6** without any
+such condition: *all six PASS → eligibility 2,206, subtotal 12,880*. It never required the
+six alone to cover 2,206. Per operator adjudication (msg 3897) the **pre-registered rule
+governs and the defective assertion does not** — an application of a rule frozen before
+results, not a relaxation of one after them. **No threshold, representative, mapping,
+fixture identity or check was changed.**
+
+Per the same instruction, `PROOF-STOP.json` and the defective aggregation code are
+**preserved unmodified**, and the number was re-established by an **independent auditor**
+(`min6_audit_18_3897.py`) that does **not** import the driver whose aggregation was wrong.
+It re-derives domination from the 2,206 raw row artifacts and the frozen representative
+vectors with its own comparison code, re-extracts each representative's axes **from that
+representative's own sealed prove log**, and cross-checks the independent result against
+the mapping's stored dominators.
+
+* **Negative controls 8 / 8 stopped** — withhold rep 972 → STOP; withhold rep 1100 →
+  STOP; withhold rep 756 → STOP; perturb an axis below its sealed log → STOP; tampered
+  mapping → STOP (by hash, and again by invariant with the pin disabled); a representative
+  without a sealed PASS → STOP; wrong status literal → STOP. The first two are exactly the
+  three-row gap, so the sealed number is not reachable by an auditor that merely counts
+  whatever it is handed.
+* **Audit result: 2,206 / 2,206 band rows covered by 18 sealed-PASS representatives;
+  independent recomputation IDENTICAL to the frozen mapping on all 2,206 rows.**
+
+**Older result records were recorded, not repaired.** The `calib-3865` driver predates the
+memory instrumentation and wrote `shards_memory: 0` / `memory_finalize_events: null` into
+its result JSONs; those files are left exactly as sealed. The true values were re-extracted
+from the prove logs those same runs produced — rep 972 → `95 / 91 / 4 / 2,675,904`,
+rep 1100 → `162 / 160 / 2 / 1,388,595` — and equal the frozen mapping vectors exactly, for
+all 18 representatives, on all four log-observable axes.
+
+### Conservation
+
+```
+2,293 = 2,206 MONOLITHIC-MINEABLE-ELIGIBLE
+      +    86 CHUNKING-REQUIRED
+      +     1 ABORTED-CHUNKING
+
+integrated confirmed subtotal = 10,674 + 2,206 = 12,880
+mineable_now                  = 0
+candidate consumption         = 0
+```
+
+### Lineage (git-ignored sandbox; hash-pinned here)
+
+| artifact | role | sha256 |
+| --- | --- | --- |
+| `successor-harness/MIN6-PROOF-FREEZE-3889.md` | pre-registration: reps, mapping, caps, matrix, rules | `7a75dba8dcec8c5cc428596b754abb5c12f759458e9c7f0aef1ab9567b31bc72` |
+| `successor-harness/MIN6-WAVE2-FREEZE-3893.md` | wave-2 re-freeze (corrected harness + schema + run id) | `7264cde6cf51d042345938691805b770a8a16dace8caa15d7aef51f8e2757659` |
+| `successor-harness/MIN6-ADJUDICATION-3897.md` | append-only adjudication: cause, contradiction, R-6/6 | `8eb8bde45b88fb1aa0a488f99d3c5ba08d8e5f489a64a07ff8e3e438dfa98c72` |
+| `successor-harness/splice-full-3880/MAPPING-3889.json` | K=18 domination mapping, 2,206 / 2,206 mapped | `71b85819bc301afaaca3eddece397d24d81961be24c2865499d30419537f95bc` |
+| `successor-harness/calib-3865/CALIBRATION-PROOFS-GREEN.json` | 12 / 12 sealed proof marker | `e8af1713f2bb7aacd64656c8953d89fa52ae0aad0448c34df603f6b8309415d8` |
+| `successor-harness/min6-3893/FIXTURE-EQUALITY.json` | wave-2 fixture gate, 6 / 6 five-axis equality | `3e3196c09b798a2cf0d9827d359e1319165471c7934d8f5d94ed284c6ee6d566` |
+| `successor-harness/min6-3893/challenge-registry.json` | wave-2 fresh challenges (0 overlap with wave 1) | `97ca3e21861b56c3be72387e892c430fad42f4a695aac6ed1c9582759f1890a6` |
+| `successor-harness/min6-3893/PROOF-STOP.json` | **preserved** adjudication STOP, `numbers_confirmed: false` | `6f8b3d717a566c71f493b556eac34b633dd58f0e55fc5e23907eeffa3ed4c155` |
+| `successor-harness/min6-3893/AUDIT-18-3897.json` | independent 18-rep union cover = 2,206 / 2,206 | `b2948123c3691837875b01cd301868fce66a74dfb048e19b2afc3aa6e4aca930` |
+| `successor-harness/min6-3889/ABORTED-HARNESS-POSTPROCESS.json` | wave-1 disposition, `counted_proofs: 0` | `35cc4c6629ba364062f6ed9d3411f5284ca7d462817c15616fd3cd202b8a162f` |
+| `successor-harness/regress-3893/REGRESSION-at-abort.json` | post-processing regression **RED 1 / 9** | `82abcf12d5651a6902c121ac1311e87af5fba9a88c91bb0db436a41cfe25fad3` |
+| `successor-harness/regress-3893/REGRESSION-fixed.json` | post-processing regression **GREEN 9 / 9** | `d9f6d9a15f5a1774a4ea0d679dd9a9a113bb5e145c3a5b39741ee45fa7e2ae66` |
+| `successor-harness/min6_audit_18_3897.py` | independent auditor (8 / 8 negative controls) | `4484928520bc90a015c17b605fff1fb410e3310780d663e8b77ce32cf4873d97` |
+| `successor-harness/min6_prove_driver_3889.py` | **preserved with its defect**, wave-2 prove driver | `e516bca8c36eab31ef790fc10f8b46508a8d51ad17ee2b419cfee848ca5107ce` |
+| `successor-harness/min6_record_schema_3893.py` | hash-frozen output-record schema | `0704b6522118d302373d73ecffe94776f341c5da9688eea4bb8b4a5737353e44` |
+| `successor-harness/make_min6_fixtures_3889.py` | fixture builder + five-axis equality gate | `0cbdfb7da84653fecb4a741b2caa2b7803d8945ec6cd08a276d81119275b9763` |
+| `successor-harness/splice_measure.py` | frozen prove-log parser / splice measurement | `8cfc0b424b210619b14b9f60939b3057c1161fb7d3ccd2e2a1dcbae1510b68c4` |
+
+### CI scope (what green attests)
+
+CI (`self-test`, `supply-chain`) does **not** re-run any proof, the fixture gate, or the
+audit. It verifies that this freeze record is intact and the repo has no regression
+(`docs-smoke.sh` pins the seal label, the conservation equation, the subtotal, the
+representative split, the audit result, and the preserved-STOP disclosure). The proving
+results are established by the git-ignored sandbox artifacts hashed above, not by CI.
+
+### Boundary / non-claims (Entry 5)
+
+* **Cover-based eligibility over a frozen band**, in the sense fixed by freeze 3865 R8 and
+  unchanged here: every confirmed row is dominated on all five measured axes at once by a
+  **single actually-proved** representative. It is **not** a mathematical upper bound on
+  all proving costs, and **no monotonicity theorem over SP1's source is asserted**.
+* **`mineable_now` stays 0.** This entry wires **no** consensus / BF.7 / mining / reward /
+  Base / paid-API path. Eligibility is not activation.
+* **The preamble ceiling label stays NOT-YET-DETERMINED**, because 86 `CHUNKING-REQUIRED`
+  + 1 `ABORTED-CHUNKING` rows remain undetermined pending the chunked-execution family.
+  What is determined here is the **2,206 sub-count**, not the domain total.
+* The **wave-1 run is never counted** — `ABORTED-HARNESS-POSTPROCESS`, `counted_proofs: 0`.
+  Its single successful proof is reference evidence only.
+* The wave-2 **STOP record and the defective aggregation code are preserved unmodified**;
+  the number rests on the independent auditor, not on a repaired driver.
+* `blst` / `c-kzg` remain unswapped; the guest is crypto-fail-closed; **SP1 source is
+  unmodified**; network access was 0 throughout.
+* Closed-local, non-consensus evidence only — **not a public-network / leaderboard /
+  paid-API / production claim**, and not public-network mining.
+* **Entry 1, Entry 2, Entry 3, Entry 4, and the preamble remain byte-unchanged.**
