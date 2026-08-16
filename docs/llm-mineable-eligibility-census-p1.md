@@ -1354,3 +1354,212 @@ unchanged from Entry 8. 24 full transcripts are retained in the git-ignored sand
   existed and is not revisited now that they do.
 * **Closed local, offline, non-consensus.** `mineable_now = 0`. No paid API, no public
   benchmark, no public mining, no leaderboard claim.
+
+---
+
+## Entry 10 — 2026-08-16 · Entry 9 wording correction + LLM-MINER-INTERFACE-V1.2 frozen / no episode run, all sealed numbers unchanged
+
+**Directive: operator msg 3923, with the answer format resolved by operator msg 3926.**
+
+### Result in one line
+
+`LLM-MINER-INTERFACE-V1.2` is frozen — a deterministic EVM assembler and an assembly answer
+format, with the checker, the 192-byte bound and every budget carried over unchanged — and
+**no episode has been run under it at the time of sealing**. Every sealed number in Entries
+1–9 stands exactly as sealed. `LLM-TASK-ELIGIBLE` remains **7,954**.
+
+### A correction to Entry 9's wording, required by the operator
+
+Entry 9 wrote that *"a larger token or time budget would not have changed these numbers."*
+That overreaches, and the operator corrected it:
+
+> 한 가지 문구만 고치는 게 좋습니다. "예산을 늘려도 결과가 달라지지 않았을 것"보다는 "이번
+> 실행에서는 예산 상한이 병목이었다는 증거가 없다"가 정확합니다.
+
+The accurate statement, which replaces it going forward: **in that run there was no evidence
+that the budget ceiling was the binding constraint.** All twenty-four episodes ended by
+SUBMIT or by turn budget; none hit the token ceiling, and the longest used 309 of its 1,800
+seconds. That is an absence of evidence for a budget bottleneck, not evidence of its
+absence. Nobody measured what a larger budget would have produced, because nobody ran it.
+
+Entry 9 is **not edited**. Its numbers, its tables and its text stay as sealed; this entry
+is the correction, in the append-only form the ledger requires. The correction is to a
+sentence of interpretation, not to a measurement — no row, count, verdict or digest changes.
+
+### How Entry 9 is to be read, per the operator
+
+The operator's reading is adopted as the premise of this version, in their words:
+
+* **EVM: 인터페이스 병목이 먼저 발견됨.** 0/12 must not be read as a failure of reasoning.
+  All twelve stopped at the format or size step, so what was actually measured was *the
+  ability to write raw bytecode without an assembler*.
+* **Solidity: 의미적 풀이 능력은 확인됐지만 대표 패턴 전체를 충족하지 못함.** All twelve
+  reached a compiling program and one passed.
+* **7,954 개: 구조적으로 유효한 문제 수 그대로.**
+* **LLM 채굴 가능 수: 아직 미확정.**
+* **1/24를 전체 코퍼스에 비례 확대하면 안 됨.** Twelve or twenty-four instances do not
+  scale to 91,328 rows, and no entry will multiply them out.
+
+### What v1.2 changes, and what it deliberately does not
+
+The operator required a successor, not a repair: *"기존 v1을 고치지 말고 후속 버전으로 분리해야
+합니다."* `interface-v11/` is untouched and its digests still hash as sealed in Entry 8.
+v1.2 lives in `interface-v12/` with its own freeze.
+
+| | Entry 9 (v1.1) | Entry 10 (v1.2) |
+| --- | --- | --- |
+| answer language | hexadecimal runtime bytecode | **EVM assembly, assembled by the harness** |
+| tool alongside `check` | `compile` (Solidity only; EVM had none) | **`assemble`, 8 calls — the same slot, the same count** |
+| checker | shipped, unmodified | **the same file, unmodified** |
+| `MAX_CODE_BYTES` | 192 | **192** |
+| turns / check calls / tokens / seconds | 8 / 4 / 24,576 / 1,800 | **8 / 4 / 24,576 / 1,800** |
+| model, weights digest, decoding | frozen | **copied verbatim from the v1.1 run freeze** |
+| challenges | epoch 1 | **epoch 2, fresh; epochs 0 and 1 asserted different** |
+| Solidity | measured 1/12 | **not re-run — "Solidity는 재실행하지 않음"** |
+
+`seal.py` hard-stops if any budget differs from v1.1's, so *"checker와 나머지 예산 유지"* is
+enforced by the code and not merely promised by this text. One variable changes: the
+assembler.
+
+### The assembler is a translator, and it is gated as one
+
+`assembler.py` maps mnemonics to bytes, encodes `PUSHn` operands, and resolves labels to
+byte offsets. It does not choose push widths, does not optimise or reorder, does not know
+the family, the formula, the probes, the slot or the challenge, and reports nothing about
+correctness. The prompt publishes mnemonic **names only, never opcode numbers**, and that
+list is generated from the assembler's own table so prompt and tool cannot drift apart.
+
+Two assertions carry the weight:
+
+* **A9** fails if the assembler's source so much as mentions `expected_value`,
+  `reference_answer`, `witness`, `slot`, `probe`, `challenge`, `anchor` or the family name
+  outside its docstring.
+* **A10** writes a straightforward correct program in assembly, assembles it with this tool,
+  and hands the result to the **unchanged** checker. It assembles to **106 bytes against the
+  192-byte bound** and the checker returns **ACCEPT**. The program is then discarded (C9):
+  never shipped, never logged, never shown to the model.
+
+A10 is what makes the next measurement interpretable. Entry 9's 0/12 had an interface
+explanation available; after A10, a 0/12 could not be blamed on the interface again, because
+the interface has been demonstrated to reach ACCEPT inside the published bound.
+
+### The answer is assembly (operator msg 3926)
+
+Two readings were possible and the operator chose: *"A로 진행"* — **the model's answer itself
+is EVM assembly, which the harness assembles into the runtime bytecode that the unchanged
+checker judges.** The family manifest, the official helper surface and the instance block
+are carried into the episode prompt **byte for byte** from the frozen single-shot prompt.
+Only the submission contract and the output format are replaced, because the answer is no
+longer hexadecimal and the old format would contradict the new one. The problem, the
+constraints, the formula and the instance data are untouched.
+
+### Feedback accounting, updated for the one new reason code
+
+v1.2 adds exactly one reason, `ASSEMBLE-FAILED`, raised by the surface when the answer does
+not assemble. It travels bare — the assembler's error text never rides along with a verdict,
+because diagnostics are what `assemble` is for, under `assemble`'s own budget.
+
+| | distinct outputs | bits per call | ≤ 4 calls |
+| --- | --- | --- | --- |
+| v1.1 EVM (Entry 8) | 1 ACCEPT + 6 non-probe reasons + 12 probe indices = 19 | 4.248 | ≤ 16.99 bits |
+| **v1.2 EVM** | 1 ACCEPT + 7 non-probe reasons + 12 probe indices = **20** | **4.322** | **≤ 17.29 bits** |
+
+The obligation is unchanged: 12 expected 256-bit words, **3,072 bits**, against ≤ 17.29 bits
+of total feedback. Seventeen bits cannot determine even one 256-bit word.
+`LIMITED-ADAPTIVE-FEEDBACK` still names the property correctly.
+
+`MALFORMED-SUBMISSION` is retained in the enum although v1.2 makes it unreachable — the
+harness only ever hands the checker `0x`-prefixed assembler output. Keeping it declared
+costs 0.074 bits per call and removes a crash path; dropping it would buy a tighter bound
+with a hard stop the model could trigger. Stated here rather than done silently.
+
+### The freeze
+
+* **Twelve instances**, the same out-of-corpus representatives as Entries 4 and 9, on
+  **fresh epoch-2 challenges**. Epoch 0 (Entry 4) and epoch 1 (Entry 9) are recorded per row
+  and asserted different; a collision is a hard stop. **Zero corpus anchors consumed.**
+* **Existence through the pipeline, then discarded.** For all twelve, a valid answer was
+  confirmed to exist *as assembly, assembled by this tool, inside the 192-byte bound,
+  accepted by the unchanged checker* — 106 of 192 bytes in every case — and then dropped
+  (C9). v1.1 asked whether a valid bytecode existed; v1.2 asks whether one exists *that this
+  assembler can produce*, which is the question a 0/12 must be read against.
+* **The prompt is checked for leaks at freeze time.** For every probe, the expected word is
+  searched for in the episode prompt in decimal, bare hex and 32-byte padded hex. Any match
+  is a hard stop. None matched.
+* **Gates, both run before the freeze:** `test_assembler.py` 21/21 PASS (A10 printing
+  `assembled 106 bytes, bound 192, checker verdict ACCEPT`) and `test_surface.py` 29/29
+  PASS, including that an unassemblable answer yields the bare reason `ASSEMBLE-FAILED` with
+  no diagnostics attached, and that the extractor never invents an answer.
+* **`run_agentic.py --gate-only`:** freeze binding gate **15/15 MATCH**, 12/12 instances
+  re-derived to the frozen challenge and prompt digest, **no model invoked**.
+* **The post-run leak audit is frozen too.** Unlike v1.1's, `audit_transcripts.py` is written
+  and hashed *before* the run, so it cannot be tailored to the results. It adds a third
+  assertion v1.1 did not have: every episode's first message must hash to the freeze's
+  prompt digest.
+
+### One leniency that is mine, not the operator's
+
+The answer extractor takes, in order: the last `BEGIN ANSWER` / `END ANSWER` block; an
+unterminated `BEGIN ANSWER` to the end of the reply; otherwise the last fenced code block.
+It is deterministic and can only ever recover text the model actually wrote — it never
+invents, completes or repairs an answer. **This leniency is the harness author's choice, not
+an operator instruction**, recorded here so the result is read with it in view. The
+reasoning: v1.2 exists to measure whether the model can write a correct program once
+hand-encoding is removed, so a marker typo should not decide an instance. It makes the
+measurement slightly friendlier to the model than a strict reading would.
+
+### Sealed digests (sha256)
+
+| file | sha256 |
+| --- | --- |
+| `LLM-MINER-INTERFACE-V1.2.md` | `426d6165…5fd55464` |
+| `interface-v12/assembler.py` | `a6efd8ff…343081f7` |
+| `interface-v12/surface.py` | `3fbec465…98108619` |
+| `interface-v12/protocol.py` | `30d8158b…041f8469` |
+| `interface-v12/episode.py` | `c86b653f…74e6181f` |
+| `interface-v12/instances.py` | `d8c911c6…38588ad1` |
+| `interface-v12/controls.py` | `4c808db1…d1700a3b` |
+| `interface-v12/run_agentic.py` | `befcbce7…0cb2ba9c` |
+| `interface-v12/test_assembler.py` | `1b0f98c4…90eb9a82` |
+| `interface-v12/test_surface.py` | `2ca301e5…070d568a` |
+| `interface-v12/audit_transcripts.py` | `3ef27892…5522271c` |
+| `interface-v12/freeze.py` | `4a305f8d…def47345` |
+| `interface-v12/seal.py` | `57a02c66…000328b8` |
+| `interface-v12/FREEZE-evm-bytecode-synth-v1.json` | `e0e194db…5bec837f` |
+| `interface-v12/RUN-FREEZE-V12.json` | `534ed579…cd6bce3e` |
+
+Full digests are recorded inside `FREEZE-evm-bytecode-synth-v1.json` and re-verified by the
+runner before a single model call is made.
+
+### What did not change
+
+| quantity | before Entry 10 | after Entry 10 |
+| --- | --- | --- |
+| `LLM-TASK-ELIGIBLE` | 7,954 anchors | **7,954 — unchanged** |
+| `LLM-MINEABLE-ELIGIBLE` | `NOT-YET-DETERMINED` | **`NOT-YET-DETERMINED` — unchanged** |
+| `REFERENCE-LLM-SOLVED` | 1 / 24 agentic (EVM 0/12, Solidity 1/12) | **unchanged — no episode run in this entry** |
+| Entries 4 and 6 | 0/24, `SINGLE-SHOT-REFERENCE-UNSOLVED` | **unchanged, values untouched** |
+| Entries 7, 8, 9 | sealed | **sealed and unedited; Entry 9's budget sentence corrected here, not rewritten** |
+| `interface-v11/` | sealed in Entry 8 | **not edited; every digest still hashes as sealed** |
+| the shipped checker | unmodified | **unmodified — v1.2 adds a tool, it does not touch the judge** |
+| `MAX_CODE_BYTES` | 192 | **192** |
+| corpus anchors consumed | 0 | **0** |
+| all ten buckets, conservation | 91,328 rows, PASS | unchanged, not re-run |
+
+### Boundary / non-claims (Entry 10)
+
+* **This entry seals a freeze, not a result.** No episode has been run under v1.2. Any
+  number that appears later belongs to a later entry.
+* **The freeze precedes the result, and will not be revisited after it.** Prompt, budget,
+  tools and bounds are fixed here. If the next measurement is another 0/12, that is the
+  measurement; the interface does not get adjusted afterwards to improve it.
+* **v1.2 removes a known bottleneck; it does not predict an outcome.** A10 shows a correct
+  program fits comfortably inside the bound through this tool. It says nothing about whether
+  the model will write one.
+* **No extrapolation.** `LLM-TASK-ELIGIBLE = 7,954` counts structurally valid problems and is
+  unchanged by any reference measurement in either direction. The LLM-mineable count stays
+  `NOT-YET-DETERMINED`. Entry 9's 1/24 is not multiplied out to the corpus, and neither will
+  whatever comes next.
+* **EVM and Solidity are never pooled**, and Solidity is not re-run.
+* **Closed local, offline, non-consensus.** `mineable_now = 0`. No paid API, no public
+  benchmark, no public mining, no leaderboard claim.
