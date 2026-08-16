@@ -1031,3 +1031,147 @@ therefore left to a future version rather than added quietly.
   eligibility (7,954) and model results stay separate, as in every prior entry.
 * **Closed local, offline, non-consensus.** `mineable_now = 0`. No paid API, no public
   benchmark, no public mining, no leaderboard claim.
+
+---
+
+## Entry 8 — 2026-08-16 · Entry 7 correction + LLM-MINER-INTERFACE-V1.1 frozen / still no episode run
+
+**Directive:** operator msg 3919 — *"check가 '처음 틀린 프로브 번호 + 사유'를 주므로 최대 1비트
+누출은 아닙니다 … 1비트 누출 주장 철회 … 제한된 적응형 피드백으로 명명 … check 출력은 고정
+형식만 허용 … 실제값·기대값·통과 개수·상태값 출력 금지 … 새 calibration challenge 24개를 결과
+전에 동결. 이전 challenge 재사용 금지."*
+
+This entry corrects Entry 7 and freezes the corrected interface. **No episode has been run
+and no number in this ledger changes.** Entry 7 stays exactly as sealed and is not edited;
+the correction lives here, which is what an append-only ledger is for.
+
+### The correction: Entry 7's leakage claim was wrong
+
+Entry 7 stated that each `check` call "yields at most one bit beyond what is already
+public". **That claim is withdrawn.** The operator caught the error: the reason code and
+the probe index are themselves information, so the leak is not one bit.
+
+The correct accounting, over the closed output format below:
+
+| family | distinct outputs per call | bits per call | ≤ 4 calls |
+| --- | --- | --- | --- |
+| `solidity-source-synth-v1` | 1 ACCEPT + 7 non-probe reasons + 24 probe indices = **32** | **5.000** | **≤ 20.00 bits** |
+| `evm-bytecode-synth-v1` | 1 ACCEPT + 6 non-probe reasons + 12 probe indices = **19** | **4.248** | **≤ 16.99 bits** |
+
+The property is renamed accordingly. It is not a one-bit oracle; it is
+**`LIMITED-ADAPTIVE-FEEDBACK`** — a bounded but genuinely adaptive signal that tells the
+miner *that* it is wrong and *where* the first divergence is.
+
+**What the corrected bound does and does not establish.** It does not say the feedback is
+negligible — it is real help, and it is meant to be. It says only that the feedback cannot
+*replace* solving: the obligation is 24 (or 12) expected 256-bit words, i.e. 6,144 (or
+3,072) bits, against ≤ 20.00 (or ≤ 16.99) bits of total feedback, which cannot determine
+even one word. Answer-freeness holds — for this reason, not the one Entry 7 gave.
+
+### `check` now has a fixed output format, and the stripping is proven
+
+The tool returns exactly `ACCEPT`, or `REJECT(reason_enum, first_probe_index)`, with the
+index present only for `PROBE-MISMATCH`.
+
+**Forbidden without exception:** expected values, observed values, any post-state, the
+number or fraction of probes passed, the probe *word* rather than its index, and compiler
+text, byte counts or any free-form detail.
+
+The reason strings the two shipped checkers return were **already fixed constants, not free
+strings**, so no checker was modified — the operator's "이미 enum이면 문서 정정만" case
+applies to the enum itself. But the checkers do return extra fields (a compiler detail on
+`COMPILE-FAILED`, a size on `CODE-SIZE-EXCEEDED`, the probe word on `PROBE-MISMATCH`), so
+the interface layer projects their output onto the closed format and drops the rest, as a
+**whitelist** — a field added to a checker later is excluded by default rather than leaking
+until someone notices.
+
+A gate battery proves the stripping instead of asserting it: **T1–T9, 14 tests, run once
+per family, both PASS** (3 skips on EVM and 1 on Solidity, all of them the deliberate
+`compile`-tool asymmetry). T2 is the strongest: it serialises every `check` output and
+searches it for every expected word, in decimal and in hex, and requires no match. T9 feeds
+the projection a synthetic verdict carrying `detail`, `gas_used`, `post_state` and
+`probes_passed`, and requires all four to be dropped.
+
+### Why v1.1 rather than a document-only correction
+
+The enum trigger did not fire. **I8 did**: Entry 7 said the agentic pass would reuse the
+challenges of Entries 4 and 6, and the operator forbids that. Replacing a clause is a
+version, so the corrected interface is frozen as `LLM-MINER-INTERFACE-V1.1`.
+
+### New challenges, frozen before any result
+
+The 24 representative anchors are unchanged — the same 12 EVM and 12 Solidity out-of-corpus
+anchors — but every one is issued a **fresh challenge at epoch 1**, and the freeze records
+each anchor's epoch-0 challenge and asserts the new one differs. Under each family's
+derivation a new epoch moves the constants, the slot and every probe word, so the required
+answer is genuinely different and nothing from the sealed single-shot transcripts carries
+over. **Zero corpus anchors are consumed.**
+
+A valid answer was confirmed to exist for all 24 instances at the new challenges, by
+witness, and then discarded (C9) — never shipped, never logged.
+
+### One change of mine, disclosed as mine
+
+Entry 7 defined the episode's submission as "the last source passed to `check`, or to
+`compile`". That loses an answer written in a turn that called no tool, which would
+understate the model for a formatting reason. v1.1 replaces it with a **standing
+submission**: the most recent extractable answer from any turn, tool call or not. The
+harness still never picks a tool on the model's behalf, so no budget is ever spent by a
+formatting accident, and the verdict is still a final harness check outside the budget.
+This is mine, made before any result existed, and is not part of the directive.
+
+### Sealed digests (Entry 8)
+
+Root: `local-docs/llm-mineable-census-p1-2026-08-16/`
+
+| artifact | role | sha256 |
+| --- | --- | --- |
+| `LLM-MINER-INTERFACE-V1.1.md` | the corrected interface, clauses C1–C7 | `f98051921f3e158afef063bf45353a8d57e61f89b6aea55ace6744f0a665f390` |
+| `interface-v11/RUN-FREEZE-V11.json` | model, decoding, budgets, both family freezes | `76469541aa3478188c3695fee8abaa15db6c3fc4cf80601ef0158abec055bf28` |
+| `interface-v11/FREEZE-evm-bytecode-synth-v1.json` | 12 new challenges, prompt digests, existence | `784118609d0b70839337db88ee31f64e4e86c7a0df77053acc752ee4d8e53611` |
+| `interface-v11/FREEZE-solidity-source-synth-v1.json` | 12 new challenges, prompt digests, existence | `bda74097e40f8dc01b770ef4592715e0bb8e9d90d956ab12c8b65ad4cf669d86` |
+| `interface-v11/surface.py` | the two tools, closed enum, budget accounting | `9b32183fd5b74c3e4d10195ba35bdd389636e070f00e459c418300f476efab09` |
+| `interface-v11/test_surface.py` | T1–T9 stripping and budget battery | `13ef61a3621cf7f03e15a886358ba7d1cf07cbd679ec7ac58881fb25187f129e` |
+| `interface-v11/protocol.py` | episode prompt splice and turn protocol | `ca7d228b2858d7ebae3e643afa45f32e0efa350b44c8cba7ff7f1f0c84aa689f` |
+| `interface-v11/episode.py` | the agentic loop | `4ba7f1e05456bb8fd4ca37b39c65dbd7924d89e198d085e0a27be6b4b24343c8` |
+| `interface-v11/instances.py` | the 24 instances at epoch 1 | `001281f2eac5d431ca7fcfdd9400d48ed2332c7cf136693ae8485c27585237a0` |
+| `interface-v11/run_agentic.py` | runner with drift refusal | `ca832361522059d34275c021bca2a4e506b106c77ee849f4f0e8a31d3b1e9f4c` |
+| `interface-v11/freeze.py` | per-family freeze builder | `22034dcf6b123dee8d3bb6fecd6564162cb3173c0c7a0313822d9187a66acfb9` |
+| `interface-v11/seal.py` | run-freeze builder | `cfc423951c35ca4348f71d2d1a7813a520f073c87bd67b84fafa47ffadb5a7c8` |
+
+### The episode prompt is a splice, not a rewrite
+
+The episode prompt is built from each family's already-frozen single-shot prompt, replacing
+only the submission contract and the output format. The family manifest, the official
+helper surface and the instance section are carried over **byte-for-byte**. The two
+profiles therefore differ in the interface and in nothing else, so a difference in the
+numbers cannot be blamed on a reworded problem statement.
+
+The runner re-derives every challenge and every episode-prompt digest before it starts and
+hard-stops on any drift. Both were exercised without invoking the model: 24/24 instances
+verified, and a deliberately altered bound file was refused with
+`HARD-STOP: interface-v11/protocol.py changed since the freeze`.
+
+### What did not change
+
+| quantity | before Entry 8 | after Entry 8 |
+| --- | --- | --- |
+| `LLM-TASK-ELIGIBLE` | 7,954 anchors | **7,954 — unchanged** |
+| `LLM-MINEABLE-ELIGIBLE` | `NOT-YET-DETERMINED` | **`NOT-YET-DETERMINED` — unchanged** |
+| Entries 4 and 6 | 0/24, `SINGLE-SHOT-REFERENCE-UNSOLVED` | **unchanged, values untouched** |
+| Entry 7 | sealed | **sealed and unedited; corrected here, not rewritten** |
+| budgets | 8 turns · 8 compile · 4 check · 24,576 tokens · 1,800 s | **unchanged** |
+| all ten buckets, conservation | 91,328 rows, PASS | unchanged, not re-run |
+
+### Boundary / non-claims (Entry 8)
+
+* **Nothing was measured.** No model ran, no instance was answered, no anchor was consumed.
+* **A withdrawn claim stays visible.** Entry 7's wrong sentence is not deleted from the
+  ledger; it is contradicted here, with the arithmetic that replaces it.
+* **The corrected bound is an upper bound on information, not a hardness proof.** It shows
+  the feedback cannot specify the answer. It does not show the problem is hard.
+* **The family asymmetry is not repaired.** `compile` exists only for source-code families,
+  so `evm-bytecode-synth-v1` is weaker under this interface. EVM and Solidity are tallied
+  separately and never pooled.
+* **Closed local, offline, non-consensus.** `mineable_now = 0`. No paid API, no public
+  benchmark, no public mining, no leaderboard claim.
