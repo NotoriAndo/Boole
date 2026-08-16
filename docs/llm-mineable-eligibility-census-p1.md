@@ -934,3 +934,100 @@ Root: `local-docs/llm-mineable-census-p1-2026-08-16/families/solidity-source-syn
 * **The one SPDX-duplicate failure is reported separately** because it is a packaging
   error, not a failure at the problem. Folding it into the mathematical failures would
   overstate the finding by one instance.
+
+---
+
+## Entry 7 — 2026-08-16 · LLM-MINER-INTERFACE-V1 frozen / no episode run, all sealed numbers unchanged
+
+**Directive:** operator msg 3917 — *"새 family를 더 만들기 전에 LLM-MINER-INTERFACE-v1 동결
+… 공식 compiler/checker만 도구로 허용 … 시도 횟수·토큰·시간을 전역 고정 … 컴파일 오류를 보고
+스스로 수정하는 agentic loop 허용 … 기존 단발 결과는 SINGLE-SHOT-REFERENCE-UNSOLVED로 영구
+보존 … 새 인터페이스는 별도 버전으로 같은 대표 24건을 정확히 1회 측정."*
+
+This entry seals an **interface specification only**. **No episode has been run, no model
+has been invoked, and no number in this ledger changes.** It is the freeze that must exist
+*before* any measurement, sealed while there is still nothing to bias it.
+
+### Why the interface, and not another family
+
+Entries 4 and 6 measured 0 ACCEPT out of 24 under one profile: a single attempt, no tools,
+no feedback, the whole program written blind. Entry 6's own diagnosis found that 10 of 12
+Solidity submissions attempted the correct mathematics and were lost to language-level
+mistakes a compiler names in one second — 0 of 12 used `unchecked`, which alone accounts
+for every probe mismatch.
+
+That profile measures something real, but it is not how a coding agent is used. Building
+more families on top of a mis-specified miner interface would multiply the mis-specification.
+
+### The prior results are preserved, not superseded
+
+Entries 4 and 6 keep every number exactly as sealed, under a permanent name:
+
+> **`SINGLE-SHOT-REFERENCE-UNSOLVED`** — one attempt, no tools, no feedback. 0/12 EVM,
+> 0/12 Solidity, 0/24 overall.
+
+A single-shot number and an agentic number are never averaged, summed, or substituted for
+one another. They are two named profiles over the same instances.
+
+### What the interface fixes (`LLM-MINER-INTERFACE-V1`, clauses I1–I9)
+
+| clause | content |
+| --- | --- |
+| I1 | the miner receives the shipped task and nothing more |
+| I2 | never: the answer, the witness, the generator, any expected value, per-instance hints, internet, a human |
+| I3 | exhaustive tool surface — `compile` and `check`, the official pinned components, nothing else |
+| I4 | global budgets, identical for every instance, fixed before any episode |
+| I5 | temperature 0, fixed seed, deterministic pinned tools, full transcript recorded |
+| I6 | forbidden: prompt edits after results, re-runs, budget raises after results, bound changes, per-instance adaptation |
+| I7 | labels, none of which is ever merged into `LLM-TASK-ELIGIBLE` |
+| I8 | exactly one pass over the same 24 sealed representatives; the harness decides the verdict |
+| I9 | hard stops that end the run rather than repair it |
+
+**Budgets (I4), fixed here and never tuned per problem:** 1 episode per instance · 8 model
+turns · 8 `compile` calls · 4 `check` calls · 24,576 generated tokens · 1,800 s wall clock ·
+0 human interventions.
+
+### The checker is an oracle — the bound is stated before the run, not after
+
+Exposing `check` as a tool must not let a miner *construct* an answer instead of computing
+one. `check` returns `ACCEPT`, or `REJECT` with its reason and the index of the first
+failing probe — **never an expected value, never a count of passing probes**. Each call
+therefore yields at most one bit beyond what is already public. Learning one expected
+256-bit word by querying costs on the order of `2**255` calls; the budget is 4. The oracle
+cannot substitute for solving, and C2/C8/C13 answer-freeness is unaffected.
+
+### An asymmetry between the two families, stated rather than hidden
+
+`compile` exists only for families whose submission is source code. `evm-bytecode-synth-v1`
+submits raw bytecode, so under v1 it has the checker and nothing else, and its agentic loop
+is genuinely weaker than Solidity's. The two families are **not comparable under v1**;
+their results are reported separately and never pooled. Fixing this would mean adding an
+assembler to the tool surface, which is outside the operator's stated surface and is
+therefore left to a future version rather than added quietly.
+
+### Sealed digest (Entry 7)
+
+| artifact | role | sha256 |
+| --- | --- | --- |
+| `local-docs/llm-mineable-census-p1-2026-08-16/LLM-MINER-INTERFACE-V1.md` | the frozen interface, clauses I1–I9 | `41febe7f88901f66f73176b92276d2026f4f309cd39900740b46db72a07c4562` |
+
+### What did not change
+
+| quantity | before Entry 7 | after Entry 7 |
+| --- | --- | --- |
+| `LLM-TASK-ELIGIBLE` | 7,954 anchors | **7,954 — unchanged** |
+| `LLM-MINEABLE-ELIGIBLE` | `NOT-YET-DETERMINED` | **`NOT-YET-DETERMINED` — unchanged** |
+| Entry 4 / Entry 6 results | 0/24 | **0/24, relabelled `SINGLE-SHOT-REFERENCE-UNSOLVED`, values untouched** |
+| all ten buckets, conservation | 91,328 rows, PASS | unchanged, not re-run |
+
+### Boundary / non-claims (Entry 7)
+
+* **Nothing was measured.** This entry seals a specification. No model ran, no instance was
+  answered, no anchor was consumed, and no approval to run a model exists at seal time.
+* **A frozen interface is not a prediction.** It does not claim the agentic profile will do
+  better than 0/24. It claims only that the question will be asked once, under fixed rules
+  written down in advance.
+* **`LLM-MINEABLE-ELIGIBLE` is not decided by this interface either.** Structural
+  eligibility (7,954) and model results stay separate, as in every prior entry.
+* **Closed local, offline, non-consensus.** `mineable_now = 0`. No paid API, no public
+  benchmark, no public mining, no leaderboard claim.
