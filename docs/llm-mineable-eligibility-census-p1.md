@@ -1175,3 +1175,182 @@ verified, and a deliberately altered bound file was refused with
   separately and never pooled.
 * **Closed local, offline, non-consensus.** `mineable_now = 0`. No paid API, no public
   benchmark, no public mining, no leaderboard claim.
+
+---
+
+## Entry 9 — 2026-08-16 · agentic reference measurement under LLM-MINER-INTERFACE-V1.1 / EVM 0/12, Solidity 1/12, LLM-TASK-ELIGIBLE unchanged at 7,954
+
+**Directive:** operator msg 3919 — *"그 뒤 gemma4:26b agentic 측정 24건을 승인합니다. EVM 12 /
+Solidity 12 별도 집계 · 각 task 정확히 1회 · 동결된 8턴·compile 8·check 4·24,576토큰·1,800초
+유지 · 사람·인터넷·정답 구성기·문제별 힌트 금지 · 인프라 오류는 모델 실패와 분리하고 재시도 금지 ·
+결과 후 prompt·예산·도구 변경 금지 · LLM-TASK-ELIGIBLE=7,954는 결과와 무관하게 유지 · 이번 실행은
+REFERENCE-LLM-SOLVED만 채움 · 보고 후 STOP, 새 family 자동 착수 금지."*
+
+### Result in one line
+
+The frozen agentic interface was run exactly once over each of the 24 representatives.
+**EVM `0 / 12`. Solidity `1 / 12`.** Zero infrastructure errors, zero retries. Both families
+remain **`AGENTIC-REFERENCE-UNSOLVED`**, because calibration requires at least one ACCEPT in
+each of a family's three patterns and Solidity's single ACCEPT sits in one pattern.
+`LLM-TASK-ELIGIBLE` stays **7,954**, untouched in either direction.
+
+### A correction to Entry 8, before the results
+
+Entry 8's leakage table is arithmetically wrong for Solidity. It recorded *"1 ACCEPT + 7
+non-probe reasons + **24 probe indices** = 32"*, giving 5.000 bits per call and ≤ 20.00 bits
+over four calls. **Both families carry 12 probes per instance, not 24.** The frozen surface
+was always correct; only Entry 8's description of it was not. The corrected accounting:
+
+| family | distinct outputs per call | bits per call | ≤ 4 calls | Entry 8 said |
+| --- | --- | --- | --- | --- |
+| `solidity-source-synth-v1` | 1 + 7 + 12 = **20** | **4.322** | **≤ 17.29 bits** | ~~32 / 5.000 / ≤ 20.00~~ |
+| `evm-bytecode-synth-v1` | 1 + 6 + 12 = **19** | **4.248** | **≤ 16.99 bits** | 19 / 4.248 / ≤ 16.99 — correct |
+
+Entry 8's companion sentence *"the obligation is 24 (or 12) expected 256-bit words, i.e.
+6,144 (or 3,072) bits"* is corrected the same way: the obligation is **12 words = 3,072
+bits in both families**.
+
+Both errors ran in the conservative direction — they overstated the feedback *and*
+overstated the obligation — so the answer-freeness conclusion is unchanged and slightly
+stronger: ≤ 17.29 bits of total feedback against a 3,072-bit obligation still cannot
+determine even one word. Entry 8 is not edited; the correction lives here.
+
+**This changes nothing executable.** No prompt, budget, tool, bound or enum was touched —
+the run used the same twelve-probe tasks it was frozen with, and the operator's
+"결과 후 prompt·예산·도구 변경 금지" is not implicated by fixing a sentence about them. The
+post-run audit below confirms every `first_probe_index` the model actually received was in
+`0..11`.
+
+### `evm-bytecode-synth-v1` — 0 / 12
+
+| quantity | value |
+| --- | --- |
+| measured / instances | **12 / 12** |
+| NOT-MEASURED (infrastructure) | **0** |
+| ACCEPT | **0 / 12** — `p1-minimal` 0/4, `p2-populated` 0/4, `p3-contract-adjacent` 0/4 |
+| final reasons | `MALFORMED-SUBMISSION` 6, `CODE-SIZE-EXCEEDED` 6 |
+| episode end | `SUBMIT` **12 / 12** — every episode was ended by the model, not by a budget |
+| turns · check calls | 51 · 39 (no `compile` tool in this family) |
+| tokens | 152,956 generated, 388,008 prompt |
+| wall clock | 2,253.0 s total |
+| family status | **`AGENTIC-REFERENCE-UNSOLVED`** |
+
+**Not one submission reached the behavioural comparison.** Of 39 in-episode `check` calls,
+25 returned `MALFORMED-SUBMISSION`, 12 returned `CODE-SIZE-EXCEEDED` and only **2** ever got
+as far as `PROBE-MISMATCH`. Eleven of the twelve final answers exceed the family's
+**192-byte** bound, most of them at roughly 2,044 bytes — about **10×** over — and the one
+submission that fit the bound (104 bytes) was malformed. The recurring 4,088–4,090 character
+length is the per-turn generation cap rendered as hex: the model emitted a maximum-length
+byte string rather than a short program.
+
+### `solidity-source-synth-v1` — 1 / 12
+
+| quantity | value |
+| --- | --- |
+| measured / instances | **12 / 12** |
+| NOT-MEASURED (infrastructure) | **0** |
+| ACCEPT | **1 / 12** — `p1-minimal` 1/4, `p2-library-interface` 0/4, `p3-inheritance-modifier` 0/4 |
+| final reasons | `PROBE-MISMATCH` 10, `COMPILE-FAILED` 1, ACCEPT 1 |
+| episode end | `TURN-BUDGET` 11, `SUBMIT` 1 (the accepted one) |
+| turns · compile calls · check calls | 92 · 60 · 27 |
+| tokens | 52,114 generated, 508,652 prompt |
+| wall clock | 788.2 s total |
+| family status | **`AGENTIC-REFERENCE-UNSOLVED`** |
+
+The accepted instance is `calibration/out-of-corpus/p1-minimal/2`: one failing compile, one
+successful compile, one `check` that returned ACCEPT, then `SUBMIT` — 4 turns, 30.1 s.
+
+### What the agentic loop changed, and what it did not
+
+Two halves of the interface behaved very differently, and the distinction matters more than
+the headline count.
+
+**The `compile` half worked, measurably.** In **12 / 12** Solidity episodes the model's
+*first* compile attempt failed. In **12 / 12** it subsequently reached a program that
+compiles, and **11 / 12** ended holding one. Compiler errors fed back into an edit loop did
+what they were supposed to do — that is a real capability difference from the single-shot
+profile, where a non-compiling answer was simply the end of the attempt.
+
+**The `check` half converted nothing.** Across both families there were **66** in-episode
+`check` calls and exactly **one** ACCEPT — and that one came on the model's *first* check of
+that instance, before any adaptive feedback existed. **Zero episodes turned an in-episode
+REJECT into a final ACCEPT.** The `LIMITED-ADAPTIVE-FEEDBACK` channel that Entry 8 was
+written to bound correctly produced, in this run, **no observed gain at all**. Ten Solidity
+episodes received `PROBE-MISMATCH` with a first-divergence index two or three times each and
+still finished wrong.
+
+So the single-shot → agentic delta of `0/24 → 1/24` is not evidence that the feedback oracle
+helps. On this evidence it is the compiler, not the checker, that the interface added.
+
+### Controls
+
+| control | EVM | Solidity |
+| --- | --- | --- |
+| adversarial submissions rejected (empty + constant, per instance) | **24 / 24** | **24 / 24** |
+| post-run leak audit | **PASS** | **PASS** |
+| harness→model messages scanned | 51 | 92 |
+| expected words searched × 5 renderings each | 144 | 288 |
+| recorded tool results scanned | 39 | 87 |
+| `first_probe_index` values, all in range `0..11` | 2 | 25 |
+
+`test_surface.py` proved the projection on constructed submissions *before* the run. The
+post-run audit re-proves it on the 24 episodes that actually happened: every message the
+harness sent the model was searched for every probe's expected value in decimal, bare hex,
+`0x` hex and 32-byte padded hex, and no match exists. Every recorded tool result stayed
+inside `ACCEPT | REJECT(reason_enum, first_probe_index)`. The audit script is read-only,
+written after the run, and is not part of the frozen surface; both family freezes were
+re-verified afterwards and still bind (`GATE-ONLY: 12/12` each).
+
+### Neither budget was the binding constraint
+
+No episode ended on `WALL-CLOCK` or `TOKEN-BUDGET`. The largest single episode generated
+20,480 of the 24,576 permitted tokens. EVM episodes ended because the model chose `SUBMIT`
+(12/12); Solidity episodes ended on the 8-turn cap (11/12). A larger token or time budget
+would not have changed these numbers — which is worth recording precisely because the
+budgets are now frozen and cannot be revised.
+
+### Sealed digests (Entry 9)
+
+Root: `local-docs/llm-mineable-census-p1-2026-08-16/interface-v11/`
+
+| artifact | role | sha256 |
+| --- | --- | --- |
+| `AGENTIC-RESULT-evm-bytecode-synth-v1.json` | 12 EVM rows, per-pattern tally, controls | `cc05b3cd4fa83fe2c64a4065eb1fcea82446d9055e730791fec491d479a70448` |
+| `AGENTIC-RESULT-solidity-source-synth-v1.json` | 12 Solidity rows, per-pattern tally, controls | `e8e9e3ce9bbaaee0003a7702a5871cc9872694ce64d94f72f591a9fe4ca92002` |
+| `audit_transcripts.py` | post-run leak audit, read-only, not part of the frozen surface | `6c6ac088cca351b067146aeced6bc48e8a501a43754555378f7998a5ac8197ad` |
+
+Both result files record the freeze digests they ran under —
+`784118609d0b7083…` (EVM), `bda74097e40f8dc0…` (Solidity), `76469541aa347818…` (run freeze) —
+unchanged from Entry 8. 24 full transcripts are retained in the git-ignored sandbox.
+
+### What did not change
+
+| quantity | before Entry 9 | after Entry 9 |
+| --- | --- | --- |
+| `LLM-TASK-ELIGIBLE` | 7,954 anchors | **7,954 — unchanged, as the directive requires** |
+| `LLM-MINEABLE-ELIGIBLE` | `NOT-YET-DETERMINED` | **`NOT-YET-DETERMINED` — unchanged** |
+| `REFERENCE-LLM-SOLVED` | NOT-MEASURED | **1 / 24 under the agentic profile — EVM 0/12, Solidity 1/12, never merged into the above** |
+| Entries 4 and 6 | 0/24, `SINGLE-SHOT-REFERENCE-UNSOLVED` | **unchanged, values untouched** |
+| Entries 7 and 8 | sealed | **sealed and unedited; Entry 8's arithmetic corrected here, not rewritten** |
+| budgets, prompt, tools, bounds | frozen in Entry 8 | **unchanged, and now unchangeable — results exist** |
+| corpus anchors consumed | 0 | **0 — the 24 representatives are out-of-corpus** |
+| all ten buckets, conservation | 91,328 rows, PASS | unchanged, not re-run |
+
+### Boundary / non-claims (Entry 9)
+
+* **1 / 24 is a reference measurement, not a capability claim.** One local model, one
+  epoch of challenges, one episode per instance, no retries. It does not bound what this
+  model could do at another temperature, another epoch, or with a repaired EVM interface.
+* **`AGENTIC-REFERENCE-UNSOLVED` is not a deletion.** No row was removed, no bucket changed,
+  no anchor consumed. Structural eligibility and reference solvability stay separate labels.
+* **EVM and Solidity are never pooled.** The `0/12` and the `1/12` are separate results of
+  separate families under a deliberately asymmetric interface — EVM has no `compile` tool,
+  and its failure profile (formatting and size, not behaviour) is exactly what that
+  asymmetry predicts. Repairing it would be a new interface version and a new measurement,
+  not a re-run of this one.
+* **The feedback oracle showed no measurable benefit here.** Reporting the `0/24 → 1/24`
+  delta as evidence that adaptive checking helps would misread this run.
+* **No re-run.** These numbers stand as measured. The gate was frozen before results
+  existed and is not revisited now that they do.
+* **Closed local, offline, non-consensus.** `mineable_now = 0`. No paid API, no public
+  benchmark, no public mining, no leaderboard claim.
