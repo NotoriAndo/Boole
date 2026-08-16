@@ -1774,3 +1774,196 @@ re-attributed to a different freeze after the fact.
   were fixed in Entry 10 and stay fixed.
 * **Closed local, offline, non-consensus.** `mineable_now = 0`. No paid API, no public
   benchmark, no public mining, no leaderboard claim.
+
+---
+
+## Entry 12 — MULTI-DOMAIN-LLM-FAMILY-V1: a corrected canonical identity, four calibrated families, and the first reference-LLM-calibrated issuable-template count
+
+Sealed 2026-08-16. Append-only: Entries 1–11 and the sealed figure of 7,954
+`CURRENTLY-GATED-LLM-TASK-ANCHORS` are unchanged by this entry.
+
+### 12.1 What this wave did
+
+One wave over the whole `RAW-MATERIAL-LEDGER` of **91,328 rows** (evm, solidity, rust,
+zk-native, ethereum-consensus, lean). The object was not to measure proving time or memory
+— no SP1 work, no cycle or memory measurement — but to decide, per domain, whether a real
+LLM task family can be built from the material at all, and then to count how many distinct
+templates such a family can actually issue.
+
+The definition was frozen first, before any adapter was written and before any model call:
+
+> `REFERENCE-LLM-CALIBRATED-ISSUABLE-TEMPLATES-V1` — unique task templates that satisfy a
+> fresh semantic challenge, expose no answer or witness, verify deterministically in
+> public, reject trivial / fixed / cross-used answers, pass a reference-LLM 12/12 gate, and
+> fully verify on a reference instance.
+
+It is used as a versioned `LLM-MINEABLE-ELIGIBLE-V1`. It is **not** an absolute total over
+all LLMs or all seeds.
+
+### 12.2 The normalization was defective, and was corrected before the census
+
+The first normalization folded the 91,328 rows onto 77,783 templates. A pre-census gate,
+run at the operator's instruction, found that the conservation identity balanced but the
+row-level mapping did not survive inspection:
+
+* **49 rows were merged across different task units** by a blind content key
+  (`domain + input_digest + oracle_digest`). Eight of them were in ethereum-consensus, the
+  only domain that produces the final number: `epoch_processing/inactivity_updates` and
+  `epoch_processing/rewards_and_penalties` over the same pre-state both leave that state
+  unchanged, so their input and oracle digests collide although they are two different
+  handlers. The other 41 were in evm — for example `test_ranges_example.py` merged onto
+  `test_labels_example.py`.
+* **1,556 rows were dropped.** A fold whose target row was absent from the ledger was
+  silently deleted rather than promoted, contradicting the canonicalizer's own documented
+  intent.
+* **Declared lineage was treated as evidence of identity.** A parent/child or supersedes
+  declaration merged rows on its own.
+
+That image is preserved, not deleted, as `SUPERSEDED-NORMALIZATION-DEFECT`
+(77,783 templates + 13,545 folded rows), and the census was stopped before it ran.
+
+**`CANONICAL-ISSUANCE-IDENTITY-V2`** replaces it. Identity is bound to intrinsic facts
+only, in eight components: `domain`, `family`, `task_kind`, `handler`, `fork`, `revision`
+(`source_commit`), `compile_setting` (the consensus preset — `mainnet` and `minimal` are
+different settings), and `semantic_locator` (the exact address of the material, path plus
+in-file fragment). Equal identity, and nothing else, makes one template.
+
+Explicitly **not** identity: `input_digest`, `oracle_digest` (two handlers that both leave
+a pre-state unchanged share both), `duplicate_lineage` (provenance only), `corpus` (a
+registration, not a question), `unit` (a granularity label, not a question).
+
+Three rules were pinned as tests before the corrected normalization was written, and all
+six tests in `test_identity.py` pass:
+
+1. equal input and oracle digests with a different handler or task kind ⇒ separate
+   templates;
+2. a lineage declaration alone never merges — only an equal identity may;
+3. a fold naming an absent target raises immediately and never drops the row.
+
+**Corrected conservation, re-verified row by row over all 91,328 rows:**
+
+```
+91,328 = 87,235 unique templates + 4,093 identical-identity rows
+```
+
+Every row resolves to exactly one template; no row appears twice; no row is unmapped.
+Per domain: ethereum-consensus 7,111 · evm 20,036 · rust 29,609 · solidity 12,931 ·
+zk-native 17,548.
+
+**Lineage re-audit** — every declared fold re-judged under V2, merged only on equal
+identity: `cross-corpus-superseded-by`/`supersedes` 1,670 pairs MERGED (same file, same
+revision, two corpora); `task-unit-of-anchor` 2,423 MERGED, 81 SEPARATE;
+`cross-corpus-parent-of` 3,492 SEPARATE (1,937 identity differs, 1,555 no target row);
+`subrow-of-bundle` 5,726 SEPARATE; `intra-corpus-content-clone` 79 SEPARATE;
+`intra-corpus-duplicate` 1 SEPARATE. Every separation was on `handler` and
+`semantic_locator` — a different address inside the file. All 39 evm rows that V1 had
+folded on lineage alone across a task unit are now separate templates.
+
+### 12.3 What was frozen before any model call
+
+Six domain adapters were designed before any result existed. Two were terminated up front
+and are **not** counted as measured zeroes: **zk-native — `NO-DETERMINISTIC-FAMILY`**, and
+**lean — `CORPUS-NOT-MATERIALIZED`** (no real corpus; probing `lean --version` pulled an
+elan Lean 4.33.0 toolchain, which is recorded and was not used as a corpus).
+
+For each of the four remaining families, twelve out-of-corpus representatives (3 patterns ×
+4), the rendered prompts, the budget, the fixtures and the PASS criterion were hash-frozen
+before any model call. Existence-then-discard ran first: a valid answer was constructed,
+verified and discarded, keeping only its digest, its size and the ACCEPT. All four families
+froze clean — existence 12/12, adversarial controls 60 rows and 0 ACCEPT each, cross-task
+replay PASS, `UNIVERSAL-ANSWER` scan PASS.
+
+The common attack gate rejects empty/no-op, always-return/revert, the public original, a
+constant answer, a fixed patch, a universal template, a lookup table, a sibling-challenge
+answer, wrong task/seed/source/policy, and cross-task or cross-seed reuse.
+
+### 12.4 Reference-LLM calibration — not re-run for this entry
+
+Local offline **gemma4:26b** only (`5571076f3d70`, 25.8B, Q4_K_M, ollama on loopback, no
+network egress), temperature 0, fixed seed 42, exactly 1 attempt, 0 retries, 0 manual
+fixes, hidden verification exactly once after commitment. Families were run **sequentially,
+one at a time**.
+
+| family | result | ACCEPT |
+|---|---|---|
+| `rust-op-synth-v1` | `REFERENCE-LLM-CALIBRATED` | 12/12 |
+| `consensus-epoch-patch-v1` | `REFERENCE-LLM-CALIBRATED` | 12/12 |
+| `evm-op-synth-v1` | `FAMILY-CALIBRATION-FAILED` | 3/12 |
+| `solidity-op-synth-v1` | `FAMILY-CALIBRATION-FAILED` | 0/12 |
+
+All four: 0 leak findings, 0 trivial accepts, 0 cross-reuse accepts, 0 infrastructure
+errors. These results predate the normalization correction and were **not re-run**; the
+correction changed the denominator, not the model evidence. No threshold, prompt, tool,
+budget or problem set was changed after results, and no v2 of any family was made.
+
+### 12.5 The census
+
+Only a family that calibrated 12/12 is censused, with no further LLM calls, exactly one
+reference seed per template, 0 retries and 0 manual exceptions. Every template lands in
+exactly one bucket by first match.
+
+The eligibility rule, precommitted before any verdict: **a template is ELIGIBLE only when
+its own material is load-bearing in the challenge.** Seed space and epoch reissues are
+never multiplied into the number.
+
+```
+ALREADY-COUNTED           7,954      NONDETERMINISTIC            0
+FAMILY-UNSUPPORTED       72,170      RESOURCE-EXCEEDED           0
+NO-FRESH-INSTANCE         3,042      ORACLE-OR-CHECK-FAILED     33
+DUPLICATE                 1,816      ERROR                     180
+                                     TRIVIAL-OR-UNIVERSAL        0
+                                     ELIGIBLE                2,040
+                                     ------------------------------
+                                     TOTAL                  87,235
+```
+
+Conservation BALANCED overall and per domain. All 2,040 ELIGIBLE templates are
+ethereum-consensus; the sealed 7,954 are evm and solidity, so the overlap is zero by
+construction — ALREADY-COUNTED is the first bucket.
+
+### 12.6 The number
+
+```
+RAW-MATERIAL-LEDGER                                 = 91,328 rows
+CANONICAL-ISSUANCE-TEMPLATE (identity v2)           = 87,235 templates
+REFERENCE-LLM-CALIBRATED-ISSUABLE-TEMPLATES-V1      =  2,040
+LLM-MINEABLE-ELIGIBLE-V1                            =  2,040
+new unique increment, no overlap with the sealed 7,954 =  2,040
+mineable_now                                        =      0
+```
+
+### 12.7 Disclosures
+
+* **`rust-op-synth-v1` calibrated 12/12 and still contributes 0 templates.** It synthesises
+  its own function; a rustc UI test file is not read by the challenge, so no rust template's
+  material is load-bearing. Under the precommitted claims table those 29,609 templates land
+  in `FAMILY-UNSUPPORTED`; `NO-FRESH-INSTANCE` would describe them more precisely. The table
+  was **not** edited after results — ELIGIBLE is 0 either way. This is the honest reading of
+  a 12/12 family that cannot bind its domain's material.
+* **180 ERROR** — all `decode pre` failures on cross-fork `transition/core` and `fork/fork`
+  cases, where the stored pre-state is the previous fork's type. Recorded, not hidden.
+* **33 ORACLE-OR-CHECK-FAILED** — all `COLLATERAL-DISTURBANCE`: the checker rejected because
+  the reference answer perturbed state outside the audited set. The checker working, not a
+  leak.
+* **3,042 NO-FRESH-INSTANCE** — electra 1,451 and fulu 1,429 are outside the driver's
+  supported fork set, and 162 cases have no `pre.ssz_snappy` on disk.
+* **Locator-contained templates** — 5,726 solidity and 81 rust templates are sub-row
+  locators whose bundle is also a template. V2 keeps them separate because merging them
+  would need the lineage declaration V2 forbids as identity evidence. Neither domain
+  contributes an ELIGIBLE template, so the final number is unaffected either way.
+* **The precommitted census script hash is superseded.** `CENSUS-RULES-PRECOMMIT.json`
+  pinned `455331866c1d0377…`; the corrected script is `1dd6e2274ff896e6…`. It changed only
+  in what it reads (`templates-v2.jsonl`), how many templates it expects (87,235, not
+  77,783), and that ALREADY-COUNTED is resolved through the V2 row-level mapping. Bucket
+  order, bucket definitions, the eligibility rule, the dedup key, the per-template budget,
+  seeds per template, retries, manual exceptions, LLM calls in census and the supported
+  fork set are unchanged.
+
+### 12.8 Not a claim
+
+This is a reference-LLM-calibrated issuable-template count under one frozen local model,
+one frozen prompt, one frozen budget and one frozen fixture set. It is **not** an absolute
+total over all LLMs or all seeds, and it is not a statement about any model's general
+ability. Model-solved representative counts are never mixed with structural census counts.
+Closed local, offline, non-consensus. `mineable_now = 0`. No paid API, no other model, no
+public benchmark, no public mining, no leaderboard claim.
