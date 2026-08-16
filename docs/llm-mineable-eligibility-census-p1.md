@@ -375,3 +375,147 @@ remains `NEEDS-SPEC`. A wrong reason was corrected, not a rule.
 * This record wires **no** consensus / BF.7 / reward / Base path. Closed-local, offline,
   non-consensus evidence — **not** public-network mining, **no** paid-API benchmark,
   **no** leaderboard claim. `mineable_now = 0`.
+
+---
+
+## Entry 4 — 2026-08-16 · reference-LLM calibration gate / family = REFERENCE-UNSOLVED, LLM-TASK-ELIGIBLE unchanged at 6,755
+
+### Result in one line
+
+A local, offline model was run once against twelve **out-of-corpus** instances of the
+gated family under parameters frozen before any output existed, produced **0 / 12 ACCEPT**,
+and the family is therefore recorded **`REFERENCE-UNSOLVED`** — while
+**`LLM-TASK-ELIGIBLE` stays exactly 6,755, neither deleted nor reduced**, because the two
+facts are separate metrics and are kept separate.
+
+### Why this gate came before the second family
+
+Entry 3 established that 6,755 instances are *well-posed and answerable* — a witness
+proves an answer exists. It established nothing about whether a model can find one.
+Gating a second family before testing that would repeat the earlier mistake of stacking
+eligibility counts on an unmeasured assumption. So the reference-LLM gate ran first.
+
+### Frozen before any model output existed
+
+`RUN-FREEZE.json` was written by `freeze.py`, which refuses to overwrite an existing
+freeze, and pins:
+
+| frozen item | value |
+| --- | --- |
+| model | `gemma4:26b`, 25.8B, Q4_K_M, ollama id `5571076f3d70` |
+| weights blob sha256 | `7121486771cbfe218851513210c40b35dbdee93ab1ef43fe36283c883980f0df` |
+| runtime | local loopback only, no network egress |
+| temperature / seed | `0` / `42` |
+| token limit | `num_predict = 2048` |
+| attempts / retries / feedback | `1` / `0` / `0` |
+| wall-clock limit | 1200 s per instance |
+| instances | 12 = 3 patterns × 4, each with its challenge and prompt sha256 |
+| pass rule | ≥1 ACCEPT in **each** pattern **and** all adversarial submissions REJECTED |
+| failure rule | 6,755 is NOT deleted and NOT reduced; family becomes `REFERENCE-UNSOLVED` |
+
+`run.py` re-verified all six file bindings (**6 / 6 MATCH**) and re-derived every challenge
+and prompt digest before contacting the model, with HARD-STOP on any drift. The bindings
+were re-verified again at seal time: still **6 / 6 MATCH**.
+
+### The twelve instances are outside the corpus
+
+The anchors were synthesised deterministically from the seed `boole-calibration-3909`, not
+drawn from the census corpus. **`corpus_candidates_consumed = 0`** — the sealed 6,755 is
+untouched and uncontaminated.
+
+| pattern | frozen pre-state | why |
+| --- | --- | --- |
+| `p1-minimal` | funded sender only | the bare case |
+| `p2-populated` | sender plus unrelated accounts holding balance and storage | irrelevant state must not help |
+| `p3-contract-adjacent` | sender plus a **real contract with code and storage** | the model can see published bytecode and may be tempted to copy it |
+
+The family itself — checker, challenge derivation, formula, 192-byte bound — is byte-identical
+to the one gated at 14/14. Only the anchors are new.
+
+### What the model was and was not given
+
+The prompt follows the repo's fixed structure: submission contract → family manifest →
+official helper surface → output format → instance. Everything above `# INSTANCE` is
+**identical across all twelve**. No per-instance hint, no cheat sheet, no worked recipe, no
+opcode sequence. No tools, no internet, no compiler, no execution environment, no access to
+the witness constructor.
+
+### Measurements
+
+| measurement | value |
+| --- | --- |
+| ACCEPT | **0 / 12** — `p1-minimal` 0/4, `p2-populated` 0/4, `p3-contract-adjacent` 0/4 |
+| REJECT reasons | `MALFORMED-SUBMISSION` 8, `CODE-SIZE-EXCEEDED` 4 |
+| solve time | 5.4 s min / 26.7 s max / 293.2 s total |
+| generated tokens | 22,528 total; 11 / 12 stopped at the 2,048 cap |
+| prompt tokens | 24,173 total |
+| adversarial: empty / constant / published-fixture | **36 / 36 REJECTED** |
+
+The checker behaved correctly on every adversarial submission, including the published
+contract bytecode visible in the `p3-contract-adjacent` pre-state. The failure is the
+model's, not the checker's.
+
+### Diagnosis — truncation or no attempt?
+
+11 of 12 replies stopped at the frozen token cap, which raises a fair question: were these
+correct answers cut off? `analyze.py` answers it with facts independent of the cap, reading
+only, changing no gate and no parameter:
+
+| fact | value | what it settles |
+| --- | --- | --- |
+| reply contained a well-formed `ANSWER:` line | 12 / 12 | not a parsing artifact |
+| submission contains `SSTORE` (0x55) anywhere | **0 / 12** | the task is unsatisfiable without writing storage — these are not partial solutions at any length |
+| submission embeds challenge constant `A` or `B` | **0 / 12** | a correct answer must carry a per-instance constant; none does |
+| body is majority one repeated unit | 11 / 12 | a decoding loop, not an interrupted construction |
+
+The longest submission is 1,022 bytes of which **93 % is the unit `5b6000815260206000f3`
+repeated 96 times**, after a memorised compiler-style prologue. The dominant failure mode is
+recall-then-loop: the model emitted boilerplate it did not need and never attempted the
+required arithmetic.
+
+**The frozen parameters were deliberately NOT changed after these results were seen.** No
+token budget was raised, no retry was added, no instance was re-run. Adjusting a gate to
+improve its own outcome is the failure this ledger exists to prevent.
+
+### Effect on the sealed numbers — none
+
+| quantity | before | after |
+| --- | --- | --- |
+| `LLM-TASK-ELIGIBLE` | 6,755 anchors | **6,755 anchors — unchanged** |
+| `REFERENCE-LLM-SOLVED` | NOT-MEASURED | **0 / 12 under this frozen regime**, never merged into the above |
+| family status | gated 14/14 | gated 14/14 **and** `REFERENCE-UNSOLVED` |
+| all ten buckets, conservation | 91,328 rows, PASS | unchanged, not re-run |
+| `LLM-MINEABLE-ELIGIBLE` | NOT-YET-DETERMINED | **NOT-YET-DETERMINED** |
+
+The two labels coexist on the same family by design: *the instances are answerable* and
+*this model did not answer them* are different claims, and merging them in either direction
+would destroy information.
+
+### Sealed digests (Entry 4)
+
+| artifact | what it is | sha256 |
+| --- | --- | --- |
+| `calibration/RUN-FREEZE.json` | frozen before any output | `8f9340d8d3e934043fa67514334271693bd3dca3a2f482e4f64b8b4c8e5af412` |
+| `calibration/anchors.py` | 12 out-of-corpus anchors | `6d9c9e2883e541efd67e82cf057bbd3d4bf825ac48e41214473c37fb6c9a6e83` |
+| `calibration/prompt.py` | frozen prompt, no per-instance hint | `5c59e804cdf958772dfdb82304aa6f9132e07cb0e42daf8872ef2e13406a7082` |
+| `calibration/freeze.py` | writes the freeze, refuses to rewrite | `06b91843bc7529e97072a15bb23f4be2c828797fe81c3770e397d932a7d9de7c` |
+| `calibration/run.py` | binding gate + one attempt per instance | `d6f388528f22f8eb8c8ce99b86fa0bfc3481517d8adde9eccd489ff6a8cd8008` |
+| `calibration/CALIBRATION-RESULT.json` | verdicts, times, tokens, adversarial | `7abc610eef524a14f7479c5b5fb1f0b20bad07271fcd2e1409a7f06ede3db9ae` |
+| `calibration/analyze.py` | read-only diagnosis | `b1046262148d7f6b2b1c9ee2dcb31ccd59d674861903e2040ff909c692f3eedd` |
+| `calibration/DIAGNOSTIC.json` | truncation-vs-no-attempt evidence | `b6091e4324a777aaab1755a1caef27acc842449dd65fc203f932525774766c57` |
+
+### Boundary / non-claims (Entry 4)
+
+* **0 / 12 does not mean the family is unsolvable, and it does not mean this model cannot
+  solve it.** It measures one model in one frozen regime — temperature 0, seed 42, 2,048
+  tokens, one attempt, no retry, no feedback. A different budget or a different model is a
+  different measurement and needs its own freeze.
+* **`REFERENCE-UNSOLVED` is not a deletion.** No row was removed, no bucket changed, no
+  conservation identity was re-run. `LLM-TASK-ELIGIBLE = 6,755` stands on the witness
+  evidence sealed in Entry 3.
+* `REFERENCE-LLM-SOLVED` is never merged into `LLM-TASK-ELIGIBLE`, in this entry or any
+  future one.
+* The model ran **locally over loopback with no network egress**, on operator approval for
+  this closed gate only. **No paid API, no public benchmark, no leaderboard claim, not
+  public-network mining.**
+* This record wires **no** consensus / BF.7 / reward / Base path. `mineable_now = 0`.
