@@ -1563,3 +1563,214 @@ runner before a single model call is made.
 * **EVM and Solidity are never pooled**, and Solidity is not re-run.
 * **Closed local, offline, non-consensus.** `mineable_now = 0`. No paid API, no public
   benchmark, no public mining, no leaderboard claim.
+
+---
+
+## Entry 11 — 2026-08-16 · agentic reference measurement under LLM-MINER-INTERFACE-V1.2 / EVM 3/12 at epoch 2, family still AGENTIC-REFERENCE-UNSOLVED
+
+**Directive: operator msg 3928** — *"추가 테스트를 늘리지 말고 PR #139 CI 초록 후 12건을 딱 한 번
+측정하면 됩니다."* One measurement, twelve instances, one episode each, no retries, run after
+Entry 10 was merged to `main`.
+
+Entries 1–10 stay exactly as sealed and are **not edited**. Two wording corrections the
+operator required on Entry 10 are recorded here as corrections, in the same append-only way
+Entry 8 corrected Entry 7 and Entry 10 corrected Entry 9. Both are about *how the experiment
+is described*, not about what was executed: the frozen files, the freeze digests and the run
+are all unaffected by them, which is exactly why editing the sealed text would have been the
+wrong repair — it would have broken the hash freeze to fix a sentence.
+
+### Correction A — what A10 is evidence of
+
+Entry 10 introduced the pre-run existence gate as *"A10, the assertion that matters"* and
+leaned on it as the thing that would make a repeat 0/12 interpretable. The operator's
+correction, adopted verbatim as the reading of record:
+
+> A10은 "유효한 답을 192바이트 안에서 표현할 수 있다"는 증거입니다. "모델에게 쉽다"는 증거는 아닙니다.
+
+A10 assembled a correct program to 106 bytes against the 192-byte bound and the unchanged
+checker returned ACCEPT. That establishes **expressibility**: a valid answer *can be written*
+in this assembly language, assembled by this tool, inside this bound, and accepted by this
+judge. It establishes nothing about difficulty for a model — the program was written by the
+harness author with the answer in hand, then discarded (C9). Any sentence that slides from
+"a valid answer fits" to "the task is easy" is not supported by A10 and is not made here.
+
+### Correction B — the changed variable, stated accurately
+
+Entry 10 says *"One variable changes: the assembler"* (and, in `LLM-MINER-INTERFACE-V1.2.md`
+D1/D7, *"v1.2 changes exactly one thing"* and *"v1.1 and v1.2 differ in the interface
+alone"*). That is imprecise, because the challenges are new as well. The operator's correction,
+adopted verbatim as the phrasing of record:
+
+> fresh challenge도 바뀌므로 엄밀히는 변수 하나만 바뀐 실험은 아닙니다. "의도적으로 바꾼 인터페이스
+> 요소는 어셈블러뿐이며, 챌린지는 같은 규칙으로 새로 발급했다"가 정확합니다.
+
+So, for the record and for every future citation of this comparison: **the only interface
+element deliberately changed is the assembler; the challenges were newly issued under the same
+rules** (epoch 2, same generator, same twelve out-of-corpus anchors, asserted different from
+epochs 0 and 1). This is not a one-variable experiment. The v1.1 → v1.2 comparison below is
+read with that in view, and the strong part of it — the reject reasons moving off the format
+step entirely — is a comparison of *failure modes*, which fresh challenges do not manufacture.
+
+### The measurement
+
+`LLM-MINER-INTERFACE-V1.2`, `evm-bytecode-synth-v1`, epoch-2 challenges, one episode per
+instance, no retry, verdict decided at the end by the unchanged checker on the last
+extractable answer (C4). Model, weights digest, decoding parameters and every budget carried
+verbatim from the v1.1 run freeze; `seal.py` hard-stops on any budget drift and did not fire.
+The runner re-verified all 15 frozen digests (`15/15 MATCH`) before the first model call.
+
+| # | anchor (pattern/n) | verdict | reason | turns | assemble | check | s | tok | ended_by |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `p1-minimal/0` | **REJECT** | PROBE-MISMATCH | 7 | 2 | 4 | 20.4 | 849 | SUBMIT |
+| 2 | `p1-minimal/1` | **REJECT** | PROBE-MISMATCH | 8 | 5 | 3 | 200.1 | 13464 | TURN-BUDGET |
+| 3 | `p1-minimal/2` | **REJECT** | PROBE-MISMATCH | 8 | 5 | 2 | 55.4 | 4006 | TURN-BUDGET |
+| 4 | `p1-minimal/3` | **REJECT** | PROBE-MISMATCH | 8 | 5 | 3 | 21.5 | 1252 | TURN-BUDGET |
+| 5 | `p2-populated/0` | **REJECT** | PROBE-MISMATCH | 8 | 4 | 3 | 110.3 | 7984 | TURN-BUDGET |
+| 6 | `p2-populated/1` | **REJECT** | PROBE-MISMATCH | 8 | 4 | 3 | 54.1 | 3839 | TURN-BUDGET |
+| 7 | `p2-populated/2` | **ACCEPT** | — | 4 | 2 | 1 | 14.4 | 891 | SUBMIT |
+| 8 | `p2-populated/3` | **ACCEPT** | — | 8 | 3 | 3 | 32.9 | 2336 | SUBMIT |
+| 9 | `p3-contract-adjacent/0` | **ACCEPT** | — | 8 | 5 | 2 | 81.7 | 5147 | TURN-BUDGET |
+| 10 | `p3-contract-adjacent/1` | **REJECT** | PROBE-MISMATCH | 8 | 4 | 3 | 79.2 | 5657 | TURN-BUDGET |
+| 11 | `p3-contract-adjacent/2` | **REJECT** | PROBE-MISMATCH | 8 | 4 | 2 | 21.3 | 1358 | TURN-BUDGET |
+| 12 | `p3-contract-adjacent/3` | **REJECT** | ASSEMBLE-FAILED | 8 | 4 | 3 | 99.0 | 6396 | TURN-BUDGET |
+
+| | value |
+| --- | --- |
+| instances / measured / not measured (infrastructure) | 12 / 12 / **0** |
+| accepted | **3** |
+| reject reasons | PROBE-MISMATCH 8, ASSEMBLE-FAILED 1 |
+| per pattern | p1-minimal **0/4**, p2-populated **2/4**, p3-contract-adjacent **1/4** |
+| `family_status` | **`AGENTIC-REFERENCE-UNSOLVED`** |
+| totals | 91 turns, 47 assemble calls, 32 check calls, 790.3 s, 53,179 generated tokens, 508,269 prompt tokens |
+| adversarial controls | **96 / 96 REJECT** |
+
+The family stays `AGENTIC-REFERENCE-UNSOLVED`. The calibration bar set in Entry 3 requires at
+least one ACCEPT in **every** representative pattern, and `p1-minimal` is 0/4. Three accepted
+instances do not clear it, and the bar is not lowered now that a result exists.
+
+### v1.1 → v1.2: what moved, and what that is worth
+
+| | Entry 9 (v1.1, epoch 1) | Entry 11 (v1.2, epoch 2) |
+| --- | --- | --- |
+| EVM accepted | 0 / 12 | **3 / 12** |
+| reject reasons | MALFORMED-SUBMISSION 6, CODE-SIZE-EXCEEDED 6 | PROBE-MISMATCH 8, **ASSEMBLE-FAILED 1** |
+| instances that reached execution | **0 / 12** | **11 / 12** |
+| turns / tool calls | 51 turns, 0 compile, 39 check | 91 turns, 47 assemble, 32 check |
+| generated tokens | 152,956 | 53,179 |
+| wall clock | 2,253.0 s | 790.3 s |
+| infrastructure `NOT-MEASURED` | 0 | 0 |
+
+The load-bearing row is the third. Under v1.1 not one of the twelve answers survived the
+format and size step, so the checker never executed a single program: the measurement could
+not see the reasoning step at all. Under v1.2, eleven of twelve reached execution and were
+judged on what the program actually computed. The format wall went from 12/12 to 1/12.
+
+That is a statement about the interface, and it is the one thing this pair of runs supports
+well. The 0 → 3 change in accepted instances is weaker evidence, because the challenges are
+new (Correction B) and twelve instances is a small sample.
+
+### What the tool logs show, including the parts that cut against a clean story
+
+* **The assembler functioned as a repair loop, not as a one-shot translator.** The first
+  `assemble` call failed in **5 / 12** episodes. All **12 / 12** eventually reached a program
+  that assembled, and **11 / 12** ended holding one. Removing hand-encoding did not make the
+  model's first attempt syntactically correct; it made the mistake *recoverable inside the
+  episode*, which hand-encoded hex never was.
+* **`check` converted a REJECT into an ACCEPT exactly once.** In `p2-populated/3` the
+  sequence was PROBE-MISMATCH → PROBE-MISMATCH → ACCEPT. Entry 9 recorded zero such
+  conversions. One conversion in twelve episodes is a single observation, not a demonstrated
+  capability, and `LIMITED-ADAPTIVE-FEEDBACK` still bounds the channel at ≤ 17.29 bits per
+  instance against a 3,072-bit obligation.
+* **One ACCEPT was not confirmed by the model's own `check` calls.** In
+  `p3-contract-adjacent/0` both of the episode's `check` calls returned ASSEMBLE-FAILED, yet
+  the final harness verdict is ACCEPT: the model's last extractable answer did assemble and
+  did pass, and under C4 the harness — not the model's in-episode calls — decides. The
+  episode therefore ended without the model knowing it had succeeded. Disclosed because it
+  makes the ACCEPT look less deliberate than the bare 3/12 suggests.
+* **`p3-contract-adjacent/3` regressed at the end.** It had two assembling programs judged
+  PROBE-MISMATCH, then finished on one that no longer assembled, so its recorded reason is
+  ASSEMBLE-FAILED. That is the single ASSEMBLE-FAILED in the result table; it is not an
+  instance that never got off the ground.
+* **Adversarial controls: 96 / 96 REJECT**, all eight control shapes on all twelve instances,
+  including `hex_only` — the v1.1 answer shape, which under v1.2 does not assemble. No
+  degenerate submission was accepted.
+
+### Budget
+
+Neither run hit a ceiling. In this run the longest episode used 200.1 s of the 1,800 s
+allowance and no episode reached the 24,576-token ceiling; episodes ended by SUBMIT (3) or by
+the 8-turn limit (9). Carrying forward the wording the operator required in Entry 10: this is
+**no evidence that the budget ceiling was the binding constraint in this run** — an absence of
+evidence for a budget bottleneck, not evidence of its absence. It is not claimed that a larger
+budget would have produced the same numbers.
+
+### Post-run leak audit
+
+`audit_transcripts.py`, written and hashed **before** the run, re-run unchanged afterwards:
+
+```
+POST-RUN-LEAK-AUDIT-V1.2  evm-bytecode-synth-v1
+episodes 12 | prompts matching the freeze 12/12
+harness messages scanned 79 | expected words searched 144 x 5 renderings
+tool results scanned 79 | first_probe_index values 15, all in range
+PASS
+```
+
+Every episode ran on the frozen prompt, no expected value reached the model in any rendering
+(assembler error text included, since it reaches the model through that same channel), and
+every tool result stayed inside `ACCEPT | REJECT(reason_enum, first_probe_index)`.
+
+### Sealed digests (sha256)
+
+| artefact | sha256 |
+| --- | --- |
+| `interface-v12/AGENTIC-RESULT-evm-bytecode-synth-v1.json` | `982415d472b00e9606a5875f624b22ce4024c434d2832f55ddb97a2cad72f60d` |
+| `interface-v12/FREEZE-evm-bytecode-synth-v1.json` | `e0e194db2f128ef3f55f5272217d7948982fa7c1932219f78819af1e5bec837f` |
+| `interface-v12/RUN-FREEZE-V12.json` | `534ed579e6b67ed79f3b9e24f9c91abbf55654a7eb6635bf66b3fc9fcd6bce3e` |
+| `interface-v12/run-v12.log` | `a022a8fa1dcb5f55d09511c9e3f8a533ae03bf0461925324f8c0269d6e3e1b7b` |
+| 12 transcripts, concatenated in sorted order (238,198 bytes) | `ca4d52e60a86402fb058cf0a2987ddd50984aa5ca9ee3be2217e97e7a296c1de` |
+
+The result file records the freeze digests it was produced under, so the run cannot be
+re-attributed to a different freeze after the fact.
+
+### What did not change
+
+| quantity | before Entry 11 | after Entry 11 |
+| --- | --- | --- |
+| `CURRENTLY-GATED-LLM-TASK-ANCHORS` | 7,954 | **7,954 — unchanged** |
+| `RAW-MATERIAL-LEDGER` | 91,328 rows | **91,328 rows — unchanged** |
+| `LLM-MINEABLE-ELIGIBLE` | `NOT-YET-DETERMINED` | **`NOT-YET-DETERMINED` — unchanged** |
+| `evm-bytecode-synth-v1` family status | `AGENTIC-REFERENCE-UNSOLVED` | **`AGENTIC-REFERENCE-UNSOLVED` — unchanged** |
+| Entry 9 Solidity result | 1 / 12 agentic | **unchanged — not re-run, per operator msg 3923** |
+| Entries 1–10 | sealed | **sealed and unedited; Entry 10's two phrasings corrected here, not rewritten** |
+| `interface-v11/` | sealed in Entry 8 | **not edited; every digest still hashes as sealed** |
+| the shipped checker | unmodified | **unmodified — v1.2 added a tool, it never touched the judge** |
+| `MAX_CODE_BYTES` | 192 | **192** |
+| corpus anchors consumed | 0 | **0** |
+| all ten buckets, conservation | 91,328 rows, PASS | unchanged, not re-run |
+
+### Boundary / non-claims (Entry 11)
+
+* **This fills `REFERENCE-LLM-SOLVED` for twelve EVM instances at epoch 2, and nothing else.**
+* **No extrapolation, in either direction.** 3/12 is not multiplied out to 91,328 rows, and it
+  is not read as a property of EVM bytecode synthesis in general or of language models in
+  general. It is twelve instances, one model, one decoding setting, one run.
+* **The operator's 0/12 conditional did not fire.** Operator msg 3928 stated that another
+  0/12 would let raw-hex writing be excluded as the cause, with the explicit caveat against
+  widening that to all of EVM or all models. The result is 3/12, so that conditional does not
+  apply; what the run does show is the failure mode moving off the format step (12/12 → 1/12).
+  The caveat is kept in force regardless of which branch fired.
+* **This is not a one-variable experiment.** The only interface element deliberately changed
+  is the assembler; the challenges were newly issued under the same rules.
+* **A10 shows expressibility, not ease.** A valid answer can be written in this assembly,
+  inside 192 bytes, and accepted by the unchanged checker. Nothing about model difficulty
+  follows from it.
+* **The calibration bar is not lowered after seeing the result.** Every representative pattern
+  needs at least one ACCEPT; `p1-minimal` is 0/4; the family stays unsolved.
+* **EVM and Solidity are tallied separately and never pooled**, and Entry 9's v1.1 numbers are
+  preserved as measured — v1.2 results are kept in their own directory and their own entry,
+  never merged into v1.1's.
+* **The interface is not revised now that a result exists.** Prompt, budget, tools and bounds
+  were fixed in Entry 10 and stay fixed.
+* **Closed local, offline, non-consensus.** `mineable_now = 0`. No paid API, no public
+  benchmark, no public mining, no leaderboard claim.
