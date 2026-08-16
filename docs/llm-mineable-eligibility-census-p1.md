@@ -519,3 +519,242 @@ would destroy information.
   this closed gate only. **No paid API, no public benchmark, no leaderboard claim, not
   public-network mining.**
 * This record wires **no** consensus / BF.7 / reward / Base path. `mineable_now = 0`.
+
+---
+
+## Entry 5 — 2026-08-16 · second gated LLM family / LLM-TASK-ELIGIBLE = 6,755 → 7,954 anchors
+
+### Result in one line
+
+A second LLM family, **`solidity-source-synth-v1`**, passed **all 14 gates**, was
+materialized once over the full Solidity syntax-test anchor supply, and moved **1,199
+anchors** out of `NEEDS-SPEC` into `LLM-TASK-ELIGIBLE` — raising it from **6,755 to
+7,954** — while **2,346** examined anchors became `FAMILY-UNSUPPORTED` and total
+conservation stayed exactly **91,328 rows**. No model was run on this family, so its
+reference status is **`REFERENCE-NOT-MEASURED`**, not solved and not unsolved.
+
+### Why this family, and why it was designed three times
+
+Entry 3 recorded Solidity as "not gated; buildable offline". The reason it was not gated
+earlier is that the obvious conversions all fail C1/C2: a Solidity corpus file's published
+source *is* the expected artifact, so "repair the mutation" hands the model its own answer.
+Two designs were written and killed before any gate ran:
+
+| design | fate | why |
+| --- | --- | --- |
+| v0 — synthesize a precondition | **REJECTED on inspection** | the weakest precondition is mechanically derivable from the published source, and the SMT verifier is wall-clock bounded, violating C7/G11 determinism |
+| v1 — satisfy an arithmetic obligation | **REFUTED by measurement** | measured, not argued: the mechanical construction compiled to **183/179 bytes** against the honest one's **175/175** — only 4–8 bytes apart, so no size bound could separate them |
+| v2 — integer-square-root obligation | **GATED** | Solidity has no operator, built-in or precompile for `isqrt`, so the rule cannot be transcribed; the only mechanical answer left is a probe table, and a table is separable by size |
+
+v1 was not discarded quietly. It was measured, it lost, and the measurement is what
+selected v2. The rule "if the answer can be transcribed from published material by a fixed
+procedure, there is no problem" is the same rule that produced the 2026-07-23 zero-task
+outcome, applied to my own designs before the gate rather than after.
+
+### The obligation, and why the rule may be published
+
+Shipped to the model: the anchor's frozen Solidity source, plus the requirement to append a
+contract named `BooleAnswer` such that the whole file compiles under the pin and, for every
+probe word `X`, the post-state satisfies
+
+```
+storage[target][slot] == isqrt((X * a) mod 2**256) XOR b
+```
+
+with `a`, `b`, `slot`, `target` and all 24 probes derived from the 256-bit challenge.
+
+Publishing the rule is required, not tolerated: C2, C7 and C13 together forbid a checker
+that hides the obligation, because a hidden rule is an answer held in shipped material.
+The family is sound because **knowing what the value is does not tell a submitter how to
+compute it in EVM code within the size bound** — `isqrt` must be implemented.
+
+### Frozen before any representative ran
+
+| parameter | value |
+| --- | --- |
+| probes per instance | **24** |
+| size bound | **640 bytes** of deployed code |
+| compiler | solc 0.8.36, pinned WASM, sha256 `ccb677d54dfab2a9b30084eec6bb396c93eb86d58b42cc00267fd0f54f391f32` |
+| compiler settings | `optimizer { enabled: true, runs: 200 }` |
+| executor | pinned revm 38.0.0 native runner, SpecId::CANCUN |
+| transaction gas limit | 300,000 |
+| answer contract name | `BooleAnswer` |
+| network | none |
+
+### The size bound was verified, not asserted
+
+The bound is placed by a counting argument: any probe table must embed 24 distinct 256-bit
+constants, and the cheapest EVM encoding of a 256-bit constant is `PUSH32` at 33 bytes, so
+**no table can be smaller than 24 × 33 = 792 bytes**. 640 sits below that floor and above
+the honest construction. The gate then had to confirm it in bytes:
+
+| construction | compiled size | verdict at 640 |
+| --- | --- | --- |
+| honest Newton iteration | **299 bytes** | ACCEPT |
+| probe lookup table | **1,887 bytes** (floor 792) | REJECT · `CODE-SIZE-EXCEEDED` |
+
+G5 also re-ran the table **with the bound lifted** and required ACCEPT. That half is the
+load-bearing half: it proves the table is *correct but too big*, so the size bound — not a
+bug and not luck — is what stops it. The design stated in advance that if a table had fit
+within 640 bytes, v2 would be **recorded as refuted and the bound would not be raised**.
+That did not happen; the margin is 2.1× headroom for the honest answer and 152 bytes of
+clearance below the table's theoretical floor.
+
+### Gate battery — 14/14 PASS
+
+| # | requirement | outcome |
+| --- | --- | --- |
+| G1 | correct newly generated answer | ACCEPT |
+| G2 | the anchor's own published source | REJECT |
+| G3 | empty / whitespace-only answer | REJECT · `EMPTY-ANSWER` |
+| G4 | constant answers (0, 1, 42) | REJECT |
+| G5 | universal answers + probe table | REJECT (table: `CODE-SIZE-EXCEEDED`; ACCEPT only with the bound lifted) |
+| G6 | answer replayed under a re-issued challenge | REJECT |
+| G7 | stale / swapped challenge | REJECT · `STALE-CHALLENGE` |
+| G8 | another anchor's accepted answer | REJECT |
+| G9 | 5×5 challenge matrix | ACCEPT on the diagonal only, 20/20 off-diagonal REJECT |
+| G10 | tampered fork, pre-state, probes, anchor source, size policy, gas limit, target | 7/7 REJECT · `TASK-BINDING-MISMATCH` |
+| G11 | repeated runs, same task and answer | identical verdict, 3/3, for three different submissions |
+| G12 | changed challenge | 16/16 distinct obligations, answers and probe sets; ≥128-bit entropy |
+| G13 | answer bytes in shipped task or checker | **0**; the checker holds no answer-constructing function |
+| G14 | answer withheld, 12 submissions built only from shipped bytes | 12/12 REJECT |
+
+G14 is the operative one. Its twelve submissions include the published rule transcribed
+with the root omitted, the rule with a cheap shift standing in for the root, the rule with
+a division standing in for the root, each spec constant stored directly, the challenge
+itself, the target address, the first probe, and an empty contract. All twelve are
+assembled only from bytes the model already holds. All twelve REJECT.
+
+### Full materialization — one pass, no retries
+
+Every `.sol` anchor under the frozen Solidity syntax-test corpus was materialized once: a
+challenge was issued, the witness was compiled against the anchor, size-checked, executed
+against all 24 probes, and then discarded.
+
+| outcome | anchors | meaning |
+| --- | --- | --- |
+| task exists | **1,201** | witness confirmed an answer exists, then discarded |
+| `COMPILE-FAILED` | 2,345 | the anchor's own frozen source does not build under the pin |
+| `EMPTY-RUNTIME-CODE` | 1 | the appended answer contract compiled to no deployed code |
+| **scanned** | **3,547** | 1,201 + 2,346 = 3,547 |
+
+**Witness answers persisted: 0.** Zero anchors failed on size and zero on probe mismatch:
+where the anchor built at all, the honest construction fit the bound and satisfied every
+probe.
+
+That 2,345 anchors do not compile is expected and is not a defect: the corpus is a
+compiler's syntax-error test suite, and most of its files are deliberately invalid.
+
+### Two scanned files are not ledger rows — and were not counted
+
+The disk scan found **3,547** files; the sealed ledger holds **3,545** syntax-test anchors.
+The two extra files both produced a valid task, and both were **excluded from every count**:
+
+* `test/libsolidity/syntaxTests/parsing/overloaded_functions.sol`
+* `test/libsolidity/syntaxTests/types/functionTypes/function_parameter_return_types_success.sol`
+
+The ledger's row set is sealed and append-only. A row that was never in it does not enter
+it because a later pass happened to find the file. The eligible count therefore reports
+**1,199**, not 1,201, and the discrepancy is recorded here rather than absorbed.
+
+### Bucketing — rules frozen first, conservation PASS
+
+`BUCKET-MAP-V2.json` was written and hashed **before** the re-bucketing run. It adds rules
+only; no `BUCKET-MAP-V1` assignment was revised. Both rules are dictated by the sealed
+bucket definitions, not chosen after seeing counts:
+
+* covered anchor with verdict ACCEPT → `LLM-TASK-ELIGIBLE`
+* covered anchor with any other verdict → `FAMILY-UNSUPPORTED`
+* anchor not covered by this family → bucket unchanged
+
+| bucket | before | after | change |
+| --- | --- | --- | --- |
+| `LLM-TASK-ELIGIBLE` | 6,755 | **7,954** | +1,199 |
+| `FAMILY-UNSUPPORTED` | 0 | **2,346** | +2,346 |
+| `NEEDS-SPEC` | 76,759 | **73,214** | −3,545 |
+| `ANSWER-EXPOSED` | 5,728 | 5,728 | — |
+| `DUPLICATE` | 1,750 | 1,750 | — |
+| `TRIVIAL-OR-UNIVERSAL-SOLUTION` | 311 | 311 | — |
+| `SOLUTION-EXISTENCE-UNPROVEN` | 12 | 12 | — |
+| `NO-FRESH-SEMANTIC-INSTANCE` | 0 | 0 | — |
+| `NO-DETERMINISTIC-CHECKER` | 0 | 0 | — |
+| `ERROR` | 13 | 13 | — |
+| **total** | **91,328** | **91,328** | **0** |
+
+Five hard stops were enforced in code and none triggered: no row assigned twice, no row
+unassigned, no change in total rows, no revision of a non-`NEEDS-SPEC` V1 assignment, and
+all 11 `(corpus, unit)` group counts reproduced exactly. The independent ledger verifier
+re-ran on the v2 ledger: **91,328 rows, 11 groups, conservation PASS**, and
+`EXECUTION-PROOF-ELIGIBLE-SUBSET` re-derived unchanged at **12,880**.
+
+**`FAMILY-UNSUPPORTED` is not a verdict of ineligibility.** Its sealed definition is "a
+gated family exists for the domain but does not support this row's construct." It records
+that *this* family cannot found a task on that anchor under this pin. It does not say no
+family ever could.
+
+### What this family does not cover
+
+The family's declared coverage is Solidity syntax-test anchors only. Every other Solidity
+row keeps its V1 bucket: 1,433 SMT-checker anchors, 553 grammar-node anchors and the
+semantic-test rows all remain `NEEDS-SPEC` or their prior bucket. Two gated families now
+exist across six domains; four domains remain ungated.
+
+### Updated numbers, reported separately and never summed
+
+| quantity | value |
+| --- | --- |
+| RAW-ANCHORS | 91,328 ledger rows — unchanged |
+| **LLM-TASK-ELIGIBLE** | **7,954 anchors** (6,755 EVM + 1,199 Solidity) · 0 tasks · 0 subrows |
+| `FAMILY-UNSUPPORTED` | 2,346 anchors — examined by a gated family, not supported by it |
+| REFERENCE-LLM-SOLVED | still **NOT-MEASURED**. `evm-bytecode-synth-v1` is `REFERENCE-UNSOLVED` (Entry 4); `solidity-source-synth-v1` is **`REFERENCE-NOT-MEASURED`** — no model was run on it |
+| EXECUTION-PROOF-ELIGIBLE-SUBSET | 12,880 — unchanged, re-derived by the verifier |
+| DEFERRED · NEEDS-SPEC | 73,214 rows |
+| dynamic issuance per epoch | 7,954 fresh instances per epoch, 256-bit challenge entropy — a **rate**, never added to the anchor count |
+
+`LLM-MINEABLE-ELIGIBLE` remains **NOT-YET-DETERMINED**. 7,954 is what two gated families
+measured about problem structure; it is not a claim that any model can solve them.
+
+### No model was run on this family
+
+The approval recorded in Entry 4 covered **one** closed local calibration gate. It was
+consumed there. No model — local or otherwise — was run against `solidity-source-synth-v1`,
+and none will be without a fresh approval. Running one would also not change the 1,199:
+Entry 4's failure rule is symmetric and stands, so a model result can only add a reference
+status, never delete a structurally confirmed anchor.
+
+### Lineage (git-ignored sandbox; hash-pinned here)
+
+Root: `local-docs/llm-mineable-census-p1-2026-08-16/`
+
+| artifact | role | sha256 |
+| --- | --- | --- |
+| `BUCKET-MAP-V2.json` | bucket rules, frozen before the run | `0591d9b68f79eeb3bde9b47929694eb487a437add2164e776db052a09367674a` |
+| `BUCKETING-RESULT-V2.json` | move counts, hard stops, conservation | `ca3611ca9a3376bb9a139b014bd78c88a72b3373b20354578ddd96d0bc4bd762` |
+| `bucketed-ledger-v2.jsonl` | 91,328 rows, one bucket each | `43afd65c70fb061ebffc2ef5da1e070647fb64b8ae264be60c44f5e8e77539af` |
+| `rebucket_v2.py` | append-only re-bucketing with hard stops | `39304dc8fe4002d9fc30e95f127a95f4b9fee6400e8c1d8f429141f099c7e867` |
+| `families/solidity-source-synth-v1/DESIGN.md` | pre-registered v2 design and frozen parameters | `21f3270b1a1831eb826d432dab19937e4f0b7af3451ba1c485143274dde3e364` |
+| `families/solidity-source-synth-v1/DESIGN-REJECTED-v0.md` | the rejected v0 design, kept as evidence | `e1b2d6a6980485ead270d247df79aa296b4175b4cd2a73dbccca22517f1b6779` |
+| `families/solidity-source-synth-v1/checker.py` | shipped answer-free checker | `edcdd45a7e2e5fabc4f2b6b2338fe57369c2fc6dd202f76e29fcdfd27a995f4e` |
+| `families/solidity-source-synth-v1/generator.py` | generation side, **not shipped** | `796f39dde24c8bd98e4e76e168fda4daa239d74066f626e1fa1c27763d1bcc1b` |
+| `families/solidity-source-synth-v1/test_gate.py` | G1–G14 battery | `208e9119ab39d36d83afb868e94e32dbaa22b046bf80943b087d2837dfdac255` |
+| `families/solidity-source-synth-v1/compile.mjs` | pinned-compiler bridge | `e9fefede85cd1e2910f220861b394f601e65653e88ac1a54535cc40076a9649b` |
+| `families/solidity-source-synth-v1/materialize.py` | one-pass materialization | `d59494cb2d76fc8ec7c980e9e13bf7a88cfa6df0d31c19a9ace5bed040e51c60` |
+| `families/solidity-source-synth-v1/MATERIALIZATION.json` | 3,547 rows with verdicts | `f653da0560be11afe9a349697c78097fd5a2b516f7c68f1728b952216c37296e` |
+
+### Boundary / non-claims (Entry 5)
+
+* **Closed local, offline, non-consensus.** No network, no paid API, no public benchmark,
+  no leaderboard claim, no public mining. `mineable_now = 0`. Nothing here is wired to
+  consensus, reward, issuance or Base.
+* **7,954 is a structural count, not a solved count.** It counts anchors where a
+  challenge-derived instance exists and a witness confirmed an answer exists. It says
+  nothing about whether any model can produce one.
+* **No LLM was run on this family.** `REFERENCE-NOT-MEASURED` means not measured, not
+  "expected to pass".
+* **The size bound was verified in bytes**, not argued. Had the table fit, v2 would have
+  been recorded as refuted rather than rescued by a larger bound.
+* **`FAMILY-UNSUPPORTED = 2,346` is not an ineligibility finding**, and the three buckets
+  still at zero remain *not measured*, not *none exist*.
+* **No sealed number was rewritten.** Entries 1–4 stand as written; this entry adds rows'
+  movement out of `NEEDS-SPEC` only, under rules frozen before the run, with conservation
+  reproduced by an independent verifier.
