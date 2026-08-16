@@ -758,3 +758,179 @@ Root: `local-docs/llm-mineable-census-p1-2026-08-16/`
 * **No sealed number was rewritten.** Entries 1–4 stand as written; this entry adds rows'
   movement out of `NEEDS-SPEC` only, under rules frozen before the run, with conservation
   reproduced by an independent verifier.
+
+---
+
+## Entry 6 — 2026-08-16 · Solidity reference-LLM calibration / family = REFERENCE-UNSOLVED, LLM-TASK-ELIGIBLE unchanged at 7,954
+
+### Result in one line
+
+Under parameters frozen and hashed before any model output, the approved local model
+produced **0 ACCEPT out of 12** on out-of-corpus instances of `solidity-source-synth-v1`
+(0/4 in each of the three patterns), so the family is recorded **`REFERENCE-UNSOLVED`** —
+while **`LLM-TASK-ELIGIBLE` stays exactly 7,954**, with the family's 1,199 anchors neither
+deleted nor reduced.
+
+### Frozen before any model output existed
+
+`RUN-FREEZE.json` was written, hashed and bound to the family's files before the first
+prompt was sent. It was written **twice, both times before any output existed**: the first
+write omitted the file-binding hashes the runner needs to refuse a drifted run. No
+parameter differed between the two writes; only the second is sealed. That is recorded in
+the file itself rather than left to be inferred.
+
+| frozen item | value |
+| --- | --- |
+| model | `gemma4:26b`, ollama id `5571076f3d70` |
+| weights blob sha256 | `7121486771cbfe218851513210c40b35dbdee93ab1ef43fe36283c883980f0df` (17,987,569,344 bytes — byte-identical to the model used in Entry 4) |
+| temperature / seed | 0 / 42 |
+| `num_predict` | 4,096 |
+| attempts per instance | **1** · retries 0 · feedback rounds 0 |
+| wall-clock limit | 1,200 s per instance |
+| runtime | ollama on local loopback, no network egress |
+| submission interface | Solidity source only — one `BooleAnswer` contract appended to the frozen anchor, compiled by the pin |
+| extraction rule | last fenced block; else the whole reply if it declares `contract BooleAnswer`; else empty |
+| pass rule | ≥1 ACCEPT in **every** pattern ⇒ `REFERENCE-LLM-CALIBRATED` |
+| failure rule | 1,199 is NOT deleted and NOT reduced; family becomes `REFERENCE-UNSOLVED` |
+
+**`num_predict` was raised from the previous gate's 2,048 to 4,096, and the reason was
+written into the freeze before any output**: the answer here is Solidity source rather
+than a hex string, so identical content costs several times more tokens, and Entry 4's
+11/12 cap hits confounded that reading. This is a parameter of a new gate fixed in
+advance, not a retroactive loosening of the old one. It was not raised again afterwards.
+
+### The family was not touched
+
+The freeze binds five file hashes and the runner refuses to start if any differ. Three of
+them are the artifacts sealed in Entry 5, and they matched exactly:
+
+| file | sha256 | same as Entry 5 |
+| --- | --- | --- |
+| `checker.py` | `edcdd45a7e2e5fabc4f2b6b2338fe57369c2fc6dd202f76e29fcdfd27a995f4e` | yes |
+| `compile.mjs` | `e9fefede85cd1e2910f220861b394f601e65653e88ac1a54535cc40076a9649b` | yes |
+| `generator.py` | `796f39dde24c8bd98e4e76e168fda4daa239d74066f626e1fa1c27763d1bcc1b` | yes |
+
+Same checker, same challenge derivation, same isqrt rule, same 640-byte bound. Only the
+anchors are new.
+
+### Zero corpus anchors were consumed
+
+The twelve instances are built on anchors written for this gate and present in no corpus:
+four `p1-minimal` (a bare file), four `p2-library-interface` (an interface and a library
+already declared), four `p3-inheritance-modifier` (an abstract base, a modifier, an event
+and a mapping). **None of the 1,199 sealed anchors was issued, consumed or scored.**
+
+**All twelve were confirmed solvable before the freeze.** A witness produced an accepted
+answer for 12/12 at 299 bytes against the 640-byte bound, and was discarded. This ordering
+is what makes the result attributable: a failure below is the model failing a solvable
+instance, not the model meeting an impossible one.
+
+### What the model was and was not given
+
+Given: the submission contract, the family manifest, the helper surface, the output
+format, the frozen anchor source, `A`, `B`, `SLOT`, `TARGET`, `SENDER`, the size bound,
+the compiler pin, the block environment, the pre-state and all 24 probe words.
+
+The helper surface states that `isqrt(n)` is the largest `r` with `r*r <= n`, that
+Solidity has no operator, built-in or precompile for it, and that Solidity 0.8 reverts on
+overflow unless the code is inside an `unchecked` block.
+
+Not given: any method for computing an integer square root, any code, any per-instance
+hint, any tool, any compiler, any execution environment, any internet access, and no part
+of the answer constructor.
+
+### Measurements
+
+| measurement | value |
+| --- | --- |
+| ACCEPT | **0 / 12** |
+| ACCEPT per pattern | `p1-minimal` 0/4 · `p2-library-interface` 0/4 · `p3-inheritance-modifier` 0/4 |
+| reject reasons | `COMPILE-FAILED` 9 · `PROBE-MISMATCH` 3 |
+| empty submissions | 0 — every reply produced an extractable submission |
+| solve time | 6.5 s – 51.2 s per instance; **189.3 s total** |
+| tokens | 35,719 prompt · 13,316 generated |
+| hit the token cap | **1 / 12** |
+| submission size | 297 – 1,482 characters |
+| adversarial rejection | **36 / 36 REJECT** — empty, constant and the published anchor source, on all twelve instances |
+
+### Diagnosis — this failure is not the previous failure
+
+A read-only pass over the frozen transcripts. No model call, no prompt edit, no retry, no
+parameter change.
+
+| question | answer |
+| --- | --- |
+| was the output truncated? | **no — 1/12 hit the cap.** The pre-registered 4,096 removed Entry 4's confound |
+| did it produce the required contract? | **12/12 declare `contract BooleAnswer`** |
+| did it use the calling convention? | **12/12 use `fallback`** |
+| did it attempt the actual obligation? | **10/12 contain both a square-root construction and a loop** |
+| did it handle the 0.8 overflow rule? | **0/12 use `unchecked`** |
+
+This is a materially different failure from Entry 4. There, 0/12 submissions contained a
+storage write or a single challenge constant — nothing was a partial solution at any
+length. Here the model consistently produced the right shape: the right contract name, the
+right entry point, and in 10 of 12 cases a genuine attempt at the integer square root. It
+failed on Solidity-level correctness.
+
+The single most consequential omission is `unchecked`. The rule is `(X * A) mod 2**256`,
+and under Solidity 0.8 `X * A` reverts on overflow, which for 256-bit challenge constants
+is essentially every probe. A reverted call writes nothing, the slot stays zero, and the
+probe mismatches. **0/12 used it**, though the helper surface states the rule — which is
+sufficient on its own to account for all three `PROBE-MISMATCH` instances.
+
+The nine compile failures are mostly genuine Solidity and inline-assembly errors: three
+attempts at an explicit conversion from `bytes calldata` to `uint256`, three malformed
+assembly assignments, one parse error, one stray `^`. **One is not a mathematical failure
+at all** — a duplicate SPDX license header, i.e. the model re-emitted a file preamble in a
+fragment that is appended to an existing file. That is a packaging mistake, and it is
+reported here as a confound of size one rather than folded into the other eight.
+
+**No parameter was changed after seeing this.** No prompt edit, no retry, no larger token
+budget, no relaxed size bound.
+
+### Effect on the sealed numbers — none
+
+| quantity | before Entry 6 | after Entry 6 |
+| --- | --- | --- |
+| `LLM-TASK-ELIGIBLE` | 7,954 anchors | **7,954 anchors — unchanged** |
+| of which Solidity | 1,199 | **1,199 — unchanged** |
+| `solidity-source-synth-v1` status | gated 14/14, `REFERENCE-NOT-MEASURED` | gated 14/14 **and** `REFERENCE-UNSOLVED` |
+| `REFERENCE-LLM-SOLVED` | not measured | **0 instances**, on 12 out-of-corpus instances only |
+| all ten buckets, conservation | 91,328 rows, PASS | unchanged, not re-run |
+
+Both gated families are now `REFERENCE-UNSOLVED` under the same local model: 0/12 for EVM
+and 0/12 for Solidity, 0/24 overall. Structural eligibility and reference solvability are
+tracked separately and are never merged; a model failing a structurally valid problem does
+not delete the problem.
+
+### Sealed digests (Entry 6)
+
+Root: `local-docs/llm-mineable-census-p1-2026-08-16/families/solidity-source-synth-v1/calibration/`
+
+| artifact | role | sha256 |
+| --- | --- | --- |
+| `RUN-FREEZE.json` | every parameter, fixed before any output | `9fa8e408d40c5b3f3f1ad207125865b97a5e625132d92b145074cddf4856936b` |
+| `CALIBRATION-RESULT.json` | 12 rows, verdicts, timings, tokens | `d8cfbfeb14dab745ba69a13d55e97023368da778e40dc120eeb3a294fb4e7e97` |
+| `DIAGNOSTIC.json` | read-only post-hoc diagnosis | `477ed8d327b63b2deb6c2609e825c3aaac466c1b26ef32954a23c4f6b392602a` |
+| `anchors.py` | the twelve out-of-corpus anchors | `72fd27584e014f8e3a6510622dadf04c1dc34c99a5dd5a96c4ac92848c22aed6` |
+| `prompt.py` | frozen prompt and extraction rule | `1b949a2f0b10496f2175f30cffa7c37e1fc54011f46e7d1f9359d74e0dfc6a40` |
+| `freeze.py` | freeze builder with existence hard-stop | `833c149970168134814636c5d43374506b30911f6062a5c24bf260a3c37032af` |
+| `run.py` | runner with drift-refusal gate | `0dbae038274fc4e5efc7fedad865a09a54d5c42a59ca7f9670555ad7017515f8` |
+| `analyze.py` | read-only diagnosis | `9a92d527e52aa2c8ac0cd2d265529fb5c9d8fcc7134fc1f043e1e9594a7f4663` |
+
+### Boundary / non-claims (Entry 6)
+
+* **Closed local, offline, non-consensus.** One local model over loopback. No paid API, no
+  public benchmark, no public mining, no leaderboard claim. `mineable_now = 0`.
+* **This measures one model in one frozen regime on twelve instances.** It does not show
+  the family is unsolvable, that a stronger model would fail, or that this model would fail
+  under different decoding. Those are untested, and "untested" is not "false".
+* **`REFERENCE-UNSOLVED` is not a deletion.** No row was removed, no bucket changed, no
+  conservation identity re-run. `LLM-TASK-ELIGIBLE = 7,954` stands on witness-confirmed
+  structure, which a model result cannot revoke.
+* **0 ACCEPT is `REFERENCE-LLM-SOLVED = 0` for these twelve instances only**, and is never
+  merged into `LLM-TASK-ELIGIBLE`. Symmetrically, a nonzero count would never have meant
+  the model solved 7,954 anchors.
+* **The one SPDX-duplicate failure is reported separately** because it is a packaging
+  error, not a failure at the problem. Folding it into the mathematical failures would
+  overstate the finding by one instance.
