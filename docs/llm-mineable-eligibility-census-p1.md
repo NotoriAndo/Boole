@@ -1967,3 +1967,77 @@ total over all LLMs or all seeds, and it is not a statement about any model's ge
 ability. Model-solved representative counts are never mixed with structural census counts.
 Closed local, offline, non-consensus. `mineable_now = 0`. No paid API, no other model, no
 public benchmark, no public mining, no leaderboard claim.
+
+---
+
+## Entry 13 — 2026-08-17 · RUST-ANCHOR-COUPLED-FRESH-REPAIR-V1 reference calibration / FAMILY-CALIBRATION-FAILED, GEMMA-CALIBRATION = 2/12
+
+Sealed 2026-08-17. Append-only: Entries 1–12 and every figure they sealed are unchanged by
+this entry.
+
+### 13.1 Result
+
+```
+FAMILY-CALIBRATION-FAILED
+GEMMA-CALIBRATION            = 2/12
+ACCEPT                       = 2
+NO-FORMAL-SUBMISSION         = 10
+INFRA-ERROR                  = 0        retries = 0
+REFERENCE-INSTANCE-ELIGIBLE  = NOT-CENSUSED
+```
+
+The wave's own stop rule required 12/12 before the census could start. It returned 2/12, so
+the census over the frozen 29,609-row Rust input was **not started**, and no reference-
+instance count exists for this family.
+
+`NO-FORMAL-SUBMISSION` counts episodes that reached the end of the sealed 8-turn budget
+without ever emitting a submission in the required response format. It is a count of
+episodes, not of wrong answers.
+
+### 13.2 What this is not
+
+* **`REFERENCE-INSTANCE-ELIGIBLE = NOT-CENSUSED` does not mean the Rust problem count is 0.**
+  It means the count was never measured. Not measured is not zero, and this entry seals no
+  Rust figure of any kind.
+* **`LLM-MINEABLE-ELIGIBLE-V1 = 2,040` is unchanged.** No V2 sum is reported, because a V2
+  sum required a census that did not run.
+* `mineable_now = 0` is unchanged.
+
+### 13.3 The sealed configuration that produced 2/12
+
+Frozen before the model was called, verified identical after the run:
+
+| seal | digest |
+| --- | --- |
+| policy | `5906169104aa1eb522f19ce439e146ffc48adb5f16557d1e6dbf06e60f1d99e3` |
+| prompt | `7d6475fb8cfe0d113f4ccccd8d2a5fb9f8a52423f62eeb1a2b548f974b553de0` |
+| calibration fixtures | `1775511652423c3790aefb0f611d921538f387e35dd2a5127c7fb9e78240d220` |
+| input freeze listing (29,609 rows) | `58cc58d1c59dc01f609b096b67b5d0abe9f2f9f0f0456a5bc301d109c8989121` |
+
+12 episodes, one attempt each, no retry and no manual repair. No answer text was stored:
+every episode record carries `answer_stored: false` and keeps only a digest and a size.
+
+### 13.4 Unused, non-authoritative artifacts
+
+A census driver and an overlap checker exist in the git-ignored sandbox. They were written
+before the calibration verdict and **were never executed** — no corpus row was resolved and
+no overlap was computed, so they produced no number and carry no authority here. They are
+recorded only so their existence cannot later be mistaken for a result, and they are
+deliberately excluded from this record's authoritative outputs:
+
+| artifact | sha256 | execution |
+| --- | --- | --- |
+| `census.py` | `81152c2305b8595fc0dd3b4aad1c97889f0988396718b97497e9a24da28cf3f6` | not executed |
+| `overlap.py` | `6b35190110026af25d53c8fb580256d208cf1b9edf391894085f0ac715f712d3` | not executed |
+
+A pure-Python self-check of that unused driver's bookkeeping
+(`506034edd70f68ac9266389482ecf57bba1aa63258a9c4ec06b73e93a09b6ac7`) ran in the sandbox
+against no corpus row, no compiler and no model; it is non-authoritative for the same
+reason. The sandbox marker is `UNUSED-NONAUTHORITATIVE.json`.
+
+### 13.5 Not a claim
+
+A closed local, offline calibration under one frozen local model, one frozen prompt, one
+frozen budget and one frozen fixture set. Not a paid API run, not a public benchmark, not
+public-network mining, not a leaderboard claim, and not a statement about any model's
+general ability. `mineable_now = 0`.
