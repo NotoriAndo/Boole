@@ -2041,3 +2041,148 @@ A closed local, offline calibration under one frozen local model, one frozen pro
 frozen budget and one frozen fixture set. Not a paid API run, not a public benchmark, not
 public-network mining, not a leaderboard claim, and not a statement about any model's
 general ability. `mineable_now = 0`.
+
+---
+
+## Entry 14 — 2026-08-17 · OPUS5 reference calibration halted, OPUS48 wave pre-registered / MODEL-SUBSTITUTION-HARD-STOP = 1, ADJUDICATED-TASKS = 0
+
+Sealed 2026-08-17, **before the first model call of the wave it registers**. Append-only:
+Entries 1–13 and every figure they sealed are unchanged by this entry.
+
+### 14.1 The halted wave
+
+```
+MODEL-SUBSTITUTION-HARD-STOP = 1
+ADJUDICATED-TASKS            = 0
+SCORED-FAMILIES              = 0        EVM, Solidity and Rust: none reached a verdict
+RETRIES                      = 0        fixtures swapped = 0
+LLM-MINEABLE-ELIGIBLE-V1     = 2,040    unchanged
+mineable_now                 = 0        unchanged
+```
+
+The runtime, not the harness, replaced the sanctioned model in the middle of a session: a
+`model_refusal_fallback` event (direction `retry`, scope `session`) switched the session
+away from `claude-opus-5` while the second turn of the first episode was being answered.
+Substitution of the sanctioned model is a hard stop under the directive that authorised the
+wave, so the wave stopped at that turn. One episode was contacted —
+`evm-bytecode-synth-v1 calibration/out-of-corpus/p1-minimal/0` — and none was adjudicated.
+
+The model the runtime switched to was `claude-opus-4-8` — the same model the successor wave
+registered in 14.4 targets, by instruction. Nothing produced by that substituted turn is
+carried into the successor wave: its reply is preserved as evidence of the stop, is scored
+nowhere, and the successor wave begins from fresh sessions with the frozen prompts only.
+
+No family verdict, no per-family count and no diagnostic figure is sealed for that wave. Its
+three families remain exactly as Entries 9, 11 and 13 left them.
+
+### 14.2 The one ACCEPT seen before the stop is an observation, not a score
+
+On the first turn of that single episode the frozen harness's own `check` tool returned
+ACCEPT. **It is not a result, it is not authoritative, and it is excluded from every count
+in this ledger.** It is written down only so that its presence in a preserved transcript can
+never later be read as a scored task. Three separate reasons make it unscoreable: it came
+from a turn inside an episode that never finished, the episode therefore produced no
+end-of-episode verdict, and the wave that produced it was stopped as invalid.
+
+### 14.3 What is preserved, unedited
+
+The halted wave's session record, its output and its stop record are kept append-only in the
+git-ignored sandbox (`local-docs/opus5-isolated-reference-calibration-2026-08-17/`, read-only
+copy under `opus5-halted/`). Only digests are tracked here.
+
+| preserved artifact | sha256 |
+| --- | --- |
+| `HARD-STOP.json` — the stop record | `1fcded111efec758eabd21699e72a4850aa36dec12fe3cac8e6a1c2a6c563774` |
+| `STAGE-FREEZE.json` — the halted wave's sealed plan | `d586f141ba5e05345a868884eb6cc880279d45b22ae20368ddde432b88f1f059` |
+| `STAGE-FREEZE-superseded-01.json` — its predecessor | `50d37f10b47d84bd558569c2d1496815f100321b19a6cd4a076f73d15af73bc8` |
+| `HARD-STOP-contestant-session.jsonl` — the runtime's own session transcript | preserved, not digested here (contains the contestant's replies) |
+
+**Disclosure — the drivers were edited in place, the earlier bytes are not retained.** The
+transport and the two runners were modified for the successor wave (model id, per-turn
+verification against the runtime transcript, refusal recording, output naming). Their
+pre-edit digests remain recorded inside the halted wave's own sealed plan, and their current
+digests are in 14.4, so the change is visible from both sides; the pre-edit file contents
+themselves were not copied before the edit and no longer exist. The frozen harnesses,
+fixtures, prompts and checkers were never edited by either wave.
+
+### 14.4 Pre-registration of the successor wave
+
+Registered here **before** any call of it, under the directive that authorised it
+(`OPUS48-ISOLATED-REFERENCE-CALIBRATION`). Sealed plan:
+`STAGE-FREEZE-OPUS48.json` = `aeea4f94c1c60dab7a21f89cb9338dcd296903c6458f81f0c5ba7659d578c296`.
+
+**Model.** `claude-opus-4-8` is the **first and only** target of this wave — it is not a
+fallback for another model, and no other model may answer in its place. The exact model id
+is requested, not a shorthand. Every turn is checked against two independent records: the
+per-turn model usage the runtime reports back, and the per-turn model field the runtime
+writes into its own session transcript. A turn naming any other model is an immediate hard
+stop, not a result. No `--fallback-model` is passed. A refusal produced by the sanctioned
+model itself is a **model result**: it is recorded as `MODEL-REFUSAL` and is never retried.
+
+**Scope.** Only this Claude Code environment's own model access is used. No external API
+key, no separate paid API call, and no other model as a fallback.
+
+**Tasks and budgets — unchanged, carried over from the halted wave's sealed plan.** The
+seal's `cascade`, `frozen_inputs` and `budget` blocks were compared byte for byte against the
+earlier seal before the new one was written, and are identical:
+
+| carried over unchanged | value |
+| --- | --- |
+| stage A, EVM | `p1-minimal/0`, `p2-populated/0`, `p3-contract-adjacent/0` |
+| stage A, Solidity | `p1-minimal/0`, `p2-library-interface/0`, `p3-inheritance-modifier/0` |
+| stage A, Rust | `R01`, `R05`, `R09` |
+| stage A rule | the alphabetically first fixture id of each frozen pattern, one per pattern |
+| stop rule | 3/3 ACCEPT in stage A opens the remaining nine of that family; 2/3 or fewer stops that family immediately |
+| budget per episode | 8 turns, 8 compile/assemble, 4 public test/check, 24,576 generated tokens, 1,800 s |
+| attempts, retries, manual edits, human intervention | 1, 0, 0, 0 |
+| max episodes | 36 |
+
+The fixtures, the selection order, the prompts, the tool surface and the budgets are the ones
+Gemma was measured under. No fixture may be swapped or added after a result is seen.
+
+**Isolation.** One fresh contestant per task, in a fresh session that is never resumed across
+tasks, in a per-task working directory holding the public task prompt and nothing else. The
+contestant runs with every built-in tool disabled, no MCP server, no settings file and no
+project instructions, so no read, search, shell or web path exists from it to the repository,
+the witnesses, the expected values, earlier answers, result logs or this ledger. No Opus 5
+transcript, no Gemma answer and no earlier result is placed in front of it.
+
+**Unenforceable axes, recorded rather than invented.** `temperature = UNCONTROLLED` and
+`seed = UNCONTROLLED` — this runtime exposes neither. A per-turn output cap is not settable;
+the episode-wide 24,576-token budget is still enforced, by the frozen loop for the two
+interface families and by the transport for the Rust family.
+
+| driver, at seal time | sha256 |
+| --- | --- |
+| `opus.py` | `927e0617a0b5129845548a390467934c580b1fbf6283aa13b4d8bccf4c2ec4b8` |
+| `test_opus.py` | `d8fe42aa30079f82206ccefbba992228d94c5f8c9eab38e9c967eabca12175b7` |
+| `run_interface.py` | `cce597112504d57f2ad81ff5f9bb92076602849466831c41b8c23003778f1bf2` |
+| `run_rust.py` | `9d23294bf7b2ac03be54643e18fc43c8abb97165fc032613195e080d13a86cec` |
+| `freeze_stage.py` | `295d1efb6bc08eb276de3723a1426eb4314b2c68c6753db67af6bf46b95498bd` |
+
+### 14.5 What the successor wave may report, and what it may not
+
+Results are recorded per model and per family only, as `OPUS48-EVM-SOLVED`,
+`OPUS48-SOLIDITY-SOLVED` and `OPUS48-RUST-SOLVED`. A family that fails stage A is reported as
+`OPUS48-DIAGNOSTIC = x/3` and never as 0; a family that clears all twelve is
+`OPUS48-FAMILY-CALIBRATION-PASS`; anything else is `OPUS48-SOLVED = x/12`, exactly.
+
+These figures are **never** summed or averaged across the three families, **never** added to
+the Gemma record of Entries 9, 11 and 13, **never** added to the halted Opus 5 record, and
+**never** scaled to the full template count. They are a separate model layer over the same
+frozen fixtures, not a revision of any sealed number.
+
+### 14.6 What this entry does not do
+
+* `LLM-MINEABLE-ELIGIBLE-V1 = 2,040` is unchanged, and no successor result may edit it.
+* The Gemma results of Entries 9, 11 and 13 are unchanged.
+* `mineable_now = 0` is unchanged.
+* No full census, no new family, no prompt change and no V2 design follows automatically
+  from the successor wave; each would need its own instruction.
+* A representative result is never scaled to a whole template count.
+
+### 14.7 Not a claim
+
+A closed local, isolated calibration of frozen fixtures under one runtime's own model access.
+Not a paid API benchmark run, not a public benchmark, not public-network mining, not a
+leaderboard claim, and not a statement about any model's general ability. `mineable_now = 0`.
