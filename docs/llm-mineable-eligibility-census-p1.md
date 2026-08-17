@@ -2186,3 +2186,133 @@ frozen fixtures, not a revision of any sealed number.
 A closed local, isolated calibration of frozen fixtures under one runtime's own model access.
 Not a paid API benchmark run, not a public benchmark, not public-network mining, not a
 leaderboard claim, and not a statement about any model's general ability. `mineable_now = 0`.
+
+---
+
+## Entry 15 — 2026-08-17 · OPUS48 isolated reference calibration executed / EVM 12/12, Solidity 12/12, Rust 12/12, three separate FAMILY-CALIBRATION-PASS results
+
+Sealed 2026-08-17, after the wave pre-registered in Entry 14 ran to completion under the plan
+that entry sealed **before** any model call. Append-only: Entries 1–14 and every figure they
+sealed are unchanged by this entry.
+
+### 15.1 Result, per model and per family only
+
+```
+model                        claude-opus-4-8   (first and only target; not a fallback)
+OPUS48-EVM-SOLVED            12/12   OPUS48-FAMILY-CALIBRATION-PASS
+OPUS48-SOLIDITY-SOLVED       12/12   OPUS48-FAMILY-CALIBRATION-PASS
+OPUS48-RUST-SOLVED           12/12   OPUS48-FAMILY-CALIBRATION-PASS
+ADJUDICATED-TASKS            36      episodes contacted 36, verdicts reached 36
+MODEL-SUBSTITUTION-HARD-STOP 0       for this wave; the halted wave's 1 stands in Entry 14
+LLM-MINEABLE-ELIGIBLE-V1     2,040   unchanged
+mineable_now                 0       unchanged
+```
+
+Each family cleared stage A 3/3, which opened its remaining nine under the pre-registered
+cascade; each then cleared all nine. Stage A opened stage B in all three families, so the
+`OPUS48-DIAGNOSTIC = x/3` form is not used by this entry.
+
+These three figures are **not** summed, averaged or combined. There is no "36/36" result in
+this ledger: the three families are three separate measurements over three separate frozen
+fixture sets, and a single number across them would not name anything real.
+
+### 15.2 Per-task judgement, all 36 episodes
+
+| judgement | count |
+| --- | --- |
+| MODEL-ANSWERED | 36 / 36 |
+| FORMAL-SUBMISSION-EMITTED | 36 / 36 |
+| CHECKER ACCEPT | 36 |
+| CHECKER REJECT | 0 |
+| MODEL-REFUSAL | 0 |
+| INFRA-ERROR | 0 |
+| FORBIDDEN-ACCESS | NONE |
+| CONTAMINATION | NONE |
+| retries, manual edits, human interventions | 0, 0, 0 |
+| fixtures swapped or added after a result was seen | 0 |
+
+Budget use stayed far inside the pre-registered envelope of 8 turns, 8 compile/assemble,
+4 public test/check, 24,576 generated tokens and 1,800 s per episode:
+
+| family | turns | compile/assemble | check | generated tokens | wall clock |
+| --- | --- | --- | --- | --- | --- |
+| `evm-bytecode-synth-v1` | 2–2 | 0 | 1 | 523–758 | 10.1–15.9 s |
+| `solidity-source-synth-v1` | 2–4 | 0–1 | 1 | 2,674–5,529 | 40.3–72.4 s |
+| `rust-anchor-coupled-fresh-repair-v1` | 1–1 | 0 | 1 (hidden verify) | 221–483 | 4.6–14.8 s |
+
+No episode hit a budget ceiling. Every interface-family episode ended by submitting
+(`ended_by = SUBMIT`), never by exhaustion.
+
+The frozen adversarial controls were rejected in every family that carries them:
+`empty`, `constant`, `echo_input`, `hex_only`, `prose`, `revert`, `stop`, `store_zero` on the
+EVM family and `empty`, `constant` on the Solidity family — all REJECT, in every episode. The
+checkers were therefore not accepting on shape alone in the runs that produced the ACCEPTs.
+
+### 15.3 The model that answered, verified per turn
+
+36 episodes ran in 36 distinct sessions; no session was resumed across tasks. Each turn was
+checked against two independent records — the per-turn model usage the runtime reports back,
+and the per-turn model field the runtime writes into its own session transcript. Both name
+`claude-opus-4-8` for every answering turn of all 36 episodes.
+
+`claude-haiku-4-5-20251001` appears once per session, 36 turns in total, ≤20 output tokens
+each: it is the runtime's own first-turn housekeeping (session naming) and produced no part of
+any submission. It is recorded here rather than hidden, and it is credited with nothing.
+
+No `model_refusal_fallback` event occurred in any session — the failure that stopped the
+previous wave did not recur. No `--fallback-model` was passed. No substitution was detected in
+any episode, so no hard stop fired.
+
+Totals across the wave: 74 model calls, 36 housekeeping turns included; `temperature` and
+`seed` remain `UNCONTROLLED`, as pre-registered, because this runtime exposes neither.
+
+### 15.4 Isolation, as pre-registered
+
+Each contestant ran with every built-in tool disabled, no MCP server, no settings file and no
+project instructions, in a per-task working directory holding the public task prompt and
+nothing else. No tool call was available to it, so no read, search, shell or web path existed
+from the contestant to the repository, the witnesses, the expected values, earlier answers,
+result logs or this ledger. No Opus 5 transcript, no Gemma answer and no earlier result was
+placed in front of it. `forbidden_access = NONE` and `contamination = NONE` in all 36 records.
+
+### 15.5 Artifacts
+
+Results stay in the git-ignored sandbox
+(`local-docs/opus5-isolated-reference-calibration-2026-08-17/`). Only digests are tracked here.
+
+| artifact | sha256 |
+| --- | --- |
+| `STAGE-FREEZE-OPUS48.json` — the plan, sealed before the first call | `aeea4f94c1c60dab7a21f89cb9338dcd296903c6458f81f0c5ba7659d578c296` |
+| `OPUS48-evm-bytecode-synth-v1.json` — EVM stage A | `1fadbb5a2d9381bcd21fa9cfcf8b6f1c31a96afcf9132082e929477c5c0ad9f9` |
+| `OPUS48-evm-stage-b.json` — EVM stage B | `a9e51e03c4c50a4e36dae875493d158e553d52b19767219213b01274f4b90733` |
+| `OPUS48-solidity-stage-a.json` | `26977470eaf67a5f5a5793bc7261f8fc5c3c669c71b5a97d9e377281e1b1f49e` |
+| `OPUS48-solidity-stage-b.json` | `99d9b39d61104ce51ed199a77991ff07617a63e388b532f37810e9586ea8e1bd` |
+| `OPUS48-rust-stage-a.json` | `3ce826fefd1450cd1f3657cc5a5323fdd396d015d7fd807db39e56d498151490` |
+| `OPUS48-rust-stage-b.json` | `408721a443043e5afc6557e717e7966998b2ee160aaaa4616041ea63d7682e17` |
+
+The drivers are byte-identical to the digests Entry 14 sealed before the wave began
+(`opus.py` `927e0617…`, `test_opus.py` `d8fe42aa…`, `run_interface.py` `cce59711…`,
+`run_rust.py` `9d23294b…`, `freeze_stage.py` `295d1efb…`); none was edited during the wave.
+Each result file also carries the frozen-input digest its runner verified before the first
+call: `e0e194db…` for the EVM family, `bda74097…` for the Solidity family, and prompt
+`7d6475fb…` with fixtures `1775511652…` for the Rust family.
+
+### 15.6 What this entry does not do
+
+* `LLM-MINEABLE-ELIGIBLE-V1 = 2,040` is unchanged. A reference-model result does not edit it.
+* The Gemma results of Entries 9, 11 and 13 are unchanged, and nothing here is added to them,
+  compared away, or used to revise them. `GEMMA-CALIBRATION` figures stand as sealed.
+* The halted Opus 5 record of Entry 14 is unchanged; its single pre-stop ACCEPT remains
+  unscored.
+* `mineable_now = 0` is unchanged. Twelve accepted representatives per family are not blocks,
+  not shares, and not issuable templates.
+* No result here is scaled to a whole template count. Twelve representatives are twelve
+  representatives.
+* No full census, no new family, no prompt change and no V2 design follows automatically from
+  this entry; each would need its own instruction.
+
+### 15.7 Not a claim
+
+A closed local, isolated calibration of frozen fixtures under one runtime's own model access.
+Not a paid API benchmark run, not a public benchmark, not public-network mining, not a
+leaderboard claim, and not a statement about any model's general ability. `mineable_now = 0`.
