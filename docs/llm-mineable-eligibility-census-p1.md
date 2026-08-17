@@ -2316,3 +2316,232 @@ call: `e0e194db…` for the EVM family, `bda74097…` for the Solidity family, a
 A closed local, isolated calibration of frozen fixtures under one runtime's own model access.
 Not a paid API benchmark run, not a public benchmark, not public-network mining, not a
 leaderboard claim, and not a statement about any model's general ability. `mineable_now = 0`.
+
+## Entry 16 — 2026-08-17 · All-domain frontier-LLM closure over the deduplicated 87,235 / LLM-MINEABLE-ELIGIBLE-V2 = 10,702, UNRESOLVED = 0
+
+Sealed 2026-08-17. Append-only: Entries 1–15 and every figure they sealed are unchanged by this
+entry, including `LLM-MINEABLE-ELIGIBLE-V1 = 2,040`, which this entry does not revise, replace or
+deprecate. V2 is a **successor** label measured over a different question and a wider denominator.
+
+### 16.1 Result
+
+```
+denominator                        87,235   deduplicated templates
+FRONTIER-LLM-CALIBRATED-ISSUABLE   10,702
+STRUCTURALLY-INELIGIBLE            72,706
+CALIBRATION-FAILED                  3,827
+UNRESOLVED                              0
+LLM-MINEABLE-ELIGIBLE-V2           10,702
+LLM-MINEABLE-ELIGIBLE-V1            2,040   unchanged
+model episodes this wave                18   claude-opus-4-8
+mineable_now                             0   unchanged
+```
+
+**`LLM-MINEABLE-ELIGIBLE-V2 = 10,702` is the number of templates issuable under a family that
+passed frontier-LLM calibration at family level. It does not mean a model individually solved
+10,702 templates.** Twelve accepted representatives per family remain twelve representatives.
+
+Conservation holds exactly, with every template in exactly one bucket:
+
+```
+87,235 = 10,702 + 72,706 + 3,827 + 0
+```
+
+| domain | templates | ISSUABLE | INELIGIBLE | CALIBRATION-FAILED |
+| --- | --- | --- | --- | --- |
+| evm | 20,036 | 6,755 | 13,281 | 0 |
+| rust | 29,609 | 708 | 28,901 | 0 |
+| ethereum-consensus | 7,111 | 2,040 | 5,071 | 0 |
+| solidity | 12,931 | 1,199 | 7,905 | 3,827 |
+| zk-native | 17,548 | 0 | 17,548 | 0 |
+
+Duplicate `template_id`s across the settled rows: 0. Per-domain sums agree with the whole. The
+issuable figure is the **union over `template_id`**, not a sum of the prior 2,040 and 7,954: the
+settlement writes exactly one bucket per template and the duplicate count proves no template was
+counted twice. Lean stays outside this denominator, as a zero-row declaration
+(`CORPUS-NOT-MATERIALIZED`), and contributes nothing to any figure here.
+
+### 16.2 The four families that reach the count, and the two that do not
+
+No model was re-run for a family whose frontier evidence already existed at the same fingerprint.
+Three of the four reuse the Entry 15 OPUS48 results directly; the fourth was measured here.
+
+| family | frontier calibration | source | templates counted |
+| --- | --- | --- | --- |
+| `evm-bytecode-synth-v1` | 12/12 | Entry 15, reused | 6,755 |
+| `solidity-source-synth-v1` | 12/12 | Entry 15, reused | 1,199 |
+| `rust-anchor-coupled-fresh-repair-v1` | 12/12 | Entry 15, reused | 708 |
+| `consensus-epoch-patch-v1` | 12/12 | measured in this wave, 12 episodes | 2,040 |
+| `solidity-diagnostic-mutation-v1` | 0/3, closed at stage A | measured in this wave | 0 |
+| `solidity-smt-diagnostic-mutation-v1` | 2/3, closed at stage A | measured in this wave | 0 |
+
+Reuse was not assumed. Each reused pair was re-read and checked mechanically for answering model,
+family name, `accepted == episodes`, zero infrastructure errors, zero refusals, and equality of
+`fixture_digest` and `prompt_digest` between its two stages — a family whose two stages describe
+different cuts is not one 12/12 result. All three passed; verdict `ALL-REUSABLE`.
+
+The sealed Gemma FAIL artifacts of Entries 9, 11 and 13 were read and are quoted, never edited and
+never deleted. `GEMMA-CALIBRATION` figures stand exactly as sealed. Both numbers are reported for
+every family that carries both; neither replaces the other. Where this entry counts, it counts on
+the frontier result, because the question this wave asks is a frontier-LLM question.
+
+The two new Solidity families failed and were closed where they failed. Neither prompt, fixture,
+branch nor threshold was touched afterwards, and neither family was re-measured in this wave:
+
+| family | branch | representative | verdict |
+| --- | --- | --- | --- |
+| `solidity-diagnostic-mutation-v1` | BRANCH-TYPE | `abiEncoder/abi_encodeCall_unitary_tuple_from_assignment.sol` | REJECT / DIAGNOSTIC-MISMATCH |
+| | BRANCH-DECL | `inheritance/override/calldata_memory.sol` | REJECT / DIAGNOSTIC-MISMATCH |
+| | BRANCH-MODIFIER | `parsing/lexer_numbers_with_underscores_decimal.sol` | REJECT / DIAGNOSTIC-MISMATCH |
+| `solidity-smt-diagnostic-mutation-v1` | BRANCH-PREDICATE | `abi/abi_encode_call_simple_1.sol` | ACCEPT |
+| | BRANCH-LITERAL | `functions/getters/external_getter_2.sol` | REJECT / DIAGNOSTIC-MISMATCH |
+| | BRANCH-ARITH | `operators/shifts/shift_underflow_negative_rvalue.sol` | ACCEPT |
+
+Their 2,391 + 1,436 = 3,827 templates are `CALIBRATION-FAILED`. They are not `STRUCTURALLY-INELIGIBLE`:
+the structural gates were not what refused them, and the distinction is kept so a later wave can
+tell "the family could not be calibrated" from "no answer-free instance exists here".
+
+### 16.3 The consensus family, measured here
+
+Twelve frozen out-of-corpus representatives, all ACCEPT, 144.9 s wall clock across the family.
+Zero answer leaks, zero trivial accepts, zero cross-task reuse accepts, zero infrastructure errors,
+zero retries, zero manual fixes — each a pre-registered ceiling of zero, none of them raised after
+a result was seen. Every contestant ran with all tools disabled, no MCP server, no settings file
+and no system prompt (`forbidden_access = NONE — no tool was available to the contestant`).
+
+`claude-haiku-4-5-20251001` appears once per session at ≤20 output tokens: the runtime's own
+session-naming turn. It fed no answer, no tool and no grading, and it is credited with nothing.
+No `--fallback-model` was passed and no substitution was detected, so no hard stop fired.
+
+`num_predict = 4096` is recorded with `num_predict_enforced = false`, and `temperature`/`seed`
+remain uncontrolled — this contestant CLI exposes none of them, so no claim is made that they were
+fixed.
+
+### 16.4 The Rust census, and a correction to this wave's own interim summary
+
+Rust was the one passing family with no census, so its census ran exactly once over all 29,609
+templates: 3,178.7 s, 29,609 rows resolved, conservation over the eleven frozen buckets holding.
+
+An interim summary of this wave named four Rust figures — 3,293 non-Rust sources, 10,276 anchors
+that do not build, 767 with no crate-root API, and 1,178 candidates — which sum to 15,514 and
+therefore left **14,095 templates unnamed**. The operator held the number for that reason before
+any sealing. The hold was correct and is recorded here rather than quietly fixed.
+
+The 14,095 were **already in the ledger**, with a per-row reason written at the time each row was
+resolved. They are the `GENERATION-FAILED` bucket, and every one of those rows carries the reason
+verbatim: `no pattern applies to this anchor's api`. The anchor builds and exposes a bindable
+crate-root API, but none of the frozen generator's four structural patterns — `ENUM-FOLD`,
+`FN-COMPOSE`, `STRUCT-PROJECT`, `TRAIT-IMPL` — can bind to that API, so no fresh instance can be
+cut from it. The omission was in the summary, not in the ledger: the four figures quoted were all
+phase-A input properties, and phase A only answers whether an anchor builds and exposes an API. The
+split of `builds-with-api` into task-emitting and not is a phase-B fact, and phase B had not been
+read when that summary was written. No row moved, and nothing was re-run to establish this.
+
+The full accounting, cross-tabulated read-only between the frozen phase-A manifest and the census
+rows already on disk:
+
+| phase A found | count | census bucket |
+| --- | --- | --- |
+| not a Rust source | 3,293 | NO-ANCHOR-API 3,293 |
+| anchor does not build | 10,276 | COMPILE-INCOMPATIBLE 10,265 · RESOURCE-EXCEEDED 11 |
+| builds, no bindable crate-root API | 767 | NO-ANCHOR-API 767 |
+| builds with a bindable API | 15,273 | GENERATION-FAILED 14,095 · ELIGIBLE 708 · COMPILE-INCOMPATIBLE 361 · ANCHOR-COUPLING-FAILED 107 · DUPLICATE 2 |
+| | **29,609** | conservation holds |
+
+`1,178` was never a verdict. It was an intermediate count printed by phase B before the gates ran:
+the number of manifest rows from which the generator could emit a task at all. Under the operator's
+naming it is recorded as `RUST-MATERIALIZATION-CANDIDATE = 1,178`, and the frozen gates then settled
+it into 708 ELIGIBLE, 361 whose materialised instance failed to compile, 107 that failed anchor
+coupling, and 2 duplicates. It is counted from the `builds-with-api` column alone: the global
+`COMPILE-INCOMPATIBLE` total of 10,626 includes 10,265 anchors that never built and so never
+reached the generator, and those are not candidates.
+
+The Rust figure this entry counts is therefore **708**, not 1,178. The candidate check that was
+running when the hold arrived was left to finish on its own — not stopped, not re-run — and its
+rows were read exactly as written.
+
+This is also the wave's clearest structural finding: **a family passing calibration does not make
+its templates issuable.** `rust-anchor-coupled-fresh-repair-v1` is 12/12 at family level, and 708
+of 29,609 templates survive its own census. Its twelve representatives are out-of-corpus fixtures
+and cover 0 of the 29,609 manifest rows; that caveat is carried in the calibration authority rather
+than dropped.
+
+### 16.5 Freeze order, and the two ledgers
+
+The gap plan mapped all 87,235 templates to exactly one of the nine pre-registered categories, and
+was frozen **before** any model call in this wave. No category boundary, representative, prompt or
+threshold moved after a result was seen. The settlement applies measured outcomes to that frozen
+map; it cannot invent a bucket, and a template whose outcome is missing stays `UNRESOLVED` and is
+reported as a shortfall rather than guessed. Shortfalls: none.
+
+The two prior ledgers are used differently and the difference matters. `census-rows.jsonl` is the
+only prior ledger keyed by `template_id`, and it is the join the frozen gap plan itself used, so it
+settles the three reused families per template. `bucketed-ledger-v2.jsonl` is keyed by `anchor_id`
+and **cannot** be joined per template; it is used only as an independent per-domain recount, and the
+run stops if the two disagree. They agree: EVM 6,755, Solidity 1,199 on both.
+
+The Rust census ran from a wave-local wrapper that substituted exactly two things — the calibration
+gate and the output paths — while importing the policy, generator, checker, extractor and bucket
+priority from the sealed sandbox byte-for-byte. After the run, the six sealed decision files were
+re-digested and confirmed byte-identical, and the sealed directory was confirmed to have gained no
+new file.
+
+One wrapper-level change is recorded because it is visible in the run: a handful of anchors make
+rustdoc emit JSON nested deeper than CPython's default recursion limit, which killed the worker
+pool outright. The wrapper raises that limit and retries such a parse on a large stack. This is an
+interpreter stack limit, not a property of the anchor and not a verdict about it — without the
+headroom the row cannot be **read** at all. It cannot move a row between buckets; it only decides
+whether the extractor sees the document the toolchain already produced.
+
+### 16.6 Budget
+
+18 model episodes in total: 12 for `consensus-epoch-patch-v1`, 3 for each failed Solidity family,
+closed at stage A as pre-registered. The plan's ceiling was 120 episodes beyond which execution had
+to stop and report, so no plan-only stop was required. Every episode ran in a fresh isolated
+subagent with retries 0 and human edits 0. No model was run per template anywhere in the census.
+
+### 16.7 Artifacts
+
+Results stay in the git-ignored sandbox
+(`local-docs/all-domain-frontier-llm-closure-v1-2026-08-17/`). Only digests are tracked here.
+
+| artifact | sha256 |
+| --- | --- |
+| `INPUT-FREEZE.json` | `a4df1c78dcedbb1f016c313d5e233e897e8279a061c5ddd644d05d90af9cc310` |
+| `GAP-PLAN-FREEZE.json` — sealed before the first model call | `895ea960f15e428b6e412ffa585f7b8a91e492a7fefe2f93ca8c1f96d7836381` |
+| `GAP-PLAN-ROWS.jsonl` — all 87,235 pre-mapped | `6383b064e3506275d9f6195881734ad8664e9e6831697c096f38c5bcb6a3a4c9` |
+| `POOLS.json` | `7b5eb488707e565aa113d1c26c767c0f8803f0cb7f53709e01e0b6a250dc05b0` |
+| `FRONTIER-CALIBRATION-consensus-epoch-patch-v1.json` — 12/12 | `f6e2d3f0bdac15c8ad9636dc27e023b5f19f51c4c821e4cd7cde496ef123e362` |
+| `FRONTIER-CALIBRATION-solidity-diagnostic-mutation-v1.json` — 0/3 | `4ac242a6d4a91361982009a83309e268daf66745b626756986b5ae898b173405` |
+| `FRONTIER-CALIBRATION-solidity-smt-diagnostic-mutation-v1.json` — 2/3 | `20525945821fd5f152a8ee0e68b80d8cdae90c73af74c8031994c3a901701685` |
+| `RUST-CALIBRATION-AUTHORITY.json` | `85eb7c9d305f36daa2a8d12428a7e4ed69a0c1b0270ce54143b27045ed3ab753` |
+| `REUSE-AUTHORITY.json` — `ALL-REUSABLE` | `1b8d3b2f5e6d8bb843b8394e4a303a49936aab3a09f177b2ad0eef55218ed0d2` |
+| `RUST-ANCHOR-API-MANIFEST.jsonl` — 29,609 rows | `ade1e73cdc10c0be844e2e332f4818a61ec5c7b45281e4b9b99f7770de0177e7` |
+| `RUST-MANIFEST-FREEZE.json` | `93eaf525c2413cf040f1c5aab0e79430a962a966656e68e15976092e71054c6e` |
+| `RUST-CENSUS-ROWS.jsonl` — 29,609 rows | `5cc910e68363bdc6dc95fb55d4c47cea6104366dde66a9116cea9134235ea935` |
+| `RUST-CENSUS-RESULT.json` — ELIGIBLE 708 | `e599b26a103c1353826bd838565c5c49b76de7e84d1a3dd1e54df4184e37ab81` |
+| `RUST-FULL-ACCOUNTING.json` — the 14,095 accounted for | `708bc87c7136887ee0910414d1cfe3c68ad1331beddac6e092e1fde0e4bd23ef` |
+| `CLOSURE-ROWS.jsonl` — 87,235 settled rows | `855c21d685b9675b2d6cbdbfe2d41ca741d55e01d2caf77f059cb3c9dc2c2fe1` |
+| `CLOSURE-RESULT.json` | `3689d8c3ee7f3f704d1e4273a4dfe38a8f86e686b70bb4b72bc6bcaf5f4fc218` |
+
+Every row of `CLOSURE-ROWS.jsonl` carries `template_id`, `domain`, `family_version`,
+`family_fingerprint`, `source_hash`, `bucket` and `reason`. No answer, witness or expected value is
+stored in any artifact above.
+
+### 16.8 What this entry does not do
+
+* `LLM-MINEABLE-ELIGIBLE-V1 = 2,040` is unchanged. V2 does not revise it.
+* The Gemma results of Entries 9, 11 and 13 and the halted Opus 5 record of Entry 14 are unchanged.
+* `mineable_now = 0` is unchanged. 10,702 issuable templates are not blocks and not shares.
+* No SP1 proof, cycle, gas or memory figure was measured, and none is claimed.
+* No consensus, reward, Base or real mining path was touched or connected.
+* No template was individually solved by a model in the census. The census makes no model call.
+* The 3,827 `CALIBRATION-FAILED` templates are not declared unusable — only uncalibrated. A later
+  wave may retry them, under its own pre-registered plan.
+
+### 16.9 Not a claim
+
+A closed local, offline, non-consensus structural issuance count under frozen policy, with
+family-level frontier calibration on twelve representatives per family. Not a per-template solve
+rate, not a paid API benchmark run, not a public benchmark, not public-network mining, and not a
+leaderboard claim. `mineable_now = 0`.
