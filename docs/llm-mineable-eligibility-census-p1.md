@@ -2545,3 +2545,131 @@ A closed local, offline, non-consensus structural issuance count under frozen po
 family-level frontier calibration on twelve representatives per family. Not a per-template solve
 rate, not a paid API benchmark run, not a public benchmark, not public-network mining, and not a
 leaderboard claim. `mineable_now = 0`.
+
+## Entry 17 — 2026-08-19 · S-1 semanticTests census under the sealed Solidity family / V3-CANDIDATE = 1,583 of 1,670, model episodes = 0
+
+Sealed 2026-08-19. Append-only: Entries 1–16 and every figure they sealed are unchanged by this
+entry. This entry counts **candidates**, not eligibility: `LLM-MINEABLE-ELIGIBLE-V2 = 10,702` is
+not revised, and no sealed row moves out of its bucket here.
+
+### 17.1 Question and answer
+
+The 1,670 Solidity semanticTests templates settled in Entry 16 as `STRUCTURALLY-INELIGIBLE`, under
+gap-plan category `CORPUS-OR-TOOLCHAIN-UNAVAILABLE` (FRR-P0 class: rung VL1, bridge UNDECIDED,
+blocker TOOLCHAIN). The recorded reason — deciding the in-file expectation needs isoltest driving
+evmone through evmc — is a fact about the corpus's own expectation comments. But
+`solidity-source-synth-v1` (Entry 5 family, frontier-calibrated 12/12 in Entry 15) never reads the
+in-file expectation: it appends a challenge-derived `BooleAnswer` obligation to the anchor's frozen
+source and needs only compilability under the pinned solc 0.8.36. So the blocker was tested, not
+assumed: the family's anchor walk was widened from syntaxTests to semanticTests — the sealed
+`materialize.py` procedure verbatim, wider walk root, nothing else changed — and the family's own
+published checker decided every row against the family's confirm-and-discard witness.
+
+```
+denominator (this census)       1,670   semanticTests anchors — verified 1:1 with the sealed 1,670 stock rows
+TASK-EXISTS (ACCEPT)            1,583   labelled V3-CANDIDATE
+NO-TASK (REJECT)                   87   all COMPILE-FAILED
+conservation                    1,583 + 87 = 1,670
+model episodes this census          0
+LLM-MINEABLE-ELIGIBLE-V2       10,702   unchanged
+mineable_now                        0   unchanged
+```
+
+The pre-registered prior band was 1,300–1,600 and the census landed at 1,583. The band was a
+prior, not a gate; it decided nothing.
+
+### 17.2 Discipline
+
+Same execution shape as the FRR-P0 survey: a pre-registration frozen **before any run** — walk
+rule, identity rule, fail-closed check order B1–B8, control battery, report format, labels — with
+the document's sha256 recorded in `W1-FREEZE.json` and re-verified unchanged at seal time.
+
+Fail-closed bindings, checked in frozen order on every run: pinned soljson.js digest; checkout
+commit `03fe7dd4` with a clean semanticTests subtree; walk count exactly 1,670; corpus aggregate
+digest equal byte-for-byte to the sealed 2026-08-10 input freeze; `GAP-PLAN-ROWS.jsonl` and
+`templates-v2.jsonl` digests, with the selector re-run and the template→anchor join verified to be
+a bijection onto the walked set; executor binary digest; family-code digests hashed in the
+directory actually imported, before import. Seven negative controls ran to 7/7 STOP before the
+real run — tampered anchor content, dropped anchor, extra anchor, renamed anchor, tampered
+selector file, tampered family code, injected conservation fault — each stopping at its predicted
+check with zero output files. The census then ran twice; all three outputs are byte-identical
+across runs.
+
+Zero per-row human or model decisions (operator conditions E1/E2): rules were authored at table
+level and frozen; every verdict came from the sealed family checker. No fitness-based selection:
+all 1,670 rows are registered with their verdicts, rejects included.
+
+### 17.3 The 87 rejects, cross-tabulated
+
+All 87 rejects are `COMPILE-FAILED` — zero harness faults, zero size, probe or execution
+failures, zero empty-runtime rows. The frozen report-only diagnostics (properties overlap; the 87
+are not a disjoint sum of these rows):
+
+| source property | files | ACCEPT | REJECT |
+| --- | ---: | ---: | ---: |
+| multi-source marker (`==== Source:` / `==== ExternalSource:`) | 56 | 0 | 56 |
+| `// ====` settings block | 386 | 360 | 26 |
+| abicoder-v1 / ABIEncoderV2 pragma | 33 | 31 | 2 |
+
+The 56 multi-source rejects are a **file-format shave, not a language verdict**: the family has no
+`==== Source: ====` splitter (exactly as in the sealed syntaxTests census), the marker is not
+valid Solidity, and the rows record that honestly. The remaining 31 rejects are genuine
+0.8.36-pin incompatibilities. Settings blocks are comments to solc: such anchors compile under the
+family's frozen settings and their in-file settings are intentionally ignored — part of the frozen
+family definition, not an oversight. The `// ----` expectation blocks are likewise comments and
+were never read; that is the whole S-1 argument.
+
+Caveats frozen before the run and carried, not fixed: `compile.mjs` pins no `evmVersion`
+(inherited family defect; changing it mid-census would alter the family definition and break
+comparability with the sealed census), and `nodeid` is walk-root-relative, so issuance-time
+challenge derivation must bind the full `anchor_id` — deferred to promotion governance.
+
+### 17.4 What V3-CANDIDATE means, and does not mean
+
+* No sealed ledger moves. The 1,670 remain `STRUCTURALLY-INELIGIBLE` / blocker TOOLCHAIN in every
+  sealed artifact (Entry 16, FRR-P0). The candidate label lives in the W1 artifacts only.
+* Promotion to `LLM-MINEABLE-ELIGIBLE-V3` is a separate append-only governance decision (ADR 0020
+  R3-adjacent routes are named but unratified — R2). One question is recorded for that step rather
+  than resolved here: the family's 12/12 frontier calibration (Entry 15) was measured on
+  out-of-corpus representatives during the syntaxTests-era wave; whether that family-level
+  authority transfers to semanticTests anchors without a fresh calibration wave is exactly the
+  decision promotion governance owns.
+* 1,583 is not supply, not "solved", not issuable inventory, and not a revision of any V2 figure.
+
+### 17.5 Artifacts
+
+Results stay in the git-ignored sandbox (`local-docs/w1-solidity-semantictests-census-2026-08-19/`).
+Only digests are tracked here.
+
+| artifact | sha256 |
+| --- | --- |
+| `PREREGISTRATION.md` — frozen before any run, unchanged at seal | `c872c14219dfc46f040839b5da30149a75dff62164f0161c6fdba7b9ed9dbd29` |
+| `W1-FREEZE.json` | `1f2beff35936c2ca13dbfc51252f5cc0cea0aec2624c10577d64e2e479de7877` |
+| `w1_census.py` | `1fd1eafd08937f469d9145d039b3d2f10051f2ed9040f35f14e44c3b706b2b3e` |
+| `w1_selftest.py` | `3256d813b21a02f05f8f174769aae2b24cb9d5c896758297135988574910a7b0` |
+| `SELFTEST-RESULT.json` — 7/7 STOP | `875f166268428d5795983d0ced1385a26f3f15bd2d5efac534b95525203868fb` |
+| `W1-CENSUS-ROWS.jsonl` — 1,670 rows | `c5f58bf91df043b7ee3d1d6b30e36a30db454a3f11c36aa70f80ce1941685a70` |
+| `W1-CENSUS-REPORT.json` | `e086ba3b9c9131ecfe71624e5d5c8cb2103527a8cd4fa3029096050965587f89` |
+| `W1-CENSUS-REPORT.md` | `97cfdf9dfa35a201712aec2a63bd752fdf40875d5c02fbdcdf00c2a96cf947eb` |
+| `W1-SEAL.json` | `1724219984d00d44bec993aad7bd60f39f553d9219e4279b97d80a7d01dd8b26` |
+
+Every row carries `anchor_id`, `nodeid`, `template_id`, `anchor_source_sha256`, `challenge`,
+`verdict`, `reason`, `detail` and `label`. No answer, witness or expected value is stored in any
+artifact above (the witness is confirm-and-discard, C9).
+
+### 17.6 What this entry does not do
+
+* `LLM-MINEABLE-ELIGIBLE-V1 = 2,040` and `LLM-MINEABLE-ELIGIBLE-V2 = 10,702` are unchanged.
+* No promotion decision is taken; no calibration claim is made beyond quoting Entry 15's sealed
+  result.
+* No model call was made (0 episodes). No isoltest or evmone was built; no in-file expectation was
+  decided or read.
+* `mineable_now = 0` is unchanged. No consensus, reward, Base or real mining path was touched.
+* The 87 rejects are not declared unusable — the 56 multi-source files are a file-format gap that a
+  later splitter-bearing family could revisit under its own pre-registration.
+
+### 17.7 Not a claim
+
+A closed local, offline, non-consensus, model-free census under frozen pre-registration. Not a
+solve rate, not a paid API benchmark run, not a public benchmark, not public-network mining, and
+not a leaderboard claim. `mineable_now = 0`.
