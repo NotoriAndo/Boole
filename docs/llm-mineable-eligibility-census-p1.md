@@ -2921,3 +2921,116 @@ Family-level calibration on 12 representatives per pool, closed local, offline, 
 Not a per-template solve rate, not a paid API benchmark, not a public benchmark, not
 public-network mining, and not a leaderboard claim. V3 is an issuable-count ceiling under the
 frozen protocol, not a prediction. `mineable_now = 0`.
+
+## Entry 20 — 2026-08-19 · W2b cross-fork decode census over the 98 W2 ERROR rows / W2B-CANDIDATE = 97 of 98, model episodes = 0
+
+Sealed 2026-08-19 (census: operator order Telegram msg 4121; this docs step: msg 4124).
+Append-only: Entries 1–19 and every figure they sealed are unchanged, including
+`LLM-MINEABLE-ELIGIBLE-V3 = 13,866`. This entry counts **candidates** under a new label,
+`W2B-CANDIDATE`; it promotes nothing and it re-buckets no sealed row.
+
+### 20.1 Question and answer
+
+Entry 18 deferred one measured question: the sealed W2 census left ~204 fork/transition rows
+whose `pre.ssz_snappy` is the PREVIOUS fork's container (fork tests start from the pre-fork
+state; transition tests from the pre-transition fork's state), and cross-fork decoding was
+pre-registered as W2b, explicitly out of W2's scope. Measured against the sealed
+`W2-CENSUS-ROWS.jsonl` (`081aadbe…`), the ~204 decompose exactly: 204 fork/transition rows =
+106 `DUPLICATE` + 98 `ERROR`. The dedup key is the sha256 of the raw pre-state bytes and does
+not depend on any decode fork, so the 106 DUPLICATEs are settled by W2 and out of scope. The 98
+ERROR rows — every note starting `driver: decode pre:`, none outside fork/transition
+directories — are the entire W2b scope.
+
+Decode rule (the single delta from W2): each row is decoded at the previous fork of its
+directory fork — electra-dir rows as **deneb** (an arm the W2 driver carries bit-for-bit from
+the sealed census driver), fulu-dir rows as **electra** (the v161 arm gated in Entry 18,
+G-SSZ 70/70, G-POST 8/8). Zero new Rust, family, witness or control code exists in this wave:
+the walk calls the sealed W2 modules and pinned W2 driver binary (`7ab25420…`) verbatim, and
+the only changed input is the anchor's `fork` field. The electra-form published rule
+degenerates exactly on deneb instances because the driver reports per-validator
+effective-balance limits for every arm (fork-wide 32 ETH on pre-electra arms). The rejected
+alternative — upgrading each pre-state to the directory fork — would have required upgrade
+functions neither driver calls and a fulu upgrade module the vendored crate does not have.
+Parameters otherwise sealed-verbatim: reference epoch 1 (safe: W2 issued no instance for these
+anchors — every one ERRORED before any witness commitment existed), one seed per row, 120 s
+budget, zero retries, zero manual exceptions.
+
+```
+denominator (this census)          98   all ERROR rows of the sealed W2 census
+ELIGIBLE                           97   labelled W2B-CANDIDATE
+                                        electra-dir→deneb 46 of 47 · fulu-dir→electra 51 of 51
+ORACLE-OR-CHECK-FAILED              1   COLLATERAL-DISTURBANCE (minimal/electra transition,
+                                        one-fourth slashed active validators pre-fork)
+conservation                       97 + 1 = 98   per-group balanced (20 + 20 + 27 + 31)
+model episodes this census          0
+LLM-MINEABLE-ELIGIBLE-V3       13,866   unchanged
+mineable_now                        0   unchanged
+```
+
+The pre-registered prior band was 70–98 and the census landed at 97. The one
+ORACLE-OR-CHECK-FAILED row is exactly the loss mode disclosed at freeze: a transition
+pre-state carrying validators whose effective balance moves on any epoch run, which no patch
+can prevent — registered honestly, not retried, not excluded from the denominator.
+
+### 20.2 Discipline
+
+Pre-registration frozen before the selftest and before both census runs, its sha256 recorded
+in `W2B-FREEZE.json` and re-verified unchanged at seal. Smoke evidence (one sample per group
+decoding at the previous fork and refusing at the directory fork) was taken before the freeze
+and marked as evidence, not verdicts. Baseline selftest green, then all eleven pre-registered
+negative controls HARD-STOPPED at their predicted check with exit 2 and zero output files
+leaked. The census then ran twice; the row files are byte-identical across runs
+(`W2B-CENSUS-ROWS.jsonl` = `1e26dfac…` both times).
+
+Two dedup walks were replayed from disk before any W2b verdict and reproduced exactly: the
+sealed census walk (1,816 DUPLICATE / 2,253 first-wins / 162 sealed-fork NO-FRESH) and the W2
+walk continuing it (1,036 DUPLICATE / 1,706 first-wins / 138 NO-FRESH). Every scope digest is
+owned by its own template_id in the continued seen-material map — the 98 were first-wins in W2
+that ERRORED before materialising — so the W2b walk cannot double-count by construction, and
+`DUPLICATE = NO-FRESH-INSTANCE = ALREADY-COUNTED = 0` is measured, not assumed. A per-row
+refail gate (B9) re-drove every DIRECTORY fork first and demanded the sealed W2 decode failure
+reproduce; 98/98 still refuse, so no W2b row contradicts a sealed W2 row. Zero per-row human or
+model decisions; no answer, witness or expected post-state is stored in any artifact below.
+
+### 20.3 Artifacts
+
+Results stay in the git-ignored sandbox (`local-docs/w2b-crossfork-decode-census-2026-08-19/`).
+Only digests are tracked here.
+
+| artifact | sha256 |
+| --- | --- |
+| `PREREGISTRATION.md` — frozen before any run, unchanged at seal | `654203908e9661ef0259328a4f0baa4b6a7f5a46836ac5817b5689befab6c7b4` |
+| `W2B-FREEZE.json` — pins incl. all 98 per-row pre-state digests | `2dc547f482e4dc0dec80f6c745321b9c1f3b284df860b6d4c02ef4992df18e5a` |
+| `w2b_freeze.py` | `9c971f2ce06610c365b7a12c239109206e45446c5852faa16da3168d52a06dc5` |
+| `w2b_census.py` | `b4cbd1f2003fbe64778de66ac28fd7846774c7cdfb7595039b84c31173281852` |
+| `w2b_selftest.py` | `002b1267910fd4439b75e6ca722d81fb047484227c92066fe6bfebab7a6fd65e` |
+| `w2b_seal.py` | `d5806b127491b6feb9f1b753a6f588420f6cacf4e64ea84840abdab06e0f9e0e` |
+| `W2B-SELFTEST.json` — baseline green, 11/11 STOP | `966c111df3b63c05d0a9767a0573adbfde336eeec482ca1ae1654ea0c658e57a` |
+| `W2B-CENSUS-ROWS.jsonl` — 98 rows (run 2 byte-identical) | `1e26dface2b01262bd28c3e7ec2ab70afe7a7164d68be8bf705fe5cbcc759754` |
+| `W2B-CENSUS-REPORT.json` | `d7c5749d2728438537157e3e302f64b613475208fcf7c4d6e56cf0a49a416b1f` |
+| `W2B-CENSUS-REPORT.md` | `987917575d97625a4b46adf0f1d23ac0863f087ae02e4a091dc9b2d27b1024f3` |
+| `run1.log` | `91250408399433886f1efb1e40dbdce3c6a7fefff21bfd81a5c386b22d291e87` |
+| `run2.log` | `e5f9aeb8e0ea108aed16c839ca12782d587be5f46333623bf31938118f2e4903` |
+| `W2B-SEAL.json` | `7a09f210c6c81418452f4ae8d55cfed6758a7bd836f1f20587ed06d826587438` |
+
+### 20.4 What this entry does not do
+
+* `LLM-MINEABLE-ELIGIBLE-V1 = 2,040`, `V2 = 10,702` and `V3 = 13,866` are unchanged.
+  W2B-CANDIDATE is not added to any of them.
+* A template is never counted twice. These 98 template_ids sit in the sealed W2 census as
+  ERROR and were therefore **not** part of the 1,581 promoted in Entry 19; any future
+  promotion would re-decide those same templates under separate governance plus a
+  reference-LLM calibration wave, never stack on a count that contains them.
+* No promotion decision is taken here. Whether the family's calibrated authority covers
+  deneb-decoded fork/transition instances is a fresh measurement question, exactly as
+  electra/fulu coverage was in Entry 19.
+* The sealed W2 ERROR rows keep their labels in every sealed artifact; the cross-fork
+  decision lives in this entry and the W2b sandbox, append-only, editing nothing.
+* No model call was made (0 episodes). `mineable_now = 0` is unchanged. No consensus,
+  reward, Base or real mining path was touched.
+
+### 20.5 Not a claim
+
+A closed local, offline, non-consensus, model-free census under frozen pre-registration. Not a
+solve rate, not a paid API benchmark run, not a public benchmark, not public-network mining,
+and not a leaderboard claim. `mineable_now = 0`.
