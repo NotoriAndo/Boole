@@ -2673,3 +2673,251 @@ artifact above (the witness is confirm-and-discard, C9).
 A closed local, offline, non-consensus, model-free census under frozen pre-registration. Not a
 solve rate, not a paid API benchmark run, not a public benchmark, not public-network mining, and
 not a leaderboard claim. `mineable_now = 0`.
+
+## Entry 18 — 2026-08-19 · W2 electra/fulu census under the sealed consensus family / V3-CANDIDATE = 1,581 of 2,880, model episodes = 0
+
+Sealed 2026-08-19 (census: operator order Telegram msg 4070; this docs step: msg 4119).
+Append-only: Entries 1–17 and every figure they sealed are unchanged by this entry. Like Entry 17,
+this entry counts **candidates**, not eligibility: `LLM-MINEABLE-ELIGIBLE-V2 = 10,702` is not
+revised, and no sealed row moves out of its bucket in any sealed artifact.
+
+### 18.1 Question and answer
+
+The 2,880 electra/fulu consensus templates settled in Entry 16 as `STRUCTURALLY-INELIGIBLE`, under
+gap-plan category `CORPUS-OR-TOOLCHAIN-UNAVAILABLE`: the sealed driver executed only the forks it
+was built for, and electra/fulu containers were not among them. That blocker is a toolchain fact,
+not a task-shape fact, so it was tested rather than assumed. The driver was extended to
+v1.6.1-faithful electra/fulu containers (`consensus-epoch-exec`, binary digest `7ab25420…`,
+corpus pin consensus-specs v1.6.1 commit `5fa6edcc`), the extension was gated **before any census
+verdict** — G-SSZ container round-trips 70/70 across mainnet/minimal × electra/fulu, G-POST
+post-state checks 8/8, and 35/35 draft probes failing loudly rather than silently — and the sealed
+family `consensus-epoch-patch-v1` (Entry 12 identity, frontier-calibrated in Entries 15–16) then
+decided every row model-free: reference epoch 1, one seed per template, 120 s budget, zero
+retries, zero manual exceptions.
+
+```
+denominator (this census)       2,880   all electra/fulu templates of the sealed GAP-PLAN
+ELIGIBLE                        1,581   labelled V3-CANDIDATE (electra 781 · fulu 800)
+DUPLICATE                       1,036   against sealed material and intra-W2 repeats
+NO-FRESH-INSTANCE                 138
+ERROR                              98
+ORACLE-OR-CHECK-FAILED             27
+conservation                    1,581 + 1,036 + 138 + 98 + 27 = 2,880   per-fork balanced
+model episodes this census          0
+LLM-MINEABLE-ELIGIBLE-V2       10,702   unchanged
+mineable_now                        0   unchanged
+```
+
+The pre-registered prior band was 1,300–2,300 and the census landed at 1,581. The band was a
+prior, not a gate; it decided nothing.
+
+### 18.2 Discipline
+
+Pre-registration frozen before the selftest and before both census runs, its sha256 recorded in
+`W2-FREEZE.json` and re-verified unchanged at seal. Baseline selftest green, then all eight
+pre-registered negative controls HARD-STOPPED at their predicted check with exit 2 and zero output
+files leaked. The census then ran twice; the row files are byte-identical across runs
+(`W2-CENSUS-ROWS.jsonl` = `081aadbe…` both times).
+
+Dedup continuity: the W2 walk replayed the sealed census's seen-material map from disk and
+reproduced it exactly before issuing any W2 verdict — 1,816 sealed DUPLICATEs, 2,253 first-wins
+and 162 sealed-fork NO-FRESH rows re-derived — so no W2 row double-counts sealed material.
+`ALREADY-COUNTED = 0` is measured, not assumed. Zero per-row human or model decisions: every
+verdict came from the sealed family checker against the family's confirm-and-discard witness, and
+no answer, witness or expected post-state is stored in any artifact below.
+
+### 18.3 Artifacts
+
+Results stay in the git-ignored sandbox (`local-docs/w2-consensus-electra-fulu-census-2026-08-19/`).
+Only digests are tracked here.
+
+| artifact | sha256 |
+| --- | --- |
+| `PREREGISTRATION.md` — frozen before any run, unchanged at seal | `c7d65e478b289fdd462c6a8a9c92feaeb3dbd9cbd31ea6a79682812456950699` |
+| `W2-FREEZE.json` | `1a24105153a6e48b83e870130c1e96d171a99f11711f48cc3f93c763ede3c509` |
+| `w2_census.py` | `34f8dc2e9cbd817a74d0cd795f2a9a323f2111ece7b5d4b059269f21240badd3` |
+| `w2_selftest.py` | `8ce5fe46eee61f00859189cd75a5169298546c88c7ad9a32ee1f9614a18c0d5c` |
+| `w2_driver_gates.py` | `e160f828572c8d81c2a8f283fd56bcfeacb483982b12620276aa1091e8ff8a25` |
+| `fam_consensus_w2.py` — sealed family, W2 anchor walk | `abd0421d5e7dbb46ce2be162fa39ca8d3273b4d623d1d3a06050a7bfe1cad8b0` |
+| `witness_consensus_w2.py` — confirm-and-discard author witness | `973ca76b22d51f92961907a46d52b67d9e9694acb2c64749958126b4ac964f51` |
+| `consensus-epoch-exec` — driver binary, electra/fulu extension | `7ab25420be6a165c2234cdeda7a4f69d1784e9682c56decbaedbfb4060def9a1` |
+| `DRIVER-DECISION.md` | `1baf13d42f73b40d7a86b1fc9c300cff92c1760a59e32d96ad200278f181e9a7` |
+| `DRIVER-GATES.json` — G-SSZ 70/70, G-POST 8/8 | `bf368eb7a98da5a9635849b62c577cd1b5edccf77ddce2e5f936cc8965ffd90e` |
+| `W2-SELFTEST.json` — 8/8 STOP | `2e4a08f4081b7c05fa1c74b2c489613429a2a946ec6906fb6d8a2e64cdb5cbeb` |
+| `W2-CENSUS-ROWS.jsonl` — 2,880 rows | `081aadbec6ba13c6135f9911ab394a4c3d095a67f8433dc6e23d102238c7449f` |
+| `W2-CENSUS-REPORT.json` | `0189ebd2c28ab679088fe322fe32d88345d33cbe473e418c5dbf932d3f652020` |
+| `W2-CENSUS-REPORT.md` | `068317b18d89944b7c242bf8a04a9f050cf2517978b735900c77e7214ad8b95b` |
+| `W2-SEAL.json` | `8880aadddaa148715b985de3705c7396bb8879b51db84972005814e8b573c790` |
+
+### 18.4 What this entry does not do
+
+* `LLM-MINEABLE-ELIGIBLE-V1 = 2,040` and `LLM-MINEABLE-ELIGIBLE-V2 = 10,702` are unchanged.
+* No promotion decision is taken here. The consensus family's sealed 12/12 (Entries 15–16) was
+  measured on sealed-fork representatives, not on electra/fulu; whether that authority covers the
+  new forks is exactly the question the promotion wave of Entry 19 answers by fresh measurement.
+* No model call was made (0 episodes). The 98 ERROR and 27 ORACLE-OR-CHECK-FAILED rows are
+  registered with per-row reasons, not retried and not excluded from the denominator.
+* W2b — cross-fork decode of the ~204 previous-fork pre-states — remains deferred and unrun.
+* `mineable_now = 0` is unchanged. No consensus, reward, Base or real mining path was touched.
+
+### 18.5 Not a claim
+
+A closed local, offline, non-consensus, model-free census under frozen pre-registration. Not a
+solve rate, not a paid API benchmark run, not a public benchmark, not public-network mining, and
+not a leaderboard claim. `mineable_now = 0`.
+
+## Entry 19 — 2026-08-19 · V3 promotion calibration wave, both pools 12/12 / LLM-MINEABLE-ELIGIBLE-V3 = 13,866
+
+Sealed 2026-08-19 (wave: operator order Telegram msg 4114; this docs step: msg 4119). Append-only:
+Entries 1–18 and every figure they sealed are unchanged, including `LLM-MINEABLE-ELIGIBLE-V1 =
+2,040` and `LLM-MINEABLE-ELIGIBLE-V2 = 10,702`. V3 is a **successor** label: the V2 count plus two
+candidate pools promoted as whole blocks, each after passing a fresh frontier calibration on
+representatives drawn from the pool itself.
+
+### 19.1 Question and result
+
+Entry 17 recorded the promotion question rather than resolving it: the Solidity family's 12/12
+(Entry 15) was measured on syntaxTests-era representatives, and whether that family-level
+authority transfers to semanticTests anchors was deferred to promotion governance. The same
+question applied to W2: the consensus family's 12/12 (Entry 16) was measured on sealed-fork
+representatives, not electra/fulu. This wave answered both by fresh in-pool measurement instead of
+a transfer argument — twelve representatives per pool, drawn deterministically from the pool
+itself, one episode per representative on `claude-opus-4-8` under the sealed Entry 14–16
+isolated-contestant protocol.
+
+```
+W1  solidity-source-synth-v1 over semanticTests   12/12 ACCEPT   FRONTIER-LLM-CALIBRATED
+W2  consensus-epoch-patch-v1 over electra/fulu    12/12 ACCEPT   FRONTIER-LLM-CALIBRATED
+
+LLM-MINEABLE-ELIGIBLE-V2               10,702   unchanged
+W1 pool promoted (Entry 17)             1,583
+W2 pool promoted (Entry 18)             1,581
+LLM-MINEABLE-ELIGIBLE-V3               13,866   = 10,702 + 1,583 + 1,581
+model episodes this wave                   24   claude-opus-4-8
+mineable_now                                0   unchanged
+```
+
+**`LLM-MINEABLE-ELIGIBLE-V3 = 13,866` counts templates issuable under a family that passed
+frontier-LLM calibration at family level over the pool in question. It does not mean a model
+solved 13,866 templates — or 3,164, or any number beyond the 24 accepted representatives.** The
+union arithmetic is exact: both pools lie wholly inside Entry 16's `STRUCTURALLY-INELIGIBLE`
+bucket (the 1,670 semanticTests rows and the 2,880 electra/fulu rows), the W2 census measured
+`ALREADY-COUNTED = 0` against sealed material, and Entry 17 verified the W1 walk 1:1 against the
+sealed stock rows — so no template is counted twice.
+
+### 19.2 Pre-registration, frozen before any model call
+
+`PROMO-FREEZE.json` + `PREREGISTRATION.md` were written and digest-bound before the harness
+selftest and before the first model call, adopting the operator-approved decisions verbatim: pass
+threshold kept at 12/12 (D1), a fresh W1 calibration rather than a transfer argument (D2), one
+single pre-registered 24-episode wave (D3).
+
+* **Draw, deterministic and skip-aware**: score = sha256("V3-PROMOTION-CALIBRATION-2026-08-19 |
+  pool | template_id"), ascending. W2 stratified electra 6 + fulu 6 with the episode order
+  interleaved e,f,e,f,… so stage A covers both forks; W1 uniform first 12. The replacement rule
+  was pre-registered and the full score walks frozen; zero skips were needed in either pool.
+* **Fresh epochs, census never reused**: W1 census epoch 0 → calibration epoch 1; W2 census epoch
+  1 → calibration epoch 2. Per representative, the gates re-derive the sealed census binding (W1:
+  epoch-0 challenge and anchor-source digest; W2: epoch-1 witness commitment and test seed from
+  the pinned pre-state material) and assert the calibration-epoch instance differs.
+* **Instances materialised at freeze**: per representative, the prompt digest, an author-witness
+  confirmation at the calibration epoch (ACCEPT, confirm-and-discard — no witness stored), and
+  every adversarial control REJECT (W2: A1/A4/A5 static + A2/A3 dynamic; W1: empty + constant).
+* **Budgets**, identical axis-by-axis across both harness surfaces and verified equal at freeze:
+  8 turns, 8 build/compile calls, 4 checks, 24,576 generated tokens, 1,800 s wall clock.
+* **Component table**: all 50 files imported, read or executed — including the wave's own six
+  scripts — digest-pinned in the freeze and re-verified at every run gate and once more at seal
+  (50/50 MATCH). Sealed continuity pins bind `opus.py` (`927e0617…`), both census row files
+  (`c5f58bf9…`, `081aadbe…`), the W2 driver (`7ab25420…`), the Solidity family toolchain (pinned
+  solc 0.8.36 + native exec) and `templates-v2.jsonl` (`44607581…`) to previously sealed digests.
+
+One process fact is recorded rather than hidden: the first freeze attempt HARD-STOPPED before
+sealing anything — the template→anchor join read `source_path` at the wrong nesting and could
+seat no W2 representative. The loader was corrected to the sealed census's join and the freeze
+re-run from scratch. The fail-closed design left no partial artifact, and nothing had been frozen
+or measured before the fix.
+
+### 19.3 Harness negative controls, run before any episode
+
+Baseline first: both runners' full gate stacks green with no fault injected. Then each
+pre-registered control had to stop exactly where predicted: NC1 tampered wave challenge module,
+NC2 tampered `opus.py` transport, NC3 tampered W2 census rows, NC4 tampered W1 census rows — all
+HARD-STOP exit 2 at the component gate; NC5 draw drift → walk-prefix gate; NC6 prompt drift →
+prompt re-derivation gate; NC7 a doctored runtime transcript naming `claude-sonnet-5` must raise
+the substitution hard stop while a clean `claude-opus-4-8` transcript passes; NC8 episode mode
+under any fault refuses (exit 3) before any gate or model call and writes nothing. Faults perturb
+only hashed byte-streams or the draw tag — never a file on disk — and the selftest verified zero
+new files leaked. Result: 11/11 checks PASS (`PROMO-SELFTEST.json`).
+
+### 19.4 Results in detail
+
+| pool | stage A | full | leaks | trivial | cross-reuse | infra errors | adversarial controls | wall | cost |
+| --- | --- | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| W2 consensus-epoch-patch-v1 | 3/3 | 12/12 | 0 | 0 | 0 | 0 | 5 per episode, all REJECT | 149.1 s | $0.59 |
+| W1 solidity-source-synth-v1 | 3/3 | 12/12 | 0 | 0 | 0 | 0 | 2 per episode, all REJECT | 705.6 s | $2.34 |
+
+One fresh isolated contestant per episode, no retries, no hints, no per-instance patches, no
+fixture swaps. Every W2 episode ended by SUBMIT in 2 turns; W1 episodes took 2–4 turns with at
+most 2 compile calls. The W2 COLLATERAL-DISTURBANCE possibility disclosed at freeze did not occur
+— all 12 verdicts are straight ACCEPT. Scans: W2 ran the sealed `calibrate.py`
+leak/trivial/cross-reuse scans verbatim; W1 ran the pool-adapted equivalents pre-registered at
+freeze (expected probe **values** as the secret set, since probe inputs are published in this
+family; trivial vs the constant control; cross-reuse against the 11 sibling instances — 0 hits).
+Total cost $2.93 informational against the approved ~$5 ceiling, subscription-billed CLI, no API
+key, no paid-API run.
+
+### 19.5 Model evidence
+
+Every answering turn was checked twice, independently: the CLI's own per-turn summary and the
+runtime's session transcript. Across all 24 episodes the transcript model set is exactly
+`[claude-opus-4-8]` (24/24), `substitution_detected` is null everywhere, no `--fallback-model` was
+passed, and zero refusals occurred. `claude-haiku-4-5-20251001` appears once per session at ≤25
+output tokens: the runtime's own session-naming turn, feeding no answer, no tool and no grading,
+credited with nothing (Entry 16 precedent). Every contestant ran with all tools disabled, no MCP
+server, no settings sources and an empty system prompt (`forbidden_access = NONE`). Disclosed
+unchanged from the sealed precedent: temperature/seed remain uncontrolled by this contestant CLI,
+and the per-turn `num_predict = 4096` is recorded as not enforced by the transport.
+
+### 19.6 What promotion changes, and what it does not
+
+* The V3-CANDIDATE labels of Entries 17–18 resolve: both pools are promoted **as whole blocks**
+  into the V3 count. In the V3 view the 3,164 promoted templates are issuable; in every earlier
+  sealed artifact (Entry 16 settlement, FRR-P0 rows, W1/W2 census artifacts) they keep the labels
+  they were sealed with — the promotion lives in this entry, append-only, editing nothing.
+* Entry 17's issuance caveat carries to V3 unchanged and unresolved: `nodeid` is
+  walk-root-relative, so issuance-time challenge derivation must bind the full `anchor_id`.
+  Issuance governance, not calibration, owns that step.
+* V1 = 2,040 and V2 = 10,702 remain quotable exactly as sealed; V3 supersedes neither
+  retroactively.
+* `mineable_now = 0` is unchanged. No consensus, BF.7, reward, Base or real mining path was wired.
+
+### 19.7 Artifacts
+
+Results stay in the git-ignored sandbox (`local-docs/v3-promotion-calibration-2026-08-19/`).
+Only digests are tracked here. The 24 per-episode transcripts (`transcripts/w2/w2-00…11.json`,
+`transcripts/w1/w1-00…11.json`) are digest-bound row-by-row inside the two run results.
+
+| artifact | sha256 |
+| --- | --- |
+| `PREREGISTRATION.md` — frozen before selftest and any model call | `f23d314f970c745e9b7c8284e9caff4020268374697e6ac3f185cfca32813899` |
+| `PROMO-FREEZE.json` — 50-file component table, 24 reps, walks | `5ae6f8a56a6024ac4adb627ddf92ed45f6ed378553358623775007fcc9761605` |
+| `promo_common.py` | `f57f473760301f234eaf4bef3a559b183c6c045b3dac5a09ce9dd8278125ee47` |
+| `freeze_promotion.py` | `f31fe32528ffff6755bb5780c4fe8e32fcd50b695350f5a6835245a2e0b1ff6b` |
+| `promo_selftest.py` | `4c69e4c024fc101168b8c5444a9aae3522c6d75e15e9853a48775ddc99003561` |
+| `run_w2_promotion.py` | `58a9ac7c3d47cce7969c778c808520ceac127fbbe3e91e2e2446f2f1b34afde5` |
+| `run_w1_promotion.py` | `d1332a2f8c4287c4ef60f41afd2bc6bdcd0350357ac139f1a9eae750ac64aa7c` |
+| `seal_promotion.py` | `57be5be2a00c1660ba5ca18815c194b4b219a5823ec2628c139e379ad04c6117` |
+| `PROMO-SELFTEST.json` — 11/11 PASS | `0fc50ff9d6313ba8faafeb0be9c01d53a986fccb4d2f83b8308683c6d7ccacba` |
+| `PROMOTION-RUN-w2-consensus-epoch-patch-v1.json` — 12/12 | `c57eb321029daa725f7679ab0c263b87778be4028dc9dfef0277fb7af18d718b` |
+| `PROMOTION-RUN-w1-solidity-source-synth-v1.json` — 12/12 | `14bf0fb2fc2782077f252856e8cc5ed03a4c56be987255d32da5d0114b38b571` |
+| `PROMOTION-CALIBRATION-SEAL.json` | `cd1c6c4c2131837779a44c2efb48d66d10c78f507fc1ae8a46bd4c185800af29` |
+
+No answer, witness or expected value is stored in any artifact above; per-episode rows carry
+`answer_sha256` and byte counts, never answer bytes.
+
+### 19.8 Not a claim
+
+Family-level calibration on 12 representatives per pool, closed local, offline, non-consensus.
+Not a per-template solve rate, not a paid API benchmark, not a public benchmark, not
+public-network mining, and not a leaderboard claim. V3 is an issuable-count ceiling under the
+frozen protocol, not a prediction. `mineable_now = 0`.
