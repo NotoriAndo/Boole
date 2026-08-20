@@ -3331,3 +3331,101 @@ benchmark, not a paid-API benchmark, not public-network mining, not a leaderboar
 not a re-measurement of family-level LLM calibration (that stays Entry 14-21's).
 `V4 = 13,963` is unchanged; this entry only reports how much of its A-rooted portion is unique
 real material versus repeated real material. `mineable_now = 0`.
+
+## Entry 23 — 2026-08-20 · ANCHOR-COUPLING-V2 Solidity successor wave / syntax ACCEPT 1/3 · REJECT 2/3, SMT 0/3 not tabulated, V4 unchanged
+
+Sealed 2026-08-20 (operator order Telegram msg 4164, chat_id 1311067056, ordered an A-method
+successor design for the two Entry 16 `CALIBRATION-FAILED` Solidity pools; msg 4166 ordered the
+SMT run halted mid-wave; msg 4169 ordered this entry sealed). Append-only: Entries 1-22 and every
+figure they sealed are unchanged, including `CALIBRATION-FAILED = 3,827` (Entry 16) and
+`LLM-MINEABLE-ELIGIBLE-V4 = 13,963` (Entry 21). This entry resolves the scope question Entry 22
+§22.5 left open — a v2 successor attempt was designed and run against exactly the two families
+Entry 16 closed — and adds no row and changes no count.
+
+### 23.1 Root cause and fix (syntax pool only)
+
+`solidity-diagnostic-mutation-v1`'s `cleanSource()` never applied the preamble
+(`pragma solidity >=0.0;` + SPDX line) the real isoltest harness always applies before compiling
+(`test/libsolidity/util/Common.cpp::withPreamble()`), so the family's own compiles ran on
+unpreambled source and could emit diagnostics no correctly-preambled compile — and therefore no
+in-tree expectation block — ever produces. Fixed by applying the same `withPreamble()` logic the
+sibling SMT family already used. Verified: 19/19 regression, 0 out of 1,199 out-of-vocabulary
+diagnostics across the full calibration-pool sweep. `solidity-smt-diagnostic-mutation-v1` carried
+no code change — its one Entry-16 miss (`functions/getters/external_getter_2.sol`,
+BRANCH-LITERAL) was judged a model-reasoning miss, not a family bug.
+
+### 23.2 Structural gate (zero model calls, both pools independently)
+
+Four checks per pool — anchor-swap changes the required answer set both directions, no answer
+exposure, deterministic checker, wrong-answer rejection — all four passed for both pools before
+any model call. `STRUCTURAL-GATE-v2-2026-08-20.json`, sha256
+`b7772f77fab82292e1700f43b5f65d587fb756e149a7fdf37a1d3d3c7ebf2477`.
+
+### 23.3 Result — syntax pool
+
+```
+solidity-diagnostic-mutation-v1 (wave ANCHOR-COUPLING-V2)
+STAGE-A                 = 1/3
+ACCEPT                  = 1
+REJECT                  = 2   reason DIAGNOSTIC-MISMATCH (both)
+FAMILY-CALIBRATION-FAILED, closed at Stage A
+census_permitted        = false
+```
+
+| branch | representative | verdict |
+| --- | --- | --- |
+| BRANCH-TYPE | `abiEncoder/abi_encodeCall_unitary_tuple_from_assignment_expression.sol` | REJECT / DIAGNOSTIC-MISMATCH |
+| BRANCH-DECL | `inheritance/override/calldata_memory_interface_struct.sol` | REJECT / DIAGNOSTIC-MISMATCH |
+| BRANCH-MODIFIER | `parsing/while_loop.sol` | ACCEPT |
+
+Per protocol: not re-prompted, re-fixtured or re-measured in this wave.
+`FRONTIER-CALIBRATION-v2-solidity-diagnostic-mutation-v1.json`, sha256
+`5a6b0d2783007aa9ba0adf6aaee81036067fa0c5c4f176ee6a633e2e64c16ac3`.
+
+### 23.4 Result — SMT pool
+
+```
+solidity-smt-diagnostic-mutation-v1 (wave ANCHOR-COUPLING-V2)
+STAGE-A                 = 0/3   halted by operator instruction (msg 4166) before episode 1
+                                 returned a verdict
+ACCEPT                   = 0
+REJECT                   = 0
+NOT-TABULATED            = true
+census_permitted         = false
+```
+
+Prompt digests were frozen (`CALIBRATION-FREEZE-v2-solidity-smt-diagnostic-mutation-v1.json`,
+sha256 `1033976c006047714b9f4a03d47b9bfa1541196e08ec0d5c43970a9e434fbf4b`) before the halt; no
+episode completed, no result file exists, and none of this wave's SMT activity is counted as a
+verdict of any kind — measured 0, not a 0/3 fail.
+
+### 23.5 Pool-accounting cross-check (operator order, msg 4166)
+
+The syntax family draws its twelve calibration representatives from `syntax_calibration_pool`
+(1,199 anchors already sealed `LLM-TASK-ELIGIBLE` under `solidity-source-synth-v1`), not from
+`syntax_census_pool` (2,391, this family's own target) — a free draw that costs the 2,391 count
+nothing. Checked directly, not assumed: the real syntaxTests corpus is 3,547 files; the two pools
+are disjoint (0 overlap) and their union is exactly those 3,547 files; the calibration pool's
+1,199 anchors match the sealed ledger's 1,199 `solidity-source-synth-v1` rows by exact set
+equality; the apparent 1,199 + 2,391 = 3,590 vs 3,547 gap (43) is fifteen files that legitimately
+emit more than one template row (vector-N sub-instances), which never caused double-counting here
+because the syntax pool never reached its own census step (23.3). Conservation holds; no
+correction to Entry 16 is needed.
+
+### 23.6 What this entry does not do
+
+* `CALIBRATION-FAILED = 3,827` (Entry 16) is unchanged — this is a new, independent attempt
+  against the same two families, not a correction of Entry 16's figure.
+* `LLM-MINEABLE-ELIGIBLE-V4 = 13,963` (Entry 21) is unchanged. No row is added, no row is
+  dropped.
+* No census ran for either pool (`census_permitted = false` both).
+* Neither family is re-measured in this wave, win or lose — the fail-fast, no-same-wave-retry
+  rule (operator order, msg 4164) applies to both: the syntax pool because it failed, the SMT
+  pool because the operator ordered it stopped before measurement.
+* Model episodes this wave: 3 (`claude-opus-4-8`, syntax pool only). SMT: 0.
+
+### 23.7 Not a claim
+
+Closed local, offline, non-consensus calibration attempt over pre-registered fixtures. Not a
+per-template solve rate, not a paid API benchmark, not a public benchmark, not public-network
+mining, and not a leaderboard claim. `mineable_now = 0`.
