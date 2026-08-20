@@ -3190,3 +3190,144 @@ Family-level calibration on 12 representatives, closed local, offline, non-conse
 per-template solve rate, not a paid API benchmark, not a public benchmark, not public-network
 mining, and not a leaderboard claim. V4 is an issuable-count ceiling under the frozen protocol,
 not a prediction. `mineable_now = 0`.
+
+## Entry 22 — 2026-08-20 · ANCHOR-COUPLING-AUDIT-P0 material-projection decomposition of V4 / MATERIAL-PROJECTION-UNIQUE = 2,398, MATERIAL-PROJECTION-DUPLICATE = 2,028
+
+Sealed 2026-08-20 (operator order Telegram msg 4143, chat_id 1311067056, opened
+ANCHOR-COUPLING-AUDIT-P0; corrected msg 4150, 4157, 4159; this seal ordered by msg 4161, same
+chat). Append-only: Entries 1-21 and every figure they sealed are unchanged, including
+`LLM-MINEABLE-ELIGIBLE-V4 = 13,963` (Entry 21). This entry adds no row, drops no row, and does
+not change V4 — it decomposes the already-sealed V4 total by asking, for the A-rooted strata
+that make up part of V4, how many rows are built from genuinely distinct real anchor material
+versus how many repeat material another row already used.
+
+### 22.1 Question and result
+
+ANCHOR-COUPLING-AUDIT-P0 classified each of V4's four task families as **A** (a row's required
+answer/verdict is genuinely coupled to its anchor's real content — swapping the anchor changes
+the required answer) or **H** (structurally/cosmetically determined — swapping the anchor does
+not). Result, unchanged since the original pass: Ethereum-consensus and Rust are **A**; EVM and
+Solidity are **H**. This entry does not re-run that classification (22.5); it answers a
+follow-up question raised across four correction rounds (msg 4150, 4157, 4159, 4161): of the
+4,426 A-rooted rows (Consensus 3,718 + Rust 708), how many are drawn from distinct real anchor
+material, and how many repeat material another row already drew from?
+
+```
+A-ROOTED-RAW (Consensus 3,718 + Rust 708, both A, unchanged)      = 4,426
+H-SYNTHETIC (EVM + Solidity, both H, unchanged)                   = 9,537
+
+MATERIAL-PROJECTION-UNIQUE    (Consensus 1,690 + Rust 708)        = 2,398
+MATERIAL-PROJECTION-DUPLICATE (Consensus 2,028 + Rust 0)          = 2,028
+  check: 2,398 + 2,028 = 4,426 = A-ROOTED-RAW                              [OK]
+
+U (void/infrastructure)                                            = 0
+
+V4 = MATERIAL-PROJECTION-UNIQUE + H-SYNTHETIC + MATERIAL-PROJECTION-DUPLICATE + U
+   = 2,398 + 9,537 + 2,028 + 0
+   = 13,963   [OK, = Entry 21's V4, unchanged]
+```
+
+### 22.2 Methodology
+
+MATERIAL-PROJECTION-UNIQUE/-DUPLICATE come from a TEMPLATE-CONTRACT-DIGEST: a per-row digest
+built from each row's real anchor content only — no `task_seed`, no `EXT_SEED`, no target/
+audit-index selection, nothing seed-derived. Consensus:
+`sha256({generator_checker_revision, fork, preset, validator_count, constants, all_validators:
+[[i, balance, effective_balance, limit-or-null], ...] for every real validator})`, reading the
+full validator range per anchor (not the family's own `CANDIDATE_WINDOW=64`). Rust:
+`sha256({generator_checker_revision, pattern, api, anchor_source_fingerprint})`, where
+`anchor_source_fingerprint` is a direct hash of the real `.rs` source bytes. Two rows fold to
+MATERIAL-PROJECTION-DUPLICATE only on a byte-identical digest match — narrower than "the whole
+real state file is identical," it means "every state value this family's own verifier reads is
+identical." Names corrected from the working labels `A-ROOTED-UNIQUE`/
+`EXACT-CONTRACT-DUPLICATE` (operator order, msg 4161) because the old names implied "the
+anchor's full identity," which the digest does not capture — only the specific material this
+family's verifier reads.
+
+`generator_checker_revision` is a real content hash — `sha256(sha256(module source bytes) +
+sha256(verifier binary bytes))` — not a hand-written label; two pools sharing the same code and
+the same binary (`consensus_w2`, `consensus_w2b`, confirmed by direct import inspection:
+`w2b_census.py` imports the identical `fam_consensus_w2` module) therefore get the identical
+fingerprint, so genuine cross-pool duplicates fold correctly. This closes a bug an
+operator-independent recalculation found (msg 4159): the first pass's hand-written per-pool
+label text kept 15 genuine cross-pool duplicate groups artificially split into 30,
+undercounting MATERIAL-PROJECTION-DUPLICATE by 15 and overcounting -UNIQUE by 15 (round-1
+figures 1,705 distinct / 2,013 duplicate / 2,413 unique are superseded by this entry). A second
+bug in the same pass — the Rust manifest join keyed by `anchor_sha256` alone, losing lineage
+for 178 of 25,965 distinct hashes that carry more than one manifest line — is fixed by keying
+on `(anchor_sha256, template_id)`; it affected 1 of 708 rows' manifest lineage but not the
+final count for this data.
+
+Largest duplicate group, corrected (msg 4161 — the first pass misreported this as 62): 324
+groups of size > 1 exist in total (309 single-pool, 15 cross-pool). The largest **single-pool**
+group is 150 rows (`consensus_w2`, digest prefix `b125d655…`); the largest **cross-pool** group
+is 159 rows (`consensus_w2` + `consensus_w2b`, digest prefix `54ac4f7c…`). All 15 cross-pool
+groups are `consensus_w2`/`consensus_w2b` only — `consensus_existing` shares neither code nor
+binary with either and never cross-pool-merges.
+
+### 22.3 Real SHA pin for generator/checker/dependency code and input manifests
+
+`IMPLEMENTATION-SHA-MANIFEST-2026-08-20.json` (built by `pin_implementation_manifest.py`,
+computed directly from bytes on disk, no hand-typed hash) pins the sha256 of every generator/
+checker source file, verifier binary, and input census/manifest file each family/pool's digest
+computation reads. It independently confirms the same finding at the file level:
+`consensus_w2` and `consensus_w2b` pin to the identical `fam_consensus_w2.py` hash
+(`abd0421d…`) and identical verifier-binary hash (`7ab25420…`); `consensus_existing` pins to
+different hashes for both (`fam_consensus.py` = `10e2e0a3…`, its binary = `a4346aa4…`). This is
+the artifact this entry's numbers are pinned against — if any of these files change on disk,
+the numbers above are no longer backed by the same pinned inputs.
+
+### 22.4 Duplicate definition, fixed
+
+"Duplicate" is fixed to one of two definitions, both kept, neither overriding the other:
+
+```
+ISSUED-PROBLEM-COUNT (every row distinct once anchor_id/epoch/seed differ) = 4,426
+RAW-MATERIAL-DIVERSITY (MATERIAL-PROJECTION-UNIQUE, this entry)            = 2,398
+```
+
+This entry's conservation table (22.1) uses the second definition — raw-material diversity —
+because the audit's question is about anchor-content diversity, not issuance volume. The
+issued-problem count stays a separate figure and is not merged into or subtracted from V4.
+
+### 22.5 What this entry does not do
+
+* Does not re-run A/H classification. Consensus and Rust stay A; EVM and Solidity stay H —
+  unchanged from the original ANCHOR-COUPLING-AUDIT-P0 pass and every correction round since.
+* Does not change `LLM-MINEABLE-ELIGIBLE-V4 = 13,963` (Entry 21) or any earlier V1/V2/V3
+  figure. This is a decomposition of the existing A-rooted portion of V4, not a new count.
+* Does not add, drop, or re-derive any row from any family's census.
+* Does not resolve or start the Solidity "A method" family design the same operator order
+  (msg 4161) raised — direct investigation found the "3,827" figure cited there is a
+  different, already-closed pair of families (`solidity-diagnostic-mutation-v1` +
+  `solidity-smt-diagnostic-mutation-v1`, both CALIBRATION-FAILED and never materialized), not
+  the 2,782-row H-classified `solidity-source-synth-v1` family this audit scored. That scope
+  question is open and unresolved as of this entry.
+* `mineable_now = 0` is unchanged. No consensus, BF.7, reward, Base or real mining path is
+  wired by this entry.
+
+### 22.6 Artifacts
+
+Results stay in the git-ignored sandbox (`local-docs/anchor-coupling-audit-p0-2026-08-20/`).
+Only digests are tracked here.
+
+| artifact | sha256 |
+| --- | --- |
+| `template_contract_digest_consensus.py` | `d3be9f0ad7995edf7bb5fca889201e1812fec822615211fe93515053a7ac96c7` |
+| `template_contract_digest_rust.py` | `7fb67abfe63ce4a12faf906b70ba7afbc2237952493d6d669d9667f720d88986` |
+| `TEMPLATE-CONTRACT-DIGEST-consensus.jsonl` (3,718 rows, 0 void) | `a5bb6feaab722d1a9c01c99754a8e3303bc90218e2f85e2560bdac07820564e4` |
+| `TEMPLATE-CONTRACT-DIGEST-rust.jsonl` (708 rows, 0 void) | `bd9e2d4ad16eb8cc4fdaede0cf291f76e4d697092ebfbe9181b2108f0d848d93` |
+| `pin_implementation_manifest.py` | `23e28918cd325cbe46042893fe3ca9c72ce5c95715cee6815d38aa0c15e1ad4c` |
+| `IMPLEMENTATION-SHA-MANIFEST-2026-08-20.json` | `aa25c9195fdcd867d041ade8029bba078172a92426ec91ccb26b1e8c58567076` |
+| `final_conservation_check.py` — standalone recheck cited by 22.1 | `b7691fc9f465b2a6ece6d5e54eb5604553dfa2976116a957dd44443cce4c516e` |
+| `TEMPLATE-CONTRACT-DIGEST-CORRECTION-2026-08-20.md` — full writeup | `d9959cecb9a6f00ecae41295918dda2c65ac229abb39bc7fac6b620894e28b87` |
+
+No answer, witness, or expected value is stored in any artifact above.
+
+### 22.7 Not a claim
+
+Closed local decomposition of an already-sealed count, offline, non-consensus. Not a public
+benchmark, not a paid-API benchmark, not public-network mining, not a leaderboard claim, and
+not a re-measurement of family-level LLM calibration (that stays Entry 14-21's).
+`V4 = 13,963` is unchanged; this entry only reports how much of its A-rooted portion is unique
+real material versus repeated real material. `mineable_now = 0`.
