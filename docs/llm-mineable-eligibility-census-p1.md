@@ -3429,3 +3429,173 @@ correction to Entry 16 is needed.
 Closed local, offline, non-consensus calibration attempt over pre-registered fixtures. Not a
 per-template solve rate, not a paid API benchmark, not a public benchmark, not public-network
 mining, and not a leaderboard claim. `mineable_now = 0`.
+
+## Entry 24 — 2026-08-20 · RUST-TUPLE-STRUCT-PROJECT-V1 pre-registration / Stage A not started, pending a separate operator approval
+
+Sealed 2026-08-20, **before the first model call of the wave it registers** (operator order,
+Telegram msg 4176, tag `[RUST-TUPLE-STRUCT-PROJECT-V1]`; this pre-registration step ordered
+separately by msg 4181). Append-only: Entries 1–23 and every figure they sealed are unchanged by
+this entry, including `LLM-MINEABLE-ELIGIBLE-V4 = 13,963` (Entry 21). This entry adds no row and
+changes no count.
+
+### 24.1 What this entry is, and is not
+
+This registers the frozen plan for a new Rust family, `TUPLE-STRUCT-PROJECT`, over a 320-anchor
+population drawn from the read-only 14,095-anchor API-shape survey (`local-docs/rust-14095-
+recovery-triage-v2-2026-08-20/`). Steps 1–3 below (freeze, structural gate, representative
+freeze) are complete, real and mechanical — zero model calls, zero cost. **Steps 4–6 (Stage A's
+3 episodes, Stage B's 9, and the one-shot 320-row census) are not started.** Per msg 4181, Stage
+A's first real model call requires a further, separate, explicit "진행" (proceed) message from
+the operator; this entry does not authorise it and nothing in this wave has run against the paid
+model harness yet.
+
+### 24.2 Selection: 672 → 320, every exclusion reason recorded
+
+Of 672 anchors declaring at least one tuple struct, 320 are eligible under
+`any_tuple_struct_in_anchor_eligible` (≥1 declared tuple struct with a valid identifier, no
+stripped field, every field an int/bool primitive, 1–8 fields) and 352 are blocked. Re-derived
+mechanically over all 352 blocked rows (not hand-summarized), cross-validated by independently
+re-classifying the 320 already-eligible rows first (0 mismatches):
+
+```
+eligible (P1_TUPLE_STRUCT_ELIGIBLE)   320
+blocked, non_primitive_field_type     336
+blocked, zero_fields                   15
+blocked, has_stripped_field             1
+blocked, total                        352
+672 = 320 + 352, confirmed by set union/overlap check (0 overlap)
+```
+
+Every one of the 320 IDs is independently set-equal (0 symmetric difference) between
+`TRIAGE-V2-CLASSIFICATION.jsonl`'s `shape_class == P1_TUPLE_STRUCT_ELIGIBLE` filter and this
+wave's own `ANCHOR-SOURCE-DIGESTS.json`. Per msg 4176, the unrelated 825-row
+`STRUCTURALLY-INELIGIBLE` grade in the same triage file (825/825 zero-method traits, checked
+exhaustively) is relabeled `CURRENT-DESIGN-INELIGIBLE / FUTURE-FAMILY-RESEARCH` — the mechanical
+finding is unchanged, only the old label's implied permanence is corrected. That relabel lives in
+the gitignored `local-docs/` triage artifact, not in this ledger, and changes no `docs/` figure.
+
+### 24.3 Structural gate (Step 2), all seven checks PASS, one run
+
+| check | result |
+| --- | --- |
+| a. anchor-swap changes the required answer set (3 pairs) | PASS — all REJECT |
+| b. cross-anchor patch reuse rejected (3 pairs) | PASS — all REJECT |
+| c. negative controls (18 probes × 6 anchors = 108 runs) | PASS — zero ACCEPT |
+| d. no leakage of hidden test/reference-patch text into the prompt (6 anchors) | PASS |
+| e. checker determinism (3 anchors, run twice) | PASS — fully consistent |
+| f. author-witness ACCEPTs, then discarded (`answer_stored: false`) | PASS — 6/6 ACCEPT |
+| g. zero duplication vs. `LLM-MINEABLE-ELIGIBLE-V4` (13,963) | PASS — 0 `template_id` hits, 0 `answer_sha256` hits, across 54,769 scanned artifact files |
+
+Six coupling controls per sample pair (`anchor-removed`, `anchor-substituted`,
+`challenge-substituted`, `anchor-result-ignored`, `cross-anchor-patch-reuse`,
+`shadow-redefinition`) were run against all three sample pairs — 18 runs, 18/18 REJECT, real
+compiler errors recorded per run (e.g. `E0432 unresolved import`, `E0609 no field`, `E0308
+mismatched types`).
+
+The first Step 2 attempt picked a sample anchor that turned out to be a genuine rustc
+`tests/ui/...` UI-test fixture (its entire purpose is to be a compile-error case, e.g. carrying a
+`//~^ ERROR` annotation); it failed check (f) because it cannot compile standalone. This was
+root-caused by reading the anchor source directly. `pick_sample()` was corrected to require
+standalone compile health as a precondition — a refinement of this wave's own new
+sample-selection code, not a redesign of the frozen generator/checker/coupling design being
+gated — and Step 2 was re-run once, cleanly, to the PASS above.
+
+### 24.4 Disclosed finding: population compile-health caps the ceiling at 219/320
+
+Independent of the structural gate, a full mechanical scan of all 320 anchors (each built
+standalone, zero appended solution module, under the pinned toolchain; 29.3 s total) found:
+
+```
+standalone_compiles_ok      219 / 320   (68.4%)
+standalone_compile_broken   101 / 320   (31.6%)
+```
+
+The broken 101 are overwhelmingly rustc `tests/ui/...` negative/UI-test fixtures whose entire
+purpose in the rustc corpus is to be compile-ERROR test cases, not extensible modules. A broken
+anchor can never host an appended solution and can never ACCEPT under this family, regardless of
+model performance — **this caps Step 6's realistic recovery ceiling at ≤219/320 (68.4%),
+independent of Stage A/B outcomes.** It also reflects a real gap in the earlier TRIAGE-V2
+`CLEAN-A-CANDIDATE` grading (Part A of this project), which graded `shape_class` from the sealed
+rustdoc manifest but never re-verified standalone anchor-compile health. The full 101-ID list is
+recorded in `STEP2-GATE-RESULT.json["population_compile_health"]["broken_template_ids"]`.
+
+### 24.5 12 representatives frozen (Step 3), Stage A vs. Stage B split
+
+Among the 219 compile-healthy anchors there are exactly 10 distinct structural buckets (bucketed
+by field count × per-field primitive category — signed, unsigned, bool):
+
+```
+(7 fields, [b,u,u,u,u,u,u])  x1     (2 fields, [u,u])   x14
+(4 fields, [i,i,i,i])        x3     (1 field,  [b])     x10
+(3 fields, [i,i,i])          x1     (1 field,  [i])     x73
+(3 fields, [u,u,u])          x5     (1 field,  [u])     x103
+(2 fields, [i,i])            x6
+(2 fields, [i,u])            x3
+```
+
+12 representatives = one from each of the 10 real buckets, plus 2 clearly labeled *replicate*
+picks from the two largest buckets (single-signed, single-unsigned), never presented as an
+11th/12th novel branch. **Stage A (3, rep_id 1–3)**: the three most structurally distant buckets
+— the 7-field anchor (`tests/ui/consts/issue-94371.rs`, the only one of its size), the one
+2-field mixed-sign anchor (`tests/ui/splat/splat-method-tuple-simple.rs`), and a single-field
+bool anchor (`tests/mir-opt/copy-prop/custom_move_arg.rs`, rarest primitive, 10/219). **Stage B
+(9, rep_id 4–12)**: the remaining 7 distinct buckets plus the 2 replicates. Every representative
+carries `template_id`, `anchor_sha256`, `task_seed`, `challenge_sha256` and `answer_sha256`
+(digest only, `answer_stored: false`) frozen in `STEP3-FREEZE-REPRESENTATIVES.json`.
+
+### 24.6 Pass criteria, budget, isolation — frozen before any model call
+
+```
+stage A     3 representatives, 1 episode each, no retry, 3/3 ACCEPT required to open stage B
+stage B     remaining 9 representatives, 1 episode each, no retry, 12/12 ACCEPT required (total)
+on failure  seal FAMILY-CALIBRATION-FAILED at the failing stage; no redesign, no retry this wave
+step 6      only if stage A and stage B both pass; one mechanical pass over all 320, zero
+            additional model calls
+```
+
+Budget per episode (reused verbatim from the sealed OPUS48 Rust wave, Entry 15's
+`calibration.BUDGET`): 8 turns, 8 compile/assemble, 4 public test/check, 24,576 generated tokens,
+1,800 s wall clock, 1 attempt, 0 retries, 0 manual edits. Max real model calls this wave: 12
+(Stage A 3 + Stage B 9 + Step 6 census 0). Toolchain pin: `rustc`/`cargo` 1.99.0-nightly,
+`rustc_commit_hash = e7795af6d2449fb05a6393c3320ced873a999eb3` (2026-07-22), host
+`aarch64-apple-darwin` — the judge compiler is an isolated rust-lang CI build of the exact commit
+the corpus is checked out at, never the user-global toolchain. Isolation model: the sanctioned
+`Contestant` harness (`claude-opus-4-8`, first and only target, not a fallback), one fresh session
+per task, no MCP server, no project instructions, no earlier answer or expected value visible to
+it — same isolation discipline as Entry 14 §14.4. `P5_NARY_PRIMITIVE_FN` (47 rows) and the
+`RESEARCH-CANDIDATE` pool (12,897 rows) are out of scope and untouched this wave.
+
+### 24.7 Evidence bundle, all digests independently re-verified against the files on disk
+
+All seven files below live in the gitignored `local-docs/rust-tuple-struct-project-v1-2026-08-
+20/` sandbox; only their digests are tracked here, re-hashed directly from disk immediately
+before this entry was written (not copied from any script's self-report):
+
+| evidence file | sha256 |
+| --- | --- |
+| `STEP1-FREEZE.json` — population/generator/checker/prompt/toolchain/budget freeze | `8b2c686fa3c157df130513befee25d3bbda5e4d0824b8b73b712539c567f1068` |
+| `STEP2-GATE-RESULT.json` — seven structural-gate checks + compile-health disclosure | `2a44996fc2431eac9f6c5d065eaef4068de128d3e719fff8c02da2ac07bc48e4` |
+| `STEP3-FREEZE-REPRESENTATIVES.json` — 12 representatives, Stage A/B split | `d8db1c5bd6ca630f9df8f3f4cafe781d065d29b1e04f56076367dffa69669031` |
+| `TUPLE-STRUCT-DESCRIPTORS.json` — tuple-field extraction for all 320 | `973712927fd6f583e5f3716f3b36e2d7d7c7e33d4cb8bdbd0de8f61b6c86ec36` |
+| `ANCHOR-SOURCE-DIGESTS.json` — 320 candidate IDs + real anchor source sha256 | `2122fae94828858f93f8f66701efaffe414919a2d67b0fef0e48bb0d4484d35f` |
+| `P1-EXCLUSION-REASONS.json` — 672→320 formula + per-row reason for all 352 blocked | `acc24da2daf6715cd00ace9962edcf8f46c920963712d3c75a1a998307606a42` |
+| `PRE-REGISTRATION-MANIFEST.json` — maps the operator's 6 requested evidence items to the files above, with internal cross-checks | `91d18c4221e8a4bba5e3be0cd207d53c30d931190a67717c167b4cdc3b3d1b2e` |
+
+`wave_policy_digest` (common to every file above): `cd90c313fad6488307f9fc8c09ecebab6155688699c7777c7ed8c6e1b7be3313`.
+
+### 24.8 What this entry does not do
+
+* `LLM-MINEABLE-ELIGIBLE-V4 = 13,963` (Entry 21) is unchanged. No row is added, no row is
+  dropped.
+* Entries 1–23 and every figure they sealed are unchanged.
+* No model call has been made under this wave. `ADJUDICATED-TASKS = 0` for this wave.
+* This entry does not authorise Stage A. Per msg 4181, a further, separate, direct operator
+  "진행" message is required before the first real model call, and none has arrived yet.
+* No full census, no new family beyond `TUPLE-STRUCT-PROJECT`, and no V5 promotion follows
+  automatically from this entry; each would need its own instruction and its own seal.
+
+### 24.9 Not a claim
+
+A closed local, offline, non-consensus pre-registration of a frozen plan, zero model calls
+issued to assemble it. Not a paid API benchmark, not a public benchmark, not public-network
+mining, and not a leaderboard claim. `mineable_now = 0`.
