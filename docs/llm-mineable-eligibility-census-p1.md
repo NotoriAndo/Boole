@@ -3599,3 +3599,157 @@ before this entry was written (not copied from any script's self-report):
 A closed local, offline, non-consensus pre-registration of a frozen plan, zero model calls
 issued to assemble it. Not a paid API benchmark, not a public benchmark, not public-network
 mining, and not a leaderboard claim. `mineable_now = 0`.
+
+## Entry 25 — 2026-08-21 · RUST-TUPLE-STRUCT-PROJECT-V1 Stage A+B (12/12), Step 6 census, Step 7 dedup / `LLM-MINEABLE-ELIGIBLE-V5 = 14,160`
+
+Sealed 2026-08-21, after four separate, direct operator "진행" (proceed) messages — Stage A
+(Telegram msg 4184), Stage B (msg 4187), the Step 6 census (msg 4190), and the Step 7 dedup +
+this entry (msg 4193) — each authorising exactly one stage, none auto-advancing to the next.
+Append-only: Entries 1–24 and every figure they sealed are unchanged, including
+`LLM-MINEABLE-ELIGIBLE-V4 = 13,963` (Entry 21). This entry adds one new figure,
+`LLM-MINEABLE-ELIGIBLE-V5 = 14,160`, and changes no earlier one.
+
+### 25.1 What this entry is, and is not
+
+This closes the wave Entry 24 pre-registered: real Stage A (3 episodes) and Stage B (9
+episodes) model calls against the frozen `TUPLE-STRUCT-PROJECT` family, a real zero-model-call
+mechanical census of all 320 frozen anchors, and a real zero-model-call dedup pass over the
+census's issuable rows. It reports a candidate-eligibility count after dedup, not a solve rate:
+the 12/12 ACCEPT below covers 12 representatives only; the other 308 anchors were never shown to
+a model, at any stage.
+
+### 25.2 Stage A — 3/3 ACCEPT, `claude-opus-4-8`, $0.068118
+
+Representatives 1–3 (the 7-field bucket, the 2-field mixed-sign bucket, the rarest single-bool
+bucket), one fresh isolated episode each, no retry, no fixture swap, no manual edit. Per-turn
+model verification (two independent records — runtime `model_usage` and the runtime's own
+session-transcript `models` field) showed only `claude-opus-4-8` on every answering turn; the
+one expected `claude-haiku-4-5-20251001` turn per episode is session-naming housekeeping only
+(≤20 output tokens, non-scored, same precedent as Entry 15). 3/3 ACCEPT, zero leaks (all four
+`leak_scan` booleans `true` on every row), zero model substitution.
+
+### 25.3 Stage B — 9/9 ACCEPT, combined 12/12, $0.192051 (Stage B) / $0.260169 (combined)
+
+Representatives 4–12 (the remaining 7 structural buckets plus the 2 labelled replicates), same
+isolation and no-retry discipline as Stage A. 9/9 ACCEPT, same dual per-turn model verification
+clean on all 9. Combined family result: **12/12 ACCEPT**, combined cost $0.260169 — the wave's
+full and final real-model spend, exactly the 12-call budget frozen in Entry 24 §24.6, 0 calls
+remaining.
+
+### 25.4 Step 6 — 320-row mechanical census, zero model calls, zero cost
+
+Using the generator's own author-witness reference patch (the same mechanism validated by Entry
+24 §24.3 check f) against all 320 frozen anchors, exactly once, sorted `template_id` order, no
+retry:
+
+```
+ISSUABLE            199 / 320   (matches ≤219/320 ceiling from Entry 24 §24.4)
+COMPILE_BROKEN      101 / 320   (identical set to Entry 24 §24.4's disclosed 101 broken IDs)
+WITNESS_REJECT       20 / 320   (compiles standalone, but the reference patch itself fails
+                                 the checker — new finding this step)
+GENERATION_FAILED      0
+A_BINDING_FAILED       0
+V4_DUPLICATE            0
+320 = 199 + 101 + 20 + 0 + 0 + 0, conservation HOLDS
+```
+
+Before the census ran, a drift gate re-hashed the 12 sources frozen at Step 1 (all match) and an
+extended drift gate re-hashed the 320-row population digest, `TOOLCHAIN_PIN`, `CORPUS_COMMIT`
+and the two installed compiler binaries (all match). Checker determinism was re-confirmed on 16
+real re-run pairs (8 accept-path, 8 wrong-patch-path), 16/16 agree. Zero duplication against
+`LLM-MINEABLE-ELIGIBLE-V4` on both axes: 0 `template_id` hits, 0 `answer_sha256` hits across
+54,776 scanned artifact files.
+
+### 25.5 Step 7 — canonical-identity dedup over the 199 `ISSUABLE` rows
+
+The operator ordered a canonical template-contract digest per row, adapting this ledger's own
+`CANONICAL-ISSUANCE-IDENTITY-V2` scheme (§12.2 above: identity is bound to intrinsic facts only).
+For this family the digest is `family + generator_sha256 + checker_sha256 + corpus_commit
+(revision) + compile_setting (toolchain pin) + anchor_sha256 + semantic_locator (source path +
+declaration line) + struct_shape (name, field count, ordered field types)` — explicitly
+**excluding** `template_id`, `task_seed`, `challenge_sha256` and `answer_sha256`, none of which
+are intrinsic to the task.
+
+Grouping all 199 `ISSUABLE` rows by this digest finds exactly one duplicate group, size 3:
+
+```
+RAW-ISSUABLE-ROWS         199
+UNIQUE-NEW-ISSUABLE       197
+INTERNAL-DUPLICATE-EXCESS   2
+```
+
+The one group — `template_id`s `4ce20a79…b914`, `7747a8f2…96a4`, `8f4994b7…0508` — shares an
+identical `anchor_sha256`, the same source file (`tests/ui/layout/randomize.rs:17`) and the same
+single-field struct `TransparentWrapper(u16)`. It is registered three times under three
+different `template_id`s in the frozen 320-row population; this is a population-list artifact
+from `TRIAGE-V2-CLASSIFICATION.jsonl`, not a checker or generator defect (deterministic
+same-input-same-seed-same-answer is the expected, correct behaviour). Full corrected conservation:
+
+```
+320 = 197 (UNIQUE-NEW-ISSUABLE) + 2 (INTERNAL-DUPLICATE-EXCESS)
+    + 101 (STANDALONE-COMPILE-FAILED) + 20 (ORACLE-OR-CHECK-FAILED) + 0 (other)
+```
+
+Holds.
+
+### 25.6 Semantic duplication vs. V4 — none possible for this family
+
+`CANONICAL-ISSUANCE-IDENTITY-V2` (§12.2) treats `family` as a required-equal identity
+component: two rows in different families are never the same template, whatever anchor they
+share. `TUPLE-STRUCT-PROJECT` first appears in this ledger at Entry 24 (line 3433) — zero hits
+anywhere earlier in this document, and `LLM-MINEABLE-ELIGIBLE-V4 = 13,963` has been unchanged
+since Entry 21, through Entries 22 and 23. A direct content scan (bypassing `.gitignore`
+filtering) of 47,077 external `local-docs/` artifact files, excluding this wave's own directory,
+found zero occurrences of the family label anywhere else. Under the identity definition already
+governing this ledger, a family that has never before been issued cannot semantically collide
+with any existing V4 row — so no exhaustive per-row comparison against all 13,963 V4 entries was
+needed to reach this conclusion, and none was fabricated.
+
+### 25.7 `LLM-MINEABLE-ELIGIBLE-V5 = 14,160`
+
+```
+V4 (Entry 21, unchanged through Entry 24)          13,963
++ UNIQUE-NEW-ISSUABLE (this wave, §25.5)              197
+= V5                                               14,160
+```
+
+**197 is a candidate-eligibility count, not a solve count.** It means: of the 320 frozen
+`TUPLE-STRUCT-PROJECT` anchors, 197 distinct (dedup'd) tasks can mechanically be generated,
+compiled and checked to a real ACCEPT via the generator's own reference patch, with zero
+duplication (internal or against V4). It does **not** mean a model solved 197, or 199, or 320
+of anything — the only model-answered result in this wave is Stage A+B's 12/12 on 12
+representatives (§25.2–25.3).
+
+### 25.8 Evidence bundle, all digests re-verified against the files on disk immediately before this entry was written
+
+All files live in the gitignored `local-docs/rust-tuple-struct-project-v1-2026-08-20/` sandbox;
+only their digests are tracked here:
+
+| evidence file | sha256 |
+| --- | --- |
+| `STEP4-STAGE-A-RESULT.json` — 3/3 ACCEPT, $0.068118 | `653855aa5e1d08b88713df0c4da36b804fbbb4c1bd9a7cc23e3853b64f491ab4` |
+| `STEP5-STAGE-B-RESULT.json` — 9/9 ACCEPT, combined 12/12, $0.260169 | `95101b08e5af355792a196726bd39a35f16e1ae3bf8242f16e67ae57e0db4a4f` |
+| `STEP6-CENSUS-RESULT.json` — 320-row census, buckets 199/101/20/0/0/0 | `a9b345226974afbedb78d0b788ee5987c33fd72a859ff56bdd1441f1b4826e1f` |
+| `STEP7-DEDUP-RESULT.json` — canonical-identity dedup, 197 unique + 2 excess, V4 semantic check | `3f519d169cc113b3eef3b3ee0282738a20756b43dc32b58b2f6a532c2c7f6c2c` |
+
+`wave_policy_digest` (common to every prior file in this wave, unchanged since Entry 24):
+`cd90c313fad6488307f9fc8c09ecebab6155688699c7777c7ed8c6e1b7be3313`.
+
+### 25.9 What this entry does not do
+
+* `LLM-MINEABLE-ELIGIBLE-V4 = 13,963` (Entry 21) is unchanged. `V5 = 14,160` is a new, separate
+  figure that supersedes nothing.
+* Entries 1–24 and every figure they sealed are unchanged.
+* Does not claim a model solved 197, 199 or 320 anchors. `ADJUDICATED-TASKS` for this wave is
+  12 (Stage A 3 + Stage B 9), not 197 and not 320.
+* Does not resolve, promote or retire the `4ce20a79…` / `7747a8f2…` / `8f4994b7…` triple beyond
+  recording it as one dedup group; the frozen `TRIAGE-V2-CLASSIFICATION.jsonl` population list
+  itself is unchanged by this entry.
+* `P5_NARY_PRIMITIVE_FN` (47 rows) and `RESEARCH-CANDIDATE` (12,897 rows) remain out of scope
+  and untouched.
+
+### 25.10 Not a claim
+
+Stage A/B are real, costed `claude-opus-4-8` episodes (12 total, $0.260169) under a closed
+local, offline, non-consensus, sandboxed harness — not a public benchmark, not public-network
+mining, not a leaderboard claim. Step 6 and Step 7 issued zero model calls. `mineable_now = 0`.
