@@ -2861,9 +2861,11 @@ HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 R
       `MINEABLE-ELIGIBLE`에 +12. 다른 버킷 불변.
 - [x] 동결문서 append-only Entry 2 작성(`…-SUCCESSOR = 1408`, Entry 1 한 줄도 안 건드림) + docs-smoke.sh
       Entry 2 핀 4줄 추가. `docs-smoke: PASS`, `git diff --check` PASS.
-- [ ] commit(NotoriAndo, AI attribution 없음) → feature branch push → PR → CI self-test·supply-chain green
+- [x] commit(NotoriAndo, AI attribution 없음) → feature branch push → PR → CI self-test·supply-chain green
       → merge → local main == origin/main → working tree clean → 텔레그램(chat 1311067056) 한국어 완료보고.
-- [ ] (다음) Rust·Ethereum-consensus 도메인 census.
+      **merged 004e932 (#120)**. (2026-08-20 backfill 시 사후 체크 — 당시 완료 후 todo.md 갱신 누락.)
+- [x] (다음) Rust·Ethereum-consensus 도메인 census — rust-exec-proof-p1 Entry 2~4 (#122, #124),
+      eth-consensus Entry 3~5 (#128, #130)로 완료. (2026-08-20 backfill 시 사후 체크.)
 
 ## 리뷰 (Entry 2 — reclaim / successor N=1,408)
 - 결과 한 줄: EXECUTION-MISMATCH 12건은 **전부** 우리 census 툴링 결함(materializer 오손 7 + extractor 오독 5),
@@ -2873,3 +2875,62 @@ HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 R
   **정정** 입력에 재실행하는 건 vk가 ELF에 결속(입력 아님)이라 동결 위반 아님. 정정입력·재구성은 새 `reclaim/`
   샌드박스에만 기록.
 - 도메인 소계(후속치 반영): Solidity-semantic P1 = 1,396(v1 동결) → **1,408**(successor). 다른 도메인 불변.
+
+---
+
+# LLM-mineable eligibility census P1 — 통합 원장 Entries 1~21 (2026-08-16~20) — backfill 기록 (운영자 msg 4137)
+
+이 구간은 진행 당시 todo.md에 기록되지 않고 텔레그램 보고 + 원장
+(`docs/llm-mineable-eligibility-census-p1.md`)으로만 추적되었다. 운영자 지시(msg 4137)로 사후 backfill.
+수치·지문·상세의 단일 출처는 원장이며, 이 섹션은 진행 추적 요약이다.
+
+## Entries 1~17 (한 줄씩 — 원장이 상세 보유)
+
+- [x] E1~2 (08-16): 라벨 교정 — `EXECUTION-PROOF-ELIGIBLE-SUBSET = 12,880`로 개명(수치 불변),
+      `LLM-MINEABLE-ELIGIBLE = NOT-YET-DETERMINED` 선언; 중단 wave 챌린지 7 CANCELLED / 0 CONSUMED.
+- [x] E3~6 (08-16): 첫 gated LLM 패밀리들 + gemma 기준 검정 — EVM/Solidity 모두 REFERENCE-UNSOLVED,
+      LLM-TASK-ELIGIBLE = 6,755 → 7,954.
+- [x] E7~11 (08-16): LLM-MINER-INTERFACE V1 → V1.2 동결 + agentic 기준 측정(EVM 3/12 @epoch 2 등) —
+      여전히 미검정, 수치 불변.
+- [x] E12 (08-17): MULTI-DOMAIN-LLM-FAMILY-V1 정체성 교정, 87,235 templates —
+      **LLM-MINEABLE-ELIGIBLE-V1 = 2,040** (gemma 시대).
+- [x] E13 (08-17): rust anchor-coupled fresh-repair 검정 2/12 **FAILED** — census 미실행, 정직 기록.
+- [x] E14 (08-17): Opus 5 런타임 substitution → **MODEL-SUBSTITUTION-HARD-STOP**, 채점 0건 채택,
+      OPUS48 wave 사전등록.
+- [x] E15 (08-17): claude-opus-4-8 격리 기준 검정 — EVM/Solidity/Rust 각 **12/12 PASS**.
+- [x] E16 (08-17): 전 도메인 frontier 종결(87,235 전수) — **LLM-MINEABLE-ELIGIBLE-V2 = 10,702**,
+      UNRESOLVED = 0. fingerprint 규칙 명문화: 다른 cut에서 잰 12/12는 이전 안 됨.
+- [x] E17 (08-19): S-1 semanticTests census (모델 0회) — V3-CANDIDATE = 1,583 / 1,670.
+
+## Entries 18~21 (이번 backfill의 본 범위)
+
+- [x] E18 (08-19, census msg 4070 / docs msg 4119, merged fda199c #148): W2 electra/fulu census
+      (모델 0회) — V3-CANDIDATE = 1,581 / 2,880. 교차포크 decode ~204행은 W2b로 명시 유보.
+- [x] E19 (08-19, wave msg 4114 / docs msg 4119, merged fda199c #148): V3 승격 검정 —
+      W1 12/12 + W2 12/12 (24 에피소드, claude-opus-4-8 격리, $2.93 / 상한 ~$5), 두 풀 통째 승격 →
+      **LLM-MINEABLE-ELIGIBLE-V3 = 13,866** = 10,702 + 1,583 + 1,581.
+- [x] E20 (08-19, census msg 4121 / docs msg 4124, merged 297e4e5 #149): W2b 교차포크 decode census
+      (모델 0회) — 98 ERROR 행 중 **W2B-CANDIDATE = 97** (electra-dir→deneb 46, fulu-dir→electra 51),
+      1 ORACLE-OR-CHECK-FAILED(COLLATERAL-DISTURBANCE) 정직 제외.
+- [x] E21 (08-20, wave msg 4129 / 명명 msg 4133, merged 52c2bcc #150): W2b 승격 검정 **12/12**
+      (12 에피소드, $0.5409 / 상한 $2, 자기검사 10/10 NC1~NC8, 모델 증거 12/12 전부 claude-opus-4-8,
+      substitution 없음) → **LLM-MINEABLE-ELIGIBLE-V4 = 13,963** = 13,866 + 97.
+- [x] 각 docs 단계 게이트(전 건 통과): docs-smoke + `git diff --check` → NotoriAndo author 커밋 →
+      feature branch → PR → CI self-test·supply-chain green → squash merge → remote 검증(local == origin).
+
+## 리뷰 (census P1 구간 종합)
+
+- 현재 공식 수치: **V1 = 2,040 / V2 = 10,702 / V3 = 13,866 / V4 = 13,963**. 전부 "패밀리 검정을 통과한
+  발행 가능 상한"이며 풀이율 아님(실채점 통과는 wave당 대표 12~24문제). `mineable_now = 0` 불변.
+- 승격 프로토콜 확립(E19·E21에서 2회 실증): 사전등록 동결(승인 원문 내장, placeholder hard-stop) →
+  자기검사 음성통제(NC 조작 주입 전건 자체 정지) → 격리 opus-4-8 에피소드(재시도 0, 수동 수정 0,
+  이중 모델 검증) → seal(구성요소 지문 동결→봉인 무변경 확인) → 원장 append-only Entry.
+- 실패도 원장에 남긴다: E13(2/12 FAILED), E14(substitution HARD-STOP), E20의 1 제외행 — 재시도·은폐 없음.
+- 남은 backlog (운영자 결정 대기): W3 rust 3,293 census / solidity 신규 패밀리 3,827 /
+  zk-native 17,548 스펙 바인딩 조사.
+
+## 경계
+
+public/API/mining/leaderboard 주장 아님. 측정 원본(스크립트·동결·transcript)은 gitignored `local-docs/`
+샌드박스에만, in-tree는 원장의 지문·보존식·계보만. 유료 실행은 매 wave 운영자 승인 + 상한 내 구독 CLI로만.
+`mineable_now = 0`.
