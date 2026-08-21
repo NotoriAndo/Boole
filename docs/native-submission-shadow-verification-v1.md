@@ -1,6 +1,6 @@
 # Native submission shadow verification v1
 
-Status: **AUTHORITATIVE DESIGN — tracked checker qualification landed; node path not yet landed**
+Status: **AUTHORITATIVE DESIGN — tracked checker qualification landed; real ACCEPT parity landed (Entry 29); node path not yet landed**
 
 Slice: **`NATIVE-SUBMISSION-SHADOW-ADMISSION-V1`**
 
@@ -95,9 +95,10 @@ toolchain inputs must first be migrated into a tracked fixture/registry surface.
 surface must pass two distinct parity gates before the route is implemented:
 
 * the tracked **actual checker** must reproduce the frozen real ACCEPT case and checker-owned
-  negative controls with the same authority digests and normalized verdict/reason codes; and
+  negative controls with the same authority digests and normalized verdict/reason codes — **closed
+  2026-08-21, see section 4.2**; and
 * the node's binding and replay RED matrix must independently cover task, challenge, policy,
-  registry and evidence misuse.
+  registry and evidence misuse — **open**.
 
 Entry 27's `FixedVerdictChecker` reject matrix is miner-wiring evidence, not proof that the actual
 checker produced those negative verdicts. Path strings, timing and telemetry need not be byte
@@ -123,10 +124,11 @@ compiler commit.
 
 This milestone deliberately copies no real mining answer, author witness, model transcript,
 session record, census row or machine-specific compiler binary from the private experiment
-archive. It also does **not** satisfy the two route prerequisites above: the frozen real ACCEPT
-parity case and node-owned binding/replay matrix remain open. The registry contains only one
-non-issuable fixture, no node loader or HTTP route consumes it, and `activationAllowed` remains
-false.
+archive. It also does **not**, by itself, satisfy the two route prerequisites above: at the time
+this milestone landed, both the frozen real ACCEPT parity case and the node-owned binding/replay
+matrix were open. A later, separate migration closed the first (see section 4.2). The registry
+contains only one non-issuable fixture, no node loader or HTTP route consumes it, and
+`activationAllowed` remains false.
 
 The qualification release also makes no process-count containment claim. A clean Linux CI run
 showed that `RLIMIT_NPROC` counts the shared user's existing processes and threads, so it can reject
@@ -135,6 +137,29 @@ recognized process-exhaustion failures are reported as checker unavailability, a
 activation must provide task-tree isolation with a dedicated cgroup or PID namespace. The Linux
 address-space limit and the other frozen file, output, CPU and wall limits remain qualification
 evidence only.
+
+### 4.2 Real frozen-accept parity milestone (2026-08-21)
+
+A second, independent migration slice closes the **first** of the two open route prerequisites
+named in section 4: the frozen real ACCEPT case recorded by Entry 27/28 is now reproduced by the
+tracked checker from Git-tracked files alone, with no dependency on the gitignored `local-docs`
+experiment archive. It is tracked at:
+
+* `fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/` — the real anchor, the real
+  extracted historical candidate answer, three negative controls (empty/tampered/one-value
+  mutation), task identity, provenance and a complete `SHA256SUMS`. The answer is permanently
+  `nonIssuable` and `activationAllowed: false`; and
+* `scripts/test_native_shadow_real_parity.py` — proves from tracked files alone, given
+  `BOOLE_NATIVE_TOOLCHAIN_BIN`, that the tracked checker independently reaches ACCEPT on the real
+  candidate and REJECT on every negative control and on both directions of cross-task binding,
+  matching the frozen `FROZEN-PARITY.json` expectations by normalized verdict/reason code rather
+  than raw string equality.
+
+This closes `REAL-FROZEN-ACCEPT-PARITY-V1` (label: `REAL-FROZEN-ACCEPT-PARITY-GREEN`;
+`docs/llm-mineable-eligibility-census-p1.md` Entry 29; PR #158; main `60814a9`). It does not
+implement the `boole-node` route, an HTTP endpoint, or activation, and it does not change
+`mineable_now`. The **second** prerequisite — the node's own binding and replay RED matrix — is
+unaffected by this milestone and remains open.
 
 ## 5. Required decision path
 
@@ -291,7 +316,7 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `49b7d2ee80c319ef1d5268855685092748d63e47c20a08d4b80f73cf1570745c` |
 | `local-docs/todo/todo-l1-network-master.md` | `adcd7cc549ad80112ec727adf73b3b4fbea3bd546c0464be28b732e5ed771fc7` |
-| `local-docs/todo/EXECUTION-ORDER.md` | `0799abc17570ac10b42da2621c30d768ebfa9f46844c883e0f6c78b3cfb63812` |
+| `local-docs/todo/EXECUTION-ORDER.md` | `f34932aaa6ad675a0f27a061db088cebdeb248d78b160289a9522b3218afb4be` (updated 2026-08-22 — step-0/cursor sync below) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `255128d28961d760311680f1dfddeed01ad4f7c1509e0be7705aea6347b00f39` |
 | `local-docs/todo/thesis-realization-roadmap.md` | `a0a25a0f51b39bd284f85b3a009655eaace9ca244b0edbd4c9f4e8c2d1a44f5c` |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `d3a312acc59f73358d70820d5d5e4afd1dbec5f60bbe9e9d98e7c11f78b8b90a` |
@@ -299,3 +324,9 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 These digests preserve synchronization evidence only. Runtime authority still requires the
 tracked checker/registry migration in section 4; no node may load a `local-docs` file as a trust
 root.
+
+The 2026-08-22 update to `local-docs/todo/EXECUTION-ORDER.md` marks its execution-order step 0
+complete and moves its current-position marker to node binding/replay RED-matrix design, matching
+the section 4.2 closure above; it appends a new dated cursor block rather than editing the prior
+one, consistent with that file's own append-only cursor convention. The other five rows remain at
+their original 2026-08-21 synchronization point.
