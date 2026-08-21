@@ -1,0 +1,43 @@
+{
+  "schema": "boole.native-shadow.fixture-provenance.v1",
+  "id": "a-rooted-native-mining-e2e-v1-real-history",
+  "origin": "boole-real-episode",
+  "license": "Apache-2.0",
+  "nonIssuable": true,
+  "activationAllowed": false,
+  "containsRealMiningAnswer": true,
+  "containsWitness": false,
+  "containsModelTranscript": false,
+  "purpose": "frozen real-accept parity evidence for the tracked checker only; permanently non-issuable and not connected to any activation path",
+  "historicalEpisode": {
+    "censusEntries": ["Entry 27", "Entry 28"],
+    "episodeLabel": "a-rooted-native-mining-e2e-v1-2026-08-21",
+    "epoch": 0,
+    "preExtractionReplySha256": "003857c61993cf754bca5b99af2ec0d51028b03085653cea9ed8bca108e7d38a",
+    "extractedCandidateSha256": "d84d4ff61ebd171e15bedd428c6a13e1062fef5ca8ea25c2047b0620a856e63a",
+    "extractionMethod": "the sealed episode driver's own reply parser: take the last ACTION line and the last fenced rust/rs code block, then append a trailing newline if missing. accepted.rs is that extracted text, copied verbatim; nothing was retyped or reconstructed."
+  },
+  "anchorProvenance": {
+    "corpusRepository": "rust-lang/rust",
+    "corpusCommit": "e7795af6d2449fb05a6393c3320ced873a999eb3",
+    "sourcePath": "tests/ui/consts/transmute-const.rs",
+    "corpusLicense": "MIT OR Apache-2.0",
+    "note": "public upstream compiler test fixture, reproduced verbatim byte for byte; not Boole-authored"
+  },
+  "publishabilityCheck": {
+    "performedOn": "2026-08-21",
+    "noSecretsTokensOrLocalPathsInCopiedBytes": true,
+    "noAuthorWitnessOrExpectedAnswerCopied": true,
+    "licenseRecordedForEveryCopiedFile": true,
+    "taskPermanentlyConsumedAndNonIssuable": true,
+    "nonIssuableAndActivationAllowedBothFixedFalse": true,
+    "onlyTheAnswerCodeBodyCopiedNoOtherConversationContent": true
+  },
+  "doesNotInclude": [
+    "the private experiment archive or any of its other files",
+    "census rows, eligibility counts or other episodes",
+    "model session or chat metadata",
+    "an author witness or reference solution",
+    "toolchain binaries"
+  ]
+}

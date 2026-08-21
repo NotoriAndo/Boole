@@ -1,0 +1,25 @@
+{
+  "schema": "boole.native-shadow.rust-tuple-task.v1",
+  "familyVersion": "TUPLE-STRUCT-PROJECT/RUST-TUPLE-STRUCT-PROJECT-V1",
+  "templateId": "800eee9c303c6a0e771e3a3db914eb15ea4ca68d10b19385d60fedd2c23e04b5",
+  "templateIdFormula": "sha256-domain(boole.native-shadow.fixture-template.v1, anchor.sha256, anchor.semanticLocator)",
+  "nonIssuable": true,
+  "edition": "2024",
+  "anchor": {
+    "path": "anchor.rs",
+    "sha256": "693f62acfa0626a0831c9133a26fcfc1dbb30922c1ab2036231c42a363cfd7fe",
+    "typeName": "Foo",
+    "semanticLocator": "rustc-corpus/e7795af6d2449fb05a6393c3320ced873a999eb3/tests/ui/consts/transmute-const.rs:Foo",
+    "fieldTypes": ["u32"]
+  },
+  "taskSeed": "d3405d9fc6d5a8a0cb6a995a627c2882d70ea2b059a7d37a2435f1b64b7eaaf1",
+  "checkerTaskId": "real-frozen-accept-parity-v1",
+  "challengeSha256": "0b32a406d00a858545b98c0d0937fd940dcfc368fe8a7ef171acc2159fa0f4c1",
+  "challengeFormula": "sha256-domain(boole.native-shadow.fixture-challenge.v1, taskSeed, templateId)",
+  "constants": {
+    "a0": 162,
+    "mul": 69,
+    "coeffs": [15]
+  },
+  "scaffold": "#![allow(unused)]\nuse crate::Foo as AcfrTy;\n// implement the projection in the statement\npub fn acfr_solve(items: &[AcfrTy]) -> i64 {\n    // <<< ACFR-PATCH-BEGIN >>>\n    todo!()\n    // <<< ACFR-PATCH-END >>>\n}\n"
+}
