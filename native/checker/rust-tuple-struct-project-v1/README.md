@@ -32,11 +32,14 @@ three x86_64 artifacts through `scripts/install-native-checker-toolchain.sh`
 and verifies their frozen SHA-256 values before installation. Compiler binaries
 are not committed to this repository.
 
-Linux qualification enforces the frozen address-space and process-count
-kernel limits. macOS cannot reliably apply those two limits to this compiler
-process tree, so its local qualification run enforces the remaining limits
-but is not containment evidence. This is one reason `activationAllowed`
-remains false; production activation requires the separate containment gate.
+Linux qualification enforces the frozen address-space kernel limit, but does
+not claim a process-count limit. `RLIMIT_NPROC` counts every process and thread
+owned by the shared user rather than this compiler tree, so using it would make
+the verdict depend on unrelated CI or node activity. macOS qualification does
+not claim either address-space or process-count containment. Production
+activation therefore remains blocked: it requires a dedicated cgroup or PID
+namespace for process-count isolation plus the separate network/filesystem
+containment gate.
 
 After supplying the exact toolchain bin directory, run the public qualification
 test with:

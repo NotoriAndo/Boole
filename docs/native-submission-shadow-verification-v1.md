@@ -128,6 +128,13 @@ parity case and node-owned binding/replay matrix remain open. The registry conta
 non-issuable fixture, no node loader or HTTP route consumes it, and `activationAllowed` remains
 false.
 
+The qualification release also makes no process-count containment claim. A clean Linux CI run
+showed that `RLIMIT_NPROC` counts the shared user's existing processes and threads, so it can reject
+a valid answer for reasons outside the task. That limit is removed rather than weakened or raised;
+process exhaustion is reported as checker unavailability, and any future activation must provide
+task-tree isolation with a dedicated cgroup or PID namespace. The Linux address-space limit and
+the other frozen file, output, CPU and wall limits remain qualification evidence only.
+
 ## 5. Required decision path
 
 For every submission, the node performs these stages in order:

@@ -3,9 +3,9 @@
   "release": "RUST-TUPLE-STRUCT-CHECKER-V1-QUALIFICATION",
   "familyVersion": "TUPLE-STRUCT-PROJECT/RUST-TUPLE-STRUCT-PROJECT-V1",
   "activationAllowed": false,
-  "checkerArtifactHash": "b31ffba4fd4591327e8f0e7171f9b3ade3cc03d6a2b4766031da4f05335db594",
-  "checkerSha256": "de6f3185f9525245459b38816e6593be4332273cb0a45f32909fd9f7a2e17d67",
-  "policySha256": "c6e05d2ca0212a90bf4feca3b26f6a94df15110abf22d11b6e6c9e9c7dab067d",
+  "checkerArtifactHash": "9de8493995d604346c7aed86c677b47e8adbfeec4bcb9ad20165ebf149806b7b",
+  "checkerSha256": "368106cb57d379b85a1479602da47a9546964a774b0d508422693a253f09267b",
+  "policySha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
   "toolchain": {
     "channel": "rust-lang-ci-e7795af6d2449fb05a6393c3320ced873a999eb3",
     "rustcCommitHash": "e7795af6d2449fb05a6393c3320ced873a999eb3",
@@ -24,8 +24,10 @@
     "nonIssuable": true
   },
   "containment": {
-    "linuxKernelResourceLimits": true,
-    "macosAddressSpaceAndProcessCountLimits": false,
+    "linuxAddressSpaceLimit": true,
+    "linuxProcessCountLimit": false,
+    "macosAddressSpaceLimit": false,
+    "macosProcessCountLimit": false,
     "productionQualified": false
   }
 }

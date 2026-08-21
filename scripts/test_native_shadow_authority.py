@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -61,64 +62,6 @@ def resolve_toolchain_bin() -> pathlib.Path:
     )
 
 
-def qualification_failure_diagnostic(toolchain: pathlib.Path) -> str:
-    """Re-run only the public fixture and expose bounded compiler diagnostics.
-
-    The production checker intentionally returns stable reason codes rather than
-    compiler output.  If clean-CI qualification unexpectedly fails, this helper
-    captures at most the frozen output ceiling from the synthetic, non-issuable
-    fixture so the failure can be diagnosed without changing checker semantics.
-    """
-    module_path = CHECKER / "checker.py"
-    spec = importlib.util.spec_from_file_location(
-        "boole_native_checker_diagnostic", module_path
-    )
-    if spec is None or spec.loader is None:
-        return "checker import unavailable"
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    captured: list[tuple[int, bytes]] = []
-    try:
-        spec.loader.exec_module(module)
-        policy = module._load_policy()
-        contract = module._load_contract(FIXTURE / "task.json")
-        submission = module._verify_submission(
-            policy, contract, FIXTURE / "accepted.rs"
-        )
-        original_run = module._run_contained
-
-        def capture_run(*args, **kwargs):
-            result = original_run(*args, **kwargs)
-            captured.append(result)
-            return result
-
-        module._run_contained = capture_run
-        with tempfile.TemporaryDirectory(
-            prefix="boole-native-authority-diagnostic-"
-        ) as scratch:
-            try:
-                module._judge(
-                    policy,
-                    contract,
-                    submission,
-                    toolchain,
-                    pathlib.Path(scratch),
-                )
-            except (module.AuthorityUnavailable, module.SubmissionRejected) as exc:
-                exception = f"{type(exc).__name__}: {exc}"
-            else:
-                exception = "no exception"
-    except Exception as exc:  # diagnostic path must not mask the primary failure
-        return f"diagnostic failed: {type(exc).__name__}: {exc}"
-    finally:
-        sys.modules.pop(spec.name, None)
-    if not captured:
-        return exception + "; no contained output captured"
-    code, output = captured[-1]
-    text = output.decode("utf-8", errors="replace")
-    return f"{exception}; exit={code}; output={text[-8192:]}"
-
-
 class NativeShadowAuthorityTests(unittest.TestCase):
     maxDiff = None
 
@@ -128,6 +71,98 @@ class NativeShadowAuthorityTests(unittest.TestCase):
             SELF_TEST.read_text(encoding="utf-8"),
             "the tracked checker authority test must remain in the required self-test gate",
         )
+
+    def test_shared_uid_process_limit_is_neither_applied_nor_claimed(self) -> None:
+        checker_source = (CHECKER / "checker.py").read_text(encoding="utf-8")
+        policy = json.loads((CHECKER / "policy.json").read_text(encoding="utf-8"))
+        release = json.loads(
+            (CHECKER / "RELEASE-MANIFEST.json").read_text(encoding="utf-8")
+        )
+        self.assertNotRegex(
+            checker_source, r"setrlimit\(\s*resource\.RLIMIT_NPROC"
+        )
+        self.assertNotIn("processes", policy["resourceLimits"])
+        self.assertEqual(
+            release["containment"],
+            {
+                "linuxAddressSpaceLimit": True,
+                "linuxProcessCountLimit": False,
+                "macosAddressSpaceLimit": False,
+                "macosProcessCountLimit": False,
+                "productionQualified": False,
+            },
+        )
+
+    def test_infrastructure_failures_are_not_semantic_rejections(self) -> None:
+        module_path = CHECKER / "checker.py"
+        spec = importlib.util.spec_from_file_location(
+            "boole_native_checker_failure_classification", module_path
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+            policy = module._load_policy()
+            contract = module._load_contract(FIXTURE / "task.json")
+            submission = module._verify_submission(
+                policy, contract, FIXTURE / "accepted.rs"
+            )
+            cases = (
+                (
+                    101,
+                    (
+                        b"terminate called after throwing an instance of std::system_error\n"
+                        b"what(): Resource temporarily unavailable"
+                    ),
+                    module.AuthorityUnavailable,
+                    "resource_process_limit",
+                ),
+                (
+                    101,
+                    b"fatal error: cannot allocate memory",
+                    module.AuthorityUnavailable,
+                    "resource_memory_limit",
+                ),
+                (
+                    -9,
+                    b"",
+                    module.AuthorityUnavailable,
+                    "resource_process_terminated",
+                ),
+                (
+                    101,
+                    b"test failed: assertion left == right",
+                    module.SubmissionRejected,
+                    "compile_or_hidden_test_failed",
+                ),
+                (
+                    101,
+                    b'error: source contains "Resource temporarily unavailable"',
+                    module.SubmissionRejected,
+                    "compile_or_hidden_test_failed",
+                ),
+            )
+            for code, output, error_type, reason_code in cases:
+                with self.subTest(code=code, output=output):
+                    with tempfile.TemporaryDirectory(
+                        prefix="boole-native-failure-classification-"
+                    ) as scratch:
+                        with mock.patch.object(
+                            module, "_run_contained", return_value=(code, output)
+                        ):
+                            with self.assertRaises(error_type) as raised:
+                                module._judge(
+                                    policy,
+                                    contract,
+                                    submission,
+                                    pathlib.Path("/toolchain/bin"),
+                                    pathlib.Path(scratch),
+                                )
+                    self.assertEqual(raised.exception.reason_code, reason_code)
+        finally:
+            sys.modules.pop(spec.name, None)
 
     def test_hidden_seed_derivation_matches_the_sealed_family_contract(self) -> None:
         module_path = CHECKER / "checker.py"
@@ -247,8 +282,10 @@ class NativeShadowAuthorityTests(unittest.TestCase):
         self.assertEqual(
             release["containment"],
             {
-                "linuxKernelResourceLimits": True,
-                "macosAddressSpaceAndProcessCountLimits": False,
+                "linuxAddressSpaceLimit": True,
+                "linuxProcessCountLimit": False,
+                "macosAddressSpaceLimit": False,
+                "macosProcessCountLimit": False,
                 "productionQualified": False,
             },
         )
@@ -355,15 +392,8 @@ class NativeShadowAuthorityTests(unittest.TestCase):
                 )
                 self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
                 result = json.loads(proc.stdout)
-                diagnostic = None
-                if result["verdict"] != verdict or result["reasonCode"] != reason_code:
-                    diagnostic = qualification_failure_diagnostic(toolchain)
-                self.assertEqual(
-                    result["verdict"], verdict, (answer, result, diagnostic)
-                )
-                self.assertEqual(
-                    result["reasonCode"], reason_code, (answer, result, diagnostic)
-                )
+                self.assertEqual(result["verdict"], verdict, (answer, result))
+                self.assertEqual(result["reasonCode"], reason_code, (answer, result))
                 self.assertEqual(result["checkerTaskId"], task_contract["checkerTaskId"])
                 self.assertEqual(result["taskDigest"], task_digest)
                 self.assertNotIn("local-docs", json.dumps(result, sort_keys=True))

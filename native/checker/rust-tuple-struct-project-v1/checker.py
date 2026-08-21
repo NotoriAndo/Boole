@@ -459,11 +459,11 @@ def _set_limits(limits: dict[str, int]) -> None:
     resource.setrlimit(resource.RLIMIT_CPU, (limits["cpuSeconds"], limits["cpuSeconds"]))
     resource.setrlimit(resource.RLIMIT_FSIZE, (limits["fileBytes"], limits["fileBytes"]))
     resource.setrlimit(resource.RLIMIT_NOFILE, (limits["openFiles"], limits["openFiles"]))
-    # Darwin accounts RLIMIT_NPROC across the whole login user.  Lowering it
-    # inside this child can make even the first rustc spawn fail because of
-    # unrelated processes.  Linux has per-process enforcement suitable here.
-    if sys.platform.startswith("linux") and hasattr(resource, "RLIMIT_NPROC"):
-        resource.setrlimit(resource.RLIMIT_NPROC, (limits["processes"], limits["processes"]))
+    # RLIMIT_NPROC is deliberately not used.  Linux and Darwin both account it
+    # across the real UID (including threads), not this subprocess tree.  A
+    # shared CI or node user can therefore make an otherwise-valid compiler
+    # fail.  Production process-count containment requires a dedicated cgroup
+    # or PID namespace and is outside this non-activatable qualification release.
     # Darwin exposes RLIMIT_AS but rejects practical finite values.  All other
     # supported platforms must accept the frozen ceiling or the run is
     # unavailable; this is not a best-effort limit.
@@ -525,9 +525,36 @@ def _run_contained(command: list[str], cwd: pathlib.Path, env: dict[str, str],
                 return code, bytes(output)
     finally:
         selector.close()
+        process.stdout.close()
         if process.poll() is None:
             _kill_group(process)
             process.wait()
+
+
+def _infrastructure_failure_reason(code: int, output: bytes) -> str | None:
+    if code < 0:
+        return "resource_process_terminated"
+    lowered = output.lower()
+    process_failure = (
+        b"resource temporarily unavailable" in lowered
+        and (
+            b"terminate called after throwing" in lowered
+            or b"could not execute process" in lowered
+        )
+    ) or (
+        b"failed to spawn" in lowered and b"os error 11" in lowered
+    )
+    if process_failure:
+        return "resource_process_limit"
+    memory_failure = (
+        b"memory allocation of " in lowered and b" bytes failed" in lowered
+    ) or (
+        b"cannot allocate memory" in lowered
+        and (b"fatal error" in lowered or b"os error 12" in lowered)
+    )
+    if memory_failure:
+        return "resource_memory_limit"
+    return None
 
 
 def _judge(policy: dict[str, Any], contract: Contract, submission: str,
@@ -581,8 +608,9 @@ def _judge(policy: dict[str, Any], contract: Contract, submission: str,
             code, output = _run_contained(
                 [str(cargo), *policy["cargo"]["testArgs"]], root, env, limits
             )
-            if code < 0 or b"memory allocation" in output.lower():
-                raise AuthorityUnavailable("resource_process_limit")
+            infrastructure_failure = _infrastructure_failure_reason(code, output)
+            if infrastructure_failure is not None:
+                raise AuthorityUnavailable(infrastructure_failure)
             if code != 0:
                 raise SubmissionRejected("compile_or_hidden_test_failed")
     except AuthorityUnavailable:

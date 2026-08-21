@@ -24,7 +24,6 @@
     "outputBytes": 1048576,
     "fileBytes": 67108864,
     "openFiles": 128,
-    "processes": 64,
     "patchBytes": 8192,
     "patchLines": 200,
     "hiddenCases": 64
