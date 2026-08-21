@@ -1,6 +1,6 @@
 # Native submission shadow verification v1
 
-Status: **AUTHORITATIVE DESIGN — implementation not yet landed**
+Status: **AUTHORITATIVE DESIGN — tracked checker qualification landed; node path not yet landed**
 
 Slice: **`NATIVE-SUBMISSION-SHADOW-ADMISSION-V1`**
 
@@ -102,6 +102,29 @@ surface must pass two distinct parity gates before the route is implemented:
 Entry 27's `FixedVerdictChecker` reject matrix is miner-wiring evidence, not proof that the actual
 checker produced those negative verdicts. Path strings, timing and telemetry need not be byte
 identical; authority-bearing digests and normalized semantic outcomes must be identical.
+
+### 4.1 Tracked qualification milestone
+
+The first migration slice is now tracked at:
+
+* `native/checker/rust-tuple-struct-project-v1/` — answer-free semantic checker, policy, release
+  manifest and complete file digests;
+* `fixtures/native-shadow/registry-v1.json` — strict qualification registry with activation
+  explicitly disabled; and
+* `fixtures/native-shadow/rust-tuple-struct-project-v1/` — synthetic, permanently non-issuable
+  positive and negative fixtures.
+
+`scripts/test_native_shadow_authority.py` proves from tracked files alone that the pinned checker
+accepts the public positive fixture, rejects the negative controls, refuses a wrong toolchain and
+detects any registered file or digest drift. Clean CI installs the separately pinned
+`nightly-2026-07-22` toolchain; the workspace default remains Rust 1.95.0.
+
+This milestone deliberately copies no real mining answer, author witness, model transcript,
+session record, census row or machine-specific compiler binary from the private experiment
+archive. It also does **not** satisfy the two route prerequisites above: the frozen real ACCEPT
+parity case and node-owned binding/replay matrix remain open. The registry contains only one
+non-issuable fixture, no node loader or HTTP route consumes it, and `activationAllowed` remains
+false.
 
 ## 5. Required decision path
 

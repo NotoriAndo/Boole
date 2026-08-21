@@ -1,0 +1,25 @@
+{
+  "schema": "boole.native-checker.release.v1",
+  "release": "RUST-TUPLE-STRUCT-CHECKER-V1-QUALIFICATION",
+  "familyVersion": "TUPLE-STRUCT-PROJECT/RUST-TUPLE-STRUCT-PROJECT-V1",
+  "activationAllowed": false,
+  "checkerArtifactHash": "96874c7e750b217eaf96c19fd18ca925d44492f04104d7395690db4721a43469",
+  "checkerSha256": "de6f3185f9525245459b38816e6593be4332273cb0a45f32909fd9f7a2e17d67",
+  "policySha256": "c176ed55447c0a1551ebbdc71795dbe530840496dcb7956ee67d10ce322cc474",
+  "toolchain": {
+    "channel": "nightly-2026-07-22",
+    "rustcCommitHash": "e7795af6d2449fb05a6393c3320ced873a999eb3",
+    "cargoCommitHash": "3efb1f477e99b42974b982d939fd100303cdf7db",
+    "compilerBinariesIncluded": false
+  },
+  "qualificationFixture": {
+    "path": "fixtures/native-shadow/rust-tuple-struct-project-v1/task.json",
+    "taskSha256": "675d170d1026a7ed28a460ecb767a65e8bc2729845a9ddefbeaf7fc3cabe0a9f",
+    "nonIssuable": true
+  },
+  "containment": {
+    "linuxKernelResourceLimits": true,
+    "macosAddressSpaceAndProcessCountLimits": false,
+    "productionQualified": false
+  }
+}

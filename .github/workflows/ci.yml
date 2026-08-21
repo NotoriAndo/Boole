@@ -45,6 +45,15 @@ jobs:
           toolchain: 1.95.0
           components: rustfmt, clippy
 
+      - name: Install native checker Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The tracked native checker is a separately versioned authority.
+          # Keep the workspace default on 1.95.0, but make its exact frozen
+          # compiler available for the clean-checkout qualification gate.
+          rustup toolchain install nightly-2026-07-22 --profile minimal
+
       - name: Install Lean toolchain
         shell: bash
         run: |

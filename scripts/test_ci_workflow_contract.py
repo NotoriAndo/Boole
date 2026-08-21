@@ -41,6 +41,15 @@ class CiWorkflowContractTest(unittest.TestCase):
             "block (contents: read)",
         )
 
+    def test_ci_installs_the_pinned_native_checker_toolchain(self):
+        self.assertIn(
+            "rustup toolchain install nightly-2026-07-22 --profile minimal",
+            self.text,
+            "the clean-runner native checker gate must install its exact frozen "
+            "nightly; silently judging with the workspace 1.95 toolchain changes "
+            "checker authority",
+        )
+
 
 class VerdictCorpusWorkflowContractTest(unittest.TestCase):
     """SC.9c (ADR-0016 (a-1)) -- the cross-platform verdict corpus gate.
