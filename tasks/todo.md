@@ -2878,7 +2878,7 @@ HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 R
 
 ---
 
-# LLM-mineable eligibility census P1 — 통합 원장 Entries 1~21 (2026-08-16~20) — backfill 기록 (운영자 msg 4137)
+# LLM-mineable eligibility census P1 — 통합 원장 Entries 1~28 (2026-08-16~21) — backfill·현재 진행 기록
 
 이 구간은 진행 당시 todo.md에 기록되지 않고 텔레그램 보고 + 원장
 (`docs/llm-mineable-eligibility-census-p1.md`)으로만 추적되었다. 운영자 지시(msg 4137)로 사후 backfill.
@@ -2902,7 +2902,7 @@ HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 R
       UNRESOLVED = 0. fingerprint 규칙 명문화: 다른 cut에서 잰 12/12는 이전 안 됨.
 - [x] E17 (08-19): S-1 semanticTests census (모델 0회) — V3-CANDIDATE = 1,583 / 1,670.
 
-## Entries 18~21 (이번 backfill의 본 범위)
+## Entries 18~28
 
 - [x] E18 (08-19, census msg 4070 / docs msg 4119, merged fda199c #148): W2 electra/fulu census
       (모델 0회) — V3-CANDIDATE = 1,581 / 2,880. 교차포크 decode ~204행은 W2b로 명시 유보.
@@ -2915,19 +2915,45 @@ HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 R
 - [x] E21 (08-20, wave msg 4129 / 명명 msg 4133, merged 52c2bcc #150): W2b 승격 검정 **12/12**
       (12 에피소드, $0.5409 / 상한 $2, 자기검사 10/10 NC1~NC8, 모델 증거 12/12 전부 claude-opus-4-8,
       substitution 없음) → **LLM-MINEABLE-ELIGIBLE-V4 = 13,963** = 13,866 + 97.
-- [x] 각 docs 단계 게이트(전 건 통과): docs-smoke + `git diff --check` → NotoriAndo author 커밋 →
+- [x] E22 (08-20, merged 2de2b16 #152): V4 13,963의 anchor-coupling 소재 감사 봉인 —
+      **MATERIAL-PROJECTION-UNIQUE 2,398 + H-SYNTHETIC 9,537 + MATERIAL-PROJECTION-DUPLICATE
+      2,028 = V4 13,963**. 이 분해는 V4 전용이며 이후 V5 전체 분해로 확대하지 않는다.
+- [x] E23 (08-20, merged 34eecf9 #153): Solidity successor v2 — syntax Stage A **1/3 FAIL**,
+      SMT 0/3 미측정·미집계, 전수조사 없음, 증가분 0. 실패 후 같은 wave 재수정·재측정 없음.
+- [x] E24 (08-21, PR #154): `RUST-TUPLE-STRUCT-PROJECT-V1` 사전등록 — 320 후보·대표 12건·
+      generator/checker/prompt/toolchain 지문과 3/3→12/12→전수 1회 규칙을 모델 호출 전에 동결.
+- [x] E25 (08-21, merged d58ca70 #154): Rust tuple family 대표 **12/12 PASS** 후 320행 전수 1회 —
+      raw issuable 199, 내부 중복 초과 2를 제거한 고유 신규 **197** →
+      **LLM-MINEABLE-ELIGIBLE-V5 = 14,160** = V4 13,963 + 197.
+- [x] E26 (08-21, merged 6a6c970 #155): zk-native P0 소재 조사 종료 —
+      `NO-CLEAN-A-ROOTED-FAMILY-UNDER-P0`, 증가분 0. 이번 조사 범위의 종료일 뿐 영구 불가능 주장이 아님.
+- [x] E27 (08-21, merged 6a6c970 #155): 실제 모델 답안 1건을 ProofIntake→frozen checker→
+      miner-local receipt·개발 장부까지 연결. census·V5·합의·보상 변화 0.
+- [x] E28 (08-21, 이번 docs sync): E27 범위 정정 — 실제 의미 판정은 외부 frozen checker가 먼저 냈고
+      `boole_miner`가 그 verdict를 결박·전달했다. **실제 `boole-node`의 독립 checker 재실행은 NOT-RUN**.
+      기존 E27 증거는 보존하고 과장된 node-verifier 해석만 append-only로 교정.
+- [x] E1~E27 docs 단계 게이트: docs-smoke + `git diff --check` → NotoriAndo author 커밋 →
       feature branch → PR → CI self-test·supply-chain green → squash merge → remote 검증(local == origin).
+- E28 게이트 규칙: docs-smoke·diff-check→CI green→main merge→remote 검증이 실제 완료되어야만
+  완료로 보고한다. 이 문서는 PR 번호·merge SHA를 미리 지어내지 않으며 실제 값은 최종 보고에 남긴다.
 
 ## 리뷰 (census P1 구간 종합)
 
-- 현재 공식 수치: **V1 = 2,040 / V2 = 10,702 / V3 = 13,866 / V4 = 13,963**. 전부 "패밀리 검정을 통과한
-  발행 가능 상한"이며 풀이율 아님(실채점 통과는 wave당 대표 12~24문제). `mineable_now = 0` 불변.
+- 현재 공식 수치: **V1 = 2,040 / V2 = 10,702 / V3 = 13,866 / V4 = 13,963 /
+  V5 = 14,160**. V5 도메인 합은 **EVM 6,755 + Solidity 2,782 + Ethereum-consensus 3,718 +
+  Rust 905 + zk-native 0 = 14,160**. 전부 family 보정과 전수 materialization을 통과한 발급 가능
+  템플릿 수이며 14,160개를 모델이 개별 풀이했다는 뜻이 아니다. `mineable_now = 0` 불변.
 - 승격 프로토콜 확립(E19·E21에서 2회 실증): 사전등록 동결(승인 원문 내장, placeholder hard-stop) →
   자기검사 음성통제(NC 조작 주입 전건 자체 정지) → 격리 opus-4-8 에피소드(재시도 0, 수동 수정 0,
   이중 모델 검증) → seal(구성요소 지문 동결→봉인 무변경 확인) → 원장 append-only Entry.
 - 실패도 원장에 남긴다: E13(2/12 FAILED), E14(substitution HARD-STOP), E20의 1 제외행 — 재시도·은폐 없음.
-- 남은 backlog (운영자 결정 대기): W3 rust 3,293 census / solidity 신규 패밀리 3,827 /
-  zk-native 17,548 스펙 바인딩 조사.
+- 완료된 옛 backlog: Solidity successor는 E23에서 실패 봉인, Rust tuple successor는 E24~25에서 +197,
+  zk-native P0는 E26에서 범위 한정 종료.
+- [ ] **현재 다음 slice — `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1`**: raw-answer JSON을 별도
+      node route로 받고, 노드의 추적·고정 registry에서 실제 checker를 독립 실행한 뒤 비합의 shadow
+      evidence를 생성한다. 기본 OFF. `boole-node→boole-miner` 의존 금지, 기존 `/submit`·`/receipts`
+      재사용 금지, `boole-core`·SharePool·block·reward·P2P·BF.7 변경 금지. checker를 실제 재실행할 수
+      없으면 STOP.
 
 ## 경계
 
