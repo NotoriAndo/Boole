@@ -1,0 +1,8 @@
+#![allow(unused)]
+use crate::Foo as AcfrTy;
+// implement the projection in the statement
+pub fn acfr_solve(items: &[AcfrTy]) -> i64 {
+    // <<< ACFR-PATCH-BEGIN >>>
+    0i64
+    // <<< ACFR-PATCH-END >>>
+}

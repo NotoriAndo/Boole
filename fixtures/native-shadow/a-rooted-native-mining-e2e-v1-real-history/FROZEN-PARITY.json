@@ -1,0 +1,54 @@
+{
+  "schema": "boole.native-shadow.frozen-parity.v1",
+  "id": "real-frozen-accept-parity-v1",
+  "historicalRecord": {
+    "note": "cross-referenced 2026-08-21 against the gitignored historical episode sandbox at verification time; the sealed values below are not re-derivable from clean CI and are recorded here as a frozen prior fact, not something the parity test re-derives.",
+    "sealedTemplateId": "04dd8453f52dd4da8af1736ad6eceeb82ded2e65dcc1c0600c4b37ef7cf6307a",
+    "sealedChallengeSha256": "34ae2f0d0d9af2747c59b444c17b83cb264fce8ead0879378e6aa0eae54e246f",
+    "taskSeed": "d3405d9fc6d5a8a0cb6a995a627c2882d70ea2b059a7d37a2435f1b64b7eaaf1",
+    "anchorSha256": "693f62acfa0626a0831c9133a26fcfc1dbb30922c1ab2036231c42a363cfd7fe",
+    "epoch": 0,
+    "sealedCheckerDigest": "633c6ec891a508813960d6f7d86d446752461f8002aef424290f33550de9cb01",
+    "sealedVerdict": "ACCEPT",
+    "sealedReason": "run",
+    "sealedVerdictReconfirmedLocally": "2026-08-21: the sealed checker was re-executed directly against this same extracted candidate under the sealed task_seed above and reproduced ACCEPT/run exactly. This reconfirmation depends on the gitignored historical sandbox and is a local-only cross-check, not part of the CI-required parity test."
+  },
+  "trackedTaskIdentity": {
+    "schemaFamily": "boole.native-shadow.rust-tuple-task.v1",
+    "templateId": "800eee9c303c6a0e771e3a3db914eb15ea4ca68d10b19385d60fedd2c23e04b5",
+    "challengeSha256": "0b32a406d00a858545b98c0d0937fd940dcfc368fe8a7ef171acc2159fa0f4c1",
+    "taskSha256": "f25a8a6d92ac556937eaacbec6d12d9d09be675878eb7d942952b35838ee7c82",
+    "note": "templateId/challengeSha256 use the tracked checker's own domain-hash formula (boole.native-shadow.fixture-template.v1 / boole.native-shadow.fixture-challenge.v1), which is a different, independent formula from the sealed system's own template_id/challenge_sha256 above. They are not expected to be numerically equal. anchor.sha256 and taskSeed are reused directly because both systems hash those the same plain way."
+  },
+  "trackedCheckerIdentity": {
+    "checkerArtifactHash": "19a43dbab7592953bfdf880f7c93ee6a5e2dafdc93b1b436ef779daa8ef9fa5d",
+    "checkerSha256": "5a9d20421fd1f82a05f0c5ca902fca84c09b5f0350ca28788f3eb3793b6007e7",
+    "policySha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685"
+  },
+  "expectedVerdicts": {
+    "accepted.rs": {"verdict": "accepted", "reasonCode": "accepted"},
+    "empty.rs": {"verdict": "deterministic_reject", "reasonCode": "malformed_patch_region"},
+    "tampered.rs": {"verdict": "deterministic_reject", "reasonCode": "compile_or_hidden_test_failed"},
+    "constant.rs": {"verdict": "deterministic_reject", "reasonCode": "compile_or_hidden_test_failed"}
+  },
+  "crossTaskBinding": {
+    "realAcceptedAgainstSyntheticPublicFixtureTask": {
+      "taskPath": "fixtures/native-shadow/rust-tuple-struct-project-v1/task.json",
+      "submissionPath": "accepted.rs",
+      "verdict": "deterministic_reject",
+      "reasonCode": "outside_patch_modified"
+    },
+    "syntheticAcceptedAgainstThisRealTask": {
+      "taskPath": "task.json",
+      "submissionPath": "fixtures/native-shadow/rust-tuple-struct-project-v1/accepted.rs",
+      "verdict": "deterministic_reject",
+      "reasonCode": "outside_patch_modified"
+    }
+  },
+  "normalizedParity": {
+    "note": "the sealed and tracked systems use different verdict/reason vocabularies. This is the explicit normalization used to compare the one real accept case across both.",
+    "sealedAccept": "ACCEPT / run",
+    "trackedAccept": "accepted / accepted",
+    "equivalenceRule": "ACCEPT<->accepted, run<->accepted; both denote a hidden-test-passing accept of the same real candidate bytes under its own real task identity."
+  }
+}

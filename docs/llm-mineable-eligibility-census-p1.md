@@ -4126,3 +4126,83 @@ mineable_now              = 0
 No V6 is created, no eligibility row is added or removed, and Entries 1–27 remain unchanged.
 This is closed-local code-reality correction, not public-network mining, not a public or paid-API
 benchmark, not a leaderboard claim, and not evidence of consensus activation.
+
+## Entry 29 — 2026-08-21 · Tracked checker reproduces the frozen real ACCEPT — `REAL-FROZEN-ACCEPT-PARITY-GREEN`
+
+This entry closes exactly one prerequisite named by `docs/native-submission-shadow-verification-v1.md`
+§4: that the tracked, answer-free `RUST-TUPLE-STRUCT-CHECKER-V1` release, run from a clean checkout
+with no private experiment archive, independently reproduces the one real ACCEPT verdict that
+Entry 27's sealed checker produced. It does not implement the `boole-node` route, the HTTP endpoint,
+or mining activation, and it is not `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1` completion.
+
+### 29.1 What was verified
+
+Every identity fact from Entry 27's real episode was re-confirmed against the still-unchanged
+gitignored sandbox before anything was copied: the raw model reply and its extraction into
+scaffold-shaped Rust, the real anchor file and its digest, the real task seed, and the sealed
+checker's own ACCEPT/`run` verdict, re-executed fresh in this session (not read from a stored log).
+All matched their previously sealed values exactly; nothing was reconstructed or substituted.
+
+### 29.2 What was published, under the six-point publishability gate
+
+Only the following were copied into a new tracked, permanently non-issuable fixture directory,
+`fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/`:
+
+* the real upstream `rust-lang/rust` corpus anchor file (`anchor.rs`, dual MIT/Apache-2.0, public,
+  no secrets);
+* the real model answer's extracted Rust code (`accepted.rs`) — code only, no other reply content,
+  no author witness, no expected-answer, no session or chat metadata; and
+* a fresh task contract, provenance record, frozen expected-verdict table and complete
+  `SHA256SUMS` for the bundle.
+
+Not copied: the private experiment archive, any census/session/model-transcript content, an author
+witness or reference solution, or toolchain binaries. A dedicated test
+(`test_bundle_is_complete_and_contains_no_private_authority`) scans every tracked byte in the
+bundle for the same forbidden private-authority tokens already enforced for the synthetic fixture
+and fails if any are present.
+
+### 29.3 Parity result
+
+```
+sealed checker  (re-run fresh this session)   verdict=ACCEPT   reason=run
+tracked checker (clean-checkout subprocess)   verdict=accepted reason=accepted
+```
+
+Both verdicts describe the same real candidate bytes under its own real task identity; the
+normalization is recorded explicitly in `FROZEN-PARITY.json` rather than asserted by eye. The
+tracked checker also independently rejects the required negative controls on the same real task:
+an empty answer, a one-value mutation of the real answer, a constant answer, and the real answer
+bound to a different task (checked in both directions against the existing public synthetic
+fixture, without duplicating its files).
+
+```
+REAL-FROZEN-ACCEPT-PARITY = GREEN
+```
+
+### 29.4 Historical / non-issuable / default-OFF boundary
+
+The underlying task was already permanently consumed by Entry 27's one real episode.
+`nonIssuable: true` and `activationAllowed: false` are fixed in both `task.json` and
+`PROVENANCE.json`; no registry, node loader or HTTP route reads this fixture. This entry does not
+change `activationAllowed` anywhere in the tracked checker/registry surface (still `false`) and
+does not touch `boole-node`, `boole-core`, `SharePool`, block, reward, P2P or consensus state.
+
+### 29.5 What this entry does not establish
+
+This is not `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`. It does not mean the node path is
+implemented, does not mean mining is enabled, and does not change `mineable_now`. The remaining
+work named by `docs/native-submission-shadow-verification-v1.md` §4 is: process-tree containment
+design, and the node's own binding/replay RED matrix (task, challenge, policy, registry and
+evidence misuse). Both remain open.
+
+```
+LLM-MINEABLE-ELIGIBLE-V5 = 14,160
+mineable_now              = 0
+```
+
+No V6 is created, no eligibility row changes, and Entries 1–28 remain unchanged. Zero model calls,
+zero paid API calls, zero SP1/ZK proving and zero new census or family measurement occurred in this
+entry — only a Python fixture/test addition, plus the tracked checker's own compile-and-test
+execution against the real candidate and its negative controls, run under the pinned toolchain.
+This is closed-local checker qualification evidence, not public-network mining, not a public or
+paid-API benchmark, and not a leaderboard claim.
