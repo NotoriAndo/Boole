@@ -15,6 +15,7 @@ mod http_runner;
 mod llm_driver;
 mod local_verify;
 mod mining_loop;
+mod native_mining_e2e;
 mod proof_intake;
 mod proof_package;
 mod proof_signer;
@@ -60,6 +61,11 @@ pub use mining_loop::{
     LlmOutcomeKind, MiningEvent, MiningLoopDeps, MiningLoopOptions, MiningLoopOutcome,
     MiningLoopSummary, MiningRunContext, MiningRunDriverMode, MiningRunTargetMode,
     MiningRunVerifierMode, PromptBuilder, ProtocolReport, BOOLE_PROOF_SUBMISSION_CONTRACT_V1,
+};
+pub use native_mining_e2e::{
+    record_share_if_accepted, run_native_mining_e2e, ChallengeEpoch, NativeBindingReject,
+    NativeCandidate, NativeChecker, NativeCheckerVerdict, NativeE2EReport, NativeIntakeReject,
+    NativeProofIntake, NativeReceipt, NativeTaskContext, NativeVerdict, ShareLedgerEntry,
 };
 pub use proof_intake::{
     extract_proof_source, ProofCandidate, ProofEnvelope, ProofIntakeV1, ProofTransport,
