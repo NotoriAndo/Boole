@@ -532,25 +532,35 @@ def _run_contained(command: list[str], cwd: pathlib.Path, env: dict[str, str],
 
 
 def _infrastructure_failure_reason(code: int, output: bytes) -> str | None:
+    if code == 0:
+        return None
     if code < 0:
         return "resource_process_terminated"
-    lowered = output.lower()
-    process_failure = (
-        b"resource temporarily unavailable" in lowered
-        and (
-            b"terminate called after throwing" in lowered
-            or b"could not execute process" in lowered
-        )
-    ) or (
-        b"failed to spawn" in lowered and b"os error 11" in lowered
+    lines = tuple(b" ".join(line.strip().lower().split()) for line in output.splitlines())
+    system_error = (
+        b"= note: terminate called after throwing an instance of 'std::system_error'"
+        in lines
+        and b"what(): resource temporarily unavailable" in lines
     )
+    spawn_error = any(
+        (
+            line.startswith(b"error: could not execute process")
+            or line.startswith(b"error: failed to spawn")
+        )
+        and line.endswith(b"(os error 11)")
+        for line in lines
+    )
+    process_failure = system_error or spawn_error
     if process_failure:
         return "resource_process_limit"
-    memory_failure = (
-        b"memory allocation of " in lowered and b" bytes failed" in lowered
-    ) or (
-        b"cannot allocate memory" in lowered
-        and (b"fatal error" in lowered or b"os error 12" in lowered)
+    memory_failure = any(
+        re.fullmatch(rb"memory allocation of [0-9]+ bytes failed", line)
+        or re.fullmatch(rb"(?:[^ |:]+: )?fatal error: cannot allocate memory", line)
+        or (
+            line.startswith(b"error:")
+            and line.endswith(b"cannot allocate memory (os error 12)")
+        )
+        for line in lines
     )
     if memory_failure:
         return "resource_memory_limit"

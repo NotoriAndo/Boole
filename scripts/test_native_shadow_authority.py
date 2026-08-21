@@ -113,7 +113,8 @@ class NativeShadowAuthorityTests(unittest.TestCase):
                 (
                     101,
                     (
-                        b"terminate called after throwing an instance of std::system_error\n"
+                        b"= note: terminate called after throwing an instance of "
+                        b"'std::system_error'\n"
                         b"what(): Resource temporarily unavailable"
                     ),
                     module.AuthorityUnavailable,
@@ -143,6 +144,22 @@ class NativeShadowAuthorityTests(unittest.TestCase):
                     module.SubmissionRejected,
                     "compile_or_hidden_test_failed",
                 ),
+                (
+                    101,
+                    (
+                        b"error[E0308]: mismatched types\n"
+                        b"1 | let _: u8 = \"terminate called after throwing\";\n"
+                        b"2 | let _: u8 = \"Resource temporarily unavailable\";"
+                    ),
+                    module.SubmissionRejected,
+                    "compile_or_hidden_test_failed",
+                ),
+                (
+                    101,
+                    b'1 | let _: u8 = "fatal error: cannot allocate memory";',
+                    module.SubmissionRejected,
+                    "compile_or_hidden_test_failed",
+                ),
             )
             for code, output, error_type, reason_code in cases:
                 with self.subTest(code=code, output=output):
@@ -161,6 +178,28 @@ class NativeShadowAuthorityTests(unittest.TestCase):
                                     pathlib.Path(scratch),
                                 )
                     self.assertEqual(raised.exception.reason_code, reason_code)
+            with tempfile.TemporaryDirectory(
+                prefix="boole-native-success-classification-"
+            ) as scratch:
+                with mock.patch.object(
+                    module,
+                    "_run_contained",
+                    return_value=(
+                        0,
+                        (
+                            b"= note: terminate called after throwing an instance of "
+                            b"'std::system_error'\n"
+                            b"what(): Resource temporarily unavailable"
+                        ),
+                    ),
+                ):
+                    module._judge(
+                        policy,
+                        contract,
+                        submission,
+                        pathlib.Path("/toolchain/bin"),
+                        pathlib.Path(scratch),
+                    )
         finally:
             sys.modules.pop(spec.name, None)
 
