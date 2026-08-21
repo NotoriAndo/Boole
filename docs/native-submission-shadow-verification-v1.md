@@ -116,8 +116,10 @@ The first migration slice is now tracked at:
 
 `scripts/test_native_shadow_authority.py` proves from tracked files alone that the pinned checker
 accepts the public positive fixture, rejects the negative controls, refuses a wrong toolchain and
-detects any registered file or digest drift. Clean CI installs the separately pinned
-`nightly-2026-07-22` toolchain; the workspace default remains Rust 1.95.0.
+detects uncoordinated registered file or digest drift. Clean CI installs and SHA-verifies the
+official rust-lang per-commit artifacts for rustc `e7795af6d`; the workspace default remains Rust
+1.95.0. A date-based nightly is deliberately not substituted because it resolves to a different
+compiler commit.
 
 This milestone deliberately copies no real mining answer, author witness, model transcript,
 session record, census row or machine-specific compiler binary from the private experiment

@@ -23,11 +23,14 @@ qualified.
 
 ## Toolchain
 
-The semantic compiler identity is `nightly-2026-07-22`, rustc commit
-`e7795af6d2449fb05a6393c3320ced873a999eb3`. The checker validates the rustc
-and Cargo release/commit metadata. Platform-specific compiler binaries are not
-included or claimed byte-identical; production qualification still requires
-separate binary provenance.
+The semantic compiler is the official rust-lang CI per-commit build for rustc
+`e7795af6d2449fb05a6393c3320ced873a999eb3`, with Cargo commit
+`3efb1f477e99b42974b982d939fd100303cdf7db`. It is not the date-based
+`nightly-2026-07-22` channel, which points at a different compiler commit. The
+checker validates both release/commit identities. Clean Linux CI downloads the
+three x86_64 artifacts through `scripts/install-native-checker-toolchain.sh`
+and verifies their frozen SHA-256 values before installation. Compiler binaries
+are not committed to this repository.
 
 Linux qualification enforces the frozen address-space and process-count
 kernel limits. macOS cannot reliably apply those two limits to this compiler
@@ -35,8 +38,10 @@ process tree, so its local qualification run enforces the remaining limits
 but is not containment evidence. This is one reason `activationAllowed`
 remains false; production activation requires the separate containment gate.
 
-Run the public qualification test with:
+After supplying the exact toolchain bin directory, run the public qualification
+test with:
 
 ```bash
-python3 -m unittest scripts/test_native_shadow_authority.py
+BOOLE_NATIVE_TOOLCHAIN_BIN=/path/to/exact/bin \
+  python3 -m unittest scripts/test_native_shadow_authority.py
 ```

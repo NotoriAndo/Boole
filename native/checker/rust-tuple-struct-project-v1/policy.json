@@ -4,7 +4,7 @@
   "activationAllowed": false,
   "purpose": "tracked semantic parity and clean-checkout qualification only",
   "toolchain": {
-    "channel": "nightly-2026-07-22",
+    "channel": "rust-lang-ci-e7795af6d2449fb05a6393c3320ced873a999eb3",
     "rustcRelease": "1.99.0-nightly",
     "rustcCommitHash": "e7795af6d2449fb05a6393c3320ced873a999eb3",
     "cargoRelease": "1.99.0-nightly",

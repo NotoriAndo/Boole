@@ -55,18 +55,10 @@ def resolve_toolchain_bin() -> pathlib.Path:
     override = os.environ.get("BOOLE_NATIVE_TOOLCHAIN_BIN")
     if override:
         return pathlib.Path(override)
-    probe = subprocess.run(
-        ["rustup", "which", "--toolchain", "nightly-2026-07-22", "cargo"],
-        check=False,
-        capture_output=True,
-        text=True,
+    raise AssertionError(
+        "BOOLE_NATIVE_TOOLCHAIN_BIN must name the exact rust-lang CI per-commit "
+        "toolchain bin directory"
     )
-    if probe.returncode != 0:
-        raise AssertionError(
-            "the pinned native-checker toolchain nightly-2026-07-22 is required; "
-            "install it or set BOOLE_NATIVE_TOOLCHAIN_BIN to the frozen bin directory"
-        )
-    return pathlib.Path(probe.stdout.strip()).parent
 
 
 class NativeShadowAuthorityTests(unittest.TestCase):
@@ -209,6 +201,21 @@ class NativeShadowAuthorityTests(unittest.TestCase):
                 "channel": policy["toolchain"]["channel"],
                 "rustcCommitHash": policy["toolchain"]["rustcCommitHash"],
                 "cargoCommitHash": policy["toolchain"]["cargoCommitHash"],
+                "source": (
+                    "https://ci-artifacts.rust-lang.org/rustc-builds/"
+                    "e7795af6d2449fb05a6393c3320ced873a999eb3/"
+                ),
+                "linuxX8664ArtifactSha256": {
+                    "rustc-nightly-x86_64-unknown-linux-gnu.tar.xz": (
+                        "12cd470422b39da22a7b8c2f069c25e66200d5a46c1be5dac0bfe7620ed0d415"
+                    ),
+                    "rust-std-nightly-x86_64-unknown-linux-gnu.tar.xz": (
+                        "fd04194fb361ef69735a0b722fcaf6d9b49a339944f485aebcc4c172adb5c339"
+                    ),
+                    "cargo-nightly-x86_64-unknown-linux-gnu.tar.xz": (
+                        "53e718c828a16746abdf3f8fb6f4c75ce5494a6f547ef6f02d45d72faef4c426"
+                    ),
+                },
                 "compilerBinariesIncluded": False,
             },
         )
