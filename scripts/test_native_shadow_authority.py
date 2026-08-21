@@ -61,6 +61,64 @@ def resolve_toolchain_bin() -> pathlib.Path:
     )
 
 
+def qualification_failure_diagnostic(toolchain: pathlib.Path) -> str:
+    """Re-run only the public fixture and expose bounded compiler diagnostics.
+
+    The production checker intentionally returns stable reason codes rather than
+    compiler output.  If clean-CI qualification unexpectedly fails, this helper
+    captures at most the frozen output ceiling from the synthetic, non-issuable
+    fixture so the failure can be diagnosed without changing checker semantics.
+    """
+    module_path = CHECKER / "checker.py"
+    spec = importlib.util.spec_from_file_location(
+        "boole_native_checker_diagnostic", module_path
+    )
+    if spec is None or spec.loader is None:
+        return "checker import unavailable"
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    captured: list[tuple[int, bytes]] = []
+    try:
+        spec.loader.exec_module(module)
+        policy = module._load_policy()
+        contract = module._load_contract(FIXTURE / "task.json")
+        submission = module._verify_submission(
+            policy, contract, FIXTURE / "accepted.rs"
+        )
+        original_run = module._run_contained
+
+        def capture_run(*args, **kwargs):
+            result = original_run(*args, **kwargs)
+            captured.append(result)
+            return result
+
+        module._run_contained = capture_run
+        with tempfile.TemporaryDirectory(
+            prefix="boole-native-authority-diagnostic-"
+        ) as scratch:
+            try:
+                module._judge(
+                    policy,
+                    contract,
+                    submission,
+                    toolchain,
+                    pathlib.Path(scratch),
+                )
+            except (module.AuthorityUnavailable, module.SubmissionRejected) as exc:
+                exception = f"{type(exc).__name__}: {exc}"
+            else:
+                exception = "no exception"
+    except Exception as exc:  # diagnostic path must not mask the primary failure
+        return f"diagnostic failed: {type(exc).__name__}: {exc}"
+    finally:
+        sys.modules.pop(spec.name, None)
+    if not captured:
+        return exception + "; no contained output captured"
+    code, output = captured[-1]
+    text = output.decode("utf-8", errors="replace")
+    return f"{exception}; exit={code}; output={text[-8192:]}"
+
+
 class NativeShadowAuthorityTests(unittest.TestCase):
     maxDiff = None
 
@@ -297,8 +355,15 @@ class NativeShadowAuthorityTests(unittest.TestCase):
                 )
                 self.assertEqual(proc.returncode, 0, proc.stderr or proc.stdout)
                 result = json.loads(proc.stdout)
-                self.assertEqual(result["verdict"], verdict, (answer, result))
-                self.assertEqual(result["reasonCode"], reason_code, (answer, result))
+                diagnostic = None
+                if result["verdict"] != verdict or result["reasonCode"] != reason_code:
+                    diagnostic = qualification_failure_diagnostic(toolchain)
+                self.assertEqual(
+                    result["verdict"], verdict, (answer, result, diagnostic)
+                )
+                self.assertEqual(
+                    result["reasonCode"], reason_code, (answer, result, diagnostic)
+                )
                 self.assertEqual(result["checkerTaskId"], task_contract["checkerTaskId"])
                 self.assertEqual(result["taskDigest"], task_digest)
                 self.assertNotIn("local-docs", json.dumps(result, sort_keys=True))
