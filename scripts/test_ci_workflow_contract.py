@@ -41,6 +41,19 @@ class CiWorkflowContractTest(unittest.TestCase):
             "block (contents: read)",
         )
 
+    def test_ci_installs_the_exact_native_checker_commit_artifacts(self):
+        self.assertIn(
+            './scripts/install-native-checker-toolchain.sh "$native_toolchain"',
+            self.text,
+            "the clean-runner native checker gate must install the exact frozen "
+            "per-commit artifacts; a date-based nightly can point at another commit",
+        )
+        self.assertIn(
+            'echo "BOOLE_NATIVE_TOOLCHAIN_BIN=$native_toolchain/bin" >> "$GITHUB_ENV"',
+            self.text,
+            "self-test must receive the absolute bin directory of the verified toolchain",
+        )
+
 
 class VerdictCorpusWorkflowContractTest(unittest.TestCase):
     """SC.9c (ADR-0016 (a-1)) -- the cross-platform verdict corpus gate.

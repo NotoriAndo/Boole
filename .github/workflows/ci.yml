@@ -45,6 +45,17 @@ jobs:
           toolchain: 1.95.0
           components: rustfmt, clippy
 
+      - name: Install native checker Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The tracked native checker is a separately versioned authority.
+          # Its frozen compiler is a rust-lang CI per-commit build, not a date
+          # nightly. The installer verifies all three archive hashes first.
+          native_toolchain="$RUNNER_TEMP/boole-native-toolchain"
+          ./scripts/install-native-checker-toolchain.sh "$native_toolchain"
+          echo "BOOLE_NATIVE_TOOLCHAIN_BIN=$native_toolchain/bin" >> "$GITHUB_ENV"
+
       - name: Install Lean toolchain
         shell: bash
         run: |

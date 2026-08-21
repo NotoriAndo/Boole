@@ -1,0 +1,11 @@
+{
+  "schema": "boole.native-shadow.fixture-provenance.v1",
+  "id": "rust-tuple-struct-project-v1-public-qualification",
+  "origin": "boole-synthetic",
+  "license": "Apache-2.0",
+  "nonIssuable": true,
+  "containsRealMiningAnswer": false,
+  "containsWitness": false,
+  "containsModelTranscript": false,
+  "purpose": "clean-checkout checker qualification only"
+}

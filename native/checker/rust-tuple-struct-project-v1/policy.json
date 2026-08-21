@@ -1,0 +1,52 @@
+{
+  "schema": "boole.native-shadow.rust-checker-policy.v1",
+  "release": "RUST-TUPLE-STRUCT-CHECKER-V1-QUALIFICATION",
+  "activationAllowed": false,
+  "purpose": "tracked semantic parity and clean-checkout qualification only",
+  "toolchain": {
+    "channel": "rust-lang-ci-e7795af6d2449fb05a6393c3320ced873a999eb3",
+    "rustcRelease": "1.99.0-nightly",
+    "rustcCommitHash": "e7795af6d2449fb05a6393c3320ced873a999eb3",
+    "cargoRelease": "1.99.0-nightly",
+    "cargoCommitHash": "3efb1f477e99b42974b982d939fd100303cdf7db"
+  },
+  "cargo": {
+    "testArgs": ["test", "--locked", "--offline", "--quiet", "-j", "1"],
+    "rustflags": "--cap-lints=allow",
+    "systemPath": "/usr/bin:/bin:/usr/sbin:/sbin"
+  },
+  "allowedEditions": ["2015", "2018", "2021", "2024"],
+  "resourceLimits": {
+    "wallSeconds": 60,
+    "taskTotalWallSeconds": 90,
+    "cpuSeconds": 120,
+    "memoryBytes": 2147483648,
+    "outputBytes": 1048576,
+    "fileBytes": 67108864,
+    "openFiles": 128,
+    "patchBytes": 8192,
+    "patchLines": 200,
+    "hiddenCases": 64
+  },
+  "patchMarkers": [
+    "// <<< ACFR-PATCH-BEGIN >>>",
+    "// <<< ACFR-PATCH-END >>>"
+  ],
+  "forbiddenTokens": [
+    "unsafe", "asm!", "global_asm!", "naked_asm!", "extern", "transmute",
+    "include!", "include_str!", "include_bytes!", "option_env!", "env!",
+    "no_mangle", "link_section", "proc_macro", "build_rs", "std", "core", "alloc", "std::env",
+    "std::fs", "std::net", "std::process", "std::thread", "std::time",
+    "std::io", "SystemTime", "Instant", "RandomState", "thread_rng",
+    "random", "module_path!", "file!", "line!", "column!", "cfg!",
+    "concat_idents!", "core::intrinsics", "core::arch", "std::arch",
+    "alloc::alloc", "from_raw", "into_raw", "as_ptr", "as_mut_ptr",
+    "read_volatile", "write_volatile", "catch_unwind", "set_hook", "abort"
+  ],
+  "forbiddenPatterns": [
+    "\\*\\s*const\\b", "\\*\\s*mut\\b", "#\\s*!?\\[\\s*cfg\\s*\\(",
+    "#\\s*!?\\[\\s*path\\s*=", "\\bmod\\s+[A-Za-z_]", "\\b[A-Za-z_][A-Za-z0-9_]*\\s*!\\s*[({\\[]", "\\bacfr_har_",
+    "\\bacfr_hidden\\b"
+  ],
+  "verdicts": ["accepted", "deterministic_reject", "retryable_unavailable"]
+}

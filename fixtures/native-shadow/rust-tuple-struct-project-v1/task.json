@@ -1,0 +1,25 @@
+{
+  "schema": "boole.native-shadow.rust-tuple-task.v1",
+  "familyVersion": "TUPLE-STRUCT-PROJECT/RUST-TUPLE-STRUCT-PROJECT-V1",
+  "templateId": "8283d4243bb5605db127f877d10aa8acf6c3e54696af285591c8c59f06c1c51e",
+  "templateIdFormula": "sha256-domain(boole.native-shadow.fixture-template.v1, anchor.sha256, anchor.semanticLocator)",
+  "nonIssuable": true,
+  "edition": "2024",
+  "anchor": {
+    "path": "anchor.rs",
+    "sha256": "15878d940ac0094a681034af830333ff54e6779bf8bbef545a71ac455557d293",
+    "typeName": "FixturePoint",
+    "semanticLocator": "synthetic/FixturePoint:4",
+    "fieldTypes": ["u32", "bool"]
+  },
+  "taskSeed": "9f4a85fe0dc3d8920c4c2fe4a3f7d5912d9b918f3a55ea1ac61a63093caab24d",
+  "checkerTaskId": "public-fixture-v1",
+  "challengeSha256": "ce3a55487de1c3b46040fc7aebe933cce6b23f19c08248d0dab11732d36c8426",
+  "challengeFormula": "sha256-domain(boole.native-shadow.fixture-challenge.v1, taskSeed, templateId)",
+  "constants": {
+    "a0": 7,
+    "mul": 5,
+    "coeffs": [3, -2]
+  },
+  "scaffold": "#![allow(unused)]\nuse crate::FixturePoint as AcfrTy;\n// implement the projection in the statement\npub fn acfr_solve(items: &[AcfrTy]) -> i64 {\n    // <<< ACFR-PATCH-BEGIN >>>\n    todo!()\n    // <<< ACFR-PATCH-END >>>\n}\n"
+}
