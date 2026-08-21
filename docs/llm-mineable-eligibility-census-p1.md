@@ -4051,3 +4051,78 @@ sandbox; only their digests are tracked here:
 One real, costed `claude-opus-4-8` episode ($0.02066, 6.1s, 1 turn) under a closed local,
 offline, non-consensus, sandboxed harness — not a public benchmark, not a paid public API
 benchmark claim, not public-network mining, not a leaderboard claim. `mineable_now = 0`.
+
+## Entry 28 — 2026-08-21 · Entry 27 scope correction — `MINER-LOCAL-NATIVE-WIRING-GREEN`; real `boole-node` checker re-execution `NOT-RUN`
+
+This append-only correction preserves Entry 27 byte for byte and narrows only the claim that its
+recorded execution can support. A read-only inspection of the landed implementation found that
+Entry 27's phrases "node verifier" and "independent recheck inside `boole_miner`" overstate what
+ran. No model, checker, census, proof or mining execution was run for this correction.
+
+### 28.1 What Entry 27 did establish
+
+The one real model answer did traverse the following closed-local, miner-owned path:
+
+```
+real LLM response
+  -> family-specific NativeProofIntake
+  -> template / challenge / checker / policy binding checks
+  -> verdict already produced by the frozen external Python checker
+  -> boole-miner NativeReceipt assembly
+  -> local non-consensus SHARE-LEDGER.ndjson append
+```
+
+The raw model response was preserved and hashed, the frozen task identity was checked, the
+external checker had actually compiled and tested the candidate, and the miner-side wiring bound
+those facts into a local receipt and ledger row. The five constructed reject-path tests remain
+valid evidence for that miner-local intake/binding/wiring surface. The correct completion label is
+therefore **`MINER-LOCAL-NATIVE-WIRING-GREEN`**.
+
+### 28.2 What Entry 27 did not establish
+
+The landed Rust replay binary explicitly carries forward the verdict already written by the
+external Python checker; it does not invoke that checker again. In
+`boole_miner::run_native_mining_e2e`, `verify_accepted` is assigned the existing
+`checker_accepted` value after the binding checks. The `boole-node` process, its HTTP server and
+its state were not called anywhere in the episode. Consequently, Entry 27 did **not** establish:
+
+* receipt or raw-answer admission by the actual `boole-node` binary;
+* node-owned lookup of a pinned family, anchor, checker, policy and toolchain;
+* independent node execution of the real checker against the submitted raw answer;
+* a receipt or shadow-evidence object issued from a node-owned verdict; or
+* any `SharePool`, block, reward, P2P, BF.7 or consensus connection.
+
+The authoritative status is:
+
+```
+REAL-BOOLE-NODE-SEMANTIC-RECHECK = NOT-RUN
+NODE-ISSUED-NATIVE-EVIDENCE      = NOT-RUN
+CONSENSUS / BLOCK / REWARD       = NOT-WIRED
+```
+
+The earlier `node_verifier_ACCEPT = true` field is retained as historical evidence but must be
+read only as "the miner-local wiring accepted the already-produced checker verdict after binding
+checks." It must not be cited as an independent node judgment.
+
+### 28.3 Successor boundary
+
+The authorized successor design is `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1`, specified in
+`docs/native-submission-shadow-verification-v1.md`. It requires the node to receive the raw answer
+and independently execute a tracked, byte-pinned checker before the node can issue shadow
+evidence. It is default-OFF and non-consensus. A receipt-only input or a pass-through of the
+miner's verdict is a hard failure, not a fallback.
+
+This correction does not retract the actual model answer, the external checker's ACCEPT, the
+miner-local receipt, the local ledger row or their preserved hashes. It corrects only which
+component made which judgment.
+
+### 28.4 Numbers and claim boundary — unchanged
+
+```
+LLM-MINEABLE-ELIGIBLE-V5 = 14,160
+mineable_now              = 0
+```
+
+No V6 is created, no eligibility row is added or removed, and Entries 1–27 remain unchanged.
+This is closed-local code-reality correction, not public-network mining, not a public or paid-API
+benchmark, not a leaderboard claim, and not evidence of consensus activation.
