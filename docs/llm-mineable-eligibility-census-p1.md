@@ -3753,3 +3753,301 @@ only their digests are tracked here:
 Stage A/B are real, costed `claude-opus-4-8` episodes (12 total, $0.260169) under a closed
 local, offline, non-consensus, sandboxed harness — not a public benchmark, not public-network
 mining, not a leaderboard claim. Step 6 and Step 7 issued zero model calls. `mineable_now = 0`.
+
+## Entry 26 — 2026-08-21 · zk-native investigation closure — `NO-CLEAN-A-ROOTED-FAMILY-UNDER-P0`
+
+Sealed 2026-08-21 under Telegram msg 4206 §2 (chat_id 1311067056), which orders the new-domain /
+new-family / new-raw-material investigation ended and recorded, append-only, with no new
+dependency downloads, repo expansion or family research after this entry. Zero model calls, zero
+paid API calls anywhere in this entry's four source investigations. Append-only: Entries 1–25 and
+every figure they sealed (including `LLM-MINEABLE-ELIGIBLE-V5 = 14,160`, Entry 25) are unchanged.
+**zk-native's contribution to every eligibility figure in this ledger remains 0, before and after
+this entry.**
+
+### 26.1 What this entry is, and is not
+
+This is the closing record of a four-step, closed-local, read-only exploratory investigation
+(2026-08-21) into whether any real, compilable zk-native (SNARK/STARK-tooling) source material on
+this machine could seed a deterministic, checkable LLM task family — a question separate from,
+and later than, this ledger's own 2026-08-16 domain-level ruling (Entry 3, Entry 12) that
+zk-native is `NO-DETERMINISTIC-FAMILY` at the census level because no answer-free deterministic
+checker exists for a human-judged audit-finding domain. This entry's four artifacts asked a
+narrower, more concrete question — given the zk-native-tagged repos actually present in this
+machine's dependency caches, is there any subset that (a) is a real, unmodified, currently
+buildable Rust project and (b) contains changed source with a genuine, non-mechanical, non-leaked
+design space — and answers it, honestly, in the negative. **This entry does not claim zk-native
+families are permanently impossible; it records that none was found under this pass's scope
+(P0), using the material and constraints available on this machine on this date.**
+
+### 26.2 Cache-inventory correction — 1 buildable file corrected to 28 files / 2 real projects
+
+The first pass (`zk-native-repo-context-p0-2026-08-21`) classified this machine's 16,763-file
+zk-native-tagged audit pool using only the default `~/.cargo` cache and found exactly **1**
+fully buildable file. A follow-up pass (`zk-native-cache-union-correction-p0-2026-08-21`) redid
+the same classification against the *union* of every real dependency cache actually present on
+this machine, to check whether the first count was an undercount artifact of looking in only one
+place. It was:
+
+```
+COMPLETE-BUILD-CONTEXT   28 files (up from 1), across only 2 distinct real projects:
+  keep-starknet-strange/garaga  tools/garaga_rs                        27 files
+  succinctlabs/sp1              examples/untrusted_program/jit-program  1 file
+SNAPSHOT-PRESENT-DEPENDENCY-MISSING   13,550
+TOOLCHAIN-MISMATCH / FILE-ONLY-NO-BUILD-CONTEXT / UNRESOLVED     0 / 0 / 0
+16,763 = 972 (no compiler for this language) + 2,213 (byte-identical duplicate)
+       + 13,578 (unique real Rust/Go projects); confirmed twice
+```
+
+The honest attribution, stated explicitly in that pass's own record so this is not
+overstated here: the growth from 1→28 is a **methodology fix** (checking a
+`~/.cargo/git/checkouts` folder that was always present but never scanned by the first pass), not
+new material from the newly-unioned cache sources — the union added two genuinely new cache
+roots (an `evm-zkvm-feasibility` cache and an `ethereum-consensus` vendor tree), both fully
+fingerprinted and wired into the matching logic, and both resolved **zero** net-new dependencies.
+Two unrelated parser bugs (a Go multi-block `go.mod` reader, and a `parse_cargo_config_vendor()`
+git-only-vendor miss) were found and fixed during this pass; both confirmed non-material to every
+bucket count. The correction does not change any sealed eligibility figure in this ledger — the
+sealed zk-native-domain count was, and remains, 0.
+
+### 26.3 Build-unit smoke — 2/2 `cargo check --offline --frozen` pass
+
+Both of the 2 real projects the correction identified were then, for the first time, actually
+built (front-end parse + type-check only, no LLVM codegen, no final binary) exactly once each,
+strictly sequentially, `--jobs 1`:
+
+```
+keep-starknet-strange/garaga  tools/garaga_rs                          rc=0, 13.0s, PASS
+succinctlabs/sp1              examples/untrusted_program/jit-program   rc=0, 0.03s, PASS
+```
+
+Both `cargo metadata`/`cargo check` invocations used `--offline --frozen`, which hard-error
+rather than silently reach the network — zero network access during either of the 2 authorized
+runs. The SP1 unit's PASS carries one important scope caveat, disclosed before execution and
+confirmed true after: `cargo check` skips full codegen and LLVM inline-assembly validation, and
+this crate's `asm!()` block uses RISC-V-specific mnemonics meaningful only for the real, unavailable,
+out-of-scope `riscv64im-succinct-zkvm-elf` target — so this rc=0 certifies the file type-checks
+for the host target, not that it would actually assemble, link or run for its real target. Full
+immutability verification (cargo registry, cargo git cache, both extracted source trees, both
+archive files) confirmed byte-for-byte unchanged, before vs. after.
+
+**Rustup network-access incident — disclosed in full, not hidden.** Before this task's own
+`FREEZE.json` was written and before either of its 2 authorized executions, a diagnostic
+`rustc --version` run inside the SP1 snapshot directory (to determine "the exact toolchain that
+will be used") triggered rustup's own toolchain-file resolution logic — a layer entirely separate
+from, and not gated by, Cargo's `--offline`/`--frozen`/`CARGO_NET_OFFLINE` flags. Seeing 3
+components in that directory's `rust-toolchain.toml` (`llvm-tools`, `rustc-dev`, `clippy`) not yet
+installed locally, rustup performed one real network sync, silently upgrading the machine-shared
+`~/.rustup` toolchain `stable-aarch64-apple-darwin` from **1.97.1 to 1.98.0** and adding those 3
+components plus 2 bundled ones (`rust-src`, `rust-std-wasm32-unknown-unknown`). This did not touch
+`~/.cargo`, any archive file, any repo file, or any `local-docs/` file — only the separate,
+machine-global `~/.rustup` shim toolchain, which is used solely by this exploratory
+investigation's own scripts and is explicitly distinct from the pinned, isolated CI toolchain
+(`toolchain/ci-e7795af6`, Entry 24/25) that the actual `RUST-TUPLE-STRUCT-PROJECT-V1` mining wave
+(Entry 24/25, Entry 27 below) uses — the two are not the same toolchain and this incident did not
+touch the one the mining wave depends on. Mitigated for the remainder of the task via an explicit
+`RUSTUP_TOOLCHAIN=stable-aarch64-apple-darwin` pin, which bypasses toolchain-file resolution
+entirely; no further network activity was observed or expected afterward, and none was.
+
+### 26.4 Garaga-27 family design — all 27 anchors `NO-DETERMINISTIC-FAMILY`
+
+The 27 changed source files inside garaga's `tools/garaga_rs` (the only build unit with more than
+1 anchor) were then read and hand-graded, one by one, against this ledger's existing family-design
+rulebook, for whether any could become a real checkable/mineable LLM task. Recommendation:
+**TERMINATE.** All 27 classify `NO-DETERMINISTIC-FAMILY`:
+
+```
+clippy-lint autofixes                                          6
+pure module-registration wiring                                 2
+pyo3's own PyObject -> Py<PyAny> upstream rename                10
+mixed rename + wiring                                            1
+pure FFI-marshaling wrapper boilerplate                          4
+relocated real logic into a non-anchor auto-generated file,
+  with a same-file old-vs-new equivalence test already present    2
+------------------------------------------------------------------
+26 mechanical/leaked, each with exactly one already-correct
+  answer sitting in the archived target snapshot                26
+```
+
+The 1 remaining anchor (`algebra/g2point.rs`, real elliptic-curve group-law logic) is leaked
+twice over in the same snapshot: an unchanged sibling file (`g1point.rs`) implements the
+near-identical pattern one type parameter away, and the repo's own Python reference module
+(`hydra/garaga/points.py`) already implements the same class with the same methods. The closest
+near-miss, `tools/garaga_rs/src/calldata/signatures.rs` (RSA-2048 witness-generation, genuinely
+new and substantially untested), still fails on two independent grounds: it is the only anchor of
+its kind in this build unit, so "changing which anchor is used changes the required answer" (a
+required family property) cannot be demonstrated with a population of one; and the same repo
+snapshot's `hydra/garaga/rsa_rns.py` spells out the exact algorithm and its own limb/modulus
+parameters, freely readable. Per this ledger's own default rule — when genuinely uncertain
+whether a candidate satisfies the family-design bar, default to `NO-DETERMINISTIC-FAMILY` rather
+than force-fit a family of one — `signatures.rs` is recorded as `NO-DETERMINISTIC-FAMILY`, not as
+a one-member family. What a future, differently-scoped attempt at this exact anchor would need is
+recorded as diagnostic-only in the underlying artifact; it is not proposed, designed or
+implemented here.
+
+### 26.5 Conclusion — `NO-CLEAN-A-ROOTED-FAMILY-UNDER-P0`
+
+Across both the 2026-08-16 census-level ruling (Entry 3, Entry 12: no deterministic
+answer-free checker exists for the human-judged zk-native audit domain) and this
+2026-08-21 build-context-grounded exploratory pass (28 real buildable files across 2 real
+projects, both compile cleanly, 27-anchor hand-grading of the one multi-anchor unit finds 26
+mechanical-or-leaked and 1 near-miss still disqualified on n=1-population and cross-language
+leakage grounds), the honest, current-scope conclusion is: **no clean, anchor-rooted zk-native
+family was found under this investigation's P0 constraints.** This is a scoped negative result,
+not a claim that such a family can never exist — a differently-scoped future attempt (a
+multi-anchor build unit, or a checker design that does not exact-match a leaked reference
+serialization) is explicitly left open as unexplored, not foreclosed. Per this entry's own
+governing instruction, no further dependency download, repo expansion or family research
+follows from this conclusion in this task. **zk-native's contribution to
+`LLM-MINEABLE-ELIGIBLE-V5` is 0. `LLM-MINEABLE-ELIGIBLE-V5 = 14,160` (Entry 25) is unchanged.**
+
+### 26.6 Evidence bundle, all digests re-verified against the files on disk immediately before this entry was written
+
+All files live in the gitignored `local-docs/zk-native-*-2026-08-21/` sandboxes; only their
+digests are tracked here:
+
+| evidence file | sha256 |
+| --- | --- |
+| `zk-native-repo-context-p0-2026-08-21/RESULT.json` — first pass, 1 buildable file, default cache only | `bc117a8630dea40a8a4e6c32f06745df9479daaed2e1f172986e3f73d8d02d22` |
+| `zk-native-cache-union-correction-p0-2026-08-21/RESULT.json` — corrected pass, 28 files / 2 projects, methodology-fix attribution | `c1654763430d391b8ce8a999b91fa444a6a9551ef202c90b5d9b6e6065806716` |
+| `zk-native-cache-union-correction-p0-2026-08-21/SUMMARY.md` | `c69d2625f875d0ffaa64f1d0a21b05184e0215db65e91b54f9d9fda2efe772b1` |
+| `zk-native-build-unit-smoke-p1-2026-08-21/RESULT.json` — 2/2 `cargo check` pass, immutability confirmed | `f5d675f5cc41b223b2790431fb7fb90205c220f5160f4475330618c89fda9a02` |
+| `zk-native-build-unit-smoke-p1-2026-08-21/FREEZE.json` — rustup network-access incident, full disclosure | `9bc53cf775ae6d2cdb504f19425f9ddbdb5c54c4647d46628be442c480ab9b8c` |
+| `zk-native-garaga-27-family-design-p0-2026-08-21/RESULT.json` — 27/27 `NO-DETERMINISTIC-FAMILY`, TERMINATE | `8882199a5854046cd81c6bfdd84699510b19b72194e7276093f10d9697007371` |
+
+### 26.7 What this entry does not do
+
+* Does not change any earlier entry or figure. Entries 1–25 and `LLM-MINEABLE-ELIGIBLE-V5 =
+  14,160` (Entry 25) are unchanged.
+* Does not claim zk-native families are permanently impossible — see §26.1 and §26.5.
+* Does not implement any family, checker or generator for zk-native material.
+* Does not authorize, propose or perform any further dependency download, repo expansion, cache
+  scan or family-design pass on zk-native material — this investigation thread is closed.
+* Does not touch `docs/zk-native-release-audit-census-p0-eligibility-freeze.md` or its sealed
+  `ZK-NATIVE-RELEASE-AUDIT-P0-MINEABLE-ELIGIBLE = 0` figure.
+
+### 26.8 Not a claim
+
+All four source investigations are closed-local, offline, read-only or `--offline --frozen`
+compile-only passes — zero model calls, zero paid API calls, zero network access during any
+authorized step (the one disclosed rustup network event happened before, not during, an
+authorized step, and did not touch this ledger's mining-wave toolchain). Not a public benchmark,
+not public-network mining, not a leaderboard claim. `mineable_now = 0`.
+
+## Entry 27 — 2026-08-21 · A-rooted native mining E2E v1 — one real episode, `CLOSED-LOCAL-NATIVE-MINING-E2E-GREEN`
+
+Sealed 2026-08-21 under Telegram msg 4206 §§4–6 (chat_id 1311067056). This entry is not a new
+census and does not expand `LLM-MINEABLE-ELIGIBLE-V5`. Its purpose is narrower: run one already
+sealed, already-mineable Rust-tuple task through the real problem-issuance → LLM-answer →
+ProofIntake → Canonicalizer → frozen native checker → node verifier → local share-accounting
+path, exactly once, and record the outcome — success or failure — as it actually happened. No new
+family, no new checker logic, no new hint, no per-instance exception was created; the sealed
+`RUST-TUPLE-STRUCT-PROJECT-V1` generator, prompt and checker (Entry 24/25) were reused byte for
+byte. `LLM-MINEABLE-ELIGIBLE-V5 = 14,160` (Entry 25) is unchanged; no V6 figure is created here.
+
+### 27.1 Selected template
+
+Selected under the pre-registered SHA-256 selection rule (§ STEP0, `local-docs/a-rooted-native-mining-e2e-v1-2026-08-21/STEP0-SELECTION-RESULT.json`) from the 197 `UNIQUE-NEW-ISSUABLE`
+Rust-tuple templates, excluding the 12 already-used Stage A/B representatives and the internal
+3-duplicate group:
+
+```
+template_id   04dd8453f52dd4da8af1736ad6eceeb82ded2e65dcc1c0600c4b37ef7cf6307a
+source_path   tests/ui/consts/transmute-const.rs
+struct_name   Foo(u32)
+family        TUPLE-STRUCT-PROJECT / RUST-TUPLE-STRUCT-PROJECT-V1
+anchor_sha256 693f62acfa0626a0831c9133a26fcfc1dbb30922c1ab2036231c42a363cfd7fe
+```
+
+### 27.2 Real model execution
+
+Exactly 1 real, paid `claude-opus-4-8` call, in a single fresh isolated session, 0 retries, 0
+fallback/substitution, 0 human edits, per msg 4206 §5's own authorization:
+
+```
+model        claude-opus-4-8 (sanctioned only; independently re-verified against the
+             runtime's own session transcript — substitution_detected: null, no stray model,
+             no permission denials, num_turns == 1)
+session_id   966cdfd6-e7ad-4224-9316-11c383ab143e
+turns        1 (model answered directly — no COMPILE/PUBLIC-TEST actions used)
+cost_usd     0.02066  (cap was $0.10 — well under)
+wall_time    6.1s
+tokens       input 2 / output 210
+```
+
+The model was given the anchor + statement + scaffold only — no correct answer, no author
+witness, no hidden expected value was shown to it. Its own answer (`raw_final_reply`, captured
+verbatim, sha256 `003857c61993cf754bca5b99af2ec0d51028b03085653cea9ed8bca108e7d38a`) is the one and
+only candidate used downstream — nothing was substituted, edited or re-run.
+
+### 27.3 Path verdicts — all six `CLOSED-LOCAL-NATIVE-MINING-E2E-GREEN` requirements met
+
+```
+driver_answered            true   (model produced a FINAL action with real Rust code)
+proof_intake_accepted      true   (candidate parsed, template/challenge/checker/policy binding matched)
+verify_accepted            true   (frozen sealed checker + Rust node-verifier binding both ACCEPT)
+canonical_receipt_generated true  (RECEIPT.json written, binds family/version, template_id,
+                                    anchor digest, challenge/epoch, candidate digest, checker
+                                    digest, policy digest, verdict)
+node_verifier_ACCEPT       true   (binding_accepted: true -- an independent recheck inside
+                                    boole_miner::run_native_mining_e2e, not a trusted self-report
+                                    of the Python-side verdict)
+local_dev_share_recorded   true   (one SHARE-LEDGER.ndjson entry appended)
+```
+
+`mineable_now = 0` throughout — no block, reward or consensus state was written or read by any
+step of this episode. No SP1/ZK proof was generated or used anywhere in this scope, per msg 4206
+§6's explicit prohibition.
+
+### 27.4 Reject-path test coverage (unchanged, pre-existing, GREEN)
+
+The 5 reject-path tests msg 4206 §4 requires were written and GREEN in an earlier segment of this
+same task, in `crates/boole-miner/tests/native_mining_e2e.rs`, run against fixtures — the sealed
+checker/binding logic under adversarial mutation, not a re-judgment of the one real answer above
+(there is exactly one real accept-path case in this episode; the reject paths are exercised with
+constructed fixtures, as msg 4206 §4 itself specifies):
+
+```
+accept_path_full_pipeline_accepts                       PASS  (fixture ACCEPT candidate, full path)
+one_bit_answer_mutation_is_rejected                      PASS  (flipped bit -> checker/verify REJECT)
+candidate_reused_for_different_task_is_rejected          PASS  (mismatched template_id -> REJECT)
+candidate_reused_for_different_challenge_is_rejected     PASS  (mismatched challenge_sha256 -> REJECT)
+checker_or_policy_digest_mutation_is_rejected             PASS  (mismatched checker/policy digest -> REJECT)
+```
+
+Re-confirmed GREEN this segment via `cargo test -p boole-miner --test native_mining_e2e` alongside
+the new example binary addition, with no regressions to the crate's other 28 lib tests.
+`cargo fmt --check` and both CI-identical clippy invocations (`--workspace --all-targets`,
+default features; and `--features boole-node/dev-mock-payment,boole-miner/dev-tools`) are clean.
+
+### 27.5 Evidence bundle, all digests re-verified against the files on disk immediately before this entry was written
+
+All source files live in the gitignored `local-docs/a-rooted-native-mining-e2e-v1-2026-08-21/`
+sandbox; only their digests are tracked here:
+
+| evidence file | sha256 |
+| --- | --- |
+| `FREEZE.json` — frozen template identity, budget, digests, authorization | `f2d8294c082a450b131fa50111ae252f03c866fb673eaef9140972d04031b710` |
+| `STEP0-SELECTION-RESULT.json` — SHA-256 selection over the 197 UNIQUE-NEW-ISSUABLE set | `1b9fad93ecc88c7fd737624dd089e0642e2cc2c44eb56bf59975054568726a15` |
+| `STEP2-EPISODE-RESULT.json` — the one real `claude-opus-4-8` episode, verdict ACCEPT | `bc90995c973769e16339103b60778c3fc50e7d9ba5f46a78c81b653127b08393` |
+| `RECEIPT.json` — canonical receipt from `boole_miner::run_native_mining_e2e` | `02a9ffa7d0fc910040dfbd72bcf59d03f2608d15e48d7eebfa8297eff03fe452` |
+| `SHARE-LEDGER.ndjson` — local dev share-accounting entry | `39ba4d482b0bce5c4651d6baf3db16e721b8ae49881c54a54dbd7077b6e1e301` |
+
+### 27.6 What this entry does not do
+
+* Does not create a V6 eligibility figure. `LLM-MINEABLE-ELIGIBLE-V5 = 14,160` (Entry 25) is
+  unchanged.
+* Does not re-run the census, does not re-execute any of the other 196 `UNIQUE-NEW-ISSUABLE`
+  templates, does not investigate another domain, does not compare models, does not run a
+  performance benchmark.
+* Does not touch consensus state — no block was built, no reward was paid, no persisted-chain or
+  `SharePool` state was written. `mineable_now = 0`.
+* Does not generate or use an SP1/ZK proof.
+* Does not introduce a new family, new checker logic, new hint, or per-instance exception. The
+  sealed `RUST-TUPLE-STRUCT-PROJECT-V1` generator, prompt template and checker (Entry 24/25) were
+  reused byte for byte, verified via a 10-source drift gate immediately before the real call.
+
+### 27.7 Not a claim
+
+One real, costed `claude-opus-4-8` episode ($0.02066, 6.1s, 1 turn) under a closed local,
+offline, non-consensus, sandboxed harness — not a public benchmark, not a paid public API
+benchmark claim, not public-network mining, not a leaderboard claim. `mineable_now = 0`.
