@@ -98,7 +98,8 @@ surface must pass two distinct parity gates before the route is implemented:
   negative controls with the same authority digests and normalized verdict/reason codes — **closed
   2026-08-21, see section 4.2**; and
 * the node's binding and replay RED matrix must independently cover task, challenge, policy,
-  registry and evidence misuse — **open**.
+  registry and evidence misuse — **design frozen 2026-08-22, see
+  `docs/node-native-shadow-binding-containment-design-v1.md`; implementation still open**.
 
 Entry 27's `FixedVerdictChecker` reject matrix is miner-wiring evidence, not proof that the actual
 checker produced those negative verdicts. Path strings, timing and telemetry need not be byte
@@ -316,7 +317,7 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `49b7d2ee80c319ef1d5268855685092748d63e47c20a08d4b80f73cf1570745c` |
 | `local-docs/todo/todo-l1-network-master.md` | `adcd7cc549ad80112ec727adf73b3b4fbea3bd546c0464be28b732e5ed771fc7` |
-| `local-docs/todo/EXECUTION-ORDER.md` | `f34932aaa6ad675a0f27a061db088cebdeb248d78b160289a9522b3218afb4be` (updated 2026-08-22 — step-0/cursor sync below) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `2065acf8ed0f1dce8b6b6af3da721201328b335494b8f66de2f926f0b5cbc5d1` (updated 2026-08-22b — design-frozen cursor sync below) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `255128d28961d760311680f1dfddeed01ad4f7c1509e0be7705aea6347b00f39` |
 | `local-docs/todo/thesis-realization-roadmap.md` | `a0a25a0f51b39bd284f85b3a009655eaace9ca244b0edbd4c9f4e8c2d1a44f5c` |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `d3a312acc59f73358d70820d5d5e4afd1dbec5f60bbe9e9d98e7c11f78b8b90a` |
@@ -330,3 +331,9 @@ complete and moves its current-position marker to node binding/replay RED-matrix
 the section 4.2 closure above; it appends a new dated cursor block rather than editing the prior
 one, consistent with that file's own append-only cursor convention. The other five rows remain at
 their original 2026-08-21 synchronization point.
+
+A second, same-day (2026-08-22b) update to `local-docs/todo/EXECUTION-ORDER.md` records that
+`docs/node-native-shadow-binding-containment-design-v1.md` has frozen the design for the section 4
+second prerequisite and moves the current-position marker to "awaiting approval of that design,"
+again by appending a new dated cursor block rather than editing the prior one. The other five rows
+remain at their original 2026-08-21 synchronization point.
