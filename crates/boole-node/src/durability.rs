@@ -1,5 +1,5 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// Find the byte length of the longest NDJSON prefix that ends on a newline.
@@ -34,6 +34,21 @@ pub(crate) fn append_ndjson_line_durable(path: &Path, line: &str) -> anyhow::Res
     if is_new_file {
         fsync_parent_dir(path)?;
     }
+    Ok(())
+}
+
+/// Durable NDJSON append through an already-open authoritative file
+/// descriptor. Native-shadow uses this variant so its lifetime `flock`,
+/// replay, torn-tail repair, appends and fsyncs all refer to the exact same
+/// open file description instead of reopening a replaceable pathname.
+pub(crate) fn append_ndjson_line_durable_on_file(
+    file: &mut File,
+    line: &str,
+) -> anyhow::Result<()> {
+    file.seek(SeekFrom::End(0))?;
+    writeln!(file, "{}", line)?;
+    file.flush()?;
+    file.sync_all()?;
     Ok(())
 }
 
@@ -99,6 +114,22 @@ pub(crate) fn read_stable_prefix(path: &Path) -> anyhow::Result<Option<String>> 
     }
     let raw = String::from_utf8(raw_bytes[..stable_len].to_vec())?;
     Ok(Some(raw))
+}
+
+/// Replay and repair an NDJSON journal through one already-open file
+/// descriptor. A torn tail is truncated and fsynced before the stable prefix
+/// is returned; the descriptor is left positioned at EOF for the next append.
+pub(crate) fn read_stable_prefix_on_file(file: &mut File) -> anyhow::Result<String> {
+    file.seek(SeekFrom::Start(0))?;
+    let mut raw_bytes = Vec::new();
+    file.read_to_end(&mut raw_bytes)?;
+    let stable_len = stable_jsonl_prefix_len(&raw_bytes);
+    if stable_len < raw_bytes.len() {
+        file.set_len(stable_len as u64)?;
+        file.sync_all()?;
+    }
+    file.seek(SeekFrom::End(0))?;
+    Ok(String::from_utf8(raw_bytes[..stable_len].to_vec())?)
 }
 
 #[cfg(unix)]

@@ -136,15 +136,18 @@ baseline. The following foundation slices are now on `main`:
 * **Phase 2C** — PR #168, main `eff95658`: evidence-backed terminal recovery, preservation of the
   original row `registryDigest`, durable retention of stuck `InFlight` rows, strict replay, and the
   single-journal exhaustion projection specified in sections 4–7 below.
+* **Phase 2D** — PR #170, main `33dcc025`: removes stored/bootstrap `Exhausted` and exposes the
+  evidence-backed terminal projection as the only typed `challenge_exhausted` admission view.
+* **Phase 3A.1** — this implementation slice: one non-cloneable authority holds a nonblocking
+  lifetime `flock`; replay, torn-tail truncation, append and `fsync` use its same file descriptor,
+  while path replacement and authority substitution fail closed.
 
-All three are internal, currently unwired `boole-node` foundations. A focused Phase 2D follow-up is
-still required to remove the now-unreachable stored/bootstrap `Exhausted` branch and expose
-`Consumed` + its terminal projection as the derived `challenge_exhausted` admission view. They do
-**not** implement an
+All five are internal, currently unwired `boole-node` foundations. They do **not** implement an
 HTTP endpoint, spawn the checker, activate the production registry, change SharePool/block/reward/
-P2P/consensus state, or earn `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`. Still open are section
-7's lifetime same-file-descriptor `flock` and containment-backed per-record cleanup, section 8's
-node-wide `native_busy` permit, sections 9–10's actual Linux containment/observation integration,
+P2P/consensus state, or earn `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`. Phase 3A.1's focused
+lock test uses two opens in one process and does not close the later real two-node-process gate.
+Still open are section 7's containment-backed per-record cleanup, section 8's node-wide
+`native_busy` permit, sections 9–10's actual Linux containment/observation integration,
 route wiring, the complete RED matrix and one real node-process raw-answer run. Actual containment
 GREEN is additionally blocked until a named Linux runner has delegated cgroup v2 access and pinned
 UID/GID/privilege configuration; generic `ubuntu-latest` may not substitute or skip this gate.

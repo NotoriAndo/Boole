@@ -110,8 +110,8 @@ surface must pass two distinct parity gates before the route is implemented:
   `docs/node-native-shadow-binding-containment-implementation-spec-v1.md`, which restates the full
   current rule set in one file and controls for implementation purposes. Subsequent operator
   direction approved phased implementation against that baseline: registry/state durability
-  foundations are now partial, but this prerequisite remains open until same-FD locking,
-  generalized cleanup, global concurrency, Linux containment, route/checker wiring, the full RED
+  foundations are now partial; same-FD journal locking is closed by the Phase 3A.1 foundation, but
+  this prerequisite remains open until generalized cleanup, global concurrency, Linux containment, route/checker wiring, the full RED
   matrix and a real named-Linux node run all close**.
 
 Entry 27's `FixedVerdictChecker` reject matrix is miner-wiring evidence, not proof that the actual
@@ -197,6 +197,23 @@ seccomp/Landlock execution. The production registry remains disabled. SharePool,
 P2P and consensus are untouched. Therefore the second prerequisite and
 `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN` remain open; actual containment GREEN additionally
 requires a named delegated-cgroup-v2 Linux runner rather than a skipped or generic CI substitute.
+
+### 4.4 Derived admission and same-FD journal authority (2026-08-23)
+
+Two further route-free foundations now narrow the open prerequisite without closing it:
+
+* Phase 2D — PR #170, main `33dcc025`: stored/bootstrap `Exhausted` was removed. The typed admission
+  view derives `challenge_exhausted` only from durable `Consumed` plus its matching evidence-backed
+  terminal projection; registry drift and projection mismatch fail closed.
+* Phase 3A.1 — this implementation slice: one non-cloneable journal authority holds a nonblocking
+  lifetime `flock`, and replay, torn-tail truncation, append and `fsync` all use that same held file
+  descriptor. Final symlinks/non-regular files, path replacement, a different live authority and a
+  drop/reopen attempt fail closed. The focused lock test uses two opens in one process; it does not
+  replace the later real two-node-process integration gate.
+
+There is still no route or checker spawn, no node-wide `native_busy`, no containment-backed cleanup,
+no Linux cgroup/tmpfs/seccomp/Landlock execution and no real named-Linux node run. Therefore this is
+not `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`.
 
 ## 5. Required decision path
 
@@ -413,3 +430,8 @@ delegated-cgroup-v2 Linux runner plus concrete UID/GID/privilege model as the Ph
 and narrows the thesis's Lean claim: domain-native answers are judged by their pinned deterministic
 domain checker; Lean remains the final kernel only for claims formalized into the Lean-compatible
 lane. The six SHA-256 values above are the byte-exact post-update mirrors.
+
+The later 2026-08-23 implementation addendum in sections 4.4 supersedes only that snapshot's
+progress cursor: Phase 2D and the route-free Phase 3A.1 same-FD journal foundation are now closed.
+Global `native_busy`, containment-backed cleanup, route/checker wiring, the named-Linux run and the
+full RED matrix remain open.

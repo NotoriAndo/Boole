@@ -14,23 +14,36 @@
 //! `Active(fresh)` -> `InFlight` -> `Consumed` state machine with its
 //! durable NDJSON journal, the route-free admission view that derives
 //! `challenge_exhausted` from `Consumed` plus its terminal projection, and
-//! boot-time recovery that replays that journal
-//! and retains any row still `InFlight` as non-bootstrapable (fails closed —
+//! boot-time recovery that replays that journal through one lifetime-held,
+//! non-blocking-flocked file descriptor and retains any row still `InFlight`
+//! as non-bootstrapable (fails closed —
 //! see `NativeShadowJournalReplay`) pending the later containment slice that
 //! can actually confirm its cleanup. This module is not wired into
 //! `local_node.rs` or any HTTP route, consistent with that document's
 //! section 1 non-goals (no route, no `boole-node` server change, until
-//! implementation of that route itself is undertaken); section 7's
-//! OS-level `flock` (step 1) and "begin serving requests" (step 5) are
-//! process/route-wiring concerns that belong to that later work too.
+//! implementation of that route itself is undertaken). Section 7's
+//! same-descriptor lock/replay/append foundation is implemented here;
+//! containment-backed cleanup and "begin serving requests" remain later
+//! process/route-wiring work.
 
 use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::durability::{append_ndjson_line_durable, read_stable_prefix};
+use crate::durability::{
+    append_ndjson_line_durable_on_file, fsync_parent_dir, read_stable_prefix_on_file,
+};
+use crate::state_dir::flock_exclusive_nonblocking;
+
+#[cfg(test)]
+use crate::durability::append_ndjson_line_durable;
 
 /// Operational state key and permanent exhaustion-projection key (spec
 /// section 4, items 1 and 2 — the two share one identity):
@@ -378,6 +391,255 @@ pub(crate) struct DurableNativeShadowEvidenceCommit {
     evidence_digest: String,
 }
 
+static NEXT_NATIVE_SHADOW_JOURNAL_AUTHORITY_ID: AtomicU64 = AtomicU64::new(1);
+
+/// The sole writable authority for one native-shadow journal during a node
+/// process lifetime. The lock, replay, torn-tail repair, appends and fsyncs
+/// all use `file`; callers cannot clone or extract that descriptor.
+pub(crate) struct NativeShadowJournalAuthority {
+    file: File,
+    diagnostic_path: PathBuf,
+    device: u64,
+    inode: u64,
+    authority_id: u64,
+    poisoned: bool,
+    #[cfg(test)]
+    fail_next_append: bool,
+}
+
+impl std::fmt::Debug for NativeShadowJournalAuthority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NativeShadowJournalAuthority")
+            .field("diagnostic_path", &self.diagnostic_path)
+            .field("poisoned", &self.poisoned)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum NativeShadowJournalAuthorityError {
+    Io(PathBuf, std::io::Error),
+    Locked(PathBuf),
+    UnsafePath(PathBuf),
+    PathIdentityChanged(PathBuf),
+    Poisoned(PathBuf),
+    Unsupported,
+}
+
+impl std::fmt::Display for NativeShadowJournalAuthorityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(path, err) => write!(
+                f,
+                "native-shadow journal {} I/O failed: {err}",
+                path.display()
+            ),
+            Self::Locked(path) => write!(
+                f,
+                "native-shadow journal {} is already locked",
+                path.display()
+            ),
+            Self::UnsafePath(path) => write!(
+                f,
+                "native-shadow journal {} must be a regular non-symlink file",
+                path.display()
+            ),
+            Self::PathIdentityChanged(path) => write!(
+                f,
+                "native-shadow journal {} changed identity while locked",
+                path.display()
+            ),
+            Self::Poisoned(path) => write!(
+                f,
+                "native-shadow journal {} authority is fail-closed",
+                path.display()
+            ),
+            Self::Unsupported => write!(f, "native-shadow journal authority requires a unix host"),
+        }
+    }
+}
+
+impl std::error::Error for NativeShadowJournalAuthorityError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(_, err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl NativeShadowJournalAuthority {
+    #[cfg(unix)]
+    pub(crate) fn open(path: impl AsRef<Path>) -> Result<Self, NativeShadowJournalAuthorityError> {
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|err| NativeShadowJournalAuthorityError::Io(parent.to_path_buf(), err))?;
+        }
+
+        let created = match std::fs::symlink_metadata(path) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+                    return Err(NativeShadowJournalAuthorityError::UnsafePath(
+                        path.to_path_buf(),
+                    ));
+                }
+                false
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => true,
+            Err(err) => {
+                return Err(NativeShadowJournalAuthorityError::Io(
+                    path.to_path_buf(),
+                    err,
+                ));
+            }
+        };
+
+        let file = OpenOptions::new()
+            .read(true)
+            .append(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+            .open(path)
+            .map_err(|err| NativeShadowJournalAuthorityError::Io(path.to_path_buf(), err))?;
+        let metadata = file
+            .metadata()
+            .map_err(|err| NativeShadowJournalAuthorityError::Io(path.to_path_buf(), err))?;
+        if !metadata.file_type().is_file() {
+            return Err(NativeShadowJournalAuthorityError::UnsafePath(
+                path.to_path_buf(),
+            ));
+        }
+        let path_metadata = std::fs::symlink_metadata(path)
+            .map_err(|err| NativeShadowJournalAuthorityError::Io(path.to_path_buf(), err))?;
+        if path_metadata.file_type().is_symlink()
+            || !path_metadata.file_type().is_file()
+            || path_metadata.dev() != metadata.dev()
+            || path_metadata.ino() != metadata.ino()
+        {
+            return Err(NativeShadowJournalAuthorityError::PathIdentityChanged(
+                path.to_path_buf(),
+            ));
+        }
+        flock_exclusive_nonblocking(&file).map_err(|err| {
+            if err.kind() == std::io::ErrorKind::WouldBlock
+                || err.raw_os_error() == Some(libc::EWOULDBLOCK)
+                || err.raw_os_error() == Some(libc::EAGAIN)
+            {
+                NativeShadowJournalAuthorityError::Locked(path.to_path_buf())
+            } else {
+                NativeShadowJournalAuthorityError::Io(path.to_path_buf(), err)
+            }
+        })?;
+        if created {
+            file.sync_all()
+                .map_err(|err| NativeShadowJournalAuthorityError::Io(path.to_path_buf(), err))?;
+            fsync_parent_dir(path).map_err(|err| {
+                NativeShadowJournalAuthorityError::Io(
+                    path.to_path_buf(),
+                    std::io::Error::other(err.to_string()),
+                )
+            })?;
+        }
+
+        Ok(Self {
+            file,
+            diagnostic_path: path.to_path_buf(),
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            authority_id: NEXT_NATIVE_SHADOW_JOURNAL_AUTHORITY_ID.fetch_add(1, Ordering::Relaxed),
+            poisoned: false,
+            #[cfg(test)]
+            fail_next_append: false,
+        })
+    }
+
+    #[cfg(not(unix))]
+    pub(crate) fn open(_path: impl AsRef<Path>) -> Result<Self, NativeShadowJournalAuthorityError> {
+        Err(NativeShadowJournalAuthorityError::Unsupported)
+    }
+
+    fn authority_id(&self) -> u64 {
+        self.authority_id
+    }
+
+    fn ensure_path_identity(&mut self) -> Result<(), NativeShadowJournalAuthorityError> {
+        if self.poisoned {
+            return Err(NativeShadowJournalAuthorityError::Poisoned(
+                self.diagnostic_path.clone(),
+            ));
+        }
+
+        #[cfg(unix)]
+        {
+            let matches = std::fs::symlink_metadata(&self.diagnostic_path)
+                .ok()
+                .is_some_and(|metadata| {
+                    !metadata.file_type().is_symlink()
+                        && metadata.file_type().is_file()
+                        && metadata.dev() == self.device
+                        && metadata.ino() == self.inode
+                });
+            if !matches {
+                self.poisoned = true;
+                return Err(NativeShadowJournalAuthorityError::PathIdentityChanged(
+                    self.diagnostic_path.clone(),
+                ));
+            }
+            Ok(())
+        }
+
+        #[cfg(not(unix))]
+        {
+            self.poisoned = true;
+            Err(NativeShadowJournalAuthorityError::Unsupported)
+        }
+    }
+
+    fn append_line(&mut self, line: &str) -> Result<(), NativeShadowJournalAuthorityError> {
+        self.ensure_path_identity()?;
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_next_append) {
+            self.poisoned = true;
+            return Err(NativeShadowJournalAuthorityError::Io(
+                self.diagnostic_path.clone(),
+                std::io::Error::other("injected durable append failure"),
+            ));
+        }
+        if let Err(err) = append_ndjson_line_durable_on_file(&mut self.file, line) {
+            self.poisoned = true;
+            return Err(NativeShadowJournalAuthorityError::Io(
+                self.diagnostic_path.clone(),
+                std::io::Error::other(err.to_string()),
+            ));
+        }
+        self.ensure_path_identity()
+    }
+
+    #[cfg(test)]
+    fn fail_next_append_for_test(&mut self) {
+        self.fail_next_append = true;
+    }
+
+    fn read_stable_prefix(&mut self) -> Result<String, NativeShadowJournalAuthorityError> {
+        self.ensure_path_identity()?;
+        let raw = match read_stable_prefix_on_file(&mut self.file) {
+            Ok(raw) => raw,
+            Err(err) => {
+                self.poisoned = true;
+                return Err(NativeShadowJournalAuthorityError::Io(
+                    self.diagnostic_path.clone(),
+                    std::io::Error::other(err.to_string()),
+                ));
+            }
+        };
+        self.ensure_path_identity()?;
+        Ok(raw)
+    }
+}
+
 /// In-memory operational-state store keyed by the four-tuple alone. Its
 /// `resolve` method enforces the row-lookup-before-bootstrap order that
 /// closes F4's registry-drift gap (RED gate 3); `begin_execution` and
@@ -390,7 +652,7 @@ pub(crate) struct DurableNativeShadowEvidenceCommit {
 pub(crate) struct NativeShadowStateStore {
     rows: HashMap<NativeShadowFourTuple, NativeShadowStateRow>,
     evidence_commits: HashMap<NativeShadowFourTuple, NativeShadowEvidenceCommitData>,
-    journal_path: Option<PathBuf>,
+    journal_authority_id: Option<u64>,
 }
 
 /// Outcome of resolving a submission's targeted four-tuple against the store.
@@ -439,20 +701,17 @@ pub(crate) enum NativeShadowAdmissionError {
 }
 
 impl NativeShadowStateStore {
-    fn bind_journal_path(
+    fn bind_journal_authority(
         &mut self,
-        journal_path: &Path,
+        authority: &NativeShadowJournalAuthority,
     ) -> Result<(), NativeShadowTransitionError> {
-        if let Some(expected) = &self.journal_path {
-            if expected != journal_path {
-                return Err(NativeShadowTransitionError::JournalPathMismatch {
-                    expected: expected.clone(),
-                    actual: journal_path.to_path_buf(),
-                });
+        if let Some(expected) = self.journal_authority_id {
+            if expected != authority.authority_id() {
+                return Err(NativeShadowTransitionError::JournalAuthorityMismatch);
             }
             return Ok(());
         }
-        self.journal_path = Some(journal_path.to_path_buf());
+        self.journal_authority_id = Some(authority.authority_id());
         Ok(())
     }
 
@@ -544,10 +803,10 @@ impl NativeShadowStateStore {
     /// "written durably before the checker is invoked").
     pub fn begin_execution(
         &mut self,
-        journal_path: impl AsRef<Path>,
+        authority: &mut NativeShadowJournalAuthority,
         four_tuple: &NativeShadowFourTuple,
     ) -> Result<(), NativeShadowTransitionError> {
-        self.bind_journal_path(journal_path.as_ref())?;
+        self.bind_journal_authority(authority)?;
         let row = self
             .rows
             .get(four_tuple)
@@ -569,8 +828,9 @@ impl NativeShadowStateStore {
             };
             let line = serde_json::to_string(&bootstrap)
                 .map_err(|err| NativeShadowTransitionError::Durability(anyhow::Error::from(err)))?;
-            append_ndjson_line_durable(journal_path.as_ref(), &line)
-                .map_err(NativeShadowTransitionError::Durability)?;
+            authority
+                .append_line(&line)
+                .map_err(|err| NativeShadowTransitionError::Durability(err.into()))?;
             self.rows
                 .get_mut(four_tuple)
                 .expect("row checked above")
@@ -582,8 +842,9 @@ impl NativeShadowStateStore {
         };
         let line = serde_json::to_string(&event)
             .map_err(|err| NativeShadowTransitionError::Durability(anyhow::Error::from(err)))?;
-        append_ndjson_line_durable(journal_path.as_ref(), &line)
-            .map_err(NativeShadowTransitionError::Durability)?;
+        authority
+            .append_line(&line)
+            .map_err(|err| NativeShadowTransitionError::Durability(err.into()))?;
         self.rows
             .get_mut(four_tuple)
             .expect("row checked above")
@@ -597,12 +858,12 @@ impl NativeShadowStateStore {
     /// already durable.
     pub fn persist_evidence(
         &mut self,
-        journal_path: impl AsRef<Path>,
+        authority: &mut NativeShadowJournalAuthority,
         four_tuple: &NativeShadowFourTuple,
         candidate_digest: &str,
         evidence_json: &str,
     ) -> Result<DurableNativeShadowEvidenceCommit, NativeShadowTransitionError> {
-        self.bind_journal_path(journal_path.as_ref())?;
+        self.bind_journal_authority(authority)?;
         let row = self
             .rows
             .get(four_tuple)
@@ -637,12 +898,13 @@ impl NativeShadowStateStore {
             evidence_digest: evidence_digest.clone(),
             evidence_json: evidence_json.to_string(),
         };
-        append_ndjson_line_durable(
-            journal_path.as_ref(),
-            &serde_json::to_string(&event)
-                .map_err(|err| NativeShadowTransitionError::Durability(anyhow::Error::from(err)))?,
-        )
-        .map_err(NativeShadowTransitionError::Durability)?;
+        authority
+            .append_line(
+                &serde_json::to_string(&event).map_err(|err| {
+                    NativeShadowTransitionError::Durability(anyhow::Error::from(err))
+                })?,
+            )
+            .map_err(|err| NativeShadowTransitionError::Durability(err.into()))?;
         self.evidence_commits.insert(
             four_tuple.clone(),
             NativeShadowEvidenceCommitData {
@@ -670,12 +932,12 @@ impl NativeShadowStateStore {
     /// is already durable and bound to this exact row and candidate.
     pub fn complete_consumed(
         &mut self,
-        journal_path: impl AsRef<Path>,
+        authority: &mut NativeShadowJournalAuthority,
         exhaustion_ledger: &mut NativeShadowExhaustionLedger,
         four_tuple: &NativeShadowFourTuple,
         evidence: DurableNativeShadowEvidenceCommit,
     ) -> Result<(), NativeShadowTransitionError> {
-        self.bind_journal_path(journal_path.as_ref())?;
+        self.bind_journal_authority(authority)?;
         let row = self
             .rows
             .get(four_tuple)
@@ -707,8 +969,9 @@ impl NativeShadowStateStore {
         };
         let line = serde_json::to_string(&event)
             .map_err(|err| NativeShadowTransitionError::Durability(anyhow::Error::from(err)))?;
-        append_ndjson_line_durable(journal_path.as_ref(), &line)
-            .map_err(NativeShadowTransitionError::Durability)?;
+        authority
+            .append_line(&line)
+            .map_err(|err| NativeShadowTransitionError::Durability(err.into()))?;
         self.rows
             .get_mut(four_tuple)
             .expect("row checked above")
@@ -734,10 +997,7 @@ pub(crate) enum NativeShadowTransitionError {
     InvalidEvidenceContract(String),
     EvidenceAlreadyExists(NativeShadowFourTuple),
     EvidenceBindingMismatch(NativeShadowFourTuple),
-    JournalPathMismatch {
-        expected: PathBuf,
-        actual: PathBuf,
-    },
+    JournalAuthorityMismatch,
 }
 
 impl std::fmt::Display for NativeShadowTransitionError {
@@ -773,11 +1033,9 @@ impl std::fmt::Display for NativeShadowTransitionError {
                 f,
                 "native-shadow: durable evidence binding mismatch for {four_tuple:?}"
             ),
-            Self::JournalPathMismatch { expected, actual } => write!(
+            Self::JournalAuthorityMismatch => write!(
                 f,
-                "native-shadow: state store is bound to journal {}, not {}",
-                expected.display(),
-                actual.display()
+                "native-shadow: state store is bound to a different journal authority"
             ),
         }
     }
@@ -850,12 +1108,9 @@ pub(crate) struct NativeShadowJournalReplay {
 }
 
 pub(crate) fn replay_native_shadow_journal(
-    path: impl AsRef<Path>,
+    authority: &mut NativeShadowJournalAuthority,
 ) -> anyhow::Result<NativeShadowJournalReplay> {
-    let path = path.as_ref();
-    let Some(raw) = read_stable_prefix(path)? else {
-        return Ok(NativeShadowJournalReplay::default());
-    };
+    let raw = authority.read_stable_prefix()?;
     let mut resolved: HashMap<NativeShadowFourTuple, ChallengeState> = HashMap::new();
     let mut registry_digests: HashMap<NativeShadowFourTuple, String> = HashMap::new();
     let mut evidence_commits: HashMap<NativeShadowFourTuple, NativeShadowEvidenceCommitData> =
@@ -1006,9 +1261,9 @@ pub(crate) fn replay_native_shadow_journal(
     })
 }
 
-/// Full boot-time recovery (spec section 7, steps 2-4). Step 1's OS-level
-/// `flock` and step 5's "begin serving requests" are process/route-wiring
-/// concerns outside this module's scope, same as the rest of this module.
+/// Full boot-time recovery (spec section 7, steps 1-4). The authority passed
+/// here already owns step 1's lifetime `flock`; step 5's "begin serving
+/// requests" remains route-wiring work outside this module.
 ///
 /// Builds the state store from every journaled row, including unresolved
 /// `InFlight` rows, plus a fresh section-6 bootstrap for every
@@ -1024,9 +1279,9 @@ pub(crate) struct NativeShadowRecovery {
 pub(crate) fn recover_native_shadow_state(
     registry: &NativeShadowRegistry,
     registry_digest: &str,
-    journal_path: impl AsRef<Path>,
+    authority: &mut NativeShadowJournalAuthority,
 ) -> anyhow::Result<NativeShadowRecovery> {
-    let replay = replay_native_shadow_journal(&journal_path)?;
+    let replay = replay_native_shadow_journal(authority)?;
     // Phase 2C makes the evidence-backed terminal journal event the only
     // authority for permanent exhaustion. A legacy standalone exhaustion
     // file may be present on disk, but replaying it here would recreate the
@@ -1039,7 +1294,7 @@ pub(crate) fn recover_native_shadow_state(
     let stuck: HashSet<NativeShadowFourTuple> = replay.stuck_in_flight.iter().cloned().collect();
 
     let mut store = NativeShadowStateStore {
-        journal_path: Some(journal_path.as_ref().to_path_buf()),
+        journal_authority_id: Some(authority.authority_id()),
         ..NativeShadowStateStore::default()
     };
     for (four_tuple, state) in &replay.resolved {
@@ -1095,7 +1350,7 @@ pub(crate) fn recover_native_shadow_state(
                 registry_digest: registry_digest.to_string(),
                 state,
             };
-            append_ndjson_line_durable(journal_path.as_ref(), &serde_json::to_string(&event)?)?;
+            authority.append_line(&serde_json::to_string(&event)?)?;
             entry.insert(NativeShadowStateRow {
                 state,
                 registry_digest: registry_digest.to_string(),
@@ -1144,14 +1399,14 @@ mod tests {
 
     fn persist_test_evidence(
         store: &mut NativeShadowStateStore,
-        journal_path: &Path,
+        authority: &mut NativeShadowJournalAuthority,
         four_tuple: &NativeShadowFourTuple,
         label: &str,
     ) -> DurableNativeShadowEvidenceCommit {
         let candidate_digest = sha256_hex(format!("candidate-{label}").as_bytes());
         let evidence_json = test_evidence_json(four_tuple, &candidate_digest, label);
         store
-            .persist_evidence(journal_path, four_tuple, &candidate_digest, &evidence_json)
+            .persist_evidence(authority, four_tuple, &candidate_digest, &evidence_json)
             .expect("persist test evidence")
     }
 
@@ -1417,22 +1672,24 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("admission-consumed-exhausted");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
         let mut ledger = NativeShadowExhaustionLedger::default();
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
             bootstrap_challenge_state(&registry, template)
         });
         store
-            .begin_execution(&journal_path, &four_tuple)
+            .begin_execution(&mut authority, &four_tuple)
             .expect("begin execution");
         let evidence = persist_test_evidence(
             &mut store,
-            &journal_path,
+            &mut authority,
             &four_tuple,
             "admission-consumed-exhausted",
         );
         store
-            .complete_consumed(&journal_path, &mut ledger, &four_tuple, evidence)
+            .complete_consumed(&mut authority, &mut ledger, &four_tuple, evidence)
             .expect("complete consumed");
 
         assert_eq!(
@@ -1449,23 +1706,25 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("admission-missing-projection");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
         let mut terminal_projection = NativeShadowExhaustionLedger::default();
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
             bootstrap_challenge_state(&registry, template)
         });
         store
-            .begin_execution(&journal_path, &four_tuple)
+            .begin_execution(&mut authority, &four_tuple)
             .expect("begin execution");
         let evidence = persist_test_evidence(
             &mut store,
-            &journal_path,
+            &mut authority,
             &four_tuple,
             "admission-missing-projection",
         );
         store
             .complete_consumed(
-                &journal_path,
+                &mut authority,
                 &mut terminal_projection,
                 &four_tuple,
                 evidence,
@@ -1515,23 +1774,25 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("admission-terminal-registry-drift");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
         let mut terminal_projection = NativeShadowExhaustionLedger::default();
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
             bootstrap_challenge_state(&registry, template)
         });
         store
-            .begin_execution(&journal_path, &four_tuple)
+            .begin_execution(&mut authority, &four_tuple)
             .expect("begin execution");
         let evidence = persist_test_evidence(
             &mut store,
-            &journal_path,
+            &mut authority,
             &four_tuple,
             "admission-terminal-registry-drift",
         );
         store
             .complete_consumed(
-                &journal_path,
+                &mut authority,
                 &mut terminal_projection,
                 &four_tuple,
                 evidence,
@@ -1603,6 +1864,8 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("begin-execution");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
         let mut store = NativeShadowStateStore::default();
         let outcome = store.resolve(&four_tuple, "digest-v1", || {
@@ -1614,7 +1877,7 @@ mod tests {
         );
 
         store
-            .begin_execution(&journal_path, &four_tuple)
+            .begin_execution(&mut authority, &four_tuple)
             .expect("Active(fresh) -> InFlight must succeed");
 
         assert_eq!(
@@ -1624,7 +1887,7 @@ mod tests {
 
         // The transition is durable, not just in-memory: replaying the
         // journal from disk independently must observe it too.
-        let replay = replay_native_shadow_journal(&journal_path).expect("replay");
+        let replay = replay_native_shadow_journal(&mut authority).expect("replay");
         assert_eq!(
             replay.resolved.get(&four_tuple),
             Some(&ChallengeState::InFlight)
@@ -1638,6 +1901,8 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("begin-execution-wrong-state");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
@@ -1645,7 +1910,7 @@ mod tests {
         });
 
         let err = store
-            .begin_execution(&journal_path, &four_tuple)
+            .begin_execution(&mut authority, &four_tuple)
             .expect_err("the production fixture's four-tuple bootstraps Disabled, not ActiveFresh");
         assert!(matches!(
             err,
@@ -1658,7 +1923,7 @@ mod tests {
 
         // Refused transitions must not write anything durably.
         assert!(
-            replay_native_shadow_journal(&journal_path)
+            replay_native_shadow_journal(&mut authority)
                 .expect("replay")
                 .resolved
                 .is_empty(),
@@ -1676,10 +1941,12 @@ mod tests {
         };
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("begin-execution-unknown");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
         let mut store = NativeShadowStateStore::default();
 
         let err = store
-            .begin_execution(&journal_path, &four_tuple)
+            .begin_execution(&mut authority, &four_tuple)
             .expect_err("no row exists for this four-tuple");
         assert!(matches!(err, NativeShadowTransitionError::NoSuchRow(_)));
     }
@@ -1691,6 +1958,8 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, exhaustion_path) =
             scratch_journal_and_exhaustion_paths("complete-consumed");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
         let mut ledger = NativeShadowExhaustionLedger::default();
         let mut store = NativeShadowStateStore::default();
@@ -1698,14 +1967,14 @@ mod tests {
             bootstrap_challenge_state(&registry, template)
         });
         store
-            .begin_execution(&journal_path, &four_tuple)
+            .begin_execution(&mut authority, &four_tuple)
             .expect("Active(fresh) -> InFlight");
 
         let evidence =
-            persist_test_evidence(&mut store, &journal_path, &four_tuple, "complete-consumed");
+            persist_test_evidence(&mut store, &mut authority, &four_tuple, "complete-consumed");
 
         store
-            .complete_consumed(&journal_path, &mut ledger, &four_tuple, evidence)
+            .complete_consumed(&mut authority, &mut ledger, &four_tuple, evidence)
             .expect("InFlight -> Consumed must succeed");
 
         assert_eq!(
@@ -1721,13 +1990,13 @@ mod tests {
         // One terminal journal fact durably reconstructs both logical facts:
         // Consumed state and permanent exhaustion. No second authoritative
         // file write may be required for them to remain consistent.
-        let replay = replay_native_shadow_journal(&journal_path).expect("replay");
+        let replay = replay_native_shadow_journal(&mut authority).expect("replay");
         assert_eq!(
             replay.resolved.get(&four_tuple),
             Some(&ChallengeState::Consumed)
         );
         let recovered =
-            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("recover");
+            recover_native_shadow_state(&registry, "digest-v1", &mut authority).expect("recover");
         assert!(recovered.exhaustion_ledger.contains(&four_tuple));
         assert!(
             !exhaustion_path.exists(),
@@ -1742,6 +2011,8 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("complete-consumed-wrong-state");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
         let mut ledger = NativeShadowExhaustionLedger::default();
         let mut store = NativeShadowStateStore::default();
@@ -1751,7 +2022,7 @@ mod tests {
 
         let err = store
             .complete_consumed(
-                &journal_path,
+                &mut authority,
                 &mut ledger,
                 &four_tuple,
                 DurableNativeShadowEvidenceCommit {
@@ -1783,18 +2054,22 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, other_journal_path) =
             scratch_journal_and_exhaustion_paths("journal-path-binding");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
+        let mut other_authority = NativeShadowJournalAuthority::open(&other_journal_path)
+            .expect("other journal authority");
 
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
             bootstrap_challenge_state(&registry, template)
         });
         store
-            .begin_execution(&journal_path, &four_tuple)
+            .begin_execution(&mut authority, &four_tuple)
             .expect("begin");
 
         let err = store
             .persist_evidence(
-                &other_journal_path,
+                &mut other_authority,
                 &four_tuple,
                 "candidate-split",
                 r#"{"schema":"boole.native-shadow.evidence.v1","verdict":"ACCEPT"}"#,
@@ -1802,9 +2077,15 @@ mod tests {
             .expect_err("one lifecycle must never be split across journal files");
         assert!(matches!(
             err,
-            NativeShadowTransitionError::JournalPathMismatch { .. }
+            NativeShadowTransitionError::JournalAuthorityMismatch
         ));
-        assert!(!other_journal_path.exists());
+        assert_eq!(
+            std::fs::metadata(&other_journal_path)
+                .expect("other authority created its journal")
+                .len(),
+            0,
+            "the mismatched authority must receive no record"
+        );
     }
 
     #[test]
@@ -1814,17 +2095,19 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _other_path) =
             scratch_journal_and_exhaustion_paths("schema-only-evidence");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
             bootstrap_challenge_state(&registry, template)
         });
         store
-            .begin_execution(&journal_path, &four_tuple)
+            .begin_execution(&mut authority, &four_tuple)
             .expect("begin");
 
         let result = store.persist_evidence(
-            &journal_path,
+            &mut authority,
             &four_tuple,
             &sha256_hex(b"candidate-schema-only"),
             r#"{"schema":"boole.native-shadow.evidence.v1"}"#,
@@ -1846,6 +2129,8 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("recovery-consumed");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
         // Simulate a full lifecycle on one "process", then recover as if a
         // brand-new process just started against the same durable files.
@@ -1856,17 +2141,17 @@ mod tests {
                 bootstrap_challenge_state(&registry, template)
             });
             store
-                .begin_execution(&journal_path, &four_tuple)
+                .begin_execution(&mut authority, &four_tuple)
                 .expect("begin");
             let evidence =
-                persist_test_evidence(&mut store, &journal_path, &four_tuple, "recover-consumed");
+                persist_test_evidence(&mut store, &mut authority, &four_tuple, "recover-consumed");
             store
-                .complete_consumed(&journal_path, &mut ledger, &four_tuple, evidence)
+                .complete_consumed(&mut authority, &mut ledger, &four_tuple, evidence)
                 .expect("complete");
         }
 
         let mut recovery =
-            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("recover");
+            recover_native_shadow_state(&registry, "digest-v1", &mut authority).expect("recover");
         assert!(recovery.stuck_in_flight.is_empty());
         assert_eq!(
             recovery
@@ -1891,6 +2176,8 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, exhaustion_path) =
             scratch_journal_and_exhaustion_paths("legacy-exhaustion-without-terminal");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
         // This is the pre-Phase-2C split-brain shape: an exhaustion fact in a
         // second file, but no Bootstrap/InFlight/Evidence/TerminalConsumed
@@ -1910,7 +2197,7 @@ mod tests {
         .expect("write legacy exhaustion-only record");
 
         let mut recovery =
-            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("recover");
+            recover_native_shadow_state(&registry, "digest-v1", &mut authority).expect("recover");
 
         assert_eq!(
             recovery
@@ -1929,6 +2216,8 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("recovery-registry-drift");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
         {
             let mut ledger = NativeShadowExhaustionLedger::default();
@@ -1937,17 +2226,17 @@ mod tests {
                 bootstrap_challenge_state(&registry, template)
             });
             store
-                .begin_execution(&journal_path, &four_tuple)
+                .begin_execution(&mut authority, &four_tuple)
                 .expect("begin");
             let evidence =
-                persist_test_evidence(&mut store, &journal_path, &four_tuple, "registry-drift");
+                persist_test_evidence(&mut store, &mut authority, &four_tuple, "registry-drift");
             store
-                .complete_consumed(&journal_path, &mut ledger, &four_tuple, evidence)
+                .complete_consumed(&mut authority, &mut ledger, &four_tuple, evidence)
                 .expect("complete");
         }
 
         let mut recovery =
-            recover_native_shadow_state(&registry, "digest-v2-after-restart", &journal_path)
+            recover_native_shadow_state(&registry, "digest-v2-after-restart", &mut authority)
                 .expect("recover");
 
         assert_eq!(
@@ -1971,13 +2260,15 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("recovery-bootstrap-registry-drift");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
-        let first =
-            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("first boot");
+        let first = recover_native_shadow_state(&registry, "digest-v1", &mut authority)
+            .expect("first boot");
         drop(first);
 
         let mut second =
-            recover_native_shadow_state(&registry, "digest-v2-after-restart", &journal_path)
+            recover_native_shadow_state(&registry, "digest-v2-after-restart", &mut authority)
                 .expect("second boot");
 
         assert_eq!(
@@ -2000,6 +2291,8 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("recovery-stuck-in-flight");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
         // Crash right after Active(fresh) -> InFlight, before Consumed.
         {
@@ -2008,12 +2301,12 @@ mod tests {
                 bootstrap_challenge_state(&registry, template)
             });
             store
-                .begin_execution(&journal_path, &four_tuple)
+                .begin_execution(&mut authority, &four_tuple)
                 .expect("begin");
         }
 
         let mut recovery =
-            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("recover");
+            recover_native_shadow_state(&registry, "digest-v1", &mut authority).expect("recover");
         assert_eq!(recovery.stuck_in_flight, vec![four_tuple.clone()]);
 
         // Fail closed: this module has no containment-cleanup capability
@@ -2038,6 +2331,8 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("recovery-evidence-before-terminal");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
         {
             let mut store = NativeShadowStateStore::default();
@@ -2045,15 +2340,15 @@ mod tests {
                 bootstrap_challenge_state(&registry, template)
             });
             store
-                .begin_execution(&journal_path, &four_tuple)
+                .begin_execution(&mut authority, &four_tuple)
                 .expect("begin");
             let _durable_evidence =
-                persist_test_evidence(&mut store, &journal_path, &four_tuple, "crash-gap");
+                persist_test_evidence(&mut store, &mut authority, &four_tuple, "crash-gap");
             // Simulated crash: no terminal transition is attempted.
         }
 
         let mut recovery =
-            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("recover");
+            recover_native_shadow_state(&registry, "digest-v1", &mut authority).expect("recover");
         assert_eq!(recovery.stuck_in_flight, vec![four_tuple.clone()]);
         assert_eq!(
             recovery
@@ -2080,6 +2375,8 @@ mod tests {
         let four_tuple = registry.four_tuple(&registry.templates[0]);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("terminal-without-evidence");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
         for event in [
             NativeShadowJournalEvent::Bootstrap {
@@ -2099,14 +2396,12 @@ mod tests {
                 exhausted: true,
             },
         ] {
-            append_ndjson_line_durable(
-                &journal_path,
-                &serde_json::to_string(&event).expect("serialize event"),
-            )
-            .expect("append event");
+            authority
+                .append_line(&serde_json::to_string(&event).expect("serialize event"))
+                .expect("append event");
         }
 
-        let err = replay_native_shadow_journal(&journal_path)
+        let err = replay_native_shadow_journal(&mut authority)
             .expect_err("terminal without evidence must fail closed");
         assert!(err
             .to_string()
@@ -2119,23 +2414,25 @@ mod tests {
         let four_tuple = registry.four_tuple(&registry.templates[0]);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("bootstrap-exhausted-without-evidence");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
-        append_ndjson_line_durable(
-            &journal_path,
-            &serde_json::json!({
-                "kind": "bootstrap",
-                "familyVersion": four_tuple.family_version,
-                "templateId": four_tuple.template_id,
-                "challengeSha256": four_tuple.challenge_sha256,
-                "epoch": four_tuple.epoch,
-                "registryDigest": "digest-v1",
-                "state": "Exhausted",
-            })
-            .to_string(),
-        )
-        .expect("append bootstrap");
+        authority
+            .append_line(
+                &serde_json::json!({
+                    "kind": "bootstrap",
+                    "familyVersion": four_tuple.family_version,
+                    "templateId": four_tuple.template_id,
+                    "challengeSha256": four_tuple.challenge_sha256,
+                    "epoch": four_tuple.epoch,
+                    "registryDigest": "digest-v1",
+                    "state": "Exhausted",
+                })
+                .to_string(),
+            )
+            .expect("append bootstrap");
 
-        let err = replay_native_shadow_journal(&journal_path)
+        let err = replay_native_shadow_journal(&mut authority)
             .expect_err("stored Exhausted is not a valid ChallengeState variant");
         assert!(err.to_string().contains("unknown variant `Exhausted`"));
     }
@@ -2147,19 +2444,21 @@ mod tests {
         let registry_digest = sha256_hex(PRODUCTION_REGISTRY_FIXTURE.as_bytes());
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("disabled-registry-active-bootstrap");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
-        append_ndjson_line_durable(
-            &journal_path,
-            &serde_json::to_string(&NativeShadowJournalEvent::Bootstrap {
-                four_tuple,
-                registry_digest: registry_digest.clone(),
-                state: ChallengeState::ActiveFresh,
-            })
-            .expect("serialize bootstrap"),
-        )
-        .expect("append bootstrap");
+        authority
+            .append_line(
+                &serde_json::to_string(&NativeShadowJournalEvent::Bootstrap {
+                    four_tuple,
+                    registry_digest: registry_digest.clone(),
+                    state: ChallengeState::ActiveFresh,
+                })
+                .expect("serialize bootstrap"),
+            )
+            .expect("append bootstrap");
 
-        let err = recover_native_shadow_state(&registry, &registry_digest, &journal_path)
+        let err = recover_native_shadow_state(&registry, &registry_digest, &mut authority)
             .err()
             .expect("a disabled current registry must never recover an Active row");
         assert!(err
@@ -2176,15 +2475,17 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("torn-terminal-tail");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
             bootstrap_challenge_state(&registry, template)
         });
         store
-            .begin_execution(&journal_path, &four_tuple)
+            .begin_execution(&mut authority, &four_tuple)
             .expect("begin");
         let evidence =
-            persist_test_evidence(&mut store, &journal_path, &four_tuple, "torn-terminal");
+            persist_test_evidence(&mut store, &mut authority, &four_tuple, "torn-terminal");
 
         let terminal = serde_json::to_string(&NativeShadowJournalEvent::TerminalConsumed {
             four_tuple: four_tuple.clone(),
@@ -2194,6 +2495,8 @@ mod tests {
             exhausted: true,
         })
         .expect("serialize terminal");
+        drop(store);
+        drop(authority);
         let mut journal = std::fs::OpenOptions::new()
             .append(true)
             .open(&journal_path)
@@ -2202,8 +2505,12 @@ mod tests {
             .write_all(&terminal.as_bytes()[..terminal.len() / 2])
             .expect("write torn tail");
         journal.sync_all().expect("sync torn tail");
+        drop(journal);
 
-        let mut recovery = recover_native_shadow_state(&registry, "digest-v1", &journal_path)
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path)
+            .expect("reopened authority after simulated crash");
+
+        let mut recovery = recover_native_shadow_state(&registry, "digest-v1", &mut authority)
             .expect("recover stable prefix");
         assert_eq!(
             recovery
@@ -2218,43 +2525,30 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn evidence_write_failure_leaves_the_row_in_flight_without_a_commit() {
-        use std::os::unix::fs::PermissionsExt as _;
-
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("evidence-write-failure");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
             bootstrap_challenge_state(&registry, template)
         });
         store
-            .begin_execution(&journal_path, &four_tuple)
+            .begin_execution(&mut authority, &four_tuple)
             .expect("begin");
 
-        let original_mode = std::fs::metadata(&journal_path)
-            .expect("journal metadata")
-            .permissions()
-            .mode();
-        std::fs::set_permissions(
-            &journal_path,
-            std::fs::Permissions::from_mode(original_mode & !0o222),
-        )
-        .expect("make journal read-only");
+        authority.fail_next_append_for_test();
         let candidate_digest = sha256_hex(b"candidate-write-failure");
         let evidence_json = test_evidence_json(&four_tuple, &candidate_digest, "write-failure");
         let result = store.persist_evidence(
-            &journal_path,
+            &mut authority,
             &four_tuple,
             &candidate_digest,
             &evidence_json,
         );
-        std::fs::set_permissions(
-            &journal_path,
-            std::fs::Permissions::from_mode(original_mode),
-        )
-        .expect("restore journal permissions");
 
         assert!(matches!(
             result,
@@ -2274,9 +2568,11 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("recovery-bootstrap-remainder");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
 
         let mut recovery =
-            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("recover");
+            recover_native_shadow_state(&registry, "digest-v1", &mut authority).expect("recover");
         assert!(recovery.stuck_in_flight.is_empty());
         assert_eq!(
             recovery
@@ -2284,5 +2580,272 @@ mod tests {
                 .resolve(&four_tuple, "digest-v1", || panic!("row already exists")),
             ResolveOutcome::Existing(ChallengeState::Disabled)
         );
+    }
+
+    // -- Phase 3A.1: one lifetime-held, flocked journal descriptor --------
+
+    #[cfg(unix)]
+    #[test]
+    fn second_journal_authority_is_refused_until_the_first_is_dropped() {
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("authority-exclusive-lock");
+
+        let first = NativeShadowJournalAuthority::open(&journal_path).expect("first authority");
+        let second = NativeShadowJournalAuthority::open(&journal_path)
+            .expect_err("a second writer must fail immediately");
+        assert!(matches!(
+            second,
+            NativeShadowJournalAuthorityError::Locked(_)
+        ));
+
+        drop(first);
+        NativeShadowJournalAuthority::open(&journal_path)
+            .expect("dropping the first authority releases the flock");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn journal_authority_rejects_a_symlink_or_non_regular_final_component() {
+        use std::os::unix::fs::symlink;
+
+        let (journal_path, other_path) =
+            scratch_journal_and_exhaustion_paths("authority-final-component");
+        std::fs::write(&other_path, b"target\n").expect("target");
+        symlink(&other_path, &journal_path).expect("symlink");
+        assert!(matches!(
+            NativeShadowJournalAuthority::open(&journal_path),
+            Err(NativeShadowJournalAuthorityError::UnsafePath(_))
+        ));
+
+        std::fs::remove_file(&journal_path).expect("remove symlink");
+        std::fs::create_dir(&journal_path).expect("directory at final component");
+        assert!(matches!(
+            NativeShadowJournalAuthority::open(&journal_path),
+            Err(NativeShadowJournalAuthorityError::UnsafePath(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_replacement_cannot_redirect_an_authoritative_append() {
+        let (journal_path, displaced_path) =
+            scratch_journal_and_exhaustion_paths("authority-path-replacement");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        authority.append_line("first").expect("first append");
+
+        std::fs::rename(&journal_path, &displaced_path).expect("move locked inode");
+        std::fs::write(&journal_path, b"replacement\n").expect("replacement inode");
+
+        assert!(matches!(
+            authority.append_line("must-not-land"),
+            Err(NativeShadowJournalAuthorityError::PathIdentityChanged(_))
+        ));
+        assert!(matches!(
+            authority.append_line("still-must-not-land"),
+            Err(NativeShadowJournalAuthorityError::Poisoned(_))
+        ));
+        assert_eq!(
+            std::fs::read_to_string(&displaced_path).expect("locked inode"),
+            "first\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&journal_path).expect("replacement inode"),
+            "replacement\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn path_replacement_cannot_redirect_authoritative_replay() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let (journal_path, displaced_path) =
+            scratch_journal_and_exhaustion_paths("authority-replay-path-replacement");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        authority
+            .append_line(
+                &serde_json::to_string(&NativeShadowJournalEvent::Bootstrap {
+                    four_tuple,
+                    registry_digest: "digest-v1".to_string(),
+                    state: ChallengeState::ActiveFresh,
+                })
+                .expect("serialize bootstrap"),
+            )
+            .expect("seed authoritative journal");
+        let authoritative_before = std::fs::read(&journal_path).expect("authoritative bytes");
+
+        std::fs::rename(&journal_path, &displaced_path).expect("move locked inode");
+        std::fs::write(&journal_path, b"replacement-torn-tail").expect("replacement inode");
+        let replacement_before = std::fs::read(&journal_path).expect("replacement bytes");
+
+        let err = replay_native_shadow_journal(&mut authority)
+            .expect_err("replay must reject a replaced authority path");
+        assert!(err.to_string().contains("changed identity while locked"));
+        assert_eq!(
+            std::fs::read(&displaced_path).expect("locked inode after replay refusal"),
+            authoritative_before
+        );
+        assert_eq!(
+            std::fs::read(&journal_path).expect("replacement inode after replay refusal"),
+            replacement_before
+        );
+
+        let second = replay_native_shadow_journal(&mut authority)
+            .expect_err("a replaced authority remains fail-closed");
+        assert!(second.to_string().contains("authority is fail-closed"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn one_state_store_rejects_a_different_live_authority() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, other_path) =
+            scratch_journal_and_exhaustion_paths("store-authority-binding");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("first authority");
+        let mut other_authority =
+            NativeShadowJournalAuthority::open(&other_path).expect("other authority");
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template)
+        });
+        store
+            .begin_execution(&mut authority, &four_tuple)
+            .expect("bind first authority");
+        let first_before = std::fs::read(&journal_path).expect("first journal");
+        let other_before = std::fs::read(&other_path).expect("other journal");
+
+        let candidate_digest = sha256_hex(b"authority-mismatch");
+        let evidence_json =
+            test_evidence_json(&four_tuple, &candidate_digest, "authority-mismatch");
+        assert!(matches!(
+            store.persist_evidence(
+                &mut other_authority,
+                &four_tuple,
+                &candidate_digest,
+                &evidence_json,
+            ),
+            Err(NativeShadowTransitionError::JournalAuthorityMismatch)
+        ));
+        assert_eq!(
+            std::fs::read(&journal_path).expect("first journal after refusal"),
+            first_before
+        );
+        assert_eq!(
+            std::fs::read(&other_path).expect("other journal after refusal"),
+            other_before
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reopening_the_same_path_cannot_continue_an_old_state_store() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("authority-reopen-binding");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("first authority");
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template)
+        });
+        store
+            .begin_execution(&mut authority, &four_tuple)
+            .expect("bind first authority");
+        let before = std::fs::read(&journal_path).expect("journal before reopen");
+        drop(authority);
+
+        let mut reopened =
+            NativeShadowJournalAuthority::open(&journal_path).expect("reopened authority");
+        let candidate_digest = sha256_hex(b"reopened-authority");
+        let evidence_json =
+            test_evidence_json(&four_tuple, &candidate_digest, "reopened-authority");
+        assert!(matches!(
+            store.persist_evidence(
+                &mut reopened,
+                &four_tuple,
+                &candidate_digest,
+                &evidence_json,
+            ),
+            Err(NativeShadowTransitionError::JournalAuthorityMismatch)
+        ));
+        assert_eq!(
+            std::fs::read(&journal_path).expect("journal after refusal"),
+            before
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn one_locked_descriptor_replays_truncates_and_appends_the_full_lifecycle() {
+        use std::io::Write as _;
+
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("authority-full-lifecycle");
+        std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&journal_path)
+            .expect("seed torn journal")
+            .write_all(b"torn-without-newline")
+            .expect("write torn tail");
+
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        let mut recovery = recover_native_shadow_state(&registry, "digest-v1", &mut authority)
+            .expect("replay and bootstrap through held descriptor");
+        let after_recovery =
+            std::fs::read_to_string(&journal_path).expect("journal after recovery");
+        assert!(!after_recovery.contains("torn-without-newline"));
+        assert_eq!(after_recovery.lines().count(), 1);
+        assert!(after_recovery.contains(r#""kind":"bootstrap""#));
+        assert!(matches!(
+            NativeShadowJournalAuthority::open(&journal_path),
+            Err(NativeShadowJournalAuthorityError::Locked(_))
+        ));
+
+        recovery
+            .store
+            .begin_execution(&mut authority, &four_tuple)
+            .expect("begin");
+        let candidate_digest = sha256_hex(b"authority-full-lifecycle");
+        let evidence_json =
+            test_evidence_json(&four_tuple, &candidate_digest, "authority-full-lifecycle");
+        let evidence = recovery
+            .store
+            .persist_evidence(
+                &mut authority,
+                &four_tuple,
+                &candidate_digest,
+                &evidence_json,
+            )
+            .expect("evidence");
+        recovery
+            .store
+            .complete_consumed(
+                &mut authority,
+                &mut recovery.exhaustion_ledger,
+                &four_tuple,
+                evidence,
+            )
+            .expect("terminal");
+
+        let replay = replay_native_shadow_journal(&mut authority).expect("same-fd replay");
+        assert_eq!(
+            replay.resolved.get(&four_tuple),
+            Some(&ChallengeState::Consumed)
+        );
+        assert!(replay.exhausted.contains(&four_tuple));
+        assert!(matches!(
+            NativeShadowJournalAuthority::open(&journal_path),
+            Err(NativeShadowJournalAuthorityError::Locked(_))
+        ));
     }
 }
