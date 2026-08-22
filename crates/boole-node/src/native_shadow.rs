@@ -13,17 +13,17 @@
 //! four-tuple to `Disabled`, `Exhausted` or `Active(fresh)`, the
 //! `Active(fresh)` -> `InFlight` -> `Consumed` state machine with its
 //! durable NDJSON journal, and boot-time recovery that replays that journal
-//! and withholds any row still `InFlight` (fails closed — see
-//! `NativeShadowJournalReplay`) pending the later containment slice that can
-//! actually confirm its cleanup. This module is not wired into
+//! and retains any row still `InFlight` as non-bootstrapable (fails closed —
+//! see `NativeShadowJournalReplay`) pending the later containment slice that
+//! can actually confirm its cleanup. This module is not wired into
 //! `local_node.rs` or any HTTP route, consistent with that document's
 //! section 1 non-goals (no route, no `boole-node` server change, until
 //! implementation of that route itself is undertaken); section 7's
 //! OS-level `flock` (step 1) and "begin serving requests" (step 5) are
 //! process/route-wiring concerns that belong to that later work too.
 
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -61,7 +61,7 @@ pub(crate) struct NativeShadowIdempotencyKey {
 /// the `nonIssuable` path (RED gate 8): no function in this module ever
 /// returns it, by construction — see `bootstrap_challenge_state`'s
 /// three-way return.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum ChallengeState {
     ActiveFresh,
     InFlight,
@@ -125,6 +125,7 @@ impl NativeShadowRegistry {
 pub(crate) enum NativeShadowRegistryError {
     Io(std::io::Error),
     Json(serde_json::Error),
+    UnsafeProductionPath(String),
 }
 
 impl std::fmt::Display for NativeShadowRegistryError {
@@ -132,6 +133,9 @@ impl std::fmt::Display for NativeShadowRegistryError {
         match self {
             Self::Io(err) => write!(f, "native-shadow registry read failed: {err}"),
             Self::Json(err) => write!(f, "native-shadow registry not valid JSON: {err}"),
+            Self::UnsafeProductionPath(reason) => {
+                write!(f, "native-shadow production registry path unsafe: {reason}")
+            }
         }
     }
 }
@@ -147,10 +151,10 @@ pub(crate) struct LoadedNativeShadowRegistry {
     pub registry_digest: String,
 }
 
-pub(crate) fn load_native_shadow_registry(
-    path: impl AsRef<Path>,
+fn load_native_shadow_registry_from_path(
+    path: &Path,
 ) -> Result<LoadedNativeShadowRegistry, NativeShadowRegistryError> {
-    let raw = std::fs::read(path.as_ref()).map_err(NativeShadowRegistryError::Io)?;
+    let raw = std::fs::read(path).map_err(NativeShadowRegistryError::Io)?;
     let registry_digest = sha256_hex(&raw);
     let registry: NativeShadowRegistry =
         serde_json::from_slice(&raw).map_err(NativeShadowRegistryError::Json)?;
@@ -158,6 +162,23 @@ pub(crate) fn load_native_shadow_registry(
         registry,
         registry_digest,
     })
+}
+
+/// Load the only production authority this qualification path is allowed to
+/// use. The caller supplies no path: the repository-rooted absolute location
+/// is fixed at build time, so changing the process CWD or renaming a test
+/// fixture cannot redirect production loading. A symlink at the authority
+/// location is refused rather than followed.
+pub(crate) fn load_production_native_shadow_registry(
+) -> Result<LoadedNativeShadowRegistry, NativeShadowRegistryError> {
+    let path = Path::new(PRODUCTION_REGISTRY_PATH);
+    let metadata = std::fs::symlink_metadata(path).map_err(NativeShadowRegistryError::Io)?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+        return Err(NativeShadowRegistryError::UnsafeProductionPath(
+            "authority must be a regular non-symlink file".to_string(),
+        ));
+    }
+    load_native_shadow_registry_from_path(path)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -172,7 +193,10 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// assertion call site is later, route-wiring work (out of this module's
 /// scope); `assert_is_canonical_production_registry_path` below is the
 /// reusable guard that call site will invoke.
-pub(crate) const PRODUCTION_REGISTRY_PATH: &str = "fixtures/native-shadow/registry-v1.json";
+pub(crate) const PRODUCTION_REGISTRY_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/native-shadow/registry-v1.json"
+);
 
 /// RED gate 7 safeguard (b): the test suite itself must assert the test-only
 /// registry is never the file production configuration resolves to. This is
@@ -193,77 +217,23 @@ pub(crate) fn assert_is_canonical_production_registry_path(candidate: &Path) -> 
     ))
 }
 
-/// Permanent, `registryDigest`-independent exhaustion ledger (spec section 4,
-/// item 2 and section 6, check 2). Mirrors `FileProofDedupLedger`'s shape: an
-/// in-memory `HashSet` mirror rebuilt by replaying an NDJSON file on
-/// `recover`, appended to durably one line at a time.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-enum NativeShadowExhaustionEvent {
-    Exhausted {
-        #[serde(flatten)]
-        four_tuple: NativeShadowFourTuple,
-    },
-}
-
+/// In-memory view of permanently exhausted challenges. It is reconstructed
+/// exclusively from evidence-backed `TerminalConsumed` events in the state
+/// journal; it deliberately has no independent file writer or replay API.
+/// That single-authority shape is what makes `Consumed` and `Exhausted`
+/// crash-consistent instead of two facts that can drift across files.
 #[derive(Debug, Default)]
-pub(crate) struct FileNativeShadowExhaustionLedger {
+pub(crate) struct NativeShadowExhaustionLedger {
     exhausted: HashSet<NativeShadowFourTuple>,
 }
 
-impl FileNativeShadowExhaustionLedger {
-    /// Build an in-memory ledger by replaying the NDJSON file at `path`.
-    /// Returns an empty ledger if the file does not yet exist — this is the
-    /// "brand-new node, completely empty exhaustion ledger" case RED gate 5
-    /// depends on.
-    pub fn recover(path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let path = path.as_ref();
-        let Some(raw) = read_stable_prefix(path)? else {
-            return Ok(Self::default());
-        };
-        let mut ledger = Self::default();
-        for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
-            let event: NativeShadowExhaustionEvent = serde_json::from_str(line).map_err(|err| {
-                anyhow::anyhow!(
-                    "nativeShadowExhaustionLedger: line {} invalid JSON: {}",
-                    i + 1,
-                    err
-                )
-            })?;
-            ledger.apply(event);
-        }
-        Ok(ledger)
-    }
-
+impl NativeShadowExhaustionLedger {
     pub fn contains(&self, four_tuple: &NativeShadowFourTuple) -> bool {
         self.exhausted.contains(four_tuple)
     }
 
-    /// Durably append an exhaustion record. Idempotent: returns `Ok(false)`
-    /// with no write when the four-tuple is already recorded, matching
-    /// `FileProofDedupLedger::append_credit`'s convention.
-    pub fn append_exhausted(
-        &mut self,
-        path: impl AsRef<Path>,
-        four_tuple: &NativeShadowFourTuple,
-    ) -> anyhow::Result<bool> {
-        if self.contains(four_tuple) {
-            return Ok(false);
-        }
-        let event = NativeShadowExhaustionEvent::Exhausted {
-            four_tuple: four_tuple.clone(),
-        };
-        append_ndjson_line_durable(path.as_ref(), &serde_json::to_string(&event)?)?;
-        self.apply(event);
-        Ok(true)
-    }
-
-    fn apply(&mut self, event: NativeShadowExhaustionEvent) {
-        match event {
-            NativeShadowExhaustionEvent::Exhausted { four_tuple } => {
-                self.exhausted.insert(four_tuple);
-            }
-        }
+    fn record_terminal(&mut self, four_tuple: NativeShadowFourTuple) {
+        self.exhausted.insert(four_tuple);
     }
 }
 
@@ -280,7 +250,7 @@ impl FileNativeShadowExhaustionLedger {
 pub(crate) fn bootstrap_challenge_state(
     registry: &NativeShadowRegistry,
     template: &NativeShadowTemplate,
-    ledger: &FileNativeShadowExhaustionLedger,
+    ledger: &NativeShadowExhaustionLedger,
 ) -> ChallengeState {
     if !registry.is_statically_issuable(template) {
         return ChallengeState::Disabled;
@@ -299,6 +269,119 @@ pub(crate) fn bootstrap_challenge_state(
 pub(crate) struct NativeShadowStateRow {
     pub state: ChallengeState,
     pub registry_digest: String,
+    /// Whether this row's bootstrap fact is already present in the durable
+    /// state journal. Rows reconstructed by recovery are durable; a row made
+    /// directly by the in-memory resolver is journaled before its first
+    /// transition.
+    durable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeShadowEvidenceCommitData {
+    candidate_digest: String,
+    evidence_digest: String,
+    evidence: NativeShadowEvidence,
+}
+
+/// Required deterministic fields of `boole.native-shadow.evidence.v1` from
+/// the authority spec section 6. Operational telemetry may accompany these
+/// fields in the serialized JSON, but none of these bindings may be omitted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativeShadowEvidence {
+    pub schema: String,
+    pub submission_schema: String,
+    pub submission_digest: String,
+    pub family_version: String,
+    pub template_id: String,
+    pub anchor_digest: String,
+    pub challenge_sha256: String,
+    pub epoch: u64,
+    pub candidate_digest: String,
+    pub intake_version: String,
+    pub checker_digest: String,
+    pub policy_digest: String,
+    pub toolchain_digest: String,
+    pub verdict: NativeShadowEvidenceVerdict,
+    pub reason_code: String,
+    pub registry_version: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum NativeShadowEvidenceVerdict {
+    Accepted,
+    DeterministicReject,
+}
+
+impl NativeShadowEvidence {
+    fn validate_bindings(
+        &self,
+        four_tuple: &NativeShadowFourTuple,
+        candidate_digest: &str,
+    ) -> Result<(), String> {
+        if self.schema != "boole.native-shadow.evidence.v1" {
+            return Err("evidence schema must be boole.native-shadow.evidence.v1".to_string());
+        }
+        if self.submission_schema != "boole.native-shadow.submission.v1" {
+            return Err("submissionSchema must be boole.native-shadow.submission.v1".to_string());
+        }
+        if self.family_version != four_tuple.family_version
+            || self.template_id != four_tuple.template_id
+            || self.challenge_sha256 != four_tuple.challenge_sha256
+            || self.epoch != four_tuple.epoch
+            || self.candidate_digest != candidate_digest
+        {
+            return Err("evidence identity or candidate binding mismatch".to_string());
+        }
+        for (name, digest) in [
+            ("submissionDigest", self.submission_digest.as_str()),
+            ("templateId", self.template_id.as_str()),
+            ("anchorDigest", self.anchor_digest.as_str()),
+            ("challengeSha256", self.challenge_sha256.as_str()),
+            ("candidateDigest", self.candidate_digest.as_str()),
+            ("checkerDigest", self.checker_digest.as_str()),
+            ("policyDigest", self.policy_digest.as_str()),
+            ("toolchainDigest", self.toolchain_digest.as_str()),
+        ] {
+            if !is_lower_sha256_hex(digest) {
+                return Err(format!(
+                    "{name} must be 64 lowercase hexadecimal characters"
+                ));
+            }
+        }
+        for (name, value) in [
+            ("familyVersion", self.family_version.as_str()),
+            ("intakeVersion", self.intake_version.as_str()),
+            ("reasonCode", self.reason_code.as_str()),
+            ("registryVersion", self.registry_version.as_str()),
+        ] {
+            if value.is_empty() {
+                return Err(format!("{name} must not be empty"));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn is_lower_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+}
+
+/// Capability returned only after the exact node-owned evidence bytes were
+/// durably appended. Consuming this value is required for the terminal state
+/// transition, so `Consumed` cannot be reached through this API without a
+/// preceding durable evidence record.
+#[derive(Debug)]
+pub(crate) struct DurableNativeShadowEvidenceCommit {
+    four_tuple: NativeShadowFourTuple,
+    registry_digest: String,
+    candidate_digest: String,
+    evidence_digest: String,
 }
 
 /// In-memory operational-state store keyed by the four-tuple alone. Its
@@ -312,6 +395,8 @@ pub(crate) struct NativeShadowStateRow {
 #[derive(Debug, Default)]
 pub(crate) struct NativeShadowStateStore {
     rows: HashMap<NativeShadowFourTuple, NativeShadowStateRow>,
+    evidence_commits: HashMap<NativeShadowFourTuple, NativeShadowEvidenceCommitData>,
+    journal_path: Option<PathBuf>,
 }
 
 /// Outcome of resolving a submission's targeted four-tuple against the store.
@@ -324,12 +409,48 @@ pub(crate) enum ResolveOutcome {
     /// An existing row was found but its stored `registryDigest` does not
     /// match the caller's freshly recomputed one — `PrecheckReject
     /// (registry_drift)` at the route layer (spec section 4). The existing
-    /// row is left completely untouched; no second, parallel row is ever
+    /// row is left completely untouched; its state is returned so a route
+    /// cannot accidentally hide an `InFlight` row that still requires the
+    /// generalized cleanup procedure. No second, parallel row is ever
     /// created for this four-tuple.
-    RegistryDrift,
+    RegistryDrift { state: ChallengeState },
 }
 
 impl NativeShadowStateStore {
+    fn bind_journal_path(
+        &mut self,
+        journal_path: &Path,
+    ) -> Result<(), NativeShadowTransitionError> {
+        if let Some(expected) = &self.journal_path {
+            if expected != journal_path {
+                return Err(NativeShadowTransitionError::JournalPathMismatch {
+                    expected: expected.clone(),
+                    actual: journal_path.to_path_buf(),
+                });
+            }
+            return Ok(());
+        }
+        self.journal_path = Some(journal_path.to_path_buf());
+        Ok(())
+    }
+
+    /// Exact node-owned verdict evidence recovered for an `InFlight` row
+    /// whose terminal write did not complete. The later containment slice
+    /// must confirm process-tree cleanup before using this to finish the
+    /// terminal transition; retaining it here prevents re-execution or a
+    /// second evidence record after restart.
+    pub(crate) fn pending_durable_evidence(
+        &self,
+        four_tuple: &NativeShadowFourTuple,
+    ) -> Option<&NativeShadowEvidence> {
+        if self.rows.get(four_tuple)?.state != ChallengeState::InFlight {
+            return None;
+        }
+        self.evidence_commits
+            .get(four_tuple)
+            .map(|commit| &commit.evidence)
+    }
+
     /// Look the four-tuple up **first**; only bootstrap when no row exists
     /// yet. This ordering — row lookup before bootstrap — is exactly what
     /// prevents a live registry-file edit from spawning a second, parallel
@@ -344,7 +465,7 @@ impl NativeShadowStateStore {
             return if row.registry_digest == registry_digest {
                 ResolveOutcome::Existing(row.state)
             } else {
-                ResolveOutcome::RegistryDrift
+                ResolveOutcome::RegistryDrift { state: row.state }
             };
         }
         let state = bootstrap();
@@ -353,6 +474,7 @@ impl NativeShadowStateStore {
             NativeShadowStateRow {
                 state,
                 registry_digest: registry_digest.to_string(),
+                durable: false,
             },
         );
         ResolveOutcome::Bootstrapped(state)
@@ -368,6 +490,7 @@ impl NativeShadowStateStore {
         journal_path: impl AsRef<Path>,
         four_tuple: &NativeShadowFourTuple,
     ) -> Result<(), NativeShadowTransitionError> {
+        self.bind_journal_path(journal_path.as_ref())?;
         let row = self
             .rows
             .get(four_tuple)
@@ -379,8 +502,26 @@ impl NativeShadowStateStore {
                 actual: row.state,
             });
         }
+        let registry_digest = row.registry_digest.clone();
+        let row_is_durable = row.durable;
+        if !row_is_durable {
+            let bootstrap = NativeShadowJournalEvent::Bootstrap {
+                four_tuple: four_tuple.clone(),
+                registry_digest: registry_digest.clone(),
+                state: ChallengeState::ActiveFresh,
+            };
+            let line = serde_json::to_string(&bootstrap)
+                .map_err(|err| NativeShadowTransitionError::Durability(anyhow::Error::from(err)))?;
+            append_ndjson_line_durable(journal_path.as_ref(), &line)
+                .map_err(NativeShadowTransitionError::Durability)?;
+            self.rows
+                .get_mut(four_tuple)
+                .expect("row checked above")
+                .durable = true;
+        }
         let event = NativeShadowJournalEvent::InFlight {
             four_tuple: four_tuple.clone(),
+            registry_digest,
         };
         let line = serde_json::to_string(&event)
             .map_err(|err| NativeShadowTransitionError::Durability(anyhow::Error::from(err)))?;
@@ -393,32 +534,18 @@ impl NativeShadowStateStore {
         Ok(())
     }
 
-    /// Spec sections 5, 6 and 7: `InFlight` -> `Consumed`, unconditionally
-    /// paired with a durable exhaustion-ledger append for the same
-    /// four-tuple — every challenge this module governs is one-shot (spec
-    /// section 6's closing paragraph), so reaching `Consumed` always means
-    /// this exact four-tuple must never be issuable again, regardless of
-    /// what a future registry snapshot might otherwise say.
-    ///
-    /// The exhaustion-ledger append happens **before** the `Consumed`
-    /// journal event, not after: if a crash lands between the two writes,
-    /// the exhaustion ledger alone already carries the permanent fact that
-    /// matters (this four-tuple must never run again), whereas the reverse
-    /// order could leave a `Consumed` journal line on disk with no
-    /// permanent record backing it.
-    ///
-    /// Persisting evidence for the completed execution is the **caller's**
-    /// responsibility, done before calling this function (spec section 7's
-    /// evidence-before-terminal-transition ordering) — this module has no
-    /// evidence store of its own and cannot enforce that ordering on the
-    /// caller's behalf.
-    pub fn complete_consumed(
+    /// Persist the exact node-owned evidence bytes before any terminal state
+    /// transition. The returned capability is intentionally non-cloneable and
+    /// is the only value `complete_consumed` accepts as proof that evidence is
+    /// already durable.
+    pub fn persist_evidence(
         &mut self,
         journal_path: impl AsRef<Path>,
-        exhaustion_ledger: &mut FileNativeShadowExhaustionLedger,
-        exhaustion_ledger_path: impl AsRef<Path>,
         four_tuple: &NativeShadowFourTuple,
-    ) -> Result<(), NativeShadowTransitionError> {
+        candidate_digest: &str,
+        evidence_json: &str,
+    ) -> Result<DurableNativeShadowEvidenceCommit, NativeShadowTransitionError> {
+        self.bind_journal_path(journal_path.as_ref())?;
         let row = self
             .rows
             .get(four_tuple)
@@ -430,11 +557,96 @@ impl NativeShadowStateStore {
                 actual: row.state,
             });
         }
-        exhaustion_ledger
-            .append_exhausted(exhaustion_ledger_path, four_tuple)
-            .map_err(NativeShadowTransitionError::Durability)?;
-        let event = NativeShadowJournalEvent::Consumed {
+        if self.evidence_commits.contains_key(four_tuple) {
+            return Err(NativeShadowTransitionError::EvidenceAlreadyExists(
+                four_tuple.clone(),
+            ));
+        }
+        let evidence: NativeShadowEvidence = serde_json::from_str(evidence_json)
+            .map_err(NativeShadowTransitionError::InvalidEvidence)?;
+        if evidence.schema != "boole.native-shadow.evidence.v1" {
+            return Err(NativeShadowTransitionError::InvalidEvidenceSchema);
+        }
+        evidence
+            .validate_bindings(four_tuple, candidate_digest)
+            .map_err(NativeShadowTransitionError::InvalidEvidenceContract)?;
+
+        let evidence_digest = sha256_hex(evidence_json.as_bytes());
+        let registry_digest = row.registry_digest.clone();
+        let event = NativeShadowJournalEvent::Evidence {
             four_tuple: four_tuple.clone(),
+            registry_digest: registry_digest.clone(),
+            candidate_digest: candidate_digest.to_string(),
+            evidence_digest: evidence_digest.clone(),
+            evidence_json: evidence_json.to_string(),
+        };
+        append_ndjson_line_durable(
+            journal_path.as_ref(),
+            &serde_json::to_string(&event)
+                .map_err(|err| NativeShadowTransitionError::Durability(anyhow::Error::from(err)))?,
+        )
+        .map_err(NativeShadowTransitionError::Durability)?;
+        self.evidence_commits.insert(
+            four_tuple.clone(),
+            NativeShadowEvidenceCommitData {
+                candidate_digest: candidate_digest.to_string(),
+                evidence_digest: evidence_digest.clone(),
+                evidence,
+            },
+        );
+        Ok(DurableNativeShadowEvidenceCommit {
+            four_tuple: four_tuple.clone(),
+            registry_digest,
+            candidate_digest: candidate_digest.to_string(),
+            evidence_digest,
+        })
+    }
+
+    /// Spec sections 5, 6 and 7: `InFlight` -> `Consumed`, with permanent
+    /// exhaustion encoded in the **same** `TerminalConsumed` journal line.
+    /// Every challenge this module governs is one-shot, so terminal state
+    /// and permanent exhaustion must be one crash-atomic logical fact.
+    ///
+    /// The non-cloneable `evidence` capability can only come from this
+    /// store's successful `persist_evidence` call. Consequently, a terminal
+    /// append cannot be attempted until complete, typed, node-owned evidence
+    /// is already durable and bound to this exact row and candidate.
+    pub fn complete_consumed(
+        &mut self,
+        journal_path: impl AsRef<Path>,
+        exhaustion_ledger: &mut NativeShadowExhaustionLedger,
+        four_tuple: &NativeShadowFourTuple,
+        evidence: DurableNativeShadowEvidenceCommit,
+    ) -> Result<(), NativeShadowTransitionError> {
+        self.bind_journal_path(journal_path.as_ref())?;
+        let row = self
+            .rows
+            .get(four_tuple)
+            .ok_or_else(|| NativeShadowTransitionError::NoSuchRow(four_tuple.clone()))?;
+        if row.state != ChallengeState::InFlight {
+            return Err(NativeShadowTransitionError::InvalidState {
+                four_tuple: four_tuple.clone(),
+                expected: ChallengeState::InFlight,
+                actual: row.state,
+            });
+        }
+        if evidence.four_tuple != *four_tuple
+            || evidence.registry_digest != row.registry_digest
+            || !self.evidence_commits.get(four_tuple).is_some_and(|commit| {
+                commit.candidate_digest == evidence.candidate_digest
+                    && commit.evidence_digest == evidence.evidence_digest
+            })
+        {
+            return Err(NativeShadowTransitionError::EvidenceBindingMismatch(
+                four_tuple.clone(),
+            ));
+        }
+        let event = NativeShadowJournalEvent::TerminalConsumed {
+            four_tuple: four_tuple.clone(),
+            registry_digest: row.registry_digest.clone(),
+            candidate_digest: evidence.candidate_digest,
+            evidence_digest: evidence.evidence_digest,
+            exhausted: true,
         };
         let line = serde_json::to_string(&event)
             .map_err(|err| NativeShadowTransitionError::Durability(anyhow::Error::from(err)))?;
@@ -444,6 +656,7 @@ impl NativeShadowStateStore {
             .get_mut(four_tuple)
             .expect("row checked above")
             .state = ChallengeState::Consumed;
+        exhaustion_ledger.record_terminal(four_tuple.clone());
         Ok(())
     }
 }
@@ -459,6 +672,15 @@ pub(crate) enum NativeShadowTransitionError {
         actual: ChallengeState,
     },
     Durability(anyhow::Error),
+    InvalidEvidence(serde_json::Error),
+    InvalidEvidenceSchema,
+    InvalidEvidenceContract(String),
+    EvidenceAlreadyExists(NativeShadowFourTuple),
+    EvidenceBindingMismatch(NativeShadowFourTuple),
+    JournalPathMismatch {
+        expected: PathBuf,
+        actual: PathBuf,
+    },
 }
 
 impl std::fmt::Display for NativeShadowTransitionError {
@@ -476,47 +698,97 @@ impl std::fmt::Display for NativeShadowTransitionError {
                 "native-shadow: {four_tuple:?} is {actual:?}, expected {expected:?}"
             ),
             Self::Durability(err) => write!(f, "native-shadow: durable write failed: {err}"),
+            Self::InvalidEvidence(err) => {
+                write!(f, "native-shadow: evidence is not valid JSON: {err}")
+            }
+            Self::InvalidEvidenceSchema => write!(
+                f,
+                "native-shadow: evidence schema must be boole.native-shadow.evidence.v1"
+            ),
+            Self::InvalidEvidenceContract(reason) => {
+                write!(f, "native-shadow: evidence contract invalid: {reason}")
+            }
+            Self::EvidenceAlreadyExists(four_tuple) => write!(
+                f,
+                "native-shadow: durable evidence already exists for {four_tuple:?}"
+            ),
+            Self::EvidenceBindingMismatch(four_tuple) => write!(
+                f,
+                "native-shadow: durable evidence binding mismatch for {four_tuple:?}"
+            ),
+            Self::JournalPathMismatch { expected, actual } => write!(
+                f,
+                "native-shadow: state store is bound to journal {}, not {}",
+                expected.display(),
+                actual.display()
+            ),
         }
     }
 }
 
 impl std::error::Error for NativeShadowTransitionError {}
 
-/// Durable per-key state-transition journal (spec section 7): `InFlight`
-/// records intent durably before a checker execution begins; `Consumed`
-/// records the terminal fact after evidence for it already exists. Distinct
-/// from the permanent exhaustion ledger above — this journal is
-/// per-execution bookkeeping crash recovery uses to find rows left
-/// mid-flight; the exhaustion ledger's separate job is blocking revival
-/// forever, independent of `registryDigest`.
+/// Single durable per-key authority (spec section 7): `Bootstrap` records the
+/// original registry binding, `InFlight` records intent before execution,
+/// `Evidence` stores the exact node-owned verdict, and `TerminalConsumed`
+/// records `Consumed` plus permanent exhaustion together. Recovery derives
+/// the in-memory exhaustion view from terminal lines; there is no second
+/// independently writable exhaustion file that can drift from this history.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 enum NativeShadowJournalEvent {
+    Bootstrap {
+        #[serde(flatten)]
+        four_tuple: NativeShadowFourTuple,
+        #[serde(rename = "registryDigest")]
+        registry_digest: String,
+        state: ChallengeState,
+    },
     InFlight {
         #[serde(flatten)]
         four_tuple: NativeShadowFourTuple,
+        #[serde(rename = "registryDigest")]
+        registry_digest: String,
     },
-    Consumed {
+    Evidence {
         #[serde(flatten)]
         four_tuple: NativeShadowFourTuple,
+        #[serde(rename = "registryDigest")]
+        registry_digest: String,
+        #[serde(rename = "candidateDigest")]
+        candidate_digest: String,
+        #[serde(rename = "evidenceDigest")]
+        evidence_digest: String,
+        #[serde(rename = "evidenceJson")]
+        evidence_json: String,
+    },
+    TerminalConsumed {
+        #[serde(flatten)]
+        four_tuple: NativeShadowFourTuple,
+        #[serde(rename = "registryDigest")]
+        registry_digest: String,
+        #[serde(rename = "candidateDigest")]
+        candidate_digest: String,
+        #[serde(rename = "evidenceDigest")]
+        evidence_digest: String,
+        exhausted: bool,
     },
 }
 
 /// Outcome of replaying the durable state-transition journal alone, before
 /// any registry-driven bootstrap of four-tuples the journal never mentions
 /// (spec section 7, steps 2-3). `stuck_in_flight` holds every four-tuple
-/// whose last journaled event was `InFlight` with no later `Consumed` —
-/// these are deliberately **excluded** from `resolved` and deliberately
-/// **not** auto-resolved to any state, because resolving them for real
-/// requires confirming the OS-level containment cleanup (spec section 9)
-/// this module does not implement (a later, separate slice). A node
-/// discovering a non-empty `stuck_in_flight` set must fail closed for those
-/// specific four-tuples — neither silently reverted to `Active(fresh)` nor
-/// silently served as `InFlight` — until that later slice exists to resolve
-/// them per spec section 7's per-record procedure.
+/// whose last journaled event was `InFlight` with no later `Consumed`.
+/// Those rows remain present as `InFlight` in `resolved`: retaining the
+/// durable marker is what structurally prevents an ordinary lookup from
+/// bootstrapping the same challenge back to `Active(fresh)` before the later
+/// containment slice has confirmed cleanup.
 #[derive(Debug, Default)]
 pub(crate) struct NativeShadowJournalReplay {
     pub resolved: HashMap<NativeShadowFourTuple, ChallengeState>,
+    pub registry_digests: HashMap<NativeShadowFourTuple, String>,
+    evidence_commits: HashMap<NativeShadowFourTuple, NativeShadowEvidenceCommitData>,
+    exhausted: HashSet<NativeShadowFourTuple>,
     pub stuck_in_flight: Vec<NativeShadowFourTuple>,
 }
 
@@ -528,15 +800,137 @@ pub(crate) fn replay_native_shadow_journal(
         return Ok(NativeShadowJournalReplay::default());
     };
     let mut resolved: HashMap<NativeShadowFourTuple, ChallengeState> = HashMap::new();
+    let mut registry_digests: HashMap<NativeShadowFourTuple, String> = HashMap::new();
+    let mut evidence_commits: HashMap<NativeShadowFourTuple, NativeShadowEvidenceCommitData> =
+        HashMap::new();
+    let mut exhausted = HashSet::new();
     for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
         let event: NativeShadowJournalEvent = serde_json::from_str(line).map_err(|err| {
             anyhow::anyhow!("nativeShadowJournal: line {} invalid JSON: {}", i + 1, err)
         })?;
         match event {
-            NativeShadowJournalEvent::InFlight { four_tuple } => {
+            NativeShadowJournalEvent::Bootstrap {
+                four_tuple,
+                registry_digest,
+                state,
+            } => {
+                anyhow::ensure!(
+                    !resolved.contains_key(&four_tuple),
+                    "nativeShadowJournal: line {} bootstraps an existing row",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    matches!(
+                        state,
+                        ChallengeState::ActiveFresh | ChallengeState::Disabled
+                    ),
+                    "nativeShadowJournal: line {} has illegal bootstrap state {:?}",
+                    i + 1,
+                    state
+                );
+                registry_digests.insert(four_tuple.clone(), registry_digest);
+                resolved.insert(four_tuple, state);
+            }
+            NativeShadowJournalEvent::InFlight {
+                four_tuple,
+                registry_digest,
+            } => {
+                anyhow::ensure!(
+                    resolved.get(&four_tuple) == Some(&ChallengeState::ActiveFresh),
+                    "nativeShadowJournal: line {} transitions a non-Active row to InFlight",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    registry_digests.get(&four_tuple) == Some(&registry_digest),
+                    "nativeShadowJournal: line {} changes registryDigest for an existing row",
+                    i + 1
+                );
                 resolved.insert(four_tuple, ChallengeState::InFlight);
             }
-            NativeShadowJournalEvent::Consumed { four_tuple } => {
+            NativeShadowJournalEvent::Evidence {
+                four_tuple,
+                registry_digest,
+                candidate_digest,
+                evidence_digest,
+                evidence_json,
+            } => {
+                anyhow::ensure!(
+                    resolved.get(&four_tuple) == Some(&ChallengeState::InFlight),
+                    "nativeShadowJournal: line {} records evidence outside InFlight",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    registry_digests.get(&four_tuple) == Some(&registry_digest),
+                    "nativeShadowJournal: line {} changes registryDigest for an existing row",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    evidence_digest == sha256_hex(evidence_json.as_bytes()),
+                    "nativeShadowJournal: line {} evidenceDigest does not bind evidenceJson",
+                    i + 1
+                );
+                let evidence: NativeShadowEvidence =
+                    serde_json::from_str(&evidence_json).map_err(|err| {
+                        anyhow::anyhow!(
+                            "nativeShadowJournal: line {} evidenceJson invalid contract: {}",
+                            i + 1,
+                            err
+                        )
+                    })?;
+                evidence
+                    .validate_bindings(&four_tuple, &candidate_digest)
+                    .map_err(|reason| {
+                        anyhow::anyhow!(
+                            "nativeShadowJournal: line {} evidence contract invalid: {}",
+                            i + 1,
+                            reason
+                        )
+                    })?;
+                anyhow::ensure!(
+                    !evidence_commits.contains_key(&four_tuple),
+                    "nativeShadowJournal: line {} duplicates evidence for one challenge",
+                    i + 1
+                );
+                evidence_commits.insert(
+                    four_tuple,
+                    NativeShadowEvidenceCommitData {
+                        candidate_digest,
+                        evidence_digest,
+                        evidence,
+                    },
+                );
+            }
+            NativeShadowJournalEvent::TerminalConsumed {
+                four_tuple,
+                registry_digest,
+                candidate_digest,
+                evidence_digest,
+                exhausted: terminal_exhausted,
+            } => {
+                anyhow::ensure!(
+                    resolved.get(&four_tuple) == Some(&ChallengeState::InFlight),
+                    "nativeShadowJournal: line {} records terminal state outside InFlight",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    registry_digests.get(&four_tuple) == Some(&registry_digest),
+                    "nativeShadowJournal: line {} changes registryDigest for an existing row",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    terminal_exhausted,
+                    "nativeShadowJournal: line {} terminal event omitted permanent exhaustion",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    evidence_commits.get(&four_tuple).is_some_and(|commit| {
+                        commit.candidate_digest == candidate_digest
+                            && commit.evidence_digest == evidence_digest
+                    }),
+                    "nativeShadowJournal: line {} terminal event has no matching durable evidence",
+                    i + 1
+                );
+                exhausted.insert(four_tuple.clone());
                 resolved.insert(four_tuple, ChallengeState::Consumed);
             }
         }
@@ -548,6 +942,9 @@ pub(crate) fn replay_native_shadow_journal(
         .collect();
     Ok(NativeShadowJournalReplay {
         resolved,
+        registry_digests,
+        evidence_commits,
+        exhausted,
         stuck_in_flight,
     })
 }
@@ -556,16 +953,14 @@ pub(crate) fn replay_native_shadow_journal(
 /// `flock` and step 5's "begin serving requests" are process/route-wiring
 /// concerns outside this module's scope, same as the rest of this module.
 ///
-/// Builds the servable state store from: the journal replay's resolved
-/// `Consumed` rows (`InFlight` rows are withheld — see
-/// `NativeShadowJournalReplay`), plus a fresh section-6 bootstrap for every
-/// registry-declared four-tuple the journal never mentions at all. Every
-/// four-tuple in `stuck_in_flight` is guaranteed **absent** from `store` —
-/// a caller built on top of this module later must treat that set as
-/// unavailable, not re-bootstrap it, until a later slice resolves it.
+/// Builds the state store from every journaled row, including unresolved
+/// `InFlight` rows, plus a fresh section-6 bootstrap for every
+/// registry-declared four-tuple the journal never mentions at all. Keeping a
+/// stuck row present as `InFlight` makes it non-servable and non-bootstrapable
+/// by construction until a later containment slice resolves it.
 pub(crate) struct NativeShadowRecovery {
     pub store: NativeShadowStateStore,
-    pub exhaustion_ledger: FileNativeShadowExhaustionLedger,
+    pub exhaustion_ledger: NativeShadowExhaustionLedger,
     pub stuck_in_flight: Vec<NativeShadowFourTuple>,
 }
 
@@ -573,33 +968,83 @@ pub(crate) fn recover_native_shadow_state(
     registry: &NativeShadowRegistry,
     registry_digest: &str,
     journal_path: impl AsRef<Path>,
-    exhaustion_ledger_path: impl AsRef<Path>,
 ) -> anyhow::Result<NativeShadowRecovery> {
-    let replay = replay_native_shadow_journal(journal_path)?;
-    let exhaustion_ledger = FileNativeShadowExhaustionLedger::recover(exhaustion_ledger_path)?;
+    let replay = replay_native_shadow_journal(&journal_path)?;
+    // Phase 2C makes the evidence-backed terminal journal event the only
+    // authority for permanent exhaustion. A legacy standalone exhaustion
+    // file may be present on disk, but replaying it here would recreate the
+    // split-brain state this correction removes: a challenge could appear
+    // spent without any durable evidence or terminal transition.
+    let mut exhaustion_ledger = NativeShadowExhaustionLedger::default();
+    exhaustion_ledger
+        .exhausted
+        .extend(replay.exhausted.iter().cloned());
     let stuck: HashSet<NativeShadowFourTuple> = replay.stuck_in_flight.iter().cloned().collect();
 
-    let mut store = NativeShadowStateStore::default();
+    let mut store = NativeShadowStateStore {
+        journal_path: Some(journal_path.as_ref().to_path_buf()),
+        ..NativeShadowStateStore::default()
+    };
     for (four_tuple, state) in &replay.resolved {
-        if stuck.contains(four_tuple) {
-            continue; // withheld -- see NativeShadowJournalReplay's doc comment
+        let original_registry_digest = replay
+            .registry_digests
+            .get(four_tuple)
+            .cloned()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "nativeShadowJournal: durable row missing its original registryDigest"
+                )
+            })?;
+        if original_registry_digest == registry_digest {
+            let template = registry
+                .templates
+                .iter()
+                .find(|template| registry.four_tuple(template) == *four_tuple)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "nativeShadowJournal: current registry digest matches but durable row is absent from registry"
+                    )
+                })?;
+            let statically_issuable = registry.is_statically_issuable(template);
+            anyhow::ensure!(
+                statically_issuable || *state == ChallengeState::Disabled,
+                "nativeShadowJournal: statically disabled registry row recovered as {:?}",
+                state
+            );
+            anyhow::ensure!(
+                !statically_issuable || *state != ChallengeState::Disabled,
+                "nativeShadowJournal: statically issuable registry row recovered as Disabled"
+            );
         }
         store.rows.insert(
             four_tuple.clone(),
             NativeShadowStateRow {
                 state: *state,
-                registry_digest: registry_digest.to_string(),
+                registry_digest: original_registry_digest,
+                durable: true,
             },
         );
     }
+    store.evidence_commits = replay.evidence_commits.clone();
     for template in &registry.templates {
         let four_tuple = registry.four_tuple(template);
         if stuck.contains(&four_tuple) {
             continue; // fail closed -- never bootstrap over a row still InFlight
         }
-        store.resolve(&four_tuple, registry_digest, || {
-            bootstrap_challenge_state(registry, template, &exhaustion_ledger)
-        });
+        if let Entry::Vacant(entry) = store.rows.entry(four_tuple.clone()) {
+            let state = bootstrap_challenge_state(registry, template, &exhaustion_ledger);
+            let event = NativeShadowJournalEvent::Bootstrap {
+                four_tuple: four_tuple.clone(),
+                registry_digest: registry_digest.to_string(),
+                state,
+            };
+            append_ndjson_line_durable(journal_path.as_ref(), &serde_json::to_string(&event)?)?;
+            entry.insert(NativeShadowStateRow {
+                state,
+                registry_digest: registry_digest.to_string(),
+                durable: true,
+            });
+        }
     }
 
     Ok(NativeShadowRecovery {
@@ -622,20 +1067,8 @@ mod tests {
         serde_json::from_str(raw).expect("fixture must parse as NativeShadowRegistry")
     }
 
-    fn scratch_ledger_path(label: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "boole-native-shadow-exhaustion-{}-{}",
-            label,
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("scratch dir");
-        dir.join("exhaustion-ledger.ndjson")
-    }
-
-    /// Like `scratch_ledger_path`, but for tests that need both the
-    /// state-transition journal and the exhaustion ledger side by side
-    /// under one shared scratch directory.
+    /// Create one authoritative state-journal path plus a sibling path used
+    /// only to emulate obsolete split-ledger files in regression tests.
     fn scratch_journal_and_exhaustion_paths(
         label: &str,
     ) -> (std::path::PathBuf, std::path::PathBuf) {
@@ -650,6 +1083,45 @@ mod tests {
             dir.join("journal.ndjson"),
             dir.join("exhaustion-ledger.ndjson"),
         )
+    }
+
+    fn persist_test_evidence(
+        store: &mut NativeShadowStateStore,
+        journal_path: &Path,
+        four_tuple: &NativeShadowFourTuple,
+        label: &str,
+    ) -> DurableNativeShadowEvidenceCommit {
+        let candidate_digest = sha256_hex(format!("candidate-{label}").as_bytes());
+        let evidence_json = test_evidence_json(four_tuple, &candidate_digest, label);
+        store
+            .persist_evidence(journal_path, four_tuple, &candidate_digest, &evidence_json)
+            .expect("persist test evidence")
+    }
+
+    fn test_evidence_json(
+        four_tuple: &NativeShadowFourTuple,
+        candidate_digest: &str,
+        label: &str,
+    ) -> String {
+        serde_json::json!({
+            "schema": "boole.native-shadow.evidence.v1",
+            "submissionSchema": "boole.native-shadow.submission.v1",
+            "submissionDigest": sha256_hex(format!("submission-{label}").as_bytes()),
+            "familyVersion": four_tuple.family_version,
+            "templateId": four_tuple.template_id,
+            "anchorDigest": sha256_hex(format!("anchor-{label}").as_bytes()),
+            "challengeSha256": four_tuple.challenge_sha256,
+            "epoch": four_tuple.epoch,
+            "candidateDigest": candidate_digest,
+            "intakeVersion": "proof-intake-v1",
+            "checkerDigest": sha256_hex(format!("checker-{label}").as_bytes()),
+            "policyDigest": sha256_hex(format!("policy-{label}").as_bytes()),
+            "toolchainDigest": sha256_hex(format!("toolchain-{label}").as_bytes()),
+            "verdict": "accepted",
+            "reasonCode": "accepted",
+            "registryVersion": "NATIVE-SHADOW-TEST-REGISTRY-V1",
+        })
+        .to_string()
     }
 
     // -- registry parsing / registryDigest ---------------------------------
@@ -681,13 +1153,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn production_loader_uses_the_pinned_regular_registry_file() {
+        let loaded = load_production_native_shadow_registry().expect("load production registry");
+        assert_eq!(
+            loaded.registry_digest,
+            sha256_hex(PRODUCTION_REGISTRY_FIXTURE.as_bytes())
+        );
+        assert!(!loaded.registry.activation_allowed);
+        assert!(loaded.registry.templates[0].non_issuable);
+    }
+
     // -- RED gate 5: production fixture bootstraps Disabled ----------------
 
     #[test]
     fn production_fixture_bootstraps_disabled_on_empty_ledger() {
         let registry = parse_fixture(PRODUCTION_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
-        let ledger = FileNativeShadowExhaustionLedger::default();
+        let ledger = NativeShadowExhaustionLedger::default();
 
         let state = bootstrap_challenge_state(&registry, template, &ledger);
 
@@ -707,11 +1190,8 @@ mod tests {
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
 
-        let mut ledger = FileNativeShadowExhaustionLedger::default();
-        let path = scratch_ledger_path("gate6-exhausted");
-        ledger
-            .append_exhausted(&path, &four_tuple)
-            .expect("append exhausted");
+        let mut ledger = NativeShadowExhaustionLedger::default();
+        ledger.record_terminal(four_tuple.clone());
 
         let state = bootstrap_challenge_state(&registry, template, &ledger);
 
@@ -721,8 +1201,6 @@ mod tests {
             "a ledger-recorded four-tuple whose current static flags still \
              permit issuance must bootstrap Exhausted, not Active(fresh)"
         );
-
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
@@ -736,11 +1214,8 @@ mod tests {
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
 
-        let mut ledger = FileNativeShadowExhaustionLedger::default();
-        let path = scratch_ledger_path("gate6-disabled-precedence");
-        ledger
-            .append_exhausted(&path, &four_tuple)
-            .expect("append exhausted");
+        let mut ledger = NativeShadowExhaustionLedger::default();
+        ledger.record_terminal(four_tuple.clone());
 
         let state = bootstrap_challenge_state(&registry, template, &ledger);
 
@@ -752,8 +1227,6 @@ mod tests {
              flags forbid issuance bootstraps Disabled regardless of what the \
              ledger separately records"
         );
-
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     // -- RED gate 7: test-only registry fixture -----------------------------
@@ -762,7 +1235,7 @@ mod tests {
     fn test_only_fixture_bootstraps_active_fresh_on_empty_ledger() {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
-        let ledger = FileNativeShadowExhaustionLedger::default();
+        let ledger = NativeShadowExhaustionLedger::default();
 
         let state = bootstrap_challenge_state(&registry, template, &ledger);
 
@@ -778,6 +1251,10 @@ mod tests {
 
     #[test]
     fn production_configuration_path_is_never_the_test_only_fixture() {
+        assert!(
+            Path::new(PRODUCTION_REGISTRY_PATH).is_absolute(),
+            "the production authority path must not be resolved relative to the process working directory"
+        );
         assert!(
             assert_is_canonical_production_registry_path(Path::new(PRODUCTION_REGISTRY_PATH))
                 .is_ok()
@@ -819,7 +1296,7 @@ mod tests {
     fn bootstrap_never_produces_expired() {
         let production = parse_fixture(PRODUCTION_REGISTRY_FIXTURE);
         let test_only = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
-        let empty_ledger = FileNativeShadowExhaustionLedger::default();
+        let empty_ledger = NativeShadowExhaustionLedger::default();
 
         for (registry, template) in [
             (&production, &production.templates[0]),
@@ -842,7 +1319,7 @@ mod tests {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-        let ledger = FileNativeShadowExhaustionLedger::default();
+        let ledger = NativeShadowExhaustionLedger::default();
 
         let mut store = NativeShadowStateStore::default();
         let first = store.resolve(&four_tuple, "digest-v1", || {
@@ -860,7 +1337,9 @@ mod tests {
         });
         assert_eq!(
             second,
-            ResolveOutcome::RegistryDrift,
+            ResolveOutcome::RegistryDrift {
+                state: ChallengeState::ActiveFresh,
+            },
             "a digest mismatch against an existing row is registry_drift, \
              never a second, parallel bootstrap"
         );
@@ -914,7 +1393,7 @@ mod tests {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-        let ledger = FileNativeShadowExhaustionLedger::default();
+        let ledger = NativeShadowExhaustionLedger::default();
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("begin-execution");
 
@@ -950,7 +1429,7 @@ mod tests {
         let registry = parse_fixture(PRODUCTION_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-        let ledger = FileNativeShadowExhaustionLedger::default();
+        let ledger = NativeShadowExhaustionLedger::default();
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("begin-execution-wrong-state");
 
@@ -1007,7 +1486,7 @@ mod tests {
         let (journal_path, exhaustion_path) =
             scratch_journal_and_exhaustion_paths("complete-consumed");
 
-        let mut ledger = FileNativeShadowExhaustionLedger::default();
+        let mut ledger = NativeShadowExhaustionLedger::default();
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
             bootstrap_challenge_state(&registry, template, &ledger)
@@ -1016,8 +1495,11 @@ mod tests {
             .begin_execution(&journal_path, &four_tuple)
             .expect("Active(fresh) -> InFlight");
 
+        let evidence =
+            persist_test_evidence(&mut store, &journal_path, &four_tuple, "complete-consumed");
+
         store
-            .complete_consumed(&journal_path, &mut ledger, &exhaustion_path, &four_tuple)
+            .complete_consumed(&journal_path, &mut ledger, &four_tuple, evidence)
             .expect("InFlight -> Consumed must succeed");
 
         assert_eq!(
@@ -1026,19 +1508,25 @@ mod tests {
         );
         assert!(
             ledger.contains(&four_tuple),
-            "reaching Consumed must unconditionally pair with an exhaustion-ledger append \
+            "reaching Consumed must derive permanent exhaustion from the same terminal fact \
              (spec section 6: every challenge this module governs is one-shot)"
         );
 
-        // Durable on both fronts, independently re-readable from disk.
+        // One terminal journal fact durably reconstructs both logical facts:
+        // Consumed state and permanent exhaustion. No second authoritative
+        // file write may be required for them to remain consistent.
         let replay = replay_native_shadow_journal(&journal_path).expect("replay");
         assert_eq!(
             replay.resolved.get(&four_tuple),
             Some(&ChallengeState::Consumed)
         );
-        let reloaded_ledger =
-            FileNativeShadowExhaustionLedger::recover(&exhaustion_path).expect("recover");
-        assert!(reloaded_ledger.contains(&four_tuple));
+        let recovered =
+            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("recover");
+        assert!(recovered.exhaustion_ledger.contains(&four_tuple));
+        assert!(
+            !exhaustion_path.exists(),
+            "the terminal path must not depend on a second exhaustion-file append"
+        );
     }
 
     #[test]
@@ -1046,17 +1534,27 @@ mod tests {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-        let (journal_path, exhaustion_path) =
+        let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("complete-consumed-wrong-state");
 
-        let mut ledger = FileNativeShadowExhaustionLedger::default();
+        let mut ledger = NativeShadowExhaustionLedger::default();
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
             bootstrap_challenge_state(&registry, template, &ledger)
         });
 
         let err = store
-            .complete_consumed(&journal_path, &mut ledger, &exhaustion_path, &four_tuple)
+            .complete_consumed(
+                &journal_path,
+                &mut ledger,
+                &four_tuple,
+                DurableNativeShadowEvidenceCommit {
+                    four_tuple: four_tuple.clone(),
+                    registry_digest: "digest-v1".to_string(),
+                    candidate_digest: "candidate-unused".to_string(),
+                    evidence_digest: "evidence-unused".to_string(),
+                },
+            )
             .expect_err("the row is Active(fresh), not InFlight");
         assert!(matches!(
             err,
@@ -1072,6 +1570,69 @@ mod tests {
         );
     }
 
+    #[test]
+    fn one_state_store_cannot_split_one_execution_across_two_journals() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let ledger = NativeShadowExhaustionLedger::default();
+        let (journal_path, other_journal_path) =
+            scratch_journal_and_exhaustion_paths("journal-path-binding");
+
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template, &ledger)
+        });
+        store
+            .begin_execution(&journal_path, &four_tuple)
+            .expect("begin");
+
+        let err = store
+            .persist_evidence(
+                &other_journal_path,
+                &four_tuple,
+                "candidate-split",
+                r#"{"schema":"boole.native-shadow.evidence.v1","verdict":"ACCEPT"}"#,
+            )
+            .expect_err("one lifecycle must never be split across journal files");
+        assert!(matches!(
+            err,
+            NativeShadowTransitionError::JournalPathMismatch { .. }
+        ));
+        assert!(!other_journal_path.exists());
+    }
+
+    #[test]
+    fn schema_only_json_cannot_create_a_durable_evidence_capability() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let ledger = NativeShadowExhaustionLedger::default();
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("schema-only-evidence");
+
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template, &ledger)
+        });
+        store
+            .begin_execution(&journal_path, &four_tuple)
+            .expect("begin");
+
+        let result = store.persist_evidence(
+            &journal_path,
+            &four_tuple,
+            &sha256_hex(b"candidate-schema-only"),
+            r#"{"schema":"boole.native-shadow.evidence.v1"}"#,
+        );
+
+        assert!(
+            result.is_err(),
+            "the schema label alone is not node-owned verdict evidence; all authority-spec bindings are required"
+        );
+        assert!(!store.evidence_commits.contains_key(&four_tuple));
+    }
+
     // -- restart recovery (spec section 7, steps 2-4) -----------------------
 
     #[test]
@@ -1079,13 +1640,13 @@ mod tests {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-        let (journal_path, exhaustion_path) =
+        let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("recovery-consumed");
 
         // Simulate a full lifecycle on one "process", then recover as if a
         // brand-new process just started against the same durable files.
         {
-            let mut ledger = FileNativeShadowExhaustionLedger::default();
+            let mut ledger = NativeShadowExhaustionLedger::default();
             let mut store = NativeShadowStateStore::default();
             store.resolve(&four_tuple, "digest-v1", || {
                 bootstrap_challenge_state(&registry, template, &ledger)
@@ -1093,14 +1654,15 @@ mod tests {
             store
                 .begin_execution(&journal_path, &four_tuple)
                 .expect("begin");
+            let evidence =
+                persist_test_evidence(&mut store, &journal_path, &four_tuple, "recover-consumed");
             store
-                .complete_consumed(&journal_path, &mut ledger, &exhaustion_path, &four_tuple)
+                .complete_consumed(&journal_path, &mut ledger, &four_tuple, evidence)
                 .expect("complete");
         }
 
         let mut recovery =
-            recover_native_shadow_state(&registry, "digest-v1", &journal_path, &exhaustion_path)
-                .expect("recover");
+            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("recover");
         assert!(recovery.stuck_in_flight.is_empty());
         assert_eq!(
             recovery
@@ -1112,16 +1674,125 @@ mod tests {
     }
 
     #[test]
-    fn recovery_withholds_a_stuck_in_flight_row_instead_of_serving_or_reverting_it() {
+    fn legacy_exhaustion_file_alone_cannot_resurrect_terminal_authority() {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
         let (journal_path, exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("legacy-exhaustion-without-terminal");
+
+        // This is the pre-Phase-2C split-brain shape: an exhaustion fact in a
+        // second file, but no Bootstrap/InFlight/Evidence/TerminalConsumed
+        // chain in the authoritative state journal. It must not be enough to
+        // declare the challenge spent.
+        append_ndjson_line_durable(
+            &exhaustion_path,
+            &serde_json::json!({
+                "kind": "exhausted",
+                "familyVersion": four_tuple.family_version.clone(),
+                "templateId": four_tuple.template_id.clone(),
+                "challengeSha256": four_tuple.challenge_sha256.clone(),
+                "epoch": four_tuple.epoch,
+            })
+            .to_string(),
+        )
+        .expect("write legacy exhaustion-only record");
+
+        let mut recovery =
+            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("recover");
+
+        assert_eq!(
+            recovery
+                .store
+                .resolve(&four_tuple, "digest-v1", || panic!("row was bootstrapped")),
+            ResolveOutcome::Existing(ChallengeState::ActiveFresh),
+            "only an evidence-backed terminal journal event may create permanent exhaustion"
+        );
+        assert!(!recovery.exhaustion_ledger.contains(&four_tuple));
+    }
+
+    #[test]
+    fn recovery_preserves_the_original_registry_digest_and_reports_drift() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("recovery-registry-drift");
+
+        {
+            let mut ledger = NativeShadowExhaustionLedger::default();
+            let mut store = NativeShadowStateStore::default();
+            store.resolve(&four_tuple, "digest-v1", || {
+                bootstrap_challenge_state(&registry, template, &ledger)
+            });
+            store
+                .begin_execution(&journal_path, &four_tuple)
+                .expect("begin");
+            let evidence =
+                persist_test_evidence(&mut store, &journal_path, &four_tuple, "registry-drift");
+            store
+                .complete_consumed(&journal_path, &mut ledger, &four_tuple, evidence)
+                .expect("complete");
+        }
+
+        let mut recovery =
+            recover_native_shadow_state(&registry, "digest-v2-after-restart", &journal_path)
+                .expect("recover");
+
+        assert_eq!(
+            recovery
+                .store
+                .resolve(&four_tuple, "digest-v2-after-restart", || panic!(
+                    "the durable row already exists"
+                ),),
+            ResolveOutcome::RegistryDrift {
+                state: ChallengeState::Consumed,
+            },
+            "restart recovery must retain the digest captured when the row was first created; \
+             replacing it with the current registry digest erases drift detection"
+        );
+    }
+
+    #[test]
+    fn recovery_persists_a_newly_bootstrapped_rows_original_registry_digest() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("recovery-bootstrap-registry-drift");
+
+        let first =
+            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("first boot");
+        drop(first);
+
+        let mut second =
+            recover_native_shadow_state(&registry, "digest-v2-after-restart", &journal_path)
+                .expect("second boot");
+
+        assert_eq!(
+            second.store.resolve(
+                &four_tuple,
+                "digest-v2-after-restart",
+                || panic!("the bootstrapped row must have been durable"),
+            ),
+            ResolveOutcome::RegistryDrift {
+                state: ChallengeState::ActiveFresh,
+            },
+            "even a row that never reached InFlight must retain its first registry digest across restart"
+        );
+    }
+
+    #[test]
+    fn recovery_withholds_a_stuck_in_flight_row_instead_of_serving_or_reverting_it() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("recovery-stuck-in-flight");
 
         // Crash right after Active(fresh) -> InFlight, before Consumed.
         {
-            let ledger = FileNativeShadowExhaustionLedger::default();
+            let ledger = NativeShadowExhaustionLedger::default();
             let mut store = NativeShadowStateStore::default();
             store.resolve(&four_tuple, "digest-v1", || {
                 bootstrap_challenge_state(&registry, template, &ledger)
@@ -1132,26 +1803,259 @@ mod tests {
         }
 
         let mut recovery =
-            recover_native_shadow_state(&registry, "digest-v1", &journal_path, &exhaustion_path)
-                .expect("recover");
+            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("recover");
         assert_eq!(recovery.stuck_in_flight, vec![four_tuple.clone()]);
 
         // Fail closed: this module has no containment-cleanup capability
         // (spec section 9, a later slice) to confirm the stuck row's
-        // process/cgroup was actually torn down, so it must be neither
-        // silently reverted to Active(fresh) nor silently served as
-        // InFlight -- the row must be simply absent from the servable store.
+        // process/cgroup was actually torn down. The durable InFlight marker
+        // therefore remains present and blocks bootstrap; omitting the row
+        // would let an ordinary resolve call recreate it as Active(fresh).
         let outcome = recovery
             .store
             .resolve(&four_tuple, "digest-v1", || ChallengeState::ActiveFresh);
-        assert!(
-            matches!(outcome, ResolveOutcome::Bootstrapped(_)),
-            "the stuck row must be genuinely absent from the recovered store, \
-             not silently present as Active(fresh) or InFlight — a caller \
-             that (incorrectly, for a later slice to fix) re-bootstraps it \
-             is not this test's concern, but the recovered store itself \
-             must not already contain it"
+        assert_eq!(
+            outcome,
+            ResolveOutcome::Existing(ChallengeState::InFlight),
+            "a stuck row must remain structurally non-bootstrappable until containment cleanup is confirmed"
         );
+    }
+
+    #[test]
+    fn recovery_with_evidence_but_no_terminal_stays_in_flight_and_unexhausted() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("recovery-evidence-before-terminal");
+
+        {
+            let ledger = NativeShadowExhaustionLedger::default();
+            let mut store = NativeShadowStateStore::default();
+            store.resolve(&four_tuple, "digest-v1", || {
+                bootstrap_challenge_state(&registry, template, &ledger)
+            });
+            store
+                .begin_execution(&journal_path, &four_tuple)
+                .expect("begin");
+            let _durable_evidence =
+                persist_test_evidence(&mut store, &journal_path, &four_tuple, "crash-gap");
+            // Simulated crash: no terminal transition is attempted.
+        }
+
+        let mut recovery =
+            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("recover");
+        assert_eq!(recovery.stuck_in_flight, vec![four_tuple.clone()]);
+        assert_eq!(
+            recovery
+                .store
+                .resolve(&four_tuple, "digest-v1", || panic!("row is durable")),
+            ResolveOutcome::Existing(ChallengeState::InFlight)
+        );
+        assert!(recovery.store.evidence_commits.contains_key(&four_tuple));
+        let recovered_evidence = recovery
+            .store
+            .pending_durable_evidence(&four_tuple)
+            .expect("the exact decided verdict evidence must survive restart");
+        assert_eq!(
+            recovered_evidence.verdict,
+            NativeShadowEvidenceVerdict::Accepted
+        );
+        assert_eq!(recovered_evidence.reason_code, "accepted");
+        assert!(!recovery.exhaustion_ledger.contains(&four_tuple));
+    }
+
+    #[test]
+    fn replay_rejects_a_terminal_record_without_matching_durable_evidence() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("terminal-without-evidence");
+
+        for event in [
+            NativeShadowJournalEvent::Bootstrap {
+                four_tuple: four_tuple.clone(),
+                registry_digest: "digest-v1".to_string(),
+                state: ChallengeState::ActiveFresh,
+            },
+            NativeShadowJournalEvent::InFlight {
+                four_tuple: four_tuple.clone(),
+                registry_digest: "digest-v1".to_string(),
+            },
+            NativeShadowJournalEvent::TerminalConsumed {
+                four_tuple,
+                registry_digest: "digest-v1".to_string(),
+                candidate_digest: "candidate-without-evidence".to_string(),
+                evidence_digest: "missing".to_string(),
+                exhausted: true,
+            },
+        ] {
+            append_ndjson_line_durable(
+                &journal_path,
+                &serde_json::to_string(&event).expect("serialize event"),
+            )
+            .expect("append event");
+        }
+
+        let err = replay_native_shadow_journal(&journal_path)
+            .expect_err("terminal without evidence must fail closed");
+        assert!(err
+            .to_string()
+            .contains("terminal event has no matching durable evidence"));
+    }
+
+    #[test]
+    fn replay_rejects_bootstrap_exhausted_without_terminal_evidence() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("bootstrap-exhausted-without-evidence");
+
+        append_ndjson_line_durable(
+            &journal_path,
+            &serde_json::to_string(&NativeShadowJournalEvent::Bootstrap {
+                four_tuple,
+                registry_digest: "digest-v1".to_string(),
+                state: ChallengeState::Exhausted,
+            })
+            .expect("serialize bootstrap"),
+        )
+        .expect("append bootstrap");
+
+        let err = replay_native_shadow_journal(&journal_path)
+            .expect_err("Exhausted is only derivable from an evidence-backed terminal event");
+        assert!(err
+            .to_string()
+            .contains("illegal bootstrap state Exhausted"));
+    }
+
+    #[test]
+    fn recovery_rejects_active_bootstrap_for_same_statically_disabled_registry() {
+        let registry = parse_fixture(PRODUCTION_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let registry_digest = sha256_hex(PRODUCTION_REGISTRY_FIXTURE.as_bytes());
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("disabled-registry-active-bootstrap");
+
+        append_ndjson_line_durable(
+            &journal_path,
+            &serde_json::to_string(&NativeShadowJournalEvent::Bootstrap {
+                four_tuple,
+                registry_digest: registry_digest.clone(),
+                state: ChallengeState::ActiveFresh,
+            })
+            .expect("serialize bootstrap"),
+        )
+        .expect("append bootstrap");
+
+        let err = recover_native_shadow_state(&registry, &registry_digest, &journal_path)
+            .err()
+            .expect("a disabled current registry must never recover an Active row");
+        assert!(err
+            .to_string()
+            .contains("statically disabled registry row recovered as ActiveFresh"));
+    }
+
+    #[test]
+    fn torn_terminal_tail_recovers_as_evidence_backed_in_flight_not_consumed() {
+        use std::io::Write as _;
+
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("torn-terminal-tail");
+        let ledger = NativeShadowExhaustionLedger::default();
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template, &ledger)
+        });
+        store
+            .begin_execution(&journal_path, &four_tuple)
+            .expect("begin");
+        let evidence =
+            persist_test_evidence(&mut store, &journal_path, &four_tuple, "torn-terminal");
+
+        let terminal = serde_json::to_string(&NativeShadowJournalEvent::TerminalConsumed {
+            four_tuple: four_tuple.clone(),
+            registry_digest: evidence.registry_digest,
+            candidate_digest: evidence.candidate_digest,
+            evidence_digest: evidence.evidence_digest,
+            exhausted: true,
+        })
+        .expect("serialize terminal");
+        let mut journal = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&journal_path)
+            .expect("open journal");
+        journal
+            .write_all(&terminal.as_bytes()[..terminal.len() / 2])
+            .expect("write torn tail");
+        journal.sync_all().expect("sync torn tail");
+
+        let mut recovery = recover_native_shadow_state(&registry, "digest-v1", &journal_path)
+            .expect("recover stable prefix");
+        assert_eq!(
+            recovery
+                .store
+                .resolve(&four_tuple, "digest-v1", || panic!("row is durable")),
+            ResolveOutcome::Existing(ChallengeState::InFlight)
+        );
+        assert!(recovery.store.evidence_commits.contains_key(&four_tuple));
+        assert!(!recovery.exhaustion_ledger.contains(&four_tuple));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn evidence_write_failure_leaves_the_row_in_flight_without_a_commit() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let ledger = NativeShadowExhaustionLedger::default();
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("evidence-write-failure");
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template, &ledger)
+        });
+        store
+            .begin_execution(&journal_path, &four_tuple)
+            .expect("begin");
+
+        let original_mode = std::fs::metadata(&journal_path)
+            .expect("journal metadata")
+            .permissions()
+            .mode();
+        std::fs::set_permissions(
+            &journal_path,
+            std::fs::Permissions::from_mode(original_mode & !0o222),
+        )
+        .expect("make journal read-only");
+        let candidate_digest = sha256_hex(b"candidate-write-failure");
+        let evidence_json = test_evidence_json(&four_tuple, &candidate_digest, "write-failure");
+        let result = store.persist_evidence(
+            &journal_path,
+            &four_tuple,
+            &candidate_digest,
+            &evidence_json,
+        );
+        std::fs::set_permissions(
+            &journal_path,
+            std::fs::Permissions::from_mode(original_mode),
+        )
+        .expect("restore journal permissions");
+
+        assert!(matches!(
+            result,
+            Err(NativeShadowTransitionError::Durability(_))
+        ));
+        assert_eq!(
+            store.resolve(&four_tuple, "digest-v1", || panic!("row exists")),
+            ResolveOutcome::Existing(ChallengeState::InFlight)
+        );
+        assert!(!store.evidence_commits.contains_key(&four_tuple));
     }
 
     #[test]
@@ -1159,12 +2063,11 @@ mod tests {
         let registry = parse_fixture(PRODUCTION_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-        let (journal_path, exhaustion_path) =
+        let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("recovery-bootstrap-remainder");
 
         let mut recovery =
-            recover_native_shadow_state(&registry, "digest-v1", &journal_path, &exhaustion_path)
-                .expect("recover");
+            recover_native_shadow_state(&registry, "digest-v1", &journal_path).expect("recover");
         assert!(recovery.stuck_in_flight.is_empty());
         assert_eq!(
             recovery

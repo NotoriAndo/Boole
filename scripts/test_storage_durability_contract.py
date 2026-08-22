@@ -29,9 +29,11 @@ BF.4: `useful_work_store.rs` (useful-work event log + spent mirror)
 joins the set — it reuses the shared durable-append helper and the
 stable-prefix recover path from day one.
 
-Native-shadow phase 1: `native_shadow.rs` (the permanent exhaustion
-ledger backing the `nonIssuable` bootstrap rule) joins the set — same
-reuse-from-day-one pattern as `useful_work_store.rs` above.
+Native-shadow phases 1-2C: `native_shadow.rs` (the single state journal
+that records bootstrap, execution intent, node-owned evidence and the
+combined Consumed+Exhausted terminal fact) joins the set — same
+reuse-from-day-one pattern as `useful_work_store.rs` above. Exhaustion is
+derived from that journal rather than written to a second authority file.
 """
 from __future__ import annotations
 
