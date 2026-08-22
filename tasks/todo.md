@@ -2949,11 +2949,28 @@ HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 R
 - 실패도 원장에 남긴다: E13(2/12 FAILED), E14(substitution HARD-STOP), E20의 1 제외행 — 재시도·은폐 없음.
 - 완료된 옛 backlog: Solidity successor는 E23에서 실패 봉인, Rust tuple successor는 E24~25에서 +197,
   zk-native P0는 E26에서 범위 한정 종료.
-- [ ] **현재 다음 slice — `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1`**: raw-answer JSON을 별도
-      node route로 받고, 노드의 추적·고정 registry에서 실제 checker를 독립 실행한 뒤 비합의 shadow
-      evidence를 생성한다. 기본 OFF. `boole-node→boole-miner` 의존 금지, 기존 `/submit`·`/receipts`
-      재사용 금지, `boole-core`·SharePool·block·reward·P2P·BF.7 변경 금지. checker를 실제 재실행할 수
-      없으면 STOP.
+- [x] **Native shadow Phase 1 — PR #166, `131244f`**: registry/identity/row-owned
+      `registryDigest` + `Disabled`/terminal-history bootstrap 데이터 계층.
+- [x] **Native shadow Phase 2 — PR #167, `4e19d1e`**: challenge 상태기계, durable journal,
+      boot replay/recovery 데이터 계층.
+- [x] **Native shadow Phase 2C — PR #168, `eff95658`**: evidence-first terminal,
+      single-journal consumption/exhaustion projection, strict replay, stuck `InFlight` fail-closed.
+- [ ] **현재 다음 slice — Phase 2D derived admission view**: durable row는 `Consumed`로
+      유지하고 같은 terminal event의 exhaustion projection이 맞을 때만 route-free resolver가
+      `challenge_exhausted`를 파생한다. journal에서 도달 불가능한 stored/bootstrap
+      `ChallengeState::Exhausted` 경로를 제거하고, mismatch는 revival 없이 fail-closed.
+- [ ] **Phase 3A portable safety foundation**: 같은 저널 inode/파일
+      descriptor를 전 프로세스 수명 동안 잡는 nonblocking `flock` 권위를 먼저 닫고,
+      그 뒤 대기열 없는 노드 단위 `native_busy` 1-slot permit을 닫는다. 둘 다 route
+      연결 전 portable foundation이며 full RED matrix GREEN으로 부르지 않는다.
+- [ ] **Native shadow Phase 3B — Linux containment + route/checker execution**: delegated cgroup
+      v2 권한이 있는 named Linux runner, 전용 UID/GID, privilege-drop/ownership 모델을 먼저
+      고정한 후 cgroup/tmpfs/seccomp/Landlock, cleanup/recovery, non-Linux startup refusal,
+      raw-answer route를 RED→GREEN. generic `ubuntu-latest` skip/fake backend로 GREEN 선언 금지.
+- [ ] **Native shadow 최종 관문**: 실제 node-process raw-answer 1회 + 전체 거절/replay
+      matrix. 이때까지 `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN` 미획득. 기본 OFF,
+      `boole-node→boole-miner` 의존·기존 `/submit`/`/receipts` 재사용·`boole-core`/SharePool/
+      block/reward/P2P/BF.7 변경 금지.
 
 ## 경계
 
