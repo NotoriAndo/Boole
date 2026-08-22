@@ -82,6 +82,40 @@ unapproved. A draft that has never been frozen is corrected directly, not supers
   file changes on disk while a challenge is `InFlight`, and the exact ordering/fail-closed rule for
   the `InFlight` → evidence/`Consumed` durable-write sequence if a write partially fails.
 
+A 2026-08-22 fifth operator review confirmed F1-F4's design direction is correct but found the F1-F4
+revision itself introduced one non-implementable execution step and two internal contradictions
+between prose and RED gates, plus one remaining self-sufficiency gap — closed **in place**, again in
+this same document, in sections 7, 9 and 11 below:
+
+* **G1** — section 9's pinned tmpfs mount options included `noexec`, which makes the checker's own
+  normal, legitimate work fail: `checker.py` builds and then executes the compiled test binary from
+  inside this exact tmpfs workspace, so `noexec` turns even a correct, acceptable submission into a
+  `Permission denied` failure before any verdict is ever reached. Separately, the pre-execution
+  ordering sequence was missing three specifics needed to actually implement it: nothing gave the
+  post-privilege-drop unprivileged UID/GID ownership of a workspace root-created with `mode=0700`;
+  nothing made the new mount namespace's mount propagation private, so a mount event could still leak
+  across submissions or back to the node's own namespace; and step 5 named `checker.py`'s own
+  `_set_limits` as something `boole-node` "applies" before `exec()`, which is not implementable as
+  written — `_set_limits` is a function inside `checker.py`'s own code that `checker.py` itself later
+  calls on its own `cargo` child, not an entry point `boole-node` can invoke on `checker.py` from
+  outside before `checker.py` even starts.
+* **G2** — section 6's corrected bootstrap rule (F1) checks the registry's static issuability flags
+  *before* the exhaustion ledger, so a four-tuple that is both ledger-recorded and currently statically
+  disabled bootstraps to `Disabled`. Section 11's gate 6, unrevised, still claimed such a four-tuple
+  bootstraps to `Exhausted` "under every registry snapshot" — the two cannot both hold for the same
+  four-tuple under a snapshot where the static flags currently forbid issuance.
+* **G3** — section 11's gate 22 said cargo/rustc exit code 101 with no corroborating cgroup signal is
+  `DeterministicReject(checker_rejected)` "regardless of stdout/stderr content," which directly
+  contradicts gate 21 (and section 10.2) for the case where the stdout/stderr text *does* match one of
+  `_infrastructure_failure_reason`'s two resource-shortage patterns (genuinely or as a forged string):
+  that case is supposed to go through the text-derived corroboration path, not fall straight through
+  to `checker_rejected`.
+* **G4** — section 7's storage-design paragraph still opened with "unchanged from r2's D3," and section
+  11's STOP-condition paragraph still pointed readers at "r1/r2's STOP conditions," both reintroducing
+  the same need to open superseded documents that F4 was meant to close. Section 7's single-writer
+  lock was also left as an unpinned either/or ("a non-blocking `flock()` or PID-lock file") rather than
+  one definitive mechanism.
+
 This is a **docs-only slice**: it does not edit `policy.json`, `registry-v1.json` or any
 `boole-node`/`boole-lean-runner` code, and it performs no new model measurement or census work.
 Where a concrete numeric default or file name is pinned, it is pinned as the value to implement in
@@ -306,9 +340,9 @@ test-only, deliberately-issuable fixture from ever being mistaken for a real act
 
 ## 7. Durable storage, single-writer lock, and crash recovery order (closes part of E3; revised to close F4's persist-ordering gap)
 
-Storage design is unchanged from r2's D3: no new dependency. State transitions and the exhaustion
-ledger both reuse `crates/boole-node/src/durability.rs`'s durable NDJSON append primitive
-(`append_ndjson_line_durable`) and the `FileBountyEventLedger` append/recover shape from
+State transitions and the exhaustion ledger both reuse two already-tracked primitives directly, with
+no new dependency: `crates/boole-node/src/durability.rs`'s durable NDJSON append primitive
+(`append_ndjson_line_durable`), and the `FileBountyEventLedger` append/recover shape from
 `crates/boole-node/src/bounty_event_store.rs` — confirmed no sqlite/sled dependency exists anywhere
 in the workspace and none is introduced here.
 
@@ -324,11 +358,14 @@ fixed-at-1 invariant (section 8) at exactly the moment containment matters most.
 **Corrected recovery order — per-record, not two global passes, plus a fail-closed rule and an
 OS-level lock:**
 
-1. Acquire an OS-level single-writer lock on the durable ledger file (e.g. a non-blocking `flock()`
-   or PID-lock file), held for the process's entire lifetime. If the lock is already held, refuse to
-   start. This closes a real gap r2's D3 left open: its "atomic CAS" argument for a single
-   in-process lock implicitly assumed single-process operation but named no mechanism that actually
-   prevents a second node process from starting against the same ledger file.
+1. Acquire an OS-level single-writer lock via `flock(2)` (`LOCK_EX | LOCK_NB`) on the durable ledger
+   file itself, held for the process's entire lifetime by keeping the underlying file descriptor open
+   — pinned to this one mechanism, not a separate PID-lock file, which would add its own
+   stale-PID/crash-cleanup failure mode this design otherwise avoids. If the lock cannot be acquired
+   immediately, refuse to start. This closes a real gap this document's earlier "atomic CAS" argument
+   for a single in-process lock left open: an in-process lock implicitly assumes single-process
+   operation but names no mechanism that actually prevents a second node process from starting against
+   the same ledger file.
 2. Replay the durable journal to reconstruct current per-key state.
 3. For each key found in `InFlight` state without a matching terminal `Consumed`/`Exhausted` record,
    processed **one key at a time**: (a) locate and force-clean that key's own cgroup leaf,
@@ -490,9 +527,25 @@ RED→GREEN implementation slice adds to that same tracked file (not edited in t
     process that will become the tree's ancestor, performed as part of the pre-execution ordering
     below), not the node's own default namespace — so the mount is invisible to, and cannot be
     interfered with by, any other concurrent or subsequent submission or by the node process itself.
-    Mount options: `size=536870912,nr_inodes=8192,mode=0700,noexec,nosuid,nodev` — `noexec`/`nosuid`/
-    `nodev` are defense-in-depth (the submission surface is already textually restricted, but the
-    mount itself should not be a viable place to stage an executable or a device node regardless).
+    Mount options, corrected this round: `size=536870912,nr_inodes=8192,mode=0700,nosuid,nodev,
+    uid=<containment-uid>,gid=<containment-gid>` — **not** `noexec`. `checker.py` builds and then
+    executes the compiled test binary from inside this exact workspace (`cargo test` links and runs
+    the test binary under `target/`), so a `noexec` mount would turn even a correct, accepted
+    submission into a `Permission denied` failure before any verdict is ever reached; `noexec` is
+    dropped from this mount for exactly that reason. `nosuid`/`nodev` remain — the workspace still has
+    no legitimate need to host a setuid binary or a device node, and denying those costs nothing this
+    submission surface needs. The workspace's isolation instead comes from layers that do not depend on
+    denying execution: the dedicated unprivileged UID/GID with no supplementary groups and an empty
+    capability set (pre-execution ordering step 4 below), the seccomp/Landlock ruleset (step 6 below),
+    and the cgroup ceilings themselves — none of which are weakened by allowing exec on this one mount.
+    `uid=`/`gid=` are new this round and close a separate, previously unstated gap: the mount is
+    created while the spawning process is still privileged (pre-execution ordering step 2, before the
+    privilege drop at step 4), with `mode=0700` — without an explicit owner, that leaves the workspace
+    root-owned and unwritable by the unprivileged identity the process drops to moments later. Passing
+    `uid=<containment-uid>,gid=<containment-gid>` — the same dedicated unprivileged UID/GID that step 4
+    switches to — assigns ownership directly at mount time, so the workspace is writable by the
+    process that will actually use it with no separate `chown` step, and no separate failure mode for
+    that step to have.
     Teardown: a private mount namespace's lifetime is scoped to the tasks that hold a reference to
     it, not to an explicit `umount` call; once every task inside it is confirmed dead (which cleanup
     already requires, via `populated=0`, per contract item 6 above), the kernel tears the namespace
@@ -549,8 +602,13 @@ defense-in-depth layer, not superseded by the outer cgroup/namespace/seccomp lay
 1. **cgroup join.** Move the about-to-be-spawned process into its dedicated, freshly created leaf
    cgroup (race-free at spawn time, as stated above) — first, so every later step is itself already
    resource-bounded.
-2. **Mount namespace and tmpfs.** `unshare(CLONE_NEWNS)` into a private mount namespace and mount the
-   tmpfs workspace at the target path with the options pinned above.
+2. **Mount namespace and tmpfs.** `unshare(CLONE_NEWNS)` into a private mount namespace; immediately
+   remount the root filesystem recursively as private
+   (`mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL)`), new this round — required because Linux's
+   default root-mount propagation type is `shared` on most distributions, so `unshare(CLONE_NEWNS)`
+   alone does not by itself stop a mount event inside this namespace from propagating out to the
+   node's own default namespace or to any other submission's namespace, or vice versa; only after that
+   remount, mount the tmpfs workspace at the target path with the options pinned above.
 3. **FD block.** Close, or mark `FD_CLOEXEC`, every inherited file descriptor above stdin/stdout/
    stderr the spawning process held open — including any handle onto the durable ledger, any cgroup
    control file, and any other submission's workspace — via `close_range()` covering the full
@@ -559,8 +617,21 @@ defense-in-depth layer, not superseded by the outer cgroup/namespace/seccomp lay
    supplementary groups; drop the full capability set to empty; set `no_new_privs=1`
    (`prctl(PR_SET_NO_NEW_PRIVS, 1)`) so nothing downstream can ever regain a privilege this step
    removed.
-5. **RLIMIT_\* application.** `checker.py`'s own existing `_set_limits` step, unchanged, applied here
-   as the inner defense-in-depth layer behind the outer cgroup ceilings above.
+5. **`boole-node`'s own outer `RLIMIT_*` application — corrected this round, distinct from
+   `checker.py`'s own `_set_limits`.** Before `exec()`, `boole-node` itself directly calls
+   `setrlimit(2)` — mirroring `policy.json`'s own `cpuSeconds`/`memoryBytes`/`fileBytes`/`openFiles`
+   ceilings as `RLIMIT_CPU`/`RLIMIT_AS`/`RLIMIT_FSIZE`/`RLIMIT_NOFILE` — on the about-to-be-`exec()`'d
+   process, from its own pre-exec code. This is not, and was incorrectly described in an earlier
+   revision as, `boole-node` "applying `checker.py`'s existing `_set_limits`": `_set_limits` is a
+   function inside `checker.py`'s own Python code, invoked by `checker.py` on its own `cargo` child,
+   and exposes no entry point an external process could call before `checker.py` itself has even
+   started. Limits applied here, at this point in the sequence, are bound to the process image before
+   `exec()` replaces it, so they persist across the exec and are inherited, by ordinary POSIX `rlimit`
+   inheritance, by `checker.py` itself and by every process it later spawns — a fully separate, outer,
+   redundant layer. `checker.py`'s own existing `_set_limits` is unrelated to this step and is
+   unchanged: it continues to run exactly as it does today, entirely inside `checker.py`'s own code, at
+   the point `checker.py` itself spawns `cargo` via `Popen` — an independent inner layer this document
+   does not change and this outer step neither replaces nor calls into.
 6. **seccomp/Landlock.** Apply a seccomp-bpf filter and a Landlock ruleset, layered, denying at
    minimum: `mount`/`umount2`/`unshare`/`setns` (no re-namespacing), `ptrace` (no process
    introspection), all networking beyond what is strictly required (an explicit kernel-enforced
@@ -708,9 +779,11 @@ performs.
 ## 11. Consolidated RED gates and STOP conditions
 
 Supersedes the base document's 8 gates, r1's 25-row table and 14-gate addendum, and r2's 14-gate
-addendum, for implementation purposes. All of the following must have a failing test before
-implementation, in addition to the authority spec's own section 9 gates (which are the outer
-contract and are unaffected):
+addendum, for implementation purposes. This section, together with the authority spec's own section 9
+gates (which are the outer contract and are unaffected), is the **complete** RED-gate and
+STOP-condition list for this document — no cross-reference to the base document's, r1's or r2's own
+gate/STOP lists is needed for implementation. All of the following must have a failing test before
+implementation:
 
 1. `PrecheckReject` never persists evidence and never consumes a challenge (stages 1-4).
 2. `DeterministicReject` always persists evidence and always consumes the challenge (stage 5/6 only).
@@ -724,8 +797,13 @@ contract and are unaffected):
    `activationAllowed: false` and `nonIssuable: true`) bootstraps to `Disabled` — never
    `Active(fresh)`, never `Exhausted` — on a brand-new node with a completely empty exhaustion ledger,
    proving first-activation is blocked, not only revival (section 6).
-6. A four-tuple already recorded in the exhaustion ledger bootstraps to `Exhausted`, never
-   `Active(fresh)` and never `Disabled`, on every subsequent startup, under every registry snapshot.
+6. A four-tuple already recorded in the exhaustion ledger, **and whose current registry snapshot's
+   static flags still permit issuance**, bootstraps to `Exhausted`, never `Active(fresh)`. A four-tuple
+   whose current static flags forbid issuance bootstraps to `Disabled` regardless of what the
+   exhaustion ledger separately records — section 6's check 1 (static issuability) always takes
+   precedence over check 2 (the exhaustion ledger); the ledger's own record of past consumption is
+   never lost, only superseded for serving purposes by the stronger, currently-in-force `Disabled`
+   state.
 7. A test-only registry fixture with `activationAllowed: true`/`nonIssuable: false` is required to
    exercise `Active(fresh)` → `InFlight` → `Consumed` in automated tests; a test asserts production
    configuration never resolves to that test-only fixture's path (section 6).
@@ -768,18 +846,36 @@ contract and are unaffected):
 21. The anti-forgery test from section 10.3: forged resource-shortage-looking stdout/stderr text with
     a normal, unsignaled, uncorroborated exit classifies `DeterministicReject
     (checker_reported_reason_unconfirmed)`.
-22. Cargo/rustc exit code 101 with no corroborating harness-observed resource signal classifies
-    `DeterministicReject(checker_rejected)`, never `RetryableUnavailable`, regardless of stdout/stderr
-    content.
+22. Cargo/rustc exit code 101 whose stdout/stderr text matches **neither** of
+    `_infrastructure_failure_reason`'s two resource-pattern text scans classifies
+    `DeterministicReject(checker_rejected)`, never `RetryableUnavailable` — a positive, unsignaled exit
+    with no matching resource-shortage-looking text never enters section 10.2's text-derived path at
+    all. This gate does not apply, and gate 17/21 govern instead, whenever the text *does* match one of
+    those two patterns (genuinely or as a forged string): that case must go through the corroboration
+    check, never straight to `checker_rejected`.
 23. `cgroup.freeze` + `cgroup.kill` is the only termination path; a kernel lacking `cgroup.kill` fails
     the startup capability probe closed.
 24. `populated=0`, private-mount-namespace reference cleanup, and leaf-cgroup/tmpfs removal are all
     verified on every outcome (success, checker-reported failure, or kill), not only kills.
 25. GREEN is not declared from a run where the containment-dependent suite skipped for lack of real
     cgroup v2 delegation on the CI runner.
+26. A correct, accepted submission successfully builds and executes its compiled test binary from
+    inside the tmpfs workspace — the mount is not `noexec` (section 9), directly guarding against G1's
+    regression class of the containment envelope itself blocking legitimate work.
+27. The tmpfs workspace, once mounted, is writable by the same unprivileged UID/GID pre-execution
+    ordering step 4 drops privileges to, verified via the `uid=`/`gid=` mount options — not
+    root-owned-and-unwritable.
+28. A mount performed inside one submission's private mount namespace after the `MS_REC|MS_PRIVATE`
+    remount is never observable from the node's own default namespace or from any other concurrent
+    submission's private mount namespace.
+29. `boole-node`'s own outer `RLIMIT_*` application (pre-execution ordering step 5) and `checker.py`'s
+    own internal `_set_limits` are exercised as two independent layers: a test with the outer layer's
+    ceiling set below `_set_limits`'s own ceiling shows the outer layer firing first, and a test with
+    only `_set_limits` active (outer layer not yet enforcing) still shows `_set_limits` independently
+    bounding the `cargo` child.
 
-Stop without fallback, in addition to the authority spec's existing STOP list and r1/r2's STOP
-conditions, if any of the following is true:
+Stop without fallback — in addition to the authority spec's own STOP list, which governs
+independently of this document — if any of the following is true:
 
 * a `nonIssuable` challenge with `activationAllowed: false` or `nonIssuable: true` is ever observed
   `Active(fresh)`, at any point, including the very first startup of a node with a completely empty
@@ -791,7 +887,10 @@ conditions, if any of the following is true:
   progressing rows for the same four-tuple;
 * durable evidence is ever produced twice for the same, already-decided four-tuple outcome;
 * the durable ledger can be opened for writing by more than one process at once;
-* a child process for this route is spawned on a non-Linux host; or
+* a child process for this route is spawned on a non-Linux host;
+* a correct, accepted submission is ever rejected because the containment envelope itself denies it a
+  capability it legitimately needs (e.g. execute permission on its own compiled build output, or write
+  permission on its own workspace); or
 * CI declares GREEN without a named, delegation-confirmed Linux runner actually executing the
   containment-dependent suite.
 
@@ -828,10 +927,12 @@ NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: APPROVAL-WITHHELD / CONSOLIDAT
 
 The base document, r1 and r2 remain the historical record of the first three review passes and are
 not edited by this document beyond their own status markers pointing here. A fourth operator review
-of this document itself (2026-08-22) found four further gaps (F1-F4, listed above) and this revision
-closes them in place, in sections 4, 6, 7, 9 and 10. This document still requires operator review
-before it, or any later revision, may be marked
-`NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1-FROZEN`. `boole-node` implementation remains
+of this document itself (2026-08-22) found four further gaps (F1-F4, listed above) and closed them in
+place, in sections 4, 6, 7, 9 and 10. A fifth operator review (2026-08-22) found that revision itself
+left one non-implementable execution step, two prose/RED-gate contradictions and one remaining
+self-sufficiency gap (G1-G4, listed above), and this revision closes those too, in place, in sections
+7, 9 and 11. This document still requires operator review before it, or any later revision, may be
+marked `NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1-FROZEN`. `boole-node` implementation remains
 blocked until an approved revision of this design exists. If this document closes without further
 contradiction, the recommended next step is to proceed directly to RED→GREEN implementation against
 it, rather than iterating a further design-document round.
