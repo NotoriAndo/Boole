@@ -243,7 +243,7 @@ pub fn ensure_manifest(dir: &Path, expected: &StateManifest) -> Result<(), State
 // has no safe wrapper in std; scoping the allow to this one function
 // keeps the rest of the crate under the deny gate.
 #[allow(unsafe_code)]
-fn flock_exclusive_nonblocking(file: &File) -> std::io::Result<()> {
+pub(crate) fn flock_exclusive_nonblocking(file: &File) -> std::io::Result<()> {
     use std::os::unix::io::AsRawFd;
     let fd = file.as_raw_fd();
     let rc = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
@@ -255,7 +255,7 @@ fn flock_exclusive_nonblocking(file: &File) -> std::io::Result<()> {
 }
 
 #[cfg(not(unix))]
-fn flock_exclusive_nonblocking(_file: &File) -> std::io::Result<()> {
+pub(crate) fn flock_exclusive_nonblocking(_file: &File) -> std::io::Result<()> {
     // Non-unix targets are not a supported boole-node deployment; the
     // master plan's L7 contract assumes flock semantics.
     Err(std::io::Error::new(

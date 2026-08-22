@@ -2955,14 +2955,19 @@ HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 R
       boot replay/recovery 데이터 계층.
 - [x] **Native shadow Phase 2C — PR #168, `eff95658`**: evidence-first terminal,
       single-journal consumption/exhaustion projection, strict replay, stuck `InFlight` fail-closed.
-- [ ] **현재 다음 slice — Phase 2D derived admission view**: durable row는 `Consumed`로
+- [x] **Native shadow Phase 2D — PR #170, `33dcc025`**: durable row는 `Consumed`로
       유지하고 같은 terminal event의 exhaustion projection이 맞을 때만 route-free resolver가
       `challenge_exhausted`를 파생한다. journal에서 도달 불가능한 stored/bootstrap
-      `ChallengeState::Exhausted` 경로를 제거하고, mismatch는 revival 없이 fail-closed.
-- [ ] **Phase 3A portable safety foundation**: 같은 저널 inode/파일
-      descriptor를 전 프로세스 수명 동안 잡는 nonblocking `flock` 권위를 먼저 닫고,
-      그 뒤 대기열 없는 노드 단위 `native_busy` 1-slot permit을 닫는다. 둘 다 route
-      연결 전 portable foundation이며 full RED matrix GREEN으로 부르지 않는다.
+      `ChallengeState::Exhausted` 경로를 제거했고 mismatch는 revival 없이 fail-closed.
+- [x] **Phase 3A.1 same-FD journal authority**: 같은 저널 inode/파일 descriptor를
+      전 수명 동안 잡는 nonblocking `flock` 권위 아래 replay·torn-tail 절단·append·fsync를
+      모두 같은 descriptor로 수행한다. symlink/비정규 파일/경로 교체/다른 authority·재개방
+      이어쓰기는 fail-closed. 이는 route 연결 전 portable foundation이며 실제 두 node-process
+      통합 관문이나 full RED matrix GREEN을 뜻하지 않는다.
+- [ ] **현재 다음 slice — Phase 3A.2 node-wide `native_busy`**: 대기열·대기 없이
+      노드 단위 1-slot permit을 획득한 제출만 실행 준비로 진행하고, 겹친 제출은 즉시
+      `RetryableUnavailable(native_busy)`로 돌린다. 정상·오류·panic 모든 경로에서 permit이
+      해제되는 route-free 기반부터 RED→GREEN으로 닫는다.
 - [ ] **Native shadow Phase 3B — Linux containment + route/checker execution**: delegated cgroup
       v2 권한이 있는 named Linux runner, 전용 UID/GID, privilege-drop/ownership 모델을 먼저
       고정한 후 cgroup/tmpfs/seccomp/Landlock, cleanup/recovery, non-Linux startup refusal,
