@@ -426,6 +426,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "boole-native-shadow-protocol"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "boole-node"
 version = "0.1.0"
 dependencies = [
@@ -435,6 +446,7 @@ dependencies = [
  "boole-core",
  "boole-evm-adapter",
  "boole-lean-runner",
+ "boole-native-shadow-protocol",
  "boole-p2p",
  "boole-testkit",
  "clap",

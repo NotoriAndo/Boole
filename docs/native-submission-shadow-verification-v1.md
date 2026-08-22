@@ -239,7 +239,7 @@ Further route-free foundations now narrow the open prerequisite without closing 
   Required `self-test` explicitly fails unless this job succeeds. This GREEN proves only runner
   capability; it does not implement the production launcher/IPC, execute the native checker or
   close the route gate.
-* Phase 3B.2a — the current guarded authority-freeze slice: exact tracked bytes at
+* Phase 3B.2a — PR #175, main `8a773fe`: exact tracked bytes at
   `native/containment/native-shadow-execution-policy-v1.json` and
   `native-shadow-toolchain-identity-v1.json` define the disabled qualification policy, fixed
   service-account UID/GID resolution checks, root-owned install/socket layout, exact framed
@@ -265,9 +265,23 @@ Further route-free foundations now narrow the open prerequisite without closing 
   slice is handshake-only. No launcher, socket, checker process, journal transition or route exists
   in this slice. The toolchain manifest deliberately marks installed Rust files, Python/stdlib and
   system linker/runtime byte provenance as still open activation blockers; its version probes are
-  not described as exact installed-byte reproduction. Current node code also still points at the
-  repository registry fixture and does not strictly deserialize every new installed authority field;
-  the handshake slice must close both gaps before even disabled readiness is accepted.
+  not described as exact installed-byte reproduction. The required Linux capability, self-test and
+  supply-chain jobs all passed in
+  [run 32603937417](https://github.com/NotoriAndo/Boole/actions/runs/32603937417).
+* Phase 3B.2b-0 — the current guarded strict-authority/wire-contract slice: a new minimal shared
+  protocol crate compiles in the exact tracked registry, execution-policy and toolchain-identity
+  bytes; compares those bytes before parsing; rejects BOM, floats and duplicate keys in parsed
+  JSON; rejects unknown or missing fields in the typed registry and qualification messages; models
+  every installed registry field; exposes only validated, non-deserializable authority/message
+  objects to consuming crates; and pins the disabled qualification hello/ready schemas plus four-byte
+  big-endian frame limits. `boole-node` now fixes the production registry path to
+  `/usr/share/boole/native-shadow/registry-v1.json`, opens its final component once with
+  `O_NOFOLLOW`, verifies root ownership/mode on that same file descriptor and explicitly projects
+  the full strict model into the existing lifecycle fields. This slice checks that final file
+  component; root-owned/non-writable ancestor-directory verification remains part of the later
+  installed-authority handshake gate. This slice is authoritative only after
+  its required CI and merge. It does not connect a socket, generate a nonce, authenticate peer
+  credentials, change a journal or spawn any child; those are later handshake slices.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux

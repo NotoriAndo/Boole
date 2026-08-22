@@ -169,7 +169,7 @@ entry becomes authoritative on `main` only after its required CI and merge:
   that the named runner supplies the launcher
   prerequisites; it does not implement the production launcher/IPC, execute the native checker or
   close containment.
-* **Phase 3B.2a** — the current guarded authority-freeze slice: the exact tracked bytes at
+* **Phase 3B.2a** — PR #175, main `8a773fe`: the exact tracked bytes at
   `native/containment/native-shadow-execution-policy-v1.json` pin the Linux platform, service
   accounts and their resolution invariants, installation ownership/modes, closed Unix-socket
   message schemas, framing and size ceilings, the exact five Linux capability sets, cgroup/tmpfs/
@@ -177,11 +177,23 @@ entry becomes authoritative on `main` only after its required CI and merge:
   `native-shadow-toolchain-identity-v1.json` separately pins the Rust archive/commit authority and
   the qualification interpreter compatibility probe, while explicitly leaving installed-byte
   provenance closed to execution. The
-  qualification registry binds both raw files. This slice freezes authority only: no launcher
-  binary, socket, child process, checker, journal transition or route is created. It is authoritative
-  only after its required CI and merge.
+  qualification registry binds both raw files. This slice froze authority only: no launcher
+  binary, socket, child process, checker, journal transition or route was created. The required
+  named-Linux, self-test and supply-chain jobs passed in CI run `32603937417` before merge.
+* **Phase 3B.2b-0** — the current guarded strict-authority/wire-contract slice: the minimal
+  `boole-native-shadow-protocol` crate embeds the three exact tracked authority files, rejects
+  byte differences before interpreting installed authority, rejects duplicate keys and
+  floating-point JSON, strictly rejects unknown or missing fields in every registry and
+  qualification hello/ready message, keeps public verified/message objects non-deserializable and
+  non-forgeable outside the crate, and provides the fixed four-byte big-endian framed
+  JSON caps. `boole-node` replaces its repository-fixture production path with the literal installed
+  `/usr/share/boole/native-shadow/registry-v1.json` path and converts the full strict registry into
+  its lifecycle projection only after exact-byte and cross-digest verification. This slice becomes
+  authoritative only after required CI and merge. It creates no socket, launcher, nonce, child,
+  checker result, journal transition or route.
 
-All nine are internal, currently unwired `boole-node` foundations or infrastructure gates. They do
+All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
+gates. They do
 **not** implement an
 HTTP endpoint, spawn the checker, activate the production registry, change SharePool/block/reward/
 P2P/consensus state, or earn `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`. Phase 3A.1's focused
@@ -616,14 +628,19 @@ version probes pass. Evidence `toolchainDigest` means this tracked compatibility
 digest, not a digest improvised from a request-selected channel name or a claim that unrecorded
 installed bytes were reproduced.
 
-Two node-side compatibility gaps are explicit next-slice blockers, not silently claimed closed by
-this file freeze. Current `boole-node` still allowlists the repository fixture path rather than the
-installed `/usr/share/boole/native-shadow/registry-v1.json`, and its registry serde model does not
-yet strictly require the new top-level policy/toolchain bindings and per-template manifest/intake
-fields. The handshake implementation must move both sides to the installed path, reject unknown or
-missing fields, and prove the parsed model binds the exact installed bytes. Until then no launcher
-readiness result can activate execution. The three installed-runtime provenance manifests above are
-a separate activation blocker and also remain open.
+Phase 3B.2b-0 is the guarded slice that closes the two node-side compatibility gaps originally
+recorded here: production uses the literal installed
+`/usr/share/boole/native-shadow/registry-v1.json` path, and the shared strict registry model requires
+the top-level policy/toolchain bindings plus every per-template manifest/intake field before
+explicitly projecting lifecycle fields. Recursive duplicate keys, floats, BOM, unknown and missing
+registry fields fail before that projection; policy and toolchain files remain opaque exact-byte
+authorities after their JSON syntax check. This closure becomes authoritative only after the slice's
+required CI and merge. The actual disabled handshake must still open and authenticate the other two
+installed authority copies, compare all three exact bytes/digests and reach mutual EOF without state
+change. Phase 3B.2b-0 validates the registry's final opened file descriptor; validation of every
+ancestor as root-owned and non-writable remains part of that later installed-authority handshake.
+The three installed-runtime provenance manifests above are a separate activation blocker and
+also remain open.
 
 **Dedicated identities, fixed without unsafe machine-global numeric assumptions.** The service
 accounts are exactly `boole-node` and `boole-native-checker`, each with a same-named primary group.
@@ -1261,8 +1278,9 @@ independently of this document — if any of the following is true:
   and zero unexpected direct cgroup children;
 * any execution report can reach ACCEPT or deterministic rejection with a mismatched PID, authority
   digest, wait state, timeout/output status, stderr, parsed result, or unknown checker reason; or
-* the current repo-fixture registry path/model is treated as if it already implemented the strict
-  installed `/usr/share/boole/native-shadow/registry-v1.json` contract.
+* any caller bypasses the shared strict authority parser, substitutes a repository fixture for the
+  installed `/usr/share/boole/native-shadow/registry-v1.json`, or accepts readiness without checking
+  all three installed authority files against the compiled exact bytes.
 
 ## 12. Relationship to the authority spec, BF receipts, and completion label
 
