@@ -142,12 +142,17 @@ entry becomes authoritative on `main` only after its required CI and merge:
 * **Phase 3A.1** — PR #171, main `6cc34b4`: one non-cloneable authority holds a nonblocking
   lifetime `flock`; replay, torn-tail truncation, append and `fsync` use its same file descriptor,
   while path replacement and authority substitution fail closed.
-* **Phase 3A.2** — the current guarded route-free slice: one atomic RAII single-slot primitive is ready
-  for one future AppState-owned, node-wide instance. Busy acquisition returns exact `native_busy`;
-  normal, error and panic-unwind paths release it, and concurrent contenders admit exactly one.
-  The actual AppState/route ordering remains unimplemented.
+* **Phase 3A.2** — PR #172, main `34c33b6`: one atomic RAII single-slot primitive is ready for one
+  future AppState-owned, node-wide instance. Busy acquisition returns exact `native_busy`; normal,
+  error and panic-unwind paths release it, and concurrent contenders admit exactly one. The actual
+  AppState/route ordering remains unimplemented.
+* **Phase 3B.0** — the current guarded policy-binding slice: the frozen checker-internal policy and
+  the future node-owned execution/containment policy have separate identities. New rows and journal
+  events bind `executionPolicyDigest`; new evidence is `boole.native-shadow.evidence.v2`, while
+  legacy v1 evidence and unversioned journal events remain read-only replay inputs. The production
+  containment-policy bundle and actual Linux executor are not part of this slice.
 
-All six are internal, currently unwired `boole-node` foundations. They do **not** implement an
+All seven are internal, currently unwired `boole-node` foundations. They do **not** implement an
 HTTP endpoint, spawn the checker, activate the production registry, change SharePool/block/reward/
 P2P/consensus state, or earn `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`. Phase 3A.1's focused
 lock test uses two opens in one process and does not close the later real two-node-process gate.
@@ -182,11 +187,12 @@ The verdict vocabulary, after r1's C1 split and r2's D1 split, is final as follo
 
 * **`PrecheckReject`** — route-local only; does not change `boole_lean_runner::LeanVerdict` or
   `ShareEvidenceVerdict`. Reached only in decision-path stages 1-4 (decode/size, identity
-  resolution, challenge state check, intake). Never persists `boole.native-shadow.evidence.v1` and
+  resolution, challenge state check, intake). Never persists either native-shadow evidence version and
   never consumes a challenge, because the checker was never reached. Reason codes:
   `malformed_input`, `unknown_identity`, `registry_drift` (section 4 below — now covers both a
   torn/inconsistent read *and* a live registry-file edit observed against an already-bootstrapped
-  row), `challenge_not_found`, `challenge_exhausted` (section 6 below), `challenge_disabled`
+  row), `execution_policy_drift` (the current node-owned policy differs from the immutable row
+  binding), `challenge_not_found`, `challenge_exhausted` (section 6 below), `challenge_disabled`
   (section 6 below — new, distinct from `challenge_exhausted`), `challenge_stale` (reserved for the
   future real-issuance path only — see section 6), `intake_rejected`.
 * **`DeterministicReject`** — reached only in decision-path stage 5/6, always persists evidence and
@@ -537,14 +543,25 @@ The leaf cgroup is assigned to the spawned process race-free at spawn time (via 
 `CLONE_INTO_CGROUP`, or by writing to `cgroup.procs` before the process execs). macOS has no
 equivalent kernel primitive; its treatment is stated in full, without qualification, below.
 
-**Concrete values, pinned.** `native/checker/rust-tuple-struct-project-v1/policy.json` already
+**Two policy owners; the frozen checker policy is byte-preserved.**
+`native/checker/rust-tuple-struct-project-v1/policy.json` already
 tracks real numeric ceilings — `wallSeconds: 60`, `taskTotalWallSeconds: 90`, `cpuSeconds: 120`,
 `memoryBytes: 2147483648` (2 GiB), `outputBytes: 1048576`, `fileBytes: 67108864`,
 `openFiles: 128` — applied today only as process-level `RLIMIT_*` values inside
 `checker.py`'s `_set_limits`, which its own comment states "requires a dedicated cgroup or PID
 namespace and is outside this non-activatable qualification release" for process-count containment.
-This document pins the cgroup-level values that close that stated gap, as new fields the later
-RED→GREEN implementation slice adds to that same tracked file (not edited in this docs-only round):
+That file's SHA-256 (`940bc5d8…`) is already part of the checker release, registry and real-ACCEPT
+parity history and **must not be edited** to add node-level cgroup settings. Checker-internal policy
+remains identified by evidence `policyDigest`.
+
+The cgroup-level values below belong to a separate, node-owned containment-policy bundle. Its exact
+raw-byte SHA-256 is `executionPolicyDigest`, bound independently through every new state row,
+journal event and v2 evidence object. Phase 3B.0 implements that binding before a production bundle
+exists; it does not invent placeholder policy bytes. The later Linux slice may freeze the bundle only
+after its UID/GID, privilege model and enforcement profiles are concrete and its named Linux job
+actually exercises them. The node will compile the final policy bytes into the binary rather than
+accept a request-, environment- or CWD-selected policy path. The following are the values that bundle
+must contain:
 
 * **`pidsMax: 128`** — mirrors the existing `openFiles: 128` value for consistency. `cargo`'s
   `testArgs` already force `-j 1` (single-job build), and the submission surface is denied
@@ -960,9 +977,13 @@ independently of this document — if any of the following is true:
 ## 12. Relationship to the authority spec, BF receipts, and completion label
 
 Unchanged from the base document sections 8 and 10 and the authority spec sections 6, 10 and 11:
-this document does not change the authority spec's trust rule, input contract, evidence shape,
-activation boundary or completion label. `boole.native-shadow.evidence.v1`'s shape is unchanged —
-section 10's classification-override annotation is non-binding telemetry, not a schema change. Once
+this document does not change the authority spec's trust rule, input contract, activation boundary
+or completion label. Historical `boole.native-shadow.evidence.v1` remains a read-only replay format
+whose `policyDigest` identifies the checker-internal policy. Every new ACCEPT or
+`DeterministicReject` evidence write uses `boole.native-shadow.evidence.v2`, adding required
+`executionPolicyDigest` for the separate node-owned containment policy; `policyDigest` keeps its
+original meaning. Section 10's
+classification-override annotation remains non-binding telemetry. Once
 an implementation passes this document's section 11 gates together with the authority spec's own
 section 9 gates, plus one real node-process raw-answer run on the named Linux runner (section 10),
 the authority spec's section 4 second prerequisite closes and the combined milestone may be
@@ -988,8 +1009,9 @@ second prerequisite and do not change
 
 ```
 NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: IMPLEMENTATION-BASELINE-APPROVED
-IMPLEMENTATION: PARTIAL (PHASE-1 / PHASE-2 / PHASE-2C / PHASE-2D LANDED;
-PHASE-3A.1 / PHASE-3A.2 ROUTE-FREE FOUNDATIONS)
+IMPLEMENTATION: PARTIAL (PHASE-1 / PHASE-2 / PHASE-2C / PHASE-2D / PHASE-3A.1 /
+PHASE-3A.2 LANDED; PHASE-3B.0 CURRENT GUARDED POLICY-BINDING SLICE, LANDED ONLY AFTER ITS
+REQUIRED CI AND MERGE)
 CONTAINMENT-ROUTE-GREEN: OPEN / NAMED-LINUX-INFRASTRUCTURE-BLOCKED
 ```
 
