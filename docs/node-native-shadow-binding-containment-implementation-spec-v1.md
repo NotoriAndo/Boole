@@ -592,7 +592,7 @@ remains identified by evidence `policyDigest`.
 The cgroup-level values below belong to a separate, node-owned containment-policy bundle. Phase
 3B.2a freezes its exact tracked bytes at
 `native/containment/native-shadow-execution-policy-v1.json`; their raw-byte SHA-256 is
-`d4a30664086018c70080fda03c8ac315d8b43ef04e6702cd28835aac88b2dc0f`. The registry's top-level
+`8bf317bec1cf31b7e4dc0ac67cac3c6fc714fb123025abbe6194038684789489`. The registry's top-level
 `executionPolicySha256` binds that digest, and the same value is the `executionPolicyDigest` bound
 independently through every new state row, journal event and v2 evidence object. The checker-owned
 `policy.json` remains byte-preserved and keeps its separate `policyDigest` meaning.
@@ -699,10 +699,15 @@ ready frame, launcher-owned startup recovery must be complete; the typed frame a
 32-byte launcher-instance ID obtained once from `getrandom(2)` at launcher startup with no fallback,
 and asserts zero active leaves, zero unexpected direct cgroup children, and a verified
 manager subgroup. That path changes
-no durable challenge state, starts no child and returns no report. Receiving an execute frame under
-this release is a protocol error that closes the connection without a report or spawn. This explicit
-path is what the next handshake-only implementation can test; it does not pretend that a disabled
-release can execute a checker.
+no durable challenge state, starts no untrusted checker or execution child and returns no report.
+The launcher may, before socket bind, spawn only the exact root-owned Rust/Cargo/Python compatibility
+probe commands named in the tracked toolchain-identity manifest. Those trusted fixed probes neither
+receive submission bytes nor enter a challenge cgroup, and their failure withholds readiness. This
+is the complete meaning of `launcherSpawnAllowed=false`; it does not contradict the manifest's
+`runBeforeSocketBind` probe requirement. Receiving an execute frame under this release is a protocol
+error that closes the connection without a report or untrusted spawn. This explicit path is what the
+next handshake-only implementation can test; it does not pretend that a disabled release can execute
+a checker.
 
 The node, not the miner and not the launcher, runs the frozen
 `RUST-TUPLE-STRUCT-NATIVE-PROOF-INTAKE-V1` extraction over the raw UTF-8 answer. The execute message
@@ -1226,6 +1231,10 @@ implementation:
     persist and consume, retryable outcomes do neither.
 40. Submission-digest test vectors distinguish 64-byte ASCII-hex template/challenge fields from
     decoded 32-byte values and prove the exact field ordering and length-prefix rules.
+41. With `activationAllowed=false`, the launcher starts no checker or other untrusted execution
+    child and accepts no execute frame, while the exact toolchain-manifest Rust/Cargo/Python identity
+    probes are the only permitted pre-bind child commands; any other spawn or any probe drift
+    withholds readiness without journal mutation or report creation.
 
 Stop without fallback — in addition to the authority spec's own STOP list, which governs
 independently of this document — if any of the following is true:

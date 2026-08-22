@@ -248,7 +248,10 @@ Further route-free foundations now narrow the open prerequisite without closing 
   crash-cleanup contract. The registry binds both raw digests. Because this release remains
   inactive, its only normal IPC completion is the separate request-free
   `qualification-hello → qualification-ready(activationAllowed=false) → EOF`; it
-  changes no durable state and starts no child. Its ready frame is also the authenticated recovery
+  changes no durable state and starts no untrusted checker or execution child. Before socket bind,
+  the launcher may run only the exact fixed Rust/Cargo/Python identity probes named by the tracked
+  toolchain manifest; those trusted compatibility probes cannot consume a challenge or produce a
+  report. Its ready frame is also the authenticated recovery
   barrier: the launcher must first prove a verified manager subgroup, zero active run leaves and zero
   unexpected direct cgroup children. The setgid runtime-directory contract creates the socket with
   the expected root:node group without `CAP_CHOWN`. The future execution contract uses one

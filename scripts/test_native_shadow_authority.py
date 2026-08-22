@@ -406,6 +406,13 @@ class NativeShadowAuthorityTests(unittest.TestCase):
                 ],
                 "nodeDurableStateChangeAllowed": False,
                 "launcherSpawnAllowed": False,
+                "launcherSpawnAllowedMeaning": (
+                    "no-untrusted-checker-or-execution-child"
+                ),
+                "trustedIdentityProbeSpawnAllowed": True,
+                "trustedIdentityProbeCommands": (
+                    "exact-toolchain-identity-manifest-probes-only-before-socket-bind"
+                ),
                 "launcherReportAllowed": False,
                 "launcherInstanceIdSource": (
                     "getrandom:32-bytes:no-fallback-at-launcher-startup"
