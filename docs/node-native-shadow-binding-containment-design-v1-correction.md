@@ -2,6 +2,10 @@
 
 Status: **APPROVAL WITHHELD ON THE BASE DOCUMENT — this correction is itself unreviewed. No
 implementation, no endpoint, no consensus change.**
+**2026-08-22 round-2 operator review: five further contradictions found. This document is preserved
+unchanged as the historical record of the first correction pass; it is superseded for implementation
+purposes by `docs/node-native-shadow-binding-containment-design-v1-correction-r2.md`, which controls
+wherever the two disagree.**
 
 `docs/node-native-shadow-binding-containment-design-v1.md` ("the base document") is preserved
 unchanged as the historical record of the first design pass. Its 2026-08-22 operator review found
@@ -295,3 +299,9 @@ The base document remains the historical record of the first design pass and is 
 correction beyond its own status marker pointing here. This correction document itself requires
 operator review before it, or any later revision, may be marked approved. `boole-node`
 implementation remains blocked until an approved revision of this design exists.
+
+**This correction did not close.** 2026-08-22 round-2 operator review found five further
+contradictions; see
+`docs/node-native-shadow-binding-containment-design-v1-correction-r2.md`. This document remains
+historical and unedited beyond this status note; the round-2 document controls for implementation
+purposes.
