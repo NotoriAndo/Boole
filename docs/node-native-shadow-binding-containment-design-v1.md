@@ -1,6 +1,10 @@
 # Node-native shadow binding and containment design v1
 
 Status: **DESIGN FROZEN — no implementation, no endpoint, no consensus change in this slice.**
+**2026-08-22 operator review: APPROVAL WITHHELD, CORRECTION REQUIRED. This document is preserved
+unchanged as the historical record of the first design pass; it is superseded for implementation
+purposes by `docs/node-native-shadow-binding-containment-design-v1-correction.md`, which controls
+wherever the two disagree.**
 
 This document designs, but does not implement, the **second** open route prerequisite named in
 `docs/native-submission-shadow-verification-v1.md` section 4: "the node's binding and replay RED
@@ -332,3 +336,8 @@ That label means the binding/replay state machine and the process-tree containme
 specified and approved for implementation. It does not mean any of it is implemented, does not
 close the authority spec's section 4 second prerequisite, and does not change
 `LLM-MINEABLE-ELIGIBLE-V5`, `mineable_now` or any consensus, reward or P2P state.
+
+**This label has not been earned.** 2026-08-22 operator review withheld approval and required six
+corrections; see `docs/node-native-shadow-binding-containment-design-v1-correction.md`. This
+document remains historical and unedited beyond this status note; the correction document controls
+for implementation purposes. `boole-node` implementation may not begin under this document alone.
