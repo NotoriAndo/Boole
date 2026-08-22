@@ -35,9 +35,11 @@ jobs:
         run: sudo ./scripts/native-shadow-containment-capability-probe.sh
 
       - name: Exercise enforced seccomp and Landlock behavior
-        run: >-
-          cargo test --locked -p boole-lean-runner --lib
-          configure_child_sandbox_enforce -- --nocapture
+        run: |
+          set -euo pipefail
+          cargo build --locked -p boole-lean-runner --bin sandbox_probe
+          cargo test --locked -p boole-lean-runner --lib \
+            configure_child_sandbox_enforce -- --nocapture
 
   self-test:
     name: self-test

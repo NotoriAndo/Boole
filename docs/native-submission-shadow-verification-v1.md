@@ -226,10 +226,13 @@ Further route-free foundations now narrow the open prerequisite without closing 
   unversioned journal events remain read-only replay inputs. This slice does not yet freeze the
   production containment-policy bundle or execute a checker.
 * Phase 3B.1 — the current guarded infrastructure-capability slice: a named `ubuntu-24.04` job
-  actually probes delegated cgroup v2, user/mount namespaces, executable bounded tmpfs, privilege
-  removal, freeze/kill/cleanup and the existing enforced seccomp/Landlock behavior. Required
-  `self-test` explicitly fails unless that job succeeds. A pass proves only runner capability; it
-  does not freeze production policy bytes, execute the native checker or close the route gate.
+  probes delegated cgroup v2, a separate minimal privileged-launcher boundary, mount/PID namespaces,
+  executable bounded tmpfs, complete privilege removal, freeze/kill/cleanup and the existing enforced
+  seccomp/Landlock behavior. The first PR #174 run kept the required gate RED after the runner denied
+  the earlier unprivileged-userns private-mount transition; no sysctl/AppArmor bypass or criterion
+  relaxation is allowed. Required `self-test` explicitly fails unless the successor job succeeds. A
+  pass proves only runner capability; it does not implement the production launcher/IPC, freeze
+  production policy bytes, execute the native checker or close the route gate.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux

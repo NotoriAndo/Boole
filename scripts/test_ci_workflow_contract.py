@@ -91,6 +91,12 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         )
         self.assertNotIn("continue-on-error:", job)
         self.assertNotRegex(job, re.compile(r"\bskip\b", re.IGNORECASE))
+        self.assertIn(
+            "cargo build --locked -p boole-lean-runner --bin sandbox_probe",
+            job,
+            "the lib tests spawn the sibling sandbox_probe binary; a clean runner must "
+            "build it explicitly before the filtered --lib test",
+        )
 
     def test_required_self_test_cannot_hide_a_failed_probe(self):
         job = self._job("self-test")
@@ -125,7 +131,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "cgroup.kill",
             "populated 0",
             "unshare",
-            "--map-auto",
+            "--propagation unchanged",
             "MS_REC|MS_PRIVATE",
             "tmpfs",
             "nosuid,nodev",
@@ -133,8 +139,37 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "--inh-caps=-all",
             "--ambient-caps=-all",
             "NoNewPrivs",
+            "privileged-launcher",
+            "CapabilityBoundingSet=CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN",
+            "failure-injection",
+            "cleanup_cgroup_leaf_strict",
+            "cleanup_cgroup_leaf_best_effort",
+            "dropped child did not set all UID slots",
+            "dropped child did not set all GID slots",
+            "00000000002001c0",
+            "privileged launcher has unexpected ${field}",
+            "cleanup failure injection left a live child",
+            "trap \"rm -f '$report'\" EXIT",
+            "fail-before-ready",
+            "expected-failure transient service unexpectedly succeeded",
+            "expected-failure transient cgroup was not removed",
+            "expected-failure namespace temp tree was not removed",
         ):
             self.assertIn(required, body, f"probe is missing required operation {required!r}")
+
+        for forbidden in (
+            "--map-root-user",
+            "--map-auto",
+            "--mount-proc",
+            "/etc/subuid",
+            'User=$probe_user',
+        ):
+            self.assertNotIn(
+                forbidden,
+                body,
+                "the actual Ubuntu gate rejected the unprivileged-userns design; "
+                "the successor must probe a separate minimal privileged launcher",
+            )
 
         self.assertNotIn(
             '[[ ! -s "$delegated/cgroup.procs" ]]',
@@ -143,6 +178,16 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "the probe must read cgroup.procs rather than inspect st_size",
         )
         self.assertIn('$(<"$delegated/cgroup.procs")', body)
+        self.assertRegex(
+            body,
+            re.compile(
+                r"mount --make-rprivate /\s+"
+                r"mount -t proc -o nosuid,nodev,noexec proc /proc\s+"
+                r"mount -t tmpfs"
+            ),
+            "the child mount namespace must become recursively private before its "
+            "first new mount, including the private /proc mount",
+        )
         self.assertIn(
             "trap cleanup_namespace_probe EXIT",
             body,
@@ -154,11 +199,18 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             body,
             re.compile(
                 r'if \[\[ ! -e "\$ready" \]\]; then\s+'
-                r'die "user/mount namespace probe failed before signaling readiness"'
+                r'die "mount/PID namespace probe failed before signaling readiness"'
             ),
             "a namespace that never becomes ready must enter the EXIT cleanup trap "
             "immediately instead of blocking in wait",
         )
+        self.assertNotIn(
+            "trap cleanup_leaf EXIT",
+            body,
+            "an EXIT trap runs after function-local variables are gone; cgroup cleanup "
+            "must capture its leaf path instead of closing over a local",
+        )
+        self.assertIn("cleanup_cgroup_leaf", body)
 
     def test_spec_uses_the_kernel_valid_unthrottled_cpu_wire_value(self):
         body = NATIVE_CONTAINMENT_SPEC.read_text(encoding="utf-8")
@@ -168,6 +220,24 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "cpu.max PERIOD must be numeric even when MAX is unlimited",
         )
         self.assertIn("`max 100000`", body)
+        self.assertIn("boole-node` remains unprivileged", body)
+        self.assertIn("CLONE_NEWPID", body)
+        self.assertIn("private `/proc`", body)
+        self.assertNotIn(
+            "`boole-node` itself directly calls\n   `setrlimit(2)`",
+            body,
+            "the separate launcher, not the unprivileged node, owns pre-exec RLIMIT setup",
+        )
+        self.assertNotIn(
+            "`boole-node`'s own outer",
+            body,
+            "outer execution ceilings belong to the separate launcher boundary",
+        )
+        self.assertNotIn(
+            "then irreversibly becomes the checker identity",
+            body,
+            "the root monitor launcher stays outside; only its child drops to the checker identity",
+        )
         self.assertNotIn(
             "tmpfs** mount over a loopback device",
             body,
