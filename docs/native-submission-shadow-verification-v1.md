@@ -101,8 +101,10 @@ surface must pass two distinct parity gates before the route is implemented:
   registry and evidence misuse — **design frozen 2026-08-22, see
   `docs/node-native-shadow-binding-containment-design-v1.md`; operator review 2026-08-22 withheld
   approval and required six corrections, see
-  `docs/node-native-shadow-binding-containment-design-v1-correction.md`; implementation still
-  open and blocked until that correction itself is reviewed**.
+  `docs/node-native-shadow-binding-containment-design-v1-correction.md`; a second 2026-08-22 review
+  found five further contradictions, see
+  `docs/node-native-shadow-binding-containment-design-v1-correction-r2.md`; implementation still
+  open and blocked until that round-2 correction itself is reviewed**.
 
 Entry 27's `FixedVerdictChecker` reject matrix is miner-wiring evidence, not proof that the actual
 checker produced those negative verdicts. Path strings, timing and telemetry need not be byte
@@ -206,6 +208,13 @@ It binds:
 
 An operational execution identifier and resource telemetry may accompany the evidence, but they
 are not part of the deterministic verdict digest or any future BF.3 receipt mapping.
+
+_Clarified 2026-08-22 (see `docs/node-native-shadow-binding-containment-design-v1-correction-r2.md`):
+"deterministic rejection" above means the actual pinned checker's own semantic judgment
+(decision-path stage 5/6 above), not any rejection reached during stages 1–4. A route may reject a
+submission before ever reaching the checker (malformed input, unknown identity, stale challenge,
+registry drift, and similar); such a rejection does not produce this evidence object, since no
+checker verdict was ever reached._
 
 This object is **shadow evidence, not a consensus receipt and not a share**. It cannot alter
 `SharePool`, block construction, rewards, peer state or `mineable_now`. Replaying an already-used
@@ -320,7 +329,7 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `49b7d2ee80c319ef1d5268855685092748d63e47c20a08d4b80f73cf1570745c` |
 | `local-docs/todo/todo-l1-network-master.md` | `adcd7cc549ad80112ec727adf73b3b4fbea3bd546c0464be28b732e5ed771fc7` |
-| `local-docs/todo/EXECUTION-ORDER.md` | `01243627ca10afa2bb1fdc1aa3b5f3ed320e3a9509f7afe8aecba7fc3a9bc570` (updated 2026-08-22c — correction-requested cursor sync below) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `8e2735c882fabae6c07c4d394b166a16db4bd122f6b559f694e08ecd517ca2b8` (updated 2026-08-22d — round-2 correction cursor sync below) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `255128d28961d760311680f1dfddeed01ad4f7c1509e0be7705aea6347b00f39` |
 | `local-docs/todo/thesis-realization-roadmap.md` | `a0a25a0f51b39bd284f85b3a009655eaace9ca244b0edbd4c9f4e8c2d1a44f5c` |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `d3a312acc59f73358d70820d5d5e4afd1dbec5f60bbe9e9d98e7c11f78b8b90a` |
@@ -347,3 +356,11 @@ operator review of that design withheld approval and required six corrections, r
 current-position marker to "awaiting review of the correction document itself," again by appending
 a new dated cursor block rather than editing the prior ones. The other five rows remain at their
 original 2026-08-21 synchronization point.
+
+A fourth, same-day (2026-08-22d) update to `local-docs/todo/EXECUTION-ORDER.md` records that a
+second operator review of that correction document confirmed the original six corrections closed
+but found five further contradictions, resolved in
+`docs/node-native-shadow-binding-containment-design-v1-correction-r2.md`, and moves the
+current-position marker to "awaiting review of the round-2 correction document itself," again by
+appending a new dated cursor block rather than editing the prior ones. The other five rows remain
+at their original 2026-08-21 synchronization point.
