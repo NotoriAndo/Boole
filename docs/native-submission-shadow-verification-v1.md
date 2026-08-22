@@ -219,16 +219,22 @@ Further route-free foundations now narrow the open prerequisite without closing 
   invokes that fixture or primitive yet, it does not prove request-level ordering. AppState
   ownership and stage-5 route acquisition remain unimplemented, so the full request-level gate is
   still open.
-* Phase 3B.0 — PR #173, the current guarded route-free slice: the frozen checker-internal policy keeps its
+* Phase 3B.0 — PR #173, the landed guarded route-free slice: the frozen checker-internal policy keeps its
   existing identity and bytes, while a separate node-owned execution/containment-policy identity is
   bound through new state rows, versioned journal events and evidence. New ACCEPT or
   `DeterministicReject` evidence uses `boole.native-shadow.evidence.v2`; legacy v1 evidence and
   unversioned journal events remain read-only replay inputs. This slice does not yet freeze the
   production containment-policy bundle or execute a checker.
+* Phase 3B.1 — the current guarded infrastructure-capability slice: a named `ubuntu-24.04` job
+  actually probes delegated cgroup v2, user/mount namespaces, executable bounded tmpfs, privilege
+  removal, freeze/kill/cleanup and the existing enforced seccomp/Landlock behavior. Required
+  `self-test` explicitly fails unless that job succeeds. A pass proves only runner capability; it
+  does not freeze production policy bytes, execute the native checker or close the route gate.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
-containment-backed cleanup, no Linux cgroup/tmpfs/seccomp/Landlock execution and no real
-named-Linux node run. Therefore this is not `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`.
+containment-backed per-submission cleanup and no native-checker execution under the combined Linux
+cgroup/tmpfs/seccomp/Landlock envelope. The capability probe is not a real named-Linux node run.
+Therefore this is not `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`.
 
 ## 5. Required decision path
 
@@ -456,5 +462,6 @@ The later 2026-08-23 implementation addendum in section 4.4 supersedes only that
 progress cursor: Phase 2D and the route-free Phase 3A.1 same-FD journal foundation are now closed.
 The route-free Phase 3A.2 `native_busy` permit is also implemented, while its AppState/route wiring,
 containment-backed cleanup, checker wiring, the named-Linux run and the full RED matrix remain open.
-Phase 3B.0 is the current guarded typed execution-policy/v2 evidence propagation foundation;
-production policy bytes and provenance, route/checker wiring and Linux execution remain open.
+Phase 3B.0 is the landed typed execution-policy/v2 evidence propagation foundation. Phase 3B.1 is
+the current named-Linux prerequisite probe; production policy bytes and provenance, route/checker
+wiring and actual native Linux execution remain open even if that probe passes.

@@ -16,8 +16,33 @@ permissions:
   contents: read
 
 jobs:
+  native-shadow-containment-linux:
+    name: native-shadow-containment-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      RUST_TEST_THREADS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+
+      - name: Probe delegated cgroup and namespace capabilities
+        run: sudo ./scripts/native-shadow-containment-capability-probe.sh
+
+      - name: Exercise enforced seccomp and Landlock behavior
+        run: >-
+          cargo test --locked -p boole-lean-runner --lib
+          configure_child_sandbox_enforce -- --nocapture
+
   self-test:
     name: self-test
+    needs: native-shadow-containment-linux
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # P0.3 — declare the single-threaded determinism contract at the CI level,
@@ -29,6 +54,16 @@ jobs:
     env:
       RUST_TEST_THREADS: "1"
     steps:
+      - name: Require native-shadow containment capability
+        env:
+          NATIVE_SHADOW_CONTAINMENT_RESULT: ${{ needs.native-shadow-containment-linux.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$NATIVE_SHADOW_CONTAINMENT_RESULT" != success ]]; then
+            echo "native-shadow containment capability probe did not pass" >&2
+            exit 1
+          fi
+
       - name: Checkout
         # N0-pre.2 (audit) — pin to an immutable commit SHA (was the
         # mutable @v6 tag). SHA = actions/checkout v6.0.3 release commit,

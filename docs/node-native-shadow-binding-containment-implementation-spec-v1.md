@@ -146,14 +146,21 @@ entry becomes authoritative on `main` only after its required CI and merge:
   future AppState-owned, node-wide instance. Busy acquisition returns exact `native_busy`; normal,
   error and panic-unwind paths release it, and concurrent contenders admit exactly one. The actual
   AppState/route ordering remains unimplemented.
-* **Phase 3B.0** — PR #173, the current guarded policy-binding slice: the frozen checker-internal
+* **Phase 3B.0** — PR #173, the landed guarded policy-binding slice: the frozen checker-internal
   policy and
   the future node-owned execution/containment policy have separate identities. New rows and journal
   events bind `executionPolicyDigest`; new evidence is `boole.native-shadow.evidence.v2`, while
   legacy v1 evidence and unversioned journal events remain read-only replay inputs. The production
   containment-policy bundle and actual Linux executor are not part of this slice.
+* **Phase 3B.1** — the current guarded infrastructure-capability slice: a named `ubuntu-24.04`
+  job must actually exercise delegated cgroup v2 controls, user/mount namespaces, bounded executable
+  tmpfs, privilege/capability removal, cgroup freeze/kill/cleanup and the existing enforced
+  seccomp/Landlock tests. The required `self-test` fails when this job fails, is skipped or is
+  cancelled. Passing proves only that the named runner supplies the prerequisites; it does not
+  freeze a production policy, execute the native checker or close containment.
 
-All seven are internal, currently unwired `boole-node` foundations. They do **not** implement an
+All eight are internal, currently unwired `boole-node` foundations or infrastructure gates. They do
+**not** implement an
 HTTP endpoint, spawn the checker, activate the production registry, change SharePool/block/reward/
 P2P/consensus state, or earn `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`. Phase 3A.1's focused
 lock test uses two opens in one process and does not close the later real two-node-process gate.
@@ -581,7 +588,8 @@ must contain:
 * **Workspace quota: tmpfs, size `536870912` (512 MiB), inode ceiling `8192`, mounted in a
   dedicated private mount namespace.** cgroup v2 has no byte-quota controller of its own, so the
   workspace ceiling must come from the filesystem: this document commits definitively to a size- and
-  inode-bounded **tmpfs** mount over a loopback device. Rationale: a loopback device requires its own
+  inode-bounded **tmpfs** mount rather than a loopback-backed filesystem. Rationale: a loopback
+  device requires its own
   formatting and mount/unmount teardown on every run, which adds failure modes to exactly the
   crash-recovery path section 7 just tightened (a loopback mount left attached after a crash is one
   more thing recovery must detect and clean); tmpfs is kernel-native, needs no formatting, and its
@@ -627,7 +635,8 @@ must contain:
     rather than assuming one implies the other. No separate, additional `umount` call is required or
     specified; asserting an unconditional `umount` step would be a spurious extra failure mode for a
     namespace the kernel already tears down correctly on last reference.
-* **`cpu.max`: left unthrottled** (`max max`, no rate quota). Rationale: the submission surface
+* **`cpu.max`: left unthrottled** (`max 100000`, no rate quota; cgroup v2 still requires a numeric
+  period even when the quota is `max`). Rationale: the submission surface
   already has both a wall-clock deadline (below) and a cumulative CPU-time ceiling (below); throttling
   the *rate* in addition would only slow down legitimate work without adding a security property
   neither ceiling already provides.
@@ -1011,8 +1020,8 @@ second prerequisite and do not change
 ```
 NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: IMPLEMENTATION-BASELINE-APPROVED
 IMPLEMENTATION: PARTIAL (PHASE-1 / PHASE-2 / PHASE-2C / PHASE-2D / PHASE-3A.1 /
-PHASE-3A.2 LANDED; PHASE-3B.0 CURRENT GUARDED POLICY-BINDING SLICE, LANDED ONLY AFTER ITS
-REQUIRED CI AND MERGE)
+PHASE-3A.2 / PHASE-3B.0 LANDED; PHASE-3B.1 CURRENT GUARDED LINUX-CAPABILITY SLICE, LANDED
+ONLY AFTER ITS NAMED-LINUX JOB AND REQUIRED CI BOTH PASS AND MERGE)
 CONTAINMENT-ROUTE-GREEN: OPEN / NAMED-LINUX-INFRASTRUCTURE-BLOCKED
 ```
 

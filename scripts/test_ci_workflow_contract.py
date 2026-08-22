@@ -13,6 +13,12 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 VERDICT_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "verdict-corpus.yml"
+NATIVE_CONTAINMENT_PROBE = (
+    REPO_ROOT / "scripts" / "native-shadow-containment-capability-probe.sh"
+)
+NATIVE_CONTAINMENT_SPEC = (
+    REPO_ROOT / "docs" / "node-native-shadow-binding-containment-implementation-spec-v1.md"
+)
 
 USES_RE = re.compile(r"^\s*uses:\s*(\S+)", re.MULTILINE)
 SHA_PIN_RE = re.compile(r"@[0-9a-f]{40}$")
@@ -52,6 +58,120 @@ class CiWorkflowContractTest(unittest.TestCase):
             'echo "BOOLE_NATIVE_TOOLCHAIN_BIN=$native_toolchain/bin" >> "$GITHUB_ENV"',
             self.text,
             "self-test must receive the absolute bin directory of the verified toolchain",
+        )
+
+
+class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
+    """Phase 3B.1 -- a real, non-skippable Linux containment capability gate."""
+
+    def setUp(self):
+        self.text = WORKFLOW.read_text(encoding="utf-8")
+
+    def _job(self, name: str) -> str:
+        match = re.search(
+            rf"^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)",
+            self.text,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(match, f"ci.yml must declare the {name!r} job")
+        return match.group("body")
+
+    def test_named_linux_job_is_pinned_and_non_skippable(self):
+        job = self._job("native-shadow-containment-linux")
+        self.assertIn(
+            "runs-on: ubuntu-24.04",
+            job,
+            "the containment capability contract needs the named Ubuntu 24.04 VM, "
+            "not a moving generic runner label",
+        )
+        self.assertIn(
+            "./scripts/native-shadow-containment-capability-probe.sh",
+            job,
+            "the named job must execute the real kernel capability probe",
+        )
+        self.assertNotIn("continue-on-error:", job)
+        self.assertNotRegex(job, re.compile(r"\bskip\b", re.IGNORECASE))
+
+    def test_required_self_test_cannot_hide_a_failed_probe(self):
+        job = self._job("self-test")
+        self.assertRegex(
+            job,
+            re.compile(r"^\s+needs:\s*native-shadow-containment-linux\s*$", re.MULTILINE),
+        )
+        self.assertRegex(job, re.compile(r"^\s+if:\s*always\(\)\s*$", re.MULTILINE))
+        self.assertIn("needs.native-shadow-containment-linux.result", job)
+        self.assertIn(
+            "native-shadow containment capability probe did not pass",
+            job,
+        )
+
+    def test_probe_contract_names_the_real_kernel_operations(self):
+        self.assertTrue(
+            NATIVE_CONTAINMENT_PROBE.is_file(),
+            "the named Linux job must call a tracked, reviewable probe script",
+        )
+        body = NATIVE_CONTAINMENT_PROBE.read_text(encoding="utf-8")
+        for required in (
+            "set -euo pipefail",
+            "cgroup2fs",
+            "cgroup.subtree_control",
+            "pids.max",
+            "memory.max",
+            "memory.swap.max",
+            "memory.oom.group",
+            "cpu.max",
+            "max 100000",
+            "cgroup.freeze",
+            "cgroup.kill",
+            "populated 0",
+            "unshare",
+            "--map-auto",
+            "MS_REC|MS_PRIVATE",
+            "tmpfs",
+            "nosuid,nodev",
+            "--bounding-set=-all",
+            "--inh-caps=-all",
+            "--ambient-caps=-all",
+            "NoNewPrivs",
+        ):
+            self.assertIn(required, body, f"probe is missing required operation {required!r}")
+
+        self.assertNotIn(
+            '[[ ! -s "$delegated/cgroup.procs" ]]',
+            body,
+            "cgroupfs virtual files report stat size zero even when they contain PIDs; "
+            "the probe must read cgroup.procs rather than inspect st_size",
+        )
+        self.assertIn('$(<"$delegated/cgroup.procs")', body)
+        self.assertIn(
+            "trap cleanup_namespace_probe EXIT",
+            body,
+            "the probe must release/kill its namespace child and remove its temp tree "
+            "on both success and failure",
+        )
+        self.assertIn('kill "$namespace_pid"', body)
+        self.assertRegex(
+            body,
+            re.compile(
+                r'if \[\[ ! -e "\$ready" \]\]; then\s+'
+                r'die "user/mount namespace probe failed before signaling readiness"'
+            ),
+            "a namespace that never becomes ready must enter the EXIT cleanup trap "
+            "immediately instead of blocking in wait",
+        )
+
+    def test_spec_uses_the_kernel_valid_unthrottled_cpu_wire_value(self):
+        body = NATIVE_CONTAINMENT_SPEC.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "`max max`",
+            body,
+            "cpu.max PERIOD must be numeric even when MAX is unlimited",
+        )
+        self.assertIn("`max 100000`", body)
+        self.assertNotIn(
+            "tmpfs** mount over a loopback device",
+            body,
+            "tmpfs and a loopback-backed filesystem are mutually exclusive choices",
         )
 
 
