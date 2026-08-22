@@ -32,6 +32,7 @@
 
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -41,6 +42,11 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+use boole_native_shadow_protocol::{
+    verify_authority_bundle, INSTALLED_REGISTRY_PATH, TRACKED_EXECUTION_POLICY_BYTES,
+    TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
+};
 
 use crate::durability::{
     append_ndjson_line_durable_on_file, fsync_parent_dir, read_stable_prefix_on_file,
@@ -198,12 +204,10 @@ pub(crate) enum ChallengeState {
     Expired,
 }
 
-/// One template row from `fixtures/native-shadow/registry-v1.json` (or an
-/// equivalent test-only fixture, RED gate 7). Only the fields this module's
-/// bootstrap logic acts on are modeled; the registry's other pinned fields
-/// (`semanticLocator`, `anchorSha256`, `taskPath`, ...) are read by other,
-/// later slices and are ignored here — serde drops unmodeled JSON fields by
-/// default, so this is not a lossy round-trip concern for this module's job.
+/// Lifecycle projection of one registry template. Production bytes first pass
+/// the shared full strict authority schema and are then explicitly reduced to
+/// these state-machine fields. Unit-only lifecycle fixtures keep using this
+/// smaller model so they cannot be mistaken for installed authority bytes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct NativeShadowTemplate {
     #[serde(rename = "familyVersion")]
@@ -251,7 +255,7 @@ impl NativeShadowRegistry {
 #[derive(Debug)]
 pub(crate) enum NativeShadowRegistryError {
     Io(std::io::Error),
-    Json(serde_json::Error),
+    Authority(String),
     UnsafeProductionPath(String),
 }
 
@@ -259,7 +263,9 @@ impl std::fmt::Display for NativeShadowRegistryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(err) => write!(f, "native-shadow registry read failed: {err}"),
-            Self::Json(err) => write!(f, "native-shadow registry not valid JSON: {err}"),
+            Self::Authority(err) => {
+                write!(f, "native-shadow registry authority invalid: {err}")
+            }
             Self::UnsafeProductionPath(reason) => {
                 write!(f, "native-shadow production registry path unsafe: {reason}")
             }
@@ -278,34 +284,87 @@ pub(crate) struct LoadedNativeShadowRegistry {
     pub registry_digest: String,
 }
 
-fn load_native_shadow_registry_from_path(
-    path: &Path,
+fn load_native_shadow_registry_from_bytes(
+    raw: &[u8],
 ) -> Result<LoadedNativeShadowRegistry, NativeShadowRegistryError> {
-    let raw = std::fs::read(path).map_err(NativeShadowRegistryError::Io)?;
-    let registry_digest = sha256_hex(&raw);
-    let registry: NativeShadowRegistry =
-        serde_json::from_slice(&raw).map_err(NativeShadowRegistryError::Json)?;
+    let verified = verify_authority_bundle(
+        raw,
+        TRACKED_EXECUTION_POLICY_BYTES,
+        TRACKED_TOOLCHAIN_IDENTITY_BYTES,
+    )
+    .map_err(|error| NativeShadowRegistryError::Authority(error.to_string()))?;
+    let registry = NativeShadowRegistry {
+        schema: verified.registry().schema().to_string(),
+        activation_allowed: verified.registry().activation_allowed(),
+        templates: verified
+            .registry()
+            .templates()
+            .iter()
+            .map(|template| NativeShadowTemplate {
+                family_version: template.family_version().to_string(),
+                template_id: template.template_id().to_string(),
+                challenge_sha256: template.challenge_sha256().to_string(),
+                epoch: template.epoch(),
+                non_issuable: template.non_issuable(),
+            })
+            .collect(),
+    };
     Ok(LoadedNativeShadowRegistry {
         registry,
-        registry_digest,
+        registry_digest: verified.registry_digest().to_string(),
     })
 }
 
 /// Load the only production authority this qualification path is allowed to
-/// use. The caller supplies no path: the repository-rooted absolute location
-/// is fixed at build time, so changing the process CWD or renaming a test
-/// fixture cannot redirect production loading. A symlink at the authority
-/// location is refused rather than followed.
+/// use. The caller supplies no path: the installed root-owned absolute
+/// location is fixed at build time, so changing the process CWD or renaming a
+/// repository fixture cannot redirect production loading. The final component
+/// is opened once with `O_NOFOLLOW`; metadata and bytes come from that same FD.
+fn validate_production_authority_metadata(
+    is_regular_file: bool,
+    link_count: u64,
+    owner_uid: u32,
+    owner_gid: u32,
+    permission_bits: u32,
+    byte_len: u64,
+) -> Result<(), NativeShadowRegistryError> {
+    if is_regular_file
+        && link_count == 1
+        && owner_uid == 0
+        && owner_gid == 0
+        && permission_bits == 0o444
+        && byte_len == TRACKED_REGISTRY_BYTES.len() as u64
+    {
+        return Ok(());
+    }
+
+    Err(NativeShadowRegistryError::UnsafeProductionPath(
+        "authority must be a root:root 0444 regular one-link non-symlink file with the tracked byte length"
+            .to_string(),
+    ))
+}
+
 pub(crate) fn load_production_native_shadow_registry(
 ) -> Result<LoadedNativeShadowRegistry, NativeShadowRegistryError> {
     let path = Path::new(PRODUCTION_REGISTRY_PATH);
-    let metadata = std::fs::symlink_metadata(path).map_err(NativeShadowRegistryError::Io)?;
-    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
-        return Err(NativeShadowRegistryError::UnsafeProductionPath(
-            "authority must be a regular non-symlink file".to_string(),
-        ));
-    }
-    load_native_shadow_registry_from_path(path)
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(NativeShadowRegistryError::Io)?;
+    let metadata = file.metadata().map_err(NativeShadowRegistryError::Io)?;
+    validate_production_authority_metadata(
+        metadata.file_type().is_file(),
+        metadata.nlink(),
+        metadata.uid(),
+        metadata.gid(),
+        metadata.mode() & 0o7777,
+        metadata.len(),
+    )?;
+    let mut raw = Vec::new();
+    file.read_to_end(&mut raw)
+        .map_err(NativeShadowRegistryError::Io)?;
+    load_native_shadow_registry_from_bytes(&raw)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -320,10 +379,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// assertion call site is later, route-wiring work (out of this module's
 /// scope); `assert_is_canonical_production_registry_path` below is the
 /// reusable guard that call site will invoke.
-pub(crate) const PRODUCTION_REGISTRY_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../fixtures/native-shadow/registry-v1.json"
-);
+pub(crate) const PRODUCTION_REGISTRY_PATH: &str = INSTALLED_REGISTRY_PATH;
 
 /// RED gate 7 safeguard (b): the test suite itself must assert the test-only
 /// registry is never the file production configuration resolves to. This is
@@ -1989,14 +2045,56 @@ mod tests {
     }
 
     #[test]
-    fn production_loader_uses_the_pinned_regular_registry_file() {
-        let loaded = load_production_native_shadow_registry().expect("load production registry");
+    fn tracked_production_bytes_use_the_full_strict_authority_model() {
+        let loaded = load_native_shadow_registry_from_bytes(PRODUCTION_REGISTRY_FIXTURE.as_bytes())
+            .expect("strictly parse tracked registry bytes");
         assert_eq!(
             loaded.registry_digest,
             sha256_hex(PRODUCTION_REGISTRY_FIXTURE.as_bytes())
         );
         assert!(!loaded.registry.activation_allowed);
         assert!(loaded.registry.templates[0].non_issuable);
+    }
+
+    #[test]
+    fn production_registry_bytes_reject_unknown_missing_and_duplicate_fields() {
+        let unknown = PRODUCTION_REGISTRY_FIXTURE.replacen('{', "{\"unknown\":1,", 1);
+        assert!(load_native_shadow_registry_from_bytes(unknown.as_bytes()).is_err());
+
+        let missing = PRODUCTION_REGISTRY_FIXTURE.replacen("      \"nonIssuable\": true\n", "", 1);
+        assert!(load_native_shadow_registry_from_bytes(missing.as_bytes()).is_err());
+
+        let duplicate = PRODUCTION_REGISTRY_FIXTURE.replacen(
+            "  \"activationAllowed\": false,",
+            "  \"activationAllowed\": false,\n  \"activationAllowed\": false,",
+            1,
+        );
+        assert!(load_native_shadow_registry_from_bytes(duplicate.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn production_authority_metadata_must_match_every_frozen_file_property() {
+        let expected_len = TRACKED_REGISTRY_BYTES.len() as u64;
+        assert!(
+            validate_production_authority_metadata(true, 1, 0, 0, 0o444, expected_len,).is_ok()
+        );
+
+        for invalid in [
+            (false, 1, 0, 0, 0o444, expected_len),
+            (true, 2, 0, 0, 0o444, expected_len),
+            (true, 1, 501, 0, 0o444, expected_len),
+            (true, 1, 0, 20, 0o444, expected_len),
+            (true, 1, 0, 0, 0o644, expected_len),
+            (true, 1, 0, 0, 0o444, expected_len + 1),
+        ] {
+            assert!(
+                validate_production_authority_metadata(
+                    invalid.0, invalid.1, invalid.2, invalid.3, invalid.4, invalid.5,
+                )
+                .is_err(),
+                "unsafe metadata tuple must fail closed: {invalid:?}"
+            );
+        }
     }
 
     // -- RED gate 5: production fixture bootstraps Disabled ----------------
@@ -2071,9 +2169,9 @@ mod tests {
 
     #[test]
     fn production_configuration_path_is_never_the_test_only_fixture() {
-        assert!(
-            Path::new(PRODUCTION_REGISTRY_PATH).is_absolute(),
-            "the production authority path must not be resolved relative to the process working directory"
+        assert_eq!(
+            PRODUCTION_REGISTRY_PATH, "/usr/share/boole/native-shadow/registry-v1.json",
+            "production must open the installed root-owned authority, never a repository fixture"
         );
         assert!(
             assert_is_canonical_production_registry_path(Path::new(PRODUCTION_REGISTRY_PATH))

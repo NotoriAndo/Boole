@@ -29,6 +29,7 @@ boole-core = { path = "../boole-core" }
 # no prover (`sp1-verifier`, `default-features = false`) enters the graph.
 boole-evm-adapter = { path = "../boole-evm-adapter" }
 boole-lean-runner = { path = "../boole-lean-runner" }
+boole-native-shadow-protocol = { path = "../boole-native-shadow-protocol" }
 boole-p2p = { path = "../boole-p2p" }
 clap.workspace = true
 hex.workspace = true
