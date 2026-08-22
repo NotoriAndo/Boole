@@ -40,14 +40,52 @@ correctly, but found five further gaps that block implementation approval:
   rejection, so an exit-code allowlist alone cannot resolve it, and no real Linux CI environment
   with actual cgroup v2 delegation exists yet to ever produce a trustworthy GREEN.
 
-Sections 5 through 10 below close E1 through E5 respectively, each grounded in the actual tracked
-files (`fixtures/native-shadow/registry-v1.json`,
+Sections 5 through 10 close E1 through E5 respectively, each grounded in the actual tracked files
+(`fixtures/native-shadow/registry-v1.json`,
 `native/checker/rust-tuple-struct-project-v1/policy.json`,
 `native/checker/rust-tuple-struct-project-v1/checker.py`,
-`crates/boole-lean-runner/src/lib.rs`), not invented in the abstract. This is a **docs-only slice**:
-it does not edit `policy.json`, `registry-v1.json` or any `boole-node`/`boole-lean-runner` code, and
-it performs no new model measurement or census work. Where a concrete numeric default is pinned, it
-is pinned as the value to implement in the later RED→GREEN slice, not as an edit landed here.
+`crates/boole-lean-runner/src/lib.rs`), not invented in the abstract.
+
+A 2026-08-22 fourth operator review of this consolidated spec confirmed E1-E5 above closed
+correctly, but found four further gaps that still block implementation approval. They are closed
+**in place**, in this same document, in sections 4, 6, 7, 9 and 10 below — not by a further
+append-only correction file. This document's own append-only-correction convention (used for the
+base document, r1 and r2, each preserved unedited once superseded) applies once a document has been
+reviewed and superseded; it does not apply to this document while this document itself remains
+unapproved. A draft that has never been frozen is corrected directly, not superseded again.
+
+* **F1** — section 6's corrected bootstrap rule still checked the permanent exhaustion ledger
+  *before* ever consulting the registry's own static `nonIssuable`/`activationAllowed` declaration.
+  On a clean node with an empty ledger, the one currently tracked fixture — which is both
+  registry-wide `activationAllowed: false` and per-template `nonIssuable: true` — would still
+  bootstrap to `Active(fresh)` and become servable once, because nothing had yet been recorded in
+  the ledger to check against. A permanent exhaustion ledger can only block *revival after
+  consumption*; by construction it cannot block *first activation*, since the very first encounter
+  of any four-tuple is never yet in it.
+* **F2** — the same forced-termination event (an OOM kill under `memory.oom.group=1`) was
+  classified two contradictory ways: section 3/9 named it `RetryableUnavailable(containment_killed)`,
+  while section 10's intrinsic/extrinsic axis separately said any cgroup-observed resource event is
+  always `DeterministicReject(submission_resource_ceiling_breach)` — for the identical event.
+  Separately, `checker.py`'s own internal 60-second `wallSeconds` timeout and boole-node's own outer
+  90-second `taskTotalWallSeconds` ceiling are enforced by two different actors, and section 10 as
+  written risked misclassifying a legitimate checker-internal timeout as an unconfirmed/forged
+  report merely because it does not itself trip boole-node's much longer outer ceiling.
+* **F3** — the concrete cgroup values section 9 pinned had no accompanying safe execution *order*:
+  no `memory.swap.max`, no tmpfs mount-namespace/mount-option/unmount detail, no pre-execution
+  ordering sequence, no stated mechanism stopping the submission from reopening cgroupfs to loosen
+  its own limits, and the macOS statement said the path was unsupported rather than stating outright
+  that no child process is ever spawned there at all.
+* **F4** — section 9 still described the core containment contract as "unchanged from the base
+  document ... and r2's D4's seven mechanical fixes" rather than restating those fixes in full, so a
+  reader still had to open superseded documents to reconstruct the actual mechanics. Two
+  implementation-blocking details were also never pinned anywhere: what happens when the registry
+  file changes on disk while a challenge is `InFlight`, and the exact ordering/fail-closed rule for
+  the `InFlight` → evidence/`Consumed` durable-write sequence if a write partially fails.
+
+This is a **docs-only slice**: it does not edit `policy.json`, `registry-v1.json` or any
+`boole-node`/`boole-lean-runner` code, and it performs no new model measurement or census work.
+Where a concrete numeric default or file name is pinned, it is pinned as the value to implement in
+the later RED→GREEN slice, not as an edit landed here.
 
 ## 1. Non-goals
 
@@ -74,129 +112,199 @@ The verdict vocabulary, after r1's C1 split and r2's D1 split, is final as follo
   `ShareEvidenceVerdict`. Reached only in decision-path stages 1-4 (decode/size, identity
   resolution, challenge state check, intake). Never persists `boole.native-shadow.evidence.v1` and
   never consumes a challenge, because the checker was never reached. Reason codes:
-  `malformed_input`, `unknown_identity`, `registry_drift`, `challenge_not_found`,
-  `challenge_exhausted` (section 6 below), `challenge_stale` (reserved for the future real-issuance
-  path only — see section 6), `intake_rejected`.
+  `malformed_input`, `unknown_identity`, `registry_drift` (section 4 below — now covers both a
+  torn/inconsistent read *and* a live registry-file edit observed against an already-bootstrapped
+  row), `challenge_not_found`, `challenge_exhausted` (section 6 below), `challenge_disabled`
+  (section 6 below — new, distinct from `challenge_exhausted`), `challenge_stale` (reserved for the
+  future real-issuance path only — see section 6), `intake_rejected`.
 * **`DeterministicReject`** — reached only in decision-path stage 5/6, always persists evidence and
   always consumes the challenge, per the authority spec section 6's rule that deterministic
   rejection produces evidence. Reason codes: `checker_rejected` (the pinned checker's own semantic
   `deterministic_reject` verdict, including an ordinary nonzero compiler/test exit);
-  `submission_resource_ceiling_breach` (the submission deterministically exceeded a node-configured,
-  submission-independent ceiling — section 10 below); `checker_reported_reason_unconfirmed` (the
-  checker self-reported `retryable_unavailable` but the harness's own independent observation found
-  no corroborating resource signal — section 10 below).
+  `submission_resource_ceiling_breach` (a clean, **non-killed** exit whose text-derived resource
+  claim is corroborated by this submission's own cgroup-leaf event counters — section 10 below;
+  never reached via a signal death, by construction — see section 10's kill/clean-exit rule);
+  `checker_reported_reason_unconfirmed` (a clean, non-killed exit whose text-derived resource claim
+  the harness's own independent cgroup-leaf observation could **not** corroborate — section 10
+  below).
 * **`RetryableUnavailable`** — never persists evidence and never consumes the challenge. Reason
-  codes: `native_busy` (section 8 below; replaces `challenge_in_flight`), `containment_wall_clock_kill`,
-  `containment_killed` (signal death of the containment leaf — OOM kill, `cgroup.kill`, or a
-  submission-independent scheduling-contingent kill), `containment_environment_unavailable` (the
-  harness itself failed to construct the cgroup/workspace/lock before the child ever ran — genuinely
-  external, never the submission's fault), `checker_internal_error` (the checker's own top-level
-  exception handler fired — a structural signal, not a text match, so it is trusted as-is).
+  codes: `native_busy` (section 8 below; replaces `challenge_in_flight`), `containment_wall_clock_kill`
+  (any wall-clock-triggered termination, whether checker.py's own internal deadline or boole-node's
+  own outer deadline — section 10 below), `containment_killed` (**any other** signal death of the
+  containment leaf, unconditionally, regardless of which specific ceiling nominally caused it —
+  OOM kill under `memory.oom.group=1`, `cgroup.kill`, an `RLIMIT_*`-triggered `SIGXCPU`/`SIGXFSZ`/
+  `SIGABRT`, or a submission-independent scheduling-contingent kill — section 10 below),
+  `containment_environment_unavailable` (the harness itself failed to construct the
+  cgroup/namespace/tmpfs/lock before the child ever ran — genuinely external, never the submission's
+  fault), `checker_internal_error` (the checker's own top-level exception handler fired — a
+  structural signal, not a text match, so it is trusted as-is).
 
 `idempotent_redelivery` is not a new verdict; per r2's D1, an exact redelivery of a previously
 adjudicated `(state key, candidateDigest)` pair returns the prior durable verdict verbatim rather
-than re-adjudicating (section 5 below defines the key precisely).
+than re-adjudicating (section 4 below defines the key precisely).
 
-## 4. Identity, state key and idempotency key (closes E2)
+## 4. Identity, state key and idempotency key (closes E2; revised to close F4's registry-drift gap)
 
-Three distinct keys are in play, and conflating them is exactly what left E2 open:
+Three distinct keys are in play, and conflating them is exactly what left E2, and later F4, open:
 
-1. **Operational state key** (registry-snapshot-scoped; governs `Active`/`InFlight`/`Consumed`
-   transitions) — the five-tuple from r2's D2:
-   ```
-   (registryDigest, familyVersion, templateId, challengeSha256, epoch)
-   ```
-2. **Permanent exhaustion-ledger key** (registry-snapshot-independent; section 6 below) — the
-   four-tuple:
+1. **Operational state key (primary storage key)** — revised from r2's D2 five-tuple to the
+   **four-tuple**:
    ```
    (familyVersion, templateId, challengeSha256, epoch)
    ```
-3. **Idempotency / redelivery-detection key** — the operational state key plus the candidate's own
-   digest, a six-tuple:
+   This is the same identity used by the permanent exhaustion ledger (item 2 below) and by section
+   6's `Disabled` gate — the operational row and the exhaustion-ledger row now share one identity,
+   differing only in what each one records.
+2. **Permanent exhaustion-ledger key** (registry-snapshot-independent; section 6 below) — the
+   identical four-tuple:
    ```
-   (registryDigest, familyVersion, templateId, challengeSha256, epoch, candidateDigest)
+   (familyVersion, templateId, challengeSha256, epoch)
    ```
-   The five-tuple alone identifies only the *challenge*, not the submitted *answer*; two different
-   candidate answers submitted against the same still-active challenge collide under the five-tuple
+3. **Idempotency / redelivery-detection key** — the four-tuple plus the candidate's own digest, a
+   five-tuple:
+   ```
+   (familyVersion, templateId, challengeSha256, epoch, candidateDigest)
+   ```
+   The four-tuple alone identifies only the *challenge*, not the submitted *answer*; two different
+   candidate answers submitted against the same still-active challenge collide under the four-tuple
    alone and must not be treated as the same request. `candidateDigest` reuses, verbatim, the digest
    already defined in the authority spec section 3 — SHA-256 over the exact UTF-8 bytes of
    `rawAnswer` — no new computation. **This reuse is for redelivery/duplicate-request identification
    only and does not reintroduce r1's C2-forbidden pattern** (comparing a candidate digest against a
    pre-registered "correct answer" digest to decide correctness); correctness is decided exclusively
    by executing the checker, never by digest comparison. The underlying *state* transition
-   (`Active` → `InFlight` → `Consumed`) still keys on the five-tuple alone: the challenge itself,
-   once consumed by whichever candidate reaches it first, is spent at the challenge level, not the
-   candidate level — single-use semantics are unchanged from the base document.
+   (`Active` → `InFlight` → `Consumed`/`Exhausted`) still keys on the four-tuple alone: the challenge
+   itself, once consumed by whichever candidate reaches it first, is spent at the challenge level,
+   not the candidate level — single-use semantics are unchanged from the base document.
 
-**`registryDigest` — algorithm and timing, pinned.** `registryDigest` is the SHA-256 digest of the
-exact raw bytes of the tracked registry file (`fixtures/native-shadow/registry-v1.json`) as read
-from disk — a whole-file content digest, with no canonicalization or reserialization step. This is
-the same convention every other digest field already inside that same file uses
-(`checkerArtifactHash`, `policySha256`, `anchorSha256`, `taskSha256` are all whole-file content
-digests of their respective tracked files); `registryDigest` is not a new kind of digest, it is the
-same convention applied to the registry file itself. Timing: it is recomputed on every single
-submission at decision-path stage 2/3 (identity/challenge resolution), never cached from node
-startup — this is not new machinery, it is the base document section 5.3 per-submission
-drift-recompute discipline ("the node recomputes the digests of the checker artifact, policy, anchor
-and toolchain identity immediately before each execution ... not only once at startup") applied to
-this one additional field for consistency. A mismatch between the `registryDigest` embedded in an
-existing durable state-key row and a freshly recomputed value is registry drift and is handled
-exactly like every other digest-drift case already specified: `PrecheckReject(registry_drift)`, per
-r2's D1 — this is not a new failure mode, it is the existing one applied uniformly.
+**Why `registryDigest` is no longer part of the key — this revises E2's original resolution.**
+r2's D2, and this document's own E2 resolution, made `registryDigest` a component of the storage
+key so a registry-file edit would necessarily produce a distinct row. The fourth review found a real
+correctness gap in that design: if the underlying registry file changes on disk *while a challenge
+is `InFlight` under the old digest*, a second submission touching the same four-tuple recomputes a
+*new* digest at stage 2/3 and, under a digest-keyed lookup, finds **no existing row** for its own
+five-tuple — falling through to bootstrap logic and creating a **second, parallel row for the same
+underlying challenge**, potentially running concurrently with the first. Digest binding was meant
+to *detect drift*, not to let a live file edit spawn a second execution track for a challenge that
+already has one in flight.
 
-## 5. Challenge lifecycle states (final)
+**Corrected design.** `registryDigest` is a **field on the operational-state row**, not a key
+component, set once when that row is bootstrapped from a registry snapshot and never overwritten for
+the life of that specific four-tuple's row. `registryDigest` itself is unchanged in every other
+respect: the SHA-256 digest of the exact raw bytes of the tracked registry file
+(`fixtures/native-shadow/registry-v1.json`) as read from disk — a whole-file content digest, with no
+canonicalization or reserialization step, the same convention every other digest field in that file
+already uses (`checkerArtifactHash`, `policySha256`, `anchorSha256`, `taskSha256`). It is recomputed
+on every single submission at decision-path stage 2/3, never cached from node startup — the base
+document section 5.3 per-submission drift-recompute discipline, applied to this field as before.
+What changes is only *what the recomputed value is checked against*: every submission looks its
+targeted row up **by the four-tuple**, then compares its freshly recomputed `registryDigest` against
+**that row's own stored field**. A mismatch is `PrecheckReject(registry_drift)`, exactly as before —
+but now the row is always found first (by the stable four-tuple identity), so a live registry-file
+edit can never spawn a parallel row for a challenge that already has one: it can only ever produce a
+drift rejection against the one row that already exists. This is the mechanism that closes F4's
+mid-flight-registry-change gap; section 7 states the accompanying runtime rule for what happens to
+an already-`InFlight` row when this occurs.
+
+## 5. Challenge lifecycle states (final; `Disabled` added to close F1)
 
 * **`Active(fresh)`** — registered and not yet consumed. For the `nonIssuable` qualification path
-  (section 6), "fresh" means solely "not permanently exhausted"; it carries no time component.
+  (section 6), "fresh" means solely "not permanently exhausted and not statically disabled"; it
+  carries no time component.
 * **`InFlight`** — a single execution is currently running against this challenge; written
   durably before the checker is invoked and cleared on completion (section 7).
 * **`Consumed`** — terminal; one execution completed and evidence was persisted for this challenge.
-* **`Exhausted`** — terminal, new in this document (section 6); permanent-exhaustion-ledger-backed,
-  specific to `nonIssuable` challenges, survives registry file churn.
+* **`Exhausted`** — terminal; permanent-exhaustion-ledger-backed (section 6), reached only after a
+  challenge was legitimately `Active(fresh)`, actually ran, and reached `Consumed`. Records a true
+  historical fact: this challenge *was* issued and consumed.
+* **`Disabled`** — terminal, **new in this document, closes F1**. Reached when the registry's own
+  static declaration for this four-tuple (`activationAllowed: false` at the registry file's top
+  level, and/or `nonIssuable: true` on the specific template) forbids issuance, checked **before**
+  the challenge has ever been bootstrapped to `Active(fresh)` at all. Unlike `Exhausted`, a
+  `Disabled` row records no false history: it was never run, never issued, never consumed — only
+  statically forbidden. Section 6 defines exactly when a row bootstraps to `Disabled` instead of
+  `Active(fresh)`.
 * **`Expired`** — retained only for the future real-issuance (non-`nonIssuable`) path per the base
   document's C6/D3 out-of-scope carve-out. It is explicitly **not applicable** to the `nonIssuable`
   qualification path this document specifies — see section 6.
 
-## 6. `nonIssuable` permanence and the freshness rule (closes E1)
+## 6. `nonIssuable` permanence and the freshness rule (closes E1; revised to close F1)
 
-Direct read of `fixtures/native-shadow/registry-v1.json`: the one tracked template carries
-`"nonIssuable": true` and `"activationAllowed": false`, and the file has **no expiration timestamp,
-TTL or freshness-window field of any kind** — only `epoch: 0` and the pinned digest fields. The base
-document's `Active(fresh)` definition ("registered, within its freshness window, and has not yet
-been consumed") assumes a freshness-window concept that does not exist in the data this document is
-meant to govern. Inventing a TTL value now would not be grounding it in real data, it would be
-guessing.
+Direct read of `fixtures/native-shadow/registry-v1.json`: the file declares `"activationAllowed":
+false` at its own top level (applying to every template the file contains) and the one tracked
+template additionally carries its own `"nonIssuable": true` field. The file has **no expiration
+timestamp, TTL or freshness-window field of any kind** — only `epoch: 0` and the pinned digest
+fields. The base document's `Active(fresh)` definition ("registered, within its freshness window,
+and has not yet been consumed") assumes a freshness-window concept that does not exist in the data
+this document is meant to govern. Inventing a TTL value now would not be grounding it in real data,
+it would be guessing.
 
-**Resolution.** Two changes close this:
+**Resolution, part 1 (unchanged from this document's original E1 fix). No time-based expiration for
+the `nonIssuable` path.** For a challenge with `nonIssuable: true` in the registry, "fresh" means
+exclusively "not yet permanently exhausted and not statically disabled" (section 5); no wall-clock or
+TTL concept applies. Time-based expiration (the `Expired` state) is explicitly deferred to the
+separate, later, undesigned real-issuance path, consistent with the base document's own C6/D3
+carve-out.
 
-1. **No time-based expiration for the `nonIssuable` path.** For a challenge with `nonIssuable: true`
-   in the registry, "fresh" means exclusively "not yet permanently exhausted" (section 5); no wall-clock
-   or TTL concept applies. Time-based expiration (the `Expired` state) is explicitly deferred to the
-   separate, later, undesigned real-issuance path, consistent with the base document's own C6/D3
-   carve-out — this document does not invent freshness data that the registry does not carry.
-2. **A permanent exhaustion ledger, separate from the registry-snapshot-scoped operational key.**
-   The five-tuple operational state key (section 4) is scoped to a specific `registryDigest`
-   snapshot by design, so that unrelated registry file changes are detected as drift. But a
-   `nonIssuable` fixture's exhaustion must survive registry file churn: it must never become
-   re-usable merely because some unrelated byte elsewhere in the registry file changed and produced
-   a new whole-file `registryDigest`. A digest-scoped key alone cannot express "permanently spent,
-   independent of which registry snapshot is active" — hence the separate, `registryDigest`-independent
-   four-tuple ledger key from section 4, checked **first**, on every encounter of that four-tuple
-   under **any** registry snapshot, before any `Active(fresh)` bootstrap is considered.
+**Resolution, part 2, corrected to close F1: the registry's own static flags gate BEFORE the
+exhaustion ledger, not after.** This document's original E1 fix introduced a permanent
+`registryDigest`-independent exhaustion ledger, checked before `Active(fresh)` bootstrap — but a
+permanent ledger can only record and later block *revival after consumption*. It cannot, by
+construction, prevent the **first** activation of a four-tuple that has never yet been recorded
+anywhere: on a clean node, the ledger is empty for every four-tuple, so the check "is this four-tuple
+already in the ledger?" answers "no" for the one currently tracked fixture on its very first
+encounter, and the original rule would still bootstrap it to `Active(fresh)` — directly
+reproducing the contradiction this section exists to close. The fourth review is correct that this
+requires a distinct, prior gate, not a refinement of the ledger check.
 
-**Startup bootstrap rule, corrected.** r2's D3 said every registry-declared key with no existing
-durable state row is auto-registered `Active(fresh)` at startup — for a `nonIssuable` fixture that
-has already been consumed under any prior registry snapshot, this is exactly the contradiction E1
-flagged (a permanently-spent fixture coming back to life as "active" on every restart). The
-corrected bootstrap rule (also restated in section 7's recovery order): for each registry-declared
-key with no existing durable state row, check the four-tuple exhaustion ledger first. If it is
-already recorded there, bootstrap the key directly to `Exhausted`, never `Active(fresh)`. Only a
-four-tuple with no exhaustion-ledger entry bootstraps to `Active(fresh)`. On the eventual `Consumed`
-transition of a `nonIssuable` challenge, the four-tuple is durably appended to the exhaustion ledger
-in the same synchronous write as the `Consumed` transition (same append-only durable file, no new
-storage dependency — section 7), so the two records can never drift apart.
+**Corrected bootstrap rule, three ordered checks, for every registry-declared four-tuple with no
+existing durable state row:**
 
-## 7. Durable storage, single-writer lock, and crash recovery order (closes part of E3)
+1. **Static issuability gate (new, checked first).** Read the four-tuple's own declared flags
+   directly from the registry snapshot: the registry file's top-level `activationAllowed` field, and
+   the specific template's own `nonIssuable` field. If either says issuance is not allowed
+   (`activationAllowed: false` at the file level, or `nonIssuable: true` on that template), the row
+   bootstraps directly to `Disabled` (section 5) and the remaining two checks are never reached. This
+   is a pure function of the registry's own already-trusted, already-verified content — no new
+   digest, no new field, no new trust boundary — and it is what makes the current tracked fixture
+   (both flags true) unreachable as `Active(fresh)` from the very first startup onward, closing F1
+   exactly.
+2. **Permanent exhaustion ledger (unchanged from the original E1 fix, now second).** If the
+   four-tuple is not statically disabled, check whether it is already recorded in the permanent,
+   `registryDigest`-independent exhaustion ledger (section 4, item 2). If so, bootstrap to
+   `Exhausted`. This is what prevents *revival* — a four-tuple that legitimately ran once under some
+   past registry state (`activationAllowed` having since flipped to `true`, for a future,
+   still-undesigned real-issuance registry) can never come back to `Active(fresh)` merely because an
+   unrelated registry byte changed and produced a new whole-file digest.
+3. **Bootstrap to `Active(fresh)` (unchanged, now reached only if 1 and 2 both pass).**
+
+A four-tuple's static flags are re-read from the **current** registry snapshot on every encounter,
+not only at row-creation time: if a future registry update flips `activationAllowed` to `true`
+file-wide while a specific template's own `nonIssuable` remains `true`, check 1 still disables that
+specific template on its own — the two flags are independent and either one alone is sufficient to
+force `Disabled`, which is what keeps this rule correct across a future registry-wide activation
+without needing to be revisited then.
+
+On the eventual `Consumed` transition of a `nonIssuable` challenge that *was* statically issuable and
+did run, the four-tuple is durably appended to the exhaustion ledger in the same synchronous write as
+the `Consumed` transition (section 7), so the two records can never drift apart.
+
+**Test-only registry required for automated tests, new in this round.** Under the corrected rule
+above, the real, currently tracked production registry
+(`fixtures/native-shadow/registry-v1.json`) can **never** produce a row that reaches `Active(fresh)`
+at all — its one template is disabled by both flags. An automated test suite exercising the real
+`Active(fresh)` → `InFlight` → `Consumed`/`Exhausted` lifecycle therefore cannot use the production
+registry; it would never observe anything but `Disabled`. The later RED→GREEN implementation slice
+must add a **separate, explicitly test-only registry fixture** (for example
+`fixtures/native-shadow/registry-test-only-v1.json`) containing at least one synthetic template with
+`activationAllowed: true` and `nonIssuable: false`, used only by the node's own test harness, never by
+production configuration. Two safeguards go with it: (a) `boole-node`'s production configuration path
+must load the registry from a configuration-pinned path that is asserted, at startup, to be the real
+tracked production file — never the test-only fixture; (b) the test suite itself must assert that the
+test-only registry is never the file production configuration resolves to. This prevents the
+test-only, deliberately-issuable fixture from ever being mistaken for a real activation gate.
+
+## 7. Durable storage, single-writer lock, and crash recovery order (closes part of E3; revised to close F4's persist-ordering gap)
 
 Storage design is unchanged from r2's D3: no new dependency. State transitions and the exhaustion
 ledger both reuse `crates/boole-node/src/durability.rs`'s durable NDJSON append primitive
@@ -223,19 +331,66 @@ OS-level lock:**
    prevents a second node process from starting against the same ledger file.
 2. Replay the durable journal to reconstruct current per-key state.
 3. For each key found in `InFlight` state without a matching terminal `Consumed`/`Exhausted` record,
-   processed **one key at a time**: (a) locate and force-clean that key's own cgroup leaf and
-   workspace — freeze, `cgroup.kill`, verify `populated=0`, remove the leaf cgroup directory, remove
-   the workspace directory — and confirm completion; only once that specific cleanup is confirmed,
-   (b) durably append the revert-to-`Active(fresh)` transition for that **same** key. If the cleanup
-   in (a) cannot be confirmed, or the durable write in (b) fails, that key is left out of service
-   (not reverted, not served) and startup fails closed rather than proceeding on an ambiguous
-   in-memory-only state. Per-record ordering, not two global passes, removes the crash window: at no
-   point does any single key exist in a state where it is servable but its predecessor process might
-   still be alive.
-4. Bootstrap any registry-declared key with no existing durable record, applying the section 6
-   exhaustion-ledger check first: `Exhausted` if the four-tuple is already recorded there, else
-   `Active(fresh)`.
+   processed **one key at a time**: (a) locate and force-clean that key's own cgroup leaf,
+   private mount namespace and tmpfs workspace — freeze, `cgroup.kill`, verify `populated=0` **and**
+   verify no remaining task anywhere still references that key's private mount namespace (section 9)
+   — and confirm completion; (b) check whether durable evidence already exists for this key (see
+   below — this is new, closes F4's persist-ordering gap); (c) only after (a) and, where evidence
+   exists, (b)'s branch is resolved, durably append the appropriate transition for that **same** key.
+   If the cleanup in (a) cannot be confirmed, or the durable write in (c) fails, that key is left out
+   of service (not reverted, not served) and startup fails closed rather than proceeding on an
+   ambiguous in-memory-only state. Per-record ordering, not two global passes, removes the crash
+   window: at no point does any single key exist in a state where it is servable but its predecessor
+   process might still be alive.
+4. Bootstrap any registry-declared key with no existing durable record, applying section 6's three
+   ordered checks (static issuability gate, then exhaustion ledger, then `Active(fresh)`).
 5. Only after steps 1-4 complete for every key does the route begin serving requests.
+
+**`InFlight` → evidence → terminal-transition ordering, pinned (new, closes F4).** During normal,
+non-restart operation, when a checker execution completes, the node must durably persist evidence
+**before** advancing the row past `InFlight` to a terminal state (`Consumed`, and, for a `nonIssuable`
+row, the paired exhaustion-ledger append). This ordering, and not its reverse, is required because
+the two possible partial-failure outcomes are not equally bad:
+
+* If the **evidence write** fails, the row is left at `InFlight` with no terminal-state write ever
+  attempted. No evidence for a real, decided outcome is ever silently lost, because none was ever
+  claimed to exist.
+* If evidence had instead been allowed to persist *after* an earlier terminal-state write, and that
+  earlier terminal write had itself raced ahead while the evidence write then failed, the challenge
+  would show as permanently spent with **no evidence on file to justify it** — an unrecoverable loss,
+  since the challenge can never be reissued to re-derive that evidence. Persisting evidence first
+  makes this failure mode structurally unreachable: a terminal-state write is never attempted until
+  evidence for it already exists on disk.
+
+The single node-wide try-lock (section 8) is held across this **entire** persist-then-transition
+sequence, not only across the checker's own execution — it is released only after the terminal-state
+write succeeds, or after the row is confirmed left at `InFlight` on failure. This closes a narrow
+race the fourth review implied: without this, a second submission could observe the global slot as
+free in the gap between the checker exiting and the durable writes completing.
+
+**Generalized recovery, no longer startup-only (closes F4's mid-flight-registry-change follow-on and
+the stuck-`InFlight` case).** The per-record procedure in this section is not exclusively a
+startup-time procedure. Any code path that discovers a row `InFlight` while the single node-wide
+try-lock is currently free — whether at node startup (steps 1-5 above), or at decision-path stage 5
+on a still-running node, immediately after acquiring the (just-confirmed-free) try-lock and finding
+the row it is about to act on is already `InFlight` — must run the same per-record procedure before
+treating that row as usable, with one added branch:
+
+* If durable evidence for this four-tuple already exists but the terminal-state write never
+  completed (the second partial-failure mode above), recovery **completes the terminal-state write
+  directly** — it does not revert to `Active(fresh)` and does not re-invoke the checker, since a
+  real, decided verdict already exists and evidence must never be produced twice for one outcome.
+* If no evidence exists for this four-tuple, recovery reverts the row to `Active(fresh)` once cleanup
+  is confirmed, exactly as in the startup path, and the triggering submission may then proceed to
+  execute against it normally.
+
+This is also the mechanism that resolves what happens when the registry file changes on disk while a
+challenge is `InFlight` (F4): because section 4 now looks a row up by its stable four-tuple identity
+first, a submission arriving after such a change finds the *same* existing row rather than
+bootstrapping a parallel one; if that row is `InFlight`, the generalized recovery procedure above
+governs it exactly as any other `InFlight`-with-free-try-lock encounter, and if it is still genuinely
+executing (try-lock held), the arriving submission is simply rejected `RetryableUnavailable(native_busy)`
+by section 8's existing rule, never granted a parallel execution track.
 
 ## 8. Concurrency: the `native_busy` unification (closes the remainder of E3/D4)
 
@@ -248,28 +403,51 @@ cross-process OS-level ledger lock) is acquired at the start of decision-path st
 submission, regardless of which challenge key it targets. If the try-lock is already held by another
 execution — whether for the same key or a different key — the submission is rejected immediately as
 `RetryableUnavailable(native_busy)`. No queueing, no waiting: the decision is synchronous, made
-before any workspace or cgroup setup begins.
+before any workspace or cgroup setup begins. Once acquired, the try-lock is held through section 7's
+full persist-then-transition sequence (including, when applicable, the generalized recovery
+procedure), not only through the checker's own execution.
 
 **Why this retires `challenge_in_flight`.** With global concurrency fixed at exactly 1, the only way
-any specific challenge could ever be observed `InFlight` is if the single global execution slot is
-currently occupied running that exact challenge. A per-challenge-scoped rejection reason
-(`challenge_in_flight`, carried from r1 and reclassified but not removed by r2's D1) is therefore
-strictly redundant with, and narrower than, the correct global check — it can never fire in a case
-the global `native_busy` check would not also cover. `challenge_in_flight` is retired as a distinct
-outward-facing reason code. The durable per-key `InFlight` marker itself is unaffected and still
-exists in the journal purely for crash-recovery bookkeeping (section 7) — it is bookkeeping, not a
-rejection reason.
+any specific challenge could ever be observed genuinely, actively `InFlight` is if the single global
+execution slot is currently occupied running that exact challenge. A per-challenge-scoped rejection
+reason (`challenge_in_flight`, carried from r1 and reclassified but not removed by r2's D1) is
+therefore strictly redundant with, and narrower than, the correct global check — it can never fire in
+a case the global `native_busy` check would not also cover. `challenge_in_flight` is retired as a
+distinct outward-facing reason code. The durable per-key `InFlight` marker itself is unaffected and
+still exists in the journal purely for crash-recovery bookkeeping (section 7) — it is bookkeeping,
+not a rejection reason. A durably `InFlight` row encountered while the try-lock is free is not an
+active execution at all; it is handled by section 7's generalized recovery procedure, never by
+`native_busy`.
 
-## 9. Process-tree containment: contract and concrete policy values (closes E4)
+## 9. Process-tree containment: contract, concrete policy values, and execution order (closes E4; revised to close F3 and F4's self-sufficiency gap)
 
-The containment contract is unchanged from the base document section 4.2 and r2's D4's seven
-mechanical fixes: a dedicated Linux cgroup v2 leaf per submission wraps the checker's entire process
-tree (checker.py, cargo, rustc, the linker and the compiled test binary — not just the immediate
-child), assigned race-free at spawn time, with the control file descriptors close-on-exec so the
-untrusted tree can never inherit a writable handle, and `cgroup.freeze` + `cgroup.kill` as the sole
-termination path (no iterative SIGKILL fallback; a kernel lacking `cgroup.kill` is a startup
-capability-probe failure, fail closed). macOS has no equivalent and remains permanently
-qualification-only for this contract; the containment-dependent path is Linux-only.
+**The full containment contract, inlined — no longer "unchanged from" a superseded document.**
+Every submission's toolchain build runs inside a dedicated Linux cgroup v2 leaf that wraps the
+checker's *entire* process tree — `checker.py`, `cargo`, `rustc`, the linker and the compiled test
+binary, not just the immediate child. Concretely, this document commits to the following seven
+mechanical properties (carried forward from r2's D4, restated here in full so this document is the
+only one that needs to be open):
+
+1. **Rate vs. total CPU.** `cpu.max` bounds a rate, not a total; a tree-wide cumulative ceiling is
+   separately enforced via `cpu.stat`'s `usage_usec` counter (concrete value below).
+2. **Memory overrun is confirmed and the whole tree dies together.** `memory.oom.group=1` (below)
+   makes any OOM event kill every process in the leaf atomically; `memory.events`' counters
+   authoritatively confirm what happened, after the fact, for classification (section 10).
+3. **The workspace ceiling is filesystem-enforced, not only measured.** A size- and inode-bounded
+   tmpfs mount (below), not periodic `du`-style polling as the sole mechanism.
+4. **The sandboxed child never inherits a writable cgroup control file descriptor.** Any descriptor
+   the harness opens to write cgroup control files is closed or `FD_CLOEXEC` before the untrusted
+   tree can run (folded into the pre-execution ordering below).
+5. **Concurrency fixed at 1**, system-wide — section 8.
+6. **Cleanup verification applies to every outcome, not only kills** — `populated=0` and leaf-cgroup
+   removal confirmed before the node responds, whether the outcome was success, a checker-reported
+   rejection, or a kill.
+7. **`cgroup.freeze` + `cgroup.kill` is the only termination path**, no iterative SIGKILL fallback; a
+   kernel lacking `cgroup.kill` is a startup capability-probe failure, fail closed.
+
+The leaf cgroup is assigned to the spawned process race-free at spawn time (via `clone3()`'s
+`CLONE_INTO_CGROUP`, or by writing to `cgroup.procs` before the process execs). macOS has no
+equivalent kernel primitive; its treatment is stated in full, without qualification, below.
 
 **Concrete values, pinned.** `native/checker/rust-tuple-struct-project-v1/policy.json` already
 tracks real numeric ceilings — `wallSeconds: 60`, `taskTotalWallSeconds: 90`, `cpuSeconds: 120`,
@@ -288,18 +466,45 @@ RED→GREEN implementation slice adds to that same tracked file (not edited in t
   over that legitimate worst case while still meaningfully bounding a hypothetical fork-bomb-style
   escape. Flagged explicitly as an initial conservative default, subject to empirical tuning once
   the Linux CI runner named in section 10 exists — not asserted as definitively optimal.
-* **Workspace quota: tmpfs, size `536870912` (512 MiB), inode ceiling `8192`.** cgroup v2 has no
-  byte-quota controller of its own, so the workspace ceiling must come from the filesystem: this
-  document commits definitively to a size- and inode-bounded **tmpfs** mount over a loopback device.
-  Rationale: a loopback device requires its own formatting and mount/unmount teardown on every run,
-  which adds failure modes to exactly the crash-recovery path section 7 just tightened (a loopback
-  mount left attached after a crash is one more thing recovery must detect and clean); tmpfs is
-  kernel-native, needs no formatting, and its lifetime is tied directly to the mount itself being
-  torn down — fewer moving parts to get right during recovery. 512 MiB / 8192 inodes comfortably
-  covers a debug-profile build of the tracked single-file, dependency-free crate (source, `target/`,
-  a fresh empty `CARGO_HOME`) while still bounding disk-fill abuse from pathological
-  monomorphization/codegen bloat, which remains possible in safe Rust without `unsafe` or `std::fs`.
-  Also an initial default, not asserted as definitively optimal.
+* **`memory.swap.max: 0`**, pinned, new this round. Swap is disabled for the leaf cgroup entirely.
+  Rationale: with swap available, a submission approaching `memory.max` degrades into slow, highly
+  host-dependent thrashing before the ceiling is actually enforced — distorting the wall-clock
+  measurement section 10's classification depends on being submission-independent, and making
+  behavior non-reproducible across hosts with differing swap configuration. Disabling swap makes a
+  memory-ceiling breach manifest promptly and deterministically as the OOM/kill path in item 2 above.
+* **Workspace quota: tmpfs, size `536870912` (512 MiB), inode ceiling `8192`, mounted in a
+  dedicated private mount namespace.** cgroup v2 has no byte-quota controller of its own, so the
+  workspace ceiling must come from the filesystem: this document commits definitively to a size- and
+  inode-bounded **tmpfs** mount over a loopback device. Rationale: a loopback device requires its own
+  formatting and mount/unmount teardown on every run, which adds failure modes to exactly the
+  crash-recovery path section 7 just tightened (a loopback mount left attached after a crash is one
+  more thing recovery must detect and clean); tmpfs is kernel-native, needs no formatting, and its
+  lifetime is tied directly to the mount itself being torn down — fewer moving parts to get right
+  during recovery. 512 MiB / 8192 inodes comfortably covers a debug-profile build of the tracked
+  single-file, dependency-free crate (source, `target/`, a fresh empty `CARGO_HOME`) while still
+  bounding disk-fill abuse from pathological monomorphization/codegen bloat, which remains possible
+  in safe Rust without `unsafe` or `std::fs`. Also an initial default, not asserted as definitively
+  optimal.
+  * **Mount namespace, options and teardown, pinned, new this round.** The tmpfs is mounted inside a
+    **private mount namespace** created for that submission alone (`unshare(CLONE_NEWNS)` on the
+    process that will become the tree's ancestor, performed as part of the pre-execution ordering
+    below), not the node's own default namespace — so the mount is invisible to, and cannot be
+    interfered with by, any other concurrent or subsequent submission or by the node process itself.
+    Mount options: `size=536870912,nr_inodes=8192,mode=0700,noexec,nosuid,nodev` — `noexec`/`nosuid`/
+    `nodev` are defense-in-depth (the submission surface is already textually restricted, but the
+    mount itself should not be a viable place to stage an executable or a device node regardless).
+    Teardown: a private mount namespace's lifetime is scoped to the tasks that hold a reference to
+    it, not to an explicit `umount` call; once every task inside it is confirmed dead (which cleanup
+    already requires, via `populated=0`, per contract item 6 above), the kernel tears the namespace
+    and its tmpfs down automatically, and the tmpfs's backing pages are reclaimed as ordinary memory
+    at that point. This holds identically for a normal completion and for crash-restart recovery
+    (section 7): the recovery order's cleanup-confirmation step is extended to confirm **zero
+    remaining tasks referencing that key's private mount namespace**, not only `populated=0` on the
+    cgroup — the two are expected to coincide (every task in the namespace is also a member of the
+    same cgroup leaf), and recovery treats a mismatch between them as a cleanup failure, fail-closed,
+    rather than assuming one implies the other. No separate, additional `umount` call is required or
+    specified; asserting an unconditional `umount` step would be a spurious extra failure mode for a
+    namespace the kernel already tears down correctly on last reference.
 * **`cpu.max`: left unthrottled** (`max max`, no rate quota). Rationale: the submission surface
   already has both a wall-clock deadline (below) and a cumulative CPU-time ceiling (below); throttling
   the *rate* in addition would only slow down legitimate work without adding a security property
@@ -314,112 +519,191 @@ RED→GREEN implementation slice adds to that same tracked file (not edited in t
 * **`memory.max: 2147483648`** (2 GiB), mirroring `memoryBytes`, applied tree-wide (closing the same
   per-process-vs-whole-tree gap for memory that `RLIMIT_AS` alone leaves open).
 * **`memory.oom.group: 1`**, pinned. This makes the kernel atomically OOM-kill the *entire* cgroup as
-  one unit, removing the userspace-detection race that watching `oom_kill` after the fact and then
-  separately firing `cgroup.kill` would otherwise leave open.
+  one unit — including `checker.py`'s own process, not only its descendants — removing the
+  userspace-detection race that watching `oom_kill` after the fact and then separately firing
+  `cgroup.kill` would otherwise leave open. (Section 10 relies on this specific property: it is what
+  makes an OOM event independently observable by boole-node's own direct wait-status on its own
+  direct child, `checker.py`, without needing to trust anything `checker.py` itself reports.)
 * **`memory.events` monitoring extended beyond `oom_kill`** to also read the `max` and `oom` counters
-  on every outcome (not only on a kill), per the explicit request this round: `oom_kill` alone tells
-  the harness a kill happened, but `max`/`oom` additionally distinguish "the hard ceiling was hit"
-  from "the kernel's OOM killer engaged," which matters for section 10's classification rule.
+  on every outcome (not only on a kill): `oom_kill`/`oom` confirm a kill actually happened (used only
+  as diagnostic annotation on an already-`RetryableUnavailable` outcome — section 10); `max` confirms
+  an allocation was denied *without* triggering the OOM killer, which is the one memory-related
+  counter relevant to section 10's narrow corroboration rule for a clean, non-killed exit.
+* **`pids.events`' `max` counter**, monitored on every outcome, for the same narrow corroboration
+  role as `memory.events`' `max` (section 10) — the fork-blocked-cleanly case, distinct from any kill.
 * **Concurrency: exactly 1, immediate `RetryableUnavailable(native_busy)`, no queueing** — section 8.
 
-## 10. Resource-shortage classification (closes E5)
+**Pre-execution ordering sequence, pinned, new this round, closes F3.** The following steps are
+applied **once**, by `boole-node` itself, to the process that will become `checker.py` — i.e. before
+`checker.py`'s own process image is `exec()`'d, not inside `checker.py`. This is deliberate and
+important: cgroup membership, mount-namespace membership, dropped privileges/capabilities, and an
+attached seccomp-bpf filter or Landlock ruleset are all properties the kernel makes **inherited by
+every descendant** a process later forks or execs, and can only ever be **narrowed** further by a
+descendant, never widened or removed. Applying the full sequence once, to `checker.py` itself, before
+it starts, means every process `checker.py` later spawns via its own existing `Popen` calls (`cargo`,
+and transitively `rustc`, the linker, and the test binary) automatically inherits the complete
+containment envelope with **zero change required to `checker.py`'s own code** — `checker.py`'s
+existing `_set_limits`-applied `RLIMIT_*` values remain in place as an inner, redundant,
+defense-in-depth layer, not superseded by the outer cgroup/namespace/seccomp layer.
+
+1. **cgroup join.** Move the about-to-be-spawned process into its dedicated, freshly created leaf
+   cgroup (race-free at spawn time, as stated above) — first, so every later step is itself already
+   resource-bounded.
+2. **Mount namespace and tmpfs.** `unshare(CLONE_NEWNS)` into a private mount namespace and mount the
+   tmpfs workspace at the target path with the options pinned above.
+3. **FD block.** Close, or mark `FD_CLOEXEC`, every inherited file descriptor above stdin/stdout/
+   stderr the spawning process held open — including any handle onto the durable ledger, any cgroup
+   control file, and any other submission's workspace — via `close_range()` covering the full
+   descriptor table, so the untrusted tree can never inherit a handle it should not have.
+4. **Privilege drop.** Switch to a dedicated, unprivileged, single-purpose UID/GID with no
+   supplementary groups; drop the full capability set to empty; set `no_new_privs=1`
+   (`prctl(PR_SET_NO_NEW_PRIVS, 1)`) so nothing downstream can ever regain a privilege this step
+   removed.
+5. **RLIMIT_\* application.** `checker.py`'s own existing `_set_limits` step, unchanged, applied here
+   as the inner defense-in-depth layer behind the outer cgroup ceilings above.
+6. **seccomp/Landlock.** Apply a seccomp-bpf filter and a Landlock ruleset, layered, denying at
+   minimum: `mount`/`umount2`/`unshare`/`setns` (no re-namespacing), `ptrace` (no process
+   introspection), all networking beyond what is strictly required (an explicit kernel-enforced
+   backstop behind the existing `CARGO_NET_OFFLINE=true` convention, not a substitute for it), and —
+   **this is the specific mechanism that prevents the submission from reopening cgroupfs to loosen
+   its own limits** — Landlock filesystem-path denial of any open/write under `/sys/fs/cgroup`
+   entirely. Both mechanisms are inherited by every descendant and neither can be removed by a
+   lower-privileged process once attached, which is what makes this guarantee hold transitively
+   through `cargo` → `rustc` → the linker → the test binary without any of them needing to cooperate.
+7. **Exec.** Only after steps 1-6 are confirmed applied does `exec()` replace the process image with
+   `checker.py`.
+
+`boole-node` itself remains **outside** this envelope throughout — it is the process that constructs
+it, not a member of it — and continues to observe the leaf cgroup's own control files
+(`cgroup.events`' `populated`, `memory.events`, `pids.events`, `cpu.stat`) from the outside for the
+whole duration of execution, exactly as before.
+
+**macOS: explicit, unconditional refusal — closes F3's macOS gap.** macOS has none of cgroups,
+Linux namespaces, seccomp-bpf or Landlock. This is not treated as "unsupported" or "degraded": on any
+non-Linux target, the native-shadow containment-dependent execution path refuses, at the earliest
+possible check (a startup/configuration-time gate, before the route is even bound — not a
+per-submission runtime branch), to spawn **any** child process for this route at all. A submission
+arriving on such a host is never given the chance to reach stage 5; the route itself does not start
+with this contract enabled. macOS remains permanently qualification-only for this contract,
+consistent with the base document's original statement, now stated as a hard, fail-closed refusal to
+spawn rather than a described limitation.
+
+## 10. Resource-shortage classification (closes E5; revised to close F2)
 
 **The real, already-shipped mechanism this section reconciles.**
 `native/checker/rust-tuple-struct-project-v1/checker.py`'s `_infrastructure_failure_reason` function
-(lines 534-567) classifies a completed child process's `resource_process_limit` /
-`resource_memory_limit` outcome by regex/substring-scanning the captured stdout/stderr bytes — for
-example matching a line that starts with `error:` and ends with `cannot allocate memory (os error
-12)`. This is a real, already-tracked instance of exactly the text-scanning anti-pattern r2's D5.2
-warns against; it is not hypothetical. `checker.py`'s own `forbiddenPatterns` denylist blocks any
-macro-invocation syntax (`\b[A-Za-z_][A-Za-z0-9_]*\s*!\s*[({\[]`), which forecloses the most direct
-forgery vector (e.g. `compile_error!("...")` injecting literal diagnostic text). But the underlying
-design flaw is broader than forgeability, and does not require forged text to matter: `_set_limits`
-applies `RLIMIT_AS`/`RLIMIT_CPU`/`RLIMIT_FSIZE` as **fixed, node-configured, submission-independent**
-ceilings before every run. A submission that deterministically exceeds one of them (for example,
-`Vec::with_capacity(usize::MAX)`, legal in safe Rust without `unsafe` or `std::fs`) produces a *real*
-allocator-abort message, not a forged one — but the resulting classification is still wrong, because
-resubmitting the identical bytes against the identical fixed ceiling reproduces the identical failure
-every time, on any host, regardless of load. That is the definition of deterministic, not retryable.
+(lines 534-567) has, precisely, three branches, in this order: (1) `code == 0` → no infrastructure
+failure; (2) **`code < 0`** (the child died by signal) → unconditionally `resource_process_terminated`
+— a pure exit-code-sign check, not a text scan; (3) **`code > 0`** (the child exited normally, cleanly,
+without dying by signal) → *only here* does the function scan the captured stdout/stderr text for two
+specific patterns, `resource_process_limit` (a fork/exec/thread-creation resource failure, e.g. a
+`std::system_error`/"resource temporarily unavailable" message) and `resource_memory_limit` (an
+allocation-failure message). Recognizing that branch (2) is structural and only branch (3) is
+text-derived is the key that resolves both halves of F2.
 
-**The classification principle.** The retryable/deterministic axis turns on whether the observed
-ceiling is *intrinsic* to the submission's own resource demand or *extrinsic*/host-load-contingent:
+### 10.1 The bright-line rule (closes F2's OOM/`memory.events` contradiction)
 
-* **Intrinsic** (CPU-seconds actually consumed, memory bytes actually requested/resident, output or
-  file bytes actually produced) — all host-load-independent measurements of the submission's own
-  demand against a fixed, node-configured ceiling. Breaching one is always `DeterministicReject`
-  (`submission_resource_ceiling_breach`), because the same submission against the same fixed ceiling
-  reproduces the same outcome forever.
-* **Extrinsic** (wall-clock elapsed time, which is sensitive to scheduling contention independent of
-  the submission's own CPU consumption; the harness's own containment-envelope setup — cgroup
-  creation, tmpfs mount, lock acquisition — failing before the child ever ran; the global execution
-  slot being occupied) — genuinely host-load- or timing-contingent. These remain
-  `RetryableUnavailable` (`containment_wall_clock_kill`, `containment_environment_unavailable`,
-  `native_busy`).
+**Any forced or violent termination anywhere in the observed pipeline — a wall-clock-triggered kill,
+an OS signal, or a cgroup enforcement kill including an OOM kill — is `RetryableUnavailable` and
+never consumes the challenge, regardless of which specific ceiling nominally triggered it. Only a
+clean, non-killed process exit that carries a verdict is ever `DeterministicReject`, and consumes the
+challenge.** This replaces the earlier "intrinsic vs. extrinsic" axis, which is the axis that produced
+the contradiction: an OOM kill is, by construction (`memory.oom.group=1`, section 9), a signal death
+of the *entire* leaf, and a signal death can never legitimately reach the text-scanning branch (3) at
+all — it is fully decided by branch (2) at whichever level observes it, before any resource-flavored
+text is ever read. Section 3's `containment_killed` reason is the sole, uncontradicted destination
+for every signal death; the earlier sentence in this section's prior revision stating that "a genuine
+tree-wide resource event ... is `DeterministicReject`" is withdrawn — it described exactly the
+contradiction this revision closes, and no version of that sentence survives.
 
-This is exactly what `boole_lean_runner::classify_failed_run` already implements and is the precedent
-this document mirrors, not a new policy: its two gates are (1) did the harness's own enforced
-wall-clock deadline fire, and (2) did the process die by signal (a negative/sentinel exit status, as
-recorded by the harness's own `wait4`/`waitpid` — covering `SIGKILL` from `cgroup.kill`/OOM-kill,
-`SIGXCPU` from `RLIMIT_CPU`, `SIGXFSZ` from `RLIMIT_FSIZE`, `SIGSEGV`/`SIGABRT` from an
-`RLIMIT_AS`-triggered allocator abort). Only after both gates fail to fire does the function apply
-any further, narrower text-based sub-classification (`lean_output_reports_budget_exhaustion`) — and
-even then, only to pick *among* `DeterministicReject` sub-reasons; a process that reaches that point
-already exited normally (non-negative code), so the text scan can never promote it back up to
-`RetryableUnavailable`. This resolves the signal-death cases cleanly by the existing precedent's own
-structure without needing any new rule.
+`_infrastructure_failure_reason`'s own branch (2) already implements the correct half of this rule
+today, mechanically, with no `checker.py` change required: any signal death of `checker.py`'s own
+child is unconditionally `resource_process_terminated` → `RetryableUnavailable`, never text-scanned.
 
-**Resolving cargo/rustc's exit code 101, mechanically.** 101 is a *normal*, non-negative exit code —
-it is neither a timeout nor a signal death — used by cargo/rustc both for genuine host resource
-shortage during compilation and for an ordinary compile-error rejection of the submitted code, so an
-exit-code allowlist cannot disambiguate it in isolation, exactly as flagged. Under the two-gate
-structure above, a normal, non-negative exit code that fails both gates can **never** become
-`RetryableUnavailable` — it always falls through to `DeterministicReject`. This is already
-`checker.py`'s own separate, structurally correct branch (`if code != 0: raise
-SubmissionRejected("compile_or_hidden_test_failed")`, `checker.py:624-625`); the only defect is that
-`_infrastructure_failure_reason` is consulted and can preempt that correct branch via text-scanning
-*before* the `code != 0` check ever runs (`checker.py:621-623`).
+### 10.2 Which self-reports need independent corroboration, and which do not
 
-**What boole-node's own harness must do (design rule, not a `checker.py` edit — out of scope for
-this docs-only round).** `checker.py`'s own process always exits `0` regardless of its internal
-verdict (`main()`, `checker.py:663`), so its exit code is uninformative to an *outer* observer by
-design; boole-node cannot apply the two-gate structure to checker.py's own wait-status. It must
-instead apply the two gates using facts it observes independently of checker.py's self-report:
+`checker.py` can report `AuthorityUnavailable` for several distinct reasons. Precisely one pair of
+them is derived from submission-influenceable text; every other reason is derived from a structural
+fact the submission's own output cannot influence, and is trusted by `boole-node` as-is:
 
-1. Did boole-node's own enforced wall-clock deadline for the whole checker.py invocation fire?
-2. Did the section 9 cgroup leaf's own event counters (`memory.events`' `oom_kill`/`oom`/`max`,
-   `pids.events`' `max`) show a tree-wide resource event for this specific submission's leaf?
+* **Structural, trusted as-is, no corroboration needed:** `resource_process_terminated` (exit-code
+  sign, branch 2 above — covers every signal death, including an OOM kill under `memory.oom.group=1`,
+  a wall-clock-triggered `SIGKILL`, and any `RLIMIT_*`-triggered signal); `resource_wall_limit`
+  (`checker.py`'s own internal `wallSeconds` deadline, a monotonic-clock comparison, not text — this
+  is precisely the case F2 flagged as at risk of misclassification, and it requires **no**
+  corroboration from `boole-node`'s separate, much longer outer deadline at all, closing that half of
+  F2); `resource_output_limit` (a byte-count comparison, not text); `contained_process_unavailable`,
+  `policy_unavailable`, `toolchain_unavailable`, `scratch_root_unavailable`,
+  `scratch_workspace_unavailable` (each a structural setup-failure check, not text);
+  `checker_internal_error` (the top-level exception handler firing, a structural signal about
+  `checker.py`'s own execution, not about the submission).
+* **Text-derived, requires independent corroboration:** `resource_process_limit` and
+  `resource_memory_limit` — reachable **only** via branch (3), i.e. only on a clean, non-killed
+  (`code > 0`) exit. These two, and only these two, are where an untrusted submission's own printed
+  text could in principle influence the reported reason, and they are the only two this section's
+  corroboration rule applies to.
 
-This is precisely why section 9's whole-tree cgroup leaf is not only a containment measure but the
-*only* structurally available independent signal: it captures events from cargo, rustc, the linker
-and the test binary regardless of whether checker.py's own Python process ever saw or reported them.
-If neither gate fires, boole-node ignores/overrides checker.py's self-reported `retryable_unavailable`
-whenever it is accompanied by a "resource"-flavored reason, and reclassifies the outcome as
-`DeterministicReject(checker_reported_reason_unconfirmed)` — the underlying cargo/rustc exit was, by
-elimination, a normal nonzero exit, functionally identical to `checker.py`'s own already-correct
-`checker_rejected` branch. This annotation is recorded only in the non-binding execution
-telemetry the authority spec section 6 already allows alongside evidence ("an operational execution
-identifier and resource telemetry may accompany the evidence, but they are not part of the
-deterministic verdict digest") — no new evidence field is introduced. If gate (2) *does* show a
-genuine tree-wide resource event, that event is intrinsic per the classification principle above
-(the cgroup ceilings mirror the node's own fixed `RLIMIT_*` values) and the outcome is
-`DeterministicReject(submission_resource_ceiling_breach)`, not `RetryableUnavailable` — the same
-principle applies whether the ceiling was hit inside checker.py's own `RLIMIT_*` or the outer cgroup.
+**Why `boole-node`'s outer 90-second ceiling was never the right corroboration mechanism for
+`checker.py`'s own internal 60-second timeout.** `checker.py`'s own process always exits `0`
+regardless of its internal verdict (`main()`, `checker.py:663`), so its wait-status is uninformative
+to `boole-node` as an outer observer — but `resource_wall_limit` itself is not text-derived at all
+(it is a plain monotonic-clock comparison inside `checker.py`, unconditionally trusted per the list
+above), so it never needed corroboration in the first place. `boole-node`'s own
+`taskTotalWallSeconds` (90s) ceiling remains exactly what it always was: a safety net for the
+structurally distinct case where `checker.py` itself never returns at all (a hang or a bug in
+`checker.py`), not a mechanism for re-confirming a timeout `checker.py` already correctly reported
+and already correctly acted on (by killing its own child's process group) 30 seconds earlier.
+
+**Corroboration mechanism for the two text-derived reasons, on a clean exit only.** `boole-node`
+checks this specific submission's own leaf-cgroup event counters (section 9): `pids.events`' `max`
+counter for `resource_process_limit`; `memory.events`' **`max`** counter (specifically `max`, never
+`oom_kill`/`oom` — those two counters imply a kill, which would already have produced `code < 0` and
+therefore never reached branch (3) at all, so they are not the relevant counter here) for
+`resource_memory_limit`. If the relevant counter is nonzero for this submission's own leaf, the claim
+is corroborated: a genuine, submission-specific, host-load-independent, reproducible ceiling breach
+against a fixed node-configured value really did occur → `DeterministicReject
+(submission_resource_ceiling_breach)`. If the counter is zero, the claim is unconfirmed (and, given
+`checker.py`'s own denylist of macro-invocation syntax, most plausibly explained by an unrelated,
+ordinary compile/test failure whose message merely happens to resemble a resource complaint) →
+`DeterministicReject(checker_reported_reason_unconfirmed)`. **Both outcomes are `DeterministicReject`,
+never `RetryableUnavailable`** — by definition, `code > 0` on a clean exit means nothing was killed,
+so this branch can never legitimately be a "retry might succeed" case; the two sub-reasons differ
+only for honest audit telemetry, not for challenge-consumption behavior. This closes F2's second half
+precisely: the only place independent corroboration is required, needed, or meaningful is this one
+narrow, `code > 0`-scoped pair of reasons — nowhere else.
+
+### 10.3 Resolving cargo/rustc's exit code 101, mechanically (unchanged from this document's original E5 resolution)
+
+101 is a *normal*, non-negative exit code — it is neither a timeout nor a signal death — used by
+cargo/rustc both for genuine host resource shortage during compilation and for an ordinary
+compile-error rejection of the submitted code, so an exit-code allowlist cannot disambiguate it in
+isolation. Under section 10.2's rule, a normal, non-negative exit code that neither the text scan nor
+its corroboration check flags as a resource claim always falls through to `DeterministicReject
+(checker_rejected)` — this is already `checker.py`'s own separate, structurally correct branch
+(`if code != 0: raise SubmissionRejected("compile_or_hidden_test_failed")`, `checker.py:624-625`);
+the only defect was that `_infrastructure_failure_reason` could previously preempt that correct branch
+via an uncorroborated text match. With corroboration required, an uncorroborated match now correctly
+falls through to `DeterministicReject(checker_reported_reason_unconfirmed)` instead of ever reaching
+`RetryableUnavailable` — never silently promoted past the checker's own semantic judgment.
 
 **Required anti-forgery test**, unchanged from r2's D5.2: a submission whose captured stdout/stderr
-contains a forged resource-shortage-looking string but whose harness-observed facts (gates 1/2 above)
-show a normal, unsignaled exit must still classify as `DeterministicReject`.
+contains a forged resource-shortage-looking string but whose harness-observed facts (section 10.2)
+show a normal, unsignaled exit with no corroborating cgroup-counter evidence must classify as
+`DeterministicReject(checker_reported_reason_unconfirmed)` — never `RetryableUnavailable`, and never
+silently reclassified as a plain `checker_rejected` either, so the audit trail honestly records that
+an uncorroborated resource claim was made and rejected as such.
 
-**Named Linux CI runner requirement.** No cgroup-v2-delegation-dependent test may declare GREEN by
-skipping. Per r2's D5.1, a passing run on a permission-less host does not count, and a skip must be
-visible with a named reason, never silent. This document adds the concrete, currently-missing
-acceptance criterion the second review flagged: CI configuration must name, explicitly, which
-job/runner provides confirmed cgroup v2 delegation (for example a labeled self-hosted runner, or a
-documented GitHub-hosted runner capability) and the integration suite must assert *actual write
-access* to the relevant controller files (not merely that `cgroup2` is mounted) before running any
-containment-dependent test. As of this document, CI runs only generic `ubuntu-latest`, which does not
-satisfy this. **This is a blocking infrastructure prerequisite for GREEN — it is not deferred, not
-waived, and not satisfied by a generic runner.** Standing up that runner is implementation work for
-the later RED→GREEN slice, not something this docs-only round performs.
+**Named Linux CI runner requirement**, unchanged from this document's original E5 resolution. No
+cgroup-v2-delegation-dependent test may declare GREEN by skipping. Per r2's D5.1, a passing run on a
+permission-less host does not count, and a skip must be visible with a named reason, never silent.
+CI configuration must name, explicitly, which job/runner provides confirmed cgroup v2 delegation (for
+example a labeled self-hosted runner, or a documented GitHub-hosted runner capability) and the
+integration suite must assert *actual write access* to the relevant controller files (not merely that
+`cgroup2` is mounted) before running any containment-dependent test. As of this document, CI runs only
+generic `ubuntu-latest`, which does not satisfy this. **This is a blocking infrastructure prerequisite
+for GREEN — it is not deferred, not waived, and not satisfied by a generic runner.** Standing up that
+runner is implementation work for the later RED→GREEN slice, not something this docs-only round
+performs.
 
 ## 11. Consolidated RED gates and STOP conditions
 
@@ -430,49 +714,84 @@ contract and are unaffected):
 
 1. `PrecheckReject` never persists evidence and never consumes a challenge (stages 1-4).
 2. `DeterministicReject` always persists evidence and always consumes the challenge (stage 5/6 only).
-3. The five-tuple state key rejects a stale row from a different `registryDigest`, `familyVersion` or
-   `templateId` even when `challengeSha256`/`epoch` collide.
-4. The six-tuple idempotency key returns the prior durable verdict verbatim on an exact redelivery,
-   and treats two different `candidateDigest` values against the same five-tuple as distinct requests.
-5. A `nonIssuable` challenge already recorded in the exhaustion ledger bootstraps to `Exhausted`,
-   never `Active(fresh)`, on every startup, under every registry snapshot.
-6. No time-based expiration applies to a `nonIssuable` challenge; `Expired` is unreachable on that
+3. The four-tuple state key correctly identifies a challenge whose registry file changed on disk
+   while the challenge was already bootstrapped: a submission recomputing a new `registryDigest`
+   against the *same* four-tuple's existing row is `PrecheckReject(registry_drift)`, never a second,
+   parallel bootstrap of a fresh row for the same four-tuple (section 4).
+4. The five-tuple idempotency key returns the prior durable verdict verbatim on an exact redelivery,
+   and treats two different `candidateDigest` values against the same four-tuple as distinct requests.
+5. The currently tracked production fixture (`registry-v1.json`'s one template, both
+   `activationAllowed: false` and `nonIssuable: true`) bootstraps to `Disabled` — never
+   `Active(fresh)`, never `Exhausted` — on a brand-new node with a completely empty exhaustion ledger,
+   proving first-activation is blocked, not only revival (section 6).
+6. A four-tuple already recorded in the exhaustion ledger bootstraps to `Exhausted`, never
+   `Active(fresh)` and never `Disabled`, on every subsequent startup, under every registry snapshot.
+7. A test-only registry fixture with `activationAllowed: true`/`nonIssuable: false` is required to
+   exercise `Active(fresh)` → `InFlight` → `Consumed` in automated tests; a test asserts production
+   configuration never resolves to that test-only fixture's path (section 6).
+8. No time-based expiration applies to a `nonIssuable` challenge; `Expired` is unreachable on that
    path.
-7. Crash-recovery per-record ordering: for a simulated crash between cgroup cleanup and the durable
-   revert-to-`Active(fresh)` write, the record is never reverted before its cleanup is confirmed, and
-   a failed durable write leaves the route refusing to start rather than serving an ambiguous state.
-8. Two node processes cannot both start against the same ledger file (OS-level lock enforced).
-9. Exactly one native execution runs system-wide; every concurrent arrival — same key or different
-   key — is immediately rejected `RetryableUnavailable(native_busy)` with no queueing.
-10. `challenge_in_flight` does not exist as an outward-facing reason code.
-11. Every cgroup leaf enforces `pids.max`, `memory.max` + `memory.oom.group=1`, the cumulative
-    `cpu.stat` ceiling, and the tmpfs workspace size/inode ceiling from section 9; breaching any of
-    them classifies `DeterministicReject(submission_resource_ceiling_breach)`, never
-    `RetryableUnavailable`.
-12. A harness-observed wall-clock timeout or containment-environment setup failure classifies
-    `RetryableUnavailable`, never `DeterministicReject`.
-13. The anti-forgery test from section 10: forged resource-shortage-looking stdout/stderr text with
-    a normal, unsignaled exit classifies `DeterministicReject`.
-14. `checker.py`'s self-reported `retryable_unavailable` is downgraded to
-    `DeterministicReject(checker_reported_reason_unconfirmed)` whenever neither harness-observed gate
-    (wall-clock, signal/cgroup-event) corroborates it.
-15. Cargo/rustc exit code 101 with no corroborating harness-observed resource signal classifies
-    `DeterministicReject`, never `RetryableUnavailable`, regardless of stdout/stderr content.
-16. `cgroup.freeze` + `cgroup.kill` is the only termination path; a kernel lacking `cgroup.kill` fails
+9. Crash-recovery per-record ordering: for a simulated crash between cgroup/namespace cleanup and the
+   durable revert-to-`Active(fresh)` write, the record is never reverted before its cleanup
+   (including private-mount-namespace reference cleanup, section 9) is confirmed, and a failed
+   durable write leaves the route refusing to start rather than serving an ambiguous state.
+10. Two node processes cannot both start against the same ledger file (OS-level lock enforced).
+11. Exactly one native execution runs system-wide; every concurrent arrival — same key or different
+    key — is immediately rejected `RetryableUnavailable(native_busy)` with no queueing.
+12. `challenge_in_flight` does not exist as an outward-facing reason code.
+13. A row found durably `InFlight` while the global try-lock is free — at startup or at request time
+    on a still-running node — is recovered via section 7's generalized procedure: reverted to
+    `Active(fresh)` if no evidence exists for it, or its terminal-state write completed directly
+    (never re-executed, never reverted) if evidence already exists for it.
+14. Simulating an evidence-write failure leaves the row `InFlight` with no terminal-state write
+    attempted; simulating a terminal-state-write failure *after* evidence already persisted is
+    recovered by completing that terminal write directly, never by reverting to `Active(fresh)` and
+    never by producing a second evidence record for the same outcome (section 7).
+15. Every cgroup leaf enforces `pids.max`, `memory.max` + `memory.oom.group=1` + `memory.swap.max=0`,
+    the cumulative `cpu.stat` ceiling, and the tmpfs workspace size/inode ceiling from section 9.
+16. An OOM kill (`memory.oom.group=1` firing) classifies `RetryableUnavailable(containment_killed)` —
+    never `DeterministicReject` — proving the section 10.1 contradiction is closed.
+17. A clean, non-killed (`code > 0`) exit carrying a text-derived `resource_process_limit`/
+    `resource_memory_limit` self-report classifies `DeterministicReject`
+    (`submission_resource_ceiling_breach` if the matching cgroup-leaf counter is nonzero,
+    `checker_reported_reason_unconfirmed` if it is zero) — never `RetryableUnavailable` in either case
+    (section 10.2).
+18. `checker.py`'s own internal `resource_wall_limit` self-report is trusted without requiring
+    corroboration from `boole-node`'s own, separate, longer outer wall-clock ceiling (section 10.2).
+19. The pre-execution ordering sequence (cgroup join → mount namespace/tmpfs → FD block → privilege
+    drop → RLIMIT → seccomp/Landlock → exec) is applied once, to `checker.py` itself, before exec; a
+    test confirms the submission process cannot open or write any path under `/sys/fs/cgroup`
+    (Landlock denial verified directly, not inferred).
+20. On a non-Linux host, the native-shadow route refuses to start with this contract enabled and never
+    spawns any child process for this route — verified as a startup-time refusal, not a per-submission
+    runtime branch.
+21. The anti-forgery test from section 10.3: forged resource-shortage-looking stdout/stderr text with
+    a normal, unsignaled, uncorroborated exit classifies `DeterministicReject
+    (checker_reported_reason_unconfirmed)`.
+22. Cargo/rustc exit code 101 with no corroborating harness-observed resource signal classifies
+    `DeterministicReject(checker_rejected)`, never `RetryableUnavailable`, regardless of stdout/stderr
+    content.
+23. `cgroup.freeze` + `cgroup.kill` is the only termination path; a kernel lacking `cgroup.kill` fails
     the startup capability probe closed.
-17. `populated=0` plus directory removal is verified on every outcome (success, checker-reported
-    failure, or kill), not only kills.
-18. GREEN is not declared from a run where the containment-dependent suite skipped for lack of real
+24. `populated=0`, private-mount-namespace reference cleanup, and leaf-cgroup/tmpfs removal are all
+    verified on every outcome (success, checker-reported failure, or kill), not only kills.
+25. GREEN is not declared from a run where the containment-dependent suite skipped for lack of real
     cgroup v2 delegation on the CI runner.
 
 Stop without fallback, in addition to the authority spec's existing STOP list and r1/r2's STOP
 conditions, if any of the following is true:
 
-* a `nonIssuable` challenge is ever observed `Active(fresh)` after having been recorded in the
+* a `nonIssuable` challenge with `activationAllowed: false` or `nonIssuable: true` is ever observed
+  `Active(fresh)`, at any point, including the very first startup of a node with a completely empty
   exhaustion ledger;
 * any `RetryableUnavailable` classification is found to depend on scanning checker/compiler
   stdout/stderr text rather than a harness-observed process-level or cgroup-event fact;
-* the durable ledger can be opened for writing by more than one process at once; or
+* an OOM kill, or any other signal death, is classified `DeterministicReject` anywhere in the system;
+* a registry file change observed while a four-tuple is `InFlight` ever results in two independently
+  progressing rows for the same four-tuple;
+* durable evidence is ever produced twice for the same, already-decided four-tuple outcome;
+* the durable ledger can be opened for writing by more than one process at once;
+* a child process for this route is spawned on a non-Linux host; or
 * CI declares GREEN without a named, delegation-confirmed Linux runner actually executing the
   containment-dependent suite.
 
@@ -496,10 +815,10 @@ NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1-FROZEN
 ```
 
 That label means the binding/replay state machine, the identity/idempotency keys, the crash-recovery
-order, the concrete containment values and the resource-shortage classification rule are all
-specified and approved for implementation. It does not mean any of it is implemented, does not close
-the authority spec's section 4 second prerequisite, and does not change `LLM-MINEABLE-ELIGIBLE-V5`,
-`mineable_now` (still 0), or any consensus, reward or P2P state.
+order, the concrete containment values, the execution order and the resource-shortage classification
+rule are all specified and approved for implementation. It does not mean any of it is implemented,
+does not close the authority spec's section 4 second prerequisite, and does not change
+`LLM-MINEABLE-ELIGIBLE-V5`, `mineable_now` (still 0), or any consensus, reward or P2P state.
 
 ## 13. Status
 
@@ -508,8 +827,10 @@ NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: APPROVAL-WITHHELD / CONSOLIDAT
 ```
 
 The base document, r1 and r2 remain the historical record of the first three review passes and are
-not edited by this document beyond their own status markers pointing here. This document itself
-requires operator review before it, or any later revision, may be marked
+not edited by this document beyond their own status markers pointing here. A fourth operator review
+of this document itself (2026-08-22) found four further gaps (F1-F4, listed above) and this revision
+closes them in place, in sections 4, 6, 7, 9 and 10. This document still requires operator review
+before it, or any later revision, may be marked
 `NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1-FROZEN`. `boole-node` implementation remains
 blocked until an approved revision of this design exists. If this document closes without further
 contradiction, the recommended next step is to proceed directly to RED→GREEN implementation against
