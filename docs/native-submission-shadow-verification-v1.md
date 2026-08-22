@@ -219,7 +219,7 @@ Further route-free foundations now narrow the open prerequisite without closing 
   invokes that fixture or primitive yet, it does not prove request-level ordering. AppState
   ownership and stage-5 route acquisition remain unimplemented, so the full request-level gate is
   still open.
-* Phase 3B.0 — the current guarded route-free slice: the frozen checker-internal policy keeps its
+* Phase 3B.0 — PR #173, the current guarded route-free slice: the frozen checker-internal policy keeps its
   existing identity and bytes, while a separate node-owned execution/containment-policy identity is
   bound through new state rows, versioned journal events and evidence. New ACCEPT or
   `DeterministicReject` evidence uses `boole.native-shadow.evidence.v2`; legacy v1 evidence and

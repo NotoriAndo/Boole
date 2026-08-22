@@ -2972,7 +2972,7 @@ HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 R
       아직 AppState가 이 permit을 단 하나 소유하거나 실제 route가 stage 5에서 획득하는 결선은
       없으므로 full gate 11 GREEN은 아니다. 이 체크도 현재 slice의 required CI·merge가
       완료되어 이 항목 자체가 main에 도달할 때만 권위가 생긴다.
-- [x] **Native shadow Phase 3B.0 — execution-policy identity binding (current guarded slice)**: 기존 checker
+- [x] **Native shadow Phase 3B.0 — execution-policy identity binding (PR #173, current guarded slice)**: 기존 checker
       `policy.json`·release·registry·frozen parity는 byte-preserved하고, 별도 node-owned
       `executionPolicyDigest`를 새 row·journal·evidence v2에 결박한다. legacy evidence v1과
       unversioned journal event는 replay-only. 실제 production containment

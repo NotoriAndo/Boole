@@ -146,7 +146,8 @@ entry becomes authoritative on `main` only after its required CI and merge:
   future AppState-owned, node-wide instance. Busy acquisition returns exact `native_busy`; normal,
   error and panic-unwind paths release it, and concurrent contenders admit exactly one. The actual
   AppState/route ordering remains unimplemented.
-* **Phase 3B.0** — the current guarded policy-binding slice: the frozen checker-internal policy and
+* **Phase 3B.0** — PR #173, the current guarded policy-binding slice: the frozen checker-internal
+  policy and
   the future node-owned execution/containment policy have separate identities. New rows and journal
   events bind `executionPolicyDigest`; new evidence is `boole.native-shadow.evidence.v2`, while
   legacy v1 evidence and unversioned journal events remain read-only replay inputs. The production
