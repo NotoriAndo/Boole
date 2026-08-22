@@ -28,6 +28,10 @@ last live append store missing from this set; it is now pinned here.
 BF.4: `useful_work_store.rs` (useful-work event log + spent mirror)
 joins the set — it reuses the shared durable-append helper and the
 stable-prefix recover path from day one.
+
+Native-shadow phase 1: `native_shadow.rs` (the permanent exhaustion
+ledger backing the `nonIssuable` bootstrap rule) joins the set — same
+reuse-from-day-one pattern as `useful_work_store.rs` above.
 """
 from __future__ import annotations
 
@@ -49,6 +53,7 @@ DURABLE_STORES = {
     "signed_nonce_ledger.rs",
     "proof_dedup_ledger.rs",
     "useful_work_store.rs",
+    "native_shadow.rs",
 }
 
 
