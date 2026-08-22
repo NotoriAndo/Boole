@@ -84,7 +84,7 @@ enabled family/template it binds at least:
 * anchor bytes or an immutable tracked locator plus anchor digest;
 * challenge/epoch policy and freshness rule;
 * checker artifact and checker digest;
-* policy digest;
+* checker-internal policy digest, plus a separately pinned node execution/containment policy digest;
 * toolchain identity, binary provenance and invocation contract;
 * proof-intake/extraction version;
 * deterministic resource limits and containment limits; and
@@ -212,13 +212,19 @@ Further route-free foundations now narrow the open prerequisite without closing 
   descriptor. Final symlinks/non-regular files, path replacement, a different live authority and a
   drop/reopen attempt fail closed. The focused lock test uses two opens in one process; it does not
   replace the later real two-node-process integration gate.
-* Phase 3A.2 — the current guarded route-free slice: one atomic RAII single-slot primitive is ready for
-  one future AppState-owned, node-wide instance. A held slot returns exact `native_busy`
-  immediately, and normal,
-  error and panic-unwind paths release it. Concurrent-thread tests admit exactly one contender and
-  a route-ordering fixture keeps state and journal untouched on busy. Because no route invokes that
-  fixture or primitive yet, it does not prove request-level ordering. AppState ownership and stage-5
-  route acquisition remain unimplemented, so the full request-level gate is still open.
+* Phase 3A.2 — PR #172, main `34c33b6`: one atomic RAII single-slot primitive is ready for one
+  future AppState-owned, node-wide instance. A held slot returns exact `native_busy` immediately,
+  and normal, error and panic-unwind paths release it. Concurrent-thread tests admit exactly one
+  contender and a route-ordering fixture keeps state and journal untouched on busy. Because no route
+  invokes that fixture or primitive yet, it does not prove request-level ordering. AppState
+  ownership and stage-5 route acquisition remain unimplemented, so the full request-level gate is
+  still open.
+* Phase 3B.0 — PR #173, the current guarded route-free slice: the frozen checker-internal policy keeps its
+  existing identity and bytes, while a separate node-owned execution/containment-policy identity is
+  bound through new state rows, versioned journal events and evidence. New ACCEPT or
+  `DeterministicReject` evidence uses `boole.native-shadow.evidence.v2`; legacy v1 evidence and
+  unversioned journal events remain read-only replay inputs. This slice does not yet freeze the
+  production containment-policy bundle or execute a checker.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed cleanup, no Linux cgroup/tmpfs/seccomp/Landlock execution and no real
@@ -251,7 +257,9 @@ verdict.
 
 ## 6. Node-issued shadow evidence
 
-Success or deterministic rejection produces `boole.native-shadow.evidence.v1`, owned by the node.
+Historical success or deterministic rejection records may contain
+`boole.native-shadow.evidence.v1`. They remain read-only replay evidence. Every new ACCEPT or
+`DeterministicReject` evidence write uses `boole.native-shadow.evidence.v2`, owned by the node.
 It binds:
 
 * submission schema and submission digest;
@@ -259,7 +267,8 @@ It binds:
 * challenge digest and epoch;
 * exact raw-answer candidate digest;
 * intake version;
-* checker, policy and toolchain digests;
+* checker, checker-policy, node execution-policy and toolchain digests (`policyDigest` keeps the
+  checker-policy identity; `executionPolicyDigest` is the node-owned containment-policy identity);
 * deterministic verdict and reason code; and
 * registry version.
 
@@ -323,7 +332,8 @@ Implementation must start with failing tests for at least:
 4. task-A submission/evidence replayed under task B and cross-challenge evidence reuse are rejected,
    while a fresh identical raw answer for B is independently adjudicated by B's checker;
 5. stale/replayed challenge is rejected atomically;
-6. checker, policy, anchor, registry or toolchain digest drift is rejected before execution;
+6. checker, checker-policy, node execution-policy, anchor, registry or toolchain digest drift is
+   rejected before execution;
 7. unavailable/terminated checker never becomes ACCEPT;
 8. unknown/oversized/malformed JSON and forbidden fields are rejected;
 9. the feature is a byte-for-byte no-op while OFF; and
@@ -342,8 +352,10 @@ Stop without fallback if any of the following is true:
 
 ## 10. Relationship to BF receipts
 
-`boole.native-shadow.evidence.v1` is a temporary qualification artifact, not a third permanent
-receipt family. Before any production or BF.7 connection, a separate approved successor must map
+`boole.native-shadow.evidence.v1` (legacy replay only) and
+`boole.native-shadow.evidence.v2` (all new ACCEPT/`DeterministicReject` evidence writes) are
+temporary qualification artifacts, not a third permanent receipt family. Before any production or
+BF.7 connection, a separate approved successor must map
 the node-owned verdict into the **already-landed** BF.3 common `VerificationReceipt` contract and
 prove the mapping preserves every binding field and reject reason required by that contract. This
 is a native-adapter qualification and mapping task, not a reimplementation of BF.3 or BF.5.
@@ -444,3 +456,5 @@ The later 2026-08-23 implementation addendum in section 4.4 supersedes only that
 progress cursor: Phase 2D and the route-free Phase 3A.1 same-FD journal foundation are now closed.
 The route-free Phase 3A.2 `native_busy` permit is also implemented, while its AppState/route wiring,
 containment-backed cleanup, checker wiring, the named-Linux run and the full RED matrix remain open.
+Phase 3B.0 is the current guarded typed execution-policy/v2 evidence propagation foundation;
+production policy bytes and provenance, route/checker wiring and Linux execution remain open.
