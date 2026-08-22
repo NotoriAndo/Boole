@@ -162,33 +162,27 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// to. RED gate 7 safeguard (a): production configuration is asserted, at
 /// startup, to be this path, never a test-only fixture. The actual startup
 /// assertion call site is later, route-wiring work (out of this module's
-/// scope); `assert_not_test_only_registry_path` below is the reusable guard
-/// that call site will invoke.
+/// scope); `assert_is_canonical_production_registry_path` below is the
+/// reusable guard that call site will invoke.
 pub(crate) const PRODUCTION_REGISTRY_PATH: &str = "fixtures/native-shadow/registry-v1.json";
 
 /// RED gate 7 safeguard (b): the test suite itself must assert the test-only
-/// registry is never the file production configuration resolves to. Returns
-/// an error naming both paths when `candidate` is exactly the pinned
-/// production path's file name colliding with a path that is not actually
-/// the tracked production file — see the inline tests for the concrete
-/// assertion this guards.
-pub(crate) fn assert_not_test_only_registry_path(candidate: &Path) -> Result<(), String> {
+/// registry is never the file production configuration resolves to. This is
+/// an allowlist of exactly one path, not a blocklist on the file name: a
+/// blocklist keyed on the literal substring `"test-only"` lets the exact
+/// same test-only fixture bytes through once copied to a path whose name
+/// does not contain that substring (e.g. `/tmp/copied-registry.json`) — so
+/// any candidate other than the pinned canonical path is rejected here,
+/// regardless of what it is named.
+pub(crate) fn assert_is_canonical_production_registry_path(candidate: &Path) -> Result<(), String> {
     if candidate == Path::new(PRODUCTION_REGISTRY_PATH) {
         return Ok(());
     }
-    if candidate
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(|name| name.contains("test-only"))
-        .unwrap_or(false)
-    {
-        return Err(format!(
-            "native-shadow: refusing to treat test-only fixture {} as production configuration (must be {})",
-            candidate.display(),
-            PRODUCTION_REGISTRY_PATH
-        ));
-    }
-    Ok(())
+    Err(format!(
+        "native-shadow: refusing to treat {} as production configuration (must be the canonical production path {})",
+        candidate.display(),
+        PRODUCTION_REGISTRY_PATH
+    ))
 }
 
 /// Permanent, `registryDigest`-independent exhaustion ledger (spec section 4,
@@ -504,9 +498,37 @@ mod tests {
 
     #[test]
     fn production_configuration_path_is_never_the_test_only_fixture() {
-        assert!(assert_not_test_only_registry_path(Path::new(PRODUCTION_REGISTRY_PATH)).is_ok());
-        assert!(assert_not_test_only_registry_path(Path::new(
+        assert!(
+            assert_is_canonical_production_registry_path(Path::new(PRODUCTION_REGISTRY_PATH))
+                .is_ok()
+        );
+        assert!(assert_is_canonical_production_registry_path(Path::new(
             "fixtures/native-shadow/registry-test-only-v1.json"
+        ))
+        .is_err());
+    }
+
+    // -- fifth-round review finding: the guard must be an allowlist of the --
+    // -- one canonical production path, not a blocklist keyed on the ------
+    // -- literal substring "test-only" in the file name. A blocklist lets --
+    // -- the exact same test-only fixture bytes through once copied to a --
+    // -- path whose name does not contain that substring. -------------------
+
+    #[test]
+    fn renamed_copy_of_the_test_only_fixture_is_still_rejected() {
+        assert!(assert_is_canonical_production_registry_path(Path::new(
+            "/tmp/copied-registry.json"
+        ))
+        .is_err());
+    }
+
+    #[test]
+    fn any_non_canonical_path_is_rejected_regardless_of_name() {
+        assert!(
+            assert_is_canonical_production_registry_path(Path::new("/tmp/whatever.json")).is_err()
+        );
+        assert!(assert_is_canonical_production_registry_path(Path::new(
+            "fixtures/native-shadow/registry-v2-staging.json"
         ))
         .is_err());
     }
