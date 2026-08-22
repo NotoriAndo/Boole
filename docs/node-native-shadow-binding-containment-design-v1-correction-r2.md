@@ -2,6 +2,12 @@
 
 Status: **APPROVAL WITHHELD (round 2) — this document is itself unreviewed. No implementation, no
 endpoint, no consensus change.**
+**2026-08-22 second round-2 review: five further gaps found (identity/freshness contradiction,
+incomplete idempotency key, unsafe recovery ordering, missing concrete containment values,
+incomplete resource-shortage classification). This document is preserved unchanged as the historical
+record of the second correction pass; it is superseded for implementation purposes by
+`docs/node-native-shadow-binding-containment-implementation-spec-v1.md`, which controls wherever the
+two disagree.**
 
 The 2026-08-22 first correction (`docs/node-native-shadow-binding-containment-design-v1-correction.md`,
 "correction r1") fixed the six defects it was asked to fix, but a second operator review found five
@@ -265,3 +271,9 @@ The base document and correction r1 remain the historical record of the first tw
 are not edited by this document beyond their own status markers pointing here. This document itself
 requires operator review before it, or any later revision, may be marked approved. `boole-node`
 implementation remains blocked until an approved revision of this design exists.
+
+**This correction did not close either.** A second round-2 operator review found five further gaps;
+see `docs/node-native-shadow-binding-containment-implementation-spec-v1.md`, which consolidates the
+base document, this document and r1 into one self-contained implementation reference. This document
+remains historical and unedited beyond this status note; the consolidated spec controls for
+implementation purposes.

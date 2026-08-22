@@ -103,8 +103,12 @@ surface must pass two distinct parity gates before the route is implemented:
   approval and required six corrections, see
   `docs/node-native-shadow-binding-containment-design-v1-correction.md`; a second 2026-08-22 review
   found five further contradictions, see
-  `docs/node-native-shadow-binding-containment-design-v1-correction-r2.md`; implementation still
-  open and blocked until that round-2 correction itself is reviewed**.
+  `docs/node-native-shadow-binding-containment-design-v1-correction-r2.md`; a third 2026-08-22
+  review found five further gaps and requested one consolidated implementation reference rather
+  than a further append-only correction, see
+  `docs/node-native-shadow-binding-containment-implementation-spec-v1.md`, which restates the full
+  current rule set in one file and controls for implementation purposes; implementation still open
+  and blocked until that consolidated spec itself is reviewed**.
 
 Entry 27's `FixedVerdictChecker` reject matrix is miner-wiring evidence, not proof that the actual
 checker produced those negative verdicts. Path strings, timing and telemetry need not be byte
@@ -329,7 +333,7 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `49b7d2ee80c319ef1d5268855685092748d63e47c20a08d4b80f73cf1570745c` |
 | `local-docs/todo/todo-l1-network-master.md` | `adcd7cc549ad80112ec727adf73b3b4fbea3bd546c0464be28b732e5ed771fc7` |
-| `local-docs/todo/EXECUTION-ORDER.md` | `8e2735c882fabae6c07c4d394b166a16db4bd122f6b559f694e08ecd517ca2b8` (updated 2026-08-22d — round-2 correction cursor sync below) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `af9e520bb53d57c1900f2046d506d0f647b7ec2c59cb8cdae8816fbbed6e85cf` (updated 2026-08-22e — consolidated spec cursor sync below) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `255128d28961d760311680f1dfddeed01ad4f7c1509e0be7705aea6347b00f39` |
 | `local-docs/todo/thesis-realization-roadmap.md` | `a0a25a0f51b39bd284f85b3a009655eaace9ca244b0edbd4c9f4e8c2d1a44f5c` |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `d3a312acc59f73358d70820d5d5e4afd1dbec5f60bbe9e9d98e7c11f78b8b90a` |
@@ -364,3 +368,12 @@ but found five further contradictions, resolved in
 current-position marker to "awaiting review of the round-2 correction document itself," again by
 appending a new dated cursor block rather than editing the prior ones. The other five rows remain
 at their original 2026-08-21 synchronization point.
+
+A fifth, same-day (2026-08-22e) update to `local-docs/todo/EXECUTION-ORDER.md` records that a third
+operator review confirmed the round-2 correction document's D1 item closed but found five further
+gaps, and requested one consolidated implementation reference rather than a further append-only
+correction — resolved in
+`docs/node-native-shadow-binding-containment-implementation-spec-v1.md`, which restates the full
+current rule set in one file. It moves the current-position marker to "awaiting review of the
+consolidated spec itself," again by appending a new dated cursor block rather than editing the prior
+ones. The other five rows remain at their original 2026-08-21 synchronization point.
