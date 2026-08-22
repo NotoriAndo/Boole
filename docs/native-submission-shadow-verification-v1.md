@@ -219,16 +219,31 @@ Further route-free foundations now narrow the open prerequisite without closing 
   invokes that fixture or primitive yet, it does not prove request-level ordering. AppState
   ownership and stage-5 route acquisition remain unimplemented, so the full request-level gate is
   still open.
-* Phase 3B.0 — PR #173, the current guarded route-free slice: the frozen checker-internal policy keeps its
+* Phase 3B.0 — PR #173, the landed guarded route-free slice: the frozen checker-internal policy keeps its
   existing identity and bytes, while a separate node-owned execution/containment-policy identity is
   bound through new state rows, versioned journal events and evidence. New ACCEPT or
   `DeterministicReject` evidence uses `boole.native-shadow.evidence.v2`; legacy v1 evidence and
   unversioned journal events remain read-only replay inputs. This slice does not yet freeze the
   production containment-policy bundle or execute a checker.
+* Phase 3B.1 — the current guarded infrastructure-capability slice: a named `ubuntu-24.04` job
+  probes delegated cgroup v2, a separate minimal privileged-launcher boundary, mount/PID namespaces,
+  executable bounded tmpfs, complete privilege removal, freeze/kill/cleanup and the existing enforced
+  seccomp/Landlock behavior. The first PR #174 run kept the required gate RED after the runner denied
+  the earlier unprivileged-userns private-mount transition; no sysctl/AppArmor bypass or criterion
+  relaxation is allowed. The second run stopped before kernel probing because the deliberately
+  capability-bounded service could not traverse the runner-owned checkout path. The successor stages
+  the byte-identical, root-owned launcher in `/run` instead of restoring a filesystem-override
+  capability. The third run then passed the complete named job, including the injected pre-ready
+  failure cleanup, normal namespace/cgroup lifecycle and enforced seccomp/Landlock checks
+  ([run 32598640328, job 97093408375](https://github.com/NotoriAndo/Boole/actions/runs/32598640328/job/97093408375)).
+  Required `self-test` explicitly fails unless this job succeeds. This GREEN proves only runner
+  capability; it does not implement the production launcher/IPC, freeze
+  production policy bytes, execute the native checker or close the route gate.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
-containment-backed cleanup, no Linux cgroup/tmpfs/seccomp/Landlock execution and no real
-named-Linux node run. Therefore this is not `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`.
+containment-backed per-submission cleanup and no native-checker execution under the combined Linux
+cgroup/tmpfs/seccomp/Landlock envelope. The capability probe is not a real named-Linux node run.
+Therefore this is not `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`.
 
 ## 5. Required decision path
 
@@ -455,6 +470,8 @@ lane. The six SHA-256 values above are the byte-exact post-update mirrors.
 The later 2026-08-23 implementation addendum in section 4.4 supersedes only that snapshot's
 progress cursor: Phase 2D and the route-free Phase 3A.1 same-FD journal foundation are now closed.
 The route-free Phase 3A.2 `native_busy` permit is also implemented, while its AppState/route wiring,
-containment-backed cleanup, checker wiring, the named-Linux run and the full RED matrix remain open.
-Phase 3B.0 is the current guarded typed execution-policy/v2 evidence propagation foundation;
-production policy bytes and provenance, route/checker wiring and Linux execution remain open.
+containment-backed cleanup, checker wiring, a real named-Linux node run and the full RED matrix remain
+open. Phase 3B.0 is the landed typed execution-policy/v2 evidence propagation foundation. Phase 3B.1
+closed the named-runner infrastructure-capability prerequisite; production policy bytes and
+provenance, production launcher/IPC, route/checker wiring and actual native Linux execution remain
+open.

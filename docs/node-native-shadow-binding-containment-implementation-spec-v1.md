@@ -67,10 +67,10 @@ unapproved. A draft that has never been frozen is corrected directly, not supers
   classified two contradictory ways: section 3/9 named it `RetryableUnavailable(containment_killed)`,
   while section 10's intrinsic/extrinsic axis separately said any cgroup-observed resource event is
   always `DeterministicReject(submission_resource_ceiling_breach)` — for the identical event.
-  Separately, `checker.py`'s own internal 60-second `wallSeconds` timeout and boole-node's own outer
+  Separately, `checker.py`'s own internal 60-second `wallSeconds` timeout and the future launcher's outer
   90-second `taskTotalWallSeconds` ceiling are enforced by two different actors, and section 10 as
   written risked misclassifying a legitimate checker-internal timeout as an unconfirmed/forged
-  report merely because it does not itself trip boole-node's much longer outer ceiling.
+  report merely because it does not itself trip the launcher's much longer outer ceiling.
 * **F3** — the concrete cgroup values section 9 pinned had no accompanying safe execution *order*:
   no `memory.swap.max`, no tmpfs mount-namespace/mount-option/unmount detail, no pre-execution
   ordering sequence, no stated mechanism stopping the submission from reopening cgroupfs to loosen
@@ -146,23 +146,42 @@ entry becomes authoritative on `main` only after its required CI and merge:
   future AppState-owned, node-wide instance. Busy acquisition returns exact `native_busy`; normal,
   error and panic-unwind paths release it, and concurrent contenders admit exactly one. The actual
   AppState/route ordering remains unimplemented.
-* **Phase 3B.0** — PR #173, the current guarded policy-binding slice: the frozen checker-internal
+* **Phase 3B.0** — PR #173, the landed guarded policy-binding slice: the frozen checker-internal
   policy and
   the future node-owned execution/containment policy have separate identities. New rows and journal
   events bind `executionPolicyDigest`; new evidence is `boole.native-shadow.evidence.v2`, while
   legacy v1 evidence and unversioned journal events remain read-only replay inputs. The production
   containment-policy bundle and actual Linux executor are not part of this slice.
+* **Phase 3B.1** — the current guarded infrastructure-capability slice: a named `ubuntu-24.04`
+  job must actually exercise a separate minimal privileged-launcher boundary, delegated cgroup v2
+  controls, mount/PID namespaces, bounded executable tmpfs, complete privilege/capability removal,
+  cgroup freeze/kill/cleanup and the existing enforced seccomp/Landlock tests. The first PR #174 run
+  proved that the earlier unprivileged-user-namespace proposal cannot make `/` recursively private
+  on this runner; that path remains RED and is not weakened with a sysctl/AppArmor bypass. The
+  successor probe keeps `boole-node` unprivileged and moves only the setup operations that require
+  privilege into a separate transient launcher. A second run then stopped before those operations
+  because the capability-bounded service could not traverse the runner-owned checkout; the next
+  probe stages the byte-identical, root-owned launcher in `/run` rather than adding
+  `CAP_DAC_OVERRIDE`. The third run passed the complete job, including injected pre-ready cleanup,
+  the normal namespace/cgroup lifecycle and the enforced seccomp/Landlock checks
+  ([run 32598640328, job 97093408375](https://github.com/NotoriAndo/Boole/actions/runs/32598640328/job/97093408375)).
+  Required `self-test` fails when this job fails, is skipped or is cancelled. This GREEN proves only
+  that the named runner supplies the launcher
+  prerequisites; it does not implement the production launcher/IPC, freeze a production identity or
+  policy, execute the native checker or close containment.
 
-All seven are internal, currently unwired `boole-node` foundations. They do **not** implement an
+All eight are internal, currently unwired `boole-node` foundations or infrastructure gates. They do
+**not** implement an
 HTTP endpoint, spawn the checker, activate the production registry, change SharePool/block/reward/
 P2P/consensus state, or earn `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`. Phase 3A.1's focused
 lock test uses two opens in one process and does not close the later real two-node-process gate.
 Still open are section 7's containment-backed per-record cleanup, section 8's AppState ownership and
 permit acquisition in the actual request path, sections 9–10's actual Linux
 containment/observation integration, route wiring, the complete RED matrix and one real
-node-process raw-answer run. Actual containment
-GREEN is additionally blocked until a named Linux runner has delegated cgroup v2 access and pinned
-UID/GID/privilege configuration; generic `ubuntu-latest` may not substitute or skip this gate.
+node-process raw-answer run. The named Linux job has now proved the infrastructure prerequisites,
+but actual containment GREEN remains blocked until the production launcher protocol, dedicated
+UID/GID, policy identity and minimal privilege set are pinned and implemented. Generic
+`ubuntu-latest` may not substitute for the passing named evidence.
 
 ## 1. Non-goals
 
@@ -208,7 +227,7 @@ The verdict vocabulary, after r1's C1 split and r2's D1 split, is final as follo
   below).
 * **`RetryableUnavailable`** — never persists evidence and never consumes the challenge. Reason
   codes: `native_busy` (section 8 below; replaces `challenge_in_flight`), `containment_wall_clock_kill`
-  (any wall-clock-triggered termination, whether checker.py's own internal deadline or boole-node's
+  (any wall-clock-triggered termination, whether checker.py's own internal deadline or the launcher's
   own outer deadline — section 10 below), `containment_killed` (**any other** signal death of the
   containment leaf, unconditionally, regardless of which specific ceiling nominally caused it —
   OOM kill under `memory.oom.group=1`, `cgroup.kill`, an `RLIMIT_*`-triggered `SIGXCPU`/`SIGXFSZ`/
@@ -560,9 +579,11 @@ raw-byte SHA-256 is `executionPolicyDigest`, bound independently through every n
 journal event and v2 evidence object. Phase 3B.0 implements that binding before a production bundle
 exists; it does not invent placeholder policy bytes. The later Linux slice may freeze the bundle only
 after its UID/GID, privilege model and enforcement profiles are concrete and its named Linux job
-actually exercises them. The node will compile the final policy bytes into the binary rather than
-accept a request-, environment- or CWD-selected policy path. The following are the values that bundle
-must contain:
+actually exercises them. Both the node and the separate privileged launcher must compile or otherwise
+cryptographically pin the same final policy bytes rather than accept a request-, environment- or
+CWD-selected policy path. Their authenticated, closed IPC and policy-agreement protocol remain open
+work; Phase 3B.1 does not invent or claim that production protocol. The following are the values that
+bundle must contain:
 
 * **`pidsMax: 128`** — mirrors the existing `openFiles: 128` value for consistency. `cargo`'s
   `testArgs` already force `-j 1` (single-job build), and the submission surface is denied
@@ -581,7 +602,8 @@ must contain:
 * **Workspace quota: tmpfs, size `536870912` (512 MiB), inode ceiling `8192`, mounted in a
   dedicated private mount namespace.** cgroup v2 has no byte-quota controller of its own, so the
   workspace ceiling must come from the filesystem: this document commits definitively to a size- and
-  inode-bounded **tmpfs** mount over a loopback device. Rationale: a loopback device requires its own
+  inode-bounded **tmpfs** mount rather than a loopback-backed filesystem. Rationale: a loopback
+  device requires its own
   formatting and mount/unmount teardown on every run, which adds failure modes to exactly the
   crash-recovery path section 7 just tightened (a loopback mount left attached after a crash is one
   more thing recovery must detect and clean); tmpfs is kernel-native, needs no formatting, and its
@@ -627,7 +649,8 @@ must contain:
     rather than assuming one implies the other. No separate, additional `umount` call is required or
     specified; asserting an unconditional `umount` step would be a spurious extra failure mode for a
     namespace the kernel already tears down correctly on last reference.
-* **`cpu.max`: left unthrottled** (`max max`, no rate quota). Rationale: the submission surface
+* **`cpu.max`: left unthrottled** (`max 100000`, no rate quota; cgroup v2 still requires a numeric
+  period even when the quota is `max`). Rationale: the submission surface
   already has both a wall-clock deadline (below) and a cumulative CPU-time ceiling (below); throttling
   the *rate* in addition would only slow down legitimate work without adding a security property
   neither ceiling already provides.
@@ -644,8 +667,9 @@ must contain:
   one unit — including `checker.py`'s own process, not only its descendants — removing the
   userspace-detection race that watching `oom_kill` after the fact and then separately firing
   `cgroup.kill` would otherwise leave open. (Section 10 relies on this specific property: it is what
-  makes an OOM event independently observable by boole-node's own direct wait-status on its own
-  direct child, `checker.py`, without needing to trust anything `checker.py` itself reports.)
+  makes an OOM event independently observable by the privileged launcher's direct wait-status and
+  cgroup counters, without trusting anything `checker.py` itself reports. The node may consume that
+  fact only through the later authenticated launcher protocol.)
 * **`memory.events` monitoring extended beyond `oom_kill`** to also read the `max` and `oom` counters
   on every outcome (not only on a kill): `oom_kill`/`oom` confirm a kill actually happened (used only
   as diagnostic annotation on an already-`RetryableUnavailable` outcome — section 10); `max` confirms
@@ -655,9 +679,21 @@ must contain:
   role as `memory.events`' `max` (section 10) — the fork-blocked-cleanly case, distinct from any kill.
 * **Concurrency: exactly 1, immediate `RetryableUnavailable(native_busy)`, no queueing** — section 8.
 
+**Privilege boundary corrected by the first Phase 3B.1 Linux run.** The actual named-runner result
+showed that an unprivileged service inside a user namespace cannot perform the required recursive
+private-mount transition. Deleting that transition or disabling the host security control would
+weaken the contract, so neither is allowed. `boole-node` remains unprivileged and never receives
+root or `CAP_SYS_ADMIN`. A separate, minimal, root-owned launcher performs only the privileged setup,
+creates a dedicated child inside that envelope, and keeps monitoring outside while only the child
+irreversibly becomes the checker identity before any untrusted code executes. The production
+launcher binary, closed request format/authentication, installation ownership, dedicated UID/GID,
+minimal capability set and crash-recovery protocol are still open and must be frozen before route
+wiring. The Phase 3B.1 transient root service is capability evidence for this boundary, not that
+production implementation.
+
 **Pre-execution ordering sequence, pinned, new this round, closes F3.** The following steps are
-applied **once**, by `boole-node` itself, to the process that will become `checker.py` — i.e. before
-`checker.py`'s own process image is `exec()`'d, not inside `checker.py`. This is deliberate and
+applied **once**, by that separate launcher, to the process that will become `checker.py` — i.e.
+before `checker.py`'s own process image is `exec()`'d, not inside `checker.py`. This is deliberate and
 important: cgroup membership, mount-namespace membership, dropped privileges/capabilities, and an
 attached seccomp-bpf filter or Landlock ruleset are all properties the kernel makes **inherited by
 every descendant** a process later forks or execs, and can only ever be **narrowed** further by a
@@ -671,13 +707,18 @@ defense-in-depth layer, not superseded by the outer cgroup/namespace/seccomp lay
 1. **cgroup join.** Move the about-to-be-spawned process into its dedicated, freshly created leaf
    cgroup (race-free at spawn time, as stated above) — first, so every later step is itself already
    resource-bounded.
-2. **Mount namespace and tmpfs.** `unshare(CLONE_NEWNS)` into a private mount namespace; immediately
+2. **Mount/PID namespaces, private `/proc`, and tmpfs.** Create the child with
+   `unshare(CLONE_NEWNS | CLONE_NEWPID)` and make it PID 1 in the new PID namespace; the privileged
+   monitor launcher stays outside both namespaces. Inside the child mount namespace, immediately
    remount the root filesystem recursively as private
    (`mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL)`), new this round — required because Linux's
    default root-mount propagation type is `shared` on most distributions, so `unshare(CLONE_NEWNS)`
    alone does not by itself stop a mount event inside this namespace from propagating out to the
    node's own default namespace or to any other submission's namespace, or vice versa; only after that
-   remount, mount the tmpfs workspace at the target path with the options pinned above.
+   remount, mount a private `proc` filesystem at `/proc` with `nosuid,nodev,noexec`, and only then
+   mount the tmpfs workspace at the target path with the options pinned above. The last process in
+   the PID/mount namespace exiting tears down both private mounts; cleanup must still verify the leaf
+   cgroup is empty and the namespace has no remaining process reference before treating that as done.
 3. **FD block.** Close, or mark `FD_CLOEXEC`, every inherited file descriptor above stdin/stdout/
    stderr the spawning process held open — including any handle onto the durable ledger, any cgroup
    control file, and any other submission's workspace — via `close_range()` covering the full
@@ -686,12 +727,12 @@ defense-in-depth layer, not superseded by the outer cgroup/namespace/seccomp lay
    supplementary groups; drop the full capability set to empty; set `no_new_privs=1`
    (`prctl(PR_SET_NO_NEW_PRIVS, 1)`) so nothing downstream can ever regain a privilege this step
    removed.
-5. **`boole-node`'s own outer `RLIMIT_*` application — corrected this round, distinct from
-   `checker.py`'s own `_set_limits`.** Before `exec()`, `boole-node` itself directly calls
+5. **The launcher's node-owned outer `RLIMIT_*` application — corrected this round, distinct from
+   `checker.py`'s own `_set_limits`.** Before `exec()`, the privileged launcher directly calls
    `setrlimit(2)` — mirroring `policy.json`'s own `cpuSeconds`/`memoryBytes`/`fileBytes`/`openFiles`
    ceilings as `RLIMIT_CPU`/`RLIMIT_AS`/`RLIMIT_FSIZE`/`RLIMIT_NOFILE` — on the about-to-be-`exec()`'d
-   process, from its own pre-exec code. This is not, and was incorrectly described in an earlier
-   revision as, `boole-node` "applying `checker.py`'s existing `_set_limits`": `_set_limits` is a
+   process, from the launcher's trusted pre-exec code. This is not, and was incorrectly described in
+   an earlier revision as, `boole-node` "applying `checker.py`'s existing `_set_limits`": `_set_limits` is a
    function inside `checker.py`'s own Python code, invoked by `checker.py` on its own `cargo` child,
    and exposes no entry point an external process could call before `checker.py` itself has even
    started. Limits applied here, at this point in the sequence, are bound to the process image before
@@ -713,10 +754,12 @@ defense-in-depth layer, not superseded by the outer cgroup/namespace/seccomp lay
 7. **Exec.** Only after steps 1-6 are confirmed applied does `exec()` replace the process image with
    `checker.py`.
 
-`boole-node` itself remains **outside** this envelope throughout — it is the process that constructs
-it, not a member of it — and continues to observe the leaf cgroup's own control files
-(`cgroup.events`' `populated`, `memory.events`, `pids.events`, `cpu.stat`) from the outside for the
-whole duration of execution, exactly as before.
+The privileged launcher remains **outside the child envelope** only long enough to construct and
+observe it, while `boole-node` remains unprivileged and outside both the envelope and privileged
+setup. The launcher observes the leaf cgroup's control files (`cgroup.events`' `populated`,
+`memory.events`, `pids.events`, `cpu.stat`) and direct child wait-status for the whole execution,
+then reports only the pinned observation/result structure over the future authenticated local
+protocol. The node must reject a missing, malformed, mismatched-policy or replayed launcher report.
 
 **macOS: explicit, unconditional refusal — closes F3's macOS gap.** macOS has none of cgroups,
 Linux namespaces, seccomp-bpf or Landlock. This is not treated as "unsupported" or "degraded": on any
@@ -764,14 +807,16 @@ child is unconditionally `resource_process_terminated` → `RetryableUnavailable
 
 `checker.py` can report `AuthorityUnavailable` for several distinct reasons. Precisely one pair of
 them is derived from submission-influenceable text; every other reason is derived from a structural
-fact the submission's own output cannot influence, and is trusted by `boole-node` as-is:
+fact the submission's own output cannot influence. The launcher preserves the checker result and its
+own observations in the future authenticated report; only after verifying that report's identity,
+policy binding and replay protection may `boole-node` apply the classification below:
 
 * **Structural, trusted as-is, no corroboration needed:** `resource_process_terminated` (exit-code
   sign, branch 2 above — covers every signal death, including an OOM kill under `memory.oom.group=1`,
   a wall-clock-triggered `SIGKILL`, and any `RLIMIT_*`-triggered signal); `resource_wall_limit`
   (`checker.py`'s own internal `wallSeconds` deadline, a monotonic-clock comparison, not text — this
   is precisely the case F2 flagged as at risk of misclassification, and it requires **no**
-  corroboration from `boole-node`'s separate, much longer outer deadline at all, closing that half of
+  corroboration from the launcher's separate, much longer outer deadline at all, closing that half of
   F2); `resource_output_limit` (a byte-count comparison, not text); `contained_process_unavailable`,
   `policy_unavailable`, `toolchain_unavailable`, `scratch_root_unavailable`,
   `scratch_workspace_unavailable` (each a structural setup-failure check, not text);
@@ -783,18 +828,18 @@ fact the submission's own output cannot influence, and is trusted by `boole-node
   text could in principle influence the reported reason, and they are the only two this section's
   corroboration rule applies to.
 
-**Why `boole-node`'s outer 90-second ceiling was never the right corroboration mechanism for
+**Why the launcher's outer 90-second ceiling was never the right corroboration mechanism for
 `checker.py`'s own internal 60-second timeout.** `checker.py`'s own process always exits `0`
 regardless of its internal verdict (`main()`, `checker.py:663`), so its wait-status is uninformative
-to `boole-node` as an outer observer — but `resource_wall_limit` itself is not text-derived at all
+to the launcher as an outer observer — but `resource_wall_limit` itself is not text-derived at all
 (it is a plain monotonic-clock comparison inside `checker.py`, unconditionally trusted per the list
-above), so it never needed corroboration in the first place. `boole-node`'s own
+above), so it never needed corroboration in the first place. The launcher's
 `taskTotalWallSeconds` (90s) ceiling remains exactly what it always was: a safety net for the
 structurally distinct case where `checker.py` itself never returns at all (a hang or a bug in
 `checker.py`), not a mechanism for re-confirming a timeout `checker.py` already correctly reported
 and already correctly acted on (by killing its own child's process group) 30 seconds earlier.
 
-**Corroboration mechanism for the two text-derived reasons, on a clean exit only.** `boole-node`
+**Corroboration mechanism for the two text-derived reasons, on a clean exit only.** The launcher
 checks this specific submission's own leaf-cgroup event counters (section 9): `pids.events`' `max`
 counter for `resource_process_limit`; `memory.events`' **`max`** counter (specifically `max`, never
 `oom_kill`/`oom` — those two counters imply a kill, which would already have produced `code < 0` and
@@ -811,6 +856,9 @@ so this branch can never legitimately be a "retry might succeed" case; the two s
 only for honest audit telemetry, not for challenge-consumption behavior. This closes F2's second half
 precisely: the only place independent corroboration is required, needed, or meaningful is this one
 narrow, `code > 0`-scoped pair of reasons — nowhere else.
+The launcher includes the raw counters and wait status in its authenticated report; `boole-node`
+recomputes this classification from those bound fields rather than trusting a free-form launcher
+verdict string.
 
 ### 10.3 Resolving cargo/rustc's exit code 101, mechanically (unchanged from this document's original E5 resolution)
 
@@ -833,17 +881,23 @@ show a normal, unsignaled exit with no corroborating cgroup-counter evidence mus
 silently reclassified as a plain `checker_rejected` either, so the audit trail honestly records that
 an uncorroborated resource claim was made and rejected as such.
 
-**Named Linux CI runner requirement**, unchanged from this document's original E5 resolution. No
+**Named Linux CI runner requirement, revised by the first Phase 3B.1 run.** No
 cgroup-v2-delegation-dependent test may declare GREEN by skipping. Per r2's D5.1, a passing run on a
 permission-less host does not count, and a skip must be visible with a named reason, never silent.
-CI configuration must name, explicitly, which job/runner provides confirmed cgroup v2 delegation (for
-example a labeled self-hosted runner, or a documented GitHub-hosted runner capability) and the
-integration suite must assert *actual write access* to the relevant controller files (not merely that
-`cgroup2` is mounted) before running any containment-dependent test. As of this document, CI runs only
-generic `ubuntu-latest`, which does not satisfy this. **This is a blocking infrastructure prerequisite
-for GREEN — it is not deferred, not waived, and not satisfied by a generic runner.** Standing up that
-runner is implementation work for the later RED→GREEN slice, not something this docs-only round
-performs.
+CI now contains the named `native-shadow-containment-linux` job pinned to `ubuntu-24.04`, and the
+required `self-test` result explicitly depends on that job succeeding. The first PR #174 run proved
+that delegated cgroup controls are writable but also proved that the original unprivileged-userns
+mount transition is denied by the runner's kernel/security policy. The successor therefore probes a
+separate privileged launcher while keeping `boole-node` unprivileged. The second run stopped before
+the probe because that capability-bounded service could not traverse the checkout; staging the exact
+reviewed launcher bytes in root-owned `/run` fixes that path dependency without granting a
+filesystem-override capability. The successor must still assert *actual
+write access* and actual namespace, tmpfs, privilege-drop, cleanup and seccomp/Landlock behavior.
+The third PR #174 run passed every one of those required operations on the named runner
+([run 32598640328, job 97093408375](https://github.com/NotoriAndo/Boole/actions/runs/32598640328/job/97093408375)),
+so this infrastructure-capability prerequisite is GREEN. A skipped, permission-less, generic
+`ubuntu-latest` or weakened run still cannot replace that evidence. Production launcher/IPC,
+dedicated identity, frozen policy and route/checker execution remain open.
 
 ## 11. Consolidated RED gates and STOP conditions
 
@@ -904,8 +958,9 @@ implementation:
     `checker_reported_reason_unconfirmed` if it is zero) — never `RetryableUnavailable` in either case
     (section 10.2).
 18. `checker.py`'s own internal `resource_wall_limit` self-report is trusted without requiring
-    corroboration from `boole-node`'s own, separate, longer outer wall-clock ceiling (section 10.2).
-19. The pre-execution ordering sequence (cgroup join → mount namespace/tmpfs → FD block → privilege
+    corroboration from the launcher's separate, longer outer wall-clock ceiling (section 10.2).
+19. The pre-execution ordering sequence (cgroup join → mount/PID namespaces → rprivate root →
+    private `/proc` → tmpfs → FD block → privilege
     drop → RLIMIT → seccomp/Landlock → exec) is applied once, to `checker.py` itself, before exec; a
     test confirms the submission process cannot open or write any path under `/sys/fs/cgroup`
     (Landlock denial verified directly, not inferred).
@@ -937,7 +992,7 @@ implementation:
 28. A mount performed inside one submission's private mount namespace after the `MS_REC|MS_PRIVATE`
     remount is never observable from the node's own default namespace or from any other concurrent
     submission's private mount namespace.
-29. `boole-node`'s own outer `RLIMIT_*` application (pre-execution ordering step 5) and `checker.py`'s
+29. The launcher's outer `RLIMIT_*` application (pre-execution ordering step 5) and `checker.py`'s
     own internal `_set_limits` are exercised as two independent layers: a test with the outer layer's
     ceiling set below `_set_limits`'s own ceiling shows the outer layer firing first, and a test with
     only `_set_limits` active (outer layer not yet enforcing) still shows `_set_limits` independently
@@ -1011,9 +1066,9 @@ second prerequisite and do not change
 ```
 NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: IMPLEMENTATION-BASELINE-APPROVED
 IMPLEMENTATION: PARTIAL (PHASE-1 / PHASE-2 / PHASE-2C / PHASE-2D / PHASE-3A.1 /
-PHASE-3A.2 LANDED; PHASE-3B.0 CURRENT GUARDED POLICY-BINDING SLICE, LANDED ONLY AFTER ITS
-REQUIRED CI AND MERGE)
-CONTAINMENT-ROUTE-GREEN: OPEN / NAMED-LINUX-INFRASTRUCTURE-BLOCKED
+PHASE-3A.2 / PHASE-3B.0 LANDED; PHASE-3B.1 NAMED-LINUX-CAPABILITY GREEN, AUTHORITATIVE
+ON PR #174 REQUIRED-CI GREEN + MERGE)
+CONTAINMENT-ROUTE-GREEN: OPEN / PRODUCTION-LAUNCHER-IPC-POLICY-AND-ROUTE-UNIMPLEMENTED
 ```
 
 The base document, r1 and r2 remain the historical record of the first three review passes and are
@@ -1023,7 +1078,8 @@ place, in sections 4, 6, 7, 9 and 10. A fifth operator review (2026-08-22) found
 left one non-implementable execution step, two prose/RED-gate contradictions and one remaining
 self-sufficiency gap (G1-G4, listed above), and this revision closes those too, in place, in sections
 7, 9 and 11. Subsequent operator direction authorized phased RED→GREEN implementation, producing
-the foundation slices listed above. Further containment/route implementation remains
-fail-closed: no Phase 3 GREEN may be claimed until a named runner actually supplies delegated
-cgroup v2 access and the operator pins the containment UID/GID and privilege model. The partial
-foundation does not authorize an endpoint, child-process execution or activation.
+the foundation slices listed above. The named runner now supplies the required delegated cgroup v2
+and namespace capability evidence. Further containment/route implementation remains fail-closed:
+no Phase 3 GREEN may be claimed until the production launcher protocol, dedicated containment
+UID/GID, policy identity and privilege model are pinned and implemented. The partial foundation does
+not authorize an endpoint, child-process execution or activation.
