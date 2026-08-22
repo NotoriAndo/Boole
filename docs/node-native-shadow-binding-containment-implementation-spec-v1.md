@@ -1,7 +1,8 @@
 # Node-native shadow binding and containment — consolidated implementation spec v1
 
-Status: **APPROVAL WITHHELD — CONSOLIDATED SPEC UNDER REVIEW.** No implementation, no endpoint, no
-consensus change.
+Status: **IMPLEMENTATION BASELINE APPROVED; PHASED IMPLEMENTATION IN PROGRESS.** Registry/state
+durability foundations are on `main`; containment, checker execution and the HTTP route remain
+open. No consensus change.
 
 This document consolidates the base design
 (`docs/node-native-shadow-binding-containment-design-v1.md`), correction round 1
@@ -116,17 +117,44 @@ this same document, in sections 7, 9 and 11 below:
   lock was also left as an unpinned either/or ("a non-blocking `flock()` or PID-lock file") rather than
   one definitive mechanism.
 
-This is a **docs-only slice**: it does not edit `policy.json`, `registry-v1.json` or any
-`boole-node`/`boole-lean-runner` code, and it performs no new model measurement or census work.
-Where a concrete numeric default or file name is pinned, it is pinned as the value to implement in
-the later RED→GREEN slice, not as an edit landed here.
+**Historical creation note.** The original landing of this document was a docs-only slice: it did
+not edit `policy.json`, `registry-v1.json` or any `boole-node`/`boole-lean-runner` code, and it
+performed no model measurement or census work. Later implementation progress is recorded below;
+that progress does not retroactively change what the original docs-only slice did.
+
+### Implementation progress (2026-08-23)
+
+The operator subsequently authorized phased RED→GREEN implementation against this consolidated
+baseline. The following foundation slices are now on `main`:
+
+* **Phase 1** — PR #166, main `131244f`: section 4's four-tuple identity and row-owned
+  `registryDigest`, plus the then-current `Disabled`/`Exhausted`/`Active(fresh)` bootstrap model.
+  Phase 2D removes the now-proven-unreachable stored/bootstrap `Exhausted` branch; this bullet names
+  the historical contents of Phase 1, not the current normative model.
+* **Phase 2** — PR #167, main `4e19d1e`: the `Active(fresh)` → `InFlight` → `Consumed`
+  lifecycle, durable journal replay and fail-closed boot recovery data model.
+* **Phase 2C** — PR #168, main `eff95658`: evidence-backed terminal recovery, preservation of the
+  original row `registryDigest`, durable retention of stuck `InFlight` rows, strict replay, and the
+  single-journal exhaustion projection specified in sections 4–7 below.
+
+All three are internal, currently unwired `boole-node` foundations. A focused Phase 2D follow-up is
+still required to remove the now-unreachable stored/bootstrap `Exhausted` branch and expose
+`Consumed` + its terminal projection as the derived `challenge_exhausted` admission view. They do
+**not** implement an
+HTTP endpoint, spawn the checker, activate the production registry, change SharePool/block/reward/
+P2P/consensus state, or earn `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`. Still open are section
+7's lifetime same-file-descriptor `flock` and containment-backed per-record cleanup, section 8's
+node-wide `native_busy` permit, sections 9–10's actual Linux containment/observation integration,
+route wiring, the complete RED matrix and one real node-process raw-answer run. Actual containment
+GREEN is additionally blocked until a named Linux runner has delegated cgroup v2 access and pinned
+UID/GID/privilege configuration; generic `ubuntu-latest` may not substitute or skip this gate.
 
 ## 1. Non-goals
 
-Carried unchanged from the base document section 1: this document does not implement `boole-node`
-code, an HTTP route, or a `boole-core`/`SharePool`/block/reward/P2P/consensus change.
-`boole-node` implementation may begin only after this document is itself reviewed and approved — it
-is not yet approved.
+This specification does not authorize an HTTP route or a
+`boole-core`/`SharePool`/block/reward/P2P/consensus change. The internal `boole-node` foundation
+phases listed above are approved and landed; containment, route/checker execution and activation
+remain outside their completed scope.
 
 ## 2. Precedent reused
 
@@ -186,10 +214,10 @@ Three distinct keys are in play, and conflating them is exactly what left E2, an
    ```
    (familyVersion, templateId, challengeSha256, epoch)
    ```
-   This is the same identity used by the permanent exhaustion ledger (item 2 below) and by section
-   6's `Disabled` gate — the operational row and the exhaustion-ledger row now share one identity,
-   differing only in what each one records.
-2. **Permanent exhaustion-ledger key** (registry-snapshot-independent; section 6 below) — the
+   This is also the identity used by section 6's permanent-exhaustion **projection**. There is no
+   second independently writable exhaustion authority: replay derives the projection only from an
+   evidence-backed `TerminalConsumed` event in the same journal.
+2. **Permanent exhaustion projection key** (registry-snapshot-independent; section 6 below) — the
    identical four-tuple:
    ```
    (familyVersion, templateId, challengeSha256, epoch)
@@ -207,7 +235,8 @@ Three distinct keys are in play, and conflating them is exactly what left E2, an
    only and does not reintroduce r1's C2-forbidden pattern** (comparing a candidate digest against a
    pre-registered "correct answer" digest to decide correctness); correctness is decided exclusively
    by executing the checker, never by digest comparison. The underlying *state* transition
-   (`Active` → `InFlight` → `Consumed`/`Exhausted`) still keys on the four-tuple alone: the challenge
+   (`Active` → `InFlight` → `Consumed`, with `challenge_exhausted` derived at the admission boundary
+   from terminal replay) still keys on the four-tuple alone: the challenge
    itself, once consumed by whichever candidate reaches it first, is spent at the challenge level,
    not the candidate level — single-use semantics are unchanged from the base document.
 
@@ -248,9 +277,11 @@ an already-`InFlight` row when this occurs.
 * **`InFlight`** — a single execution is currently running against this challenge; written
   durably before the checker is invoked and cleared on completion (section 7).
 * **`Consumed`** — terminal; one execution completed and evidence was persisted for this challenge.
-* **`Exhausted`** — terminal; permanent-exhaustion-ledger-backed (section 6), reached only after a
-  challenge was legitimately `Active(fresh)`, actually ran, and reached `Consumed`. Records a true
-  historical fact: this challenge *was* issued and consumed.
+* **`Exhausted`** — a derived **serving/admission view**, not a durable `ChallengeState` and never a
+  journal bootstrap value. The durable operational row remains `Consumed`; the route exposes it as
+  `challenge_exhausted` only when replay also derives the matching permanent-exhaustion projection
+  from the same evidence-backed `TerminalConsumed` event (section 6). A legacy exhaustion-only file
+  cannot create this view.
 * **`Disabled`** — terminal, **new in this document, closes F1**. Reached when the registry's own
   static declaration for this four-tuple (`activationAllowed: false` at the registry file's top
   level, and/or `nonIssuable: true` on the specific template) forbids issuance, checked **before**
@@ -281,54 +312,58 @@ separate, later, undesigned real-issuance path, consistent with the base documen
 carve-out.
 
 **Resolution, part 2, corrected to close F1: the registry's own static flags gate BEFORE the
-exhaustion ledger, not after.** This document's original E1 fix introduced a permanent
-`registryDigest`-independent exhaustion ledger, checked before `Active(fresh)` bootstrap — but a
-permanent ledger can only record and later block *revival after consumption*. It cannot, by
-construction, prevent the **first** activation of a four-tuple that has never yet been recorded
-anywhere: on a clean node, the ledger is empty for every four-tuple, so the check "is this four-tuple
-already in the ledger?" answers "no" for the one currently tracked fixture on its very first
-encounter, and the original rule would still bootstrap it to `Active(fresh)` — directly
-reproducing the contradiction this section exists to close. The fourth review is correct that this
-requires a distinct, prior gate, not a refinement of the ledger check.
+exhaustion projection, not after.** This document's original E1 fix described a separate permanent
+`registryDigest`-independent exhaustion ledger. Phase 2C closes the resulting split-authority gap:
+permanent exhaustion is now derived exclusively from an evidence-backed `TerminalConsumed` event
+in the same state-transition journal. The logical ordering remains unchanged. A record of past
+consumption can block *revival after consumption*, but cannot prevent the **first** activation of a
+four-tuple that has no terminal history. On a clean node the projection is empty, so the registry's
+static gate must still run first to prevent the tracked non-issuable fixture from ever becoming
+`Active(fresh)`.
 
-**Corrected bootstrap rule, three ordered checks, for every registry-declared four-tuple with no
+**Corrected bootstrap rule, two ordered checks, for every registry-declared four-tuple with no
 existing durable state row:**
 
 1. **Static issuability gate (new, checked first).** Read the four-tuple's own declared flags
    directly from the registry snapshot: the registry file's top-level `activationAllowed` field, and
    the specific template's own `nonIssuable` field. If either says issuance is not allowed
    (`activationAllowed: false` at the file level, or `nonIssuable: true` on that template), the row
-   bootstraps directly to `Disabled` (section 5) and the remaining two checks are never reached. This
+   bootstraps directly to `Disabled` (section 5) and the remaining check is never reached. This
    is a pure function of the registry's own already-trusted, already-verified content — no new
    digest, no new field, no new trust boundary — and it is what makes the current tracked fixture
    (both flags true) unreachable as `Active(fresh)` from the very first startup onward, closing F1
    exactly.
-2. **Permanent exhaustion ledger (unchanged from the original E1 fix, now second).** If the
-   four-tuple is not statically disabled, check whether it is already recorded in the permanent,
-   `registryDigest`-independent exhaustion ledger (section 4, item 2). If so, bootstrap to
-   `Exhausted`. This is what prevents *revival* — a four-tuple that legitimately ran once under some
-   past registry state (`activationAllowed` having since flipped to `true`, for a future,
-   still-undesigned real-issuance registry) can never come back to `Active(fresh)` merely because an
-   unrelated registry byte changed and produced a new whole-file digest.
-3. **Bootstrap to `Active(fresh)` (unchanged, now reached only if 1 and 2 both pass).**
+2. **Bootstrap to `Active(fresh)`.** This is reached only when check 1 permits issuance. No
+   exhaustion check belongs in the no-row bootstrap branch: a valid `TerminalConsumed` event can
+   exist only after `Bootstrap` → `InFlight` → `Evidence` for that same row, and replay preserves
+   that durable row as `Consumed`. Therefore "no row exists" and "terminal history exists" cannot
+   both be true in a valid journal.
 
-A four-tuple's static flags are re-read from the **current** registry snapshot on every encounter,
-not only at row-creation time: if a future registry update flips `activationAllowed` to `true`
-file-wide while a specific template's own `nonIssuable` remains `true`, check 1 still disables that
-specific template on its own — the two flags are independent and either one alone is sufficient to
-force `Disabled`, which is what keeps this rule correct across a future registry-wide activation
-without needing to be revisited then.
+**Existing terminal-row rule.** A replayed `Consumed` row is never bootstrapped or revived. Its
+matching terminal-event-derived exhaustion projection is checked as an invariant, and the route
+derives the outward `challenge_exhausted` admission result from those two facts without mutating the
+stored row to a second state. A changed registry digest still follows section 4's
+`PrecheckReject(registry_drift)` rule and can never create a parallel row. `Exhausted` must not be
+serialized as `Bootstrap`, written as a standalone state transition, or synthesized from a legacy
+exhaustion-only file.
 
-On the eventual `Consumed` transition of a `nonIssuable` challenge that *was* statically issuable and
-did run, the four-tuple is durably appended to the exhaustion ledger in the same synchronous write as
-the `Consumed` transition (section 7), so the two records can never drift apart.
+A four-tuple's static flags are read from the current registry snapshot when a genuinely new row is
+bootstrapped. Existing rows are always looked up first by four-tuple and retain their original
+`registryDigest`; per-submission digest recomputation detects any later registry edit as
+`registry_drift` before it can alter or duplicate that row.
+
+On the eventual `Consumed` transition of a challenge that was statically issuable and did run, one
+durable `TerminalConsumed` journal event atomically records both terminal consumption and permanent
+exhaustion (section 7). There is deliberately no second exhaustion append or file that can drift
+from it.
 
 **Test-only registry required for automated tests, new in this round.** Under the corrected rule
 above, the real, currently tracked production registry
 (`fixtures/native-shadow/registry-v1.json`) can **never** produce a row that reaches `Active(fresh)`
 at all — its one template is disabled by both flags. An automated test suite exercising the real
-`Active(fresh)` → `InFlight` → `Consumed`/`Exhausted` lifecycle therefore cannot use the production
-registry; it would never observe anything but `Disabled`. The later RED→GREEN implementation slice
+`Active(fresh)` → `InFlight` → `Consumed` lifecycle and derived `challenge_exhausted` admission
+view therefore cannot use the production registry; it would never observe anything but `Disabled`.
+The later RED→GREEN implementation slice
 must add a **separate, explicitly test-only registry fixture** (for example
 `fixtures/native-shadow/registry-test-only-v1.json`) containing at least one synthetic template with
 `activationAllowed: true` and `nonIssuable: false`, used only by the node's own test harness, never by
@@ -340,11 +375,14 @@ test-only, deliberately-issuable fixture from ever being mistaken for a real act
 
 ## 7. Durable storage, single-writer lock, and crash recovery order (closes part of E3; revised to close F4's persist-ordering gap)
 
-State transitions and the exhaustion ledger both reuse two already-tracked primitives directly, with
-no new dependency: `crates/boole-node/src/durability.rs`'s durable NDJSON append primitive
-(`append_ndjson_line_durable`), and the `FileBountyEventLedger` append/recover shape from
+State transitions, exact node-owned evidence and the permanent-exhaustion projection share one
+authoritative NDJSON journal, with no second writable exhaustion store and no new dependency. The
+implementation reuses `crates/boole-node/src/durability.rs`'s durable append/fsync discipline and
+the `FileBountyEventLedger` append/recover shape from
 `crates/boole-node/src/bounty_event_store.rs` — confirmed no sqlite/sled dependency exists anywhere
-in the workspace and none is introduced here.
+in the workspace and none is introduced here. Phase 3 must bind replay and every append to the same
+lifetime-held, flocked file descriptor; reopening only a pathname is insufficient because that path
+can be replaced with a different inode while the original lock remains held.
 
 **What r2's D3 got wrong, precisely.** Its five-step recovery order performed two *global* passes
 over every key in sequence: first revert every `InFlight`-without-`Consumed` record to
@@ -367,7 +405,7 @@ OS-level lock:**
    operation but names no mechanism that actually prevents a second node process from starting against
    the same ledger file.
 2. Replay the durable journal to reconstruct current per-key state.
-3. For each key found in `InFlight` state without a matching terminal `Consumed`/`Exhausted` record,
+3. For each key found in `InFlight` state without a matching `TerminalConsumed` event,
    processed **one key at a time**: (a) locate and force-clean that key's own cgroup leaf,
    private mount namespace and tmpfs workspace — freeze, `cgroup.kill`, verify `populated=0` **and**
    verify no remaining task anywhere still references that key's private mount namespace (section 9)
@@ -379,14 +417,17 @@ OS-level lock:**
    ambiguous in-memory-only state. Per-record ordering, not two global passes, removes the crash
    window: at no point does any single key exist in a state where it is servable but its predecessor
    process might still be alive.
-4. Bootstrap any registry-declared key with no existing durable record, applying section 6's three
-   ordered checks (static issuability gate, then exhaustion ledger, then `Active(fresh)`).
+4. Bootstrap any registry-declared key with no existing durable record, applying section 6's two
+   ordered checks (static issuability gate, then `Active(fresh)`). A terminal-event-derived
+   exhaustion projection always accompanies an existing durable `Consumed` row and therefore never
+   enters this no-row branch.
 5. Only after steps 1-4 complete for every key does the route begin serving requests.
 
 **`InFlight` → evidence → terminal-transition ordering, pinned (new, closes F4).** During normal,
 non-restart operation, when a checker execution completes, the node must durably persist evidence
-**before** advancing the row past `InFlight` to a terminal state (`Consumed`, and, for a `nonIssuable`
-row, the paired exhaustion-ledger append). This ordering, and not its reverse, is required because
+**before** advancing the row past `InFlight` to `Consumed`. The following single
+`TerminalConsumed` event records consumption and permanent exhaustion together; there is no paired
+write to a separate exhaustion ledger. This ordering, and not its reverse, is required because
 the two possible partial-failure outcomes are not equally bad:
 
 * If the **evidence write** fails, the row is left at `InFlight` with no terminal-state write ever
@@ -795,15 +836,14 @@ implementation:
    and treats two different `candidateDigest` values against the same four-tuple as distinct requests.
 5. The currently tracked production fixture (`registry-v1.json`'s one template, both
    `activationAllowed: false` and `nonIssuable: true`) bootstraps to `Disabled` — never
-   `Active(fresh)`, never `Exhausted` — on a brand-new node with a completely empty exhaustion ledger,
+   `Active(fresh)`, never `Exhausted` — on a brand-new node with no terminal journal history,
    proving first-activation is blocked, not only revival (section 6).
-6. A four-tuple already recorded in the exhaustion ledger, **and whose current registry snapshot's
-   static flags still permit issuance**, bootstraps to `Exhausted`, never `Active(fresh)`. A four-tuple
-   whose current static flags forbid issuance bootstraps to `Disabled` regardless of what the
-   exhaustion ledger separately records — section 6's check 1 (static issuability) always takes
-   precedence over check 2 (the exhaustion ledger); the ledger's own record of past consumption is
-   never lost, only superseded for serving purposes by the stronger, currently-in-force `Disabled`
-   state.
+6. Replay of an evidence-backed `TerminalConsumed` event preserves the durable row as `Consumed`
+   and reconstructs a matching permanent-exhaustion projection for the same four-tuple. The
+   submission-facing resolver derives `challenge_exhausted` from those facts and never bootstraps
+   `Active(fresh)` or a stored `Exhausted` row. A legacy exhaustion-only file or a terminal event
+   without matching durable evidence has no authority to exhaust any challenge; registry drift
+   against the existing terminal row is rejected without revival or second-row creation.
 7. A test-only registry fixture with `activationAllowed: true`/`nonIssuable: false` is required to
    exercise `Active(fresh)` → `InFlight` → `Consumed` in automated tests; a test asserts production
    configuration never resolves to that test-only fixture's path (section 6).
@@ -824,7 +864,8 @@ implementation:
 14. Simulating an evidence-write failure leaves the row `InFlight` with no terminal-state write
     attempted; simulating a terminal-state-write failure *after* evidence already persisted is
     recovered by completing that terminal write directly, never by reverting to `Active(fresh)` and
-    never by producing a second evidence record for the same outcome (section 7).
+    never by producing a second evidence record for the same outcome (section 7). A torn terminal
+    tail therefore replays as evidence-backed `InFlight`, not `Consumed`/`Exhausted`.
 15. Every cgroup leaf enforces `pids.max`, `memory.max` + `memory.oom.group=1` + `memory.swap.max=0`,
     the cumulative `cpu.stat` ceiling, and the tmpfs workspace size/inode ceiling from section 9.
 16. An OOM kill (`memory.oom.group=1` firing) classifies `RetryableUnavailable(containment_killed)` —
@@ -873,19 +914,31 @@ implementation:
     ceiling set below `_set_limits`'s own ceiling shows the outer layer firing first, and a test with
     only `_set_limits` active (outer layer not yet enforcing) still shows `_set_limits` independently
     bounding the `cargo` child.
+30. Journal replay rejects any `TerminalConsumed` event that is not bound to a preceding durable,
+    contract-valid evidence event for the same four-tuple, candidate and evidence digest.
+31. A legacy standalone exhaustion-only file is non-authoritative: its presence cannot create
+    `Consumed` or the derived `challenge_exhausted` admission view, while replay of a valid
+    evidence-backed `TerminalConsumed` event reconstructs both the durable `Consumed` row and the
+    permanent-exhaustion projection from the one journal.
+32. `Exhausted` is unreachable as a serialized/bootstrapped `ChallengeState`; a focused route-free
+    resolver test proves `Consumed` + matching exhaustion projection derives
+    `challenge_exhausted`, while a missing/mismatched projection fails closed instead of reviving or
+    running the challenge.
 
 Stop without fallback — in addition to the authority spec's own STOP list, which governs
 independently of this document — if any of the following is true:
 
 * a `nonIssuable` challenge with `activationAllowed: false` or `nonIssuable: true` is ever observed
-  `Active(fresh)`, at any point, including the very first startup of a node with a completely empty
-  exhaustion ledger;
+  `Active(fresh)`, at any point, including the very first startup of a node with no terminal journal
+  history;
 * any `RetryableUnavailable` classification is found to depend on scanning checker/compiler
   stdout/stderr text rather than a harness-observed process-level or cgroup-event fact;
 * an OOM kill, or any other signal death, is classified `DeterministicReject` anywhere in the system;
 * a registry file change observed while a four-tuple is `InFlight` ever results in two independently
   progressing rows for the same four-tuple;
 * durable evidence is ever produced twice for the same, already-decided four-tuple outcome;
+* a legacy exhaustion-only file, or any terminal record without matching durable evidence, makes a
+  challenge appear consumed or exhausted;
 * the durable ledger can be opened for writing by more than one process at once;
 * a child process for this route is spawned on a non-Linux host;
 * a correct, accepted submission is ever rejected because the containment envelope itself denies it a
@@ -915,14 +968,18 @@ NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1-FROZEN
 
 That label means the binding/replay state machine, the identity/idempotency keys, the crash-recovery
 order, the concrete containment values, the execution order and the resource-shortage classification
-rule are all specified and approved for implementation. It does not mean any of it is implemented,
-does not close the authority spec's section 4 second prerequisite, and does not change
+rule are specified and approved as the implementation baseline. The design label alone never proves
+full implementation: the actual partial implementation is enumerated in the progress section near
+the top of this document. Those foundation phases do not close the authority spec's section 4
+second prerequisite and do not change
 `LLM-MINEABLE-ELIGIBLE-V5`, `mineable_now` (still 0), or any consensus, reward or P2P state.
 
 ## 13. Status
 
 ```
-NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: APPROVAL-WITHHELD / CONSOLIDATED SPEC UNDER REVIEW
+NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: IMPLEMENTATION-BASELINE-APPROVED
+IMPLEMENTATION: PARTIAL (PHASE-1 / PHASE-2 / PHASE-2C ON MAIN)
+CONTAINMENT-ROUTE-GREEN: OPEN / NAMED-LINUX-INFRASTRUCTURE-BLOCKED
 ```
 
 The base document, r1 and r2 remain the historical record of the first three review passes and are
@@ -931,8 +988,8 @@ of this document itself (2026-08-22) found four further gaps (F1-F4, listed abov
 place, in sections 4, 6, 7, 9 and 10. A fifth operator review (2026-08-22) found that revision itself
 left one non-implementable execution step, two prose/RED-gate contradictions and one remaining
 self-sufficiency gap (G1-G4, listed above), and this revision closes those too, in place, in sections
-7, 9 and 11. This document still requires operator review before it, or any later revision, may be
-marked `NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1-FROZEN`. `boole-node` implementation remains
-blocked until an approved revision of this design exists. If this document closes without further
-contradiction, the recommended next step is to proceed directly to RED→GREEN implementation against
-it, rather than iterating a further design-document round.
+7, 9 and 11. Subsequent operator direction authorized phased RED→GREEN implementation, producing
+the three foundation phases listed above. Further containment/route implementation remains
+fail-closed: no Phase 3 GREEN may be claimed until a named runner actually supplies delegated
+cgroup v2 access and the operator pins the containment UID/GID and privilege model. The partial
+foundation does not authorize an endpoint, child-process execution or activation.

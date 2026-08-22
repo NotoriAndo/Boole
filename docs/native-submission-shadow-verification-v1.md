@@ -1,6 +1,7 @@
 # Native submission shadow verification v1
 
-Status: **AUTHORITATIVE DESIGN — tracked checker qualification landed; real ACCEPT parity landed (Entry 29); node path not yet landed**
+Status: **AUTHORITATIVE DESIGN — tracked checker and real ACCEPT parity landed; node registry/state
+durability foundation partially landed; HTTP route and contained checker execution not landed**
 
 Slice: **`NATIVE-SUBMISSION-SHADOW-ADMISSION-V1`**
 
@@ -98,7 +99,7 @@ surface must pass two distinct parity gates before the route is implemented:
   negative controls with the same authority digests and normalized verdict/reason codes — **closed
   2026-08-21, see section 4.2**; and
 * the node's binding and replay RED matrix must independently cover task, challenge, policy,
-  registry and evidence misuse — **design frozen 2026-08-22, see
+  registry and evidence misuse — **design history began 2026-08-22, see
   `docs/node-native-shadow-binding-containment-design-v1.md`; operator review 2026-08-22 withheld
   approval and required six corrections, see
   `docs/node-native-shadow-binding-containment-design-v1-correction.md`; a second 2026-08-22 review
@@ -107,8 +108,11 @@ surface must pass two distinct parity gates before the route is implemented:
   review found five further gaps and requested one consolidated implementation reference rather
   than a further append-only correction, see
   `docs/node-native-shadow-binding-containment-implementation-spec-v1.md`, which restates the full
-  current rule set in one file and controls for implementation purposes; implementation still open
-  and blocked until that consolidated spec itself is reviewed**.
+  current rule set in one file and controls for implementation purposes. Subsequent operator
+  direction approved phased implementation against that baseline: registry/state durability
+  foundations are now partial, but this prerequisite remains open until same-FD locking,
+  generalized cleanup, global concurrency, Linux containment, route/checker wiring, the full RED
+  matrix and a real named-Linux node run all close**.
 
 Entry 27's `FixedVerdictChecker` reject matrix is miner-wiring evidence, not proof that the actual
 checker produced those negative verdicts. Path strings, timing and telemetry need not be byte
@@ -137,8 +141,8 @@ session record, census row or machine-specific compiler binary from the private 
 archive. It also does **not**, by itself, satisfy the two route prerequisites above: at the time
 this milestone landed, both the frozen real ACCEPT parity case and the node-owned binding/replay
 matrix were open. A later, separate migration closed the first (see section 4.2). The registry
-contains only one non-issuable fixture, no node loader or HTTP route consumes it, and
-`activationAllowed` remains false.
+contains only one non-issuable fixture. A node-internal loader now exists, but no server/route call
+site consumes it, and `activationAllowed` remains false.
 
 The qualification release also makes no process-count containment claim. A clean Linux CI run
 showed that `RLIMIT_NPROC` counts the shared user's existing processes and threads, so it can reject
@@ -170,6 +174,29 @@ This closes `REAL-FROZEN-ACCEPT-PARITY-V1` (label: `REAL-FROZEN-ACCEPT-PARITY-GR
 implement the `boole-node` route, an HTTP endpoint, or activation, and it does not change
 `mineable_now`. The **second** prerequisite — the node's own binding and replay RED matrix — is
 unaffected by this milestone and remains open.
+
+### 4.3 Partial node registry/state durability foundation (2026-08-23)
+
+Phased RED→GREEN work against the consolidated implementation baseline has landed three internal
+`boole-node` foundation slices:
+
+* Phase 1 — PR #166, main `131244f`: node-owned registry parsing/binding, the four-tuple state
+  identity and row-owned `registryDigest`, plus static `Disabled` and terminal-history bootstrap.
+* Phase 2 — PR #167, main `4e19d1e`: durable `Active(fresh)` → `InFlight` → `Consumed`
+  lifecycle, journal replay and fail-closed recovery data structures.
+* Phase 2C — PR #168, main `eff95658`: exact typed evidence before terminal consumption, strict
+  replay, original registry-digest recovery, durable stuck-`InFlight` preservation and a single
+  evidence-backed journal authority for both consumption and permanent-exhaustion projection.
+
+This is partial **data-layer** progress only. `native_shadow` remains an unwired internal module:
+the follow-up must first replace its unreachable stored/bootstrap `Exhausted` branch with a typed
+derived admission view over durable `Consumed` + matching terminal projection. Beyond that,
+there is no `POST /native-shadow/submissions` route, no child checker spawn, no node-wide execution
+permit, no lifetime same-file-descriptor `flock`, no containment-backed cleanup and no cgroup/tmpfs/
+seccomp/Landlock execution. The production registry remains disabled. SharePool, blocks, rewards,
+P2P and consensus are untouched. Therefore the second prerequisite and
+`NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN` remain open; actual containment GREEN additionally
+requires a named delegated-cgroup-v2 Linux runner rather than a skipped or generic CI substitute.
 
 ## 5. Required decision path
 
@@ -326,17 +353,17 @@ reward-bearing, peer-verified or consensus-active. It does not change
 ## 12. Synchronized local planning mirrors
 
 The detailed master, execution and thesis mirrors remain under gitignored `local-docs`; the
-repository must not unignore that directory wholesale. Their synchronized 2026-08-21 byte
+repository must not unignore that directory wholesale. Their synchronized 2026-08-23 byte
 digests are recorded here so a later local edit cannot be mistaken for this reviewed state:
 
 | local mirror | sha256 |
 | --- | --- |
-| `local-docs/adr/0021-native-submission-shadow-verification.md` | `49b7d2ee80c319ef1d5268855685092748d63e47c20a08d4b80f73cf1570745c` |
-| `local-docs/todo/todo-l1-network-master.md` | `adcd7cc549ad80112ec727adf73b3b4fbea3bd546c0464be28b732e5ed771fc7` |
-| `local-docs/todo/EXECUTION-ORDER.md` | `af9e520bb53d57c1900f2046d506d0f647b7ec2c59cb8cdae8816fbbed6e85cf` (updated 2026-08-22e — consolidated spec cursor sync below) |
-| `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `255128d28961d760311680f1dfddeed01ad4f7c1509e0be7705aea6347b00f39` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `a0a25a0f51b39bd284f85b3a009655eaace9ca244b0edbd4c9f4e8c2d1a44f5c` |
-| `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `d3a312acc59f73358d70820d5d5e4afd1dbec5f60bbe9e9d98e7c11f78b8b90a` |
+| `local-docs/adr/0021-native-submission-shadow-verification.md` | `6ff953ac229324045b23c283deb702473938ddd4766abe3c9affaa794a964449` |
+| `local-docs/todo/todo-l1-network-master.md` | `101319f9688df80b95c4588b6cfcaea140ff282d54fad6d385ad15df56ba7650` |
+| `local-docs/todo/EXECUTION-ORDER.md` | `f08f7be9db3ac279b5b0d96cb40fd16d789b1cc2c4e189aea7e9bfbdf82e16be` (updated 2026-08-23 — Phase 2C/current blocker cursor below) |
+| `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `a7ff168696308e71caa641fc0dfa83b80d35e4027189918ff9a56a9a98b3e7fb` |
+| `local-docs/todo/thesis-realization-roadmap.md` | `fbe62bec291368ecaa1285b55e8223c2841b2e197e9ccfc3948168e56016b2ee` |
+| `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `b51fad6c2d3c0efb93566ab58f25c566153f018e5ce370cced0b5923d21caac3` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
 tracked checker/registry migration in section 4; no node may load a `local-docs` file as a trust
@@ -377,3 +404,12 @@ correction — resolved in
 current rule set in one file. It moves the current-position marker to "awaiting review of the
 consolidated spec itself," again by appending a new dated cursor block rather than editing the prior
 ones. The other five rows remain at their original 2026-08-21 synchronization point.
+
+The 2026-08-23 synchronization updates all six mirrors with an append-only current-state addendum:
+Phase 1 (`131244f`), Phase 2 (`4e19d1e`) and Phase 2C (`eff95658`) are internal data-layer
+foundations on `main`, while route/checker execution, same-file-descriptor `flock`, global
+`native_busy`, containment and the real node-process run remain open. It also records the named
+delegated-cgroup-v2 Linux runner plus concrete UID/GID/privilege model as the Phase 3 GREEN blocker,
+and narrows the thesis's Lean claim: domain-native answers are judged by their pinned deterministic
+domain checker; Lean remains the final kernel only for claims formalized into the Lean-compatible
+lane. The six SHA-256 values above are the byte-exact post-update mirrors.
