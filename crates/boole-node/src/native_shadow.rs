@@ -4,8 +4,8 @@
 //!
 //! Implements
 //! `docs/node-native-shadow-binding-containment-implementation-spec-v1.md`
-//! sections 4, 6 and 7 (concurrency, section 8, and the containment
-//! execution layer, section 9, are separate, later slices): JSON registry
+//! sections 4, 6, 7 and section 8's route-free concurrency primitive (the
+//! containment execution layer, section 9, remains a later slice): JSON registry
 //! parsing, the four-tuple operational state key with `registryDigest`
 //! bound as a field (not a key component, closing that document's F4
 //! registry-drift gap), the five-tuple idempotency key, the
@@ -22,14 +22,17 @@
 //! `local_node.rs` or any HTTP route, consistent with that document's
 //! section 1 non-goals (no route, no `boole-node` server change, until
 //! implementation of that route itself is undertaken). Section 7's
-//! same-descriptor lock/replay/append foundation is implemented here;
-//! containment-backed cleanup and "begin serving requests" remain later
-//! process/route-wiring work.
+//! same-descriptor lock/replay/append foundation and the route-free,
+//! non-blocking RAII execution permit intended for one node-wide AppState
+//! instance are implemented here; AppState/route
+//! ownership, containment-backed cleanup and "begin serving requests" remain
+//! later process/route-wiring work.
 
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -68,6 +71,71 @@ pub(crate) struct NativeShadowFourTuple {
 pub(crate) struct NativeShadowIdempotencyKey {
     pub four_tuple: NativeShadowFourTuple,
     pub candidate_digest: String,
+}
+
+/// Route-free single-slot primitive for the node-wide execution rule (spec
+/// section 8). A future AppState owns exactly one shared
+/// `Arc<NativeShadowExecutionGate>`, and every route invocation must acquire
+/// its RAII permit from it before any workspace, containment or durable state
+/// change. A failed acquisition returns [`NativeShadowBusy`] without waiting
+/// or queueing; the future route maps that error to
+/// `RetryableUnavailable(native_busy)`.
+#[derive(Debug)]
+pub(crate) struct NativeShadowExecutionGate {
+    busy: AtomicBool,
+}
+
+/// Immediate refusal from [`NativeShadowExecutionGate::try_acquire`]. The
+/// route maps this to the outward `native_busy` reason code in a later slice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct NativeShadowBusy;
+
+impl NativeShadowBusy {
+    pub(crate) const fn reason_code(self) -> &'static str {
+        "native_busy"
+    }
+}
+
+impl std::fmt::Display for NativeShadowBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.reason_code())
+    }
+}
+
+impl std::error::Error for NativeShadowBusy {}
+
+/// Unique ownership token for the future node-wide native execution slot. It is
+/// intentionally neither `Clone` nor `Copy`; normal return, error return and
+/// panic unwind all release the slot through `Drop`.
+#[derive(Debug)]
+#[must_use = "dropping the native-shadow execution permit releases its shared slot"]
+pub(crate) struct NativeShadowExecutionPermit {
+    gate: Arc<NativeShadowExecutionGate>,
+}
+
+impl NativeShadowExecutionGate {
+    pub(crate) const fn new() -> Self {
+        Self {
+            busy: AtomicBool::new(false),
+        }
+    }
+
+    pub(crate) fn try_acquire(
+        self: &Arc<Self>,
+    ) -> Result<NativeShadowExecutionPermit, NativeShadowBusy> {
+        self.busy
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .map_err(|_| NativeShadowBusy)?;
+        Ok(NativeShadowExecutionPermit {
+            gate: Arc::clone(self),
+        })
+    }
+}
+
+impl Drop for NativeShadowExecutionPermit {
+    fn drop(&mut self) {
+        self.gate.busy.store(false, Ordering::Release);
+    }
 }
 
 /// Challenge lifecycle states (spec section 5). `InFlight` and `Consumed` are
@@ -644,10 +712,10 @@ impl NativeShadowJournalAuthority {
 /// `resolve` method enforces the row-lookup-before-bootstrap order that
 /// closes F4's registry-drift gap (RED gate 3); `begin_execution` and
 /// `complete_consumed` drive the durable `Active(fresh)` -> `InFlight` ->
-/// `Consumed` state machine (spec section 7). Concurrency (the
-/// `native_busy` try-lock, section 8) and containment execution (section 9)
-/// are separate, later slices — nothing in this store enforces
-/// single-flight execution on its own.
+/// `Consumed` state machine (spec section 7). Section 8's `native_busy`
+/// permit is a separate primitive above, and
+/// containment execution (section 9) is a later slice — nothing in this
+/// store acquires the permit or enforces single-flight execution on its own.
 #[derive(Debug, Default)]
 pub(crate) struct NativeShadowStateStore {
     rows: HashMap<NativeShadowFourTuple, NativeShadowStateRow>,
@@ -2847,5 +2915,130 @@ mod tests {
             NativeShadowJournalAuthority::open(&journal_path),
             Err(NativeShadowJournalAuthorityError::Locked(_))
         ));
+    }
+
+    // -- Phase 3A.2: route-free non-blocking single-slot primitive ---------
+
+    #[test]
+    fn native_execution_gate_rejects_every_concurrent_arrival_immediately() {
+        let gate = std::sync::Arc::new(NativeShadowExecutionGate::new());
+        let _first = gate.try_acquire().expect("first execution owns the slot");
+
+        assert_eq!(NativeShadowBusy.reason_code(), "native_busy");
+        assert_eq!(NativeShadowBusy.to_string(), "native_busy");
+        assert!(matches!(gate.try_acquire(), Err(NativeShadowBusy)));
+        assert!(matches!(gate.try_acquire(), Err(NativeShadowBusy)));
+    }
+
+    #[test]
+    fn native_execution_permit_releases_on_normal_error_and_panic_paths() {
+        let gate = std::sync::Arc::new(NativeShadowExecutionGate::new());
+
+        drop(gate.try_acquire().expect("normal-path permit"));
+        drop(gate.try_acquire().expect("normal drop releases the slot"));
+
+        fn fail_after_acquire(
+            gate: &std::sync::Arc<NativeShadowExecutionGate>,
+        ) -> Result<(), &'static str> {
+            let _permit = gate.try_acquire().map_err(|_| "busy")?;
+            Err("checker failed")
+        }
+        assert_eq!(fail_after_acquire(&gate), Err("checker failed"));
+        drop(gate.try_acquire().expect("error return releases the slot"));
+
+        let panic_gate = std::sync::Arc::clone(&gate);
+        let unwind = std::panic::catch_unwind(move || {
+            let _permit = panic_gate.try_acquire().expect("panic-path permit");
+            panic!("simulated checker panic");
+        });
+        assert!(unwind.is_err());
+        drop(gate.try_acquire().expect("panic unwind releases the slot"));
+    }
+
+    #[test]
+    fn native_execution_gate_has_exactly_one_winner_under_thread_contention() {
+        const CONTENDERS: usize = 12;
+        let gate = std::sync::Arc::new(NativeShadowExecutionGate::new());
+        let start = std::sync::Arc::new(std::sync::Barrier::new(CONTENDERS + 1));
+        let release =
+            std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+        let (attempt_tx, attempt_rx) = std::sync::mpsc::channel();
+        let mut threads = Vec::new();
+
+        for _ in 0..CONTENDERS {
+            let gate = std::sync::Arc::clone(&gate);
+            let start = std::sync::Arc::clone(&start);
+            let release = std::sync::Arc::clone(&release);
+            let attempt_tx = attempt_tx.clone();
+            threads.push(std::thread::spawn(move || {
+                start.wait();
+                match gate.try_acquire() {
+                    Ok(permit) => {
+                        attempt_tx.send(true).expect("report winner");
+                        let (lock, wake) = &*release;
+                        let mut released = lock.lock().expect("release mutex");
+                        while !*released {
+                            released = wake.wait(released).expect("release wait");
+                        }
+                        drop(permit);
+                    }
+                    Err(NativeShadowBusy) => {
+                        attempt_tx.send(false).expect("report busy");
+                    }
+                }
+            }));
+        }
+        drop(attempt_tx);
+        start.wait();
+
+        let attempts: Vec<bool> = (0..CONTENDERS)
+            .map(|_| attempt_rx.recv().expect("one report per contender"))
+            .collect();
+        assert_eq!(attempts.into_iter().filter(|won| *won).count(), 1);
+
+        let (lock, wake) = &*release;
+        *lock.lock().expect("release mutex") = true;
+        wake.notify_all();
+        for thread in threads {
+            thread.join().expect("contender thread");
+        }
+        drop(gate.try_acquire().expect("winner drop releases the slot"));
+    }
+
+    #[test]
+    fn route_free_busy_ordering_fixture_keeps_state_and_journal_untouched() {
+        let gate = std::sync::Arc::new(NativeShadowExecutionGate::new());
+        let _running = gate.try_acquire().expect("existing native execution");
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("native-busy-no-mutation");
+        let _authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        let journal_before = std::fs::read(&journal_path).expect("journal before busy arrival");
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template)
+        });
+
+        assert!(matches!(gate.try_acquire(), Err(NativeShadowBusy)));
+        assert_eq!(
+            store.resolve(&four_tuple, "digest-v1", || panic!("row exists")),
+            ResolveOutcome::Existing(ChallengeState::ActiveFresh)
+        );
+        assert_eq!(
+            std::fs::read(&journal_path).expect("journal after busy arrival"),
+            journal_before
+        );
+    }
+
+    #[test]
+    fn native_execution_permit_is_raii_and_worker_handoff_safe() {
+        fn assert_send<T: Send>() {}
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<NativeShadowExecutionGate>();
+        assert_send::<NativeShadowExecutionPermit>();
+        assert!(std::mem::needs_drop::<NativeShadowExecutionPermit>());
     }
 }

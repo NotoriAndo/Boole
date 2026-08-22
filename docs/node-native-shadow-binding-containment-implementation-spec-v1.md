@@ -125,7 +125,8 @@ that progress does not retroactively change what the original docs-only slice di
 ### Implementation progress (2026-08-23)
 
 The operator subsequently authorized phased RED→GREEN implementation against this consolidated
-baseline. The following foundation slices are now on `main`:
+baseline. The list below includes landed foundations and the current guarded slice; a current-slice
+entry becomes authoritative on `main` only after its required CI and merge:
 
 * **Phase 1** — PR #166, main `131244f`: section 4's four-tuple identity and row-owned
   `registryDigest`, plus the then-current `Disabled`/`Exhausted`/`Active(fresh)` bootstrap model.
@@ -138,17 +139,22 @@ baseline. The following foundation slices are now on `main`:
   single-journal exhaustion projection specified in sections 4–7 below.
 * **Phase 2D** — PR #170, main `33dcc025`: removes stored/bootstrap `Exhausted` and exposes the
   evidence-backed terminal projection as the only typed `challenge_exhausted` admission view.
-* **Phase 3A.1** — this implementation slice: one non-cloneable authority holds a nonblocking
+* **Phase 3A.1** — PR #171, main `6cc34b4`: one non-cloneable authority holds a nonblocking
   lifetime `flock`; replay, torn-tail truncation, append and `fsync` use its same file descriptor,
   while path replacement and authority substitution fail closed.
+* **Phase 3A.2** — the current guarded route-free slice: one atomic RAII single-slot primitive is ready
+  for one future AppState-owned, node-wide instance. Busy acquisition returns exact `native_busy`;
+  normal, error and panic-unwind paths release it, and concurrent contenders admit exactly one.
+  The actual AppState/route ordering remains unimplemented.
 
-All five are internal, currently unwired `boole-node` foundations. They do **not** implement an
+All six are internal, currently unwired `boole-node` foundations. They do **not** implement an
 HTTP endpoint, spawn the checker, activate the production registry, change SharePool/block/reward/
 P2P/consensus state, or earn `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`. Phase 3A.1's focused
 lock test uses two opens in one process and does not close the later real two-node-process gate.
-Still open are section 7's containment-backed per-record cleanup, section 8's node-wide
-`native_busy` permit, sections 9–10's actual Linux containment/observation integration,
-route wiring, the complete RED matrix and one real node-process raw-answer run. Actual containment
+Still open are section 7's containment-backed per-record cleanup, section 8's AppState ownership and
+permit acquisition in the actual request path, sections 9–10's actual Linux
+containment/observation integration, route wiring, the complete RED matrix and one real
+node-process raw-answer run. Actual containment
 GREEN is additionally blocked until a named Linux runner has delegated cgroup v2 access and pinned
 UID/GID/privilege configuration; generic `ubuntu-latest` may not substitute or skip this gate.
 
@@ -156,8 +162,9 @@ UID/GID/privilege configuration; generic `ubuntu-latest` may not substitute or s
 
 This specification does not authorize an HTTP route or a
 `boole-core`/`SharePool`/block/reward/P2P/consensus change. The internal `boole-node` foundation
-phases listed above are approved and landed; containment, route/checker execution and activation
-remain outside their completed scope.
+phases with cited main commits above are approved and landed. A current-slice entry becomes landed
+only through its required CI and merge; containment, route/checker execution and activation remain
+outside the completed scope.
 
 ## 2. Precedent reused
 
@@ -981,7 +988,8 @@ second prerequisite and do not change
 
 ```
 NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: IMPLEMENTATION-BASELINE-APPROVED
-IMPLEMENTATION: PARTIAL (PHASE-1 / PHASE-2 / PHASE-2C ON MAIN)
+IMPLEMENTATION: PARTIAL (PHASE-1 / PHASE-2 / PHASE-2C / PHASE-2D LANDED;
+PHASE-3A.1 / PHASE-3A.2 ROUTE-FREE FOUNDATIONS)
 CONTAINMENT-ROUTE-GREEN: OPEN / NAMED-LINUX-INFRASTRUCTURE-BLOCKED
 ```
 
@@ -992,7 +1000,7 @@ place, in sections 4, 6, 7, 9 and 10. A fifth operator review (2026-08-22) found
 left one non-implementable execution step, two prose/RED-gate contradictions and one remaining
 self-sufficiency gap (G1-G4, listed above), and this revision closes those too, in place, in sections
 7, 9 and 11. Subsequent operator direction authorized phased RED→GREEN implementation, producing
-the three foundation phases listed above. Further containment/route implementation remains
+the foundation slices listed above. Further containment/route implementation remains
 fail-closed: no Phase 3 GREEN may be claimed until a named runner actually supplies delegated
 cgroup v2 access and the operator pins the containment UID/GID and privilege model. The partial
 foundation does not authorize an endpoint, child-process execution or activation.
