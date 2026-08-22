@@ -9,10 +9,12 @@
 //! parsing, the four-tuple operational state key with `registryDigest`
 //! bound as a field (not a key component, closing that document's F4
 //! registry-drift gap), the five-tuple idempotency key, the
-//! three-ordered-check bootstrap rule that resolves every registry-declared
-//! four-tuple to `Disabled`, `Exhausted` or `Active(fresh)`, the
+//! two-check bootstrap rule that resolves every previously unseen
+//! registry-declared four-tuple to `Disabled` or `Active(fresh)`, the
 //! `Active(fresh)` -> `InFlight` -> `Consumed` state machine with its
-//! durable NDJSON journal, and boot-time recovery that replays that journal
+//! durable NDJSON journal, the route-free admission view that derives
+//! `challenge_exhausted` from `Consumed` plus its terminal projection, and
+//! boot-time recovery that replays that journal
 //! and retains any row still `InFlight` as non-bootstrapable (fails closed —
 //! see `NativeShadowJournalReplay`) pending the later containment slice that
 //! can actually confirm its cleanup. This module is not wired into
@@ -30,8 +32,8 @@ use sha2::{Digest, Sha256};
 
 use crate::durability::{append_ndjson_line_durable, read_stable_prefix};
 
-/// Operational state key and permanent exhaustion-ledger key (spec section 4,
-/// items 1 and 2 — the two now share one identity):
+/// Operational state key and permanent exhaustion-projection key (spec
+/// section 4, items 1 and 2 — the two share one identity):
 /// `(familyVersion, templateId, challengeSha256, epoch)`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct NativeShadowFourTuple {
@@ -59,14 +61,12 @@ pub(crate) struct NativeShadowIdempotencyKey {
 /// reached via `NativeShadowStateStore::begin_execution` and
 /// `complete_consumed` respectively. `Expired` is declared unreachable on
 /// the `nonIssuable` path (RED gate 8): no function in this module ever
-/// returns it, by construction — see `bootstrap_challenge_state`'s
-/// three-way return.
+/// returns it, by construction — see `bootstrap_challenge_state`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum ChallengeState {
     ActiveFresh,
     InFlight,
     Consumed,
-    Exhausted,
     Disabled,
     Expired,
 }
@@ -220,8 +220,9 @@ pub(crate) fn assert_is_canonical_production_registry_path(candidate: &Path) -> 
 /// In-memory view of permanently exhausted challenges. It is reconstructed
 /// exclusively from evidence-backed `TerminalConsumed` events in the state
 /// journal; it deliberately has no independent file writer or replay API.
-/// That single-authority shape is what makes `Consumed` and `Exhausted`
-/// crash-consistent instead of two facts that can drift across files.
+/// That single-authority shape makes durable `Consumed` and the derived
+/// outward `challenge_exhausted` view crash-consistent instead of two facts
+/// that can drift across files.
 #[derive(Debug, Default)]
 pub(crate) struct NativeShadowExhaustionLedger {
     exhausted: HashSet<NativeShadowFourTuple>,
@@ -237,27 +238,20 @@ impl NativeShadowExhaustionLedger {
     }
 }
 
-/// Spec section 6's corrected bootstrap rule, three ordered checks:
-/// 1. static issuability gate (checked first) — either flag forbidding
-///    issuance forces `Disabled`, regardless of the exhaustion ledger;
-/// 2. the permanent exhaustion ledger, checked only if 1 passes;
-/// 3. `Active(fresh)`, reached only if 1 and 2 both pass.
+/// Spec section 6's corrected bootstrap rule, two ordered checks:
+/// 1. static issuability gate — either flag forbidding issuance forces
+///    `Disabled`;
+/// 2. `Active(fresh)`, reached only if the static gate permits issuance.
 ///
-/// This exact order is what closes F1 (a `nonIssuable` fixture could
-/// otherwise bootstrap `Active(fresh)` on a node with an empty ledger) and
-/// what RED gate 6 pins: static issuability always takes precedence over the
-/// ledger, never the reverse.
+/// A permanent-exhaustion projection can only be derived from a valid
+/// terminal event, which necessarily has an existing durable row. It is
+/// therefore intentionally absent from this no-row bootstrap API.
 pub(crate) fn bootstrap_challenge_state(
     registry: &NativeShadowRegistry,
     template: &NativeShadowTemplate,
-    ledger: &NativeShadowExhaustionLedger,
 ) -> ChallengeState {
     if !registry.is_statically_issuable(template) {
         return ChallengeState::Disabled;
-    }
-    let four_tuple = registry.four_tuple(template);
-    if ledger.contains(&four_tuple) {
-        return ChallengeState::Exhausted;
     }
     ChallengeState::ActiveFresh
 }
@@ -416,6 +410,34 @@ pub(crate) enum ResolveOutcome {
     RegistryDrift { state: ChallengeState },
 }
 
+/// Route-free submission view derived from the durable row and the replayed
+/// terminal projection. It deliberately contains no stored `Exhausted`
+/// state: the outward `ChallengeExhausted` result exists only at this
+/// boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NativeShadowAdmissionView {
+    ActiveFresh,
+    InFlight,
+    ChallengeExhausted,
+    ChallengeDisabled,
+    ChallengeStale,
+}
+
+/// Fail-closed admission-resolution failures. A projection mismatch is an
+/// internal durability invariant violation, not permission to revive or run
+/// the challenge.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NativeShadowAdmissionError {
+    NoSuchRow(NativeShadowFourTuple),
+    RegistryDrift {
+        state: ChallengeState,
+    },
+    TerminalProjectionMismatch {
+        state: ChallengeState,
+        projection_present: bool,
+    },
+}
+
 impl NativeShadowStateStore {
     fn bind_journal_path(
         &mut self,
@@ -478,6 +500,41 @@ impl NativeShadowStateStore {
             },
         );
         ResolveOutcome::Bootstrapped(state)
+    }
+
+    /// Resolve an already-resolved row into the submission-facing view
+    /// without mutating it. Registry drift is checked
+    /// before any terminal projection is interpreted, and any disagreement
+    /// between the durable row and that projection fails closed.
+    pub fn admission_view(
+        &self,
+        four_tuple: &NativeShadowFourTuple,
+        registry_digest: &str,
+        terminal_projection: &NativeShadowExhaustionLedger,
+    ) -> Result<NativeShadowAdmissionView, NativeShadowAdmissionError> {
+        let row = self
+            .rows
+            .get(four_tuple)
+            .ok_or_else(|| NativeShadowAdmissionError::NoSuchRow(four_tuple.clone()))?;
+        if row.registry_digest != registry_digest {
+            return Err(NativeShadowAdmissionError::RegistryDrift { state: row.state });
+        }
+
+        let projection_present = terminal_projection.contains(four_tuple);
+        if projection_present != (row.state == ChallengeState::Consumed) {
+            return Err(NativeShadowAdmissionError::TerminalProjectionMismatch {
+                state: row.state,
+                projection_present,
+            });
+        }
+
+        match row.state {
+            ChallengeState::ActiveFresh => Ok(NativeShadowAdmissionView::ActiveFresh),
+            ChallengeState::InFlight => Ok(NativeShadowAdmissionView::InFlight),
+            ChallengeState::Consumed => Ok(NativeShadowAdmissionView::ChallengeExhausted),
+            ChallengeState::Disabled => Ok(NativeShadowAdmissionView::ChallengeDisabled),
+            ChallengeState::Expired => Ok(NativeShadowAdmissionView::ChallengeStale),
+        }
     }
 
     /// Spec sections 5 and 7: `Active(fresh)` -> `InFlight`. The durable
@@ -1032,7 +1089,7 @@ pub(crate) fn recover_native_shadow_state(
             continue; // fail closed -- never bootstrap over a row still InFlight
         }
         if let Entry::Vacant(entry) = store.rows.entry(four_tuple.clone()) {
-            let state = bootstrap_challenge_state(registry, template, &exhaustion_ledger);
+            let state = bootstrap_challenge_state(registry, template);
             let event = NativeShadowJournalEvent::Bootstrap {
                 four_tuple: four_tuple.clone(),
                 registry_digest: registry_digest.to_string(),
@@ -1167,77 +1224,62 @@ mod tests {
     // -- RED gate 5: production fixture bootstraps Disabled ----------------
 
     #[test]
-    fn production_fixture_bootstraps_disabled_on_empty_ledger() {
+    fn production_fixture_bootstraps_disabled_without_terminal_history() {
         let registry = parse_fixture(PRODUCTION_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
-        let ledger = NativeShadowExhaustionLedger::default();
 
-        let state = bootstrap_challenge_state(&registry, template, &ledger);
+        let state = bootstrap_challenge_state(&registry, template);
 
         assert_eq!(
             state,
             ChallengeState::Disabled,
             "a nonIssuable + activationAllowed:false fixture must never bootstrap \
-             Active(fresh), even on a brand-new node with a completely empty ledger"
+             Active(fresh), even on a brand-new node with no terminal history"
         );
     }
 
-    // -- RED gate 6: static-flags-first precedence over the ledger ---------
+    // -- RED gate 6 / Phase 2D: no-row bootstrap is projection-free --------
 
     #[test]
-    fn ledger_recorded_four_tuple_still_issuable_bootstraps_exhausted() {
+    fn issuable_bootstrap_has_no_terminal_projection_input() {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
-        let four_tuple = registry.four_tuple(template);
 
-        let mut ledger = NativeShadowExhaustionLedger::default();
-        ledger.record_terminal(four_tuple.clone());
-
-        let state = bootstrap_challenge_state(&registry, template, &ledger);
+        let state = bootstrap_challenge_state(&registry, template);
 
         assert_eq!(
             state,
-            ChallengeState::Exhausted,
-            "a ledger-recorded four-tuple whose current static flags still \
-             permit issuance must bootstrap Exhausted, not Active(fresh)"
+            ChallengeState::ActiveFresh,
+            "no-row bootstrap only applies current static flags; terminal history \
+             necessarily belongs to an existing durable row"
         );
     }
 
     #[test]
-    fn ledger_recorded_four_tuple_now_statically_disabled_bootstraps_disabled() {
-        // Same four-tuple as the ledger-recorded case above, but this time
-        // the *current* registry snapshot forbids issuance — the production
-        // fixture's own four-tuple, recorded in the ledger as if it had
-        // legitimately run under some past, still-undesigned issuable
-        // snapshot. Static issuability must still win.
+    fn disabled_row_without_terminal_projection_derives_challenge_disabled() {
         let registry = parse_fixture(PRODUCTION_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-
-        let mut ledger = NativeShadowExhaustionLedger::default();
-        ledger.record_terminal(four_tuple.clone());
-
-        let state = bootstrap_challenge_state(&registry, template, &ledger);
+        let terminal_projection = NativeShadowExhaustionLedger::default();
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template)
+        });
 
         assert_eq!(
-            state,
-            ChallengeState::Disabled,
-            "static issuability (check 1) must take precedence over the \
-             exhaustion ledger (check 2) — a four-tuple whose current static \
-             flags forbid issuance bootstraps Disabled regardless of what the \
-             ledger separately records"
+            store.admission_view(&four_tuple, "digest-v1", &terminal_projection),
+            Ok(NativeShadowAdmissionView::ChallengeDisabled)
         );
     }
 
     // -- RED gate 7: test-only registry fixture -----------------------------
 
     #[test]
-    fn test_only_fixture_bootstraps_active_fresh_on_empty_ledger() {
+    fn test_only_fixture_bootstraps_active_fresh_without_terminal_history() {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
-        let ledger = NativeShadowExhaustionLedger::default();
 
-        let state = bootstrap_challenge_state(&registry, template, &ledger);
+        let state = bootstrap_challenge_state(&registry, template);
 
         assert_eq!(
             state,
@@ -1296,13 +1338,12 @@ mod tests {
     fn bootstrap_never_produces_expired() {
         let production = parse_fixture(PRODUCTION_REGISTRY_FIXTURE);
         let test_only = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
-        let empty_ledger = NativeShadowExhaustionLedger::default();
 
         for (registry, template) in [
             (&production, &production.templates[0]),
             (&test_only, &test_only.templates[0]),
         ] {
-            let state = bootstrap_challenge_state(registry, template, &empty_ledger);
+            let state = bootstrap_challenge_state(registry, template);
             assert_ne!(
                 state,
                 ChallengeState::Expired,
@@ -1319,11 +1360,9 @@ mod tests {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-        let ledger = NativeShadowExhaustionLedger::default();
-
         let mut store = NativeShadowStateStore::default();
         let first = store.resolve(&four_tuple, "digest-v1", || {
-            bootstrap_challenge_state(&registry, template, &ledger)
+            bootstrap_challenge_state(&registry, template)
         });
         assert_eq!(
             first,
@@ -1350,6 +1389,175 @@ mod tests {
             panic!("bootstrap must not run — the original row still exists")
         });
         assert_eq!(third, ResolveOutcome::Existing(ChallengeState::ActiveFresh));
+    }
+
+    // -- Phase 2D: route-free derived admission view ----------------------
+
+    #[test]
+    fn admission_view_for_an_unknown_four_tuple_fails_closed() {
+        let four_tuple = NativeShadowFourTuple {
+            family_version: "UNKNOWN/V1".to_string(),
+            template_id: "unknown".to_string(),
+            challenge_sha256: "unknown".to_string(),
+            epoch: 0,
+        };
+        let store = NativeShadowStateStore::default();
+        let terminal_projection = NativeShadowExhaustionLedger::default();
+
+        assert_eq!(
+            store.admission_view(&four_tuple, "digest-v1", &terminal_projection),
+            Err(NativeShadowAdmissionError::NoSuchRow(four_tuple))
+        );
+    }
+
+    #[test]
+    fn consumed_with_matching_terminal_projection_derives_challenge_exhausted() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("admission-consumed-exhausted");
+        let mut ledger = NativeShadowExhaustionLedger::default();
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template)
+        });
+        store
+            .begin_execution(&journal_path, &four_tuple)
+            .expect("begin execution");
+        let evidence = persist_test_evidence(
+            &mut store,
+            &journal_path,
+            &four_tuple,
+            "admission-consumed-exhausted",
+        );
+        store
+            .complete_consumed(&journal_path, &mut ledger, &four_tuple, evidence)
+            .expect("complete consumed");
+
+        assert_eq!(
+            store.admission_view(&four_tuple, "digest-v1", &ledger),
+            Ok(NativeShadowAdmissionView::ChallengeExhausted),
+            "Consumed plus its matching terminal projection must derive the outward exhausted view"
+        );
+    }
+
+    #[test]
+    fn consumed_without_terminal_projection_fails_closed() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("admission-missing-projection");
+        let mut terminal_projection = NativeShadowExhaustionLedger::default();
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template)
+        });
+        store
+            .begin_execution(&journal_path, &four_tuple)
+            .expect("begin execution");
+        let evidence = persist_test_evidence(
+            &mut store,
+            &journal_path,
+            &four_tuple,
+            "admission-missing-projection",
+        );
+        store
+            .complete_consumed(
+                &journal_path,
+                &mut terminal_projection,
+                &four_tuple,
+                evidence,
+            )
+            .expect("complete consumed");
+
+        assert_eq!(
+            store.admission_view(
+                &four_tuple,
+                "digest-v1",
+                &NativeShadowExhaustionLedger::default(),
+            ),
+            Err(NativeShadowAdmissionError::TerminalProjectionMismatch {
+                state: ChallengeState::Consumed,
+                projection_present: false,
+            }),
+            "a Consumed row without its matching projection must fail closed, never revive"
+        );
+    }
+
+    #[test]
+    fn terminal_projection_on_a_non_consumed_row_fails_closed() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let mut terminal_projection = NativeShadowExhaustionLedger::default();
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template)
+        });
+        terminal_projection.record_terminal(four_tuple.clone());
+
+        assert_eq!(
+            store.admission_view(&four_tuple, "digest-v1", &terminal_projection),
+            Err(NativeShadowAdmissionError::TerminalProjectionMismatch {
+                state: ChallengeState::ActiveFresh,
+                projection_present: true,
+            }),
+            "a projection without a durable Consumed row has no admission authority"
+        );
+    }
+
+    #[test]
+    fn registry_drift_precedes_terminal_projection_without_creating_a_second_row() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("admission-terminal-registry-drift");
+        let mut terminal_projection = NativeShadowExhaustionLedger::default();
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template)
+        });
+        store
+            .begin_execution(&journal_path, &four_tuple)
+            .expect("begin execution");
+        let evidence = persist_test_evidence(
+            &mut store,
+            &journal_path,
+            &four_tuple,
+            "admission-terminal-registry-drift",
+        );
+        store
+            .complete_consumed(
+                &journal_path,
+                &mut terminal_projection,
+                &four_tuple,
+                evidence,
+            )
+            .expect("complete consumed");
+
+        assert_eq!(
+            store.admission_view(
+                &four_tuple,
+                "digest-v2-after-live-edit",
+                &terminal_projection,
+            ),
+            Err(NativeShadowAdmissionError::RegistryDrift {
+                state: ChallengeState::Consumed,
+            })
+        );
+        assert_eq!(
+            store.rows.len(),
+            1,
+            "registry drift must not create a second row"
+        );
+        assert_eq!(
+            store.admission_view(&four_tuple, "digest-v1", &terminal_projection),
+            Ok(NativeShadowAdmissionView::ChallengeExhausted),
+            "the original terminal row remains intact under its original digest"
+        );
     }
 
     // -- Four-tuple / five-tuple identity -----------------------------------
@@ -1393,13 +1601,12 @@ mod tests {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-        let ledger = NativeShadowExhaustionLedger::default();
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("begin-execution");
 
         let mut store = NativeShadowStateStore::default();
         let outcome = store.resolve(&four_tuple, "digest-v1", || {
-            bootstrap_challenge_state(&registry, template, &ledger)
+            bootstrap_challenge_state(&registry, template)
         });
         assert_eq!(
             outcome,
@@ -1429,13 +1636,12 @@ mod tests {
         let registry = parse_fixture(PRODUCTION_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-        let ledger = NativeShadowExhaustionLedger::default();
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("begin-execution-wrong-state");
 
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
-            bootstrap_challenge_state(&registry, template, &ledger)
+            bootstrap_challenge_state(&registry, template)
         });
 
         let err = store
@@ -1479,7 +1685,7 @@ mod tests {
     }
 
     #[test]
-    fn complete_consumed_moves_in_flight_to_consumed_and_pairs_the_exhaustion_ledger() {
+    fn complete_consumed_moves_in_flight_to_consumed_and_derives_terminal_projection() {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
@@ -1489,7 +1695,7 @@ mod tests {
         let mut ledger = NativeShadowExhaustionLedger::default();
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
-            bootstrap_challenge_state(&registry, template, &ledger)
+            bootstrap_challenge_state(&registry, template)
         });
         store
             .begin_execution(&journal_path, &four_tuple)
@@ -1540,7 +1746,7 @@ mod tests {
         let mut ledger = NativeShadowExhaustionLedger::default();
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
-            bootstrap_challenge_state(&registry, template, &ledger)
+            bootstrap_challenge_state(&registry, template)
         });
 
         let err = store
@@ -1566,7 +1772,7 @@ mod tests {
         ));
         assert!(
             !ledger.contains(&four_tuple),
-            "a refused transition must not append to the exhaustion ledger"
+            "a refused transition must not create the terminal projection"
         );
     }
 
@@ -1575,13 +1781,12 @@ mod tests {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-        let ledger = NativeShadowExhaustionLedger::default();
         let (journal_path, other_journal_path) =
             scratch_journal_and_exhaustion_paths("journal-path-binding");
 
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
-            bootstrap_challenge_state(&registry, template, &ledger)
+            bootstrap_challenge_state(&registry, template)
         });
         store
             .begin_execution(&journal_path, &four_tuple)
@@ -1607,13 +1812,12 @@ mod tests {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-        let ledger = NativeShadowExhaustionLedger::default();
         let (journal_path, _other_path) =
             scratch_journal_and_exhaustion_paths("schema-only-evidence");
 
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
-            bootstrap_challenge_state(&registry, template, &ledger)
+            bootstrap_challenge_state(&registry, template)
         });
         store
             .begin_execution(&journal_path, &four_tuple)
@@ -1649,7 +1853,7 @@ mod tests {
             let mut ledger = NativeShadowExhaustionLedger::default();
             let mut store = NativeShadowStateStore::default();
             store.resolve(&four_tuple, "digest-v1", || {
-                bootstrap_challenge_state(&registry, template, &ledger)
+                bootstrap_challenge_state(&registry, template)
             });
             store
                 .begin_execution(&journal_path, &four_tuple)
@@ -1671,6 +1875,13 @@ mod tests {
             ResolveOutcome::Existing(ChallengeState::Consumed)
         );
         assert!(recovery.exhaustion_ledger.contains(&four_tuple));
+        assert_eq!(
+            recovery
+                .store
+                .admission_view(&four_tuple, "digest-v1", &recovery.exhaustion_ledger,),
+            Ok(NativeShadowAdmissionView::ChallengeExhausted),
+            "journal replay must reconstruct the projection used by the outward admission view"
+        );
     }
 
     #[test]
@@ -1723,7 +1934,7 @@ mod tests {
             let mut ledger = NativeShadowExhaustionLedger::default();
             let mut store = NativeShadowStateStore::default();
             store.resolve(&four_tuple, "digest-v1", || {
-                bootstrap_challenge_state(&registry, template, &ledger)
+                bootstrap_challenge_state(&registry, template)
             });
             store
                 .begin_execution(&journal_path, &four_tuple)
@@ -1792,10 +2003,9 @@ mod tests {
 
         // Crash right after Active(fresh) -> InFlight, before Consumed.
         {
-            let ledger = NativeShadowExhaustionLedger::default();
             let mut store = NativeShadowStateStore::default();
             store.resolve(&four_tuple, "digest-v1", || {
-                bootstrap_challenge_state(&registry, template, &ledger)
+                bootstrap_challenge_state(&registry, template)
             });
             store
                 .begin_execution(&journal_path, &four_tuple)
@@ -1822,7 +2032,7 @@ mod tests {
     }
 
     #[test]
-    fn recovery_with_evidence_but_no_terminal_stays_in_flight_and_unexhausted() {
+    fn recovery_with_evidence_but_no_terminal_stays_in_flight_without_projection() {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
@@ -1830,10 +2040,9 @@ mod tests {
             scratch_journal_and_exhaustion_paths("recovery-evidence-before-terminal");
 
         {
-            let ledger = NativeShadowExhaustionLedger::default();
             let mut store = NativeShadowStateStore::default();
             store.resolve(&four_tuple, "digest-v1", || {
-                bootstrap_challenge_state(&registry, template, &ledger)
+                bootstrap_challenge_state(&registry, template)
             });
             store
                 .begin_execution(&journal_path, &four_tuple)
@@ -1913,20 +2122,22 @@ mod tests {
 
         append_ndjson_line_durable(
             &journal_path,
-            &serde_json::to_string(&NativeShadowJournalEvent::Bootstrap {
-                four_tuple,
-                registry_digest: "digest-v1".to_string(),
-                state: ChallengeState::Exhausted,
+            &serde_json::json!({
+                "kind": "bootstrap",
+                "familyVersion": four_tuple.family_version,
+                "templateId": four_tuple.template_id,
+                "challengeSha256": four_tuple.challenge_sha256,
+                "epoch": four_tuple.epoch,
+                "registryDigest": "digest-v1",
+                "state": "Exhausted",
             })
-            .expect("serialize bootstrap"),
+            .to_string(),
         )
         .expect("append bootstrap");
 
         let err = replay_native_shadow_journal(&journal_path)
-            .expect_err("Exhausted is only derivable from an evidence-backed terminal event");
-        assert!(err
-            .to_string()
-            .contains("illegal bootstrap state Exhausted"));
+            .expect_err("stored Exhausted is not a valid ChallengeState variant");
+        assert!(err.to_string().contains("unknown variant `Exhausted`"));
     }
 
     #[test]
@@ -1965,10 +2176,9 @@ mod tests {
         let four_tuple = registry.four_tuple(template);
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("torn-terminal-tail");
-        let ledger = NativeShadowExhaustionLedger::default();
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
-            bootstrap_challenge_state(&registry, template, &ledger)
+            bootstrap_challenge_state(&registry, template)
         });
         store
             .begin_execution(&journal_path, &four_tuple)
@@ -2013,12 +2223,11 @@ mod tests {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
         let four_tuple = registry.four_tuple(template);
-        let ledger = NativeShadowExhaustionLedger::default();
         let (journal_path, _exhaustion_path) =
             scratch_journal_and_exhaustion_paths("evidence-write-failure");
         let mut store = NativeShadowStateStore::default();
         store.resolve(&four_tuple, "digest-v1", || {
-            bootstrap_challenge_state(&registry, template, &ledger)
+            bootstrap_challenge_state(&registry, template)
         });
         store
             .begin_execution(&journal_path, &four_tuple)
