@@ -1,0 +1,23 @@
+{
+  "schema": "boole.native-shadow.registry.v1",
+  "version": "NATIVE-SHADOW-TEST-ONLY-REGISTRY-V1",
+  "activationAllowed": true,
+  "purpose": "test-only fixture for automated Active(fresh) -> InFlight -> Consumed lifecycle tests -- never loaded by production configuration (spec section 6, RED gate 7)",
+  "templates": [
+    {
+      "familyVersion": "TEST-ONLY/NATIVE-SHADOW-TEST-TEMPLATE-V1",
+      "templateId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "semanticLocator": "synthetic/TestOnlyPoint:1",
+      "anchorSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "taskPath": "test-only/task.json",
+      "taskSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "checkerRelease": "TEST-ONLY-CHECKER-V1",
+      "checkerArtifactHash": "3333333333333333333333333333333333333333333333333333333333333333",
+      "policySha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "toolchainChannel": "test-only-toolchain",
+      "challengeSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "epoch": 0,
+      "nonIssuable": false
+    }
+  ]
+}
