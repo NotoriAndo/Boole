@@ -2959,15 +2959,19 @@ HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 R
       유지하고 같은 terminal event의 exhaustion projection이 맞을 때만 route-free resolver가
       `challenge_exhausted`를 파생한다. journal에서 도달 불가능한 stored/bootstrap
       `ChallengeState::Exhausted` 경로를 제거했고 mismatch는 revival 없이 fail-closed.
-- [x] **Phase 3A.1 same-FD journal authority**: 같은 저널 inode/파일 descriptor를
+- [x] **Phase 3A.1 same-FD journal authority — PR #171, `6cc34b4`**: 같은 저널 inode/파일 descriptor를
       전 수명 동안 잡는 nonblocking `flock` 권위 아래 replay·torn-tail 절단·append·fsync를
       모두 같은 descriptor로 수행한다. symlink/비정규 파일/경로 교체/다른 authority·재개방
       이어쓰기는 fail-closed. 이는 route 연결 전 portable foundation이며 실제 두 node-process
       통합 관문이나 full RED matrix GREEN을 뜻하지 않는다.
-- [ ] **현재 다음 slice — Phase 3A.2 node-wide `native_busy`**: 대기열·대기 없이
-      노드 단위 1-slot permit을 획득한 제출만 실행 준비로 진행하고, 겹친 제출은 즉시
-      `RetryableUnavailable(native_busy)`로 돌린다. 정상·오류·panic 모든 경로에서 permit이
-      해제되는 route-free 기반부터 RED→GREEN으로 닫는다.
+- [x] **Phase 3A.2 route-free `native_busy` single-slot primitive**: 향후 AppState가
+      노드 단위로 단 하나를 소유할 비대기 1-slot permit을 구현했다. 획득 실패는 exact
+      `native_busy`, 정상·오류·panic 모든 경로에서는 permit이 해제되고 경쟁 thread에서는
+      정확히 하나만 획득한다. route가 상태/저널 변경 전에 이를 호출해야 한다는 순서 fixture도
+      고정했지만, 그 순서를 실제 route가 아직 강제하지는 않는다.
+      아직 AppState가 이 permit을 단 하나 소유하거나 실제 route가 stage 5에서 획득하는 결선은
+      없으므로 full gate 11 GREEN은 아니다. 이 체크도 현재 slice의 required CI·merge가
+      완료되어 이 항목 자체가 main에 도달할 때만 권위가 생긴다.
 - [ ] **Native shadow Phase 3B — Linux containment + route/checker execution**: delegated cgroup
       v2 권한이 있는 named Linux runner, 전용 UID/GID, privilege-drop/ownership 모델을 먼저
       고정한 후 cgroup/tmpfs/seccomp/Landlock, cleanup/recovery, non-Linux startup refusal,
