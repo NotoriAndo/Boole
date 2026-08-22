@@ -149,7 +149,6 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "00000000002001c0",
             "privileged launcher has unexpected ${field}",
             "cleanup failure injection left a live child",
-            "trap \"rm -f '$report'\" EXIT",
             "fail-before-ready",
             "expected-failure transient service unexpectedly succeeded",
             "expected-failure transient cgroup was not removed",
@@ -211,6 +210,47 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "must capture its leaf path instead of closing over a local",
         )
         self.assertIn("cleanup_cgroup_leaf", body)
+
+    def test_probe_stages_the_trusted_launcher_outside_runner_home(self):
+        body = NATIVE_CONTAINMENT_PROBE.read_text(encoding="utf-8")
+        self.assertIn(
+            "launcher_path=$(mktemp /run/boole-native-shadow-launcher.XXXXXX)",
+            body,
+            "a capability-bounded root service cannot rely on DAC_OVERRIDE to "
+            "traverse the GitHub runner home; stage the reviewed launcher in /run",
+        )
+        self.assertIn(
+            'install -o root -g root -m 0555 "$script_path" "$launcher_path"',
+            body,
+            "the staged launcher must be root-owned and immutable to the checker identity",
+        )
+        self.assertIn(
+            '[[ "$(sha256sum "$launcher_path" | awk \'{ print $1 }\')" == "$(sha256sum "$script_path" | awk \'{ print $1 }\')" ]]',
+            body,
+            "the service must execute the exact reviewed script bytes",
+        )
+        self.assertIn(
+            "trap cleanup_outer_probe EXIT",
+            body,
+            "one non-overwritten outer cleanup trap must remove the trusted staged copy",
+        )
+        self.assertRegex(
+            body,
+            re.compile(r"cleanup_outer_probe\(\).*?rm -f \"\$launcher_path\"", re.DOTALL),
+            "outer cleanup must remove the staged launcher on success and failure",
+        )
+        self.assertEqual(
+            body.count('"$launcher_path" privileged-launcher'),
+            2,
+            "both the injected-failure and normal systemd services must start the "
+            "staged launcher instead of traversing runner home",
+        )
+        self.assertEqual(
+            body.count('privileged-launcher "$failure_report" "$launcher_path"')
+            + body.count('privileged-launcher "$report" "$launcher_path"'),
+            2,
+            "both services must also pass the staged path into recursive launcher calls",
+        )
 
     def test_spec_uses_the_kernel_valid_unthrottled_cpu_wire_value(self):
         body = NATIVE_CONTAINMENT_SPEC.read_text(encoding="utf-8")

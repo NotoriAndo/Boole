@@ -159,7 +159,10 @@ entry becomes authoritative on `main` only after its required CI and merge:
   proved that the earlier unprivileged-user-namespace proposal cannot make `/` recursively private
   on this runner; that path remains RED and is not weakened with a sysctl/AppArmor bypass. The
   successor probe keeps `boole-node` unprivileged and moves only the setup operations that require
-  privilege into a separate transient launcher. Required `self-test` fails when this job fails, is
+  privilege into a separate transient launcher. A second run then stopped before those operations
+  because the capability-bounded service could not traverse the runner-owned checkout; the next
+  probe stages the byte-identical, root-owned launcher in `/run` rather than adding
+  `CAP_DAC_OVERRIDE`. Required `self-test` fails when this job fails, is
   skipped or is cancelled. Passing proves only that the named runner supplies the launcher
   prerequisites; it does not implement the production launcher/IPC, freeze a production identity or
   policy, execute the native checker or close containment.
@@ -882,7 +885,10 @@ CI now contains the named `native-shadow-containment-linux` job pinned to `ubunt
 required `self-test` result explicitly depends on that job succeeding. The first PR #174 run proved
 that delegated cgroup controls are writable but also proved that the original unprivileged-userns
 mount transition is denied by the runner's kernel/security policy. The successor therefore probes a
-separate privileged launcher while keeping `boole-node` unprivileged; it must still assert *actual
+separate privileged launcher while keeping `boole-node` unprivileged. The second run stopped before
+the probe because that capability-bounded service could not traverse the checkout; staging the exact
+reviewed launcher bytes in root-owned `/run` fixes that path dependency without granting a
+filesystem-override capability. The successor must still assert *actual
 write access* and actual namespace, tmpfs, privilege-drop, cleanup and seccomp/Landlock behavior.
 **This prerequisite remains RED until that successor job passes.** A skipped, permission-less,
 generic `ubuntu-latest` or weakened run cannot satisfy it.

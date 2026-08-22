@@ -394,13 +394,30 @@ probe_outer() {
   [[ "$probe_uid" -ne 0 && "$probe_gid" -ne 0 ]] \
     || die "probe-only containment identity must be unprivileged"
 
-  local script_path
+  local script_path launcher_path='' failure_report='' report=''
   script_path=$(readlink -f "$0")
   local suffix=${GITHUB_RUN_ID:-$$}-${GITHUB_RUN_ATTEMPT:-0}
   suffix=${suffix//[^a-zA-Z0-9-]/-}
-  local failure_report failure_root failure_unit failure_status failure_delegated
+
+  cleanup_outer_probe() {
+    set +e
+    [[ -n "$failure_report" ]] && rm -f "$failure_report"
+    [[ -n "$report" ]] && rm -f "$report"
+    [[ -n "$launcher_path" ]] && rm -f "$launcher_path"
+  }
+
+  # The privileged service deliberately lacks CAP_DAC_OVERRIDE. GitHub's
+  # runner-home traversal permissions therefore cannot be part of the launch
+  # contract. Stage the exact reviewed bytes in root-owned /run before
+  # capability bounding, and make that copy the recursive launcher path.
+  launcher_path=$(mktemp /run/boole-native-shadow-launcher.XXXXXX)
+  trap cleanup_outer_probe EXIT
+  install -o root -g root -m 0555 "$script_path" "$launcher_path"
+  [[ "$(sha256sum "$launcher_path" | awk '{ print $1 }')" == "$(sha256sum "$script_path" | awk '{ print $1 }')" ]] \
+    || die "staged privileged launcher bytes do not match the reviewed probe"
+
+  local failure_root failure_unit failure_status failure_delegated
   failure_report=$(mktemp /tmp/boole-native-shadow-failure-cgroup.XXXXXX)
-  trap "rm -f '$failure_report'" EXIT
   failure_root="/tmp/boole-native-shadow-expected-failure-${suffix}"
   [[ ! -e "$failure_root" ]] || die "expected-failure namespace temp root already exists"
   failure_unit="boole-native-shadow-expected-failure-${suffix}"
@@ -410,7 +427,7 @@ probe_outer() {
     --property=Type=exec --property=Delegate=yes \
     --property=User=root --property=Group=root \
     --property='CapabilityBoundingSet=CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN' \
-    "$script_path" privileged-launcher "$failure_report" "$script_path" \
+    "$launcher_path" privileged-launcher "$failure_report" "$launcher_path" \
     "$probe_uid" "$probe_gid" fail-before-ready "$failure_root"
   failure_status=$?
   set -e
@@ -430,11 +447,9 @@ probe_outer() {
   [[ ! -e "$failure_root" ]] \
     || die "expected-failure namespace temp tree was not removed"
   rm -f "$failure_report"
-  trap - EXIT
+  failure_report=''
 
-  local report
   report=$(mktemp /tmp/boole-native-shadow-cgroup.XXXXXX)
-  trap "rm -f '$report'" EXIT
   local unit="boole-native-shadow-privileged-launcher-${suffix}"
 
   set +e
@@ -442,7 +457,7 @@ probe_outer() {
     --property=Type=exec --property=Delegate=yes \
     --property=User=root --property=Group=root \
     --property='CapabilityBoundingSet=CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN' \
-    "$script_path" privileged-launcher "$report" "$script_path" \
+    "$launcher_path" privileged-launcher "$report" "$launcher_path" \
     "$probe_uid" "$probe_gid" normal auto
   local service_status=$?
   set -e
@@ -458,6 +473,9 @@ probe_outer() {
   done
   [[ ! -e "$delegated" ]] || die "transient service cgroup was not removed"
   rm -f "$report"
+  report=''
+  rm -f "$launcher_path"
+  launcher_path=''
   trap - EXIT
   echo "native-shadow containment capability probe: PASS"
 }

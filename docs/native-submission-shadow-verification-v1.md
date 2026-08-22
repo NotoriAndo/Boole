@@ -230,7 +230,10 @@ Further route-free foundations now narrow the open prerequisite without closing 
   executable bounded tmpfs, complete privilege removal, freeze/kill/cleanup and the existing enforced
   seccomp/Landlock behavior. The first PR #174 run kept the required gate RED after the runner denied
   the earlier unprivileged-userns private-mount transition; no sysctl/AppArmor bypass or criterion
-  relaxation is allowed. Required `self-test` explicitly fails unless the successor job succeeds. A
+  relaxation is allowed. The second run stopped before kernel probing because the deliberately
+  capability-bounded service could not traverse the runner-owned checkout path. The successor stages
+  the byte-identical, root-owned launcher in `/run` instead of restoring a filesystem-override
+  capability. Required `self-test` explicitly fails unless the successor job succeeds. A
   pass proves only runner capability; it does not implement the production launcher/IPC, freeze
   production policy bytes, execute the native checker or close the route gate.
 
