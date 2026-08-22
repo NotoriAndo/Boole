@@ -162,8 +162,11 @@ entry becomes authoritative on `main` only after its required CI and merge:
   privilege into a separate transient launcher. A second run then stopped before those operations
   because the capability-bounded service could not traverse the runner-owned checkout; the next
   probe stages the byte-identical, root-owned launcher in `/run` rather than adding
-  `CAP_DAC_OVERRIDE`. Required `self-test` fails when this job fails, is
-  skipped or is cancelled. Passing proves only that the named runner supplies the launcher
+  `CAP_DAC_OVERRIDE`. The third run passed the complete job, including injected pre-ready cleanup,
+  the normal namespace/cgroup lifecycle and the enforced seccomp/Landlock checks
+  ([run 32598640328, job 97093408375](https://github.com/NotoriAndo/Boole/actions/runs/32598640328/job/97093408375)).
+  Required `self-test` fails when this job fails, is skipped or is cancelled. This GREEN proves only
+  that the named runner supplies the launcher
   prerequisites; it does not implement the production launcher/IPC, freeze a production identity or
   policy, execute the native checker or close containment.
 
@@ -175,10 +178,10 @@ lock test uses two opens in one process and does not close the later real two-no
 Still open are section 7's containment-backed per-record cleanup, section 8's AppState ownership and
 permit acquisition in the actual request path, sections 9–10's actual Linux
 containment/observation integration, route wiring, the complete RED matrix and one real
-node-process raw-answer run. Actual containment
-GREEN is additionally blocked until the named Linux job proves the separate privileged-launcher
-prerequisites and the production launcher protocol, UID/GID and minimal privilege set are pinned;
-generic `ubuntu-latest` may not substitute or skip this gate.
+node-process raw-answer run. The named Linux job has now proved the infrastructure prerequisites,
+but actual containment GREEN remains blocked until the production launcher protocol, dedicated
+UID/GID, policy identity and minimal privilege set are pinned and implemented. Generic
+`ubuntu-latest` may not substitute for the passing named evidence.
 
 ## 1. Non-goals
 
@@ -890,8 +893,11 @@ the probe because that capability-bounded service could not traverse the checkou
 reviewed launcher bytes in root-owned `/run` fixes that path dependency without granting a
 filesystem-override capability. The successor must still assert *actual
 write access* and actual namespace, tmpfs, privilege-drop, cleanup and seccomp/Landlock behavior.
-**This prerequisite remains RED until that successor job passes.** A skipped, permission-less,
-generic `ubuntu-latest` or weakened run cannot satisfy it.
+The third PR #174 run passed every one of those required operations on the named runner
+([run 32598640328, job 97093408375](https://github.com/NotoriAndo/Boole/actions/runs/32598640328/job/97093408375)),
+so this infrastructure-capability prerequisite is GREEN. A skipped, permission-less, generic
+`ubuntu-latest` or weakened run still cannot replace that evidence. Production launcher/IPC,
+dedicated identity, frozen policy and route/checker execution remain open.
 
 ## 11. Consolidated RED gates and STOP conditions
 
@@ -1060,9 +1066,9 @@ second prerequisite and do not change
 ```
 NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: IMPLEMENTATION-BASELINE-APPROVED
 IMPLEMENTATION: PARTIAL (PHASE-1 / PHASE-2 / PHASE-2C / PHASE-2D / PHASE-3A.1 /
-PHASE-3A.2 / PHASE-3B.0 LANDED; PHASE-3B.1 CURRENT GUARDED LINUX-CAPABILITY SLICE, LANDED
-ONLY AFTER ITS NAMED-LINUX JOB AND REQUIRED CI BOTH PASS AND MERGE)
-CONTAINMENT-ROUTE-GREEN: OPEN / NAMED-LINUX-INFRASTRUCTURE-BLOCKED
+PHASE-3A.2 / PHASE-3B.0 LANDED; PHASE-3B.1 NAMED-LINUX-CAPABILITY GREEN, AUTHORITATIVE
+ON PR #174 REQUIRED-CI GREEN + MERGE)
+CONTAINMENT-ROUTE-GREEN: OPEN / PRODUCTION-LAUNCHER-IPC-POLICY-AND-ROUTE-UNIMPLEMENTED
 ```
 
 The base document, r1 and r2 remain the historical record of the first three review passes and are
@@ -1072,7 +1078,8 @@ place, in sections 4, 6, 7, 9 and 10. A fifth operator review (2026-08-22) found
 left one non-implementable execution step, two prose/RED-gate contradictions and one remaining
 self-sufficiency gap (G1-G4, listed above), and this revision closes those too, in place, in sections
 7, 9 and 11. Subsequent operator direction authorized phased RED→GREEN implementation, producing
-the foundation slices listed above. Further containment/route implementation remains
-fail-closed: no Phase 3 GREEN may be claimed until a named runner actually supplies delegated
-cgroup v2 access and the operator pins the containment UID/GID and privilege model. The partial
-foundation does not authorize an endpoint, child-process execution or activation.
+the foundation slices listed above. The named runner now supplies the required delegated cgroup v2
+and namespace capability evidence. Further containment/route implementation remains fail-closed:
+no Phase 3 GREEN may be claimed until the production launcher protocol, dedicated containment
+UID/GID, policy identity and privilege model are pinned and implemented. The partial foundation does
+not authorize an endpoint, child-process execution or activation.

@@ -233,8 +233,11 @@ Further route-free foundations now narrow the open prerequisite without closing 
   relaxation is allowed. The second run stopped before kernel probing because the deliberately
   capability-bounded service could not traverse the runner-owned checkout path. The successor stages
   the byte-identical, root-owned launcher in `/run` instead of restoring a filesystem-override
-  capability. Required `self-test` explicitly fails unless the successor job succeeds. A
-  pass proves only runner capability; it does not implement the production launcher/IPC, freeze
+  capability. The third run then passed the complete named job, including the injected pre-ready
+  failure cleanup, normal namespace/cgroup lifecycle and enforced seccomp/Landlock checks
+  ([run 32598640328, job 97093408375](https://github.com/NotoriAndo/Boole/actions/runs/32598640328/job/97093408375)).
+  Required `self-test` explicitly fails unless this job succeeds. This GREEN proves only runner
+  capability; it does not implement the production launcher/IPC, freeze
   production policy bytes, execute the native checker or close the route gate.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
@@ -467,7 +470,8 @@ lane. The six SHA-256 values above are the byte-exact post-update mirrors.
 The later 2026-08-23 implementation addendum in section 4.4 supersedes only that snapshot's
 progress cursor: Phase 2D and the route-free Phase 3A.1 same-FD journal foundation are now closed.
 The route-free Phase 3A.2 `native_busy` permit is also implemented, while its AppState/route wiring,
-containment-backed cleanup, checker wiring, the named-Linux run and the full RED matrix remain open.
-Phase 3B.0 is the landed typed execution-policy/v2 evidence propagation foundation. Phase 3B.1 is
-the current named-Linux prerequisite probe; production policy bytes and provenance, route/checker
-wiring and actual native Linux execution remain open even if that probe passes.
+containment-backed cleanup, checker wiring, a real named-Linux node run and the full RED matrix remain
+open. Phase 3B.0 is the landed typed execution-policy/v2 evidence propagation foundation. Phase 3B.1
+closed the named-runner infrastructure-capability prerequisite; production policy bytes and
+provenance, production launcher/IPC, route/checker wiring and actual native Linux execution remain
+open.
