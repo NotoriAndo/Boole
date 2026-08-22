@@ -2964,7 +2964,7 @@ HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 R
       모두 같은 descriptor로 수행한다. symlink/비정규 파일/경로 교체/다른 authority·재개방
       이어쓰기는 fail-closed. 이는 route 연결 전 portable foundation이며 실제 두 node-process
       통합 관문이나 full RED matrix GREEN을 뜻하지 않는다.
-- [x] **Phase 3A.2 route-free `native_busy` single-slot primitive**: 향후 AppState가
+- [x] **Phase 3A.2 route-free `native_busy` single-slot primitive — PR #172, `34c33b6`**: 향후 AppState가
       노드 단위로 단 하나를 소유할 비대기 1-slot permit을 구현했다. 획득 실패는 exact
       `native_busy`, 정상·오류·panic 모든 경로에서는 permit이 해제되고 경쟁 thread에서는
       정확히 하나만 획득한다. route가 상태/저널 변경 전에 이를 호출해야 한다는 순서 fixture도
@@ -2972,6 +2972,12 @@ HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 R
       아직 AppState가 이 permit을 단 하나 소유하거나 실제 route가 stage 5에서 획득하는 결선은
       없으므로 full gate 11 GREEN은 아니다. 이 체크도 현재 slice의 required CI·merge가
       완료되어 이 항목 자체가 main에 도달할 때만 권위가 생긴다.
+- [x] **Native shadow Phase 3B.0 — execution-policy identity binding (PR #173, current guarded slice)**: 기존 checker
+      `policy.json`·release·registry·frozen parity는 byte-preserved하고, 별도 node-owned
+      `executionPolicyDigest`를 새 row·journal·evidence v2에 결박한다. legacy evidence v1과
+      unversioned journal event는 replay-only. 실제 production containment
+      policy bundle·UID/GID·Linux executor는 다음 slice이며, 이 체크는 현재 slice의 required
+      CI·merge가 완료되어 main에 도달할 때만 권위가 생긴다.
 - [ ] **Native shadow Phase 3B — Linux containment + route/checker execution**: delegated cgroup
       v2 권한이 있는 named Linux runner, 전용 UID/GID, privilege-drop/ownership 모델을 먼저
       고정한 후 cgroup/tmpfs/seccomp/Landlock, cleanup/recovery, non-Linux startup refusal,
