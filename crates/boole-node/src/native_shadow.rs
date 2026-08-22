@@ -1,19 +1,26 @@
 //! Node-native shadow binding and containment — identity keys, registry
-//! binding, and the `nonIssuable` bootstrap rule.
+//! binding, the `nonIssuable` bootstrap rule, the challenge state machine,
+//! its durable journal, and restart recovery.
 //!
 //! Implements
 //! `docs/node-native-shadow-binding-containment-implementation-spec-v1.md`
-//! sections 4 and 6 only: JSON registry parsing, the four-tuple operational
-//! state key with `registryDigest` bound as a field (not a key component,
-//! closing that document's F4 registry-drift gap), the five-tuple
-//! idempotency key, and the three-ordered-check bootstrap rule that resolves
-//! every registry-declared four-tuple to `Disabled`, `Exhausted` or
-//! `Active(fresh)`. The durable journal, crash recovery, concurrency and
-//! containment-execution slices are separate, later work per that document's
-//! sections 7-11 and are not implemented in this module — this module is not
-//! wired into `local_node.rs` or any HTTP route, consistent with that
-//! document's section 1 non-goals (no route, no `boole-node` server change,
-//! until implementation of that route itself is undertaken).
+//! sections 4, 6 and 7 (concurrency, section 8, and the containment
+//! execution layer, section 9, are separate, later slices): JSON registry
+//! parsing, the four-tuple operational state key with `registryDigest`
+//! bound as a field (not a key component, closing that document's F4
+//! registry-drift gap), the five-tuple idempotency key, the
+//! three-ordered-check bootstrap rule that resolves every registry-declared
+//! four-tuple to `Disabled`, `Exhausted` or `Active(fresh)`, the
+//! `Active(fresh)` -> `InFlight` -> `Consumed` state machine with its
+//! durable NDJSON journal, and boot-time recovery that replays that journal
+//! and withholds any row still `InFlight` (fails closed — see
+//! `NativeShadowJournalReplay`) pending the later containment slice that can
+//! actually confirm its cleanup. This module is not wired into
+//! `local_node.rs` or any HTTP route, consistent with that document's
+//! section 1 non-goals (no route, no `boole-node` server change, until
+//! implementation of that route itself is undertaken); section 7's
+//! OS-level `flock` (step 1) and "begin serving requests" (step 5) are
+//! process/route-wiring concerns that belong to that later work too.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -49,10 +56,11 @@ pub(crate) struct NativeShadowIdempotencyKey {
 }
 
 /// Challenge lifecycle states (spec section 5). `InFlight` and `Consumed` are
-/// reached only by the durable state-machine slice, not implemented in this
-/// module. `Expired` is declared unreachable on the `nonIssuable` path (RED
-/// gate 8): no function in this module ever returns it, by construction —
-/// see `bootstrap_challenge_state`'s three-way return.
+/// reached via `NativeShadowStateStore::begin_execution` and
+/// `complete_consumed` respectively. `Expired` is declared unreachable on
+/// the `nonIssuable` path (RED gate 8): no function in this module ever
+/// returns it, by construction — see `bootstrap_challenge_state`'s
+/// three-way return.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ChallengeState {
     ActiveFresh,
@@ -293,11 +301,14 @@ pub(crate) struct NativeShadowStateRow {
     pub registry_digest: String,
 }
 
-/// In-memory operational-state store keyed by the four-tuple alone. Durable
-/// persistence, crash recovery and the `InFlight` state machine are a later
-/// slice (spec section 7); this store's job in this slice is only the
-/// row-lookup-before-bootstrap order that closes F4's registry-drift gap
-/// (RED gate 3).
+/// In-memory operational-state store keyed by the four-tuple alone. Its
+/// `resolve` method enforces the row-lookup-before-bootstrap order that
+/// closes F4's registry-drift gap (RED gate 3); `begin_execution` and
+/// `complete_consumed` drive the durable `Active(fresh)` -> `InFlight` ->
+/// `Consumed` state machine (spec section 7). Concurrency (the
+/// `native_busy` try-lock, section 8) and containment execution (section 9)
+/// are separate, later slices — nothing in this store enforces
+/// single-flight execution on its own.
 #[derive(Debug, Default)]
 pub(crate) struct NativeShadowStateStore {
     rows: HashMap<NativeShadowFourTuple, NativeShadowStateRow>,
@@ -346,6 +357,256 @@ impl NativeShadowStateStore {
         );
         ResolveOutcome::Bootstrapped(state)
     }
+
+    /// Spec sections 5 and 7: `Active(fresh)` -> `InFlight`. The durable
+    /// journal event is appended **before** this call returns success, so a
+    /// caller can only start invoking a checker after the durable record
+    /// already exists on disk — never the reverse order (spec section 7's
+    /// "written durably before the checker is invoked").
+    pub fn begin_execution(
+        &mut self,
+        journal_path: impl AsRef<Path>,
+        four_tuple: &NativeShadowFourTuple,
+    ) -> Result<(), NativeShadowTransitionError> {
+        let row = self
+            .rows
+            .get(four_tuple)
+            .ok_or_else(|| NativeShadowTransitionError::NoSuchRow(four_tuple.clone()))?;
+        if row.state != ChallengeState::ActiveFresh {
+            return Err(NativeShadowTransitionError::InvalidState {
+                four_tuple: four_tuple.clone(),
+                expected: ChallengeState::ActiveFresh,
+                actual: row.state,
+            });
+        }
+        let event = NativeShadowJournalEvent::InFlight {
+            four_tuple: four_tuple.clone(),
+        };
+        let line = serde_json::to_string(&event)
+            .map_err(|err| NativeShadowTransitionError::Durability(anyhow::Error::from(err)))?;
+        append_ndjson_line_durable(journal_path.as_ref(), &line)
+            .map_err(NativeShadowTransitionError::Durability)?;
+        self.rows
+            .get_mut(four_tuple)
+            .expect("row checked above")
+            .state = ChallengeState::InFlight;
+        Ok(())
+    }
+
+    /// Spec sections 5, 6 and 7: `InFlight` -> `Consumed`, unconditionally
+    /// paired with a durable exhaustion-ledger append for the same
+    /// four-tuple — every challenge this module governs is one-shot (spec
+    /// section 6's closing paragraph), so reaching `Consumed` always means
+    /// this exact four-tuple must never be issuable again, regardless of
+    /// what a future registry snapshot might otherwise say.
+    ///
+    /// The exhaustion-ledger append happens **before** the `Consumed`
+    /// journal event, not after: if a crash lands between the two writes,
+    /// the exhaustion ledger alone already carries the permanent fact that
+    /// matters (this four-tuple must never run again), whereas the reverse
+    /// order could leave a `Consumed` journal line on disk with no
+    /// permanent record backing it.
+    ///
+    /// Persisting evidence for the completed execution is the **caller's**
+    /// responsibility, done before calling this function (spec section 7's
+    /// evidence-before-terminal-transition ordering) — this module has no
+    /// evidence store of its own and cannot enforce that ordering on the
+    /// caller's behalf.
+    pub fn complete_consumed(
+        &mut self,
+        journal_path: impl AsRef<Path>,
+        exhaustion_ledger: &mut FileNativeShadowExhaustionLedger,
+        exhaustion_ledger_path: impl AsRef<Path>,
+        four_tuple: &NativeShadowFourTuple,
+    ) -> Result<(), NativeShadowTransitionError> {
+        let row = self
+            .rows
+            .get(four_tuple)
+            .ok_or_else(|| NativeShadowTransitionError::NoSuchRow(four_tuple.clone()))?;
+        if row.state != ChallengeState::InFlight {
+            return Err(NativeShadowTransitionError::InvalidState {
+                four_tuple: four_tuple.clone(),
+                expected: ChallengeState::InFlight,
+                actual: row.state,
+            });
+        }
+        exhaustion_ledger
+            .append_exhausted(exhaustion_ledger_path, four_tuple)
+            .map_err(NativeShadowTransitionError::Durability)?;
+        let event = NativeShadowJournalEvent::Consumed {
+            four_tuple: four_tuple.clone(),
+        };
+        let line = serde_json::to_string(&event)
+            .map_err(|err| NativeShadowTransitionError::Durability(anyhow::Error::from(err)))?;
+        append_ndjson_line_durable(journal_path.as_ref(), &line)
+            .map_err(NativeShadowTransitionError::Durability)?;
+        self.rows
+            .get_mut(four_tuple)
+            .expect("row checked above")
+            .state = ChallengeState::Consumed;
+        Ok(())
+    }
+}
+
+/// A state-transition was attempted from a row that is not in the required
+/// starting state, or against a four-tuple with no existing row at all.
+#[derive(Debug)]
+pub(crate) enum NativeShadowTransitionError {
+    NoSuchRow(NativeShadowFourTuple),
+    InvalidState {
+        four_tuple: NativeShadowFourTuple,
+        expected: ChallengeState,
+        actual: ChallengeState,
+    },
+    Durability(anyhow::Error),
+}
+
+impl std::fmt::Display for NativeShadowTransitionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoSuchRow(four_tuple) => {
+                write!(f, "native-shadow: no existing row for {four_tuple:?}")
+            }
+            Self::InvalidState {
+                four_tuple,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "native-shadow: {four_tuple:?} is {actual:?}, expected {expected:?}"
+            ),
+            Self::Durability(err) => write!(f, "native-shadow: durable write failed: {err}"),
+        }
+    }
+}
+
+impl std::error::Error for NativeShadowTransitionError {}
+
+/// Durable per-key state-transition journal (spec section 7): `InFlight`
+/// records intent durably before a checker execution begins; `Consumed`
+/// records the terminal fact after evidence for it already exists. Distinct
+/// from the permanent exhaustion ledger above — this journal is
+/// per-execution bookkeeping crash recovery uses to find rows left
+/// mid-flight; the exhaustion ledger's separate job is blocking revival
+/// forever, independent of `registryDigest`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum NativeShadowJournalEvent {
+    InFlight {
+        #[serde(flatten)]
+        four_tuple: NativeShadowFourTuple,
+    },
+    Consumed {
+        #[serde(flatten)]
+        four_tuple: NativeShadowFourTuple,
+    },
+}
+
+/// Outcome of replaying the durable state-transition journal alone, before
+/// any registry-driven bootstrap of four-tuples the journal never mentions
+/// (spec section 7, steps 2-3). `stuck_in_flight` holds every four-tuple
+/// whose last journaled event was `InFlight` with no later `Consumed` —
+/// these are deliberately **excluded** from `resolved` and deliberately
+/// **not** auto-resolved to any state, because resolving them for real
+/// requires confirming the OS-level containment cleanup (spec section 9)
+/// this module does not implement (a later, separate slice). A node
+/// discovering a non-empty `stuck_in_flight` set must fail closed for those
+/// specific four-tuples — neither silently reverted to `Active(fresh)` nor
+/// silently served as `InFlight` — until that later slice exists to resolve
+/// them per spec section 7's per-record procedure.
+#[derive(Debug, Default)]
+pub(crate) struct NativeShadowJournalReplay {
+    pub resolved: HashMap<NativeShadowFourTuple, ChallengeState>,
+    pub stuck_in_flight: Vec<NativeShadowFourTuple>,
+}
+
+pub(crate) fn replay_native_shadow_journal(
+    path: impl AsRef<Path>,
+) -> anyhow::Result<NativeShadowJournalReplay> {
+    let path = path.as_ref();
+    let Some(raw) = read_stable_prefix(path)? else {
+        return Ok(NativeShadowJournalReplay::default());
+    };
+    let mut resolved: HashMap<NativeShadowFourTuple, ChallengeState> = HashMap::new();
+    for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
+        let event: NativeShadowJournalEvent = serde_json::from_str(line).map_err(|err| {
+            anyhow::anyhow!("nativeShadowJournal: line {} invalid JSON: {}", i + 1, err)
+        })?;
+        match event {
+            NativeShadowJournalEvent::InFlight { four_tuple } => {
+                resolved.insert(four_tuple, ChallengeState::InFlight);
+            }
+            NativeShadowJournalEvent::Consumed { four_tuple } => {
+                resolved.insert(four_tuple, ChallengeState::Consumed);
+            }
+        }
+    }
+    let stuck_in_flight = resolved
+        .iter()
+        .filter(|(_, state)| **state == ChallengeState::InFlight)
+        .map(|(four_tuple, _)| four_tuple.clone())
+        .collect();
+    Ok(NativeShadowJournalReplay {
+        resolved,
+        stuck_in_flight,
+    })
+}
+
+/// Full boot-time recovery (spec section 7, steps 2-4). Step 1's OS-level
+/// `flock` and step 5's "begin serving requests" are process/route-wiring
+/// concerns outside this module's scope, same as the rest of this module.
+///
+/// Builds the servable state store from: the journal replay's resolved
+/// `Consumed` rows (`InFlight` rows are withheld — see
+/// `NativeShadowJournalReplay`), plus a fresh section-6 bootstrap for every
+/// registry-declared four-tuple the journal never mentions at all. Every
+/// four-tuple in `stuck_in_flight` is guaranteed **absent** from `store` —
+/// a caller built on top of this module later must treat that set as
+/// unavailable, not re-bootstrap it, until a later slice resolves it.
+pub(crate) struct NativeShadowRecovery {
+    pub store: NativeShadowStateStore,
+    pub exhaustion_ledger: FileNativeShadowExhaustionLedger,
+    pub stuck_in_flight: Vec<NativeShadowFourTuple>,
+}
+
+pub(crate) fn recover_native_shadow_state(
+    registry: &NativeShadowRegistry,
+    registry_digest: &str,
+    journal_path: impl AsRef<Path>,
+    exhaustion_ledger_path: impl AsRef<Path>,
+) -> anyhow::Result<NativeShadowRecovery> {
+    let replay = replay_native_shadow_journal(journal_path)?;
+    let exhaustion_ledger = FileNativeShadowExhaustionLedger::recover(exhaustion_ledger_path)?;
+    let stuck: HashSet<NativeShadowFourTuple> = replay.stuck_in_flight.iter().cloned().collect();
+
+    let mut store = NativeShadowStateStore::default();
+    for (four_tuple, state) in &replay.resolved {
+        if stuck.contains(four_tuple) {
+            continue; // withheld -- see NativeShadowJournalReplay's doc comment
+        }
+        store.rows.insert(
+            four_tuple.clone(),
+            NativeShadowStateRow {
+                state: *state,
+                registry_digest: registry_digest.to_string(),
+            },
+        );
+    }
+    for template in &registry.templates {
+        let four_tuple = registry.four_tuple(template);
+        if stuck.contains(&four_tuple) {
+            continue; // fail closed -- never bootstrap over a row still InFlight
+        }
+        store.resolve(&four_tuple, registry_digest, || {
+            bootstrap_challenge_state(registry, template, &exhaustion_ledger)
+        });
+    }
+
+    Ok(NativeShadowRecovery {
+        store,
+        exhaustion_ledger,
+        stuck_in_flight: replay.stuck_in_flight,
+    })
 }
 
 #[cfg(test)]
@@ -370,6 +631,25 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         dir.join("exhaustion-ledger.ndjson")
+    }
+
+    /// Like `scratch_ledger_path`, but for tests that need both the
+    /// state-transition journal and the exhaustion ledger side by side
+    /// under one shared scratch directory.
+    fn scratch_journal_and_exhaustion_paths(
+        label: &str,
+    ) -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "boole-native-shadow-journal-{}-{}",
+            label,
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        (
+            dir.join("journal.ndjson"),
+            dir.join("exhaustion-ledger.ndjson"),
+        )
     }
 
     // -- registry parsing / registryDigest ---------------------------------
@@ -624,6 +904,273 @@ mod tests {
         assert_eq!(
             key_a, key_a_again,
             "an exact redelivery of the same candidate answer is the same idempotency key"
+        );
+    }
+
+    // -- Phase 2: challenge state machine, durable journal, restart recovery
+
+    #[test]
+    fn begin_execution_moves_active_fresh_to_in_flight_durably() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let ledger = FileNativeShadowExhaustionLedger::default();
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("begin-execution");
+
+        let mut store = NativeShadowStateStore::default();
+        let outcome = store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template, &ledger)
+        });
+        assert_eq!(
+            outcome,
+            ResolveOutcome::Bootstrapped(ChallengeState::ActiveFresh)
+        );
+
+        store
+            .begin_execution(&journal_path, &four_tuple)
+            .expect("Active(fresh) -> InFlight must succeed");
+
+        assert_eq!(
+            store.resolve(&four_tuple, "digest-v1", || panic!("row already exists")),
+            ResolveOutcome::Existing(ChallengeState::InFlight)
+        );
+
+        // The transition is durable, not just in-memory: replaying the
+        // journal from disk independently must observe it too.
+        let replay = replay_native_shadow_journal(&journal_path).expect("replay");
+        assert_eq!(
+            replay.resolved.get(&four_tuple),
+            Some(&ChallengeState::InFlight)
+        );
+    }
+
+    #[test]
+    fn begin_execution_refuses_a_row_that_is_not_active_fresh() {
+        let registry = parse_fixture(PRODUCTION_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let ledger = FileNativeShadowExhaustionLedger::default();
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("begin-execution-wrong-state");
+
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template, &ledger)
+        });
+
+        let err = store
+            .begin_execution(&journal_path, &four_tuple)
+            .expect_err("the production fixture's four-tuple bootstraps Disabled, not ActiveFresh");
+        assert!(matches!(
+            err,
+            NativeShadowTransitionError::InvalidState {
+                expected: ChallengeState::ActiveFresh,
+                actual: ChallengeState::Disabled,
+                ..
+            }
+        ));
+
+        // Refused transitions must not write anything durably.
+        assert!(
+            replay_native_shadow_journal(&journal_path)
+                .expect("replay")
+                .resolved
+                .is_empty(),
+            "a refused transition must leave the journal untouched"
+        );
+    }
+
+    #[test]
+    fn begin_execution_on_an_unknown_four_tuple_is_refused() {
+        let four_tuple = NativeShadowFourTuple {
+            family_version: "UNKNOWN/V1".to_string(),
+            template_id: "unknown".to_string(),
+            challenge_sha256: "unknown".to_string(),
+            epoch: 0,
+        };
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("begin-execution-unknown");
+        let mut store = NativeShadowStateStore::default();
+
+        let err = store
+            .begin_execution(&journal_path, &four_tuple)
+            .expect_err("no row exists for this four-tuple");
+        assert!(matches!(err, NativeShadowTransitionError::NoSuchRow(_)));
+    }
+
+    #[test]
+    fn complete_consumed_moves_in_flight_to_consumed_and_pairs_the_exhaustion_ledger() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("complete-consumed");
+
+        let mut ledger = FileNativeShadowExhaustionLedger::default();
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template, &ledger)
+        });
+        store
+            .begin_execution(&journal_path, &four_tuple)
+            .expect("Active(fresh) -> InFlight");
+
+        store
+            .complete_consumed(&journal_path, &mut ledger, &exhaustion_path, &four_tuple)
+            .expect("InFlight -> Consumed must succeed");
+
+        assert_eq!(
+            store.resolve(&four_tuple, "digest-v1", || panic!("row already exists")),
+            ResolveOutcome::Existing(ChallengeState::Consumed)
+        );
+        assert!(
+            ledger.contains(&four_tuple),
+            "reaching Consumed must unconditionally pair with an exhaustion-ledger append \
+             (spec section 6: every challenge this module governs is one-shot)"
+        );
+
+        // Durable on both fronts, independently re-readable from disk.
+        let replay = replay_native_shadow_journal(&journal_path).expect("replay");
+        assert_eq!(
+            replay.resolved.get(&four_tuple),
+            Some(&ChallengeState::Consumed)
+        );
+        let reloaded_ledger =
+            FileNativeShadowExhaustionLedger::recover(&exhaustion_path).expect("recover");
+        assert!(reloaded_ledger.contains(&four_tuple));
+    }
+
+    #[test]
+    fn complete_consumed_refuses_a_row_that_is_not_in_flight() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("complete-consumed-wrong-state");
+
+        let mut ledger = FileNativeShadowExhaustionLedger::default();
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, "digest-v1", || {
+            bootstrap_challenge_state(&registry, template, &ledger)
+        });
+
+        let err = store
+            .complete_consumed(&journal_path, &mut ledger, &exhaustion_path, &four_tuple)
+            .expect_err("the row is Active(fresh), not InFlight");
+        assert!(matches!(
+            err,
+            NativeShadowTransitionError::InvalidState {
+                expected: ChallengeState::InFlight,
+                actual: ChallengeState::ActiveFresh,
+                ..
+            }
+        ));
+        assert!(
+            !ledger.contains(&four_tuple),
+            "a refused transition must not append to the exhaustion ledger"
+        );
+    }
+
+    // -- restart recovery (spec section 7, steps 2-4) -----------------------
+
+    #[test]
+    fn recovery_rebuilds_a_consumed_row_from_the_journal_alone() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("recovery-consumed");
+
+        // Simulate a full lifecycle on one "process", then recover as if a
+        // brand-new process just started against the same durable files.
+        {
+            let mut ledger = FileNativeShadowExhaustionLedger::default();
+            let mut store = NativeShadowStateStore::default();
+            store.resolve(&four_tuple, "digest-v1", || {
+                bootstrap_challenge_state(&registry, template, &ledger)
+            });
+            store
+                .begin_execution(&journal_path, &four_tuple)
+                .expect("begin");
+            store
+                .complete_consumed(&journal_path, &mut ledger, &exhaustion_path, &four_tuple)
+                .expect("complete");
+        }
+
+        let mut recovery =
+            recover_native_shadow_state(&registry, "digest-v1", &journal_path, &exhaustion_path)
+                .expect("recover");
+        assert!(recovery.stuck_in_flight.is_empty());
+        assert_eq!(
+            recovery
+                .store
+                .resolve(&four_tuple, "digest-v1", || panic!("row already exists")),
+            ResolveOutcome::Existing(ChallengeState::Consumed)
+        );
+        assert!(recovery.exhaustion_ledger.contains(&four_tuple));
+    }
+
+    #[test]
+    fn recovery_withholds_a_stuck_in_flight_row_instead_of_serving_or_reverting_it() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("recovery-stuck-in-flight");
+
+        // Crash right after Active(fresh) -> InFlight, before Consumed.
+        {
+            let ledger = FileNativeShadowExhaustionLedger::default();
+            let mut store = NativeShadowStateStore::default();
+            store.resolve(&four_tuple, "digest-v1", || {
+                bootstrap_challenge_state(&registry, template, &ledger)
+            });
+            store
+                .begin_execution(&journal_path, &four_tuple)
+                .expect("begin");
+        }
+
+        let mut recovery =
+            recover_native_shadow_state(&registry, "digest-v1", &journal_path, &exhaustion_path)
+                .expect("recover");
+        assert_eq!(recovery.stuck_in_flight, vec![four_tuple.clone()]);
+
+        // Fail closed: this module has no containment-cleanup capability
+        // (spec section 9, a later slice) to confirm the stuck row's
+        // process/cgroup was actually torn down, so it must be neither
+        // silently reverted to Active(fresh) nor silently served as
+        // InFlight -- the row must be simply absent from the servable store.
+        let outcome = recovery
+            .store
+            .resolve(&four_tuple, "digest-v1", || ChallengeState::ActiveFresh);
+        assert!(
+            matches!(outcome, ResolveOutcome::Bootstrapped(_)),
+            "the stuck row must be genuinely absent from the recovered store, \
+             not silently present as Active(fresh) or InFlight — a caller \
+             that (incorrectly, for a later slice to fix) re-bootstraps it \
+             is not this test's concern, but the recovered store itself \
+             must not already contain it"
+        );
+    }
+
+    #[test]
+    fn recovery_bootstraps_every_registry_declared_four_tuple_missing_from_the_journal() {
+        let registry = parse_fixture(PRODUCTION_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let (journal_path, exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("recovery-bootstrap-remainder");
+
+        let mut recovery =
+            recover_native_shadow_state(&registry, "digest-v1", &journal_path, &exhaustion_path)
+                .expect("recover");
+        assert!(recovery.stuck_in_flight.is_empty());
+        assert_eq!(
+            recovery
+                .store
+                .resolve(&four_tuple, "digest-v1", || panic!("row already exists")),
+            ResolveOutcome::Existing(ChallengeState::Disabled)
         );
     }
 }
