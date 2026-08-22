@@ -1,0 +1,63 @@
+{
+  "schema": "boole.native-shadow.toolchain-identity.v1",
+  "release": "NATIVE-SHADOW-TOOLCHAIN-IDENTITY-V1-QUALIFICATION",
+  "activationAllowed": false,
+  "purpose": "root-owned runtime identity authority for native checker qualification",
+  "rust": {
+    "channel": "rust-lang-ci-e7795af6d2449fb05a6393c3320ced873a999eb3",
+    "rustcRelease": "1.99.0-nightly",
+    "rustcCommitHash": "e7795af6d2449fb05a6393c3320ced873a999eb3",
+    "cargoRelease": "1.99.0-nightly",
+    "cargoCommitHash": "3efb1f477e99b42974b982d939fd100303cdf7db",
+    "linuxX8664ArtifactSha256": {
+      "rustc-nightly-x86_64-unknown-linux-gnu.tar.xz": "12cd470422b39da22a7b8c2f069c25e66200d5a46c1be5dac0bfe7620ed0d415",
+      "rust-std-nightly-x86_64-unknown-linux-gnu.tar.xz": "fd04194fb361ef69735a0b722fcaf6d9b49a339944f485aebcc4c172adb5c339",
+      "cargo-nightly-x86_64-unknown-linux-gnu.tar.xz": "53e718c828a16746abdf3f8fb6f4c75ce5494a6f547ef6f02d45d72faef4c426"
+    },
+    "rustcProbe": [
+      "/opt/boole/native-checker-toolchain/bin/rustc",
+      "-vV"
+    ],
+    "cargoProbe": [
+      "/opt/boole/native-checker-toolchain/bin/cargo",
+      "-Vv"
+    ]
+  },
+  "python": {
+    "path": "/usr/bin/python3.12",
+    "implementation": "cpython",
+    "requiredVersionPrefix": "Python 3.12.",
+    "versionProbe": [
+      "/usr/bin/python3.12",
+      "--version"
+    ],
+    "implementationProbe": [
+      "/usr/bin/python3.12",
+      "-I",
+      "-S",
+      "-c",
+      "import sys;print(sys.implementation.name)"
+    ],
+    "requiredImplementationOutput": "cpython\n"
+  },
+  "runtimeVerification": {
+    "runBeforeSocketBind": true,
+    "runBeforeEachExecution": true,
+    "productionByteProvenanceComplete": false,
+    "executionAllowedBeforeProvenanceClosure": false,
+    "activationBlockers": [
+      "installed-rust-toolchain-file-manifest",
+      "python-interpreter-and-stdlib-file-manifest",
+      "system-linker-and-runtime-file-manifest"
+    ],
+    "environment": {
+      "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+      "LC_ALL": "C",
+      "LANG": "C",
+      "TZ": "UTC"
+    },
+    "toolchainDigestMeaning": "sha256-of-these-exact-tracked-manifest-bytes",
+    "probeMismatchAction": "fail-closed-before-spawn",
+    "compatibilityProbeScope": "version-and-implementation-only;not-installed-byte-provenance"
+  }
+}

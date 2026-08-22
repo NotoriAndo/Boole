@@ -225,7 +225,7 @@ Further route-free foundations now narrow the open prerequisite without closing 
   `DeterministicReject` evidence uses `boole.native-shadow.evidence.v2`; legacy v1 evidence and
   unversioned journal events remain read-only replay inputs. This slice does not yet freeze the
   production containment-policy bundle or execute a checker.
-* Phase 3B.1 — the current guarded infrastructure-capability slice: a named `ubuntu-24.04` job
+* Phase 3B.1 — PR #174, main `ac4f32f`: a named `ubuntu-24.04` job
   probes delegated cgroup v2, a separate minimal privileged-launcher boundary, mount/PID namespaces,
   executable bounded tmpfs, complete privilege removal, freeze/kill/cleanup and the existing enforced
   seccomp/Landlock behavior. The first PR #174 run kept the required gate RED after the runner denied
@@ -235,10 +235,36 @@ Further route-free foundations now narrow the open prerequisite without closing 
   the byte-identical, root-owned launcher in `/run` instead of restoring a filesystem-override
   capability. The third run then passed the complete named job, including the injected pre-ready
   failure cleanup, normal namespace/cgroup lifecycle and enforced seccomp/Landlock checks
-  ([run 32598640328, job 97093408375](https://github.com/NotoriAndo/Boole/actions/runs/32598640328/job/97093408375)).
+  ([final run 32598803995, job 97093814188](https://github.com/NotoriAndo/Boole/actions/runs/32598803995/job/97093814188)).
   Required `self-test` explicitly fails unless this job succeeds. This GREEN proves only runner
-  capability; it does not implement the production launcher/IPC, freeze
-  production policy bytes, execute the native checker or close the route gate.
+  capability; it does not implement the production launcher/IPC, execute the native checker or
+  close the route gate.
+* Phase 3B.2a — the current guarded authority-freeze slice: exact tracked bytes at
+  `native/containment/native-shadow-execution-policy-v1.json` and
+  `native-shadow-toolchain-identity-v1.json` define the disabled qualification policy, fixed
+  service-account UID/GID resolution checks, root-owned install/socket layout, exact framed
+  peer-credential message schemas, node-owned intake-to-checker source transfer, all five launcher
+  capability sets, cgroup/tmpfs/rlimit values, seccomp/Landlock profiles and observable
+  crash-cleanup contract. The registry binds both raw digests. Because this release remains
+  inactive, its only normal IPC completion is the separate request-free
+  `qualification-hello → qualification-ready(activationAllowed=false) → EOF`; it
+  changes no durable state and starts no child. Its ready frame is also the authenticated recovery
+  barrier: the launcher must first prove a verified manager subgroup, zero active run leaves and zero
+  unexpected direct cgroup children. The setgid runtime-directory contract creates the socket with
+  the expected root:node group without `CAP_CHOWN`. The future execution contract uses one
+  race-free `clone3(CLONE_INTO_CGROUP|CLONE_NEWNS|CLONE_NEWPID|CLONE_PIDFD)` child, exact
+  root:checker workspace files/scratch modes, a verdict-specific checker reason vocabulary, report
+  cross-field invariants and a total node-owned outcome/evidence/consumption map. The cgroup contract
+  moves the launcher into a reserved `manager` child before enabling controllers, leaving execution
+  `run-*` leaves as siblings.
+  The execute message is forbidden
+  until a later durable `InFlightV3` row binds its operation ID; therefore the next implementation
+  slice is handshake-only. No launcher, socket, checker process, journal transition or route exists
+  in this slice. The toolchain manifest deliberately marks installed Rust files, Python/stdlib and
+  system linker/runtime byte provenance as still open activation blockers; its version probes are
+  not described as exact installed-byte reproduction. Current node code also still points at the
+  repository registry fixture and does not strictly deserialize every new installed authority field;
+  the handshake slice must close both gaps before even disabled readiness is accepted.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux
@@ -472,6 +498,8 @@ progress cursor: Phase 2D and the route-free Phase 3A.1 same-FD journal foundati
 The route-free Phase 3A.2 `native_busy` permit is also implemented, while its AppState/route wiring,
 containment-backed cleanup, checker wiring, a real named-Linux node run and the full RED matrix remain
 open. Phase 3B.0 is the landed typed execution-policy/v2 evidence propagation foundation. Phase 3B.1
-closed the named-runner infrastructure-capability prerequisite; production policy bytes and
-provenance, production launcher/IPC, route/checker wiring and actual native Linux execution remain
-open.
+closed the named-runner infrastructure-capability prerequisite. The current guarded Phase 3B.2a
+freezes the exact disabled policy/toolchain-identity bytes, registry bindings, service-account
+resolution, checker invocation and install/IPC contract; production launcher implementation and
+provenance testing, authenticated handshake, durable execution ID, route/checker wiring and actual
+native Linux execution remain open.

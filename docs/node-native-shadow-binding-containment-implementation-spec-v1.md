@@ -152,7 +152,7 @@ entry becomes authoritative on `main` only after its required CI and merge:
   events bind `executionPolicyDigest`; new evidence is `boole.native-shadow.evidence.v2`, while
   legacy v1 evidence and unversioned journal events remain read-only replay inputs. The production
   containment-policy bundle and actual Linux executor are not part of this slice.
-* **Phase 3B.1** — the current guarded infrastructure-capability slice: a named `ubuntu-24.04`
+* **Phase 3B.1** — PR #174, main `ac4f32f`: a named `ubuntu-24.04`
   job must actually exercise a separate minimal privileged-launcher boundary, delegated cgroup v2
   controls, mount/PID namespaces, bounded executable tmpfs, complete privilege/capability removal,
   cgroup freeze/kill/cleanup and the existing enforced seccomp/Landlock tests. The first PR #174 run
@@ -164,13 +164,24 @@ entry becomes authoritative on `main` only after its required CI and merge:
   probe stages the byte-identical, root-owned launcher in `/run` rather than adding
   `CAP_DAC_OVERRIDE`. The third run passed the complete job, including injected pre-ready cleanup,
   the normal namespace/cgroup lifecycle and the enforced seccomp/Landlock checks
-  ([run 32598640328, job 97093408375](https://github.com/NotoriAndo/Boole/actions/runs/32598640328/job/97093408375)).
+  ([final run 32598803995, job 97093814188](https://github.com/NotoriAndo/Boole/actions/runs/32598803995/job/97093814188)).
   Required `self-test` fails when this job fails, is skipped or is cancelled. This GREEN proves only
   that the named runner supplies the launcher
-  prerequisites; it does not implement the production launcher/IPC, freeze a production identity or
-  policy, execute the native checker or close containment.
+  prerequisites; it does not implement the production launcher/IPC, execute the native checker or
+  close containment.
+* **Phase 3B.2a** — the current guarded authority-freeze slice: the exact tracked bytes at
+  `native/containment/native-shadow-execution-policy-v1.json` pin the Linux platform, service
+  accounts and their resolution invariants, installation ownership/modes, closed Unix-socket
+  message schemas, framing and size ceilings, the exact five Linux capability sets, cgroup/tmpfs/
+  rlimit values, native seccomp/Landlock profiles, checker invocation and crash-cleanup ownership.
+  `native-shadow-toolchain-identity-v1.json` separately pins the Rust archive/commit authority and
+  the qualification interpreter compatibility probe, while explicitly leaving installed-byte
+  provenance closed to execution. The
+  qualification registry binds both raw files. This slice freezes authority only: no launcher
+  binary, socket, child process, checker, journal transition or route is created. It is authoritative
+  only after its required CI and merge.
 
-All eight are internal, currently unwired `boole-node` foundations or infrastructure gates. They do
+All nine are internal, currently unwired `boole-node` foundations or infrastructure gates. They do
 **not** implement an
 HTTP endpoint, spawn the checker, activate the production registry, change SharePool/block/reward/
 P2P/consensus state, or earn `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`. Phase 3A.1's focused
@@ -179,8 +190,8 @@ Still open are section 7's containment-backed per-record cleanup, section 8's Ap
 permit acquisition in the actual request path, sections 9–10's actual Linux
 containment/observation integration, route wiring, the complete RED matrix and one real
 node-process raw-answer run. The named Linux job has now proved the infrastructure prerequisites,
-but actual containment GREEN remains blocked until the production launcher protocol, dedicated
-UID/GID, policy identity and minimal privilege set are pinned and implemented. Generic
+but actual containment GREEN remains blocked until the now-pinned launcher protocol, identity,
+policy and privilege contracts are implemented and exercised. Generic
 `ubuntu-latest` may not substitute for the passing named evidence.
 
 ## 1. Non-goals
@@ -440,24 +451,32 @@ OS-level lock:**
    for a single in-process lock left open: an in-process lock implicitly assumes single-process
    operation but names no mechanism that actually prevents a second node process from starting against
    the same ledger file.
-2. Replay the durable journal to reconstruct current per-key state.
-3. For each key found in `InFlight` state without a matching `TerminalConsumed` event,
-   processed **one key at a time**: (a) locate and force-clean that key's own cgroup leaf,
-   private mount namespace and tmpfs workspace — freeze, `cgroup.kill`, verify `populated=0` **and**
-   verify no remaining task anywhere still references that key's private mount namespace (section 9)
-   — and confirm completion; (b) check whether durable evidence already exists for this key (see
-   below — this is new, closes F4's persist-ordering gap); (c) only after (a) and, where evidence
-   exists, (b)'s branch is resolved, durably append the appropriate transition for that **same** key.
-   If the cleanup in (a) cannot be confirmed, or the durable write in (c) fails, that key is left out
-   of service (not reverted, not served) and startup fails closed rather than proceeding on an
-   ambiguous in-memory-only state. Per-record ordering, not two global passes, removes the crash
-   window: at no point does any single key exist in a state where it is servable but its predecessor
-   process might still be alive.
-4. Bootstrap any registry-declared key with no existing durable record, applying section 6's two
-   ordered checks (static issuability gate, then `Active(fresh)`). A terminal-event-derived
-   exhaustion projection always accompanies an existing durable `Consumed` row and therefore never
-   enters this no-row branch.
-5. Only after steps 1-4 complete for every key does the route begin serving requests.
+2. Replay the durable journal to reconstruct current per-key state. Every row found `InFlight`
+   without a matching `TerminalConsumed` event remains withheld; the unprivileged node does **not**
+   write cgroupfs or claim that it cleaned a launcher's process tree.
+3. Start the privileged launcher under its separate single-instance lock. Before binding the socket
+   or sending readiness, the launcher moves itself into the exact `manager` subgroup, scans every
+   direct child of its delegated service root, rejects any child other than `manager` or an exact
+   `run-*` leaf, and freezes, kills, confirms empty, and removes every `run-*` leaf. Any unexpected
+   child or incomplete cleanup fails closed without readiness.
+4. Complete the authenticated request-free qualification handshake. The ready frame must bind the
+   installed policy/toolchain/registry digests and nonce and assert, as typed fields,
+   `startupRecoveryComplete=true`, `activeExecutionLeaves=0`,
+   `unexpectedDirectCgroupChildren=0`, and `managerSubgroupVerified=true`. The node verifies root
+   `SO_PEERCRED` UID/GID/PID and holds the route closed and its ledger lock throughout this barrier.
+5. Only after step 4 succeeds may the node resolve each withheld row **one at a time**. If durable
+   evidence already exists, append the missing terminal transition; otherwise append the rollback
+   to `Active(fresh)`. A failed append leaves that row withheld. If the authenticated barrier never
+   arrives, no row is rolled back and the route never opens. Then bootstrap registry-declared keys
+   with no durable record under section 6's ordered static-issuability checks. Only after every row
+   is resolved may an activation-capable future release serve requests; this qualification release
+   remains route-disabled regardless.
+
+Step 5 is the future activation-capable recovery rule, not work authorized by the next qualification
+slice. The frozen qualification handshake has `nodeDurableStateChangeAllowed=false`; Phase 3B.2b
+must stop after authenticating and recording the in-memory readiness barrier and must not append a
+journal rollback, bootstrap a row, or open the route. A later explicitly activation-capable policy
+and implementation must be reviewed before step 5 can mutate durable state.
 
 **`InFlight` → evidence → terminal-transition ordering, pinned (new, closes F4).** During normal,
 non-restart operation, when a checker execution completes, the node must durably persist evidence
@@ -482,29 +501,25 @@ write succeeds, or after the row is confirmed left at `InFlight` on failure. Thi
 race the fourth review implied: without this, a second submission could observe the global slot as
 free in the gap between the checker exiting and the durable writes completing.
 
-**Generalized recovery, no longer startup-only (closes F4's mid-flight-registry-change follow-on and
-the stuck-`InFlight` case).** The per-record procedure in this section is not exclusively a
-startup-time procedure. Any code path that discovers a row `InFlight` while the single node-wide
-try-lock is currently free — whether at node startup (steps 1-5 above), or at decision-path stage 5
-on a still-running node, immediately after acquiring the (just-confirmed-free) try-lock and finding
-the row it is about to act on is already `InFlight` — must run the same per-record procedure before
-treating that row as usable, with one added branch:
+**Generalized recovery never grants the node cgroup authority (closes F4's follow-on).** A live node
+that encounters a stale `InFlight` row while its execution try-lock is free cannot clean or roll it
+back on its own. It leaves the row withheld and requires the same authenticated launcher recovery
+barrier above (normally by failing the route closed and restarting the launcher qualification
+sequence). Only after that barrier may it apply this per-record branch:
 
 * If durable evidence for this four-tuple already exists but the terminal-state write never
   completed (the second partial-failure mode above), recovery **completes the terminal-state write
   directly** — it does not revert to `Active(fresh)` and does not re-invoke the checker, since a
   real, decided verdict already exists and evidence must never be produced twice for one outcome.
-* If no evidence exists for this four-tuple, recovery reverts the row to `Active(fresh)` once cleanup
-  is confirmed, exactly as in the startup path, and the triggering submission may then proceed to
-  execute against it normally.
+* If no evidence exists for this four-tuple, recovery reverts the row to `Active(fresh)` only after
+  the authenticated barrier has established that no execution leaf remains.
 
 This is also the mechanism that resolves what happens when the registry file changes on disk while a
 challenge is `InFlight` (F4): because section 4 now looks a row up by its stable four-tuple identity
 first, a submission arriving after such a change finds the *same* existing row rather than
-bootstrapping a parallel one; if that row is `InFlight`, the generalized recovery procedure above
-governs it exactly as any other `InFlight`-with-free-try-lock encounter, and if it is still genuinely
-executing (try-lock held), the arriving submission is simply rejected `RetryableUnavailable(native_busy)`
-by section 8's existing rule, never granted a parallel execution track.
+bootstrapping a parallel one; if that row is `InFlight`, the barrier-gated procedure above governs
+it, and if an execution still holds the try-lock, the arriving submission is simply rejected
+`RetryableUnavailable(native_busy)` by section 8's existing rule, never granted a parallel track.
 
 ## 8. Concurrency: the `native_busy` unification (closes the remainder of E3/D4)
 
@@ -559,8 +574,8 @@ only one that needs to be open):
 7. **`cgroup.freeze` + `cgroup.kill` is the only termination path**, no iterative SIGKILL fallback; a
    kernel lacking `cgroup.kill` is a startup capability-probe failure, fail closed.
 
-The leaf cgroup is assigned to the spawned process race-free at spawn time (via `clone3()`'s
-`CLONE_INTO_CGROUP`, or by writing to `cgroup.procs` before the process execs). macOS has no
+The leaf cgroup is assigned to the spawned process race-free at creation only through `clone3()`'s
+`CLONE_INTO_CGROUP`; post-fork writes to `cgroup.procs` are not a fallback. macOS has no
 equivalent kernel primitive; its treatment is stated in full, without qualification, below.
 
 **Two policy owners; the frozen checker policy is byte-preserved.**
@@ -574,16 +589,183 @@ That file's SHA-256 (`940bc5d8…`) is already part of the checker release, regi
 parity history and **must not be edited** to add node-level cgroup settings. Checker-internal policy
 remains identified by evidence `policyDigest`.
 
-The cgroup-level values below belong to a separate, node-owned containment-policy bundle. Its exact
-raw-byte SHA-256 is `executionPolicyDigest`, bound independently through every new state row,
-journal event and v2 evidence object. Phase 3B.0 implements that binding before a production bundle
-exists; it does not invent placeholder policy bytes. The later Linux slice may freeze the bundle only
-after its UID/GID, privilege model and enforcement profiles are concrete and its named Linux job
-actually exercises them. Both the node and the separate privileged launcher must compile or otherwise
-cryptographically pin the same final policy bytes rather than accept a request-, environment- or
-CWD-selected policy path. Their authenticated, closed IPC and policy-agreement protocol remain open
-work; Phase 3B.1 does not invent or claim that production protocol. The following are the values that
-bundle must contain:
+The cgroup-level values below belong to a separate, node-owned containment-policy bundle. Phase
+3B.2a freezes its exact tracked bytes at
+`native/containment/native-shadow-execution-policy-v1.json`; their raw-byte SHA-256 is
+`d4a30664086018c70080fda03c8ac315d8b43ef04e6702cd28835aac88b2dc0f`. The registry's top-level
+`executionPolicySha256` binds that digest, and the same value is the `executionPolicyDigest` bound
+independently through every new state row, journal event and v2 evidence object. The checker-owned
+`policy.json` remains byte-preserved and keeps its separate `policyDigest` meaning.
+
+The bundle is deliberately `activationAllowed: false`. Freezing it neither installs nor starts a
+launcher. The next slice must compile the same exact bytes into both node-side client and launcher,
+recompute the raw SHA-256 independently, and refuse any request-, environment- or CWD-selected
+policy path. A mismatch among compiled bytes, the root-owned installed copy and the registry digest
+is a startup failure before a socket is accepted or a challenge state changes.
+
+The separately tracked `native/containment/native-shadow-toolchain-identity-v1.json` has raw-byte
+SHA-256 `29799eff53df764024de8f1020eac177b2ee936243d2ac52d192ba2423f0fa84`.
+The registry's `toolchainIdentitySha256` binds it. It repeats the already-frozen rustc/Cargo commit
+and archive hashes and fixes the qualification interpreter compatibility probe to root-owned CPython
+3.12 at the non-symlink executable `/usr/bin/python3.12`; probe drift fails before socket bind and
+again before execution. This is
+not yet exact installed-runtime provenance: the manifest explicitly marks the installed Rust file
+tree, Python interpreter/stdlib and system linker/runtime file manifests as activation blockers.
+Until a later tracked provenance slice closes all three, execution remains forbidden even if the
+version probes pass. Evidence `toolchainDigest` means this tracked compatibility/authority-manifest
+digest, not a digest improvised from a request-selected channel name or a claim that unrecorded
+installed bytes were reproduced.
+
+Two node-side compatibility gaps are explicit next-slice blockers, not silently claimed closed by
+this file freeze. Current `boole-node` still allowlists the repository fixture path rather than the
+installed `/usr/share/boole/native-shadow/registry-v1.json`, and its registry serde model does not
+yet strictly require the new top-level policy/toolchain bindings and per-template manifest/intake
+fields. The handshake implementation must move both sides to the installed path, reject unknown or
+missing fields, and prove the parsed model binds the exact installed bytes. Until then no launcher
+readiness result can activate execution. The three installed-runtime provenance manifests above are
+a separate activation blocker and also remain open.
+
+**Dedicated identities, fixed without unsafe machine-global numeric assumptions.** The service
+accounts are exactly `boole-node` and `boole-native-checker`, each with a same-named primary group.
+Both have home `/nonexistent`, shell `/usr/sbin/nologin` or `/bin/false`, and zero supplementary
+groups. Both accounts and groups must resolve through `getpwnam_r`, `getgrnam_r` and `getgrgid_r` at
+launcher startup, each passwd primary GID must resolve back to the required same-named group, and
+`getgrouplist` must return no supplementary group. They must resolve to non-root, mutually distinct
+numeric UIDs and primary GIDs; those resolved numbers are immutable for that launcher lifetime and
+all six launcher/node/checker UID/GID values are returned in the readiness/report record. Hard-coding a
+distro-global number would create collisions with unrelated local accounts, so the concrete
+contract is the fixed account names plus these mechanically checked resolution invariants, not one
+unportable integer. A missing, root-valued, aliased or changing resolution fails closed.
+
+**Installation and closed local IPC.** The launcher is root-owned mode `0755` at
+`/usr/libexec/boole/boole-native-shadow-launcher`; the policy and toolchain-identity copies are
+root-owned mode `0444` at `/usr/share/boole/native-shadow/execution-policy-v1.json` and
+`/usr/share/boole/native-shadow/toolchain-identity-v1.json`, beneath a root-owned mode `0555`
+authority directory. The registry and checker files are root:root regular nonsymlinks mode `0444`;
+checker/fixture directories are root:root mode `0555`, fixture descendants are non-symlink authority
+files mode `0444`, and the root:root mode-`0555` toolchain directory's individual content modes
+remain blocked on the future provenance manifest. `/usr/bin/python3.12` is an actual root:root
+mode-`0755` regular nonsymlink executable. The root-owned runtime
+directory is `/run/boole/native-shadow`, group `boole-node`, mode `2750`: the setgid bit makes a
+root-created socket inherit group `boole-node` without adding `CAP_CHOWN`. The launcher holds
+`flock(LOCK_EX|LOCK_NB)` for its lifetime on
+`/run/boole/native-shadow/launcher.lock`, root:`boole-node` mode `0600`, validates every ancestor and
+the directory as root-owned/non-writable, opens that basename relative to the verified directory FD
+with `O_CREAT|O_RDWR|O_CLOEXEC|O_NOFOLLOW`, and `fstat`s a regular, one-link,
+root:`boole-node`, mode-`0600` inode before locking,
+binds with umask `0117`, applies mode `0660`, and verifies by `lstat` that `launcher.sock` is a
+root:`boole-node` socket. It may remove a stale entry only while holding that lock and only after the
+same ownership/type check. The node can traverse and connect but cannot replace entries. The
+preinstalled `/work` mountpoint is root:root mode `0555`; its temporary private-namespace mount is a
+different per-execution contract below. IPC is one request per Unix
+stream connection using a four-byte big-endian length followed by strict UTF-8 JSON. Both ends verify
+kernel `SO_PEERCRED`; the launcher accepts only the resolved `boole-node` UID **and primary GID**, and
+the node accepts only root UID **and GID**, with the peer PID bound to the report. The generic
+root-owned-path rule applies only to the listed immutable launcher/authority/toolchain paths and the
+unmounted `/work` installation point; the
+runtime socket directory and socket use their separate root:`boole-node` ownership/mode contract, so
+the two rules do not contradict each other. A fresh 32-byte nonce and a distinct
+32-byte operation ID use lowercase hexadecimal encoding. Operation IDs come only from one successful
+32-byte `getrandom(2)` read, with no fallback; an observed collision fails before child creation. No
+HMAC is added (the node would know the
+same key and could forge it), and no
+signing-key lifecycle is invented for this synchronous local boundary. Unknown/missing/trailing,
+oversized or truncated frames fail closed. The frozen limits are 16,384 raw-answer bytes, 131,072
+request-frame bytes and 65,536 response-frame bytes. The extracted complete submission source also
+has its own 16,384-byte outer ceiling; the checker separately retains its 8,192-byte patch-body
+ceiling, so fixed scaffold bytes are not accidentally counted against the patch allowance. The
+ordinary HTTP body cap is not used as a substitute for these narrower native limits.
+
+**Closed message and checker-input contract.** An enabled execution connection has exactly this order:
+`hello → ready → execute → node SHUT_WR/EOF → report → launcher SHUT_WR/EOF`. The node builds the
+execute frame first; hello commits its exact byte length and a domain-separated SHA-256 over the
+four-byte length prefix plus exact execute JSON payload. The launcher echoes that digest in ready,
+then verifies the received execute frame byte-for-byte and observes EOF before spawning anything.
+The submission digest preimage is unambiguous: after the UTF-8 domain prefix and NUL, family version
+is length-prefixed UTF-8, template and challenge are each their 64 lowercase **ASCII hex bytes**
+with a four-byte big-endian length, epoch is an unprefixed big-endian `u64`, and raw answer is
+length-prefixed decoded UTF-8. The node accepts a report only after matching nonce, operation ID,
+request/policy digests, the ready-frame launcher PID and kernel `SO_PEERCRED` PID, all resolved IDs
+and final EOF; every report authority field must equal both the execute field and the independently
+opened installed bytes. Duplicate JSON keys, floats/non-finite numbers,
+unknown fields, a second execute frame or any bytes between/after expected frames are failures.
+
+This qualification release is deliberately different because `activationAllowed` is false. Its
+only successful connection is an authenticated readiness check with separate, request-free schemas:
+`qualification-hello → qualification-ready(activationAllowed=false) → node SHUT_WR/EOF → launcher
+SHUT_WR/EOF`. Those messages bind the nonce plus installed policy, toolchain-identity and registry
+digests, but contain no execute-frame length or digest because no execute frame exists. Before that
+ready frame, launcher-owned startup recovery must be complete; the typed frame also binds a fresh
+32-byte launcher-instance ID obtained once from `getrandom(2)` at launcher startup with no fallback,
+and asserts zero active leaves, zero unexpected direct cgroup children, and a verified
+manager subgroup. That path changes
+no durable challenge state, starts no child and returns no report. Receiving an execute frame under
+this release is a protocol error that closes the connection without a report or spawn. This explicit
+path is what the next handshake-only implementation can test; it does not pretend that a disabled
+release can execute a checker.
+
+The node, not the miner and not the launcher, runs the frozen
+`RUST-TUPLE-STRUCT-NATIVE-PROOF-INTAKE-V1` extraction over the raw UTF-8 answer. The execute message
+carries both base64-encoded raw-answer bytes and the extracted Rust source, with independent raw and
+source SHA-256 bindings; the launcher verifies those byte digests but deliberately does not become a
+second family parser. It resolves the four-tuple only against its root-owned registry, opens the
+registry-selected task and anchor beneath the fixed fixture root with `openat2` beneath/no-symlink
+constraints, verifies every authority digest, and writes the exact extracted source to
+`/work/submission.rs`. The fixed argv is `/usr/bin/python3.12 -I -S <fixed checker.py> --task /work/task.json
+--submission /work/submission.rs --toolchain-bin /opt/boole/native-checker-toolchain/bin
+--scratch-root /work/scratch`, with cwd `/work`; request data, environment and cwd cannot select a
+path. A request may reach execute only after a future `InFlightV3` journal record durably stores the
+same operation ID. Phase 3B.2a adds no such record, so its disabled policy cannot spawn a child and
+the next implementation slice is handshake-only. Parsed checker stdout must use the checker's actual
+`boole.native-shadow.checker-result.v1` schema and its verdict-specific frozen reason-code set; a
+similarly named schema or unknown reason is not accepted. A report exists only after a child was
+created, its setup pipe carried no error record, and every cleanup field is true; that pipe's EOF is
+not misrepresented as proof of exec. Its wait kind is only `exited` or `signaled`.
+`valid-checker-result` requires exit zero, no outer timeout, empty stderr, exactly one JSON line and a
+non-null parsed object; output-limit and parsed-null status combinations are likewise cross-checked.
+Missing, malformed or contradictory reports therefore cannot manufacture ACCEPT.
+
+The node, not the launcher, applies the policy's complete ordered outcome map. A valid checker
+`accepted` result becomes ACCEPT; a valid semantic `deterministic_reject` becomes
+`checker_rejected`; the two clean-exit text-derived resource reasons require their matching
+`pids.events:max` or `memory.events:max` counter and otherwise become
+`checker_reported_reason_unconfirmed`; wall-time and signal death remain retryable. Missing,
+malformed, binding-invalid or setup-failure reports fall to retryable containment unavailability.
+Only ACCEPT and deterministic rejection persist evidence and consume the challenge; every retryable
+outcome does neither. The default is fail-safe retryable unavailability, making the mapping total.
+
+The exact request/report schemas, nested wait/resource/cleanup/checker-result records, timeouts,
+four launcher capabilities
+(`CAP_SETGID`, `CAP_SETUID`, `CAP_SETPCAP`, `CAP_SYS_ADMIN`, explicitly no `CAP_DAC_OVERRIDE`),
+seccomp syscall deny set, Landlock access/path profile, resource values and recovery assertions are
+part of the JSON bytes named above rather than prose-only defaults. The following paragraphs explain
+the security purpose of those frozen values:
+
+The launcher self-checks before binding its socket that Effective, Permitted and Bounding capability
+sets are exactly those four entries, while Inheritable and Ambient are empty; any extra or missing
+bit is fatal. Its systemd unit independently pins the same bounding set with `Delegate=yes`. The
+stable delegated cgroup root is
+`/sys/fs/cgroup/system.slice/boole-native-shadow-launcher.service`. To satisfy cgroup v2's
+no-internal-process rule, launcher startup first creates the reserved direct child `manager`, moves
+the launcher process there, verifies the service root's `cgroup.procs` is empty, and only then enables
+`cpu`, `memory` and `pids` in the service root's `cgroup.subtree_control`. Execution leaves are the
+other direct children, each exactly `run-<64-lowercase-hex-operation-id>`; recovery ignores only the
+exact reserved `manager` child and scans all exact `run-*` leaves. An existing manager must be the
+exact direct-child cgroup directory with empty `cgroup.procs` and `cgroup.threads` before the current
+launcher moves there, `cgroup.events:populated=0`, and no nested child cgroups; after the move its
+`cgroup.procs` must contain only that launcher PID and it must still have no child cgroups. It is
+never blindly reused. Any other
+direct child fails closed without binding or readiness. The launcher cleans every run leaf before
+socket bind and carries the zero-leaf result into the authenticated qualification-ready barrier.
+Controller read-back failure is a startup failure before readiness.
+The launcher samples tree-wide `cpu.stat usage_usec` every 10 ms and once more before any report;
+at or above 120,000,000 microseconds it freezes and kills the leaf. The child outer wall is 100
+seconds, cleanup has a separate 10-second deadline, and the node's response deadline is 115 seconds.
+All reported cgroup counters are snapshotted after terminal wait and any required kill, after
+`populated=0`, but before leaf removal; the launcher cannot remove the only observation source and
+then invent counters for the report.
+If cleanup misses its deadline, the launcher sends no verdict frame, closes the connection and
+refuses readiness until startup recovery succeeds.
 
 * **`pidsMax: 128`** — mirrors the existing `openFiles: 128` value for consistency. `cargo`'s
   `testArgs` already force `-j 1` (single-job build), and the submission surface is denied
@@ -614,12 +796,11 @@ bundle must contain:
   in safe Rust without `unsafe` or `std::fs`. Also an initial default, not asserted as definitively
   optimal.
   * **Mount namespace, options and teardown, pinned, new this round.** The tmpfs is mounted inside a
-    **private mount namespace** created for that submission alone (`unshare(CLONE_NEWNS)` on the
-    process that will become the tree's ancestor, performed as part of the pre-execution ordering
-    below), not the node's own default namespace — so the mount is invisible to, and cannot be
+    **private mount namespace** created atomically for that submission's child by the `clone3`
+    contract below, not the node's own default namespace — so the mount is invisible to, and cannot be
     interfered with by, any other concurrent or subsequent submission or by the node process itself.
-    Mount options, corrected this round: `size=536870912,nr_inodes=8192,mode=0700,nosuid,nodev,
-    uid=<containment-uid>,gid=<containment-gid>` — **not** `noexec`. `checker.py` builds and then
+    Mount options, corrected this round: `size=536870912,nr_inodes=8192,mode=2750,nosuid,nodev,
+    uid=0,gid=<checker-primary-gid>` — **not** `noexec`. `checker.py` builds and then
     executes the compiled test binary from inside this exact workspace (`cargo test` links and runs
     the test binary under `target/`), so a `noexec` mount would turn even a correct, accepted
     submission into a `Permission denied` failure before any verdict is ever reached; `noexec` is
@@ -627,28 +808,28 @@ bundle must contain:
     no legitimate need to host a setuid binary or a device node, and denying those costs nothing this
     submission surface needs. The workspace's isolation instead comes from layers that do not depend on
     denying execution: the dedicated unprivileged UID/GID with no supplementary groups and an empty
-    capability set (pre-execution ordering step 4 below), the seccomp/Landlock ruleset (step 6 below),
+    capability set (pre-execution ordering step 5 below), the seccomp/Landlock ruleset (step 7 below),
     and the cgroup ceilings themselves — none of which are weakened by allowing exec on this one mount.
-    `uid=`/`gid=` are new this round and close a separate, previously unstated gap: the mount is
-    created while the spawning process is still privileged (pre-execution ordering step 2, before the
-    privilege drop at step 4), with `mode=0700` — without an explicit owner, that leaves the workspace
-    root-owned and unwritable by the unprivileged identity the process drops to moments later. Passing
-    `uid=<containment-uid>,gid=<containment-gid>` — the same dedicated unprivileged UID/GID that step 4
-    switches to — assigns ownership directly at mount time, so the workspace is writable by the
-    process that will actually use it with no separate `chown` step, and no separate failure mode for
-    that step to have.
+    The root launcher must materialize trusted inputs after mounting but before dropping privilege,
+    without `CAP_CHOWN`: setgid inheritance supplies group `boole-native-checker`.
+    `/work/task.json`, `anchor.rs` and `submission.rs` are root:checker mode `0440`; `/work/scratch`
+    is root:checker mode `2770` and initially empty. Bytes arrive only through parent-verified,
+    sealed read-only memfds; the child verifies bytes, owner, group and mode and closes those authority
+    FDs before exec. This qualification family accepts the literal task anchor path `anchor.rs`,
+    matching the fixed materialized path rather than pretending arbitrary task filenames exist.
+    The checker then creates its real temporary tree only beneath
+    `/work/scratch/boole-native-check-*/`, including `cargo-home`, `target`, `home`, `tmp`, and `src`;
+    the superseded `.cargo-home` and `/work/target` descriptions are not part of this contract.
     Teardown: a private mount namespace's lifetime is scoped to the tasks that hold a reference to
     it, not to an explicit `umount` call; once every task inside it is confirmed dead (which cleanup
     already requires, via `populated=0`, per contract item 6 above), the kernel tears the namespace
     and its tmpfs down automatically, and the tmpfs's backing pages are reclaimed as ordinary memory
     at that point. This holds identically for a normal completion and for crash-restart recovery
-    (section 7): the recovery order's cleanup-confirmation step is extended to confirm **zero
-    remaining tasks referencing that key's private mount namespace**, not only `populated=0` on the
-    cgroup — the two are expected to coincide (every task in the namespace is also a member of the
-    same cgroup leaf), and recovery treats a mismatch between them as a cleanup failure, fail-closed,
-    rather than assuming one implies the other. No separate, additional `umount` call is required or
-    specified; asserting an unconditional `umount` step would be a spurious extra failure mode for a
-    namespace the kernel already tears down correctly on last reference.
+    (section 7): normal cleanup additionally reaps the direct child and closes every launcher-held
+    pidfd/namespace FD; restart recovery, where the old launcher cannot reap its former child, instead
+    requires `populated=0`, empty `cgroup.procs`/`cgroup.threads`, and leaf removal. No separate,
+    additional `umount` call or fabricated namespace-reference count is required; asserting either
+    would add an operation or observation Linux does not provide for this lifecycle.
 * **`cpu.max`: left unthrottled** (`max 100000`, no rate quota; cgroup v2 still requires a numeric
   period even when the quota is `max`). Rationale: the submission surface
   already has both a wall-clock deadline (below) and a cumulative CPU-time ceiling (below); throttling
@@ -685,11 +866,11 @@ private-mount transition. Deleting that transition or disabling the host securit
 weaken the contract, so neither is allowed. `boole-node` remains unprivileged and never receives
 root or `CAP_SYS_ADMIN`. A separate, minimal, root-owned launcher performs only the privileged setup,
 creates a dedicated child inside that envelope, and keeps monitoring outside while only the child
-irreversibly becomes the checker identity before any untrusted code executes. The production
-launcher binary, closed request format/authentication, installation ownership, dedicated UID/GID,
-minimal capability set and crash-recovery protocol are still open and must be frozen before route
-wiring. The Phase 3B.1 transient root service is capability evidence for this boundary, not that
-production implementation.
+irreversibly becomes the checker identity before any untrusted code executes. Phase 3B.2a freezes
+the production binary location, closed message/authentication contract, installation ownership,
+dedicated UID/GID invariants, exact capability sets and crash-recovery protocol. Their implementation
+and executable-provenance test remain open. The Phase 3B.1 transient root service is capability
+evidence for this boundary, not that production implementation.
 
 **Pre-execution ordering sequence, pinned, new this round, closes F3.** The following steps are
 applied **once**, by that separate launcher, to the process that will become `checker.py` — i.e.
@@ -704,12 +885,14 @@ containment envelope with **zero change required to `checker.py`'s own code** �
 existing `_set_limits`-applied `RLIMIT_*` values remain in place as an inner, redundant,
 defense-in-depth layer, not superseded by the outer cgroup/namespace/seccomp layer.
 
-1. **cgroup join.** Move the about-to-be-spawned process into its dedicated, freshly created leaf
-   cgroup (race-free at spawn time, as stated above) — first, so every later step is itself already
-   resource-bounded.
-2. **Mount/PID namespaces, private `/proc`, and tmpfs.** Create the child with
-   `unshare(CLONE_NEWNS | CLONE_NEWPID)` and make it PID 1 in the new PID namespace; the privileged
-   monitor launcher stays outside both namespaces. Inside the child mount namespace, immediately
+1. **Atomic cgroup and namespace creation.** Create the execution leaf, open its cgroup FD, then call
+   `clone3` exactly once with `CLONE_INTO_CGROUP | CLONE_NEWNS | CLONE_NEWPID | CLONE_PIDFD` and
+   `SIGCHLD`. The child therefore begins inside the leaf and is PID 1 in its new PID namespace; the
+   privileged monitor launcher stays outside both namespaces with the returned pidfd. Writing
+   `cgroup.procs` after an ordinary fork or calling `unshare(CLONE_NEWPID)` in the same process are
+   not fallbacks: either leaves a race or does not make that caller PID 1. If `clone3` or any required
+   flag is unavailable, setup fails before a child and no report is sent.
+2. **Private `/proc` and tmpfs.** Inside the child mount namespace, immediately
    remount the root filesystem recursively as private
    (`mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL)`), new this round — required because Linux's
    default root-mount propagation type is `shared` on most distributions, so `unshare(CLONE_NEWNS)`
@@ -717,17 +900,27 @@ defense-in-depth layer, not superseded by the outer cgroup/namespace/seccomp lay
    node's own default namespace or to any other submission's namespace, or vice versa; only after that
    remount, mount a private `proc` filesystem at `/proc` with `nosuid,nodev,noexec`, and only then
    mount the tmpfs workspace at the target path with the options pinned above. The last process in
-   the PID/mount namespace exiting tears down both private mounts; cleanup must still verify the leaf
-   cgroup is empty and the namespace has no remaining process reference before treating that as done.
-3. **FD block.** Close, or mark `FD_CLOEXEC`, every inherited file descriptor above stdin/stdout/
-   stderr the spawning process held open — including any handle onto the durable ledger, any cgroup
-   control file, and any other submission's workspace — via `close_range()` covering the full
-   descriptor table, so the untrusted tree can never inherit a handle it should not have.
-4. **Privilege drop.** Switch to a dedicated, unprivileged, single-purpose UID/GID with no
+   the PID/mount namespace exiting tears down both private mounts. Cleanup uses observable facts only:
+   the direct child is reaped, `cgroup.events:populated=0`, every launcher-held pidfd/namespace FD is
+   closed, and the leaf is removed. Linux exposes no stable global namespace-reference counter, so
+   the superseded `namespace-reference-count=0` pseudo-check is explicitly not an implementation
+   requirement.
+3. **Authority materialization.** The child receives only sealed read-only memfds for the already
+   verified task, anchor and submission plus a close-on-exec setup-status pipe. It writes and verifies
+   the exact root:checker workspace objects and empty scratch directory frozen above while still
+   privileged. The parent treats any setup error from the pipe as a pre-child-verdict failure and
+   sends no report.
+4. **FD block.** Close every inherited file descriptor except stdin/stdout/stderr and the setup-status
+   pipe, including authority memfds after their bytes are verified, cgroup controls, the durable
+   ledger, and any other submission's workspace. The setup pipe is `CLOEXEC`: EOF means only that no
+   setup-error record was received; it is **not** proof of exec because a pre-exec crash also closes
+   the pipe. A valid structured checker result is the only path to ACCEPT or deterministic rejection;
+   a silent pre-exec death remains an outer-fact retryable outcome.
+5. **Privilege drop.** Switch to a dedicated, unprivileged, single-purpose UID/GID with no
    supplementary groups; drop the full capability set to empty; set `no_new_privs=1`
    (`prctl(PR_SET_NO_NEW_PRIVS, 1)`) so nothing downstream can ever regain a privilege this step
    removed.
-5. **The launcher's node-owned outer `RLIMIT_*` application — corrected this round, distinct from
+6. **The launcher's node-owned outer `RLIMIT_*` application — corrected this round, distinct from
    `checker.py`'s own `_set_limits`.** Before `exec()`, the privileged launcher directly calls
    `setrlimit(2)` — mirroring `policy.json`'s own `cpuSeconds`/`memoryBytes`/`fileBytes`/`openFiles`
    ceilings as `RLIMIT_CPU`/`RLIMIT_AS`/`RLIMIT_FSIZE`/`RLIMIT_NOFILE` — on the about-to-be-`exec()`'d
@@ -742,16 +935,18 @@ defense-in-depth layer, not superseded by the outer cgroup/namespace/seccomp lay
    unchanged: it continues to run exactly as it does today, entirely inside `checker.py`'s own code, at
    the point `checker.py` itself spawns `cargo` via `Popen` — an independent inner layer this document
    does not change and this outer step neither replaces nor calls into.
-6. **seccomp/Landlock.** Apply a seccomp-bpf filter and a Landlock ruleset, layered, denying at
+7. **seccomp/Landlock.** Apply a seccomp-bpf filter and a Landlock ruleset, layered, denying at
    minimum: `mount`/`umount2`/`unshare`/`setns` (no re-namespacing), `ptrace` (no process
    introspection), all networking beyond what is strictly required (an explicit kernel-enforced
    backstop behind the existing `CARGO_NET_OFFLINE=true` convention, not a substitute for it), and —
    **this is the specific mechanism that prevents the submission from reopening cgroupfs to loosen
-   its own limits** — Landlock filesystem-path denial of any open/write under `/sys/fs/cgroup`
-   entirely. Both mechanisms are inherited by every descendant and neither can be removed by a
+   its own limits** — Landlock denial of write/create/remove/refer operations and write-capable opens
+   outside the workspace, including under `/sys/fs/cgroup`. Read-only access is deliberately not a
+   handled Landlock right in this policy and is not claimed to be denied. Both mechanisms are
+   inherited by every descendant and neither can be removed by a
    lower-privileged process once attached, which is what makes this guarantee hold transitively
    through `cargo` → `rustc` → the linker → the test binary without any of them needing to cooperate.
-7. **Exec.** Only after steps 1-6 are confirmed applied does `exec()` replace the process image with
+8. **Exec.** Only after steps 1-7 are confirmed applied does `exec()` replace the process image with
    `checker.py`.
 
 The privileged launcher remains **outside the child envelope** only long enough to construct and
@@ -828,16 +1023,17 @@ policy binding and replay protection may `boole-node` apply the classification b
   text could in principle influence the reported reason, and they are the only two this section's
   corroboration rule applies to.
 
-**Why the launcher's outer 90-second ceiling was never the right corroboration mechanism for
+**Why the launcher's outer 100-second ceiling is not a corroboration mechanism for
 `checker.py`'s own internal 60-second timeout.** `checker.py`'s own process always exits `0`
 regardless of its internal verdict (`main()`, `checker.py:663`), so its wait-status is uninformative
 to the launcher as an outer observer — but `resource_wall_limit` itself is not text-derived at all
 (it is a plain monotonic-clock comparison inside `checker.py`, unconditionally trusted per the list
-above), so it never needed corroboration in the first place. The launcher's
-`taskTotalWallSeconds` (90s) ceiling remains exactly what it always was: a safety net for the
-structurally distinct case where `checker.py` itself never returns at all (a hang or a bug in
+above), so it never needed corroboration in the first place. Checker-owned `taskTotalWallSeconds`
+remains 90 seconds; the distinct launcher-owned outer ceiling is 100 seconds, followed by a
+10-second cleanup deadline and a 115-second node response timeout. The outer ceiling is a safety net
+for the structurally distinct case where `checker.py` itself never returns at all (a hang or a bug in
 `checker.py`), not a mechanism for re-confirming a timeout `checker.py` already correctly reported
-and already correctly acted on (by killing its own child's process group) 30 seconds earlier.
+and already correctly acted on (by killing its own child's process group) 40 seconds earlier.
 
 **Corroboration mechanism for the two text-derived reasons, on a clean exit only.** The launcher
 checks this specific submission's own leaf-cgroup event counters (section 9): `pids.events`' `max`
@@ -894,10 +1090,11 @@ reviewed launcher bytes in root-owned `/run` fixes that path dependency without 
 filesystem-override capability. The successor must still assert *actual
 write access* and actual namespace, tmpfs, privilege-drop, cleanup and seccomp/Landlock behavior.
 The third PR #174 run passed every one of those required operations on the named runner
-([run 32598640328, job 97093408375](https://github.com/NotoriAndo/Boole/actions/runs/32598640328/job/97093408375)),
+([final run 32598803995, job 97093814188](https://github.com/NotoriAndo/Boole/actions/runs/32598803995/job/97093814188)),
 so this infrastructure-capability prerequisite is GREEN. A skipped, permission-less, generic
 `ubuntu-latest` or weakened run still cannot replace that evidence. Production launcher/IPC,
-dedicated identity, frozen policy and route/checker execution remain open.
+authenticated handshake, launcher binary provenance and route/checker execution remain open; the
+dedicated identity-resolution contract and exact disabled policy bytes are frozen by Phase 3B.2a.
 
 ## 11. Consolidated RED gates and STOP conditions
 
@@ -959,11 +1156,12 @@ implementation:
     (section 10.2).
 18. `checker.py`'s own internal `resource_wall_limit` self-report is trusted without requiring
     corroboration from the launcher's separate, longer outer wall-clock ceiling (section 10.2).
-19. The pre-execution ordering sequence (cgroup join → mount/PID namespaces → rprivate root →
-    private `/proc` → tmpfs → FD block → privilege
+19. The pre-execution ordering sequence (`clone3` into cgroup + mount/PID namespaces → rprivate root →
+    private `/proc` → tmpfs → sealed-authority materialization → FD block → privilege
     drop → RLIMIT → seccomp/Landlock → exec) is applied once, to `checker.py` itself, before exec; a
-    test confirms the submission process cannot open or write any path under `/sys/fs/cgroup`
-    (Landlock denial verified directly, not inferred).
+    test confirms the submission process cannot write/create/remove/refer, or obtain a write-capable
+    open, under `/sys/fs/cgroup` (Landlock denial verified directly, not inferred); a read-only open
+    remains allowed and is not misreported as a security guarantee.
 20. On a non-Linux host, the native-shadow route refuses to start with this contract enabled and never
     spawns any child process for this route — verified as a startup-time refusal, not a per-submission
     runtime branch.
@@ -979,20 +1177,21 @@ implementation:
     check, never straight to `checker_rejected`.
 23. `cgroup.freeze` + `cgroup.kill` is the only termination path; a kernel lacking `cgroup.kill` fails
     the startup capability probe closed.
-24. `populated=0`, private-mount-namespace reference cleanup, and leaf-cgroup/tmpfs removal are all
-    verified on every outcome (success, checker-reported failure, or kill), not only kills.
+24. Normal cleanup verifies direct-child reap, `populated=0`, launcher pidfd/namespace-FD closure and
+    leaf removal on every outcome; restart cleanup separately verifies `populated=0`, empty
+    `cgroup.procs`/`cgroup.threads` and leaf removal. Neither path invents a namespace reference count.
 25. GREEN is not declared from a run where the containment-dependent suite skipped for lack of real
     cgroup v2 delegation on the CI runner.
 26. A correct, accepted submission successfully builds and executes its compiled test binary from
     inside the tmpfs workspace — the mount is not `noexec` (section 9), directly guarding against G1's
     regression class of the containment envelope itself blocking legitimate work.
-27. The tmpfs workspace, once mounted, is writable by the same unprivileged UID/GID pre-execution
-    ordering step 4 drops privileges to, verified via the `uid=`/`gid=` mount options — not
-    root-owned-and-unwritable.
+27. The tmpfs root is root:checker mode `2750`, its trusted files are root:checker mode `0440`, and
+    its initially empty scratch directory is root:checker mode `2770`; the checker identity can read
+    only the trusted files and can write only below scratch, with no `CAP_CHOWN` step.
 28. A mount performed inside one submission's private mount namespace after the `MS_REC|MS_PRIVATE`
     remount is never observable from the node's own default namespace or from any other concurrent
     submission's private mount namespace.
-29. The launcher's outer `RLIMIT_*` application (pre-execution ordering step 5) and `checker.py`'s
+29. The launcher's outer `RLIMIT_*` application (pre-execution ordering step 6) and `checker.py`'s
     own internal `_set_limits` are exercised as two independent layers: a test with the outer layer's
     ceiling set below `_set_limits`'s own ceiling shows the outer layer firing first, and a test with
     only `_set_limits` active (outer layer not yet enforcing) still shows `_set_limits` independently
@@ -1007,6 +1206,26 @@ implementation:
     resolver test proves `Consumed` + matching exhaustion projection derives
     `challenge_exhausted`, while a missing/mismatched projection fails closed instead of reviving or
     running the challenge.
+33. Socket creation under the root:boole-node setgid directory produces a root:boole-node mode-0660
+    socket without `CAP_CHOWN`; wrong-type, wrong-owner or unlocked stale entries fail before bind.
+34. A checker-valid 8,192-byte patch body plus fixed scaffold passes the 16,384-byte complete-source
+    IPC ceiling, while a complete source above that ceiling fails before execution.
+35. `clone3(CLONE_INTO_CGROUP|CLONE_NEWNS|CLONE_NEWPID|CLONE_PIDFD)` starts the child as PID 1
+    inside the leaf without a pre-exec cgroup race; lack of any required feature has no fallback.
+36. Workspace materialization proves sealed input bytes, literal `anchor.rs`, exact owners/groups/
+    modes, initially empty scratch and the checker's real `boole-native-check-*` directory layout.
+37. Qualification readiness is withheld until launcher-owned startup recovery reports manager
+    verified (including zero nested manager cgroups/processes before reuse), zero run leaves and zero
+    unexpected direct children; without that authenticated barrier the node cannot roll back any
+    stuck `InFlight` row.
+38. Every checker verdict's reason belongs to the frozen verdict-specific vocabulary; unknown reasons
+    and every contradictory report combination are rejected, and report PID/authority bindings match
+    ready, execute, `SO_PEERCRED`, and installed bytes.
+39. The total node outcome table maps every structured checker reason plus missing/malformed/timeout/
+    signal path to exactly one outcome, evidence flag and consumption flag; terminal outcomes both
+    persist and consume, retryable outcomes do neither.
+40. Submission-digest test vectors distinguish 64-byte ASCII-hex template/challenge fields from
+    decoded 32-byte values and prove the exact field ordering and length-prefix rules.
 
 Stop without fallback — in addition to the authority spec's own STOP list, which governs
 independently of this document — if any of the following is true:
@@ -1028,7 +1247,13 @@ independently of this document — if any of the following is true:
   capability it legitimately needs (e.g. execute permission on its own compiled build output, or write
   permission on its own workspace); or
 * CI declares GREEN without a named, delegation-confirmed Linux runner actually executing the
-  containment-dependent suite.
+  containment-dependent suite;
+* a launcher readiness frame is accepted before startup recovery has proved zero execution leaves
+  and zero unexpected direct cgroup children;
+* any execution report can reach ACCEPT or deterministic rejection with a mismatched PID, authority
+  digest, wait state, timeout/output status, stderr, parsed result, or unknown checker reason; or
+* the current repo-fixture registry path/model is treated as if it already implemented the strict
+  installed `/usr/share/boole/native-shadow/registry-v1.json` contract.
 
 ## 12. Relationship to the authority spec, BF receipts, and completion label
 
@@ -1066,9 +1291,9 @@ second prerequisite and do not change
 ```
 NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: IMPLEMENTATION-BASELINE-APPROVED
 IMPLEMENTATION: PARTIAL (PHASE-1 / PHASE-2 / PHASE-2C / PHASE-2D / PHASE-3A.1 /
-PHASE-3A.2 / PHASE-3B.0 LANDED; PHASE-3B.1 NAMED-LINUX-CAPABILITY GREEN, AUTHORITATIVE
-ON PR #174 REQUIRED-CI GREEN + MERGE)
-CONTAINMENT-ROUTE-GREEN: OPEN / PRODUCTION-LAUNCHER-IPC-POLICY-AND-ROUTE-UNIMPLEMENTED
+PHASE-3A.2 / PHASE-3B.0 / PHASE-3B.1 LANDED; PHASE-3B.2A EXACT-POLICY-AUTHORITY
+CURRENT GUARDED SLICE)
+CONTAINMENT-ROUTE-GREEN: OPEN / POLICY-FROZEN-BUT-LAUNCHER-HANDSHAKE-EXECUTION-AND-ROUTE-UNIMPLEMENTED
 ```
 
 The base document, r1 and r2 remain the historical record of the first three review passes and are
@@ -1079,7 +1304,8 @@ left one non-implementable execution step, two prose/RED-gate contradictions and
 self-sufficiency gap (G1-G4, listed above), and this revision closes those too, in place, in sections
 7, 9 and 11. Subsequent operator direction authorized phased RED→GREEN implementation, producing
 the foundation slices listed above. The named runner now supplies the required delegated cgroup v2
-and namespace capability evidence. Further containment/route implementation remains fail-closed:
-no Phase 3 GREEN may be claimed until the production launcher protocol, dedicated containment
-UID/GID, policy identity and privilege model are pinned and implemented. The partial foundation does
-not authorize an endpoint, child-process execution or activation.
+and namespace capability evidence, and Phase 3B.2a freezes the exact policy authority and
+identity-resolution contract. Further containment/route implementation remains fail-closed: no
+Phase 3 GREEN may be claimed until the authenticated launcher handshake, execution-ID durability,
+actual checker containment/cleanup and route binding are implemented and pass the named Linux gate.
+The partial foundation does not authorize an endpoint, child-process execution or activation.

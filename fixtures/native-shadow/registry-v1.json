@@ -3,6 +3,8 @@
   "version": "NATIVE-SHADOW-QUALIFICATION-REGISTRY-V1",
   "activationAllowed": false,
   "purpose": "clean-checkout checker qualification only",
+  "executionPolicySha256": "d4a30664086018c70080fda03c8ac315d8b43ef04e6702cd28835aac88b2dc0f",
+  "toolchainIdentitySha256": "29799eff53df764024de8f1020eac177b2ee936243d2ac52d192ba2423f0fa84",
   "templates": [
     {
       "familyVersion": "TUPLE-STRUCT-PROJECT/RUST-TUPLE-STRUCT-PROJECT-V1",
@@ -12,9 +14,11 @@
       "taskPath": "rust-tuple-struct-project-v1/task.json",
       "taskSha256": "675d170d1026a7ed28a460ecb767a65e8bc2729845a9ddefbeaf7fc3cabe0a9f",
       "checkerRelease": "RUST-TUPLE-STRUCT-CHECKER-V1-QUALIFICATION",
+      "checkerReleaseManifestSha256": "aa7939ebbb4472a82d08a30abfafc628577a76d751a2ae2b6f476e614ac21782",
       "checkerArtifactHash": "19a43dbab7592953bfdf880f7c93ee6a5e2dafdc93b1b436ef779daa8ef9fa5d",
       "policySha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
       "toolchainChannel": "rust-lang-ci-e7795af6d2449fb05a6393c3320ced873a999eb3",
+      "intakeVersion": "RUST-TUPLE-STRUCT-NATIVE-PROOF-INTAKE-V1",
       "challengeSha256": "ce3a55487de1c3b46040fc7aebe933cce6b23f19c08248d0dab11732d36c8426",
       "epoch": 0,
       "nonIssuable": true
