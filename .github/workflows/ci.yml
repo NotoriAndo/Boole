@@ -67,6 +67,9 @@ jobs:
       - name: Establish the real native-shadow manager cgroup
         run: ./scripts/native-shadow-manager-cgroup-gate.sh
 
+      - name: Build the synthetic rootfs with network access blocked
+        run: sudo ./scripts/native-shadow-rootfs-builder-linux-gate.sh
+
       - name: Probe delegated cgroup and namespace capabilities
         run: sudo ./scripts/native-shadow-containment-capability-probe.sh
 
