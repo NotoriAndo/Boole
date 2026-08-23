@@ -9,7 +9,7 @@ die() {
 [[ $(uname -s) == Linux ]] || die "this gate requires Linux"
 [[ ${EUID} -ne 0 ]] || die "build phase must run as the unprivileged CI user"
 for command_name in awk cargo find getent grep install journalctl paste python3 readlink sed \
-  sha256sum sort stat systemctl systemd-tmpfiles tee tr; do
+  sha256sum sort stat systemctl systemd-run systemd-tmpfiles tee tr; do
   command -v "$command_name" >/dev/null || die "missing command: $command_name"
 done
 [[ $(cat /proc/1/comm) == systemd ]] || die "PID 1 is not systemd"
@@ -21,6 +21,7 @@ unit_dropin_directory="/run/systemd/system/${unit_name}.d"
 unit_dropin_path="$unit_dropin_directory/10-manager-gate-authority.conf"
 launcher_directory=/usr/libexec/boole
 launcher_path=$launcher_directory/boole-native-shadow-launcher
+node_qualification_path=$launcher_directory/boole-native-shadow-node-qualification
 authority_stage=''
 authority_share=''
 authority_parent=''
@@ -31,14 +32,18 @@ toolchain_stage=''
 opt_original_mode=''
 runtime_parent=/run/boole
 runtime_directory=$runtime_parent/native-shadow
+socket_path="$runtime_directory/launcher.sock"
 mode_path=$runtime_directory/manager-cgroup-gate-mode
 recovery_release_path=$runtime_directory/startup-recovery-release
 service_root=/sys/fs/cgroup/system.slice/$unit_name
 manager_root=$service_root/manager
 temp_root=${RUNNER_TEMP:-/tmp}
 build_json=$(mktemp "$temp_root/boole-native-shadow-manager-build.XXXXXX")
+node_build_json=$(mktemp "$temp_root/boole-native-shadow-node-build.XXXXXX")
 log=$(mktemp "$temp_root/boole-native-shadow-manager.XXXXXX")
+node_log=$(mktemp "$temp_root/boole-native-shadow-node.XXXXXX")
 dropin_source=$(mktemp "$temp_root/boole-native-shadow-manager-dropin.XXXXXX")
+node_unit=''
 
 launcher_directory_created=false
 runtime_parent_created=false
@@ -47,6 +52,7 @@ unit_installed=false
 unit_dropin_directory_created=false
 unit_dropin_installed=false
 launcher_installed=false
+node_qualification_installed=false
 toolchain_parent_created=false
 toolchain_installed=false
 opt_mode_changed=false
@@ -54,6 +60,10 @@ declare -a installed_authorities=()
 
 cleanup_gate() {
   set +e
+  if [[ -n "$node_unit" ]]; then
+    sudo systemctl stop "${node_unit}.service" >/dev/null 2>&1 || :
+    sudo systemctl reset-failed "${node_unit}.service" >/dev/null 2>&1 || :
+  fi
   if [[ "$unit_installed" == true ]]; then
     sudo systemctl stop "$unit_name" >/dev/null 2>&1 || :
     sudo systemctl reset-failed "$unit_name" >/dev/null 2>&1 || :
@@ -64,6 +74,7 @@ cleanup_gate() {
     sudo systemctl daemon-reload >/dev/null 2>&1 || :
   fi
   [[ "$launcher_installed" == true ]] && sudo rm -f "$launcher_path"
+  [[ "$node_qualification_installed" == true ]] && sudo rm -f "$node_qualification_path"
   [[ "$toolchain_installed" == true ]] && sudo rm -rf "$toolchain_prefix"
   [[ "$toolchain_parent_created" == true ]] && sudo rmdir "$toolchain_parent" >/dev/null 2>&1 || :
   [[ "$opt_mode_changed" == true ]] && sudo chmod "$opt_original_mode" /opt
@@ -73,6 +84,7 @@ cleanup_gate() {
   done
   [[ "$runtime_directory_created" == true ]] && sudo rm -f "$mode_path"
   [[ "$runtime_directory_created" == true ]] && sudo rm -f "$recovery_release_path"
+  [[ "$runtime_directory_created" == true ]] && sudo rm -f "$socket_path"
   [[ "$runtime_directory_created" == true ]] && sudo rm -f "$runtime_directory/launcher.lock"
   [[ "$runtime_directory_created" == true ]] && sudo rmdir "$runtime_directory" >/dev/null 2>&1 || :
   [[ "$runtime_parent_created" == true ]] && sudo rmdir "$runtime_parent" >/dev/null 2>&1 || :
@@ -84,7 +96,7 @@ cleanup_gate() {
   fi
   [[ "$launcher_directory_created" == true ]] && sudo rmdir "$launcher_directory" >/dev/null 2>&1 || :
   [[ -z "$toolchain_stage" ]] || rm -rf "$toolchain_stage"
-  rm -f "$build_json" "$log" "$dropin_source"
+  rm -f "$build_json" "$node_build_json" "$log" "$node_log" "$dropin_source"
 }
 trap cleanup_gate EXIT
 
@@ -97,8 +109,8 @@ load_state=$(systemctl show "$unit_name" --property=LoadState --value 2>/dev/nul
 [[ "$load_state" == not-found ]] \
   || die "refusing to shadow pre-existing loaded unit: $unit_name ($load_state)"
 
-for path in "$unit_path" "$unit_dropin_directory" "$launcher_path" "$runtime_directory" \
-  "$service_root" "$toolchain_prefix"; do
+for path in "$unit_path" "$unit_dropin_directory" "$launcher_path" \
+  "$node_qualification_path" "$runtime_directory" "$service_root" "$toolchain_prefix"; do
   [[ ! -e "$path" && ! -L "$path" ]] || die "refusing to replace pre-existing path: $path"
 done
 
@@ -125,6 +137,32 @@ for line in open(sys.argv[1], encoding="utf-8"):
 [[ ${#executables[@]} -eq 1 ]] || die "expected one manager harness, got ${#executables[@]}"
 harness=${executables[0]}
 [[ -x "$harness" ]] || die "manager harness is not executable"
+
+cargo test --locked -p boole-node --lib \
+  --no-run --message-format=json >"$node_build_json"
+
+mapfile -t node_executables < <(
+  python3 -c '
+import json
+import sys
+
+for line in open(sys.argv[1], encoding="utf-8"):
+    item = json.loads(line)
+    target = item.get("target", {})
+    if (
+        item.get("reason") == "compiler-artifact"
+        and target.get("name") == "boole_node"
+        and "lib" in target.get("kind", [])
+        and item.get("profile", {}).get("test") is True
+        and item.get("executable")
+    ):
+        print(item["executable"])
+' "$node_build_json"
+)
+[[ ${#node_executables[@]} -eq 1 ]] \
+  || die "expected one boole-node lib test executable, got ${#node_executables[@]}"
+node_qualification_source=${node_executables[0]}
+[[ -x "$node_qualification_source" ]] || die "boole-node qualification test is not executable"
 
 toolchain_stage=$(mktemp -d "$temp_root/boole-native-shadow-toolchain.XXXXXX")
 ./scripts/install-native-checker-toolchain.sh "$toolchain_stage"
@@ -161,12 +199,21 @@ if [[ ! -d "$launcher_directory" ]]; then
   sudo install -d -o root -g root -m 0755 "$launcher_directory"
   launcher_directory_created=true
 fi
+[[ $(sudo stat -c %U:%G:%a "$launcher_directory") == root:root:755 ]] \
+  || die "launcher staging directory does not match root:root:755"
 sudo install -o root -g root -m 0755 "$harness" "$launcher_path"
 launcher_installed=true
+sudo install -o root -g root -m 0755 \
+  "$node_qualification_source" "$node_qualification_path"
+node_qualification_installed=true
 [[ $(sha256sum "$harness" | awk '{ print $1 }') == $(sudo sha256sum "$launcher_path" | awk '{ print $1 }') ]] \
   || die "installed launcher bytes differ from reviewed harness"
 [[ $(sudo stat -c %U:%G:%a "$launcher_path") == root:root:755 ]] \
   || die "installed launcher metadata does not match root:root:755"
+[[ $(sha256sum "$node_qualification_source" | awk '{ print $1 }') == $(sudo sha256sum "$node_qualification_path" | awk '{ print $1 }') ]] \
+  || die "installed boole-node qualification bytes differ from the reviewed test binary"
+[[ $(sudo stat -c %U:%G:%a "$node_qualification_path") == root:root:755 ]] \
+  || die "installed boole-node qualification metadata does not match root:root:755"
 
 authority_stage=$(sudo mktemp -d /run/boole-native-shadow-manager-authority.XXXXXX)
 authority_share="$authority_stage/share"
@@ -335,6 +382,25 @@ wait_for_marker() {
   done
   sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :
   die "unit did not emit marker: $marker"
+}
+
+wait_for_fixed_socket() {
+  local metadata=''
+  local i
+  for ((i = 0; i < 200; i++)); do
+    if sudo test -S "$socket_path"; then
+      metadata=$(sudo stat -c %U:%G:%a "$socket_path")
+      [[ "$metadata" == root:boole-node:660 ]] \
+        || die "fixed qualification socket metadata differs: $metadata"
+      return 0
+    fi
+    if [[ $(sudo systemctl show "$unit_name" --property=ActiveState --value 2>/dev/null || :) == failed ]]; then
+      sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :
+      die "unit failed before the fixed qualification socket appeared"
+    fi
+    sleep 0.05
+  done
+  die "fixed qualification socket did not appear"
 }
 
 wait_for_leaf_event() {
@@ -544,14 +610,51 @@ wait_for_state inactive
 wait_for_background_job "$reject_tree"
 wait_for_cgroup_removal
 
-readiness_mode="qualification-readiness"
-set_mode "$readiness_mode"
+listener_mode="qualification-one-shot"
+set_mode "$listener_mode"
 sudo systemctl start boole-native-shadow-launcher.service
-readiness_invocation=$(unit_invocation_id)
-wait_for_marker native-shadow-qualification-readiness-complete "$readiness_invocation"
+qualification_invocation=$(unit_invocation_id)
 assert_manager_invariants >/dev/null
-sudo systemctl stop boole-native-shadow-launcher.service
+wait_for_fixed_socket
+
+suffix=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$
+suffix=${suffix//[^a-zA-Z0-9-]/-}
+node_unit="boole-native-shadow-node-qualification-${suffix}"
+set +e
+sudo systemd-run --quiet --pipe --wait --collect --unit="$node_unit" \
+  --property=Type=exec --property=User=boole-node --property=Group=boole-node \
+  --property=CapabilityBoundingSet= --property=AmbientCapabilities= \
+  --property=NoNewPrivileges=yes --property=PrivateMounts=yes \
+  --property="BindReadOnlyPaths=${authority_share}:/usr/share" \
+  --property=WorkingDirectory=/ \
+  "$node_qualification_path" \
+  native_shadow_qualification::tests::installed_launcher_round_trip_is_ready_only \
+  --ignored --exact --nocapture >"$node_log" 2>&1
+node_status=$?
+set -e
+cat "$node_log"
+[[ $node_status -eq 0 ]] || die "boole-node installed qualification round trip failed"
+node_marker_count=$(grep -Fxc native-shadow-node-qualification-ready-only "$node_log" || :)
+[[ "$node_marker_count" -eq 1 ]] \
+  || die "boole-node qualification test did not execute exactly once"
+for ((i = 0; i < 200; i++)); do
+  node_load_state=$(sudo systemctl show "${node_unit}.service" \
+    --property=LoadState --value 2>/dev/null || :)
+  [[ "$node_load_state" == not-found ]] && break
+  sleep 0.05
+done
+[[ "$node_load_state" == not-found ]] \
+  || die "boole-node qualification transient unit was not collected"
+node_unit=''
+
 wait_for_state inactive
+[[ $(sudo systemctl show "$unit_name" --property=Result --value) == success ]] \
+  || die "one-shot qualification launcher did not exit successfully"
+[[ $(sudo systemctl show "$unit_name" --property=NRestarts --value) == 0 ]] \
+  || die "one-shot qualification launcher restarted unexpectedly"
+wait_for_marker native-shadow-qualification-one-shot-complete "$qualification_invocation"
+sudo test ! -e "$socket_path" && sudo test ! -L "$socket_path" \
+  || die "one-shot qualification left the fixed socket path behind"
 wait_for_cgroup_removal
 
 set_mode safe-reuse

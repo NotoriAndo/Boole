@@ -44,6 +44,11 @@ impl LauncherLifetimeLockGuard {
     pub(crate) fn prerequisites(&self) -> &VerifiedLauncherPrelockPrerequisites {
         &self.prerequisites
     }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn runtime_directory(&self) -> &std::fs::File {
+        &self.held.runtime_directory
+    }
 }
 
 #[derive(Debug, Error)]

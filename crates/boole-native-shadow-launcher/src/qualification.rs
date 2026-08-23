@@ -9,10 +9,11 @@ use thiserror::Error;
 
 use crate::toolchain_compatibility::VerifiedStartupToolchainCompatibility;
 
+mod listener;
+pub use listener::{serve_one_fixed_unix_qualification, FixedQualificationListenerError};
+
 #[cfg(target_os = "linux")]
 mod unix;
-#[cfg(target_os = "linux")]
-pub use unix::serve_connected_unix_qualification;
 
 mod private {
     pub trait Sealed {}
@@ -135,6 +136,21 @@ impl VerifiedQualificationStartup {
                 panic!("test-only qualification startup has no production proof chain")
             }
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn runtime_directory(&self) -> &std::fs::File {
+        self.verified_toolchain()
+            .recovery()
+            .manager()
+            .instance()
+            .lifetime_lock()
+            .runtime_directory()
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn node_gid(&self) -> u32 {
+        self.node_gid
     }
 }
 

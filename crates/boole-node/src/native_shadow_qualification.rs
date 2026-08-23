@@ -766,6 +766,21 @@ mod tests {
         ));
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "named Ubuntu gate installs the fixed launcher and authority bundle"]
+    fn installed_launcher_round_trip_is_ready_only() {
+        let readiness = qualify_installed_native_shadow_launcher()
+            .expect("installed one-shot launcher qualification must succeed");
+
+        assert_ne!(readiness.launcher_pid, 0);
+        assert_eq!(readiness.launcher_instance_id_hex.len(), 64);
+        assert_eq!(readiness.registry_digest_hex.len(), 64);
+        assert_eq!(readiness.execution_policy_digest_hex.len(), 64);
+        assert_eq!(readiness.toolchain_identity_digest_hex.len(), 64);
+        println!("native-shadow-node-qualification-ready-only");
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Event {
         PeerCredentials,

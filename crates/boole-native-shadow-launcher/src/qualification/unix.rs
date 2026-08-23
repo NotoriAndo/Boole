@@ -16,7 +16,7 @@ const HANDSHAKE_TIMEOUT_MILLIS: u64 = 5_000;
 /// This adapter neither binds nor accepts a socket. The opaque startup token
 /// keeps it unusable until a later runtime slice has verified every frozen
 /// launcher-startup prerequisite.
-pub fn serve_connected_unix_qualification(
+pub(super) fn serve_connected_unix_qualification(
     stream: UnixStream,
     startup: &VerifiedQualificationStartup,
 ) -> Result<(), QualificationServerError> {
