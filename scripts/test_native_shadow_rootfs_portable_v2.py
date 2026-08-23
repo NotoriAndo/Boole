@@ -40,6 +40,42 @@ def _v1_candidate(gpgv_path: str, gpgv_sha256: str, zstd_path: str, zstd_sha256:
 
 
 class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
+    def test_portable_successor_supplies_the_elf_interpreter_usrmerge_alias(self) -> None:
+        candidate = _v1_candidate(
+            "/ignored/gpgv",
+            "a" * 64,
+            "/ignored/zstd",
+            "b" * 64,
+        )
+        candidate["derivedEntries"] = []
+
+        portable_lock = portable.portable_source_lock_from_v1(candidate)
+
+        self.assertEqual(
+            portable_lock["derivedEntries"],
+            [
+                {
+                    "logicalPath": "/lib64",
+                    "kind": "symlink",
+                    "target": "usr/lib64",
+                    "mode": "0777",
+                    "uid": 0,
+                    "gid": 0,
+                }
+            ],
+        )
+        runtime_lock = copy.deepcopy(portable_lock)
+        self.assertEqual(
+            portable.runtime_lock_v1_equivalent(runtime_lock)["derivedEntries"],
+            [],
+        )
+
+        runtime_lock["derivedEntries"][0]["target"] = "wrong/lib64"
+        with self.assertRaisesRegex(
+            portable.PortableAuthorityError, "/lib64 successor alias"
+        ):
+            portable.runtime_lock_v1_equivalent(runtime_lock)
+
     def test_portable_source_lock_bytes_ignore_runtime_tool_path_and_digest(self) -> None:
         first = _v1_candidate(
             "/host-a/bin/gpgv",

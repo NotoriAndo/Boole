@@ -127,7 +127,7 @@ def _runtime_tool_version(path: pathlib.Path, role: str) -> str:
 
 
 def portable_source_lock_from_v1(v1_lock: dict[str, Any]) -> dict[str, Any]:
-    """Remove replay-host tool identity from a complete v1 source lock."""
+    """Remove replay-host identity and close the v2 usrmerge loader alias."""
 
     if not isinstance(v1_lock, dict):
         raise PortableAuthorityError("v1 source lock must be an object")
@@ -149,9 +149,47 @@ def portable_source_lock_from_v1(v1_lock: dict[str, Any]) -> dict[str, Any]:
         raise PortableAuthorityError("v1 runtime tool fields are missing") from exc
     verification["toolRole"] = "gpgv"
     recipe["zstdToolRole"] = "zstd"
+    derived = result.setdefault("derivedEntries", [])
+    if not isinstance(derived, list):
+        raise PortableAuthorityError("v1 derived entries must be a list")
+    if any(item.get("logicalPath") == "/lib64" for item in derived if isinstance(item, dict)):
+        raise PortableAuthorityError("v1 source lock unexpectedly owns /lib64")
+    derived.append(
+        {
+            "logicalPath": "/lib64",
+            "kind": "symlink",
+            "target": "usr/lib64",
+            "mode": "0777",
+            "uid": 0,
+            "gid": 0,
+        }
+    )
+    derived.sort(key=lambda item: item["logicalPath"])
     result["schema"] = SOURCE_LOCK_SCHEMA
     result["release"] = SOURCE_LOCK_RELEASE
     result["activationAllowed"] = False
+    return result
+
+
+def runtime_lock_v1_equivalent(runtime_lock: dict[str, Any]) -> dict[str, Any]:
+    """Remove the one reviewed v2 filesystem fix before comparing to v1."""
+
+    result = copy.deepcopy(runtime_lock)
+    derived = result.get("derivedEntries")
+    if not isinstance(derived, list):
+        raise PortableAuthorityError("runtime derived entries must be a list")
+    alias = {
+        "logicalPath": "/lib64",
+        "kind": "symlink",
+        "target": "usr/lib64",
+        "mode": "0777",
+        "uid": 0,
+        "gid": 0,
+    }
+    matches = [item for item in derived if item.get("logicalPath") == "/lib64"]
+    if matches != [alias]:
+        raise PortableAuthorityError("runtime /lib64 successor alias differs")
+    result["derivedEntries"] = [item for item in derived if item != alias]
     return result
 
 
@@ -906,7 +944,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         args.zstd,
     )
     runtime_raw = rootfs.canonical_json(runtime_lock)
-    if runtime_raw != sealed_raw:
+    if rootfs.canonical_json(runtime_lock_v1_equivalent(runtime_lock)) != sealed_raw:
         raise PortableAuthorityError("ephemeral runtime lock differs from signed seal")
     receipt["authority"] = {
         "builderSha256": authority["plan"]["builderSha256"],
