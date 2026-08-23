@@ -384,6 +384,18 @@ Further route-free foundations now narrow the open prerequisite without closing 
   frozen/nested-child rejection, multithread rejection, explicit restart and stop behavior and
   removes only its owned unit, drop-in and authority tree. It does not clean `run-*` leaves or
   claim startup recovery/readiness.
+* Phase 3B.2b-2v — the startup-orphan-recovery slice consumes that opaque manager proof and accepts
+  no path, operation ID, timeout or policy from its caller. Under one cumulative ten-second deadline
+  it inventories every direct service-cgroup child before mutation, accepts only the exact reserved
+  `manager` plus canonical `run-<64-lowercase-hex>` leaves, opens and validates every leaf before the
+  first freeze, then processes leaves in canonical order through freeze confirmation, whole-cgroup
+  kill, `populated=0`, empty PID/TID files and descriptor-relative removal. Leaf identity is checked
+  again immediately before removal; a final inventory plus root/manager invariant check is required
+  before an opaque recovery proof can be issued. The named Linux gate exercises a live process tree,
+  a frozen process tree and an empty leaf, and separately proves that one unexpected child causes the
+  exact fatal inventory stage without mutating the valid live leaf. This closes startup `run-*`
+  cleanup only. The result is deliberately not readiness and still cannot bind/listen, run fixed
+  toolchain probes, change node durable state, route a submission or spawn a checker.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux

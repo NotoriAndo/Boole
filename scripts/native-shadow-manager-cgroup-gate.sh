@@ -28,6 +28,7 @@ authority_directory=''
 runtime_parent=/run/boole
 runtime_directory=$runtime_parent/native-shadow
 mode_path=$runtime_directory/manager-cgroup-gate-mode
+recovery_release_path=$runtime_directory/startup-recovery-release
 service_root=/sys/fs/cgroup/system.slice/$unit_name
 manager_root=$service_root/manager
 temp_root=${RUNNER_TEMP:-/tmp}
@@ -61,6 +62,7 @@ cleanup_gate() {
     sudo rm -f "$authority_directory/$basename"
   done
   [[ "$runtime_directory_created" == true ]] && sudo rm -f "$mode_path"
+  [[ "$runtime_directory_created" == true ]] && sudo rm -f "$recovery_release_path"
   [[ "$runtime_directory_created" == true ]] && sudo rm -f "$runtime_directory/launcher.lock"
   [[ "$runtime_directory_created" == true ]] && sudo rmdir "$runtime_directory" >/dev/null 2>&1 || :
   [[ "$runtime_parent_created" == true ]] && sudo rmdir "$runtime_parent" >/dev/null 2>&1 || :
@@ -278,6 +280,120 @@ unit_invocation_id() {
   printf '%s\n' "$invocation_id"
 }
 
+wait_for_marker() {
+  local marker=$1
+  local invocation_id=$2
+  local i
+  for ((i = 0; i < 200; i++)); do
+    if sudo journalctl --no-pager -o cat -u "$unit_name" \
+      "_SYSTEMD_INVOCATION_ID=$invocation_id" | grep -Fqx "$marker"; then
+      return 0
+    fi
+    sleep 0.05
+  done
+  sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :
+  die "unit did not emit marker: $marker"
+}
+
+wait_for_leaf_event() {
+  local leaf=$1
+  local key=$2
+  local expected=$3
+  local i
+  local observed=''
+  for ((i = 0; i < 200; i++)); do
+    observed=$(sudo awk -v key="$key" '$1 == key && NF == 2 { print $2 }' "$leaf/cgroup.events")
+    [[ "$observed" == "$expected" ]] && return 0
+    sleep 0.05
+  done
+  die "leaf event $key did not reach $expected (last: $observed)"
+}
+
+create_run_leaf() {
+  local leaf=$1
+  sudo mkdir "$leaf"
+  sudo chmod 0700 "$leaf"
+  [[ $(sudo stat -c %U:%G:%a "$leaf") == root:root:700 ]] \
+    || die "run leaf metadata does not match root:root:700"
+}
+
+start_process_tree() {
+  local leaf=$1
+  sudo python3 -c '
+import os
+import signal
+import sys
+
+leaf = sys.argv[1]
+with open(os.path.join(leaf, "cgroup.procs"), "w", encoding="ascii") as stream:
+    stream.write(f"{os.getpid()}\n")
+child = os.fork()
+signal.pause()
+' "$leaf" &
+  tree_supervisor_pid=$!
+}
+
+wait_for_leaf_process_count() {
+  local leaf=$1
+  local expected=$2
+  local i
+  local observed=0
+  for ((i = 0; i < 200; i++)); do
+    observed=$(sudo awk 'NF == 1 { count += 1 } END { print count + 0 }' "$leaf/cgroup.procs")
+    [[ "$observed" == "$expected" ]] && return 0
+    sleep 0.05
+  done
+  die "leaf process count did not reach $expected (last: $observed)"
+}
+
+pid_start_time() {
+  local pid=$1
+  python3 -c '
+import pathlib
+import sys
+
+try:
+    text = pathlib.Path(f"/proc/{sys.argv[1]}/stat").read_text(encoding="ascii")
+except FileNotFoundError:
+    print("missing")
+    raise SystemExit(0)
+closing = text.rfind(")")
+fields = text[closing + 2:].split()
+if closing < 0 or len(fields) <= 19:
+    raise SystemExit("malformed proc stat")
+print(fields[19])
+' "$pid"
+}
+
+wait_for_original_process_exit() {
+  local pid=$1
+  local original_start_time=$2
+  local current_start_time=''
+  local i
+  for ((i = 0; i < 200; i++)); do
+    current_start_time=$(pid_start_time "$pid") \
+      || die "could not identify recovered process: $pid"
+    if [[ "$current_start_time" == missing || "$current_start_time" != "$original_start_time" ]]; then
+      return 0
+    fi
+    sleep 0.05
+  done
+  die "original recovered process remains visible: $pid"
+}
+
+wait_for_background_job() {
+  local pid=$1
+  local i
+  for ((i = 0; i < 200; i++)); do
+    if ! jobs -pr | grep -Fqx "$pid"; then
+      wait "$pid" 2>/dev/null || :
+      return 0
+    fi
+    sleep 0.05
+  done
+  die "background fixture job did not exit: $pid"
+}
+
 run_expected_rejection() {
   local mode=$1
   local marker=$2
@@ -295,6 +411,96 @@ run_expected_rejection() {
 run_expected_rejection nested-reject native-shadow-manager-nested-rejected
 run_expected_rejection frozen-reject native-shadow-manager-frozen-rejected
 run_expected_rejection multithread-reject native-shadow-manager-multithread-rejected
+
+startup_recovery_mode="startup-recovery"
+set_mode "$startup_recovery_mode"
+sudo rm -f "$recovery_release_path"
+sudo systemctl start boole-native-shadow-launcher.service
+startup_recovery_invocation=$(unit_invocation_id)
+wait_for_marker native-shadow-startup-recovery-prepared "$startup_recovery_invocation"
+assert_manager_invariants >/dev/null
+
+leaf_a="$service_root/run-0000000000000000000000000000000000000000000000000000000000000001"
+leaf_b="$service_root/run-0000000000000000000000000000000000000000000000000000000000000002"
+leaf_c="$service_root/run-0000000000000000000000000000000000000000000000000000000000000003"
+create_run_leaf "$leaf_a"
+create_run_leaf "$leaf_b"
+create_run_leaf "$leaf_c"
+start_process_tree "$leaf_a"
+recovered_tree_a=$tree_supervisor_pid
+start_process_tree "$leaf_b"
+recovered_tree_b=$tree_supervisor_pid
+wait_for_leaf_process_count "$leaf_a" 2
+wait_for_leaf_process_count "$leaf_b" 2
+mapfile -t recovered_cgroup_pids < <(
+  {
+    sudo cat "$leaf_a/cgroup.procs"
+    sudo cat "$leaf_b/cgroup.procs"
+  } | sort -n
+)
+[[ ${#recovered_cgroup_pids[@]} -eq 4 ]] \
+  || die "startup recovery fixture does not contain four cgroup processes"
+declare -a recovered_pid_starttimes=()
+for recovered_pid in "${recovered_cgroup_pids[@]}"; do
+  recovered_start_time=$(pid_start_time "$recovered_pid") \
+    || die "could not identify recovery fixture process: $recovered_pid"
+  [[ "$recovered_start_time" != missing ]] \
+    || die "recovery fixture process disappeared before release: $recovered_pid"
+  recovered_pid_starttimes+=("$recovered_start_time")
+done
+printf '1\n' | sudo tee "$leaf_b/cgroup.freeze" >/dev/null
+wait_for_leaf_event "$leaf_b" frozen 1
+sudo touch "$recovery_release_path"
+wait_for_marker native-shadow-startup-recovery-complete:3 "$startup_recovery_invocation"
+for recovered_index in "${!recovered_cgroup_pids[@]}"; do
+  wait_for_original_process_exit \
+    "${recovered_cgroup_pids[$recovered_index]}" \
+    "${recovered_pid_starttimes[$recovered_index]}"
+done
+wait_for_background_job "$recovered_tree_a"
+wait_for_background_job "$recovered_tree_b"
+[[ -z $(sudo find "$service_root" -mindepth 1 -maxdepth 1 -type d ! -name manager -print -quit) ]] \
+  || die "startup recovery left a non-manager cgroup child"
+assert_manager_invariants >/dev/null
+sudo systemctl stop boole-native-shadow-launcher.service
+wait_for_state inactive
+wait_for_cgroup_removal
+
+inventory_reject_mode="startup-inventory-reject"
+set_mode "$inventory_reject_mode"
+sudo rm -f "$recovery_release_path"
+sudo systemctl start boole-native-shadow-launcher.service
+inventory_reject_invocation=$(unit_invocation_id)
+wait_for_marker native-shadow-startup-inventory-prepared "$inventory_reject_invocation"
+assert_manager_invariants >/dev/null
+leaf="$service_root/run-0000000000000000000000000000000000000000000000000000000000000001"
+create_run_leaf "$leaf"
+start_process_tree "$leaf"
+reject_tree=$tree_supervisor_pid
+wait_for_leaf_process_count "$leaf" 2
+sudo mkdir "$service_root/zzz-unexpected"
+frozen=$(sudo awk '$1 == "frozen" && NF == 2 { print $2 }' "$leaf/cgroup.events")
+populated=$(sudo awk '$1 == "populated" && NF == 2 { print $2 }' "$leaf/cgroup.events")
+[[ "$frozen" == 0 && "$populated" == 1 ]] \
+  || die "inventory reject fixture did not begin live and unfrozen"
+before_procs=$(sudo sort -n "$leaf/cgroup.procs")
+before_threads=$(sudo sort -n "$leaf/cgroup.threads")
+sudo touch "$recovery_release_path"
+wait_for_marker native-shadow-startup-inventory-untouched "$inventory_reject_invocation"
+after_procs=$(sudo sort -n "$leaf/cgroup.procs")
+after_threads=$(sudo sort -n "$leaf/cgroup.threads")
+[[ "$before_procs" == "$after_procs" && "$before_threads" == "$after_threads" ]] \
+  || die "inventory rejection changed the valid leaf process membership"
+frozen=$(sudo awk '$1 == "frozen" && NF == 2 { print $2 }' "$leaf/cgroup.events")
+populated=$(sudo awk '$1 == "populated" && NF == 2 { print $2 }' "$leaf/cgroup.events")
+[[ "$frozen" == 0 && "$populated" == 1 ]] \
+  || die "inventory rejection changed valid leaf events"
+sudo test -d "$service_root/zzz-unexpected" \
+  || die "inventory rejection removed the unexpected child"
+sudo systemctl stop boole-native-shadow-launcher.service
+wait_for_state inactive
+wait_for_background_job "$reject_tree"
+wait_for_cgroup_removal
 
 set_mode safe-reuse
 sudo systemctl start boole-native-shadow-launcher.service

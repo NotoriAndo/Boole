@@ -35,11 +35,26 @@ pub(crate) enum CgroupFsError {
     },
     #[error("unsafe cgroup state: {0}")]
     UnsafeState(String),
+    #[error("the startup cgroup cleanup deadline expired")]
+    DeadlineExceeded,
 }
 
 #[derive(Debug)]
 pub(crate) struct CgroupDirectory {
     file: File,
+}
+
+#[derive(Debug)]
+pub(crate) struct RecoveryLeaf {
+    directory: CgroupDirectory,
+    basename: String,
+    identity: DirectoryIdentity,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DirectoryIdentity {
+    device: libc::dev_t,
+    inode: libc::ino_t,
 }
 
 pub(crate) fn open_fixed_service_root() -> Result<CgroupDirectory, CgroupFsError> {
@@ -177,6 +192,109 @@ pub(crate) fn verify_manager_after_move(manager: &CgroupDirectory) -> Result<(),
     require_no_child_cgroups(manager, "manager cgroup has nested children after move")
 }
 
+pub(crate) fn scan_service_child_cgroups(
+    root: &CgroupDirectory,
+) -> Result<Vec<String>, CgroupFsError> {
+    direct_child_directories(&root.file)
+}
+
+pub(crate) fn open_and_validate_recovery_leaf(
+    root: &CgroupDirectory,
+    basename: &str,
+) -> Result<RecoveryLeaf, CgroupFsError> {
+    let file = open_directory_child(&root.file, basename, "open startup recovery leaf")?;
+    let identity = descriptor_identity(&file, "identify startup recovery leaf")?;
+    require_cgroup2fs(&file)?;
+    let directory = CgroupDirectory { file };
+    require_exact_domain_type(&read_control(&directory, "cgroup.type")?)?;
+    require_empty_subtree_control(&read_control(&directory, "cgroup.subtree_control")?)?;
+    require_no_child_cgroups(&directory, "startup recovery leaf has nested child cgroups")?;
+    require_binary_event(&read_control(&directory, "cgroup.events")?, "populated")?;
+    require_binary_event(&read_control(&directory, "cgroup.events")?, "frozen")?;
+    let _ = parse_id_file(&directory, "cgroup.procs")?;
+    let _ = parse_id_file(&directory, "cgroup.threads")?;
+    drop(open_control(
+        &directory.file,
+        "cgroup.freeze",
+        libc::O_WRONLY,
+    )?);
+    drop(open_control(
+        &directory.file,
+        "cgroup.kill",
+        libc::O_WRONLY,
+    )?);
+    Ok(RecoveryLeaf {
+        directory,
+        basename: basename.to_string(),
+        identity,
+    })
+}
+
+pub(crate) fn freeze_recovery_leaf(leaf: &RecoveryLeaf) -> Result<(), CgroupFsError> {
+    write_control(&leaf.directory, "cgroup.freeze", "1\n")
+}
+
+pub(crate) fn kill_recovery_leaf(leaf: &RecoveryLeaf) -> Result<(), CgroupFsError> {
+    write_control(&leaf.directory, "cgroup.kill", "1\n")
+}
+
+pub(crate) fn wait_recovery_leaf_event(
+    leaf: &RecoveryLeaf,
+    key: &'static str,
+    expected: u64,
+    deadline: std::time::Instant,
+) -> Result<(), CgroupFsError> {
+    const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(5);
+    loop {
+        if std::time::Instant::now() >= deadline {
+            return Err(CgroupFsError::DeadlineExceeded);
+        }
+        let observed =
+            parse_required_counter(&read_control(&leaf.directory, "cgroup.events")?, key)?;
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return Err(CgroupFsError::DeadlineExceeded);
+        }
+        if observed == expected {
+            return Ok(());
+        }
+        std::thread::sleep(POLL_INTERVAL.min(deadline.saturating_duration_since(now)));
+    }
+}
+
+pub(crate) fn verify_recovery_leaf_ids_empty(leaf: &RecoveryLeaf) -> Result<(), CgroupFsError> {
+    require_empty_id_file(&leaf.directory, "cgroup.procs")?;
+    require_empty_id_file(&leaf.directory, "cgroup.threads")
+}
+
+#[allow(unsafe_code)]
+pub(crate) fn remove_recovery_leaf(
+    root: &CgroupDirectory,
+    leaf: RecoveryLeaf,
+) -> Result<(), CgroupFsError> {
+    let basename = CString::new(leaf.basename.as_str())
+        .map_err(|_| unsafe_state("startup recovery leaf basename contains NUL"))?;
+    let current_identity = child_identity(&root.file, &basename)?;
+    if current_identity != leaf.identity {
+        return Err(unsafe_state(
+            "startup recovery leaf identity changed before removal",
+        ));
+    }
+    // Keep the validated leaf descriptor alive through removal. The caller
+    // owns the fixed delegated root and has already completed a full
+    // inventory pass before any mutation.
+    let result =
+        unsafe { libc::unlinkat(root.file.as_raw_fd(), basename.as_ptr(), libc::AT_REMOVEDIR) };
+    if result != 0 {
+        return Err(io_error(
+            "remove startup recovery leaf",
+            io::Error::last_os_error(),
+        ));
+    }
+    drop(leaf);
+    Ok(())
+}
+
 fn require_empty_id_file(
     directory: &CgroupDirectory,
     basename: &'static str,
@@ -224,6 +342,17 @@ fn parse_required_counter(text: &str, required: &str) -> Result<u64, CgroupFsErr
         );
     }
     found.ok_or_else(|| unsafe_state(format!("cgroup.events is missing {required}")))
+}
+
+fn require_binary_event(text: &str, required: &str) -> Result<u64, CgroupFsError> {
+    let value = parse_required_counter(text, required)?;
+    if value <= 1 {
+        Ok(value)
+    } else {
+        Err(unsafe_state(format!(
+            "cgroup.events has non-binary {required}"
+        )))
+    }
 }
 
 fn parse_words(text: &str) -> Result<BTreeSet<String>, CgroupFsError> {
@@ -345,6 +474,56 @@ fn require_manager_metadata(file: &File) -> Result<(), CgroupFsError> {
         )));
     }
     Ok(())
+}
+
+#[allow(unsafe_code)]
+fn descriptor_identity(
+    file: &File,
+    operation: &'static str,
+) -> Result<DirectoryIdentity, CgroupFsError> {
+    let mut stat = MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `stat` is writable output storage and `file` remains live.
+    if unsafe { libc::fstat(file.as_raw_fd(), stat.as_mut_ptr()) } != 0 {
+        return Err(io_error(operation, io::Error::last_os_error()));
+    }
+    // SAFETY: successful `fstat` initialized the full structure.
+    let stat = unsafe { stat.assume_init() };
+    Ok(DirectoryIdentity {
+        device: stat.st_dev,
+        inode: stat.st_ino,
+    })
+}
+
+#[allow(unsafe_code)]
+fn child_identity(parent: &File, basename: &CString) -> Result<DirectoryIdentity, CgroupFsError> {
+    let mut stat = MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `parent` is live, `basename` is NUL-terminated, and `stat` is
+    // writable output storage.
+    if unsafe {
+        libc::fstatat(
+            parent.as_raw_fd(),
+            basename.as_ptr(),
+            stat.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    } != 0
+    {
+        return Err(io_error(
+            "re-identify startup recovery leaf",
+            io::Error::last_os_error(),
+        ));
+    }
+    // SAFETY: successful `fstatat` initialized the full structure.
+    let stat = unsafe { stat.assume_init() };
+    if stat.st_mode & libc::S_IFMT != libc::S_IFDIR {
+        return Err(unsafe_state(
+            "startup recovery leaf name no longer resolves to a directory",
+        ));
+    }
+    Ok(DirectoryIdentity {
+        device: stat.st_dev,
+        inode: stat.st_ino,
+    })
 }
 
 #[allow(unsafe_code)]
