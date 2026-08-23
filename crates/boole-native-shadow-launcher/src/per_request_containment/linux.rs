@@ -46,6 +46,7 @@ const DEV_PATH: &CStr = c"/dev";
 const TMP_PATH: &CStr = c"/tmp";
 const STAGING_PATH: &CStr = c"/run";
 const RUNTIME_BASE: &CStr = c"/run/boole/native-shadow";
+const RUNTIME_LOWER: &CStr = c"/run/boole/native-shadow/rootfs-lower";
 const RUNTIME_UPPER: &CStr = c"/run/boole/native-shadow/rootfs-upper";
 const RUNTIME_WORK: &CStr = c"/run/boole/native-shadow/rootfs-work";
 const RUNTIME_ROOT: &CStr = c"/run/boole/native-shadow/rootfs-root";
@@ -661,8 +662,33 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
     )?;
     setup_stage("derive-create-staging", create_runtime_staging_tree())?;
 
+    let lower_source = CString::new(format!("/proc/self/fd/{rootfs_fd}"))
+        .map_err(|_| "lower bind source contains NUL".to_string())?;
+    setup_stage(
+        "derive-bind-lower",
+        mount_raw(
+            Some(&lower_source),
+            RUNTIME_LOWER,
+            None,
+            libc::MS_BIND | libc::MS_REC,
+            None,
+        ),
+    )?;
+    setup_stage(
+        "derive-remount-lower-read-only",
+        mount_raw(
+            None,
+            RUNTIME_LOWER,
+            None,
+            libc::MS_BIND | libc::MS_REMOUNT | libc::MS_RDONLY | libc::MS_NOSUID | libc::MS_NODEV,
+            None,
+        ),
+    )?;
+    setup_stage("derive-verify-bound-lower", verify_bound_lower(rootfs_fd))?;
+
     let overlay_options = CString::new(format!(
-        "lowerdir=/proc/self/fd/{rootfs_fd},upperdir={},workdir={}",
+        "lowerdir={},upperdir={},workdir={}",
+        RUNTIME_LOWER.to_string_lossy(),
         RUNTIME_UPPER.to_string_lossy(),
         RUNTIME_WORK.to_string_lossy(),
     ))
@@ -731,7 +757,13 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
 }
 
 fn create_runtime_staging_tree() -> Result<(), String> {
-    for path in [c"/run/boole", RUNTIME_BASE, RUNTIME_WORK, RUNTIME_ROOT] {
+    for path in [
+        c"/run/boole",
+        RUNTIME_BASE,
+        RUNTIME_LOWER,
+        RUNTIME_WORK,
+        RUNTIME_ROOT,
+    ] {
         mkdir_fixed(path, 0o700)?;
     }
     // OverlayFS takes the merged root directory's metadata from the upper
@@ -755,6 +787,34 @@ fn create_runtime_staging_tree() -> Result<(), String> {
         ),
     ] {
         mkdir_fixed(path, mode)?;
+    }
+    Ok(())
+}
+
+fn verify_bound_lower(rootfs_fd: RawFd) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut expected: libc::stat = unsafe { mem::zeroed() };
+    // SAFETY: rootfs_fd is the already-verified, live rootfs directory.
+    if unsafe { libc::fstat(rootfs_fd, &mut expected) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    let observed = std::fs::symlink_metadata(RUNTIME_LOWER.to_string_lossy().as_ref())
+        .map_err(|error| error.to_string())?;
+    if !observed.file_type().is_dir()
+        || observed.dev() != expected.st_dev
+        || observed.ino() != expected.st_ino
+    {
+        return Err("bound lower root identity mismatch".to_string());
+    }
+
+    let mut filesystem: libc::statvfs = unsafe { mem::zeroed() };
+    // SAFETY: fixed live bind mount path and writable statvfs storage.
+    if unsafe { libc::statvfs(RUNTIME_LOWER.as_ptr(), &mut filesystem) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    if filesystem.f_flag & libc::ST_RDONLY == 0 {
+        return Err("bound lower root is not read-only".to_string());
     }
     Ok(())
 }
