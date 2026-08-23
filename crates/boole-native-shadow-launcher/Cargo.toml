@@ -1,0 +1,15 @@
+[package]
+name = "boole-native-shadow-launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+boole-native-shadow-protocol = { path = "../boole-native-shadow-protocol" }
+hex.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

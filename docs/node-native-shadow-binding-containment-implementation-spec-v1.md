@@ -225,7 +225,7 @@ entry becomes authoritative on `main` only after its required CI and merge:
   expected service IDs are not yet obtained from the fixed-account resolver and there is no root
   launcher, real installed-path happy path, route, journal mutation or checker execution, so no real
   handshake GREEN is claimed.
-* **Phase 3B.2b-2i** — the current fixed-service-identity slice adds one path- and argument-free
+* **Phase 3B.2b-2i** — PR #180, main `91de1d1`: one path- and argument-free
   shared resolver for only `boole-node` and `boole-native-checker`. It uses `getpwnam_r`,
   `getgrnam_r`, `getgrgid_r` and `getgrouplist`, verifies the complete account/group profile frozen
   below, and returns a field-private, non-serializable UID/GID view. The node production adapter now
@@ -234,6 +234,16 @@ entry becomes authoritative on `main` only after its required CI and merge:
   success path; fake providers cover fail-closed contract branches without mutating the host.
   This remains a preflight-only slice: it adds no root launcher, lock, socket bind, cgroup recovery,
   journal transition or checker execution.
+* **Phase 3B.2b-2l** — the current launcher behavioral-core slice adds a separate, non-publishable
+  launcher library with only the disabled request-free qualification exchange. An owned, sealed
+  session must authenticate the fixed node PID/UID/GID before reading; the core then reads one
+  strict hello, matches the policy/toolchain/registry digests, builds ready solely from an opaque
+  verified-startup token, flushes it, requires clean node EOF and finally shuts down its write half.
+  The startup token and peer credentials have no public constructors, so production use stays
+  impossible until a later in-crate Linux runtime proves root identity, installed authority, fixed
+  NSS identities, a fresh launcher-instance ID and zero-leaf recovery. The library has no binary,
+  listener, lock, cgroup operation, execution/report message, route, journal mutation or checker
+  spawn; actual handshake GREEN remains open.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do
@@ -1363,8 +1373,9 @@ second prerequisite and do not change
 ```
 NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: IMPLEMENTATION-BASELINE-APPROVED
 IMPLEMENTATION: PARTIAL (PHASE-1 / PHASE-2 / PHASE-2C / PHASE-2D / PHASE-3A.1 /
-PHASE-3A.2 / PHASE-3B.0 / PHASE-3B.1 LANDED; PHASE-3B.2A EXACT-POLICY-AUTHORITY
-CURRENT GUARDED SLICE)
+PHASE-3A.2 / PHASE-3B.0 / PHASE-3B.1 / PHASE-3B.2A / PHASE-3B.2B-0 / -1 /
+PHASE-3B.2B-2P / PHASE-3B.2B-2N / PHASE-3B.2B-2I LANDED;
+PHASE-3B.2B-2L REQUEST-FREE LAUNCHER CORE CURRENT GUARDED SLICE)
 CONTAINMENT-ROUTE-GREEN: OPEN / POLICY-FROZEN-BUT-LAUNCHER-HANDSHAKE-EXECUTION-AND-ROUTE-UNIMPLEMENTED
 ```
 
