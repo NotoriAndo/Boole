@@ -349,6 +349,30 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "a cleanly stopped service has no failed state to reset",
         )
 
+    def test_manager_cgroup_gate_observes_root_only_cgroup_state_as_root(self):
+        body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            'sudo test ! -e "$service_root"',
+            "mapfile -t values < <(sudo awk",
+            'sudo cat "$service_root/cgroup.procs"',
+            'sudo stat -c %U:%G:%a "$manager_root"',
+            'sudo cat "$manager_root/cgroup.subtree_control"',
+            'sudo cat "$manager_root/cgroup.type"',
+            'sudo find "$manager_root" -mindepth 1 -maxdepth 1 -type d',
+            'sudo cat "$service_root/cgroup.subtree_control"',
+            'sudo stat -fc %T "$service_root"',
+            'sudo readlink -f "/proc/$pid/exe"',
+            "sudo awk -F: '$1 == \"0\" { print $3 }' \"/proc/$pid/cgroup\"",
+        ):
+            self.assertIn(required, body)
+        self.assertNotIn(
+            '<"$manager_root/',
+            body,
+            "the manager directory is deliberately root-only mode 0700",
+        )
+
     def test_manager_cgroup_gate_uses_an_owned_read_only_authority_bind(self):
         body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
             encoding="utf-8"

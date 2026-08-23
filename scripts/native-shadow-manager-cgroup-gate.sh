@@ -207,7 +207,7 @@ wait_for_state() {
 wait_for_cgroup_removal() {
   local i
   for ((i = 0; i < 200; i++)); do
-    [[ ! -e "$service_root" ]] && return 0
+    sudo test ! -e "$service_root" && return 0
     sleep 0.05
   done
   die "service cgroup remained after stop"
@@ -216,7 +216,7 @@ wait_for_cgroup_removal() {
 single_numeric_id() {
   local path=$1
   local -a values=()
-  mapfile -t values < <(awk 'NF == 1 { print $1; next } NF > 1 { print "__malformed__" }' "$path")
+  mapfile -t values < <(sudo awk 'NF == 1 { print $1; next } NF > 1 { print "__malformed__" }' "$path")
   [[ ${#values[@]} -eq 1 && ${values[0]} =~ ^[1-9][0-9]*$ ]] || return 1
   printf '%s\n' "${values[0]}"
 }
@@ -230,8 +230,9 @@ assert_manager_invariants() {
   local i
   local manager_pid
   for ((i = 0; i < 200; i++)); do
-    [[ -d "$manager_root" ]] || { sleep 0.05; continue; }
-    [[ -z $(tr -d '[:space:]' <"$service_root/cgroup.procs") ]] || { sleep 0.05; continue; }
+    sudo test -d "$manager_root" || { sleep 0.05; continue; }
+    [[ -z $(sudo cat "$service_root/cgroup.procs" | tr -d '[:space:]') ]] \
+      || { sleep 0.05; continue; }
     manager_pid=$(single_numeric_id "$manager_root/cgroup.procs" || :)
     [[ "$manager_pid" == "$pid" ]] || { sleep 0.05; continue; }
     break
@@ -247,23 +248,23 @@ assert_manager_invariants() {
     || die "manager cgroup does not contain exactly the MainPID process"
   [[ "$manager_tid" == "$pid" ]] \
     || die "manager cgroup does not contain exactly the MainPID thread"
-  [[ $(stat -c %U:%G:%a "$manager_root") == root:root:700 ]] \
+  [[ $(sudo stat -c %U:%G:%a "$manager_root") == root:root:700 ]] \
     || die "manager cgroup metadata does not match root:root:700"
-  [[ -z $(tr -d '[:space:]' <"$manager_root/cgroup.subtree_control") ]] \
+  [[ -z $(sudo cat "$manager_root/cgroup.subtree_control" | tr -d '[:space:]') ]] \
     || die "manager cgroup has residual subtree controllers"
-  [[ $(tr -d '[:space:]' <"$manager_root/cgroup.type") == domain ]] \
+  [[ $(sudo cat "$manager_root/cgroup.type" | tr -d '[:space:]') == domain ]] \
     || die "manager cgroup type is not exact domain after move"
-  [[ -z $(find "$manager_root" -mindepth 1 -maxdepth 1 -type d -print -quit) ]] \
+  [[ -z $(sudo find "$manager_root" -mindepth 1 -maxdepth 1 -type d -print -quit) ]] \
     || die "manager cgroup contains a nested child"
   local controllers
-  controllers=$(tr ' ' '\n' <"$service_root/cgroup.subtree_control" | sed '/^$/d' | sort | paste -sd' ' -)
+  controllers=$(sudo cat "$service_root/cgroup.subtree_control" | tr ' ' '\n' | sed '/^$/d' | sort | paste -sd' ' -)
   [[ "$controllers" == "cpu memory pids" ]] \
     || die "service subtree controllers differ: $controllers"
-  [[ $(stat -fc %T "$service_root") == cgroup2fs ]] || die "service root is not cgroup2fs"
-  [[ $(readlink -f "/proc/$pid/exe") == "$launcher_path" ]] \
+  [[ $(sudo stat -fc %T "$service_root") == cgroup2fs ]] || die "service root is not cgroup2fs"
+  [[ $(sudo readlink -f "/proc/$pid/exe") == "$launcher_path" ]] \
     || die "MainPID does not execute the staged reviewed harness"
   local relative
-  relative=$(awk -F: '$1 == "0" { print $3 }' "/proc/$pid/cgroup")
+  relative=$(sudo awk -F: '$1 == "0" { print $3 }' "/proc/$pid/cgroup")
   [[ "$relative" == "/system.slice/$unit_name/manager" ]] \
     || die "MainPID cgroup path differs: $relative"
   printf '%s\n' "$pid"
