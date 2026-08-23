@@ -2036,6 +2036,34 @@ mod tests {
         libc::WEXITSTATUS(status)
     }
 
+    fn run_seccomp_spawn_probe() -> i32 {
+        let program = build_seccomp_program().expect("fixed seccomp program");
+        // SAFETY: the child installs the production filter, starts one fixed
+        // harmless executable, and exits with a categorical status. The
+        // parent waits for exactly that PID and never consumes child output.
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork seccomp process-spawn probe");
+        if pid == 0 {
+            let status = match seccompiler::apply_filter(&program) {
+                Ok(()) => match std::process::Command::new("/bin/true").status() {
+                    Ok(status) if status.success() => 0,
+                    Err(error) if error.raw_os_error() == Some(libc::EACCES) => libc::EACCES,
+                    _ => 2,
+                },
+                Err(_) => 3,
+            };
+            // SAFETY: _exit terminates only this forked probe child without
+            // running inherited Rust destructors.
+            unsafe { libc::_exit(status) };
+        }
+        let mut status = 0;
+        // SAFETY: pid is the positive child PID returned by fork and status is
+        // a valid writable wait-status location.
+        assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
+        assert!(libc::WIFEXITED(status), "process-spawn probe did not exit");
+        libc::WEXITSTATUS(status)
+    }
+
     fn local_socketpair_succeeds() -> bool {
         let mut fds = [-1; 2];
         // SAFETY: fds has space for exactly two descriptors. The fixed local
@@ -2082,6 +2110,54 @@ mod tests {
             *libc::__errno_location() = 0;
             libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) == -1
                 && *libc::__errno_location() == libc::EACCES
+        }
+    }
+
+    fn local_spawn_channel_recv_is_eacces() -> bool {
+        let mut fds = [-1; 2];
+        // SAFETY: fds has room for the anonymous local pair. Closing the peer
+        // makes an allowed recv return EOF immediately instead of blocking.
+        unsafe {
+            if libc::socketpair(
+                libc::AF_UNIX,
+                libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC,
+                0,
+                fds.as_mut_ptr(),
+            ) != 0
+            {
+                return false;
+            }
+            libc::close(fds[1]);
+            *libc::__errno_location() = 0;
+            let mut byte = 0_u8;
+            let denied = libc::recv(fds[0], (&mut byte as *mut u8).cast(), 1, 0) == -1
+                && *libc::__errno_location() == libc::EACCES;
+            libc::close(fds[0]);
+            denied
+        }
+    }
+
+    fn local_spawn_channel_send_is_eacces() -> bool {
+        let mut fds = [-1; 2];
+        // SAFETY: fds has room for the anonymous local pair and the one-byte
+        // send cannot escape that unnamed pair.
+        unsafe {
+            if libc::socketpair(
+                libc::AF_UNIX,
+                libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC,
+                0,
+                fds.as_mut_ptr(),
+            ) != 0
+            {
+                return false;
+            }
+            *libc::__errno_location() = 0;
+            let byte = 0_u8;
+            let denied = libc::send(fds[0], (&byte as *const u8).cast(), 1, 0) == -1
+                && *libc::__errno_location() == libc::EACCES;
+            libc::close(fds[0]);
+            libc::close(fds[1]);
+            denied
         }
     }
 
@@ -2203,5 +2279,23 @@ mod tests {
         assert_eq!(run_seccomp_probe(local_socketpair_succeeds), 0);
         assert_eq!(run_seccomp_probe(non_local_socketpair_is_eacces), 0);
         assert_eq!(run_seccomp_probe(socket_remains_eacces), 0);
+    }
+
+    #[test]
+    fn seccomp_preserves_the_rust_process_spawn_control_channel() {
+        if std::env::var_os("BOOLE_NATIVE_SHADOW_SECCOMP_SPAWN_PROBE").is_none() {
+            return;
+        }
+        let spawn_status = run_seccomp_spawn_probe();
+        let recv_eacces = run_seccomp_probe(local_spawn_channel_recv_is_eacces) == 0;
+        let send_eacces = run_seccomp_probe(local_spawn_channel_send_is_eacces) == 0;
+        assert_eq!(
+            spawn_status,
+            0,
+            "Rust process spawn failed under the production filter; \
+             categorical evidence: spawn_eacces={}, recv_eacces={recv_eacces}, \
+             send_eacces={send_eacces}",
+            spawn_status == libc::EACCES,
+        );
     }
 }

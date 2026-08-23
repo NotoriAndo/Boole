@@ -169,6 +169,12 @@ for path in "$unit_path" "$unit_dropin_directory" "$launcher_path" \
   [[ ! -e "$path" && ! -L "$path" ]] || die "refusing to replace pre-existing path: $path"
 done
 
+BOOLE_NATIVE_SHADOW_SECCOMP_SPAWN_PROBE=1 \
+  cargo test --locked -p boole-native-shadow-launcher \
+    --features manager-cgroup-linux-gate --lib \
+    seccomp_preserves_the_rust_process_spawn_control_channel -- \
+    --nocapture --test-threads=1
+
 cargo test --locked -p boole-native-shadow-launcher \
   --features manager-cgroup-linux-gate \
   --test boole-native-shadow-manager-cgroup-linux \
