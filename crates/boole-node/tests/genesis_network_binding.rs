@@ -126,6 +126,7 @@ fn boot_with_scenario(
                 listener: p2p_listener,
                 peers: vec!["127.0.0.1:1".parse().expect("allowlist addr")],
                 rate_limit_per_60s: boole_node::DEFAULT_P2P_RATE_LIMIT_PER_60S,
+                package_serving: None,
             },
             Some(shutdown_for_node),
         )
@@ -482,6 +483,7 @@ fn boot_testnet2_with_checker(tag: &str, checker_dir: PathBuf) -> Boot {
                 listener: None,
                 peers: vec!["127.0.0.1:1".parse().expect("allowlist addr")],
                 rate_limit_per_60s: boole_node::DEFAULT_P2P_RATE_LIMIT_PER_60S,
+                package_serving: None,
             },
             Some(shutdown_for_node),
         )

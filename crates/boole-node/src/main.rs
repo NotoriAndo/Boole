@@ -415,6 +415,7 @@ fn run_local_command(args: RunLocalArgs) -> anyhow::Result<()> {
             listener: p2p_listener,
             peers,
             rate_limit_per_60s: args.p2p_rate_limit_per_60s,
+            package_serving: None,
         })
     } else {
         None

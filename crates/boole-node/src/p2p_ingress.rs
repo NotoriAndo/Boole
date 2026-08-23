@@ -9,13 +9,14 @@
 //! pool and the N2.3 proof-dedup ledger can never diverge between the two
 //! ingress surfaces.
 
+use std::collections::BTreeSet;
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use boole_core::CONSENSUS_RULE_VERSION;
+use boole_core::{LocalPackageStore, LocalPackageStoreError, PackageRoot, CONSENSUS_RULE_VERSION};
 use boole_p2p::{
     Frame, FrameError, HeadSummary, TcpConn, TcpTransport, Transport, GET_BLOCKS_RANGE_CAP,
     PROTOCOL_VERSION,
@@ -50,6 +51,46 @@ const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 /// `--p2p-rate-limit-per-60s`; 0 disables (closed-harness escape hatch).
 pub const DEFAULT_P2P_RATE_LIMIT_PER_60S: usize = 600;
 
+/// Explicit least-authority grant for BF.6a package serving. A configured
+/// static peer must still pass the existing IP allowlist, and only roots in
+/// this frozen set may leave the local store. Constructing a store alone
+/// never authorizes network disclosure.
+pub struct PackageServingConfig {
+    store: Arc<LocalPackageStore>,
+    served_package_roots: BTreeSet<PackageRoot>,
+}
+
+impl PackageServingConfig {
+    pub fn new(
+        store: Arc<LocalPackageStore>,
+        served_package_roots: impl IntoIterator<Item = PackageRoot>,
+    ) -> Self {
+        Self {
+            store,
+            served_package_roots: served_package_roots.into_iter().collect(),
+        }
+    }
+
+    fn read_authorized(&self, root: PackageRoot) -> AuthorizedPackageRead {
+        if !self.served_package_roots.contains(&root) {
+            return AuthorizedPackageRead::Unavailable;
+        }
+        match self.store.read(root) {
+            Ok(bytes) => AuthorizedPackageRead::Available(bytes),
+            Err(
+                LocalPackageStoreError::Disabled | LocalPackageStoreError::MissingObject { .. },
+            ) => AuthorizedPackageRead::Unavailable,
+            Err(_) => AuthorizedPackageRead::StoreError,
+        }
+    }
+}
+
+enum AuthorizedPackageRead {
+    Available(Vec<u8>),
+    Unavailable,
+    StoreError,
+}
+
 /// N3.2 — static gossip surface for one node (ADR-0009 (d)).
 pub struct P2pConfig {
     /// Pre-bound gossip listener. `None` = no ingress (egress-only node).
@@ -61,6 +102,17 @@ pub struct P2pConfig {
     /// N3.3 — per-peer ingress frame quota per 60s window (ADR-0009 (c)).
     /// 0 disables the limit.
     pub rate_limit_per_60s: usize,
+    /// Exact-root network disclosure grant. `None` is the production default:
+    /// GetPackage receives an explicit unavailable response with no disk read.
+    pub package_serving: Option<PackageServingConfig>,
+}
+
+pub(crate) struct P2pIngressRuntimeConfig {
+    pub(crate) listener: TcpListener,
+    pub(crate) allowlist: Vec<IpAddr>,
+    pub(crate) identity: P2pIdentity,
+    pub(crate) rate_limit_per_60s: usize,
+    pub(crate) package_serving: Option<PackageServingConfig>,
 }
 
 /// The identity fields both `Hello` directions must agree on before any
@@ -131,6 +183,9 @@ pub(crate) struct P2pMetrics {
     pub(crate) ingress_block_announces_ignored: AtomicU64,
     pub(crate) ingress_rate_limited_drops: AtomicU64,
     pub(crate) ingress_get_blocks_served: AtomicU64,
+    pub(crate) ingress_get_packages_served: AtomicU64,
+    pub(crate) ingress_get_packages_unavailable: AtomicU64,
+    pub(crate) ingress_get_packages_store_errors: AtomicU64,
     pub(crate) sync_blocks_applied: AtomicU64,
     pub(crate) sync_reorgs_applied: AtomicU64,
     /// SC.10-ii-c — competing peer chains whose pinned-checker re-verify could
@@ -145,40 +200,30 @@ pub(crate) struct P2pMetrics {
 }
 
 pub(crate) fn spawn_ingress_thread(
-    listener: TcpListener,
-    allowlist: Vec<IpAddr>,
-    identity: P2pIdentity,
+    config: P2pIngressRuntimeConfig,
     state: Arc<RwLock<LocalNodeState>>,
     stop: Arc<AtomicBool>,
     metrics: Arc<P2pMetrics>,
-    rate_limit_per_60s: usize,
 ) -> thread::JoinHandle<()> {
     thread::Builder::new()
         .name("boole-p2p-ingress".to_string())
-        .spawn(move || {
-            ingress_loop(
-                listener,
-                allowlist,
-                identity,
-                state,
-                stop,
-                metrics,
-                rate_limit_per_60s,
-            )
-        })
+        .spawn(move || ingress_loop(config, state, stop, metrics))
         .expect("spawn boole-p2p-ingress thread")
 }
 
-#[allow(clippy::too_many_arguments)]
 fn ingress_loop(
-    listener: TcpListener,
-    allowlist: Vec<IpAddr>,
-    identity: P2pIdentity,
+    config: P2pIngressRuntimeConfig,
     state: Arc<RwLock<LocalNodeState>>,
     stop: Arc<AtomicBool>,
     metrics: Arc<P2pMetrics>,
-    rate_limit_per_60s: usize,
 ) {
+    let P2pIngressRuntimeConfig {
+        listener,
+        allowlist,
+        identity,
+        rate_limit_per_60s,
+        package_serving,
+    } = config;
     if listener.set_nonblocking(true).is_err() {
         return;
     }
@@ -203,15 +248,15 @@ fn ingress_loop(
                 // peers and every announce is one short-lived connection,
                 // so a queue depth of 1 with an IO timeout bounds a stuck
                 // peer without a per-connection thread pool.
-                handle_connection(
-                    stream,
-                    peer,
-                    &identity,
-                    &state,
-                    &stop,
-                    &metrics,
-                    rate_limiter.as_ref(),
-                );
+                let context = IngressConnectionContext {
+                    identity: &identity,
+                    state: &state,
+                    stop: &stop,
+                    metrics: &metrics,
+                    rate_limiter: rate_limiter.as_ref(),
+                    package_serving: package_serving.as_ref(),
+                };
+                handle_connection(stream, peer, &context);
             }
             Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(ACCEPT_POLL_INTERVAL);
@@ -262,15 +307,22 @@ fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-fn handle_connection(
-    stream: TcpStream,
-    peer: SocketAddr,
-    identity: &P2pIdentity,
-    state: &Arc<RwLock<LocalNodeState>>,
-    stop: &Arc<AtomicBool>,
-    metrics: &Arc<P2pMetrics>,
-    rate_limiter: Option<&HttpRateLimiter>,
-) {
+struct IngressConnectionContext<'a> {
+    identity: &'a P2pIdentity,
+    state: &'a Arc<RwLock<LocalNodeState>>,
+    stop: &'a Arc<AtomicBool>,
+    metrics: &'a Arc<P2pMetrics>,
+    rate_limiter: Option<&'a HttpRateLimiter>,
+    package_serving: Option<&'a PackageServingConfig>,
+}
+
+fn handle_connection(stream: TcpStream, peer: SocketAddr, context: &IngressConnectionContext<'_>) {
+    let identity = context.identity;
+    let state = context.state;
+    let stop = context.stop;
+    let metrics = context.metrics;
+    let rate_limiter = context.rate_limiter;
+    let package_serving = context.package_serving;
     // The accepted socket may inherit O_NONBLOCK from the listener on some
     // platforms (macOS); force blocking + bounded IO explicitly.
     if stream.set_nonblocking(false).is_err()
@@ -434,6 +486,50 @@ fn handle_connection(
                 metrics
                     .ingress_get_blocks_served
                     .fetch_add(1, Ordering::Relaxed);
+            }
+            Ok(Frame::GetPackage { root }) => {
+                // BF.6a — read-only serving under two independent grants:
+                // the existing static peer-IP allowlist plus this exact root
+                // allowlist. The store verifies object size and root again.
+                // No node write lock is taken, so chain/admission state cannot
+                // change on any availability or store-error outcome.
+                let package_root =
+                    PackageRoot::from_hex(&root).expect("wire-validated lowercase package root");
+                let canonical_bytes = match package_serving
+                    .map(|serving| serving.read_authorized(package_root))
+                    .unwrap_or(AuthorizedPackageRead::Unavailable)
+                {
+                    AuthorizedPackageRead::Available(bytes) => {
+                        metrics
+                            .ingress_get_packages_served
+                            .fetch_add(1, Ordering::Relaxed);
+                        Some(bytes)
+                    }
+                    AuthorizedPackageRead::Unavailable => {
+                        metrics
+                            .ingress_get_packages_unavailable
+                            .fetch_add(1, Ordering::Relaxed);
+                        None
+                    }
+                    AuthorizedPackageRead::StoreError => {
+                        metrics
+                            .ingress_get_packages_store_errors
+                            .fetch_add(1, Ordering::Relaxed);
+                        None
+                    }
+                };
+                if transport
+                    .send_frame(
+                        &mut conn,
+                        &Frame::Package {
+                            root,
+                            canonical_bytes,
+                        },
+                    )
+                    .is_err()
+                {
+                    return;
+                }
             }
             Ok(_) => {
                 // Unsolicited Blocks / Hello re-sends are harmless. Count
