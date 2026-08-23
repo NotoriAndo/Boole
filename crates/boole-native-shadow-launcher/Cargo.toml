@@ -17,6 +17,11 @@ thiserror.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock.workspace = true
+seccompiler.workspace = true
+sha2.workspace = true
+
 [dev-dependencies]
 serde_json.workspace = true
 

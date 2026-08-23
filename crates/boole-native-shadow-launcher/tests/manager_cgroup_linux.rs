@@ -16,6 +16,7 @@ use boole_native_shadow_launcher::{
     instance_id::acquire_fresh_launcher_instance,
     lifetime_lock::acquire_fixed_launcher_lifetime_lock,
     manager_cgroup::{enter_fixed_manager_cgroup, ManagerCgroupError},
+    per_request_containment::run_tracked_real_accept_containment_gate,
     qualification::serve_one_fixed_unix_qualification,
     readiness::assemble_fixed_qualification_startup,
     startup::verify_fixed_launcher_prelock_prerequisites,
@@ -187,6 +188,15 @@ fn run_linux() -> Result<(), String> {
             serve_one_fixed_unix_qualification(startup)
                 .map_err(|error| format!("one-shot qualification listener failed: {error}"))?;
             announce("native-shadow-qualification-one-shot-complete")
+        }
+        "per-request-containment" => {
+            let manager = enter_fixed_manager_cgroup(instance).map_err(format_manager_error)?;
+            let recovered =
+                recover_fixed_startup_orphans(manager).map_err(format_startup_recovery_error)?;
+            let compatibility = verify_fixed_startup_toolchain_compatibility(recovered)
+                .map_err(|error| format!("fixed toolchain compatibility failed: {error}"))?;
+            run_tracked_real_accept_containment_gate(&compatibility)?;
+            announce("native-shadow-per-request-containment-real-accept")
         }
         other => Err(format!("unknown manager gate mode: {other}")),
     }

@@ -26,6 +26,7 @@ authority_stage=''
 authority_share=''
 authority_parent=''
 authority_directory=''
+checker_directory=''
 toolchain_parent=/opt/boole
 toolchain_prefix=$toolchain_parent/native-checker-toolchain
 toolchain_stage=''
@@ -44,6 +45,7 @@ log=$(mktemp "$temp_root/boole-native-shadow-manager.XXXXXX")
 node_log=$(mktemp "$temp_root/boole-native-shadow-node.XXXXXX")
 dropin_source=$(mktemp "$temp_root/boole-native-shadow-manager-dropin.XXXXXX")
 node_unit=''
+work_path=/work
 
 launcher_directory_created=false
 runtime_parent_created=false
@@ -56,6 +58,8 @@ node_qualification_installed=false
 toolchain_parent_created=false
 toolchain_installed=false
 opt_mode_changed=false
+checker_installed=false
+work_created=false
 declare -a installed_authorities=()
 
 cleanup_gate() {
@@ -78,6 +82,11 @@ cleanup_gate() {
   [[ "$toolchain_installed" == true ]] && sudo rm -rf "$toolchain_prefix"
   [[ "$toolchain_parent_created" == true ]] && sudo rmdir "$toolchain_parent" >/dev/null 2>&1 || :
   [[ "$opt_mode_changed" == true ]] && sudo chmod "$opt_original_mode" /opt
+  if [[ "$checker_installed" == true ]]; then
+    sudo rm -f "$checker_directory/checker.py" "$checker_directory/policy.json"
+    sudo rmdir "$checker_directory" >/dev/null 2>&1 || :
+    sudo rmdir "$(dirname "$checker_directory")" >/dev/null 2>&1 || :
+  fi
   local basename
   for basename in "${installed_authorities[@]}"; do
     sudo rm -f "$authority_directory/$basename"
@@ -88,6 +97,7 @@ cleanup_gate() {
   [[ "$runtime_directory_created" == true ]] && sudo rm -f "$runtime_directory/launcher.lock"
   [[ "$runtime_directory_created" == true ]] && sudo rmdir "$runtime_directory" >/dev/null 2>&1 || :
   [[ "$runtime_parent_created" == true ]] && sudo rmdir "$runtime_parent" >/dev/null 2>&1 || :
+  [[ "$work_created" == true ]] && sudo rmdir "$work_path" >/dev/null 2>&1 || :
   if [[ -n "$authority_stage" ]]; then
     sudo rmdir "$authority_directory" >/dev/null 2>&1 || :
     sudo rmdir "$authority_parent" >/dev/null 2>&1 || :
@@ -219,6 +229,7 @@ authority_stage=$(sudo mktemp -d /run/boole-native-shadow-manager-authority.XXXX
 authority_share="$authority_stage/share"
 authority_parent="$authority_share/boole"
 authority_directory="$authority_parent/native-shadow"
+checker_directory="$authority_directory/checkers/rust-tuple-struct-project-v1"
 sudo chmod 0700 "$authority_stage"
 sudo install -d -o root -g root -m 0755 "$authority_share"
 sudo install -d -o root -g root -m 0755 "$authority_parent"
@@ -236,6 +247,26 @@ install_authority fixtures/native-shadow/registry-v1.json registry-v1.json
 install_authority native/containment/native-shadow-execution-policy-v1.json execution-policy-v1.json
 install_authority native/containment/native-shadow-toolchain-identity-v1.json toolchain-identity-v1.json
 install_authority native/containment/native-shadow-local-execution-authority-v1.json local-execution-authority-v1.json
+sudo install -d -o root -g root -m 0555 "$(dirname "$checker_directory")"
+sudo install -d -o root -g root -m 0555 "$checker_directory"
+checker_installed=true
+sudo install -o root -g root -m 0444 \
+  native/checker/rust-tuple-struct-project-v1/checker.py "$checker_directory/checker.py"
+sudo install -o root -g root -m 0444 \
+  native/checker/rust-tuple-struct-project-v1/policy.json "$checker_directory/policy.json"
+[[ $(sha256sum native/checker/rust-tuple-struct-project-v1/checker.py | awk '{ print $1 }') == $(sudo sha256sum "$checker_directory/checker.py" | awk '{ print $1 }') ]] \
+  || die "installed checker bytes differ"
+[[ $(sha256sum native/checker/rust-tuple-struct-project-v1/policy.json | awk '{ print $1 }') == $(sudo sha256sum "$checker_directory/policy.json" | awk '{ print $1 }') ]] \
+  || die "installed checker policy bytes differ"
+
+if [[ ! -e "$work_path" && ! -L "$work_path" ]]; then
+  sudo install -d -o root -g root -m 0555 "$work_path"
+  work_created=true
+fi
+[[ -d "$work_path" && ! -L "$work_path" ]] \
+  || die "fixed workspace mountpoint is not a nonsymlink directory"
+[[ $(sudo stat -c %U:%G:%a "$work_path") == root:root:555 ]] \
+  || die "fixed workspace mountpoint does not match root:root:0555"
 
 if [[ ! -d "$runtime_parent" ]]; then
   runtime_parent_created=true
@@ -634,6 +665,19 @@ sudo test -d "$service_root/zzz-unexpected" \
 sudo systemctl stop boole-native-shadow-launcher.service
 wait_for_state inactive
 wait_for_background_job "$reject_tree"
+wait_for_cgroup_removal
+
+containment_mode="per-request-containment"
+set_mode "$containment_mode"
+containment_marker="native-shadow-per-request-containment-real-accept"
+containment_marker_before=$(journal_marker_count "$containment_marker")
+sudo systemctl start boole-native-shadow-launcher.service
+wait_for_state inactive
+[[ $(sudo systemctl show "$unit_name" --property=Result --value) == success ]] \
+  || die "per-request containment harness did not exit successfully"
+[[ $(sudo systemctl show "$unit_name" --property=NRestarts --value) == 0 ]] \
+  || die "per-request containment launcher restarted unexpectedly"
+wait_for_marker_increment "$containment_marker" "$containment_marker_before"
 wait_for_cgroup_removal
 
 listener_mode="qualification-one-shot"
