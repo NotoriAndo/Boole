@@ -579,6 +579,81 @@ pub(crate) struct DurableNativeShadowEvidenceCommit {
     evidence_digest: String,
 }
 
+/// Immutable durable binding for one v3 checker attempt. The operation ID is
+/// globally one-shot for the lifetime of the journal, while the candidate
+/// digest binds the exact submitted answer to this challenge execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeShadowFlightBindingV3 {
+    registry_digest: String,
+    execution_policy_digest: NativeShadowExecutionPolicyDigest,
+    operation_id_hex: String,
+    candidate_digest: String,
+}
+
+/// Closed node-owned retryable outcome vocabulary. Checker/deterministic
+/// reason strings cannot be passed to the rollback API or deserialized from
+/// a forged journal line as retryable infrastructure outcomes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum NativeShadowRetryableReasonV3 {
+    NativeBusy,
+    ContainmentWallClockKill,
+    ContainmentKilled,
+    ContainmentEnvironmentUnavailable,
+    CheckerInternalError,
+}
+
+impl NativeShadowRetryableReasonV3 {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::NativeBusy => "native_busy",
+            Self::ContainmentWallClockKill => "containment_wall_clock_kill",
+            Self::ContainmentKilled => "containment_killed",
+            Self::ContainmentEnvironmentUnavailable => "containment_environment_unavailable",
+            Self::CheckerInternalError => "checker_internal_error",
+        }
+    }
+}
+
+/// Opaque proof that startup recovery removed the exact V3 operation's
+/// containment leaf. There is intentionally no production constructor in
+/// this journal-only slice; the trusted containment integration must add the
+/// constructor at the point where it verifies cleanup. Consequently restart
+/// replay cannot be rolled back merely by knowing journal strings.
+#[must_use]
+pub(crate) struct VerifiedNativeShadowCleanupV3 {
+    operation_id_hex: String,
+}
+
+impl VerifiedNativeShadowCleanupV3 {
+    #[cfg(test)]
+    fn for_test(operation_id_hex: &str) -> Self {
+        Self {
+            operation_id_hex: operation_id_hex.to_string(),
+        }
+    }
+}
+
+/// Non-cloneable proof that an `InFlightV3` record is durable. Later v3
+/// transitions consume this capability rather than accepting caller-supplied
+/// operation/candidate bindings again.
+#[derive(Debug)]
+#[must_use]
+pub(crate) struct DurableNativeShadowInFlightV3 {
+    four_tuple: NativeShadowFourTuple,
+    binding: NativeShadowFlightBindingV3,
+}
+
+impl DurableNativeShadowInFlightV3 {
+    pub(crate) fn operation_id_hex(&self) -> &str {
+        &self.binding.operation_id_hex
+    }
+
+    pub(crate) fn candidate_digest(&self) -> &str {
+        &self.binding.candidate_digest
+    }
+}
+
 static NEXT_NATIVE_SHADOW_JOURNAL_AUTHORITY_ID: AtomicU64 = AtomicU64::new(1);
 
 /// The sole writable authority for one native-shadow journal during a node
@@ -830,9 +905,11 @@ impl NativeShadowJournalAuthority {
 
 /// In-memory operational-state store keyed by the four-tuple alone. Its
 /// `resolve` method enforces the row-lookup-before-bootstrap order that
-/// closes F4's registry-drift gap (RED gate 3); `begin_execution` and
-/// `complete_consumed` drive the durable `Active(fresh)` -> `InFlight` ->
-/// `Consumed` state machine (spec section 7). Section 8's `native_busy`
+/// closes F4's registry-drift gap (RED gate 3). The legacy-compatible
+/// `begin_execution` path remains readable, while `begin_execution_v3`
+/// durably binds operation/candidate identity and `retryable_rollback_v3`
+/// is the only live retry path back to `Active(fresh)`. `complete_consumed`
+/// drives the evidence-backed terminal transition. Section 8's `native_busy`
 /// permit is a separate primitive above, and
 /// containment execution (section 9) is a later slice — nothing in this
 /// store acquires the permit or enforces single-flight execution on its own.
@@ -840,6 +917,9 @@ impl NativeShadowJournalAuthority {
 pub(crate) struct NativeShadowStateStore {
     rows: HashMap<NativeShadowFourTuple, NativeShadowStateRow>,
     evidence_commits: HashMap<NativeShadowFourTuple, NativeShadowEvidenceCommitData>,
+    flight_bindings_v3: HashMap<NativeShadowFourTuple, NativeShadowFlightBindingV3>,
+    seen_operation_ids_v3: HashSet<String>,
+    v3_lifecycle_rows: HashSet<NativeShadowFourTuple>,
     journal_authority_id: Option<u64>,
 }
 
@@ -1067,7 +1147,8 @@ impl NativeShadowStateStore {
     /// caller can only start invoking a checker after the durable record
     /// already exists on disk — never the reverse order (spec section 7's
     /// "written durably before the checker is invoked").
-    pub fn begin_execution(
+    #[cfg(test)]
+    fn begin_execution(
         &mut self,
         authority: &mut NativeShadowJournalAuthority,
         four_tuple: &NativeShadowFourTuple,
@@ -1084,6 +1165,9 @@ impl NativeShadowStateStore {
                 expected: ChallengeState::ActiveFresh,
                 actual: row.state,
             });
+        }
+        if self.v3_lifecycle_rows.contains(four_tuple) {
+            return Err(NativeShadowTransitionError::V3Required(four_tuple.clone()));
         }
         let registry_digest = row.registry_digest.clone();
         let row_execution_policy_digest = row.execution_policy_digest.clone();
@@ -1134,6 +1218,216 @@ impl NativeShadowStateStore {
         Ok(())
     }
 
+    /// Start a checker execution under the v3 contract. Unlike the legacy
+    /// compatibility API, this transition cannot be called without the exact
+    /// operation ID and candidate digest that the launcher request will use.
+    /// Both values are journaled before the in-memory row becomes InFlight.
+    pub fn begin_execution_v3(
+        &mut self,
+        authority: &mut NativeShadowJournalAuthority,
+        four_tuple: &NativeShadowFourTuple,
+        execution_policy_digest: &NativeShadowExecutionPolicyDigest,
+        operation_id_hex: &str,
+        candidate_digest: &str,
+    ) -> Result<DurableNativeShadowInFlightV3, NativeShadowTransitionError> {
+        self.bind_journal_authority(authority)?;
+        if !is_lower_sha256_hex(operation_id_hex) {
+            return Err(NativeShadowTransitionError::InvalidOperationId);
+        }
+        if !is_lower_sha256_hex(candidate_digest) {
+            return Err(NativeShadowTransitionError::InvalidCandidateDigest);
+        }
+        if self.seen_operation_ids_v3.contains(operation_id_hex) {
+            return Err(NativeShadowTransitionError::OperationIdReused(
+                operation_id_hex.to_string(),
+            ));
+        }
+        let row = self
+            .rows
+            .get(four_tuple)
+            .ok_or_else(|| NativeShadowTransitionError::NoSuchRow(four_tuple.clone()))?;
+        if row.state != ChallengeState::ActiveFresh {
+            return Err(NativeShadowTransitionError::InvalidState {
+                four_tuple: four_tuple.clone(),
+                expected: ChallengeState::ActiveFresh,
+                actual: row.state,
+            });
+        }
+        let registry_digest = row.registry_digest.clone();
+        let row_execution_policy_digest = row.execution_policy_digest.clone();
+        let row_is_durable = row.durable;
+        if row_execution_policy_digest
+            .as_ref()
+            .is_some_and(|bound| bound != execution_policy_digest)
+            || (row_is_durable
+                && row_execution_policy_digest.as_ref() != Some(execution_policy_digest))
+        {
+            return Err(NativeShadowTransitionError::ExecutionPolicyDrift(
+                four_tuple.clone(),
+            ));
+        }
+        if !row_is_durable {
+            let bootstrap = NativeShadowJournalEvent::BootstrapV2 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: registry_digest.clone(),
+                execution_policy_digest: execution_policy_digest.clone(),
+                state: ChallengeState::ActiveFresh,
+            };
+            authority
+                .append_line(&serde_json::to_string(&bootstrap).map_err(|err| {
+                    NativeShadowTransitionError::Durability(anyhow::Error::from(err))
+                })?)
+                .map_err(|err| NativeShadowTransitionError::Durability(err.into()))?;
+            let row = self.rows.get_mut(four_tuple).expect("row checked above");
+            row.durable = true;
+            row.execution_policy_digest = Some(execution_policy_digest.clone());
+        }
+
+        let binding = NativeShadowFlightBindingV3 {
+            registry_digest: registry_digest.clone(),
+            execution_policy_digest: execution_policy_digest.clone(),
+            operation_id_hex: operation_id_hex.to_string(),
+            candidate_digest: candidate_digest.to_string(),
+        };
+        let event = NativeShadowJournalEvent::InFlightV3 {
+            four_tuple: four_tuple.clone(),
+            registry_digest,
+            execution_policy_digest: execution_policy_digest.clone(),
+            operation_id_hex: operation_id_hex.to_string(),
+            candidate_digest: candidate_digest.to_string(),
+        };
+        authority
+            .append_line(
+                &serde_json::to_string(&event).map_err(|err| {
+                    NativeShadowTransitionError::Durability(anyhow::Error::from(err))
+                })?,
+            )
+            .map_err(|err| NativeShadowTransitionError::Durability(err.into()))?;
+        self.rows
+            .get_mut(four_tuple)
+            .expect("row checked above")
+            .state = ChallengeState::InFlight;
+        self.flight_bindings_v3
+            .insert(four_tuple.clone(), binding.clone());
+        self.seen_operation_ids_v3
+            .insert(operation_id_hex.to_string());
+        self.v3_lifecycle_rows.insert(four_tuple.clone());
+        Ok(DurableNativeShadowInFlightV3 {
+            four_tuple: four_tuple.clone(),
+            binding,
+        })
+    }
+
+    /// Recreate the non-cloneable flight capability after restart, but only
+    /// by consuming an opaque proof that the same operation's containment
+    /// tree was cleaned up. Legacy V1/V2 flights have no V3 binding, and a
+    /// flight with durable terminal evidence is never resumable as retryable.
+    pub fn resume_in_flight_v3(
+        &self,
+        cleanup: VerifiedNativeShadowCleanupV3,
+        four_tuple: &NativeShadowFourTuple,
+        execution_policy_digest: &NativeShadowExecutionPolicyDigest,
+        operation_id_hex: &str,
+        candidate_digest: &str,
+    ) -> Result<DurableNativeShadowInFlightV3, NativeShadowTransitionError> {
+        if cleanup.operation_id_hex != operation_id_hex {
+            return Err(NativeShadowTransitionError::CleanupBindingMismatch);
+        }
+        let row = self
+            .rows
+            .get(four_tuple)
+            .ok_or_else(|| NativeShadowTransitionError::NoSuchRow(four_tuple.clone()))?;
+        if row.state != ChallengeState::InFlight {
+            return Err(NativeShadowTransitionError::InvalidState {
+                four_tuple: four_tuple.clone(),
+                expected: ChallengeState::InFlight,
+                actual: row.state,
+            });
+        }
+        if self.evidence_commits.contains_key(four_tuple) {
+            return Err(NativeShadowTransitionError::RetryableAfterEvidence(
+                four_tuple.clone(),
+            ));
+        }
+        let binding = self.flight_bindings_v3.get(four_tuple).ok_or_else(|| {
+            NativeShadowTransitionError::FlightBindingMismatch(four_tuple.clone())
+        })?;
+        if binding.execution_policy_digest != *execution_policy_digest
+            || binding.operation_id_hex != operation_id_hex
+            || binding.candidate_digest != candidate_digest
+            || row.registry_digest != binding.registry_digest
+            || row.execution_policy_digest.as_ref() != Some(execution_policy_digest)
+        {
+            return Err(NativeShadowTransitionError::FlightBindingMismatch(
+                four_tuple.clone(),
+            ));
+        }
+        Ok(DurableNativeShadowInFlightV3 {
+            four_tuple: four_tuple.clone(),
+            binding: binding.clone(),
+        })
+    }
+
+    /// Return a v3 attempt to `ActiveFresh` after a retryable infrastructure
+    /// outcome. The exact original binding is repeated in the rollback line,
+    /// and that line is fsynced before memory is changed. The operation ID is
+    /// deliberately retained in the global seen set, so retrying requires a
+    /// fresh operation ID even for the same answer and challenge.
+    pub fn retryable_rollback_v3(
+        &mut self,
+        authority: &mut NativeShadowJournalAuthority,
+        flight: &DurableNativeShadowInFlightV3,
+        reason: NativeShadowRetryableReasonV3,
+    ) -> Result<(), NativeShadowTransitionError> {
+        self.bind_journal_authority(authority)?;
+        let four_tuple = &flight.four_tuple;
+        let row = self
+            .rows
+            .get(four_tuple)
+            .ok_or_else(|| NativeShadowTransitionError::NoSuchRow(four_tuple.clone()))?;
+        if row.state != ChallengeState::InFlight {
+            return Err(NativeShadowTransitionError::InvalidState {
+                four_tuple: four_tuple.clone(),
+                expected: ChallengeState::InFlight,
+                actual: row.state,
+            });
+        }
+        if self.evidence_commits.contains_key(four_tuple) {
+            return Err(NativeShadowTransitionError::RetryableAfterEvidence(
+                four_tuple.clone(),
+            ));
+        }
+        if row.registry_digest != flight.binding.registry_digest
+            || row.execution_policy_digest.as_ref() != Some(&flight.binding.execution_policy_digest)
+            || self.flight_bindings_v3.get(four_tuple) != Some(&flight.binding)
+        {
+            return Err(NativeShadowTransitionError::FlightBindingMismatch(
+                four_tuple.clone(),
+            ));
+        }
+        let event = NativeShadowJournalEvent::RetryableRollbackV3 {
+            four_tuple: four_tuple.clone(),
+            registry_digest: flight.binding.registry_digest.clone(),
+            execution_policy_digest: flight.binding.execution_policy_digest.clone(),
+            operation_id_hex: flight.binding.operation_id_hex.clone(),
+            candidate_digest: flight.binding.candidate_digest.clone(),
+            reason,
+        };
+        authority
+            .append_line(
+                &serde_json::to_string(&event).map_err(|err| {
+                    NativeShadowTransitionError::Durability(anyhow::Error::from(err))
+                })?,
+            )
+            .map_err(|err| NativeShadowTransitionError::Durability(err.into()))?;
+        self.rows
+            .get_mut(four_tuple)
+            .expect("row checked above")
+            .state = ChallengeState::ActiveFresh;
+        self.flight_bindings_v3.remove(four_tuple);
+        Ok(())
+    }
+
     /// Persist the exact node-owned evidence bytes before any terminal state
     /// transition. The returned capability is intentionally non-cloneable and
     /// is the only value `complete_consumed` accepts as proof that evidence is
@@ -1166,6 +1460,19 @@ impl NativeShadowStateStore {
             .execution_policy_digest
             .clone()
             .ok_or_else(|| NativeShadowTransitionError::ExecutionPolicyDrift(four_tuple.clone()))?;
+        if self
+            .flight_bindings_v3
+            .get(four_tuple)
+            .is_some_and(|binding| {
+                binding.registry_digest != row.registry_digest
+                    || binding.execution_policy_digest != execution_policy_digest
+                    || binding.candidate_digest != candidate_digest
+            })
+        {
+            return Err(NativeShadowTransitionError::EvidenceBindingMismatch(
+                four_tuple.clone(),
+            ));
+        }
         let evidence: NativeShadowEvidence = serde_json::from_str(evidence_json)
             .map_err(NativeShadowTransitionError::InvalidEvidence)?;
         if evidence.schema != "boole.native-shadow.evidence.v2" {
@@ -1269,6 +1576,7 @@ impl NativeShadowStateStore {
             .get_mut(four_tuple)
             .expect("row checked above")
             .state = ChallengeState::Consumed;
+        self.flight_bindings_v3.remove(four_tuple);
         exhaustion_ledger.record_terminal(four_tuple.clone());
         Ok(())
     }
@@ -1292,6 +1600,13 @@ pub(crate) enum NativeShadowTransitionError {
     EvidenceBindingMismatch(NativeShadowFourTuple),
     ExecutionPolicyDrift(NativeShadowFourTuple),
     JournalAuthorityMismatch,
+    InvalidOperationId,
+    InvalidCandidateDigest,
+    OperationIdReused(String),
+    FlightBindingMismatch(NativeShadowFourTuple),
+    RetryableAfterEvidence(NativeShadowFourTuple),
+    CleanupBindingMismatch,
+    V3Required(NativeShadowFourTuple),
 }
 
 impl std::fmt::Display for NativeShadowTransitionError {
@@ -1335,6 +1650,34 @@ impl std::fmt::Display for NativeShadowTransitionError {
                 f,
                 "native-shadow: state store is bound to a different journal authority"
             ),
+            Self::InvalidOperationId => write!(
+                f,
+                "native-shadow: operationIdHex must be 64 lowercase hexadecimal characters"
+            ),
+            Self::InvalidCandidateDigest => write!(
+                f,
+                "native-shadow: candidateDigest must be 64 lowercase hexadecimal characters"
+            ),
+            Self::OperationIdReused(operation_id) => write!(
+                f,
+                "native-shadow: operationIdHex was already used: {operation_id}"
+            ),
+            Self::FlightBindingMismatch(four_tuple) => write!(
+                f,
+                "native-shadow: durable v3 flight binding mismatch for {four_tuple:?}"
+            ),
+            Self::RetryableAfterEvidence(four_tuple) => write!(
+                f,
+                "native-shadow: retryable rollback is forbidden after evidence for {four_tuple:?}"
+            ),
+            Self::CleanupBindingMismatch => write!(
+                f,
+                "native-shadow: verified cleanup does not match the recovered operation"
+            ),
+            Self::V3Required(four_tuple) => write!(
+                f,
+                "native-shadow: v3 lifecycle row cannot downgrade to v2 for {four_tuple:?}"
+            ),
         }
     }
 }
@@ -1342,9 +1685,10 @@ impl std::fmt::Display for NativeShadowTransitionError {
 impl std::error::Error for NativeShadowTransitionError {}
 
 /// Single durable per-key authority (spec section 7). Un-suffixed variants
-/// are read-only legacy v1 records. Every new lifecycle writes the v2
-/// variants, which carry one immutable execution-policy binding from
-/// bootstrap through terminal consumption. Recovery derives the in-memory
+/// are read-only legacy v1 records. V2 records retain compatibility with the
+/// earlier execution-policy-bound lifecycle. New checker attempts use V3 to
+/// bind operation/candidate identity and to record retryable rollback without
+/// erasing global operation-ID history. Recovery derives the in-memory
 /// exhaustion view from terminal lines; there is no second independently
 /// writable exhaustion file that can drift from this history.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1379,6 +1723,32 @@ enum NativeShadowJournalEvent {
         registry_digest: String,
         #[serde(rename = "executionPolicyDigest")]
         execution_policy_digest: NativeShadowExecutionPolicyDigest,
+    },
+    InFlightV3 {
+        #[serde(flatten)]
+        four_tuple: NativeShadowFourTuple,
+        #[serde(rename = "registryDigest")]
+        registry_digest: String,
+        #[serde(rename = "executionPolicyDigest")]
+        execution_policy_digest: NativeShadowExecutionPolicyDigest,
+        #[serde(rename = "operationIdHex")]
+        operation_id_hex: String,
+        #[serde(rename = "candidateDigest")]
+        candidate_digest: String,
+    },
+    RetryableRollbackV3 {
+        #[serde(flatten)]
+        four_tuple: NativeShadowFourTuple,
+        #[serde(rename = "registryDigest")]
+        registry_digest: String,
+        #[serde(rename = "executionPolicyDigest")]
+        execution_policy_digest: NativeShadowExecutionPolicyDigest,
+        #[serde(rename = "operationIdHex")]
+        operation_id_hex: String,
+        #[serde(rename = "candidateDigest")]
+        candidate_digest: String,
+        #[serde(rename = "reasonCode")]
+        reason: NativeShadowRetryableReasonV3,
     },
     Evidence {
         #[serde(flatten)]
@@ -1447,6 +1817,9 @@ pub(crate) struct NativeShadowJournalReplay {
     pub execution_policy_digests:
         HashMap<NativeShadowFourTuple, Option<NativeShadowExecutionPolicyDigest>>,
     evidence_commits: HashMap<NativeShadowFourTuple, NativeShadowEvidenceCommitData>,
+    flight_bindings_v3: HashMap<NativeShadowFourTuple, NativeShadowFlightBindingV3>,
+    seen_operation_ids_v3: HashSet<String>,
+    v3_lifecycle_rows: HashSet<NativeShadowFourTuple>,
     exhausted: HashSet<NativeShadowFourTuple>,
     pub stuck_in_flight: Vec<NativeShadowFourTuple>,
 }
@@ -1463,6 +1836,9 @@ pub(crate) fn replay_native_shadow_journal(
     > = HashMap::new();
     let mut evidence_commits: HashMap<NativeShadowFourTuple, NativeShadowEvidenceCommitData> =
         HashMap::new();
+    let mut flight_bindings_v3 = HashMap::new();
+    let mut seen_operation_ids_v3 = HashSet::new();
+    let mut v3_lifecycle_rows = HashSet::new();
     let mut exhausted = HashSet::new();
     for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
         let event: NativeShadowJournalEvent = serde_json::from_str(line).map_err(|err| {
@@ -1560,6 +1936,88 @@ pub(crate) fn replay_native_shadow_journal(
                 );
                 resolved.insert(four_tuple, ChallengeState::InFlight);
             }
+            NativeShadowJournalEvent::InFlightV3 {
+                four_tuple,
+                registry_digest,
+                execution_policy_digest,
+                operation_id_hex,
+                candidate_digest,
+            } => {
+                anyhow::ensure!(
+                    resolved.get(&four_tuple) == Some(&ChallengeState::ActiveFresh),
+                    "nativeShadowJournal: line {} transitions a non-Active row to InFlight",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    registry_digests.get(&four_tuple) == Some(&registry_digest),
+                    "nativeShadowJournal: line {} changes registryDigest for an existing row",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    execution_policy_digests.get(&four_tuple)
+                        == Some(&Some(execution_policy_digest.clone())),
+                    "nativeShadowJournal: line {} changes executionPolicyDigest or mixes lifecycle versions",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    is_lower_sha256_hex(&operation_id_hex),
+                    "nativeShadowJournal: line {} has invalid operationIdHex",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    is_lower_sha256_hex(&candidate_digest),
+                    "nativeShadowJournal: line {} has invalid candidateDigest",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    seen_operation_ids_v3.insert(operation_id_hex.clone()),
+                    "nativeShadowJournal: line {} reuses operationIdHex",
+                    i + 1
+                );
+                flight_bindings_v3.insert(
+                    four_tuple.clone(),
+                    NativeShadowFlightBindingV3 {
+                        registry_digest,
+                        execution_policy_digest,
+                        operation_id_hex,
+                        candidate_digest,
+                    },
+                );
+                v3_lifecycle_rows.insert(four_tuple.clone());
+                resolved.insert(four_tuple, ChallengeState::InFlight);
+            }
+            NativeShadowJournalEvent::RetryableRollbackV3 {
+                four_tuple,
+                registry_digest,
+                execution_policy_digest,
+                operation_id_hex,
+                candidate_digest,
+                reason: _,
+            } => {
+                anyhow::ensure!(
+                    resolved.get(&four_tuple) == Some(&ChallengeState::InFlight),
+                    "nativeShadowJournal: line {} rolls back a non-InFlight row",
+                    i + 1
+                );
+                let expected = NativeShadowFlightBindingV3 {
+                    registry_digest,
+                    execution_policy_digest,
+                    operation_id_hex,
+                    candidate_digest,
+                };
+                anyhow::ensure!(
+                    flight_bindings_v3.get(&four_tuple) == Some(&expected),
+                    "nativeShadowJournal: line {} retryable rollback binding mismatch",
+                    i + 1
+                );
+                anyhow::ensure!(
+                    !evidence_commits.contains_key(&four_tuple),
+                    "nativeShadowJournal: line {} rolls back after durable evidence",
+                    i + 1
+                );
+                flight_bindings_v3.remove(&four_tuple);
+                resolved.insert(four_tuple, ChallengeState::ActiveFresh);
+            }
             NativeShadowJournalEvent::Evidence {
                 four_tuple,
                 registry_digest,
@@ -1643,6 +2101,15 @@ pub(crate) fn replay_native_shadow_journal(
                     "nativeShadowJournal: line {} changes executionPolicyDigest or mixes lifecycle versions",
                     i + 1
                 );
+                if let Some(binding) = flight_bindings_v3.get(&four_tuple) {
+                    anyhow::ensure!(
+                        binding.registry_digest == registry_digest
+                            && binding.execution_policy_digest == execution_policy_digest
+                            && binding.candidate_digest == candidate_digest,
+                        "nativeShadowJournal: line {} evidence does not match its InFlightV3 binding",
+                        i + 1
+                    );
+                }
                 anyhow::ensure!(
                     evidence_digest == sha256_hex(evidence_json.as_bytes()),
                     "nativeShadowJournal: line {} evidenceDigest does not bind evidenceJson",
@@ -1720,6 +2187,7 @@ pub(crate) fn replay_native_shadow_journal(
                     i + 1
                 );
                 exhausted.insert(four_tuple.clone());
+                flight_bindings_v3.remove(&four_tuple);
                 resolved.insert(four_tuple, ChallengeState::Consumed);
             }
             NativeShadowJournalEvent::TerminalConsumedV2 {
@@ -1762,6 +2230,7 @@ pub(crate) fn replay_native_shadow_journal(
                     i + 1
                 );
                 exhausted.insert(four_tuple.clone());
+                flight_bindings_v3.remove(&four_tuple);
                 resolved.insert(four_tuple, ChallengeState::Consumed);
             }
         }
@@ -1776,6 +2245,9 @@ pub(crate) fn replay_native_shadow_journal(
         registry_digests,
         execution_policy_digests,
         evidence_commits,
+        flight_bindings_v3,
+        seen_operation_ids_v3,
+        v3_lifecycle_rows,
         exhausted,
         stuck_in_flight,
     })
@@ -1867,6 +2339,9 @@ pub(crate) fn recover_native_shadow_state(
         );
     }
     store.evidence_commits = replay.evidence_commits.clone();
+    store.flight_bindings_v3 = replay.flight_bindings_v3.clone();
+    store.seen_operation_ids_v3 = replay.seen_operation_ids_v3.clone();
+    store.v3_lifecycle_rows = replay.v3_lifecycle_rows.clone();
     for template in &registry.templates {
         let four_tuple = registry.four_tuple(template);
         if stuck.contains(&four_tuple) {
@@ -4204,5 +4679,846 @@ mod tests {
             Some(ChallengeState::InFlight)
         );
         assert!(!ledger.contains(&four_tuple));
+    }
+
+    #[test]
+    fn v3_begin_durably_binds_operation_and_candidate_before_in_flight() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"v3-operation-one");
+        let candidate_digest = sha256_hex(b"v3-candidate-one");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-operation-binding");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        let mut recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("recovery");
+
+        let flight = recovery
+            .store
+            .begin_execution_v3(
+                &mut authority,
+                &four_tuple,
+                &policy,
+                &operation_id,
+                &candidate_digest,
+            )
+            .expect("durable v3 in-flight binding");
+
+        assert_eq!(flight.operation_id_hex(), operation_id);
+        assert_eq!(flight.candidate_digest(), candidate_digest);
+        assert_eq!(
+            recovery.store.rows.get(&four_tuple).map(|row| row.state),
+            Some(ChallengeState::InFlight)
+        );
+        let raw = std::fs::read_to_string(&journal_path).expect("journal");
+        let last: serde_json::Value =
+            serde_json::from_str(raw.lines().last().expect("v3 in-flight journal line"))
+                .expect("v3 journal JSON");
+        assert_eq!(last["kind"], "in_flight_v3");
+        assert_eq!(last["operationIdHex"], operation_id);
+        assert_eq!(last["candidateDigest"], candidate_digest);
+        assert_eq!(last["executionPolicyDigest"], policy.as_str());
+    }
+
+    #[test]
+    fn v3_retryable_rollback_is_durable_before_reactivating_the_challenge() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"v3-retryable-operation");
+        let candidate_digest = sha256_hex(b"v3-retryable-candidate");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-retryable-rollback");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        let mut recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("recovery");
+        let flight = recovery
+            .store
+            .begin_execution_v3(
+                &mut authority,
+                &four_tuple,
+                &policy,
+                &operation_id,
+                &candidate_digest,
+            )
+            .expect("begin v3");
+
+        recovery
+            .store
+            .retryable_rollback_v3(
+                &mut authority,
+                &flight,
+                NativeShadowRetryableReasonV3::ContainmentEnvironmentUnavailable,
+            )
+            .expect("durable retryable rollback");
+
+        assert_eq!(
+            recovery.store.rows.get(&four_tuple).map(|row| row.state),
+            Some(ChallengeState::ActiveFresh)
+        );
+        assert!(!recovery.store.flight_bindings_v3.contains_key(&four_tuple));
+        assert!(recovery.store.seen_operation_ids_v3.contains(&operation_id));
+        let raw = std::fs::read_to_string(&journal_path).expect("journal");
+        let last: serde_json::Value =
+            serde_json::from_str(raw.lines().last().expect("rollback journal line"))
+                .expect("rollback JSON");
+        assert_eq!(last["kind"], "retryable_rollback_v3");
+        assert_eq!(last["operationIdHex"], operation_id);
+        assert_eq!(last["candidateDigest"], candidate_digest);
+        assert_eq!(
+            last["reasonCode"],
+            NativeShadowRetryableReasonV3::ContainmentEnvironmentUnavailable.as_str()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn v3_retryable_rollback_append_failure_leaves_memory_and_journal_in_flight() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"v3-rollback-write-failure-operation");
+        let candidate_digest = sha256_hex(b"v3-rollback-write-failure-candidate");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-rollback-write-failure");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        let mut recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("recovery");
+        let flight = recovery
+            .store
+            .begin_execution_v3(
+                &mut authority,
+                &four_tuple,
+                &policy,
+                &operation_id,
+                &candidate_digest,
+            )
+            .expect("begin v3");
+        let before = std::fs::read(&journal_path).expect("journal before failure");
+        authority.fail_next_append_for_test();
+
+        assert!(matches!(
+            recovery.store.retryable_rollback_v3(
+                &mut authority,
+                &flight,
+                NativeShadowRetryableReasonV3::ContainmentEnvironmentUnavailable,
+            ),
+            Err(NativeShadowTransitionError::Durability(_))
+        ));
+        assert_eq!(
+            recovery.store.rows.get(&four_tuple).map(|row| row.state),
+            Some(ChallengeState::InFlight)
+        );
+        assert_eq!(
+            recovery
+                .store
+                .flight_bindings_v3
+                .get(&four_tuple)
+                .map(|binding| binding.operation_id_hex.as_str()),
+            Some(operation_id.as_str())
+        );
+        assert!(recovery.store.seen_operation_ids_v3.contains(&operation_id));
+        assert_eq!(flight.operation_id_hex(), operation_id);
+        assert_eq!(flight.candidate_digest(), candidate_digest);
+        assert_eq!(std::fs::read(&journal_path).expect("journal"), before);
+    }
+
+    #[test]
+    fn v3_operation_id_remains_globally_spent_after_rollback_and_restart() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"v3-one-shot-operation");
+        let first_candidate = sha256_hex(b"v3-first-candidate");
+        let second_candidate = sha256_hex(b"v3-second-candidate");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-operation-restart-reuse");
+
+        {
+            let mut authority =
+                NativeShadowJournalAuthority::open(&journal_path).expect("first authority");
+            let mut recovery =
+                recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                    .expect("first recovery");
+            let flight = recovery
+                .store
+                .begin_execution_v3(
+                    &mut authority,
+                    &four_tuple,
+                    &policy,
+                    &operation_id,
+                    &first_candidate,
+                )
+                .expect("first begin");
+            recovery
+                .store
+                .retryable_rollback_v3(
+                    &mut authority,
+                    &flight,
+                    NativeShadowRetryableReasonV3::ContainmentEnvironmentUnavailable,
+                )
+                .expect("rollback");
+        }
+
+        let before = std::fs::read(&journal_path).expect("journal before reuse");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("second authority");
+        let mut recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("second recovery");
+        assert_eq!(
+            recovery.store.rows.get(&four_tuple).map(|row| row.state),
+            Some(ChallengeState::ActiveFresh)
+        );
+        assert!(matches!(
+            recovery.store.begin_execution_v3(
+                &mut authority,
+                &four_tuple,
+                &policy,
+                &operation_id,
+                &second_candidate,
+            ),
+            Err(NativeShadowTransitionError::OperationIdReused(id)) if id == operation_id
+        ));
+        assert_eq!(std::fs::read(&journal_path).expect("journal"), before);
+    }
+
+    #[test]
+    fn v3_operation_id_is_global_across_distinct_four_tuples() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let first = registry.four_tuple(&registry.templates[0]);
+        let mut second = first.clone();
+        second.epoch = second.epoch.checked_add(1).expect("test epoch");
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"v3-cross-tuple-operation");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-operation-cross-tuple");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        let mut store = NativeShadowStateStore::default();
+        for four_tuple in [&first, &second] {
+            assert_eq!(
+                store.resolve_with_execution_policy(four_tuple, "registry-digest", &policy, || {
+                    ChallengeState::ActiveFresh
+                },),
+                ResolveOutcome::Bootstrapped(ChallengeState::ActiveFresh)
+            );
+        }
+        let _flight = store
+            .begin_execution_v3(
+                &mut authority,
+                &first,
+                &policy,
+                &operation_id,
+                &sha256_hex(b"v3-cross-tuple-first-candidate"),
+            )
+            .expect("first tuple begins");
+        let before = std::fs::read(&journal_path).expect("journal before collision");
+
+        assert!(matches!(
+            store.begin_execution_v3(
+                &mut authority,
+                &second,
+                &policy,
+                &operation_id,
+                &sha256_hex(b"v3-cross-tuple-second-candidate"),
+            ),
+            Err(NativeShadowTransitionError::OperationIdReused(id)) if id == operation_id
+        ));
+        assert_eq!(
+            store.rows.get(&second).map(|row| row.state),
+            Some(ChallengeState::ActiveFresh)
+        );
+        assert_eq!(std::fs::read(&journal_path).expect("journal"), before);
+    }
+
+    #[test]
+    fn torn_v3_rollback_tail_recovers_the_durable_in_flight_binding() {
+        use std::io::Write as _;
+
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"v3-torn-rollback-operation");
+        let candidate_digest = sha256_hex(b"v3-torn-rollback-candidate");
+        let (journal_path, _other_path) = scratch_journal_and_exhaustion_paths("v3-torn-rollback");
+
+        {
+            let mut authority =
+                NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+            let mut recovery =
+                recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                    .expect("recovery");
+            let _flight = recovery
+                .store
+                .begin_execution_v3(
+                    &mut authority,
+                    &four_tuple,
+                    &policy,
+                    &operation_id,
+                    &candidate_digest,
+                )
+                .expect("begin v3");
+            let mut raw = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&journal_path)
+                .expect("append torn tail");
+            raw.write_all(b"{\"kind\":\"retryable_rollback_v3\"")
+                .expect("write torn tail");
+            raw.sync_all().expect("sync torn tail");
+        }
+
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("reopen authority");
+        let replay = replay_native_shadow_journal(&mut authority).expect("stable replay");
+        assert_eq!(
+            replay.resolved.get(&four_tuple),
+            Some(&ChallengeState::InFlight)
+        );
+        assert_eq!(replay.stuck_in_flight, vec![four_tuple.clone()]);
+        assert_eq!(
+            replay
+                .flight_bindings_v3
+                .get(&four_tuple)
+                .map(|binding| binding.operation_id_hex.as_str()),
+            Some(operation_id.as_str())
+        );
+        assert!(replay.seen_operation_ids_v3.contains(&operation_id));
+        assert!(!std::fs::read_to_string(&journal_path)
+            .expect("repaired journal")
+            .contains("retryable_rollback_v3"));
+    }
+
+    #[test]
+    fn replay_refuses_to_upgrade_a_legacy_v2_flight_with_a_v3_rollback() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v2-flight-v3-rollback-refused");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        for event in [
+            NativeShadowJournalEvent::BootstrapV2 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: "registry-digest".to_string(),
+                execution_policy_digest: policy.clone(),
+                state: ChallengeState::ActiveFresh,
+            },
+            NativeShadowJournalEvent::InFlightV2 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: "registry-digest".to_string(),
+                execution_policy_digest: policy.clone(),
+            },
+            NativeShadowJournalEvent::RetryableRollbackV3 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: "registry-digest".to_string(),
+                execution_policy_digest: policy,
+                operation_id_hex: sha256_hex(b"invented-operation"),
+                candidate_digest: sha256_hex(b"invented-candidate"),
+                reason: NativeShadowRetryableReasonV3::ContainmentEnvironmentUnavailable,
+            },
+        ] {
+            authority
+                .append_line(&serde_json::to_string(&event).expect("event"))
+                .expect("append event");
+        }
+
+        let err = replay_native_shadow_journal(&mut authority)
+            .expect_err("a legacy v2 flight has no v3 binding to roll back");
+        assert!(
+            err.to_string()
+                .contains("retryable rollback binding mismatch"),
+            "unexpected replay failure: {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn v3_begin_append_failure_does_not_reserve_operation_or_change_state() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"v3-begin-write-failure-operation");
+        let candidate_digest = sha256_hex(b"v3-begin-write-failure-candidate");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-begin-write-failure");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        let mut recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("durable bootstrap");
+        let before = std::fs::read(&journal_path).expect("bootstrap bytes");
+        authority.fail_next_append_for_test();
+
+        assert!(matches!(
+            recovery.store.begin_execution_v3(
+                &mut authority,
+                &four_tuple,
+                &policy,
+                &operation_id,
+                &candidate_digest,
+            ),
+            Err(NativeShadowTransitionError::Durability(_))
+        ));
+        assert_eq!(
+            recovery.store.rows.get(&four_tuple).map(|row| row.state),
+            Some(ChallengeState::ActiveFresh)
+        );
+        assert!(!recovery.store.flight_bindings_v3.contains_key(&four_tuple));
+        assert!(!recovery.store.seen_operation_ids_v3.contains(&operation_id));
+        assert_eq!(std::fs::read(&journal_path).expect("journal"), before);
+    }
+
+    #[test]
+    fn replay_rejects_operation_id_collision_even_after_retryable_rollback() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"v3-replay-collision-operation");
+        let first_candidate = sha256_hex(b"v3-replay-collision-first");
+        let second_candidate = sha256_hex(b"v3-replay-collision-second");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-replay-operation-collision");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        for event in [
+            NativeShadowJournalEvent::BootstrapV2 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: "registry-digest".to_string(),
+                execution_policy_digest: policy.clone(),
+                state: ChallengeState::ActiveFresh,
+            },
+            NativeShadowJournalEvent::InFlightV3 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: "registry-digest".to_string(),
+                execution_policy_digest: policy.clone(),
+                operation_id_hex: operation_id.clone(),
+                candidate_digest: first_candidate.clone(),
+            },
+            NativeShadowJournalEvent::RetryableRollbackV3 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: "registry-digest".to_string(),
+                execution_policy_digest: policy.clone(),
+                operation_id_hex: operation_id.clone(),
+                candidate_digest: first_candidate,
+                reason: NativeShadowRetryableReasonV3::ContainmentEnvironmentUnavailable,
+            },
+            NativeShadowJournalEvent::InFlightV3 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: "registry-digest".to_string(),
+                execution_policy_digest: policy,
+                operation_id_hex: operation_id,
+                candidate_digest: second_candidate,
+            },
+        ] {
+            authority
+                .append_line(&serde_json::to_string(&event).expect("event"))
+                .expect("append event");
+        }
+
+        let err = replay_native_shadow_journal(&mut authority)
+            .expect_err("operation IDs are globally one-shot across rollbacks");
+        assert!(
+            err.to_string().contains("reuses operationIdHex"),
+            "unexpected replay failure: {err}"
+        );
+    }
+
+    #[test]
+    fn v3_flight_refuses_evidence_for_a_different_candidate() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let bound_candidate = sha256_hex(b"v3-bound-candidate");
+        let other_candidate = sha256_hex(b"v3-other-candidate");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-candidate-evidence-binding");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        let mut recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("recovery");
+        let _flight = recovery
+            .store
+            .begin_execution_v3(
+                &mut authority,
+                &four_tuple,
+                &policy,
+                &sha256_hex(b"v3-candidate-binding-operation"),
+                &bound_candidate,
+            )
+            .expect("begin v3");
+        let before = std::fs::read(&journal_path).expect("journal before evidence");
+        let evidence_json =
+            test_evidence_v2_json(&four_tuple, &other_candidate, "v3-other", &policy);
+
+        assert!(matches!(
+            recovery.store.persist_evidence(
+                &mut authority,
+                &four_tuple,
+                &other_candidate,
+                &evidence_json,
+            ),
+            Err(NativeShadowTransitionError::EvidenceBindingMismatch(key)) if key == four_tuple
+        ));
+        assert!(!recovery.store.evidence_commits.contains_key(&four_tuple));
+        assert_eq!(std::fs::read(&journal_path).expect("journal"), before);
+    }
+
+    #[test]
+    fn restarted_v3_flight_can_resume_its_exact_binding_and_roll_back() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"v3-resume-operation");
+        let candidate_digest = sha256_hex(b"v3-resume-candidate");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-resume-after-restart");
+        {
+            let mut authority =
+                NativeShadowJournalAuthority::open(&journal_path).expect("first authority");
+            let mut recovery =
+                recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                    .expect("first recovery");
+            let _flight = recovery
+                .store
+                .begin_execution_v3(
+                    &mut authority,
+                    &four_tuple,
+                    &policy,
+                    &operation_id,
+                    &candidate_digest,
+                )
+                .expect("begin v3");
+        }
+
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("second authority");
+        let mut recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("second recovery");
+        let resumed = recovery
+            .store
+            .resume_in_flight_v3(
+                VerifiedNativeShadowCleanupV3::for_test(&operation_id),
+                &four_tuple,
+                &policy,
+                &operation_id,
+                &candidate_digest,
+            )
+            .expect("resume exact durable binding");
+        recovery
+            .store
+            .retryable_rollback_v3(
+                &mut authority,
+                &resumed,
+                NativeShadowRetryableReasonV3::ContainmentEnvironmentUnavailable,
+            )
+            .expect("recovery rollback");
+        assert_eq!(
+            recovery.store.rows.get(&four_tuple).map(|row| row.state),
+            Some(ChallengeState::ActiveFresh)
+        );
+    }
+
+    #[test]
+    fn restarted_v3_flight_rejects_cleanup_for_a_different_operation_without_mutation() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"v3-cleanup-bound-operation");
+        let wrong_operation_id = sha256_hex(b"v3-cleanup-wrong-operation");
+        let candidate_digest = sha256_hex(b"v3-cleanup-bound-candidate");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-cleanup-binding-mismatch");
+        {
+            let mut authority =
+                NativeShadowJournalAuthority::open(&journal_path).expect("first authority");
+            let mut recovery =
+                recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                    .expect("first recovery");
+            let _flight = recovery
+                .store
+                .begin_execution_v3(
+                    &mut authority,
+                    &four_tuple,
+                    &policy,
+                    &operation_id,
+                    &candidate_digest,
+                )
+                .expect("begin v3");
+        }
+
+        let before = std::fs::read(&journal_path).expect("journal before resume");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("second authority");
+        let recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("second recovery");
+
+        assert!(matches!(
+            recovery.store.resume_in_flight_v3(
+                VerifiedNativeShadowCleanupV3::for_test(&wrong_operation_id),
+                &four_tuple,
+                &policy,
+                &operation_id,
+                &candidate_digest,
+            ),
+            Err(NativeShadowTransitionError::CleanupBindingMismatch)
+        ));
+        assert_eq!(
+            recovery.store.rows.get(&four_tuple).map(|row| row.state),
+            Some(ChallengeState::InFlight)
+        );
+        assert_eq!(
+            std::fs::read(&journal_path).expect("journal after resume"),
+            before
+        );
+    }
+
+    #[test]
+    fn recovered_legacy_v1_flight_cannot_resume_with_v3_cleanup_capability() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"legacy-v1-cleanup-operation");
+        let candidate_digest = sha256_hex(b"legacy-v1-cleanup-candidate");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("legacy-v1-v3-resume-refused");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        for event in [
+            NativeShadowJournalEvent::Bootstrap {
+                four_tuple: four_tuple.clone(),
+                registry_digest: "registry-digest".to_string(),
+                state: ChallengeState::ActiveFresh,
+            },
+            NativeShadowJournalEvent::InFlight {
+                four_tuple: four_tuple.clone(),
+                registry_digest: "registry-digest".to_string(),
+            },
+        ] {
+            authority
+                .append_line(&serde_json::to_string(&event).expect("legacy event"))
+                .expect("append legacy event");
+        }
+        drop(authority);
+
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("second authority");
+        let recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("legacy recovery");
+
+        assert!(matches!(
+            recovery.store.resume_in_flight_v3(
+                VerifiedNativeShadowCleanupV3::for_test(&operation_id),
+                &four_tuple,
+                &policy,
+                &operation_id,
+                &candidate_digest,
+            ),
+            Err(NativeShadowTransitionError::FlightBindingMismatch(key)) if key == four_tuple
+        ));
+    }
+
+    #[test]
+    fn recovered_legacy_v2_flight_cannot_resume_with_v3_cleanup_capability() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"legacy-v2-cleanup-operation");
+        let candidate_digest = sha256_hex(b"legacy-v2-cleanup-candidate");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("legacy-v2-v3-resume-refused");
+        {
+            let mut authority =
+                NativeShadowJournalAuthority::open(&journal_path).expect("first authority");
+            let mut recovery =
+                recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                    .expect("first recovery");
+            recovery
+                .store
+                .begin_execution(&mut authority, &four_tuple, &policy)
+                .expect("legacy v2 begin");
+        }
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("second authority");
+        let recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("second recovery");
+
+        assert!(matches!(
+            recovery.store.resume_in_flight_v3(
+                VerifiedNativeShadowCleanupV3::for_test(&operation_id),
+                &four_tuple,
+                &policy,
+                &operation_id,
+                &candidate_digest,
+            ),
+            Err(NativeShadowTransitionError::FlightBindingMismatch(key)) if key == four_tuple
+        ));
+    }
+
+    #[test]
+    fn recovered_v3_flight_with_terminal_evidence_cannot_roll_back() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"v3-evidence-cleanup-operation");
+        let candidate_digest = sha256_hex(b"v3-evidence-cleanup-candidate");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-evidence-resume-refused");
+        {
+            let mut authority =
+                NativeShadowJournalAuthority::open(&journal_path).expect("first authority");
+            let mut recovery =
+                recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                    .expect("first recovery");
+            let _flight = recovery
+                .store
+                .begin_execution_v3(
+                    &mut authority,
+                    &four_tuple,
+                    &policy,
+                    &operation_id,
+                    &candidate_digest,
+                )
+                .expect("begin v3");
+            let evidence_json =
+                test_evidence_v2_json(&four_tuple, &candidate_digest, "v3-evidence", &policy);
+            let _evidence = recovery
+                .store
+                .persist_evidence(
+                    &mut authority,
+                    &four_tuple,
+                    &candidate_digest,
+                    &evidence_json,
+                )
+                .expect("persist terminal evidence");
+        }
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("second authority");
+        let recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("second recovery");
+
+        assert!(matches!(
+            recovery.store.resume_in_flight_v3(
+                VerifiedNativeShadowCleanupV3::for_test(&operation_id),
+                &four_tuple,
+                &policy,
+                &operation_id,
+                &candidate_digest,
+            ),
+            Err(NativeShadowTransitionError::RetryableAfterEvidence(key)) if key == four_tuple
+        ));
+    }
+
+    #[test]
+    fn v3_rollback_cannot_downgrade_the_next_attempt_to_v2() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-rollback-v2-downgrade");
+        {
+            let mut authority =
+                NativeShadowJournalAuthority::open(&journal_path).expect("first authority");
+            let mut recovery =
+                recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                    .expect("first recovery");
+            let flight = recovery
+                .store
+                .begin_execution_v3(
+                    &mut authority,
+                    &four_tuple,
+                    &policy,
+                    &sha256_hex(b"v3-downgrade-operation"),
+                    &sha256_hex(b"v3-downgrade-candidate"),
+                )
+                .expect("begin v3");
+            recovery
+                .store
+                .retryable_rollback_v3(
+                    &mut authority,
+                    &flight,
+                    NativeShadowRetryableReasonV3::ContainmentEnvironmentUnavailable,
+                )
+                .expect("rollback v3");
+        }
+        let before = std::fs::read(&journal_path).expect("journal before downgrade");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("second authority");
+        let mut recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("second recovery");
+
+        assert!(matches!(
+            recovery
+                .store
+                .begin_execution(&mut authority, &four_tuple, &policy),
+            Err(NativeShadowTransitionError::V3Required(key)) if key == four_tuple
+        ));
+        assert_eq!(
+            recovery.store.rows.get(&four_tuple).map(|row| row.state),
+            Some(ChallengeState::ActiveFresh)
+        );
+        assert_eq!(std::fs::read(&journal_path).expect("journal"), before);
+    }
+
+    #[test]
+    fn replay_rejects_deterministic_reason_disguised_as_retryable_rollback() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        for reason in ["accepted", "checker_rejected", "arbitrary_retryable"] {
+            let operation_id = sha256_hex(format!("v3-forged-{reason}-operation").as_bytes());
+            let candidate_digest = sha256_hex(format!("v3-forged-{reason}-candidate").as_bytes());
+            let (journal_path, _other_path) =
+                scratch_journal_and_exhaustion_paths(&format!("v3-forged-{reason}"));
+            let mut authority =
+                NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+            for event in [
+                NativeShadowJournalEvent::BootstrapV2 {
+                    four_tuple: four_tuple.clone(),
+                    registry_digest: "registry-digest".to_string(),
+                    execution_policy_digest: policy.clone(),
+                    state: ChallengeState::ActiveFresh,
+                },
+                NativeShadowJournalEvent::InFlightV3 {
+                    four_tuple: four_tuple.clone(),
+                    registry_digest: "registry-digest".to_string(),
+                    execution_policy_digest: policy.clone(),
+                    operation_id_hex: operation_id.clone(),
+                    candidate_digest: candidate_digest.clone(),
+                },
+            ] {
+                authority
+                    .append_line(&serde_json::to_string(&event).expect("event"))
+                    .expect("append event");
+            }
+            let forged = serde_json::json!({
+                "kind": "retryable_rollback_v3",
+                "familyVersion": four_tuple.family_version,
+                "templateId": four_tuple.template_id,
+                "challengeSha256": four_tuple.challenge_sha256,
+                "epoch": four_tuple.epoch,
+                "registryDigest": "registry-digest",
+                "executionPolicyDigest": policy.as_str(),
+                "operationIdHex": operation_id,
+                "candidateDigest": candidate_digest,
+                "reasonCode": reason,
+            });
+            authority
+                .append_line(&forged.to_string())
+                .expect("append forged rollback");
+
+            let err = replay_native_shadow_journal(&mut authority)
+                .expect_err("non-retryable reason cannot be journaled as retryable");
+            assert!(
+                err.to_string().contains("unknown variant"),
+                "unexpected replay failure for {reason}: {err}"
+            );
+        }
     }
 }
