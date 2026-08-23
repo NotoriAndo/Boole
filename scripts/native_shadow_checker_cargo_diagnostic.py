@@ -25,6 +25,13 @@ ALLOWED_CATEGORIES = frozenset(
         "wall_limit",
         "output_limit",
         "authority_unavailable",
+        "rustc_version_permission_denied",
+        "rustc_version_failed",
+        "rustc_metadata_permission_denied",
+        "rustc_metadata_failed",
+        "rustc_link_permission_denied",
+        "rustc_linker_failed",
+        "rustc_link_failed",
         "rustc_probe_permission_denied",
         "rustc_probe_linker_failed",
         "rustc_probe_failed",
@@ -105,8 +112,39 @@ def load_checker():
 
 def run_fixed_rust_probe(checker, original, cwd, env, limits) -> str | None:
     source = cwd / "boole-native-shadow-diagnostic.rs"
+    metadata = cwd / "boole-native-shadow-diagnostic.rmeta"
     executable = cwd / "boole-native-shadow-diagnostic"
     source.write_text("fn main() {}\n", encoding="utf-8")
+
+    code, output = original([env["RUSTC"], "--version"], cwd, env, limits)
+    if code != 0:
+        category = classify_cargo_output(code, output)
+        if "permission_denied" in category:
+            return "rustc_version_permission_denied"
+        return "rustc_version_failed"
+
+    code, output = original(
+        [
+            env["RUSTC"],
+            "--crate-name",
+            "boole_native_shadow_diagnostic",
+            "--edition=2021",
+            "--crate-type=lib",
+            "--emit=metadata",
+            str(source),
+            "-o",
+            str(metadata),
+        ],
+        cwd,
+        env,
+        limits,
+    )
+    if code != 0:
+        category = classify_cargo_output(code, output)
+        if "permission_denied" in category:
+            return "rustc_metadata_permission_denied"
+        return "rustc_metadata_failed"
+
     code, output = original(
         [
             env["RUSTC"],
@@ -123,16 +161,11 @@ def run_fixed_rust_probe(checker, original, cwd, env, limits) -> str | None:
     )
     if code != 0:
         category = classify_cargo_output(code, output)
-        if category in {
-            "permission_denied",
-            "cargo_rustc_execute_denied",
-            "cargo_temp_permission_denied",
-            "cargo_directory_permission_denied",
-        }:
-            return "rustc_probe_permission_denied"
+        if "permission_denied" in category:
+            return "rustc_link_permission_denied"
         if category in {"linker_failed", "cargo_linker_permission_denied"}:
-            return "rustc_probe_linker_failed"
-        return "rustc_probe_failed"
+            return "rustc_linker_failed"
+        return "rustc_link_failed"
     try:
         result = subprocess.run(
             [str(executable)],

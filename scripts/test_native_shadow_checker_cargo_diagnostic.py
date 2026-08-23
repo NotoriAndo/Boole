@@ -1,6 +1,7 @@
 import importlib.util
 import pathlib
 import re
+import tempfile
 import unittest
 
 
@@ -60,6 +61,38 @@ class NativeShadowCheckerCargoDiagnosticTests(unittest.TestCase):
         for output, expected in cases.items():
             with self.subTest(expected=expected):
                 self.assertEqual(module.classify_cargo_output(101, output), expected)
+
+    def test_fixed_probe_distinguishes_metadata_write_from_link_permission(self):
+        module = load_module()
+        limits = {"wallSeconds": 5}
+        env = {"RUSTC": "/fixed/rustc"}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            cwd = pathlib.Path(temporary)
+
+            def metadata_denied(command, _cwd, _env, _limits):
+                if "--version" in command:
+                    return 0, b""
+                if "--emit=metadata" in command:
+                    return 1, b"error: couldn't create a temp dir: Permission denied"
+                self.fail(f"unexpected fixed-probe command: {command!r}")
+
+            self.assertEqual(
+                module.run_fixed_rust_probe(
+                    object(), metadata_denied, cwd, env, limits
+                ),
+                "rustc_metadata_permission_denied",
+            )
+
+            def link_denied(command, _cwd, _env, _limits):
+                if "--version" in command or "--emit=metadata" in command:
+                    return 0, b""
+                return 1, b"error: linker cc: Permission denied"
+
+            self.assertEqual(
+                module.run_fixed_rust_probe(object(), link_denied, cwd, env, limits),
+                "rustc_link_permission_denied",
+            )
 
 
 if __name__ == "__main__":
