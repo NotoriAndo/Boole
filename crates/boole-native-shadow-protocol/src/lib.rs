@@ -1,9 +1,11 @@
 //! Minimal shared authority and wire contract for the disabled native-shadow
 //! qualification handshake.
 
+mod execution_wire;
 #[cfg(unix)]
 pub mod installed_authority;
 pub mod service_identities;
+pub use execution_wire::*;
 pub use service_identities::{
     resolve_fixed_service_identities, IdentityResolutionError, ResolvedServiceIdentities,
 };
