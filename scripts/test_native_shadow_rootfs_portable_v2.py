@@ -173,6 +173,28 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             manager,
         )
 
+    def test_linux_replay_preserves_one_fixed_direct_checker_diagnostic_after_launcher_failure(self) -> None:
+        replay = (
+            ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("native-shadow-direct-checker-diagnostic:", replay)
+        self.assertIn("native-shadow-direct-checker-result:", replay)
+        self.assertIn("checker-diagnostic.py", replay)
+        self.assertIn("original_run_contained", replay)
+        self.assertIn("cargoOutputSha256", replay)
+        self.assertIn("cargoExitCode", replay)
+        self.assertIn("manager_status=0", replay)
+        self.assertIn('if [[ $manager_status -ne 0 ]]; then', replay)
+        self.assertLess(
+            replay.rindex("manager_status=$?"),
+            replay.rindex('--offline-probe "$scratch"'),
+        )
+        self.assertLess(
+            replay.rindex('--offline-probe "$scratch"'),
+            replay.rindex('if [[ $manager_status -ne 0 ]]; then'),
+        )
+
     def test_linux_replay_rejects_rootfs_drift_before_any_checker_report(self) -> None:
         manager = (
             ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
