@@ -11,7 +11,7 @@
 
 use thiserror::Error;
 
-use crate::hash::{h_protocol, Hex32};
+use crate::hash::{h_protocol, Hex32, Hex32Error};
 
 pub const PACKAGE_SIDECAR_SCHEMA: &str = "boole.useful-work.package-sidecar.v1";
 pub const PACKAGE_SIDECAR_ROOT_DOMAIN: &[u8] = b"boole.useful-work.package-sidecar.v1";
@@ -37,6 +37,10 @@ impl PackageFile {
 pub struct PackageRoot(Hex32);
 
 impl PackageRoot {
+    pub fn from_hex(value: &str) -> Result<Self, Hex32Error> {
+        Hex32::from_hex(value).map(Self)
+    }
+
     pub fn as_bytes(&self) -> &[u8; 32] {
         self.0.as_bytes()
     }
