@@ -564,7 +564,7 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             derive.index('"derive-detach-old-root"'),
         )
 
-    def test_private_dev_bind_uses_the_child_namespace_path_and_fd_identity_checks(self) -> None:
+    def test_private_dev_bind_reopens_dev_null_inside_the_child_namespace(self) -> None:
         source = (
             ROOT
             / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
@@ -572,18 +572,21 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         bind = source.split("fn bind_and_verify_dev_null", 1)[1].split(
             "fn verify_bound_dev_null", 1
         )[0]
-        self.assertNotIn('format!("/proc/self/fd', bind)
-        self.assertIn('verify_bound_dev_null(source_fd, c"/dev/null")?', bind)
+        self.assertNotIn('format!("/proc/self/fd/{source_fd}', bind)
         self.assertIn(
-            'mount_raw(Some(c"/dev/null"), target, None, libc::MS_BIND, None)?;',
+            "let child_local = open_verified_child_dev_null(source_fd)?;", bind
+        )
+        self.assertIn("let child_local_fd = child_local.as_raw_fd();", bind)
+        self.assertIn(
+            'format!("/proc/self/fd/{child_local_fd}")',
             bind,
         )
         self.assertLess(
-            bind.index('verify_bound_dev_null(source_fd, c"/dev/null")?'),
-            bind.index('mount_raw(Some(c"/dev/null")'),
+            bind.index("open_verified_child_dev_null(source_fd)?"),
+            bind.index('format!("/proc/self/fd/{child_local_fd}")'),
         )
         self.assertLess(
-            bind.index('mount_raw(Some(c"/dev/null")'),
+            bind.index('mount_raw(Some(&source), target, None, libc::MS_BIND, None)?'),
             bind.rindex("verify_bound_dev_null(source_fd, target)"),
         )
 

@@ -1137,9 +1137,10 @@ fn bind_and_verify_dev_null(source_fd: RawFd, target: &CStr) -> Result<(), Strin
     // `source_fd` was opened by the parent before CLONE_NEWNS. Its file
     // identity is still authoritative, but its `/proc/self/fd/N` magic link
     // points at the parent's mount object and Linux rejects that object as an
-    // MS_BIND source in the child's private namespace. Verify that the
-    // child's fixed path still names the same device, then bind that path.
-    verify_bound_dev_null(source_fd, c"/dev/null")?;
+    // MS_BIND source in the child's private namespace. Reopen the exact
+    // device after CLONE_NEWNS and bind only that child-local descriptor.
+    let child_local = open_verified_child_dev_null(source_fd)?;
+    let child_local_fd = child_local.as_raw_fd();
     // SAFETY: /dev is a fresh child-private tmpfs and this creates only the
     // fixed bind target. No device node is synthesized and CAP_MKNOD is not
     // required or granted.
@@ -1155,8 +1156,36 @@ fn bind_and_verify_dev_null(source_fd: RawFd, target: &CStr) -> Result<(), Strin
     }
     // SAFETY: open returned one fresh descriptor.
     drop(unsafe { OwnedFd::from_raw_fd(placeholder) });
-    mount_raw(Some(c"/dev/null"), target, None, libc::MS_BIND, None)?;
+    let source = CString::new(format!("/proc/self/fd/{child_local_fd}"))
+        .map_err(|_| "fixed child-local /dev/null source contains NUL".to_string())?;
+    mount_raw(Some(&source), target, None, libc::MS_BIND, None)?;
     verify_bound_dev_null(source_fd, target)
+}
+
+fn open_verified_child_dev_null(parent_fd: RawFd) -> Result<OwnedFd, String> {
+    // SAFETY: exact fixed path in the child's private mount namespace, with
+    // symlink traversal disabled.
+    let fd = unsafe {
+        libc::open(
+            c"/dev/null".as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    // SAFETY: open returned one fresh descriptor.
+    let child_local = unsafe { OwnedFd::from_raw_fd(fd) };
+    let parent_stat = fd_stat(parent_fd)?;
+    let child_stat = fd_stat(child_local.as_raw_fd())?;
+    if !is_exact_dev_null(&parent_stat)
+        || !is_exact_dev_null(&child_stat)
+        || parent_stat.st_dev != child_stat.st_dev
+        || parent_stat.st_ino != child_stat.st_ino
+    {
+        return Err("child-local /dev/null identity mismatch".to_string());
+    }
+    Ok(child_local)
 }
 
 fn verify_bound_dev_null(source_fd: RawFd, target: &CStr) -> Result<(), String> {
