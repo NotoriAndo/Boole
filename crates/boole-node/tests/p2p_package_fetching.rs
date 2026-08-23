@@ -10,12 +10,12 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use boole_core::{
-    CanonicalPackage, LocalPackageStore, LocalPackageStoreConfig, PackageFile,
+    CanonicalPackage, Hex32, LocalPackageStore, LocalPackageStoreConfig, PackageFile,
     CONSENSUS_RULE_VERSION, PACKAGE_OBJECTS_DIRECTORY,
 };
 use boole_node::{
-    serve_local_node_with_p2p, LocalNodeConfig, P2pConfig, PackageFetchRequest,
-    PackageFetchingConfig,
+    serve_local_node_with_p2p, LocalNodeConfig, P2pConfig, PackageAvailabilityScaffoldBlock,
+    PackageFetchRequest, PackageFetchingConfig,
 };
 use boole_p2p::{Frame, FrameError, HeadSummary, TcpTransport, Transport, PROTOCOL_VERSION};
 use boole_testkit::rand_suffix;
@@ -751,5 +751,94 @@ fn restart_before_any_response_recovers_the_durable_intent_without_caller_resupp
     assert_eq!(reopened.pending().len(), 1);
     assert_eq!(reopened.pending()[0].root(), root);
     assert_eq!(reopened.pending()[0].reference(), reference);
+    fs::remove_dir_all(parent).expect("remove store parent");
+}
+
+#[test]
+fn scaffold_intent_survives_restart_and_becomes_available_without_resupply() {
+    let parent = std::env::temp_dir().join(format!(
+        "boole-bf6a-scaffold-bootstrap-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    fs::create_dir_all(&parent).expect("store parent");
+    let store_path = parent.join("store");
+    let package = CanonicalPackage::new(vec![PackageFile::new(
+        b"proof",
+        b"receipt scaffold survives restart",
+    )])
+    .expect("package");
+    let root = package.root();
+    let expected_bytes = package.canonical_bytes().to_vec();
+    let receipt_digest = Hex32::from_hex(&"33".repeat(32)).expect("receipt digest");
+    let reference = format!("receipt:{}", receipt_digest.to_hex());
+
+    // Observing a receipt-bearing scaffold must first create durable fetch
+    // authority. Dropping the configuration models a process exit before any
+    // networking begins.
+    let first_store = LocalPackageStore::open(&store_path, enabled_store_config())
+        .expect("open first receiver-owned store");
+    let first_fetching = PackageFetchingConfig::from_scaffold_blocks(
+        first_store,
+        [PackageAvailabilityScaffoldBlock::receipt_bearing(
+            receipt_digest,
+            root,
+        )],
+    )
+    .expect("persist scaffold-derived fetch intent");
+    drop(first_fetching);
+
+    let before_restart = LocalPackageStore::open(&store_path, enabled_store_config())
+        .expect("reopen before restart");
+    assert_eq!(before_restart.fetch_intents().len(), 1);
+    assert_eq!(before_restart.fetch_intents()[0].root(), root);
+    assert_eq!(before_restart.fetch_intents()[0].reference(), reference);
+    drop(before_restart);
+
+    // Bootstrap receives no scaffold blocks and no caller-supplied request.
+    // It must recover the durable intent, fetch strict canonical bytes, stage
+    // them in the node-owned CAS, and clear the completed authority.
+    let (peer, peer_thread) = serve_package_once(package);
+    let restarted_store = LocalPackageStore::open(&store_path, enabled_store_config())
+        .expect("reopen receiver-owned store after restart");
+    let restarted_fetching = PackageFetchingConfig::from_scaffold_blocks(
+        restarted_store,
+        std::iter::empty::<PackageAvailabilityScaffoldBlock>(),
+    )
+    .expect("restart with no scaffold resupply");
+    let restarted_boot = boot(peer, restarted_fetching);
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while metric_value(
+        restarted_boot.http_addr,
+        "boole_p2p_package_fetch_staged_total",
+    ) == 0
+    {
+        assert!(
+            Instant::now() < deadline,
+            "restart did not recover and complete the scaffold-derived intent"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    stop(restarted_boot);
+    peer_thread.join().expect("synthetic peer");
+    let reopened = LocalPackageStore::open(&store_path, enabled_store_config())
+        .expect("reopen completed package store");
+    assert!(
+        reopened.fetch_intents().is_empty(),
+        "completed scaffold intent must be removed durably"
+    );
+    assert_eq!(reopened.pending().len(), 1);
+    assert_eq!(reopened.pending()[0].root(), root);
+    assert_eq!(reopened.pending()[0].reference(), reference);
+    assert_eq!(
+        reopened.read(root).expect("read fetched CAS"),
+        expected_bytes
+    );
+    assert!(store_path
+        .join(PACKAGE_OBJECTS_DIRECTORY)
+        .join(format!("{}.pkg", root.to_hex()))
+        .is_file());
     fs::remove_dir_all(parent).expect("remove store parent");
 }
