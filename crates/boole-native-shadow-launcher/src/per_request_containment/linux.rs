@@ -1398,12 +1398,23 @@ fn verify_materialized_authority(
 }
 
 fn create_scratch(checker_gid: u32) -> Result<(), String> {
-    // SAFETY: fixed path inside the fresh tmpfs.
-    if unsafe { libc::mkdir(c"/work/scratch".as_ptr(), 0o2770) } != 0 {
-        return Err(io::Error::last_os_error().to_string());
-    }
-    if unsafe { libc::chmod(c"/work/scratch".as_ptr(), 0o2770) } != 0 {
-        return Err(io::Error::last_os_error().to_string());
+    // The service-wide 0117 umask would strip both directory execute bits.
+    // Clear it only in this already-cloned child while mkdir runs, then
+    // restore it before observing the result. `/work` is an exact setgid
+    // root:checker directory, so Linux supplies both the checker group and
+    // S_ISGID at creation time without CAP_CHOWN or CAP_FSETID. A later
+    // chmod(2) would clear that inherited S_ISGID because the launcher is not
+    // a member of the checker group and deliberately lacks CAP_FSETID.
+    // SAFETY: umask is private to this post-clone process, and the fixed path
+    // lies inside the fresh per-request tmpfs.
+    let previous_umask = unsafe { libc::umask(0) };
+    let mkdir_result = unsafe { libc::mkdir(c"/work/scratch".as_ptr(), 0o770) };
+    let mkdir_error = (mkdir_result != 0).then(io::Error::last_os_error);
+    // SAFETY: restore the exact inherited launcher mask before any return or
+    // untrusted execution.
+    unsafe { libc::umask(previous_umask) };
+    if let Some(error) = mkdir_error {
+        return Err(error.to_string());
     }
     // SAFETY: fixed nonsymlink directory just created inside the fresh tmpfs.
     let directory = unsafe {

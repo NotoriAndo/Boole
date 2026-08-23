@@ -546,6 +546,22 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         ):
             self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
 
+    def test_scratch_keeps_parent_setgid_without_post_create_chmod(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        create = source.split("fn create_scratch", 1)[1].split(
+            "fn set_working_directory", 1
+        )[0]
+        self.assertIn("let previous_umask = unsafe { libc::umask(0) };", create)
+        self.assertIn(
+            'libc::mkdir(c"/work/scratch".as_ptr(), 0o770)', create
+        )
+        self.assertIn("libc::umask(previous_umask)", create)
+        self.assertNotIn("libc::chmod", create)
+        self.assertIn("metadata.st_mode & 0o7777 != 0o2770", create)
+
     def test_host_dev_null_is_bound_before_the_old_root_is_detached(self) -> None:
         source = (
             ROOT
