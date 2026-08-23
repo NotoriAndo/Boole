@@ -11,7 +11,7 @@ boole-native-shadow-protocol = { path = "../boole-native-shadow-protocol" }
 hex.workspace = true
 thiserror.workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
 [dev-dependencies]

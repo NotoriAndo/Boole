@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # Exercise the argument-free production composition of launcher privilege,
-# the three installed authority files, and the two fixed NSS identities. The
+# installed authority, fixed NSS identities, and the fixed lifetime lock. The
 # reviewed test executable and authority bytes are staged root-owned before a
-# transient exact-capability service calls the production verifier.
+# transient exact-capability service calls the production path.
 
 die() {
   echo "native-shadow launcher pre-lock gate: $*" >&2
@@ -26,6 +26,10 @@ authority_stage=''
 authority_share=''
 authority_parent=''
 authority_directory=''
+runtime_parent=/run/boole
+runtime_directory=/run/boole/native-shadow
+runtime_parent_created=false
+runtime_created=false
 declare -a installed_basenames=()
 
 cleanup_prelock_gate() {
@@ -44,6 +48,13 @@ cleanup_prelock_gate() {
     sudo rmdir "$authority_parent" >/dev/null 2>&1 || :
     sudo rmdir "$authority_share" >/dev/null 2>&1 || :
     sudo rmdir "$authority_stage" >/dev/null 2>&1 || :
+  fi
+  if [[ "$runtime_created" == true ]]; then
+    sudo rm -f "$runtime_directory/launcher.lock"
+    sudo rmdir "$runtime_directory" >/dev/null 2>&1 || :
+  fi
+  if [[ "$runtime_parent_created" == true ]]; then
+    sudo rmdir "$runtime_parent" >/dev/null 2>&1 || :
   fi
   [[ -n "$log" ]] && rm -f "$log"
   rm -f "$build_json"
@@ -81,6 +92,13 @@ staged_sha=$(sudo sha256sum "$launcher_path" | awk '{ print $1 }')
 [[ "$source_sha" == "$staged_sha" ]] \
   || die "staged launcher test bytes differ from the reviewed executable"
 
+[[ ! -e "$runtime_parent" && ! -L "$runtime_parent" ]] \
+  || die "runtime parent unexpectedly exists before the isolated gate"
+sudo install -d -o root -g root -m 0755 "$runtime_parent"
+runtime_parent_created=true
+sudo install -d -o root -g boole-node -m 2750 "$runtime_directory"
+runtime_created=true
+
 authority_stage=$(sudo mktemp -d /run/boole-native-shadow-authority.XXXXXX)
 authority_share="$authority_stage/share"
 authority_parent="$authority_share/boole"
@@ -115,7 +133,7 @@ suffix=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$
 suffix=${suffix//[^a-zA-Z0-9-]/-}
 unit="boole-native-shadow-prelock-${suffix}"
 log=$(mktemp "$temp_root/boole-native-shadow-prelock.XXXXXX")
-test_name=startup::tests::real_linux_prelock_prerequisites_match_the_frozen_host_contract
+test_name=lifetime_lock::unix::tests::real_linux_fixed_launcher_lifetime_lock_is_single_instance
 
 set +e
 sudo systemd-run --quiet --pipe --wait --collect --unit="$unit" \
@@ -131,7 +149,7 @@ sudo systemd-run --quiet --pipe --wait --collect --unit="$unit" \
 status=$?
 set -e
 cat "$log"
-[[ $status -eq 0 ]] || die "production pre-lock prerequisite composition failed"
+[[ $status -eq 0 ]] || die "production pre-lock and lifetime-lock composition failed"
 
 for ((i = 0; i < 100; i++)); do
   state=$(sudo systemctl show "${unit}.service" --property=LoadState --value 2>/dev/null || :)
@@ -141,4 +159,4 @@ done
 [[ "$state" == not-found ]] \
   || die "transient unit ${unit}.service was not collected"
 
-echo "native-shadow launcher pre-lock gate: PASS"
+echo "native-shadow launcher pre-lock and lifetime-lock gate: PASS"

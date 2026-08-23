@@ -32,6 +32,13 @@ pub struct VerifiedLauncherPrelockPrerequisites {
     identities: ResolvedServiceIdentities,
 }
 
+impl VerifiedLauncherPrelockPrerequisites {
+    #[cfg(target_os = "linux")]
+    pub(crate) fn node_gid(&self) -> u32 {
+        self.identities.node_gid()
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum LauncherPrelockError {
     #[error("native-shadow launcher pre-lock verification requires Linux")]
