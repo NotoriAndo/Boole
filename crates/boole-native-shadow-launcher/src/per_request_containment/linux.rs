@@ -1069,42 +1069,57 @@ fn mkdir_fixed(path: &CStr, mode: libc::mode_t) -> Result<(), String> {
 }
 
 fn mount_private_filesystems(checker_gid: u32, dev_null_fd: RawFd) -> Result<(), String> {
-    mount_raw(
-        Some(c"proc"),
-        PROC_PATH,
-        Some(c"proc"),
-        libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
-        None,
+    setup_stage(
+        "mount-private-proc",
+        mount_raw(
+            Some(c"proc"),
+            PROC_PATH,
+            Some(c"proc"),
+            libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+            None,
+        ),
     )?;
     let options = CString::new(format!(
         "size=536870912,nr_inodes=8192,mode=2750,uid=0,gid={checker_gid}"
     ))
     .map_err(|_| "tmpfs mount options contain NUL".to_string())?;
-    mount_raw(
-        Some(c"tmpfs"),
-        WORK_PATH,
-        Some(c"tmpfs"),
-        libc::MS_NOSUID | libc::MS_NODEV,
-        Some(&options),
+    setup_stage(
+        "mount-private-work",
+        mount_raw(
+            Some(c"tmpfs"),
+            WORK_PATH,
+            Some(c"tmpfs"),
+            libc::MS_NOSUID | libc::MS_NODEV,
+            Some(&options),
+        ),
     )?;
     let tmp_options = c"size=67108864,nr_inodes=2048,mode=1777,uid=0,gid=0";
-    mount_raw(
-        Some(c"tmpfs"),
-        TMP_PATH,
-        Some(c"tmpfs"),
-        libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
-        Some(tmp_options),
+    setup_stage(
+        "mount-private-tmp",
+        mount_raw(
+            Some(c"tmpfs"),
+            TMP_PATH,
+            Some(c"tmpfs"),
+            libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+            Some(tmp_options),
+        ),
     )?;
     let dev_options = c"size=1048576,nr_inodes=16,mode=0755,uid=0,gid=0";
-    mount_raw(
-        Some(c"tmpfs"),
-        DEV_PATH,
-        Some(c"tmpfs"),
-        libc::MS_NOSUID | libc::MS_NOEXEC,
-        Some(dev_options),
+    setup_stage(
+        "mount-private-dev",
+        mount_raw(
+            Some(c"tmpfs"),
+            DEV_PATH,
+            Some(c"tmpfs"),
+            libc::MS_NOSUID | libc::MS_NOEXEC,
+            Some(dev_options),
+        ),
     )?;
-    bind_and_verify_dev_null(dev_null_fd)?;
-    verify_workspace_root(checker_gid)
+    setup_stage(
+        "bind-private-dev-null",
+        bind_and_verify_dev_null(dev_null_fd),
+    )?;
+    setup_stage("verify-private-work", verify_workspace_root(checker_gid))
 }
 
 fn bind_and_verify_dev_null(source_fd: RawFd) -> Result<(), String> {

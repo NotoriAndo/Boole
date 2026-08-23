@@ -531,6 +531,21 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         ):
             self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
 
+    def test_private_filesystem_setup_reports_the_exact_failed_substage(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        for stage in (
+            "mount-private-proc",
+            "mount-private-work",
+            "mount-private-tmp",
+            "mount-private-dev",
+            "bind-private-dev-null",
+            "verify-private-work",
+        ):
+            self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
+
     def test_overlay_binds_only_the_fixed_path_and_rechecks_the_verified_fd(self) -> None:
         source = (
             ROOT
