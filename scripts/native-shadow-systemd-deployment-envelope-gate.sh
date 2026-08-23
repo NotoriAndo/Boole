@@ -56,15 +56,17 @@ launcher_metadata=$(stat -c %U:%G:%a \
 [[ "$launcher_metadata" == root:root:755 ]] \
   || die "staged launcher is not root:root mode 0755"
 
-# Keep alternate-root verification self-contained. These three minimal units
-# satisfy only the tracked unit's ordering/install references; no service is
-# started by this gate.
+# Keep alternate-root verification self-contained. The two valid oneshot
+# stubs and four target stubs satisfy only explicit and default systemd
+# dependencies; no service is started by this gate.
 printf '[Unit]\nDescription=staged sysusers service\n[Service]\nType=oneshot\nExecStart=/usr/bin/true\n' \
   >"$stage/usr/lib/systemd/system/systemd-sysusers.service"
 printf '[Unit]\nDescription=staged tmpfiles service\n[Service]\nType=oneshot\nExecStart=/usr/bin/true\n' \
   >"$stage/usr/lib/systemd/system/systemd-tmpfiles-setup.service"
-printf '[Unit]\nDescription=staged multi-user target\n' \
-  >"$stage/usr/lib/systemd/system/multi-user.target"
+for target in sysinit.target basic.target shutdown.target multi-user.target; do
+  printf '[Unit]\nDescription=staged dependency target\n' \
+    >"$stage/usr/lib/systemd/system/$target"
+done
 
 systemd-analyze --root="$stage" verify boole-native-shadow-launcher.service
 systemd-sysusers --root="$stage" /usr/lib/sysusers.d/boole-native-shadow.conf
