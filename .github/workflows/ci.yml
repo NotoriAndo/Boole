@@ -58,6 +58,9 @@ jobs:
       - name: Verify fixed launcher root and capability shape
         run: ./scripts/native-shadow-launcher-privilege-gate.sh
 
+      - name: Compose fixed launcher pre-lock prerequisites
+        run: ./scripts/native-shadow-launcher-prelock-gate.sh
+
       - name: Probe delegated cgroup and namespace capabilities
         run: sudo ./scripts/native-shadow-containment-capability-probe.sh
 

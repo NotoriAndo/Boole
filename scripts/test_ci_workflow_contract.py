@@ -19,6 +19,9 @@ NATIVE_CONTAINMENT_PROBE = (
 LAUNCHER_PRIVILEGE_GATE = (
     REPO_ROOT / "scripts" / "native-shadow-launcher-privilege-gate.sh"
 )
+LAUNCHER_PRELOCK_GATE = (
+    REPO_ROOT / "scripts" / "native-shadow-launcher-prelock-gate.sh"
+)
 NATIVE_CONTAINMENT_SPEC = (
     REPO_ROOT / "docs" / "node-native-shadow-binding-containment-implementation-spec-v1.md"
 )
@@ -160,6 +163,41 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             1,
             "all three service shapes must execute the same production verifier path",
         )
+
+    def test_named_linux_job_exercises_the_real_launcher_prelock_composition(self):
+        job = self._job("native-shadow-containment-linux")
+        self.assertIn(
+            "./scripts/native-shadow-launcher-prelock-gate.sh",
+            job,
+            "the named Linux job must compose privilege, installed authority, and NSS",
+        )
+        self.assertTrue(
+            LAUNCHER_PRELOCK_GATE.is_file(),
+            "the launcher pre-lock gate must be a tracked reviewable script",
+        )
+
+    def test_launcher_prelock_gate_stages_exact_authority_and_calls_the_production_composer(self):
+        body = LAUNCHER_PRELOCK_GATE.read_text(encoding="utf-8")
+        for required in (
+            "set -euo pipefail",
+            '[[ ${EUID} -ne 0 ]] || die "build phase must run as the unprivileged CI user"',
+            "cargo test --locked -p boole-native-shadow-launcher --lib --no-run",
+            "startup::tests::real_linux_prelock_prerequisites_match_the_frozen_host_contract",
+            '[[ ! -e "$authority_parent" && ! -L "$authority_parent" ]]',
+            "fixtures/native-shadow/registry-v1.json registry-v1.json",
+            "native/containment/native-shadow-execution-policy-v1.json",
+            "native/containment/native-shadow-toolchain-identity-v1.json",
+            'sudo install -o root -g root -m 0444 "$source" "$destination"',
+            '[[ "$source_sha" == "$installed_sha" ]]',
+            "--property=User=root --property=Group=root",
+            'CapabilityBoundingSet=CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN',
+            "--property=AmbientCapabilities= --property=NoNewPrivileges=no",
+            'sudo rm -f "/usr/share/boole/native-shadow/$basename"',
+            "sudo rmdir /usr/share/boole/native-shadow",
+            "sudo rmdir /usr/share/boole",
+            "transient unit ${unit}.service was not collected",
+        ):
+            self.assertIn(required, body)
 
     def test_required_self_test_cannot_hide_a_failed_probe(self):
         job = self._job("self-test")

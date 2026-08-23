@@ -255,7 +255,7 @@ entry becomes authoritative on `main` only after its required CI and merge:
   slice still has no startup-token constructor, launcher executable, listener, bind/stale-unlink,
   lifetime lock, cgroup recovery, route, journal transition or checker child, so it cannot make the
   installed handshake ready by itself.
-* **Phase 3B.2b-2r** — the current launcher-privilege slice adds one argument-free, Linux-only
+* **Phase 3B.2b-2r** — PR #183, main `b582869`: the launcher-privilege slice adds one argument-free, Linux-only
   startup prerequisite. It reads the calling thread's kernel status from the fixed
   `/proc/thread-self/status` path and issues a private, thread-bound proof only when all four
   UID/GID slots are root, Effective/Permitted/Bounding are exactly the frozen four-capability mask,
@@ -265,6 +265,14 @@ entry becomes authoritative on `main` only after its required CI and merge:
   extra capability must both fail. This slice does not consume that proof into the startup token,
   open installed authority, acquire the launcher lock, recover cgroups, bind/listen, construct a
   launcher instance ID, mutate a journal/route or spawn a checker.
+* **Phase 3B.2b-2s** — the current pre-lock-composition slice consumes the privilege proof, opens the
+  fixed installed authority and resolves the fixed NSS identities, exactly once in that order,
+  into an opaque thread-bound prerequisite. The entrypoint accepts no path, account name, numeric
+  identity, policy or capability mask; a failed earlier stage prevents later filesystem/NSS work.
+  A named Ubuntu gate stages byte-identical root-owned authority and invokes the production
+  composition under the exact capability service and fixed accounts. The resulting proof is not
+  `VerifiedQualificationStartup`: this slice does not acquire the launcher lock, generate an
+  instance ID, recover cgroups, bind/listen, mutate a journal/route or spawn a checker.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do
