@@ -1,0 +1,17 @@
+{
+  "capacities": {
+    "stock_only_3y_per_day": "0"
+  },
+  "checks": {
+    "estimation_used": false,
+    "stock_flow_overlap": 0
+  },
+  "inputs": {
+    "annual_net_replenishment": "NOT_MEASURED",
+    "effective_stock_actual": 0
+  },
+  "not_measured": [
+    "annual_net_replenishment"
+  ],
+  "public_claim": false
+}

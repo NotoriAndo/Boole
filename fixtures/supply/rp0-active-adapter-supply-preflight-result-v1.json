@@ -1,0 +1,82 @@
+{
+  "bf7_label": "HOLD-BF7-SUPPLY",
+  "candidate_counterfactual": {
+    "candidate_shortfall_if_all_promoted": 10753,
+    "candidate_upper_bound_if_all_promoted": 197,
+    "classification": "CANDIDATE-ELIGIBILITY-NOT-REWARD-READY",
+    "disposition": "NOT-COUNTED"
+  },
+  "decision": "HOLD-REPLENISHMENT-P0-MD",
+  "evidence": {
+    "accounting_policy": {
+      "path": "fixtures/supply/authority/rp0-accounting-policy-projection-v1.py",
+      "root": "tracked",
+      "sha256": "a6fe267095cb0fdcdc909165af04f678930c8154e3310fecffe8a5e5f4ef2c41",
+      "source": {
+        "path": "local-docs/replenishment-p0-2026-07-22/md_accounting.py",
+        "root": "local",
+        "sha256": "4455cc764b7f49b1e5f66f6bf914fef757da007a596a866f872ce2483b5f213e"
+      }
+    },
+    "dedup_result": {
+      "path": "fixtures/supply/authority/rp0-active-adapter-candidate-projection-v1.json",
+      "root": "tracked",
+      "sha256": "1eab05e37af062eb368280e732c78a85c218a3c197f4ad79bac51d6e073f5e70",
+      "source": {
+        "path": "local-docs/rust-tuple-struct-project-v1-2026-08-20/STEP7-DEDUP-RESULT.json",
+        "root": "local",
+        "sha256": "3f519d169cc113b3eef3b3ee0282738a20756b43dc32b58b2f6a532c2c7f6c2c"
+      }
+    },
+    "flow_result": {
+      "path": "fixtures/supply/authority/rp0-stock-flow-projection-v1.json",
+      "root": "tracked",
+      "sha256": "e047ee17fdf4d5e118a206ddc1de9e9a4de5d2604d5e5a4a530d46797dc08caf",
+      "source": {
+        "path": "local-docs/rp-a2-strict-p0-2026-07-26/result-summary-v4.json",
+        "root": "local",
+        "sha256": "1a39d63704e28d84140b6f0beee5c6c2eddb89b3aeaf0f12ee3918ab03f624a1"
+      }
+    },
+    "reward_status": {
+      "path": "fixtures/supply/authority/rp0-reward-status-projection-v1.json",
+      "root": "tracked",
+      "sha256": "c909d2ba7cf5a4b7e61ef30bd8a94832195517b2a349c154a3be337a71852415",
+      "source": {
+        "path": "local-docs/replenishment-p0-2026-07-22/rp-a2-authenticated-result-freeze-v4.json",
+        "root": "local",
+        "sha256": "80282c4b3b4cb943ffb4d6e4c107abd788c602d693aa91319cd5a0a1a8c20101"
+      }
+    },
+    "tracked_ledger": {
+      "path": "fixtures/supply/authority/rp0-active-adapter-ledger-projection-v1.txt",
+      "root": "tracked",
+      "sha256": "7b11fc471b2a5326bfe5d0b4e2881b0852dee9b5f74b2aa3ee5442b6f609b27a",
+      "source": {
+        "path": "docs/llm-mineable-eligibility-census-p1.md",
+        "root": "tracked",
+        "sha256": "b1f2f650c9cc0b191f84a2df7169cffde2a2c155757ab33c62f4e4ebca8ba8e7"
+      }
+    }
+  },
+  "evidence_kind": "ACTUAL-FROZEN-ARTIFACTS",
+  "flow_branch": {
+    "annual_reward_net_replenishment": "NOT_MEASURED",
+    "annual_reward_net_replenishment_95pct_lower": "NOT_MEASURED",
+    "label": "FLOW-BRANCH-NOT-MEASURED",
+    "pass_threshold": 3650
+  },
+  "input_manifest_sha256": "77f1731ed28b6244d29bc12ddfdc738c953bcdf750196c146955223c1d3a6af2",
+  "not_a_public_or_paid_action": true,
+  "pass_claimed": false,
+  "schema": "boole.rp0.active-adapter-supply-preflight-result.v1",
+  "stock_branch": {
+    "active_adapter_family": "RUST-TUPLE-STRUCT-PROJECT-V1",
+    "actual_stock_shortfall": 10950,
+    "effective_reward_stock": 0,
+    "label": "STOCK-BRANCH-MATHEMATICALLY-INSUFFICIENT",
+    "pass_threshold": 10950,
+    "reward_ready_stock": 0
+  },
+  "verdict": "HOLD"
+}

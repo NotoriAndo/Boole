@@ -1,0 +1,10 @@
+{
+  "conservation_check": {
+    "holds": true,
+    "unique_new_issuable": 197
+  },
+  "model_calls_this_step": 0,
+  "overinterpretation_warning": "197 is a candidate-eligibility count after internal dedup, not a solve rate. It must not be read as '197 rows individually solved by a model' -- Stage A/B's 12/12 covered 12 representatives only, and Step 6/7 issued zero model calls.",
+  "unique_new_issuable": 197,
+  "wave": "RUST-TUPLE-STRUCT-PROJECT-V1"
+}
