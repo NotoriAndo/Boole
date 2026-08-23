@@ -440,6 +440,7 @@ dependencies = [
 name = "boole-native-shadow-protocol"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "hex",
  "libc",
  "serde",
