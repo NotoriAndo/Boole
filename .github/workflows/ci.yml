@@ -80,9 +80,20 @@ jobs:
           cargo test --locked -p boole-lean-runner --lib \
             configure_child_sandbox_enforce -- --nocapture
 
+  native-shadow-rootfs-replay-linux:
+    name: native-shadow-rootfs-replay-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Rebuild, independently verify, and probe the portable checker rootfs
+        run: sudo ./scripts/native-shadow-portable-rootfs-replay-linux.sh
+
   self-test:
     name: self-test
-    needs: native-shadow-containment-linux
+    needs: [native-shadow-containment-linux, native-shadow-rootfs-replay-linux]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -98,10 +109,15 @@ jobs:
       - name: Require native-shadow containment capability
         env:
           NATIVE_SHADOW_CONTAINMENT_RESULT: ${{ needs.native-shadow-containment-linux.result }}
+          NATIVE_SHADOW_ROOTFS_REPLAY_RESULT: ${{ needs.native-shadow-rootfs-replay-linux.result }}
         run: |
           set -euo pipefail
           if [[ "$NATIVE_SHADOW_CONTAINMENT_RESULT" != success ]]; then
             echo "native-shadow containment capability probe did not pass" >&2
+            exit 1
+          fi
+          if [[ "$NATIVE_SHADOW_ROOTFS_REPLAY_RESULT" != success ]]; then
+            echo "native-shadow portable rootfs replay did not pass" >&2
             exit 1
           fi
 
