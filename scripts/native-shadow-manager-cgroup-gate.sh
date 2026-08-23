@@ -28,6 +28,7 @@ authority_directory=''
 toolchain_parent=/opt/boole
 toolchain_prefix=$toolchain_parent/native-checker-toolchain
 toolchain_stage=''
+opt_original_mode=''
 runtime_parent=/run/boole
 runtime_directory=$runtime_parent/native-shadow
 mode_path=$runtime_directory/manager-cgroup-gate-mode
@@ -48,6 +49,7 @@ unit_dropin_installed=false
 launcher_installed=false
 toolchain_parent_created=false
 toolchain_installed=false
+opt_mode_changed=false
 declare -a installed_authorities=()
 
 cleanup_gate() {
@@ -64,6 +66,7 @@ cleanup_gate() {
   [[ "$launcher_installed" == true ]] && sudo rm -f "$launcher_path"
   [[ "$toolchain_installed" == true ]] && sudo rm -rf "$toolchain_prefix"
   [[ "$toolchain_parent_created" == true ]] && sudo rmdir "$toolchain_parent" >/dev/null 2>&1 || :
+  [[ "$opt_mode_changed" == true ]] && sudo chmod "$opt_original_mode" /opt
   local basename
   for basename in "${installed_authorities[@]}"; do
     sudo rm -f "$authority_directory/$basename"
@@ -125,6 +128,15 @@ harness=${executables[0]}
 
 toolchain_stage=$(mktemp -d "$temp_root/boole-native-shadow-toolchain.XXXXXX")
 ./scripts/install-native-checker-toolchain.sh "$toolchain_stage"
+[[ $(stat -c %U:%G /opt) == root:root ]] \
+  || die "fixed /opt ancestor is not root-owned"
+opt_original_mode=$(stat -c %a /opt)
+if (( (8#$opt_original_mode & 8#022) != 0 )); then
+  sudo chmod go-w /opt
+  opt_mode_changed=true
+fi
+[[ $((8#$(stat -c %a /opt) & 8#022)) -eq 0 ]] \
+  || die "fixed /opt ancestor remains group/other writable"
 if [[ ! -d "$toolchain_parent" ]]; then
   sudo install -d -o root -g root -m 0755 "$toolchain_parent"
   toolchain_parent_created=true

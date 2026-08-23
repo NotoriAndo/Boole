@@ -423,6 +423,9 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         for required in (
             'toolchain_parent=/opt/boole',
             'toolchain_prefix=$toolchain_parent/native-checker-toolchain',
+            "opt_original_mode=$(stat -c %a /opt)",
+            'sudo chmod go-w /opt',
+            'sudo chmod "$opt_original_mode" /opt',
             './scripts/install-native-checker-toolchain.sh "$toolchain_stage"',
             'sudo chown -R root:root "$toolchain_prefix"',
             'sudo chmod 0555 "$toolchain_prefix" "$toolchain_prefix/bin"',
