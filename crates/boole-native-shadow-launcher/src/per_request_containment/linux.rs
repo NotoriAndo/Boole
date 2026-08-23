@@ -457,7 +457,7 @@ fn child_setup_and_exec(setup: ChildSetup) -> Result<(), String> {
     setup_stage("exec-checker", exec_checker())
 }
 
-fn setup_stage(stage: &'static str, result: Result<(), String>) -> Result<(), String> {
+fn setup_stage<T>(stage: &'static str, result: Result<T, String>) -> Result<T, String> {
     result.map_err(|error| format!("{stage}: {error}"))
 }
 
@@ -662,17 +662,15 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
     )?;
     setup_stage("derive-create-staging", create_runtime_staging_tree())?;
 
-    let lower_source = CString::new(format!("/proc/self/fd/{rootfs_fd}"))
-        .map_err(|_| "lower bind source contains NUL".to_string())?;
+    // Clone the already-verified mount by descriptor.  Passing
+    // `/proc/self/fd/N` as mount(2)'s textual source is not a portable fd
+    // mount operation: some kernels reject that recursive bind with EINVAL.
+    // open_tree(2)+move_mount(2) keeps the authority descriptor-owned and
+    // removes both that magic-link dependency and a pathname race.
+    let lower_mount = setup_stage("derive-clone-lower-mount", clone_mount_from_fd(rootfs_fd))?;
     setup_stage(
-        "derive-bind-lower",
-        mount_raw(
-            Some(&lower_source),
-            RUNTIME_LOWER,
-            None,
-            libc::MS_BIND | libc::MS_REC,
-            None,
-        ),
+        "derive-attach-lower-mount",
+        attach_detached_mount(lower_mount.as_raw_fd(), RUNTIME_LOWER),
     )?;
     setup_stage(
         "derive-remount-lower-read-only",
@@ -754,6 +752,36 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
         verify_old_root_is_unreachable(),
     )?;
     Ok(())
+}
+
+fn clone_mount_from_fd(rootfs_fd: RawFd) -> Result<OwnedFd, String> {
+    let flags = libc::OPEN_TREE_CLONE | libc::OPEN_TREE_CLOEXEC | libc::AT_EMPTY_PATH as u32;
+    // SAFETY: rootfs_fd is the live verified directory mount, the empty path
+    // is NUL-terminated, and AT_EMPTY_PATH explicitly selects that fd.
+    let cloned = unsafe { libc::syscall(libc::SYS_open_tree, rootfs_fd, c"".as_ptr(), flags) };
+    if cloned < 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    let cloned =
+        i32::try_from(cloned).map_err(|_| "open_tree returned an invalid fd".to_string())?;
+    // SAFETY: open_tree returned one fresh close-on-exec descriptor.
+    Ok(unsafe { OwnedFd::from_raw_fd(cloned) })
+}
+
+fn attach_detached_mount(mount_fd: RawFd, target: &CStr) -> Result<(), String> {
+    // SAFETY: mount_fd owns a detached mount tree, both paths are fixed and
+    // NUL-terminated, and MOVE_MOUNT_F_EMPTY_PATH selects the source fd.
+    let status = unsafe {
+        libc::syscall(
+            libc::SYS_move_mount,
+            mount_fd,
+            c"".as_ptr(),
+            libc::AT_FDCWD,
+            target.as_ptr(),
+            libc::MOVE_MOUNT_F_EMPTY_PATH,
+        )
+    };
+    syscall_zero(status)
 }
 
 fn create_runtime_staging_tree() -> Result<(), String> {
@@ -1678,7 +1706,7 @@ mod tests {
     #[test]
     fn child_setup_errors_name_the_exact_failed_stage() {
         assert_eq!(
-            setup_stage(
+            setup_stage::<()>(
                 "install-landlock",
                 Err("Permission denied (os error 13)".to_string())
             ),

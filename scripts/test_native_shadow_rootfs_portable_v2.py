@@ -517,7 +517,8 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             "derive-check-lower",
             "derive-mount-staging",
             "derive-create-staging",
-            "derive-bind-lower",
+            "derive-clone-lower-mount",
+            "derive-attach-lower-mount",
             "derive-remount-lower-read-only",
             "derive-verify-bound-lower",
             "derive-mount-overlay",
@@ -532,16 +533,22 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         ):
             self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
 
-    def test_overlay_uses_a_verified_fixed_bind_path_not_a_proc_fd_magic_link(self) -> None:
+    def test_overlay_clones_the_verified_mount_fd_not_a_proc_fd_magic_link(self) -> None:
         source = (
             ROOT
             / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
         ).read_text(encoding="utf-8")
         self.assertIn('const RUNTIME_LOWER: &CStr = c"/run/boole/native-shadow/rootfs-lower";', source)
+        self.assertIn("libc::SYS_open_tree", source)
+        self.assertIn("libc::OPEN_TREE_CLONE", source)
+        self.assertIn("libc::AT_EMPTY_PATH", source)
+        self.assertIn("libc::SYS_move_mount", source)
+        self.assertIn("libc::MOVE_MOUNT_F_EMPTY_PATH", source)
         self.assertIn("verify_bound_lower(rootfs_fd)", source)
         self.assertIn('"lowerdir={},upperdir={},workdir={}"', source)
         self.assertIn("RUNTIME_LOWER.to_string_lossy()", source)
         self.assertNotIn('"lowerdir=/proc/self/fd/{rootfs_fd}', source)
+        self.assertNotIn("let lower_source = CString", source)
 
     def test_overlay_root_remains_traversable_after_checker_privilege_drop(self) -> None:
         source = (
