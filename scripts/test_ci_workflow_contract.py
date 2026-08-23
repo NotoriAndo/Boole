@@ -414,7 +414,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         self.assertNotIn('wait "$recovered_tree_b"', body)
         self.assertNotIn('wait "$reject_tree"', body)
 
-    def test_manager_gate_assembles_qualification_readiness_after_toolchain_compatibility(self):
+    def test_manager_gate_serves_one_fixed_qualification_after_readiness(self):
         job = self._job("native-shadow-containment-linux")
         self.assertIn("timeout-minutes: 15", job)
         body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
@@ -429,8 +429,15 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             './scripts/install-native-checker-toolchain.sh "$toolchain_stage"',
             'sudo chown -R root:root "$toolchain_prefix"',
             'sudo chmod 0555 "$toolchain_prefix" "$toolchain_prefix/bin"',
-            'readiness_mode="qualification-readiness"',
-            "native-shadow-qualification-readiness-complete",
+            'listener_mode="qualification-one-shot"',
+            'socket_path="$runtime_directory/launcher.sock"',
+            'root:boole-node:660',
+            "native_shadow_qualification::tests::installed_launcher_round_trip_is_ready_only",
+            "native-shadow-node-qualification-ready-only",
+            "node_marker_count",
+            "--property=CapabilityBoundingSet=",
+            '--property=NRestarts --value',
+            "native-shadow-qualification-one-shot-complete",
             'sudo rm -rf "$toolchain_prefix"',
         ):
             self.assertIn(required, body)
@@ -443,7 +450,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("verify_fixed_startup_toolchain_compatibility", harness)
         self.assertIn("assemble_fixed_qualification_startup", harness)
-        self.assertIn("native-shadow-qualification-readiness-complete", harness)
+        self.assertIn("serve_one_fixed_unix_qualification", harness)
+        self.assertIn("native-shadow-qualification-one-shot-complete", harness)
 
     def test_manager_cgroup_gate_uses_an_owned_read_only_authority_bind(self):
         body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(

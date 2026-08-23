@@ -409,8 +409,8 @@ Further route-free foundations now narrow the open prerequisite without closing 
   named Linux gate stages the reviewed per-commit Rust artifacts at the exact `/opt` path and proves
   recovery-to-probe ordering. This remains compatibility-only; the three installed-byte provenance
   blockers, readiness, listener, route, node durable mutation and checker execution remain open.
-* Phase 3B.2b-2x — the qualification-startup assembly slice consumes the complete opaque 2w proof
-  and no other caller input. It reads the already-verified authority, fixed node/checker identities
+* Phase 3B.2b-2x — PR #191, main `2ef2cc7`: the qualification-startup assembly slice consumes the
+  complete opaque 2w proof and no other caller input. It reads the already-verified authority, fixed node/checker identities
   and one launcher instance ID through crate-private forwarding accessors, binds the current
   non-zero launcher PID, and moves the entire compatibility proof chain into the existing
   non-forgeable `VerifiedQualificationStartup`. Retaining that chain keeps the launcher lifetime
@@ -419,10 +419,25 @@ Further route-free foundations now narrow the open prerequisite without closing 
   API is type-pinned so no earlier startup token can issue qualification readiness. This is token
   assembly only: no socket is bound, no frame is emitted, `activationAllowed` remains false and
   installed-byte provenance, route, durable node mutation and checker execution remain open.
+* Phase 3B.2b-2y — the one-shot fixed-socket qualification slice consumes that complete startup
+  token by value, so one verified startup cannot serve a second listener. It accepts no path or
+  listener configuration, requires the service's frozen umask, inspects and removes only an exact
+  root:`boole-node` mode-`0660` stale socket relative to the retained verified runtime-directory
+  descriptor, binds only `/run/boole/native-shadow/launcher.sock`, verifies listener and accepted
+  descriptors are close-on-exec, accepts exactly one connection, and removes only the same
+  device/inode socket before serving the existing strict handshake. The earlier connected-stream
+  helper is no longer public. Linux unit tests cover safe stale replacement and unsafe-entry
+  preservation. The named Linux gate starts the reviewed root launcher through the complete
+  recovery/toolchain/readiness chain, runs the staged `boole-node` test binary as the non-root
+  `boole-node` account against independently installed authority, verifies the real
+  nonce/peer/digest/EOF exchange, and requires successful one-shot exit without restart, socket
+  absence and service-cgroup removal. This is readiness-only: it accepts no raw answer, mutates no
+  journal, starts no checker and leaves `activationAllowed=false`.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux
-cgroup/tmpfs/seccomp/Landlock envelope. The capability probe is not a real named-Linux node run.
+cgroup/tmpfs/seccomp/Landlock envelope. Phase 3B.2b-2y is a real named-Linux **readiness-only** node
+round trip, not the required real node-process raw-answer run.
 Therefore this is not `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`.
 
 ## 5. Required decision path

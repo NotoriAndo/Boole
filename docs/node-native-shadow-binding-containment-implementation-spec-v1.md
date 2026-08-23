@@ -348,8 +348,8 @@ entry becomes authoritative on `main` only after its required CI and merge:
   the reviewed per-commit Rust artifacts at the exact `/opt` path and proves the full
   recovery-to-probe chain. This is compatibility-only: installed-byte provenance, readiness,
   bind/listen, route, durable node state and checker execution all remain closed.
-* **Phase 3B.2b-2x** — the qualification-startup assembly slice consumes exactly one
-  `VerifiedStartupToolchainCompatibility` and no caller-selected path, identity, PID, digest,
+* **Phase 3B.2b-2x** — PR #191, main `2ef2cc7`: the qualification-startup assembly slice consumes
+  exactly one `VerifiedStartupToolchainCompatibility` and no caller-selected path, identity, PID, digest,
   timeout or activation value. Crate-private read-only forwarding accessors recover only values
   already bound inside the opaque chain, while the returned `VerifiedQualificationStartup` owns
   that complete chain so the lifetime `flock`, manager/root cgroup descriptors and recovery proof
@@ -357,6 +357,19 @@ entry becomes authoritative on `main` only after its required CI and merge:
   substituting for the compatibility proof, and the impossible zero-PID branch has no retry or
   fallback. This does not bind/listen, emit a wire frame, mutate node state or spawn a checker;
   installed-byte provenance and every activation path remain closed.
+* **Phase 3B.2b-2y** — the fixed one-shot listener consumes the complete 2x token by value and
+  accepts no caller-selected path, mode, ownership or retry policy. Under the already verified
+  root:`boole-node` setgid runtime directory and frozen umask it removes only an exact safe stale
+  socket, binds the literal policy path, requires the new socket to be root:`boole-node` mode
+  `0660`, verifies close-on-exec on the listener and accepted stream, accepts once, then removes
+  only the recorded device/inode socket before the strict qualification exchange. A replaced path
+  is preserved and fails closed, while the previously public connected-stream adapter is now
+  crate-private so no caller can reuse an earlier token. Linux unit tests cover safe stale
+  replacement and unsafe-entry preservation. The named Linux gate stages the reviewed launcher
+  and node test binaries, runs the client as the real non-root `boole-node` service identity
+  against independently installed authority bytes, and requires strict peer/digest/nonce/EOF
+  success followed by launcher exit without restart, socket absence and service-cgroup removal.
+  It does not accept a submission, execute the checker, write the journal or permit activation.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do
@@ -1533,9 +1546,12 @@ second prerequisite and do not change
 NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: IMPLEMENTATION-BASELINE-APPROVED
 IMPLEMENTATION: PARTIAL (PHASE-1 / PHASE-2 / PHASE-2C / PHASE-2D / PHASE-3A.1 /
 PHASE-3A.2 / PHASE-3B.0 / PHASE-3B.1 / PHASE-3B.2A / PHASE-3B.2B-0 / -1 /
-PHASE-3B.2B-2P / PHASE-3B.2B-2N / PHASE-3B.2B-2I LANDED;
-PHASE-3B.2B-2L REQUEST-FREE LAUNCHER CORE CURRENT GUARDED SLICE)
-CONTAINMENT-ROUTE-GREEN: OPEN / POLICY-FROZEN-BUT-LAUNCHER-HANDSHAKE-EXECUTION-AND-ROUTE-UNIMPLEMENTED
+PHASE-3B.2B-2P / PHASE-3B.2B-2N / PHASE-3B.2B-2I / PHASE-3B.2B-2L /
+PHASE-3B.2B-2U / PHASE-3B.2B-2R / PHASE-3B.2B-2S / PHASE-3B.2B-2T /
+PHASE-3B.2B-2G / PHASE-3B.2B-2H / PHASE-3B.2B-2M / PHASE-3B.2B-2V /
+PHASE-3B.2B-2W / PHASE-3B.2B-2X LANDED;
+PHASE-3B.2B-2Y ONE-SHOT QUALIFICATION CURRENT GUARDED SLICE)
+CONTAINMENT-ROUTE-GREEN: OPEN / READINESS-HANDSHAKE-ONLY; CHECKER-EXECUTION-AND-ROUTE-UNIMPLEMENTED
 ```
 
 The base document, r1 and r2 remain the historical record of the first three review passes and are
