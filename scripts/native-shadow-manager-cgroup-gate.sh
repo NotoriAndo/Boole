@@ -235,6 +235,7 @@ install_authority() {
 install_authority fixtures/native-shadow/registry-v1.json registry-v1.json
 install_authority native/containment/native-shadow-execution-policy-v1.json execution-policy-v1.json
 install_authority native/containment/native-shadow-toolchain-identity-v1.json toolchain-identity-v1.json
+install_authority native/containment/native-shadow-local-execution-authority-v1.json local-execution-authority-v1.json
 
 if [[ ! -d "$runtime_parent" ]]; then
   runtime_parent_created=true

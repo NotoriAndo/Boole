@@ -1,16 +1,17 @@
 use boole_native_shadow_protocol::{
     decode_complete_execution_hello_frame, decode_complete_execution_ready_frame,
     decode_complete_execution_report_frame, decode_complete_execution_request_frame,
-    decode_complete_qualification_ready_frame, encode_execution_hello_frame,
-    encode_execution_ready_frame, encode_execution_report_frame, encode_execution_request_frame,
-    execution_request_digest_hex, read_execution_hello, read_execution_ready,
-    read_execution_report, read_execution_request, sha256_hex, submission_digest_hex,
-    validate_execution_session, write_execution_hello, write_execution_ready,
-    write_execution_report, write_execution_request, AuthorityBindings, AuthorityBindingsFields,
-    CheckerOutputStatus, CheckerParsedResult, CheckerParsedResultFields, CheckerReason,
-    CheckerResult, CheckerResultFields, CheckerVerdict, Cleanup, CleanupFields, ExecutionHello,
-    ExecutionReady, ExecutionReadyFields, ExecutionReport, ExecutionReportFields, ExecutionRequest,
-    ExecutionRequestFields, ResourceObservations, ResourceObservationsFields, WaitStatus,
+    decode_complete_qualification_ready_frame, decode_exact_checker_stdout_line,
+    encode_execution_hello_frame, encode_execution_ready_frame, encode_execution_report_frame,
+    encode_execution_request_frame, execution_request_digest_hex, read_execution_hello,
+    read_execution_ready, read_execution_report, read_execution_request, sha256_hex,
+    submission_digest_hex, validate_execution_session, write_execution_hello,
+    write_execution_ready, write_execution_report, write_execution_request, AuthorityBindings,
+    AuthorityBindingsFields, CheckerOutputStatus, CheckerParsedResult, CheckerParsedResultFields,
+    CheckerReason, CheckerResult, CheckerResultFields, CheckerVerdict, Cleanup, CleanupFields,
+    ExecutionHello, ExecutionReady, ExecutionReadyFields, ExecutionReport, ExecutionReportFields,
+    ExecutionRequest, ExecutionRequestFields, ResourceObservations, ResourceObservationsFields,
+    WaitStatus,
 };
 use serde_json::{json, Value};
 use std::io::Cursor;
@@ -456,6 +457,32 @@ fn report_round_trip_preserves_validated_nested_contract() {
         decode_complete_execution_report_frame(&encoded).unwrap(),
         report
     );
+}
+
+#[test]
+fn checker_stdout_requires_one_exact_strict_json_line() {
+    let accepted = format!(
+        "{{\"checkerTaskId\":\"fixture-task-1\",\"reasonCode\":\"accepted\",\"schema\":\"boole.native-shadow.checker-result.v1\",\"taskDigest\":\"{}\",\"verdict\":\"accepted\"}}\n",
+        h(7)
+    );
+    let parsed = decode_exact_checker_stdout_line(accepted.as_bytes())
+        .expect("one strict checker JSON line must parse");
+    assert_eq!(serde_json::to_value(parsed).unwrap()["verdict"], "accepted");
+
+    for invalid in [
+        accepted.trim_end().as_bytes().to_vec(),
+        format!("{accepted}\n").into_bytes(),
+        format!(" {accepted}").into_bytes(),
+        format!("{}{}", accepted.trim_end(), accepted).into_bytes(),
+        accepted
+            .replace(
+                "\"reasonCode\":\"accepted\"",
+                "\"reasonCode\":\"forbidden_construct\"",
+            )
+            .into_bytes(),
+    ] {
+        assert!(decode_exact_checker_stdout_line(&invalid).is_err());
+    }
 }
 
 #[test]

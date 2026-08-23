@@ -129,6 +129,7 @@ install_authority \
 install_authority \
   native/containment/native-shadow-toolchain-identity-v1.json \
   toolchain-identity-v1.json
+install_authority native/containment/native-shadow-local-execution-authority-v1.json local-execution-authority-v1.json
 
 suffix=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$
 suffix=${suffix//[^a-zA-Z0-9-]/-}

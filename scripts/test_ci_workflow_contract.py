@@ -582,6 +582,23 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "the gate must not mutate host /usr/share metadata or contents",
         )
 
+    def test_launcher_gates_install_the_exact_local_execution_authority(self):
+        expected = (
+            "native/containment/native-shadow-local-execution-authority-v1.json "
+            "local-execution-authority-v1.json"
+        )
+        for gate in (
+            LAUNCHER_PRELOCK_GATE,
+            REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh",
+        ):
+            body = gate.read_text(encoding="utf-8")
+            self.assertIn(
+                expected,
+                body,
+                f"{gate.name} must stage the exact successor authority beside the "
+                "three frozen v1 authority files",
+            )
+
     def test_launcher_prelock_gate_calls_the_production_instance_identity_path(self):
         body = LAUNCHER_PRELOCK_GATE.read_text(encoding="utf-8")
         lock_source = LAUNCHER_LIFETIME_LOCK_SOURCE.read_text(encoding="utf-8")

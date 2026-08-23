@@ -682,6 +682,27 @@ pub fn decode_complete_execution_report_frame(frame: &[u8]) -> Result<ExecutionR
     ExecutionReport::try_from(dto)
 }
 
+/// Parse the checker's complete stdout contract: exactly one strict JSON
+/// object followed by one LF byte and no other line break or surrounding
+/// whitespace. This is intentionally narrower than generic JSON parsing so a
+/// partial or multi-line diagnostic can never be mistaken for a verdict.
+pub fn decode_exact_checker_stdout_line(stdout: &[u8]) -> Result<CheckerParsedResult, WireError> {
+    let Some(payload) = stdout.strip_suffix(b"\n") else {
+        return Err(contract("checker stdout must end with exactly one LF byte"));
+    };
+    if payload.first() != Some(&b'{')
+        || payload.last() != Some(&b'}')
+        || payload.contains(&b'\n')
+        || payload.contains(&b'\r')
+    {
+        return Err(contract(
+            "checker stdout must contain exactly one JSON object line",
+        ));
+    }
+    let dto: CheckerParsedResultDto = decode_strict_payload(payload, MAX_RESPONSE_FRAME_BYTES)?;
+    CheckerParsedResult::try_from(dto)
+}
+
 pub fn write_execution_hello<W: Write>(
     writer: &mut W,
     value: &ExecutionHello,

@@ -9,9 +9,15 @@
 //! the fixed manager cgroup, removing exact startup `run-*` orphan leaves,
 //! running the four fixed pre-bind toolchain compatibility probes and consuming
 //! that complete proof chain into the only token allowed to serve request-free
-//! qualification. It does not bind or accept a socket, emit a readiness frame,
-//! spawn a checker, or expose an execution/report API.
+//! qualification. A staged active-execution core can exercise the strict
+//! successor wire sequence in-module, but it deliberately exposes no listener
+//! or executor construction path. Until exact per-request containment, a
+//! verified runtime-rootfs replay token, and the separate exact fixed-case
+//! replay grant are all consumed, production code still cannot bind a socket,
+//! spawn a checker, or serve an execution/report API. Every installed policy
+//! and readiness frame remains `activationAllowed=false`.
 
+pub mod active_execution;
 mod cgroupfs_fd;
 pub mod instance_id;
 pub mod lifetime_lock;

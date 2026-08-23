@@ -14,9 +14,10 @@ use thiserror::Error;
 
 use crate::{
     closed_local_replay_grant::verify_closed_local_replay_grant_bytes, verify_authority_bundle,
-    AuthorityError, ClosedLocalReplayGrantError, VerifiedAuthorityBundle,
-    VerifiedClosedLocalReplayGrant, TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
-    TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES, TRACKED_EXECUTION_POLICY_BYTES,
+    verify_local_execution_authority_bytes, AuthorityError, ClosedLocalReplayGrantError,
+    VerifiedAuthorityBundle, VerifiedClosedLocalReplayGrant, VerifiedLocalExecutionAuthority,
+    TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES, TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+    TRACKED_EXECUTION_POLICY_BYTES, TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
     TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
 };
 
@@ -94,6 +95,18 @@ pub fn open_verified_installed_closed_local_replay_grant(
     open_verified_closed_local_replay_grant_beneath(&root, 0, 0)
 }
 
+/// Open the exact installed closed-local successor authority through the same
+/// descriptor-relative, root-owned hierarchy as the qualification bundle.
+pub fn open_verified_installed_local_execution_authority(
+) -> Result<VerifiedLocalExecutionAuthority, InstalledAuthorityError> {
+    let root = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open("/")
+        .map_err(|source| io_failure("/", source))?;
+    open_verified_local_execution_authority_beneath(&root, 0, 0)
+}
+
 fn open_verified_closed_local_replay_grant_beneath(
     root: &File,
     required_uid: u32,
@@ -158,6 +171,62 @@ fn open_verified_authority_bundle_beneath(
     required_uid: u32,
     required_gid: u32,
 ) -> Result<VerifiedAuthorityBundle, InstalledAuthorityError> {
+    let (current, display_path) =
+        open_verified_authority_directory(root, required_uid, required_gid)?;
+
+    let mut opened = Vec::with_capacity(EXPECTED_AUTHORITY_FILES.len());
+    for expected in &EXPECTED_AUTHORITY_FILES {
+        let label = format!("{display_path}/{}", expected.basename);
+        let file = open_child(&current, expected.basename, false, &label)?;
+        let bytes = read_verified_file(
+            file,
+            &label,
+            required_uid,
+            required_gid,
+            expected.tracked.len(),
+        )?;
+        opened.push((expected.label, bytes));
+    }
+
+    verify_authority_bundle(&opened[0].1, &opened[1].1, &opened[2].1)
+        .map_err(InstalledAuthorityError::from)
+}
+
+fn open_verified_local_execution_authority_beneath(
+    root: &File,
+    required_uid: u32,
+    required_gid: u32,
+) -> Result<VerifiedLocalExecutionAuthority, InstalledAuthorityError> {
+    let (directory, display_path) =
+        open_verified_authority_directory(root, required_uid, required_gid)?;
+    let basename = "local-execution-authority-v1.json";
+    let label = format!("{display_path}/{basename}");
+    let file = open_child(&directory, basename, false, &label)?;
+    let bytes = read_verified_file(
+        file,
+        &label,
+        required_uid,
+        required_gid,
+        TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES.len(),
+    )?;
+    verify_local_execution_authority_bytes(&bytes).map_err(|error| {
+        InstalledAuthorityError::UnsafeMetadata {
+            label,
+            reason: match error {
+                crate::LocalExecutionAuthorityError::ByteMismatch => {
+                    "local execution authority differs from tracked bytes"
+                }
+                _ => "local execution authority violates its strict contract",
+            },
+        }
+    })
+}
+
+fn open_verified_authority_directory(
+    root: &File,
+    required_uid: u32,
+    required_gid: u32,
+) -> Result<(File, String), InstalledAuthorityError> {
     validate_directory(root, "/", required_uid, required_gid, None)?;
 
     let mut current = root.try_clone().map_err(|source| io_failure("/", source))?;
@@ -178,22 +247,7 @@ fn open_verified_authority_bundle_beneath(
         current = child;
     }
 
-    let mut opened = Vec::with_capacity(EXPECTED_AUTHORITY_FILES.len());
-    for expected in &EXPECTED_AUTHORITY_FILES {
-        let label = format!("{display_path}/{}", expected.basename);
-        let file = open_child(&current, expected.basename, false, &label)?;
-        let bytes = read_verified_file(
-            file,
-            &label,
-            required_uid,
-            required_gid,
-            expected.tracked.len(),
-        )?;
-        opened.push((expected.label, bytes));
-    }
-
-    verify_authority_bundle(&opened[0].1, &opened[1].1, &opened[2].1)
-        .map_err(InstalledAuthorityError::from)
+    Ok((current, display_path))
 }
 
 #[allow(unsafe_code)]
@@ -340,13 +394,16 @@ mod tests {
     use crate::{
         AuthorityError, TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
         TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES, TRACKED_EXECUTION_POLICY_BYTES,
-        TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
+        TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES, TRACKED_REGISTRY_BYTES,
+        TRACKED_TOOLCHAIN_IDENTITY_BYTES,
     };
 
     use super::{
         open_verified_authority_bundle_beneath, open_verified_closed_local_replay_grant_beneath,
         open_verified_installed_authority_bundle,
-        open_verified_installed_closed_local_replay_grant, InstalledAuthorityError,
+        open_verified_installed_closed_local_replay_grant,
+        open_verified_installed_local_execution_authority,
+        open_verified_local_execution_authority_beneath, InstalledAuthorityError,
     };
 
     static NEXT_TEST_TREE: AtomicU64 = AtomicU64::new(0);
@@ -383,6 +440,10 @@ mod tests {
                 (
                     "closed-local-replay-registry-overlay-v1.json",
                     TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+                ),
+                (
+                    "local-execution-authority-v1.json",
+                    TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
                 ),
             ] {
                 let path = authority_dir.join(basename);
@@ -443,6 +504,8 @@ mod tests {
         let _entrypoint: fn() -> Result<_, _> = open_verified_installed_authority_bundle;
         let _replay_entrypoint: fn() -> Result<_, _> =
             open_verified_installed_closed_local_replay_grant;
+        let _successor_entrypoint: fn() -> Result<_, _> =
+            open_verified_installed_local_execution_authority;
     }
 
     #[test]
@@ -525,6 +588,21 @@ mod tests {
             linked.open_replay_grant(),
             Err(InstalledAuthorityError::Io { .. })
         ));
+    }
+
+    #[test]
+    fn installed_successor_authority_uses_the_same_safe_descriptor_walk() {
+        let tree = TestAuthorityTree::new();
+        let root = OpenOptions::new()
+            .read(true)
+            .open(&tree.root)
+            .expect("test root must open");
+        let authority = open_verified_local_execution_authority_beneath(&root, tree.uid, tree.gid)
+            .expect("exact installed successor authority verifies");
+
+        assert!(!authority.activation_allowed());
+        assert!(authority.loopback_only());
+        assert!(!authority.mineable_now());
     }
 
     #[test]

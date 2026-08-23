@@ -2,6 +2,7 @@
 //! qualification handshake.
 
 mod closed_local_replay_grant;
+mod execution_active_wire;
 mod execution_wire;
 #[cfg(unix)]
 pub mod installed_authority;
@@ -11,6 +12,12 @@ pub use closed_local_replay_grant::{
     VerifiedClosedLocalReplayGrant, INSTALLED_CLOSED_LOCAL_REPLAY_GRANT_PATH,
     INSTALLED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_PATH, TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
     TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+};
+pub use execution_active_wire::{
+    decode_complete_active_execution_ready_frame, encode_active_execution_ready_frame,
+    read_active_execution_ready, validate_active_execution_session,
+    verify_local_execution_authority_bytes, write_active_execution_ready, ActiveExecutionReady,
+    ActiveExecutionReadyFields, LocalExecutionAuthorityError, VerifiedLocalExecutionAuthority,
 };
 pub use execution_wire::*;
 pub use service_identities::{
@@ -36,6 +43,10 @@ pub const TRACKED_EXECUTION_POLICY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/containment/native-shadow-execution-policy-v1.json"
 ));
+pub const TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-local-execution-authority-v1.json"
+));
 pub const TRACKED_TOOLCHAIN_IDENTITY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/containment/native-shadow-toolchain-identity-v1.json"
@@ -46,6 +57,8 @@ pub const INSTALLED_EXECUTION_POLICY_PATH: &str =
     "/usr/share/boole/native-shadow/execution-policy-v1.json";
 pub const INSTALLED_TOOLCHAIN_IDENTITY_PATH: &str =
     "/usr/share/boole/native-shadow/toolchain-identity-v1.json";
+pub const INSTALLED_LOCAL_EXECUTION_AUTHORITY_PATH: &str =
+    "/usr/share/boole/native-shadow/local-execution-authority-v1.json";
 pub const MAX_REQUEST_FRAME_BYTES: usize = 131_072;
 pub const MAX_RESPONSE_FRAME_BYTES: usize = 65_536;
 
