@@ -30,6 +30,10 @@ class SelfTestContractTests(unittest.TestCase):
                 "the deterministic offline rootfs builder contract",
             ),
             (
+                "scripts/test_native_shadow_rootfs_portable_v2.py",
+                "the host-independent rootfs successor authority contract",
+            ),
+            (
                 "scripts/test_native_shadow_rootfs_oci_verify.py",
                 "the builder-independent OCI verification contract",
             ),
