@@ -650,15 +650,14 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
         libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
         Some(staging_options),
     )?;
-    for path in [
-        c"/run/boole",
-        RUNTIME_BASE,
-        RUNTIME_UPPER,
-        RUNTIME_WORK,
-        RUNTIME_ROOT,
-    ] {
+    for path in [c"/run/boole", RUNTIME_BASE, RUNTIME_WORK, RUNTIME_ROOT] {
         mkdir_fixed(path, 0o700)?;
     }
+    // OverlayFS takes the merged root directory's metadata from the upper
+    // directory.  The untrusted checker runs after dropping root, so the
+    // merged `/` must remain traversable while every staging parent stays
+    // root-only.
+    mkdir_fixed(RUNTIME_UPPER, 0o755)?;
     for (path, mode) in [
         (
             c"/run/boole/native-shadow/rootfs-upper/work" as &CStr,
@@ -769,6 +768,16 @@ fn verify_derived_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
     use std::collections::BTreeSet;
     use std::os::unix::fs::MetadataExt;
 
+    let root_metadata = std::fs::symlink_metadata(RUNTIME_ROOT.to_string_lossy().as_ref())
+        .map_err(|error| error.to_string())?;
+    if !runtime_root_metadata_is_exact(
+        root_metadata.uid(),
+        root_metadata.gid(),
+        root_metadata.mode(),
+    ) {
+        return Err("derived runtime root metadata mismatch".to_string());
+    }
+
     let lower = Path::new(&format!("/proc/self/fd/{rootfs_fd}"))
         .read_dir()
         .map_err(|error| error.to_string())?
@@ -811,6 +820,10 @@ fn verify_derived_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
         return Err("derived runtime root is not overlayfs".to_string());
     }
     Ok(())
+}
+
+fn runtime_root_metadata_is_exact(uid: u32, gid: u32, mode: u32) -> bool {
+    uid == 0 && gid == 0 && mode & libc::S_IFMT == libc::S_IFDIR && mode & 0o7777 == 0o755
 }
 
 fn derived_runtime_top_level_is_exact(
@@ -1491,7 +1504,8 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::{
-        derived_runtime_top_level_is_exact, setup_stage, CapturedOutput, OutputStream, OUTPUT_LIMIT,
+        derived_runtime_top_level_is_exact, runtime_root_metadata_is_exact, setup_stage,
+        CapturedOutput, OutputStream, OUTPUT_LIMIT,
     };
 
     fn names(values: &[&str]) -> BTreeSet<OsString> {
@@ -1524,6 +1538,13 @@ mod tests {
             &conflicting_lower,
             &exact
         ));
+    }
+
+    #[test]
+    fn derived_runtime_root_is_traversable_after_checker_privilege_drop() {
+        assert!(runtime_root_metadata_is_exact(0, 0, libc::S_IFDIR | 0o755));
+        assert!(!runtime_root_metadata_is_exact(0, 0, libc::S_IFDIR | 0o700));
+        assert!(!runtime_root_metadata_is_exact(1, 0, libc::S_IFDIR | 0o755));
     }
 
     #[test]

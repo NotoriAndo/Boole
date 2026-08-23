@@ -507,6 +507,14 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         ):
             self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
 
+    def test_overlay_root_remains_traversable_after_checker_privilege_drop(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("mkdir_fixed(RUNTIME_UPPER, 0o755)?;", source)
+        self.assertIn("runtime_root_metadata_is_exact", source)
+
 
 if __name__ == "__main__":
     unittest.main()
