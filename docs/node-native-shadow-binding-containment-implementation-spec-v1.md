@@ -180,7 +180,7 @@ entry becomes authoritative on `main` only after its required CI and merge:
   qualification registry binds both raw files. This slice froze authority only: no launcher
   binary, socket, child process, checker, journal transition or route was created. The required
   named-Linux, self-test and supply-chain jobs passed in CI run `32603937417` before merge.
-* **Phase 3B.2b-0** — the current guarded strict-authority/wire-contract slice: the minimal
+* **Phase 3B.2b-0** — PR #176, main `1b02592`: the minimal
   `boole-native-shadow-protocol` crate embeds the three exact tracked authority files, rejects
   byte differences before interpreting installed authority, rejects duplicate keys and
   floating-point JSON, strictly rejects unknown or missing fields in every registry and
@@ -188,9 +188,20 @@ entry becomes authoritative on `main` only after its required CI and merge:
   non-forgeable outside the crate, and provides the fixed four-byte big-endian framed
   JSON caps. `boole-node` replaces its repository-fixture production path with the literal installed
   `/usr/share/boole/native-shadow/registry-v1.json` path and converts the full strict registry into
-  its lifecycle projection only after exact-byte and cross-digest verification. This slice becomes
-  authoritative only after required CI and merge. It creates no socket, launcher, nonce, child,
+  its lifecycle projection only after exact-byte and cross-digest verification. It creates no
+  socket, launcher, nonce, child,
   checker result, journal transition or route.
+* **Phase 3B.2b-1** — the current guarded node-side behavioral-mock slice: a private client owns one
+  mock session so an error cannot leave a reusable connection, obtains mock peer credentials before
+  stream I/O, sends one strict qualification hello from a test-injected 32-byte nonce and the
+  verified three-authority bundle, then accepts readiness only after nonce, all three digests, peer
+  PID and all six launcher/node/checker UID/GID values match. Success additionally requires node
+  shutdown-write followed by clean peer EOF; premature/partial/oversized input, a second frame,
+  trailing bytes or either shutdown failure remains an error. The result is a private,
+  non-serializable in-memory readiness value with no lifecycle, journal, route or execution handle.
+  This slice becomes authoritative only after required CI and merge. It does **not** open a Unix
+  socket, call `SO_PEERCRED` or `getrandom(2)`, resolve accounts, start a launcher/child, or prove a
+  real Linux handshake; those remain Phase 3B.2b-2 work.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do
@@ -628,16 +639,18 @@ version probes pass. Evidence `toolchainDigest` means this tracked compatibility
 digest, not a digest improvised from a request-selected channel name or a claim that unrecorded
 installed bytes were reproduced.
 
-Phase 3B.2b-0 is the guarded slice that closes the two node-side compatibility gaps originally
+Phase 3B.2b-0 (PR #176, main `1b02592`) closed the two node-side compatibility gaps originally
 recorded here: production uses the literal installed
 `/usr/share/boole/native-shadow/registry-v1.json` path, and the shared strict registry model requires
 the top-level policy/toolchain bindings plus every per-template manifest/intake field before
 explicitly projecting lifecycle fields. Recursive duplicate keys, floats, BOM, unknown and missing
 registry fields fail before that projection; policy and toolchain files remain opaque exact-byte
-authorities after their JSON syntax check. This closure becomes authoritative only after the slice's
-required CI and merge. The actual disabled handshake must still open and authenticate the other two
-installed authority copies, compare all three exact bytes/digests and reach mutual EOF without state
-change. Phase 3B.2b-0 validates the registry's final opened file descriptor; validation of every
+authorities after their JSON syntax check. Phase 3B.2b-1 adds only the node-side exchange and binding
+behavior against an owned mock session; it does not claim a real socket, kernel peer credentials,
+nonce generation or launcher. The actual disabled handshake must still open and authenticate the
+other two installed authority copies, compare all three exact bytes/digests and reach mutual EOF
+without state change over the installed Unix socket. Phase 3B.2b-0 validates the registry's final
+opened file descriptor; validation of every
 ancestor as root-owned and non-writable remains part of that later installed-authority handshake.
 The three installed-runtime provenance manifests above are a separate activation blocker and
 also remain open.
