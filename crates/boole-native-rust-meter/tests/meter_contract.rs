@@ -26,6 +26,30 @@ fn canonical_source() -> &'static str {
     "#
 }
 
+fn frozen_patch_body(source: &'static str) -> &'static str {
+    const BEGIN: &str = "// <<< ACFR-PATCH-BEGIN >>>";
+    const END: &str = "// <<< ACFR-PATCH-END >>>";
+    let (_, remainder) = source.split_once(BEGIN).expect("one frozen begin marker");
+    let (body, _) = remainder.split_once(END).expect("one frozen end marker");
+    body
+}
+
+#[test]
+fn real_frozen_accept_is_inside_the_metered_answer_language() {
+    let source = include_str!(
+        "../../../fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/accepted.rs"
+    );
+    let program = boole_native_rust_meter::parse(frozen_patch_body(source), limits()).unwrap();
+    let items = vec![
+        TupleItem::new(vec![TupleField::Unsigned(2)]),
+        TupleItem::new(vec![TupleField::Unsigned(3)]),
+    ];
+    let evaluation = program.evaluate_hidden_prefixes(&items, limits()).unwrap();
+
+    assert_eq!(evaluation.outputs(), &[11_208, 773_397]);
+    assert_eq!(evaluation.resource_use().prefix_items(), 3);
+}
+
 #[test]
 fn literal_program_is_parsed_and_evaluated_through_the_public_meter() {
     let program = boole_native_rust_meter::parse("7", limits()).unwrap();
