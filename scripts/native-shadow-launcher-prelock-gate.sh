@@ -17,17 +17,15 @@ command -v systemd-run >/dev/null || die "systemd-run is unavailable"
 command -v sha256sum >/dev/null || die "sha256sum is unavailable"
 command -v python3 >/dev/null || die "python3 is unavailable"
 
-authority_parent=/usr/share/boole
-authority_directory=/usr/share/boole/native-shadow
-[[ ! -e "$authority_parent" && ! -L "$authority_parent" ]] \
-  || die "authority parent unexpectedly exists before the isolated gate"
-
 temp_root=${RUNNER_TEMP:-/tmp}
 build_json=$(mktemp "$temp_root/boole-native-shadow-launcher-prelock-build.XXXXXX")
 launcher_path=''
 unit=''
 log=''
-authority_created=false
+authority_stage=''
+authority_share=''
+authority_parent=''
+authority_directory=''
 declare -a installed_basenames=()
 
 cleanup_prelock_gate() {
@@ -39,11 +37,13 @@ cleanup_prelock_gate() {
   [[ -n "$launcher_path" ]] && sudo rm -f "$launcher_path"
   local basename
   for basename in "${installed_basenames[@]}"; do
-    sudo rm -f "/usr/share/boole/native-shadow/$basename"
+    sudo rm -f "$authority_directory/$basename"
   done
-  if [[ "$authority_created" == true ]]; then
-    sudo rmdir /usr/share/boole/native-shadow >/dev/null 2>&1 || :
-    sudo rmdir /usr/share/boole >/dev/null 2>&1 || :
+  if [[ -n "$authority_stage" ]]; then
+    sudo rmdir "$authority_directory" >/dev/null 2>&1 || :
+    sudo rmdir "$authority_parent" >/dev/null 2>&1 || :
+    sudo rmdir "$authority_share" >/dev/null 2>&1 || :
+    sudo rmdir "$authority_stage" >/dev/null 2>&1 || :
   fi
   [[ -n "$log" ]] && rm -f "$log"
   rm -f "$build_json"
@@ -81,8 +81,13 @@ staged_sha=$(sudo sha256sum "$launcher_path" | awk '{ print $1 }')
 [[ "$source_sha" == "$staged_sha" ]] \
   || die "staged launcher test bytes differ from the reviewed executable"
 
+authority_stage=$(sudo mktemp -d /run/boole-native-shadow-authority.XXXXXX)
+authority_share="$authority_stage/share"
+authority_parent="$authority_share/boole"
+authority_directory="$authority_parent/native-shadow"
+sudo chmod 0700 "$authority_stage"
+sudo install -d -o root -g root -m 0755 "$authority_share"
 sudo install -d -o root -g root -m 0755 "$authority_parent"
-authority_created=true
 sudo install -d -o root -g root -m 0555 "$authority_directory"
 
 install_authority() {
@@ -118,6 +123,8 @@ sudo systemd-run --quiet --pipe --wait --collect --unit="$unit" \
   --property=User=root --property=Group=root \
   --property='CapabilityBoundingSet=CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN' \
   --property=AmbientCapabilities= --property=NoNewPrivileges=no \
+  --property=PrivateMounts=yes \
+  --property="BindReadOnlyPaths=${authority_share}:/usr/share" \
   --property=WorkingDirectory=/ \
   "$launcher_path" "$test_name" --ignored --exact --nocapture \
   >"$log" 2>&1

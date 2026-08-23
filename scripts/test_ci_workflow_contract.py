@@ -183,7 +183,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             '[[ ${EUID} -ne 0 ]] || die "build phase must run as the unprivileged CI user"',
             "cargo test --locked -p boole-native-shadow-launcher --lib --no-run",
             "startup::tests::real_linux_prelock_prerequisites_match_the_frozen_host_contract",
-            '[[ ! -e "$authority_parent" && ! -L "$authority_parent" ]]',
+            "sudo mktemp -d /run/boole-native-shadow-authority.XXXXXX",
+            'authority_share="$authority_stage/share"',
             "fixtures/native-shadow/registry-v1.json registry-v1.json",
             "native/containment/native-shadow-execution-policy-v1.json",
             "native/containment/native-shadow-toolchain-identity-v1.json",
@@ -192,12 +193,21 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "--property=User=root --property=Group=root",
             'CapabilityBoundingSet=CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN',
             "--property=AmbientCapabilities= --property=NoNewPrivileges=no",
-            'sudo rm -f "/usr/share/boole/native-shadow/$basename"',
-            "sudo rmdir /usr/share/boole/native-shadow",
-            "sudo rmdir /usr/share/boole",
+            "--property=PrivateMounts=yes",
+            '--property="BindReadOnlyPaths=${authority_share}:/usr/share"',
+            'sudo rm -f "$authority_directory/$basename"',
+            'sudo rmdir "$authority_directory"',
+            'sudo rmdir "$authority_parent"',
+            'sudo rmdir "$authority_share"',
+            'sudo rmdir "$authority_stage"',
             "transient unit ${unit}.service was not collected",
         ):
             self.assertIn(required, body)
+        self.assertNotIn(
+            "sudo install -d -o root -g root -m 0755 /usr/share/boole",
+            body,
+            "the gate must not rewrite a hosted runner's unsafe /usr/share hierarchy",
+        )
 
     def test_required_self_test_cannot_hide_a_failed_probe(self):
         job = self._job("self-test")
