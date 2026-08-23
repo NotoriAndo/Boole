@@ -1,0 +1,4 @@
+LLM-MINEABLE-ELIGIBLE-V5 = 14,160
+197 is a candidate-eligibility count, not a solve count.
+Entry 27 does not expand `LLM-MINEABLE-ELIGIBLE-V5`.
+mineable_now = 0
