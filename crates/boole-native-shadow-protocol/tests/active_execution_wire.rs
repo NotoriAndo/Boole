@@ -1,14 +1,18 @@
 use boole_native_shadow_protocol::{
     decode_complete_active_execution_ready_frame,
     decode_complete_closed_local_replay_execution_ready_frame, encode_active_execution_ready_frame,
-    encode_closed_local_replay_execution_ready_frame, encode_execution_request_frame, sha256_hex,
-    submission_digest_hex, verify_closed_local_replay_execution_authority_bytes,
-    verify_local_execution_authority_bytes, ActiveExecutionReady, ActiveExecutionReadyFields,
+    encode_closed_local_replay_execution_ready_frame, encode_execution_request_frame,
+    execution_request_digest_hex, sha256_hex, submission_digest_hex,
+    validate_closed_local_replay_execution_session,
+    verify_closed_local_replay_execution_authority_bytes, verify_local_execution_authority_bytes,
+    ActiveExecutionReady, ActiveExecutionReadyFields, AuthorityBindings, AuthorityBindingsFields,
+    CheckerOutputStatus, CheckerParsedResult, CheckerParsedResultFields, CheckerReason,
+    CheckerResult, CheckerResultFields, CheckerVerdict, Cleanup, CleanupFields,
     ClosedLocalReplayExecutionAuthorityError, ClosedLocalReplayExecutionReady,
-    ClosedLocalReplayExecutionReadyFields, ExecutionHello, ExecutionRequest,
-    ExecutionRequestFields, LocalExecutionAuthorityError,
-    TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES, TRACKED_EXECUTION_POLICY_BYTES,
-    TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
+    ClosedLocalReplayExecutionReadyFields, ExecutionHello, ExecutionReport, ExecutionReportFields,
+    ExecutionRequest, ExecutionRequestFields, LocalExecutionAuthorityError, ResourceObservations,
+    ResourceObservationsFields, WaitStatus, TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+    TRACKED_EXECUTION_POLICY_BYTES, TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
 };
 use sha2::{Digest, Sha256};
 
@@ -44,6 +48,77 @@ fn request() -> ExecutionRequest {
         toolchain_identity_digest_hex: h(11),
         execution_policy_digest_hex: hex::encode(Sha256::digest(TRACKED_EXECUTION_POLICY_BYTES)),
         intake_version: "RUST-TUPLE-STRUCT-NATIVE-PROOF-INTAKE-V1".to_string(),
+    })
+    .unwrap()
+}
+
+fn accepted_report(request_digest_hex: String) -> ExecutionReport {
+    let authority_bindings = AuthorityBindings::try_new(AuthorityBindingsFields {
+        registry_version: "native-shadow-registry-v1".to_string(),
+        registry_digest_hex: h(5),
+        anchor_digest_hex: h(6),
+        task_digest_hex: h(7),
+        checker_artifact_hash_hex: h(8),
+        checker_policy_digest_hex: h(9),
+        checker_release_manifest_digest_hex: h(10),
+        toolchain_identity_digest_hex: h(11),
+    })
+    .unwrap();
+    let resource_observations = ResourceObservations::try_new(ResourceObservationsFields {
+        memory_events_low_delta: 0,
+        memory_events_high_delta: 0,
+        memory_events_max_delta: 0,
+        memory_events_oom_delta: 0,
+        memory_events_oom_kill_delta: 0,
+        memory_events_oom_group_kill_delta: 0,
+        pids_events_max_delta: 0,
+        cpu_usage_usec_delta: 42,
+        output_limit_exceeded: false,
+    })
+    .unwrap();
+    let cleanup = Cleanup::try_new(CleanupFields {
+        child_reaped: true,
+        cgroup_populated_zero: true,
+        launcher_pidfd_and_namespace_fds_closed: true,
+        cgroup_leaf_removed: true,
+        completed_within_deadline: true,
+    })
+    .unwrap();
+    let parsed = CheckerParsedResult::try_new(CheckerParsedResultFields {
+        verdict: CheckerVerdict::Accepted,
+        reason_code: CheckerReason::Accepted,
+        checker_task_id: Some("fixture-task-1".to_string()),
+        task_digest_hex: Some(h(7)),
+    })
+    .unwrap();
+    let checker_result = CheckerResult::try_new(CheckerResultFields {
+        status: CheckerOutputStatus::ValidCheckerResult,
+        stdout_sha256_hex: h(13),
+        stderr_sha256_hex: sha256_hex(b""),
+        stdout_bytes: 128,
+        stderr_bytes: 0,
+        parsed: Some(parsed),
+    })
+    .unwrap();
+
+    ExecutionReport::try_new(ExecutionReportFields {
+        nonce_hex: h(1),
+        operation_id_hex: h(2),
+        request_digest_hex,
+        execution_policy_digest_hex: hex::encode(Sha256::digest(TRACKED_EXECUTION_POLICY_BYTES)),
+        launcher_pid: 1234,
+        launcher_uid: 0,
+        launcher_gid: 0,
+        node_uid: 1001,
+        node_gid: 1001,
+        checker_uid: 1002,
+        checker_gid: 1002,
+        authority_bindings,
+        wait_status: WaitStatus::exited(0),
+        timed_out: false,
+        resource_observations,
+        cleanup,
+        checker_result,
     })
     .unwrap()
 }
@@ -240,6 +315,52 @@ fn replay_ready_v3_is_byte_bound_and_requires_real_rootfs_replay_without_activat
         verify_closed_local_replay_execution_authority_bytes(&drifted),
         Err(ClosedLocalReplayExecutionAuthorityError::ByteMismatch)
     ));
+}
+
+#[test]
+fn replay_v3_session_returns_bound_result_without_a_bool_classification_seam() {
+    let authority = verify_closed_local_replay_execution_authority_bytes(
+        TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+    )
+    .unwrap();
+    let expected_request = request();
+    let request_frame = encode_execution_request_frame(&expected_request).unwrap();
+    let hello = ExecutionHello::try_from_execution_request_frame(&request_frame).unwrap();
+    let ready = ClosedLocalReplayExecutionReady::try_new(
+        &hello,
+        &authority,
+        ClosedLocalReplayExecutionReadyFields {
+            launcher_pid: 1234,
+            launcher_uid: 0,
+            launcher_gid: 0,
+            node_uid: 1001,
+            node_gid: 1001,
+            checker_uid: 1002,
+            checker_gid: 1002,
+            startup_recovery_complete: true,
+            active_execution_leaves: 0,
+            unexpected_direct_cgroup_children: 0,
+            manager_subgroup_verified: true,
+            launcher_instance_id_hex: h(14),
+            installed_replay_authorities_verified: true,
+            runtime_rootfs_replay_verified: true,
+            production_activation_allowed: false,
+        },
+    )
+    .unwrap();
+    let report = accepted_report(execution_request_digest_hex(&request_frame).unwrap());
+
+    let validated =
+        validate_closed_local_replay_execution_session(&hello, &ready, &request_frame, &report)
+            .unwrap();
+
+    assert_eq!(validated.request(), &expected_request);
+    assert_eq!(validated.report(), &report);
+    let verdict: Option<CheckerVerdict> = validated.checker_verdict();
+    let reason: Option<CheckerReason> = validated.checker_reason();
+    assert_eq!(verdict, Some(CheckerVerdict::Accepted));
+    assert_eq!(reason, Some(CheckerReason::Accepted));
+    assert!(validated.cleanup_complete());
 }
 
 #[test]

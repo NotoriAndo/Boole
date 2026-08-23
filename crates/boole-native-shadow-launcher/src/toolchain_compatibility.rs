@@ -940,11 +940,11 @@ mod tests {
 
     use super::{
         require_same_installed_toolchain_files, validate_execution, verify_installed_paths_beneath,
-        verify_probe_sequence,
-        InstalledToolchainFiles, ProbeExecution, ProbeExpectation, ProbeRequest, ProbeRunner,
-        ProcessProbeRunner, ToolchainCompatibilityError, ToolchainProbeFailure, CARGO_COMMIT,
-        CARGO_RELEASE, FIXED_ENVIRONMENT, FIXED_PROBES, PROBE_DEADLINE, PYTHON_IMPLEMENTATION,
-        PYTHON_VERSION_PREFIX, RUSTC_COMMIT, RUSTC_RELEASE, STREAM_LIMIT,
+        verify_probe_sequence, InstalledToolchainFiles, ProbeExecution, ProbeExpectation,
+        ProbeRequest, ProbeRunner, ProcessProbeRunner, ToolchainCompatibilityError,
+        ToolchainProbeFailure, CARGO_COMMIT, CARGO_RELEASE, FIXED_ENVIRONMENT, FIXED_PROBES,
+        PROBE_DEADLINE, PYTHON_IMPLEMENTATION, PYTHON_VERSION_PREFIX, RUSTC_COMMIT, RUSTC_RELEASE,
+        STREAM_LIMIT,
     };
 
     const RUSTC_OK: &[u8] = b"rustc 1.99.0-nightly (e7795af6d 2026-07-22)\n\

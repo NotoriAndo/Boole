@@ -2,7 +2,15 @@
 
 use thiserror::Error;
 
-use boole_native_shadow_protocol::{sha256_hex, VerifiedClosedLocalReplayAuthorization};
+use boole_native_shadow_protocol::installed_authority::VerifiedInstalledClosedLocalReplayExecutionMaterials;
+use boole_native_shadow_protocol::sha256_hex;
+
+use crate::closed_local_replay_startup::{
+    ClosedLocalReplayExecutionPermitParts, VerifiedClosedLocalReplayExecutionPermit,
+};
+
+#[cfg(target_os = "linux")]
+use std::os::fd::OwnedFd;
 
 const OPERATION_ID_BYTES: usize = 32;
 
@@ -135,13 +143,23 @@ pub(crate) struct VerifiedCheckerMaterials {
     task: Vec<u8>,
     anchor: Vec<u8>,
     submission: Vec<u8>,
+    _installed_materials: VerifiedInstalledClosedLocalReplayExecutionMaterials,
+    #[cfg(target_os = "linux")]
+    rootfs: OwnedFd,
 }
 
 impl VerifiedCheckerMaterials {
-    fn from_authorization(
-        authorization: VerifiedClosedLocalReplayAuthorization,
-        submission: Vec<u8>,
+    fn from_permit(
+        parts: ClosedLocalReplayExecutionPermitParts<'_>,
     ) -> Result<Self, ContainmentFailure> {
+        let ClosedLocalReplayExecutionPermitParts {
+            compatibility: _,
+            authorization,
+            installed_materials,
+            #[cfg(target_os = "linux")]
+            rootfs,
+            submission,
+        } = parts;
         if sha256_hex(&submission) != authorization.submission_source_digest_hex() {
             return Err(ContainmentFailure::Platform(
                 "authorized submission source digest mismatch".to_string(),
@@ -163,6 +181,9 @@ impl VerifiedCheckerMaterials {
             task: authorization.task_bytes().to_vec(),
             anchor: authorization.anchor_bytes().to_vec(),
             submission,
+            _installed_materials: installed_materials,
+            #[cfg(target_os = "linux")]
+            rootfs,
         })
     }
 }
@@ -297,11 +318,11 @@ mod linux;
 /// Execute the one fixed native checker beneath an already-verified startup
 /// and toolchain proof. There is no degraded or non-Linux fallback.
 pub(crate) fn execute_fixed_checker(
-    compatibility: &crate::toolchain_compatibility::VerifiedStartupToolchainCompatibility,
-    authorization: VerifiedClosedLocalReplayAuthorization,
-    submission: Vec<u8>,
+    permit: VerifiedClosedLocalReplayExecutionPermit<'_>,
 ) -> Result<ContainedExecution, ContainmentFailure> {
-    let materials = VerifiedCheckerMaterials::from_authorization(authorization, submission)?;
+    let parts = permit.into_parts();
+    let compatibility = parts.compatibility;
+    let materials = VerifiedCheckerMaterials::from_permit(parts)?;
     let _guard = EXECUTION_LOCK
         .try_lock()
         .map_err(|_| ContainmentFailure::Busy)?;

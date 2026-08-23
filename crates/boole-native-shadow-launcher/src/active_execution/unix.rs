@@ -5,23 +5,20 @@ use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
 use super::{
-    serve_active_execution_session, ActiveExecutionContext, ActiveExecutionServerError,
-    ActiveExecutionSession, ContainedCheckerExecutor, NodePeerCredentials, ReplayGrantCapability,
+    serve_active_execution_session, ActiveExecutionServerError, ActiveExecutionSession,
+    NodePeerCredentials,
 };
+use crate::closed_local_replay_startup::VerifiedClosedLocalReplayStartup;
 
 const EXECUTION_SESSION_TIMEOUT: Duration = Duration::from_millis(115_000);
 
-pub(super) fn serve_connected_unix_execution<E: ContainedCheckerExecutor>(
+pub(super) fn serve_connected_unix_execution(
     stream: UnixStream,
-    context: &ActiveExecutionContext,
-    executor: &mut E,
-    replay_grant: &ReplayGrantCapability,
+    startup: &mut VerifiedClosedLocalReplayStartup,
 ) -> Result<(), ActiveExecutionServerError> {
     serve_active_execution_session(
         LinuxActiveExecutionSession::new(stream, EXECUTION_SESSION_TIMEOUT),
-        context,
-        executor,
-        Some(replay_grant),
+        startup,
     )
 }
 
@@ -124,8 +121,8 @@ impl ActiveExecutionSession for LinuxActiveExecutionSession {
 fn peer_credentials(stream: &UnixStream) -> io::Result<NodePeerCredentials> {
     let mut credentials = MaybeUninit::<libc::ucred>::uninit();
     let mut length = mem::size_of::<libc::ucred>() as libc::socklen_t;
-    // SAFETY: `credentials` is exact writable output storage and `stream`
-    // owns a live Unix-stream descriptor for the duration of the call.
+    // SAFETY: credentials is exact writable output storage and stream owns a
+    // live Unix-stream descriptor for the duration of the call.
     let result = unsafe {
         libc::getsockopt(
             stream.as_raw_fd(),
@@ -157,48 +154,11 @@ fn peer_credentials(stream: &UnixStream) -> io::Result<NodePeerCredentials> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use std::io::Write;
-    use std::os::unix::fs::MetadataExt;
     use std::os::unix::net::UnixStream;
-    use std::thread;
     use std::time::Duration;
 
-    use boole_native_shadow_protocol::{
-        encode_execution_request_frame, execution_request_digest_hex, read_active_execution_ready,
-        read_execution_report, write_execution_hello, ExecutionHello, ExecutionReport,
-        ExecutionRequest,
-    };
-
-    use super::{
-        peer_credentials, serve_connected_unix_execution, ActiveExecutionContext,
-        ActiveExecutionSession, ContainedCheckerExecutor, LinuxActiveExecutionSession,
-        ReplayGrantCapability,
-    };
-
-    struct PrivateContainedTestExecutor {
-        node_uid: u32,
-        node_gid: u32,
-        checker_uid: u32,
-        checker_gid: u32,
-    }
-
-    impl ContainedCheckerExecutor for PrivateContainedTestExecutor {
-        fn execute(
-            &mut self,
-            _request: &ExecutionRequest,
-            exact_request_frame: &[u8],
-        ) -> Result<ExecutionReport, String> {
-            Ok(super::super::tests::report_with_identities(
-                execution_request_digest_hex(exact_request_frame)
-                    .map_err(|error| error.to_string())?,
-                self.node_uid,
-                self.node_gid,
-                self.checker_uid,
-                self.checker_gid,
-            ))
-        }
-    }
+    use super::{peer_credentials, ActiveExecutionSession, LinuxActiveExecutionSession};
 
     #[test]
     fn real_socket_peer_and_exact_frame_reader_are_kernel_backed() {
@@ -220,61 +180,5 @@ mod tests {
             Some([&2_u32.to_be_bytes()[..], payload].concat())
         );
         assert_eq!(session.read_frame(16).expect("clean node EOF"), None);
-    }
-
-    #[test]
-    fn real_linux_socketpair_runs_one_complete_private_active_session() {
-        let identity = fs::metadata("/proc/self").expect("Linux procfs identity");
-        let node_uid = identity.uid();
-        let node_gid = identity.gid();
-        assert_ne!(node_uid, 0, "the Linux harness must run as a non-root peer");
-        assert_ne!(node_gid, 0, "the Linux harness must run as a non-root peer");
-        let checker_uid = node_uid.checked_add(1).expect("test UID has headroom");
-        let checker_gid = node_gid.checked_add(1).expect("test GID has headroom");
-        let request = super::super::tests::request();
-        let request_frame = encode_execution_request_frame(&request).expect("strict Execute frame");
-        let hello = ExecutionHello::try_from_execution_request_frame(&request_frame)
-            .expect("Hello binds exact Execute bytes");
-        let (launcher, mut node) = UnixStream::pair().expect("real Unix socketpair");
-        let node_exchange = thread::spawn(move || {
-            write_execution_hello(&mut node, &hello).expect("node writes strict Hello");
-            node.write_all(&request_frame)
-                .expect("node writes exact Execute frame");
-            node.shutdown(std::net::Shutdown::Write)
-                .expect("node half-closes after one Execute");
-            let ready = read_active_execution_ready(&mut node)
-                .expect("node reads active Ready")
-                .expect("launcher emits one active Ready");
-            let report = read_execution_report(&mut node)
-                .expect("node reads execution Report")
-                .expect("launcher emits one execution Report");
-            assert!(read_execution_report(&mut node)
-                .expect("launcher clean EOF")
-                .is_none());
-            (ready, report)
-        });
-
-        let context =
-            ActiveExecutionContext::for_test(4_242, node_uid, node_gid, checker_uid, checker_gid);
-        let replay_grant = ReplayGrantCapability::for_test();
-        serve_connected_unix_execution(
-            launcher,
-            &context,
-            &mut PrivateContainedTestExecutor {
-                node_uid,
-                node_gid,
-                checker_uid,
-                checker_gid,
-            },
-            &replay_grant,
-        )
-        .expect("private active service completes one real socket exchange");
-        let (ready, report) = node_exchange.join().expect("node thread completes");
-        assert!(ready.ready());
-        assert_eq!(
-            report.checker_verdict(),
-            Some(boole_native_shadow_protocol::CheckerVerdict::Accepted)
-        );
-        assert!(report.cleanup_complete());
     }
 }

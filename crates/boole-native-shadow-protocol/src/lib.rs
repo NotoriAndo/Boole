@@ -15,7 +15,7 @@ pub use closed_local_replay_execution_wire::{
     verify_closed_local_replay_execution_authority_bytes,
     write_closed_local_replay_execution_ready, ClosedLocalReplayExecutionAuthorityError,
     ClosedLocalReplayExecutionReady, ClosedLocalReplayExecutionReadyFields,
-    VerifiedClosedLocalReplayExecutionAuthority,
+    ValidatedClosedLocalReplayExecutionSession, VerifiedClosedLocalReplayExecutionAuthority,
 };
 pub use closed_local_replay_grant::{
     ClosedLocalReplayGrantError, ClosedLocalReplayPreIntakeFields,

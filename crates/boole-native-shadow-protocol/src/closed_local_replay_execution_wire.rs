@@ -13,9 +13,9 @@ use thiserror::Error;
 
 use crate::{
     complete_frame_payload, decode_strict_payload, encode_frame, read_frame_payload,
-    validate_execution_session, validate_strict_json, write_frame, ExecutionHello, ExecutionReady,
-    ExecutionReadyFields, ExecutionReport, ExecutionRequest, WireError, WireValidate,
-    MAX_RESPONSE_FRAME_BYTES, TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+    validate_execution_session, validate_strict_json, write_frame, CheckerReason, CheckerVerdict,
+    ExecutionHello, ExecutionReady, ExecutionReadyFields, ExecutionReport, ExecutionRequest,
+    WireError, WireValidate, MAX_RESPONSE_FRAME_BYTES, TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
     TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES, TRACKED_EXECUTION_POLICY_BYTES,
     TRACKED_TOOLCHAIN_IDENTITY_BYTES,
 };
@@ -536,12 +536,44 @@ fn hello_for_validation(
     crate::decode_complete_execution_hello_frame(&frame)
 }
 
+/// Proof that the complete closed-local replay execution session passed every
+/// v3 readiness check and every shared Hello/Execute/Report binding. Its
+/// fields are private, it has no public constructor, and it is intentionally
+/// not cloneable so callers cannot manufacture or duplicate validation proof.
+#[derive(Debug)]
+pub struct ValidatedClosedLocalReplayExecutionSession {
+    request: ExecutionRequest,
+    report: ExecutionReport,
+}
+
+impl ValidatedClosedLocalReplayExecutionSession {
+    pub fn request(&self) -> &ExecutionRequest {
+        &self.request
+    }
+
+    pub fn report(&self) -> &ExecutionReport {
+        &self.report
+    }
+
+    pub fn checker_verdict(&self) -> Option<CheckerVerdict> {
+        self.report.checker_verdict()
+    }
+
+    pub fn checker_reason(&self) -> Option<CheckerReason> {
+        self.report.checker_reason()
+    }
+
+    pub fn cleanup_complete(&self) -> bool {
+        self.report.cleanup_complete()
+    }
+}
+
 pub fn validate_closed_local_replay_execution_session(
     hello: &ExecutionHello,
     ready: &ClosedLocalReplayExecutionReady,
     request_frame: &[u8],
     report: &ExecutionReport,
-) -> Result<ExecutionRequest, WireError> {
+) -> Result<ValidatedClosedLocalReplayExecutionSession, WireError> {
     ready.validate_wire()?;
     if ready.nonce_hex != hello.nonce_hex()
         || ready.request_digest_hex != hello.request_digest_hex()
@@ -563,7 +595,11 @@ pub fn validate_closed_local_replay_execution_session(
             checker_gid: ready.checker_gid,
         },
     )?;
-    validate_execution_session(hello, &frozen_ready, request_frame, report)
+    let request = validate_execution_session(hello, &frozen_ready, request_frame, report)?;
+    Ok(ValidatedClosedLocalReplayExecutionSession {
+        request,
+        report: report.clone(),
+    })
 }
 
 pub fn encode_closed_local_replay_execution_ready_frame(
@@ -596,4 +632,21 @@ pub fn read_closed_local_replay_execution_ready<R: Read>(
             ClosedLocalReplayExecutionReady::try_from(dto)
         })
         .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ValidatedClosedLocalReplayExecutionSession;
+
+    #[test]
+    fn validated_replay_session_proof_is_not_cloneable() {
+        struct Invalid;
+        trait AmbiguousIfClone<A> {
+            fn marker() {}
+        }
+        impl<T: ?Sized> AmbiguousIfClone<()> for T {}
+        impl<T: Clone> AmbiguousIfClone<Invalid> for T {}
+
+        let _ = <ValidatedClosedLocalReplayExecutionSession as AmbiguousIfClone<_>>::marker;
+    }
 }

@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::toolchain_compatibility::VerifiedStartupToolchainCompatibility;
 
-mod listener;
+pub(crate) mod listener;
 pub use listener::{serve_one_fixed_unix_qualification, FixedQualificationListenerError};
 
 #[cfg(target_os = "linux")]

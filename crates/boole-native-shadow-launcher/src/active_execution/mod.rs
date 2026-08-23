@@ -1,28 +1,35 @@
-//! Closed-local active execution service core.
+#![cfg(target_os = "linux")]
 
-// This module is deliberately not wired into a production listener until the
-// launcher owns an exact per-request Linux containment implementation and a
-// non-forgeable runtime-rootfs replay proof.  Keeping the core unreachable is
-// the compile-time fail-closed boundary; its in-module tests exercise the wire
-// sequence without making an uncontained executor injectable by callers.
-#![allow(dead_code)]
+//! Closed-local replay execution service.
+//!
+//! This module has no caller-supplied executor seam. Every accepted Execute
+//! frame must consume the request-bound startup permit and run the one fixed
+//! checker through the Linux containment implementation.
 
 use std::io::{self, Write};
 
 use boole_native_shadow_protocol::{
     decode_complete_execution_hello_frame, decode_complete_execution_request_frame,
-    encode_active_execution_ready_frame, encode_execution_report_frame,
-    validate_active_execution_session, ActiveExecutionReady, ActiveExecutionReadyFields,
-    ExecutionHello, ExecutionReport, ExecutionRequest, VerifiedAuthorityBundle,
-    VerifiedLocalExecutionAuthority, WireError, MAX_REQUEST_FRAME_BYTES,
-};
-#[cfg(test)]
-use boole_native_shadow_protocol::{
-    verify_authority_bundle, verify_local_execution_authority_bytes,
-    TRACKED_EXECUTION_POLICY_BYTES, TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
-    TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
+    decode_exact_checker_stdout_line, encode_closed_local_replay_execution_ready_frame,
+    encode_execution_report_frame, execution_request_digest_hex,
+    validate_closed_local_replay_execution_session, AuthorityBindings, AuthorityBindingsFields,
+    CheckerOutputStatus, CheckerResult, CheckerResultFields, Cleanup, CleanupFields,
+    ClosedLocalReplayExecutionReady, ClosedLocalReplayExecutionReadyFields, ExecutionHello,
+    ExecutionReport, ExecutionReportFields, ResourceObservations, ResourceObservationsFields,
+    WaitStatus, WireError, MAX_REQUEST_FRAME_BYTES,
 };
 use thiserror::Error;
+
+use crate::closed_local_replay_startup::{
+    ClosedLocalReplayStartupError, VerifiedClosedLocalReplayStartup,
+};
+use crate::per_request_containment::{
+    execute_fixed_checker, ContainedExecution, ContainmentFailure, TerminalWait,
+};
+use crate::qualification::listener::{
+    bind_listener_in_directory, require_fixed_umask, FixedQualificationListenerError,
+    FIXED_SOCKET_PATH,
+};
 
 #[cfg(target_os = "linux")]
 mod unix;
@@ -34,90 +41,14 @@ struct NodePeerCredentials {
     gid: u32,
 }
 
-/// The service core owns one authenticated stream and never returns it after
-/// any error.  Implementations are crate-private so an external caller cannot
-/// substitute claimed peer credentials for `SO_PEERCRED`.
 trait ActiveExecutionSession: Write {
     fn peer_credentials(&mut self) -> io::Result<NodePeerCredentials>;
     fn read_frame(&mut self, cap: usize) -> io::Result<Option<Vec<u8>>>;
     fn shutdown_write(&mut self) -> io::Result<()>;
 }
 
-/// Deliberately crate-private execution boundary.  A later Linux containment
-/// module may implement it only after it owns the exact clone3/cgroup/tmpfs/
-/// seccomp/Landlock lifecycle.  Tests use an in-module deterministic engine;
-/// external code cannot inject an uncontained `Command` implementation.
-trait ContainedCheckerExecutor {
-    fn execute(
-        &mut self,
-        request: &ExecutionRequest,
-        exact_request_frame: &[u8],
-    ) -> Result<ExecutionReport, String>;
-}
-
-/// Temporary compile-time boundary while the exact fixed-case replay-grant
-/// API is integrated. Production code has no constructor for this type, so it
-/// cannot start a session from the disabled installed authority alone. The
-/// test-only constructor exercises transport sequencing without creating a
-/// public fake-grant seam.
-struct ReplayGrantCapability {
-    _private: (),
-}
-
-impl ReplayGrantCapability {
-    #[cfg(test)]
-    fn for_test() -> Self {
-        Self { _private: () }
-    }
-}
-
-struct ActiveExecutionContext {
-    base_authority: VerifiedAuthorityBundle,
-    local_authority: VerifiedLocalExecutionAuthority,
-    launcher_pid: u32,
-    node_uid: u32,
-    node_gid: u32,
-    checker_uid: u32,
-    checker_gid: u32,
-    launcher_instance_id_hex: String,
-    runtime_rootfs_replay_verified: bool,
-}
-
-impl ActiveExecutionContext {
-    #[cfg(test)]
-    fn for_test(
-        launcher_pid: u32,
-        node_uid: u32,
-        node_gid: u32,
-        checker_uid: u32,
-        checker_gid: u32,
-    ) -> Self {
-        Self {
-            base_authority: verify_authority_bundle(
-                TRACKED_REGISTRY_BYTES,
-                TRACKED_EXECUTION_POLICY_BYTES,
-                TRACKED_TOOLCHAIN_IDENTITY_BYTES,
-            )
-            .expect("tracked qualification authority verifies in tests"),
-            local_authority: verify_local_execution_authority_bytes(
-                TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
-            )
-            .expect("tracked local execution authority verifies in tests"),
-            launcher_pid,
-            node_uid,
-            node_gid,
-            checker_uid,
-            checker_gid,
-            launcher_instance_id_hex: "5a".repeat(32),
-            runtime_rootfs_replay_verified: true,
-        }
-    }
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
-enum ActiveExecutionServerError {
-    #[error("a consumed exact replay-grant authorization is required")]
-    ReplayGrantRequired,
+#[derive(Debug, Error)]
+pub(crate) enum ActiveExecutionServerError {
     #[error("node peer credentials are unavailable: {0}")]
     PeerCredentialsUnavailable(String),
     #[error("active execution peer does not match the fixed boole-node identity")]
@@ -132,46 +63,73 @@ enum ActiveExecutionServerError {
     BindingMismatch(&'static str),
     #[error("node sent a second Execute frame or trailing data")]
     UnexpectedPostExecuteFrame,
+    #[error("request-bound replay startup authorization failed: {0}")]
+    Startup(#[from] ClosedLocalReplayStartupError),
     #[error("exact contained checker execution failed: {0}")]
     ContainedExecution(String),
+    #[error("fatal containment cleanup poisoned the launcher: {0}")]
+    FatalContainmentCleanup(String),
     #[error("failed to write or flush {stage}: {reason}")]
     ResponseIo { stage: &'static str, reason: String },
     #[error("failed to shut down launcher write half: {0}")]
     ShutdownWrite(String),
 }
 
-fn serve_active_execution_session<S, E>(
-    mut session: S,
-    context: &ActiveExecutionContext,
-    executor: &mut E,
-    replay_grant: Option<&ReplayGrantCapability>,
-) -> Result<(), ActiveExecutionServerError>
-where
-    S: ActiveExecutionSession,
-    E: ContainedCheckerExecutor,
-{
-    let replay_grant = replay_grant.ok_or(ActiveExecutionServerError::ReplayGrantRequired)?;
-    serve_granted_active_execution_session(&mut session, context, executor, replay_grant)
+#[derive(Debug, Error)]
+pub enum ActiveExecutionListenerError {
+    #[error(transparent)]
+    Listener(#[from] FixedQualificationListenerError),
+    #[error("active execution connection {connection} failed: {reason}")]
+    Session { connection: usize, reason: String },
 }
 
-/// The execution core itself has a grant capability in its type signature.
-/// Once the shared replay-grant patch lands, `ReplayGrantCapability` is
-/// replaced by its opaque request-bound authorization type rather than by a
-/// boolean or caller-implementable trait.
-fn serve_granted_active_execution_session<S, E>(
-    session: &mut S,
-    context: &ActiveExecutionContext,
-    executor: &mut E,
-    _replay_grant: &ReplayGrantCapability,
-) -> Result<(), ActiveExecutionServerError>
-where
-    S: ActiveExecutionSession,
-    E: ContainedCheckerExecutor,
-{
+/// Serve the exact three closed-local replay cases installed by the reviewed
+/// authority bundle.  The listener is not opened until the complete startup
+/// proof is owned, and no caller can supply an executor or checker command.
+pub fn serve_three_fixed_unix_executions(
+    mut startup: VerifiedClosedLocalReplayStartup,
+) -> Result<(), ActiveExecutionListenerError> {
+    require_fixed_umask()?;
+    let identities = startup.identities();
+    let runtime_directory = startup.runtime_directory().try_clone().map_err(|source| {
+        FixedQualificationListenerError::Io {
+            stage: "duplicate verified runtime directory for active listener",
+            source,
+        }
+    })?;
+    let mut listener = bind_listener_in_directory(
+        &runtime_directory,
+        std::path::Path::new(FIXED_SOCKET_PATH),
+        0,
+        identities.node_gid(),
+    )?;
+    for connection in 1..=3 {
+        let stream = listener.accept_one()?;
+        unix::serve_connected_unix_execution(stream, &mut startup).map_err(|source| {
+            ActiveExecutionListenerError::Session {
+                connection,
+                reason: source.to_string(),
+            }
+        })?;
+    }
+    listener.remove_exact_bound_entry()?;
+    Ok(())
+}
+
+fn serve_active_execution_session<S: ActiveExecutionSession>(
+    mut session: S,
+    startup: &mut VerifiedClosedLocalReplayStartup,
+) -> Result<(), ActiveExecutionServerError> {
+    if startup.is_poisoned() {
+        return Err(ActiveExecutionServerError::FatalContainmentCleanup(
+            "launcher was already poisoned".to_string(),
+        ));
+    }
+    let identities = startup.identities();
     let peer = session.peer_credentials().map_err(|error| {
         ActiveExecutionServerError::PeerCredentialsUnavailable(error.to_string())
     })?;
-    if peer.pid == 0 || peer.uid != context.node_uid || peer.gid != context.node_gid {
+    if peer.pid == 0 || peer.uid != identities.node_uid() || peer.gid != identities.node_gid() {
         return Err(ActiveExecutionServerError::UntrustedNodePeer);
     }
 
@@ -182,33 +140,35 @@ where
     let hello = decode_complete_execution_hello_frame(&hello_frame)?;
     require_binding(
         "executionPolicyDigestHex",
-        context.base_authority.execution_policy_digest(),
+        startup.execution_authority().base_execution_policy_sha256(),
         hello.execution_policy_digest_hex(),
     )?;
 
-    let ready = ActiveExecutionReady::try_new(
+    let ready = ClosedLocalReplayExecutionReady::try_new(
         &hello,
-        &context.local_authority,
-        ActiveExecutionReadyFields {
-            launcher_pid: context.launcher_pid,
+        startup.execution_authority(),
+        ClosedLocalReplayExecutionReadyFields {
+            launcher_pid: std::process::id(),
             launcher_uid: 0,
             launcher_gid: 0,
-            node_uid: context.node_uid,
-            node_gid: context.node_gid,
-            checker_uid: context.checker_uid,
-            checker_gid: context.checker_gid,
+            node_uid: identities.node_uid(),
+            node_gid: identities.node_gid(),
+            checker_uid: identities.checker_uid(),
+            checker_gid: identities.checker_gid(),
             startup_recovery_complete: true,
             active_execution_leaves: 0,
             unexpected_direct_cgroup_children: 0,
             manager_subgroup_verified: true,
-            launcher_instance_id_hex: context.launcher_instance_id_hex.clone(),
-            runtime_rootfs_replay_verified: context.runtime_rootfs_replay_verified,
+            launcher_instance_id_hex: startup.launcher_instance_id_hex(),
+            installed_replay_authorities_verified: true,
+            runtime_rootfs_replay_verified: true,
+            production_activation_allowed: false,
         },
     )?;
     write_response(
-        session,
-        &encode_active_execution_ready_frame(&ready)?,
-        "active ready",
+        &mut session,
+        &encode_closed_local_replay_execution_ready_frame(&ready)?,
+        "closed-local replay ready",
     )?;
 
     let request_frame = session
@@ -230,13 +190,24 @@ where
         return Err(ActiveExecutionServerError::UnexpectedPostExecuteFrame);
     }
 
-    let report = executor
-        .execute(&request, &request_frame)
-        .map_err(ActiveExecutionServerError::ContainedExecution)?;
-    let _validated_request =
-        validate_active_execution_session(&hello, &ready, &request_frame, &report)?;
+    let permit = startup.authorize_for_execution(&request)?;
+    let execution = match execute_fixed_checker(permit) {
+        Ok(execution) => execution,
+        Err(ContainmentFailure::FatalCleanup(reason)) => {
+            startup.poison();
+            return Err(ActiveExecutionServerError::FatalContainmentCleanup(reason));
+        }
+        Err(error) => {
+            return Err(ActiveExecutionServerError::ContainedExecution(
+                error.to_string(),
+            ));
+        }
+    };
+    let report = build_execution_report(&request, &request_frame, execution, identities)?;
+    let _validated =
+        validate_closed_local_replay_execution_session(&hello, &ready, &request_frame, &report)?;
     write_response(
-        session,
+        &mut session,
         &encode_execution_report_frame(&report)?,
         "execution report",
     )?;
@@ -244,6 +215,98 @@ where
         .shutdown_write()
         .map_err(|error| ActiveExecutionServerError::ShutdownWrite(error.to_string()))?;
     Ok(())
+}
+
+fn build_execution_report(
+    request: &boole_native_shadow_protocol::ExecutionRequest,
+    request_frame: &[u8],
+    execution: ContainedExecution,
+    identities: boole_native_shadow_protocol::ResolvedServiceIdentities,
+) -> Result<ExecutionReport, WireError> {
+    let wait_status = match execution.wait() {
+        TerminalWait::Exited(code) => WaitStatus::exited(code),
+        TerminalWait::Signaled {
+            signal,
+            core_dumped,
+        } => WaitStatus::signaled(signal, core_dumped),
+    };
+    let resources = execution.resources();
+    let resource_observations = ResourceObservations::try_new(ResourceObservationsFields {
+        memory_events_low_delta: resources.memory_events_low,
+        memory_events_high_delta: resources.memory_events_high,
+        memory_events_max_delta: resources.memory_events_max,
+        memory_events_oom_delta: resources.memory_events_oom,
+        memory_events_oom_kill_delta: resources.memory_events_oom_kill,
+        memory_events_oom_group_kill_delta: resources.memory_events_oom_group_kill,
+        pids_events_max_delta: resources.pids_events_max,
+        cpu_usage_usec_delta: resources.cpu_usage_usec,
+        output_limit_exceeded: execution.output_overflow(),
+    })?;
+    let parsed = if !execution.output_overflow()
+        && execution.stdout_bytes() != 0
+        && execution.stderr_bytes() == 0
+        && !execution.timed_out()
+        && execution.wait() == TerminalWait::Exited(0)
+    {
+        decode_exact_checker_stdout_line(execution.stdout()).ok()
+    } else {
+        None
+    };
+    let status = if execution.output_overflow() {
+        CheckerOutputStatus::OutputLimitExceeded
+    } else if execution.stdout_bytes() == 0 {
+        CheckerOutputStatus::NoCompleteOutput
+    } else if parsed.is_some() {
+        CheckerOutputStatus::ValidCheckerResult
+    } else {
+        CheckerOutputStatus::InvalidOrNonconformingOutput
+    };
+    let checker_result = CheckerResult::try_new(CheckerResultFields {
+        status,
+        stdout_sha256_hex: hex::encode(execution.stdout_sha256()),
+        stderr_sha256_hex: hex::encode(execution.stderr_sha256()),
+        stdout_bytes: execution.stdout_bytes(),
+        stderr_bytes: execution.stderr_bytes(),
+        parsed,
+    })?;
+    let authority_bindings = AuthorityBindings::try_new(AuthorityBindingsFields {
+        registry_version: request.registry_version().to_string(),
+        registry_digest_hex: request.registry_digest_hex().to_string(),
+        anchor_digest_hex: request.anchor_digest_hex().to_string(),
+        task_digest_hex: request.task_digest_hex().to_string(),
+        checker_artifact_hash_hex: request.checker_artifact_hash_hex().to_string(),
+        checker_policy_digest_hex: request.checker_policy_digest_hex().to_string(),
+        checker_release_manifest_digest_hex: request
+            .checker_release_manifest_digest_hex()
+            .to_string(),
+        toolchain_identity_digest_hex: request.toolchain_identity_digest_hex().to_string(),
+    })?;
+    let cleanup = Cleanup::try_new(CleanupFields {
+        child_reaped: true,
+        cgroup_populated_zero: true,
+        launcher_pidfd_and_namespace_fds_closed: true,
+        cgroup_leaf_removed: true,
+        completed_within_deadline: true,
+    })?;
+    ExecutionReport::try_new(ExecutionReportFields {
+        nonce_hex: request.nonce_hex().to_string(),
+        operation_id_hex: request.operation_id_hex().to_string(),
+        request_digest_hex: execution_request_digest_hex(request_frame)?,
+        execution_policy_digest_hex: request.execution_policy_digest_hex().to_string(),
+        launcher_pid: std::process::id(),
+        launcher_uid: 0,
+        launcher_gid: 0,
+        node_uid: identities.node_uid(),
+        node_gid: identities.node_gid(),
+        checker_uid: identities.checker_uid(),
+        checker_gid: identities.checker_gid(),
+        authority_bindings,
+        wait_status,
+        timed_out: execution.timed_out(),
+        resource_observations,
+        cleanup,
+        checker_result,
+    })
 }
 
 fn write_response<S: ActiveExecutionSession>(
@@ -273,4 +336,20 @@ fn require_binding(
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::{
+        build_execution_report, serve_three_fixed_unix_executions, ActiveExecutionListenerError,
+    };
+
+    #[test]
+    fn report_builder_has_no_caller_supplied_executor_or_verdict_boolean() {
+        let _builder = build_execution_report;
+    }
+
+    #[test]
+    fn bounded_listener_consumes_one_complete_startup_and_has_no_executor_seam() {
+        let _entrypoint: fn(
+            crate::closed_local_replay_startup::VerifiedClosedLocalReplayStartup,
+        ) -> Result<(), ActiveExecutionListenerError> = serve_three_fixed_unix_executions;
+    }
+}

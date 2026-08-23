@@ -11,6 +11,7 @@ use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::mem;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use landlock::{
@@ -41,6 +42,13 @@ const CHECKER_SCRIPT: &CStr =
 const TOOLCHAIN_BIN: &CStr = c"/opt/boole/native-checker-toolchain/bin";
 const WORK_PATH: &CStr = c"/work";
 const PROC_PATH: &CStr = c"/proc";
+const DEV_PATH: &CStr = c"/dev";
+const TMP_PATH: &CStr = c"/tmp";
+const STAGING_PATH: &CStr = c"/run";
+const RUNTIME_BASE: &CStr = c"/run/boole/native-shadow";
+const RUNTIME_UPPER: &CStr = c"/run/boole/native-shadow/rootfs-upper";
+const RUNTIME_WORK: &CStr = c"/run/boole/native-shadow/rootfs-work";
+const RUNTIME_ROOT: &CStr = c"/run/boole/native-shadow/rootfs-root";
 
 pub(super) fn execute(
     compatibility: &VerifiedStartupToolchainCompatibility,
@@ -281,6 +289,7 @@ fn clone_contained_child(
     checker_gid: u32,
     materials: &VerifiedCheckerMaterials,
 ) -> Result<LinuxChild, ContainmentFailure> {
+    let host_dev_null = open_verified_host_dev_null()?;
     let task = sealed_memfd(c"boole-native-task", &materials.task)?;
     let anchor = sealed_memfd(c"boole-native-anchor", &materials.anchor)?;
     let submission = sealed_memfd(c"boole-native-submission", &materials.submission)?;
@@ -321,6 +330,8 @@ fn clone_contained_child(
         let child_result = child_setup_and_exec(ChildSetup {
             checker_uid,
             checker_gid,
+            rootfs_fd: materials.rootfs.as_raw_fd(),
+            dev_null_fd: host_dev_null.as_raw_fd(),
             task_fd: task.as_raw_fd(),
             anchor_fd: anchor.as_raw_fd(),
             submission_fd: submission.as_raw_fd(),
@@ -341,6 +352,7 @@ fn clone_contained_child(
         task,
         anchor,
         submission,
+        host_dev_null,
         stdout_write,
         stderr_write,
         setup_write,
@@ -383,6 +395,8 @@ fn clone_contained_child(
 struct ChildSetup {
     checker_uid: u32,
     checker_gid: u32,
+    rootfs_fd: RawFd,
+    dev_null_fd: RawFd,
     task_fd: RawFd,
     anchor_fd: RawFd,
     submission_fd: RawFd,
@@ -393,7 +407,8 @@ struct ChildSetup {
 }
 
 fn child_setup_and_exec(setup: ChildSetup) -> Result<(), String> {
-    mount_private_filesystems(setup.checker_gid)?;
+    derive_and_enter_runtime_root(setup.rootfs_fd)?;
+    mount_private_filesystems(setup.checker_gid, setup.dev_null_fd)?;
     materialize_authority(setup.task_fd, c"/work/task.json", setup.checker_gid)?;
     materialize_authority(setup.anchor_fd, c"/work/anchor.rs", setup.checker_gid)?;
     materialize_authority(
@@ -590,8 +605,174 @@ fn set_nonblocking(fd: RawFd, enabled: bool) -> Result<(), ContainmentFailure> {
     Ok(())
 }
 
-fn mount_private_filesystems(checker_gid: u32) -> Result<(), String> {
+fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
     mount_raw(None, c"/", None, libc::MS_REC | libc::MS_PRIVATE, None)?;
+    require_runtime_paths_absent_from_frozen_lower(rootfs_fd)?;
+
+    let staging_options = c"size=67108864,nr_inodes=4096,mode=0700,uid=0,gid=0";
+    mount_raw(
+        Some(c"tmpfs"),
+        STAGING_PATH,
+        Some(c"tmpfs"),
+        libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+        Some(staging_options),
+    )?;
+    for path in [
+        c"/run/boole",
+        RUNTIME_BASE,
+        RUNTIME_UPPER,
+        RUNTIME_WORK,
+        RUNTIME_ROOT,
+    ] {
+        mkdir_fixed(path, 0o700)?;
+    }
+    for (path, mode) in [
+        (
+            c"/run/boole/native-shadow/rootfs-upper/work" as &CStr,
+            0o755,
+        ),
+        (
+            c"/run/boole/native-shadow/rootfs-upper/proc" as &CStr,
+            0o555,
+        ),
+        (c"/run/boole/native-shadow/rootfs-upper/dev" as &CStr, 0o755),
+        (
+            c"/run/boole/native-shadow/rootfs-upper/tmp" as &CStr,
+            0o1777,
+        ),
+    ] {
+        mkdir_fixed(path, mode)?;
+    }
+
+    let overlay_options = CString::new(format!(
+        "lowerdir=/proc/self/fd/{rootfs_fd},upperdir={},workdir={}",
+        RUNTIME_UPPER.to_string_lossy(),
+        RUNTIME_WORK.to_string_lossy(),
+    ))
+    .map_err(|_| "overlay mount options contain NUL".to_string())?;
+    mount_raw(
+        Some(c"overlay"),
+        RUNTIME_ROOT,
+        Some(c"overlay"),
+        libc::MS_NOSUID | libc::MS_NODEV,
+        Some(&overlay_options),
+    )?;
+    verify_derived_runtime_root(rootfs_fd)?;
+
+    // SAFETY: RUNTIME_ROOT is the just-verified private overlay mount.
+    if unsafe { libc::chroot(RUNTIME_ROOT.as_ptr()) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    // SAFETY: the child must not retain a cwd outside its new root.
+    if unsafe { libc::chdir(c"/".as_ptr()) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    Ok(())
+}
+
+fn require_runtime_paths_absent_from_frozen_lower(rootfs_fd: RawFd) -> Result<(), String> {
+    for name in [c"work", c"proc", c"dev", c"tmp"] {
+        let mut metadata: libc::stat = unsafe { mem::zeroed() };
+        // SAFETY: rootfs_fd is the verified directory and names are fixed,
+        // single-component, NUL-terminated paths.
+        let result = unsafe {
+            libc::fstatat(
+                rootfs_fd,
+                name.as_ptr(),
+                &mut metadata,
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if result == 0 {
+            return Err(format!(
+                "frozen rootfs unexpectedly preinstalls /{}",
+                name.to_string_lossy()
+            ));
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::ENOENT) {
+            return Err(error.to_string());
+        }
+    }
+    Ok(())
+}
+
+fn verify_derived_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
+    use std::collections::BTreeSet;
+    use std::os::unix::fs::MetadataExt;
+
+    let lower = Path::new(&format!("/proc/self/fd/{rootfs_fd}"))
+        .read_dir()
+        .map_err(|error| error.to_string())?
+        .map(|entry| entry.map(|value| value.file_name()))
+        .collect::<Result<BTreeSet<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    let observed = Path::new("/run/boole/native-shadow/rootfs-root")
+        .read_dir()
+        .map_err(|error| error.to_string())?
+        .map(|entry| entry.map(|value| value.file_name()))
+        .collect::<Result<BTreeSet<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    if !derived_runtime_top_level_is_exact(&lower, &observed) {
+        return Err("derived runtime root top-level allowlist mismatch".to_string());
+    }
+    for (name, mode) in [
+        ("work", 0o755),
+        ("proc", 0o555),
+        ("dev", 0o755),
+        ("tmp", 0o1777),
+    ] {
+        let metadata =
+            std::fs::symlink_metadata(Path::new("/run/boole/native-shadow/rootfs-root").join(name))
+                .map_err(|error| error.to_string())?;
+        if !metadata.file_type().is_dir()
+            || metadata.uid() != 0
+            || metadata.gid() != 0
+            || metadata.mode() & 0o7777 != mode
+        {
+            return Err(format!("derived runtime root /{name} metadata mismatch"));
+        }
+    }
+    let mut filesystem: libc::statfs = unsafe { mem::zeroed() };
+    // SAFETY: fixed verified overlay root path and writable statfs storage.
+    if unsafe { libc::statfs(RUNTIME_ROOT.as_ptr(), &mut filesystem) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    const OVERLAYFS_MAGIC: libc::c_long = 0x794c_7630;
+    if filesystem.f_type != OVERLAYFS_MAGIC {
+        return Err("derived runtime root is not overlayfs".to_string());
+    }
+    Ok(())
+}
+
+fn derived_runtime_top_level_is_exact(
+    lower: &std::collections::BTreeSet<std::ffi::OsString>,
+    observed: &std::collections::BTreeSet<std::ffi::OsString>,
+) -> bool {
+    let additions = ["work", "proc", "dev", "tmp"]
+        .into_iter()
+        .map(std::ffi::OsString::from)
+        .collect::<std::collections::BTreeSet<_>>();
+    if !lower.is_disjoint(&additions) {
+        return false;
+    }
+    let expected = lower.union(&additions).cloned().collect();
+    observed == &expected
+}
+
+fn mkdir_fixed(path: &CStr, mode: libc::mode_t) -> Result<(), String> {
+    // SAFETY: every path is fixed and lies below the child-private tmpfs.
+    if unsafe { libc::mkdir(path.as_ptr(), mode) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    // mkdir is affected by umask; enforce the exact reviewed mode.
+    if unsafe { libc::chmod(path.as_ptr(), mode) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    Ok(())
+}
+
+fn mount_private_filesystems(checker_gid: u32, dev_null_fd: RawFd) -> Result<(), String> {
     mount_raw(
         Some(c"proc"),
         PROC_PATH,
@@ -610,7 +791,102 @@ fn mount_private_filesystems(checker_gid: u32) -> Result<(), String> {
         libc::MS_NOSUID | libc::MS_NODEV,
         Some(&options),
     )?;
+    let tmp_options = c"size=67108864,nr_inodes=2048,mode=1777,uid=0,gid=0";
+    mount_raw(
+        Some(c"tmpfs"),
+        TMP_PATH,
+        Some(c"tmpfs"),
+        libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+        Some(tmp_options),
+    )?;
+    let dev_options = c"size=1048576,nr_inodes=16,mode=0755,uid=0,gid=0";
+    mount_raw(
+        Some(c"tmpfs"),
+        DEV_PATH,
+        Some(c"tmpfs"),
+        libc::MS_NOSUID | libc::MS_NOEXEC,
+        Some(dev_options),
+    )?;
+    bind_and_verify_dev_null(dev_null_fd)?;
     verify_workspace_root(checker_gid)
+}
+
+fn bind_and_verify_dev_null(source_fd: RawFd) -> Result<(), String> {
+    // SAFETY: /dev is a fresh child-private tmpfs and this creates only the
+    // fixed bind target. No device node is synthesized and CAP_MKNOD is not
+    // required or granted.
+    let placeholder = unsafe {
+        libc::open(
+            c"/dev/null".as_ptr(),
+            libc::O_RDONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            0o600,
+        )
+    };
+    if placeholder < 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    // SAFETY: open returned one fresh descriptor.
+    drop(unsafe { OwnedFd::from_raw_fd(placeholder) });
+    let source = CString::new(format!("/proc/self/fd/{source_fd}"))
+        .map_err(|_| "fixed /dev/null source contains NUL".to_string())?;
+    mount_raw(Some(&source), c"/dev/null", None, libc::MS_BIND, None)?;
+    let source_stat = fd_stat(source_fd)?;
+    let mut target_stat: libc::stat = unsafe { mem::zeroed() };
+    // SAFETY: fixed nonsymlink bind target and writable metadata storage.
+    if unsafe { libc::lstat(c"/dev/null".as_ptr(), &mut target_stat) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    if !is_exact_dev_null(&source_stat)
+        || !is_exact_dev_null(&target_stat)
+        || source_stat.st_dev != target_stat.st_dev
+        || source_stat.st_ino != target_stat.st_ino
+    {
+        return Err("derived runtime /dev/null identity mismatch".to_string());
+    }
+    Ok(())
+}
+
+fn open_verified_host_dev_null() -> Result<OwnedFd, ContainmentFailure> {
+    // SAFETY: exact fixed host device path, no symlink following.
+    let fd = unsafe {
+        libc::open(
+            c"/dev/null".as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        return Err(io_platform(io::Error::last_os_error()));
+    }
+    // SAFETY: open returned one fresh descriptor.
+    let original = unsafe { OwnedFd::from_raw_fd(fd) };
+    let metadata = fd_stat(original.as_raw_fd()).map_err(|error| {
+        ContainmentFailure::Platform(format!("verify fixed host /dev/null: {error}"))
+    })?;
+    if !is_exact_dev_null(&metadata) {
+        return Err(ContainmentFailure::Platform(
+            "fixed host /dev/null identity mismatch".to_string(),
+        ));
+    }
+    duplicate_fd_above_fixed_range(original.as_raw_fd()).map_err(|error| {
+        ContainmentFailure::Platform(format!("duplicate fixed host /dev/null: {error}"))
+    })
+}
+
+fn fd_stat(fd: RawFd) -> Result<libc::stat, String> {
+    let mut metadata: libc::stat = unsafe { mem::zeroed() };
+    // SAFETY: fd is live and metadata is writable.
+    if unsafe { libc::fstat(fd, &mut metadata) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    Ok(metadata)
+}
+
+fn is_exact_dev_null(metadata: &libc::stat) -> bool {
+    metadata.st_uid == 0
+        && metadata.st_gid == 0
+        && metadata.st_mode & libc::S_IFMT == libc::S_IFCHR
+        && libc::major(metadata.st_rdev) == 1
+        && libc::minor(metadata.st_rdev) == 3
 }
 
 fn verify_workspace_root(checker_gid: u32) -> Result<(), String> {
@@ -1141,9 +1417,32 @@ fn io_platform(error: io::Error) -> ContainmentFailure {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+    use std::ffi::OsString;
+
     use sha2::{Digest, Sha256};
 
-    use super::{CapturedOutput, OutputStream, OUTPUT_LIMIT};
+    use super::{derived_runtime_top_level_is_exact, CapturedOutput, OutputStream, OUTPUT_LIMIT};
+
+    fn names(values: &[&str]) -> BTreeSet<OsString> {
+        values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn derived_runtime_root_adds_only_four_frozen_runtime_mountpoints() {
+        let lower = names(&["etc", "opt", "usr"]);
+        let exact = names(&["dev", "etc", "opt", "proc", "tmp", "usr", "work"]);
+        assert!(derived_runtime_top_level_is_exact(&lower, &exact));
+
+        let extra = names(&["dev", "etc", "host", "opt", "proc", "tmp", "usr", "work"]);
+        assert!(!derived_runtime_top_level_is_exact(&lower, &extra));
+
+        let conflicting_lower = names(&["etc", "proc", "usr"]);
+        assert!(!derived_runtime_top_level_is_exact(
+            &conflicting_lower,
+            &exact
+        ));
+    }
 
     #[test]
     fn stdout_and_stderr_share_one_hard_retention_ceiling() {

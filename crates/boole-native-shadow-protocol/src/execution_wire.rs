@@ -1166,8 +1166,20 @@ impl ExecutionRequest {
         &self.candidate_digest_hex
     }
 
+    pub fn submission_source_digest_hex(&self) -> &str {
+        &self.submission_source_digest_hex
+    }
+
+    pub fn registry_version(&self) -> &str {
+        &self.registry_version
+    }
+
     pub fn registry_digest_hex(&self) -> &str {
         &self.registry_digest_hex
+    }
+
+    pub fn anchor_digest_hex(&self) -> &str {
+        &self.anchor_digest_hex
     }
 
     pub fn task_digest_hex(&self) -> &str {
@@ -1180,6 +1192,10 @@ impl ExecutionRequest {
 
     pub fn checker_policy_digest_hex(&self) -> &str {
         &self.checker_policy_digest_hex
+    }
+
+    pub fn checker_release_manifest_digest_hex(&self) -> &str {
+        &self.checker_release_manifest_digest_hex
     }
 
     pub fn toolchain_identity_digest_hex(&self) -> &str {
