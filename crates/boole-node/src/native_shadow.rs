@@ -45,6 +45,7 @@ use sha2::{Digest, Sha256};
 
 use boole_core::hash::{h_protocol, Hex32};
 use boole_core::useful_product::{ReceiptRejectReason, ReceiptVerdict, VerificationReceipt};
+use boole_core::useful_work_bf6::NativeTaskIdentity;
 use boole_native_shadow_protocol::{
     verify_authority_bundle, INSTALLED_REGISTRY_PATH, TRACKED_EXECUTION_POLICY_BYTES,
     TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
@@ -55,7 +56,6 @@ use crate::durability::{
 };
 use crate::state_dir::flock_exclusive_nonblocking;
 
-const NATIVE_BF3_TASK_DOMAIN: &[u8] = b"boole.native-shadow.bf3-task.v1";
 const NATIVE_BF3_ARTIFACT_DOMAIN: &[u8] = b"boole.native-shadow.bf3-artifact.v1";
 
 #[cfg(test)]
@@ -1112,18 +1112,14 @@ impl NativeShadowStateStore {
             _ => return Err(NativeShadowReceiptMapError::InvalidVerdictReason),
         };
         let epoch = evidence.epoch.to_be_bytes();
-        let task_id = bf3_root(
-            NATIVE_BF3_TASK_DOMAIN,
-            &[
-                evidence.family_version.as_bytes(),
-                template_id.as_bytes(),
-                anchor_digest.as_bytes(),
-                challenge_digest.as_bytes(),
-                &epoch,
-                evidence.registry_version.as_bytes(),
-                registry_digest.as_bytes(),
-            ],
-        );
+        let task_id = NativeTaskIdentity::try_new(
+            evidence.family_version.clone(),
+            template_id,
+            anchor_digest,
+        )
+        .map_err(|_| NativeShadowReceiptMapError::DurableEvidenceBindingMismatch)?
+        .task_id()
+        .as_hex32();
         let verdict_label = match verdict {
             ReceiptVerdict::Accepted => "accepted",
             ReceiptVerdict::Rejected(reason) => reason.label(),
@@ -2707,7 +2703,7 @@ mod tests {
         assert_eq!(
             [receipt.task_id.to_hex(), receipt.artifact_root.to_hex()],
             [
-                "b8c52bcc0b615f7f5bc6fc4a38c91fb1df20503a8332a319991b93db56dc3a0c".to_string(),
+                "77b0edae129635b6a5af8ff728d492073e9bde5aebf834c9976eac448d9e7ba6".to_string(),
                 "3ecccd5a5eee1d75bdc30eb774b56a0332a247b96e063c789d5072acf9f25632".to_string(),
             ],
             "native BF3 canonical roots are protocol fixtures"
@@ -2718,6 +2714,111 @@ mod tests {
                 .map_durable_v2_to_bf3_receipt(&four_tuple, &durable)
                 .expect("same durable evidence maps byte-identically")
         );
+    }
+
+    #[test]
+    fn bf3_task_id_is_stable_while_instance_bindings_stay_in_the_artifact_root() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let base_tuple = registry.four_tuple(&registry.templates[0]);
+        let base_registry_digest = sha256_hex(b"bf3-stable-task-registry");
+        let policy = test_execution_policy_digest();
+        let candidate_digest = sha256_hex(b"bf3-stable-task-candidate");
+        let base_evidence: serde_json::Value = serde_json::from_str(&test_evidence_v2_json(
+            &base_tuple,
+            &candidate_digest,
+            "bf3-stable-task",
+            &policy,
+        ))
+        .expect("base evidence");
+        let base = map_test_bf3_receipt(
+            "stable-task-base",
+            base_tuple.clone(),
+            &base_registry_digest,
+            policy.clone(),
+            base_evidence.clone(),
+        )
+        .expect("base receipt");
+        let expected_stable = boole_core::useful_work_bf6::NativeTaskIdentity::try_new(
+            base_evidence["familyVersion"].as_str().unwrap(),
+            Hex32::from_hex(base_evidence["templateId"].as_str().unwrap()).unwrap(),
+            Hex32::from_hex(base_evidence["anchorDigest"].as_str().unwrap()).unwrap(),
+        )
+        .unwrap()
+        .task_id()
+        .as_hex32();
+        assert_eq!(base.task_id, expected_stable);
+
+        for (label, field) in [
+            ("family", "familyVersion"),
+            ("template", "templateId"),
+            ("anchor", "anchorDigest"),
+        ] {
+            let mut tuple = base_tuple.clone();
+            let mut evidence = base_evidence.clone();
+            match field {
+                "familyVersion" => {
+                    tuple.family_version = "TEST-ONLY/OTHER-FAMILY-V1".to_string();
+                    evidence[field] = serde_json::json!(tuple.family_version);
+                }
+                "templateId" => {
+                    tuple.template_id = sha256_hex(b"bf3-other-template");
+                    evidence[field] = serde_json::json!(tuple.template_id);
+                }
+                "anchorDigest" => {
+                    evidence[field] = serde_json::json!(sha256_hex(b"bf3-other-anchor"));
+                }
+                _ => unreachable!(),
+            }
+            let changed = map_test_bf3_receipt(
+                &format!("stable-task-material-{label}"),
+                tuple,
+                &base_registry_digest,
+                policy.clone(),
+                evidence,
+            )
+            .expect("changed task material maps");
+            assert_ne!(changed.task_id, base.task_id, "{field}");
+        }
+
+        let mut challenge_tuple = base_tuple.clone();
+        challenge_tuple.challenge_sha256 = sha256_hex(b"bf3-other-challenge");
+        let mut challenge_evidence = base_evidence.clone();
+        challenge_evidence["challengeSha256"] = serde_json::json!(challenge_tuple.challenge_sha256);
+        let challenge = map_test_bf3_receipt(
+            "stable-task-challenge",
+            challenge_tuple,
+            &base_registry_digest,
+            policy.clone(),
+            challenge_evidence,
+        )
+        .expect("challenge-bound instance maps");
+
+        let mut epoch_tuple = base_tuple.clone();
+        epoch_tuple.epoch += 1;
+        let mut epoch_evidence = base_evidence.clone();
+        epoch_evidence["epoch"] = serde_json::json!(epoch_tuple.epoch);
+        let epoch = map_test_bf3_receipt(
+            "stable-task-epoch",
+            epoch_tuple,
+            &base_registry_digest,
+            policy.clone(),
+            epoch_evidence,
+        )
+        .expect("epoch-bound instance maps");
+
+        let registry_changed = map_test_bf3_receipt(
+            "stable-task-registry",
+            base_tuple,
+            &sha256_hex(b"bf3-other-registry"),
+            policy,
+            base_evidence,
+        )
+        .expect("registry-bound instance maps");
+
+        for receipt in [challenge, epoch, registry_changed] {
+            assert_eq!(receipt.task_id, base.task_id);
+            assert_ne!(receipt.artifact_root, base.artifact_root);
+        }
     }
 
     #[test]
