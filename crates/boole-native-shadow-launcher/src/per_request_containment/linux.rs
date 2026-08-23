@@ -48,11 +48,8 @@ const STAGING_PATH: &CStr = c"/run";
 const VERIFIED_RUNTIME_ROOTFS_PATH: &CStr = c"/var/lib/boole/native-shadow/runtime-rootfs";
 const RUNTIME_BASE: &CStr = c"/run/boole/native-shadow";
 const RUNTIME_LOWER: &CStr = c"/run/boole/native-shadow/rootfs-lower";
-const RUNTIME_UPPER: &CStr = c"/run/boole/native-shadow/rootfs-upper";
-const RUNTIME_WORK: &CStr = c"/run/boole/native-shadow/rootfs-work";
+const RUNTIME_ADDITIONS: &CStr = c"/run/boole/native-shadow/rootfs-additions";
 const RUNTIME_ROOT: &CStr = c"/run/boole/native-shadow/rootfs-root";
-const RUNTIME_OLD_ROOT: &CStr = c"/run/boole/native-shadow/rootfs-root/.old-root";
-const OLD_ROOT_AFTER_PIVOT: &CStr = c"/.old-root";
 
 pub(super) fn execute(
     compatibility: &VerifiedStartupToolchainCompatibility,
@@ -657,12 +654,12 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
             Some(c"tmpfs"),
             STAGING_PATH,
             Some(c"tmpfs"),
-            // This tmpfs supplies the OverlayFS upper/work directories and
-            // therefore the merged executable root. Marking the backing
-            // mount noexec can make the kernel reject the executable overlay
-            // mount before pivot_root. The staging tree remains root-only and
-            // disappears with the private mount namespace; writable untrusted
-            // paths receive their own reviewed mount flags later.
+            // This tmpfs supplies the fixed, read-only additions layer for
+            // the merged executable root. Marking the backing mount noexec
+            // can make the kernel reject execution through the merged mount.
+            // The staging tree remains root-only and disappears with the
+            // private mount namespace; writable untrusted paths receive their
+            // own reviewed mount flags later.
             libc::MS_NOSUID | libc::MS_NODEV,
             Some(staging_options),
         ),
@@ -702,10 +699,9 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
     setup_stage("derive-verify-bound-lower", verify_bound_lower(rootfs_fd))?;
 
     let overlay_options = CString::new(format!(
-        "lowerdir={},upperdir={},workdir={}",
+        "lowerdir={}:{}",
+        RUNTIME_ADDITIONS.to_string_lossy(),
         RUNTIME_LOWER.to_string_lossy(),
-        RUNTIME_UPPER.to_string_lossy(),
-        RUNTIME_WORK.to_string_lossy(),
     ))
     .map_err(|_| "overlay mount options contain NUL".to_string())?;
     setup_stage("derive-mount-overlay", {
@@ -713,7 +709,7 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
             Some(c"overlay"),
             RUNTIME_ROOT,
             Some(c"overlay"),
-            libc::MS_NOSUID | libc::MS_NODEV,
+            libc::MS_RDONLY | libc::MS_NOSUID | libc::MS_NODEV,
             Some(&overlay_options),
         );
         result.map_err(|error| overlay_mount_failure_context(&error))
@@ -722,11 +718,6 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
         "derive-verify-overlay",
         verify_derived_runtime_root(rootfs_fd),
     )?;
-    setup_stage(
-        "derive-create-old-root",
-        mkdir_fixed(RUNTIME_OLD_ROOT, 0o700),
-    )?;
-
     // CAP_SYS_CHROOT is deliberately absent.  The child already owns a
     // private mount namespace and CAP_SYS_ADMIN, so atomically replace its
     // mount root instead of widening the capability set.
@@ -735,69 +726,54 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
         "derive-enter-overlay",
         syscall_zero(unsafe { libc::chdir(RUNTIME_ROOT.as_ptr()) } as libc::c_long),
     )?;
-    // SAFETY: both fixed paths are beneath the current private overlay cwd;
-    // `.old-root` is the empty directory created above on that same mount.
+    // SAFETY: the documented same-directory pivot stacks the previous root
+    // over the new root without requiring a writable put_old directory.  The
+    // verified overlay itself is read-only.
     setup_stage(
         "derive-pivot-root",
-        syscall_zero(unsafe {
-            libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".old-root".as_ptr())
-        }),
+        syscall_zero(unsafe { libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".".as_ptr()) }),
     )?;
-    // SAFETY: after pivot_root, `/` is the derived overlay and the previous
-    // host root exists only at the fixed private `/.old-root` mountpoint.
+    // SAFETY: after the same-directory pivot, `.` names the old root mount
+    // stacked over the retained new-root cwd. Detach it before changing cwd or
+    // materializing any untrusted checker bytes.
+    setup_stage(
+        "derive-detach-old-root",
+        syscall_zero(unsafe { libc::umount2(c".".as_ptr(), libc::MNT_DETACH) } as libc::c_long),
+    )?;
+    // SAFETY: the old root is detached, so `/` resolves inside the verified
+    // read-only overlay.
     setup_stage(
         "derive-enter-new-root",
         syscall_zero(unsafe { libc::chdir(c"/".as_ptr()) } as libc::c_long),
     )?;
-    // SAFETY: detach the old host root from this private namespace before any
-    // untrusted checker bytes are materialized or executed.
-    setup_stage(
-        "derive-detach-old-root",
-        syscall_zero(
-            unsafe { libc::umount2(OLD_ROOT_AFTER_PIVOT.as_ptr(), libc::MNT_DETACH) }
-                as libc::c_long,
-        ),
-    )?;
-    // SAFETY: the old-root mount is detached and this exact empty mountpoint
-    // must be removed, leaving no path back to the host tree.
-    setup_stage(
-        "derive-remove-old-root",
-        syscall_zero(unsafe { libc::rmdir(OLD_ROOT_AFTER_PIVOT.as_ptr()) } as libc::c_long),
-    )?;
-    setup_stage(
-        "derive-verify-old-root-unreachable",
-        verify_old_root_is_unreachable(),
-    )?;
+    setup_stage("derive-verify-entered-root", verify_entered_runtime_root())?;
     Ok(())
 }
 
 fn create_runtime_staging_tree() -> Result<(), String> {
-    for path in [
-        c"/run/boole",
-        RUNTIME_BASE,
-        RUNTIME_LOWER,
-        RUNTIME_WORK,
-        RUNTIME_ROOT,
-    ] {
+    for path in [c"/run/boole", RUNTIME_BASE, RUNTIME_LOWER, RUNTIME_ROOT] {
         mkdir_fixed(path, 0o700)?;
     }
-    // OverlayFS takes the merged root directory's metadata from the upper
-    // directory.  The untrusted checker runs after dropping root, so the
-    // merged `/` must remain traversable while every staging parent stays
-    // root-only.
-    mkdir_fixed(RUNTIME_UPPER, 0o755)?;
+    // The first read-only lower layer supplies the merged root metadata and
+    // exactly four otherwise-absent mountpoints.  The untrusted checker runs
+    // after dropping root, so the merged `/` must remain traversable while
+    // every staging parent stays root-only.
+    mkdir_fixed(RUNTIME_ADDITIONS, 0o755)?;
     for (path, mode) in [
         (
-            c"/run/boole/native-shadow/rootfs-upper/work" as &CStr,
+            c"/run/boole/native-shadow/rootfs-additions/work" as &CStr,
             0o755,
         ),
         (
-            c"/run/boole/native-shadow/rootfs-upper/proc" as &CStr,
+            c"/run/boole/native-shadow/rootfs-additions/proc" as &CStr,
             0o555,
         ),
-        (c"/run/boole/native-shadow/rootfs-upper/dev" as &CStr, 0o755),
         (
-            c"/run/boole/native-shadow/rootfs-upper/tmp" as &CStr,
+            c"/run/boole/native-shadow/rootfs-additions/dev" as &CStr,
+            0o755,
+        ),
+        (
+            c"/run/boole/native-shadow/rootfs-additions/tmp" as &CStr,
             0o1777,
         ),
     ] {
@@ -892,8 +868,7 @@ fn overlay_mount_failure_context(error: &str) -> String {
         .unwrap_or_else(|_| "unavailable".to_string());
     let paths = [
         ("lower", RUNTIME_LOWER),
-        ("upper", RUNTIME_UPPER),
-        ("work", RUNTIME_WORK),
+        ("additions", RUNTIME_ADDITIONS),
         ("target", RUNTIME_ROOT),
     ]
     .into_iter()
@@ -925,20 +900,6 @@ fn overlay_path_diagnostic(label: &str, path: &CStr) -> String {
         filesystem.f_flag,
         access == 0
     )
-}
-
-fn verify_old_root_is_unreachable() -> Result<(), String> {
-    let mut metadata: libc::stat = unsafe { mem::zeroed() };
-    // SAFETY: fixed path and writable stat buffer; success is a fatal escape
-    // because no old-root entry may remain after pivot cleanup.
-    if unsafe { libc::lstat(OLD_ROOT_AFTER_PIVOT.as_ptr(), &mut metadata) } == 0 {
-        return Err("old host root remained reachable after pivot_root".to_string());
-    }
-    let error = io::Error::last_os_error();
-    if error.raw_os_error() != Some(libc::ENOENT) {
-        return Err(error.to_string());
-    }
-    Ok(())
 }
 
 fn require_runtime_paths_absent_from_frozen_lower(rootfs_fd: RawFd) -> Result<(), String> {
@@ -1022,6 +983,41 @@ fn verify_derived_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
     const OVERLAYFS_MAGIC: libc::c_long = 0x794c_7630;
     if filesystem.f_type != OVERLAYFS_MAGIC {
         return Err("derived runtime root is not overlayfs".to_string());
+    }
+    let mut mount: libc::statvfs = unsafe { mem::zeroed() };
+    // SAFETY: fixed verified overlay root path and writable statvfs storage.
+    if unsafe { libc::statvfs(RUNTIME_ROOT.as_ptr(), &mut mount) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    if mount.f_flag & libc::ST_RDONLY == 0 {
+        return Err("derived runtime root is not read-only".to_string());
+    }
+    Ok(())
+}
+
+fn verify_entered_runtime_root() -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let root = std::fs::symlink_metadata("/").map_err(|error| error.to_string())?;
+    if !runtime_root_metadata_is_exact(root.uid(), root.gid(), root.mode()) {
+        return Err("entered runtime root metadata mismatch".to_string());
+    }
+    let mut filesystem: libc::statfs = unsafe { mem::zeroed() };
+    // SAFETY: fixed entered root path and writable statfs storage.
+    if unsafe { libc::statfs(c"/".as_ptr(), &mut filesystem) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    const OVERLAYFS_MAGIC: libc::c_long = 0x794c_7630;
+    if filesystem.f_type != OVERLAYFS_MAGIC {
+        return Err("entered runtime root is not overlayfs".to_string());
+    }
+    let mut mount: libc::statvfs = unsafe { mem::zeroed() };
+    // SAFETY: fixed entered root path and writable statvfs storage.
+    if unsafe { libc::statvfs(c"/".as_ptr(), &mut mount) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    if mount.f_flag & libc::ST_RDONLY == 0 {
+        return Err("entered runtime root is not read-only".to_string());
     }
     Ok(())
 }
@@ -1716,13 +1712,18 @@ mod tests {
     }
 
     #[test]
-    fn fixed_capability_child_uses_pivot_root_and_removes_the_old_host_root() {
+    fn fixed_capability_child_uses_same_dot_pivot_without_an_old_root_path() {
         let source = include_str!("linux.rs");
-        assert!(source.contains("libc::SYS_pivot_root"));
-        assert!(source.contains("libc::umount2(OLD_ROOT_AFTER_PIVOT.as_ptr(), libc::MNT_DETACH)"));
-        assert!(source.contains("\"derive-verify-old-root-unreachable\""));
+        assert!(source
+            .contains("libc::syscall(libc::SYS_pivot_root, c\".\".as_ptr(), c\".\".as_ptr())"));
+        assert!(source.contains("libc::umount2(c\".\".as_ptr(), libc::MNT_DETACH)"));
+        let old_root_path = [".old", "-root"].concat();
+        let remove_directory_call = ["libc::", "rmdir"].concat();
+        let chroot_call = ["libc::", "chroot("].concat();
+        assert!(!source.contains(&old_root_path));
+        assert!(!source.contains(&remove_directory_call));
         assert!(
-            !source.contains("libc::chroot("),
+            !source.contains(&chroot_call),
             "CAP_SYS_CHROOT is deliberately absent from the fixed launcher capability set"
         );
     }

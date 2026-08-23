@@ -523,13 +523,11 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             "derive-verify-bound-lower",
             "derive-mount-overlay",
             "derive-verify-overlay",
-            "derive-create-old-root",
             "derive-enter-overlay",
             "derive-pivot-root",
-            "derive-enter-new-root",
             "derive-detach-old-root",
-            "derive-remove-old-root",
-            "derive-verify-old-root-unreachable",
+            "derive-enter-new-root",
+            "derive-verify-entered-root",
         ):
             self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
 
@@ -539,6 +537,11 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
         ).read_text(encoding="utf-8")
         self.assertIn('const RUNTIME_LOWER: &CStr = c"/run/boole/native-shadow/rootfs-lower";', source)
+        self.assertIn(
+            'const RUNTIME_ADDITIONS: &CStr = '
+            'c"/run/boole/native-shadow/rootfs-additions";',
+            source,
+        )
         self.assertIn(
             'const VERIFIED_RUNTIME_ROOTFS_PATH: &CStr = '
             'c"/var/lib/boole/native-shadow/runtime-rootfs";',
@@ -555,8 +558,17 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             r'RUNTIME_LOWER,\s*None,\s*libc::MS_BIND',
         )
         self.assertIn("verify_bound_lower(rootfs_fd)", source)
-        self.assertIn('"lowerdir={},upperdir={},workdir={}"', source)
+        self.assertIn('"lowerdir={}:{}"', source)
+        self.assertIn("RUNTIME_ADDITIONS.to_string_lossy()", source)
         self.assertIn("RUNTIME_LOWER.to_string_lossy()", source)
+        self.assertNotIn("upperdir=", source)
+        self.assertNotIn("workdir=", source)
+        self.assertNotIn("RUNTIME_WORK", source)
+        self.assertRegex(
+            source,
+            r'mount_raw\(\s*Some\(c"overlay"\),\s*RUNTIME_ROOT,\s*'
+            r'Some\(c"overlay"\),\s*libc::MS_RDONLY\s*\|\s*libc::MS_NOSUID\s*\|\s*libc::MS_NODEV',
+        )
         self.assertNotIn('"lowerdir=/proc/self/fd/{rootfs_fd}', source)
         self.assertNotIn("let lower_source = CString", source)
         self.assertNotIn("libc::SYS_open_tree", source)
@@ -568,8 +580,21 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             ROOT
             / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
         ).read_text(encoding="utf-8")
-        self.assertIn("mkdir_fixed(RUNTIME_UPPER, 0o755)?;", source)
+        self.assertIn("mkdir_fixed(RUNTIME_ADDITIONS, 0o755)?;", source)
         self.assertIn("runtime_root_metadata_is_exact", source)
+
+    def test_read_only_overlay_uses_same_dot_pivot_without_old_root_path(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "libc::syscall(libc::SYS_pivot_root, c\".\".as_ptr(), c\".\".as_ptr())",
+            source,
+        )
+        self.assertIn("libc::umount2(c\".\".as_ptr(), libc::MNT_DETACH)", source)
+        self.assertNotIn(".old-root", source)
+        self.assertNotIn("libc::rmdir", source)
 
     def test_overlay_staging_filesystem_remains_exec_capable_for_the_merged_root(self) -> None:
         source = (
