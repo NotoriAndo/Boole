@@ -22,6 +22,9 @@ LAUNCHER_PRIVILEGE_GATE = (
 LAUNCHER_PRELOCK_GATE = (
     REPO_ROOT / "scripts" / "native-shadow-launcher-prelock-gate.sh"
 )
+SYSTEMD_DEPLOYMENT_GATE = (
+    REPO_ROOT / "scripts" / "native-shadow-systemd-deployment-envelope-gate.sh"
+)
 LAUNCHER_LIFETIME_LOCK_SOURCE = (
     REPO_ROOT
     / "crates"
@@ -182,6 +185,42 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             LAUNCHER_PRELOCK_GATE.is_file(),
             "the launcher pre-lock gate must be a tracked reviewable script",
         )
+
+    def test_named_linux_job_exercises_the_tracked_systemd_deployment_envelope(self):
+        job = self._job("native-shadow-containment-linux")
+        self.assertIn(
+            "./scripts/native-shadow-systemd-deployment-envelope-gate.sh",
+            job,
+            "the named Linux job must materialize and verify the tracked unit, "
+            "service accounts, and runtime directory",
+        )
+        self.assertTrue(
+            SYSTEMD_DEPLOYMENT_GATE.is_file(),
+            "the systemd deployment-envelope gate must be tracked and reviewable",
+        )
+
+    def test_systemd_deployment_gate_uses_real_systemd_tools_and_exact_postconditions(self):
+        body = SYSTEMD_DEPLOYMENT_GATE.read_text(encoding="utf-8")
+        for required in (
+            "set -euo pipefail",
+            "systemd-analyze --root=\"$stage\" verify boole-native-shadow-launcher.service",
+            "systemd-sysusers --root=\"$stage\" \"$stage/usr/lib/sysusers.d/boole-native-shadow.conf\"",
+            "systemd-tmpfiles --root=\"$stage\" --create \"$stage/usr/lib/tmpfiles.d/boole-native-shadow.conf\"",
+            "for target in sysinit.target basic.target shutdown.target multi-user.target; do",
+            '[[ "$node_uid" -ne 0 && "$checker_uid" -ne 0 ]]',
+            '[[ "$node_gid" -ne 0 && "$checker_gid" -ne 0 ]]',
+            '[[ "$node_uid" -ne "$checker_uid" ]]',
+            '[[ "$node_gid" -ne "$checker_gid" ]]',
+            '[[ "$config_metadata" == root:root:644 ]]',
+            '[[ "$launcher_metadata" == root:root:755 ]]',
+            '[[ "$runtime_parent_metadata" == 0:0:755 ]]',
+            '[[ "$runtime_mode" == 2750 ]]',
+            '[[ "$runtime_uid" -eq 0 && "$runtime_gid" -eq "$node_gid" ]]',
+            "native-shadow-systemd-deployment-envelope-gate-complete",
+        ):
+            self.assertIn(required, body)
+        self.assertNotIn("curl ", body)
+        self.assertNotIn("wget ", body)
 
     def test_launcher_prelock_gate_calls_the_production_instance_identity_path(self):
         body = LAUNCHER_PRELOCK_GATE.read_text(encoding="utf-8")

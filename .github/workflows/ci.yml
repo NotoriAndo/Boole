@@ -49,6 +49,9 @@ jobs:
             service_identities::tests::real_fixed_accounts_resolve_in_named_linux_gate \
             -- --ignored --exact --nocapture
 
+      - name: Verify tracked systemd deployment envelope
+        run: sudo ./scripts/native-shadow-systemd-deployment-envelope-gate.sh
+
       - name: Exercise the real launcher Unix qualification session
         run: >-
           cargo test --locked -p boole-native-shadow-launcher --lib
