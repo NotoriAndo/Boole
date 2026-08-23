@@ -63,6 +63,22 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
                     "gid": 0,
                 },
                 {
+                    "logicalPath": "/usr/bin/as",
+                    "kind": "symlink",
+                    "target": "x86_64-linux-gnu-as",
+                    "mode": "0777",
+                    "uid": 0,
+                    "gid": 0,
+                },
+                {
+                    "logicalPath": "/usr/bin/ld",
+                    "kind": "symlink",
+                    "target": "x86_64-linux-gnu-ld",
+                    "mode": "0777",
+                    "uid": 0,
+                    "gid": 0,
+                },
+                {
                     "logicalPath": "/usr/lib/x86_64-linux-gnu/libLLVM.so.22.1-rust-1.99.0-nightly",
                     "kind": "symlink",
                     "target": "../../../opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly",

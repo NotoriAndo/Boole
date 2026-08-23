@@ -468,9 +468,25 @@
     {
       "gid": 0,
       "kind": "symlink",
+      "logicalPath": "/usr/bin/as",
+      "mode": "0777",
+      "target": "x86_64-linux-gnu-as",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "kind": "symlink",
       "logicalPath": "/usr/bin/cc",
       "mode": "0777",
       "target": "x86_64-linux-gnu-gcc-13",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "kind": "symlink",
+      "logicalPath": "/usr/bin/ld",
+      "mode": "0777",
+      "target": "x86_64-linux-gnu-ld",
       "uid": 0
     },
     {
