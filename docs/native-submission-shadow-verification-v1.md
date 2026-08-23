@@ -321,7 +321,7 @@ Further route-free foundations now narrow the open prerequisite without closing 
   the owned session is dropped. This slice deliberately has no startup-token constructor, Unix
   adapter, executable, lock, socket bind, cgroup recovery, route, journal transition or checker
   child, so it is not a real installed handshake.
-* Phase 3B.2b-2u — the current already-connected Unix-session slice adds the launcher-side Linux
+* Phase 3B.2b-2u — PR #182, main `6164f32`: the already-connected Unix-session slice adds the launcher-side Linux
   adapter without adding a listener. It reads real kernel `SO_PEERCRED` before any frame, applies
   one cumulative five-second deadline across peer lookup and all stream operations, and performs
   only `SHUT_WR` after the core has observed clean node EOF. The named Ubuntu job executes the real
@@ -330,6 +330,12 @@ Further route-free foundations now narrow the open prerequisite without closing 
   peer-order rules are bound to the tracked policy. There is still no constructor for the opaque
   verified-startup token, launcher binary, listener/bind, lock, cgroup recovery, route, journal
   transition or checker child, so the installed handshake remains open.
+* Phase 3B.2b-2r — the current launcher-privilege slice checks the calling Linux thread against the
+  frozen root and exact-capability shape without accepting a path, mask or identity from a caller.
+  The proof is private and cannot move to another thread. The named Ubuntu gate runs the same
+  production check under the exact systemd service capabilities and proves that both a missing bit
+  and an extra bit fail closed. It does not yet assemble launcher readiness, open authority, take a
+  lifetime lock, recover cgroups, bind/listen, mutate a journal/route or run a checker.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux

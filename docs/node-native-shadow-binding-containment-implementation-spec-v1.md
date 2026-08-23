@@ -244,7 +244,7 @@ entry becomes authoritative on `main` only after its required CI and merge:
   NSS identities, a fresh launcher-instance ID and zero-leaf recovery. The library has no binary,
   listener, lock, cgroup operation, execution/report message, route, journal mutation or checker
   spawn; actual handshake GREEN remains open.
-* **Phase 3B.2b-2u** — the current connected-Unix-session slice consumes one already-connected
+* **Phase 3B.2b-2u** — PR #182, main `6164f32`: the connected-Unix-session slice consumes one already-connected
   Linux `UnixStream`, obtains the node PID/UID/GID from kernel `SO_PEERCRED` before frame I/O, and
   gives every peer check, read, write, flush and `SHUT_WR` operation only the remainder of one
   cumulative five-second deadline. It accepts no timeout, path or numeric identity from its caller.
@@ -255,6 +255,16 @@ entry becomes authoritative on `main` only after its required CI and merge:
   slice still has no startup-token constructor, launcher executable, listener, bind/stale-unlink,
   lifetime lock, cgroup recovery, route, journal transition or checker child, so it cannot make the
   installed handshake ready by itself.
+* **Phase 3B.2b-2r** — the current launcher-privilege slice adds one argument-free, Linux-only
+  startup prerequisite. It reads the calling thread's kernel status from the fixed
+  `/proc/thread-self/status` path and issues a private, thread-bound proof only when all four
+  UID/GID slots are root, Effective/Permitted/Bounding are exactly the frozen four-capability mask,
+  Inheritable/Ambient are empty and `NoNewPrivs` is still zero. Missing, repeated, malformed, extra
+  or reduced values fail closed. A named Ubuntu gate executes the same production verifier in three
+  transient root services: exact capabilities must pass, while one missing capability and one
+  extra capability must both fail. This slice does not consume that proof into the startup token,
+  open installed authority, acquire the launcher lock, recover cgroups, bind/listen, construct a
+  launcher instance ID, mutate a journal/route or spawn a checker.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do

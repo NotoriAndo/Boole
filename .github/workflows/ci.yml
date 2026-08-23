@@ -55,6 +55,9 @@ jobs:
           qualification::unix::tests::real_kernel_stream_round_trip_observes_peer_and_half_close
           -- --ignored --exact --nocapture
 
+      - name: Verify fixed launcher root and capability shape
+        run: ./scripts/native-shadow-launcher-privilege-gate.sh
+
       - name: Probe delegated cgroup and namespace capabilities
         run: sudo ./scripts/native-shadow-containment-capability-probe.sh
 
