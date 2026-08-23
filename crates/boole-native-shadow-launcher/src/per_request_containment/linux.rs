@@ -44,6 +44,9 @@ const CHECKER_UMASK: libc::mode_t = 0o077;
 const CHECKER_PATH: &CStr = c"/usr/bin/python3.12";
 const CHECKER_SCRIPT: &CStr =
     c"/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py";
+#[cfg(feature = "manager-cgroup-linux-gate")]
+const CHECKER_DIAGNOSTIC_SCRIPT: &CStr =
+    c"/usr/share/boole/native-shadow/native-shadow-checker-cargo-diagnostic.py";
 const TOOLCHAIN_BIN: &CStr = c"/opt/boole/native-checker-toolchain/bin";
 const WORK_PATH: &CStr = c"/work";
 const PROC_PATH: &CStr = c"/proc";
@@ -99,6 +102,7 @@ struct DiagnosticLayers {
     skip_rlimits: bool,
     skip_landlock: bool,
     skip_seccomp: bool,
+    operator_diagnostic: bool,
 }
 
 fn selected_diagnostic_layers() -> DiagnosticLayers {
@@ -110,6 +114,7 @@ fn selected_diagnostic_layers() -> DiagnosticLayers {
             skip_rlimits: mode.skips_rlimits(),
             skip_landlock: mode.skips_landlock(),
             skip_seccomp: mode.skips_seccomp(),
+            operator_diagnostic: super::containment_diagnostic_mode_is_selected(),
         }
     }
     #[cfg(not(feature = "manager-cgroup-linux-gate"))]
@@ -522,7 +527,10 @@ fn child_setup_and_exec(setup: ChildSetup) -> Result<(), String> {
             seccompiler::apply_filter(&setup.seccomp).map_err(|error| error.to_string()),
         )?;
     }
-    setup_stage("exec-checker", exec_checker())
+    setup_stage(
+        "exec-checker",
+        exec_checker(setup.diagnostic_layers.operator_diagnostic),
+    )
 }
 
 fn setup_stage<T>(stage: &'static str, result: Result<T, String>) -> Result<T, String> {
@@ -1981,12 +1989,23 @@ fn set_checker_umask() -> Result<(), String> {
     Ok(())
 }
 
-fn exec_checker() -> Result<(), String> {
+fn exec_checker(operator_diagnostic: bool) -> Result<(), String> {
+    #[cfg(feature = "manager-cgroup-linux-gate")]
+    let checker_script = if operator_diagnostic {
+        CHECKER_DIAGNOSTIC_SCRIPT
+    } else {
+        CHECKER_SCRIPT
+    };
+    #[cfg(not(feature = "manager-cgroup-linux-gate"))]
+    let checker_script = {
+        let _ = operator_diagnostic;
+        CHECKER_SCRIPT
+    };
     let argv = [
         CHECKER_PATH,
         c"-I",
         c"-S",
-        CHECKER_SCRIPT,
+        checker_script,
         c"--task",
         c"/work/task.json",
         c"--submission",

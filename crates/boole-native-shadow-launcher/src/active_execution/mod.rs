@@ -23,6 +23,8 @@ use thiserror::Error;
 use crate::closed_local_replay_startup::{
     ClosedLocalReplayStartupError, VerifiedClosedLocalReplayStartup,
 };
+#[cfg(feature = "manager-cgroup-linux-gate")]
+use crate::per_request_containment::containment_diagnostic_mode_is_selected;
 use crate::per_request_containment::{
     execute_fixed_checker, ContainedExecution, ContainmentFailure, TerminalWait,
 };
@@ -153,8 +155,6 @@ fn serve_active_execution_session<S: ActiveExecutionSession>(
     if peer.pid == 0 || peer.uid != identities.node_uid() || peer.gid != identities.node_gid() {
         return Err(ActiveExecutionServerError::UntrustedNodePeer);
     }
-    println!("native-shadow-active-execution-peer:pid={}", peer.pid);
-
     let hello_frame = session
         .read_frame(MAX_REQUEST_FRAME_BYTES)
         .map_err(|error| ActiveExecutionServerError::FrameIo(error.to_string()))?
@@ -225,6 +225,10 @@ fn serve_active_execution_session<S: ActiveExecutionSession>(
             ));
         }
     };
+    #[cfg(feature = "manager-cgroup-linux-gate")]
+    if containment_diagnostic_mode_is_selected() {
+        emit_operator_checker_diagnostic(&execution);
+    }
     let report = build_execution_report(&request, &request_frame, execution, identities)?;
     let _validated =
         validate_closed_local_replay_execution_session(&hello, &ready, &request_frame, &report)?;
@@ -237,6 +241,49 @@ fn serve_active_execution_session<S: ActiveExecutionSession>(
         .shutdown_write()
         .map_err(|error| ActiveExecutionServerError::ShutdownWrite(error.to_string()))?;
     Ok(())
+}
+
+#[cfg(feature = "manager-cgroup-linux-gate")]
+const OPERATOR_DIAGNOSTIC_PREFIX: &[u8] =
+    b"boole-native-shadow-checker-cargo-diagnostic:v1;category=";
+
+#[cfg(feature = "manager-cgroup-linux-gate")]
+const OPERATOR_DIAGNOSTIC_CATEGORIES: &[&[u8]] = &[
+    b"success",
+    b"wall_limit",
+    b"output_limit",
+    b"authority_unavailable",
+    b"permission_denied",
+    b"read_only_filesystem",
+    b"missing_file",
+    b"cargo_lock_wait",
+    b"process_spawn_failed",
+    b"linker_failed",
+    b"temporary_directory_failed",
+    b"hidden_test_failed",
+    b"compiler_error",
+    b"unknown_nonzero",
+];
+
+#[cfg(feature = "manager-cgroup-linux-gate")]
+fn validated_operator_checker_diagnostic_line(stderr: &[u8]) -> Option<&[u8]> {
+    let line = stderr.strip_suffix(b"\n")?;
+    if line.contains(&b'\n') || line.contains(&b'\r') || line.len() > 96 {
+        return None;
+    }
+    let category = line.strip_prefix(OPERATOR_DIAGNOSTIC_PREFIX)?;
+    OPERATOR_DIAGNOSTIC_CATEGORIES
+        .contains(&category)
+        .then_some(line)
+}
+
+#[cfg(feature = "manager-cgroup-linux-gate")]
+fn emit_operator_checker_diagnostic(execution: &ContainedExecution) {
+    if let Some(line) = validated_operator_checker_diagnostic_line(execution.stderr()) {
+        eprintln!("{}", String::from_utf8_lossy(line));
+    } else {
+        eprintln!("boole-native-shadow-checker-cargo-diagnostic-invalid:v1");
+    }
 }
 
 fn build_execution_report(
@@ -363,6 +410,9 @@ mod tests {
         build_execution_report, serve_three_fixed_unix_executions, ActiveExecutionListenerError,
     };
 
+    #[cfg(feature = "manager-cgroup-linux-gate")]
+    use super::validated_operator_checker_diagnostic_line;
+
     #[test]
     fn report_builder_has_no_caller_supplied_executor_or_verdict_boolean() {
         let _builder = build_execution_report;
@@ -373,5 +423,29 @@ mod tests {
         let _entrypoint: fn(
             crate::closed_local_replay_startup::VerifiedClosedLocalReplayStartup,
         ) -> Result<(), ActiveExecutionListenerError> = serve_three_fixed_unix_executions;
+    }
+
+    #[cfg(feature = "manager-cgroup-linux-gate")]
+    #[test]
+    fn operator_diagnostic_accepts_only_the_fixed_categorical_record() {
+        let marker =
+            b"boole-native-shadow-checker-cargo-diagnostic:v1;category=permission_denied\n";
+        assert_eq!(
+            validated_operator_checker_diagnostic_line(marker),
+            Some(&marker[..marker.len() - 1])
+        );
+
+        assert_eq!(
+            validated_operator_checker_diagnostic_line(
+                b"boole-native-shadow-checker-cargo-diagnostic:v1;category=permission_denied\n/private/submission.rs\n"
+            ),
+            None
+        );
+        assert_eq!(
+            validated_operator_checker_diagnostic_line(
+                b"boole-native-shadow-checker-cargo-diagnostic:v1;category=raw_output\n"
+            ),
+            None
+        );
     }
 }

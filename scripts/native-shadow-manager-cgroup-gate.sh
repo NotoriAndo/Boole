@@ -334,6 +334,7 @@ install_authority native/containment/native-shadow-local-execution-authority-v1.
 install_authority native/containment/native-shadow-closed-local-replay-grant-v1.json closed-local-replay-grant-v1.json
 install_authority native/containment/native-shadow-closed-local-replay-registry-overlay-v1.json closed-local-replay-registry-overlay-v1.json
 install_authority native/containment/native-shadow-closed-local-replay-execution-authority-v1.json closed-local-replay-execution-authority-v1.json
+install_authority scripts/native_shadow_checker_cargo_diagnostic.py native-shadow-checker-cargo-diagnostic.py
 sudo install -d -o root -g root -m 0555 "$(dirname "$checker_directory")"
 sudo install -d -o root -g root -m 0555 "$checker_directory"
 checker_installed=true
@@ -690,10 +691,6 @@ run_containment_layer_diagnostics() {
   suffix=${suffix//[^a-zA-Z0-9-]/-}
   local -a diagnostic_modes=(
     closed-local-replay-diagnostic-full
-    closed-local-replay-diagnostic-without-cgroup-limits
-    closed-local-replay-diagnostic-without-rlimits
-    closed-local-replay-diagnostic-without-landlock
-    closed-local-replay-diagnostic-without-seccomp
   )
   local diagnostic_mode
   for diagnostic_mode in "${diagnostic_modes[@]}"; do
@@ -735,6 +732,15 @@ run_containment_layer_diagnostics() {
     [[ $(sudo systemctl show "$unit_name" --property=NRestarts --value) == 0 ]] \
       || die "$diagnostic_mode launcher restarted unexpectedly"
     wait_for_marker native-shadow-containment-layer-diagnostic-complete "$diagnostic_invocation"
+    mapfile -t cargo_diagnostics < <(
+      sudo journalctl --no-pager -o cat -u "$unit_name" \
+        "_SYSTEMD_INVOCATION_ID=$diagnostic_invocation" \
+        | grep -E '^boole-native-shadow-checker-cargo-diagnostic:v1;category=(success|wall_limit|output_limit|authority_unavailable|permission_denied|read_only_filesystem|missing_file|cargo_lock_wait|process_spawn_failed|linker_failed|temporary_directory_failed|hidden_test_failed|compiler_error|unknown_nonzero)$' \
+        || :
+    )
+    [[ ${#cargo_diagnostics[@]} -eq 1 ]] \
+      || die "$diagnostic_mode did not emit exactly one categorical Cargo diagnostic"
+    printf '%s\n' "${cargo_diagnostics[0]}"
     sudo test ! -e "$socket_path" && sudo test ! -L "$socket_path" \
       || die "$diagnostic_mode left the fixed socket behind"
     wait_for_cgroup_removal
@@ -751,7 +757,7 @@ run_containment_layer_diagnostics() {
       || die "$diagnostic_mode transient client unit was not collected"
     node_unit=''
   done
-  echo "native-shadow containment layer diagnostic matrix: COMPLETE"
+  echo "native-shadow categorical Cargo diagnostic: COMPLETE"
 }
 
 run_closed_local_replay_gate() {

@@ -90,6 +90,11 @@ pub(crate) fn containment_diagnostic_mode() -> ContainmentDiagnosticMode {
 }
 
 #[cfg(feature = "manager-cgroup-linux-gate")]
+pub(crate) fn containment_diagnostic_mode_is_selected() -> bool {
+    CONTAINMENT_DIAGNOSTIC_MODE_SET.load(Ordering::SeqCst)
+}
+
+#[cfg(feature = "manager-cgroup-linux-gate")]
 #[test]
 fn containment_diagnostic_modes_disable_exactly_one_layer() {
     use ContainmentDiagnosticMode::{
