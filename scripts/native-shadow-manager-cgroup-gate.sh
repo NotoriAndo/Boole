@@ -384,6 +384,31 @@ wait_for_marker() {
   die "unit did not emit marker: $marker"
 }
 
+journal_marker_count() {
+  local marker=$1
+  sudo journalctl --sync
+  sudo journalctl --no-pager -o cat -u "$unit_name" \
+    | grep -Fxc "$marker" || :
+}
+
+wait_for_marker_increment() {
+  local marker=$1
+  local before=$2
+  local expected=$((before + 1))
+  local observed=0
+  local i
+  for ((i = 0; i < 200; i++)); do
+    observed=$(journal_marker_count "$marker")
+    [[ "$observed" -eq "$expected" ]] && return 0
+    if (( observed > expected )); then
+      die "unit emitted marker more than once: $marker"
+    fi
+    sleep 0.05
+  done
+  sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :
+  die "unit marker count did not advance exactly once: $marker (before=$before last=$observed)"
+}
+
 wait_for_fixed_socket() {
   local metadata=''
   local i
@@ -505,14 +530,14 @@ wait_for_background_job() {
 run_expected_rejection() {
   local mode=$1
   local marker=$2
+  local marker_count_before
   set_mode "$mode"
+  marker_count_before=$(journal_marker_count "$marker")
   sudo systemctl start boole-native-shadow-launcher.service
   wait_for_state inactive
   [[ $(sudo systemctl show "$unit_name" --property=Result --value) == success ]] \
     || die "$mode rejection harness did not exit successfully"
-  sudo journalctl --no-pager -o cat -u "$unit_name" >"$log"
-  [[ $(grep -Fxc "$marker" "$log" || :) -eq 1 ]] \
-    || die "$mode rejection marker was not observed exactly once"
+  wait_for_marker_increment "$marker" "$marker_count_before"
   wait_for_cgroup_removal
 }
 

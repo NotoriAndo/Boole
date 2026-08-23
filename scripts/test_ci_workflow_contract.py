@@ -349,6 +349,29 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "a cleanly stopped service has no failed state to reset",
         )
 
+    def test_manager_cgroup_rejection_waits_for_exactly_one_new_journal_marker(self):
+        body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
+            encoding="utf-8"
+        )
+        expected_rejection = body.split("run_expected_rejection() {", 1)[1].split(
+            "}\n", 1
+        )[0]
+        for required in (
+            "local marker_count_before",
+            'marker_count_before=$(journal_marker_count "$marker")',
+            'wait_for_marker_increment "$marker" "$marker_count_before"',
+        ):
+            self.assertIn(required, expected_rejection)
+        marker_counter = body.split("journal_marker_count() {", 1)[1].split("}\n", 1)[0]
+        self.assertIn("sudo journalctl --sync", marker_counter)
+        self.assertIn('grep -Fxc "$marker"', marker_counter)
+        increment_wait = body.split("wait_for_marker_increment() {", 1)[1].split(
+            "}\n", 1
+        )[0]
+        self.assertIn("expected=$((before + 1))", increment_wait)
+        self.assertIn('[[ "$observed" -eq "$expected" ]]', increment_wait)
+        self.assertIn('(( observed > expected ))', increment_wait)
+
     def test_manager_cgroup_gate_observes_root_only_cgroup_state_as_root(self):
         body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
             encoding="utf-8"
