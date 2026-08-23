@@ -755,17 +755,33 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
 }
 
 fn clone_mount_from_fd(rootfs_fd: RawFd) -> Result<OwnedFd, String> {
-    let flags = libc::OPEN_TREE_CLONE | libc::OPEN_TREE_CLOEXEC | libc::AT_EMPTY_PATH as u32;
-    // SAFETY: rootfs_fd is the live verified directory mount, the empty path
-    // is NUL-terminated, and AT_EMPTY_PATH explicitly selects that fd.
-    let cloned = unsafe { libc::syscall(libc::SYS_open_tree, rootfs_fd, c"".as_ptr(), flags) };
+    // Use a relative `.` lookup anchored at the verified directory fd.  This
+    // retains descriptor-owned lookup without depending on AT_EMPTY_PATH,
+    // which is not accepted for open_tree by every supported runner kernel.
+    // SAFETY: rootfs_fd is the live verified directory mount and `.` is a
+    // fixed, NUL-terminated path resolved relative to that descriptor.
+    let cloned = unsafe {
+        libc::syscall(
+            libc::SYS_open_tree,
+            rootfs_fd,
+            c".".as_ptr(),
+            libc::OPEN_TREE_CLONE,
+        )
+    };
     if cloned < 0 {
         return Err(io::Error::last_os_error().to_string());
     }
     let cloned =
         i32::try_from(cloned).map_err(|_| "open_tree returned an invalid fd".to_string())?;
-    // SAFETY: open_tree returned one fresh close-on-exec descriptor.
-    Ok(unsafe { OwnedFd::from_raw_fd(cloned) })
+    // SAFETY: open_tree returned one fresh descriptor now owned here.
+    let cloned = unsafe { OwnedFd::from_raw_fd(cloned) };
+    // Set close-on-exec separately instead of asking open_tree to interpret
+    // an additional flag.  No untrusted exec occurs before this succeeds.
+    // SAFETY: F_SETFD mutates only this live descriptor's fd flags.
+    if unsafe { libc::fcntl(cloned.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    Ok(cloned)
 }
 
 fn attach_detached_mount(mount_fd: RawFd, target: &CStr) -> Result<(), String> {

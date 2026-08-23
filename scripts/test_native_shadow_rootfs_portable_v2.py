@@ -541,7 +541,11 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertIn('const RUNTIME_LOWER: &CStr = c"/run/boole/native-shadow/rootfs-lower";', source)
         self.assertIn("libc::SYS_open_tree", source)
         self.assertIn("libc::OPEN_TREE_CLONE", source)
-        self.assertIn("libc::AT_EMPTY_PATH", source)
+        self.assertRegex(
+            source,
+            r'libc::SYS_open_tree,\s*rootfs_fd,\s*c"\."\.as_ptr\(\),\s*libc::OPEN_TREE_CLONE',
+        )
+        self.assertIn("libc::F_SETFD, libc::FD_CLOEXEC", source)
         self.assertIn("libc::SYS_move_mount", source)
         self.assertIn("libc::MOVE_MOUNT_F_EMPTY_PATH", source)
         self.assertIn("verify_bound_lower(rootfs_fd)", source)
@@ -549,6 +553,7 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertIn("RUNTIME_LOWER.to_string_lossy()", source)
         self.assertNotIn('"lowerdir=/proc/self/fd/{rootfs_fd}', source)
         self.assertNotIn("let lower_source = CString", source)
+        self.assertNotIn("libc::AT_EMPTY_PATH", source)
 
     def test_overlay_root_remains_traversable_after_checker_privilege_drop(self) -> None:
         source = (
