@@ -12,8 +12,9 @@ use std::thread;
 use std::time::Duration;
 
 use boole_core::{
-    CanonicalPackage, CompletePackageFetchIntentOutcome, LocalPackageStore, LocalPackageStoreError,
-    PackageRoot, StagePackageOutcome, DEFAULT_MAX_PENDING_PACKAGES, MAX_PACKAGE_REFERENCE_BYTES,
+    CanonicalPackage, CompletePackageFetchIntentOutcome, Hex32, LocalPackageStore,
+    LocalPackageStoreError, PackageRoot, StagePackageOutcome, DEFAULT_MAX_PENDING_PACKAGES,
+    MAX_PACKAGE_REFERENCE_BYTES,
 };
 use boole_p2p::{Frame, FrameError, Transport};
 use thiserror::Error;
@@ -25,6 +26,52 @@ use crate::p2p_ingress::{P2pIdentity, P2pMetrics};
 
 const FETCH_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 const FETCH_STOP_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const RECEIPT_FETCH_REFERENCE_PREFIX: &str = "receipt:";
+
+/// BF.6a-only fixture block for proving package-availability plumbing before
+/// BF.7 introduces any consensus block field. A receipt-free variant models
+/// the existing Hash-only path; a receipt-bearing variant carries only the two
+/// commitments needed to authorize package fetching.
+///
+/// This type is deliberately not serializable and is not a consensus block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackageAvailabilityScaffoldBlock {
+    ReceiptFree,
+    ReceiptBearing {
+        receipt_digest: Hex32,
+        package_root: PackageRoot,
+    },
+}
+
+impl PackageAvailabilityScaffoldBlock {
+    pub fn receipt_free() -> Self {
+        Self::ReceiptFree
+    }
+
+    pub fn receipt_bearing(receipt_digest: Hex32, package_root: PackageRoot) -> Self {
+        Self::ReceiptBearing {
+            receipt_digest,
+            package_root,
+        }
+    }
+
+    fn fetch_request(self) -> Result<Option<PackageFetchRequest>, PackageFetchingConfigError> {
+        match self {
+            Self::ReceiptFree => Ok(None),
+            Self::ReceiptBearing {
+                receipt_digest,
+                package_root,
+            } => PackageFetchRequest::new(
+                package_root,
+                format!(
+                    "{RECEIPT_FETCH_REFERENCE_PREFIX}{}",
+                    receipt_digest.to_hex()
+                ),
+            )
+            .map(Some),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageFetchRequest {
@@ -66,6 +113,29 @@ pub struct PackageFetchingConfig {
 }
 
 impl PackageFetchingConfig {
+    /// Derive node-owned fetch authority directly from receipt-bearing BF.6a
+    /// scaffold blocks. Exact repeated observations are idempotent; one
+    /// receipt digest naming conflicting package roots is rejected by the
+    /// durable store before any network thread can start.
+    ///
+    /// BF.7 consensus block parsing is intentionally outside this API.
+    pub fn from_scaffold_blocks(
+        store: LocalPackageStore,
+        blocks: impl IntoIterator<Item = PackageAvailabilityScaffoldBlock>,
+    ) -> Result<Self, PackageFetchingConfigError> {
+        let mut identities = BTreeSet::new();
+        let mut requests = Vec::new();
+        for block in blocks {
+            let Some(request) = block.fetch_request()? else {
+                continue;
+            };
+            if identities.insert((request.root, request.reference.clone())) {
+                requests.push(request);
+            }
+        }
+        Self::new(store, requests)
+    }
+
     pub fn new(
         mut store: LocalPackageStore,
         requests: impl IntoIterator<Item = PackageFetchRequest>,
