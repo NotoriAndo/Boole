@@ -65,7 +65,8 @@ pub use local_node::{
 };
 pub use p2p_ingress::{P2pConfig, PackageServingConfig, DEFAULT_P2P_RATE_LIMIT_PER_60S};
 pub use p2p_package_fetch::{
-    PackageFetchRequest, PackageFetchingConfig, PackageFetchingConfigError,
+    PackageAvailabilityScaffoldBlock, PackageFetchRequest, PackageFetchingConfig,
+    PackageFetchingConfigError,
 };
 pub use proof_bridge::{
     canonical_pofp_package_from_lean_result, canonical_pofp_package_from_lean_result_and_source,
