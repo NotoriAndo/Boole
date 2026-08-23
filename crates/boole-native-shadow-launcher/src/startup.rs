@@ -33,6 +33,14 @@ pub struct VerifiedLauncherPrelockPrerequisites {
 }
 
 impl VerifiedLauncherPrelockPrerequisites {
+    pub(crate) fn authority(&self) -> &VerifiedAuthorityBundle {
+        &self.authority
+    }
+
+    pub(crate) fn identities(&self) -> ResolvedServiceIdentities {
+        self.identities
+    }
+
     #[cfg(target_os = "linux")]
     pub(crate) fn node_gid(&self) -> u32 {
         self.identities.node_gid()

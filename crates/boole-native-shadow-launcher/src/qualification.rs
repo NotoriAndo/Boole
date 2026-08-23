@@ -7,6 +7,8 @@ use boole_native_shadow_protocol::{
 };
 use thiserror::Error;
 
+use crate::toolchain_compatibility::VerifiedStartupToolchainCompatibility;
+
 #[cfg(target_os = "linux")]
 mod unix;
 #[cfg(target_os = "linux")]
@@ -35,9 +37,10 @@ pub struct NodePeerCredentials {
 /// Opaque proof that launcher startup authority, identities and recovery were
 /// verified before any readiness response can be served.
 ///
-/// This slice deliberately exposes no constructor. A later Linux runtime
-/// slice must create it only after root identity, installed authority, fixed
-/// NSS identities, fresh launcher ID and zero-leaf recovery all pass.
+/// This type deliberately exposes no constructor. The crate's fixed readiness
+/// assembler creates it only after root identity, installed authority, fixed
+/// NSS identities, fresh launcher ID, zero-leaf recovery and the four trusted
+/// toolchain compatibility probes all pass.
 ///
 /// ```compile_fail
 /// use std::num::NonZeroU32;
@@ -52,8 +55,20 @@ pub struct NodePeerCredentials {
 ///     checker_gid: 3,
 /// };
 /// ```
-#[derive(Debug)]
+///
+/// ```compile_fail
+/// use boole_native_shadow_launcher::qualification::VerifiedQualificationStartup;
+/// fn require_send<T: Send>() {}
+/// require_send::<VerifiedQualificationStartup>();
+/// ```
+///
+/// ```compile_fail
+/// use boole_native_shadow_launcher::qualification::VerifiedQualificationStartup;
+/// fn require_sync<T: Sync>() {}
+/// require_sync::<VerifiedQualificationStartup>();
+/// ```
 pub struct VerifiedQualificationStartup {
+    guard: QualificationStartupGuard,
     authority: VerifiedAuthorityBundle,
     launcher_pid: NonZeroU32,
     launcher_instance_id: [u8; 32],
@@ -61,6 +76,66 @@ pub struct VerifiedQualificationStartup {
     node_gid: u32,
     checker_uid: u32,
     checker_gid: u32,
+}
+
+enum QualificationStartupGuard {
+    Verified(Box<VerifiedStartupToolchainCompatibility>),
+    #[cfg(test)]
+    Test,
+}
+
+impl std::fmt::Debug for VerifiedQualificationStartup {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("VerifiedQualificationStartup")
+            .field("guard", &"verified startup chain")
+            .field("authority", &self.authority)
+            .field("launcher_pid", &self.launcher_pid)
+            .field("launcher_instance_id", &self.launcher_instance_id)
+            .field("node_uid", &self.node_uid)
+            .field("node_gid", &self.node_gid)
+            .field("checker_uid", &self.checker_uid)
+            .field("checker_gid", &self.checker_gid)
+            .finish()
+    }
+}
+
+impl VerifiedQualificationStartup {
+    pub(crate) fn from_verified_toolchain(
+        compatibility: VerifiedStartupToolchainCompatibility,
+    ) -> Result<Self, crate::readiness::QualificationStartupError> {
+        let (authority, identities, launcher_instance_id) = {
+            let recovery = compatibility.recovery();
+            let instance = recovery.manager().instance();
+            let prerequisites = instance.lifetime_lock().prerequisites();
+            (
+                prerequisites.authority().clone(),
+                prerequisites.identities(),
+                instance.instance_id(),
+            )
+        };
+        let launcher_pid = crate::readiness::require_nonzero_launcher_pid(std::process::id())?;
+        Ok(Self {
+            guard: QualificationStartupGuard::Verified(Box::new(compatibility)),
+            authority,
+            launcher_pid,
+            launcher_instance_id,
+            node_uid: identities.node_uid(),
+            node_gid: identities.node_gid(),
+            checker_uid: identities.checker_uid(),
+            checker_gid: identities.checker_gid(),
+        })
+    }
+
+    pub(crate) fn verified_toolchain(&self) -> &VerifiedStartupToolchainCompatibility {
+        match &self.guard {
+            QualificationStartupGuard::Verified(compatibility) => compatibility.as_ref(),
+            #[cfg(test)]
+            QualificationStartupGuard::Test => {
+                panic!("test-only qualification startup has no production proof chain")
+            }
+        }
+    }
 }
 
 /// Session operations required by the behavioral handshake core.
@@ -189,7 +264,7 @@ mod tests {
 
     use super::{
         private, serve_request_free_qualification, NodePeerCredentials, QualificationServerError,
-        QualificationSession, VerifiedQualificationStartup,
+        QualificationSession, QualificationStartupGuard, VerifiedQualificationStartup,
     };
 
     const NODE_UID: u32 = 20_001;
@@ -332,6 +407,7 @@ mod tests {
 
     fn startup() -> VerifiedQualificationStartup {
         VerifiedQualificationStartup {
+            guard: QualificationStartupGuard::Test,
             authority: authority(),
             launcher_pid: NonZeroU32::new(LAUNCHER_PID).expect("non-zero test PID"),
             launcher_instance_id: INSTANCE_ID,

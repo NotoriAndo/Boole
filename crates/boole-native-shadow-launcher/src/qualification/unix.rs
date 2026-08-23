@@ -152,7 +152,8 @@ mod tests {
         LinuxQualificationSession, HANDSHAKE_TIMEOUT_MILLIS,
     };
     use crate::qualification::{
-        QualificationServerError, QualificationSession, VerifiedQualificationStartup,
+        QualificationServerError, QualificationSession, QualificationStartupGuard,
+        VerifiedQualificationStartup,
     };
 
     const NONCE: &str = "abababababababababababababababababababababababababababababababab";
@@ -176,6 +177,7 @@ mod tests {
         assert_ne!(node_uid, 0, "the real node peer test must be non-root");
         assert_ne!(node_gid, 0, "the real node peer group must be non-root");
         VerifiedQualificationStartup {
+            guard: QualificationStartupGuard::Test,
             authority: verify_authority_bundle(
                 TRACKED_REGISTRY_BYTES,
                 TRACKED_EXECUTION_POLICY_BYTES,
@@ -209,20 +211,20 @@ mod tests {
         let request = encode_qualification_hello_frame(&hello(&startup)).expect("hello encodes");
         let (launcher, mut node) = UnixStream::pair().expect("Unix stream pair");
 
-        let server = thread::spawn(move || serve_connected_unix_qualification(launcher, &startup));
-        node.write_all(&request).expect("node writes hello");
-        let ready = read_qualification_ready(&mut node)
-            .expect("ready frame is valid")
-            .expect("launcher writes one ready frame");
-        assert_eq!(ready.nonce_hex(), NONCE);
-        node.shutdown(std::net::Shutdown::Write)
-            .expect("node closes its write half after validating ready");
-        let mut trailing = [0_u8; 1];
-        assert_eq!(node.read(&mut trailing).expect("node observes EOF"), 0);
-        server
-            .join()
-            .expect("launcher thread does not panic")
+        let client = thread::spawn(move || {
+            node.write_all(&request).expect("node writes hello");
+            let ready = read_qualification_ready(&mut node)
+                .expect("ready frame is valid")
+                .expect("launcher writes one ready frame");
+            assert_eq!(ready.nonce_hex(), NONCE);
+            node.shutdown(std::net::Shutdown::Write)
+                .expect("node closes its write half after validating ready");
+            let mut trailing = [0_u8; 1];
+            assert_eq!(node.read(&mut trailing).expect("node observes EOF"), 0);
+        });
+        serve_connected_unix_qualification(launcher, &startup)
             .expect("launcher accepts the real peer and clean EOF");
+        client.join().expect("node thread does not panic");
     }
 
     #[test]

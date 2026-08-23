@@ -33,6 +33,10 @@ impl VerifiedStartupCgroupRecovery {
         self.recovered_orphans
     }
 
+    pub(crate) fn manager(&self) -> &VerifiedManagerCgroup {
+        &self.manager
+    }
+
     #[cfg(target_os = "linux")]
     pub(crate) fn verify_cgroup_state_after_trusted_probes(&self) -> Result<(), String> {
         let (service_root, manager) = self.manager.recovery_directories();

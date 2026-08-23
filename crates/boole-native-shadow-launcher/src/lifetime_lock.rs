@@ -40,6 +40,12 @@ pub struct LauncherLifetimeLockGuard {
     held: unix::HeldLauncherLock,
 }
 
+impl LauncherLifetimeLockGuard {
+    pub(crate) fn prerequisites(&self) -> &VerifiedLauncherPrelockPrerequisites {
+        &self.prerequisites
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum LauncherLifetimeLockError {
     #[error("native-shadow launcher lifetime lock requires Linux")]
