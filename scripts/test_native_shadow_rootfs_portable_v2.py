@@ -144,6 +144,26 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertIn('f"checker verdict differs: {path}: "', replay)
         self.assertIn('f"verdict={result.get(\'verdict\')!r} "', replay)
         self.assertIn('f"reasonCode={result.get(\'reasonCode\')!r}"', replay)
+        self.assertIn("diagnostic-only: RLIMIT_AS disabled", replay)
+        self.assertIn("checker-diagnostic-result.json", replay)
+        self.assertLess(
+            replay.index("accepted-result.json"),
+            replay.index("checker-diagnostic-result.json"),
+        )
+
+    def test_linux_replay_diagnoses_a_real_accept_compile_failure_without_adjudicating_it(self) -> None:
+        replay = (
+            ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"
+        ).read_text(encoding="utf-8")
+
+        mismatch = '!= "accepted/accepted"'
+        diagnostic = "DIAGNOSTIC-ONLY: the second run is not adjudication"
+        self.assertIn(mismatch, replay)
+        self.assertIn(diagnostic, replay)
+        self.assertIn("original_run_contained = checker_module._run_contained", replay)
+        self.assertIn("checker_module._run_contained = traced_run_contained", replay)
+        self.assertLess(replay.index(mismatch), replay.index(diagnostic))
+        self.assertLess(replay.index(diagnostic), replay.index("cases = ("))
 
     def test_portable_source_lock_bytes_ignore_runtime_tool_path_and_digest(self) -> None:
         first = _v1_candidate(

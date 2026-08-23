@@ -155,6 +155,49 @@ C
     --toolchain-bin "$toolchain" \
     --scratch-root /scratch >"$rootfs/scratch/tampered-result.json"
 
+  if [[ "$(jq -er '[.verdict, .reasonCode] | join("/")' \
+    "$rootfs/scratch/accepted-result.json")" != "accepted/accepted" ]]; then
+    printf '%s\n' \
+      'DIAGNOSTIC-ONLY: the second run is not adjudication; the first verdict remains authoritative' \
+      >&2
+    chroot --groups='' --userspec=65534:65534 "$rootfs" \
+      /usr/bin/python3.12 - \
+      "$checker" /probe/task.json /probe/accepted.rs "$toolchain" /scratch <<'PY' >&2
+import importlib.util
+import pathlib
+import sys
+
+checker_path, task_path, submission_path, toolchain_path, scratch_path = sys.argv[1:]
+spec = importlib.util.spec_from_file_location("boole_checker_diagnostic", checker_path)
+if spec is None or spec.loader is None:
+    raise SystemExit("diagnostic checker import unavailable")
+checker_module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = checker_module
+spec.loader.exec_module(checker_module)
+original_run_contained = checker_module._run_contained
+
+
+def traced_run_contained(command, cwd, env, limits):
+    code, output = original_run_contained(command, cwd, env, limits)
+    print(f"DIAGNOSTIC-ONLY contained exit code: {code}", file=sys.stderr)
+    sys.stderr.buffer.write(output[:65536])
+    if output and not output.endswith(b"\n"):
+        sys.stderr.buffer.write(b"\n")
+    return code, output
+
+
+checker_module._run_contained = traced_run_contained
+sys.argv = [
+    checker_path,
+    "--task", task_path,
+    "--submission", submission_path,
+    "--toolchain-bin", toolchain_path,
+    "--scratch-root", scratch_path,
+]
+raise SystemExit(checker_module.main())
+PY
+  fi
+
   python3 - \
     "$rootfs/probe/task.json" \
     "$rootfs/scratch/accepted-result.json" \
