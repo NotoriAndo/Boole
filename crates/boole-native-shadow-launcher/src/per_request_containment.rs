@@ -2,6 +2,8 @@
 
 use thiserror::Error;
 
+use boole_native_shadow_protocol::{sha256_hex, VerifiedClosedLocalReplayAuthorization};
+
 const OPERATION_ID_BYTES: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -120,6 +122,8 @@ pub(crate) enum ContainmentFailure {
     Busy,
     #[error("per-request containment platform failure: {0}")]
     Platform(String),
+    #[error("fatal per-request containment cleanup failure: {0}")]
+    FatalCleanup(String),
 }
 
 /// Already-verified task/anchor/submission bytes for the one fixed checker.
@@ -134,23 +138,30 @@ pub(crate) struct VerifiedCheckerMaterials {
 }
 
 impl VerifiedCheckerMaterials {
-    pub(crate) fn try_new(
-        operation_id_hex: &str,
-        task: Vec<u8>,
-        anchor: Vec<u8>,
+    fn from_authorization(
+        authorization: VerifiedClosedLocalReplayAuthorization,
         submission: Vec<u8>,
     ) -> Result<Self, ContainmentFailure> {
-        let operation = RunOperationId::parse(operation_id_hex)
-            .map_err(|error| ContainmentFailure::Platform(error.to_string()))?;
-        if task.is_empty() || anchor.is_empty() || submission.is_empty() {
+        if sha256_hex(&submission) != authorization.submission_source_digest_hex() {
             return Err(ContainmentFailure::Platform(
-                "checker materials must be non-empty".to_string(),
+                "authorized submission source digest mismatch".to_string(),
+            ));
+        }
+        let operation = RunOperationId::parse(authorization.operation_id_hex())
+            .map_err(|error| ContainmentFailure::Platform(error.to_string()))?;
+        if authorization.max_checker_executions() != 1
+            || authorization.task_bytes().is_empty()
+            || authorization.anchor_bytes().is_empty()
+            || submission.is_empty()
+        {
+            return Err(ContainmentFailure::Platform(
+                "authorized checker materials violate the one-shot contract".to_string(),
             ));
         }
         Ok(Self {
             operation,
-            task,
-            anchor,
+            task: authorization.task_bytes().to_vec(),
+            anchor: authorization.anchor_bytes().to_vec(),
             submission,
         })
     }
@@ -201,30 +212,81 @@ fn execute_with_operations<O: ContainmentOperations>(
 ) -> Result<ContainedExecution, ContainmentFailure> {
     let leaf = operations.create_leaf(&operation)?;
     if let Err(failure) = operations.apply_fixed_limits(&leaf) {
-        operations.remove_leaf(leaf)?;
+        if let Err(cleanup) = operations.remove_leaf(leaf) {
+            return Err(fatal_cleanup([("remove-leaf", cleanup)]));
+        }
         return Err(failure);
     }
     let mut child = match operations.clone_child_atomically(&leaf) {
         Ok(child) => child,
         Err(failure) => {
-            operations.remove_leaf(leaf)?;
+            if let Err(cleanup) = operations.remove_leaf(leaf) {
+                return Err(fatal_cleanup([("remove-leaf", cleanup)]));
+            }
             return Err(failure);
         }
     };
     let (wait, resources) = match operations.wait_and_observe(&leaf, &mut child) {
         Ok(observed) => observed,
         Err(failure) => {
-            operations.terminate_tree(&leaf, &mut child)?;
+            let terminate = operations.terminate_tree(&leaf, &mut child).err();
             operations.discard_child_handles(child);
-            operations.confirm_unpopulated(&leaf)?;
-            operations.remove_leaf(leaf)?;
+            let unpopulated = operations.confirm_unpopulated(&leaf).err();
+            let removed = operations.remove_leaf(leaf).err();
+            let cleanup = [
+                terminate.map(|error| ("terminate-tree", error)),
+                unpopulated.map(|error| ("confirm-unpopulated", error)),
+                removed.map(|error| ("remove-leaf", error)),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+            if !cleanup.is_empty() {
+                return Err(fatal_cleanup(cleanup));
+            }
             return Err(failure);
         }
     };
     let output = operations.close_child_handles(child);
-    operations.confirm_unpopulated(&leaf)?;
-    operations.remove_leaf(leaf)?;
-    Ok(operations.finish_report(wait, resources, output?))
+    let unpopulated = operations.confirm_unpopulated(&leaf).err();
+    let removed = operations.remove_leaf(leaf).err();
+    let mut cleanup = Vec::new();
+    if let Err(error) = output.as_ref() {
+        cleanup.push(("close-child-handles", error.to_string()));
+    }
+    if let Some(error) = unpopulated {
+        cleanup.push(("confirm-unpopulated", error.to_string()));
+    }
+    if let Some(error) = removed {
+        cleanup.push(("remove-leaf", error.to_string()));
+    }
+    if !cleanup.is_empty() {
+        return Err(ContainmentFailure::FatalCleanup(
+            cleanup
+                .into_iter()
+                .map(|(stage, reason)| format!("{stage}: {reason}"))
+                .collect::<Vec<_>>()
+                .join("; "),
+        ));
+    }
+    Ok(operations.finish_report(
+        wait,
+        resources,
+        output.expect("cleanup collection proved output success"),
+    ))
+}
+
+fn fatal_cleanup<I>(failures: I) -> ContainmentFailure
+where
+    I: IntoIterator<Item = (&'static str, ContainmentFailure)>,
+{
+    ContainmentFailure::FatalCleanup(
+        failures
+            .into_iter()
+            .map(|(stage, error)| format!("{stage}: {error}"))
+            .collect::<Vec<_>>()
+            .join("; "),
+    )
 }
 
 static EXECUTION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -236,8 +298,10 @@ mod linux;
 /// and toolchain proof. There is no degraded or non-Linux fallback.
 pub(crate) fn execute_fixed_checker(
     compatibility: &crate::toolchain_compatibility::VerifiedStartupToolchainCompatibility,
-    materials: VerifiedCheckerMaterials,
+    authorization: VerifiedClosedLocalReplayAuthorization,
+    submission: Vec<u8>,
 ) -> Result<ContainedExecution, ContainmentFailure> {
+    let materials = VerifiedCheckerMaterials::from_authorization(authorization, submission)?;
     let _guard = EXECUTION_LOCK
         .try_lock()
         .map_err(|_| ContainmentFailure::Busy)?;
@@ -250,79 +314,6 @@ pub(crate) fn execute_fixed_checker(
         drop((compatibility, materials));
         Err(ContainmentFailure::UnsupportedPlatform)
     }
-}
-
-/// Named Linux gate only: execute the tracked, retired real-ACCEPT fixture
-/// through the exact production containment core.  This deliberately exposes
-/// no caller-selected bytes, path, argv, environment, timeout or outcome.
-#[cfg(all(target_os = "linux", feature = "manager-cgroup-linux-gate"))]
-pub fn run_tracked_real_accept_containment_gate(
-    compatibility: &crate::toolchain_compatibility::VerifiedStartupToolchainCompatibility,
-) -> Result<(), String> {
-    const TASK: &[u8] = include_bytes!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/task.json"
-    ));
-    const ANCHOR: &[u8] = include_bytes!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/anchor.rs"
-    ));
-    const SUBMISSION: &[u8] = include_bytes!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/accepted.rs"
-    ));
-    const EXPECTED_STDOUT: &[u8] = b"{\"checkerTaskId\":\"real-frozen-accept-parity-v1\",\"reasonCode\":\"accepted\",\"schema\":\"boole.native-shadow.checker-result.v1\",\"taskDigest\":\"f25a8a6d92ac556937eaacbec6d12d9d09be675878eb7d942952b35838ee7c82\",\"verdict\":\"accepted\"}\n";
-
-    let materials = VerifiedCheckerMaterials::try_new(
-        &"9".repeat(64),
-        TASK.to_vec(),
-        ANCHOR.to_vec(),
-        SUBMISSION.to_vec(),
-    )
-    .map_err(|error| error.to_string())?;
-    let execution =
-        execute_fixed_checker(compatibility, materials).map_err(|error| error.to_string())?;
-    if execution.wait() != TerminalWait::Exited(0)
-        || execution.timed_out()
-        || execution.output_overflow()
-        || execution.stderr_bytes() != 0
-        || !execution.stderr().is_empty()
-        || execution.stdout_bytes() != EXPECTED_STDOUT.len() as u64
-        || execution.stdout() != EXPECTED_STDOUT
-    {
-        return Err(format!(
-            "tracked real ACCEPT containment result mismatch: wait={:?}, timed_out={}, output_overflow={}, stdout_bytes={}, stderr_bytes={}",
-            execution.wait(),
-            execution.timed_out(),
-            execution.output_overflow(),
-            execution.stdout_bytes(),
-            execution.stderr_bytes()
-        ));
-    }
-    let resources = execution.resources();
-    if resources.cpu_usage_usec >= 120_000_000
-        || resources.memory_peak_bytes > 2_147_483_648
-        || resources.memory_events_low != 0
-        || resources.memory_events_high != 0
-        || resources.memory_events_max != 0
-        || resources.memory_events_oom != 0
-        || resources.memory_events_oom_kill != 0
-        || resources.memory_events_oom_group_kill != 0
-        || resources.pids_events_max != 0
-    {
-        return Err(format!(
-            "tracked real ACCEPT crossed a containment resource boundary: {resources:?}"
-        ));
-    }
-    use sha2::Digest as _;
-    let expected_stdout_sha256: [u8; 32] = sha2::Sha256::digest(EXPECTED_STDOUT).into();
-    let expected_stderr_sha256: [u8; 32] = sha2::Sha256::digest([]).into();
-    if execution.stdout_sha256() != expected_stdout_sha256
-        || execution.stderr_sha256() != expected_stderr_sha256
-    {
-        return Err("tracked real ACCEPT output digest mismatch".to_string());
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -355,12 +346,13 @@ mod tests {
     struct RecordingOperations {
         events: RefCell<Vec<&'static str>>,
         fail_at: Option<&'static str>,
+        cleanup_fail_at: Option<&'static str>,
     }
 
     impl RecordingOperations {
         fn record(&self, event: &'static str) -> Result<(), ContainmentFailure> {
             self.events.borrow_mut().push(event);
-            if self.fail_at == Some(event) {
+            if self.fail_at == Some(event) || self.cleanup_fail_at == Some(event) {
                 Err(ContainmentFailure::Platform(event.to_string()))
             } else {
                 Ok(())
@@ -478,9 +470,36 @@ mod tests {
             };
             assert!(matches!(
                 execute_with_operations(operation, &mut operations),
-                Err(ContainmentFailure::Platform(stage)) if stage == fail_at
+                Err(ContainmentFailure::FatalCleanup(stage)) if stage.contains(fail_at)
             ));
         }
+    }
+
+    #[test]
+    fn cleanup_attempts_continue_after_the_first_failure_and_poison_the_launcher() {
+        let operation = RunOperationId::parse(&"4".repeat(64)).unwrap();
+        let mut operations = RecordingOperations {
+            fail_at: Some("observe"),
+            cleanup_fail_at: Some("terminate-tree"),
+            ..RecordingOperations::default()
+        };
+        assert!(matches!(
+            execute_with_operations(operation, &mut operations),
+            Err(ContainmentFailure::FatalCleanup(stage)) if stage.contains("terminate-tree")
+        ));
+        assert_eq!(
+            operations.events.into_inner(),
+            [
+                "create-leaf",
+                "apply-limits",
+                "clone3",
+                "observe",
+                "terminate-tree",
+                "discard-child-handles",
+                "confirm-unpopulated",
+                "remove-leaf",
+            ]
+        );
     }
 
     #[test]

@@ -63,15 +63,15 @@ const TRACKED_REAL_HISTORY_EMPTY_RAW_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/replay-empty.raw.txt"
 ));
-const TRACKED_CHECKER_BYTES: &[u8] = include_bytes!(concat!(
+pub const TRACKED_CHECKER_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/checker/rust-tuple-struct-project-v1/checker.py"
 ));
-const TRACKED_CHECKER_POLICY_BYTES: &[u8] = include_bytes!(concat!(
+pub const TRACKED_CHECKER_POLICY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/checker/rust-tuple-struct-project-v1/policy.json"
 ));
-const TRACKED_CHECKER_RELEASE_MANIFEST_BYTES: &[u8] = include_bytes!(concat!(
+pub const TRACKED_CHECKER_RELEASE_MANIFEST_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json"
 ));
@@ -952,6 +952,10 @@ impl VerifiedClosedLocalReplayAuthorization {
 
     pub fn checker_sha256(&self) -> &str {
         &self.parsed.checker.sha256
+    }
+
+    pub fn checker_artifact_hash_hex(&self) -> &str {
+        &self.parsed.checker.artifact_hash
     }
 
     pub fn checker_release_manifest_path(&self) -> &str {

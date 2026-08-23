@@ -47,6 +47,9 @@ pub(super) fn execute(
     materials: VerifiedCheckerMaterials,
 ) -> Result<ContainedExecution, ContainmentFailure> {
     let recovery = compatibility.recovery();
+    recovery
+        .verify_cgroup_state_after_trusted_probes()
+        .map_err(ContainmentFailure::Platform)?;
     let manager = recovery.manager();
     let (service_root, _) = manager.recovery_directories();
     let identities = manager
@@ -297,6 +300,9 @@ fn clone_contained_child(
     args.exit_signal = libc::SIGCHLD as u64;
     args.cgroup = leaf.raw_fd() as u64;
 
+    // The wall deadline starts before clone3 so kernel scheduling and setup
+    // time cannot be omitted from the fixed outer budget.
+    let started = Instant::now();
     // SAFETY: `args` is the exact kernel clone3 layout, all referenced output
     // storage remains live, and no shared-VM/thread flags are present.
     let result = unsafe {
@@ -368,7 +374,7 @@ fn clone_contained_child(
         stdout: File::from(stdout_read),
         stderr: File::from(stderr_read),
         setup_status: File::from(setup_read),
-        started: Instant::now(),
+        started,
         output: None,
         reaped: false,
     })
@@ -458,8 +464,8 @@ fn monitor_child(
     let cleanup_deadline = Instant::now() + CLEANUP_DEADLINE;
     cgroupfs_fd::wait_execution_leaf_event(leaf, "populated", 0, cleanup_deadline)
         .map_err(platform)?;
-    drain_pipe_to_eof(&mut child.stdout, &mut output, OutputStream::Stdout)?;
-    drain_pipe_to_eof(&mut child.stderr, &mut output, OutputStream::Stderr)?;
+    drain_after_exit_to_eof(&mut child.stdout, &mut output, OutputStream::Stdout)?;
+    drain_after_exit_to_eof(&mut child.stderr, &mut output, OutputStream::Stderr)?;
     Ok((wait, output))
 }
 
@@ -515,13 +521,21 @@ fn drain_pipe(
     }
 }
 
-fn drain_pipe_to_eof(
+fn drain_after_exit_to_eof(
     file: &mut File,
     output: &mut CapturedOutput,
     stream: OutputStream,
 ) -> Result<(), ContainmentFailure> {
     set_nonblocking(file.as_raw_fd(), false)?;
-    drain_pipe(file, output, stream)
+    let mut buffer = [0_u8; 8192];
+    loop {
+        match file.read(&mut buffer) {
+            Ok(0) => return Ok(()),
+            Ok(read) => output.observe(stream, &buffer[..read])?,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(io_platform(error)),
+        }
+    }
 }
 
 fn sealed_memfd(name: &CStr, bytes: &[u8]) -> Result<OwnedFd, ContainmentFailure> {
@@ -795,29 +809,56 @@ fn install_stdio_and_close_fds(
     stderr_fd: RawFd,
     setup_fd: RawFd,
 ) -> Result<(), String> {
-    // SAFETY: fixed /dev/null and exact descriptor reassignment.
+    // Preserve every source above the fixed 0..=3 target range before any
+    // dup2/dup3 operation. This remains correct even when the parent arrived
+    // with one or more standard descriptors already closed and pipe/open
+    // allocation consequently reused 0..=3.
     let null_fd = unsafe { libc::open(c"/dev/null".as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) };
     if null_fd < 0 {
         return Err(io::Error::last_os_error().to_string());
     }
-    for (from, to) in [(null_fd, 0), (stdout_fd, 1), (stderr_fd, 2)] {
+    // SAFETY: open returned one fresh descriptor.
+    let null_fd = unsafe { OwnedFd::from_raw_fd(null_fd) };
+    let null_source = duplicate_fd_above_fixed_range(null_fd.as_raw_fd())?;
+    let stdout_source = duplicate_fd_above_fixed_range(stdout_fd)?;
+    let stderr_source = duplicate_fd_above_fixed_range(stderr_fd)?;
+    let setup_source = duplicate_fd_above_fixed_range(setup_fd)?;
+    for (from, to) in [
+        (null_source.as_raw_fd(), 0),
+        (stdout_source.as_raw_fd(), 1),
+        (stderr_source.as_raw_fd(), 2),
+    ] {
         if unsafe { libc::dup2(from, to) } < 0 {
             return Err(io::Error::last_os_error().to_string());
         }
     }
-    if setup_fd != 3 {
-        if unsafe { libc::dup3(setup_fd, 3, libc::O_CLOEXEC) } < 0 {
-            return Err(io::Error::last_os_error().to_string());
-        }
-    } else if unsafe { libc::fcntl(3, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+    if unsafe { libc::dup3(setup_source.as_raw_fd(), 3, libc::O_CLOEXEC) } < 0 {
         return Err(io::Error::last_os_error().to_string());
     }
+    drop((
+        null_fd,
+        null_source,
+        stdout_source,
+        stderr_source,
+        setup_source,
+    ));
     // SAFETY: fd 0..=3 are the complete fixed inherited set; every higher
     // authority/control/ledger descriptor must disappear before untrusted exec.
     if unsafe { libc::syscall(libc::SYS_close_range, 4_u32, u32::MAX, 0_u32) } != 0 {
         return Err(io::Error::last_os_error().to_string());
     }
     Ok(())
+}
+
+fn duplicate_fd_above_fixed_range(fd: RawFd) -> Result<OwnedFd, String> {
+    // SAFETY: F_DUPFD_CLOEXEC duplicates one live descriptor into the first
+    // unused number >= 4, independently of its original numeric value.
+    let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 4) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    // SAFETY: fcntl returned one fresh descriptor owned by this process.
+    Ok(unsafe { OwnedFd::from_raw_fd(duplicate) })
 }
 
 fn drop_all_privileges(uid: u32, gid: u32) -> Result<(), String> {

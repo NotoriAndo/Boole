@@ -1,9 +1,14 @@
 use boole_native_shadow_protocol::{
-    decode_complete_active_execution_ready_frame, encode_active_execution_ready_frame,
-    encode_execution_request_frame, sha256_hex, submission_digest_hex,
+    decode_complete_active_execution_ready_frame,
+    decode_complete_closed_local_replay_execution_ready_frame, encode_active_execution_ready_frame,
+    encode_closed_local_replay_execution_ready_frame, encode_execution_request_frame, sha256_hex,
+    submission_digest_hex, verify_closed_local_replay_execution_authority_bytes,
     verify_local_execution_authority_bytes, ActiveExecutionReady, ActiveExecutionReadyFields,
-    ExecutionHello, ExecutionRequest, ExecutionRequestFields, LocalExecutionAuthorityError,
-    TRACKED_EXECUTION_POLICY_BYTES, TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
+    ClosedLocalReplayExecutionAuthorityError, ClosedLocalReplayExecutionReady,
+    ClosedLocalReplayExecutionReadyFields, ExecutionHello, ExecutionRequest,
+    ExecutionRequestFields, LocalExecutionAuthorityError,
+    TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES, TRACKED_EXECUTION_POLICY_BYTES,
+    TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
 };
 use sha2::{Digest, Sha256};
 
@@ -184,4 +189,94 @@ fn active_ready_v2_rejects_claimed_readiness_without_rootfs_replay() {
     frame.extend_from_slice(&payload);
 
     assert!(decode_complete_active_execution_ready_frame(&frame).is_err());
+}
+
+#[test]
+fn replay_ready_v3_is_byte_bound_and_requires_real_rootfs_replay_without_activation() {
+    let authority = verify_closed_local_replay_execution_authority_bytes(
+        TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+    )
+    .expect("the tracked closed-local replay authority must verify");
+    let request_frame = encode_execution_request_frame(&request()).unwrap();
+    let hello = ExecutionHello::try_from_execution_request_frame(&request_frame).unwrap();
+    let ready = ClosedLocalReplayExecutionReady::try_new(
+        &hello,
+        &authority,
+        ClosedLocalReplayExecutionReadyFields {
+            launcher_pid: 1234,
+            launcher_uid: 0,
+            launcher_gid: 0,
+            node_uid: 1001,
+            node_gid: 1001,
+            checker_uid: 1002,
+            checker_gid: 1002,
+            startup_recovery_complete: true,
+            active_execution_leaves: 0,
+            unexpected_direct_cgroup_children: 0,
+            manager_subgroup_verified: true,
+            launcher_instance_id_hex: h(14),
+            installed_replay_authorities_verified: true,
+            runtime_rootfs_replay_verified: true,
+            production_activation_allowed: false,
+        },
+    )
+    .unwrap();
+
+    assert!(ready.installed_replay_authorities_verified());
+    assert!(ready.runtime_rootfs_replay_verified());
+    assert!(!ready.production_activation_allowed());
+    assert!(!ready.activation_allowed());
+    assert!(ready.ready());
+
+    let encoded = encode_closed_local_replay_execution_ready_frame(&ready).unwrap();
+    assert_eq!(
+        decode_complete_closed_local_replay_execution_ready_frame(&encoded).unwrap(),
+        ready
+    );
+
+    let mut drifted = TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES.to_vec();
+    drifted.push(b'\n');
+    assert!(matches!(
+        verify_closed_local_replay_execution_authority_bytes(&drifted),
+        Err(ClosedLocalReplayExecutionAuthorityError::ByteMismatch)
+    ));
+}
+
+#[test]
+fn replay_ready_v3_rejects_missing_installed_authority_proof_or_claimed_activation() {
+    let authority = verify_closed_local_replay_execution_authority_bytes(
+        TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+    )
+    .unwrap();
+    let request_frame = encode_execution_request_frame(&request()).unwrap();
+    let hello = ExecutionHello::try_from_execution_request_frame(&request_frame).unwrap();
+
+    for (installed, rootfs, activation) in [
+        (false, true, false),
+        (true, false, false),
+        (true, true, true),
+    ] {
+        assert!(ClosedLocalReplayExecutionReady::try_new(
+            &hello,
+            &authority,
+            ClosedLocalReplayExecutionReadyFields {
+                launcher_pid: 1234,
+                launcher_uid: 0,
+                launcher_gid: 0,
+                node_uid: 1001,
+                node_gid: 1001,
+                checker_uid: 1002,
+                checker_gid: 1002,
+                startup_recovery_complete: true,
+                active_execution_leaves: 0,
+                unexpected_direct_cgroup_children: 0,
+                manager_subgroup_verified: true,
+                launcher_instance_id_hex: h(14),
+                installed_replay_authorities_verified: installed,
+                runtime_rootfs_replay_verified: rootfs,
+                production_activation_allowed: activation,
+            },
+        )
+        .is_err());
+    }
 }

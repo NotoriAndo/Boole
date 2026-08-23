@@ -28,6 +28,7 @@ pub mod per_request_containment;
 pub mod privilege;
 pub mod qualification;
 pub mod readiness;
+pub mod runtime_rootfs_replay;
 pub mod startup;
 pub mod startup_recovery;
 pub mod toolchain_compatibility;
