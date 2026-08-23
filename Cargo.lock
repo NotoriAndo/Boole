@@ -480,6 +480,7 @@ dependencies = [
 name = "boole-p2p"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

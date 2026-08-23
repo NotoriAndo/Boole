@@ -8,7 +8,7 @@ use std::thread;
 
 use boole_p2p::{
     Frame, FrameError, HeadSummary, TcpTransport, Transport, GET_BLOCKS_RANGE_CAP, MAX_FRAME_BYTES,
-    PROTOCOL_VERSION,
+    MAX_PACKAGE_PAYLOAD_BYTES, PROTOCOL_VERSION,
 };
 
 fn hello(network_id: &str) -> Frame {
@@ -67,7 +67,7 @@ fn two_in_process_peers_complete_hello_handshake() {
 }
 
 #[test]
-fn all_five_frame_variants_roundtrip_the_codec() {
+fn all_seven_frame_variants_roundtrip_the_codec() {
     let transport = TcpTransport::new();
     let mut listener = transport.bind("127.0.0.1:0").expect("bind");
     let addr = transport.local_addr(&listener).expect("addr");
@@ -87,6 +87,13 @@ fn all_five_frame_variants_roundtrip_the_codec() {
                 serde_json::json!({"height": 0}),
                 serde_json::json!({"height": 1}),
             ],
+        },
+        Frame::GetPackage {
+            root: "12".repeat(32),
+        },
+        Frame::Package {
+            root: "12".repeat(32),
+            canonical_bytes: Some(vec![0, 1, 2, 255]),
         },
     ];
 
@@ -109,11 +116,73 @@ fn all_five_frame_variants_roundtrip_the_codec() {
 }
 
 #[test]
+fn package_payload_uses_base64_instead_of_a_json_byte_array() {
+    let encoded = serde_json::to_value(Frame::Package {
+        root: "12".repeat(32),
+        canonical_bytes: Some(vec![0, 1, 2, 255]),
+    })
+    .expect("encode package frame");
+
+    assert_eq!(
+        encoded.get("canonicalBytesBase64"),
+        Some(&serde_json::Value::String("AAEC/w==".to_string()))
+    );
+    assert!(encoded.get("canonicalBytes").is_none());
+}
+
+#[test]
+fn get_package_rejects_a_non_lowercase_hex32_root() {
+    let err = Frame::GetPackage {
+        root: "AB".repeat(32),
+    }
+    .validate()
+    .expect_err("package roots must use the unique lowercase hex encoding");
+
+    assert!(matches!(err, FrameError::InvalidPackageRoot { .. }));
+}
+
+#[test]
+fn package_rejects_malformed_base64() {
+    let malformed = serde_json::json!({
+        "type": "package",
+        "root": "12".repeat(32),
+        "canonicalBytesBase64": "not+valid==="
+    });
+
+    serde_json::from_value::<Frame>(malformed)
+        .expect_err("malformed base64 must not enter the node handler");
+}
+
+#[test]
 fn wire_contract_caps_are_pinned() {
     // ADR-0009 (c): both caps are part of the wire contract, pinned here so
     // a silent constant edit fails a test, not a peer in production.
     assert_eq!(MAX_FRAME_BYTES, 16 * 1024 * 1024);
     assert_eq!(GET_BLOCKS_RANGE_CAP, 256);
+    assert_eq!(MAX_PACKAGE_PAYLOAD_BYTES, 8 * 1024 * 1024);
+}
+
+#[test]
+fn eight_mib_package_fits_the_sixteen_mib_frame_cap() {
+    let frame = Frame::Package {
+        root: "12".repeat(32),
+        canonical_bytes: Some(vec![0; MAX_PACKAGE_PAYLOAD_BYTES]),
+    };
+    frame.validate().expect("package at the frozen cap");
+    let encoded = serde_json::to_vec(&frame).expect("encode maximum package");
+    assert!(encoded.len() < MAX_FRAME_BYTES);
+}
+
+#[test]
+fn package_payload_over_the_decoded_cap_is_rejected_before_encoding() {
+    let err = Frame::Package {
+        root: "12".repeat(32),
+        canonical_bytes: Some(vec![0; MAX_PACKAGE_PAYLOAD_BYTES + 1]),
+    }
+    .validate()
+    .expect_err("decoded payload cap must be enforced independently of JSON size");
+
+    assert!(matches!(err, FrameError::PackagePayloadTooLarge { .. }));
 }
 
 #[test]

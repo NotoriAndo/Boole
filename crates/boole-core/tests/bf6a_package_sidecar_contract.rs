@@ -149,3 +149,30 @@ fn package_root_uses_the_frozen_sidecar_domain_and_not_artifact_root_semantics()
     );
     assert_ne!(package.root().as_bytes(), artifact_domain_root.as_bytes());
 }
+
+#[test]
+fn canonical_package_bytes_round_trip_through_the_ingress_parser() {
+    let original = CanonicalPackage::new(vec![
+        PackageFile::new(b"src/lib.rs", b"pub fn answer() -> u32 { 42 }"),
+        PackageFile::new(b"result.bin", [0_u8, 1, 2, 255]),
+    ])
+    .expect("canonical package");
+
+    let parsed = CanonicalPackage::from_canonical_bytes(original.canonical_bytes())
+        .expect("wire bytes parse");
+    assert_eq!(parsed.canonical_bytes(), original.canonical_bytes());
+    assert_eq!(parsed.root(), original.root());
+}
+
+#[test]
+fn ingress_parser_rejects_trailing_bytes_instead_of_hashing_an_ambiguous_package() {
+    let package = CanonicalPackage::new(vec![PackageFile::new(b"result.bin", [1, 2, 3])])
+        .expect("canonical package");
+    let mut ambiguous = package.canonical_bytes().to_vec();
+    ambiguous.push(0);
+
+    assert_eq!(
+        CanonicalPackage::from_canonical_bytes(&ambiguous).unwrap_err(),
+        PackageSidecarError::NonCanonicalEncoding
+    );
+}

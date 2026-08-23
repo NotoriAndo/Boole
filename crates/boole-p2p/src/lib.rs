@@ -1,5 +1,5 @@
 //! N3.1 (ADR-0009) — minimal P2P transport: a `Transport` trait over
-//! line-framed JSON/TCP plus the five-variant wire-frame enum.
+//! line-framed JSON/TCP plus the wire-frame enum.
 //!
 //! The trait is the designed replacement seam (ADR-0009 (a)): a future
 //! encrypted transport (Noise/TLS — follow-up ADR, gate (f)) lands behind
@@ -14,6 +14,7 @@
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -21,11 +22,16 @@ use serde_json::Value;
 /// evolution bumps this instead of silently breaking the wire.
 /// v2: `Hello` gained the required `consensus_rule_version` field
 /// (ADR-0009 amendment 2026-07-08, ADR-0014 (b)).
-pub const PROTOCOL_VERSION: u32 = 2;
+/// v3: useful-work package request/response frames were added (BF.6a).
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// Max encoded frame size, newline included (ADR-0009 (c) — mirrors the MCP
 /// stdio frame cap, N0-pre.6). Applies to both directions.
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
+
+/// Maximum decoded canonical package payload carried by BF.6a. Base64 at
+/// this cap remains below `MAX_FRAME_BYTES`, including JSON metadata.
+pub const MAX_PACKAGE_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 
 /// Max number of blocks one `GetBlocks` may request, inclusive range
 /// (ADR-0009 (c)) — longer syncs paginate via repeated requests.
@@ -74,6 +80,43 @@ pub enum Frame {
     Blocks {
         blocks: Vec<Value>,
     },
+    GetPackage {
+        root: String,
+    },
+    Package {
+        root: String,
+        #[serde(rename = "canonicalBytesBase64", with = "optional_bytes_base64")]
+        canonical_bytes: Option<Vec<u8>>,
+    },
+}
+
+mod optional_bytes_base64 {
+    use super::*;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S>(bytes: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let encoded = bytes
+            .as_ref()
+            .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes));
+        encoded.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let encoded = Option::<String>::deserialize(deserializer)?;
+        encoded
+            .map(|encoded| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(encoded)
+                    .map_err(serde::de::Error::custom)
+            })
+            .transpose()
+    }
 }
 
 impl Frame {
@@ -88,8 +131,29 @@ impl Frame {
                 });
             }
         }
+        if let Frame::GetPackage { root } | Frame::Package { root, .. } = self {
+            if !is_lowercase_hex32(root) {
+                return Err(FrameError::InvalidPackageRoot { root: root.clone() });
+            }
+        }
+        if let Frame::Package {
+            canonical_bytes: Some(bytes),
+            ..
+        } = self
+        {
+            if bytes.len() > MAX_PACKAGE_PAYLOAD_BYTES {
+                return Err(FrameError::PackagePayloadTooLarge { size: bytes.len() });
+            }
+        }
         Ok(())
     }
+}
+
+fn is_lowercase_hex32(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// Typed codec/transport errors — ADR-0009 (e) requires cap violations and
@@ -103,6 +167,12 @@ pub enum FrameError {
     Malformed { detail: String },
     #[error("GetBlocks range [{from}, {to}] exceeds cap {GET_BLOCKS_RANGE_CAP} or is inverted")]
     RangeTooWide { from: u64, to: u64 },
+    #[error("package root must be exactly 32 bytes encoded as lowercase hexadecimal: {root}")]
+    InvalidPackageRoot { root: String },
+    #[error(
+        "decoded package payload is {size} bytes; maximum is {MAX_PACKAGE_PAYLOAD_BYTES} bytes"
+    )]
+    PackagePayloadTooLarge { size: usize },
     #[error("connection closed before a complete frame")]
     ConnectionClosed,
     #[error("io: {0}")]
@@ -263,7 +333,7 @@ mod tests {
         };
         let encoded = serde_json::to_value(&frame).expect("encode");
         assert_eq!(encoded["type"], "hello");
-        assert_eq!(encoded["protocolVersion"], 2);
+        assert_eq!(encoded["protocolVersion"], 3);
         assert_eq!(encoded["consensusRuleVersion"], 1);
         assert_eq!(encoded["networkId"], "net");
         assert!(encoded["genesisHash"].is_string());

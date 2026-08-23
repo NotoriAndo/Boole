@@ -143,6 +143,7 @@ fn boot_with_p2p(
                 listener: p2p_listener,
                 peers,
                 rate_limit_per_60s,
+                package_serving: None,
             },
             Some(shutdown_for_node),
         )
