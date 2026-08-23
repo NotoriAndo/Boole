@@ -35,6 +35,15 @@ TOOLCHAIN_IDENTITY = (
 IMPLEMENTATION_SPEC = (
     ROOT / "docs" / "node-native-shadow-binding-containment-implementation-spec-v1.md"
 )
+SYSTEMD_UNIT = (
+    ROOT / "native" / "systemd" / "boole-native-shadow-launcher.service"
+)
+SYSUSERS_CONFIG = (
+    ROOT / "native" / "sysusers.d" / "boole-native-shadow.conf"
+)
+TMPFILES_CONFIG = (
+    ROOT / "native" / "tmpfiles.d" / "boole-native-shadow.conf"
+)
 SELF_TEST = ROOT / "scripts" / "self-test.sh"
 
 
@@ -89,6 +98,87 @@ class NativeShadowAuthorityTests(unittest.TestCase):
             "scripts/test_native_shadow_authority.py",
             SELF_TEST.read_text(encoding="utf-8"),
             "the tracked checker authority test must remain in the required self-test gate",
+        )
+
+    def test_tracked_systemd_deployment_envelope_matches_frozen_policy(self) -> None:
+        policy = json.loads(EXECUTION_POLICY.read_text(encoding="utf-8"))
+        exact_caps = ["CAP_SETGID", "CAP_SETUID", "CAP_SETPCAP", "CAP_SYS_ADMIN"]
+
+        self.assertEqual(
+            policy["privilege"]["systemdUnit"],
+            {
+                "UnitName": "boole-native-shadow-launcher.service",
+                "User": "root",
+                "Group": "root",
+                "Slice": "system.slice",
+                "Delegate": ["cpu", "memory", "pids"],
+                "CapabilityBoundingSet": exact_caps,
+                "AmbientCapabilities": [],
+                "NoNewPrivileges": False,
+                "PrivateMounts": True,
+                "UMask": "0117",
+                "Restart": "on-failure",
+                "RestartSec": "1s",
+                "StartLimitIntervalSec": "30s",
+                "StartLimitBurst": 3,
+                "KillMode": "control-group",
+                "TimeoutStopSec": "20s",
+                "SendSIGKILL": True,
+                "TasksMax": "infinity",
+                "MemoryMax": "infinity",
+                "MemorySwapMax": "infinity",
+            },
+        )
+        self.assertEqual(
+            SYSTEMD_UNIT.read_text(encoding="utf-8"),
+            """[Unit]
+Description=Boole native-shadow qualification launcher
+After=systemd-sysusers.service systemd-tmpfiles-setup.service
+StartLimitIntervalSec=30s
+StartLimitBurst=3
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/boole/boole-native-shadow-launcher
+User=root
+Group=root
+Slice=system.slice
+Delegate=cpu memory pids
+CapabilityBoundingSet=CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN
+AmbientCapabilities=
+NoNewPrivileges=no
+PrivateMounts=yes
+UMask=0117
+Restart=on-failure
+RestartSec=1s
+KillMode=control-group
+TimeoutStopSec=20s
+SendSIGKILL=yes
+TasksMax=infinity
+MemoryMax=infinity
+MemorySwapMax=infinity
+WorkingDirectory=/
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+""",
+        )
+        self.assertNotIn("RuntimeDirectory=", SYSTEMD_UNIT.read_text(encoding="utf-8"))
+        self.assertEqual(
+            SYSUSERS_CONFIG.read_text(encoding="utf-8"),
+            """g boole-node -
+u boole-node - \"Boole native-shadow node\" /nonexistent /usr/sbin/nologin
+g boole-native-checker -
+u boole-native-checker - \"Boole native-shadow checker\" /nonexistent /bin/false
+""",
+        )
+        self.assertEqual(
+            TMPFILES_CONFIG.read_text(encoding="utf-8"),
+            """d /run/boole 0755 root root -
+d /run/boole/native-shadow 2750 root boole-node -
+""",
         )
 
     def test_checker_reason_vocabulary_matches_execution_policy(self) -> None:
@@ -732,7 +822,9 @@ class NativeShadowAuthorityTests(unittest.TestCase):
             privilege["systemdUnit"]["CapabilityBoundingSet"], exact_caps
         )
         self.assertEqual(privilege["systemdUnit"]["AmbientCapabilities"], [])
-        self.assertTrue(privilege["systemdUnit"]["Delegate"])
+        self.assertEqual(
+            privilege["systemdUnit"]["Delegate"], ["cpu", "memory", "pids"]
+        )
         self.assertEqual(privilege["nodeCapabilities"], [])
         self.assertEqual(privilege["checkerCapabilities"], [])
         self.assertTrue(privilege["noNewPrivileges"])

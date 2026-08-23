@@ -616,9 +616,15 @@
     "startupSelfCheckBeforeSocketBind": true,
     "failIfCapabilitySetDiffers": true,
     "systemdUnit": {
+      "UnitName": "boole-native-shadow-launcher.service",
       "User": "root",
       "Group": "root",
-      "Delegate": true,
+      "Slice": "system.slice",
+      "Delegate": [
+        "cpu",
+        "memory",
+        "pids"
+      ],
       "CapabilityBoundingSet": [
         "CAP_SETGID",
         "CAP_SETUID",
@@ -626,7 +632,19 @@
         "CAP_SYS_ADMIN"
       ],
       "AmbientCapabilities": [],
-      "NoNewPrivileges": false
+      "NoNewPrivileges": false,
+      "PrivateMounts": true,
+      "UMask": "0117",
+      "Restart": "on-failure",
+      "RestartSec": "1s",
+      "StartLimitIntervalSec": "30s",
+      "StartLimitBurst": 3,
+      "KillMode": "control-group",
+      "TimeoutStopSec": "20s",
+      "SendSIGKILL": true,
+      "TasksMax": "infinity",
+      "MemoryMax": "infinity",
+      "MemorySwapMax": "infinity"
     }
   },
   "resourceLimits": {

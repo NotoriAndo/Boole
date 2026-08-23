@@ -356,13 +356,19 @@ Further route-free foundations now narrow the open prerequisite without closing 
   drop permits reacquisition of the same inode; required CI run `32615499137` is GREEN. It still
   creates no launcher ID, cgroup, listener,
   route, journal transition or checker child.
-* Phase 3B.2b-2g — the current launcher-instance slice consumes that lifetime-lock guard and accepts
+* Phase 3B.2b-2g — PR #186, main `c1d74f9`: the launcher-instance slice consumes that lifetime-lock guard and accepts
   no random bytes, flags or fallback from its caller. It obtains exactly 32 bytes from one
   `getrandom(2)` call with flags zero; a syscall error or any short read fails without retry and
   without issuing a token. The resulting opaque thread-bound token retains the lifetime lock and
-  hides the ID until a later recovery/readiness slice. The named Linux gate must prove the real
+  hides the ID until a later recovery/readiness slice. The named Linux gate proves the real
   syscall path while lock contention remains busy. It does no cgroup recovery, probe, bind/listen,
   route, journal transition or checker work and is not readiness.
+* Phase 3B.2b-2h — the tracked deployment-envelope slice adds the exact production systemd unit,
+  service-account provisioning input and runtime-directory provisioning input before manager or
+  restart-recovery code is written. A named Linux gate validates those tracked bytes with systemd's
+  own parsers and proves distinct non-root service identities plus root:`boole-node` mode-`2750`
+  runtime ownership in an alternate root. It starts no installed service and implements no manager
+  cgroup, orphan recovery, readiness, listener, route, journal transition or checker execution.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux

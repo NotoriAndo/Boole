@@ -285,13 +285,23 @@ entry becomes authoritative on `main` only after its required CI and merge:
   exact launcher capabilities and NSS identities; required CI run `32615499137` is GREEN. This
   remains pre-readiness work: no launcher ID,
   cgroup recovery, bind/listen, route, journal transition or checker child is added.
-* **Phase 3B.2b-2g** — the current instance-identity slice consumes the lifetime-lock guard, performs
+* **Phase 3B.2b-2g** — PR #186, main `c1d74f9`: the instance-identity slice consumes the lifetime-lock guard, performs
   exactly one 32-byte `getrandom(2)` call with flags zero and no caller bytes, retry or fallback, and
   stores the result only inside a new opaque thread-bound token that continues to own the lock.
-  Failure or any short read issues no token. The named Linux gate must execute that production path
-  and retain the lock across the call. This state-free step is deliberately after the lock and before
+  Failure or any short read issues no token. The named Linux gate executes that production path
+  and retains the lock across the call. This state-free step is deliberately after the lock and before
   recovery, but it is not readiness: manager-cgroup verification, orphan cleanup, fixed probes,
   bind/listen, route, journal transition and checker work remain absent.
+* **Phase 3B.2b-2h** — the tracked deployment-envelope slice adds the exact production
+  `boole-native-shadow-launcher.service` unit plus `sysusers.d` and `tmpfiles.d` inputs. The unit
+  fixes the already-frozen root identity, `system.slice`, delegated cpu/memory/pids boundary, four-capability
+  ceiling, empty ambient set, private mount namespace, umask, bounded restart loop, whole-control-
+  group stop behavior and no service-level task/memory ceiling that could preempt per-run cgroups.
+  Provisioning creates the two distinct non-root service identities and the root:`boole-node`
+  mode-`2750` runtime directory. The named Linux job asks systemd's own parsers/provisioners to
+  materialize those tracked bytes in an alternate root. This slice does not start the installed
+  service and does not implement manager movement, controller enablement, orphan recovery,
+  readiness, bind/listen, route, journal transition or checker execution.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do
@@ -684,8 +694,10 @@ only one that needs to be open):
 6. **Cleanup verification applies to every outcome, not only kills** — `populated=0` and leaf-cgroup
    removal confirmed before the node responds, whether the outcome was success, a checker-reported
    rejection, or a kill.
-7. **`cgroup.freeze` + `cgroup.kill` is the only termination path**, no iterative SIGKILL fallback; a
-   kernel lacking `cgroup.kill` is a startup capability-probe failure, fail closed.
+7. **`cgroup.freeze` + `cgroup.kill` is the launcher's only submission-verdict termination path**,
+   with no iterative SIGKILL fallback; a kernel lacking `cgroup.kill` is a startup
+   capability-probe failure, fail closed. A systemd unit stop is an outer crash-equivalent service
+   shutdown: it emits no report and the next process must complete startup recovery before ready.
 
 The leaf cgroup is assigned to the spawned process race-free at creation only through `clone3()`'s
 `CLONE_INTO_CGROUP`; post-fork writes to `cgroup.procs` are not a fallback. macOS has no
@@ -705,7 +717,7 @@ remains identified by evidence `policyDigest`.
 The cgroup-level values below belong to a separate, node-owned containment-policy bundle. Phase
 3B.2a freezes its exact tracked bytes at
 `native/containment/native-shadow-execution-policy-v1.json`; their raw-byte SHA-256 is
-`8bf317bec1cf31b7e4dc0ac67cac3c6fc714fb123025abbe6194038684789489`. The registry's top-level
+`8c31f3106fc6ced8734a7c8a4e74f3d5e6cdc16dc44b43dc93fde673c1ba558e`. The registry's top-level
 `executionPolicySha256` binds that digest, and the same value is the `executionPolicyDigest` bound
 independently through every new state row, journal event and v2 evidence object. The checker-owned
 `policy.json` remains byte-preserved and keeps its separate `policyDigest` meaning.
@@ -868,7 +880,8 @@ the security purpose of those frozen values:
 
 The launcher self-checks before binding its socket that Effective, Permitted and Bounding capability
 sets are exactly those four entries, while Inheritable and Ambient are empty; any extra or missing
-bit is fatal. Its systemd unit independently pins the same bounding set with `Delegate=yes`. The
+bit is fatal. Its systemd unit independently pins the same bounding set with
+`Delegate=cpu memory pids`; no unrelated controller is delegated. The
 stable delegated cgroup root is
 `/sys/fs/cgroup/system.slice/boole-native-shadow-launcher.service`. To satisfy cgroup v2's
 no-internal-process rule, launcher startup first creates the reserved direct child `manager`, moves
@@ -883,6 +896,28 @@ never blindly reused. Any other
 direct child fails closed without binding or readiness. The launcher cleans every run leaf before
 socket bind and carries the zero-leaf result into the authenticated qualification-ready barrier.
 Controller read-back failure is a startup failure before readiness.
+
+The tracked deployment files are
+`native/systemd/boole-native-shadow-launcher.service`,
+`native/sysusers.d/boole-native-shadow.conf` and
+`native/tmpfiles.d/boole-native-shadow.conf`. The unit is `Type=exec`, starts only the fixed
+root-owned launcher path, runs as root:root in `system.slice`, uses `PrivateMounts=yes` and umask
+`0117`, and has `Restart=on-failure`, `RestartSec=1s`, `StartLimitIntervalSec=30s` and
+`StartLimitBurst=3`. `KillMode=control-group`, `TimeoutStopSec=20s` and `SendSIGKILL=yes` ensure a
+service stop cannot intentionally leave launcher descendants alive while leaving more time than
+the launcher's ten-second internal cleanup deadline. A systemd stop signal is a crash-equivalent
+outer shutdown, produces no execution report, and requires the next startup recovery barrier; it
+is not a second launcher-owned submission-verdict path. `TasksMax`, `MemoryMax` and
+`MemorySwapMax` are `infinity` at the service boundary because the launcher applies the strict
+values below to each direct `run-*` leaf; a broader service default must not create an unobserved
+earlier limit. `RuntimeDirectory=` is deliberately absent: the service itself is group root, while
+the socket directory must be root:`boole-node`; the tracked tmpfiles input creates that exact
+mode-`2750` directory instead. The sysusers input creates the two fixed names with same-named
+primary groups, no supplementary-group assignment, home `/nonexistent`, and the frozen non-login
+shells. These deployment bytes freeze startup and restart semantics before recovery code is added;
+they do not by themselves prove manager-cgroup setup or recovery. This policy-byte change is an
+explicit pre-activation successor rotation: the qualification registry now binds the successor
+digest, while the prior digest remains historical and was never activation-authorized.
 The launcher samples tree-wide `cpu.stat usage_usec` every 10 ms and once more before any report;
 at or above 120,000,000 microseconds it freezes and kills the leaf. The child outer wall is 100
 seconds, cleanup has a separate 10-second deadline, and the node's response deadline is 115 seconds.
@@ -1300,8 +1335,9 @@ implementation:
     all. This gate does not apply, and gate 17/21 govern instead, whenever the text *does* match one of
     those two patterns (genuinely or as a forged string): that case must go through the corroboration
     check, never straight to `checker_rejected`.
-23. `cgroup.freeze` + `cgroup.kill` is the only termination path; a kernel lacking `cgroup.kill` fails
-    the startup capability probe closed.
+23. `cgroup.freeze` + `cgroup.kill` is the launcher's only submission-verdict termination path; a
+    kernel lacking `cgroup.kill` fails the startup capability probe closed. A systemd stop is tested
+    separately as a report-free crash-equivalent followed by mandatory startup recovery.
 24. Normal cleanup verifies direct-child reap, `populated=0`, launcher pidfd/namespace-FD closure and
     leaf removal on every outcome; restart cleanup separately verifies `populated=0`, empty
     `cgroup.procs`/`cgroup.threads` and leaf removal. Neither path invents a namespace reference count.
