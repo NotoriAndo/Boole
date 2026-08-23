@@ -16,6 +16,9 @@ VERDICT_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "verdict-corpus.yml"
 NATIVE_CONTAINMENT_PROBE = (
     REPO_ROOT / "scripts" / "native-shadow-containment-capability-probe.sh"
 )
+LAUNCHER_PRIVILEGE_GATE = (
+    REPO_ROOT / "scripts" / "native-shadow-launcher-privilege-gate.sh"
+)
 NATIVE_CONTAINMENT_SPEC = (
     REPO_ROOT / "docs" / "node-native-shadow-binding-containment-implementation-spec-v1.md"
 )
@@ -118,6 +121,45 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "--ignored --exact",
         ):
             self.assertIn(required, job)
+
+    def test_named_linux_job_exercises_the_real_launcher_privilege_self_check(self):
+        job = self._job("native-shadow-containment-linux")
+        self.assertIn(
+            "./scripts/native-shadow-launcher-privilege-gate.sh",
+            job,
+            "the named Linux job must run the production root/capability self-check",
+        )
+        self.assertTrue(
+            LAUNCHER_PRIVILEGE_GATE.is_file(),
+            "the launcher privilege gate must be a tracked reviewable script",
+        )
+
+    def test_launcher_privilege_gate_uses_one_production_verifier_for_positive_and_negative_cases(self):
+        body = LAUNCHER_PRIVILEGE_GATE.read_text(encoding="utf-8")
+        for required in (
+            "set -euo pipefail",
+            '[[ ${EUID} -ne 0 ]] || die "build phase must run as the unprivileged CI user"',
+            "cargo test --locked -p boole-native-shadow-launcher --lib --no-run",
+            "privilege::tests::real_kernel_privilege_matches_frozen_policy",
+            "sudo mktemp /run/boole-native-shadow-launcher-captest.XXXXXX",
+            'sudo install -o root -g root -m 0555 "$test_executable" "$launcher_path"',
+            '[[ "$source_sha" == "$staged_sha" ]]',
+            "--pipe --wait --collect",
+            "--property=User=root --property=Group=root",
+            "--property=AmbientCapabilities= --property=NoNewPrivileges=no",
+            "CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN",
+            "CAP_SETGID CAP_SETUID CAP_SETPCAP' reject 0x00000000000001c0",
+            "CAP_CHOWN CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN' reject 0x00000000002001c1",
+            'sudo rm -f "$launcher_path"',
+            "transient unit ${unit}.service was not collected",
+        ):
+            self.assertIn(required, body)
+
+        self.assertEqual(
+            body.count('"$launcher_path" "$test_name" --ignored --exact --nocapture'),
+            1,
+            "all three service shapes must execute the same production verifier path",
+        )
 
     def test_required_self_test_cannot_hide_a_failed_probe(self):
         job = self._job("self-test")
