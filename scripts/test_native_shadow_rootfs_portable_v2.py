@@ -179,6 +179,23 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertLess(mutation_index, report_guard_index)
         self.assertLess(report_guard_index, restore_index)
 
+    def test_linux_replay_socket_timeout_preserves_the_service_failure_reason(self) -> None:
+        manager = (
+            ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+
+        timeout_reason = "fixed qualification socket did not appear"
+        timeout_index = manager.index(timeout_reason)
+        diagnostic = (
+            'sudo systemctl show "$unit_name" '
+            '--property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :'
+        )
+        journal = 'sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :'
+        self.assertIn(diagnostic, manager)
+        self.assertIn(journal, manager)
+        self.assertLess(manager.index(diagnostic), timeout_index)
+        self.assertLess(manager.index(journal, manager.index(diagnostic)), timeout_index)
+
     def test_linux_replay_mounts_a_private_proc_for_the_frozen_lld_wrapper(self) -> None:
         replay = (
             ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"

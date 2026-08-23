@@ -559,6 +559,8 @@ wait_for_fixed_socket() {
     fi
     sleep 0.05
   done
+  sudo systemctl show "$unit_name" --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :
+  sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :
   die "fixed qualification socket did not appear"
 }
 
