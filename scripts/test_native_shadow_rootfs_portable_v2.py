@@ -173,28 +173,6 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             manager,
         )
 
-    def test_linux_replay_preserves_one_fixed_direct_checker_diagnostic_after_launcher_failure(self) -> None:
-        replay = (
-            ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn("native-shadow-direct-checker-diagnostic:", replay)
-        self.assertIn("native-shadow-direct-checker-result:", replay)
-        self.assertIn("checker-diagnostic.py", replay)
-        self.assertIn("original_run_contained", replay)
-        self.assertIn("cargoOutputSha256", replay)
-        self.assertIn("cargoExitCode", replay)
-        self.assertIn("manager_status=0", replay)
-        self.assertIn('if [[ $manager_status -ne 0 ]]; then', replay)
-        self.assertLess(
-            replay.rindex("manager_status=$?"),
-            replay.rindex('--offline-probe "$scratch"'),
-        )
-        self.assertLess(
-            replay.rindex('--offline-probe "$scratch"'),
-            replay.rindex('if [[ $manager_status -ne 0 ]]; then'),
-        )
-
     def test_linux_replay_rejects_rootfs_drift_before_any_checker_report(self) -> None:
         manager = (
             ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
@@ -597,6 +575,23 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertIn("libc::umask(previous_umask)", create)
         self.assertNotIn("libc::chmod", create)
         self.assertIn("metadata.st_mode & 0o7777 != 0o2770", create)
+
+    def test_seccomp_allows_only_the_local_socketpair_needed_to_spawn_rustc(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        seccomp = source.split("fn build_seccomp_program", 1)[1].split(
+            "fn apply_landlock", 1
+        )[0]
+        unconditional = seccomp.split("let syscalls = [", 1)[1].split("]", 1)[0]
+
+        self.assertNotIn("libc::SYS_socketpair", unconditional)
+        self.assertIn("libc::SYS_socketpair", seccomp)
+        self.assertIn("SeccompCmpArgLen::Dword", seccomp)
+        self.assertIn("SeccompCmpOp::Ne", seccomp)
+        self.assertIn("libc::AF_UNIX as u64", seccomp)
+        self.assertIn("libc::SYS_socket,", unconditional)
 
     def test_checker_child_replaces_service_umask_before_exec(self) -> None:
         source = (

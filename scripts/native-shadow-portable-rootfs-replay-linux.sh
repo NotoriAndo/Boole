@@ -145,71 +145,6 @@ PY
   cat >"$rootfs/probe/c-probe.c" <<'C'
 int main(void) { return 0; }
 C
-  cat >"$rootfs/probe/checker-diagnostic.py" <<'PY'
-import hashlib
-import importlib.util
-import json
-import pathlib
-import re
-import sys
-
-checker_path = pathlib.Path(
-    "/usr/share/boole/native-shadow/checkers/"
-    "rust-tuple-struct-project-v1/checker.py"
-)
-spec = importlib.util.spec_from_file_location("boole_frozen_checker_diagnostic", checker_path)
-if spec is None or spec.loader is None:
-    raise SystemExit("frozen checker diagnostic import failed")
-checker = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = checker
-spec.loader.exec_module(checker)
-original_run_contained = checker._run_contained
-
-
-def observed_run_contained(command, cwd, env, limits):
-    code, output = original_run_contained(command, cwd, env, limits)
-    safe_patterns = (
-        "cannot allocate memory",
-        "could not execute process",
-        "failed to spawn",
-        "linking with",
-        "linker ",
-        "no space left on device",
-        "operation not permitted",
-        "permission denied",
-        "process didn't exit successfully",
-        "signal:",
-    )
-    safe_lines = []
-    for raw_line in output.decode("utf-8", errors="replace").splitlines():
-        normalized = " ".join(raw_line.strip().split())
-        lowered = normalized.lower()
-        if any(pattern in lowered for pattern in safe_patterns):
-            # The fixture is public, but keep the diagnostic narrowly scoped
-            # to operating-system/compiler context rather than source values.
-            normalized = re.sub(r"/work/[^ ]+", "<work>", normalized)
-            safe_lines.append(normalized[:1000])
-            if len(safe_lines) == 12:
-                break
-    diagnostic = {
-        "cargoExitCode": code,
-        "cargoOutputBytes": len(output),
-        "cargoOutputSha256": hashlib.sha256(output).hexdigest(),
-        "safeSystemLines": safe_lines,
-    }
-    print(
-        "native-shadow-direct-checker-diagnostic:"
-        + json.dumps(diagnostic, sort_keys=True, separators=(",", ":")),
-        file=sys.stderr,
-        flush=True,
-    )
-    return code, output
-
-
-checker._run_contained = observed_run_contained
-sys.argv[0] = str(checker_path)
-raise SystemExit(checker.main())
-PY
   chown -R 0:0 "$rootfs/probe"
   chmod -R a-w "$rootfs/probe"
   chown 65534:65534 "$rootfs/scratch"
@@ -224,13 +159,6 @@ PY
   TMPDIR=/scratch chroot --groups='' --userspec=65534:65534 "$rootfs" \
     /usr/bin/x86_64-linux-gnu-gcc-13 /probe/c-probe.c -o /scratch/c-probe
   chroot --groups='' --userspec=65534:65534 "$rootfs" /scratch/c-probe
-  chroot --groups='' --userspec=65534:65534 "$rootfs" \
-    /usr/bin/python3.12 -I -S /probe/checker-diagnostic.py \
-    --task /probe/task.json \
-    --submission /probe/accepted.rs \
-    --toolchain-bin /opt/boole/native-checker-toolchain/bin \
-    --scratch-root /scratch \
-    | sed 's/^/native-shadow-direct-checker-result:/'
 
   umount "$rootfs/proc"
   umount "$rootfs/dev/null"
@@ -324,8 +252,6 @@ run_home=$(getent passwd "$run_user" | awk -F: 'NF == 7 { print $6 }')
 [[ -n "$run_home" && -x "$run_home/.cargo/bin/cargo" ]] \
   || die "the original CI user lacks the pinned Rust toolchain"
 chmod 0711 "$scratch"
-manager_status=0
-set +e
 (
   cd "$ROOT"
   timeout --foreground --signal=TERM --kill-after=15s 600s \
@@ -339,8 +265,6 @@ set +e
       "$scratch/rootfs" \
       "$scratch/ROOTFS-CONTENT-MANIFEST.json"
 )
-manager_status=$?
-set -e
 
 probe_unit="boole-native-shadow-rootfs-probe-${RANDOM}-${$}"
 systemd-run \
@@ -359,9 +283,5 @@ systemd-run \
   --property=RestrictAddressFamilies=AF_UNIX \
   /usr/bin/env bash "$ROOT/scripts/native-shadow-portable-rootfs-replay-linux.sh" \
     --offline-probe "$scratch"
-
-if [[ $manager_status -ne 0 ]]; then
-  die "exact launcher replay failed before the independent direct-checker diagnostic"
-fi
 
 printf 'native-shadow-portable-rootfs-replay-linux: PASS\n'

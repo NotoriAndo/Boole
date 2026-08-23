@@ -18,7 +18,10 @@ use landlock::{
     AccessFs, CompatLevel, Compatible, PathBeneath, PathFd, Ruleset, RulesetAttr,
     RulesetCreatedAttr, RulesetStatus, ABI,
 };
-use seccompiler::{SeccompAction, SeccompFilter, TargetArch};
+use seccompiler::{
+    SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter, SeccompRule,
+    TargetArch,
+};
 use sha2::{Digest, Sha256};
 
 use super::{
@@ -1832,17 +1835,30 @@ fn build_seccomp_program() -> Result<seccompiler::BpfProgram, ContainmentFailure
         libc::SYS_sendto,
         libc::SYS_setns,
         libc::SYS_socket,
-        libc::SYS_socketpair,
         libc::SYS_swapoff,
         libc::SYS_swapon,
         libc::SYS_umount2,
         libc::SYS_unshare,
         libc::SYS_userfaultfd,
     ];
-    let rules = syscalls
+    let mut rules: std::collections::BTreeMap<i64, Vec<SeccompRule>> = syscalls
         .into_iter()
         .map(|number| (number, vec![]))
         .collect();
+    // Rust's process launcher uses one anonymous AF_UNIX socketpair as its
+    // close-on-exec error channel while Cargo starts rustc.  That pair cannot
+    // name or connect to a network endpoint.  Keep every real socket() call
+    // denied and deny socketpair() for every domain except this exact local
+    // process-control primitive.
+    let deny_non_local_socketpair = SeccompRule::new(vec![SeccompCondition::new(
+        0,
+        SeccompCmpArgLen::Dword,
+        SeccompCmpOp::Ne,
+        libc::AF_UNIX as u64,
+    )
+    .map_err(|error| ContainmentFailure::Platform(error.to_string()))?])
+    .map_err(|error| ContainmentFailure::Platform(error.to_string()))?;
+    rules.insert(libc::SYS_socketpair, vec![deny_non_local_socketpair]);
     let arch = TargetArch::try_from(std::env::consts::ARCH).map_err(|_| {
         ContainmentFailure::Platform("unsupported seccomp target architecture".to_string())
     })?;
@@ -1993,10 +2009,81 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::{
-        derived_runtime_top_level_is_exact, runtime_additions_are_compatible_with_lower,
-        runtime_passwd_record, runtime_root_metadata_is_exact, setup_stage, CapturedOutput,
-        OutputStream, CHECKER_UMASK, OUTPUT_LIMIT,
+        build_seccomp_program, derived_runtime_top_level_is_exact,
+        runtime_additions_are_compatible_with_lower, runtime_passwd_record,
+        runtime_root_metadata_is_exact, setup_stage, CapturedOutput, OutputStream, CHECKER_UMASK,
+        OUTPUT_LIMIT,
     };
+
+    fn run_seccomp_probe(probe: fn() -> bool) -> i32 {
+        let program = build_seccomp_program().expect("fixed seccomp program");
+        // SAFETY: the child performs only seccomp installation, the supplied
+        // raw-syscall probe, and _exit. The parent waits for exactly that PID.
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork seccomp probe");
+        if pid == 0 {
+            let installed = seccompiler::apply_filter(&program).is_ok();
+            let passed = installed && probe();
+            // SAFETY: _exit terminates only this forked probe child without
+            // running inherited Rust destructors.
+            unsafe { libc::_exit(if passed { 0 } else { 1 }) };
+        }
+        let mut status = 0;
+        // SAFETY: pid is the positive child PID returned by fork and status is
+        // a valid writable wait-status location.
+        assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
+        assert!(libc::WIFEXITED(status), "seccomp probe did not exit");
+        libc::WEXITSTATUS(status)
+    }
+
+    fn local_socketpair_succeeds() -> bool {
+        let mut fds = [-1; 2];
+        // SAFETY: fds has space for exactly two descriptors. The fixed local
+        // domain/type/protocol tuple creates no named or network endpoint.
+        let result = unsafe {
+            libc::socketpair(
+                libc::AF_UNIX,
+                libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC,
+                0,
+                fds.as_mut_ptr(),
+            )
+        };
+        if result != 0 {
+            return false;
+        }
+        // SAFETY: successful socketpair initialized both descriptors.
+        unsafe {
+            libc::close(fds[0]);
+            libc::close(fds[1]);
+        }
+        true
+    }
+
+    fn non_local_socketpair_is_eacces() -> bool {
+        let mut fds = [-1; 2];
+        // SAFETY: errno is thread-local in this forked single-thread probe and
+        // fds has space for the kernel's two output descriptors.
+        unsafe {
+            *libc::__errno_location() = 0;
+            libc::socketpair(
+                libc::AF_INET,
+                libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC,
+                0,
+                fds.as_mut_ptr(),
+            ) == -1
+                && *libc::__errno_location() == libc::EACCES
+        }
+    }
+
+    fn socket_remains_eacces() -> bool {
+        // SAFETY: this deliberately probes the fixed seccomp denial. No valid
+        // descriptor is returned when the expected EACCES result occurs.
+        unsafe {
+            *libc::__errno_location() = 0;
+            libc::socket(libc::AF_UNIX, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) == -1
+                && *libc::__errno_location() == libc::EACCES
+        }
+    }
 
     fn names(values: &[&str]) -> BTreeSet<OsString> {
         values.iter().map(OsString::from).collect()
@@ -2109,5 +2196,12 @@ mod tests {
             .expect("checker umask setup stage");
         let execute = source.find("exec-checker").expect("checker exec stage");
         assert!(install < execute);
+    }
+
+    #[test]
+    fn seccomp_allows_only_anonymous_local_socketpairs_for_process_spawning() {
+        assert_eq!(run_seccomp_probe(local_socketpair_succeeds), 0);
+        assert_eq!(run_seccomp_probe(non_local_socketpair_is_eacces), 0);
+        assert_eq!(run_seccomp_probe(socket_remains_eacces), 0);
     }
 }
