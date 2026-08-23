@@ -72,6 +72,12 @@ pub enum PackageSidecarError {
     TooManyFiles { count: usize, max: usize },
     #[error("canonical package is {size} bytes; maximum is {max}")]
     PackageTooLarge { size: usize, max: usize },
+    #[error("canonical package bytes are truncated or have an invalid length")]
+    MalformedCanonicalBytes,
+    #[error("canonical package schema does not match the frozen sidecar schema")]
+    SchemaMismatch,
+    #[error("canonical package bytes are not in the unique canonical encoding")]
+    NonCanonicalEncoding,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +121,45 @@ impl CanonicalPackage {
         })
     }
 
+    pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, PackageSidecarError> {
+        if bytes.len() > MAX_PACKAGE_CANONICAL_BYTES {
+            return Err(PackageSidecarError::PackageTooLarge {
+                size: bytes.len(),
+                max: MAX_PACKAGE_CANONICAL_BYTES,
+            });
+        }
+        let mut cursor = 0usize;
+        let schema_len = read_u32(bytes, &mut cursor)? as usize;
+        let schema = take_bytes(bytes, &mut cursor, schema_len)?;
+        if schema != PACKAGE_SIDECAR_SCHEMA.as_bytes() {
+            return Err(PackageSidecarError::SchemaMismatch);
+        }
+        let file_count = read_u32(bytes, &mut cursor)? as usize;
+        if file_count > MAX_PACKAGE_FILES {
+            return Err(PackageSidecarError::TooManyFiles {
+                count: file_count,
+                max: MAX_PACKAGE_FILES,
+            });
+        }
+        let mut files = Vec::with_capacity(file_count);
+        for _ in 0..file_count {
+            let path_len = read_u32(bytes, &mut cursor)? as usize;
+            let path = take_bytes(bytes, &mut cursor, path_len)?;
+            let content_len = usize::try_from(read_u64(bytes, &mut cursor)?)
+                .map_err(|_| PackageSidecarError::MalformedCanonicalBytes)?;
+            let contents = take_bytes(bytes, &mut cursor, content_len)?;
+            files.push(PackageFile::new(path, contents));
+        }
+        if cursor != bytes.len() {
+            return Err(PackageSidecarError::NonCanonicalEncoding);
+        }
+        let package = Self::new(files)?;
+        if package.canonical_bytes != bytes {
+            return Err(PackageSidecarError::NonCanonicalEncoding);
+        }
+        Ok(package)
+    }
+
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
     }
@@ -126,6 +171,35 @@ impl CanonicalPackage {
     pub fn root(&self) -> PackageRoot {
         self.root
     }
+}
+
+fn take_bytes<'a>(
+    bytes: &'a [u8],
+    cursor: &mut usize,
+    length: usize,
+) -> Result<&'a [u8], PackageSidecarError> {
+    let end = cursor
+        .checked_add(length)
+        .ok_or(PackageSidecarError::MalformedCanonicalBytes)?;
+    let value = bytes
+        .get(*cursor..end)
+        .ok_or(PackageSidecarError::MalformedCanonicalBytes)?;
+    *cursor = end;
+    Ok(value)
+}
+
+fn read_u32(bytes: &[u8], cursor: &mut usize) -> Result<u32, PackageSidecarError> {
+    let encoded: [u8; 4] = take_bytes(bytes, cursor, 4)?
+        .try_into()
+        .map_err(|_| PackageSidecarError::MalformedCanonicalBytes)?;
+    Ok(u32::from_be_bytes(encoded))
+}
+
+fn read_u64(bytes: &[u8], cursor: &mut usize) -> Result<u64, PackageSidecarError> {
+    let encoded: [u8; 8] = take_bytes(bytes, cursor, 8)?
+        .try_into()
+        .map_err(|_| PackageSidecarError::MalformedCanonicalBytes)?;
+    Ok(u64::from_be_bytes(encoded))
 }
 
 fn canonical_size(files: &[PackageFile]) -> Result<usize, PackageSidecarError> {
