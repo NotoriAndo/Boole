@@ -307,6 +307,9 @@ mod unix {
         const REAL_CONTENDER_ROLE: &str = "BOOLE_NATIVE_SHADOW_LOCK_CONTENDER_ROLE";
         #[cfg(target_os = "linux")]
         const REAL_CONTENDER_BUSY_MARKER: &str = "native-shadow-lock-contender-observed-busy";
+        #[cfg(target_os = "linux")]
+        const REAL_PARENT_COMPLETE_MARKER: &str =
+            "native-shadow-launcher-instance-identity-gate-complete";
 
         struct TestRuntimeTree {
             root: PathBuf,
@@ -648,12 +651,15 @@ mod unix {
                 "aggregate lock test must not run in contender mode"
             );
             let lock_path = Path::new("/run/boole/native-shadow/launcher.lock");
-            let first = acquire_production_lock().expect("first launcher must acquire the lock");
-            let first_metadata = first
+            let first_lock =
+                acquire_production_lock().expect("first launcher must acquire the lock");
+            let first_metadata = first_lock
                 .held
                 .lock_file
                 .metadata()
                 .expect("first production lock metadata");
+            let first = crate::instance_id::acquire_fresh_launcher_instance(first_lock)
+                .expect("first launcher must obtain one real instance ID");
 
             let output = Command::new(std::env::current_exe().expect("current test executable"))
                 .arg("lifetime_lock::unix::tests::real_linux_launcher_lifetime_lock_contender")
@@ -691,6 +697,7 @@ mod unix {
                 (second_metadata.dev(), second_metadata.ino()),
                 "reacquisition must use the same persistent lock inode"
             );
+            println!("{REAL_PARENT_COMPLETE_MARKER}");
         }
 
         #[cfg(target_os = "linux")]

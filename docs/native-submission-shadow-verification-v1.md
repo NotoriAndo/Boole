@@ -346,15 +346,23 @@ Further route-free foundations now narrow the open prerequisite without closing 
   strict and passed the real Linux gate plus required CI run `32614207172`. This proof is deliberately
   not launcher readiness: it takes no lock, creates no
   launcher ID, recovers no cgroup, binds no socket, changes no journal/route and spawns no checker.
-* Phase 3B.2b-2t — the current lifetime-lock slice consumes the opaque pre-lock prerequisite, walks
+* Phase 3B.2b-2t — PR #185, main `a517720`: the lifetime-lock slice consumes the opaque pre-lock prerequisite, walks
   only `/run/boole/native-shadow` through `openat` directory descriptors with `O_NOFOLLOW`, requires
   exact root/root ancestor and root:`boole-node` runtime-directory metadata, and opens only
   `launcher.lock` relative to that verified directory. A regular one-link root:`boole-node`
   mode-`0600` inode must pass `fstat` before the nonblocking lifetime `flock`; contention is typed
   busy, guard drop releases only the kernel lock, and no Rust path removes or repairs the inode.
-  The named Linux gate must prove a separate process is busy while the first guard lives and that
-  drop permits reacquisition of the same inode. It still creates no launcher ID, cgroup, listener,
+  The named Linux gate proves a separate process is busy while the first guard lives and that
+  drop permits reacquisition of the same inode; required CI run `32615499137` is GREEN. It still
+  creates no launcher ID, cgroup, listener,
   route, journal transition or checker child.
+* Phase 3B.2b-2g — the current launcher-instance slice consumes that lifetime-lock guard and accepts
+  no random bytes, flags or fallback from its caller. It obtains exactly 32 bytes from one
+  `getrandom(2)` call with flags zero; a syscall error or any short read fails without retry and
+  without issuing a token. The resulting opaque thread-bound token retains the lifetime lock and
+  hides the ID until a later recovery/readiness slice. The named Linux gate must prove the real
+  syscall path while lock contention remains busy. It does no cgroup recovery, probe, bind/listen,
+  route, journal transition or checker work and is not readiness.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux
