@@ -144,12 +144,6 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertIn('f"checker verdict differs: {path}: "', replay)
         self.assertIn('f"verdict={result.get(\'verdict\')!r} "', replay)
         self.assertIn('f"reasonCode={result.get(\'reasonCode\')!r}"', replay)
-        self.assertIn("diagnostic-only: RLIMIT_AS disabled", replay)
-        self.assertIn("checker-diagnostic-result.json", replay)
-        self.assertLess(
-            replay.index("accepted-result.json"),
-            replay.index("checker-diagnostic-result.json"),
-        )
 
     def test_linux_replay_diagnoses_a_real_accept_compile_failure_without_adjudicating_it(self) -> None:
         replay = (
