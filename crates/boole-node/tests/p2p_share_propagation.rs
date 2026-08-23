@@ -161,6 +161,7 @@ fn boot_with_p2p_sessions(
                 peers,
                 rate_limit_per_60s: boole_node::DEFAULT_P2P_RATE_LIMIT_PER_60S,
                 package_serving: None,
+                package_fetching: None,
             },
             Some(shutdown_for_node),
         )
