@@ -16,6 +16,8 @@ mod native_shadow;
 #[allow(dead_code)]
 mod native_shadow_qualification;
 #[allow(dead_code)]
+mod native_shadow_submission;
+#[allow(dead_code)]
 mod nonce_ledger;
 mod p2p_egress;
 mod p2p_ingress;
