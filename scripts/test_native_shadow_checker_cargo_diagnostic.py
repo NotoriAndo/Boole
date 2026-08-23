@@ -48,6 +48,19 @@ class NativeShadowCheckerCargoDiagnosticTests(unittest.TestCase):
         self.assertNotIn(output.decode("ascii"), marker)
         self.assertLessEqual(len(marker), 96)
 
+    def test_permission_failures_are_reduced_to_fixed_execution_stages(self):
+        module = load_module()
+        cases = {
+            b"error: could not execute process /target/debug/deps/boole_native_shadow_task-123 (never executed)\nCaused by: Permission denied (os error 13)": "cargo_test_execute_denied",
+            b"error: could not execute process /opt/toolchain/rustc -vV (never executed)\nCaused by: Permission denied (os error 13)": "cargo_rustc_execute_denied",
+            b"error: linking with cc failed\nnote: Permission denied": "cargo_linker_permission_denied",
+            b"error: couldn't create a temp dir: Permission denied": "cargo_temp_permission_denied",
+            b"error: failed to create directory /target\nCaused by: Permission denied": "cargo_directory_permission_denied",
+        }
+        for output, expected in cases.items():
+            with self.subTest(expected=expected):
+                self.assertEqual(module.classify_cargo_output(101, output), expected)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -734,7 +734,7 @@ run_containment_layer_diagnostics() {
     mapfile -t cargo_diagnostics < <(
       sudo journalctl --no-pager -o cat -u "$unit_name" \
         "_SYSTEMD_INVOCATION_ID=$diagnostic_invocation" \
-        | grep -E '^boole-native-shadow-checker-cargo-diagnostic:v1;category=(success|wall_limit|output_limit|authority_unavailable|permission_denied|read_only_filesystem|missing_file|cargo_lock_wait|process_spawn_failed|linker_failed|temporary_directory_failed|hidden_test_failed|compiler_error|unknown_nonzero)$' \
+        | grep -E '^boole-native-shadow-checker-cargo-diagnostic:v1;category=(success|wall_limit|output_limit|authority_unavailable|rustc_probe_permission_denied|rustc_probe_linker_failed|rustc_probe_failed|workspace_execute_denied|workspace_execute_failed|cargo_test_execute_denied|cargo_rustc_execute_denied|cargo_linker_permission_denied|cargo_temp_permission_denied|cargo_directory_permission_denied|permission_denied|read_only_filesystem|missing_file|cargo_lock_wait|process_spawn_failed|linker_failed|temporary_directory_failed|hidden_test_failed|compiler_error|unknown_nonzero)$' \
         || :
     )
     [[ ${#cargo_diagnostics[@]} -eq 1 ]] \
