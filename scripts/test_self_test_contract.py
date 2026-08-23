@@ -22,6 +22,10 @@ class SelfTestContractTests(unittest.TestCase):
         body = _read(SELF_TEST)
         for test_file, purpose in (
             (
+                "scripts/test_native_shadow_rootfs_acquire.py",
+                "the signed rootfs source acquisition contract",
+            ),
+            (
                 "scripts/test_native_shadow_rootfs_builder.py",
                 "the deterministic offline rootfs builder contract",
             ),

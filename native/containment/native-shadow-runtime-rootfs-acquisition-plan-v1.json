@@ -1,0 +1,93 @@
+{
+  "acquirerAuthoritySha256": "2bd54b2a3c994938399f28f1472243fc4e1e18a0c47da4672e575c9053e4432b",
+  "activationAllowed": false,
+  "builderSha256": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
+  "keyringBootstrap": {
+    "bootstrapArtifactId": "ubuntu-keyring-bootstrap-deb",
+    "keyringArtifactId": "ubuntu-keyring",
+    "memberPath": "usr/share/keyrings/ubuntu-archive-keyring.gpg",
+    "sha256": "36de43b15853ccae0028e9a767613770c704833f82586f28eb262f0311adb8a8",
+    "sizeBytes": 11124,
+    "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1_all.deb"
+  },
+  "networkPolicy": {
+    "allowEnvironmentProxy": false,
+    "allowRedirects": false,
+    "allowedHosts": [
+      "ci-artifacts.rust-lang.org",
+      "snapshot.ubuntu.com"
+    ],
+    "httpsOnly": true,
+    "maxArtifactBytes": 536870912,
+    "maxTotalBytes": 2147483648
+  },
+  "release": "NATIVE-SHADOW-RUNTIME-ROOTFS-ACQUISITION-PLAN-V1-QUALIFICATION",
+  "repository": {
+    "architecture": "amd64",
+    "component": "main",
+    "id": "noble-main",
+    "inRelease": {
+      "artifactId": "ubuntu-inrelease",
+      "path": "dists/noble/InRelease",
+      "sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+      "sizeBytes": 255850
+    },
+    "packagesIndex": {
+      "artifactId": "ubuntu-packages-index",
+      "path": "dists/noble/main/binary-amd64/Packages.xz",
+      "releasePath": "main/binary-amd64/Packages.xz",
+      "sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+      "sizeBytes": 1401160
+    },
+    "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z",
+    "suite": "noble"
+  },
+  "rustArtifacts": [
+    {
+      "artifactId": "cargo-rustdist",
+      "sha256": "53e718c828a16746abdf3f8fb6f4c75ce5494a6f547ef6f02d45d72faef4c426",
+      "sizeBytes": 10951484,
+      "url": "https://ci-artifacts.rust-lang.org/rustc-builds/e7795af6d2449fb05a6393c3320ced873a999eb3/cargo-nightly-x86_64-unknown-linux-gnu.tar.xz"
+    },
+    {
+      "artifactId": "rust-std-rustdist",
+      "sha256": "fd04194fb361ef69735a0b722fcaf6d9b49a339944f485aebcc4c172adb5c339",
+      "sizeBytes": 32078024,
+      "url": "https://ci-artifacts.rust-lang.org/rustc-builds/e7795af6d2449fb05a6393c3320ced873a999eb3/rust-std-nightly-x86_64-unknown-linux-gnu.tar.xz"
+    },
+    {
+      "artifactId": "rustc-rustdist",
+      "sha256": "12cd470422b39da22a7b8c2f069c25e66200d5a46c1be5dac0bfe7620ed0d415",
+      "sizeBytes": 96186124,
+      "url": "https://ci-artifacts.rust-lang.org/rustc-builds/e7795af6d2449fb05a6393c3320ced873a999eb3/rustc-nightly-x86_64-unknown-linux-gnu.tar.xz"
+    }
+  ],
+  "schema": "boole.native-shadow.runtime-rootfs-acquisition-plan.v1",
+  "seeds": [
+    "binutils-x86-64-linux-gnu",
+    "gcc-13-x86-64-linux-gnu",
+    "libc6-dev",
+    "python3.12"
+  ],
+  "selectionPolicy": {
+    "alternativeOrder": "left-to-right-first-satisfiable",
+    "ambiguousCandidateAction": "stop",
+    "dependencyFields": [
+      "Depends",
+      "Pre-Depends"
+    ],
+    "directPackageBeforeProvider": true,
+    "qualifiedDependencyAction": "stop",
+    "unreachableExtraAction": "stop"
+  },
+  "snapshotId": "20240425T160000Z",
+  "snapshotTime": "2024-04-25T16:00:00Z",
+  "sourceLockScaffoldSha256": "eba07239c656c42e8729b4c2ba00052cb59c4ab80901cb0c4b706151b55b35cd",
+  "toolDigests": {
+    "gpgvSha256": "f1c71affd4ce40e3c5a53b8cb0ac9601fbcd31d6834b732dd0c7b0145dce1995",
+    "zstdSha256": "aff8169fb421bb925fb16c44a7e0143fa2c7a941dc45cce76b15062a2ce54917"
+  },
+  "trustedUbuntuFingerprints": [
+    "F6ECB3762474EDA9D21B7022871920D1991BC93C"
+  ]
+}

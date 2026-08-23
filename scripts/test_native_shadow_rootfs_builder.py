@@ -17,6 +17,8 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 from scripts import native_shadow_provenance_manifest as provenance
 from scripts import native_shadow_rootfs_builder as rootfs
@@ -69,6 +71,10 @@ class NativeShadowRootfsBuilderTests(unittest.TestCase):
         if gpgv is None:
             raise RuntimeError("rootfs supply-chain tests require gpgv")
         cls._gpgv = pathlib.Path(os.path.realpath(gpgv))
+        zstd = shutil.which("zstd")
+        if zstd is None:
+            raise RuntimeError("rootfs supply-chain tests require zstd")
+        cls._zstd = pathlib.Path(os.path.realpath(zstd))
 
     @property
     def _trusted_fingerprints(self) -> frozenset[str]:
@@ -137,6 +143,31 @@ class NativeShadowRootfsBuilderTests(unittest.TestCase):
                 ("debian-binary", b"2.0\n"),
                 ("control.tar.xz", control),
                 ("data.tar.xz", data),
+            ]
+        )
+
+    def _zstd_compress(self, raw: bytes) -> bytes:
+        completed = subprocess.run(
+            [str(self._zstd), "--compress", "--stdout", "--quiet", "--no-progress"],
+            input=raw,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=30,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        return completed.stdout
+
+    def _deb_zstd(self, entries: list[dict[str, object]]) -> bytes:
+        control = self._zstd_compress(
+            self._tar([{"name": "control", "raw": b"Package: synthetic\n"}])
+        )
+        data = self._zstd_compress(self._tar(entries))
+        return self._ar(
+            [
+                ("debian-binary", b"2.0\n"),
+                ("control.tar.zst", control),
+                ("data.tar.zst", data),
             ]
         )
 
@@ -499,6 +530,8 @@ class NativeShadowRootfsBuilderTests(unittest.TestCase):
             ],
             "buildRecipe": {
                 "builderSha256": rootfs.BUILDER_SHA256,
+                "zstdPath": str(self._zstd),
+                "zstdSha256": _sha(self._zstd.read_bytes()),
                 "baseImage": "empty",
                 "network": "forbidden",
                 "maintainerScripts": "never-execute-or-copy",
@@ -770,6 +803,98 @@ class NativeShadowRootfsBuilderTests(unittest.TestCase):
             self.assertGreater(rootfs._debian_version_compare(right, left), 0)
         self.assertEqual(rootfs._debian_version_compare("2:1.0-1", "2:1.0-1"), 0)
 
+    def test_immutable_release_snapshot_without_valid_until_has_a_bounded_window(self) -> None:
+        release = {"Date": "Tue, 23 Apr 2024 23:16:23 UTC"}
+        self.assertTrue(
+            rootfs._release_window_allows(
+                release,
+                rootfs._snapshot_time("2024-04-24T00:00:00Z"),
+                immutable_release_pocket=True,
+            )
+        )
+        with self.assertRaisesRegex(rootfs.RootfsBuildError, "snapshot window"):
+            rootfs._release_window_allows(
+                release,
+                rootfs._snapshot_time("2024-04-25T00:00:00Z"),
+                immutable_release_pocket=True,
+            )
+        with self.assertRaisesRegex(rootfs.RootfsBuildError, "Valid-Until"):
+            rootfs._release_window_allows(
+                release,
+                rootfs._snapshot_time("2024-04-24T00:00:00Z"),
+                immutable_release_pocket=False,
+            )
+
+    def test_official_zstd_deb_payload_is_bounded_and_materialized(self) -> None:
+        raw = self._deb_zstd(
+            [{"name": "./usr/bin/python3.12", "raw": b"python-zstd-runtime", "mode": 0o555}]
+        )
+        recipe = {
+            "maxEntries": 200000,
+            "maxFileBytes": 536870912,
+            "maxTotalBytes": 2147483648,
+            "zstdPath": str(self._zstd),
+            "zstdSha256": _sha(self._zstd.read_bytes()),
+        }
+        entries = rootfs._deb_payload(raw, "zstd fixture", recipe)
+        self.assertEqual(entries["usr/bin/python3.12"]["raw"], b"python-zstd-runtime")
+
+        tiny = dict(recipe)
+        tiny["maxTotalBytes"] = 8
+        with self.assertRaisesRegex(rootfs.RootfsBuildError, "decompression limit"):
+            rootfs._deb_payload(raw, "zstd fixture", tiny)
+
+    def test_zstd_executes_the_verified_private_copy_with_memory_limit(self) -> None:
+        verified = self._zstd.read_bytes()
+        observed: dict[str, object] = {}
+
+        def fake_run(argv: list[str], **kwargs: object) -> SimpleNamespace:
+            executable = pathlib.Path(argv[0])
+            observed["executable"] = executable
+            observed["bytes"] = executable.read_bytes()
+            limit_calls: list[tuple[int, tuple[int, int]]] = []
+            with mock.patch.object(
+                rootfs.resource,
+                "setrlimit",
+                side_effect=lambda resource_id, limits: limit_calls.append(
+                    (resource_id, limits)
+                ),
+            ):
+                kwargs["preexec_fn"]()
+            observed["limit_calls"] = limit_calls
+            kwargs["stdout"].write(b"decoded")
+            return SimpleNamespace(returncode=0)
+
+        with mock.patch.object(rootfs.subprocess, "run", side_effect=fake_run), mock.patch.object(
+            rootfs.sys, "platform", "linux"
+        ):
+            decoded = rootfs._zstd_decompress_limited(
+                b"compressed",
+                "zstd copy fixture",
+                1024,
+                self._zstd,
+                verified,
+            )
+
+        self.assertEqual(decoded, b"decoded")
+        self.assertNotEqual(observed["executable"], self._zstd)
+        self.assertEqual(observed["bytes"], verified)
+        resource_ids = {item[0] for item in observed["limit_calls"]}
+        self.assertIn(rootfs.resource.RLIMIT_AS, resource_ids)
+
+    def test_official_packages_xz_accepts_concatenated_streams_but_not_junk(self) -> None:
+        raw = lzma.compress(b"Package: a\n") + lzma.compress(b"Version: 1\n")
+        self.assertEqual(
+            rootfs._packages_payload(raw, "main/binary-amd64/Packages.xz", 1024),
+            b"Package: a\nVersion: 1\n",
+        )
+        with self.assertRaises(rootfs.RootfsBuildError):
+            rootfs._packages_payload(
+                raw + b"not-an-xz-stream",
+                "main/binary-amd64/Packages.xz",
+                1024,
+            )
+
     def test_two_direct_archive_builds_are_byte_identical_and_from_scratch(self) -> None:
         with tempfile.TemporaryDirectory() as first_tmp, tempfile.TemporaryDirectory() as second_tmp:
             first = pathlib.Path(first_tmp)
@@ -842,6 +967,22 @@ class NativeShadowRootfsBuilderTests(unittest.TestCase):
                 raw = rootfs.canonical_json(lock)
                 with self.assertRaises(rootfs.RootfsBuildError):
                     self._build_fixture(lock, raw, repo, store, base / "oci")
+
+    def test_rootfs_absolute_symlink_stays_inside_root_but_escape_is_rejected(self) -> None:
+        self.assertEqual(
+            rootfs._safe_link(
+                "usr/lib/x86_64-linux-gnu/libpython3.12.so",
+                "/usr/lib/x86_64-linux-gnu/libpython3.12.so.1.0",
+                "Ubuntu package",
+            ),
+            "usr/lib/x86_64-linux-gnu/libpython3.12.so.1.0",
+        )
+        with self.assertRaises(rootfs.RootfsBuildError):
+            rootfs._safe_link(
+                "usr/bin/tool",
+                "/../../outside",
+                "Ubuntu package",
+            )
 
     def test_deb_preload_whiteout_and_symlink_cycles_are_rejected_directly(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

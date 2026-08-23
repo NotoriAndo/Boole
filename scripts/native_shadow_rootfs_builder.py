@@ -21,7 +21,9 @@ import lzma
 import os
 import pathlib
 import re
+import resource
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -434,40 +436,50 @@ def _inactive_authority_checks(authority_bytes: dict[str, bytes]) -> None:
         raise RootfsBuildError("toolchain identity must remain qualification-only")
 
 
-def _read_absolute_executable(path_value: Any, expected_sha: Any) -> bytes:
-    path_text = _text(path_value, "Ubuntu gpgvPath")
+def _read_pinned_executable(
+    path_value: Any,
+    expected_sha: Any,
+    context: str,
+) -> bytes:
+    path_text = _text(path_value, f"{context} path")
     path = pathlib.Path(path_text)
     if (
         not path.is_absolute()
         or str(path) != path_text
         or os.path.realpath(path_text) != path_text
     ):
-        raise RootfsBuildError("Ubuntu gpgvPath must be a normalized real absolute path")
+        raise RootfsBuildError(f"{context} path must be a normalized real absolute path")
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path_text, flags)
     except OSError as exc:
-        raise RootfsBuildError("cannot read pinned gpgv executable") from exc
+        raise RootfsBuildError(f"cannot read pinned {context} executable") from exc
     try:
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode) or not metadata.st_mode & 0o111:
-            raise RootfsBuildError("pinned gpgv is not an executable regular file")
+            raise RootfsBuildError(f"pinned {context} is not an executable regular file")
         if metadata.st_size <= 0 or metadata.st_size > 64 * 1024 * 1024:
-            raise RootfsBuildError("pinned gpgv executable size is invalid")
+            raise RootfsBuildError(f"pinned {context} executable size is invalid")
         chunks: list[bytes] = []
         remaining = metadata.st_size
         while remaining:
             chunk = os.read(descriptor, min(1024 * 1024, remaining))
             if not chunk:
-                raise RootfsBuildError("pinned gpgv executable was truncated while reading")
+                raise RootfsBuildError(
+                    f"pinned {context} executable was truncated while reading"
+                )
             chunks.append(chunk)
             remaining -= len(chunk)
         raw = b"".join(chunks)
     finally:
         os.close(descriptor)
-    if _hash_bytes(raw) != _sha(expected_sha, "Ubuntu gpgvSha256"):
-        raise RootfsBuildError("pinned gpgv bytes differ")
+    if _hash_bytes(raw) != _sha(expected_sha, f"{context} SHA-256"):
+        raise RootfsBuildError(f"pinned {context} bytes differ")
     return raw
+
+
+def _read_absolute_executable(path_value: Any, expected_sha: Any) -> bytes:
+    return _read_pinned_executable(path_value, expected_sha, "Ubuntu gpgv")
 
 
 def _verify_inrelease(
@@ -794,6 +806,31 @@ def _release_time(value: str, context: str) -> datetime.datetime:
     return parsed.astimezone(datetime.timezone.utc)
 
 
+def _release_window_allows(
+    release: dict[str, str],
+    snapshot: datetime.datetime,
+    *,
+    immutable_release_pocket: bool,
+) -> bool:
+    if "Date" not in release:
+        raise RootfsBuildError("Ubuntu Release Date authority is absent")
+    release_date = _release_time(release["Date"], "Ubuntu Release Date")
+    valid_until = release.get("Valid-Until")
+    if valid_until is not None:
+        if not (
+            release_date
+            <= snapshot
+            <= _release_time(valid_until, "Ubuntu Release Valid-Until")
+        ):
+            raise RootfsBuildError("Ubuntu snapshot is outside signed Release validity")
+        return True
+    if not immutable_release_pocket:
+        raise RootfsBuildError("Ubuntu Release Valid-Until authority is absent")
+    if not release_date <= snapshot <= release_date + datetime.timedelta(hours=24):
+        raise RootfsBuildError("Ubuntu immutable release snapshot window differs")
+    return True
+
+
 def _source_identity(fields: dict[str, str]) -> tuple[str, str]:
     package_name = fields.get("Package")
     package_version = fields.get("Version")
@@ -843,20 +880,20 @@ def _verify_ubuntu_source_closure(
             gpgv, keyring, inrelease, allowed_fingerprints, snapshot
         )
         release, release_hashes = _release_fields(release_payload)
-        if release.get("Codename") != repo["suite"]:
+        if (
+            release.get("Codename") != repo["suite"]
+            or release.get("Suite") != repo["suite"]
+        ):
             raise RootfsBuildError("Ubuntu Release codename differs")
         if repo["component"] not in release.get("Components", "").split():
             raise RootfsBuildError("Ubuntu Release component differs")
         if "amd64" not in release.get("Architectures", "").split():
             raise RootfsBuildError("Ubuntu Release architecture differs")
-        if "Date" not in release or "Valid-Until" not in release:
-            raise RootfsBuildError("Ubuntu Release Date/Valid-Until authority is absent")
-        if not (
-            _release_time(release["Date"], "Ubuntu Release Date")
-            <= snapshot
-            <= _release_time(release["Valid-Until"], "Ubuntu Release Valid-Until")
-        ):
-            raise RootfsBuildError("Ubuntu snapshot is outside signed Release validity")
+        _release_window_allows(
+            release,
+            snapshot,
+            immutable_release_pocket=(repo["suite"] == "noble"),
+        )
         signed_index = release_hashes.get(repo["packagesIndexPath"])
         if signed_index != (packages_artifact["sha256"], packages_artifact["sizeBytes"]):
             raise RootfsBuildError("Ubuntu Packages artifact differs from signed Release")
@@ -1339,6 +1376,8 @@ def validate_source_lock(
         value["buildRecipe"],
         {
             "builderSha256",
+            "zstdPath",
+            "zstdSha256",
             "baseImage",
             "network",
             "maintainerScripts",
@@ -1378,12 +1417,17 @@ def validate_source_lock(
         and set(seeds).issubset(package_names)
         and all(item["sizeBytes"] is not None for item in artifacts.values())
         and recipe["builderSha256"] is not None
+        and recipe["zstdPath"] is not None
+        and recipe["zstdSha256"] is not None
     )
+    if (recipe["zstdPath"] is None) != (recipe["zstdSha256"] is None):
+        raise RootfsBuildError("build recipe zstd path and digest must both be present or absent")
     if complete:
         _text(ubuntu["snapshot"], "source lock.ubuntu.snapshot")
         builder_digest = _sha(recipe["builderSha256"], "buildRecipe.builderSha256")
         if builder_digest != BUILDER_SHA256:
             raise RootfsBuildError("builder recipe digest differs from actual builder bytes")
+        _read_pinned_executable(recipe["zstdPath"], recipe["zstdSha256"], "zstd")
         if set(artifacts) != referenced_artifacts:
             raise RootfsBuildError("source lock contains unreferenced or missing artifacts")
         if artifact_store is None:
@@ -1400,8 +1444,12 @@ def validate_source_lock(
             trusted_ubuntu_fingerprints,
         )
     else:
-        if recipe["builderSha256"] is not None:
-            raise RootfsBuildError("incomplete source lock must not pin a builder digest")
+        if (
+            recipe["builderSha256"] is not None
+            or recipe["zstdPath"] is not None
+            or recipe["zstdSha256"] is not None
+        ):
+            raise RootfsBuildError("incomplete source lock must not pin host build tools")
         if require_complete:
             raise RootfsBuildError("source closure is incomplete")
     return {
@@ -1429,11 +1477,10 @@ def _safe_archive_path(raw: str, context: str, *, allow_dot_prefix: bool) -> str
 
 
 def _safe_link(path: str, target: str, context: str) -> str:
-    if target.startswith("/"):
-        raise RootfsBuildError(f"{context} absolute link target is forbidden")
-    base = list(pathlib.PurePosixPath(path).parent.parts)
+    absolute = target.startswith("/")
+    base = [] if absolute else list(pathlib.PurePosixPath(path).parent.parts)
     for part in pathlib.PurePosixPath(target).parts:
-        if part in ("", "."):
+        if part in ("", ".", "/"):
             continue
         if part == "..":
             if not base:
@@ -1562,28 +1609,28 @@ def _decompress_limited(
     output = io.BytesIO()
     try:
         if compression == "xz":
-            decompressor = lzma.LZMADecompressor()
-            offset = 0
-            while offset < len(raw):
-                chunk = raw[offset : offset + 1024 * 1024]
-                offset += len(chunk)
-                while chunk:
+            compressed = raw
+            while compressed:
+                if not compressed.startswith(b"\xfd7zXZ\x00"):
+                    raise RootfsBuildError(f"{context} has trailing compressed data")
+                decompressor = lzma.LZMADecompressor(format=lzma.FORMAT_XZ)
+                source = compressed
+                while not decompressor.eof:
                     remaining = limit + 1 - output.tell()
                     if remaining <= 0:
                         raise RootfsBuildError(f"{context} exceeds decompression limit")
-                    decoded = decompressor.decompress(chunk, max_length=remaining)
+                    decoded = decompressor.decompress(source, max_length=remaining)
                     output.write(decoded)
                     if output.tell() > limit:
                         raise RootfsBuildError(f"{context} exceeds decompression limit")
-                    chunk = decompressor.unused_data
-                    if decompressor.eof:
-                        if chunk or offset != len(raw):
-                            raise RootfsBuildError(f"{context} has trailing compressed data")
-                        break
-                if decompressor.eof:
-                    break
-            if not decompressor.eof:
-                raise RootfsBuildError(f"{context} compressed stream is truncated")
+                    source = b""
+                    if decompressor.needs_input and not decompressor.eof:
+                        raise RootfsBuildError(f"{context} compressed stream is truncated")
+                compressed = decompressor.unused_data
+                padding = len(compressed) - len(compressed.lstrip(b"\x00"))
+                if padding % 4:
+                    raise RootfsBuildError(f"{context} XZ stream padding differs")
+                compressed = compressed[padding:]
         elif compression == "gzip":
             with gzip.GzipFile(fileobj=io.BytesIO(raw), mode="rb") as source:
                 while True:
@@ -1603,6 +1650,85 @@ def _decompress_limited(
     if output.tell() > limit:
         raise RootfsBuildError(f"{context} exceeds decompression limit")
     return output.getvalue()
+
+
+def _zstd_decompress_limited(
+    raw: bytes,
+    context: str,
+    limit: int,
+    zstd_path: pathlib.Path,
+    zstd: bytes,
+) -> bytes:
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+        raise RootfsBuildError(f"{context} decompression limit is invalid")
+
+    address_space_limit = max(
+        256 * 1024 * 1024,
+        min(2 * 1024 * 1024 * 1024, limit + 256 * 1024 * 1024),
+    )
+
+    def child_limits() -> None:
+        resource.setrlimit(resource.RLIMIT_FSIZE, (limit, limit))
+        resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
+        if sys.platform.startswith("linux"):
+            resource.setrlimit(
+                resource.RLIMIT_AS,
+                (address_space_limit, address_space_limit),
+            )
+
+    with tempfile.TemporaryDirectory(prefix="boole-zstd.") as temporary_text:
+        temporary = pathlib.Path(temporary_text)
+        source = temporary / "source.zst"
+        output = temporary / "output.tar"
+        executable = temporary / "zstd"
+        source.write_bytes(raw)
+        executable.write_bytes(zstd)
+        executable.chmod(0o500)
+        if _hash_bytes(executable.read_bytes()) != _hash_bytes(zstd):
+            raise RootfsBuildError(f"{context} private zstd copy differs")
+        child_environment = {"LANG": "C", "LC_ALL": "C", "PATH": "/usr/bin:/bin"}
+        if sys.platform == "darwin":
+            # Homebrew's zstd uses @rpath for libzstd. Execute the verified
+            # private copy while retaining only its installation's library
+            # directory; this qualification path is still explicitly
+            # non-activatable until the Linux builder image closes shared-lib
+            # provenance.
+            child_environment["DYLD_LIBRARY_PATH"] = str(zstd_path.parent.parent / "lib")
+        try:
+            with output.open("wb") as output_file:
+                completed = subprocess.run(
+                    [
+                        str(executable),
+                        "--decompress",
+                        "--stdout",
+                        "--quiet",
+                        "--no-progress",
+                        "--",
+                        str(source),
+                    ],
+                    stdin=subprocess.DEVNULL,
+                    stdout=output_file,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                    timeout=30,
+                    env=child_environment,
+                    close_fds=True,
+                    start_new_session=True,
+                    preexec_fn=child_limits,
+                )
+        except subprocess.TimeoutExpired as exc:
+            raise RootfsBuildError(f"{context} decompression timed out") from exc
+        except OSError as exc:
+            raise RootfsBuildError(f"{context} decompression failed") from exc
+        size = output.stat().st_size
+        if completed.returncode != 0:
+            if size >= limit or completed.returncode in {
+                -getattr(signal, "SIGXFSZ", 25),
+                128 + getattr(signal, "SIGXFSZ", 25),
+            }:
+                raise RootfsBuildError(f"{context} exceeds decompression limit")
+            raise RootfsBuildError(f"{context} decompression failed")
+        return output.read_bytes()
 
 
 def _deb_payload(raw: bytes, context: str, recipe: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -1633,6 +1759,17 @@ def _deb_payload(raw: bytes, context: str, recipe: dict[str, Any]) -> dict[str, 
                 f"{context} data archive",
                 recipe["maxTotalBytes"],
                 compression="gzip",
+            )
+        elif data_name.endswith(".zst"):
+            zstd = _read_pinned_executable(
+                recipe["zstdPath"], recipe["zstdSha256"], "zstd"
+            )
+            payload = _zstd_decompress_limited(
+                payload,
+                f"{context} data archive",
+                recipe["maxTotalBytes"],
+                pathlib.Path(recipe["zstdPath"]),
+                zstd,
             )
         elif data_name != "data.tar":
             raise RootfsBuildError(f"{context} data archive compression is unsupported")
