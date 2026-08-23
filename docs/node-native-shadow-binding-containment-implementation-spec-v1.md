@@ -302,6 +302,18 @@ entry becomes authoritative on `main` only after its required CI and merge:
   materialize those tracked bytes in an alternate root. This slice does not start the installed
   service and does not implement manager movement, controller enablement, orphan recovery,
   readiness, bind/listen, route, journal transition or checker execution.
+* **Phase 3B.2b-2m** — the manager-cgroup slice adds one path- and policy-input-free entrypoint that
+  consumes the opaque launcher instance. It proves the process has exactly one thread, traverses the
+  fixed systemd cgroup root component-by-component with no-follow directory descriptors, verifies
+  cgroup2fs, creates or safely reuses the exact empty `manager` child with exact-empty
+  `cgroup.subtree_control`, moves the current process, then verifies exact root/manager membership,
+  exact-domain manager type, still-empty manager subtree control and exact cpu/memory/pids
+  controller read-back.
+  Failures before movement are `PreMove`; the move attempt and every later failure are
+  `PostMoveFatal`, which a future top-level must turn into immediate process exit. The named Linux
+  gate starts the tracked unit and proves manager create/reuse, frozen/nested-child and multithread
+  rejection, restart and stop against the real kernel. It does not scan or clean `run-*` leaves and
+  therefore is not startup recovery or readiness.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do
@@ -717,7 +729,7 @@ remains identified by evidence `policyDigest`.
 The cgroup-level values below belong to a separate, node-owned containment-policy bundle. Phase
 3B.2a freezes its exact tracked bytes at
 `native/containment/native-shadow-execution-policy-v1.json`; their raw-byte SHA-256 is
-`8c31f3106fc6ced8734a7c8a4e74f3d5e6cdc16dc44b43dc93fde673c1ba558e`. The registry's top-level
+`8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2`. The registry's top-level
 `executionPolicySha256` binds that digest, and the same value is the `executionPolicyDigest` bound
 independently through every new state row, journal event and v2 evidence object. The checker-owned
 `policy.json` remains byte-preserved and keeps its separate `policyDigest` meaning.
@@ -884,18 +896,32 @@ bit is fatal. Its systemd unit independently pins the same bounding set with
 `Delegate=cpu memory pids`; no unrelated controller is delegated. The
 stable delegated cgroup root is
 `/sys/fs/cgroup/system.slice/boole-native-shadow-launcher.service`. To satisfy cgroup v2's
-no-internal-process rule, launcher startup first creates the reserved direct child `manager`, moves
+no-internal-process rule, launcher startup first enumerates the fixed `/proc/self/task` view and
+requires exactly one entry equal to the current TID; this makes the following process-wide move
+unambiguous. It then creates the reserved direct child `manager`, moves
 the launcher process there, verifies the service root's `cgroup.procs` is empty, and only then enables
 `cpu`, `memory` and `pids` in the service root's `cgroup.subtree_control`. Execution leaves are the
 other direct children, each exactly `run-<64-lowercase-hex-operation-id>`; recovery ignores only the
 exact reserved `manager` child and scans all exact `run-*` leaves. An existing manager must be the
 exact direct-child cgroup directory with empty `cgroup.procs` and `cgroup.threads` before the current
-launcher moves there, `cgroup.events:populated=0`, and no nested child cgroups; after the move its
-`cgroup.procs` must contain only that launcher PID and it must still have no child cgroups. It is
+launcher moves there, both `cgroup.events:populated=0` and `frozen=0`, exact `cgroup.type=domain`,
+exact-empty `cgroup.subtree_control`, and no nested child cgroups; after the move its
+`cgroup.procs` must contain only that launcher PID, `cgroup.threads` must contain only the same
+launcher's current TID, its type must still be exact `domain`, its `cgroup.subtree_control` must
+still be empty, and it must still have no child cgroups. It is
 never blindly reused. Any other
 direct child fails closed without binding or readiness. The launcher cleans every run leaf before
 socket bind and carries the zero-leaf result into the authenticated qualification-ready barrier.
 Controller read-back failure is a startup failure before readiness.
+The service-wide `UMask=0117` remains fixed because it is part of the later socket-mode contract.
+For a newly created manager directory, the launcher therefore requests mode `0700`, immediately
+opens the direct child by descriptor, applies `fchmod(0700)` through that descriptor, and verifies
+root:root ownership plus exact mode `0700` by `fstat` before opening any child control file. Reuse
+does not repair metadata: an existing manager that is not already root:root mode `0700` is rejected.
+Every failure before the `cgroup.procs` move attempt is a pre-move startup failure. The move attempt
+is the irreversible boundary: failure of that write or any root/manager/controller check after it is
+a typed post-move fatal error, and the future top-level executable must exit immediately rather than
+continuing with partially changed process placement.
 
 The tracked deployment files are
 `native/systemd/boole-native-shadow-launcher.service`,

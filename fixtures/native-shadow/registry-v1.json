@@ -3,7 +3,7 @@
   "version": "NATIVE-SHADOW-QUALIFICATION-REGISTRY-V1",
   "activationAllowed": false,
   "purpose": "clean-checkout checker qualification only",
-  "executionPolicySha256": "8c31f3106fc6ced8734a7c8a4e74f3d5e6cdc16dc44b43dc93fde673c1ba558e",
+  "executionPolicySha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2",
   "toolchainIdentitySha256": "29799eff53df764024de8f1020eac177b2ee936243d2ac52d192ba2423f0fa84",
   "templates": [
     {

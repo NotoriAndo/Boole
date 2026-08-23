@@ -222,6 +222,87 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         self.assertNotIn("curl ", body)
         self.assertNotIn("wget ", body)
 
+    def test_manager_cgroup_has_a_named_real_systemd_gate(self):
+        job = self._job("native-shadow-containment-linux")
+        self.assertIn(
+            "./scripts/native-shadow-manager-cgroup-gate.sh",
+            job,
+            "the named Linux job must start the tracked service and inspect its real cgroup",
+        )
+
+        gate_path = REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh"
+        self.assertTrue(gate_path.is_file())
+        body = gate_path.read_text(encoding="utf-8")
+        for required in (
+            "boole-native-shadow-manager-cgroup-linux",
+            "native-shadow manager cgroup gate: PASS",
+            "native-shadow-manager-frozen-rejected",
+            "systemctl start boole-native-shadow-launcher.service",
+            "systemctl restart boole-native-shadow-launcher.service",
+            "systemctl stop boole-native-shadow-launcher.service",
+            "--property=InvocationID",
+            "single_numeric_id",
+            'root:root:700',
+            'root:root:755',
+            "manager cgroup has residual subtree controllers",
+            "manager cgroup type is not exact domain after move",
+            "service_root=/sys/fs/cgroup/system.slice/$unit_name",
+            "manager_root=$service_root/manager",
+        ):
+            self.assertIn(required, body)
+        self.assertNotIn(
+            '[[ "$first_pid" -ne "$second_pid" ]]',
+            body,
+            "restart identity must not rely on a PID that the kernel may reuse",
+        )
+
+    def test_manager_cgroup_gate_rejects_without_touching_preexisting_service_state(self):
+        body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            '--property=LoadState --value',
+            '[[ "$load_state" == not-found ]]',
+            'if [[ "$unit_installed" == true ]]; then',
+            '[[ "$runtime_directory_created" == true ]] && sudo rm -f "$mode_path"',
+            '[[ "$runtime_directory_created" == true ]] && sudo rm -f "$runtime_directory/launcher.lock"',
+        ):
+            self.assertIn(required, body)
+        preflight = body.split("for path in", 1)[1].split("done", 1)[0]
+        self.assertIn('"$runtime_directory"', preflight)
+        self.assertIn('"$service_root"', preflight)
+        self.assertLess(
+            body.index('--property=LoadState --value'),
+            body.index('sudo install -o root -g root -m 0644 native/systemd/'),
+            "loaded-unit rejection must happen before this gate installs an override",
+        )
+        cleanup = body.split("cleanup_gate() {", 1)[1].split("}\ntrap cleanup_gate EXIT", 1)[0]
+        cleanup_prefix, owned_unit_cleanup = cleanup.split(
+            'if [[ "$unit_installed" == true ]]; then', 1
+        )
+        owned_unit_cleanup = owned_unit_cleanup.split("fi", 1)[0]
+        self.assertNotIn('systemctl stop "$unit_name"', cleanup_prefix)
+        self.assertNotIn('systemctl reset-failed "$unit_name"', cleanup_prefix)
+        self.assertIn('systemctl stop "$unit_name"', owned_unit_cleanup)
+        self.assertIn('systemctl reset-failed "$unit_name"', owned_unit_cleanup)
+        self.assertIn('rm -f "$unit_path"', owned_unit_cleanup)
+        self.assertIn("systemctl daemon-reload", owned_unit_cleanup)
+        self.assertRegex(
+            cleanup,
+            re.compile(
+                r'if \[\[ "\$unit_installed" == true \]\]; then\n'
+                r'\s+sudo systemctl stop "\$unit_name".*\n'
+                r'\s+sudo systemctl reset-failed "\$unit_name"',
+                re.MULTILINE,
+            ),
+            "cleanup may stop/reset only the unit installed by this gate",
+        )
+        self.assertNotIn(
+            '\n  sudo rm -f "$mode_path"',
+            cleanup,
+            "cleanup must never delete a mode file outside a runtime tree this gate created",
+        )
+
     def test_launcher_prelock_gate_calls_the_production_instance_identity_path(self):
         body = LAUNCHER_PRELOCK_GATE.read_text(encoding="utf-8")
         lock_source = LAUNCHER_LIFETIME_LOCK_SOURCE.read_text(encoding="utf-8")
