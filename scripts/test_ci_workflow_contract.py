@@ -16,6 +16,9 @@ VERDICT_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "verdict-corpus.yml"
 NATIVE_CONTAINMENT_PROBE = (
     REPO_ROOT / "scripts" / "native-shadow-containment-capability-probe.sh"
 )
+PORTABLE_ROOTFS_REPLAY_GATE = (
+    REPO_ROOT / "scripts" / "native-shadow-portable-rootfs-replay-linux.sh"
+)
 LAUNCHER_PRIVILEGE_GATE = (
     REPO_ROOT / "scripts" / "native-shadow-launcher-privilege-gate.sh"
 )
@@ -134,6 +137,56 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "the lib tests spawn the sibling sandbox_probe binary; a clean runner must "
             "build it explicitly before the filtered --lib test",
         )
+
+    def test_clean_linux_rootfs_replay_is_a_named_non_skippable_gate(self):
+        job = self._job("native-shadow-rootfs-replay-linux")
+        self.assertIn("runs-on: ubuntu-24.04", job)
+        self.assertIn("timeout-minutes: 20", job)
+        self.assertIn(
+            "sudo ./scripts/native-shadow-portable-rootfs-replay-linux.sh",
+            job,
+        )
+        self.assertNotIn("continue-on-error:", job)
+        self.assertNotRegex(job, re.compile(r"\bskip\b", re.IGNORECASE))
+        self.assertTrue(PORTABLE_ROOTFS_REPLAY_GATE.is_file())
+
+    def test_clean_linux_rootfs_replay_binds_networked_acquisition_to_offline_probe(self):
+        body = PORTABLE_ROOTFS_REPLAY_GATE.read_text(encoding="utf-8")
+        for command in (
+            "native_shadow_rootfs_acquire.py",
+            "native_shadow_rootfs_portable_v2.py",
+            "native_shadow_rootfs_builder.py",
+        ):
+            self.assertRegex(body, re.compile(rf'{re.escape(command)}"\s+[a-z-]+'))
+        for required in (
+            "set -euo pipefail",
+            "fetch-metadata",
+            "resolve",
+            "fetch-payloads",
+            "seal",
+            "PrivateNetwork=yes",
+            "native_shadow_rootfs_oci_verify.py",
+            "verify-output",
+            "accepted.rs",
+            "tampered.rs",
+            "chroot",
+            "x86_64-linux-gnu-gcc-13",
+        ):
+            self.assertIn(required, body)
+        for forbidden in ("continue-on-error", "|| true", "SKIP"):
+            self.assertNotIn(forbidden, body)
+
+    def test_self_test_requires_both_containment_and_rootfs_replay(self):
+        job = self._job("self-test")
+        self.assertRegex(
+            job,
+            re.compile(
+                r"needs:\s*\[native-shadow-containment-linux,\s*"
+                r"native-shadow-rootfs-replay-linux\]"
+            ),
+        )
+        self.assertIn("needs.native-shadow-containment-linux.result", job)
+        self.assertIn("needs.native-shadow-rootfs-replay-linux.result", job)
 
     def test_named_linux_job_proves_the_fixed_service_accounts_via_libc(self):
         job = self._job("native-shadow-containment-linux")
@@ -593,12 +646,21 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         job = self._job("self-test")
         self.assertRegex(
             job,
-            re.compile(r"^\s+needs:\s*native-shadow-containment-linux\s*$", re.MULTILINE),
+            re.compile(
+                r"^\s+needs:\s*\[native-shadow-containment-linux,\s*"
+                r"native-shadow-rootfs-replay-linux\]\s*$",
+                re.MULTILINE,
+            ),
         )
         self.assertRegex(job, re.compile(r"^\s+if:\s*always\(\)\s*$", re.MULTILINE))
         self.assertIn("needs.native-shadow-containment-linux.result", job)
+        self.assertIn("needs.native-shadow-rootfs-replay-linux.result", job)
         self.assertIn(
             "native-shadow containment capability probe did not pass",
+            job,
+        )
+        self.assertIn(
+            "native-shadow portable rootfs replay did not pass",
             job,
         )
 

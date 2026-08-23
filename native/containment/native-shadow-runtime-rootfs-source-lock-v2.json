@@ -1,0 +1,2638 @@
+{
+  "activationAllowed": false,
+  "artifacts": [
+    {
+      "id": "cargo-rustdist",
+      "kind": "rust-dist",
+      "sha256": "53e718c828a16746abdf3f8fb6f4c75ce5494a6f547ef6f02d45d72faef4c426",
+      "sizeBytes": 10951484
+    },
+    {
+      "id": "deb-005ac9c19b9c12908c83498eded06e7e1c13994101341e05e8875d88cfca452d",
+      "kind": "deb",
+      "sha256": "005ac9c19b9c12908c83498eded06e7e1c13994101341e05e8875d88cfca452d",
+      "sizeBytes": 1175242
+    },
+    {
+      "id": "deb-0b8d3e9338b2d47a523532463e341962edd1e669fb1760f12d82d7a68b33096a",
+      "kind": "deb",
+      "sha256": "0b8d3e9338b2d47a523532463e341962edd1e669fb1760f12d82d7a68b33096a",
+      "sizeBytes": 14790
+    },
+    {
+      "id": "deb-0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1",
+      "kind": "deb",
+      "sha256": "0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1",
+      "sizeBytes": 62784
+    },
+    {
+      "id": "deb-0cf79113f5d193ce9af2be2ff4b2c3b30dd4e55a0b6c47f7d28f6c849ff3aa60",
+      "kind": "deb",
+      "sha256": "0cf79113f5d193ce9af2be2ff4b2c3b30dd4e55a0b6c47f7d28f6c849ff3aa60",
+      "sizeBytes": 32830
+    },
+    {
+      "id": "deb-0f5be03f1a6237bb7f156f0e8a25223cf2f209b75c591e4e741214f2e203aa48",
+      "kind": "deb",
+      "sha256": "0f5be03f1a6237bb7f156f0e8a25223cf2f209b75c591e4e741214f2e203aa48",
+      "sizeBytes": 239232
+    },
+    {
+      "id": "deb-1f03b79223d9cf1a6ed3a648f6942619dcb97b2884dba8fd12e262b6771e247a",
+      "kind": "deb",
+      "sha256": "1f03b79223d9cf1a6ed3a648f6942619dcb97b2884dba8fd12e262b6771e247a",
+      "sizeBytes": 2123840
+    },
+    {
+      "id": "deb-1f3770dce907c26493217393ed24ca7484443381cafd04c81d6a6bef702b7416",
+      "kind": "deb",
+      "sha256": "1f3770dce907c26493217393ed24ca7484443381cafd04c81d6a6bef702b7416",
+      "sizeBytes": 2469014
+    },
+    {
+      "id": "deb-209bf408f4f5ed995d1fd831176c05d43277cdb5acdf7fa95a8ee811301c920e",
+      "kind": "deb",
+      "sha256": "209bf408f4f5ed995d1fd831176c05d43277cdb5acdf7fa95a8ee811301c920e",
+      "sizeBytes": 1312880
+    },
+    {
+      "id": "deb-21c631ba4da3d38d92a133e28a8a14278e1e00174ed135a20661d1e532e05ca5",
+      "kind": "deb",
+      "sha256": "21c631ba4da3d38d92a133e28a8a14278e1e00174ed135a20661d1e532e05ca5",
+      "sizeBytes": 1597672
+    },
+    {
+      "id": "deb-24b1aa0e1772080fd23df7bed10aadcbbe16b3181b77d3a013c14dfaf9848541",
+      "kind": "deb",
+      "sha256": "24b1aa0e1772080fd23df7bed10aadcbbe16b3181b77d3a013c14dfaf9848541",
+      "sizeBytes": 679596
+    },
+    {
+      "id": "deb-2613608b046eb9416878fa4e30aa8e34831775bb0cc7ae6efef6d230986dbb5a",
+      "kind": "deb",
+      "sha256": "2613608b046eb9416878fa4e30aa8e34831775bb0cc7ae6efef6d230986dbb5a",
+      "sizeBytes": 48958
+    },
+    {
+      "id": "deb-28851b3997e4ba74bb3197bd58796bd3041c204c21df85fe0ddafdcaced647f0",
+      "kind": "deb",
+      "sha256": "28851b3997e4ba74bb3197bd58796bd3041c204c21df85fe0ddafdcaced647f0",
+      "sizeBytes": 126916
+    },
+    {
+      "id": "deb-28ddd9458eee6592895865de205ee8bd173fc4107e3efd9be214ecb4dbb2b151",
+      "kind": "deb",
+      "sha256": "28ddd9458eee6592895865de205ee8bd173fc4107e3efd9be214ecb4dbb2b151",
+      "sizeBytes": 832552
+    },
+    {
+      "id": "deb-2edff420ef80b4a3f3751e65c33423ef30e563122a58b759e4854ea8d84ba1b1",
+      "kind": "deb",
+      "sha256": "2edff420ef80b4a3f3751e65c33423ef30e563122a58b759e4854ea8d84ba1b1",
+      "sizeBytes": 111780
+    },
+    {
+      "id": "deb-31bfb7eec55ab6d34a50ba995150e1498d4cb897714085d8025e330d3b529747",
+      "kind": "deb",
+      "sha256": "31bfb7eec55ab6d34a50ba995150e1498d4cb897714085d8025e330d3b529747",
+      "sizeBytes": 27474
+    },
+    {
+      "id": "deb-3497c775d5d72c4e1cb47f54b0ced6343a25818a6571408caa398b61f4fa74e8",
+      "kind": "deb",
+      "sha256": "3497c775d5d72c4e1cb47f54b0ced6343a25818a6571408caa398b61f4fa74e8",
+      "sizeBytes": 94548
+    },
+    {
+      "id": "deb-34af1193734f40723c7fc03d855d98c107d8b62bd2fa17dae8b09d2369cdd45e",
+      "kind": "deb",
+      "sha256": "34af1193734f40723c7fc03d855d98c107d8b62bd2fa17dae8b09d2369cdd45e",
+      "sizeBytes": 54520
+    },
+    {
+      "id": "deb-379b737386276ec099bf1fa4802d1ca6a4f020f2a81085b14caafac42ef7aec2",
+      "kind": "deb",
+      "sha256": "379b737386276ec099bf1fa4802d1ca6a4f020f2a81085b14caafac42ef7aec2",
+      "sizeBytes": 571736
+    },
+    {
+      "id": "deb-4863e880d6ee538e4734c430c5579c1ac933b88a42c25bc9980d0f148c54b21e",
+      "kind": "deb",
+      "sha256": "4863e880d6ee538e4734c430c5579c1ac933b88a42c25bc9980d0f148c54b21e",
+      "sizeBytes": 795158
+    },
+    {
+      "id": "deb-4dcc3ba9606a5837a55248d08162a5b426dd621f75c0eb24d86409e0d0e71d52",
+      "kind": "deb",
+      "sha256": "4dcc3ba9606a5837a55248d08162a5b426dd621f75c0eb24d86409e0d0e71d52",
+      "sizeBytes": 299490
+    },
+    {
+      "id": "deb-53e1e1753729d04cf65b05e6e58abe06e2bb76cc07eff0e1b2a638a638ca209b",
+      "kind": "deb",
+      "sha256": "53e1e1753729d04cf65b05e6e58abe06e2bb76cc07eff0e1b2a638a638ca209b",
+      "sizeBytes": 107794
+    },
+    {
+      "id": "deb-563977a16df03b611f5239cc1e9a0426e86479fcc616b5c9e200ea32063119e5",
+      "kind": "deb",
+      "sha256": "563977a16df03b611f5239cc1e9a0426e86479fcc616b5c9e200ea32063119e5",
+      "sizeBytes": 152856
+    },
+    {
+      "id": "deb-637e6a7744de08cd331a41f4efd0d24e6ea9064843dea9d1c6ca87bdb5f038a2",
+      "kind": "deb",
+      "sha256": "637e6a7744de08cd331a41f4efd0d24e6ea9064843dea9d1c6ca87bdb5f038a2",
+      "sizeBytes": 24718
+    },
+    {
+      "id": "deb-649a5ee5f74f0aa1e1b9c4f169eabbae56a79aa5aac51ef733eb9e18700bd8fc",
+      "kind": "deb",
+      "sha256": "649a5ee5f74f0aa1e1b9c4f169eabbae56a79aa5aac51ef733eb9e18700bd8fc",
+      "sizeBytes": 253448
+    },
+    {
+      "id": "deb-695132af8a40fe417f7d4e5ea742d64521c04e069442a4719c2bd0f10ab93d94",
+      "kind": "deb",
+      "sha256": "695132af8a40fe417f7d4e5ea742d64521c04e069442a4719c2bd0f10ab93d94",
+      "sizeBytes": 34260
+    },
+    {
+      "id": "deb-6cde53feabd28f26586a4db2ffb9fc84e7b0598aee15b33bee907b6392a92d24",
+      "kind": "deb",
+      "sha256": "6cde53feabd28f26586a4db2ffb9fc84e7b0598aee15b33bee907b6392a92d24",
+      "sizeBytes": 1936306
+    },
+    {
+      "id": "deb-6ea94c8a822551187cef0085073910eeae0a7525cfec4415171942c7019c68af",
+      "kind": "deb",
+      "sha256": "6ea94c8a822551187cef0085073910eeae0a7525cfec4415171942c7019c68af",
+      "sizeBytes": 700866
+    },
+    {
+      "id": "deb-730b29497212289cda8a3139e693a3538af0cb57846c24f807d1bb293a591c5e",
+      "kind": "deb",
+      "sha256": "730b29497212289cda8a3139e693a3538af0cb57846c24f807d1bb293a591c5e",
+      "sizeBytes": 86992
+    },
+    {
+      "id": "deb-7eb710fe148d224c159ddec1ceb0ba53ead52a80a6793dcdae1474acf20d8f71",
+      "kind": "deb",
+      "sha256": "7eb710fe148d224c159ddec1ceb0ba53ead52a80a6793dcdae1474acf20d8f71",
+      "sizeBytes": 67446
+    },
+    {
+      "id": "deb-879bfd7f8a9bc4c0f7cdc777cdd8bc6de5f8c4a2ac80c060322a1b22f13504bb",
+      "kind": "deb",
+      "sha256": "879bfd7f8a9bc4c0f7cdc777cdd8bc6de5f8c4a2ac80c060322a1b22f13504bb",
+      "sizeBytes": 56484
+    },
+    {
+      "id": "deb-8cdbc9c3dca01e660759bf9d840f72e45ac72faf5d19ca1faecacaf6a60c1a87",
+      "kind": "deb",
+      "sha256": "8cdbc9c3dca01e660759bf9d840f72e45ac72faf5d19ca1faecacaf6a60c1a87",
+      "sizeBytes": 13112
+    },
+    {
+      "id": "deb-92f94ad8c5d42472fd032f7820aaeb9df2cc08559ef062a3a277573c03d26a08",
+      "kind": "deb",
+      "sha256": "92f94ad8c5d42472fd032f7820aaeb9df2cc08559ef062a3a277573c03d26a08",
+      "sizeBytes": 21869806
+    },
+    {
+      "id": "deb-9474785cd6f398512bf8c305c3901dbb111569dccb6f5832002373c0a8ac5832",
+      "kind": "deb",
+      "sha256": "9474785cd6f398512bf8c305c3901dbb111569dccb6f5832002373c0a8ac5832",
+      "sizeBytes": 82302
+    },
+    {
+      "id": "deb-96d1e64bb1a80f2005f41c4112d10e4756a222a6c245e9383fc8da924bd40bf9",
+      "kind": "deb",
+      "sha256": "96d1e64bb1a80f2005f41c4112d10e4756a222a6c245e9383fc8da924bd40bf9",
+      "sizeBytes": 147842
+    },
+    {
+      "id": "deb-a25c2f5f123829ab144f31ddb22f4363b7206eb21bf821bfbecca5753ccfc6be",
+      "kind": "deb",
+      "sha256": "a25c2f5f123829ab144f31ddb22f4363b7206eb21bf821bfbecca5753ccfc6be",
+      "sizeBytes": 355358
+    },
+    {
+      "id": "deb-a2912d49e2d79bc2f2803e12b17b507c147d505ab5aece3c15158de76f47ac54",
+      "kind": "deb",
+      "sha256": "a2912d49e2d79bc2f2803e12b17b507c147d505ab5aece3c15158de76f47ac54",
+      "sizeBytes": 1632150
+    },
+    {
+      "id": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912",
+      "kind": "deb",
+      "sha256": "a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912",
+      "sizeBytes": 78484
+    },
+    {
+      "id": "deb-a67619a396cdab9bf5dcd01cbed80287061e8f12af5439f4f529a001d8cee5e7",
+      "kind": "deb",
+      "sha256": "a67619a396cdab9bf5dcd01cbed80287061e8f12af5439f4f529a001d8cee5e7",
+      "sizeBytes": 47678
+    },
+    {
+      "id": "deb-a78a25c8fad8fdd0b7bc6b297da5d5685579be1e57732aa47870830e4a13161e",
+      "kind": "deb",
+      "sha256": "a78a25c8fad8fdd0b7bc6b297da5d5685579be1e57732aa47870830e4a13161e",
+      "sizeBytes": 734100
+    },
+    {
+      "id": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3",
+      "kind": "deb",
+      "sha256": "af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3",
+      "sizeBytes": 3264806
+    },
+    {
+      "id": "deb-af9ce0b1da62af10ae8984d27638a7f6901cb20a2893fbedb72dc52fa53c87bc",
+      "kind": "deb",
+      "sha256": "af9ce0b1da62af10ae8984d27638a7f6901cb20a2893fbedb72dc52fa53c87bc",
+      "sizeBytes": 2343294
+    },
+    {
+      "id": "deb-b41ab4d68f66993413e0b8c82084d469a5317323adccf6feb96f79d9e1bea7d3",
+      "kind": "deb",
+      "sha256": "b41ab4d68f66993413e0b8c82084d469a5317323adccf6feb96f79d9e1bea7d3",
+      "sizeBytes": 851218
+    },
+    {
+      "id": "deb-b4f42ae5295d74dffeac08ce22c70986322801ad6ab8279bdaf083d3440ea30a",
+      "kind": "deb",
+      "sha256": "b4f42ae5295d74dffeac08ce22c70986322801ad6ab8279bdaf083d3440ea30a",
+      "sizeBytes": 650732
+    },
+    {
+      "id": "deb-b62ca3e8fe6fee933e1e92ab4330a666c09374ae6c49d5c01144142746e409f3",
+      "kind": "deb",
+      "sha256": "b62ca3e8fe6fee933e1e92ab4330a666c09374ae6c49d5c01144142746e409f3",
+      "sizeBytes": 11160560
+    },
+    {
+      "id": "deb-bb390da466a7461bfc87aa3e6b7cd145dae84af3e26bf437f2c0c218ba226294",
+      "kind": "deb",
+      "sha256": "bb390da466a7461bfc87aa3e6b7cd145dae84af3e26bf437f2c0c218ba226294",
+      "sizeBytes": 124096
+    },
+    {
+      "id": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef",
+      "kind": "deb",
+      "sha256": "bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef",
+      "sizeBytes": 47612
+    },
+    {
+      "id": "deb-bd57f7e288c46d4de9e33dd0fb15d82970bc58778b10549ad813605ea2c18d65",
+      "kind": "deb",
+      "sha256": "bd57f7e288c46d4de9e33dd0fb15d82970bc58778b10549ad813605ea2c18d65",
+      "sizeBytes": 28886
+    },
+    {
+      "id": "deb-be0bd561a1133ef6622f58112126687f6d3b768ca8b70ed485be4787828d5f1c",
+      "kind": "deb",
+      "sha256": "be0bd561a1133ef6622f58112126687f6d3b768ca8b70ed485be4787828d5f1c",
+      "sizeBytes": 152804
+    },
+    {
+      "id": "deb-cc2ca1193d2c11d7383bdb03dd333cc621d128237b82dafeb8d7f2bd8302f3dd",
+      "kind": "deb",
+      "sha256": "cc2ca1193d2c11d7383bdb03dd333cc621d128237b82dafeb8d7f2bd8302f3dd",
+      "sizeBytes": 147370
+    },
+    {
+      "id": "deb-d36c9acb969dd37fdc0496120715d8bba67a5cc43a0c2569717314e6ad80020c",
+      "kind": "deb",
+      "sha256": "d36c9acb969dd37fdc0496120715d8bba67a5cc43a0c2569717314e6ad80020c",
+      "sizeBytes": 2687706
+    },
+    {
+      "id": "deb-d5428fb7fc16f2b930d6df489bdb69a94f72adb7ed21541c9e76f2d5c2a444e1",
+      "kind": "deb",
+      "sha256": "d5428fb7fc16f2b930d6df489bdb69a94f72adb7ed21541c9e76f2d5c2a444e1",
+      "sizeBytes": 2066890
+    },
+    {
+      "id": "deb-dccbd2753aedbea03f6e72f94d4f0a9e2598058265c8bb889b86db14316410df",
+      "kind": "deb",
+      "sha256": "dccbd2753aedbea03f6e72f94d4f0a9e2598058265c8bb889b86db14316410df",
+      "sizeBytes": 2735540
+    },
+    {
+      "id": "deb-e1d2c6e9e6a4fa06a48703f57e1fad6dd643625eb0a4dd700c156d3a31e7689f",
+      "kind": "deb",
+      "sha256": "e1d2c6e9e6a4fa06a48703f57e1fad6dd643625eb0a4dd700c156d3a31e7689f",
+      "sizeBytes": 20406
+    },
+    {
+      "id": "deb-e2f51f175731daf4fd2aacdec3096203d497c53d304ee3da1a7f9b5a26ed5821",
+      "kind": "deb",
+      "sha256": "e2f51f175731daf4fd2aacdec3096203d497c53d304ee3da1a7f9b5a26ed5821",
+      "sizeBytes": 3024400
+    },
+    {
+      "id": "deb-f45396b6fecdfa94da09e057004b75801241db948ddb7c6d831cac0f58632549",
+      "kind": "deb",
+      "sha256": "f45396b6fecdfa94da09e057004b75801241db948ddb7c6d831cac0f58632549",
+      "sizeBytes": 97106
+    },
+    {
+      "id": "deb-f496d80626e1512456273965d44f47b281edf53fa26d0d8bd0defc5be7e4601c",
+      "kind": "deb",
+      "sha256": "f496d80626e1512456273965d44f47b281edf53fa26d0d8bd0defc5be7e4601c",
+      "sizeBytes": 10374
+    },
+    {
+      "id": "deb-f5bca0c788a4fc465c435f7e8a54b2594e9cbf1a22abb263a59e393f1cb666e1",
+      "kind": "deb",
+      "sha256": "f5bca0c788a4fc465c435f7e8a54b2594e9cbf1a22abb263a59e393f1cb666e1",
+      "sizeBytes": 273318
+    },
+    {
+      "id": "rust-std-rustdist",
+      "kind": "rust-dist",
+      "sha256": "fd04194fb361ef69735a0b722fcaf6d9b49a339944f485aebcc4c172adb5c339",
+      "sizeBytes": 32078024
+    },
+    {
+      "id": "rustc-rustdist",
+      "kind": "rust-dist",
+      "sha256": "12cd470422b39da22a7b8c2f069c25e66200d5a46c1be5dac0bfe7620ed0d415",
+      "sizeBytes": 96186124
+    },
+    {
+      "id": "ubuntu-inrelease",
+      "kind": "ubuntu-inrelease",
+      "sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+      "sizeBytes": 255850
+    },
+    {
+      "id": "ubuntu-keyring",
+      "kind": "ubuntu-keyring",
+      "sha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31",
+      "sizeBytes": 3607
+    },
+    {
+      "id": "ubuntu-packages-index",
+      "kind": "ubuntu-packages-index",
+      "sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+      "sizeBytes": 1401160
+    }
+  ],
+  "authorityBindings": [
+    {
+      "id": "checker-entrypoint",
+      "sha256": "5a9d20421fd1f82a05f0c5ca902fca84c09b5f0350ca28788f3eb3793b6007e7",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/checker.py"
+    },
+    {
+      "id": "checker-policy",
+      "sha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/policy.json"
+    },
+    {
+      "id": "checker-release",
+      "sha256": "aa7939ebbb4472a82d08a30abfafc628577a76d751a2ae2b6f476e614ac21782",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json"
+    },
+    {
+      "id": "execution-policy",
+      "sha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2",
+      "sourcePath": "native/containment/native-shadow-execution-policy-v1.json"
+    },
+    {
+      "id": "registry",
+      "sha256": "1f3c6a079babe66454ae7a16e858b1507c2d121ac3514dd5c9a636602cd83f45",
+      "sourcePath": "fixtures/native-shadow/registry-v1.json"
+    },
+    {
+      "id": "toolchain-identity",
+      "sha256": "29799eff53df764024de8f1020eac177b2ee936243d2ac52d192ba2423f0fa84",
+      "sourcePath": "native/containment/native-shadow-toolchain-identity-v1.json"
+    }
+  ],
+  "buildRecipe": {
+    "baseImage": "empty",
+    "builderSha256": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
+    "canonicalMtime": 0,
+    "maintainerScripts": "never-execute-or-copy",
+    "maxEntries": 200000,
+    "maxFileBytes": 536870912,
+    "maxTotalBytes": 2147483648,
+    "network": "forbidden",
+    "output": "oci-image-layout-single-uncompressed-layer-v1",
+    "ownership": "root:root-only",
+    "zstdToolRole": "zstd"
+  },
+  "closureRoots": [
+    {
+      "logicalRoots": [
+        "/opt/boole/native-checker-toolchain"
+      ],
+      "name": "installed-rust-toolchain-file-manifest"
+    },
+    {
+      "logicalRoots": [
+        "/usr/bin/python3.12",
+        "/usr/lib/python3.12"
+      ],
+      "name": "python-interpreter-and-stdlib-file-manifest"
+    },
+    {
+      "logicalRoots": [
+        "/lib",
+        "/usr/bin",
+        "/usr/lib"
+      ],
+      "name": "system-linker-and-runtime-file-manifest"
+    }
+  ],
+  "derivedEntries": [
+    {
+      "gid": 0,
+      "kind": "symlink",
+      "logicalPath": "/etc/localtime",
+      "mode": "0777",
+      "target": "../usr/share/zoneinfo/Etc/UTC",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "kind": "symlink",
+      "logicalPath": "/usr/bin/cc",
+      "mode": "0777",
+      "target": "x86_64-linux-gnu-gcc-13",
+      "uid": 0
+    }
+  ],
+  "platform": {
+    "debArchitecture": "amd64",
+    "ociArchitecture": "amd64",
+    "os": "linux",
+    "rustTarget": "x86_64-unknown-linux-gnu"
+  },
+  "release": "NATIVE-SHADOW-RUNTIME-ROOTFS-SOURCE-CLOSURE-V2-PORTABLE-NOT-ACTIVATABLE",
+  "rust": {
+    "cargoCommitHash": "3efb1f477e99b42974b982d939fd100303cdf7db",
+    "components": [
+      {
+        "artifactId": "cargo-rustdist",
+        "name": "cargo",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      {
+        "artifactId": "rust-std-rustdist",
+        "name": "rust-std-x86_64-unknown-linux-gnu",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      {
+        "artifactId": "rustc-rustdist",
+        "name": "rustc",
+        "target": "x86_64-unknown-linux-gnu"
+      }
+    ],
+    "installPrefix": "/opt/boole/native-checker-toolchain",
+    "rustcCommitHash": "e7795af6d2449fb05a6393c3320ced873a999eb3"
+  },
+  "schema": "boole.native-shadow.runtime-rootfs-source-lock.v2",
+  "trackedFiles": [
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+      "mode": "0444",
+      "sha256": "aa7939ebbb4472a82d08a30abfafc628577a76d751a2ae2b6f476e614ac21782",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py",
+      "mode": "0444",
+      "sha256": "5a9d20421fd1f82a05f0c5ca902fca84c09b5f0350ca28788f3eb3793b6007e7",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/checker.py",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/policy.json",
+      "mode": "0444",
+      "sha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/policy.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/execution-policy-v1.json",
+      "mode": "0444",
+      "sha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2",
+      "sourcePath": "native/containment/native-shadow-execution-policy-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/registry-v1.json",
+      "mode": "0444",
+      "sha256": "1f3c6a079babe66454ae7a16e858b1507c2d121ac3514dd5c9a636602cd83f45",
+      "sourcePath": "fixtures/native-shadow/registry-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/toolchain-identity-v1.json",
+      "mode": "0444",
+      "sha256": "29799eff53df764024de8f1020eac177b2ee936243d2ac52d192ba2423f0fa84",
+      "sourcePath": "native/containment/native-shadow-toolchain-identity-v1.json",
+      "uid": 0
+    }
+  ],
+  "ubuntu": {
+    "packages": [
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-005ac9c19b9c12908c83498eded06e7e1c13994101341e05e8875d88cfca452d",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 3,
+            "packageId": "deb-4863e880d6ee538e4734c430c5579c1ac933b88a42c25bc9980d0f148c54b21e"
+          }
+        ],
+        "depends": "gcc-14-base (= 14-20240412-0ubuntu1), libc6 (>= 2.34), libgcc-s1 (>= 3.3), libstdc++6 (>= 4.1.1)",
+        "essential": false,
+        "indexStanzaSha256": "bb2bf4c068595a4760ccfae182db6ae777d66b724c6506da2110942d03ae2320",
+        "multiArch": "same",
+        "name": "libubsan1",
+        "packageId": "deb-005ac9c19b9c12908c83498eded06e7e1c13994101341e05e8875d88cfca452d",
+        "poolPath": "pool/main/g/gcc-14/libubsan1_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-0b8d3e9338b2d47a523532463e341962edd1e669fb1760f12d82d7a68b33096a",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.14)",
+        "essential": false,
+        "indexStanzaSha256": "cbda7014fe4347c7f45135d630e4d6f6d22370d3f283f353a0db42190e47311b",
+        "multiArch": "same",
+        "name": "libsframe1",
+        "packageId": "deb-0b8d3e9338b2d47a523532463e341962edd1e669fb1760f12d82d7a68b33096a",
+        "poolPath": "pool/main/b/binutils/libsframe1_2.42-4ubuntu2_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "binutils",
+        "sourceVersion": "2.42-4ubuntu2",
+        "version": "2.42-4ubuntu2"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.14)",
+        "essential": false,
+        "indexStanzaSha256": "a6875f16e872e920be888cc462d23a89973ec1ea53fdb35a24a18afe785c33d0",
+        "multiArch": "same",
+        "name": "zlib1g",
+        "packageId": "deb-0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1",
+        "poolPath": "pool/main/z/zlib/zlib1g_1.3.dfsg-3.1ubuntu2_amd64.deb",
+        "preDepends": "",
+        "provides": "libz1",
+        "repositoryId": "noble-main",
+        "sourceName": "zlib",
+        "sourceVersion": "1:1.3.dfsg-3.1ubuntu2",
+        "version": "1:1.3.dfsg-3.1ubuntu2"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-0cf79113f5d193ce9af2be2ff4b2c3b30dd4e55a0b6c47f7d28f6c849ff3aa60",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.38)",
+        "essential": false,
+        "indexStanzaSha256": "1ea4201405e1135e75d949f7563f904a0958390842d374e9c364be85d51ebff7",
+        "multiArch": "same",
+        "name": "libjansson4",
+        "packageId": "deb-0cf79113f5d193ce9af2be2ff4b2c3b30dd4e55a0b6c47f7d28f6c849ff3aa60",
+        "poolPath": "pool/main/j/jansson/libjansson4_2.14-2build2_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "jansson",
+        "sourceVersion": "2.14-2build2",
+        "version": "2.14-2build2"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-0f5be03f1a6237bb7f156f0e8a25223cf2f209b75c591e4e741214f2e203aa48",
+        "component": "main",
+        "dependencyResolutions": [],
+        "depends": "",
+        "essential": false,
+        "indexStanzaSha256": "a825a73f8c272420a9c8691131a83a5bdb3978d61430d75f94657bb45c747611",
+        "multiArch": "same",
+        "name": "binutils-common",
+        "packageId": "deb-0f5be03f1a6237bb7f156f0e8a25223cf2f209b75c591e4e741214f2e203aa48",
+        "poolPath": "pool/main/b/binutils/binutils-common_2.42-4ubuntu2_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "binutils",
+        "sourceVersion": "2.42-4ubuntu2",
+        "version": "2.42-4ubuntu2"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-1f03b79223d9cf1a6ed3a648f6942619dcb97b2884dba8fd12e262b6771e247a",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-e1d2c6e9e6a4fa06a48703f57e1fad6dd643625eb0a4dd700c156d3a31e7689f"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-21c631ba4da3d38d92a133e28a8a14278e1e00174ed135a20661d1e532e05ca5"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 3,
+            "packageId": "deb-2edff420ef80b4a3f3751e65c33423ef30e563122a58b759e4854ea8d84ba1b1"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 4,
+            "packageId": "deb-7eb710fe148d224c159ddec1ceb0ba53ead52a80a6793dcdae1474acf20d8f71"
+          }
+        ],
+        "depends": "libc6 (= 2.39-0ubuntu8), libc-dev-bin (= 2.39-0ubuntu8), linux-libc-dev, libcrypt-dev, rpcsvc-proto",
+        "essential": false,
+        "indexStanzaSha256": "527262bca3a4ed9a1c3d7cd026c37d98a010920026a7634b6e406c5fcea663f2",
+        "multiArch": "same",
+        "name": "libc6-dev",
+        "packageId": "deb-1f03b79223d9cf1a6ed3a648f6942619dcb97b2884dba8fd12e262b6771e247a",
+        "poolPath": "pool/main/g/glibc/libc6-dev_2.39-0ubuntu8_amd64.deb",
+        "preDepends": "",
+        "provides": "libc-dev (= 2.39-0ubuntu8)",
+        "repositoryId": "noble-main",
+        "sourceName": "glibc",
+        "sourceVersion": "2.39-0ubuntu8",
+        "version": "2.39-0ubuntu8"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-1f3770dce907c26493217393ed24ca7484443381cafd04c81d6a6bef702b7416",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-0f5be03f1a6237bb7f156f0e8a25223cf2f209b75c591e4e741214f2e203aa48"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-379b737386276ec099bf1fa4802d1ca6a4f020f2a81085b14caafac42ef7aec2"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 3,
+            "packageId": "deb-f45396b6fecdfa94da09e057004b75801241db948ddb7c6d831cac0f58632549"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 4,
+            "packageId": "deb-3497c775d5d72c4e1cb47f54b0ced6343a25818a6571408caa398b61f4fa74e8"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 5,
+            "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 6,
+            "packageId": "deb-b41ab4d68f66993413e0b8c82084d469a5317323adccf6feb96f79d9e1bea7d3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 7,
+            "packageId": "deb-0cf79113f5d193ce9af2be2ff4b2c3b30dd4e55a0b6c47f7d28f6c849ff3aa60"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 8,
+            "packageId": "deb-0b8d3e9338b2d47a523532463e341962edd1e669fb1760f12d82d7a68b33096a"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 9,
+            "packageId": "deb-4863e880d6ee538e4734c430c5579c1ac933b88a42c25bc9980d0f148c54b21e"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 10,
+            "packageId": "deb-4dcc3ba9606a5837a55248d08162a5b426dd621f75c0eb24d86409e0d0e71d52"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 11,
+            "packageId": "deb-0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1"
+          }
+        ],
+        "depends": "binutils-common (= 2.42-4ubuntu2), libbinutils (= 2.42-4ubuntu2), libc6 (>= 2.38), libctf-nobfd0 (>= 2.36), libctf0 (>= 2.36), libgcc-s1 (>= 4.2), libgprofng0 (>= 2.41), libjansson4 (>= 2.14), libsframe1 (>= 2.41), libstdc++6 (>= 13.1), libzstd1 (>= 1.5.5), zlib1g (>= 1:1.1.4)",
+        "essential": false,
+        "indexStanzaSha256": "2e4525a6286969e0894e5a9d39cb13c019e0c44cd6c687f5918fc128d4fe4d9d",
+        "multiArch": "allowed",
+        "name": "binutils-x86-64-linux-gnu",
+        "packageId": "deb-1f3770dce907c26493217393ed24ca7484443381cafd04c81d6a6bef702b7416",
+        "poolPath": "pool/main/b/binutils/binutils-x86-64-linux-gnu_2.42-4ubuntu2_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "binutils",
+        "sourceVersion": "2.42-4ubuntu2",
+        "version": "2.42-4ubuntu2"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-209bf408f4f5ed995d1fd831176c05d43277cdb5acdf7fa95a8ee811301c920e",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912"
+          }
+        ],
+        "depends": "gcc-14-base (= 14-20240412-0ubuntu1), libc6 (>= 2.34), libgcc-s1 (>= 3.3)",
+        "essential": false,
+        "indexStanzaSha256": "b7381ee0b48f0c796b01e22224049893cf602e752667b36fa564efee54c6c541",
+        "multiArch": "same",
+        "name": "liblsan0",
+        "packageId": "deb-209bf408f4f5ed995d1fd831176c05d43277cdb5acdf7fa95a8ee811301c920e",
+        "poolPath": "pool/main/g/gcc-14/liblsan0_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-21c631ba4da3d38d92a133e28a8a14278e1e00174ed135a20661d1e532e05ca5",
+        "component": "main",
+        "dependencyResolutions": [],
+        "depends": "",
+        "essential": false,
+        "indexStanzaSha256": "68ae0c394ab2b30569bdffd1dbd9de8ccd8dcf72c86ad9f7265ff02bc9522984",
+        "multiArch": "same",
+        "name": "linux-libc-dev",
+        "packageId": "deb-21c631ba4da3d38d92a133e28a8a14278e1e00174ed135a20661d1e532e05ca5",
+        "poolPath": "pool/main/l/linux/linux-libc-dev_6.8.0-31.31_amd64.deb",
+        "preDepends": "",
+        "provides": "aufs-dev, linux-kernel-headers",
+        "repositoryId": "noble-main",
+        "sourceName": "linux",
+        "sourceVersion": "6.8.0-31.31",
+        "version": "6.8.0-31.31"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-24b1aa0e1772080fd23df7bed10aadcbbe16b3181b77d3a013c14dfaf9848541",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-649a5ee5f74f0aa1e1b9c4f169eabbae56a79aa5aac51ef733eb9e18700bd8fc"
+          }
+        ],
+        "depends": "libc6 (>= 2.14), libgmp10 (>= 2:6.3.0+dfsg)",
+        "essential": false,
+        "indexStanzaSha256": "fe2497fb47ba7a8a4a01566a992e3926e1a1b34b2507b6e96c891e4a32ffbab2",
+        "multiArch": "same",
+        "name": "libisl23",
+        "packageId": "deb-24b1aa0e1772080fd23df7bed10aadcbbe16b3181b77d3a013c14dfaf9848541",
+        "poolPath": "pool/main/i/isl/libisl23_0.26-3build1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "isl",
+        "sourceVersion": "0.26-3build1",
+        "version": "0.26-3build1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-2613608b046eb9416878fa4e30aa8e34831775bb0cc7ae6efef6d230986dbb5a",
+        "component": "main",
+        "dependencyResolutions": [],
+        "depends": "",
+        "essential": false,
+        "indexStanzaSha256": "289f0c44189c18632c1ce77514988a26521ef0e0fc3a5873da97e408a23e47d0",
+        "multiArch": "same",
+        "name": "gcc-13-base",
+        "packageId": "deb-2613608b046eb9416878fa4e30aa8e34831775bb0cc7ae6efef6d230986dbb5a",
+        "poolPath": "pool/main/g/gcc-13/gcc-13-base_13.2.0-23ubuntu4_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-13",
+        "sourceVersion": "13.2.0-23ubuntu4",
+        "version": "13.2.0-23ubuntu4"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-28851b3997e4ba74bb3197bd58796bd3041c204c21df85fe0ddafdcaced647f0",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.34)",
+        "essential": false,
+        "indexStanzaSha256": "6ec2bde79f2d3abebe7ecfc5bc5160afacc4b6493866c2c0232d5db5aa06f359",
+        "multiArch": "same",
+        "name": "liblzma5",
+        "packageId": "deb-28851b3997e4ba74bb3197bd58796bd3041c204c21df85fe0ddafdcaced647f0",
+        "poolPath": "pool/main/x/xz-utils/liblzma5_5.6.1+really5.4.5-1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "xz-utils",
+        "sourceVersion": "5.6.1+really5.4.5-1",
+        "version": "5.6.1+really5.4.5-1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-28ddd9458eee6592895865de205ee8bd173fc4107e3efd9be214ecb4dbb2b151",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-6cde53feabd28f26586a4db2ffb9fc84e7b0598aee15b33bee907b6392a92d24"
+          }
+        ],
+        "depends": "libc6 (>= 2.14), libssl3t64 (>= 3.0.0)",
+        "essential": false,
+        "indexStanzaSha256": "331029dd1760e39319ecfcb2e907b48c3b652ef1399c291547112f972f88192d",
+        "multiArch": "same",
+        "name": "libpython3.12-minimal",
+        "packageId": "deb-28ddd9458eee6592895865de205ee8bd173fc4107e3efd9be214ecb4dbb2b151",
+        "poolPath": "pool/main/p/python3.12/libpython3.12-minimal_3.12.3-1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "python3.12",
+        "sourceVersion": "3.12.3-1",
+        "version": "3.12.3-1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-2edff420ef80b4a3f3751e65c33423ef30e563122a58b759e4854ea8d84ba1b1",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-9474785cd6f398512bf8c305c3901dbb111569dccb6f5832002373c0a8ac5832"
+          }
+        ],
+        "depends": "libcrypt1 (= 1:4.4.36-4build1)",
+        "essential": false,
+        "indexStanzaSha256": "61c7868c9fb6ba9614f68bb1784c68c8e32bda510e3ae4e2b9d8709f0c47bf26",
+        "multiArch": "same",
+        "name": "libcrypt-dev",
+        "packageId": "deb-2edff420ef80b4a3f3751e65c33423ef30e563122a58b759e4854ea8d84ba1b1",
+        "poolPath": "pool/main/libx/libxcrypt/libcrypt-dev_4.4.36-4build1_amd64.deb",
+        "preDepends": "",
+        "provides": "libcrypt1-dev",
+        "repositoryId": "noble-main",
+        "sourceName": "libxcrypt",
+        "sourceVersion": "1:4.4.36-4build1",
+        "version": "1:4.4.36-4build1"
+      },
+      {
+        "architecture": "all",
+        "artifactId": "deb-31bfb7eec55ab6d34a50ba995150e1498d4cb897714085d8025e330d3b529747",
+        "component": "main",
+        "dependencyResolutions": [],
+        "depends": "",
+        "essential": false,
+        "indexStanzaSha256": "befdae1b95b09db542ef4c4a7049f512a7ceaabf8d77c4338afc6415fbd5c6e9",
+        "multiArch": "foreign",
+        "name": "media-types",
+        "packageId": "deb-31bfb7eec55ab6d34a50ba995150e1498d4cb897714085d8025e330d3b529747",
+        "poolPath": "pool/main/m/media-types/media-types_10.1.0_all.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "media-types",
+        "sourceVersion": "10.1.0",
+        "version": "10.1.0"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-3497c775d5d72c4e1cb47f54b0ced6343a25818a6571408caa398b61f4fa74e8",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-379b737386276ec099bf1fa4802d1ca6a4f020f2a81085b14caafac42ef7aec2"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1"
+          }
+        ],
+        "depends": "libbinutils (= 2.42-4ubuntu2), libc6 (>= 2.33), zlib1g (>= 1:1.2.0)",
+        "essential": false,
+        "indexStanzaSha256": "e9e84b901e546c151f897c8c143ff9159605f53141a08446c85967358ae473ab",
+        "multiArch": "same",
+        "name": "libctf0",
+        "packageId": "deb-3497c775d5d72c4e1cb47f54b0ced6343a25818a6571408caa398b61f4fa74e8",
+        "poolPath": "pool/main/b/binutils/libctf0_2.42-4ubuntu2_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "binutils",
+        "sourceVersion": "2.42-4ubuntu2",
+        "version": "2.42-4ubuntu2"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-34af1193734f40723c7fc03d855d98c107d8b62bd2fa17dae8b09d2369cdd45e",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-649a5ee5f74f0aa1e1b9c4f169eabbae56a79aa5aac51ef733eb9e18700bd8fc"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-a25c2f5f123829ab144f31ddb22f4363b7206eb21bf821bfbecca5753ccfc6be"
+          }
+        ],
+        "depends": "libc6 (>= 2.4), libgmp10 (>= 2:6.3.0+dfsg), libmpfr6 (>= 4.0.0)",
+        "essential": false,
+        "indexStanzaSha256": "4ef494a050ab836140c5fef01d49505051d589445e5d805f7bb8c87705eef158",
+        "multiArch": "same",
+        "name": "libmpc3",
+        "packageId": "deb-34af1193734f40723c7fc03d855d98c107d8b62bd2fa17dae8b09d2369cdd45e",
+        "poolPath": "pool/main/m/mpclib3/libmpc3_1.3.1-1build1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "mpclib3",
+        "sourceVersion": "1.3.1-1build1",
+        "version": "1.3.1-1build1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-379b737386276ec099bf1fa4802d1ca6a4f020f2a81085b14caafac42ef7aec2",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-0b8d3e9338b2d47a523532463e341962edd1e669fb1760f12d82d7a68b33096a"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-4dcc3ba9606a5837a55248d08162a5b426dd621f75c0eb24d86409e0d0e71d52"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 3,
+            "packageId": "deb-0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 4,
+            "packageId": "deb-0f5be03f1a6237bb7f156f0e8a25223cf2f209b75c591e4e741214f2e203aa48"
+          }
+        ],
+        "depends": "libc6 (>= 2.38), libsframe1, libzstd1 (>= 1.5.5), zlib1g (>= 1:1.2.0), binutils-common (= 2.42-4ubuntu2)",
+        "essential": false,
+        "indexStanzaSha256": "450788e6e47bcb22d99f5a52df1b5a84f275cced7fa58c19d13ccc0604985246",
+        "multiArch": "same",
+        "name": "libbinutils",
+        "packageId": "deb-379b737386276ec099bf1fa4802d1ca6a4f020f2a81085b14caafac42ef7aec2",
+        "poolPath": "pool/main/b/binutils/libbinutils_2.42-4ubuntu2_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "binutils",
+        "sourceVersion": "2.42-4ubuntu2",
+        "version": "2.42-4ubuntu2"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-4863e880d6ee538e4734c430c5579c1ac933b88a42c25bc9980d0f148c54b21e",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912"
+          }
+        ],
+        "depends": "gcc-14-base (= 14-20240412-0ubuntu1), libc6 (>= 2.38), libgcc-s1 (>= 4.3)",
+        "essential": false,
+        "indexStanzaSha256": "bc087c7c0cae9265e967fa0c74c0d387942f242d840ec59134a1dca17da02b25",
+        "multiArch": "same",
+        "name": "libstdc++6",
+        "packageId": "deb-4863e880d6ee538e4734c430c5579c1ac933b88a42c25bc9980d0f148c54b21e",
+        "poolPath": "pool/main/g/gcc-14/libstdc++6_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-4dcc3ba9606a5837a55248d08162a5b426dd621f75c0eb24d86409e0d0e71d52",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.34)",
+        "essential": false,
+        "indexStanzaSha256": "10defb69f9768556e970417d63877c2735dd155efa24b0e290cdff7e6485005b",
+        "multiArch": "same",
+        "name": "libzstd1",
+        "packageId": "deb-4dcc3ba9606a5837a55248d08162a5b426dd621f75c0eb24d86409e0d0e71d52",
+        "poolPath": "pool/main/libz/libzstd/libzstd1_1.5.5+dfsg2-2build1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "libzstd",
+        "sourceVersion": "1.5.5+dfsg2-2build1",
+        "version": "1.5.5+dfsg2-2build1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-53e1e1753729d04cf65b05e6e58abe06e2bb76cc07eff0e1b2a638a638ca209b",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.34)",
+        "essential": false,
+        "indexStanzaSha256": "cf029eb6d161b0dec6ccfac6d15af4025b48050d20637bc323891685dc8050dd",
+        "multiArch": "same",
+        "name": "libtinfo6",
+        "packageId": "deb-53e1e1753729d04cf65b05e6e58abe06e2bb76cc07eff0e1b2a638a638ca209b",
+        "poolPath": "pool/main/n/ncurses/libtinfo6_6.4+20240113-1ubuntu2_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "ncurses",
+        "sourceVersion": "6.4+20240113-1ubuntu2",
+        "version": "6.4+20240113-1ubuntu2"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-563977a16df03b611f5239cc1e9a0426e86479fcc616b5c9e200ea32063119e5",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-879bfd7f8a9bc4c0f7cdc777cdd8bc6de5f8c4a2ac80c060322a1b22f13504bb"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-53e1e1753729d04cf65b05e6e58abe06e2bb76cc07eff0e1b2a638a638ca209b"
+          }
+        ],
+        "depends": "readline-common, libc6 (>= 2.38), libtinfo6 (>= 6)",
+        "essential": false,
+        "indexStanzaSha256": "314e8fde07edffa37c862b01b7a0d4e1ba8576e5092ce2d9bd88ac911d3ae706",
+        "multiArch": "same",
+        "name": "libreadline8t64",
+        "packageId": "deb-563977a16df03b611f5239cc1e9a0426e86479fcc616b5c9e200ea32063119e5",
+        "poolPath": "pool/main/r/readline/libreadline8t64_8.2-4build1_amd64.deb",
+        "preDepends": "",
+        "provides": "libreadline8 (= 8.2-4build1)",
+        "repositoryId": "noble-main",
+        "sourceName": "readline",
+        "sourceVersion": "8.2-4build1",
+        "version": "8.2-4build1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-637e6a7744de08cd331a41f4efd0d24e6ea9064843dea9d1c6ca87bdb5f038a2",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.34)",
+        "essential": false,
+        "indexStanzaSha256": "97e4816549e67215428fb8ec3a8680949dfc1f13d37f9a4e12d4236a9d63e621",
+        "multiArch": "same",
+        "name": "libffi8",
+        "packageId": "deb-637e6a7744de08cd331a41f4efd0d24e6ea9064843dea9d1c6ca87bdb5f038a2",
+        "poolPath": "pool/main/libf/libffi/libffi8_3.4.6-1build1_amd64.deb",
+        "preDepends": "",
+        "provides": "libffi8ubuntu1 (= 3.4.6-1build1)",
+        "repositoryId": "noble-main",
+        "sourceName": "libffi",
+        "sourceVersion": "3.4.6-1build1",
+        "version": "3.4.6-1build1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-649a5ee5f74f0aa1e1b9c4f169eabbae56a79aa5aac51ef733eb9e18700bd8fc",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.38)",
+        "essential": false,
+        "indexStanzaSha256": "e95d96600ed0040569897c31c869818b4f6a2180d48322f5dd8674e6e11c0c7c",
+        "multiArch": "same",
+        "name": "libgmp10",
+        "packageId": "deb-649a5ee5f74f0aa1e1b9c4f169eabbae56a79aa5aac51ef733eb9e18700bd8fc",
+        "poolPath": "pool/main/g/gmp/libgmp10_6.3.0+dfsg-2ubuntu6_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gmp",
+        "sourceVersion": "2:6.3.0+dfsg-2ubuntu6",
+        "version": "2:6.3.0+dfsg-2ubuntu6"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-695132af8a40fe417f7d4e5ea742d64521c04e069442a4719c2bd0f10ab93d94",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.4)",
+        "essential": false,
+        "indexStanzaSha256": "358328552850d2bfd01c96e9f171a731f41667f499e868c4600a83a63112977e",
+        "multiArch": "same",
+        "name": "libbz2-1.0",
+        "packageId": "deb-695132af8a40fe417f7d4e5ea742d64521c04e069442a4719c2bd0f10ab93d94",
+        "poolPath": "pool/main/b/bzip2/libbz2-1.0_1.0.8-5.1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "bzip2",
+        "sourceVersion": "1.0.8-5.1",
+        "version": "1.0.8-5.1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-6cde53feabd28f26586a4db2ffb9fc84e7b0598aee15b33bee907b6392a92d24",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.38)",
+        "essential": false,
+        "indexStanzaSha256": "f691d7c2d6cd38486f35425cc3d03394a387311b9aae382a523b332317dd6e0d",
+        "multiArch": "same",
+        "name": "libssl3t64",
+        "packageId": "deb-6cde53feabd28f26586a4db2ffb9fc84e7b0598aee15b33bee907b6392a92d24",
+        "poolPath": "pool/main/o/openssl/libssl3t64_3.0.13-0ubuntu3_amd64.deb",
+        "preDepends": "",
+        "provides": "libssl3 (= 3.0.13-0ubuntu3)",
+        "repositoryId": "noble-main",
+        "sourceName": "openssl",
+        "sourceVersion": "3.0.13-0ubuntu3",
+        "version": "3.0.13-0ubuntu3"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-6ea94c8a822551187cef0085073910eeae0a7525cfec4415171942c7019c68af",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.38)",
+        "essential": false,
+        "indexStanzaSha256": "9e7f1d166c7058f4aa7a90ad4c352530921f14c96b91a91acf3178a14b997ad5",
+        "multiArch": "same",
+        "name": "libsqlite3-0",
+        "packageId": "deb-6ea94c8a822551187cef0085073910eeae0a7525cfec4415171942c7019c68af",
+        "poolPath": "pool/main/s/sqlite3/libsqlite3-0_3.45.1-1ubuntu2_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "sqlite3",
+        "sourceVersion": "3.45.1-1ubuntu2",
+        "version": "3.45.1-1ubuntu2"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-730b29497212289cda8a3139e693a3538af0cb57846c24f807d1bb293a591c5e",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.38)",
+        "essential": false,
+        "indexStanzaSha256": "ba14205be0b503d5190b73f9446238cbb6c5b051bfb4967dd9b6d341cdfb15d4",
+        "multiArch": "same",
+        "name": "libexpat1",
+        "packageId": "deb-730b29497212289cda8a3139e693a3538af0cb57846c24f807d1bb293a591c5e",
+        "poolPath": "pool/main/e/expat/libexpat1_2.6.1-2build1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "expat",
+        "sourceVersion": "2.6.1-2build1",
+        "version": "2.6.1-2build1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-7eb710fe148d224c159ddec1ceb0ba53ead52a80a6793dcdae1474acf20d8f71",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.38)",
+        "essential": false,
+        "indexStanzaSha256": "7c4aadaa3802c3bc15376aeff5d18b28b80400b8ef7cbd039a335b8a0984c650",
+        "multiArch": "foreign",
+        "name": "rpcsvc-proto",
+        "packageId": "deb-7eb710fe148d224c159ddec1ceb0ba53ead52a80a6793dcdae1474acf20d8f71",
+        "poolPath": "pool/main/r/rpcsvc-proto/rpcsvc-proto_1.4.2-0ubuntu7_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "rpcsvc-proto",
+        "sourceVersion": "1.4.2-0ubuntu7",
+        "version": "1.4.2-0ubuntu7"
+      },
+      {
+        "architecture": "all",
+        "artifactId": "deb-879bfd7f8a9bc4c0f7cdc777cdd8bc6de5f8c4a2ac80c060322a1b22f13504bb",
+        "component": "main",
+        "dependencyResolutions": [],
+        "depends": "",
+        "essential": false,
+        "indexStanzaSha256": "daee46501eb5af2369d969e0c41441cdb7c956cf52fd07cdfb00b70cb90f8f30",
+        "multiArch": "foreign",
+        "name": "readline-common",
+        "packageId": "deb-879bfd7f8a9bc4c0f7cdc777cdd8bc6de5f8c4a2ac80c060322a1b22f13504bb",
+        "poolPath": "pool/main/r/readline/readline-common_8.2-4build1_all.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "readline",
+        "sourceVersion": "8.2-4build1",
+        "version": "8.2-4build1"
+      },
+      {
+        "architecture": "all",
+        "artifactId": "deb-8cdbc9c3dca01e660759bf9d840f72e45ac72faf5d19ca1faecacaf6a60c1a87",
+        "component": "main",
+        "dependencyResolutions": [],
+        "depends": "",
+        "essential": false,
+        "indexStanzaSha256": "430ce5b3495291070cbb438949498054d8f5d1febd216eb960688b84b42e32d3",
+        "multiArch": "foreign",
+        "name": "netbase",
+        "packageId": "deb-8cdbc9c3dca01e660759bf9d840f72e45ac72faf5d19ca1faecacaf6a60c1a87",
+        "poolPath": "pool/main/n/netbase/netbase_6.4_all.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "netbase",
+        "sourceVersion": "6.4",
+        "version": "6.4"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-92f94ad8c5d42472fd032f7820aaeb9df2cc08559ef062a3a277573c03d26a08",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-b62ca3e8fe6fee933e1e92ab4330a666c09374ae6c49d5c01144142746e409f3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-2613608b046eb9416878fa4e30aa8e34831775bb0cc7ae6efef6d230986dbb5a"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-a67619a396cdab9bf5dcd01cbed80287061e8f12af5439f4f529a001d8cee5e7"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 3,
+            "packageId": "deb-1f3770dce907c26493217393ed24ca7484443381cafd04c81d6a6bef702b7416"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 4,
+            "packageId": "deb-d36c9acb969dd37fdc0496120715d8bba67a5cc43a0c2569717314e6ad80020c"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 5,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 6,
+            "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 7,
+            "packageId": "deb-649a5ee5f74f0aa1e1b9c4f169eabbae56a79aa5aac51ef733eb9e18700bd8fc"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 8,
+            "packageId": "deb-24b1aa0e1772080fd23df7bed10aadcbbe16b3181b77d3a013c14dfaf9848541"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 9,
+            "packageId": "deb-34af1193734f40723c7fc03d855d98c107d8b62bd2fa17dae8b09d2369cdd45e"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 10,
+            "packageId": "deb-a25c2f5f123829ab144f31ddb22f4363b7206eb21bf821bfbecca5753ccfc6be"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 11,
+            "packageId": "deb-4863e880d6ee538e4734c430c5579c1ac933b88a42c25bc9980d0f148c54b21e"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 12,
+            "packageId": "deb-4dcc3ba9606a5837a55248d08162a5b426dd621f75c0eb24d86409e0d0e71d52"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 13,
+            "packageId": "deb-0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1"
+          }
+        ],
+        "depends": "cpp-13-x86-64-linux-gnu (= 13.2.0-23ubuntu4), gcc-13-base (= 13.2.0-23ubuntu4), libcc1-0 (>= 13.2.0-23ubuntu4), binutils-x86-64-linux-gnu (>= 2.42), libgcc-13-dev (= 13.2.0-23ubuntu4), libc6 (>= 2.38), libgcc-s1 (>= 3.0), libgmp10 (>= 2:6.3.0+dfsg), libisl23 (>= 0.15), libmpc3 (>= 1.1.0), libmpfr6 (>= 3.1.3), libstdc++6 (>= 5), libzstd1 (>= 1.5.5), zlib1g (>= 1:1.1.4)",
+        "essential": false,
+        "indexStanzaSha256": "319a140307eb88bc755a93cb044a1b83382ae597ff8e0bb0ad0b7c4a5b0b1c90",
+        "multiArch": "foreign",
+        "name": "gcc-13-x86-64-linux-gnu",
+        "packageId": "deb-92f94ad8c5d42472fd032f7820aaeb9df2cc08559ef062a3a277573c03d26a08",
+        "poolPath": "pool/main/g/gcc-13/gcc-13-x86-64-linux-gnu_13.2.0-23ubuntu4_amd64.deb",
+        "preDepends": "",
+        "provides": "c-compiler-x86-64-linux-gnu",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-13",
+        "sourceVersion": "13.2.0-23ubuntu4",
+        "version": "13.2.0-23ubuntu4"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-9474785cd6f398512bf8c305c3901dbb111569dccb6f5832002373c0a8ac5832",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.38)",
+        "essential": false,
+        "indexStanzaSha256": "54e50ec6e7ac5db1a4e23a0d943e38e587634581746e323a7608d2e213637989",
+        "multiArch": "same",
+        "name": "libcrypt1",
+        "packageId": "deb-9474785cd6f398512bf8c305c3901dbb111569dccb6f5832002373c0a8ac5832",
+        "poolPath": "pool/main/libx/libxcrypt/libcrypt1_4.4.36-4build1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "libxcrypt",
+        "sourceVersion": "1:4.4.36-4build1",
+        "version": "1:4.4.36-4build1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-96d1e64bb1a80f2005f41c4112d10e4756a222a6c245e9383fc8da924bd40bf9",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-53e1e1753729d04cf65b05e6e58abe06e2bb76cc07eff0e1b2a638a638ca209b"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libtinfo6 (= 6.4+20240113-1ubuntu2), libc6 (>= 2.34)",
+        "essential": false,
+        "indexStanzaSha256": "4a836c2dbe4934fe8279e791b140dad151c86e7eca5c30e22d95a1804f7226bf",
+        "multiArch": "same",
+        "name": "libncursesw6",
+        "packageId": "deb-96d1e64bb1a80f2005f41c4112d10e4756a222a6c245e9383fc8da924bd40bf9",
+        "poolPath": "pool/main/n/ncurses/libncursesw6_6.4+20240113-1ubuntu2_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "ncurses",
+        "sourceVersion": "6.4+20240113-1ubuntu2",
+        "version": "6.4+20240113-1ubuntu2"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-a25c2f5f123829ab144f31ddb22f4363b7206eb21bf821bfbecca5753ccfc6be",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-649a5ee5f74f0aa1e1b9c4f169eabbae56a79aa5aac51ef733eb9e18700bd8fc"
+          }
+        ],
+        "depends": "libc6 (>= 2.14), libgmp10 (>= 2:6.3.0+dfsg)",
+        "essential": false,
+        "indexStanzaSha256": "26b0afa7ce7788cc7388e1e95c4b27891ef4bc30fbb818470b140b6031cee980",
+        "multiArch": "same",
+        "name": "libmpfr6",
+        "packageId": "deb-a25c2f5f123829ab144f31ddb22f4363b7206eb21bf821bfbecca5753ccfc6be",
+        "poolPath": "pool/main/m/mpfr4/libmpfr6_4.2.1-1build1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "mpfr4",
+        "sourceVersion": "4.2.1-1build1",
+        "version": "4.2.1-1build1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-a2912d49e2d79bc2f2803e12b17b507c147d505ab5aece3c15158de76f47ac54",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912"
+          }
+        ],
+        "depends": "gcc-14-base (= 14-20240412-0ubuntu1), libc6 (>= 2.34), libgcc-s1 (>= 3.3)",
+        "essential": false,
+        "indexStanzaSha256": "c77c373472acf29364fb54111d70b3325de996652fd67794fdbd28c6e2fea207",
+        "multiArch": "same",
+        "name": "libhwasan0",
+        "packageId": "deb-a2912d49e2d79bc2f2803e12b17b507c147d505ab5aece3c15158de76f47ac54",
+        "poolPath": "pool/main/g/gcc-14/libhwasan0_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "gcc-14-base (= 14-20240412-0ubuntu1), libc6 (>= 2.35)",
+        "essential": false,
+        "indexStanzaSha256": "36abc18c0ff8eac08c32347a87d0cf992697509c17ee78399990a3060a2ff8db",
+        "multiArch": "same",
+        "name": "libgcc-s1",
+        "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912",
+        "poolPath": "pool/main/g/gcc-14/libgcc-s1_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "libgcc1 (= 1:14-20240412-0ubuntu1)",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-a67619a396cdab9bf5dcd01cbed80287061e8f12af5439f4f529a001d8cee5e7",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 3,
+            "packageId": "deb-4863e880d6ee538e4734c430c5579c1ac933b88a42c25bc9980d0f148c54b21e"
+          }
+        ],
+        "depends": "gcc-14-base (= 14-20240412-0ubuntu1), libc6 (>= 2.15), libgcc-s1 (>= 3.0), libstdc++6 (>= 5.2)",
+        "essential": false,
+        "indexStanzaSha256": "01febfcf3858db7ecaeefa66da075df9b5d048faea7c976031647f79a96782dc",
+        "multiArch": "same",
+        "name": "libcc1-0",
+        "packageId": "deb-a67619a396cdab9bf5dcd01cbed80287061e8f12af5439f4f529a001d8cee5e7",
+        "poolPath": "pool/main/g/gcc-14/libcc1-0_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-a78a25c8fad8fdd0b7bc6b297da5d5685579be1e57732aa47870830e4a13161e",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>= 2.38)",
+        "essential": false,
+        "indexStanzaSha256": "c6edb196465809020ddf64b411275c67de240baa73cffc418a6505f918ed05fb",
+        "multiArch": "same",
+        "name": "libdb5.3t64",
+        "packageId": "deb-a78a25c8fad8fdd0b7bc6b297da5d5685579be1e57732aa47870830e4a13161e",
+        "poolPath": "pool/main/d/db5.3/libdb5.3t64_5.3.28+dfsg2-7_amd64.deb",
+        "preDepends": "",
+        "provides": "libdb5.3 (= 5.3.28+dfsg2-7)",
+        "repositoryId": "noble-main",
+        "sourceName": "db5.3",
+        "sourceVersion": "5.3.28+dfsg2-7",
+        "version": "5.3.28+dfsg2-7"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912"
+          }
+        ],
+        "depends": "libgcc-s1",
+        "essential": false,
+        "indexStanzaSha256": "2acbc62eadad54d461ebd97937df6545dd378a7c0b090c0d21f5bf3493ea26aa",
+        "multiArch": "same",
+        "name": "libc6",
+        "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3",
+        "poolPath": "pool/main/g/glibc/libc6_2.39-0ubuntu8_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "glibc",
+        "sourceVersion": "2.39-0ubuntu8",
+        "version": "2.39-0ubuntu8"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-af9ce0b1da62af10ae8984d27638a7f6901cb20a2893fbedb72dc52fa53c87bc",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-28ddd9458eee6592895865de205ee8bd173fc4107e3efd9be214ecb4dbb2b151"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-730b29497212289cda8a3139e693a3538af0cb57846c24f807d1bb293a591c5e"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Pre-Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libpython3.12-minimal (= 3.12.3-1), libexpat1 (>= 2.6.0), zlib1g (>= 1:1.2.0)",
+        "essential": false,
+        "indexStanzaSha256": "511a2d76c050806a658201eed7574e7fc849f706ed901da5645dd150e1dc41be",
+        "multiArch": "allowed",
+        "name": "python3.12-minimal",
+        "packageId": "deb-af9ce0b1da62af10ae8984d27638a7f6901cb20a2893fbedb72dc52fa53c87bc",
+        "poolPath": "pool/main/p/python3.12/python3.12-minimal_3.12.3-1_amd64.deb",
+        "preDepends": "libc6 (>= 2.38)",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "python3.12",
+        "sourceVersion": "3.12.3-1",
+        "version": "3.12.3-1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-b41ab4d68f66993413e0b8c82084d469a5317323adccf6feb96f79d9e1bea7d3",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-379b737386276ec099bf1fa4802d1ca6a4f020f2a81085b14caafac42ef7aec2"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 3,
+            "packageId": "deb-4863e880d6ee538e4734c430c5579c1ac933b88a42c25bc9980d0f148c54b21e"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 4,
+            "packageId": "deb-0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1"
+          }
+        ],
+        "depends": "libbinutils (= 2.42-4ubuntu2), libc6 (>= 2.38), libgcc-s1 (>= 3.3.1), libstdc++6 (>= 13.1), zlib1g (>= 1:1.1.4)",
+        "essential": false,
+        "indexStanzaSha256": "551faa012344c6dd3d02fea39b396b5deec934b74a44a069cfe1953fac9d7f91",
+        "multiArch": "same",
+        "name": "libgprofng0",
+        "packageId": "deb-b41ab4d68f66993413e0b8c82084d469a5317323adccf6feb96f79d9e1bea7d3",
+        "poolPath": "pool/main/b/binutils/libgprofng0_2.42-4ubuntu2_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "binutils",
+        "sourceVersion": "2.42-4ubuntu2",
+        "version": "2.42-4ubuntu2"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-b4f42ae5295d74dffeac08ce22c70986322801ad6ab8279bdaf083d3440ea30a",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af9ce0b1da62af10ae8984d27638a7f6901cb20a2893fbedb72dc52fa53c87bc"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-d5428fb7fc16f2b930d6df489bdb69a94f72adb7ed21541c9e76f2d5c2a444e1"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-31bfb7eec55ab6d34a50ba995150e1498d4cb897714085d8025e330d3b529747"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 3,
+            "packageId": "deb-f5bca0c788a4fc465c435f7e8a54b2594e9cbf1a22abb263a59e393f1cb666e1"
+          }
+        ],
+        "depends": "python3.12-minimal (= 3.12.3-1), libpython3.12-stdlib (= 3.12.3-1), media-types | mime-support, tzdata",
+        "essential": false,
+        "indexStanzaSha256": "af565ea97bcca13f5be344c45cd7e765942906a05dc2e6e85730d3183a47c1de",
+        "multiArch": "allowed",
+        "name": "python3.12",
+        "packageId": "deb-b4f42ae5295d74dffeac08ce22c70986322801ad6ab8279bdaf083d3440ea30a",
+        "poolPath": "pool/main/p/python3.12/python3.12_3.12.3-1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "python3.12",
+        "sourceVersion": "3.12.3-1",
+        "version": "3.12.3-1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-b62ca3e8fe6fee933e1e92ab4330a666c09374ae6c49d5c01144142746e409f3",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-2613608b046eb9416878fa4e30aa8e34831775bb0cc7ae6efef6d230986dbb5a"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-649a5ee5f74f0aa1e1b9c4f169eabbae56a79aa5aac51ef733eb9e18700bd8fc"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 3,
+            "packageId": "deb-24b1aa0e1772080fd23df7bed10aadcbbe16b3181b77d3a013c14dfaf9848541"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 4,
+            "packageId": "deb-34af1193734f40723c7fc03d855d98c107d8b62bd2fa17dae8b09d2369cdd45e"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 5,
+            "packageId": "deb-a25c2f5f123829ab144f31ddb22f4363b7206eb21bf821bfbecca5753ccfc6be"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 6,
+            "packageId": "deb-4dcc3ba9606a5837a55248d08162a5b426dd621f75c0eb24d86409e0d0e71d52"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 7,
+            "packageId": "deb-0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1"
+          }
+        ],
+        "depends": "gcc-13-base (= 13.2.0-23ubuntu4), libc6 (>= 2.38), libgmp10 (>= 2:6.3.0+dfsg), libisl23 (>= 0.15), libmpc3 (>= 1.1.0), libmpfr6 (>= 3.1.3), libzstd1 (>= 1.5.5), zlib1g (>= 1:1.1.4)",
+        "essential": false,
+        "indexStanzaSha256": "cce991578aad14b6ec485852e9a28cea0334fffc61b1e4e582a4d75f0c945ded",
+        "multiArch": "foreign",
+        "name": "cpp-13-x86-64-linux-gnu",
+        "packageId": "deb-b62ca3e8fe6fee933e1e92ab4330a666c09374ae6c49d5c01144142746e409f3",
+        "poolPath": "pool/main/g/gcc-13/cpp-13-x86-64-linux-gnu_13.2.0-23ubuntu4_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-13",
+        "sourceVersion": "13.2.0-23ubuntu4",
+        "version": "13.2.0-23ubuntu4"
+      },
+      {
+        "architecture": "all",
+        "artifactId": "deb-bb390da466a7461bfc87aa3e6b7cd145dae84af3e26bf437f2c0c218ba226294",
+        "component": "main",
+        "dependencyResolutions": [],
+        "depends": "",
+        "essential": false,
+        "indexStanzaSha256": "faedd9fe5999da2dd3870b868983256484dbb5c7fff430b809013cb4a1bc719e",
+        "multiArch": "foreign",
+        "name": "debconf",
+        "packageId": "deb-bb390da466a7461bfc87aa3e6b7cd145dae84af3e26bf437f2c0c218ba226294",
+        "poolPath": "pool/main/d/debconf/debconf_1.5.86ubuntu1_all.deb",
+        "preDepends": "",
+        "provides": "debconf-2.0",
+        "repositoryId": "noble-main",
+        "sourceName": "debconf",
+        "sourceVersion": "1.5.86ubuntu1",
+        "version": "1.5.86ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef",
+        "component": "main",
+        "dependencyResolutions": [],
+        "depends": "",
+        "essential": false,
+        "indexStanzaSha256": "8dc9edb5c20f1a7e2d3aa1ccdbd5e2f4a6a0520d7c0745b8ac016a8f39016bcd",
+        "multiArch": "same",
+        "name": "gcc-14-base",
+        "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef",
+        "poolPath": "pool/main/g/gcc-14/gcc-14-base_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-bd57f7e288c46d4de9e33dd0fb15d82970bc58778b10549ad813605ea2c18d65",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "gcc-14-base (= 14-20240412-0ubuntu1), libc6 (>= 2.34)",
+        "essential": false,
+        "indexStanzaSha256": "644bcc6ac4b00761245c72d0884f90bc6fa334b956f69ff40cd82d854d6da466",
+        "multiArch": "same",
+        "name": "libitm1",
+        "packageId": "deb-bd57f7e288c46d4de9e33dd0fb15d82970bc58778b10549ad813605ea2c18d65",
+        "poolPath": "pool/main/g/gcc-14/libitm1_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-be0bd561a1133ef6622f58112126687f6d3b768ca8b70ed485be4787828d5f1c",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "gcc-14-base (= 14-20240412-0ubuntu1), libc6 (>= 2.38)",
+        "essential": false,
+        "indexStanzaSha256": "a680f9b0aad723d15fe7bf4459e05cb22758b3921dbb5613fae49ea313e92b2c",
+        "multiArch": "same",
+        "name": "libquadmath0",
+        "packageId": "deb-be0bd561a1133ef6622f58112126687f6d3b768ca8b70ed485be4787828d5f1c",
+        "poolPath": "pool/main/g/gcc-14/libquadmath0_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-cc2ca1193d2c11d7383bdb03dd333cc621d128237b82dafeb8d7f2bd8302f3dd",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "gcc-14-base (= 14-20240412-0ubuntu1), libc6 (>= 2.38)",
+        "essential": false,
+        "indexStanzaSha256": "c109d0f55ab1fd37671f764530475db37099c50b0359c9411edfbc4fa0b54e9f",
+        "multiArch": "same",
+        "name": "libgomp1",
+        "packageId": "deb-cc2ca1193d2c11d7383bdb03dd333cc621d128237b82dafeb8d7f2bd8302f3dd",
+        "poolPath": "pool/main/g/gcc-14/libgomp1_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-d36c9acb969dd37fdc0496120715d8bba67a5cc43a0c2569717314e6ad80020c",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-2613608b046eb9416878fa4e30aa8e34831775bb0cc7ae6efef6d230986dbb5a"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-cc2ca1193d2c11d7383bdb03dd333cc621d128237b82dafeb8d7f2bd8302f3dd"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 3,
+            "packageId": "deb-bd57f7e288c46d4de9e33dd0fb15d82970bc58778b10549ad813605ea2c18d65"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 4,
+            "packageId": "deb-f496d80626e1512456273965d44f47b281edf53fa26d0d8bd0defc5be7e4601c"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 5,
+            "packageId": "deb-e2f51f175731daf4fd2aacdec3096203d497c53d304ee3da1a7f9b5a26ed5821"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 6,
+            "packageId": "deb-209bf408f4f5ed995d1fd831176c05d43277cdb5acdf7fa95a8ee811301c920e"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 7,
+            "packageId": "deb-dccbd2753aedbea03f6e72f94d4f0a9e2598058265c8bb889b86db14316410df"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 8,
+            "packageId": "deb-005ac9c19b9c12908c83498eded06e7e1c13994101341e05e8875d88cfca452d"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 9,
+            "packageId": "deb-a2912d49e2d79bc2f2803e12b17b507c147d505ab5aece3c15158de76f47ac54"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 10,
+            "packageId": "deb-be0bd561a1133ef6622f58112126687f6d3b768ca8b70ed485be4787828d5f1c"
+          }
+        ],
+        "depends": "gcc-13-base (= 13.2.0-23ubuntu4), libgcc-s1 (>= 13.2.0-23ubuntu4), libgomp1 (>= 13.2.0-23ubuntu4), libitm1 (>= 13.2.0-23ubuntu4), libatomic1 (>= 13.2.0-23ubuntu4), libasan8 (>= 13.2.0-23ubuntu4), liblsan0 (>= 13.2.0-23ubuntu4), libtsan2 (>= 13.2.0-23ubuntu4), libubsan1 (>= 13.2.0-23ubuntu4), libhwasan0 (>= 13.2.0-23ubuntu4), libquadmath0 (>= 13.2.0-23ubuntu4)",
+        "essential": false,
+        "indexStanzaSha256": "56e9279a5b6942a96dad429613e33c3220257b06e173ca0978b0e45c0885fee2",
+        "multiArch": "same",
+        "name": "libgcc-13-dev",
+        "packageId": "deb-d36c9acb969dd37fdc0496120715d8bba67a5cc43a0c2569717314e6ad80020c",
+        "poolPath": "pool/main/g/gcc-13/libgcc-13-dev_13.2.0-23ubuntu4_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-13",
+        "sourceVersion": "13.2.0-23ubuntu4",
+        "version": "13.2.0-23ubuntu4"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-d5428fb7fc16f2b930d6df489bdb69a94f72adb7ed21541c9e76f2d5c2a444e1",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-28ddd9458eee6592895865de205ee8bd173fc4107e3efd9be214ecb4dbb2b151"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-31bfb7eec55ab6d34a50ba995150e1498d4cb897714085d8025e330d3b529747"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-8cdbc9c3dca01e660759bf9d840f72e45ac72faf5d19ca1faecacaf6a60c1a87"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 3,
+            "packageId": "deb-f5bca0c788a4fc465c435f7e8a54b2594e9cbf1a22abb263a59e393f1cb666e1"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 4,
+            "packageId": "deb-695132af8a40fe417f7d4e5ea742d64521c04e069442a4719c2bd0f10ab93d94"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 5,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 6,
+            "packageId": "deb-9474785cd6f398512bf8c305c3901dbb111569dccb6f5832002373c0a8ac5832"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 7,
+            "packageId": "deb-a78a25c8fad8fdd0b7bc6b297da5d5685579be1e57732aa47870830e4a13161e"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 8,
+            "packageId": "deb-637e6a7744de08cd331a41f4efd0d24e6ea9064843dea9d1c6ca87bdb5f038a2"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 9,
+            "packageId": "deb-28851b3997e4ba74bb3197bd58796bd3041c204c21df85fe0ddafdcaced647f0"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 10,
+            "packageId": "deb-96d1e64bb1a80f2005f41c4112d10e4756a222a6c245e9383fc8da924bd40bf9"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 11,
+            "packageId": "deb-563977a16df03b611f5239cc1e9a0426e86479fcc616b5c9e200ea32063119e5"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 12,
+            "packageId": "deb-6ea94c8a822551187cef0085073910eeae0a7525cfec4415171942c7019c68af"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 13,
+            "packageId": "deb-53e1e1753729d04cf65b05e6e58abe06e2bb76cc07eff0e1b2a638a638ca209b"
+          }
+        ],
+        "depends": "libpython3.12-minimal (= 3.12.3-1), media-types | mime-support, netbase, tzdata, libbz2-1.0, libc6 (>= 2.38), libcrypt1 (>= 1:4.1.0), libdb5.3t64, libffi8 (>= 3.4), liblzma5 (>= 5.1.1alpha+20120614), libncursesw6 (>= 6.1), libreadline8t64 (>= 7.0~beta), libsqlite3-0 (>= 3.36.0), libtinfo6 (>= 6)",
+        "essential": false,
+        "indexStanzaSha256": "29b5e59ff087887337536f440db73a7324559baf8be2f2b62863628e04215708",
+        "multiArch": "same",
+        "name": "libpython3.12-stdlib",
+        "packageId": "deb-d5428fb7fc16f2b930d6df489bdb69a94f72adb7ed21541c9e76f2d5c2a444e1",
+        "poolPath": "pool/main/p/python3.12/libpython3.12-stdlib_3.12.3-1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "python3.12",
+        "sourceVersion": "3.12.3-1",
+        "version": "3.12.3-1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-dccbd2753aedbea03f6e72f94d4f0a9e2598058265c8bb889b86db14316410df",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912"
+          }
+        ],
+        "depends": "gcc-14-base (= 14-20240412-0ubuntu1), libc6 (>= 2.34), libgcc-s1 (>= 3.4)",
+        "essential": false,
+        "indexStanzaSha256": "f49874dbb300a901bda11b0ddd10d625ee2b4e86582a5e8922f7cd02fff48fe2",
+        "multiArch": "same",
+        "name": "libtsan2",
+        "packageId": "deb-dccbd2753aedbea03f6e72f94d4f0a9e2598058265c8bb889b86db14316410df",
+        "poolPath": "pool/main/g/gcc-14/libtsan2_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-e1d2c6e9e6a4fa06a48703f57e1fad6dd643625eb0a4dd700c156d3a31e7689f",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "libc6 (>> 2.39), libc6 (<< 2.40)",
+        "essential": false,
+        "indexStanzaSha256": "f8a38e37aba12f35e844b527e5a274ac3c4843e32f564381e73fc0f99d147bc7",
+        "multiArch": "foreign",
+        "name": "libc-dev-bin",
+        "packageId": "deb-e1d2c6e9e6a4fa06a48703f57e1fad6dd643625eb0a4dd700c156d3a31e7689f",
+        "poolPath": "pool/main/g/glibc/libc-dev-bin_2.39-0ubuntu8_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "glibc",
+        "sourceVersion": "2.39-0ubuntu8",
+        "version": "2.39-0ubuntu8"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-e2f51f175731daf4fd2aacdec3096203d497c53d304ee3da1a7f9b5a26ed5821",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 2,
+            "packageId": "deb-a39efdcaa2245f026dc3254ce14fcff255fc430a17064632b6ba7c5da974a912"
+          }
+        ],
+        "depends": "gcc-14-base (= 14-20240412-0ubuntu1), libc6 (>= 2.34), libgcc-s1 (>= 3.3)",
+        "essential": false,
+        "indexStanzaSha256": "913a09531968d2cf832696700b0d25f31aa57495d8a591270bfe580db2a0f3c9",
+        "multiArch": "same",
+        "name": "libasan8",
+        "packageId": "deb-e2f51f175731daf4fd2aacdec3096203d497c53d304ee3da1a7f9b5a26ed5821",
+        "poolPath": "pool/main/g/gcc-14/libasan8_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-f45396b6fecdfa94da09e057004b75801241db948ddb7c6d831cac0f58632549",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-0b93d16d7498f092fa3070fbbad28cdbc6b3d640f1a7681b96fc37f20d1219f1"
+          }
+        ],
+        "depends": "libc6 (>= 2.14), zlib1g (>= 1:1.2.0)",
+        "essential": false,
+        "indexStanzaSha256": "88a7a503803b7f028b3d849d01369478e675cf708dd503f8b1ea7bedcba51230",
+        "multiArch": "same",
+        "name": "libctf-nobfd0",
+        "packageId": "deb-f45396b6fecdfa94da09e057004b75801241db948ddb7c6d831cac0f58632549",
+        "poolPath": "pool/main/b/binutils/libctf-nobfd0_2.42-4ubuntu2_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "binutils",
+        "sourceVersion": "2.42-4ubuntu2",
+        "version": "2.42-4ubuntu2"
+      },
+      {
+        "architecture": "amd64",
+        "artifactId": "deb-f496d80626e1512456273965d44f47b281edf53fa26d0d8bd0defc5be7e4601c",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bc5a682c694a1ce5af50772b7c737a21e9a74f0f0edaae98e97bc9c4af583fef"
+          },
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 1,
+            "packageId": "deb-af36c7ac770770fe3d3c10e85d6bc538e76e57570ba7db7d397fb9f654783ef3"
+          }
+        ],
+        "depends": "gcc-14-base (= 14-20240412-0ubuntu1), libc6 (>= 2.14)",
+        "essential": false,
+        "indexStanzaSha256": "d7a9934fe7c7044aa2bbb255b85ac25b5186113ef9bd4b462218b810babf4d1e",
+        "multiArch": "same",
+        "name": "libatomic1",
+        "packageId": "deb-f496d80626e1512456273965d44f47b281edf53fa26d0d8bd0defc5be7e4601c",
+        "poolPath": "pool/main/g/gcc-14/libatomic1_14-20240412-0ubuntu1_amd64.deb",
+        "preDepends": "",
+        "provides": "",
+        "repositoryId": "noble-main",
+        "sourceName": "gcc-14",
+        "sourceVersion": "14-20240412-0ubuntu1",
+        "version": "14-20240412-0ubuntu1"
+      },
+      {
+        "architecture": "all",
+        "artifactId": "deb-f5bca0c788a4fc465c435f7e8a54b2594e9cbf1a22abb263a59e393f1cb666e1",
+        "component": "main",
+        "dependencyResolutions": [
+          {
+            "alternativeIndex": 0,
+            "field": "Depends",
+            "groupIndex": 0,
+            "packageId": "deb-bb390da466a7461bfc87aa3e6b7cd145dae84af3e26bf437f2c0c218ba226294"
+          }
+        ],
+        "depends": "debconf (>= 0.5) | debconf-2.0",
+        "essential": false,
+        "indexStanzaSha256": "dec8393618463dec5861979f3f75939af262b4b4b959d39932a9661bb4685813",
+        "multiArch": "foreign",
+        "name": "tzdata",
+        "packageId": "deb-f5bca0c788a4fc465c435f7e8a54b2594e9cbf1a22abb263a59e393f1cb666e1",
+        "poolPath": "pool/main/t/tzdata/tzdata_2024a-2ubuntu1_all.deb",
+        "preDepends": "",
+        "provides": "tzdata-trixie",
+        "repositoryId": "noble-main",
+        "sourceName": "tzdata",
+        "sourceVersion": "2024a-2ubuntu1",
+        "version": "2024a-2ubuntu1"
+      }
+    ],
+    "repositories": [
+      {
+        "architecture": "amd64",
+        "component": "main",
+        "id": "noble-main",
+        "inReleaseArtifactId": "ubuntu-inrelease",
+        "keyringArtifactId": "ubuntu-keyring",
+        "packagesIndexArtifactId": "ubuntu-packages-index",
+        "packagesIndexPath": "main/binary-amd64/Packages.xz",
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z",
+        "suite": "noble"
+      }
+    ],
+    "seedPackageIds": [
+      "deb-1f03b79223d9cf1a6ed3a648f6942619dcb97b2884dba8fd12e262b6771e247a",
+      "deb-1f3770dce907c26493217393ed24ca7484443381cafd04c81d6a6bef702b7416",
+      "deb-92f94ad8c5d42472fd032f7820aaeb9df2cc08559ef062a3a277573c03d26a08",
+      "deb-b4f42ae5295d74dffeac08ce22c70986322801ad6ab8279bdaf083d3440ea30a"
+    ],
+    "seeds": [
+      "binutils-x86-64-linux-gnu",
+      "gcc-13-x86-64-linux-gnu",
+      "libc6-dev",
+      "python3.12"
+    ],
+    "snapshot": "2024-04-25T16:00:00Z",
+    "verification": {
+      "toolRole": "gpgv"
+    }
+  }
+}
