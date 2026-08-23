@@ -159,6 +159,19 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertLess(replay.index(mismatch), replay.index(diagnostic))
         self.assertLess(replay.index(diagnostic), replay.index("cases = ("))
 
+    def test_linux_replay_mounts_a_private_proc_for_the_frozen_lld_wrapper(self) -> None:
+        replay = (
+            ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"
+        ).read_text(encoding="utf-8")
+
+        mount_proc = 'mount -t proc -o nosuid,nodev,noexec proc "$rootfs/proc"'
+        first_checker = 'chroot --groups=\'\' --userspec=65534:65534 "$rootfs"'
+        unmount_proc = 'umount "$rootfs/proc"'
+        self.assertIn(mount_proc, replay)
+        self.assertIn(unmount_proc, replay)
+        self.assertLess(replay.index(mount_proc), replay.index(first_checker))
+        self.assertLess(replay.index(first_checker), replay.index(unmount_proc))
+
     def test_portable_source_lock_bytes_ignore_runtime_tool_path_and_digest(self) -> None:
         first = _v1_candidate(
             "/host-a/bin/gpgv",

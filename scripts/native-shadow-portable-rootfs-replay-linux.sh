@@ -116,10 +116,16 @@ PY
   # The OCI layer intentionally contains no device nodes.  Bind only the
   # minimum kernel devices needed by Python/cargo into this unit's private
   # mount namespace; none survive the unit.
-  mkdir -p "$rootfs/dev"
+  mkdir -p "$rootfs/dev" "$rootfs/proc"
   : >"$rootfs/dev/null"
   mount --bind /dev/null "$rootfs/dev/null"
   [[ -c "$rootfs/dev/null" ]] || die "runtime /dev/null bind is not a character device"
+  # The frozen rustc delegates final linking to its lld wrapper.  That wrapper
+  # resolves itself through /proc/self/exe, so give this already-private mount
+  # namespace its own read-only-by-policy proc view.  nosuid/nodev/noexec keeps
+  # it metadata-only and the explicit umount below proves normal-path cleanup.
+  mount -t proc -o nosuid,nodev,noexec proc "$rootfs/proc"
+  [[ -e "$rootfs/proc/self/exe" ]] || die "private proc self identity is unavailable"
 
   mkdir -p "$rootfs/probe" "$rootfs/scratch"
   cp -a "$ROOT/fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/." \
@@ -231,6 +237,7 @@ for path, verdict, reason in cases:
             raise SystemExit(f"checker binding differs: {path}: {key}")
 PY
 
+  umount "$rootfs/proc"
   umount "$rootfs/dev/null"
   printf 'native-shadow portable rootfs offline probe: PASS\n'
   exit 0
