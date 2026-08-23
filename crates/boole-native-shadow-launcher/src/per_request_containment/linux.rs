@@ -639,17 +639,98 @@ fn set_nonblocking(fd: RawFd, enabled: bool) -> Result<(), ContainmentFailure> {
 }
 
 fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
-    mount_raw(None, c"/", None, libc::MS_REC | libc::MS_PRIVATE, None)?;
-    require_runtime_paths_absent_from_frozen_lower(rootfs_fd)?;
+    setup_stage(
+        "derive-make-root-private",
+        mount_raw(None, c"/", None, libc::MS_REC | libc::MS_PRIVATE, None),
+    )?;
+    setup_stage(
+        "derive-check-lower",
+        require_runtime_paths_absent_from_frozen_lower(rootfs_fd),
+    )?;
 
     let staging_options = c"size=67108864,nr_inodes=4096,mode=0700,uid=0,gid=0";
-    mount_raw(
-        Some(c"tmpfs"),
-        STAGING_PATH,
-        Some(c"tmpfs"),
-        libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
-        Some(staging_options),
+    setup_stage(
+        "derive-mount-staging",
+        mount_raw(
+            Some(c"tmpfs"),
+            STAGING_PATH,
+            Some(c"tmpfs"),
+            libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+            Some(staging_options),
+        ),
     )?;
+    setup_stage("derive-create-staging", create_runtime_staging_tree())?;
+
+    let overlay_options = CString::new(format!(
+        "lowerdir=/proc/self/fd/{rootfs_fd},upperdir={},workdir={}",
+        RUNTIME_UPPER.to_string_lossy(),
+        RUNTIME_WORK.to_string_lossy(),
+    ))
+    .map_err(|_| "overlay mount options contain NUL".to_string())?;
+    setup_stage(
+        "derive-mount-overlay",
+        mount_raw(
+            Some(c"overlay"),
+            RUNTIME_ROOT,
+            Some(c"overlay"),
+            libc::MS_NOSUID | libc::MS_NODEV,
+            Some(&overlay_options),
+        ),
+    )?;
+    setup_stage(
+        "derive-verify-overlay",
+        verify_derived_runtime_root(rootfs_fd),
+    )?;
+    setup_stage(
+        "derive-create-old-root",
+        mkdir_fixed(RUNTIME_OLD_ROOT, 0o700),
+    )?;
+
+    // CAP_SYS_CHROOT is deliberately absent.  The child already owns a
+    // private mount namespace and CAP_SYS_ADMIN, so atomically replace its
+    // mount root instead of widening the capability set.
+    // SAFETY: RUNTIME_ROOT is the verified private overlay mount.
+    setup_stage(
+        "derive-enter-overlay",
+        syscall_zero(unsafe { libc::chdir(RUNTIME_ROOT.as_ptr()) } as libc::c_long),
+    )?;
+    // SAFETY: both fixed paths are beneath the current private overlay cwd;
+    // `.old-root` is the empty directory created above on that same mount.
+    setup_stage(
+        "derive-pivot-root",
+        syscall_zero(unsafe {
+            libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".old-root".as_ptr())
+        }),
+    )?;
+    // SAFETY: after pivot_root, `/` is the derived overlay and the previous
+    // host root exists only at the fixed private `/.old-root` mountpoint.
+    setup_stage(
+        "derive-enter-new-root",
+        syscall_zero(unsafe { libc::chdir(c"/".as_ptr()) } as libc::c_long),
+    )?;
+    // SAFETY: detach the old host root from this private namespace before any
+    // untrusted checker bytes are materialized or executed.
+    setup_stage(
+        "derive-detach-old-root",
+        syscall_zero(
+            unsafe { libc::umount2(OLD_ROOT_AFTER_PIVOT.as_ptr(), libc::MNT_DETACH) }
+                as libc::c_long,
+        ),
+    )?;
+    // SAFETY: the old-root mount is detached and this exact empty mountpoint
+    // must be removed, leaving no path back to the host tree.
+    setup_stage(
+        "derive-remove-old-root",
+        syscall_zero(unsafe { libc::rmdir(OLD_ROOT_AFTER_PIVOT.as_ptr()) } as libc::c_long),
+    )?;
+    setup_stage(
+        "derive-verify-old-root-unreachable",
+        verify_old_root_is_unreachable(),
+    )?;
+    Ok(())
+}
+
+fn create_runtime_staging_tree() -> Result<(), String> {
     for path in [c"/run/boole", RUNTIME_BASE, RUNTIME_WORK, RUNTIME_ROOT] {
         mkdir_fixed(path, 0o700)?;
     }
@@ -675,52 +756,15 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
     ] {
         mkdir_fixed(path, mode)?;
     }
-
-    let overlay_options = CString::new(format!(
-        "lowerdir=/proc/self/fd/{rootfs_fd},upperdir={},workdir={}",
-        RUNTIME_UPPER.to_string_lossy(),
-        RUNTIME_WORK.to_string_lossy(),
-    ))
-    .map_err(|_| "overlay mount options contain NUL".to_string())?;
-    mount_raw(
-        Some(c"overlay"),
-        RUNTIME_ROOT,
-        Some(c"overlay"),
-        libc::MS_NOSUID | libc::MS_NODEV,
-        Some(&overlay_options),
-    )?;
-    verify_derived_runtime_root(rootfs_fd)?;
-    mkdir_fixed(RUNTIME_OLD_ROOT, 0o700)?;
-
-    // CAP_SYS_CHROOT is deliberately absent.  The child already owns a
-    // private mount namespace and CAP_SYS_ADMIN, so atomically replace its
-    // mount root instead of widening the capability set.
-    // SAFETY: RUNTIME_ROOT is the verified private overlay mount.
-    if unsafe { libc::chdir(RUNTIME_ROOT.as_ptr()) } != 0 {
-        return Err(io::Error::last_os_error().to_string());
-    }
-    // SAFETY: both fixed paths are beneath the current private overlay cwd;
-    // `.old-root` is the empty directory created above on that same mount.
-    if unsafe { libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".old-root".as_ptr()) } != 0 {
-        return Err(io::Error::last_os_error().to_string());
-    }
-    // SAFETY: after pivot_root, `/` is the derived overlay and the previous
-    // host root exists only at the fixed private `/.old-root` mountpoint.
-    if unsafe { libc::chdir(c"/".as_ptr()) } != 0 {
-        return Err(io::Error::last_os_error().to_string());
-    }
-    // SAFETY: detach the old host root from this private namespace before any
-    // untrusted checker bytes are materialized or executed.
-    if unsafe { libc::umount2(OLD_ROOT_AFTER_PIVOT.as_ptr(), libc::MNT_DETACH) } != 0 {
-        return Err(io::Error::last_os_error().to_string());
-    }
-    // SAFETY: the old-root mount is detached and this exact empty mountpoint
-    // must be removed, leaving no path back to the host tree.
-    if unsafe { libc::rmdir(OLD_ROOT_AFTER_PIVOT.as_ptr()) } != 0 {
-        return Err(io::Error::last_os_error().to_string());
-    }
-    verify_old_root_is_unreachable()?;
     Ok(())
+}
+
+fn syscall_zero(status: libc::c_long) -> Result<(), String> {
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error().to_string())
+    }
 }
 
 fn verify_old_root_is_unreachable() -> Result<(), String> {
@@ -1516,7 +1560,7 @@ mod tests {
         let source = include_str!("linux.rs");
         assert!(source.contains("libc::SYS_pivot_root"));
         assert!(source.contains("libc::umount2(OLD_ROOT_AFTER_PIVOT.as_ptr(), libc::MNT_DETACH)"));
-        assert!(source.contains("verify_old_root_is_unreachable()?"));
+        assert!(source.contains("\"derive-verify-old-root-unreachable\""));
         assert!(
             !source.contains("libc::chroot("),
             "CAP_SYS_CHROOT is deliberately absent from the fixed launcher capability set"

@@ -507,6 +507,28 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         ):
             self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
 
+    def test_runtime_root_derivation_reports_the_exact_failed_substage(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        for stage in (
+            "derive-make-root-private",
+            "derive-check-lower",
+            "derive-mount-staging",
+            "derive-create-staging",
+            "derive-mount-overlay",
+            "derive-verify-overlay",
+            "derive-create-old-root",
+            "derive-enter-overlay",
+            "derive-pivot-root",
+            "derive-enter-new-root",
+            "derive-detach-old-root",
+            "derive-remove-old-root",
+            "derive-verify-old-root-unreachable",
+        ):
+            self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
+
     def test_overlay_root_remains_traversable_after_checker_privilege_drop(self) -> None:
         source = (
             ROOT
