@@ -6,6 +6,9 @@ license.workspace = true
 authors.workspace = true
 publish = false
 
+[features]
+manager-cgroup-linux-gate = []
+
 [dependencies]
 boole-native-shadow-protocol = { path = "../boole-native-shadow-protocol" }
 hex.workspace = true
@@ -19,3 +22,9 @@ serde_json.workspace = true
 
 [lints]
 workspace = true
+
+[[test]]
+name = "boole-native-shadow-manager-cgroup-linux"
+path = "tests/manager_cgroup_linux.rs"
+harness = false
+required-features = ["manager-cgroup-linux-gate"]

@@ -932,24 +932,42 @@ d /run/boole/native-shadow 2750 root boole-node -
                 "path": "/sys/fs/cgroup/system.slice/"
                 "boole-native-shadow-launcher.service/manager",
                 "createOrReuse": "exact-direct-child-directory-only",
+                "requiredOwnerUid": 0,
+                "requiredOwnerGid": 0,
+                "requiredMode": "0700",
+                "createModeProcedure": (
+                    "mkdirat-0700;descriptor-fchmod-0700;"
+                    "descriptor-fstat-root-root-0700-before-control-open"
+                ),
+                "preMoveProcessRequires": (
+                    "exactly-one-task-entry-equal-current-tid"
+                ),
                 "reuseRequires": (
-                    "cgroup.events-populated-zero;cgroup.procs-and-cgroup.threads-empty;"
+                    "cgroup.events-populated-and-frozen-zero;cgroup.type-domain;"
+                    "cgroup.subtree_control-empty;"
+                    "cgroup.procs-and-cgroup.threads-empty;"
                     "no-child-cgroups-before-moving-current-launcher"
                 ),
                 "postMoveRequires": (
-                    "only-current-launcher-pid-in-cgroup.procs-and-no-child-cgroups"
+                    "only-current-launcher-pid-in-cgroup.procs;"
+                    "only-current-launcher-tid-in-cgroup.threads;"
+                    "cgroup.type-domain;cgroup.subtree_control-empty;no-child-cgroups"
                 ),
+                "failureBeforeMove": "pre-move-startup-failure-without-readiness",
+                "failureAtOrAfterMoveAttempt": "post-move-fatal-process-exit",
             },
         )
         self.assertEqual(crash["executionLeafParent"], "service-cgroup-root")
         self.assertEqual(
             crash["startupCgroupSequence"],
             [
+                "verify-current-launcher-is-single-threaded",
                 "create-manager-subgroup",
                 "move-launcher-process-to-manager/cgroup.procs",
                 "verify-service-root-cgroup.procs-empty",
                 "enable-cpu-memory-pids-in-service-root-cgroup.subtree_control",
                 "verify-controller-readback",
+                "verify-manager-postmove-pid-tid-type-empty-subtree-control-and-no-child-cgroups",
             ],
         )
         self.assertEqual(crash["recoveryScanExcludes"], ["manager"])

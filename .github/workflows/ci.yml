@@ -64,6 +64,9 @@ jobs:
       - name: Compose launcher pre-lock, lifetime lock, and instance identity
         run: ./scripts/native-shadow-launcher-prelock-gate.sh
 
+      - name: Establish the real native-shadow manager cgroup
+        run: ./scripts/native-shadow-manager-cgroup-gate.sh
+
       - name: Probe delegated cgroup and namespace capabilities
         run: sudo ./scripts/native-shadow-containment-capability-probe.sh
 
