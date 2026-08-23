@@ -14,10 +14,86 @@ use sha2::{Digest, Sha256};
 
 const EXECUTION_REQUEST_SCHEMA: &str = "boole.native-shadow.launcher.execute.v1";
 const EXECUTION_REPORT_SCHEMA: &str = "boole.native-shadow.launcher.report.v1";
+const EXECUTION_HELLO_SCHEMA: &str = "boole.native-shadow.launcher.hello.v1";
+const EXECUTION_READY_SCHEMA: &str = "boole.native-shadow.launcher.ready.v1";
 const CHECKER_RESULT_SCHEMA: &str = "boole.native-shadow.checker-result.v1";
 const REQUEST_DIGEST_DOMAIN: &[u8] = b"boole.native-shadow.launcher.request.v1\0";
 const SUBMISSION_DIGEST_DOMAIN: &[u8] = b"boole.native-shadow.submission.v1\0";
 const MAX_RAW_BYTES: usize = 16_384;
+
+/// Node-owned commitment to one exact encoded Execute frame. Callers cannot
+/// inject its digest or payload length: both are derived from the validated
+/// frame bytes by `try_from_execution_request_frame`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutionHello {
+    schema: String,
+    nonce_hex: String,
+    request_digest_hex: String,
+    request_length_bytes: u32,
+    execution_policy_digest_hex: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExecutionHelloDto {
+    schema: String,
+    nonce_hex: String,
+    request_digest_hex: String,
+    request_length_bytes: u32,
+    execution_policy_digest_hex: String,
+}
+
+/// Launcher readiness bound to an `ExecutionHello`. It remains disabled in
+/// this qualification release (`activationAllowed=false`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutionReady {
+    schema: String,
+    nonce_hex: String,
+    request_digest_hex: String,
+    execution_policy_digest_hex: String,
+    launcher_pid: u32,
+    launcher_uid: u32,
+    launcher_gid: u32,
+    node_uid: u32,
+    node_gid: u32,
+    checker_uid: u32,
+    checker_gid: u32,
+    activation_allowed: bool,
+    ready: bool,
+}
+
+/// Resolved process identities used by the launcher. Echoed hello fields and
+/// readiness literals are deliberately absent so callers cannot forge them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutionReadyFields {
+    pub launcher_pid: u32,
+    pub launcher_uid: u32,
+    pub launcher_gid: u32,
+    pub node_uid: u32,
+    pub node_gid: u32,
+    pub checker_uid: u32,
+    pub checker_gid: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExecutionReadyDto {
+    schema: String,
+    nonce_hex: String,
+    request_digest_hex: String,
+    execution_policy_digest_hex: String,
+    launcher_pid: u32,
+    launcher_uid: u32,
+    launcher_gid: u32,
+    node_uid: u32,
+    node_gid: u32,
+    checker_uid: u32,
+    checker_gid: u32,
+    activation_allowed: bool,
+    ready: bool,
+}
 
 /// Validated Execute message. Direct deserialization is intentionally absent.
 ///
@@ -526,6 +602,26 @@ struct ExecutionReportDto {
     checker_result: CheckerResultDto,
 }
 
+pub fn encode_execution_hello_frame(value: &ExecutionHello) -> Result<Vec<u8>, WireError> {
+    encode_frame(value, MAX_REQUEST_FRAME_BYTES)
+}
+
+pub fn decode_complete_execution_hello_frame(frame: &[u8]) -> Result<ExecutionHello, WireError> {
+    let payload = complete_frame_payload(frame, MAX_REQUEST_FRAME_BYTES)?;
+    let dto: ExecutionHelloDto = decode_strict_payload(payload, MAX_REQUEST_FRAME_BYTES)?;
+    ExecutionHello::try_from(dto)
+}
+
+pub fn encode_execution_ready_frame(value: &ExecutionReady) -> Result<Vec<u8>, WireError> {
+    encode_frame(value, MAX_RESPONSE_FRAME_BYTES)
+}
+
+pub fn decode_complete_execution_ready_frame(frame: &[u8]) -> Result<ExecutionReady, WireError> {
+    let payload = complete_frame_payload(frame, MAX_RESPONSE_FRAME_BYTES)?;
+    let dto: ExecutionReadyDto = decode_strict_payload(payload, MAX_RESPONSE_FRAME_BYTES)?;
+    ExecutionReady::try_from(dto)
+}
+
 pub fn encode_execution_request_frame(value: &ExecutionRequest) -> Result<Vec<u8>, WireError> {
     encode_frame(value, MAX_REQUEST_FRAME_BYTES)
 }
@@ -582,6 +678,224 @@ pub fn submission_digest_hex(
     digest.update(length_prefix(raw_answer)?);
     digest.update(raw_answer);
     Ok(hex::encode(digest.finalize()))
+}
+
+impl ExecutionHello {
+    pub fn try_from_execution_request_frame(frame: &[u8]) -> Result<Self, WireError> {
+        let request = decode_complete_execution_request_frame(frame)?;
+        let payload_length = frame
+            .len()
+            .checked_sub(4)
+            .and_then(|length| u32::try_from(length).ok())
+            .ok_or_else(|| contract("execution request payload length is invalid"))?;
+        let mut digest = Sha256::new();
+        digest.update(REQUEST_DIGEST_DOMAIN);
+        digest.update(frame);
+        Self {
+            schema: EXECUTION_HELLO_SCHEMA.to_string(),
+            nonce_hex: request.nonce_hex,
+            request_digest_hex: hex::encode(digest.finalize()),
+            request_length_bytes: payload_length,
+            execution_policy_digest_hex: request.execution_policy_digest_hex,
+        }
+        .validated()
+    }
+
+    fn validated(self) -> Result<Self, WireError> {
+        self.validate_wire()?;
+        Ok(self)
+    }
+
+    pub fn nonce_hex(&self) -> &str {
+        &self.nonce_hex
+    }
+
+    pub fn request_digest_hex(&self) -> &str {
+        &self.request_digest_hex
+    }
+
+    pub fn request_length_bytes(&self) -> u32 {
+        self.request_length_bytes
+    }
+
+    pub fn execution_policy_digest_hex(&self) -> &str {
+        &self.execution_policy_digest_hex
+    }
+}
+
+impl TryFrom<ExecutionHelloDto> for ExecutionHello {
+    type Error = WireError;
+
+    fn try_from(dto: ExecutionHelloDto) -> Result<Self, Self::Error> {
+        Self {
+            schema: dto.schema,
+            nonce_hex: dto.nonce_hex,
+            request_digest_hex: dto.request_digest_hex,
+            request_length_bytes: dto.request_length_bytes,
+            execution_policy_digest_hex: dto.execution_policy_digest_hex,
+        }
+        .validated()
+    }
+}
+
+impl WireValidate for ExecutionHello {
+    fn validate_wire(&self) -> Result<(), WireError> {
+        if self.schema != EXECUTION_HELLO_SCHEMA {
+            return Err(contract("execution hello schema literal mismatch"));
+        }
+        for (name, value) in [
+            ("nonceHex", self.nonce_hex.as_str()),
+            ("requestDigestHex", self.request_digest_hex.as_str()),
+            (
+                "executionPolicyDigestHex",
+                self.execution_policy_digest_hex.as_str(),
+            ),
+        ] {
+            require_wire_sha256(name, value)?;
+        }
+        if self.request_length_bytes == 0
+            || self.request_length_bytes as usize > MAX_REQUEST_FRAME_BYTES
+        {
+            return Err(contract(
+                "requestLengthBytes must be within the request payload cap",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl ExecutionReady {
+    pub fn try_new(
+        hello: &ExecutionHello,
+        fields: ExecutionReadyFields,
+    ) -> Result<Self, WireError> {
+        hello.validate_wire()?;
+        Self {
+            schema: EXECUTION_READY_SCHEMA.to_string(),
+            nonce_hex: hello.nonce_hex.clone(),
+            request_digest_hex: hello.request_digest_hex.clone(),
+            execution_policy_digest_hex: hello.execution_policy_digest_hex.clone(),
+            launcher_pid: fields.launcher_pid,
+            launcher_uid: fields.launcher_uid,
+            launcher_gid: fields.launcher_gid,
+            node_uid: fields.node_uid,
+            node_gid: fields.node_gid,
+            checker_uid: fields.checker_uid,
+            checker_gid: fields.checker_gid,
+            activation_allowed: false,
+            ready: true,
+        }
+        .validated()
+    }
+
+    fn validated(self) -> Result<Self, WireError> {
+        self.validate_wire()?;
+        Ok(self)
+    }
+
+    pub fn nonce_hex(&self) -> &str {
+        &self.nonce_hex
+    }
+
+    pub fn request_digest_hex(&self) -> &str {
+        &self.request_digest_hex
+    }
+
+    pub fn execution_policy_digest_hex(&self) -> &str {
+        &self.execution_policy_digest_hex
+    }
+
+    pub fn launcher_pid(&self) -> u32 {
+        self.launcher_pid
+    }
+
+    pub fn launcher_uid(&self) -> u32 {
+        self.launcher_uid
+    }
+
+    pub fn launcher_gid(&self) -> u32 {
+        self.launcher_gid
+    }
+
+    pub fn node_uid(&self) -> u32 {
+        self.node_uid
+    }
+
+    pub fn node_gid(&self) -> u32 {
+        self.node_gid
+    }
+
+    pub fn checker_uid(&self) -> u32 {
+        self.checker_uid
+    }
+
+    pub fn checker_gid(&self) -> u32 {
+        self.checker_gid
+    }
+
+    pub fn activation_allowed(&self) -> bool {
+        self.activation_allowed
+    }
+
+    pub fn ready(&self) -> bool {
+        self.ready
+    }
+}
+
+impl TryFrom<ExecutionReadyDto> for ExecutionReady {
+    type Error = WireError;
+
+    fn try_from(dto: ExecutionReadyDto) -> Result<Self, Self::Error> {
+        Self {
+            schema: dto.schema,
+            nonce_hex: dto.nonce_hex,
+            request_digest_hex: dto.request_digest_hex,
+            execution_policy_digest_hex: dto.execution_policy_digest_hex,
+            launcher_pid: dto.launcher_pid,
+            launcher_uid: dto.launcher_uid,
+            launcher_gid: dto.launcher_gid,
+            node_uid: dto.node_uid,
+            node_gid: dto.node_gid,
+            checker_uid: dto.checker_uid,
+            checker_gid: dto.checker_gid,
+            activation_allowed: dto.activation_allowed,
+            ready: dto.ready,
+        }
+        .validated()
+    }
+}
+
+impl WireValidate for ExecutionReady {
+    fn validate_wire(&self) -> Result<(), WireError> {
+        if self.schema != EXECUTION_READY_SCHEMA {
+            return Err(contract("execution ready schema literal mismatch"));
+        }
+        for (name, value) in [
+            ("nonceHex", self.nonce_hex.as_str()),
+            ("requestDigestHex", self.request_digest_hex.as_str()),
+            (
+                "executionPolicyDigestHex",
+                self.execution_policy_digest_hex.as_str(),
+            ),
+        ] {
+            require_wire_sha256(name, value)?;
+        }
+        validate_service_identities(
+            self.launcher_pid,
+            self.launcher_uid,
+            self.launcher_gid,
+            self.node_uid,
+            self.node_gid,
+            self.checker_uid,
+            self.checker_gid,
+        )?;
+        if self.activation_allowed || !self.ready {
+            return Err(contract(
+                "execution readiness must be ready=true and activationAllowed=false",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl ExecutionRequest {
@@ -1132,23 +1446,15 @@ impl WireValidate for ExecutionReport {
         ] {
             require_wire_sha256(name, value)?;
         }
-        if self.launcher_pid == 0 {
-            return Err(contract("launcherPid must be non-zero"));
-        }
-        if self.launcher_uid != 0 || self.launcher_gid != 0 {
-            return Err(contract("launcher UID and GID must both be root (0)"));
-        }
-        if self.node_uid == 0
-            || self.node_gid == 0
-            || self.checker_uid == 0
-            || self.checker_gid == 0
-            || self.node_uid == self.checker_uid
-            || self.node_gid == self.checker_gid
-        {
-            return Err(contract(
-                "node/checker IDs must be non-root and mutually distinct",
-            ));
-        }
+        validate_service_identities(
+            self.launcher_pid,
+            self.launcher_uid,
+            self.launcher_gid,
+            self.node_uid,
+            self.node_gid,
+            self.checker_uid,
+            self.checker_gid,
+        )?;
         self.authority_bindings.validate_wire()?;
         self.wait_status.validate_wire()?;
         self.resource_observations.validate_wire()?;
@@ -1187,6 +1493,35 @@ impl WireValidate for ExecutionReport {
         }
         Ok(())
     }
+}
+
+fn validate_service_identities(
+    launcher_pid: u32,
+    launcher_uid: u32,
+    launcher_gid: u32,
+    node_uid: u32,
+    node_gid: u32,
+    checker_uid: u32,
+    checker_gid: u32,
+) -> Result<(), WireError> {
+    if launcher_pid == 0 {
+        return Err(contract("launcherPid must be non-zero"));
+    }
+    if launcher_uid != 0 || launcher_gid != 0 {
+        return Err(contract("launcher UID and GID must both be root (0)"));
+    }
+    if node_uid == 0
+        || node_gid == 0
+        || checker_uid == 0
+        || checker_gid == 0
+        || node_uid == checker_uid
+        || node_gid == checker_gid
+    {
+        return Err(contract(
+            "node/checker IDs must be non-root and mutually distinct",
+        ));
+    }
+    Ok(())
 }
 
 fn decode_canonical_base64(name: &str, value: &str) -> Result<Vec<u8>, WireError> {
