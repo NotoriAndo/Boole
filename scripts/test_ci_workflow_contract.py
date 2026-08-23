@@ -80,6 +80,27 @@ class CiWorkflowContractTest(unittest.TestCase):
 class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
     """Phase 3B.1 -- a real, non-skippable Linux containment capability gate."""
 
+    def test_offline_rootfs_builder_runs_in_named_linux_private_network(self):
+        job = self._job("native-shadow-containment-linux")
+        self.assertIn(
+            "sudo ./scripts/native-shadow-rootfs-builder-linux-gate.sh",
+            job,
+        )
+        gate = (
+            REPO_ROOT / "scripts" / "native-shadow-rootfs-builder-linux-gate.sh"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "PrivateNetwork=yes",
+            "NoNewPrivileges=yes",
+            "ProtectSystem=strict",
+            '--setenv="TMPDIR=$scratch"',
+            "scripts.test_native_shadow_rootfs_builder",
+            "scripts.test_native_shadow_rootfs_oci_verify",
+        ):
+            self.assertIn(required, gate)
+        for forbidden in ("continue-on-error", "|| true", "SKIP"):
+            self.assertNotIn(forbidden, gate)
+
     def setUp(self):
         self.text = WORKFLOW.read_text(encoding="utf-8")
 

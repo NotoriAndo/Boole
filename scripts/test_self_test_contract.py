@@ -18,6 +18,20 @@ def _read(path: Path) -> str:
 
 
 class SelfTestContractTests(unittest.TestCase):
+    def test_self_test_runs_native_shadow_rootfs_builder_contract(self) -> None:
+        body = _read(SELF_TEST)
+        for test_file, purpose in (
+            (
+                "scripts/test_native_shadow_rootfs_builder.py",
+                "the deterministic offline rootfs builder contract",
+            ),
+            (
+                "scripts/test_native_shadow_rootfs_oci_verify.py",
+                "the builder-independent OCI verification contract",
+            ),
+        ):
+            self.assertIn(test_file, body, f"{purpose} must run in self-test")
+
     def test_ci_workflow_declares_rust_test_threads(self) -> None:
         # P0.3 — the determinism contract must be explicit at the CI level too,
         # not only inside self-test.sh, so the workflow file alone documents the

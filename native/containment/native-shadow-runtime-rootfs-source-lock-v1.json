@@ -1,0 +1,187 @@
+{
+  "activationAllowed": false,
+  "artifacts": [
+    {
+      "id": "cargo-rustdist",
+      "kind": "rust-dist",
+      "sha256": "53e718c828a16746abdf3f8fb6f4c75ce5494a6f547ef6f02d45d72faef4c426",
+      "sizeBytes": null
+    },
+    {
+      "id": "rust-std-rustdist",
+      "kind": "rust-dist",
+      "sha256": "fd04194fb361ef69735a0b722fcaf6d9b49a339944f485aebcc4c172adb5c339",
+      "sizeBytes": null
+    },
+    {
+      "id": "rustc-rustdist",
+      "kind": "rust-dist",
+      "sha256": "12cd470422b39da22a7b8c2f069c25e66200d5a46c1be5dac0bfe7620ed0d415",
+      "sizeBytes": null
+    }
+  ],
+  "authorityBindings": [
+    {
+      "id": "checker-entrypoint",
+      "sha256": "5a9d20421fd1f82a05f0c5ca902fca84c09b5f0350ca28788f3eb3793b6007e7",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/checker.py"
+    },
+    {
+      "id": "checker-policy",
+      "sha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/policy.json"
+    },
+    {
+      "id": "checker-release",
+      "sha256": "aa7939ebbb4472a82d08a30abfafc628577a76d751a2ae2b6f476e614ac21782",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json"
+    },
+    {
+      "id": "execution-policy",
+      "sha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2",
+      "sourcePath": "native/containment/native-shadow-execution-policy-v1.json"
+    },
+    {
+      "id": "registry",
+      "sha256": "1f3c6a079babe66454ae7a16e858b1507c2d121ac3514dd5c9a636602cd83f45",
+      "sourcePath": "fixtures/native-shadow/registry-v1.json"
+    },
+    {
+      "id": "toolchain-identity",
+      "sha256": "29799eff53df764024de8f1020eac177b2ee936243d2ac52d192ba2423f0fa84",
+      "sourcePath": "native/containment/native-shadow-toolchain-identity-v1.json"
+    }
+  ],
+  "buildRecipe": {
+    "baseImage": "empty",
+    "builderSha256": null,
+    "canonicalMtime": 0,
+    "maintainerScripts": "never-execute-or-copy",
+    "maxEntries": 200000,
+    "maxFileBytes": 536870912,
+    "maxTotalBytes": 2147483648,
+    "network": "forbidden",
+    "output": "oci-image-layout-single-uncompressed-layer-v1",
+    "ownership": "root:root-only"
+  },
+  "closureRoots": [
+    {
+      "logicalRoots": [
+        "/opt/boole/native-checker-toolchain"
+      ],
+      "name": "installed-rust-toolchain-file-manifest"
+    },
+    {
+      "logicalRoots": [
+        "/usr/bin/python3.12",
+        "/usr/lib/python3.12"
+      ],
+      "name": "python-interpreter-and-stdlib-file-manifest"
+    },
+    {
+      "logicalRoots": [
+        "/lib",
+        "/usr/bin",
+        "/usr/lib"
+      ],
+      "name": "system-linker-and-runtime-file-manifest"
+    }
+  ],
+  "derivedEntries": [],
+  "platform": {
+    "debArchitecture": "amd64",
+    "ociArchitecture": "amd64",
+    "os": "linux",
+    "rustTarget": "x86_64-unknown-linux-gnu"
+  },
+  "release": "NATIVE-SHADOW-RUNTIME-ROOTFS-SOURCE-LOCK-V1-SCAFFOLD",
+  "rust": {
+    "cargoCommitHash": "3efb1f477e99b42974b982d939fd100303cdf7db",
+    "components": [
+      {
+        "artifactId": "cargo-rustdist",
+        "name": "cargo",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      {
+        "artifactId": "rust-std-rustdist",
+        "name": "rust-std-x86_64-unknown-linux-gnu",
+        "target": "x86_64-unknown-linux-gnu"
+      },
+      {
+        "artifactId": "rustc-rustdist",
+        "name": "rustc",
+        "target": "x86_64-unknown-linux-gnu"
+      }
+    ],
+    "installPrefix": "/opt/boole/native-checker-toolchain",
+    "rustcCommitHash": "e7795af6d2449fb05a6393c3320ced873a999eb3"
+  },
+  "schema": "boole.native-shadow.runtime-rootfs-source-lock.v1",
+  "trackedFiles": [
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+      "mode": "0444",
+      "sha256": "aa7939ebbb4472a82d08a30abfafc628577a76d751a2ae2b6f476e614ac21782",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py",
+      "mode": "0444",
+      "sha256": "5a9d20421fd1f82a05f0c5ca902fca84c09b5f0350ca28788f3eb3793b6007e7",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/checker.py",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/policy.json",
+      "mode": "0444",
+      "sha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/policy.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/execution-policy-v1.json",
+      "mode": "0444",
+      "sha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2",
+      "sourcePath": "native/containment/native-shadow-execution-policy-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/registry-v1.json",
+      "mode": "0444",
+      "sha256": "1f3c6a079babe66454ae7a16e858b1507c2d121ac3514dd5c9a636602cd83f45",
+      "sourcePath": "fixtures/native-shadow/registry-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/toolchain-identity-v1.json",
+      "mode": "0444",
+      "sha256": "29799eff53df764024de8f1020eac177b2ee936243d2ac52d192ba2423f0fa84",
+      "sourcePath": "native/containment/native-shadow-toolchain-identity-v1.json",
+      "uid": 0
+    }
+  ],
+  "ubuntu": {
+    "packages": [],
+    "repositories": [],
+    "seedPackageIds": [],
+    "seeds": [
+      "binutils-x86-64-linux-gnu",
+      "gcc-13-x86-64-linux-gnu",
+      "libc6-dev",
+      "python3.12"
+    ],
+    "snapshot": null,
+    "verification": {
+      "gpgvPath": null,
+      "gpgvSha256": null
+    }
+  }
+}
