@@ -45,6 +45,7 @@ const PROC_PATH: &CStr = c"/proc";
 const DEV_PATH: &CStr = c"/dev";
 const TMP_PATH: &CStr = c"/tmp";
 const STAGING_PATH: &CStr = c"/run";
+const VERIFIED_RUNTIME_ROOTFS_PATH: &CStr = c"/var/lib/boole/native-shadow/runtime-rootfs";
 const RUNTIME_BASE: &CStr = c"/run/boole/native-shadow";
 const RUNTIME_LOWER: &CStr = c"/run/boole/native-shadow/rootfs-lower";
 const RUNTIME_UPPER: &CStr = c"/run/boole/native-shadow/rootfs-upper";
@@ -662,15 +663,25 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
     )?;
     setup_stage("derive-create-staging", create_runtime_staging_tree())?;
 
-    // Clone the already-verified mount by descriptor.  Passing
-    // `/proc/self/fd/N` as mount(2)'s textual source is not a portable fd
-    // mount operation: some kernels reject that recursive bind with EINVAL.
-    // open_tree(2)+move_mount(2) keeps the authority descriptor-owned and
-    // removes both that magic-link dependency and a pathname race.
-    let lower_mount = setup_stage("derive-clone-lower-mount", clone_mount_from_fd(rootfs_fd))?;
+    // The rootfs has one fixed systemd BindReadOnlyPaths location. Verify that
+    // location against the retained descriptor immediately before the bind,
+    // then verify the resulting lower mount against the descriptor again.
+    // The post-bind check makes a source-path race fail closed before any
+    // untrusted bytes are materialized or executed. This avoids open_tree(2),
+    // which is rejected by the supported GitHub runner's nested mount setup.
     setup_stage(
-        "derive-attach-lower-mount",
-        attach_detached_mount(lower_mount.as_raw_fd(), RUNTIME_LOWER),
+        "derive-verify-fixed-lower-path",
+        verify_fixed_runtime_root_path(rootfs_fd),
+    )?;
+    setup_stage(
+        "derive-bind-lower",
+        mount_raw(
+            Some(VERIFIED_RUNTIME_ROOTFS_PATH),
+            RUNTIME_LOWER,
+            None,
+            libc::MS_BIND,
+            None,
+        ),
     )?;
     setup_stage(
         "derive-remount-lower-read-only",
@@ -754,52 +765,6 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
     Ok(())
 }
 
-fn clone_mount_from_fd(rootfs_fd: RawFd) -> Result<OwnedFd, String> {
-    // Use a relative `.` lookup anchored at the verified directory fd.  This
-    // retains descriptor-owned lookup without depending on AT_EMPTY_PATH,
-    // which is not accepted for open_tree by every supported runner kernel.
-    // SAFETY: rootfs_fd is the live verified directory mount and `.` is a
-    // fixed, NUL-terminated path resolved relative to that descriptor.
-    let cloned = unsafe {
-        libc::syscall(
-            libc::SYS_open_tree,
-            rootfs_fd,
-            c".".as_ptr(),
-            libc::OPEN_TREE_CLONE,
-        )
-    };
-    if cloned < 0 {
-        return Err(io::Error::last_os_error().to_string());
-    }
-    let cloned =
-        i32::try_from(cloned).map_err(|_| "open_tree returned an invalid fd".to_string())?;
-    // SAFETY: open_tree returned one fresh descriptor now owned here.
-    let cloned = unsafe { OwnedFd::from_raw_fd(cloned) };
-    // Set close-on-exec separately instead of asking open_tree to interpret
-    // an additional flag.  No untrusted exec occurs before this succeeds.
-    // SAFETY: F_SETFD mutates only this live descriptor's fd flags.
-    if unsafe { libc::fcntl(cloned.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
-        return Err(io::Error::last_os_error().to_string());
-    }
-    Ok(cloned)
-}
-
-fn attach_detached_mount(mount_fd: RawFd, target: &CStr) -> Result<(), String> {
-    // SAFETY: mount_fd owns a detached mount tree, both paths are fixed and
-    // NUL-terminated, and MOVE_MOUNT_F_EMPTY_PATH selects the source fd.
-    let status = unsafe {
-        libc::syscall(
-            libc::SYS_move_mount,
-            mount_fd,
-            c"".as_ptr(),
-            libc::AT_FDCWD,
-            target.as_ptr(),
-            libc::MOVE_MOUNT_F_EMPTY_PATH,
-        )
-    };
-    syscall_zero(status)
-}
-
 fn create_runtime_staging_tree() -> Result<(), String> {
     for path in [
         c"/run/boole",
@@ -831,6 +796,34 @@ fn create_runtime_staging_tree() -> Result<(), String> {
         ),
     ] {
         mkdir_fixed(path, mode)?;
+    }
+    Ok(())
+}
+
+fn verify_fixed_runtime_root_path(rootfs_fd: RawFd) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut expected: libc::stat = unsafe { mem::zeroed() };
+    // SAFETY: rootfs_fd is the already-verified, live rootfs directory.
+    if unsafe { libc::fstat(rootfs_fd, &mut expected) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    let observed =
+        std::fs::symlink_metadata(VERIFIED_RUNTIME_ROOTFS_PATH.to_string_lossy().as_ref())
+            .map_err(|error| error.to_string())?;
+    if !observed.file_type().is_dir()
+        || observed.dev() != expected.st_dev
+        || observed.ino() != expected.st_ino
+    {
+        return Err("fixed runtime rootfs path identity mismatch".to_string());
+    }
+    let mut filesystem: libc::statvfs = unsafe { mem::zeroed() };
+    // SAFETY: the fixed path and writable statvfs storage remain live.
+    if unsafe { libc::statvfs(VERIFIED_RUNTIME_ROOTFS_PATH.as_ptr(), &mut filesystem) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    if filesystem.f_flag & libc::ST_RDONLY == 0 {
+        return Err("fixed runtime rootfs path is not read-only".to_string());
     }
     Ok(())
 }
