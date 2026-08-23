@@ -57,6 +57,7 @@ opt_original_mode=''
 runtime_parent=/run/boole
 runtime_directory=$runtime_parent/native-shadow
 socket_path="$runtime_directory/launcher.sock"
+fixed_socket_wait_attempts=2400
 mode_path=$runtime_directory/manager-cgroup-gate-mode
 recovery_release_path=$runtime_directory/startup-recovery-release
 service_root=/sys/fs/cgroup/system.slice/$unit_name
@@ -417,7 +418,7 @@ wait_for_state() {
   local expected=$1
   local state=''
   local i
-  for ((i = 0; i < 200; i++)); do
+  for ((i = 0; i < fixed_socket_wait_attempts; i++)); do
     state=$(sudo systemctl show "$unit_name" --property=ActiveState --value 2>/dev/null || :)
     [[ "$state" == "$expected" ]] && return 0
     if [[ "$state" == failed ]]; then
