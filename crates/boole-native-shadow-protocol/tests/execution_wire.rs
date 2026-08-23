@@ -3,14 +3,17 @@ use boole_native_shadow_protocol::{
     decode_complete_execution_report_frame, decode_complete_execution_request_frame,
     decode_complete_qualification_ready_frame, encode_execution_hello_frame,
     encode_execution_ready_frame, encode_execution_report_frame, encode_execution_request_frame,
-    execution_request_digest_hex, sha256_hex, submission_digest_hex, AuthorityBindings,
-    AuthorityBindingsFields, CheckerOutputStatus, CheckerParsedResult, CheckerParsedResultFields,
-    CheckerReason, CheckerResult, CheckerResultFields, CheckerVerdict, Cleanup, CleanupFields,
-    ExecutionHello, ExecutionReady, ExecutionReadyFields, ExecutionReport, ExecutionReportFields,
-    ExecutionRequest, ExecutionRequestFields, ResourceObservations, ResourceObservationsFields,
-    WaitStatus,
+    execution_request_digest_hex, read_execution_hello, read_execution_ready,
+    read_execution_report, read_execution_request, sha256_hex, submission_digest_hex,
+    validate_execution_session, write_execution_hello, write_execution_ready,
+    write_execution_report, write_execution_request, AuthorityBindings, AuthorityBindingsFields,
+    CheckerOutputStatus, CheckerParsedResult, CheckerParsedResultFields, CheckerReason,
+    CheckerResult, CheckerResultFields, CheckerVerdict, Cleanup, CleanupFields, ExecutionHello,
+    ExecutionReady, ExecutionReadyFields, ExecutionReport, ExecutionReportFields, ExecutionRequest,
+    ExecutionRequestFields, ResourceObservations, ResourceObservationsFields, WaitStatus,
 };
 use serde_json::{json, Value};
+use std::io::Cursor;
 
 const RAW: &[u8] = b"answer";
 const SOURCE: &[u8] = b"fn main() {}\n";
@@ -520,4 +523,102 @@ fn retryable_checker_identity_is_present_as_a_complete_pair_or_omitted() {
         task_digest_hex: None,
     });
     assert!(parsed.is_err());
+}
+
+#[test]
+fn execution_stream_helpers_round_trip_one_frame_then_clean_eof() {
+    let request = request();
+    let request_frame = encode_execution_request_frame(&request).unwrap();
+    let hello = ExecutionHello::try_from_execution_request_frame(&request_frame).unwrap();
+    let ready = ExecutionReady::try_new(&hello, execution_ready_fields()).unwrap();
+    let report = report(execution_request_digest_hex(&request_frame).unwrap());
+
+    let mut hello_wire = Vec::new();
+    write_execution_hello(&mut hello_wire, &hello).unwrap();
+    let mut hello_reader = Cursor::new(hello_wire);
+    assert_eq!(
+        read_execution_hello(&mut hello_reader).unwrap(),
+        Some(hello)
+    );
+    assert_eq!(read_execution_hello(&mut hello_reader).unwrap(), None);
+
+    let mut ready_wire = Vec::new();
+    write_execution_ready(&mut ready_wire, &ready).unwrap();
+    let mut ready_reader = Cursor::new(ready_wire);
+    assert_eq!(
+        read_execution_ready(&mut ready_reader).unwrap(),
+        Some(ready)
+    );
+    assert_eq!(read_execution_ready(&mut ready_reader).unwrap(), None);
+
+    let mut request_wire = Vec::new();
+    write_execution_request(&mut request_wire, &request).unwrap();
+    let mut request_reader = Cursor::new(request_wire);
+    assert_eq!(
+        read_execution_request(&mut request_reader).unwrap(),
+        Some(request)
+    );
+    assert_eq!(read_execution_request(&mut request_reader).unwrap(), None);
+
+    let mut report_wire = Vec::new();
+    write_execution_report(&mut report_wire, &report).unwrap();
+    let mut report_reader = Cursor::new(report_wire);
+    assert_eq!(
+        read_execution_report(&mut report_reader).unwrap(),
+        Some(report)
+    );
+    assert_eq!(read_execution_report(&mut report_reader).unwrap(), None);
+}
+
+#[test]
+fn validated_execution_values_expose_only_bound_session_fields() {
+    let request = request();
+    let request_frame = encode_execution_request_frame(&request).unwrap();
+    let report = report(execution_request_digest_hex(&request_frame).unwrap());
+
+    assert_eq!(request.nonce_hex(), h(1));
+    assert_eq!(request.operation_id_hex(), h(2));
+    assert_eq!(request.family_version(), "rust-tuple-struct-project-v1");
+    assert_eq!(request.template_id(), h(3));
+    assert_eq!(request.challenge_sha256(), h(4));
+    assert_eq!(request.epoch(), 7);
+    assert_eq!(request.raw_answer().unwrap(), RAW);
+    assert_eq!(request.submission_source().unwrap(), SOURCE);
+    assert_eq!(request.candidate_digest_hex(), sha256_hex(RAW));
+    assert_eq!(request.registry_digest_hex(), h(5));
+    assert_eq!(request.task_digest_hex(), h(7));
+    assert_eq!(request.checker_artifact_hash_hex(), h(8));
+    assert_eq!(request.checker_policy_digest_hex(), h(9));
+    assert_eq!(request.toolchain_identity_digest_hex(), h(11));
+    assert_eq!(request.execution_policy_digest_hex(), h(12));
+
+    assert_eq!(report.nonce_hex(), request.nonce_hex());
+    assert_eq!(report.operation_id_hex(), request.operation_id_hex());
+    assert_eq!(report.execution_policy_digest_hex(), h(12));
+    assert_eq!(report.checker_verdict(), Some(CheckerVerdict::Accepted));
+    assert_eq!(report.checker_reason(), Some(CheckerReason::Accepted));
+    assert!(report.cleanup_complete());
+}
+
+#[test]
+fn complete_session_validation_binds_all_four_messages() {
+    let request = request();
+    let request_frame = encode_execution_request_frame(&request).unwrap();
+    let hello = ExecutionHello::try_from_execution_request_frame(&request_frame).unwrap();
+    let ready = ExecutionReady::try_new(&hello, execution_ready_fields()).unwrap();
+    let execution_report = report(execution_request_digest_hex(&request_frame).unwrap());
+
+    let validated =
+        validate_execution_session(&hello, &ready, &request_frame, &execution_report).unwrap();
+    assert_eq!(validated, request);
+
+    let other_frame = {
+        let mut value = payload_value(&request_frame);
+        value["operationIdHex"] = json!(h(30));
+        frame(&value)
+    };
+    assert!(validate_execution_session(&hello, &ready, &other_frame, &execution_report).is_err());
+
+    let wrong_report = report(h(31));
+    assert!(validate_execution_session(&hello, &ready, &request_frame, &wrong_report).is_err());
 }
