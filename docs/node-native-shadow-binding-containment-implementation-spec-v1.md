@@ -310,10 +310,14 @@ entry becomes authoritative on `main` only after its required CI and merge:
   exact-domain manager type, still-empty manager subtree control and exact cpu/memory/pids
   controller read-back.
   Failures before movement are `PreMove`; the move attempt and every later failure are
-  `PostMoveFatal`, which a future top-level must turn into immediate process exit. The named Linux
-  gate starts the tracked unit and proves manager create/reuse, frozen/nested-child and multithread
-  rejection, restart and stop against the real kernel. It does not scan or clean `run-*` leaves and
-  therefore is not startup recovery or readiness.
+  `PostMoveFatal`, which a future top-level must turn into immediate process exit. The separate
+  deployment-envelope gate independently proves the production unit bytes; this named Linux gate
+  loads that exact tracked fragment plus one gate-owned drop-in that only binds a private,
+  read-only, byte-identical authority tree over `/usr/share`; it never repairs or writes the hosted
+  runner's unsafe host `/usr/share`. It proves manager create/reuse, frozen/nested-child and
+  multithread rejection, restart and stop against the real kernel, then removes only its owned
+  unit, drop-in and authority tree. It does not scan or clean `run-*` leaves and therefore is not
+  startup recovery or readiness.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do

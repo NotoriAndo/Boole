@@ -17,10 +17,14 @@ done
 
 unit_name=boole-native-shadow-launcher.service
 unit_path=/run/systemd/system/$unit_name
+unit_dropin_directory="/run/systemd/system/${unit_name}.d"
+unit_dropin_path="$unit_dropin_directory/10-manager-gate-authority.conf"
 launcher_directory=/usr/libexec/boole
 launcher_path=$launcher_directory/boole-native-shadow-launcher
-authority_parent=/usr/share/boole
-authority_directory=$authority_parent/native-shadow
+authority_stage=''
+authority_share=''
+authority_parent=''
+authority_directory=''
 runtime_parent=/run/boole
 runtime_directory=$runtime_parent/native-shadow
 mode_path=$runtime_directory/manager-cgroup-gate-mode
@@ -29,13 +33,14 @@ manager_root=$service_root/manager
 temp_root=${RUNNER_TEMP:-/tmp}
 build_json=$(mktemp "$temp_root/boole-native-shadow-manager-build.XXXXXX")
 log=$(mktemp "$temp_root/boole-native-shadow-manager.XXXXXX")
+dropin_source=$(mktemp "$temp_root/boole-native-shadow-manager-dropin.XXXXXX")
 
 launcher_directory_created=false
-authority_parent_created=false
-authority_directory_created=false
 runtime_parent_created=false
 runtime_directory_created=false
 unit_installed=false
+unit_dropin_directory_created=false
+unit_dropin_installed=false
 launcher_installed=false
 declare -a installed_authorities=()
 
@@ -44,6 +49,9 @@ cleanup_gate() {
   if [[ "$unit_installed" == true ]]; then
     sudo systemctl stop "$unit_name" >/dev/null 2>&1 || :
     sudo systemctl reset-failed "$unit_name" >/dev/null 2>&1 || :
+    [[ "$unit_dropin_installed" == true ]] && sudo rm -f "$unit_dropin_path"
+    [[ "$unit_dropin_directory_created" == true ]] \
+      && sudo rmdir "$unit_dropin_directory" >/dev/null 2>&1 || :
     sudo rm -f "$unit_path"
     sudo systemctl daemon-reload >/dev/null 2>&1 || :
   fi
@@ -56,10 +64,14 @@ cleanup_gate() {
   [[ "$runtime_directory_created" == true ]] && sudo rm -f "$runtime_directory/launcher.lock"
   [[ "$runtime_directory_created" == true ]] && sudo rmdir "$runtime_directory" >/dev/null 2>&1 || :
   [[ "$runtime_parent_created" == true ]] && sudo rmdir "$runtime_parent" >/dev/null 2>&1 || :
-  [[ "$authority_directory_created" == true ]] && sudo rmdir "$authority_directory" >/dev/null 2>&1 || :
-  [[ "$authority_parent_created" == true ]] && sudo rmdir "$authority_parent" >/dev/null 2>&1 || :
+  if [[ -n "$authority_stage" ]]; then
+    sudo rmdir "$authority_directory" >/dev/null 2>&1 || :
+    sudo rmdir "$authority_parent" >/dev/null 2>&1 || :
+    sudo rmdir "$authority_share" >/dev/null 2>&1 || :
+    sudo rmdir "$authority_stage" >/dev/null 2>&1 || :
+  fi
   [[ "$launcher_directory_created" == true ]] && sudo rmdir "$launcher_directory" >/dev/null 2>&1 || :
-  rm -f "$build_json" "$log"
+  rm -f "$build_json" "$log" "$dropin_source"
 }
 trap cleanup_gate EXIT
 
@@ -72,10 +84,8 @@ load_state=$(systemctl show "$unit_name" --property=LoadState --value 2>/dev/nul
 [[ "$load_state" == not-found ]] \
   || die "refusing to shadow pre-existing loaded unit: $unit_name ($load_state)"
 
-for path in "$unit_path" "$launcher_path" "$runtime_directory" "$service_root" \
-  "$authority_directory/registry-v1.json" \
-  "$authority_directory/execution-policy-v1.json" \
-  "$authority_directory/toolchain-identity-v1.json"; do
+for path in "$unit_path" "$unit_dropin_directory" "$launcher_path" "$runtime_directory" \
+  "$service_root"; do
   [[ ! -e "$path" && ! -L "$path" ]] || die "refusing to replace pre-existing path: $path"
 done
 
@@ -114,14 +124,14 @@ launcher_installed=true
 [[ $(sudo stat -c %U:%G:%a "$launcher_path") == root:root:755 ]] \
   || die "installed launcher metadata does not match root:root:755"
 
-if [[ ! -d "$authority_parent" ]]; then
-  sudo install -d -o root -g root -m 0755 "$authority_parent"
-  authority_parent_created=true
-fi
-if [[ ! -d "$authority_directory" ]]; then
-  sudo install -d -o root -g root -m 0555 "$authority_directory"
-  authority_directory_created=true
-fi
+authority_stage=$(sudo mktemp -d /run/boole-native-shadow-manager-authority.XXXXXX)
+authority_share="$authority_stage/share"
+authority_parent="$authority_share/boole"
+authority_directory="$authority_parent/native-shadow"
+sudo chmod 0700 "$authority_stage"
+sudo install -d -o root -g root -m 0755 "$authority_share"
+sudo install -d -o root -g root -m 0755 "$authority_parent"
+sudo install -d -o root -g root -m 0555 "$authority_directory"
 
 install_authority() {
   local source=$1
@@ -151,7 +161,21 @@ sudo install -o root -g root -m 0644 native/systemd/boole-native-shadow-launcher
 unit_installed=true
 [[ $(sha256sum native/systemd/boole-native-shadow-launcher.service | awk '{ print $1 }') == $(sudo sha256sum "$unit_path" | awk '{ print $1 }') ]] \
   || die "installed systemd unit differs from tracked bytes"
+sudo install -d -o root -g root -m 0755 "$unit_dropin_directory"
+unit_dropin_directory_created=true
+expected_dropin=$'[Service]\n'"BindReadOnlyPaths=${authority_share}:/usr/share"
+printf '%s\n' "$expected_dropin" >"$dropin_source"
+unit_dropin_installed=true
+sudo install -o root -g root -m 0644 "$dropin_source" "$unit_dropin_path"
+[[ $(sudo stat -c %U:%G:%a "$unit_dropin_path") == root:root:644 ]] \
+  || die "authority bind drop-in metadata does not match root:root:644"
+[[ $(sudo cat "$unit_dropin_path") == "$expected_dropin" ]] \
+  || die "authority bind drop-in differs from the exact two-line contract"
 sudo systemctl daemon-reload
+[[ $(sudo systemctl show "$unit_name" --property=FragmentPath --value) == "$unit_path" ]] \
+  || die "systemd did not load the exact tracked unit fragment"
+[[ $(sudo systemctl show "$unit_name" --property=DropInPaths --value) == "$unit_dropin_path" ]] \
+  || die "systemd did not load exactly the gate-owned authority drop-in"
 
 set_mode() {
   local mode=$1

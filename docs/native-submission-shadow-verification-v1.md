@@ -376,9 +376,14 @@ Further route-free foundations now narrow the open prerequisite without closing 
   exact post-move PID/TID membership. Reuse also requires root:root mode `0700`, an unfrozen domain
   cgroup, exact-empty `cgroup.subtree_control` and no nested child; the type and empty subtree
   control are rechecked after movement. Failures before movement and fatal failures at or after the
-  move attempt are separate typed outcomes. A named Linux gate starts the exact tracked unit and
-  proves create, safe reuse, frozen/nested-child rejection, multithread rejection, explicit restart
-  and stop behavior. It does not clean `run-*` leaves or claim startup recovery/readiness.
+  move attempt are separate typed outcomes. The deployment-envelope gate independently proves the
+  production unit bytes; this named Linux gate loads that exact tracked fragment plus one
+  gate-owned drop-in that only bind-mounts byte-identical authority under a private,
+  read-only `/usr/share`; this preserves the strict authority verifier instead of rewriting the
+  hosted runner's unsafe host `/usr/share`. The gate proves create, safe reuse,
+  frozen/nested-child rejection, multithread rejection, explicit restart and stop behavior and
+  removes only its owned unit, drop-in and authority tree. It does not clean `run-*` leaves or
+  claim startup recovery/readiness.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux

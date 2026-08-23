@@ -269,6 +269,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         ):
             self.assertIn(required, body)
         preflight = body.split("for path in", 1)[1].split("done", 1)[0]
+        self.assertIn('"$unit_dropin_directory"', preflight)
         self.assertIn('"$runtime_directory"', preflight)
         self.assertIn('"$service_root"', preflight)
         self.assertLess(
@@ -285,6 +286,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         self.assertNotIn('systemctl reset-failed "$unit_name"', cleanup_prefix)
         self.assertIn('systemctl stop "$unit_name"', owned_unit_cleanup)
         self.assertIn('systemctl reset-failed "$unit_name"', owned_unit_cleanup)
+        self.assertIn('rm -f "$unit_dropin_path"', owned_unit_cleanup)
+        self.assertIn('rmdir "$unit_dropin_directory"', owned_unit_cleanup)
         self.assertIn('rm -f "$unit_path"', owned_unit_cleanup)
         self.assertIn("systemctl daemon-reload", owned_unit_cleanup)
         self.assertRegex(
@@ -328,6 +331,37 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             body,
         )
         self.assertIn('die "unit entered failed state while waiting for $expected"', body)
+
+    def test_manager_cgroup_gate_uses_an_owned_read_only_authority_bind(self):
+        body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            "sudo mktemp -d /run/boole-native-shadow-manager-authority.XXXXXX",
+            'authority_share="$authority_stage/share"',
+            'unit_dropin_directory="/run/systemd/system/${unit_name}.d"',
+            'BindReadOnlyPaths=${authority_share}:/usr/share',
+            "expected_dropin=$'[Service]\\n'",
+            'sudo install -o root -g root -m 0644 "$dropin_source" "$unit_dropin_path"',
+            '[[ $(sudo cat "$unit_dropin_path") == "$expected_dropin" ]]',
+            '--property=FragmentPath --value',
+            '--property=DropInPaths --value',
+            'systemd did not load exactly the gate-owned authority drop-in',
+            'sudo rm -f "$unit_dropin_path"',
+            'sudo rmdir "$unit_dropin_directory"',
+            'sudo rmdir "$authority_stage"',
+        ):
+            self.assertIn(required, body)
+        self.assertNotIn(
+            "authority_parent=/usr/share/boole",
+            body,
+            "the gate must not install into or repair the hosted runner's unsafe /usr/share",
+        )
+        self.assertNotRegex(
+            body,
+            re.compile(r"(?:chmod|chown|install[^\n]*)\s+[^\n]*/usr/share(?:\s|/|$)"),
+            "the gate must not mutate host /usr/share metadata or contents",
+        )
 
     def test_launcher_prelock_gate_calls_the_production_instance_identity_path(self):
         body = LAUNCHER_PRELOCK_GATE.read_text(encoding="utf-8")
