@@ -3,6 +3,10 @@
 
 #[cfg(unix)]
 pub mod installed_authority;
+pub mod service_identities;
+pub use service_identities::{
+    resolve_fixed_service_identities, IdentityResolutionError, ResolvedServiceIdentities,
+};
 
 use std::collections::BTreeSet;
 use std::fmt;

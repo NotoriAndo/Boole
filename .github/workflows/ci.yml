@@ -31,6 +31,24 @@ jobs:
         with:
           toolchain: 1.95.0
 
+      - name: Prove fixed native-shadow service-account resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          for identity in boole-node boole-native-checker; do
+            if getent passwd "$identity" >/dev/null || getent group "$identity" >/dev/null; then
+              echo "native-shadow service identity unexpectedly pre-exists: $identity" >&2
+              exit 1
+            fi
+          done
+          sudo groupadd --system boole-node
+          sudo useradd --system --gid boole-node --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin boole-node
+          sudo groupadd --system boole-native-checker
+          sudo useradd --system --gid boole-native-checker --home-dir /nonexistent --no-create-home --shell /bin/false boole-native-checker
+          cargo test --locked -p boole-native-shadow-protocol --lib \
+            service_identities::tests::real_fixed_accounts_resolve_in_named_linux_gate \
+            -- --ignored --exact --nocapture
+
       - name: Probe delegated cgroup and namespace capabilities
         run: sudo ./scripts/native-shadow-containment-capability-probe.sh
 

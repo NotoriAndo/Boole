@@ -98,6 +98,18 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "build it explicitly before the filtered --lib test",
         )
 
+    def test_named_linux_job_proves_the_fixed_service_accounts_via_libc(self):
+        job = self._job("native-shadow-containment-linux")
+        for required in (
+            "groupadd --system boole-node",
+            "useradd --system --gid boole-node --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin boole-node",
+            "groupadd --system boole-native-checker",
+            "useradd --system --gid boole-native-checker --home-dir /nonexistent --no-create-home --shell /bin/false boole-native-checker",
+            "real_fixed_accounts_resolve_in_named_linux_gate",
+            "--ignored --exact",
+        ):
+            self.assertIn(required, job)
+
     def test_required_self_test_cannot_hide_a_failed_probe(self):
         job = self._job("self-test")
         self.assertRegex(

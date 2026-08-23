@@ -298,13 +298,21 @@ Further route-free foundations now narrow the open prerequisite without closing 
   reading, then reuses the compiled exact-byte/schema/digest verifier for all three authorities.
   Required CI passed before merge. This shared opener is not readiness: it creates no socket, nonce, account resolution, launcher,
   child, journal transition or route, and Phase 3B.2b-2 remains open.
-* Phase 3B.2b-2n — the current guarded node-side Linux-adapter slice: one private production
+* Phase 3B.2b-2n — PR #179, main `434534e`: one private production
   entrypoint binds the Phase 3B.2b-2p installed authority to the literal launcher socket, a
   one-second nonblocking connect deadline, one exact 32-byte `getrandom(2)` call with no fallback,
   kernel `SO_PEERCRED` before frame I/O and one cumulative five-second handshake deadline. Tests bind
   those fixed values back to the tracked policy and non-Linux refuses before touching files or a
   socket. The root launcher and fixed-account resolution do not yet exist, so this is not a real
   installed handshake and changes no route, journal or checker state.
+* Phase 3B.2b-2i — the current fixed-service-identity slice: the shared protocol boundary resolves
+  only the literal `boole-node` and `boole-native-checker` accounts through libc NSS calls and
+  verifies their non-root, same-named-primary-group, `/nonexistent`, non-login-shell,
+  no-supplementary-group and mutual-separation invariants. The node production adapter no longer
+  accepts caller-injected numeric identities; it resolves the same fixed accounts independently.
+  The named Ubuntu job creates the two ephemeral system accounts and must run the real libc happy
+  path without skipping. This slice creates no launcher, socket, cgroup, journal transition or
+  checker child, so the real installed handshake remains open.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux

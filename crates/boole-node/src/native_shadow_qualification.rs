@@ -69,6 +69,9 @@ enum NativeShadowStartupError {
     #[error("installed authority verification failed: {0}")]
     Authority(String),
     #[cfg(target_os = "linux")]
+    #[error("fixed service identity resolution failed: {0}")]
+    Identity(String),
+    #[cfg(target_os = "linux")]
     #[error("launcher socket connection failed: {0}")]
     Connect(String),
     #[error("getrandom(2) failed: {0}")]
@@ -234,7 +237,6 @@ where
 
 #[cfg(not(target_os = "linux"))]
 fn qualify_installed_native_shadow_launcher(
-    _expected: NativeShadowExpectedIdentities,
 ) -> Result<NativeShadowQualificationReadiness, NativeShadowStartupError> {
     Err(NativeShadowStartupError::UnsupportedPlatform)
 }
@@ -248,7 +250,10 @@ mod linux {
     use std::path::Path;
     use std::time::{Duration, Instant};
 
-    use boole_native_shadow_protocol::installed_authority::open_verified_installed_authority_bundle;
+    use boole_native_shadow_protocol::{
+        installed_authority::open_verified_installed_authority_bundle,
+        resolve_fixed_service_identities,
+    };
 
     use super::{
         fixed_launcher_socket_path, qualification_nonce_from_one_call,
@@ -315,9 +320,16 @@ mod linux {
     }
 
     pub(super) fn qualify_installed(
-        expected: NativeShadowExpectedIdentities,
     ) -> Result<NativeShadowQualificationReadiness, NativeShadowStartupError> {
-        expected.validate()?;
+        let identities = resolve_fixed_service_identities()
+            .map_err(|error| NativeShadowStartupError::Identity(error.to_string()))?;
+        let expected = NativeShadowExpectedIdentities {
+            node_uid: identities.node_uid(),
+            node_gid: identities.node_gid(),
+            checker_uid: identities.checker_uid(),
+            checker_gid: identities.checker_gid(),
+        }
+        .validate()?;
         let authority = open_verified_installed_authority_bundle()
             .map_err(|error| NativeShadowStartupError::Authority(error.to_string()))?;
         let stream = connect_unix_with_timeout(
@@ -656,9 +668,8 @@ mod linux {
 
 #[cfg(target_os = "linux")]
 fn qualify_installed_native_shadow_launcher(
-    expected: NativeShadowExpectedIdentities,
 ) -> Result<NativeShadowQualificationReadiness, NativeShadowStartupError> {
-    linux::qualify_installed(expected)
+    linux::qualify_installed()
 }
 
 #[cfg(test)]
@@ -689,8 +700,7 @@ mod tests {
 
     #[test]
     fn production_adapter_has_one_literal_socket_path_and_one_nonce_call() {
-        let _entrypoint: fn(NativeShadowExpectedIdentities) -> Result<_, _> =
-            qualify_installed_native_shadow_launcher;
+        let _entrypoint: fn() -> Result<_, _> = qualify_installed_native_shadow_launcher;
         assert_eq!(
             fixed_launcher_socket_path(),
             std::path::Path::new("/run/boole/native-shadow/launcher.sock")
@@ -751,7 +761,7 @@ mod tests {
     #[test]
     fn production_adapter_refuses_non_linux_before_filesystem_or_socket_work() {
         assert!(matches!(
-            qualify_installed_native_shadow_launcher(expected_identities()),
+            qualify_installed_native_shadow_launcher(),
             Err(NativeShadowStartupError::UnsupportedPlatform)
         ));
     }
