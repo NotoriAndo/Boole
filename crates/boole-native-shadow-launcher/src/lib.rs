@@ -20,6 +20,7 @@
 
 pub mod active_execution;
 mod cgroupfs_fd;
+pub mod closed_local_replay_startup;
 pub mod instance_id;
 pub mod lifetime_lock;
 pub mod manager_cgroup;

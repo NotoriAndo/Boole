@@ -321,9 +321,16 @@ mod tests {
     use std::cell::RefCell;
 
     use super::{
-        execute_with_operations, ContainedExecution, ContainmentFailure, ContainmentOperations,
-        ResourceSnapshot, RunOperationId, TerminalWait,
+        execute_fixed_checker, execute_with_operations, ContainedExecution, ContainmentFailure,
+        ContainmentOperations, ResourceSnapshot, RunOperationId, TerminalWait,
     };
+
+    #[test]
+    fn fixed_executor_accepts_only_one_request_bound_permit_by_value() {
+        let _entrypoint: for<'a> fn(
+            crate::closed_local_replay_startup::VerifiedClosedLocalReplayExecutionPermit<'a>,
+        ) -> Result<ContainedExecution, ContainmentFailure> = execute_fixed_checker;
+    }
 
     #[test]
     fn operation_id_is_exact_lower_hex_and_derives_one_direct_leaf_name() {
