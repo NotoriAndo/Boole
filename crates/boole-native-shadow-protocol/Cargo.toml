@@ -13,5 +13,8 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [lints]
 workspace = true

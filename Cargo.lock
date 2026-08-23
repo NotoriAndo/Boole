@@ -430,6 +430,7 @@ name = "boole-native-shadow-protocol"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "libc",
  "serde",
  "serde_json",
  "sha2",

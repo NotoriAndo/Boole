@@ -191,7 +191,7 @@ entry becomes authoritative on `main` only after its required CI and merge:
   its lifecycle projection only after exact-byte and cross-digest verification. It creates no
   socket, launcher, nonce, child,
   checker result, journal transition or route.
-* **Phase 3B.2b-1** — the current guarded node-side behavioral-mock slice: a private client owns one
+* **Phase 3B.2b-1** — PR #177, main `a5b830b`: the guarded node-side behavioral-mock slice owns one
   mock session so an error cannot leave a reusable connection, obtains mock peer credentials before
   stream I/O, sends one strict qualification hello from a test-injected 32-byte nonce and the
   verified three-authority bundle, then accepts readiness only after nonce, all three digests, peer
@@ -199,9 +199,20 @@ entry becomes authoritative on `main` only after its required CI and merge:
   shutdown-write followed by clean peer EOF; premature/partial/oversized input, a second frame,
   trailing bytes or either shutdown failure remains an error. The result is a private,
   non-serializable in-memory readiness value with no lifecycle, journal, route or execution handle.
-  This slice becomes authoritative only after required CI and merge. It does **not** open a Unix
+  Required CI passed before merge. It does **not** open a Unix
   socket, call `SO_PEERCRED` or `getrandom(2)`, resolve accounts, start a launcher/child, or prove a
   real Linux handshake; those remain Phase 3B.2b-2 work.
+* **Phase 3B.2b-2p** — the current guarded installed-authority preparation slice: one shared Unix
+  entrypoint accepts no caller path and walks the literal
+  `/usr/share/boole/native-shadow` hierarchy one component at a time relative to already-opened
+  directory descriptors. Every component is opened with `O_NOFOLLOW`; `/` and all ancestors must
+  be root-owned and not group/other-writable, the authority directory must be exactly mode `0555`,
+  and all three authority files must be root-owned regular one-link files of exact mode `0444` and
+  compiled byte length. The same opened file descriptors are checked before and after reading, then
+  the existing exact-byte/schema/digest verifier is applied. This is only a shared opener for the
+  later node and launcher. It does not connect a socket, generate a nonce, resolve accounts, launch
+  a process, emit readiness or change lifecycle/journal state, and therefore does not close
+  Phase 3B.2b-2.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do

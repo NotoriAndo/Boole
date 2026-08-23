@@ -281,15 +281,23 @@ Further route-free foundations now narrow the open prerequisite without closing 
   component; root-owned/non-writable ancestor-directory verification remains part of the later
   installed-authority handshake gate. It does not connect a socket, generate a nonce, authenticate peer
   credentials, change a journal or spawn any child; those are later handshake slices.
-* Phase 3B.2b-1 — the current guarded node-side behavioral-mock slice: a private client consumes one
+* Phase 3B.2b-1 — PR #177, main `a5b830b`: a private client consumes one
   mock session, verifies mock peer credentials before stream I/O, binds a test-injected nonce and all
   three verified authority digests into the hello, then matches those values plus peer PID and all
   launcher/node/checker UID/GID claims in the strict ready frame. It returns only a private,
   non-serializable in-memory readiness value after node shutdown-write and clean peer EOF. Errors
-  consume and drop the owned session, so a failed connection cannot be reused. This slice becomes
-  authoritative only after required CI and merge. It changes no journal or route and does not claim
+  consume and drop the owned session, so a failed connection cannot be reused. Required CI and
+  merge are complete. It changes no journal or route and does not claim
   a real Unix socket, `SO_PEERCRED`, `getrandom(2)`, account resolution, root launcher, child process
   or Linux handshake; those remain Phase 3B.2b-2 work.
+* Phase 3B.2b-2p — the current guarded installed-authority preparation slice: the shared protocol
+  crate adds one path-free Unix entrypoint that walks only the literal
+  `/usr/share/boole/native-shadow` hierarchy relative to already-opened directory descriptors with
+  `O_NOFOLLOW`. It checks root ownership and non-writable ancestors, exact `0555` authority-directory
+  mode, and exact root-owned regular one-link `0444` files on the same descriptors before and after
+  reading, then reuses the compiled exact-byte/schema/digest verifier for all three authorities.
+  This shared opener is not readiness: it creates no socket, nonce, account resolution, launcher,
+  child, journal transition or route, and Phase 3B.2b-2 remains open.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux
