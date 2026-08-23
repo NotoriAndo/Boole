@@ -141,7 +141,9 @@ fi
 if [[ ! -d "$runtime_directory" ]]; then
   runtime_directory_created=true
 fi
-sudo systemd-tmpfiles --create native/tmpfiles.d/boole-native-shadow.conf
+tmpfiles_path=$(readlink -f native/tmpfiles.d/boole-native-shadow.conf)
+[[ -f "$tmpfiles_path" ]] || die "tracked tmpfiles input is unavailable"
+sudo systemd-tmpfiles --create "$tmpfiles_path"
 [[ $(stat -c %U:%G:%a "$runtime_directory") == root:boole-node:2750 ]] \
   || die "runtime directory does not match root:boole-node mode 2750"
 

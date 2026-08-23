@@ -303,6 +303,21 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "cleanup must never delete a mode file outside a runtime tree this gate created",
         )
 
+    def test_manager_cgroup_gate_passes_tmpfiles_an_absolute_tracked_path(self):
+        body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "tmpfiles_path=$(readlink -f native/tmpfiles.d/boole-native-shadow.conf)",
+            body,
+        )
+        self.assertIn('sudo systemd-tmpfiles --create "$tmpfiles_path"', body)
+        self.assertNotIn(
+            "sudo systemd-tmpfiles --create native/tmpfiles.d/boole-native-shadow.conf",
+            body,
+            "systemd-tmpfiles treats a bare relative argument as a config name, not the repo file",
+        )
+
     def test_launcher_prelock_gate_calls_the_production_instance_identity_path(self):
         body = LAUNCHER_PRELOCK_GATE.read_text(encoding="utf-8")
         lock_source = LAUNCHER_LIFETIME_LOCK_SOURCE.read_text(encoding="utf-8")
