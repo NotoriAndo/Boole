@@ -1,0 +1,94 @@
+{
+  "schema": "boole.native-shadow.closed-local-replay-grant.v1",
+  "version": "REAL-FROZEN-ACCEPT-NAMED-LINUX-REPLAY-V1",
+  "purpose": "one bounded four-case named-Linux verification replay matrix of the permanently non-issuable real-history fixture; each case has a distinct fixed epoch; never production issuance",
+  "scope": {
+    "namedLinuxVerificationReplayOnly": true,
+    "maxMatrixRequestsTotal": 4,
+    "maxCheckerExecutionsTotal": 3,
+    "loopbackOnly": true,
+    "p2pAllowed": false,
+    "consensusAllowed": false,
+    "rewardAllowed": false,
+    "mineableNow": false,
+    "activationAllowed": false,
+    "nonIssuable": true
+  },
+  "cases": [
+    {
+      "caseId": "accepted",
+      "operationIdHex": "746bba0847458159f16dfe79d19958d2f44d1de7b67f946b1831207586b978be",
+      "rawAnswerSha256": "1b6074b330afeeffeab381a6bdf72365dd0f6ded96ebe0869189dadc91136c5d",
+      "submissionSourceSha256": "12c6f6868f6949c324e9de94d1b5a07e751c20cd46eca1d7da7a12a47b0b2ad5",
+      "epoch": 0,
+      "preIntakeOnly": false,
+      "maxCheckerExecutions": 1
+    },
+    {
+      "caseId": "tampered",
+      "operationIdHex": "99407a29b50c4c378f7b49d423515eb584f961ae005ed510723e676d1c7121cd",
+      "rawAnswerSha256": "dbeaa59e28cd186d9f3a5df452cb137d7584e7844f2c3bbf2d54c665d3b5eff0",
+      "submissionSourceSha256": "0b7bba98f6c7217a13611da4b98ae90754e062883199dea5620af04633d4bea8",
+      "epoch": 1,
+      "preIntakeOnly": false,
+      "maxCheckerExecutions": 1
+    },
+    {
+      "caseId": "constant",
+      "operationIdHex": "3558b66ce8d5ce7549e7ddb951ed6452cfa9ca575515bd8bb30598eda6f00b61",
+      "rawAnswerSha256": "8d75d6a6e523e6b4afa4556f0a26ea68365015fef2d413b56d099fed1fb6d3a1",
+      "submissionSourceSha256": "5475c1e101bbc5f64be66e6e89539f23cd30196bc810842a5d7e485c527baa33",
+      "epoch": 2,
+      "preIntakeOnly": false,
+      "maxCheckerExecutions": 1
+    },
+    {
+      "caseId": "empty",
+      "operationIdHex": "c5d9705f2367515cedc06639217b95a40f5a98e377089b49ed97c0e7ec8b3038",
+      "rawAnswerSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "submissionSourceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "epoch": 3,
+      "preIntakeOnly": true,
+      "maxCheckerExecutions": 0
+    }
+  ],
+  "productionRegistry": {
+    "path": "/usr/share/boole/native-shadow/registry-v1.json",
+    "version": "NATIVE-SHADOW-QUALIFICATION-REGISTRY-V1",
+    "sha256": "1f3c6a079babe66454ae7a16e858b1507c2d121ac3514dd5c9a636602cd83f45"
+  },
+  "registry": {
+    "path": "/usr/share/boole/native-shadow/closed-local-replay-registry-overlay-v1.json",
+    "version": "REAL-FROZEN-ACCEPT-REPLAY-OVERLAY-V1",
+    "sha256": "0a683ca2606534c74fb99aa00759f903a1912b42c9a8b9cca6e5b0dca42a0787"
+  },
+  "task": {
+    "path": "/usr/share/boole/native-shadow/fixtures/a-rooted-native-mining-e2e-v1-real-history/task.json",
+    "sha256": "f25a8a6d92ac556937eaacbec6d12d9d09be675878eb7d942952b35838ee7c82",
+    "familyVersion": "TUPLE-STRUCT-PROJECT/RUST-TUPLE-STRUCT-PROJECT-V1",
+    "templateId": "800eee9c303c6a0e771e3a3db914eb15ea4ca68d10b19385d60fedd2c23e04b5",
+    "challengeSha256": "0b32a406d00a858545b98c0d0937fd940dcfc368fe8a7ef171acc2159fa0f4c1",
+    "intakeVersion": "RUST-TUPLE-STRUCT-NATIVE-PROOF-INTAKE-V1"
+  },
+  "anchor": {
+    "path": "/usr/share/boole/native-shadow/fixtures/a-rooted-native-mining-e2e-v1-real-history/anchor.rs",
+    "sha256": "693f62acfa0626a0831c9133a26fcfc1dbb30922c1ab2036231c42a363cfd7fe"
+  },
+  "checker": {
+    "path": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py",
+    "sha256": "5a9d20421fd1f82a05f0c5ca902fca84c09b5f0350ca28788f3eb3793b6007e7",
+    "artifactHash": "19a43dbab7592953bfdf880f7c93ee6a5e2dafdc93b1b436ef779daa8ef9fa5d",
+    "releaseManifestPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+    "releaseManifestSha256": "aa7939ebbb4472a82d08a30abfafc628577a76d751a2ae2b6f476e614ac21782",
+    "policyPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/policy.json",
+    "policySha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685"
+  },
+  "executionPolicy": {
+    "path": "/usr/share/boole/native-shadow/execution-policy-v1.json",
+    "sha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2"
+  },
+  "toolchainIdentity": {
+    "path": "/usr/share/boole/native-shadow/toolchain-identity-v1.json",
+    "sha256": "29799eff53df764024de8f1020eac177b2ee936243d2ac52d192ba2423f0fa84"
+  }
+}

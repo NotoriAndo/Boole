@@ -13,8 +13,11 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use thiserror::Error;
 
 use crate::{
-    verify_authority_bundle, AuthorityError, VerifiedAuthorityBundle,
-    TRACKED_EXECUTION_POLICY_BYTES, TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
+    closed_local_replay_grant::verify_closed_local_replay_grant_bytes, verify_authority_bundle,
+    AuthorityError, ClosedLocalReplayGrantError, VerifiedAuthorityBundle,
+    VerifiedClosedLocalReplayGrant, TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+    TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES, TRACKED_EXECUTION_POLICY_BYTES,
+    TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
 };
 
 const AUTHORITY_DIRECTORY_COMPONENTS: [&str; 4] = ["usr", "share", "boole", "native-shadow"];
@@ -33,6 +36,8 @@ pub enum InstalledAuthorityError {
     UnsafeMetadata { label: String, reason: &'static str },
     #[error(transparent)]
     Authority(#[from] AuthorityError),
+    #[error(transparent)]
+    ReplayGrant(#[from] ClosedLocalReplayGrantError),
 }
 
 struct ExpectedAuthorityFile {
@@ -73,6 +78,79 @@ pub fn open_verified_installed_authority_bundle(
         .open("/")
         .map_err(|source| io_failure("/", source))?;
     open_verified_authority_bundle_beneath(&root, 0, 0)
+}
+
+/// Open the only installed replay grant that can authorize the permanently
+/// non-issuable real-history fixture. The caller supplies no path. The same
+/// fixed root-owned authority bundle is verified first, so this exception can
+/// never turn the production registry into an issuable registry.
+pub fn open_verified_installed_closed_local_replay_grant(
+) -> Result<VerifiedClosedLocalReplayGrant, InstalledAuthorityError> {
+    let root = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open("/")
+        .map_err(|source| io_failure("/", source))?;
+    open_verified_closed_local_replay_grant_beneath(&root, 0, 0)
+}
+
+fn open_verified_closed_local_replay_grant_beneath(
+    root: &File,
+    required_uid: u32,
+    required_gid: u32,
+) -> Result<VerifiedClosedLocalReplayGrant, InstalledAuthorityError> {
+    let authority = open_verified_authority_bundle_beneath(root, required_uid, required_gid)?;
+
+    validate_directory(root, "/", required_uid, required_gid, None)?;
+    let mut current = root.try_clone().map_err(|source| io_failure("/", source))?;
+    let mut display_path = String::new();
+    for (index, component) in AUTHORITY_DIRECTORY_COMPONENTS.iter().enumerate() {
+        display_path.push('/');
+        display_path.push_str(component);
+        let child = open_child(&current, component, true, &display_path)?;
+        let exact_mode =
+            (index + 1 == AUTHORITY_DIRECTORY_COMPONENTS.len()).then_some(AUTHORITY_DIRECTORY_MODE);
+        validate_directory(
+            &child,
+            &display_path,
+            required_uid,
+            required_gid,
+            exact_mode,
+        )?;
+        current = child;
+    }
+
+    let overlay_label = format!("{display_path}/closed-local-replay-registry-overlay-v1.json");
+    let overlay_file = open_child(
+        &current,
+        "closed-local-replay-registry-overlay-v1.json",
+        false,
+        &overlay_label,
+    )?;
+    let overlay_raw = read_verified_file(
+        overlay_file,
+        &overlay_label,
+        required_uid,
+        required_gid,
+        TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES.len(),
+    )?;
+
+    let grant_label = format!("{display_path}/closed-local-replay-grant-v1.json");
+    let grant_file = open_child(
+        &current,
+        "closed-local-replay-grant-v1.json",
+        false,
+        &grant_label,
+    )?;
+    let raw = read_verified_file(
+        grant_file,
+        &grant_label,
+        required_uid,
+        required_gid,
+        TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES.len(),
+    )?;
+    verify_closed_local_replay_grant_bytes(&raw, &overlay_raw, &authority)
+        .map_err(InstalledAuthorityError::from)
 }
 
 fn open_verified_authority_bundle_beneath(
@@ -260,13 +338,15 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use crate::{
-        AuthorityError, TRACKED_EXECUTION_POLICY_BYTES, TRACKED_REGISTRY_BYTES,
-        TRACKED_TOOLCHAIN_IDENTITY_BYTES,
+        AuthorityError, TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+        TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES, TRACKED_EXECUTION_POLICY_BYTES,
+        TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
     };
 
     use super::{
-        open_verified_authority_bundle_beneath, open_verified_installed_authority_bundle,
-        InstalledAuthorityError,
+        open_verified_authority_bundle_beneath, open_verified_closed_local_replay_grant_beneath,
+        open_verified_installed_authority_bundle,
+        open_verified_installed_closed_local_replay_grant, InstalledAuthorityError,
     };
 
     static NEXT_TEST_TREE: AtomicU64 = AtomicU64::new(0);
@@ -296,6 +376,14 @@ mod tests {
                     "toolchain-identity-v1.json",
                     TRACKED_TOOLCHAIN_IDENTITY_BYTES,
                 ),
+                (
+                    "closed-local-replay-grant-v1.json",
+                    TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+                ),
+                (
+                    "closed-local-replay-registry-overlay-v1.json",
+                    TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+                ),
             ] {
                 let path = authority_dir.join(basename);
                 fs::write(&path, bytes).expect("authority fixture must be writable");
@@ -317,6 +405,16 @@ mod tests {
                 .open(&self.root)
                 .expect("test root must open");
             open_verified_authority_bundle_beneath(&root, self.uid, self.gid)
+        }
+
+        fn open_replay_grant(
+            &self,
+        ) -> Result<crate::VerifiedClosedLocalReplayGrant, InstalledAuthorityError> {
+            let root = OpenOptions::new()
+                .read(true)
+                .open(&self.root)
+                .expect("test root must open");
+            open_verified_closed_local_replay_grant_beneath(&root, self.uid, self.gid)
         }
 
         fn make_authority_dir_writable(&self) {
@@ -343,6 +441,8 @@ mod tests {
     #[test]
     fn installed_authority_has_one_fixed_path_entrypoint() {
         let _entrypoint: fn() -> Result<_, _> = open_verified_installed_authority_bundle;
+        let _replay_entrypoint: fn() -> Result<_, _> =
+            open_verified_installed_closed_local_replay_grant;
     }
 
     #[test]
@@ -354,6 +454,77 @@ mod tests {
         assert_eq!(bundle.registry_digest().len(), 64);
         assert_eq!(bundle.execution_policy_digest().len(), 64);
         assert_eq!(bundle.toolchain_identity_digest().len(), 64);
+    }
+
+    #[test]
+    fn fixed_installed_grant_requires_exact_root_owned_grant_and_overlay_files() {
+        let tree = TestAuthorityTree::new();
+
+        let grant = tree
+            .open_replay_grant()
+            .expect("the exact fourth authority file must verify");
+        assert_eq!(grant.max_matrix_requests_total(), 4);
+        assert_eq!(grant.max_checker_executions_total(), 3);
+        assert_eq!(
+            fs::read(tree.path("closed-local-replay-grant-v1.json"))
+                .expect("installed grant bytes"),
+            TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES
+        );
+    }
+
+    #[test]
+    fn replay_grant_or_overlay_byte_drift_is_rejected() {
+        for basename in [
+            "closed-local-replay-grant-v1.json",
+            "closed-local-replay-registry-overlay-v1.json",
+        ] {
+            let tree = TestAuthorityTree::new();
+            let path = tree.path(basename);
+            set_mode(&path, 0o644);
+            let mut bytes = fs::read(&path).expect("authority bytes");
+            *bytes.last_mut().expect("nonempty authority") ^= 1;
+            fs::write(&path, bytes).expect("test mutation");
+            set_mode(&path, 0o444);
+
+            assert!(
+                tree.open_replay_grant().is_err(),
+                "byte drift must fail: {basename}"
+            );
+        }
+    }
+
+    #[test]
+    fn replay_grant_uses_only_its_fixed_basename_and_refuses_symlinks() {
+        let renamed = TestAuthorityTree::new();
+        renamed.make_authority_dir_writable();
+        fs::rename(
+            renamed.path("closed-local-replay-grant-v1.json"),
+            renamed.path("caller-selected-grant.json"),
+        )
+        .expect("rename test grant");
+        set_mode(&renamed.authority_dir, 0o555);
+        assert!(matches!(
+            renamed.open_replay_grant(),
+            Err(InstalledAuthorityError::Io { .. })
+        ));
+
+        let linked = TestAuthorityTree::new();
+        linked.make_authority_dir_writable();
+        fs::rename(
+            linked.path("closed-local-replay-grant-v1.json"),
+            linked.path("real-grant.json"),
+        )
+        .expect("move real grant");
+        symlink(
+            "real-grant.json",
+            linked.path("closed-local-replay-grant-v1.json"),
+        )
+        .expect("symlink test grant");
+        set_mode(&linked.authority_dir, 0o555);
+        assert!(matches!(
+            linked.open_replay_grant(),
+            Err(InstalledAuthorityError::Io { .. })
+        ));
     }
 
     #[test]

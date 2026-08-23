@@ -1,10 +1,17 @@
 //! Minimal shared authority and wire contract for the disabled native-shadow
 //! qualification handshake.
 
+mod closed_local_replay_grant;
 mod execution_wire;
 #[cfg(unix)]
 pub mod installed_authority;
 pub mod service_identities;
+pub use closed_local_replay_grant::{
+    ClosedLocalReplayGrantError, VerifiedClosedLocalReplayAuthorization,
+    VerifiedClosedLocalReplayGrant, INSTALLED_CLOSED_LOCAL_REPLAY_GRANT_PATH,
+    INSTALLED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_PATH, TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+    TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+};
 pub use execution_wire::*;
 pub use service_identities::{
     resolve_fixed_service_identities, IdentityResolutionError, ResolvedServiceIdentities,
@@ -849,6 +856,10 @@ impl StrictNativeShadowRegistry {
 
     pub fn schema(&self) -> &str {
         &self.schema
+    }
+
+    pub fn version(&self) -> &str {
+        &self.version
     }
 
     pub fn activation_allowed(&self) -> bool {
