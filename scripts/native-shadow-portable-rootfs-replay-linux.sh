@@ -195,9 +195,9 @@ zstd_path="$(readlink -f "$(command -v zstd)")"
 [[ -f "$gpgv_path" && ! -L "$gpgv_path" ]] || die "gpgv must resolve to a regular file"
 [[ -f "$zstd_path" && ! -L "$zstd_path" ]] || die "zstd must resolve to a regular file"
 
-# Only the two frozen fetch operations run outside PrivateNetwork.  They store
-# declared bytes in a disposable CAS; resolution, sealing, authority decisions
-# and every executable probe run later inside separate network namespaces.
+# Only the two frozen fetch operations run outside PrivateNetwork.  Signed
+# resolution is fixed offline before payload fetch; sealing, exact-output
+# adoption decisions and every executable probe stay in networkless units.
 python3 "$ROOT/scripts/native_shadow_rootfs_acquire.py" fetch-metadata \
   --plan "$ROOT/native/containment/native-shadow-runtime-rootfs-acquisition-plan-v1.json" \
   --cas "$cas"
