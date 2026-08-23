@@ -409,24 +409,55 @@ struct ChildSetup {
 }
 
 fn child_setup_and_exec(setup: ChildSetup) -> Result<(), String> {
-    derive_and_enter_runtime_root(setup.rootfs_fd)?;
-    mount_private_filesystems(setup.checker_gid, setup.dev_null_fd)?;
-    materialize_authority(setup.task_fd, c"/work/task.json", setup.checker_gid)?;
-    materialize_authority(setup.anchor_fd, c"/work/anchor.rs", setup.checker_gid)?;
-    materialize_authority(
-        setup.submission_fd,
-        c"/work/submission.rs",
-        setup.checker_gid,
+    setup_stage(
+        "derive-runtime-root",
+        derive_and_enter_runtime_root(setup.rootfs_fd),
     )?;
-    create_scratch(setup.checker_gid)?;
-    set_working_directory()?;
-    install_stdio_and_close_fds(setup.stdout_fd, setup.stderr_fd, setup.setup_fd)?;
-    drop_all_privileges(setup.checker_uid, setup.checker_gid)?;
-    verify_dropped_privileges(setup.checker_uid, setup.checker_gid)?;
-    apply_outer_rlimits()?;
-    apply_landlock()?;
-    seccompiler::apply_filter(&setup.seccomp).map_err(|error| error.to_string())?;
-    exec_checker()
+    setup_stage(
+        "mount-private-filesystems",
+        mount_private_filesystems(setup.checker_gid, setup.dev_null_fd),
+    )?;
+    setup_stage(
+        "materialize-task",
+        materialize_authority(setup.task_fd, c"/work/task.json", setup.checker_gid),
+    )?;
+    setup_stage(
+        "materialize-anchor",
+        materialize_authority(setup.anchor_fd, c"/work/anchor.rs", setup.checker_gid),
+    )?;
+    setup_stage(
+        "materialize-submission",
+        materialize_authority(
+            setup.submission_fd,
+            c"/work/submission.rs",
+            setup.checker_gid,
+        ),
+    )?;
+    setup_stage("create-scratch", create_scratch(setup.checker_gid))?;
+    setup_stage("set-working-directory", set_working_directory())?;
+    setup_stage(
+        "install-stdio",
+        install_stdio_and_close_fds(setup.stdout_fd, setup.stderr_fd, setup.setup_fd),
+    )?;
+    setup_stage(
+        "drop-privileges",
+        drop_all_privileges(setup.checker_uid, setup.checker_gid),
+    )?;
+    setup_stage(
+        "verify-privileges",
+        verify_dropped_privileges(setup.checker_uid, setup.checker_gid),
+    )?;
+    setup_stage("apply-rlimits", apply_outer_rlimits())?;
+    setup_stage("install-landlock", apply_landlock())?;
+    setup_stage(
+        "install-seccomp",
+        seccompiler::apply_filter(&setup.seccomp).map_err(|error| error.to_string()),
+    )?;
+    setup_stage("exec-checker", exec_checker())
+}
+
+fn setup_stage(stage: &'static str, result: Result<(), String>) -> Result<(), String> {
+    result.map_err(|error| format!("{stage}: {error}"))
 }
 
 fn monitor_child(
@@ -1459,7 +1490,9 @@ mod tests {
 
     use sha2::{Digest, Sha256};
 
-    use super::{derived_runtime_top_level_is_exact, CapturedOutput, OutputStream, OUTPUT_LIMIT};
+    use super::{
+        derived_runtime_top_level_is_exact, setup_stage, CapturedOutput, OutputStream, OUTPUT_LIMIT,
+    };
 
     fn names(values: &[&str]) -> BTreeSet<OsString> {
         values.iter().map(OsString::from).collect()
@@ -1516,5 +1549,16 @@ mod tests {
         assert_eq!(stderr_bytes, 4);
         assert_eq!(stdout_sha256, <[u8; 32]>::from(Sha256::digest(&stdout)));
         assert_eq!(stderr_sha256, <[u8; 32]>::from(Sha256::digest(stderr)));
+    }
+
+    #[test]
+    fn child_setup_errors_name_the_exact_failed_stage() {
+        assert_eq!(
+            setup_stage(
+                "install-landlock",
+                Err("Permission denied (os error 13)".to_string())
+            ),
+            Err("install-landlock: Permission denied (os error 13)".to_string())
+        );
     }
 }

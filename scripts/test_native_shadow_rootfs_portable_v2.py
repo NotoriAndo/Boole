@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import pathlib
+import re
 import tempfile
 import unittest
 
@@ -482,6 +483,29 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         changed["builderSha256"] = "f" * 64
         with self.assertRaisesRegex(portable.PortableAuthorityError, "builder"):
             portable.verify_replay_receipts(expectation, changed, run_receipt)
+
+    def test_contained_child_setup_reports_the_exact_failed_stage(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        for stage in (
+            "derive-runtime-root",
+            "mount-private-filesystems",
+            "materialize-task",
+            "materialize-anchor",
+            "materialize-submission",
+            "create-scratch",
+            "set-working-directory",
+            "install-stdio",
+            "drop-privileges",
+            "verify-privileges",
+            "apply-rlimits",
+            "install-landlock",
+            "install-seccomp",
+            "exec-checker",
+        ):
+            self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
 
 
 if __name__ == "__main__":
