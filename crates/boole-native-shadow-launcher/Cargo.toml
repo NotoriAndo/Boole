@@ -35,3 +35,9 @@ name = "boole-native-shadow-manager-cgroup-linux"
 path = "tests/manager_cgroup_linux.rs"
 harness = false
 required-features = ["manager-cgroup-linux-gate"]
+
+[[test]]
+name = "boole-native-shadow-closed-local-replay-client-linux"
+path = "tests/closed_local_replay_client_linux.rs"
+harness = false
+required-features = ["manager-cgroup-linux-gate"]

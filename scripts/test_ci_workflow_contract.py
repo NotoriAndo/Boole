@@ -152,6 +152,13 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
 
     def test_clean_linux_rootfs_replay_binds_networked_acquisition_to_offline_probe(self):
         body = PORTABLE_ROOTFS_REPLAY_GATE.read_text(encoding="utf-8")
+        manager = (
+            REPO_ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+        replay_client = (
+            REPO_ROOT
+            / "crates/boole-native-shadow-launcher/tests/closed_local_replay_client_linux.rs"
+        ).read_text(encoding="utf-8")
         for command in (
             "native_shadow_rootfs_acquire.py",
             "native_shadow_rootfs_portable_v2.py",
@@ -167,12 +174,23 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "PrivateNetwork=yes",
             "native_shadow_rootfs_oci_verify.py",
             "verify-output",
-            "accepted.rs",
-            "tampered.rs",
             "chroot",
             "x86_64-linux-gnu-gcc-13",
+            "native-shadow-manager-cgroup-gate.sh",
+            "--closed-local-replay-rootfs",
         ):
             self.assertIn(required, body)
+        for required in (
+            "replay-accepted.raw.txt",
+            "replay-tampered.raw.txt",
+            "replay-constant.raw.txt",
+        ):
+            self.assertIn(required, replay_client)
+        for required in (
+            "runtime rootfs replay identity drifted",
+            "launcher_connections=3:empty_connections=0",
+        ):
+            self.assertIn(required, manager)
         for forbidden in ("continue-on-error", "|| true", "SKIP"):
             self.assertNotIn(forbidden, body)
 

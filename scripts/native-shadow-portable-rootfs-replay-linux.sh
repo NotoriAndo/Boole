@@ -30,8 +30,9 @@ if [[ ${1:-} == "--resolve-offline" ]]; then
   exit 0
 fi
 
-if [[ ${1:-} == "--offline" ]]; then
+if [[ ${1:-} == "--offline-build" || ${1:-} == "--offline-probe" ]]; then
   [[ $# -eq 2 ]] || die "offline invocation requires exactly one scratch path"
+  offline_phase=$1
   scratch="$2"
   [[ ${EUID} -eq 0 ]] || die "offline replay must run as root"
   [[ -d "$scratch/cas" && ! -L "$scratch" ]] || die "offline scratch authority differs"
@@ -46,9 +47,10 @@ if [[ ${1:-} == "--offline" ]]; then
   rootfs="$scratch/rootfs"
   independent_receipt="$scratch/independent-receipt.json"
 
-  gpgv_path="$(readlink -f "$(command -v gpgv)")"
-  zstd_path="$(readlink -f "$(command -v zstd)")"
-  python3 "$ROOT/scripts/native_shadow_rootfs_portable_v2.py" seal \
+  if [[ "$offline_phase" == --offline-build ]]; then
+    gpgv_path="$(readlink -f "$(command -v gpgv)")"
+    zstd_path="$(readlink -f "$(command -v zstd)")"
+    python3 "$ROOT/scripts/native_shadow_rootfs_portable_v2.py" seal \
     --cas "$cas" \
     --gpgv "$gpgv_path" \
     --zstd "$zstd_path" \
@@ -56,25 +58,25 @@ if [[ ${1:-} == "--offline" ]]; then
     --runtime-lock-output "$runtime_lock" \
     --run-receipt-output "$run_receipt"
 
-  python3 "$ROOT/scripts/native_shadow_rootfs_builder.py" build \
+    python3 "$ROOT/scripts/native_shadow_rootfs_builder.py" build \
     --lock "$runtime_lock" \
     --artifact-store "$cas" \
     --repo-root "$ROOT" \
     --output "$oci" >"$scratch/builder-stdout.json"
 
-  runtime_lock_sha="$(jq -er '.runtimeLockSha256' "$run_receipt")"
-  builder_sha="$(jq -er '.authority.builderSha256' "$run_receipt")"
-  layer_digest="$(jq -er '.expectedOutput.layerDigest' "$expectation")"
-  content_sha="$(jq -er '.expectedOutput.rootfsContentManifestSha256' "$expectation")"
+    runtime_lock_sha="$(jq -er '.runtimeLockSha256' "$run_receipt")"
+    builder_sha="$(jq -er '.authority.builderSha256' "$run_receipt")"
+    layer_digest="$(jq -er '.expectedOutput.layerDigest' "$expectation")"
+    content_sha="$(jq -er '.expectedOutput.rootfsContentManifestSha256' "$expectation")"
 
-  python3 "$ROOT/scripts/native_shadow_rootfs_oci_verify.py" verify \
+    python3 "$ROOT/scripts/native_shadow_rootfs_oci_verify.py" verify \
     --layout "$oci" \
     --expected-source-lock-sha256 "$runtime_lock_sha" \
     --expected-builder-sha256 "$builder_sha" \
     --expected-layer-digest "$layer_digest" \
     --expected-content-manifest-sha256 "$content_sha" >"$independent_receipt"
 
-  python3 - "$oci/BUILD-RECEIPT.json" "$independent_receipt" <<'PY'
+    python3 - "$oci/BUILD-RECEIPT.json" "$independent_receipt" <<'PY'
 import json
 import pathlib
 import sys
@@ -85,14 +87,24 @@ if builder != independent:
     raise SystemExit("builder and independent verifier receipts differ")
 PY
 
-  python3 "$ROOT/scripts/native_shadow_rootfs_portable_v2.py" verify-output \
+    python3 "$ROOT/scripts/native_shadow_rootfs_portable_v2.py" verify-output \
     --build-receipt "$oci/BUILD-RECEIPT.json" \
     --run-receipt "$run_receipt"
 
-  mkdir -p "$rootfs"
-  layer_blob="$oci/blobs/sha256/${layer_digest#sha256:}"
-  [[ -f "$layer_blob" && ! -L "$layer_blob" ]] || die "verified OCI layer is unavailable"
-  tar --extract --file "$layer_blob" --directory "$rootfs" --numeric-owner
+    mkdir -p "$rootfs"
+    layer_blob="$oci/blobs/sha256/${layer_digest#sha256:}"
+    [[ -f "$layer_blob" && ! -L "$layer_blob" ]] || die "verified OCI layer is unavailable"
+    tar --extract --file "$layer_blob" --directory "$rootfs" --numeric-owner
+    install -o 0 -g 0 -m 0444 \
+      "$oci/ROOTFS-CONTENT-MANIFEST.json" \
+      "$scratch/ROOTFS-CONTENT-MANIFEST.json"
+    printf 'native-shadow portable rootfs exact build: PASS\n'
+    exit 0
+  fi
+
+  [[ -d "$rootfs" && ! -L "$rootfs" ]] || die "exact rootfs is unavailable for probing"
+  [[ -f "$scratch/ROOTFS-CONTENT-MANIFEST.json" ]] \
+    || die "exact rootfs content manifest is unavailable for probing"
 
   # The verified OCI stays byte-identical to the frozen expectation.  The
   # qualification process nevertheless needs one fixed numeric account record
@@ -148,102 +160,13 @@ C
     /usr/bin/x86_64-linux-gnu-gcc-13 /probe/c-probe.c -o /scratch/c-probe
   chroot --groups='' --userspec=65534:65534 "$rootfs" /scratch/c-probe
 
-  checker=/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py
-  toolchain=/opt/boole/native-checker-toolchain/bin
-  chroot --groups='' --userspec=65534:65534 "$rootfs" /usr/bin/python3.12 "$checker" \
-    --task /probe/task.json \
-    --submission /probe/accepted.rs \
-    --toolchain-bin "$toolchain" \
-    --scratch-root /scratch >"$rootfs/scratch/accepted-result.json"
-  chroot --groups='' --userspec=65534:65534 "$rootfs" /usr/bin/python3.12 "$checker" \
-    --task /probe/task.json \
-    --submission /probe/tampered.rs \
-    --toolchain-bin "$toolchain" \
-    --scratch-root /scratch >"$rootfs/scratch/tampered-result.json"
-
-  if [[ "$(jq -er '[.verdict, .reasonCode] | join("/")' \
-    "$rootfs/scratch/accepted-result.json")" != "accepted/accepted" ]]; then
-    printf '%s\n' \
-      'DIAGNOSTIC-ONLY: the second run is not adjudication; the first verdict remains authoritative' \
-      >&2
-    chroot --groups='' --userspec=65534:65534 "$rootfs" \
-      /usr/bin/python3.12 - \
-      "$checker" /probe/task.json /probe/accepted.rs "$toolchain" /scratch <<'PY' >&2
-import importlib.util
-import pathlib
-import sys
-
-checker_path, task_path, submission_path, toolchain_path, scratch_path = sys.argv[1:]
-spec = importlib.util.spec_from_file_location("boole_checker_diagnostic", checker_path)
-if spec is None or spec.loader is None:
-    raise SystemExit("diagnostic checker import unavailable")
-checker_module = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = checker_module
-spec.loader.exec_module(checker_module)
-original_run_contained = checker_module._run_contained
-
-
-def traced_run_contained(command, cwd, env, limits):
-    code, output = original_run_contained(command, cwd, env, limits)
-    print(f"DIAGNOSTIC-ONLY contained exit code: {code}", file=sys.stderr)
-    sys.stderr.buffer.write(output[:65536])
-    if output and not output.endswith(b"\n"):
-        sys.stderr.buffer.write(b"\n")
-    return code, output
-
-
-checker_module._run_contained = traced_run_contained
-sys.argv = [
-    checker_path,
-    "--task", task_path,
-    "--submission", submission_path,
-    "--toolchain-bin", toolchain_path,
-    "--scratch-root", scratch_path,
-]
-raise SystemExit(checker_module.main())
-PY
-  fi
-
-  python3 - \
-    "$rootfs/probe/task.json" \
-    "$rootfs/scratch/accepted-result.json" \
-    "$rootfs/scratch/tampered-result.json" <<'PY'
-import hashlib
-import json
-import pathlib
-import sys
-
-task_path = pathlib.Path(sys.argv[1])
-task_raw = task_path.read_bytes()
-task = json.loads(task_raw)
-expected_binding = {
-    "checkerTaskId": task["checkerTaskId"],
-    "taskDigest": hashlib.sha256(task_raw).hexdigest(),
-}
-cases = (
-    (sys.argv[2], "accepted", "accepted"),
-    (sys.argv[3], "deterministic_reject", "compile_or_hidden_test_failed"),
-)
-for path, verdict, reason in cases:
-    result = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
-    if result.get("verdict") != verdict or result.get("reasonCode") != reason:
-        raise SystemExit(
-            f"checker verdict differs: {path}: "
-            f"verdict={result.get('verdict')!r} "
-            f"reasonCode={result.get('reasonCode')!r}"
-        )
-    for key, value in expected_binding.items():
-        if result.get(key) != value:
-            raise SystemExit(f"checker binding differs: {path}: {key}")
-PY
-
   umount "$rootfs/proc"
   umount "$rootfs/dev/null"
   printf 'native-shadow portable rootfs offline probe: PASS\n'
   exit 0
 fi
 
-for command_name in cmp gpgv install jq mount python3 readlink sha256sum systemd-run tar umount zstd; do
+for command_name in awk cmp getent gpgv id install jq mount python3 readlink sha256sum sudo systemd-run tar timeout umount zstd; do
   command -v "$command_name" >/dev/null || die "missing command: $command_name"
 done
 
@@ -299,9 +222,10 @@ python3 "$ROOT/scripts/native_shadow_rootfs_portable_v2.py" fetch-payloads \
   --zstd "$zstd_path" \
   --runtime-resolution "$runtime_resolution"
 
-# A second invocation performs the build, independent verification and real
-# compiler/checker probes with networking removed by the kernel.  The tracked
-# repository is read-only and only this gate-owned scratch directory is writable.
+# A second invocation performs only the exact build and independent
+# verification with networking removed by the kernel. The extracted bytes are
+# then consumed unchanged by the real launcher service before the separate
+# diagnostic probe is allowed to add its transient passwd/dev/probe files.
 unit="boole-native-shadow-rootfs-replay-${RANDOM}-${$}"
 systemd-run \
   --quiet \
@@ -318,6 +242,46 @@ systemd-run \
   --property=PrivateMounts=yes \
   --property=RestrictAddressFamilies=AF_UNIX \
   /usr/bin/env bash "$ROOT/scripts/native-shadow-portable-rootfs-replay-linux.sh" \
-    --offline "$scratch"
+    --offline-build "$scratch"
+
+run_user=${SUDO_USER:-}
+[[ -n "$run_user" && "$run_user" != root ]] \
+  || die "the named launcher gate requires the original unprivileged CI user"
+id "$run_user" >/dev/null 2>&1 || die "the original CI user no longer resolves"
+run_home=$(getent passwd "$run_user" | awk -F: 'NF == 7 { print $6 }')
+[[ -n "$run_home" && -x "$run_home/.cargo/bin/cargo" ]] \
+  || die "the original CI user lacks the pinned Rust toolchain"
+chmod 0711 "$scratch"
+(
+  cd "$ROOT"
+  timeout --foreground --signal=TERM --kill-after=15s 600s \
+    sudo -u "$run_user" env \
+      "HOME=$run_home" \
+      "CARGO_HOME=$run_home/.cargo" \
+      "RUSTUP_HOME=$run_home/.rustup" \
+      "PATH=$run_home/.cargo/bin:$PATH" \
+      ./scripts/native-shadow-manager-cgroup-gate.sh \
+      --closed-local-replay-rootfs \
+      "$scratch/rootfs" \
+      "$scratch/ROOTFS-CONTENT-MANIFEST.json"
+)
+
+probe_unit="boole-native-shadow-rootfs-probe-${RANDOM}-${$}"
+systemd-run \
+  --quiet \
+  --pipe \
+  --wait \
+  --collect \
+  --unit "$probe_unit" \
+  --property=PrivateNetwork=yes \
+  --property=ProtectSystem=strict \
+  --property="ReadOnlyPaths=$ROOT" \
+  --property="ReadWritePaths=$scratch" \
+  --property=NoNewPrivileges=yes \
+  --property=PrivateDevices=yes \
+  --property=PrivateMounts=yes \
+  --property=RestrictAddressFamilies=AF_UNIX \
+  /usr/bin/env bash "$ROOT/scripts/native-shadow-portable-rootfs-replay-linux.sh" \
+    --offline-probe "$scratch"
 
 printf 'native-shadow-portable-rootfs-replay-linux: PASS\n'

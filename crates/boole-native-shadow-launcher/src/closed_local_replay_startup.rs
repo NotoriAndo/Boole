@@ -148,6 +148,9 @@ impl VerifiedClosedLocalReplayStartup {
         }
         self.compatibility.reverify_for_execution()?;
         let installed_materials = self.installed.reverify_execution_materials()?;
+        self.rootfs
+            .reverify_for_execution()
+            .map_err(|error| ClosedLocalReplayStartupError::Rootfs(error.to_string()))?;
         let rootfs = self
             .rootfs
             .duplicate_directory_fd()

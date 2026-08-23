@@ -49,6 +49,8 @@ const RUNTIME_BASE: &CStr = c"/run/boole/native-shadow";
 const RUNTIME_UPPER: &CStr = c"/run/boole/native-shadow/rootfs-upper";
 const RUNTIME_WORK: &CStr = c"/run/boole/native-shadow/rootfs-work";
 const RUNTIME_ROOT: &CStr = c"/run/boole/native-shadow/rootfs-root";
+const RUNTIME_OLD_ROOT: &CStr = c"/run/boole/native-shadow/rootfs-root/.old-root";
+const OLD_ROOT_AFTER_PIVOT: &CStr = c"/.old-root";
 
 pub(super) fn execute(
     compatibility: &VerifiedStartupToolchainCompatibility,
@@ -658,14 +660,49 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
         Some(&overlay_options),
     )?;
     verify_derived_runtime_root(rootfs_fd)?;
+    mkdir_fixed(RUNTIME_OLD_ROOT, 0o700)?;
 
-    // SAFETY: RUNTIME_ROOT is the just-verified private overlay mount.
-    if unsafe { libc::chroot(RUNTIME_ROOT.as_ptr()) } != 0 {
+    // CAP_SYS_CHROOT is deliberately absent.  The child already owns a
+    // private mount namespace and CAP_SYS_ADMIN, so atomically replace its
+    // mount root instead of widening the capability set.
+    // SAFETY: RUNTIME_ROOT is the verified private overlay mount.
+    if unsafe { libc::chdir(RUNTIME_ROOT.as_ptr()) } != 0 {
         return Err(io::Error::last_os_error().to_string());
     }
-    // SAFETY: the child must not retain a cwd outside its new root.
+    // SAFETY: both fixed paths are beneath the current private overlay cwd;
+    // `.old-root` is the empty directory created above on that same mount.
+    if unsafe { libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".old-root".as_ptr()) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    // SAFETY: after pivot_root, `/` is the derived overlay and the previous
+    // host root exists only at the fixed private `/.old-root` mountpoint.
     if unsafe { libc::chdir(c"/".as_ptr()) } != 0 {
         return Err(io::Error::last_os_error().to_string());
+    }
+    // SAFETY: detach the old host root from this private namespace before any
+    // untrusted checker bytes are materialized or executed.
+    if unsafe { libc::umount2(OLD_ROOT_AFTER_PIVOT.as_ptr(), libc::MNT_DETACH) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    // SAFETY: the old-root mount is detached and this exact empty mountpoint
+    // must be removed, leaving no path back to the host tree.
+    if unsafe { libc::rmdir(OLD_ROOT_AFTER_PIVOT.as_ptr()) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    verify_old_root_is_unreachable()?;
+    Ok(())
+}
+
+fn verify_old_root_is_unreachable() -> Result<(), String> {
+    let mut metadata: libc::stat = unsafe { mem::zeroed() };
+    // SAFETY: fixed path and writable stat buffer; success is a fatal escape
+    // because no old-root entry may remain after pivot cleanup.
+    if unsafe { libc::lstat(OLD_ROOT_AFTER_PIVOT.as_ptr(), &mut metadata) } == 0 {
+        return Err("old host root remained reachable after pivot_root".to_string());
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() != Some(libc::ENOENT) {
+        return Err(error.to_string());
     }
     Ok(())
 }
@@ -1426,6 +1463,18 @@ mod tests {
 
     fn names(values: &[&str]) -> BTreeSet<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn fixed_capability_child_uses_pivot_root_and_removes_the_old_host_root() {
+        let source = include_str!("linux.rs");
+        assert!(source.contains("libc::SYS_pivot_root"));
+        assert!(source.contains("libc::umount2(OLD_ROOT_AFTER_PIVOT.as_ptr(), libc::MNT_DETACH)"));
+        assert!(source.contains("verify_old_root_is_unreachable()?"));
+        assert!(
+            !source.contains("libc::chroot("),
+            "CAP_SYS_CHROOT is deliberately absent from the fixed launcher capability set"
+        );
     }
 
     #[test]

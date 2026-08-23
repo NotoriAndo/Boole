@@ -129,9 +129,14 @@ fn serve_active_execution_session<S: ActiveExecutionSession>(
     let peer = session.peer_credentials().map_err(|error| {
         ActiveExecutionServerError::PeerCredentialsUnavailable(error.to_string())
     })?;
+    // The frozen v1 trust boundary is one dedicated boole-node UID and its
+    // primary GID behind a root:boole-node 2750 directory and 0660 socket.
+    // Every process with that identity is intentionally inside the boundary;
+    // no executable-path or parent-PID contract is invented here.
     if peer.pid == 0 || peer.uid != identities.node_uid() || peer.gid != identities.node_gid() {
         return Err(ActiveExecutionServerError::UntrustedNodePeer);
     }
+    println!("native-shadow-active-execution-peer:pid={}", peer.pid);
 
     let hello_frame = session
         .read_frame(MAX_REQUEST_FRAME_BYTES)

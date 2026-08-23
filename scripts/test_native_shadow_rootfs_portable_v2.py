@@ -136,28 +136,48 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertLess(replay.index(install), replay.index("chroot --groups=''"))
         self.assertIn('cmp --silent "$runtime_passwd" "$rootfs/etc/passwd"', replay)
 
-    def test_linux_replay_reports_only_the_safe_checker_verdict_fields_on_mismatch(self) -> None:
+    def test_linux_replay_delegates_checker_adjudication_to_the_real_launcher_service(self) -> None:
         replay = (
             ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"
         ).read_text(encoding="utf-8")
-
-        self.assertIn('f"checker verdict differs: {path}: "', replay)
-        self.assertIn('f"verdict={result.get(\'verdict\')!r} "', replay)
-        self.assertIn('f"reasonCode={result.get(\'reasonCode\')!r}"', replay)
-
-    def test_linux_replay_diagnoses_a_real_accept_compile_failure_without_adjudicating_it(self) -> None:
-        replay = (
-            ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"
+        manager = (
+            ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
         ).read_text(encoding="utf-8")
 
-        mismatch = '!= "accepted/accepted"'
-        diagnostic = "DIAGNOSTIC-ONLY: the second run is not adjudication"
-        self.assertIn(mismatch, replay)
-        self.assertIn(diagnostic, replay)
-        self.assertIn("original_run_contained = checker_module._run_contained", replay)
-        self.assertIn("checker_module._run_contained = traced_run_contained", replay)
-        self.assertLess(replay.index(mismatch), replay.index(diagnostic))
-        self.assertLess(replay.index(diagnostic), replay.index("cases = ("))
+        manager_call = "./scripts/native-shadow-manager-cgroup-gate.sh"
+        self.assertIn(manager_call, replay)
+        self.assertIn("--closed-local-replay-rootfs", replay)
+        self.assertIn(
+            "native-shadow-closed-local-replay-report:accepted:accepted:accepted:cleanup=true",
+            manager,
+        )
+        self.assertIn(
+            "native-shadow-closed-local-replay-report:tampered:deterministic_reject:compile_or_hidden_test_failed:cleanup=true",
+            manager,
+        )
+        self.assertIn(
+            "native-shadow-closed-local-replay-report:constant:deterministic_reject:compile_or_hidden_test_failed:cleanup=true",
+            manager,
+        )
+
+    def test_linux_replay_rejects_rootfs_drift_before_any_checker_report(self) -> None:
+        manager = (
+            ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+
+        mutation = 'sudo python3 - "$mutation_target"'
+        report_guard = "request-time rootfs mutation produced a checker Report"
+        drift_reason = "runtime rootfs replay identity drifted"
+        restore = 'sudo cp --preserve=all "$mutation_backup" "$mutation_target"'
+        self.assertIn(mutation, manager)
+        self.assertIn(report_guard, manager)
+        self.assertIn(drift_reason, manager)
+        self.assertIn(restore, manager)
+        mutation_index = manager.index(mutation)
+        report_guard_index = manager.index(report_guard, mutation_index)
+        restore_index = manager.index(restore, report_guard_index)
+        self.assertLess(mutation_index, report_guard_index)
+        self.assertLess(report_guard_index, restore_index)
 
     def test_linux_replay_mounts_a_private_proc_for_the_frozen_lld_wrapper(self) -> None:
         replay = (

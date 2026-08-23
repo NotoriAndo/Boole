@@ -13,12 +13,14 @@ use std::time::Duration;
 
 #[cfg(target_os = "linux")]
 use boole_native_shadow_launcher::{
+    active_execution::serve_three_fixed_unix_executions,
+    closed_local_replay_startup::assemble_verified_closed_local_replay_startup,
     instance_id::acquire_fresh_launcher_instance,
     lifetime_lock::acquire_fixed_launcher_lifetime_lock,
     manager_cgroup::{enter_fixed_manager_cgroup, ManagerCgroupError},
-    per_request_containment::run_tracked_real_accept_containment_gate,
     qualification::serve_one_fixed_unix_qualification,
     readiness::assemble_fixed_qualification_startup,
+    runtime_rootfs_replay::verify_runtime_rootfs_replay,
     startup::verify_fixed_launcher_prelock_prerequisites,
     startup_recovery::{recover_fixed_startup_orphans, StartupCgroupRecoveryError},
     toolchain_compatibility::verify_fixed_startup_toolchain_compatibility,
@@ -33,6 +35,11 @@ const RECOVERY_RELEASE_PATH: &str = "/run/boole/native-shadow/startup-recovery-r
 #[cfg(target_os = "linux")]
 const INVENTORY_TEST_LEAF: &str =
     "run-0000000000000000000000000000000000000000000000000000000000000001";
+#[cfg(target_os = "linux")]
+const FIXED_RUNTIME_ROOTFS: &str = "/var/lib/boole/native-shadow/runtime-rootfs";
+#[cfg(target_os = "linux")]
+const FIXED_RUNTIME_ROOTFS_MANIFEST: &str =
+    "/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json";
 
 fn main() {
     #[cfg(target_os = "linux")]
@@ -189,14 +196,22 @@ fn run_linux() -> Result<(), String> {
                 .map_err(|error| format!("one-shot qualification listener failed: {error}"))?;
             announce("native-shadow-qualification-one-shot-complete")
         }
-        "per-request-containment" => {
+        "closed-local-replay-three" => {
             let manager = enter_fixed_manager_cgroup(instance).map_err(format_manager_error)?;
             let recovered =
                 recover_fixed_startup_orphans(manager).map_err(format_startup_recovery_error)?;
             let compatibility = verify_fixed_startup_toolchain_compatibility(recovered)
                 .map_err(|error| format!("fixed toolchain compatibility failed: {error}"))?;
-            run_tracked_real_accept_containment_gate(&compatibility)?;
-            announce("native-shadow-per-request-containment-real-accept")
+            let rootfs = verify_runtime_rootfs_replay(
+                Path::new(FIXED_RUNTIME_ROOTFS),
+                Path::new(FIXED_RUNTIME_ROOTFS_MANIFEST),
+            )
+            .map_err(|error| format!("exact runtime-rootfs replay failed: {error}"))?;
+            let startup = assemble_verified_closed_local_replay_startup(compatibility, rootfs)
+                .map_err(|error| format!("closed-local replay startup failed: {error}"))?;
+            serve_three_fixed_unix_executions(startup)
+                .map_err(|error| format!("three-case replay listener failed: {error}"))?;
+            announce("native-shadow-closed-local-replay-three-complete")
         }
         other => Err(format!("unknown manager gate mode: {other}")),
     }

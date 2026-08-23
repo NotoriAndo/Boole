@@ -50,6 +50,7 @@ mod linux {
         device: u64,
         inode: u64,
         content_manifest_sha256: String,
+        expected_entries: BTreeMap<String, ContentEntry>,
     }
 
     #[allow(dead_code)]
@@ -71,6 +72,22 @@ mod linux {
 
         pub(crate) fn content_manifest_sha256(&self) -> &str {
             &self.content_manifest_sha256
+        }
+
+        /// Re-hash the complete frozen tree immediately before one request is
+        /// authorized. A read-only bind mount prevents writes through this
+        /// mount, but its source could still be changed through another mount;
+        /// descriptor identity and `ST_RDONLY` alone are therefore not enough.
+        pub(crate) fn reverify_for_execution(&self) -> Result<(), RuntimeRootfsReplayError> {
+            self.reverify_descriptor()?;
+            let proc_path = PathBuf::from(format!("/proc/self/fd/{}", self.directory.as_raw_fd()));
+            let observed = verify_tree(&proc_path, &self.expected_entries)?;
+            if observed != self.expected_entries.keys().cloned().collect() {
+                return Err(RuntimeRootfsReplayError::Manifest(
+                    "rootfs path set drifted before execution",
+                ));
+            }
+            Ok(())
         }
 
         fn reverify_descriptor(&self) -> Result<(), RuntimeRootfsReplayError> {
@@ -150,6 +167,7 @@ mod linux {
             device: metadata.st_dev,
             inode: metadata.st_ino,
             content_manifest_sha256: CONTENT_MANIFEST_SHA256.to_string(),
+            expected_entries: expected,
         })
     }
 
@@ -433,6 +451,18 @@ mod linux {
         RuntimeRootfsReplayError::Io {
             path: path.into(),
             source,
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn every_execution_rehashes_the_frozen_rootfs_tree() {
+            let rootfs_source = include_str!("runtime_rootfs_replay.rs");
+            let startup_source = include_str!("closed_local_replay_startup.rs");
+            assert!(rootfs_source.contains("pub(crate) fn reverify_for_execution(&self)"));
+            assert!(rootfs_source.contains("verify_tree(&proc_path, &self.expected_entries)?"));
+            assert!(startup_source.contains(".reverify_for_execution()"));
         }
     }
 }
