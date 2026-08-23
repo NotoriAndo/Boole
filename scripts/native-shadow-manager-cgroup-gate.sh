@@ -418,7 +418,7 @@ wait_for_state() {
   local expected=$1
   local state=''
   local i
-  for ((i = 0; i < fixed_socket_wait_attempts; i++)); do
+  for ((i = 0; i < 200; i++)); do
     state=$(sudo systemctl show "$unit_name" --property=ActiveState --value 2>/dev/null || :)
     [[ "$state" == "$expected" ]] && return 0
     if [[ "$state" == failed ]]; then
@@ -547,7 +547,7 @@ wait_for_marker_increment() {
 wait_for_fixed_socket() {
   local metadata=''
   local i
-  for ((i = 0; i < 200; i++)); do
+  for ((i = 0; i < fixed_socket_wait_attempts; i++)); do
     if sudo test -S "$socket_path"; then
       metadata=$(sudo stat -c %U:%G:%a "$socket_path")
       [[ "$metadata" == root:boole-node:660 ]] \

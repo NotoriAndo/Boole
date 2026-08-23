@@ -191,11 +191,22 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             '--property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :'
         )
         journal = 'sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :'
+        socket_wait = manager[
+            manager.index("wait_for_fixed_socket() {") : manager.index(
+                "wait_for_leaf_event() {"
+            )
+        ]
+        state_wait = manager[
+            manager.index("wait_for_state() {") : manager.index(
+                "wait_for_cgroup_removal() {"
+            )
+        ]
         self.assertIn("fixed_socket_wait_attempts=2400", manager)
         self.assertIn(
             "for ((i = 0; i < fixed_socket_wait_attempts; i++)); do",
-            manager,
+            socket_wait,
         )
+        self.assertIn("for ((i = 0; i < 200; i++)); do", state_wait)
         self.assertIn(diagnostic, manager)
         self.assertIn(journal, manager)
         self.assertLess(manager.index(diagnostic), timeout_index)
