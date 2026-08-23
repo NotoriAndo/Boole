@@ -42,7 +42,6 @@ const CHECKER_SCRIPT: &CStr =
 const TOOLCHAIN_BIN: &CStr = c"/opt/boole/native-checker-toolchain/bin";
 const WORK_PATH: &CStr = c"/work";
 const PROC_PATH: &CStr = c"/proc";
-const DEV_PATH: &CStr = c"/dev";
 const TMP_PATH: &CStr = c"/tmp";
 const STAGING_PATH: &CStr = c"/run";
 const VERIFIED_RUNTIME_ROOTFS_PATH: &CStr = c"/var/lib/boole/native-shadow/runtime-rootfs";
@@ -50,6 +49,8 @@ const RUNTIME_BASE: &CStr = c"/run/boole/native-shadow";
 const RUNTIME_LOWER: &CStr = c"/run/boole/native-shadow/rootfs-lower";
 const RUNTIME_ADDITIONS: &CStr = c"/run/boole/native-shadow/rootfs-additions";
 const RUNTIME_ROOT: &CStr = c"/run/boole/native-shadow/rootfs-root";
+const RUNTIME_ROOT_DEV: &CStr = c"/run/boole/native-shadow/rootfs-root/dev";
+const RUNTIME_ROOT_DEV_NULL: &CStr = c"/run/boole/native-shadow/rootfs-root/dev/null";
 
 pub(super) fn execute(
     compatibility: &VerifiedStartupToolchainCompatibility,
@@ -416,7 +417,7 @@ struct ChildSetup {
 fn child_setup_and_exec(setup: ChildSetup) -> Result<(), String> {
     setup_stage(
         "derive-runtime-root",
-        derive_and_enter_runtime_root(setup.rootfs_fd),
+        derive_and_enter_runtime_root(setup.rootfs_fd, setup.dev_null_fd),
     )?;
     setup_stage(
         "mount-private-filesystems",
@@ -643,7 +644,7 @@ fn set_nonblocking(fd: RawFd, enabled: bool) -> Result<(), ContainmentFailure> {
     Ok(())
 }
 
-fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
+fn derive_and_enter_runtime_root(rootfs_fd: RawFd, dev_null_fd: RawFd) -> Result<(), String> {
     setup_stage(
         "derive-make-root-private",
         mount_raw(None, c"/", None, libc::MS_REC | libc::MS_PRIVATE, None),
@@ -723,6 +724,16 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
     let derived_root_identity = setup_stage(
         "derive-verify-overlay",
         verify_derived_runtime_root(rootfs_fd),
+    )?;
+    // The host device FD belongs to the old root's /dev mount. Bind it while
+    // that mount is still attached; Linux rejects an MS_BIND source whose
+    // backing mount has already been detached from this namespace. The new
+    // child-private /dev mount is below RUNTIME_ROOT and therefore crosses the
+    // pivot with the verified overlay.
+    setup_stage("mount-private-dev", mount_private_dev(RUNTIME_ROOT_DEV))?;
+    setup_stage(
+        "bind-private-dev-null",
+        bind_and_verify_dev_null(dev_null_fd, RUNTIME_ROOT_DEV_NULL),
     )?;
     // CAP_SYS_CHROOT is deliberately absent.  The child already owns a
     // private mount namespace and CAP_SYS_ADMIN, so atomically replace its
@@ -1104,31 +1115,31 @@ fn mount_private_filesystems(checker_gid: u32, dev_null_fd: RawFd) -> Result<(),
             Some(tmp_options),
         ),
     )?;
-    let dev_options = c"size=1048576,nr_inodes=16,mode=0755,uid=0,gid=0";
     setup_stage(
-        "mount-private-dev",
-        mount_raw(
-            Some(c"tmpfs"),
-            DEV_PATH,
-            Some(c"tmpfs"),
-            libc::MS_NOSUID | libc::MS_NOEXEC,
-            Some(dev_options),
-        ),
-    )?;
-    setup_stage(
-        "bind-private-dev-null",
-        bind_and_verify_dev_null(dev_null_fd),
+        "verify-private-dev-null",
+        verify_bound_dev_null(dev_null_fd, c"/dev/null"),
     )?;
     setup_stage("verify-private-work", verify_workspace_root(checker_gid))
 }
 
-fn bind_and_verify_dev_null(source_fd: RawFd) -> Result<(), String> {
+fn mount_private_dev(target: &CStr) -> Result<(), String> {
+    let dev_options = c"size=1048576,nr_inodes=16,mode=0755,uid=0,gid=0";
+    mount_raw(
+        Some(c"tmpfs"),
+        target,
+        Some(c"tmpfs"),
+        libc::MS_NOSUID | libc::MS_NOEXEC,
+        Some(dev_options),
+    )
+}
+
+fn bind_and_verify_dev_null(source_fd: RawFd, target: &CStr) -> Result<(), String> {
     // SAFETY: /dev is a fresh child-private tmpfs and this creates only the
     // fixed bind target. No device node is synthesized and CAP_MKNOD is not
     // required or granted.
     let placeholder = unsafe {
         libc::open(
-            c"/dev/null".as_ptr(),
+            target.as_ptr(),
             libc::O_RDONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
             0o600,
         )
@@ -1140,11 +1151,16 @@ fn bind_and_verify_dev_null(source_fd: RawFd) -> Result<(), String> {
     drop(unsafe { OwnedFd::from_raw_fd(placeholder) });
     let source = CString::new(format!("/proc/self/fd/{source_fd}"))
         .map_err(|_| "fixed /dev/null source contains NUL".to_string())?;
-    mount_raw(Some(&source), c"/dev/null", None, libc::MS_BIND, None)?;
+    mount_raw(Some(&source), target, None, libc::MS_BIND, None)?;
+    verify_bound_dev_null(source_fd, target)
+}
+
+fn verify_bound_dev_null(source_fd: RawFd, target: &CStr) -> Result<(), String> {
     let source_stat = fd_stat(source_fd)?;
     let mut target_stat: libc::stat = unsafe { mem::zeroed() };
-    // SAFETY: fixed nonsymlink bind target and writable metadata storage.
-    if unsafe { libc::lstat(c"/dev/null".as_ptr(), &mut target_stat) } != 0 {
+    // SAFETY: caller supplies one of the two fixed nonsymlink bind targets and
+    // target_stat is writable metadata storage.
+    if unsafe { libc::lstat(target.as_ptr(), &mut target_stat) } != 0 {
         return Err(io::Error::last_os_error().to_string());
     }
     if !is_exact_dev_null(&source_stat)

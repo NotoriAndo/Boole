@@ -546,6 +546,24 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         ):
             self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
 
+    def test_host_dev_null_is_bound_before_the_old_root_is_detached(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        derive = source.split("fn derive_and_enter_runtime_root", 1)[1].split(
+            "fn create_runtime_staging_tree", 1
+        )[0]
+        self.assertIn('"mount-private-dev"', derive)
+        self.assertIn('"bind-private-dev-null"', derive)
+        self.assertLess(
+            derive.index('"mount-private-dev"'), derive.index('"derive-pivot-root"')
+        )
+        self.assertLess(
+            derive.index('"bind-private-dev-null"'),
+            derive.index('"derive-detach-old-root"'),
+        )
+
     def test_overlay_binds_only_the_fixed_path_and_rechecks_the_verified_fd(self) -> None:
         source = (
             ROOT
