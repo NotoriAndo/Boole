@@ -265,14 +265,25 @@ entry becomes authoritative on `main` only after its required CI and merge:
   extra capability must both fail. This slice does not consume that proof into the startup token,
   open installed authority, acquire the launcher lock, recover cgroups, bind/listen, construct a
   launcher instance ID, mutate a journal/route or spawn a checker.
-* **Phase 3B.2b-2s** — the current pre-lock-composition slice consumes the privilege proof, opens the
+* **Phase 3B.2b-2s** — PR #184, main `4a07015`: the pre-lock-composition slice consumes the privilege proof, opens the
   fixed installed authority and resolves the fixed NSS identities, exactly once in that order,
   into an opaque thread-bound prerequisite. The entrypoint accepts no path, account name, numeric
   identity, policy or capability mask; a failed earlier stage prevents later filesystem/NSS work.
-  A named Ubuntu gate stages byte-identical root-owned authority and invokes the production
-  composition under the exact capability service and fixed accounts. The resulting proof is not
+  A named Ubuntu gate stages byte-identical root-owned authority behind a private read-only
+  `/usr/share` bind and invokes the production composition under the exact capability service and
+  fixed accounts. The first hosted-runner attempt correctly rejected unsafe host `/usr/share`
+  metadata; the strict successor passed the real Linux gate and required CI run `32614207172`.
+  The resulting proof is not
   `VerifiedQualificationStartup`: this slice does not acquire the launcher lock, generate an
   instance ID, recover cgroups, bind/listen, mutate a journal/route or spawn a checker.
+* **Phase 3B.2b-2t** — the current lifetime-lock slice consumes that opaque prerequisite and accepts
+  no path or numeric identity. It opens the fixed runtime hierarchy component-by-component relative
+  to verified directory descriptors, rejects symlinks and unsafe ownership/modes, opens only
+  `launcher.lock` with the frozen flags, validates its exact inode metadata before locking, and
+  holds one nonblocking exclusive `flock` until the opaque guard drops without unlinking the file.
+  The named Linux gate must prove cross-process busy behavior and same-inode reacquisition under the
+  exact launcher capabilities and NSS identities. This remains pre-readiness work: no launcher ID,
+  cgroup recovery, bind/listen, route, journal transition or checker child is added.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do

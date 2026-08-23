@@ -164,25 +164,25 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "all three service shapes must execute the same production verifier path",
         )
 
-    def test_named_linux_job_exercises_the_real_launcher_prelock_composition(self):
+    def test_named_linux_job_exercises_the_real_launcher_prelock_and_lifetime_lock(self):
         job = self._job("native-shadow-containment-linux")
         self.assertIn(
             "./scripts/native-shadow-launcher-prelock-gate.sh",
             job,
-            "the named Linux job must compose privilege, installed authority, and NSS",
+            "the named Linux job must compose prerequisites and acquire the fixed lifetime lock",
         )
         self.assertTrue(
             LAUNCHER_PRELOCK_GATE.is_file(),
             "the launcher pre-lock gate must be a tracked reviewable script",
         )
 
-    def test_launcher_prelock_gate_stages_exact_authority_and_calls_the_production_composer(self):
+    def test_launcher_prelock_gate_stages_authority_runtime_and_calls_the_production_lock(self):
         body = LAUNCHER_PRELOCK_GATE.read_text(encoding="utf-8")
         for required in (
             "set -euo pipefail",
             '[[ ${EUID} -ne 0 ]] || die "build phase must run as the unprivileged CI user"',
             "cargo test --locked -p boole-native-shadow-launcher --lib --no-run",
-            "startup::tests::real_linux_prelock_prerequisites_match_the_frozen_host_contract",
+            "lifetime_lock::unix::tests::real_linux_fixed_launcher_lifetime_lock_is_single_instance",
             "sudo mktemp -d /run/boole-native-shadow-authority.XXXXXX",
             'authority_share="$authority_stage/share"',
             "fixtures/native-shadow/registry-v1.json registry-v1.json",
@@ -190,6 +190,9 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "native/containment/native-shadow-toolchain-identity-v1.json",
             'sudo install -o root -g root -m 0444 "$source" "$destination"',
             '[[ "$source_sha" == "$installed_sha" ]]',
+            '[[ ! -e "$runtime_parent" && ! -L "$runtime_parent" ]]',
+            'sudo install -d -o root -g root -m 0755 "$runtime_parent"',
+            'sudo install -d -o root -g boole-node -m 2750 "$runtime_directory"',
             "--property=User=root --property=Group=root",
             'CapabilityBoundingSet=CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN',
             "--property=AmbientCapabilities= --property=NoNewPrivileges=no",
@@ -200,6 +203,9 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             'sudo rmdir "$authority_parent"',
             'sudo rmdir "$authority_share"',
             'sudo rmdir "$authority_stage"',
+            'sudo rm -f "$runtime_directory/launcher.lock"',
+            'sudo rmdir "$runtime_directory"',
+            'sudo rmdir "$runtime_parent"',
             "transient unit ${unit}.service was not collected",
         ):
             self.assertIn(required, body)
@@ -207,6 +213,11 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "sudo install -d -o root -g root -m 0755 /usr/share/boole",
             body,
             "the gate must not rewrite a hosted runner's unsafe /usr/share hierarchy",
+        )
+        self.assertNotRegex(
+            body,
+            re.compile(r"(^|[;&|\s])flock\s"),
+            "the shell gate must exercise the Rust production lock, not take its own lock",
         )
 
     def test_required_self_test_cannot_hide_a_failed_probe(self):

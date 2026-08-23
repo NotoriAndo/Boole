@@ -336,13 +336,25 @@ Further route-free foundations now narrow the open prerequisite without closing 
   production check under the exact systemd service capabilities and proves that both a missing bit
   and an extra bit fail closed. It does not assemble launcher readiness, open authority, take a
   lifetime lock, recover cgroups, bind/listen, mutate a journal/route or run a checker.
-* Phase 3B.2b-2s — the current pre-lock-composition slice consumes that thread-bound privilege proof,
+* Phase 3B.2b-2s — PR #184, main `4a07015`: the pre-lock-composition slice consumes that thread-bound privilege proof,
   opens the three exact installed authority files and resolves the two fixed NSS service accounts,
   in that order and without caller input, into a new opaque thread-bound prerequisite. Failure at
   any stage prevents every later stage. A named Ubuntu gate stages byte-identical root-owned
-  authority files and invokes this production composition under the exact capability service and
-  fixed accounts. This proof is deliberately not launcher readiness: it takes no lock, creates no
+  authority files through a private read-only `/usr/share` mount and invokes this production
+  composition under the exact capability service and fixed accounts. The first hosted-runner
+  attempt correctly rejected the runner's unsafe host `/usr/share`; the successor kept the verifier
+  strict and passed the real Linux gate plus required CI run `32614207172`. This proof is deliberately
+  not launcher readiness: it takes no lock, creates no
   launcher ID, recovers no cgroup, binds no socket, changes no journal/route and spawns no checker.
+* Phase 3B.2b-2t — the current lifetime-lock slice consumes the opaque pre-lock prerequisite, walks
+  only `/run/boole/native-shadow` through `openat` directory descriptors with `O_NOFOLLOW`, requires
+  exact root/root ancestor and root:`boole-node` runtime-directory metadata, and opens only
+  `launcher.lock` relative to that verified directory. A regular one-link root:`boole-node`
+  mode-`0600` inode must pass `fstat` before the nonblocking lifetime `flock`; contention is typed
+  busy, guard drop releases only the kernel lock, and no Rust path removes or repairs the inode.
+  The named Linux gate must prove a separate process is busy while the first guard lives and that
+  drop permits reacquisition of the same inode. It still creates no launcher ID, cgroup, listener,
+  route, journal transition or checker child.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux
