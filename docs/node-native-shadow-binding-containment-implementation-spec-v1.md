@@ -330,6 +330,24 @@ entry becomes authoritative on `main` only after its required CI and merge:
   exact fail-closed inventory rejection without changing the valid live leaf's process/thread/event
   state. This closes only launcher-owned startup cgroup cleanup. Readiness, fixed toolchain probes,
   bind/listen, node durable recovery, route wiring and checker execution remain open.
+* **Phase 3B.2b-2w** — the fixed startup-toolchain-compatibility slice consumes that opaque recovery
+  proof and accepts no path, argument, environment, timeout or output limit from its caller. It
+  verifies the fixed root-owned Rust/Cargo/Python executable path shapes, then runs exactly the four
+  tracked manifest probes in order with a fresh ten-second deadline per probe, `env_clear`, the four
+  tracked environment entries, cwd `/`, null stdin and independent 65,536-byte stdout/stderr caps.
+  The toolchain root and `bin` directory are exactly root:root mode `0555`; Rust/Cargo executables
+  are root-owned, owner-executable, non-special, non-group/other-writable regular files with exactly
+  one hard link, and Python is the same shape with exact mode `0755`. The launcher snapshots their
+  device/inode/metadata, opens each fixed executable without following the final component, executes
+  that opened descriptor rather than looking the pathname up again, and requires the same pathname
+  identities plus cgroup filesystem/manager metadata and inventory after all probes.
+  Timeout, either-stream overflow, nonzero exit, nonempty stderr, invalid UTF-8, duplicate or drifted
+  version fields and any later manager-cgroup drift are fatal after movement and issue no opaque
+  compatibility proof. The limits are launcher safety constants frozen by this implementation spec;
+  they do not change the separately digested toolchain-identity manifest. A named Linux gate stages
+  the reviewed per-commit Rust artifacts at the exact `/opt` path and proves the full
+  recovery-to-probe chain. This is compatibility-only: installed-byte provenance, readiness,
+  bind/listen, route, durable node state and checker execution all remain closed.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do
@@ -768,6 +786,12 @@ Until a later tracked provenance slice closes all three, execution remains forbi
 version probes pass. Evidence `toolchainDigest` means this tracked compatibility/authority-manifest
 digest, not a digest improvised from a request-selected channel name or a claim that unrecorded
 installed bytes were reproduced.
+
+The startup compatibility wrapper adds one independent ten-second deadline per command and separate
+65,536-byte stdout and stderr ceilings. These are launcher-owned safety bounds frozen by this
+implementation spec, not fields added retrospectively to the byte-preserved identity manifest.
+Reaching any bound kills and reaps the fixed probe, withholds the compatibility proof and prevents
+all later bind or readiness work.
 
 Phase 3B.2b-0 (PR #176, main `1b02592`) closed the two node-side compatibility gaps originally
 recorded here: production uses the literal installed

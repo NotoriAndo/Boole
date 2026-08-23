@@ -19,7 +19,7 @@ jobs:
   native-shadow-containment-linux:
     name: native-shadow-containment-linux
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       RUST_TEST_THREADS: "1"
     steps:

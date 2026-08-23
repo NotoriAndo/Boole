@@ -18,6 +18,7 @@ use boole_native_shadow_launcher::{
     manager_cgroup::{enter_fixed_manager_cgroup, ManagerCgroupError},
     startup::verify_fixed_launcher_prelock_prerequisites,
     startup_recovery::{recover_fixed_startup_orphans, StartupCgroupRecoveryError},
+    toolchain_compatibility::verify_fixed_startup_toolchain_compatibility,
 };
 
 #[cfg(target_os = "linux")]
@@ -172,6 +173,14 @@ fn run_linux() -> Result<(), String> {
                 )),
                 Ok(_) => Err("unexpected startup inventory was accepted".to_string()),
             }
+        }
+        "toolchain-compatibility" => {
+            let manager = enter_fixed_manager_cgroup(instance).map_err(format_manager_error)?;
+            let recovered =
+                recover_fixed_startup_orphans(manager).map_err(format_startup_recovery_error)?;
+            let _compatibility = verify_fixed_startup_toolchain_compatibility(recovered)
+                .map_err(|error| format!("fixed toolchain compatibility failed: {error}"))?;
+            announce_and_wait("native-shadow-toolchain-compatibility-complete")
         }
         other => Err(format!("unknown manager gate mode: {other}")),
     }

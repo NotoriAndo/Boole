@@ -25,6 +25,10 @@ authority_stage=''
 authority_share=''
 authority_parent=''
 authority_directory=''
+toolchain_parent=/opt/boole
+toolchain_prefix=$toolchain_parent/native-checker-toolchain
+toolchain_stage=''
+opt_original_mode=''
 runtime_parent=/run/boole
 runtime_directory=$runtime_parent/native-shadow
 mode_path=$runtime_directory/manager-cgroup-gate-mode
@@ -43,6 +47,9 @@ unit_installed=false
 unit_dropin_directory_created=false
 unit_dropin_installed=false
 launcher_installed=false
+toolchain_parent_created=false
+toolchain_installed=false
+opt_mode_changed=false
 declare -a installed_authorities=()
 
 cleanup_gate() {
@@ -57,6 +64,9 @@ cleanup_gate() {
     sudo systemctl daemon-reload >/dev/null 2>&1 || :
   fi
   [[ "$launcher_installed" == true ]] && sudo rm -f "$launcher_path"
+  [[ "$toolchain_installed" == true ]] && sudo rm -rf "$toolchain_prefix"
+  [[ "$toolchain_parent_created" == true ]] && sudo rmdir "$toolchain_parent" >/dev/null 2>&1 || :
+  [[ "$opt_mode_changed" == true ]] && sudo chmod "$opt_original_mode" /opt
   local basename
   for basename in "${installed_authorities[@]}"; do
     sudo rm -f "$authority_directory/$basename"
@@ -73,6 +83,7 @@ cleanup_gate() {
     sudo rmdir "$authority_stage" >/dev/null 2>&1 || :
   fi
   [[ "$launcher_directory_created" == true ]] && sudo rmdir "$launcher_directory" >/dev/null 2>&1 || :
+  [[ -z "$toolchain_stage" ]] || rm -rf "$toolchain_stage"
   rm -f "$build_json" "$log" "$dropin_source"
 }
 trap cleanup_gate EXIT
@@ -87,7 +98,7 @@ load_state=$(systemctl show "$unit_name" --property=LoadState --value 2>/dev/nul
   || die "refusing to shadow pre-existing loaded unit: $unit_name ($load_state)"
 
 for path in "$unit_path" "$unit_dropin_directory" "$launcher_path" "$runtime_directory" \
-  "$service_root"; do
+  "$service_root" "$toolchain_prefix"; do
   [[ ! -e "$path" && ! -L "$path" ]] || die "refusing to replace pre-existing path: $path"
 done
 
@@ -114,6 +125,37 @@ for line in open(sys.argv[1], encoding="utf-8"):
 [[ ${#executables[@]} -eq 1 ]] || die "expected one manager harness, got ${#executables[@]}"
 harness=${executables[0]}
 [[ -x "$harness" ]] || die "manager harness is not executable"
+
+toolchain_stage=$(mktemp -d "$temp_root/boole-native-shadow-toolchain.XXXXXX")
+./scripts/install-native-checker-toolchain.sh "$toolchain_stage"
+[[ $(stat -c %U:%G /opt) == root:root ]] \
+  || die "fixed /opt ancestor is not root-owned"
+opt_original_mode=$(stat -c %a /opt)
+if (( (8#$opt_original_mode & 8#022) != 0 )); then
+  sudo chmod go-w /opt
+  opt_mode_changed=true
+fi
+[[ $((8#$(stat -c %a /opt) & 8#022)) -eq 0 ]] \
+  || die "fixed /opt ancestor remains group/other writable"
+if [[ ! -d "$toolchain_parent" ]]; then
+  sudo install -d -o root -g root -m 0755 "$toolchain_parent"
+  toolchain_parent_created=true
+fi
+sudo install -d -o root -g root -m 0555 "$toolchain_prefix"
+toolchain_installed=true
+sudo cp -a "$toolchain_stage/." "$toolchain_prefix/"
+sudo chown -R root:root "$toolchain_prefix"
+sudo chmod 0555 "$toolchain_prefix" "$toolchain_prefix/bin"
+[[ $(sudo stat -c %U:%G:%a "$toolchain_prefix") == root:root:555 ]] \
+  || die "installed toolchain root metadata differs"
+[[ $(sudo stat -c %U:%G:%a "$toolchain_prefix/bin") == root:root:555 ]] \
+  || die "installed toolchain bin metadata differs"
+for executable in rustc cargo; do
+  [[ $(sudo stat -c %U:%G "$toolchain_prefix/bin/$executable") == root:root ]] \
+    || die "installed $executable owner/group differs"
+  [[ -x "$toolchain_prefix/bin/$executable" ]] \
+    || die "installed $executable is not executable"
+done
 
 if [[ ! -d "$launcher_directory" ]]; then
   sudo install -d -o root -g root -m 0755 "$launcher_directory"
@@ -500,6 +542,16 @@ sudo test -d "$service_root/zzz-unexpected" \
 sudo systemctl stop boole-native-shadow-launcher.service
 wait_for_state inactive
 wait_for_background_job "$reject_tree"
+wait_for_cgroup_removal
+
+toolchain_mode="toolchain-compatibility"
+set_mode "$toolchain_mode"
+sudo systemctl start boole-native-shadow-launcher.service
+toolchain_invocation=$(unit_invocation_id)
+wait_for_marker native-shadow-toolchain-compatibility-complete "$toolchain_invocation"
+assert_manager_invariants >/dev/null
+sudo systemctl stop boole-native-shadow-launcher.service
+wait_for_state inactive
 wait_for_cgroup_removal
 
 set_mode safe-reuse
