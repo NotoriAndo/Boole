@@ -110,6 +110,12 @@ struct CapturedStream {
 }
 
 #[derive(Clone, Copy)]
+struct RuntimeRootIdentity {
+    device: u64,
+    inode: u64,
+}
+
+#[derive(Clone, Copy)]
 enum OutputStream {
     Stdout,
     Stderr,
@@ -714,7 +720,7 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
         );
         result.map_err(|error| overlay_mount_failure_context(&error))
     })?;
-    setup_stage(
+    let derived_root_identity = setup_stage(
         "derive-verify-overlay",
         verify_derived_runtime_root(rootfs_fd),
     )?;
@@ -746,7 +752,10 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
         "derive-enter-new-root",
         syscall_zero(unsafe { libc::chdir(c"/".as_ptr()) } as libc::c_long),
     )?;
-    setup_stage("derive-verify-entered-root", verify_entered_runtime_root())?;
+    setup_stage(
+        "derive-verify-entered-root",
+        verify_entered_runtime_root(derived_root_identity),
+    )?;
     Ok(())
 }
 
@@ -929,7 +938,7 @@ fn require_runtime_paths_absent_from_frozen_lower(rootfs_fd: RawFd) -> Result<()
     Ok(())
 }
 
-fn verify_derived_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
+fn verify_derived_runtime_root(rootfs_fd: RawFd) -> Result<RuntimeRootIdentity, String> {
     use std::collections::BTreeSet;
     use std::os::unix::fs::MetadataExt;
 
@@ -992,15 +1001,21 @@ fn verify_derived_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
     if mount.f_flag & libc::ST_RDONLY == 0 {
         return Err("derived runtime root is not read-only".to_string());
     }
-    Ok(())
+    Ok(RuntimeRootIdentity {
+        device: root_metadata.dev(),
+        inode: root_metadata.ino(),
+    })
 }
 
-fn verify_entered_runtime_root() -> Result<(), String> {
+fn verify_entered_runtime_root(expected: RuntimeRootIdentity) -> Result<(), String> {
     use std::os::unix::fs::MetadataExt;
 
     let root = std::fs::symlink_metadata("/").map_err(|error| error.to_string())?;
     if !runtime_root_metadata_is_exact(root.uid(), root.gid(), root.mode()) {
         return Err("entered runtime root metadata mismatch".to_string());
+    }
+    if root.dev() != expected.device || root.ino() != expected.inode {
+        return Err("entered runtime root identity mismatch".to_string());
     }
     let mut filesystem: libc::statfs = unsafe { mem::zeroed() };
     // SAFETY: fixed entered root path and writable statfs storage.

@@ -596,6 +596,23 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertNotIn(".old-root", source)
         self.assertNotIn("libc::rmdir", source)
 
+    def test_entered_root_must_match_the_pre_pivot_overlay_identity(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        self.assertRegex(
+            source,
+            r"let derived_root_identity = setup_stage\(\s*"
+            r'"derive-verify-overlay",\s*verify_derived_runtime_root\(rootfs_fd\),\s*\)\?;',
+        )
+        self.assertIn(
+            "verify_entered_runtime_root(derived_root_identity)",
+            source,
+        )
+        self.assertIn("root.dev() != expected.device", source)
+        self.assertIn("root.ino() != expected.inode", source)
+
     def test_overlay_staging_filesystem_remains_exec_capable_for_the_merged_root(self) -> None:
         source = (
             ROOT
