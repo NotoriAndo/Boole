@@ -35,6 +35,8 @@ const OUTPUT_LIMIT: usize = 1_048_576;
 const CPU_TOTAL_USEC: u64 = 120_000_000;
 const SETUP_ERROR_LIMIT: usize = 4096;
 const CLONE_INTO_CGROUP_FLAG: u64 = 1_u64 << 33;
+const FIXED_LAUNCHER_UMASK: libc::mode_t = 0o117;
+const CHECKER_UMASK: libc::mode_t = 0o077;
 
 const CHECKER_PATH: &CStr = c"/usr/bin/python3.12";
 const CHECKER_SCRIPT: &CStr =
@@ -465,6 +467,7 @@ fn child_setup_and_exec(setup: ChildSetup) -> Result<(), String> {
         "verify-runtime-identity-lookup",
         verify_runtime_identity_lookup(setup.checker_uid, setup.checker_gid),
     )?;
+    setup_stage("set-checker-umask", set_checker_umask())?;
     setup_stage("apply-rlimits", apply_outer_rlimits())?;
     setup_stage("install-landlock", apply_landlock())?;
     setup_stage(
@@ -1888,6 +1891,26 @@ fn apply_landlock() -> Result<(), String> {
     Ok(())
 }
 
+fn set_checker_umask() -> Result<(), String> {
+    // The root launcher deliberately starts under systemd's restrictive 0117
+    // mask.  That mask cannot cross the exec boundary: Python tempfile asks
+    // for 0700 directories, and 0700 & !0117 is 0600 (not traversable even by
+    // the checker that owns it).  This post-clone child is single-threaded, so
+    // replace only its mask with 0077.  Files remain owner-only and requested
+    // 0700 scratch directories retain their owner execute bit.
+    // SAFETY: umask is process-local in this already-cloned, single-threaded
+    // child and the previous fixed launcher mask is checked exactly.
+    let previous = unsafe { libc::umask(CHECKER_UMASK) };
+    if previous != FIXED_LAUNCHER_UMASK {
+        // SAFETY: restore the unexpected inherited value before failing setup.
+        unsafe { libc::umask(previous) };
+        return Err(format!(
+            "inherited launcher umask mismatch: expected 0117, observed {previous:04o}"
+        ));
+    }
+    Ok(())
+}
+
 fn exec_checker() -> Result<(), String> {
     let argv = [
         CHECKER_PATH,
@@ -1963,7 +1986,7 @@ mod tests {
     use super::{
         derived_runtime_top_level_is_exact, runtime_additions_are_compatible_with_lower,
         runtime_passwd_record, runtime_root_metadata_is_exact, setup_stage, CapturedOutput,
-        OutputStream, OUTPUT_LIMIT,
+        OutputStream, CHECKER_UMASK, OUTPUT_LIMIT,
     };
 
     fn names(values: &[&str]) -> BTreeSet<OsString> {
@@ -2063,5 +2086,19 @@ mod tests {
             ),
             Err("install-landlock: Permission denied (os error 13)".to_string())
         );
+    }
+
+    #[test]
+    fn checker_umask_preserves_owner_traversal_and_removes_all_peer_access() {
+        assert_eq!(0o700 & !CHECKER_UMASK, 0o700);
+        assert_eq!(0o666 & !CHECKER_UMASK, 0o600);
+        assert_eq!(CHECKER_UMASK, 0o077);
+
+        let source = include_str!("linux.rs");
+        let install = source
+            .find("set-checker-umask")
+            .expect("checker umask setup stage");
+        let execute = source.find("exec-checker").expect("checker exec stage");
+        assert!(install < execute);
     }
 }

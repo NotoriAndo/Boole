@@ -576,6 +576,24 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertNotIn("libc::chmod", create)
         self.assertIn("metadata.st_mode & 0o7777 != 0o2770", create)
 
+    def test_checker_child_replaces_service_umask_before_exec(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        setup = source.split("fn child_setup_and_exec", 1)[1].split(
+            "fn setup_stage", 1
+        )[0]
+        self.assertIn('setup_stage("set-checker-umask", set_checker_umask())?', setup)
+        self.assertLess(
+            setup.index('"set-checker-umask"'), setup.index('"exec-checker"')
+        )
+        setter = source.split("fn set_checker_umask", 1)[1].split(
+            "fn exec_checker", 1
+        )[0]
+        self.assertIn("libc::umask(CHECKER_UMASK)", setter)
+        self.assertIn("CHECKER_UMASK: libc::mode_t = 0o077", source)
+
     def test_host_dev_null_is_bound_before_the_old_root_is_detached(self) -> None:
         source = (
             ROOT
