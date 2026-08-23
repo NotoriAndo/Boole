@@ -35,6 +35,14 @@ SOURCE_LOCK_RELEASE = (
 )
 PORTABLE_V2_DERIVED_ENTRIES = (
     {
+        "logicalPath": "/lib",
+        "kind": "symlink",
+        "target": "usr/lib",
+        "mode": "0777",
+        "uid": 0,
+        "gid": 0,
+    },
+    {
         "logicalPath": "/lib64",
         "kind": "symlink",
         "target": "usr/lib64",

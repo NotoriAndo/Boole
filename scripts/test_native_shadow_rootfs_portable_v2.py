@@ -55,6 +55,14 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             portable_lock["derivedEntries"],
             [
                 {
+                    "logicalPath": "/lib",
+                    "kind": "symlink",
+                    "target": "usr/lib",
+                    "mode": "0777",
+                    "uid": 0,
+                    "gid": 0,
+                },
+                {
                     "logicalPath": "/lib64",
                     "kind": "symlink",
                     "target": "usr/lib64",

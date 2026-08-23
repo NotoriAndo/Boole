@@ -460,6 +460,14 @@
     {
       "gid": 0,
       "kind": "symlink",
+      "logicalPath": "/lib",
+      "mode": "0777",
+      "target": "usr/lib",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "kind": "symlink",
       "logicalPath": "/lib64",
       "mode": "0777",
       "target": "usr/lib64",
