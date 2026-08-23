@@ -58,7 +58,7 @@ jobs:
       - name: Verify fixed launcher root and capability shape
         run: ./scripts/native-shadow-launcher-privilege-gate.sh
 
-      - name: Compose fixed launcher pre-lock and lifetime lock
+      - name: Compose launcher pre-lock, lifetime lock, and instance identity
         run: ./scripts/native-shadow-launcher-prelock-gate.sh
 
       - name: Probe delegated cgroup and namespace capabilities

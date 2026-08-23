@@ -2,9 +2,10 @@
 set -euo pipefail
 
 # Exercise the argument-free production composition of launcher privilege,
-# installed authority, fixed NSS identities, and the fixed lifetime lock. The
-# reviewed test executable and authority bytes are staged root-owned before a
-# transient exact-capability service calls the production path.
+# installed authority, fixed NSS identities, the fixed lifetime lock, and one
+# launcher instance identity. The reviewed test executable and authority bytes
+# are staged root-owned before a transient exact-capability service calls the
+# production path.
 
 die() {
   echo "native-shadow launcher pre-lock gate: $*" >&2
@@ -134,6 +135,7 @@ suffix=${suffix//[^a-zA-Z0-9-]/-}
 unit="boole-native-shadow-prelock-${suffix}"
 log=$(mktemp "$temp_root/boole-native-shadow-prelock.XXXXXX")
 test_name=lifetime_lock::unix::tests::real_linux_fixed_launcher_lifetime_lock_is_single_instance
+success_marker=native-shadow-launcher-instance-identity-gate-complete
 
 set +e
 sudo systemd-run --quiet --pipe --wait --collect --unit="$unit" \
@@ -149,7 +151,11 @@ sudo systemd-run --quiet --pipe --wait --collect --unit="$unit" \
 status=$?
 set -e
 cat "$log"
-[[ $status -eq 0 ]] || die "production pre-lock and lifetime-lock composition failed"
+[[ $status -eq 0 ]] \
+  || die "production pre-lock, lifetime-lock, and instance-identity composition failed"
+marker_count=$(grep -Fxc "$success_marker" "$log" || :)
+[[ "$marker_count" -eq 1 ]] \
+  || die "production composition did not execute the exact parent postconditions once"
 
 for ((i = 0; i < 100; i++)); do
   state=$(sudo systemctl show "${unit}.service" --property=LoadState --value 2>/dev/null || :)
@@ -159,4 +165,4 @@ done
 [[ "$state" == not-found ]] \
   || die "transient unit ${unit}.service was not collected"
 
-echo "native-shadow launcher pre-lock and lifetime-lock gate: PASS"
+echo "native-shadow launcher pre-lock, lifetime-lock, and instance-identity gate: PASS"

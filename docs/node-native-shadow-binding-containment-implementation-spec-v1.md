@@ -276,14 +276,22 @@ entry becomes authoritative on `main` only after its required CI and merge:
   The resulting proof is not
   `VerifiedQualificationStartup`: this slice does not acquire the launcher lock, generate an
   instance ID, recover cgroups, bind/listen, mutate a journal/route or spawn a checker.
-* **Phase 3B.2b-2t** — the current lifetime-lock slice consumes that opaque prerequisite and accepts
+* **Phase 3B.2b-2t** — PR #185, main `a517720`: the lifetime-lock slice consumes that opaque prerequisite and accepts
   no path or numeric identity. It opens the fixed runtime hierarchy component-by-component relative
   to verified directory descriptors, rejects symlinks and unsafe ownership/modes, opens only
   `launcher.lock` with the frozen flags, validates its exact inode metadata before locking, and
   holds one nonblocking exclusive `flock` until the opaque guard drops without unlinking the file.
-  The named Linux gate must prove cross-process busy behavior and same-inode reacquisition under the
-  exact launcher capabilities and NSS identities. This remains pre-readiness work: no launcher ID,
+  The named Linux gate proves cross-process busy behavior and same-inode reacquisition under the
+  exact launcher capabilities and NSS identities; required CI run `32615499137` is GREEN. This
+  remains pre-readiness work: no launcher ID,
   cgroup recovery, bind/listen, route, journal transition or checker child is added.
+* **Phase 3B.2b-2g** — the current instance-identity slice consumes the lifetime-lock guard, performs
+  exactly one 32-byte `getrandom(2)` call with flags zero and no caller bytes, retry or fallback, and
+  stores the result only inside a new opaque thread-bound token that continues to own the lock.
+  Failure or any short read issues no token. The named Linux gate must execute that production path
+  and retain the lock across the call. This state-free step is deliberately after the lock and before
+  recovery, but it is not readiness: manager-cgroup verification, orphan cleanup, fixed probes,
+  bind/listen, route, journal transition and checker work remain absent.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do

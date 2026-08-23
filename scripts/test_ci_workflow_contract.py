@@ -22,6 +22,13 @@ LAUNCHER_PRIVILEGE_GATE = (
 LAUNCHER_PRELOCK_GATE = (
     REPO_ROOT / "scripts" / "native-shadow-launcher-prelock-gate.sh"
 )
+LAUNCHER_LIFETIME_LOCK_SOURCE = (
+    REPO_ROOT
+    / "crates"
+    / "boole-native-shadow-launcher"
+    / "src"
+    / "lifetime_lock.rs"
+)
 NATIVE_CONTAINMENT_SPEC = (
     REPO_ROOT / "docs" / "node-native-shadow-binding-containment-implementation-spec-v1.md"
 )
@@ -164,20 +171,22 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "all three service shapes must execute the same production verifier path",
         )
 
-    def test_named_linux_job_exercises_the_real_launcher_prelock_and_lifetime_lock(self):
+    def test_named_linux_job_exercises_the_real_launcher_prelock_lock_and_instance_identity(self):
         job = self._job("native-shadow-containment-linux")
         self.assertIn(
             "./scripts/native-shadow-launcher-prelock-gate.sh",
             job,
-            "the named Linux job must compose prerequisites and acquire the fixed lifetime lock",
+            "the named Linux job must compose prerequisites, lock, and instance identity",
         )
         self.assertTrue(
             LAUNCHER_PRELOCK_GATE.is_file(),
             "the launcher pre-lock gate must be a tracked reviewable script",
         )
 
-    def test_launcher_prelock_gate_stages_authority_runtime_and_calls_the_production_lock(self):
+    def test_launcher_prelock_gate_calls_the_production_instance_identity_path(self):
         body = LAUNCHER_PRELOCK_GATE.read_text(encoding="utf-8")
+        lock_source = LAUNCHER_LIFETIME_LOCK_SOURCE.read_text(encoding="utf-8")
+        completion_marker = "native-shadow-launcher-instance-identity-gate-complete"
         for required in (
             "set -euo pipefail",
             '[[ ${EUID} -ne 0 ]] || die "build phase must run as the unprivileged CI user"',
@@ -207,8 +216,22 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             'sudo rmdir "$runtime_directory"',
             'sudo rmdir "$runtime_parent"',
             "transient unit ${unit}.service was not collected",
+            "instance-identity composition failed",
+            f'success_marker={completion_marker}',
+            'marker_count=$(grep -Fxc "$success_marker" "$log" || :)',
+            '[[ "$marker_count" -eq 1 ]]',
         ):
             self.assertIn(required, body)
+        self.assertIn(
+            f'"{completion_marker}"',
+            lock_source,
+            "the exact production parent test must define the frozen completion marker",
+        )
+        self.assertIn(
+            'println!("{REAL_PARENT_COMPLETE_MARKER}")',
+            lock_source,
+            "the exact production parent test must emit its marker only after all postconditions",
+        )
         self.assertNotIn(
             "sudo install -d -o root -g root -m 0755 /usr/share/boole",
             body,
