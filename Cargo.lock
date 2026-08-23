@@ -426,6 +426,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "boole-native-shadow-launcher"
+version = "0.1.0"
+dependencies = [
+ "boole-native-shadow-protocol",
+ "hex",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "boole-native-shadow-protocol"
 version = "0.1.0"
 dependencies = [

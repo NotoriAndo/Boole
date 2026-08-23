@@ -305,7 +305,7 @@ Further route-free foundations now narrow the open prerequisite without closing 
   those fixed values back to the tracked policy and non-Linux refuses before touching files or a
   socket. The root launcher and fixed-account resolution do not yet exist, so this is not a real
   installed handshake and changes no route, journal or checker state.
-* Phase 3B.2b-2i — the current fixed-service-identity slice: the shared protocol boundary resolves
+* Phase 3B.2b-2i — PR #180, main `91de1d1`: the shared protocol boundary resolves
   only the literal `boole-node` and `boole-native-checker` accounts through libc NSS calls and
   verifies their non-root, same-named-primary-group, `/nonexistent`, non-login-shell,
   no-supplementary-group and mutual-separation invariants. The node production adapter no longer
@@ -313,6 +313,14 @@ Further route-free foundations now narrow the open prerequisite without closing 
   The named Ubuntu job creates the two ephemeral system accounts and must run the real libc happy
   path without skipping. This slice creates no launcher, socket, cgroup, journal transition or
   checker child, so the real installed handshake remains open.
+* Phase 3B.2b-2l — the current launcher behavioral-core slice: a new, non-publishable launcher
+  library accepts only an in-crate, kernel-credential session and an opaque verified-startup token.
+  It authenticates the node peer before frame I/O, reads exactly one strict qualification hello,
+  matches all three authority digests, writes and flushes the disabled ready frame, requires clean
+  node EOF, then shuts down its write half. A second frame or any failure returns no capability and
+  the owned session is dropped. This slice deliberately has no startup-token constructor, Unix
+  adapter, executable, lock, socket bind, cgroup recovery, route, journal transition or checker
+  child, so it is not a real installed handshake.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux

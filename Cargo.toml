@@ -9,6 +9,7 @@ members = [
   "crates/boole-lean-runner",
   "crates/boole-mcp",
   "crates/boole-miner",
+  "crates/boole-native-shadow-launcher",
   "crates/boole-native-shadow-protocol",
   "crates/boole-testkit",
   "crates/boole-wallet-agent",
