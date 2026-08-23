@@ -34,6 +34,16 @@ require_file docs/settlement-report.md
 require_file docs/receipt-commitment.md
 require_file docs/verified-answer-local-mvp-closeout.md
 require_file docs/dev-mock-payment.md
+require_file docs/mac-first-hidden-linux-execution-plan-v1.md
+
+# Mac-first native-checker distribution contract: the consumer path is one
+# Boole app, not a user-managed Docker/Linux installation, while the reviewed
+# Linux containment authority remains fail-closed until the explicit MAC gates.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "never require the user to install Docker Desktop"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "user-invisible Linux execution appliance"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.6 — Release gate"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Mac packaging planned"
+require_text docs/native-submission-shadow-verification-v1.md "docs/mac-first-hidden-linux-execution-plan-v1.md"
 
 # P1.8 — the dev-only mock payment doc must carry an unmistakable banner and
 # name its feature gate, and receipt-commitment.md must caveat the magic header

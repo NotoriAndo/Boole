@@ -607,11 +607,11 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `6ff953ac229324045b23c283deb702473938ddd4766abe3c9affaa794a964449` |
-| `local-docs/todo/todo-l1-network-master.md` | `101319f9688df80b95c4588b6cfcaea140ff282d54fad6d385ad15df56ba7650` |
-| `local-docs/todo/EXECUTION-ORDER.md` | `f08f7be9db3ac279b5b0d96cb40fd16d789b1cc2c4e189aea7e9bfbdf82e16be` (updated 2026-08-23 — Phase 2C/current blocker cursor below) |
-| `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `a7ff168696308e71caa641fc0dfa83b80d35e4027189918ff9a56a9a98b3e7fb` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `fbe62bec291368ecaa1285b55e8223c2841b2e197e9ccfc3948168e56016b2ee` |
-| `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `b51fad6c2d3c0efb93566ab58f25c566153f018e5ce370cced0b5923d21caac3` |
+| `local-docs/todo/todo-l1-network-master.md` | `b3b6459ee634c784cc7568fbd03ca5990791c0f1cf9f36b143c7fbd3c70f5497` |
+| `local-docs/todo/EXECUTION-ORDER.md` | `52d2d416a4c1c640bc5ded16bae49d23310d8ea7382c0ee0f7c1760294940cb2` (updated 2026-08-24 — Mac-first distribution successor registered; current Linux checker cursor unchanged) |
+| `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `42e216ddbfe56875ccb5d932335ed5963737572bb06a3eda57a55513db7c1635` |
+| `local-docs/todo/thesis-realization-roadmap.md` | `e19d89f1b3b3558c3ee3e3d0a706117e1908cf12a069f22ed494036fddce1bbb` |
+| `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `140b522eb4d72c58823d91e19c458a23dabac14e05ee6a2163921cd65d989333` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
 tracked checker/registry migration in section 4; no node may load a `local-docs` file as a trust
@@ -672,3 +672,21 @@ freezes the exact disabled policy/toolchain-identity bytes, registry bindings, s
 resolution, checker invocation and install/IPC contract; production launcher implementation and
 provenance testing, authenticated handshake, durable execution ID, route/checker wiring and actual
 native Linux execution remain open.
+
+## 13. Mac-first product distribution boundary
+
+The current Linux-only execution contract describes the security envelope for untrusted native
+submissions; it is not a requirement that a Mac user install or administer Linux. The reviewed
+product successor is `docs/mac-first-hidden-linux-execution-plan-v1.md`.
+
+That plan fixes the user contract as one signed/notarized `Boole.app`, with no separately installed
+Docker Desktop, Linux distribution, VM manager, Rust/Python toolchain or terminal-managed service.
+The app will keep node-owned challenge/journal/evidence state on the trusted host side and manage a
+user-invisible Linux execution appliance for only the untrusted compiler/process tree.
+
+This registration does not alter this authority's non-Linux fail-closed rule or authorize a Mac
+production claim. The current Linux/x86_64 execution authority cannot be silently reused as an
+Apple-Silicon Linux/arm64 authority. Architecture parity, guest lifecycle, authenticated host/guest
+transport, clean-Mac installation and signed update/rollback each remain explicit MAC.1–MAC.6
+gates. Their implementation follows this document's exact Linux ACCEPT closure and node raw-answer
+exactly-once E2E; it does not interrupt or bypass those prerequisites.
