@@ -45,8 +45,12 @@ const CHECKER_PATH: &CStr = c"/usr/bin/python3.12";
 const CHECKER_SCRIPT: &CStr =
     c"/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py";
 #[cfg(feature = "manager-cgroup-linux-gate")]
-const CHECKER_DIAGNOSTIC_SCRIPT: &CStr =
-    c"/usr/share/boole/native-shadow/native-shadow-checker-cargo-diagnostic.py";
+const CHECKER_DIAGNOSTIC_SCRIPT: &CStr = c"/work/native-shadow-checker-cargo-diagnostic.py";
+#[cfg(feature = "manager-cgroup-linux-gate")]
+const CHECKER_DIAGNOSTIC_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../scripts/native_shadow_checker_cargo_diagnostic.py"
+));
 const TOOLCHAIN_BIN: &CStr = c"/opt/boole/native-checker-toolchain/bin";
 const WORK_PATH: &CStr = c"/work";
 const PROC_PATH: &CStr = c"/proc";
@@ -351,6 +355,11 @@ fn clone_contained_child(
     let task = sealed_memfd(c"boole-native-task", &materials.task)?;
     let anchor = sealed_memfd(c"boole-native-anchor", &materials.anchor)?;
     let submission = sealed_memfd(c"boole-native-submission", &materials.submission)?;
+    #[cfg(feature = "manager-cgroup-linux-gate")]
+    let diagnostic_script = sealed_memfd(
+        c"boole-native-checker-cargo-diagnostic",
+        CHECKER_DIAGNOSTIC_BYTES,
+    )?;
     let (stdout_read, stdout_write) = pipe_cloexec_nonblocking_reader()?;
     let (stderr_read, stderr_write) = pipe_cloexec_nonblocking_reader()?;
     let (setup_read, setup_write) = pipe_cloexec()?;
@@ -393,6 +402,8 @@ fn clone_contained_child(
             task_fd: task.as_raw_fd(),
             anchor_fd: anchor.as_raw_fd(),
             submission_fd: submission.as_raw_fd(),
+            #[cfg(feature = "manager-cgroup-linux-gate")]
+            diagnostic_script_fd: diagnostic_script.as_raw_fd(),
             stdout_fd: stdout_write.as_raw_fd(),
             stderr_fd: stderr_write.as_raw_fd(),
             setup_fd,
@@ -416,6 +427,8 @@ fn clone_contained_child(
         stderr_write,
         setup_write,
     ));
+    #[cfg(feature = "manager-cgroup-linux-gate")]
+    drop(diagnostic_script);
     if pidfd < 0 {
         terminate_leaf(leaf)?;
         let mut status = 0;
@@ -459,6 +472,8 @@ struct ChildSetup {
     task_fd: RawFd,
     anchor_fd: RawFd,
     submission_fd: RawFd,
+    #[cfg(feature = "manager-cgroup-linux-gate")]
+    diagnostic_script_fd: RawFd,
     stdout_fd: RawFd,
     stderr_fd: RawFd,
     setup_fd: RawFd,
@@ -493,6 +508,15 @@ fn child_setup_and_exec(setup: ChildSetup) -> Result<(), String> {
         materialize_authority(
             setup.submission_fd,
             c"/work/submission.rs",
+            setup.checker_gid,
+        ),
+    )?;
+    #[cfg(feature = "manager-cgroup-linux-gate")]
+    setup_stage(
+        "materialize-checker-cargo-diagnostic",
+        materialize_authority(
+            setup.diagnostic_script_fd,
+            CHECKER_DIAGNOSTIC_SCRIPT,
             setup.checker_gid,
         ),
     )?;

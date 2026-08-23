@@ -334,7 +334,6 @@ install_authority native/containment/native-shadow-local-execution-authority-v1.
 install_authority native/containment/native-shadow-closed-local-replay-grant-v1.json closed-local-replay-grant-v1.json
 install_authority native/containment/native-shadow-closed-local-replay-registry-overlay-v1.json closed-local-replay-registry-overlay-v1.json
 install_authority native/containment/native-shadow-closed-local-replay-execution-authority-v1.json closed-local-replay-execution-authority-v1.json
-install_authority scripts/native_shadow_checker_cargo_diagnostic.py native-shadow-checker-cargo-diagnostic.py
 sudo install -d -o root -g root -m 0555 "$(dirname "$checker_directory")"
 sudo install -d -o root -g root -m 0555 "$checker_directory"
 checker_installed=true
