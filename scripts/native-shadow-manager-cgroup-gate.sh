@@ -171,6 +171,10 @@ wait_for_state() {
   for ((i = 0; i < 200; i++)); do
     state=$(sudo systemctl show "$unit_name" --property=ActiveState --value 2>/dev/null || :)
     [[ "$state" == "$expected" ]] && return 0
+    if [[ "$state" == failed ]]; then
+      sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :
+      die "unit entered failed state while waiting for $expected"
+    fi
     sleep 0.05
   done
   die "unit did not reach $expected (last state: $state)"

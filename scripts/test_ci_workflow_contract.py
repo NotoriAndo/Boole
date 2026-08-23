@@ -318,6 +318,17 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "systemd-tmpfiles treats a bare relative argument as a config name, not the repo file",
         )
 
+    def test_manager_cgroup_gate_surfaces_a_failed_unit_journal_immediately(self):
+        body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('if [[ "$state" == failed ]]; then', body)
+        self.assertIn(
+            'sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :',
+            body,
+        )
+        self.assertIn('die "unit entered failed state while waiting for $expected"', body)
+
     def test_launcher_prelock_gate_calls_the_production_instance_identity_path(self):
         body = LAUNCHER_PRELOCK_GATE.read_text(encoding="utf-8")
         lock_source = LAUNCHER_LIFETIME_LOCK_SOURCE.read_text(encoding="utf-8")
