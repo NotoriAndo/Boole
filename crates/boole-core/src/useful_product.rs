@@ -218,6 +218,13 @@ pub enum ReceiptRejectReason {
     CheckerPinMismatch,
     VerifierPinMismatch,
     CanonicalizerPinMismatch,
+    CompileOrHiddenTestFailed,
+    ForbiddenConstruct,
+    MalformedPatchRegion,
+    OutsidePatchModified,
+    PatchLineLimitExceeded,
+    PatchSizeExceeded,
+    SubmissionUnreadable,
 }
 
 impl ReceiptRejectReason {
@@ -233,6 +240,13 @@ impl ReceiptRejectReason {
             ReceiptRejectReason::CheckerPinMismatch => "checker-pin-mismatch",
             ReceiptRejectReason::VerifierPinMismatch => "verifier-pin-mismatch",
             ReceiptRejectReason::CanonicalizerPinMismatch => "canonicalizer-pin-mismatch",
+            ReceiptRejectReason::CompileOrHiddenTestFailed => "compile-or-hidden-test-failed",
+            ReceiptRejectReason::ForbiddenConstruct => "forbidden-construct",
+            ReceiptRejectReason::MalformedPatchRegion => "malformed-patch-region",
+            ReceiptRejectReason::OutsidePatchModified => "outside-patch-modified",
+            ReceiptRejectReason::PatchLineLimitExceeded => "patch-line-limit-exceeded",
+            ReceiptRejectReason::PatchSizeExceeded => "patch-size-exceeded",
+            ReceiptRejectReason::SubmissionUnreadable => "submission-unreadable",
         }
     }
 }

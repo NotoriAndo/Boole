@@ -9,8 +9,8 @@
 //! Circom/Rust/EVM runners here — common contract only (BF.3 non-goal).
 
 use boole_core::useful_product::{
-    audit_packet, ObservedVerification, UsefulProductError, UsefulProductManifest,
-    VerificationOutcome,
+    audit_packet, ObservedVerification, ReceiptRejectReason, UsefulProductError,
+    UsefulProductManifest, VerificationOutcome,
 };
 use boole_core::useful_work::TaskSpecIdentity;
 use boole_core::Hex32;
@@ -386,4 +386,23 @@ fn product_error_labels_are_stable() {
         UsefulProductError::SelfReferentialField.label(),
         "self-referential-field"
     );
+}
+
+#[test]
+fn native_checker_reject_labels_are_stable() {
+    use ReceiptRejectReason::*;
+
+    let cases = [
+        (CompileOrHiddenTestFailed, "compile-or-hidden-test-failed"),
+        (ForbiddenConstruct, "forbidden-construct"),
+        (MalformedPatchRegion, "malformed-patch-region"),
+        (OutsidePatchModified, "outside-patch-modified"),
+        (PatchLineLimitExceeded, "patch-line-limit-exceeded"),
+        (PatchSizeExceeded, "patch-size-exceeded"),
+        (SubmissionUnreadable, "submission-unreadable"),
+    ];
+
+    for (reason, expected) in cases {
+        assert_eq!(reason.label(), expected);
+    }
 }
