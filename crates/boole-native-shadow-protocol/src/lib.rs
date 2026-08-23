@@ -1,6 +1,9 @@
 //! Minimal shared authority and wire contract for the disabled native-shadow
 //! qualification handshake.
 
+#[cfg(unix)]
+pub mod installed_authority;
+
 use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{Read, Write};
