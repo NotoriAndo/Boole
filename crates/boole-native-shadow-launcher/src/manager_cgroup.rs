@@ -25,6 +25,10 @@ pub struct VerifiedManagerCgroup {
 }
 
 impl VerifiedManagerCgroup {
+    pub(crate) fn instance(&self) -> &VerifiedLauncherInstance {
+        &self.instance
+    }
+
     #[cfg(target_os = "linux")]
     pub(crate) fn recovery_directories(
         &self,

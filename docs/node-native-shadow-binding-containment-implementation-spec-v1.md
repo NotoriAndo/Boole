@@ -348,6 +348,15 @@ entry becomes authoritative on `main` only after its required CI and merge:
   the reviewed per-commit Rust artifacts at the exact `/opt` path and proves the full
   recovery-to-probe chain. This is compatibility-only: installed-byte provenance, readiness,
   bind/listen, route, durable node state and checker execution all remain closed.
+* **Phase 3B.2b-2x** — the qualification-startup assembly slice consumes exactly one
+  `VerifiedStartupToolchainCompatibility` and no caller-selected path, identity, PID, digest,
+  timeout or activation value. Crate-private read-only forwarding accessors recover only values
+  already bound inside the opaque chain, while the returned `VerifiedQualificationStartup` owns
+  that complete chain so the lifetime `flock`, manager/root cgroup descriptors and recovery proof
+  cannot drop before later socket work. A public API-shape test prevents an earlier token from
+  substituting for the compatibility proof, and the impossible zero-PID branch has no retry or
+  fallback. This does not bind/listen, emit a wire frame, mutate node state or spawn a checker;
+  installed-byte provenance and every activation path remain closed.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do

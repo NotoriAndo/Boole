@@ -25,6 +25,12 @@ pub struct VerifiedStartupToolchainCompatibility {
     recovery: VerifiedStartupCgroupRecovery,
 }
 
+impl VerifiedStartupToolchainCompatibility {
+    pub(crate) fn recovery(&self) -> &VerifiedStartupCgroupRecovery {
+        &self.recovery
+    }
+}
+
 pub(crate) const PROBE_DEADLINE: Duration = Duration::from_secs(10);
 pub(crate) const STREAM_LIMIT: usize = 65_536;
 pub(crate) const FIXED_ENVIRONMENT: [(&str, &str); 4] = [

@@ -409,6 +409,16 @@ Further route-free foundations now narrow the open prerequisite without closing 
   named Linux gate stages the reviewed per-commit Rust artifacts at the exact `/opt` path and proves
   recovery-to-probe ordering. This remains compatibility-only; the three installed-byte provenance
   blockers, readiness, listener, route, node durable mutation and checker execution remain open.
+* Phase 3B.2b-2x — the qualification-startup assembly slice consumes the complete opaque 2w proof
+  and no other caller input. It reads the already-verified authority, fixed node/checker identities
+  and one launcher instance ID through crate-private forwarding accessors, binds the current
+  non-zero launcher PID, and moves the entire compatibility proof chain into the existing
+  non-forgeable `VerifiedQualificationStartup`. Retaining that chain keeps the launcher lifetime
+  lock, verified cgroup directory descriptors and startup recovery evidence alive rather than
+  copying only their numeric outputs and accidentally releasing the safety boundary. The public
+  API is type-pinned so no earlier startup token can issue qualification readiness. This is token
+  assembly only: no socket is bound, no frame is emitted, `activationAllowed` remains false and
+  installed-byte provenance, route, durable node mutation and checker execution remain open.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux

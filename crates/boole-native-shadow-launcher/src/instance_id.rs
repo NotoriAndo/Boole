@@ -58,6 +58,16 @@ pub struct VerifiedLauncherInstance {
     instance_id: [u8; LAUNCHER_INSTANCE_ID_BYTES],
 }
 
+impl VerifiedLauncherInstance {
+    pub(crate) fn lifetime_lock(&self) -> &LauncherLifetimeLockGuard {
+        &self.lifetime_lock
+    }
+
+    pub(crate) fn instance_id(&self) -> [u8; LAUNCHER_INSTANCE_ID_BYTES] {
+        self.instance_id
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum LauncherInstanceIdError {
     #[error("native-shadow launcher instance identity requires Linux")]

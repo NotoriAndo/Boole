@@ -544,11 +544,11 @@ wait_for_state inactive
 wait_for_background_job "$reject_tree"
 wait_for_cgroup_removal
 
-toolchain_mode="toolchain-compatibility"
-set_mode "$toolchain_mode"
+readiness_mode="qualification-readiness"
+set_mode "$readiness_mode"
 sudo systemctl start boole-native-shadow-launcher.service
-toolchain_invocation=$(unit_invocation_id)
-wait_for_marker native-shadow-toolchain-compatibility-complete "$toolchain_invocation"
+readiness_invocation=$(unit_invocation_id)
+wait_for_marker native-shadow-qualification-readiness-complete "$readiness_invocation"
 assert_manager_invariants >/dev/null
 sudo systemctl stop boole-native-shadow-launcher.service
 wait_for_state inactive
