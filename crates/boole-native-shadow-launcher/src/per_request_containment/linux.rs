@@ -1134,6 +1134,12 @@ fn mount_private_dev(target: &CStr) -> Result<(), String> {
 }
 
 fn bind_and_verify_dev_null(source_fd: RawFd, target: &CStr) -> Result<(), String> {
+    // `source_fd` was opened by the parent before CLONE_NEWNS. Its file
+    // identity is still authoritative, but its `/proc/self/fd/N` magic link
+    // points at the parent's mount object and Linux rejects that object as an
+    // MS_BIND source in the child's private namespace. Verify that the
+    // child's fixed path still names the same device, then bind that path.
+    verify_bound_dev_null(source_fd, c"/dev/null")?;
     // SAFETY: /dev is a fresh child-private tmpfs and this creates only the
     // fixed bind target. No device node is synthesized and CAP_MKNOD is not
     // required or granted.
@@ -1149,9 +1155,7 @@ fn bind_and_verify_dev_null(source_fd: RawFd, target: &CStr) -> Result<(), Strin
     }
     // SAFETY: open returned one fresh descriptor.
     drop(unsafe { OwnedFd::from_raw_fd(placeholder) });
-    let source = CString::new(format!("/proc/self/fd/{source_fd}"))
-        .map_err(|_| "fixed /dev/null source contains NUL".to_string())?;
-    mount_raw(Some(&source), target, None, libc::MS_BIND, None)?;
+    mount_raw(Some(c"/dev/null"), target, None, libc::MS_BIND, None)?;
     verify_bound_dev_null(source_fd, target)
 }
 

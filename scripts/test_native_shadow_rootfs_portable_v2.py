@@ -564,6 +564,29 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             derive.index('"derive-detach-old-root"'),
         )
 
+    def test_private_dev_bind_uses_the_child_namespace_path_and_fd_identity_checks(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        bind = source.split("fn bind_and_verify_dev_null", 1)[1].split(
+            "fn verify_bound_dev_null", 1
+        )[0]
+        self.assertNotIn('format!("/proc/self/fd', bind)
+        self.assertIn('verify_bound_dev_null(source_fd, c"/dev/null")?', bind)
+        self.assertIn(
+            'mount_raw(Some(c"/dev/null"), target, None, libc::MS_BIND, None)?;',
+            bind,
+        )
+        self.assertLess(
+            bind.index('verify_bound_dev_null(source_fd, c"/dev/null")?'),
+            bind.index('mount_raw(Some(c"/dev/null")'),
+        )
+        self.assertLess(
+            bind.index('mount_raw(Some(c"/dev/null")'),
+            bind.rindex("verify_bound_dev_null(source_fd, target)"),
+        )
+
     def test_overlay_binds_only_the_fixed_path_and_rechecks_the_verified_fd(self) -> None:
         source = (
             ROOT
