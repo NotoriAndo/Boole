@@ -657,7 +657,13 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
             Some(c"tmpfs"),
             STAGING_PATH,
             Some(c"tmpfs"),
-            libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+            // This tmpfs supplies the OverlayFS upper/work directories and
+            // therefore the merged executable root. Marking the backing
+            // mount noexec can make the kernel reject the executable overlay
+            // mount before pivot_root. The staging tree remains root-only and
+            // disappears with the private mount namespace; writable untrusted
+            // paths receive their own reviewed mount flags later.
+            libc::MS_NOSUID | libc::MS_NODEV,
             Some(staging_options),
         ),
     )?;
@@ -702,16 +708,16 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd) -> Result<(), String> {
         RUNTIME_WORK.to_string_lossy(),
     ))
     .map_err(|_| "overlay mount options contain NUL".to_string())?;
-    setup_stage(
-        "derive-mount-overlay",
-        mount_raw(
+    setup_stage("derive-mount-overlay", {
+        let result = mount_raw(
             Some(c"overlay"),
             RUNTIME_ROOT,
             Some(c"overlay"),
             libc::MS_NOSUID | libc::MS_NODEV,
             Some(&overlay_options),
-        ),
-    )?;
+        );
+        result.map_err(|error| overlay_mount_failure_context(&error))
+    })?;
     setup_stage(
         "derive-verify-overlay",
         verify_derived_runtime_root(rootfs_fd),
@@ -862,6 +868,63 @@ fn syscall_zero(status: libc::c_long) -> Result<(), String> {
     } else {
         Err(io::Error::last_os_error().to_string())
     }
+}
+
+fn overlay_mount_failure_context(error: &str) -> String {
+    let capabilities = std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .map(|status| {
+            status
+                .lines()
+                .filter(|line| {
+                    line.starts_with("Uid:")
+                        || line.starts_with("Gid:")
+                        || line.starts_with("CapPrm:")
+                        || line.starts_with("CapEff:")
+                        || line.starts_with("CapBnd:")
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_else(|| "unavailable".to_string());
+    let security_profile = std::fs::read_to_string("/proc/self/attr/current")
+        .map(|value| value.trim().to_string())
+        .unwrap_or_else(|_| "unavailable".to_string());
+    let paths = [
+        ("lower", RUNTIME_LOWER),
+        ("upper", RUNTIME_UPPER),
+        ("work", RUNTIME_WORK),
+        ("target", RUNTIME_ROOT),
+    ]
+    .into_iter()
+    .map(|(label, path)| overlay_path_diagnostic(label, path))
+    .collect::<Vec<_>>()
+    .join(";");
+    format!("{error}; overlay-context profile={security_profile};{capabilities};{paths}")
+}
+
+fn overlay_path_diagnostic(label: &str, path: &CStr) -> String {
+    let mut metadata: libc::stat = unsafe { mem::zeroed() };
+    let mut filesystem: libc::statvfs = unsafe { mem::zeroed() };
+    // SAFETY: each caller supplies a fixed live C path and writable structs.
+    let stat_status = unsafe { libc::lstat(path.as_ptr(), &mut metadata) };
+    // SAFETY: same fixed path and live output storage.
+    let statvfs_status = unsafe { libc::statvfs(path.as_ptr(), &mut filesystem) };
+    if stat_status != 0 || statvfs_status != 0 {
+        return format!("{label}=unavailable({})", io::Error::last_os_error());
+    }
+    // SAFETY: fixed path and a read/write/search access probe with no mutation.
+    let access = unsafe { libc::access(path.as_ptr(), libc::R_OK | libc::W_OK | libc::X_OK) };
+    format!(
+        "{label}=mode:{:o},uid:{},gid:{},dev:{},ino:{},vfs_flags:{:#x},rwx:{}",
+        metadata.st_mode & 0o7777,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_dev,
+        metadata.st_ino,
+        filesystem.f_flag,
+        access == 0
+    )
 }
 
 fn verify_old_root_is_unreachable() -> Result<(), String> {

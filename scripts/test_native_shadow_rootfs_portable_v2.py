@@ -571,6 +571,25 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertIn("mkdir_fixed(RUNTIME_UPPER, 0o755)?;", source)
         self.assertIn("runtime_root_metadata_is_exact", source)
 
+    def test_overlay_staging_filesystem_remains_exec_capable_for_the_merged_root(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        staging_mount = re.search(
+            r'"derive-mount-staging",\s*mount_raw\((.*?)\),\s*\)\?;',
+            source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(staging_mount)
+        self.assertIn("libc::MS_NOSUID | libc::MS_NODEV", staging_mount.group(1))
+        self.assertNotIn(
+            "libc::MS_NOEXEC",
+            staging_mount.group(1),
+            "an executable merged root cannot be backed by a noexec upper filesystem",
+        )
+        self.assertIn("overlay_mount_failure_context", source)
+
     def test_landlock_does_not_require_an_untracked_bin_alias(self) -> None:
         source = (
             ROOT
