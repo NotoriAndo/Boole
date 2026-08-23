@@ -3,14 +3,16 @@
 //! release remains qualification-only and rejects Execute frames before spawn.
 
 use super::{
-    complete_frame_payload, decode_strict_payload, encode_frame, require_wire_sha256, sha256_hex,
-    WireError, WireValidate, MAX_REQUEST_FRAME_BYTES, MAX_RESPONSE_FRAME_BYTES,
+    complete_frame_payload, decode_strict_payload, encode_frame, read_frame_payload,
+    require_wire_sha256, sha256_hex, write_frame, WireError, WireValidate, MAX_REQUEST_FRAME_BYTES,
+    MAX_RESPONSE_FRAME_BYTES,
 };
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
 use serde::de::{DeserializeOwned, Deserializer};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::io::{Read, Write};
 
 const EXECUTION_REQUEST_SCHEMA: &str = "boole.native-shadow.launcher.execute.v1";
 const EXECUTION_REPORT_SCHEMA: &str = "boole.native-shadow.launcher.report.v1";
@@ -657,6 +659,145 @@ pub fn decode_complete_execution_report_frame(frame: &[u8]) -> Result<ExecutionR
     ExecutionReport::try_from(dto)
 }
 
+pub fn write_execution_hello<W: Write>(
+    writer: &mut W,
+    value: &ExecutionHello,
+) -> Result<(), WireError> {
+    write_frame(writer, value, MAX_REQUEST_FRAME_BYTES)
+}
+
+pub fn read_execution_hello<R: Read>(reader: &mut R) -> Result<Option<ExecutionHello>, WireError> {
+    read_frame_payload(reader, MAX_REQUEST_FRAME_BYTES)?
+        .map(|payload| {
+            let dto: ExecutionHelloDto = decode_strict_payload(&payload, MAX_REQUEST_FRAME_BYTES)?;
+            ExecutionHello::try_from(dto)
+        })
+        .transpose()
+}
+
+pub fn write_execution_ready<W: Write>(
+    writer: &mut W,
+    value: &ExecutionReady,
+) -> Result<(), WireError> {
+    write_frame(writer, value, MAX_RESPONSE_FRAME_BYTES)
+}
+
+pub fn read_execution_ready<R: Read>(reader: &mut R) -> Result<Option<ExecutionReady>, WireError> {
+    read_frame_payload(reader, MAX_RESPONSE_FRAME_BYTES)?
+        .map(|payload| {
+            let dto: ExecutionReadyDto = decode_strict_payload(&payload, MAX_RESPONSE_FRAME_BYTES)?;
+            ExecutionReady::try_from(dto)
+        })
+        .transpose()
+}
+
+pub fn write_execution_request<W: Write>(
+    writer: &mut W,
+    value: &ExecutionRequest,
+) -> Result<(), WireError> {
+    write_frame(writer, value, MAX_REQUEST_FRAME_BYTES)
+}
+
+pub fn read_execution_request<R: Read>(
+    reader: &mut R,
+) -> Result<Option<ExecutionRequest>, WireError> {
+    read_frame_payload(reader, MAX_REQUEST_FRAME_BYTES)?
+        .map(|payload| {
+            let dto: ExecutionRequestDto =
+                decode_strict_payload(&payload, MAX_REQUEST_FRAME_BYTES)?;
+            ExecutionRequest::try_from(dto)
+        })
+        .transpose()
+}
+
+pub fn write_execution_report<W: Write>(
+    writer: &mut W,
+    value: &ExecutionReport,
+) -> Result<(), WireError> {
+    write_frame(writer, value, MAX_RESPONSE_FRAME_BYTES)
+}
+
+pub fn read_execution_report<R: Read>(
+    reader: &mut R,
+) -> Result<Option<ExecutionReport>, WireError> {
+    read_frame_payload(reader, MAX_RESPONSE_FRAME_BYTES)?
+        .map(|payload| {
+            let dto: ExecutionReportDto =
+                decode_strict_payload(&payload, MAX_RESPONSE_FRAME_BYTES)?;
+            ExecutionReport::try_from(dto)
+        })
+        .transpose()
+}
+
+/// Validate the binding across one complete hello/ready/execute/report
+/// exchange. The exact encoded execute frame is authoritative: its digest and
+/// payload length are never reconstructed from a decoded value.
+pub fn validate_execution_session(
+    hello: &ExecutionHello,
+    ready: &ExecutionReady,
+    request_frame: &[u8],
+    report: &ExecutionReport,
+) -> Result<ExecutionRequest, WireError> {
+    let request = decode_complete_execution_request_frame(request_frame)?;
+    let derived_hello = ExecutionHello::try_from_execution_request_frame(request_frame)?;
+    if hello != &derived_hello {
+        return Err(contract("hello does not bind the exact execute frame"));
+    }
+    if ready.nonce_hex != hello.nonce_hex
+        || ready.request_digest_hex != hello.request_digest_hex
+        || ready.execution_policy_digest_hex != hello.execution_policy_digest_hex
+    {
+        return Err(contract("ready does not echo the exact hello bindings"));
+    }
+    if request.nonce_hex != hello.nonce_hex
+        || request.execution_policy_digest_hex != hello.execution_policy_digest_hex
+    {
+        return Err(contract("execute does not match the hello bindings"));
+    }
+    if report.nonce_hex != hello.nonce_hex
+        || report.operation_id_hex != request.operation_id_hex
+        || report.request_digest_hex != hello.request_digest_hex
+        || report.execution_policy_digest_hex != hello.execution_policy_digest_hex
+    {
+        return Err(contract("report does not match the execution session"));
+    }
+    if (
+        report.launcher_pid,
+        report.launcher_uid,
+        report.launcher_gid,
+        report.node_uid,
+        report.node_gid,
+        report.checker_uid,
+        report.checker_gid,
+    ) != (
+        ready.launcher_pid,
+        ready.launcher_uid,
+        ready.launcher_gid,
+        ready.node_uid,
+        ready.node_gid,
+        ready.checker_uid,
+        ready.checker_gid,
+    ) {
+        return Err(contract("report service identities differ from ready"));
+    }
+    let authority = &report.authority_bindings;
+    if authority.registry_version != request.registry_version
+        || authority.registry_digest_hex != request.registry_digest_hex
+        || authority.anchor_digest_hex != request.anchor_digest_hex
+        || authority.task_digest_hex != request.task_digest_hex
+        || authority.checker_artifact_hash_hex != request.checker_artifact_hash_hex
+        || authority.checker_policy_digest_hex != request.checker_policy_digest_hex
+        || authority.checker_release_manifest_digest_hex
+            != request.checker_release_manifest_digest_hex
+        || authority.toolchain_identity_digest_hex != request.toolchain_identity_digest_hex
+    {
+        return Err(contract(
+            "report authority bindings differ from the execute request",
+        ));
+    }
+    Ok(request)
+}
+
 /// Hash the exact received length prefix and JSON payload. Re-serializing a
 /// decoded object here would lose meaningful byte identity such as whitespace.
 pub fn execution_request_digest_hex(frame: &[u8]) -> Result<String, WireError> {
@@ -943,6 +1084,66 @@ impl ExecutionRequest {
     fn validated(self) -> Result<Self, WireError> {
         self.validate_wire()?;
         Ok(self)
+    }
+
+    pub fn nonce_hex(&self) -> &str {
+        &self.nonce_hex
+    }
+
+    pub fn operation_id_hex(&self) -> &str {
+        &self.operation_id_hex
+    }
+
+    pub fn family_version(&self) -> &str {
+        &self.family_version
+    }
+
+    pub fn template_id(&self) -> &str {
+        &self.template_id
+    }
+
+    pub fn challenge_sha256(&self) -> &str {
+        &self.challenge_sha256
+    }
+
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    pub fn raw_answer(&self) -> Result<Vec<u8>, WireError> {
+        decode_canonical_base64("rawAnswerBase64", &self.raw_answer_base64)
+    }
+
+    pub fn submission_source(&self) -> Result<Vec<u8>, WireError> {
+        decode_canonical_base64("submissionSourceBase64", &self.submission_source_base64)
+    }
+
+    pub fn candidate_digest_hex(&self) -> &str {
+        &self.candidate_digest_hex
+    }
+
+    pub fn registry_digest_hex(&self) -> &str {
+        &self.registry_digest_hex
+    }
+
+    pub fn task_digest_hex(&self) -> &str {
+        &self.task_digest_hex
+    }
+
+    pub fn checker_artifact_hash_hex(&self) -> &str {
+        &self.checker_artifact_hash_hex
+    }
+
+    pub fn checker_policy_digest_hex(&self) -> &str {
+        &self.checker_policy_digest_hex
+    }
+
+    pub fn toolchain_identity_digest_hex(&self) -> &str {
+        &self.toolchain_identity_digest_hex
+    }
+
+    pub fn execution_policy_digest_hex(&self) -> &str {
+        &self.execution_policy_digest_hex
     }
 }
 
@@ -1412,6 +1613,44 @@ impl ExecutionReport {
     fn validated(self) -> Result<Self, WireError> {
         self.validate_wire()?;
         Ok(self)
+    }
+
+    pub fn nonce_hex(&self) -> &str {
+        &self.nonce_hex
+    }
+
+    pub fn operation_id_hex(&self) -> &str {
+        &self.operation_id_hex
+    }
+
+    pub fn request_digest_hex(&self) -> &str {
+        &self.request_digest_hex
+    }
+
+    pub fn execution_policy_digest_hex(&self) -> &str {
+        &self.execution_policy_digest_hex
+    }
+
+    pub fn checker_verdict(&self) -> Option<CheckerVerdict> {
+        self.checker_result
+            .parsed
+            .as_ref()
+            .map(|value| value.verdict)
+    }
+
+    pub fn checker_reason(&self) -> Option<CheckerReason> {
+        self.checker_result
+            .parsed
+            .as_ref()
+            .map(|value| value.reason_code)
+    }
+
+    pub fn cleanup_complete(&self) -> bool {
+        self.cleanup.child_reaped
+            && self.cleanup.cgroup_populated_zero
+            && self.cleanup.launcher_pidfd_and_namespace_fds_closed
+            && self.cleanup.cgroup_leaf_removed
+            && self.cleanup.completed_within_deadline
     }
 }
 
