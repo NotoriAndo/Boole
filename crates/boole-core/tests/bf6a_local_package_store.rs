@@ -3,11 +3,12 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use boole_core::{
-    h_protocol, AcknowledgePackageOutcome, CanonicalPackage, LocalPackageStore,
-    LocalPackageStoreConfig, LocalPackageStoreError, PackageFile, PendingCapacityPolicy,
-    StagePackageOutcome, MAX_PACKAGE_REFERENCE_BYTES, MAX_PENDING_SNAPSHOT_BYTES,
-    PACKAGE_OBJECTS_DIRECTORY, PACKAGE_PENDING_FILE, PACKAGE_PENDING_TEMP_FILE,
-    PACKAGE_SIDECAR_ROOT_DOMAIN, PENDING_CAPACITY_POLICY,
+    h_protocol, AcknowledgePackageOutcome, CanonicalPackage, CompletePackageFetchIntentOutcome,
+    LocalPackageStore, LocalPackageStoreConfig, LocalPackageStoreError, PackageFile,
+    PendingCapacityPolicy, StagePackageOutcome, DEFAULT_MAX_PENDING_PACKAGES,
+    MAX_FETCH_INTENT_SNAPSHOT_BYTES, MAX_PACKAGE_REFERENCE_BYTES, MAX_PENDING_SNAPSHOT_BYTES,
+    PACKAGE_FETCH_INTENTS_FILE, PACKAGE_OBJECTS_DIRECTORY, PACKAGE_PENDING_FILE,
+    PACKAGE_PENDING_TEMP_FILE, PACKAGE_SIDECAR_ROOT_DOMAIN, PENDING_CAPACITY_POLICY,
 };
 
 fn temporary_store_path(label: &str) -> PathBuf {
@@ -101,6 +102,193 @@ fn staged_package_and_pending_reference_survive_reopen() {
     );
 
     std::fs::remove_dir_all(root).expect("remove test store");
+}
+
+#[test]
+fn fetch_intent_clears_only_after_the_matching_root_and_reference_are_durably_staged() {
+    let root = temporary_store_path("fetch-intent-cleanup-order");
+    let package = CanonicalPackage::new(vec![PackageFile::new(b"answer.txt", b"cleanup ordering")])
+        .expect("valid canonical package");
+    let target_reference = "receipt:target";
+    let mut store = LocalPackageStore::open(&root, enabled_config(4, 1024 * 1024))
+        .expect("enabled store opens");
+    store
+        .register_fetch_intents(&[(package.root(), target_reference.to_owned())])
+        .expect("register durable fetch intent");
+
+    store
+        .stage(&package, "receipt:unrelated")
+        .expect("same CAS root under an unrelated pending reference");
+    assert!(
+        store
+            .complete_fetch_intent(package.root(), target_reference)
+            .is_err(),
+        "CAS bytes alone must not authorize intent cleanup before the exact pending pair exists"
+    );
+    assert_eq!(store.fetch_intents().len(), 1);
+
+    store
+        .stage(&package, target_reference)
+        .expect("stage the exact root/reference pair");
+    assert_eq!(
+        store
+            .complete_fetch_intent(package.root(), target_reference)
+            .expect("complete after exact durable stage"),
+        CompletePackageFetchIntentOutcome::Completed
+    );
+    assert!(store.fetch_intents().is_empty());
+
+    let reopened = LocalPackageStore::open(&root, enabled_config(4, 1024 * 1024))
+        .expect("reopen cleaned intent snapshot");
+    assert!(reopened.fetch_intents().is_empty());
+    assert!(reopened
+        .pending()
+        .iter()
+        .any(|entry| entry.root() == package.root() && entry.reference() == target_reference));
+    std::fs::remove_dir_all(root).expect("remove test store");
+}
+
+#[test]
+fn fetch_intent_authority_fails_closed_on_corrupt_torn_duplicate_conflict_and_caps() {
+    let first =
+        CanonicalPackage::new(vec![PackageFile::new(b"first", b"one")]).expect("first package");
+    let second =
+        CanonicalPackage::new(vec![PackageFile::new(b"second", b"two")]).expect("second package");
+
+    let corrupt_root = temporary_store_path("fetch-intent-corrupt");
+    LocalPackageStore::open(&corrupt_root, enabled_config(4, 1024 * 1024))
+        .expect("initialize corrupt fixture");
+    std::fs::write(corrupt_root.join(PACKAGE_FETCH_INTENTS_FILE), b"not-json")
+        .expect("write corrupt snapshot");
+    assert!(matches!(
+        LocalPackageStore::open(&corrupt_root, enabled_config(4, 1024 * 1024)),
+        Err(LocalPackageStoreError::Corrupt(_))
+    ));
+
+    let torn_root = temporary_store_path("fetch-intent-torn");
+    LocalPackageStore::open(&torn_root, enabled_config(4, 1024 * 1024))
+        .expect("initialize torn fixture");
+    std::fs::write(
+        torn_root.join(PACKAGE_FETCH_INTENTS_FILE),
+        br#"{"schema":"boole.useful-work.package-fetch-intents.v1","entries":["#,
+    )
+    .expect("write torn snapshot");
+    assert!(matches!(
+        LocalPackageStore::open(&torn_root, enabled_config(4, 1024 * 1024)),
+        Err(LocalPackageStoreError::Corrupt(_))
+    ));
+
+    let duplicate_root = temporary_store_path("fetch-intent-duplicate");
+    LocalPackageStore::open(&duplicate_root, enabled_config(4, 1024 * 1024))
+        .expect("initialize duplicate fixture");
+    let duplicate = serde_json::json!({
+        "schema": "boole.useful-work.package-fetch-intents.v1",
+        "entries": [
+            {"root": first.root().to_hex(), "reference": "receipt:same"},
+            {"root": first.root().to_hex(), "reference": "receipt:same"}
+        ]
+    });
+    std::fs::write(
+        duplicate_root.join(PACKAGE_FETCH_INTENTS_FILE),
+        serde_json::to_vec(&duplicate).expect("serialize duplicate snapshot"),
+    )
+    .expect("write duplicate snapshot");
+    assert_eq!(
+        LocalPackageStore::open(&duplicate_root, enabled_config(4, 1024 * 1024)).unwrap_err(),
+        LocalPackageStoreError::Corrupt("duplicate root/reference fetch intent".into())
+    );
+
+    let conflicting_root = temporary_store_path("fetch-intent-conflict");
+    LocalPackageStore::open(&conflicting_root, enabled_config(4, 1024 * 1024))
+        .expect("initialize conflict fixture");
+    let conflicting = serde_json::json!({
+        "schema": "boole.useful-work.package-fetch-intents.v1",
+        "entries": [
+            {"root": first.root().to_hex(), "reference": "receipt:one-owner"},
+            {"root": second.root().to_hex(), "reference": "receipt:one-owner"}
+        ]
+    });
+    std::fs::write(
+        conflicting_root.join(PACKAGE_FETCH_INTENTS_FILE),
+        serde_json::to_vec(&conflicting).expect("serialize conflicting snapshot"),
+    )
+    .expect("write conflicting snapshot");
+    assert_eq!(
+        LocalPackageStore::open(&conflicting_root, enabled_config(4, 1024 * 1024)).unwrap_err(),
+        LocalPackageStoreError::Corrupt(
+            "one fetch-intent reference names conflicting roots".into()
+        )
+    );
+
+    let count_root = temporary_store_path("fetch-intent-count-cap");
+    LocalPackageStore::open(&count_root, enabled_config(4, 1024 * 1024))
+        .expect("initialize count-cap fixture");
+    let over_count = serde_json::json!({
+        "schema": "boole.useful-work.package-fetch-intents.v1",
+        "entries": [
+            {"root": first.root().to_hex(), "reference": "receipt:first"},
+            {"root": second.root().to_hex(), "reference": "receipt:second"}
+        ]
+    });
+    std::fs::write(
+        count_root.join(PACKAGE_FETCH_INTENTS_FILE),
+        serde_json::to_vec(&over_count).expect("serialize over-count snapshot"),
+    )
+    .expect("write over-count snapshot");
+    assert_eq!(
+        LocalPackageStore::open(&count_root, enabled_config(1, 1024 * 1024)).unwrap_err(),
+        LocalPackageStoreError::Corrupt("fetch-intent count exceeds configured bound".into())
+    );
+
+    let hard_count_root = temporary_store_path("fetch-intent-hard-count-cap");
+    LocalPackageStore::open(&hard_count_root, enabled_config(128, 1024 * 1024))
+        .expect("initialize hard-count-cap fixture");
+    let over_hard_count = serde_json::json!({
+        "schema": "boole.useful-work.package-fetch-intents.v1",
+        "entries": (0..=DEFAULT_MAX_PENDING_PACKAGES)
+            .map(|index| serde_json::json!({
+                "root": first.root().to_hex(),
+                "reference": format!("receipt:hard-cap:{index}")
+            }))
+            .collect::<Vec<_>>()
+    });
+    std::fs::write(
+        hard_count_root.join(PACKAGE_FETCH_INTENTS_FILE),
+        serde_json::to_vec(&over_hard_count).expect("serialize hard over-count snapshot"),
+    )
+    .expect("write hard over-count snapshot");
+    assert_eq!(
+        LocalPackageStore::open(&hard_count_root, enabled_config(128, 1024 * 1024)).unwrap_err(),
+        LocalPackageStoreError::Corrupt("fetch-intent count exceeds configured bound".into())
+    );
+
+    let bytes_root = temporary_store_path("fetch-intent-bytes-cap");
+    LocalPackageStore::open(&bytes_root, enabled_config(4, 1024 * 1024))
+        .expect("initialize bytes-cap fixture");
+    std::fs::write(
+        bytes_root.join(PACKAGE_FETCH_INTENTS_FILE),
+        vec![b'x'; MAX_FETCH_INTENT_SNAPSHOT_BYTES as usize + 1],
+    )
+    .expect("write over-sized snapshot");
+    assert_eq!(
+        LocalPackageStore::open(&bytes_root, enabled_config(4, 1024 * 1024)).unwrap_err(),
+        LocalPackageStoreError::FetchIntentSnapshotTooLarge {
+            size: MAX_FETCH_INTENT_SNAPSHOT_BYTES + 1,
+            max: MAX_FETCH_INTENT_SNAPSHOT_BYTES,
+        }
+    );
+
+    for root in [
+        corrupt_root,
+        torn_root,
+        duplicate_root,
+        conflicting_root,
+        count_root,
+        hard_count_root,
+        bytes_root,
+    ] {
+        std::fs::remove_dir_all(root).expect("remove fetch-intent fixture");
+    }
 }
 
 #[test]
@@ -685,8 +873,29 @@ fn opened_relative_store_and_objects_authority_survive_path_replacement() {
         let package =
             CanonicalPackage::new(vec![PackageFile::new(b"answer", b"anchored")]).expect("package");
         store
+            .register_fetch_intents(&[(package.root(), "receipt:anchored".to_owned())])
+            .expect("fetch intent stays relative to retained root authority");
+        assert!(
+            store_root.join(PACKAGE_FETCH_INTENTS_FILE).is_file(),
+            "fetch-intent snapshot must land in the retained store root"
+        );
+        assert!(
+            !second_cwd
+                .join("store")
+                .join(PACKAGE_FETCH_INTENTS_FILE)
+                .exists(),
+            "changing cwd must not redirect a fetch-intent snapshot"
+        );
+        store
             .stage(&package, "receipt:anchored")
             .expect("all operations stay relative to retained directory descriptors");
+        assert_eq!(
+            store
+                .complete_fetch_intent(package.root(), "receipt:anchored")
+                .expect("fetch-intent cleanup stays relative to retained root authority"),
+            CompletePackageFetchIntentOutcome::Completed
+        );
+        assert!(store.fetch_intents().is_empty());
         assert_eq!(
             store.read(package.root()).expect("read anchored object"),
             package.canonical_bytes()

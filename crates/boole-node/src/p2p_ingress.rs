@@ -106,8 +106,11 @@ pub struct P2pConfig {
     /// Exact-root network disclosure grant. `None` is the production default:
     /// GetPackage receives an explicit unavailable response with no disk read.
     pub package_serving: Option<PackageServingConfig>,
-    /// Explicit node-owned package receive queue. `None` is the production
-    /// default: no package dial, receive, or CAS write can occur.
+    /// Explicit node-owned package fetch intake. Supplied requests are merged
+    /// into the durable unresolved-intent authority before any dial; restart
+    /// recovers that authority even when this intake is empty. `None` is the
+    /// production default: no package dial, receive, journal, or CAS write can
+    /// occur.
     pub package_fetching: Option<PackageFetchingConfig>,
 }
 

@@ -106,11 +106,13 @@ pub use package_sidecar::{
     MAX_PACKAGE_FILES, PACKAGE_SIDECAR_ROOT_DOMAIN, PACKAGE_SIDECAR_SCHEMA,
 };
 pub use package_store::{
-    AcknowledgePackageOutcome, LocalPackageStore, LocalPackageStoreConfig, LocalPackageStoreError,
-    PackageStoreCommitPhase, PendingCapacityPolicy, PendingPackageRef, StagePackageOutcome,
-    DEFAULT_MAX_PENDING_BYTES, DEFAULT_MAX_PENDING_PACKAGES, MAX_PACKAGE_REFERENCE_BYTES,
-    MAX_PENDING_SNAPSHOT_BYTES, PACKAGE_OBJECTS_DIRECTORY, PACKAGE_PENDING_FILE,
-    PACKAGE_PENDING_TEMP_FILE, PENDING_CAPACITY_POLICY,
+    AcknowledgePackageOutcome, CompletePackageFetchIntentOutcome, LocalPackageStore,
+    LocalPackageStoreConfig, LocalPackageStoreError, PackageFetchIntent, PackageStoreCommitPhase,
+    PendingCapacityPolicy, PendingPackageRef, StagePackageOutcome, DEFAULT_MAX_PENDING_BYTES,
+    DEFAULT_MAX_PENDING_PACKAGES, MAX_FETCH_INTENT_SNAPSHOT_BYTES, MAX_PACKAGE_REFERENCE_BYTES,
+    MAX_PENDING_SNAPSHOT_BYTES, PACKAGE_FETCH_INTENTS_FILE, PACKAGE_FETCH_INTENTS_TEMP_FILE,
+    PACKAGE_OBJECTS_DIRECTORY, PACKAGE_PENDING_FILE, PACKAGE_PENDING_TEMP_FILE,
+    PENDING_CAPACITY_POLICY,
 };
 pub use rate_limiter::{
     rate_limit_result_json, RateLimitRejectReason, RateLimitResult, RateLimiter,

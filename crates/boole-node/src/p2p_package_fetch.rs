@@ -12,8 +12,8 @@ use std::thread;
 use std::time::Duration;
 
 use boole_core::{
-    CanonicalPackage, LocalPackageStore, LocalPackageStoreError, PackageRoot, StagePackageOutcome,
-    DEFAULT_MAX_PENDING_PACKAGES, MAX_PACKAGE_REFERENCE_BYTES,
+    CanonicalPackage, CompletePackageFetchIntentOutcome, LocalPackageStore, LocalPackageStoreError,
+    PackageRoot, StagePackageOutcome, DEFAULT_MAX_PENDING_PACKAGES, MAX_PACKAGE_REFERENCE_BYTES,
 };
 use boole_p2p::{Frame, FrameError, Transport};
 use thiserror::Error;
@@ -67,7 +67,7 @@ pub struct PackageFetchingConfig {
 
 impl PackageFetchingConfig {
     pub fn new(
-        store: LocalPackageStore,
+        mut store: LocalPackageStore,
         requests: impl IntoIterator<Item = PackageFetchRequest>,
     ) -> Result<Self, PackageFetchingConfigError> {
         if !store.is_enabled() {
@@ -89,6 +89,21 @@ impl PackageFetchingConfig {
                 });
             }
         }
+        let intake = requests
+            .iter()
+            .map(|request| (request.root, request.reference.clone()))
+            .collect::<Vec<_>>();
+        store
+            .register_fetch_intents(&intake)
+            .map_err(|error| PackageFetchingConfigError::IntentJournal(error.to_string()))?;
+        let requests = store
+            .fetch_intents()
+            .iter()
+            .map(|intent| PackageFetchRequest {
+                root: intent.root(),
+                reference: intent.reference().to_owned(),
+            })
+            .collect();
         Ok(Self {
             store,
             requests,
@@ -115,6 +130,8 @@ pub enum PackageFetchingConfigError {
     TooManyRequests { count: usize, max: usize },
     #[error("duplicate package fetch request for root {root} and reference {reference}")]
     DuplicateRequest { root: String, reference: String },
+    #[error("package fetch-intent journal is unavailable: {0}")]
+    IntentJournal(String),
 }
 
 #[derive(Debug, Error)]
@@ -166,12 +183,22 @@ fn package_fetch_loop(
         };
 
         match already_staged(&config.store, &request) {
-            Ok(true) => {
-                metrics
-                    .package_fetch_recovered
-                    .fetch_add(1, Ordering::Relaxed);
-                continue;
-            }
+            Ok(true) => match complete_intent(&mut config.store, &request) {
+                Ok(()) => {
+                    metrics
+                        .package_fetch_recovered
+                        .fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
+                Err(_) => {
+                    metrics
+                        .package_fetch_store_errors
+                        .fetch_add(1, Ordering::Relaxed);
+                    queue.push_back(request);
+                    sleep_until_retry_or_stop(config.retry_interval, &stop);
+                    continue;
+                }
+            },
             Ok(false) => {}
             Err(_) => {
                 metrics
@@ -217,8 +244,18 @@ fn package_fetch_loop(
         let completed = fetched.is_some_and(|package| {
             match config.store.stage(&package, request.reference()) {
                 Ok(StagePackageOutcome::Staged | StagePackageOutcome::AlreadyPending) => {
-                    metrics.package_fetch_staged.fetch_add(1, Ordering::Relaxed);
-                    true
+                    match complete_intent(&mut config.store, &request) {
+                        Ok(()) => {
+                            metrics.package_fetch_staged.fetch_add(1, Ordering::Relaxed);
+                            true
+                        }
+                        Err(_) => {
+                            metrics
+                                .package_fetch_store_errors
+                                .fetch_add(1, Ordering::Relaxed);
+                            false
+                        }
+                    }
                 }
                 Err(_) => {
                     metrics
@@ -232,6 +269,18 @@ fn package_fetch_loop(
             queue.push_back(request);
             sleep_until_retry_or_stop(config.retry_interval, &stop);
         }
+    }
+}
+
+fn complete_intent(
+    store: &mut LocalPackageStore,
+    request: &PackageFetchRequest,
+) -> Result<(), LocalPackageStoreError> {
+    match store.complete_fetch_intent(request.root, request.reference())? {
+        CompletePackageFetchIntentOutcome::Completed => Ok(()),
+        CompletePackageFetchIntentOutcome::NotPending => Err(LocalPackageStoreError::Corrupt(
+            "fetch queue entry is absent from its durable intent authority".into(),
+        )),
     }
 }
 
