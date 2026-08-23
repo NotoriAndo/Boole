@@ -43,6 +43,8 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use boole_core::hash::{h_protocol, Hex32};
+use boole_core::useful_product::{ReceiptRejectReason, ReceiptVerdict, VerificationReceipt};
 use boole_native_shadow_protocol::{
     verify_authority_bundle, INSTALLED_REGISTRY_PATH, TRACKED_EXECUTION_POLICY_BYTES,
     TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
@@ -52,6 +54,9 @@ use crate::durability::{
     append_ndjson_line_durable_on_file, fsync_parent_dir, read_stable_prefix_on_file,
 };
 use crate::state_dir::flock_exclusive_nonblocking;
+
+const NATIVE_BF3_TASK_DOMAIN: &[u8] = b"boole.native-shadow.bf3-task.v1";
+const NATIVE_BF3_ARTIFACT_DOMAIN: &[u8] = b"boole.native-shadow.bf3-artifact.v1";
 
 #[cfg(test)]
 use crate::durability::append_ndjson_line_durable;
@@ -499,6 +504,27 @@ pub(crate) enum NativeShadowEvidenceVerdict {
     DeterministicReject,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum NativeShadowReceiptMapError {
+    #[error("native-shadow BF3 mapping requires matching durable v2 evidence")]
+    DurableEvidenceBindingMismatch,
+    #[error("native-shadow BF3 mapping received an invalid digest in {0}")]
+    InvalidDigest(&'static str),
+    #[error("native-shadow BF3 mapping received an invalid verdict/reason pair")]
+    InvalidVerdictReason,
+}
+
+fn bf3_root(domain: &[u8], fields: &[&[u8]]) -> Hex32 {
+    let mut canonical = Vec::new();
+    for field in fields {
+        // Match the common BF task/product framing: u64 little-endian byte
+        // length followed by the exact typed field bytes.
+        canonical.extend_from_slice(&(field.len() as u64).to_le_bytes());
+        canonical.extend_from_slice(field);
+    }
+    h_protocol(domain, &[&canonical])
+}
+
 impl NativeShadowEvidence {
     fn validate_bindings(
         &self,
@@ -925,6 +951,134 @@ impl NativeShadowStateStore {
         self.evidence_commits
             .get(four_tuple)
             .map(|commit| &commit.evidence)
+    }
+
+    /// Map only an already-durable, node-owned v2 checker verdict into the
+    /// common BF.3 receipt contract. The non-cloneable capability proves that
+    /// the exact evidence bytes were appended for this in-flight row; raw
+    /// submission JSON and miner-created receipt-shaped data have no entry
+    /// point into this adapter.
+    pub(crate) fn map_durable_v2_to_bf3_receipt(
+        &self,
+        four_tuple: &NativeShadowFourTuple,
+        durable: &DurableNativeShadowEvidenceCommit,
+    ) -> Result<VerificationReceipt, NativeShadowReceiptMapError> {
+        let Some(row) = self.rows.get(four_tuple) else {
+            return Err(NativeShadowReceiptMapError::DurableEvidenceBindingMismatch);
+        };
+        let Some(commit) = self.evidence_commits.get(four_tuple) else {
+            return Err(NativeShadowReceiptMapError::DurableEvidenceBindingMismatch);
+        };
+        if row.state != ChallengeState::InFlight
+            || durable.four_tuple != *four_tuple
+            || durable.registry_digest != row.registry_digest
+            || row.execution_policy_digest.as_ref() != Some(&durable.execution_policy_digest)
+            || commit.candidate_digest != durable.candidate_digest
+            || commit.evidence_digest != durable.evidence_digest
+            || commit.execution_policy_digest.as_ref() != Some(&durable.execution_policy_digest)
+            || commit.evidence.schema != "boole.native-shadow.evidence.v2"
+        {
+            return Err(NativeShadowReceiptMapError::DurableEvidenceBindingMismatch);
+        }
+        let evidence = &commit.evidence;
+        evidence
+            .validate_bindings(
+                four_tuple,
+                &durable.candidate_digest,
+                Some(&durable.execution_policy_digest),
+            )
+            .map_err(|_| NativeShadowReceiptMapError::DurableEvidenceBindingMismatch)?;
+
+        let parse_digest = |value: &str, field| {
+            Hex32::from_hex(value).map_err(|_| NativeShadowReceiptMapError::InvalidDigest(field))
+        };
+        let submission_id = parse_digest(&evidence.submission_digest, "submissionDigest")?;
+        let template_id = parse_digest(&evidence.template_id, "templateId")?;
+        let anchor_digest = parse_digest(&evidence.anchor_digest, "anchorDigest")?;
+        let challenge_digest = parse_digest(&evidence.challenge_sha256, "challengeSha256")?;
+        let candidate_digest = parse_digest(&evidence.candidate_digest, "candidateDigest")?;
+        let checker_hash = parse_digest(&evidence.checker_digest, "checkerDigest")?;
+        let checker_policy_digest = parse_digest(&evidence.policy_digest, "policyDigest")?;
+        let execution_policy_digest = parse_digest(
+            durable.execution_policy_digest.as_str(),
+            "executionPolicyDigest",
+        )?;
+        let toolchain_digest = parse_digest(&evidence.toolchain_digest, "toolchainDigest")?;
+        let registry_digest = parse_digest(&row.registry_digest, "registryDigest")?;
+
+        let verdict = match (evidence.verdict, evidence.reason_code.as_str()) {
+            (NativeShadowEvidenceVerdict::Accepted, "accepted") => ReceiptVerdict::Accepted,
+            (NativeShadowEvidenceVerdict::DeterministicReject, "compile_or_hidden_test_failed") => {
+                ReceiptVerdict::Rejected(ReceiptRejectReason::CompileOrHiddenTestFailed)
+            }
+            (NativeShadowEvidenceVerdict::DeterministicReject, "forbidden_construct") => {
+                ReceiptVerdict::Rejected(ReceiptRejectReason::ForbiddenConstruct)
+            }
+            (NativeShadowEvidenceVerdict::DeterministicReject, "malformed_patch_region") => {
+                ReceiptVerdict::Rejected(ReceiptRejectReason::MalformedPatchRegion)
+            }
+            (NativeShadowEvidenceVerdict::DeterministicReject, "outside_patch_modified") => {
+                ReceiptVerdict::Rejected(ReceiptRejectReason::OutsidePatchModified)
+            }
+            (NativeShadowEvidenceVerdict::DeterministicReject, "patch_line_limit_exceeded") => {
+                ReceiptVerdict::Rejected(ReceiptRejectReason::PatchLineLimitExceeded)
+            }
+            (NativeShadowEvidenceVerdict::DeterministicReject, "patch_size_exceeded") => {
+                ReceiptVerdict::Rejected(ReceiptRejectReason::PatchSizeExceeded)
+            }
+            (NativeShadowEvidenceVerdict::DeterministicReject, "submission_unreadable") => {
+                ReceiptVerdict::Rejected(ReceiptRejectReason::SubmissionUnreadable)
+            }
+            _ => return Err(NativeShadowReceiptMapError::InvalidVerdictReason),
+        };
+        let epoch = evidence.epoch.to_be_bytes();
+        let task_id = bf3_root(
+            NATIVE_BF3_TASK_DOMAIN,
+            &[
+                evidence.family_version.as_bytes(),
+                template_id.as_bytes(),
+                anchor_digest.as_bytes(),
+                challenge_digest.as_bytes(),
+                &epoch,
+                evidence.registry_version.as_bytes(),
+                registry_digest.as_bytes(),
+            ],
+        );
+        let verdict_label = match verdict {
+            ReceiptVerdict::Accepted => "accepted",
+            ReceiptVerdict::Rejected(reason) => reason.label(),
+        };
+        let artifact_root = bf3_root(
+            NATIVE_BF3_ARTIFACT_DOMAIN,
+            &[
+                evidence.schema.as_bytes(),
+                evidence.submission_schema.as_bytes(),
+                submission_id.as_bytes(),
+                evidence.family_version.as_bytes(),
+                template_id.as_bytes(),
+                anchor_digest.as_bytes(),
+                challenge_digest.as_bytes(),
+                &epoch,
+                candidate_digest.as_bytes(),
+                evidence.intake_version.as_bytes(),
+                checker_hash.as_bytes(),
+                checker_policy_digest.as_bytes(),
+                execution_policy_digest.as_bytes(),
+                toolchain_digest.as_bytes(),
+                verdict_label.as_bytes(),
+                evidence.reason_code.as_bytes(),
+                evidence.registry_version.as_bytes(),
+                registry_digest.as_bytes(),
+            ],
+        );
+
+        Ok(VerificationReceipt {
+            task_id,
+            submission_id,
+            artifact_root,
+            checker_hash,
+            verdict,
+        })
     }
 
     /// Look the four-tuple up **first**; only bootstrap when no row exists
@@ -2013,6 +2167,467 @@ mod tests {
             "registryVersion": "NATIVE-SHADOW-TEST-REGISTRY-V1",
         })
         .to_string()
+    }
+
+    fn map_test_bf3_receipt(
+        label: &str,
+        four_tuple: NativeShadowFourTuple,
+        registry_digest: &str,
+        execution_policy_digest: NativeShadowExecutionPolicyDigest,
+        evidence: serde_json::Value,
+    ) -> Result<VerificationReceipt, NativeShadowReceiptMapError> {
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths(&format!("bf3-map-{label}"));
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, registry_digest, || ChallengeState::ActiveFresh);
+        store
+            .begin_execution(&mut authority, &four_tuple, &execution_policy_digest)
+            .expect("begin execution");
+        let candidate_digest = evidence["candidateDigest"]
+            .as_str()
+            .expect("candidate digest")
+            .to_string();
+        let durable = store
+            .persist_evidence(
+                &mut authority,
+                &four_tuple,
+                &candidate_digest,
+                &evidence.to_string(),
+            )
+            .expect("persist evidence");
+        store.map_durable_v2_to_bf3_receipt(&four_tuple, &durable)
+    }
+
+    #[test]
+    fn durable_v2_accept_maps_to_the_common_bf3_receipt() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let registry_digest = sha256_hex(TEST_ONLY_REGISTRY_FIXTURE.as_bytes());
+        let (journal_path, _exhaustion_path) = scratch_journal_and_exhaustion_paths("bf3-accepted");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, &registry_digest, || {
+            bootstrap_challenge_state(&registry, template)
+        });
+        store
+            .begin_execution(&mut authority, &four_tuple, &test_execution_policy_digest())
+            .expect("begin execution");
+        let durable =
+            persist_test_evidence(&mut store, &mut authority, &four_tuple, "bf3-accepted");
+
+        let receipt = store
+            .map_durable_v2_to_bf3_receipt(&four_tuple, &durable)
+            .expect("durable node-owned evidence maps");
+        let evidence = store
+            .pending_durable_evidence(&four_tuple)
+            .expect("pending durable evidence");
+
+        assert!(receipt.accepted());
+        assert_eq!(receipt.submission_id.to_hex(), evidence.submission_digest);
+        assert_eq!(receipt.checker_hash.to_hex(), evidence.checker_digest);
+        assert_eq!(
+            [receipt.task_id.to_hex(), receipt.artifact_root.to_hex()],
+            [
+                "b8c52bcc0b615f7f5bc6fc4a38c91fb1df20503a8332a319991b93db56dc3a0c".to_string(),
+                "3ecccd5a5eee1d75bdc30eb774b56a0332a247b96e063c789d5072acf9f25632".to_string(),
+            ],
+            "native BF3 canonical roots are protocol fixtures"
+        );
+        assert_eq!(
+            receipt,
+            store
+                .map_durable_v2_to_bf3_receipt(&four_tuple, &durable)
+                .expect("same durable evidence maps byte-identically")
+        );
+    }
+
+    #[test]
+    fn durable_v2_semantic_rejects_preserve_every_checker_reason() {
+        let cases = [
+            (
+                "compile_or_hidden_test_failed",
+                "compile-or-hidden-test-failed",
+            ),
+            ("forbidden_construct", "forbidden-construct"),
+            ("malformed_patch_region", "malformed-patch-region"),
+            ("outside_patch_modified", "outside-patch-modified"),
+            ("patch_line_limit_exceeded", "patch-line-limit-exceeded"),
+            ("patch_size_exceeded", "patch-size-exceeded"),
+            ("submission_unreadable", "submission-unreadable"),
+        ];
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let registry_digest = sha256_hex(TEST_ONLY_REGISTRY_FIXTURE.as_bytes());
+
+        for (checker_reason, receipt_reason) in cases {
+            let (journal_path, _exhaustion_path) =
+                scratch_journal_and_exhaustion_paths(checker_reason);
+            let mut authority =
+                NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
+            let mut store = NativeShadowStateStore::default();
+            store.resolve(&four_tuple, &registry_digest, || {
+                bootstrap_challenge_state(&registry, template)
+            });
+            store
+                .begin_execution(&mut authority, &four_tuple, &test_execution_policy_digest())
+                .expect("begin execution");
+            let candidate_digest = sha256_hex(format!("candidate-{checker_reason}").as_bytes());
+            let mut evidence: serde_json::Value = serde_json::from_str(&test_evidence_json(
+                &four_tuple,
+                &candidate_digest,
+                checker_reason,
+            ))
+            .expect("evidence JSON");
+            evidence["verdict"] = serde_json::json!("deterministic_reject");
+            evidence["reasonCode"] = serde_json::json!(checker_reason);
+            let durable = store
+                .persist_evidence(
+                    &mut authority,
+                    &four_tuple,
+                    &candidate_digest,
+                    &evidence.to_string(),
+                )
+                .expect("persist deterministic reject evidence");
+
+            let receipt = store
+                .map_durable_v2_to_bf3_receipt(&four_tuple, &durable)
+                .expect("semantic reject maps to BF3");
+            assert!(!receipt.accepted(), "{checker_reason}");
+            assert_eq!(receipt.reject_label(), Some(receipt_reason));
+        }
+    }
+
+    #[test]
+    fn bf3_artifact_root_commits_every_deterministic_native_binding() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let base_tuple = registry.four_tuple(&registry.templates[0]);
+        let base_registry_digest = sha256_hex(b"bf3-registry-base");
+        let base_policy = test_execution_policy_digest();
+        let candidate_digest = sha256_hex(b"bf3-candidate-base");
+        let base_evidence: serde_json::Value = serde_json::from_str(&test_evidence_v2_json(
+            &base_tuple,
+            &candidate_digest,
+            "bf3-root-base",
+            &base_policy,
+        ))
+        .expect("base evidence");
+        let base = map_test_bf3_receipt(
+            "base",
+            base_tuple.clone(),
+            &base_registry_digest,
+            base_policy.clone(),
+            base_evidence.clone(),
+        )
+        .expect("base receipt");
+
+        for (index, field) in [
+            "submissionDigest",
+            "anchorDigest",
+            "candidateDigest",
+            "intakeVersion",
+            "checkerDigest",
+            "policyDigest",
+            "toolchainDigest",
+            "registryVersion",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut evidence = base_evidence.clone();
+            evidence[field] = if matches!(field, "intakeVersion" | "registryVersion") {
+                serde_json::json!(format!("changed-{field}"))
+            } else {
+                serde_json::json!(sha256_hex(format!("changed-{field}").as_bytes()))
+            };
+            let mapped = map_test_bf3_receipt(
+                &format!("field-{index}"),
+                base_tuple.clone(),
+                &base_registry_digest,
+                base_policy.clone(),
+                evidence,
+            )
+            .expect("changed binding maps");
+            assert_ne!(base.artifact_root, mapped.artifact_root, "{field}");
+        }
+
+        for (index, field) in ["familyVersion", "templateId", "challengeSha256", "epoch"]
+            .into_iter()
+            .enumerate()
+        {
+            let mut four_tuple = base_tuple.clone();
+            let mut evidence = base_evidence.clone();
+            match field {
+                "familyVersion" => {
+                    four_tuple.family_version = "TEST-ONLY/CHANGED-V2".to_string();
+                    evidence[field] = serde_json::json!(four_tuple.family_version);
+                }
+                "templateId" => {
+                    four_tuple.template_id = sha256_hex(b"changed-template");
+                    evidence[field] = serde_json::json!(four_tuple.template_id);
+                }
+                "challengeSha256" => {
+                    four_tuple.challenge_sha256 = sha256_hex(b"changed-challenge");
+                    evidence[field] = serde_json::json!(four_tuple.challenge_sha256);
+                }
+                "epoch" => {
+                    four_tuple.epoch += 1;
+                    evidence[field] = serde_json::json!(four_tuple.epoch);
+                }
+                _ => unreachable!(),
+            }
+            let mapped = map_test_bf3_receipt(
+                &format!("identity-{index}"),
+                four_tuple,
+                &base_registry_digest,
+                base_policy.clone(),
+                evidence,
+            )
+            .expect("changed task binding maps");
+            assert_ne!(base.artifact_root, mapped.artifact_root, "{field}");
+        }
+
+        let changed_policy = NativeShadowExecutionPolicyDigest::try_from(
+            sha256_hex(b"changed-execution-policy").as_str(),
+        )
+        .expect("changed policy digest");
+        let mut policy_evidence = base_evidence.clone();
+        policy_evidence["executionPolicyDigest"] = serde_json::json!(changed_policy.as_str());
+        let mapped = map_test_bf3_receipt(
+            "execution-policy",
+            base_tuple.clone(),
+            &base_registry_digest,
+            changed_policy,
+            policy_evidence,
+        )
+        .expect("changed execution policy maps");
+        assert_ne!(base.artifact_root, mapped.artifact_root);
+
+        let mapped = map_test_bf3_receipt(
+            "registry-digest",
+            base_tuple.clone(),
+            &sha256_hex(b"changed-registry-digest"),
+            base_policy.clone(),
+            base_evidence.clone(),
+        )
+        .expect("changed registry digest maps");
+        assert_ne!(base.artifact_root, mapped.artifact_root);
+
+        let mut reject_evidence = base_evidence;
+        reject_evidence["verdict"] = serde_json::json!("deterministic_reject");
+        reject_evidence["reasonCode"] = serde_json::json!("forbidden_construct");
+        let mapped = map_test_bf3_receipt(
+            "verdict-reason",
+            base_tuple,
+            &base_registry_digest,
+            base_policy,
+            reject_evidence,
+        )
+        .expect("changed verdict maps");
+        assert_ne!(base.artifact_root, mapped.artifact_root);
+    }
+
+    #[test]
+    fn bf3_mapping_rejects_nonsemantic_or_mismatched_evidence() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let registry_digest = sha256_hex(b"bf3-invalid-registry");
+        let policy = test_execution_policy_digest();
+        let candidate_digest = sha256_hex(b"bf3-invalid-candidate");
+        let base: serde_json::Value = serde_json::from_str(&test_evidence_v2_json(
+            &four_tuple,
+            &candidate_digest,
+            "bf3-invalid",
+            &policy,
+        ))
+        .expect("base evidence");
+
+        for (label, verdict, reason) in [
+            ("accepted-reject-reason", "accepted", "forbidden_construct"),
+            ("reject-accepted-reason", "deterministic_reject", "accepted"),
+            (
+                "unknown-reject-reason",
+                "deterministic_reject",
+                "not_a_checker_reason",
+            ),
+        ] {
+            let mut evidence = base.clone();
+            evidence["verdict"] = serde_json::json!(verdict);
+            evidence["reasonCode"] = serde_json::json!(reason);
+            assert_eq!(
+                map_test_bf3_receipt(
+                    label,
+                    four_tuple.clone(),
+                    &registry_digest,
+                    policy.clone(),
+                    evidence,
+                ),
+                Err(NativeShadowReceiptMapError::InvalidVerdictReason),
+                "{label}"
+            );
+        }
+
+        assert_eq!(
+            map_test_bf3_receipt(
+                "bad-registry-digest",
+                four_tuple.clone(),
+                "not-a-sha256",
+                policy.clone(),
+                base.clone(),
+            ),
+            Err(NativeShadowReceiptMapError::InvalidDigest("registryDigest"))
+        );
+
+        let mut retryable = base;
+        retryable["verdict"] = serde_json::json!("retryable_unavailable");
+        retryable["reasonCode"] = serde_json::json!("resource_wall_limit");
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("bf3-retryable-no-receipt");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, &registry_digest, || {
+            ChallengeState::ActiveFresh
+        });
+        store
+            .begin_execution(&mut authority, &four_tuple, &policy)
+            .expect("begin execution");
+        assert!(matches!(
+            store.persist_evidence(
+                &mut authority,
+                &four_tuple,
+                &candidate_digest,
+                &retryable.to_string(),
+            ),
+            Err(NativeShadowTransitionError::InvalidEvidence(_))
+        ));
+
+        for (label, field, value, expected_schema_error) in [
+            (
+                "legacy-evidence",
+                "schema",
+                "boole.native-shadow.evidence.v1",
+                true,
+            ),
+            (
+                "wrong-submission-schema",
+                "submissionSchema",
+                "boole.native-shadow.submission.v0",
+                false,
+            ),
+        ] {
+            let (journal_path, _exhaustion_path) = scratch_journal_and_exhaustion_paths(label);
+            let mut authority =
+                NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
+            let mut store = NativeShadowStateStore::default();
+            store.resolve(&four_tuple, &registry_digest, || {
+                ChallengeState::ActiveFresh
+            });
+            store
+                .begin_execution(&mut authority, &four_tuple, &policy)
+                .expect("begin execution");
+            let mut evidence: serde_json::Value = serde_json::from_str(&test_evidence_v2_json(
+                &four_tuple,
+                &candidate_digest,
+                label,
+                &policy,
+            ))
+            .expect("evidence");
+            evidence[field] = serde_json::json!(value);
+            let result = store.persist_evidence(
+                &mut authority,
+                &four_tuple,
+                &candidate_digest,
+                &evidence.to_string(),
+            );
+            if expected_schema_error {
+                assert!(matches!(
+                    result,
+                    Err(NativeShadowTransitionError::InvalidEvidenceSchema)
+                ));
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(NativeShadowTransitionError::InvalidEvidenceContract(_))
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn bf3_mapping_rejects_a_forged_durable_capability() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let template = &registry.templates[0];
+        let four_tuple = registry.four_tuple(template);
+        let registry_digest = sha256_hex(b"bf3-capability-registry");
+        let (journal_path, _exhaustion_path) =
+            scratch_journal_and_exhaustion_paths("bf3-capability");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
+        let mut store = NativeShadowStateStore::default();
+        store.resolve(&four_tuple, &registry_digest, || {
+            bootstrap_challenge_state(&registry, template)
+        });
+        store
+            .begin_execution(&mut authority, &four_tuple, &test_execution_policy_digest())
+            .expect("begin execution");
+        let mut durable =
+            persist_test_evidence(&mut store, &mut authority, &four_tuple, "bf3-capability");
+        durable.evidence_digest = sha256_hex(b"forged-evidence-digest");
+
+        assert_eq!(
+            store.map_durable_v2_to_bf3_receipt(&four_tuple, &durable),
+            Err(NativeShadowReceiptMapError::DurableEvidenceBindingMismatch)
+        );
+    }
+
+    #[test]
+    fn bf3_mapping_excludes_operational_ids_and_resource_telemetry() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let registry_digest = sha256_hex(b"bf3-telemetry-registry");
+        let policy = test_execution_policy_digest();
+        let candidate_digest = sha256_hex(b"bf3-telemetry-candidate");
+        let base: serde_json::Value = serde_json::from_str(&test_evidence_v2_json(
+            &four_tuple,
+            &candidate_digest,
+            "bf3-telemetry",
+            &policy,
+        ))
+        .expect("base evidence");
+        let plain = map_test_bf3_receipt(
+            "telemetry-plain",
+            four_tuple.clone(),
+            &registry_digest,
+            policy.clone(),
+            base.clone(),
+        )
+        .expect("plain evidence maps");
+
+        let mut operational = base;
+        operational["operationId"] = serde_json::json!(sha256_hex(b"operation-id"));
+        operational["resourceTelemetry"] = serde_json::json!({
+            "wallMillis": 91,
+            "peakMemoryBytes": 123456,
+            "processes": 7
+        });
+        let with_telemetry = map_test_bf3_receipt(
+            "telemetry-extra",
+            four_tuple,
+            &registry_digest,
+            policy,
+            operational,
+        )
+        .expect("operational metadata maps");
+
+        assert_eq!(
+            plain, with_telemetry,
+            "operation identifiers and resource telemetry are not deterministic verdict inputs"
+        );
     }
 
     // -- registry parsing / registryDigest ---------------------------------
