@@ -5,9 +5,12 @@
 //! attempted staging a disk no-op until an operator explicitly enables it.
 //! Enabled mode requires an already-existing parent, creates at most the final
 //! store directory, and retains root/objects directory descriptors so later
-//! path or current-directory changes cannot redirect authority. One process
-//! must own that directory for the store lifetime; cross-process arbitration
-//! is deliberately outside this local, default-OFF slice.
+//! path or current-directory changes cannot redirect authority. The same root
+//! descriptor owns an atomic, bounded fetch-intent snapshot: new root/reference
+//! pairs become durable before P2P may request them and disappear only after
+//! their exact pending pair is durably staged. One process must own that
+//! directory for the store lifetime; cross-process arbitration is deliberately
+//! outside this local, default-OFF slice.
 
 use std::ffi::{CStr, CString, OsStr};
 use std::fs::{self, File};
@@ -34,6 +37,10 @@ pub const PACKAGE_PENDING_FILE: &str = "pending-v1.json";
 pub const PACKAGE_PENDING_TEMP_FILE: &str = ".pending-v1.json.tmp";
 pub const MAX_PENDING_SNAPSHOT_BYTES: u64 = 4 * 1024 * 1024;
 const PACKAGE_PENDING_SCHEMA: &str = "boole.useful-work.package-pending.v1";
+pub const PACKAGE_FETCH_INTENTS_FILE: &str = "fetch-intents-v1.json";
+pub const PACKAGE_FETCH_INTENTS_TEMP_FILE: &str = ".fetch-intents-v1.json.tmp";
+pub const MAX_FETCH_INTENT_SNAPSHOT_BYTES: u64 = 64 * 1024;
+const PACKAGE_FETCH_INTENTS_SCHEMA: &str = "boole.useful-work.package-fetch-intents.v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PendingCapacityPolicy {
@@ -80,6 +87,7 @@ pub enum AcknowledgePackageOutcome {
 pub enum PackageStoreCommitPhase {
     Object,
     PendingSnapshot,
+    FetchIntentSnapshot,
     ObjectCleanup,
 }
 
@@ -101,6 +109,10 @@ pub enum LocalPackageStoreError {
     PendingBytesExceeded { max: u64 },
     #[error("pending package conflicts with an existing root/reference pair")]
     PendingConflict,
+    #[error("one package fetch reference cannot name conflicting roots")]
+    FetchIntentConflict,
+    #[error("package fetch-intent count would exceed {max}")]
+    FetchIntentCountExceeded { max: usize },
     #[error("local package store I/O failed: {0}")]
     Io(String),
     #[error("unsafe local package store path: {0}")]
@@ -109,6 +121,8 @@ pub enum LocalPackageStoreError {
     MissingObject { root: String },
     #[error("pending snapshot is {size} bytes; maximum is {max}")]
     PendingSnapshotTooLarge { size: u64, max: u64 },
+    #[error("fetch-intent snapshot is {size} bytes; maximum is {max}")]
+    FetchIntentSnapshotTooLarge { size: u64, max: u64 },
     #[error("CAS object is {size} bytes; maximum is {max}")]
     ObjectTooLarge { size: u64, max: u64 },
     #[error("CAS object size mismatch: expected {expected}, got {actual}")]
@@ -124,6 +138,28 @@ pub struct PendingPackageRef {
     root: PackageRoot,
     size_bytes: u64,
     reference: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageFetchIntent {
+    root: PackageRoot,
+    reference: String,
+}
+
+impl PackageFetchIntent {
+    pub fn root(&self) -> PackageRoot {
+        self.root
+    }
+
+    pub fn reference(&self) -> &str {
+        &self.reference
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompletePackageFetchIntentOutcome {
+    Completed,
+    NotPending,
 }
 
 impl PendingPackageRef {
@@ -155,11 +191,26 @@ struct PendingSnapshot {
     entries: Vec<StoredPendingPackageRef>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredPackageFetchIntent {
+    root: String,
+    reference: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FetchIntentSnapshot {
+    schema: String,
+    entries: Vec<StoredPackageFetchIntent>,
+}
+
 pub struct LocalPackageStore {
     root: PathBuf,
     authority: Option<StoreAuthority>,
     config: LocalPackageStoreConfig,
     pending: Vec<PendingPackageRef>,
+    fetch_intents: Vec<PackageFetchIntent>,
     fault_injector: Arc<dyn CommitFaultInjector>,
     poisoned: bool,
 }
@@ -187,6 +238,7 @@ impl std::fmt::Debug for LocalPackageStore {
             .field("authority", &self.authority)
             .field("config", &self.config)
             .field("pending", &self.pending)
+            .field("fetch_intents", &self.fetch_intents)
             .field("poisoned", &self.poisoned)
             .finish_non_exhaustive()
     }
@@ -197,6 +249,8 @@ enum CommitFaultPoint {
     ObjectDurability,
     PendingPrecommit,
     PendingDurability,
+    FetchIntentPrecommit,
+    FetchIntentDurability,
 }
 
 trait CommitFaultInjector: Send + Sync {
@@ -244,6 +298,7 @@ impl LocalPackageStore {
                 authority: None,
                 config,
                 pending: Vec::new(),
+                fetch_intents: Vec::new(),
                 fault_injector,
                 poisoned: false,
             });
@@ -251,8 +306,10 @@ impl LocalPackageStore {
 
         let authority = open_store_authority(&root)?;
         remove_crash_temp(&authority.root, PACKAGE_PENDING_TEMP_FILE)?;
+        remove_crash_temp(&authority.root, PACKAGE_FETCH_INTENTS_TEMP_FILE)?;
         remove_object_temps(&authority.objects)?;
         let pending = load_pending(&authority, &config)?;
+        let fetch_intents = load_fetch_intents(&authority, &config)?;
         collect_orphan_objects(&authority.objects, &pending)?;
 
         Ok(Self {
@@ -260,6 +317,7 @@ impl LocalPackageStore {
             authority: Some(authority),
             config,
             pending,
+            fetch_intents,
             fault_injector,
             poisoned: false,
         })
@@ -375,6 +433,136 @@ impl LocalPackageStore {
 
     pub fn pending(&self) -> &[PendingPackageRef] {
         &self.pending
+    }
+
+    /// Durably merge caller-supplied fetch intents into the node-owned
+    /// unresolved-intent snapshot. Existing identical pairs are idempotent;
+    /// one reference may never name two different package roots.
+    pub fn register_fetch_intents(
+        &mut self,
+        intents: &[(PackageRoot, String)],
+    ) -> Result<(), LocalPackageStoreError> {
+        if !self.config.enabled {
+            return Err(LocalPackageStoreError::Disabled);
+        }
+        self.ensure_healthy()?;
+
+        let mut next = self.fetch_intents.clone();
+        let mut pairs = next
+            .iter()
+            .map(|intent| (intent.root, intent.reference.clone()))
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut references = next
+            .iter()
+            .map(|intent| (intent.reference.clone(), intent.root))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        for (root, reference) in intents {
+            validate_reference(reference)?;
+            if let Some(existing_root) = references.get(reference) {
+                if existing_root != root {
+                    return Err(LocalPackageStoreError::FetchIntentConflict);
+                }
+            }
+            if pairs.insert((*root, reference.clone())) {
+                references.insert(reference.clone(), *root);
+                next.push(PackageFetchIntent {
+                    root: *root,
+                    reference: reference.clone(),
+                });
+            }
+        }
+        let max_count = self
+            .config
+            .max_pending_packages
+            .min(DEFAULT_MAX_PENDING_PACKAGES);
+        if next.len() > max_count {
+            return Err(LocalPackageStoreError::FetchIntentCountExceeded { max: max_count });
+        }
+        if next == self.fetch_intents {
+            return Ok(());
+        }
+        match write_fetch_intents(&self.authority()?.root, &next, self.fault_injector.as_ref()) {
+            Ok(()) => self.fetch_intents = next,
+            Err(AtomicCommitFailure::BeforeRename(error)) => return Err(error),
+            Err(AtomicCommitFailure::AfterRename(_error)) => {
+                self.fetch_intents = next;
+                self.poison();
+                return Err(LocalPackageStoreError::CommitOutcomeUnknown {
+                    phase: PackageStoreCommitPhase::FetchIntentSnapshot,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub fn fetch_intents(&self) -> &[PackageFetchIntent] {
+        &self.fetch_intents
+    }
+
+    /// Durably remove an intent only after the caller has staged and verified
+    /// the matching canonical package in this store's CAS.
+    pub fn complete_fetch_intent(
+        &mut self,
+        root: PackageRoot,
+        reference: &str,
+    ) -> Result<CompletePackageFetchIntentOutcome, LocalPackageStoreError> {
+        if !self.config.enabled {
+            return Err(LocalPackageStoreError::Disabled);
+        }
+        self.ensure_healthy()?;
+        validate_reference(reference)?;
+        let Some(index) = self
+            .fetch_intents
+            .iter()
+            .position(|intent| intent.root == root && intent.reference == reference)
+        else {
+            return Ok(CompletePackageFetchIntentOutcome::NotPending);
+        };
+
+        let expected_size = self
+            .pending
+            .iter()
+            .find(|entry| entry.root == root && entry.reference == reference)
+            .map(|entry| entry.size_bytes)
+            .ok_or_else(|| {
+                LocalPackageStoreError::Corrupt(
+                    "fetch intent cannot complete before its exact root/reference pair is durably staged"
+                        .into(),
+                )
+            })?;
+        let bytes = self.read(root)?;
+        if bytes.len() as u64 != expected_size {
+            return Err(LocalPackageStoreError::ObjectSizeMismatch {
+                expected: expected_size,
+                actual: bytes.len() as u64,
+            });
+        }
+        let package = CanonicalPackage::from_canonical_bytes(&bytes).map_err(|error| {
+            LocalPackageStoreError::Corrupt(format!(
+                "fetch-intent CAS object is not a canonical package: {error}"
+            ))
+        })?;
+        if package.root() != root {
+            return Err(LocalPackageStoreError::ObjectRootMismatch {
+                expected: root.to_hex(),
+                actual: package.root().to_hex(),
+            });
+        }
+
+        let mut next = self.fetch_intents.clone();
+        next.remove(index);
+        match write_fetch_intents(&self.authority()?.root, &next, self.fault_injector.as_ref()) {
+            Ok(()) => self.fetch_intents = next,
+            Err(AtomicCommitFailure::BeforeRename(error)) => return Err(error),
+            Err(AtomicCommitFailure::AfterRename(_error)) => {
+                self.fetch_intents = next;
+                self.poison();
+                return Err(LocalPackageStoreError::CommitOutcomeUnknown {
+                    phase: PackageStoreCommitPhase::FetchIntentSnapshot,
+                });
+            }
+        }
+        Ok(CompletePackageFetchIntentOutcome::Completed)
     }
 
     /// Durably remove one root/reference pair from the pending FIFO. The
@@ -653,6 +841,7 @@ fn open_new_regular_at(directory: &File, name: &CStr) -> Result<File, LocalPacka
 #[derive(Debug, Clone, Copy)]
 enum BoundedReadKind {
     PendingSnapshot,
+    FetchIntentSnapshot,
     Object { root: PackageRoot },
 }
 
@@ -660,6 +849,9 @@ impl BoundedReadKind {
     fn too_large(self, size: u64, max: u64) -> LocalPackageStoreError {
         match self {
             Self::PendingSnapshot => LocalPackageStoreError::PendingSnapshotTooLarge { size, max },
+            Self::FetchIntentSnapshot => {
+                LocalPackageStoreError::FetchIntentSnapshotTooLarge { size, max }
+            }
             Self::Object { .. } => LocalPackageStoreError::ObjectTooLarge { size, max },
         }
     }
@@ -669,6 +861,9 @@ impl BoundedReadKind {
             Self::PendingSnapshot => {
                 LocalPackageStoreError::Corrupt("pending snapshot disappeared during read".into())
             }
+            Self::FetchIntentSnapshot => LocalPackageStoreError::Corrupt(
+                "fetch-intent snapshot disappeared during read".into(),
+            ),
             Self::Object { root } => LocalPackageStoreError::MissingObject {
                 root: root.to_hex(),
             },
@@ -834,6 +1029,64 @@ fn write_pending(
     fsync_directory_file(root).map_err(AtomicCommitFailure::AfterRename)
 }
 
+fn write_fetch_intents(
+    root: &File,
+    intents: &[PackageFetchIntent],
+    fault_injector: &dyn CommitFaultInjector,
+) -> Result<(), AtomicCommitFailure> {
+    let path = fixed_component(PACKAGE_FETCH_INTENTS_FILE);
+    let temp = fixed_component(PACKAGE_FETCH_INTENTS_TEMP_FILE);
+    if let Some(stat) = stat_at(root, &path).map_err(AtomicCommitFailure::BeforeRename)? {
+        if stat.st_mode & libc::S_IFMT != libc::S_IFREG {
+            return Err(AtomicCommitFailure::BeforeRename(
+                LocalPackageStoreError::UnsafePath(
+                    "fetch-intent snapshot must be a regular file".into(),
+                ),
+            ));
+        }
+    }
+    remove_crash_temp(root, PACKAGE_FETCH_INTENTS_TEMP_FILE)
+        .map_err(AtomicCommitFailure::BeforeRename)?;
+    let snapshot = FetchIntentSnapshot {
+        schema: PACKAGE_FETCH_INTENTS_SCHEMA.to_owned(),
+        entries: intents
+            .iter()
+            .map(|intent| StoredPackageFetchIntent {
+                root: intent.root.to_hex(),
+                reference: intent.reference.clone(),
+            })
+            .collect(),
+    };
+    let bytes = serde_json::to_vec(&snapshot)
+        .map_err(|error| LocalPackageStoreError::Corrupt(error.to_string()))
+        .map_err(AtomicCommitFailure::BeforeRename)?;
+    if bytes.len() as u64 > MAX_FETCH_INTENT_SNAPSHOT_BYTES {
+        return Err(AtomicCommitFailure::BeforeRename(
+            LocalPackageStoreError::FetchIntentSnapshotTooLarge {
+                size: bytes.len() as u64,
+                max: MAX_FETCH_INTENT_SNAPSHOT_BYTES,
+            },
+        ));
+    }
+    let before_rename = (|| {
+        let mut file = open_new_regular_at(root, &temp)?;
+        file.write_all(&bytes).map_err(io_error)?;
+        file.flush().map_err(io_error)?;
+        file.sync_all().map_err(io_error)?;
+        fault_injector.check(CommitFaultPoint::FetchIntentPrecommit)?;
+        rename_at(root, &temp, root, &path)?;
+        Ok(())
+    })();
+    if let Err(error) = before_rename {
+        let _ = remove_crash_temp(root, PACKAGE_FETCH_INTENTS_TEMP_FILE);
+        return Err(AtomicCommitFailure::BeforeRename(error));
+    }
+    fault_injector
+        .check(CommitFaultPoint::FetchIntentDurability)
+        .map_err(AtomicCommitFailure::AfterRename)?;
+    fsync_directory_file(root).map_err(AtomicCommitFailure::AfterRename)
+}
+
 fn remove_new_object(objects: &File, root: PackageRoot) -> Result<(), LocalPackageStoreError> {
     unlink_regular_at(objects, &object_basename(root)?, "new CAS object cleanup")?;
     fsync_directory_file(objects)
@@ -913,6 +1166,67 @@ fn load_pending(
         verify_object(&authority.objects, root, size_bytes)?;
     }
     Ok(pending)
+}
+
+fn load_fetch_intents(
+    authority: &StoreAuthority,
+    config: &LocalPackageStoreConfig,
+) -> Result<Vec<PackageFetchIntent>, LocalPackageStoreError> {
+    let name = fixed_component(PACKAGE_FETCH_INTENTS_FILE);
+    if stat_at(&authority.root, &name)?.is_none() {
+        return Ok(Vec::new());
+    }
+    let bytes = read_regular_file_bounded(
+        &authority.root,
+        &name,
+        MAX_FETCH_INTENT_SNAPSHOT_BYTES,
+        BoundedReadKind::FetchIntentSnapshot,
+    )?;
+    let stored: FetchIntentSnapshot = serde_json::from_slice(&bytes)
+        .map_err(|error| LocalPackageStoreError::Corrupt(error.to_string()))?;
+    if stored.schema != PACKAGE_FETCH_INTENTS_SCHEMA {
+        return Err(LocalPackageStoreError::Corrupt(
+            "unknown fetch-intent snapshot schema".into(),
+        ));
+    }
+    let max_count = config
+        .max_pending_packages
+        .min(DEFAULT_MAX_PENDING_PACKAGES);
+    if stored.entries.len() > max_count {
+        return Err(LocalPackageStoreError::Corrupt(
+            "fetch-intent count exceeds configured bound".into(),
+        ));
+    }
+
+    let mut intents = Vec::with_capacity(stored.entries.len());
+    let mut pairs = std::collections::BTreeSet::<(PackageRoot, String)>::new();
+    let mut references = std::collections::BTreeMap::<String, PackageRoot>::new();
+    for stored_entry in stored.entries {
+        validate_reference(&stored_entry.reference)?;
+        let root = PackageRoot::from_hex(&stored_entry.root)
+            .map_err(|error| LocalPackageStoreError::Corrupt(error.to_string()))?;
+        if !pairs.insert((root, stored_entry.reference.clone())) {
+            return Err(LocalPackageStoreError::Corrupt(
+                "duplicate root/reference fetch intent".into(),
+            ));
+        }
+        match references.entry(stored_entry.reference.clone()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(root);
+            }
+            std::collections::btree_map::Entry::Occupied(entry) if *entry.get() != root => {
+                return Err(LocalPackageStoreError::Corrupt(
+                    "one fetch-intent reference names conflicting roots".into(),
+                ));
+            }
+            std::collections::btree_map::Entry::Occupied(_) => {}
+        }
+        intents.push(PackageFetchIntent {
+            root,
+            reference: stored_entry.reference,
+        });
+    }
+    Ok(intents)
 }
 
 fn verify_object(
@@ -1457,6 +1771,75 @@ mod durability_failure_tests {
             store.read(first.root()).is_ok(),
             "existing CAS must survive"
         );
+        fs::remove_dir_all(root).expect("remove store");
+    }
+
+    #[test]
+    fn fetch_intent_rename_then_fsync_failure_recovers_the_visible_intent() {
+        let root = temp_root("fetch-intent-after-rename");
+        let faults = Arc::new(FailController::default());
+        let mut store =
+            LocalPackageStore::open_with_fault_injector(&root, config(), faults.clone())
+                .expect("open store");
+        let package = package(b"result", b"fetch-intent");
+        faults.arm(CommitFaultPoint::FetchIntentDurability);
+
+        assert_eq!(
+            store.register_fetch_intents(&[(package.root(), "receipt:intent".into())]),
+            Err(LocalPackageStoreError::CommitOutcomeUnknown {
+                phase: PackageStoreCommitPhase::FetchIntentSnapshot,
+            })
+        );
+        assert!(store.is_poisoned());
+        assert_eq!(
+            store.fetch_intents().len(),
+            1,
+            "memory follows the snapshot that became visible before fsync failed"
+        );
+        drop(store);
+
+        let recovered =
+            LocalPackageStore::open(&root, config()).expect("visible intent snapshot recovers");
+        assert_eq!(recovered.fetch_intents().len(), 1);
+        assert_eq!(recovered.fetch_intents()[0].root(), package.root());
+        assert_eq!(recovered.fetch_intents()[0].reference(), "receipt:intent");
+        fs::remove_dir_all(root).expect("remove store");
+    }
+
+    #[test]
+    fn fetch_intent_cleanup_rename_then_fsync_failure_recovers_the_visible_cleanup() {
+        let root = temp_root("fetch-intent-cleanup-after-rename");
+        let faults = Arc::new(FailController::default());
+        let mut store =
+            LocalPackageStore::open_with_fault_injector(&root, config(), faults.clone())
+                .expect("open store");
+        let package = package(b"result", b"cleanup-intent");
+        store
+            .register_fetch_intents(&[(package.root(), "receipt:cleanup".into())])
+            .expect("register intent");
+        store
+            .stage(&package, "receipt:cleanup")
+            .expect("stage exact package reference");
+        faults.arm(CommitFaultPoint::FetchIntentDurability);
+
+        assert_eq!(
+            store.complete_fetch_intent(package.root(), "receipt:cleanup"),
+            Err(LocalPackageStoreError::CommitOutcomeUnknown {
+                phase: PackageStoreCommitPhase::FetchIntentSnapshot,
+            })
+        );
+        assert!(store.is_poisoned());
+        assert!(
+            store.fetch_intents().is_empty(),
+            "memory follows the visible cleanup snapshot"
+        );
+        drop(store);
+
+        let recovered =
+            LocalPackageStore::open(&root, config()).expect("visible cleanup snapshot recovers");
+        assert!(recovered.fetch_intents().is_empty());
+        assert_eq!(recovered.pending().len(), 1);
+        assert_eq!(recovered.pending()[0].reference(), "receipt:cleanup");
         fs::remove_dir_all(root).expect("remove store");
     }
 }

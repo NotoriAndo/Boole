@@ -134,6 +134,89 @@ fn serve_package_response_once(
     serve_package_responses(expected_root, vec![response])
 }
 
+fn serve_drop_after_get_once(
+    expected_root: boole_core::PackageRoot,
+) -> (
+    SocketAddr,
+    mpsc::Receiver<()>,
+    mpsc::Sender<()>,
+    thread::JoinHandle<()>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind synthetic package peer");
+    let addr = listener.local_addr().expect("synthetic peer address");
+    let (request_seen_tx, request_seen_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        loop {
+            let (stream, _) = listener.accept().expect("accept synthetic peer");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("read timeout");
+            stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .expect("write timeout");
+            let transport = TcpTransport::new();
+            let mut conn = TcpTransport::conn_from_stream(stream).expect("peer connection");
+            let hello = transport.recv_frame(&mut conn).expect("receive Hello");
+            let (network_id, genesis_hash) = match hello {
+                Frame::Hello {
+                    protocol_version,
+                    consensus_rule_version,
+                    network_id,
+                    genesis_hash,
+                    ..
+                } => {
+                    assert_eq!(protocol_version, PROTOCOL_VERSION);
+                    assert_eq!(consensus_rule_version, CONSENSUS_RULE_VERSION);
+                    (network_id, genesis_hash)
+                }
+                other => panic!("expected Hello, got {other:?}"),
+            };
+            transport
+                .send_frame(
+                    &mut conn,
+                    &Frame::Hello {
+                        protocol_version: PROTOCOL_VERSION,
+                        consensus_rule_version: CONSENSUS_RULE_VERSION,
+                        network_id,
+                        genesis_hash,
+                        head: HeadSummary {
+                            height: 0,
+                            c: "00".repeat(32),
+                        },
+                    },
+                )
+                .expect("send Hello");
+            let Ok(request) = transport.recv_frame(&mut conn) else {
+                // Initial sync may complete its authenticated handshake and
+                // close before sending a request. Keep accepting until the
+                // dedicated package-fetch connection arrives.
+                continue;
+            };
+            match request {
+                Frame::GetPackage { root } => {
+                    assert_eq!(root, expected_root.to_hex());
+                    request_seen_tx.send(()).expect("report package request");
+                    release_rx
+                        .recv_timeout(Duration::from_secs(5))
+                        .expect("release response-less connection");
+                    // Drop the authenticated connection without a Package
+                    // response. The node must have made the fetch intent
+                    // durable before this request.
+                    return;
+                }
+                Frame::GetBlocks { .. } => {
+                    transport
+                        .send_frame(&mut conn, &Frame::Blocks { blocks: vec![] })
+                        .expect("answer sync probe");
+                }
+                other => panic!("unexpected synthetic request: {other:?}"),
+            }
+        }
+    });
+    (addr, request_seen_rx, release_tx, handle)
+}
+
 fn serve_package_responses(
     expected_root: boole_core::PackageRoot,
     responses: Vec<Frame>,
@@ -538,5 +621,135 @@ fn unavailable_response_stays_pending_and_is_retried_until_strict_bytes_arrive()
         .expect("reopen receiver-owned store");
     assert_eq!(reopened.pending().len(), 1);
     assert_eq!(reopened.pending()[0].reference(), "receipt:block:retry");
+    fs::remove_dir_all(parent).expect("remove store parent");
+}
+
+#[test]
+fn unavailable_response_keeps_the_intent_durable_without_any_cas_write() {
+    let parent = std::env::temp_dir().join(format!(
+        "boole-bf6a-unavailable-intent-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    fs::create_dir_all(&parent).expect("store parent");
+    let store_path = parent.join("store");
+    let package =
+        CanonicalPackage::new(vec![PackageFile::new(b"proof", b"not here yet")]).expect("package");
+    let root = package.root();
+    let reference = "receipt:block:still-unavailable";
+    let (peer, peer_thread) = serve_package_response_once(
+        root,
+        Frame::Package {
+            root: root.to_hex(),
+            canonical_bytes: None,
+        },
+    );
+    let store = LocalPackageStore::open(&store_path, enabled_store_config())
+        .expect("open receiver-owned store");
+    let fetching = PackageFetchingConfig::new(
+        store,
+        [PackageFetchRequest::new(root, reference).expect("fetch request")],
+    )
+    .expect("fetching config")
+    .with_retry_interval(Duration::from_secs(5));
+    let boot = boot(peer, fetching);
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while metric_value(boot.http_addr, "boole_p2p_package_fetch_unavailable_total") == 0 {
+        assert!(
+            Instant::now() < deadline,
+            "unavailable response not observed"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+    stop(boot);
+    peer_thread.join().expect("synthetic peer");
+
+    let reopened = LocalPackageStore::open(&store_path, enabled_store_config())
+        .expect("reopen unavailable intent store");
+    assert!(
+        reopened.pending().is_empty(),
+        "unavailable bytes are never staged"
+    );
+    assert_eq!(reopened.fetch_intents().len(), 1);
+    assert_eq!(reopened.fetch_intents()[0].root(), root);
+    assert_eq!(reopened.fetch_intents()[0].reference(), reference);
+    assert!(
+        reopened.read(root).is_err(),
+        "unavailable response writes no CAS object"
+    );
+    fs::remove_dir_all(parent).expect("remove store parent");
+}
+
+#[test]
+fn restart_before_any_response_recovers_the_durable_intent_without_caller_resupply() {
+    let parent = std::env::temp_dir().join(format!(
+        "boole-bf6a-crash-before-response-{}-{}",
+        std::process::id(),
+        rand_suffix()
+    ));
+    fs::create_dir_all(&parent).expect("store parent");
+    let store_path = parent.join("store");
+    let package = CanonicalPackage::new(vec![PackageFile::new(
+        b"proof",
+        b"survives response-less restart",
+    )])
+    .expect("package");
+    let root = package.root();
+    let reference = "receipt:block:crash-before-response";
+
+    let (first_peer, request_seen, release_first_peer, first_peer_thread) =
+        serve_drop_after_get_once(root);
+    let first_store = LocalPackageStore::open(&store_path, enabled_store_config())
+        .expect("open first receiver-owned store");
+    let first_fetching = PackageFetchingConfig::new(
+        first_store,
+        [PackageFetchRequest::new(root, reference).expect("fetch request")],
+    )
+    .expect("first fetching config");
+    let first_boot = boot(first_peer, first_fetching);
+    request_seen
+        .recv_timeout(Duration::from_secs(5))
+        .expect("first node sent GetPackage");
+    first_boot.shutdown.notify_one();
+    release_first_peer
+        .send(())
+        .expect("release response-less peer");
+    first_boot
+        .handle
+        .join()
+        .expect("first node thread")
+        .expect("first node exits");
+    fs::remove_dir_all(first_boot.dir).expect("remove first node directory");
+    first_peer_thread.join().expect("first synthetic peer");
+
+    let (second_peer, second_peer_thread) = serve_package_once(package);
+    let second_store = LocalPackageStore::open(&store_path, enabled_store_config())
+        .expect("reopen receiver-owned store");
+    let second_fetching =
+        PackageFetchingConfig::new(second_store, std::iter::empty::<PackageFetchRequest>())
+            .expect("restart with no caller-supplied requests");
+    let second_boot = boot(second_peer, second_fetching);
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while metric_value(
+        second_boot.http_addr,
+        "boole_p2p_package_fetch_staged_total",
+    ) == 0
+    {
+        assert!(
+            Instant::now() < deadline,
+            "restart did not recover and retry the pre-response durable intent"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    stop(second_boot);
+    second_peer_thread.join().expect("second synthetic peer");
+    let reopened = LocalPackageStore::open(&store_path, enabled_store_config())
+        .expect("reopen staged package");
+    assert_eq!(reopened.pending().len(), 1);
+    assert_eq!(reopened.pending()[0].root(), root);
+    assert_eq!(reopened.pending()[0].reference(), reference);
     fs::remove_dir_all(parent).expect("remove store parent");
 }
