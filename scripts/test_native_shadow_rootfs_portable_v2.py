@@ -212,6 +212,30 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertLess(manager.index(diagnostic), timeout_index)
         self.assertLess(manager.index(journal, manager.index(diagnostic)), timeout_index)
 
+    def test_linux_replay_client_failure_dumps_the_exact_launcher_session_error(self) -> None:
+        manager = (
+            ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+        client_start = manager.index('local client_status=$?')
+        client_end = manager.index('local client_complete', client_start)
+        failure_block = manager[client_start:client_end]
+
+        self.assertIn('if [[ $client_status -ne 0 ]]; then', failure_block)
+        self.assertIn(
+            'sudo systemctl show "$unit_name" \\\n'
+            '      --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :',
+            failure_block,
+        )
+        self.assertIn(
+            'sudo journalctl --no-pager -o cat -u "$unit_name" \\\n'
+            '      "_SYSTEMD_INVOCATION_ID=$launcher_invocation" >&2 || :',
+            failure_block,
+        )
+        self.assertIn(
+            'die "closed-local replay client failed or exceeded its outer deadline"',
+            failure_block,
+        )
+
     def test_linux_replay_mounts_a_private_proc_for_the_frozen_lld_wrapper(self) -> None:
         replay = (
             ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"

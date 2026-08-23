@@ -807,7 +807,13 @@ PY
   local client_status=$?
   set -e
   cat "$replay_client_log"
-  [[ $client_status -eq 0 ]] || die "closed-local replay client failed or exceeded its outer deadline"
+  if [[ $client_status -ne 0 ]]; then
+    sudo systemctl show "$unit_name" \
+      --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :
+    sudo journalctl --no-pager -o cat -u "$unit_name" \
+      "_SYSTEMD_INVOCATION_ID=$launcher_invocation" >&2 || :
+    die "closed-local replay client failed or exceeded its outer deadline"
+  fi
 
   local client_complete
   client_complete="native-shadow-closed-local-replay-client-complete:launcher_connections=3:empty_connections=0"
