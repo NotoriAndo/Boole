@@ -11,6 +11,7 @@ members = [
   "crates/boole-miner",
   "crates/boole-native-shadow-launcher",
   "crates/boole-native-shadow-protocol",
+  "crates/boole-native-rust-meter",
   "crates/boole-testkit",
   "crates/boole-wallet-agent",
 ]
