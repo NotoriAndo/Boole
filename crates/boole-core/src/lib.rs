@@ -41,6 +41,7 @@ pub mod telemetry;
 pub mod useful_product;
 pub mod useful_task_registry;
 pub mod useful_work;
+pub mod useful_work_bf6;
 pub mod validator;
 pub mod vault;
 pub mod work_manifest;
