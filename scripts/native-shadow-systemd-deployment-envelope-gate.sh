@@ -69,7 +69,7 @@ for target in sysinit.target basic.target shutdown.target multi-user.target; do
 done
 
 systemd-analyze --root="$stage" verify boole-native-shadow-launcher.service
-systemd-sysusers --root="$stage" /usr/lib/sysusers.d/boole-native-shadow.conf
+systemd-sysusers --root="$stage" "$stage/usr/lib/sysusers.d/boole-native-shadow.conf"
 
 node_uid=$(awk -F: '$1 == "boole-node" { print $3 }' "$stage/etc/passwd")
 node_gid=$(awk -F: '$1 == "boole-node" { print $4 }' "$stage/etc/passwd")
@@ -107,7 +107,7 @@ if awk -F: '$4 ~ /(^|,)(boole-node|boole-native-checker)(,|$)/ { found=1 } END {
   die "service identities must have no supplementary groups"
 fi
 
-systemd-tmpfiles --root="$stage" --create /usr/lib/tmpfiles.d/boole-native-shadow.conf
+systemd-tmpfiles --root="$stage" --create "$stage/usr/lib/tmpfiles.d/boole-native-shadow.conf"
 runtime_parent_metadata=$(stat -c %u:%g:%a "$stage/run/boole")
 [[ "$runtime_parent_metadata" == 0:0:755 ]] \
   || die "runtime parent differs from root:root mode 0755"

@@ -204,8 +204,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         for required in (
             "set -euo pipefail",
             "systemd-analyze --root=\"$stage\" verify boole-native-shadow-launcher.service",
-            "systemd-sysusers --root=\"$stage\" /usr/lib/sysusers.d/boole-native-shadow.conf",
-            "systemd-tmpfiles --root=\"$stage\" --create /usr/lib/tmpfiles.d/boole-native-shadow.conf",
+            "systemd-sysusers --root=\"$stage\" \"$stage/usr/lib/sysusers.d/boole-native-shadow.conf\"",
+            "systemd-tmpfiles --root=\"$stage\" --create \"$stage/usr/lib/tmpfiles.d/boole-native-shadow.conf\"",
             "for target in sysinit.target basic.target shutdown.target multi-user.target; do",
             '[[ "$node_uid" -ne 0 && "$checker_uid" -ne 0 ]]',
             '[[ "$node_gid" -ne 0 && "$checker_gid" -ne 0 ]]',
