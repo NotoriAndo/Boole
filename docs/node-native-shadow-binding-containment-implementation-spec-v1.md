@@ -202,7 +202,7 @@ entry becomes authoritative on `main` only after its required CI and merge:
   Required CI passed before merge. It does **not** open a Unix
   socket, call `SO_PEERCRED` or `getrandom(2)`, resolve accounts, start a launcher/child, or prove a
   real Linux handshake; those remain Phase 3B.2b-2 work.
-* **Phase 3B.2b-2p** — the current guarded installed-authority preparation slice: one shared Unix
+* **Phase 3B.2b-2p** — PR #178, main `fb73679`: one shared Unix
   entrypoint accepts no caller path and walks the literal
   `/usr/share/boole/native-shadow` hierarchy one component at a time relative to already-opened
   directory descriptors. Every component is opened with `O_NOFOLLOW`; `/` and all ancestors must
@@ -210,9 +210,21 @@ entry becomes authoritative on `main` only after its required CI and merge:
   and all three authority files must be root-owned regular one-link files of exact mode `0444` and
   compiled byte length. The same opened file descriptors are checked before and after reading, then
   the existing exact-byte/schema/digest verifier is applied. This is only a shared opener for the
-  later node and launcher. It does not connect a socket, generate a nonce, resolve accounts, launch
+  later node and launcher. Required CI passed before merge. It does not connect a socket, generate a nonce, resolve accounts, launch
   a process, emit readiness or change lifecycle/journal state, and therefore does not close
   Phase 3B.2b-2.
+* **Phase 3B.2b-2n** — the current guarded node-side Linux-adapter slice: the private production
+  entrypoint accepts no socket path, opens the installed authority through Phase 3B.2b-2p, connects
+  only to `/run/boole/native-shadow/launcher.sock` with a bounded nonblocking-connect/poll/
+  `SO_ERROR` sequence, obtains exactly 32 bytes from one `getrandom(2)` call with flags zero and no
+  fallback, and authenticates the peer through `SO_PEERCRED` before the Phase 3B.2b-1 core writes a
+  frame. Every read, write, flush and shutdown uses the remainder of one five-second handshake
+  deadline rather than resetting a per-operation timeout. The fixed socket path, one-second connect
+  limit, five-second handshake limit and nonce contract are mechanically checked against the tracked
+  policy bytes. Non-Linux hosts refuse before filesystem or socket work. This remains preparation:
+  expected service IDs are not yet obtained from the fixed-account resolver and there is no root
+  launcher, real installed-path happy path, route, journal mutation or checker execution, so no real
+  handshake GREEN is claimed.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do

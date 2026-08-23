@@ -1,10 +1,19 @@
 use std::io::{self, Read, Write};
+use std::path::Path;
 
 use boole_native_shadow_protocol::{
     read_qualification_ready, write_qualification_hello, QualificationHello, QualificationReady,
     VerifiedAuthorityBundle, WireError,
 };
 use thiserror::Error;
+
+const FIXED_LAUNCHER_SOCKET_PATH: &str = "/run/boole/native-shadow/launcher.sock";
+const CONNECT_TIMEOUT_MILLIS: u64 = 1_000;
+const HANDSHAKE_TIMEOUT_MILLIS: u64 = 5_000;
+
+fn fixed_launcher_socket_path() -> &'static Path {
+    Path::new(FIXED_LAUNCHER_SOCKET_PATH)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NativeShadowPeerCredentials {
@@ -49,6 +58,41 @@ impl QualificationNonce {
     fn encode_hex(self) -> String {
         hex::encode(self.0)
     }
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+enum NativeShadowStartupError {
+    #[cfg(not(target_os = "linux"))]
+    #[error("native-shadow qualification requires Linux")]
+    UnsupportedPlatform,
+    #[cfg(target_os = "linux")]
+    #[error("installed authority verification failed: {0}")]
+    Authority(String),
+    #[cfg(target_os = "linux")]
+    #[error("launcher socket connection failed: {0}")]
+    Connect(String),
+    #[error("getrandom(2) failed: {0}")]
+    NonceSyscall(String),
+    #[error("getrandom(2) returned {actual} bytes instead of exactly 32")]
+    NonceShortRead { actual: usize },
+    #[cfg(target_os = "linux")]
+    #[error(transparent)]
+    Qualification(#[from] NativeShadowQualificationError),
+}
+
+fn qualification_nonce_from_one_call<F>(
+    call: F,
+) -> Result<QualificationNonce, NativeShadowStartupError>
+where
+    F: FnOnce(&mut [u8; 32], u32) -> io::Result<usize>,
+{
+    let mut bytes = [0_u8; 32];
+    let actual = call(&mut bytes, 0)
+        .map_err(|error| NativeShadowStartupError::NonceSyscall(error.to_string()))?;
+    if actual != bytes.len() {
+        return Err(NativeShadowStartupError::NonceShortRead { actual });
+    }
+    Ok(QualificationNonce::from_bytes(bytes))
 }
 
 trait NativeShadowQualificationSession: Read + Write {
@@ -188,6 +232,435 @@ where
     })
 }
 
+#[cfg(not(target_os = "linux"))]
+fn qualify_installed_native_shadow_launcher(
+    _expected: NativeShadowExpectedIdentities,
+) -> Result<NativeShadowQualificationReadiness, NativeShadowStartupError> {
+    Err(NativeShadowStartupError::UnsupportedPlatform)
+}
+
+#[cfg(target_os = "linux")]
+mod linux {
+    use std::io::{self, Read, Write};
+    use std::mem::{self, MaybeUninit};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::net::UnixStream;
+    use std::path::Path;
+    use std::time::{Duration, Instant};
+
+    use boole_native_shadow_protocol::installed_authority::open_verified_installed_authority_bundle;
+
+    use super::{
+        fixed_launcher_socket_path, qualification_nonce_from_one_call,
+        qualify_native_shadow_launcher, NativeShadowExpectedIdentities,
+        NativeShadowPeerCredentials, NativeShadowQualificationReadiness,
+        NativeShadowQualificationSession, NativeShadowStartupError, CONNECT_TIMEOUT_MILLIS,
+        HANDSHAKE_TIMEOUT_MILLIS,
+    };
+
+    struct UnixQualificationSession {
+        stream: UnixStream,
+        deadline: Instant,
+    }
+
+    impl UnixQualificationSession {
+        fn new(stream: UnixStream, timeout: Duration) -> Self {
+            Self {
+                stream,
+                deadline: Instant::now() + timeout,
+            }
+        }
+
+        fn remaining(&self) -> io::Result<Duration> {
+            let remaining = self.deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "native-shadow qualification deadline elapsed",
+                ));
+            }
+            Ok(remaining)
+        }
+    }
+
+    impl Read for UnixQualificationSession {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.stream.set_read_timeout(Some(self.remaining()?))?;
+            self.stream.read(buffer)
+        }
+    }
+
+    impl Write for UnixQualificationSession {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            self.stream.set_write_timeout(Some(self.remaining()?))?;
+            self.stream.write(buffer)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.stream.set_write_timeout(Some(self.remaining()?))?;
+            self.stream.flush()
+        }
+    }
+
+    impl NativeShadowQualificationSession for UnixQualificationSession {
+        fn peer_credentials(&mut self) -> io::Result<NativeShadowPeerCredentials> {
+            let _ = self.remaining()?;
+            peer_credentials(&self.stream)
+        }
+
+        fn shutdown_write(&mut self) -> io::Result<()> {
+            let _ = self.remaining()?;
+            self.stream.shutdown(std::net::Shutdown::Write)
+        }
+    }
+
+    pub(super) fn qualify_installed(
+        expected: NativeShadowExpectedIdentities,
+    ) -> Result<NativeShadowQualificationReadiness, NativeShadowStartupError> {
+        expected.validate()?;
+        let authority = open_verified_installed_authority_bundle()
+            .map_err(|error| NativeShadowStartupError::Authority(error.to_string()))?;
+        let stream = connect_unix_with_timeout(
+            fixed_launcher_socket_path(),
+            Duration::from_millis(CONNECT_TIMEOUT_MILLIS),
+        )
+        .map_err(|error| NativeShadowStartupError::Connect(error.to_string()))?;
+        let nonce = qualification_nonce_from_one_call(getrandom_once)?;
+        let session =
+            UnixQualificationSession::new(stream, Duration::from_millis(HANDSHAKE_TIMEOUT_MILLIS));
+        qualify_native_shadow_launcher(session, &authority, nonce, expected).map_err(Into::into)
+    }
+
+    #[allow(unsafe_code)]
+    fn getrandom_once(output: &mut [u8; 32], flags: u32) -> io::Result<usize> {
+        // SAFETY: `output` is a live writable 32-byte buffer for the duration
+        // of the syscall, and no alias is read while the kernel writes it.
+        let result = unsafe {
+            libc::getrandom(
+                output.as_mut_ptr().cast::<libc::c_void>(),
+                output.len(),
+                flags,
+            )
+        };
+        if result < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(result as usize)
+        }
+    }
+
+    #[allow(unsafe_code)]
+    fn peer_credentials(stream: &UnixStream) -> io::Result<NativeShadowPeerCredentials> {
+        let mut credentials = MaybeUninit::<libc::ucred>::uninit();
+        let mut length = mem::size_of::<libc::ucred>() as libc::socklen_t;
+        // SAFETY: `credentials` points to writable storage of exactly `length`
+        // bytes, and the descriptor belongs to a live Unix stream socket.
+        let result = unsafe {
+            libc::getsockopt(
+                stream.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                credentials.as_mut_ptr().cast::<libc::c_void>(),
+                &mut length,
+            )
+        };
+        if result != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if length as usize != mem::size_of::<libc::ucred>() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "SO_PEERCRED returned an unexpected credential length",
+            ));
+        }
+        // SAFETY: a successful `getsockopt` with the exact expected length
+        // initialized every byte of `libc::ucred`.
+        let credentials = unsafe { credentials.assume_init() };
+        let pid = u32::try_from(credentials.pid).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "SO_PEERCRED PID is negative")
+        })?;
+        Ok(NativeShadowPeerCredentials {
+            pid,
+            uid: credentials.uid,
+            gid: credentials.gid,
+        })
+    }
+
+    #[allow(unsafe_code)]
+    fn connect_unix_with_timeout(path: &Path, timeout: Duration) -> io::Result<UnixStream> {
+        // SAFETY: `socket` has no pointer arguments and returns a new owned FD
+        // on success. It is wrapped in `OwnedFd` immediately below.
+        let raw_fd = unsafe {
+            libc::socket(
+                libc::AF_UNIX,
+                libc::SOCK_STREAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
+                0,
+            )
+        };
+        if raw_fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `socket` returned one new descriptor and no other owner is
+        // constructed from it.
+        let descriptor = unsafe { OwnedFd::from_raw_fd(raw_fd) };
+        let (address, address_length) = unix_address(path)?;
+
+        // SAFETY: `address` is initialized for `address_length` bytes and the
+        // descriptor is a live AF_UNIX stream socket.
+        let connected = unsafe {
+            libc::connect(
+                descriptor.as_raw_fd(),
+                (&address as *const libc::sockaddr_un).cast::<libc::sockaddr>(),
+                address_length,
+            )
+        };
+        if connected != 0 {
+            let error = io::Error::last_os_error();
+            if !connect_is_pending(&error) {
+                return Err(error);
+            }
+            wait_until_connected(descriptor.as_raw_fd(), timeout)?;
+        }
+
+        set_nonblocking(descriptor.as_raw_fd(), false)?;
+        Ok(UnixStream::from(descriptor))
+    }
+
+    fn connect_is_pending(error: &io::Error) -> bool {
+        matches!(
+            error.raw_os_error(),
+            Some(code) if code == libc::EINPROGRESS || code == libc::EAGAIN
+        )
+    }
+
+    #[allow(unsafe_code)]
+    fn unix_address(path: &Path) -> io::Result<(libc::sockaddr_un, libc::socklen_t)> {
+        use std::os::unix::ffi::OsStrExt;
+
+        let path = path.as_os_str().as_bytes();
+        let mut address = unsafe { mem::zeroed::<libc::sockaddr_un>() };
+        if path.contains(&0) || path.len() + 1 > address.sun_path.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Unix socket path is invalid or too long",
+            ));
+        }
+        address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+        for (destination, source) in address.sun_path.iter_mut().zip(path.iter().copied()) {
+            *destination = source as libc::c_char;
+        }
+        let length = mem::offset_of!(libc::sockaddr_un, sun_path) + path.len() + 1;
+        Ok((address, length as libc::socklen_t))
+    }
+
+    #[allow(unsafe_code)]
+    fn wait_until_connected(fd: libc::c_int, timeout: Duration) -> io::Result<()> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "launcher socket connection timed out",
+                ));
+            }
+            let milliseconds = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+            let mut descriptor = libc::pollfd {
+                fd,
+                events: libc::POLLOUT,
+                revents: 0,
+            };
+            // SAFETY: `descriptor` points to one initialized `pollfd` for the
+            // duration of this call.
+            let result = unsafe { libc::poll(&mut descriptor, 1, milliseconds) };
+            if result == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "launcher socket connection timed out",
+                ));
+            }
+            if result < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            return socket_error(fd);
+        }
+    }
+
+    #[allow(unsafe_code)]
+    fn socket_error(fd: libc::c_int) -> io::Result<()> {
+        let mut error = 0;
+        let mut length = mem::size_of::<libc::c_int>() as libc::socklen_t;
+        // SAFETY: `error` is writable storage of exactly `length` bytes and
+        // `fd` is the still-owned socket descriptor.
+        let result = unsafe {
+            libc::getsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_ERROR,
+                (&mut error as *mut libc::c_int).cast::<libc::c_void>(),
+                &mut length,
+            )
+        };
+        if result != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if length as usize != mem::size_of::<libc::c_int>() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "SO_ERROR returned an unexpected length",
+            ));
+        }
+        if error == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::from_raw_os_error(error))
+        }
+    }
+
+    #[allow(unsafe_code)]
+    fn set_nonblocking(fd: libc::c_int, enabled: bool) -> io::Result<()> {
+        // SAFETY: `fd` is live and F_GETFL has no pointer argument.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let flags = if enabled {
+            flags | libc::O_NONBLOCK
+        } else {
+            flags & !libc::O_NONBLOCK
+        };
+        // SAFETY: `fd` is live and `flags` came from F_GETFL with only the
+        // O_NONBLOCK bit adjusted.
+        if unsafe { libc::fcntl(fd, libc::F_SETFL, flags) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use std::io::{Read, Write};
+        use std::os::fd::AsRawFd;
+        use std::os::unix::net::{UnixListener, UnixStream};
+        use std::path::PathBuf;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::time::Duration;
+
+        use super::{
+            connect_is_pending, connect_unix_with_timeout, getrandom_once, peer_credentials,
+            UnixQualificationSession,
+        };
+        use crate::native_shadow_qualification::{
+            qualification_nonce_from_one_call, NativeShadowQualificationSession,
+        };
+
+        static NEXT_SOCKET: AtomicU64 = AtomicU64::new(0);
+
+        struct SocketPathGuard(PathBuf);
+
+        impl Drop for SocketPathGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+
+        fn socket_path() -> PathBuf {
+            let suffix = NEXT_SOCKET.fetch_add(1, Ordering::Relaxed);
+            std::env::temp_dir().join(format!(
+                "boole-native-shadow-node-{}-{suffix}.sock",
+                std::process::id()
+            ))
+        }
+
+        #[test]
+        fn linux_unix_connect_pending_errors_enter_the_bounded_poll_path() {
+            assert!(connect_is_pending(&std::io::Error::from_raw_os_error(
+                libc::EINPROGRESS
+            )));
+            assert!(connect_is_pending(&std::io::Error::from_raw_os_error(
+                libc::EAGAIN
+            )));
+            assert!(!connect_is_pending(&std::io::Error::from_raw_os_error(
+                libc::ECONNREFUSED
+            )));
+        }
+
+        #[test]
+        fn linux_nonce_comes_from_one_exact_getrandom_call() {
+            let nonce = qualification_nonce_from_one_call(getrandom_once)
+                .expect("Linux getrandom must return one exact nonce");
+            assert_eq!(nonce.encode_hex().len(), 64);
+        }
+
+        #[test]
+        #[allow(unsafe_code)]
+        fn kernel_peer_credentials_and_shutdown_are_observed_on_the_real_stream() {
+            let (stream, mut peer) = UnixStream::pair().expect("Unix stream pair");
+            let credentials = peer_credentials(&stream).expect("SO_PEERCRED must succeed");
+            assert_eq!(credentials.pid, std::process::id());
+            // SAFETY: these zero-argument identity syscalls have no memory
+            // safety preconditions.
+            assert_eq!(credentials.uid, unsafe { libc::geteuid() });
+            // SAFETY: see above.
+            assert_eq!(credentials.gid, unsafe { libc::getegid() });
+
+            let mut session = UnixQualificationSession::new(stream, Duration::from_secs(1));
+            session.shutdown_write().expect("shutdown-write succeeds");
+            let mut byte = [0_u8; 1];
+            assert_eq!(peer.read(&mut byte).expect("peer observes EOF"), 0);
+        }
+
+        #[test]
+        #[allow(unsafe_code)]
+        fn private_connector_uses_a_real_unix_socket_and_returns_blocking_stream() {
+            let path = socket_path();
+            let _path_guard = SocketPathGuard(path.clone());
+            let listener = UnixListener::bind(&path).expect("test listener bind");
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().expect("test accept");
+                let mut byte = [0_u8; 1];
+                stream.read_exact(&mut byte).expect("test server read");
+                byte[0]
+            });
+
+            let mut stream = connect_unix_with_timeout(&path, Duration::from_secs(1))
+                .expect("private connector succeeds");
+            // SAFETY: F_GETFL has no pointer arguments and `stream` owns a
+            // live descriptor for this assertion.
+            let flags = unsafe { libc::fcntl(stream.as_raw_fd(), libc::F_GETFL) };
+            assert!(flags >= 0);
+            assert_eq!(flags & libc::O_NONBLOCK, 0);
+            stream.write_all(&[0x5a]).expect("test client write");
+            assert_eq!(server.join().expect("test server joins"), 0x5a);
+        }
+
+        #[test]
+        fn expired_total_deadline_refuses_io_before_touching_the_stream() {
+            let (stream, _peer) = UnixStream::pair().expect("Unix stream pair");
+            let mut session = UnixQualificationSession::new(stream, Duration::ZERO);
+            let mut byte = [0_u8; 1];
+            assert_eq!(
+                session
+                    .read(&mut byte)
+                    .expect_err("expired read must fail")
+                    .kind(),
+                std::io::ErrorKind::TimedOut
+            );
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn qualify_installed_native_shadow_launcher(
+    expected: NativeShadowExpectedIdentities,
+) -> Result<NativeShadowQualificationReadiness, NativeShadowStartupError> {
+    linux::qualify_installed(expected)
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -203,14 +676,85 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::{
-        qualify_native_shadow_launcher, NativeShadowExpectedIdentities,
-        NativeShadowPeerCredentials, NativeShadowQualificationError,
-        NativeShadowQualificationSession, QualificationNonce,
+        fixed_launcher_socket_path, qualification_nonce_from_one_call,
+        qualify_installed_native_shadow_launcher, qualify_native_shadow_launcher,
+        NativeShadowExpectedIdentities, NativeShadowPeerCredentials,
+        NativeShadowQualificationError, NativeShadowQualificationSession, NativeShadowStartupError,
+        QualificationNonce,
     };
 
     const NONCE: [u8; 32] = [0x42; 32];
     const LAUNCHER_INSTANCE_ID: &str =
         "abababababababababababababababababababababababababababababababab";
+
+    #[test]
+    fn production_adapter_has_one_literal_socket_path_and_one_nonce_call() {
+        let _entrypoint: fn(NativeShadowExpectedIdentities) -> Result<_, _> =
+            qualify_installed_native_shadow_launcher;
+        assert_eq!(
+            fixed_launcher_socket_path(),
+            std::path::Path::new("/run/boole/native-shadow/launcher.sock")
+        );
+
+        let calls = std::cell::Cell::new(0);
+        let nonce = qualification_nonce_from_one_call(|output, flags| {
+            calls.set(calls.get() + 1);
+            assert_eq!(output.len(), 32);
+            assert_eq!(flags, 0);
+            output.fill(0x5a);
+            Ok(output.len())
+        })
+        .expect("one exact 32-byte call must produce a nonce");
+
+        assert_eq!(calls.get(), 1);
+        assert_eq!(nonce.encode_hex(), "5a".repeat(32));
+    }
+
+    #[test]
+    fn production_socket_nonce_and_deadlines_match_the_tracked_policy() {
+        let policy: Value = serde_json::from_slice(TRACKED_EXECUTION_POLICY_BYTES)
+            .expect("tracked execution policy must be JSON");
+        assert_eq!(
+            policy.pointer("/installation/socketPath"),
+            Some(&json!(fixed_launcher_socket_path().to_string_lossy()))
+        );
+        assert_eq!(
+            policy.pointer("/ipc/connectTimeoutMillis"),
+            Some(&json!(super::CONNECT_TIMEOUT_MILLIS))
+        );
+        assert_eq!(
+            policy.pointer("/ipc/handshakeTimeoutMillis"),
+            Some(&json!(super::HANDSHAKE_TIMEOUT_MILLIS))
+        );
+        assert_eq!(policy.pointer("/ipc/nonceBytes"), Some(&json!(32)));
+        assert_eq!(
+            policy.pointer("/ipc/nonceSource"),
+            Some(&json!("node-getrandom:32-bytes:no-fallback-per-connection"))
+        );
+    }
+
+    #[test]
+    fn nonce_source_has_no_short_read_or_error_fallback() {
+        for returned in [0, 31] {
+            assert!(matches!(
+                qualification_nonce_from_one_call(|_, _| Ok(returned)),
+                Err(NativeShadowStartupError::NonceShortRead { actual }) if actual == returned
+            ));
+        }
+        assert!(matches!(
+            qualification_nonce_from_one_call(|_, _| Err(io::Error::other("getrandom failed"))),
+            Err(NativeShadowStartupError::NonceSyscall(_))
+        ));
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn production_adapter_refuses_non_linux_before_filesystem_or_socket_work() {
+        assert!(matches!(
+            qualify_installed_native_shadow_launcher(expected_identities()),
+            Err(NativeShadowStartupError::UnsupportedPlatform)
+        ));
+    }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Event {

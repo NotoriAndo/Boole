@@ -290,14 +290,21 @@ Further route-free foundations now narrow the open prerequisite without closing 
   merge are complete. It changes no journal or route and does not claim
   a real Unix socket, `SO_PEERCRED`, `getrandom(2)`, account resolution, root launcher, child process
   or Linux handshake; those remain Phase 3B.2b-2 work.
-* Phase 3B.2b-2p — the current guarded installed-authority preparation slice: the shared protocol
+* Phase 3B.2b-2p — PR #178, main `fb73679`: the shared protocol
   crate adds one path-free Unix entrypoint that walks only the literal
   `/usr/share/boole/native-shadow` hierarchy relative to already-opened directory descriptors with
   `O_NOFOLLOW`. It checks root ownership and non-writable ancestors, exact `0555` authority-directory
   mode, and exact root-owned regular one-link `0444` files on the same descriptors before and after
   reading, then reuses the compiled exact-byte/schema/digest verifier for all three authorities.
-  This shared opener is not readiness: it creates no socket, nonce, account resolution, launcher,
+  Required CI passed before merge. This shared opener is not readiness: it creates no socket, nonce, account resolution, launcher,
   child, journal transition or route, and Phase 3B.2b-2 remains open.
+* Phase 3B.2b-2n — the current guarded node-side Linux-adapter slice: one private production
+  entrypoint binds the Phase 3B.2b-2p installed authority to the literal launcher socket, a
+  one-second nonblocking connect deadline, one exact 32-byte `getrandom(2)` call with no fallback,
+  kernel `SO_PEERCRED` before frame I/O and one cumulative five-second handshake deadline. Tests bind
+  those fixed values back to the tracked policy and non-Linux refuses before touching files or a
+  socket. The root launcher and fixed-account resolution do not yet exist, so this is not a real
+  installed handshake and changes no route, journal or checker state.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux
