@@ -168,6 +168,29 @@ pub struct ExecutionRequestFields {
     pub intake_version: String,
 }
 
+/// Crate-private read-only view used by the exact replay-grant matcher. It is
+/// not a wire type and cannot be constructed by launcher callers.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) struct ReplayRequestAuthority<'a> {
+    pub operation_id_hex: &'a str,
+    pub family_version: &'a str,
+    pub template_id: &'a str,
+    pub challenge_sha256: &'a str,
+    pub epoch: u64,
+    pub candidate_digest_hex: &'a str,
+    pub submission_source_digest_hex: &'a str,
+    pub registry_version: &'a str,
+    pub registry_digest_hex: &'a str,
+    pub anchor_digest_hex: &'a str,
+    pub task_digest_hex: &'a str,
+    pub checker_artifact_hash_hex: &'a str,
+    pub checker_policy_digest_hex: &'a str,
+    pub checker_release_manifest_digest_hex: &'a str,
+    pub toolchain_identity_digest_hex: &'a str,
+    pub execution_policy_digest_hex: &'a str,
+    pub intake_version: &'a str,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ExecutionRequestDto {
@@ -1144,6 +1167,29 @@ impl ExecutionRequest {
 
     pub fn execution_policy_digest_hex(&self) -> &str {
         &self.execution_policy_digest_hex
+    }
+
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn replay_request_authority(&self) -> ReplayRequestAuthority<'_> {
+        ReplayRequestAuthority {
+            operation_id_hex: &self.operation_id_hex,
+            family_version: &self.family_version,
+            template_id: &self.template_id,
+            challenge_sha256: &self.challenge_sha256,
+            epoch: self.epoch,
+            candidate_digest_hex: &self.candidate_digest_hex,
+            submission_source_digest_hex: &self.submission_source_digest_hex,
+            registry_version: &self.registry_version,
+            registry_digest_hex: &self.registry_digest_hex,
+            anchor_digest_hex: &self.anchor_digest_hex,
+            task_digest_hex: &self.task_digest_hex,
+            checker_artifact_hash_hex: &self.checker_artifact_hash_hex,
+            checker_policy_digest_hex: &self.checker_policy_digest_hex,
+            checker_release_manifest_digest_hex: &self.checker_release_manifest_digest_hex,
+            toolchain_identity_digest_hex: &self.toolchain_identity_digest_hex,
+            execution_policy_digest_hex: &self.execution_policy_digest_hex,
+            intake_version: &self.intake_version,
+        }
     }
 }
 
