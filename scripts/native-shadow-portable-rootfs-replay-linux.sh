@@ -178,7 +178,11 @@ cases = (
 for path, verdict, reason in cases:
     result = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
     if result.get("verdict") != verdict or result.get("reasonCode") != reason:
-        raise SystemExit(f"checker verdict differs: {path}")
+        raise SystemExit(
+            f"checker verdict differs: {path}: "
+            f"verdict={result.get('verdict')!r} "
+            f"reasonCode={result.get('reasonCode')!r}"
+        )
     for key, value in expected_binding.items():
         if result.get(key) != value:
             raise SystemExit(f"checker binding differs: {path}: {key}")

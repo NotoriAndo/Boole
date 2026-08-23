@@ -136,6 +136,15 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertLess(replay.index(install), replay.index("chroot --groups=''"))
         self.assertIn('cmp --silent "$runtime_passwd" "$rootfs/etc/passwd"', replay)
 
+    def test_linux_replay_reports_only_the_safe_checker_verdict_fields_on_mismatch(self) -> None:
+        replay = (
+            ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('f"checker verdict differs: {path}: "', replay)
+        self.assertIn('f"verdict={result.get(\'verdict\')!r} "', replay)
+        self.assertIn('f"reasonCode={result.get(\'reasonCode\')!r}"', replay)
+
     def test_portable_source_lock_bytes_ignore_runtime_tool_path_and_digest(self) -> None:
         first = _v1_candidate(
             "/host-a/bin/gpgv",
