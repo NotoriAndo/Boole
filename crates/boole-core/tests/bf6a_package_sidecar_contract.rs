@@ -135,6 +135,10 @@ fn package_root_uses_the_frozen_sidecar_domain_and_not_artifact_root_semantics()
     let expected = h_protocol(PACKAGE_SIDECAR_ROOT_DOMAIN, &[package.canonical_bytes()]);
     assert_eq!(package.root().as_bytes(), expected.as_bytes());
     assert_eq!(
+        PackageRoot::from_hex(&package.root().to_hex()).expect("stored root round-trips"),
+        package.root()
+    );
+    assert_eq!(
         package.root().to_hex(),
         "60cf7060649f37c2eef0ec64e52be8e65a8e7a9bf546cfac6d0b7dd3c71747eb"
     );

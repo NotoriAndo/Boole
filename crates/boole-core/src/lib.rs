@@ -25,6 +25,7 @@ pub mod genesis;
 pub mod hash;
 pub mod lean_bound_canon;
 pub mod package_sidecar;
+pub mod package_store;
 pub mod paths;
 pub mod rate_limiter;
 pub mod receipt;
@@ -103,6 +104,13 @@ pub use lean_bound_canon::{lean_bound_canon_package, lean_bound_verifier_hash};
 pub use package_sidecar::{
     CanonicalPackage, PackageFile, PackageRoot, PackageSidecarError, MAX_PACKAGE_CANONICAL_BYTES,
     MAX_PACKAGE_FILES, PACKAGE_SIDECAR_ROOT_DOMAIN, PACKAGE_SIDECAR_SCHEMA,
+};
+pub use package_store::{
+    AcknowledgePackageOutcome, LocalPackageStore, LocalPackageStoreConfig, LocalPackageStoreError,
+    PackageStoreCommitPhase, PendingCapacityPolicy, PendingPackageRef, StagePackageOutcome,
+    DEFAULT_MAX_PENDING_BYTES, DEFAULT_MAX_PENDING_PACKAGES, MAX_PACKAGE_REFERENCE_BYTES,
+    MAX_PENDING_SNAPSHOT_BYTES, PACKAGE_OBJECTS_DIRECTORY, PACKAGE_PENDING_FILE,
+    PACKAGE_PENDING_TEMP_FILE, PENDING_CAPACITY_POLICY,
 };
 pub use rate_limiter::{
     rate_limit_result_json, RateLimitRejectReason, RateLimitResult, RateLimiter,
