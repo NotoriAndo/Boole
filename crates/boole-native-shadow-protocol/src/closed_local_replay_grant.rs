@@ -118,6 +118,16 @@ const CHECKER_ARTIFACT_HASH: &str =
 
 /// Exact, parsed grant loaded from the one fixed installed path. Deliberately
 /// not `Serialize`, `Deserialize`, `Clone` or publicly constructible.
+///
+/// A production caller cannot skip the prepare/permit boundary and authorize
+/// an arbitrary Execute request directly:
+///
+/// ```compile_fail
+/// use boole_native_shadow_protocol::{ExecutionRequest, VerifiedClosedLocalReplayGrant};
+/// fn bypass(grant: &VerifiedClosedLocalReplayGrant, request: &ExecutionRequest) {
+///     grant.authorize_execution_request(request).unwrap();
+/// }
+/// ```
 #[derive(Debug)]
 pub struct VerifiedClosedLocalReplayGrant {
     parsed: Arc<ClosedLocalReplayGrantDto>,
@@ -887,7 +897,7 @@ impl VerifiedClosedLocalReplayGrant {
     /// this method, or reopening the fixed file, is not retry authority: the
     /// durable journal must also consume each fixed operation ID exactly once.
     /// This method does not exist in non-Linux production builds.
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(test)]
     pub fn authorize_execution_request(
         &self,
         request: &ExecutionRequest,
@@ -1529,6 +1539,16 @@ mod tests {
         grant
             .authorize_prepared_execution_request(prepared, &request)
             .expect("the derived request authorizes once");
+    }
+
+    #[test]
+    fn direct_execute_authorization_is_test_only_api_surface() {
+        let source = include_str!("closed_local_replay_grant.rs");
+        assert!(
+            source
+                .contains("#[cfg(test)]\n    pub fn authorize_execution_request(\n        &self,"),
+            "production builds must expose only prepare -> permit -> authorize"
+        );
     }
 
     #[test]
