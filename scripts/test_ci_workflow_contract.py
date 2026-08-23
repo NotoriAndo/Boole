@@ -429,6 +429,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             './scripts/install-native-checker-toolchain.sh "$toolchain_stage"',
             'sudo chown -R root:root "$toolchain_prefix"',
             'sudo chmod 0555 "$toolchain_prefix" "$toolchain_prefix/bin"',
+            '[[ $(sudo stat -c %U:%G:%a "$launcher_directory") == root:root:755 ]]',
             'listener_mode="qualification-one-shot"',
             'socket_path="$runtime_directory/launcher.sock"',
             'root:boole-node:660',

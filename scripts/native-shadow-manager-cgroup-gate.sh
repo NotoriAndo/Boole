@@ -199,6 +199,8 @@ if [[ ! -d "$launcher_directory" ]]; then
   sudo install -d -o root -g root -m 0755 "$launcher_directory"
   launcher_directory_created=true
 fi
+[[ $(sudo stat -c %U:%G:%a "$launcher_directory") == root:root:755 ]] \
+  || die "launcher staging directory does not match root:root:755"
 sudo install -o root -g root -m 0755 "$harness" "$launcher_path"
 launcher_installed=true
 sudo install -o root -g root -m 0755 \
