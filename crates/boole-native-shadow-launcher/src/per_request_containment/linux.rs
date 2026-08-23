@@ -1884,6 +1884,15 @@ fn apply_landlock() -> Result<(), String> {
     ruleset = ruleset
         .add_rule(PathBeneath::new(work, write_access))
         .map_err(|error| error.to_string())?;
+    // Python subprocess opens DEVNULL with O_RDWR before spawning cargo.  The
+    // child-private /dev/null was already reopened, device-number verified,
+    // and bind-mounted from the exact host character device.  Grant only that
+    // one sink WRITE_FILE; `/dev` and every other rootfs path remain outside
+    // the Landlock write allowlist.
+    let dev_null = PathFd::new("/dev/null").map_err(|error| error.to_string())?;
+    ruleset = ruleset
+        .add_rule(PathBeneath::new(dev_null, AccessFs::WriteFile))
+        .map_err(|error| error.to_string())?;
     let status = ruleset.restrict_self().map_err(|error| error.to_string())?;
     if status.ruleset != RulesetStatus::FullyEnforced || !status.no_new_privs {
         return Err("Landlock was not fully enforced".to_string());

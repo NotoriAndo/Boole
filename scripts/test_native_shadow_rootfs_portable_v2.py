@@ -594,6 +594,18 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertIn("libc::umask(CHECKER_UMASK)", setter)
         self.assertIn("CHECKER_UMASK: libc::mode_t = 0o077", source)
 
+    def test_landlock_allows_only_the_verified_dev_null_write_sink(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        landlock = source.split("fn apply_landlock", 1)[1].split(
+            "fn set_checker_umask", 1
+        )[0]
+        self.assertIn('PathFd::new("/dev/null")', landlock)
+        self.assertIn("AccessFs::WriteFile", landlock)
+        self.assertNotIn('PathFd::new("/dev")', landlock)
+
     def test_host_dev_null_is_bound_before_the_old_root_is_detached(self) -> None:
         source = (
             ROOT
