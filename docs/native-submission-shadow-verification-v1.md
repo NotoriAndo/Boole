@@ -268,7 +268,7 @@ Further route-free foundations now narrow the open prerequisite without closing 
   not described as exact installed-byte reproduction. The required Linux capability, self-test and
   supply-chain jobs all passed in
   [run 32603937417](https://github.com/NotoriAndo/Boole/actions/runs/32603937417).
-* Phase 3B.2b-0 — the current guarded strict-authority/wire-contract slice: a new minimal shared
+* Phase 3B.2b-0 — PR #176, main `1b02592`: a new minimal shared
   protocol crate compiles in the exact tracked registry, execution-policy and toolchain-identity
   bytes; compares those bytes before parsing; rejects BOM, floats and duplicate keys in parsed
   JSON; rejects unknown or missing fields in the typed registry and qualification messages; models
@@ -279,9 +279,17 @@ Further route-free foundations now narrow the open prerequisite without closing 
   `O_NOFOLLOW`, verifies root ownership/mode on that same file descriptor and explicitly projects
   the full strict model into the existing lifecycle fields. This slice checks that final file
   component; root-owned/non-writable ancestor-directory verification remains part of the later
-  installed-authority handshake gate. This slice is authoritative only after
-  its required CI and merge. It does not connect a socket, generate a nonce, authenticate peer
+  installed-authority handshake gate. It does not connect a socket, generate a nonce, authenticate peer
   credentials, change a journal or spawn any child; those are later handshake slices.
+* Phase 3B.2b-1 — the current guarded node-side behavioral-mock slice: a private client consumes one
+  mock session, verifies mock peer credentials before stream I/O, binds a test-injected nonce and all
+  three verified authority digests into the hello, then matches those values plus peer PID and all
+  launcher/node/checker UID/GID claims in the strict ready frame. It returns only a private,
+  non-serializable in-memory readiness value after node shutdown-write and clean peer EOF. Errors
+  consume and drop the owned session, so a failed connection cannot be reused. This slice becomes
+  authoritative only after required CI and merge. It changes no journal or route and does not claim
+  a real Unix socket, `SO_PEERCRED`, `getrandom(2)`, account resolution, root launcher, child process
+  or Linux handshake; those remain Phase 3B.2b-2 work.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux
