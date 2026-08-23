@@ -330,12 +330,19 @@ Further route-free foundations now narrow the open prerequisite without closing 
   peer-order rules are bound to the tracked policy. There is still no constructor for the opaque
   verified-startup token, launcher binary, listener/bind, lock, cgroup recovery, route, journal
   transition or checker child, so the installed handshake remains open.
-* Phase 3B.2b-2r — the current launcher-privilege slice checks the calling Linux thread against the
+* Phase 3B.2b-2r — PR #183, main `b582869`: the launcher-privilege slice checks the calling Linux thread against the
   frozen root and exact-capability shape without accepting a path, mask or identity from a caller.
   The proof is private and cannot move to another thread. The named Ubuntu gate runs the same
   production check under the exact systemd service capabilities and proves that both a missing bit
-  and an extra bit fail closed. It does not yet assemble launcher readiness, open authority, take a
+  and an extra bit fail closed. It does not assemble launcher readiness, open authority, take a
   lifetime lock, recover cgroups, bind/listen, mutate a journal/route or run a checker.
+* Phase 3B.2b-2s — the current pre-lock-composition slice consumes that thread-bound privilege proof,
+  opens the three exact installed authority files and resolves the two fixed NSS service accounts,
+  in that order and without caller input, into a new opaque thread-bound prerequisite. Failure at
+  any stage prevents every later stage. A named Ubuntu gate stages byte-identical root-owned
+  authority files and invokes this production composition under the exact capability service and
+  fixed accounts. This proof is deliberately not launcher readiness: it takes no lock, creates no
+  launcher ID, recovers no cgroup, binds no socket, changes no journal/route and spawns no checker.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux

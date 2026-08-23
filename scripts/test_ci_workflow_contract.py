@@ -19,6 +19,9 @@ NATIVE_CONTAINMENT_PROBE = (
 LAUNCHER_PRIVILEGE_GATE = (
     REPO_ROOT / "scripts" / "native-shadow-launcher-privilege-gate.sh"
 )
+LAUNCHER_PRELOCK_GATE = (
+    REPO_ROOT / "scripts" / "native-shadow-launcher-prelock-gate.sh"
+)
 NATIVE_CONTAINMENT_SPEC = (
     REPO_ROOT / "docs" / "node-native-shadow-binding-containment-implementation-spec-v1.md"
 )
@@ -159,6 +162,51 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             body.count('"$launcher_path" "$test_name" --ignored --exact --nocapture'),
             1,
             "all three service shapes must execute the same production verifier path",
+        )
+
+    def test_named_linux_job_exercises_the_real_launcher_prelock_composition(self):
+        job = self._job("native-shadow-containment-linux")
+        self.assertIn(
+            "./scripts/native-shadow-launcher-prelock-gate.sh",
+            job,
+            "the named Linux job must compose privilege, installed authority, and NSS",
+        )
+        self.assertTrue(
+            LAUNCHER_PRELOCK_GATE.is_file(),
+            "the launcher pre-lock gate must be a tracked reviewable script",
+        )
+
+    def test_launcher_prelock_gate_stages_exact_authority_and_calls_the_production_composer(self):
+        body = LAUNCHER_PRELOCK_GATE.read_text(encoding="utf-8")
+        for required in (
+            "set -euo pipefail",
+            '[[ ${EUID} -ne 0 ]] || die "build phase must run as the unprivileged CI user"',
+            "cargo test --locked -p boole-native-shadow-launcher --lib --no-run",
+            "startup::tests::real_linux_prelock_prerequisites_match_the_frozen_host_contract",
+            "sudo mktemp -d /run/boole-native-shadow-authority.XXXXXX",
+            'authority_share="$authority_stage/share"',
+            "fixtures/native-shadow/registry-v1.json registry-v1.json",
+            "native/containment/native-shadow-execution-policy-v1.json",
+            "native/containment/native-shadow-toolchain-identity-v1.json",
+            'sudo install -o root -g root -m 0444 "$source" "$destination"',
+            '[[ "$source_sha" == "$installed_sha" ]]',
+            "--property=User=root --property=Group=root",
+            'CapabilityBoundingSet=CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN',
+            "--property=AmbientCapabilities= --property=NoNewPrivileges=no",
+            "--property=PrivateMounts=yes",
+            '--property="BindReadOnlyPaths=${authority_share}:/usr/share"',
+            'sudo rm -f "$authority_directory/$basename"',
+            'sudo rmdir "$authority_directory"',
+            'sudo rmdir "$authority_parent"',
+            'sudo rmdir "$authority_share"',
+            'sudo rmdir "$authority_stage"',
+            "transient unit ${unit}.service was not collected",
+        ):
+            self.assertIn(required, body)
+        self.assertNotIn(
+            "sudo install -d -o root -g root -m 0755 /usr/share/boole",
+            body,
+            "the gate must not rewrite a hosted runner's unsafe /usr/share hierarchy",
         )
 
     def test_required_self_test_cannot_hide_a_failed_probe(self):
