@@ -33,6 +33,32 @@ SOURCE_LOCK_SCHEMA = "boole.native-shadow.runtime-rootfs-source-lock.v2"
 SOURCE_LOCK_RELEASE = (
     "NATIVE-SHADOW-RUNTIME-ROOTFS-SOURCE-CLOSURE-V2-PORTABLE-NOT-ACTIVATABLE"
 )
+PORTABLE_V2_DERIVED_ENTRIES = (
+    {
+        "logicalPath": "/lib64",
+        "kind": "symlink",
+        "target": "usr/lib64",
+        "mode": "0777",
+        "uid": 0,
+        "gid": 0,
+    },
+    {
+        "logicalPath": "/usr/lib/x86_64-linux-gnu/libLLVM.so.22.1-rust-1.99.0-nightly",
+        "kind": "symlink",
+        "target": "../../../opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly",
+        "mode": "0777",
+        "uid": 0,
+        "gid": 0,
+    },
+    {
+        "logicalPath": "/usr/lib/x86_64-linux-gnu/librustc_driver-da0d54ffe246e605.so",
+        "kind": "symlink",
+        "target": "../../../opt/boole/native-checker-toolchain/lib/librustc_driver-da0d54ffe246e605.so",
+        "mode": "0777",
+        "uid": 0,
+        "gid": 0,
+    },
+)
 PLAN_SCHEMA = "boole.native-shadow.runtime-rootfs-portable-plan.v2"
 RESOLUTION_SCHEMA = "boole.native-shadow.runtime-rootfs-resolution.v2"
 EXPECTATION_SCHEMA = "boole.native-shadow.runtime-rootfs-replay-expectation.v2"
@@ -152,18 +178,14 @@ def portable_source_lock_from_v1(v1_lock: dict[str, Any]) -> dict[str, Any]:
     derived = result.setdefault("derivedEntries", [])
     if not isinstance(derived, list):
         raise PortableAuthorityError("v1 derived entries must be a list")
-    if any(item.get("logicalPath") == "/lib64" for item in derived if isinstance(item, dict)):
-        raise PortableAuthorityError("v1 source lock unexpectedly owns /lib64")
-    derived.append(
-        {
-            "logicalPath": "/lib64",
-            "kind": "symlink",
-            "target": "usr/lib64",
-            "mode": "0777",
-            "uid": 0,
-            "gid": 0,
-        }
-    )
+    successor_paths = {item["logicalPath"] for item in PORTABLE_V2_DERIVED_ENTRIES}
+    if any(
+        item.get("logicalPath") in successor_paths
+        for item in derived
+        if isinstance(item, dict)
+    ):
+        raise PortableAuthorityError("v1 source lock unexpectedly owns a v2 runtime alias")
+    derived.extend(copy.deepcopy(PORTABLE_V2_DERIVED_ENTRIES))
     derived.sort(key=lambda item: item["logicalPath"])
     result["schema"] = SOURCE_LOCK_SCHEMA
     result["release"] = SOURCE_LOCK_RELEASE
@@ -178,18 +200,14 @@ def runtime_lock_v1_equivalent(runtime_lock: dict[str, Any]) -> dict[str, Any]:
     derived = result.get("derivedEntries")
     if not isinstance(derived, list):
         raise PortableAuthorityError("runtime derived entries must be a list")
-    alias = {
-        "logicalPath": "/lib64",
-        "kind": "symlink",
-        "target": "usr/lib64",
-        "mode": "0777",
-        "uid": 0,
-        "gid": 0,
-    }
-    matches = [item for item in derived if item.get("logicalPath") == "/lib64"]
-    if matches != [alias]:
-        raise PortableAuthorityError("runtime /lib64 successor alias differs")
-    result["derivedEntries"] = [item for item in derived if item != alias]
+    aliases = list(PORTABLE_V2_DERIVED_ENTRIES)
+    successor_paths = {item["logicalPath"] for item in aliases}
+    matches = [item for item in derived if item.get("logicalPath") in successor_paths]
+    if matches != aliases:
+        raise PortableAuthorityError("runtime successor aliases differ")
+    result["derivedEntries"] = [
+        item for item in derived if item.get("logicalPath") not in successor_paths
+    ]
     return result
 
 

@@ -11,21 +11,21 @@
     "builderSha256": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
     "portablePlanSha256": "495ec9d39435ad2850086beeb81481c77bb3f475cfa6d37438a46733f09c290c",
     "portableResolutionSha256": "84708c30c75ae9a368243c3e7a3051035a5e6738af5e65eba663b4734f835a9c",
-    "portableSourceLockSha256": "770c20c3a0ee8764b55fc5b3a8164db33ab745907766bb95292497f09f67ebe9"
+    "portableSourceLockSha256": "642ca21b95ead89b5db20139bbf98a9e25905021622bce29dfeeac948450873d"
   },
   "expectedOutput": {
-    "configDigest": "sha256:b228f3334e1510c309055bee9d68d604e034acb2964e1f4a3114cb60760643ec",
+    "configDigest": "sha256:fd856d468d4779e8ea83221d4baade8c247569493a197c2996908996a23c2ed4",
     "configSizeBytes": 264,
-    "indexSha256": "d6b4f6f05ede363a48f4b21357d9df79a03b7279c0e231c43855ea7ed7e0962d",
+    "indexSha256": "6ddb16718c17a1c761f3aa9310fd73e7c0cd327bf89bbc80aa79ffaf22de3ce8",
     "indexSizeBytes": 305,
     "layerCount": 1,
-    "layerDigest": "sha256:28442c6f705d02c8838040b1d06b3b7cd8da0521aadb7c97f36f0d892aeb2d64",
+    "layerDigest": "sha256:7e2b6fe89f65b3fd23883f728bb6f0f917f5a49590a32e74c8a0dda02dc55da9",
     "layerSizeBytes": 861511680,
-    "manifestDigest": "sha256:1c5a924bcdc8873ea6b9793903f1abb17352750d0f730f884adcb87a88883769",
+    "manifestDigest": "sha256:3ab63e54c8fb90ed241415325636a03f32a6183203fee34a5bc2a58b50d92623",
     "manifestSizeBytes": 472,
     "parentLayerCount": 0,
-    "rootfsContentManifestSha256": "6330e9ce5479ffdccae8eb3e0ebaccffc842d0ff10229600e2a58762564a015f",
-    "rootfsContentManifestSizeBytes": 1274440
+    "rootfsContentManifestSha256": "f46fbf42814a395fe54a83453d2a4d7c5114afcb55df3e50a206ab509209896e",
+    "rootfsContentManifestSizeBytes": 1275158
   },
   "mismatchPolicy": {
     "action": "reject-no-adoption",

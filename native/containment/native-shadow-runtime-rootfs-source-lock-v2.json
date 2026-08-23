@@ -472,6 +472,22 @@
       "mode": "0777",
       "target": "x86_64-linux-gnu-gcc-13",
       "uid": 0
+    },
+    {
+      "gid": 0,
+      "kind": "symlink",
+      "logicalPath": "/usr/lib/x86_64-linux-gnu/libLLVM.so.22.1-rust-1.99.0-nightly",
+      "mode": "0777",
+      "target": "../../../opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "kind": "symlink",
+      "logicalPath": "/usr/lib/x86_64-linux-gnu/librustc_driver-da0d54ffe246e605.so",
+      "mode": "0777",
+      "target": "../../../opt/boole/native-checker-toolchain/lib/librustc_driver-da0d54ffe246e605.so",
+      "uid": 0
     }
   ],
   "platform": {

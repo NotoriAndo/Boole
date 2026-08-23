@@ -40,7 +40,7 @@ def _v1_candidate(gpgv_path: str, gpgv_sha256: str, zstd_path: str, zstd_sha256:
 
 
 class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
-    def test_portable_successor_supplies_the_elf_interpreter_usrmerge_alias(self) -> None:
+    def test_portable_successor_supplies_runtime_loader_aliases(self) -> None:
         candidate = _v1_candidate(
             "/ignored/gpgv",
             "a" * 64,
@@ -61,7 +61,23 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
                     "mode": "0777",
                     "uid": 0,
                     "gid": 0,
-                }
+                },
+                {
+                    "logicalPath": "/usr/lib/x86_64-linux-gnu/libLLVM.so.22.1-rust-1.99.0-nightly",
+                    "kind": "symlink",
+                    "target": "../../../opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly",
+                    "mode": "0777",
+                    "uid": 0,
+                    "gid": 0,
+                },
+                {
+                    "logicalPath": "/usr/lib/x86_64-linux-gnu/librustc_driver-da0d54ffe246e605.so",
+                    "kind": "symlink",
+                    "target": "../../../opt/boole/native-checker-toolchain/lib/librustc_driver-da0d54ffe246e605.so",
+                    "mode": "0777",
+                    "uid": 0,
+                    "gid": 0,
+                },
             ],
         )
         runtime_lock = copy.deepcopy(portable_lock)
@@ -72,7 +88,7 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
 
         runtime_lock["derivedEntries"][0]["target"] = "wrong/lib64"
         with self.assertRaisesRegex(
-            portable.PortableAuthorityError, "/lib64 successor alias"
+            portable.PortableAuthorityError, "successor aliases"
         ):
             portable.runtime_lock_v1_equivalent(runtime_lock)
 
