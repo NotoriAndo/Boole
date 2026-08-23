@@ -87,7 +87,24 @@ pub enum ActiveExecutionListenerError {
 /// authority bundle.  The listener is not opened until the complete startup
 /// proof is owned, and no caller can supply an executor or checker command.
 pub fn serve_three_fixed_unix_executions(
+    startup: VerifiedClosedLocalReplayStartup,
+) -> Result<(), ActiveExecutionListenerError> {
+    serve_fixed_unix_executions(startup, 3)
+}
+
+/// CI-only one-request listener used to compare the exact accepted replay
+/// across individual containment layers. It is absent from production builds.
+#[cfg(feature = "manager-cgroup-linux-gate")]
+#[doc(hidden)]
+pub fn serve_one_diagnostic_unix_execution(
+    startup: VerifiedClosedLocalReplayStartup,
+) -> Result<(), ActiveExecutionListenerError> {
+    serve_fixed_unix_executions(startup, 1)
+}
+
+fn serve_fixed_unix_executions(
     mut startup: VerifiedClosedLocalReplayStartup,
+    connection_count: usize,
 ) -> Result<(), ActiveExecutionListenerError> {
     require_fixed_umask()?;
     let identities = startup.identities();
@@ -103,7 +120,7 @@ pub fn serve_three_fixed_unix_executions(
         0,
         identities.node_gid(),
     )?;
-    for connection in 1..=3 {
+    for connection in 1..=connection_count {
         let stream = listener.accept_one()?;
         unix::serve_connected_unix_execution(stream, &mut startup).map_err(|source| {
             ActiveExecutionListenerError::Session {

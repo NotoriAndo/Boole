@@ -80,6 +80,7 @@ pub(super) fn execute(
         checker_uid: identities.checker_uid(),
         checker_gid: identities.checker_gid(),
         materials,
+        diagnostic_layers: selected_diagnostic_layers(),
     };
     execute_with_operations(operations.materials.operation, &mut operations)
 }
@@ -89,6 +90,32 @@ struct LinuxOperations<'a> {
     checker_uid: u32,
     checker_gid: u32,
     materials: VerifiedCheckerMaterials,
+    diagnostic_layers: DiagnosticLayers,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct DiagnosticLayers {
+    skip_cgroup_limits: bool,
+    skip_rlimits: bool,
+    skip_landlock: bool,
+    skip_seccomp: bool,
+}
+
+fn selected_diagnostic_layers() -> DiagnosticLayers {
+    #[cfg(feature = "manager-cgroup-linux-gate")]
+    {
+        let mode = super::containment_diagnostic_mode();
+        DiagnosticLayers {
+            skip_cgroup_limits: mode.skips_cgroup_limits(),
+            skip_rlimits: mode.skips_rlimits(),
+            skip_landlock: mode.skips_landlock(),
+            skip_seccomp: mode.skips_seccomp(),
+        }
+    }
+    #[cfg(not(feature = "manager-cgroup-linux-gate"))]
+    {
+        DiagnosticLayers::default()
+    }
 }
 
 struct LinuxChild {
@@ -179,6 +206,9 @@ impl ContainmentOperations for LinuxOperations<'_> {
     }
 
     fn apply_fixed_limits(&mut self, leaf: &Self::Leaf) -> Result<(), ContainmentFailure> {
+        if self.diagnostic_layers.skip_cgroup_limits {
+            return Ok(());
+        }
         cgroupfs_fd::apply_execution_leaf_limits(leaf).map_err(platform)
     }
 
@@ -186,7 +216,13 @@ impl ContainmentOperations for LinuxOperations<'_> {
         &mut self,
         leaf: &Self::Leaf,
     ) -> Result<Self::Child, ContainmentFailure> {
-        clone_contained_child(leaf, self.checker_uid, self.checker_gid, &self.materials)
+        clone_contained_child(
+            leaf,
+            self.checker_uid,
+            self.checker_gid,
+            &self.materials,
+            self.diagnostic_layers,
+        )
     }
 
     fn wait_and_observe(
@@ -304,6 +340,7 @@ fn clone_contained_child(
     checker_uid: u32,
     checker_gid: u32,
     materials: &VerifiedCheckerMaterials,
+    diagnostic_layers: DiagnosticLayers,
 ) -> Result<LinuxChild, ContainmentFailure> {
     let host_dev_null = open_verified_host_dev_null()?;
     let task = sealed_memfd(c"boole-native-task", &materials.task)?;
@@ -355,6 +392,7 @@ fn clone_contained_child(
             stderr_fd: stderr_write.as_raw_fd(),
             setup_fd,
             seccomp,
+            diagnostic_layers,
         });
         if let Err(error) = child_result {
             write_setup_error(setup_error_fd(setup_fd), &error);
@@ -420,6 +458,7 @@ struct ChildSetup {
     stderr_fd: RawFd,
     setup_fd: RawFd,
     seccomp: seccompiler::BpfProgram,
+    diagnostic_layers: DiagnosticLayers,
 }
 
 fn child_setup_and_exec(setup: ChildSetup) -> Result<(), String> {
@@ -471,12 +510,18 @@ fn child_setup_and_exec(setup: ChildSetup) -> Result<(), String> {
         verify_runtime_identity_lookup(setup.checker_uid, setup.checker_gid),
     )?;
     setup_stage("set-checker-umask", set_checker_umask())?;
-    setup_stage("apply-rlimits", apply_outer_rlimits())?;
-    setup_stage("install-landlock", apply_landlock())?;
-    setup_stage(
-        "install-seccomp",
-        seccompiler::apply_filter(&setup.seccomp).map_err(|error| error.to_string()),
-    )?;
+    if !setup.diagnostic_layers.skip_rlimits {
+        setup_stage("apply-rlimits", apply_outer_rlimits())?;
+    }
+    if !setup.diagnostic_layers.skip_landlock {
+        setup_stage("install-landlock", apply_landlock())?;
+    }
+    if !setup.diagnostic_layers.skip_seccomp {
+        setup_stage(
+            "install-seccomp",
+            seccompiler::apply_filter(&setup.seccomp).map_err(|error| error.to_string()),
+        )?;
+    }
     setup_stage("exec-checker", exec_checker())
 }
 

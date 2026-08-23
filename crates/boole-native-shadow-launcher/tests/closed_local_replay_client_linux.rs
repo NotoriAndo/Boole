@@ -88,6 +88,15 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 fn run_linux() -> Result<(), String> {
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    let diagnostic = match arguments.as_slice() {
+        [] => false,
+        [argument] if argument == "--diagnostic-accepted" => true,
+        _ => return Err(
+            "usage: boole-native-shadow-closed-local-replay-client-linux [--diagnostic-accepted]"
+                .to_string(),
+        ),
+    };
     println!(
         "native-shadow-closed-local-replay-client-pid:{}",
         std::process::id()
@@ -137,7 +146,8 @@ fn run_linux() -> Result<(), String> {
         },
     ];
 
-    for (index, replay_case) in cases.iter().enumerate() {
+    let selected_cases = if diagnostic { &cases[..1] } else { &cases[..] };
+    for (index, replay_case) in selected_cases.iter().enumerate() {
         let source = replay_case
             .source_with_lf
             .strip_suffix(b"\n")
@@ -164,17 +174,27 @@ fn run_linux() -> Result<(), String> {
         let request = prepared
             .build_execution_request(&nonce_hex, replay_case.raw_answer, source)
             .map_err(|error| format!("build {} Execute failed: {error}", replay_case.id))?;
-        execute_one(replay_case, &request)?;
+        execute_one(replay_case, &request, diagnostic)?;
     }
 
-    println!(
-        "native-shadow-closed-local-replay-client-complete:launcher_connections=3:empty_connections=0"
-    );
+    if diagnostic {
+        println!(
+            "native-shadow-containment-layer-diagnostic-client-complete:launcher_connections=1"
+        );
+    } else {
+        println!(
+            "native-shadow-closed-local-replay-client-complete:launcher_connections=3:empty_connections=0"
+        );
+    }
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn execute_one(replay_case: &ReplayCase, request: &ExecutionRequest) -> Result<(), String> {
+fn execute_one(
+    replay_case: &ReplayCase,
+    request: &ExecutionRequest,
+    diagnostic: bool,
+) -> Result<(), String> {
     let request_frame = encode_execution_request_frame(request)
         .map_err(|error| format!("encode {} Execute failed: {error}", replay_case.id))?;
     let hello = ExecutionHello::try_from_execution_request_frame(&request_frame)
@@ -212,6 +232,31 @@ fn execute_one(replay_case: &ReplayCase, request: &ExecutionRequest) -> Result<(
             .map_err(|error| {
                 format!("validate exact {} session failed: {error}", replay_case.id)
             })?;
+    if diagnostic {
+        let value = serde_json::to_value(&report)
+            .map_err(|error| format!("serialize safe Report diagnostic failed: {error}"))?;
+        let summary = serde_json::json!({
+            "waitStatus": value.get("waitStatus"),
+            "timedOut": value.get("timedOut"),
+            "resourceObservations": value.get("resourceObservations"),
+            "checkerResult": value.get("checkerResult"),
+            "cleanup": value.get("cleanup"),
+        });
+        println!(
+            "native-shadow-containment-layer-diagnostic-report:verdict={}:reason={}:metadata={}",
+            validated
+                .checker_verdict()
+                .map(verdict_label)
+                .unwrap_or("none"),
+            validated
+                .checker_reason()
+                .map(reason_label)
+                .unwrap_or("none"),
+            serde_json::to_string(&summary)
+                .map_err(|error| format!("encode safe Report diagnostic failed: {error}"))?
+        );
+        return Ok(());
+    }
     if validated.checker_verdict() != Some(replay_case.verdict)
         || validated.checker_reason() != Some(replay_case.reason)
         || !validated.cleanup_complete()

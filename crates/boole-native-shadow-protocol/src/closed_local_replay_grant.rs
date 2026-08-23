@@ -35,11 +35,11 @@ pub const TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES: &[u8] = include_by
     "/../../native/containment/native-shadow-closed-local-replay-registry-overlay-v1.json"
 ));
 
-const TRACKED_REAL_HISTORY_TASK_BYTES: &[u8] = include_bytes!(concat!(
+pub(crate) const TRACKED_REAL_HISTORY_TASK_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/task.json"
 ));
-const TRACKED_REAL_HISTORY_ANCHOR_BYTES: &[u8] = include_bytes!(concat!(
+pub(crate) const TRACKED_REAL_HISTORY_ANCHOR_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/anchor.rs"
 ));

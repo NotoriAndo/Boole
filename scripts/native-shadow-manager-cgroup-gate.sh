@@ -684,7 +684,78 @@ run_expected_rejection() {
   wait_for_cgroup_removal
 }
 
+run_containment_layer_diagnostics() {
+  local suffix
+  suffix=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$
+  suffix=${suffix//[^a-zA-Z0-9-]/-}
+  local -a diagnostic_modes=(
+    closed-local-replay-diagnostic-full
+    closed-local-replay-diagnostic-without-cgroup-limits
+    closed-local-replay-diagnostic-without-rlimits
+    closed-local-replay-diagnostic-without-landlock
+    closed-local-replay-diagnostic-without-seccomp
+  )
+  local diagnostic_mode
+  for diagnostic_mode in "${diagnostic_modes[@]}"; do
+    : >"$replay_client_log"
+    set_mode "$diagnostic_mode"
+    sudo systemctl start "$unit_name"
+    local diagnostic_invocation
+    diagnostic_invocation=$(unit_invocation_id)
+    assert_manager_invariants >/dev/null
+    wait_for_fixed_socket
+
+    local diagnostic_label=${diagnostic_mode#closed-local-replay-diagnostic-}
+    diagnostic_label=${diagnostic_label//[^a-zA-Z0-9-]/-}
+    node_unit="boole-native-shadow-containment-${diagnostic_label}-${suffix}"
+    set +e
+    timeout --foreground --signal=TERM --kill-after=10s 180s \
+      sudo systemd-run --quiet --pipe --wait --collect --unit="$node_unit" \
+        --property=Type=exec --property=User=boole-node --property=Group=boole-node \
+        --property=CapabilityBoundingSet= --property=AmbientCapabilities= \
+        --property=NoNewPrivileges=yes --property=PrivateMounts=yes \
+        --property=PrivateNetwork=yes --property=RestrictAddressFamilies=AF_UNIX \
+        --property=ProtectSystem=strict \
+        --property="BindReadOnlyPaths=${authority_share}:/usr/share" \
+        --property=WorkingDirectory=/ \
+        "$node_replay_client_path" --diagnostic-accepted >"$replay_client_log" 2>&1
+    local diagnostic_client_status=$?
+    set -e
+    cat "$replay_client_log"
+    [[ $diagnostic_client_status -eq 0 ]] \
+      || die "$diagnostic_mode client failed before one validated Report"
+    [[ $(grep -Fc 'native-shadow-containment-layer-diagnostic-report:' "$replay_client_log" || :) -eq 1 ]] \
+      || die "$diagnostic_mode did not emit one safe Report diagnostic"
+    [[ $(grep -Fxc 'native-shadow-containment-layer-diagnostic-client-complete:launcher_connections=1' "$replay_client_log" || :) -eq 1 ]] \
+      || die "$diagnostic_mode client did not complete one connection"
+
+    wait_for_state inactive
+    [[ $(sudo systemctl show "$unit_name" --property=Result --value) == success ]] \
+      || die "$diagnostic_mode launcher did not exit successfully"
+    [[ $(sudo systemctl show "$unit_name" --property=NRestarts --value) == 0 ]] \
+      || die "$diagnostic_mode launcher restarted unexpectedly"
+    wait_for_marker native-shadow-containment-layer-diagnostic-complete "$diagnostic_invocation"
+    sudo test ! -e "$socket_path" && sudo test ! -L "$socket_path" \
+      || die "$diagnostic_mode left the fixed socket behind"
+    wait_for_cgroup_removal
+
+    local diagnostic_load_state=''
+    local diagnostic_wait
+    for ((diagnostic_wait = 0; diagnostic_wait < 200; diagnostic_wait++)); do
+      diagnostic_load_state=$(sudo systemctl show "${node_unit}.service" \
+        --property=LoadState --value 2>/dev/null || :)
+      [[ "$diagnostic_load_state" == not-found ]] && break
+      sleep 0.05
+    done
+    [[ "$diagnostic_load_state" == not-found ]] \
+      || die "$diagnostic_mode transient client unit was not collected"
+    node_unit=''
+  done
+  echo "native-shadow containment layer diagnostic matrix: COMPLETE"
+}
+
 run_closed_local_replay_gate() {
+  run_containment_layer_diagnostics
   local mutation_relative
   local mutation_expected_sha
   mutation_relative=$(jq -er \

@@ -5,6 +5,9 @@ use thiserror::Error;
 use boole_native_shadow_protocol::installed_authority::VerifiedInstalledClosedLocalReplayExecutionMaterials;
 use boole_native_shadow_protocol::sha256_hex;
 
+#[cfg(feature = "manager-cgroup-linux-gate")]
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
 use crate::closed_local_replay_startup::{
     ClosedLocalReplayExecutionPermitParts, VerifiedClosedLocalReplayExecutionPermit,
 };
@@ -13,6 +16,104 @@ use crate::closed_local_replay_startup::{
 use std::os::fd::OwnedFd;
 
 const OPERATION_ID_BYTES: usize = 32;
+
+/// CI-only switch used to diagnose one containment layer at a time.  The
+/// production build does not contain this API, and the gate-owned launcher
+/// process may select it only once before opening its fixed listener.
+#[cfg(feature = "manager-cgroup-linux-gate")]
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ContainmentDiagnosticMode {
+    Full = 0,
+    WithoutCgroupLimits = 1,
+    WithoutRlimits = 2,
+    WithoutLandlock = 3,
+    WithoutSeccomp = 4,
+}
+
+#[cfg(feature = "manager-cgroup-linux-gate")]
+impl ContainmentDiagnosticMode {
+    fn disabled_layers(self) -> [bool; 4] {
+        [
+            self == Self::WithoutCgroupLimits,
+            self == Self::WithoutRlimits,
+            self == Self::WithoutLandlock,
+            self == Self::WithoutSeccomp,
+        ]
+    }
+
+    pub(crate) fn skips_cgroup_limits(self) -> bool {
+        self.disabled_layers()[0]
+    }
+
+    pub(crate) fn skips_rlimits(self) -> bool {
+        self.disabled_layers()[1]
+    }
+
+    pub(crate) fn skips_landlock(self) -> bool {
+        self.disabled_layers()[2]
+    }
+
+    pub(crate) fn skips_seccomp(self) -> bool {
+        self.disabled_layers()[3]
+    }
+}
+
+#[cfg(feature = "manager-cgroup-linux-gate")]
+static CONTAINMENT_DIAGNOSTIC_MODE: AtomicU8 = AtomicU8::new(0);
+#[cfg(feature = "manager-cgroup-linux-gate")]
+static CONTAINMENT_DIAGNOSTIC_MODE_SET: AtomicBool = AtomicBool::new(false);
+
+#[cfg(feature = "manager-cgroup-linux-gate")]
+#[doc(hidden)]
+pub fn set_containment_diagnostic_mode(
+    mode: ContainmentDiagnosticMode,
+) -> Result<(), &'static str> {
+    CONTAINMENT_DIAGNOSTIC_MODE_SET
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .map_err(|_| "containment diagnostic mode was already selected")?;
+    CONTAINMENT_DIAGNOSTIC_MODE.store(mode as u8, Ordering::SeqCst);
+    Ok(())
+}
+
+#[cfg(feature = "manager-cgroup-linux-gate")]
+pub(crate) fn containment_diagnostic_mode() -> ContainmentDiagnosticMode {
+    match CONTAINMENT_DIAGNOSTIC_MODE.load(Ordering::SeqCst) {
+        0 => ContainmentDiagnosticMode::Full,
+        1 => ContainmentDiagnosticMode::WithoutCgroupLimits,
+        2 => ContainmentDiagnosticMode::WithoutRlimits,
+        3 => ContainmentDiagnosticMode::WithoutLandlock,
+        4 => ContainmentDiagnosticMode::WithoutSeccomp,
+        _ => unreachable!("diagnostic mode is written only from the closed enum"),
+    }
+}
+
+#[cfg(feature = "manager-cgroup-linux-gate")]
+#[test]
+fn containment_diagnostic_modes_disable_exactly_one_layer() {
+    use ContainmentDiagnosticMode::{
+        Full, WithoutCgroupLimits, WithoutLandlock, WithoutRlimits, WithoutSeccomp,
+    };
+
+    assert_eq!(Full.disabled_layers(), [false, false, false, false]);
+    assert_eq!(
+        WithoutCgroupLimits.disabled_layers(),
+        [true, false, false, false]
+    );
+    assert_eq!(
+        WithoutRlimits.disabled_layers(),
+        [false, true, false, false]
+    );
+    assert_eq!(
+        WithoutLandlock.disabled_layers(),
+        [false, false, true, false]
+    );
+    assert_eq!(
+        WithoutSeccomp.disabled_layers(),
+        [false, false, false, true]
+    );
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RunOperationId([u8; OPERATION_ID_BYTES]);
@@ -167,19 +268,30 @@ impl VerifiedCheckerMaterials {
         }
         let operation = RunOperationId::parse(authorization.operation_id_hex())
             .map_err(|error| ContainmentFailure::Platform(error.to_string()))?;
+        let installed_task = installed_materials.task_bytes();
+        let installed_anchor = installed_materials.anchor_bytes();
         if authorization.max_checker_executions() != 1
-            || authorization.task_bytes().is_empty()
-            || authorization.anchor_bytes().is_empty()
+            || installed_task.is_empty()
+            || installed_anchor.is_empty()
             || submission.is_empty()
         {
             return Err(ContainmentFailure::Platform(
                 "authorized checker materials violate the one-shot contract".to_string(),
             ));
         }
+        if installed_task != authorization.task_bytes()
+            || installed_anchor != authorization.anchor_bytes()
+        {
+            return Err(ContainmentFailure::Platform(
+                "installed replay fixture differs from the authorized replay case".to_string(),
+            ));
+        }
+        let task = installed_task.to_vec();
+        let anchor = installed_anchor.to_vec();
         Ok(Self {
             operation,
-            task: authorization.task_bytes().to_vec(),
-            anchor: authorization.anchor_bytes().to_vec(),
+            task,
+            anchor,
             submission,
             _installed_materials: installed_materials,
             #[cfg(target_os = "linux")]
