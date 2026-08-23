@@ -24,6 +24,7 @@ pub mod fork_choice;
 pub mod genesis;
 pub mod hash;
 pub mod lean_bound_canon;
+pub mod package_sidecar;
 pub mod paths;
 pub mod rate_limiter;
 pub mod receipt;
@@ -99,6 +100,10 @@ pub use hash::{
     submission_pow_ok, target_seed, ticket, Hex32, Hex64, TicketResult, TARGET_SEED_J_INDEX_BOUND,
 };
 pub use lean_bound_canon::{lean_bound_canon_package, lean_bound_verifier_hash};
+pub use package_sidecar::{
+    CanonicalPackage, PackageFile, PackageRoot, PackageSidecarError, MAX_PACKAGE_CANONICAL_BYTES,
+    MAX_PACKAGE_FILES, PACKAGE_SIDECAR_ROOT_DOMAIN, PACKAGE_SIDECAR_SCHEMA,
+};
 pub use rate_limiter::{
     rate_limit_result_json, RateLimitRejectReason, RateLimitResult, RateLimiter,
 };
