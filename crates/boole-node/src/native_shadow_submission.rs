@@ -31,6 +31,32 @@ pub(crate) enum NativeShadowSubmissionError {
     RawAnswerTooLarge,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum NativeShadowIntakeError {
+    #[error("rawAnswer is empty after Unicode trimming")]
+    EmptyResponse,
+    #[error("rawAnswer does not contain a nonempty complete fenced block")]
+    NoFencedBlock,
+    #[error("the extracted submission source contains a NUL byte")]
+    SubmissionSourceContainsNul,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NativeShadowSubmissionSource {
+    source: String,
+    digest_hex: String,
+}
+
+impl NativeShadowSubmissionSource {
+    pub(crate) fn source(&self) -> &str {
+        &self.source
+    }
+
+    pub(crate) fn digest_hex(&self) -> &str {
+        &self.digest_hex
+    }
+}
+
 impl NativeShadowSubmission {
     pub(crate) fn parse_strict(bytes: &[u8]) -> Result<Self, NativeShadowSubmissionError> {
         let submission: Self = serde_json::from_slice(bytes)
@@ -90,6 +116,48 @@ impl NativeShadowSubmission {
             self.raw_answer_bytes(),
         )
         .expect("strict submission validation already checked the digest contract")
+    }
+
+    /// Extract the complete Rust source using the frozen
+    /// `RUST-TUPLE-STRUCT-NATIVE-PROOF-INTAKE-V1` algorithm. The node owns
+    /// this boundary; the launcher receives the extracted bytes and verifies
+    /// their digest, but does not parse the model response a second time.
+    pub(crate) fn extract_submission_source(
+        &self,
+    ) -> Result<NativeShadowSubmissionSource, NativeShadowIntakeError> {
+        let raw = self.raw_answer.as_str();
+        if raw.trim().is_empty() {
+            return Err(NativeShadowIntakeError::EmptyResponse);
+        }
+
+        let start = raw
+            .find("```")
+            .ok_or(NativeShadowIntakeError::NoFencedBlock)?;
+        let after_open = &raw[start + 3..];
+        let after_lang = after_open.strip_prefix("rust").unwrap_or(after_open);
+        let body_start = after_lang
+            .char_indices()
+            .find(|(_, character)| !character.is_whitespace())
+            .map(|(index, _)| index)
+            .unwrap_or(after_lang.len());
+        let after_whitespace = &after_lang[body_start..];
+        let close = after_whitespace
+            .find("```")
+            .ok_or(NativeShadowIntakeError::NoFencedBlock)?;
+        let source = after_whitespace[..close].trim();
+        if source.is_empty() {
+            return Err(NativeShadowIntakeError::NoFencedBlock);
+        }
+        if source.as_bytes().contains(&0) {
+            return Err(NativeShadowIntakeError::SubmissionSourceContainsNul);
+        }
+
+        let mut digest = Sha256::new();
+        digest.update(source.as_bytes());
+        Ok(NativeShadowSubmissionSource {
+            source: source.to_owned(),
+            digest_hex: hex::encode(digest.finalize()),
+        })
     }
 }
 
@@ -239,5 +307,63 @@ mod tests {
             second.submission_digest_hex()
         );
         assert_eq!(first.raw_answer_bytes(), b"fn answer() {}");
+    }
+
+    #[test]
+    fn node_owned_intake_matches_the_frozen_native_proof_intake_contract() {
+        let cases = [
+            (
+                "ACTION: FINAL\n```rust\n// <<< ACFR-PATCH-BEGIN >>>\nlet mut acc: i64 = a0;\nfor it in items {\n    acc = acc.wrapping_mul(mul).wrapping_add(it.0 as i64);\n}\nacc\n// <<< ACFR-PATCH-END >>>\n```\n",
+                "// <<< ACFR-PATCH-BEGIN >>>\nlet mut acc: i64 = a0;\nfor it in items {\n    acc = acc.wrapping_mul(mul).wrapping_add(it.0 as i64);\n}\nacc\n// <<< ACFR-PATCH-END >>>",
+            ),
+            (
+                "ACTION: submit\n```rust\nfn answer() {\n    println!(\"ok\");\n}\n```\nignored",
+                "fn answer() {\n    println!(\"ok\");\n}",
+            ),
+            (
+                "prefix ```\n  fn answer() {}  \n``` suffix",
+                "fn answer() {}",
+            ),
+            ("```rust\u{2003}fn answer() {}\u{2003}```", "fn answer() {}"),
+            // The frozen algorithm only strips an immediately adjacent, lowercase
+            // `rust` marker. A spaced marker is therefore source text, not metadata.
+            ("``` rust\nfn answer() {}\n```", "rust\nfn answer() {}"),
+            // It deliberately uses the first complete fenced block.
+            ("```rust\nfirst\n```\n```rust\nsecond\n```", "first"),
+        ];
+
+        for (raw, expected) in cases {
+            let submission = NativeShadowSubmission::parse_strict(&valid_json(raw))
+                .expect("strict raw submission");
+            let extracted = submission
+                .extract_submission_source()
+                .expect("frozen intake accepts the source");
+            assert_eq!(extracted.source(), expected);
+            assert_eq!(
+                extracted.digest_hex(),
+                hex::encode(Sha256::digest(expected.as_bytes()))
+            );
+        }
+    }
+
+    #[test]
+    fn node_owned_intake_rejects_empty_missing_empty_fence_and_nul_source() {
+        for (raw, expected) in [
+            ("   \n\t", NativeShadowIntakeError::EmptyResponse),
+            ("ACTION: submit", NativeShadowIntakeError::NoFencedBlock),
+            ("```rust\n   \n```", NativeShadowIntakeError::NoFencedBlock),
+            (
+                "```rust\nfn answer() {}",
+                NativeShadowIntakeError::NoFencedBlock,
+            ),
+            (
+                "```rust\nfn answer() { /*   */ }\n```",
+                NativeShadowIntakeError::SubmissionSourceContainsNul,
+            ),
+        ] {
+            let submission = NativeShadowSubmission::parse_strict(&valid_json(raw))
+                .expect("strict raw submission");
+            assert_eq!(submission.extract_submission_source(), Err(expected));
+        }
     }
 }
