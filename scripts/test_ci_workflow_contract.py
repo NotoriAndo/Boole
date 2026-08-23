@@ -414,6 +414,33 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         self.assertNotIn('wait "$recovered_tree_b"', body)
         self.assertNotIn('wait "$reject_tree"', body)
 
+    def test_manager_gate_proves_fixed_toolchain_compatibility_before_bind(self):
+        job = self._job("native-shadow-containment-linux")
+        self.assertIn("timeout-minutes: 15", job)
+        body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            'toolchain_parent=/opt/boole',
+            'toolchain_prefix=$toolchain_parent/native-checker-toolchain',
+            './scripts/install-native-checker-toolchain.sh "$toolchain_stage"',
+            'sudo chown -R root:root "$toolchain_prefix"',
+            'sudo chmod 0555 "$toolchain_prefix" "$toolchain_prefix/bin"',
+            'toolchain_mode="toolchain-compatibility"',
+            "native-shadow-toolchain-compatibility-complete",
+            'sudo rm -rf "$toolchain_prefix"',
+        ):
+            self.assertIn(required, body)
+        harness = (
+            REPO_ROOT
+            / "crates"
+            / "boole-native-shadow-launcher"
+            / "tests"
+            / "manager_cgroup_linux.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("verify_fixed_startup_toolchain_compatibility", harness)
+        self.assertIn("native-shadow-toolchain-compatibility-complete", harness)
+
     def test_manager_cgroup_gate_uses_an_owned_read_only_authority_bind(self):
         body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
             encoding="utf-8"

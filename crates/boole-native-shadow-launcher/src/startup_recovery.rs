@@ -32,6 +32,35 @@ impl VerifiedStartupCgroupRecovery {
     pub fn recovered_orphan_count(&self) -> usize {
         self.recovered_orphans
     }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn verify_cgroup_state_after_trusted_probes(&self) -> Result<(), String> {
+        let (service_root, manager) = self.manager.recovery_directories();
+        crate::cgroupfs_fd::verify_service_root_descriptor(service_root)
+            .and_then(|()| crate::cgroupfs_fd::verify_manager_descriptor(manager))
+            .and_then(|()| crate::cgroupfs_fd::verify_service_root_has_no_processes(service_root))
+            .and_then(|()| crate::cgroupfs_fd::verify_required_controllers(service_root))
+            .map_err(|error| error.to_string())?;
+        let mut children = crate::cgroupfs_fd::scan_service_child_cgroups(service_root)
+            .map_err(|error| error.to_string())?;
+        children.sort();
+        if children != ["manager"] {
+            return Err(format!(
+                "service cgroup inventory differs after probes: {children:?}"
+            ));
+        }
+        crate::cgroupfs_fd::verify_manager_after_move(manager)
+            .map_err(|error| error.to_string())?;
+        let mut final_children = crate::cgroupfs_fd::scan_service_child_cgroups(service_root)
+            .map_err(|error| error.to_string())?;
+        final_children.sort();
+        if final_children != ["manager"] {
+            return Err(format!(
+                "service cgroup inventory changed during post-probe verification: {final_children:?}"
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Error)]

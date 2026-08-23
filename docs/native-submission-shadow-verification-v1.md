@@ -394,8 +394,21 @@ Further route-free foundations now narrow the open prerequisite without closing 
   before an opaque recovery proof can be issued. The named Linux gate exercises a live process tree,
   a frozen process tree and an empty leaf, and separately proves that one unexpected child causes the
   exact fatal inventory stage without mutating the valid live leaf. This closes startup `run-*`
-  cleanup only. The result is deliberately not readiness and still cannot bind/listen, run fixed
-  toolchain probes, change node durable state, route a submission or spawn a checker.
+  cleanup only. The result is deliberately not readiness and cannot by itself bind/listen, change
+  node durable state, route a submission or spawn a checker; the following 2w slice alone may consume
+  it for the four fixed compatibility probes.
+* Phase 3B.2b-2w — the startup-toolchain-compatibility slice consumes that opaque recovery proof,
+  verifies the fixed root-owned Rust/Cargo/Python executable path shapes and runs only the exact four
+  tracked manifest probes. Each command gets an independent ten-second deadline, cwd `/`, a cleared
+  environment rebuilt from the four tracked entries, null stdin and separate 65,536-byte stdout and
+  stderr ceilings. The toolchain directories are exact root:root `0555`; executable metadata is
+  frozen to the root-owned, one-hard-link, non-special contract (Python exact `0755`), and each probe
+  executes an already-opened descriptor whose identity must match the pre-probe snapshot. A mismatch,
+  timeout, overflow, nonzero exit, unexpected stderr, invalid UTF-8, pathname identity change or
+  post-probe manager drift is fatal after movement and withholds the opaque compatibility proof. The
+  named Linux gate stages the reviewed per-commit Rust artifacts at the exact `/opt` path and proves
+  recovery-to-probe ordering. This remains compatibility-only; the three installed-byte provenance
+  blockers, readiness, listener, route, node durable mutation and checker execution remain open.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux

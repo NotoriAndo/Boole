@@ -157,6 +157,10 @@ pub(crate) fn verify_service_root_has_no_processes(
     require_empty_id_file(root, "cgroup.procs")
 }
 
+pub(crate) fn verify_service_root_descriptor(root: &CgroupDirectory) -> Result<(), CgroupFsError> {
+    require_cgroup2fs(&root.file)
+}
+
 pub(crate) fn enable_required_controllers(root: &CgroupDirectory) -> Result<(), CgroupFsError> {
     write_control(root, "cgroup.subtree_control", "+cpu +memory +pids\n")
 }
@@ -190,6 +194,11 @@ pub(crate) fn verify_manager_after_move(manager: &CgroupDirectory) -> Result<(),
         )));
     }
     require_no_child_cgroups(manager, "manager cgroup has nested children after move")
+}
+
+pub(crate) fn verify_manager_descriptor(manager: &CgroupDirectory) -> Result<(), CgroupFsError> {
+    require_cgroup2fs(&manager.file)?;
+    require_manager_metadata(&manager.file)
 }
 
 pub(crate) fn scan_service_child_cgroups(
