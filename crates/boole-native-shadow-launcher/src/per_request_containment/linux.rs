@@ -1407,7 +1407,6 @@ fn apply_landlock() -> Result<(), String> {
         .create()
         .map_err(|error| error.to_string())?;
     for path in [
-        "/bin",
         "/lib",
         "/lib64",
         "/usr/bin",

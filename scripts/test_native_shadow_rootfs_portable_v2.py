@@ -515,6 +515,13 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertIn("mkdir_fixed(RUNTIME_UPPER, 0o755)?;", source)
         self.assertIn("runtime_root_metadata_is_exact", source)
 
+    def test_landlock_does_not_require_an_untracked_bin_alias(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn('        "/bin",\n', source)
+
 
 if __name__ == "__main__":
     unittest.main()
