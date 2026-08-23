@@ -725,11 +725,10 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd, dev_null_fd: RawFd) -> Result
         "derive-verify-overlay",
         verify_derived_runtime_root(rootfs_fd),
     )?;
-    // The host device FD belongs to the old root's /dev mount. Bind it while
-    // that mount is still attached; Linux rejects an MS_BIND source whose
-    // backing mount has already been detached from this namespace. The new
-    // child-private /dev mount is below RUNTIME_ROOT and therefore crosses the
-    // pivot with the verified overlay.
+    // The inherited host device FD predates CLONE_NEWNS, so it is identity
+    // authority only. The bind helper reopens that exact device inside the
+    // child mount namespace before placing it below RUNTIME_ROOT; the private
+    // /dev then crosses the pivot with the verified overlay.
     setup_stage("mount-private-dev", mount_private_dev(RUNTIME_ROOT_DEV))?;
     setup_stage(
         "bind-private-dev-null",
