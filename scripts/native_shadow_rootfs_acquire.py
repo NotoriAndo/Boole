@@ -32,7 +32,7 @@ else:
 
 PLAN_SCHEMA = "boole.native-shadow.runtime-rootfs-acquisition-plan.v1"
 RESOLUTION_SCHEMA = "boole.native-shadow.runtime-rootfs-resolution.v1"
-EXPECTED_PLAN_SHA256 = "5ff45282af97d35b24e39c0aee91d35316679ea62d088106c57cd304ea4dfd40"
+EXPECTED_PLAN_SHA256 = "09b1bb420c3c2317872e8408384b388d4fc8909554af15e759f12684d23db1c8"
 EXPECTED_SNAPSHOT_ID = "20240425T160000Z"
 EXPECTED_SNAPSHOT_TIME = "2024-04-25T16:00:00Z"
 EXPECTED_RELEASE = "NATIVE-SHADOW-RUNTIME-ROOTFS-ACQUISITION-PLAN-V1-QUALIFICATION"
@@ -188,6 +188,7 @@ def load_plan(
             "snapshotTime",
             "builderSha256",
             "acquirerAuthoritySha256",
+            "sourceLockScaffoldSha256",
             "repository",
             "keyringBootstrap",
             "rustArtifacts",
@@ -216,6 +217,7 @@ def load_plan(
         != actual_acquirer
     ):
         raise AcquisitionError("acquisition plan acquirer digest differs")
+    _digest(plan["sourceLockScaffoldSha256"], "sourceLockScaffoldSha256")
 
     network = _exact(
         plan["networkPolicy"],
@@ -901,6 +903,25 @@ def _package_spec(package: dict[str, Any], plan: dict[str, Any]) -> dict[str, An
     }
 
 
+def payload_specs_from_signed_resolution(
+    plan: dict[str, Any],
+    resolution_path: pathlib.Path,
+    cas: pathlib.Path,
+    gpgv_path: pathlib.Path,
+    zstd_path: pathlib.Path,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Replay signed metadata before deriving any network fetch target."""
+
+    resolution = replay_resolution_from_cas(
+        plan,
+        resolution_path,
+        cas,
+        gpgv_path,
+        zstd_path,
+    )
+    return resolution, [_package_spec(package, plan) for package in resolution["packages"]]
+
+
 def _verify_resolution_identity(plan: dict[str, Any], resolution: dict[str, Any]) -> None:
     if (
         resolution.get("schema") != RESOLUTION_SCHEMA
@@ -920,7 +941,13 @@ def seal_candidate(
     gpgv_path: pathlib.Path,
     zstd_path: pathlib.Path,
 ) -> tuple[dict[str, Any], bytes]:
-    scaffold = _load_canonical(scaffold_path, "rootfs source-lock scaffold")
+    scaffold, scaffold_raw = _load_canonical_raw(
+        scaffold_path, "rootfs source-lock scaffold"
+    )
+    if _sha256(scaffold_raw) != _digest(
+        plan.get("sourceLockScaffoldSha256"), "sourceLockScaffoldSha256"
+    ):
+        raise AcquisitionError("rootfs source-lock scaffold digest differs")
     _verify_resolution_identity(plan, resolution)
     candidate = copy.deepcopy(scaffold)
     candidate["release"] = "NATIVE-SHADOW-RUNTIME-ROOTFS-SOURCE-CLOSURE-COMPLETE-NOT-ACTIVATABLE"
@@ -1092,6 +1119,8 @@ def _parser() -> argparse.ArgumentParser:
     resolve.add_argument("--output", type=pathlib.Path, required=True)
     payloads = subparsers.choices["fetch-payloads"]
     payloads.add_argument("--resolution", type=pathlib.Path, required=True)
+    payloads.add_argument("--gpgv", type=pathlib.Path, required=True)
+    payloads.add_argument("--zstd", type=pathlib.Path, required=True)
     seal = subparsers.choices["seal"]
     seal.add_argument("--resolution", type=pathlib.Path, required=True)
     seal.add_argument("--scaffold", type=pathlib.Path, required=True)
@@ -1133,13 +1162,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         resolution = resolve_from_cas(plan, args.cas, args.gpgv.resolve(), args.zstd.resolve())
         _write_canonical(args.output, resolution)
     elif args.command == "fetch-payloads":
-        resolution = _load_canonical(args.resolution, "rootfs resolution")
-        _verify_resolution_identity(plan, resolution)
+        resolution, package_specs = payload_specs_from_signed_resolution(
+            plan,
+            args.resolution,
+            args.cas,
+            args.gpgv.resolve(),
+            args.zstd.resolve(),
+        )
         base_specs = _specs(plan)
         base_actual = sum(
             len(_verified_cas_artifact(args.cas, spec)) for spec in base_specs
         )
-        package_specs = [_package_spec(package, plan) for package in resolution["packages"]]
         budget = ArtifactBudget(
             plan["networkPolicy"],
             package_specs,

@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import pathlib
 import tempfile
 import unittest
@@ -18,6 +20,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PLAN = ROOT / "native/containment/native-shadow-runtime-rootfs-acquisition-plan-v1.json"
 BUILDER = ROOT / "scripts/native_shadow_rootfs_builder.py"
 ACQUIRER = ROOT / "scripts/native_shadow_rootfs_acquire.py"
+SCAFFOLD = ROOT / "native/containment/native-shadow-runtime-rootfs-source-lock-v1.json"
 
 
 def sha(raw: bytes) -> str:
@@ -53,6 +56,77 @@ def stanza(
 
 
 class NativeShadowRootfsAcquireTests(unittest.TestCase):
+    def test_fetch_payloads_requires_signed_resolution_replay_tools(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                acquire._parser().parse_args(
+                    [
+                        "fetch-payloads",
+                        "--plan",
+                        str(PLAN),
+                        "--cas",
+                        "/tmp/cas",
+                        "--resolution",
+                        "/tmp/resolution.json",
+                    ]
+                )
+
+    def test_payload_specs_are_derived_only_after_exact_signed_replay(self) -> None:
+        replayed = {
+            "packages": [
+                {
+                    "artifactId": "deb-runtime",
+                    "poolPath": "pool/main/r/runtime.deb",
+                    "artifactSha256": "a" * 64,
+                    "artifactSizeBytes": 123,
+                }
+            ]
+        }
+        with mock.patch.object(
+            acquire,
+            "replay_resolution_from_cas",
+            return_value=replayed,
+        ) as replay:
+            resolution, specs = acquire.payload_specs_from_signed_resolution(
+                {"repository": {"snapshotBase": "https://snapshot.example"}},
+                pathlib.Path("resolution.json"),
+                pathlib.Path("cas"),
+                pathlib.Path("gpgv"),
+                pathlib.Path("zstd"),
+            )
+        replay.assert_called_once()
+        self.assertEqual(resolution, replayed)
+        self.assertEqual(
+            specs,
+            [
+                {
+                    "artifactId": "deb-runtime",
+                    "url": "https://snapshot.example/pool/main/r/runtime.deb",
+                    "sha256": "a" * 64,
+                    "sizeBytes": 123,
+                }
+            ],
+        )
+
+    def test_seal_rejects_scaffold_bytes_not_bound_by_the_plan(self) -> None:
+        scaffold = rootfs.load_json_exact(
+            SCAFFOLD.read_bytes(), "rootfs source-lock scaffold", require_canonical=True
+        )
+        scaffold["trackedFiles"][0]["mode"] = "0777"
+        with tempfile.TemporaryDirectory() as tmp:
+            changed = pathlib.Path(tmp) / "scaffold.json"
+            changed.write_bytes(rootfs.canonical_json(scaffold))
+            with self.assertRaisesRegex(acquire.AcquisitionError, "scaffold digest"):
+                acquire.seal_candidate(
+                    {"sourceLockScaffoldSha256": sha(SCAFFOLD.read_bytes())},
+                    changed,
+                    {},
+                    pathlib.Path(tmp) / "cas",
+                    ROOT,
+                    pathlib.Path("gpgv"),
+                    pathlib.Path("zstd"),
+                )
+
     def test_acquirer_authority_digest_normalizes_only_expected_plan_hash(self) -> None:
         raw = ACQUIRER.read_bytes()
         digest = acquire.acquirer_authority_sha256(raw)

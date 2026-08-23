@@ -1,5 +1,5 @@
 {
-  "acquirerAuthoritySha256": "5a5ab70ff5e344dcf01c73806f991ab24d2a911cb9d97e50860a94c9f1045c17",
+  "acquirerAuthoritySha256": "2bd54b2a3c994938399f28f1472243fc4e1e18a0c47da4672e575c9053e4432b",
   "activationAllowed": false,
   "builderSha256": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
   "keyringBootstrap": {
@@ -82,6 +82,7 @@
   },
   "snapshotId": "20240425T160000Z",
   "snapshotTime": "2024-04-25T16:00:00Z",
+  "sourceLockScaffoldSha256": "eba07239c656c42e8729b4c2ba00052cb59c4ab80901cb0c4b706151b55b35cd",
   "toolDigests": {
     "gpgvSha256": "f1c71affd4ce40e3c5a53b8cb0ac9601fbcd31d6834b732dd0c7b0145dce1995",
     "zstdSha256": "aff8169fb421bb925fb16c44a7e0143fa2c7a941dc45cce76b15062a2ce54917"
