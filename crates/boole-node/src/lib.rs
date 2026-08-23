@@ -21,6 +21,7 @@ mod native_shadow_submission;
 mod nonce_ledger;
 mod p2p_egress;
 mod p2p_ingress;
+mod p2p_package_fetch;
 mod proof_bridge;
 mod proof_dedup_ledger;
 mod receipt_store;
@@ -63,6 +64,9 @@ pub use local_node::{
     MAX_CONCURRENT_REQUESTS, MAX_HTTP_BODY_BYTES, PROOF_ROUTE_BODY_BYTES, PROOF_ROUTE_TIMEOUT,
 };
 pub use p2p_ingress::{P2pConfig, PackageServingConfig, DEFAULT_P2P_RATE_LIMIT_PER_60S};
+pub use p2p_package_fetch::{
+    PackageFetchRequest, PackageFetchingConfig, PackageFetchingConfigError,
+};
 pub use proof_bridge::{
     canonical_pofp_package_from_lean_result, canonical_pofp_package_from_lean_result_and_source,
     LeanProofBridge, LeanProofBridgePolicy, ProofSubmissionTemplate,

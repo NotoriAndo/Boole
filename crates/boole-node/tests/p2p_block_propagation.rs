@@ -144,6 +144,7 @@ fn boot_with_p2p(
                 peers,
                 rate_limit_per_60s,
                 package_serving: None,
+                package_fetching: None,
             },
             Some(shutdown_for_node),
         )

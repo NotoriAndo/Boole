@@ -11,6 +11,7 @@ use crate::p2p_ingress::{
     spawn_ingress_thread, spawn_sync_thread, P2pConfig, P2pIdentity, P2pIngressRuntimeConfig,
     P2pMetrics,
 };
+use crate::p2p_package_fetch::spawn_package_fetch_thread;
 use crate::proof_dedup_ledger::FileProofDedupLedger;
 use crate::receipt_store::FileReceiptStore;
 use crate::runtime::{derive_bounty_events, ReorgOutcome, RuntimeAdmissionState, RuntimeConfig};
@@ -956,6 +957,7 @@ async fn serve_local_node_async(
     let mut p2p_threads: Vec<std::thread::JoinHandle<()>> = Vec::new();
     let mut p2p_ingress: Option<P2pIngressRuntimeConfig> = None;
     let mut p2p_sync: Option<(Vec<SocketAddr>, P2pIdentity)> = None;
+    let mut p2p_package_fetch = None;
     if let Some(p2p) = p2p {
         let identity = P2pIdentity {
             network_id: state.network_id.clone(),
@@ -975,6 +977,9 @@ async fn serve_local_node_async(
             // any chain range this node is missing (fresh-boot catch-up +
             // announce-gap reconciliation).
             p2p_sync = Some((p2p.peers.clone(), identity.clone()));
+            if let Some(package_fetching) = p2p.package_fetching {
+                p2p_package_fetch = Some((p2p.peers.clone(), identity.clone(), package_fetching));
+            }
         }
         if let Some(gossip_listener) = p2p.listener {
             // ADR-0009 (d): the configured peer set doubles as the inbound
@@ -1003,6 +1008,16 @@ async fn serve_local_node_async(
     }
     if let Some((peers, identity)) = p2p_sync {
         p2p_threads.push(spawn_sync_thread(
+            peers,
+            identity,
+            app_state.inner.clone(),
+            p2p_stop.clone(),
+            p2p_metrics.clone(),
+        ));
+    }
+    if let Some((peers, identity, config)) = p2p_package_fetch {
+        p2p_threads.push(spawn_package_fetch_thread(
+            config,
             peers,
             identity,
             app_state.inner.clone(),
@@ -2198,6 +2213,36 @@ fn render_prometheus_metrics(state: &LocalNodeState) -> String {
             "boole_p2p_ingress_get_packages_store_error_total",
             "GetPackage requests answered unavailable because the authorized local store failed integrity or I/O checks.",
             p2p.ingress_get_packages_store_errors.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_package_fetch_staged_total",
+            "Strictly validated packages durably staged in the node-owned local CAS.",
+            p2p.package_fetch_staged.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_package_fetch_recovered_total",
+            "Configured fetch requests already present in the durable pending package queue after restart.",
+            p2p.package_fetch_recovered.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_package_fetch_unavailable_total",
+            "Package fetch attempts answered explicitly unavailable by an authenticated static peer.",
+            p2p.package_fetch_unavailable.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_package_fetch_invalid_total",
+            "Package fetch responses rejected before CAS staging for root, canonical encoding, or frame mismatch.",
+            p2p.package_fetch_invalid.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_package_fetch_peer_failure_total",
+            "Package fetch peer connect, handshake, or transport failures retained for bounded retry.",
+            p2p.package_fetch_peer_failures.load(Ordering::Relaxed),
+        ),
+        (
+            "boole_p2p_package_fetch_store_error_total",
+            "Strictly decoded packages not staged because the node-owned local store failed closed.",
+            p2p.package_fetch_store_errors.load(Ordering::Relaxed),
         ),
         (
             "boole_p2p_sync_blocks_applied_total",

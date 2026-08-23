@@ -104,6 +104,7 @@ fn boot(tag: &str, package_serving: Option<PackageServingConfig>) -> Boot {
                 peers: vec!["127.0.0.1:1".parse().expect("dummy allowlisted peer")],
                 rate_limit_per_60s: boole_node::DEFAULT_P2P_RATE_LIMIT_PER_60S,
                 package_serving,
+                package_fetching: None,
             },
             Some(shutdown_for_node),
         )

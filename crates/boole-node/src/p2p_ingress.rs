@@ -30,6 +30,7 @@ use crate::local_node::{
     IngressShareOutcome, LocalNodeState,
 };
 use crate::p2p_egress::open_validated_conn;
+use crate::p2p_package_fetch::PackageFetchingConfig;
 
 /// How long an accepted connection may sit silent before it is dropped.
 /// Bounds a slow/hung peer's hold on the (serial) ingress thread; the
@@ -105,6 +106,9 @@ pub struct P2pConfig {
     /// Exact-root network disclosure grant. `None` is the production default:
     /// GetPackage receives an explicit unavailable response with no disk read.
     pub package_serving: Option<PackageServingConfig>,
+    /// Explicit node-owned package receive queue. `None` is the production
+    /// default: no package dial, receive, or CAS write can occur.
+    pub package_fetching: Option<PackageFetchingConfig>,
 }
 
 pub(crate) struct P2pIngressRuntimeConfig {
@@ -186,6 +190,12 @@ pub(crate) struct P2pMetrics {
     pub(crate) ingress_get_packages_served: AtomicU64,
     pub(crate) ingress_get_packages_unavailable: AtomicU64,
     pub(crate) ingress_get_packages_store_errors: AtomicU64,
+    pub(crate) package_fetch_staged: AtomicU64,
+    pub(crate) package_fetch_recovered: AtomicU64,
+    pub(crate) package_fetch_unavailable: AtomicU64,
+    pub(crate) package_fetch_invalid: AtomicU64,
+    pub(crate) package_fetch_peer_failures: AtomicU64,
+    pub(crate) package_fetch_store_errors: AtomicU64,
     pub(crate) sync_blocks_applied: AtomicU64,
     pub(crate) sync_reorgs_applied: AtomicU64,
     /// SC.10-ii-c — competing peer chains whose pinned-checker re-verify could
