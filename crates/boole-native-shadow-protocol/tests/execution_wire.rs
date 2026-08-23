@@ -176,15 +176,36 @@ fn hello_is_derived_from_the_exact_execute_frame_and_round_trips() {
         decode_complete_execution_hello_frame(&encoded).unwrap(),
         hello
     );
+
+    let mut whitespace_payload = Vec::from(&request_frame[4..]);
+    whitespace_payload.insert(1, b' ');
+    let mut whitespace_frame = Vec::new();
+    whitespace_frame.extend_from_slice(&(whitespace_payload.len() as u32).to_be_bytes());
+    whitespace_frame.extend_from_slice(&whitespace_payload);
+    let whitespace_hello =
+        ExecutionHello::try_from_execution_request_frame(&whitespace_frame).unwrap();
+    assert_ne!(
+        hello.request_digest_hex(),
+        whitespace_hello.request_digest_hex()
+    );
 }
 
 #[test]
 fn hello_rejects_invalid_execute_frames_and_strict_json_drift() {
-    let mut trailing = encode_execution_request_frame(&request()).unwrap();
+    let request_frame = encode_execution_request_frame(&request()).unwrap();
+    assert!(ExecutionHello::try_from_execution_request_frame(&request_frame[..3]).is_err());
+    assert!(ExecutionHello::try_from_execution_request_frame(
+        &request_frame[..request_frame.len() - 1]
+    )
+    .is_err());
+    let mut trailing = request_frame.clone();
     trailing.push(0);
     assert!(ExecutionHello::try_from_execution_request_frame(&trailing).is_err());
 
-    let request_frame = encode_execution_request_frame(&request()).unwrap();
+    let mut wrong_execute = payload_value(&request_frame);
+    wrong_execute["schema"] = json!("boole.native-shadow.launcher.not-execute.v1");
+    assert!(ExecutionHello::try_from_execution_request_frame(&frame(&wrong_execute)).is_err());
+
     let hello = ExecutionHello::try_from_execution_request_frame(&request_frame).unwrap();
     let encoded = encode_execution_hello_frame(&hello).unwrap();
 
@@ -199,6 +220,19 @@ fn hello_rejects_invalid_execute_frames_and_strict_json_drift() {
     let mut value = payload_value(&encoded);
     value["requestLengthBytes"] = json!(1.0);
     assert!(decode_complete_execution_hello_frame(&frame(&value)).is_err());
+
+    let payload = String::from_utf8(encoded[4..].to_vec()).unwrap();
+    let duplicated = payload.replacen("{", &format!("{{\"requestDigestHex\":\"{}\",", h(20)), 1);
+    let mut duplicate_frame = Vec::new();
+    duplicate_frame.extend_from_slice(&(duplicated.len() as u32).to_be_bytes());
+    duplicate_frame.extend_from_slice(duplicated.as_bytes());
+    assert!(decode_complete_execution_hello_frame(&duplicate_frame).is_err());
+
+    for invalid_length in [0_u32, 131_073] {
+        let mut value = payload_value(&encoded);
+        value["requestLengthBytes"] = json!(invalid_length);
+        assert!(decode_complete_execution_hello_frame(&frame(&value)).is_err());
+    }
 }
 
 #[test]
@@ -242,6 +276,67 @@ fn ready_echoes_hello_and_validates_fixed_service_identities() {
         },
     ] {
         assert!(ExecutionReady::try_new(&hello, invalid).is_err());
+    }
+}
+
+#[test]
+fn ready_inbound_decoder_rejects_strict_json_and_literal_drift() {
+    let request_frame = encode_execution_request_frame(&request()).unwrap();
+    let hello = ExecutionHello::try_from_execution_request_frame(&request_frame).unwrap();
+    let ready = ExecutionReady::try_new(&hello, execution_ready_fields()).unwrap();
+    let encoded = encode_execution_ready_frame(&ready).unwrap();
+
+    let mut value = payload_value(&encoded);
+    value["surprise"] = json!(true);
+    assert!(decode_complete_execution_ready_frame(&frame(&value)).is_err());
+
+    let mut value = payload_value(&encoded);
+    value.as_object_mut().unwrap().remove("launcherPid");
+    assert!(decode_complete_execution_ready_frame(&frame(&value)).is_err());
+
+    let payload = String::from_utf8(encoded[4..].to_vec()).unwrap();
+    let duplicated = payload.replacen("{", "{\"ready\":true,", 1);
+    let mut duplicate_frame = Vec::new();
+    duplicate_frame.extend_from_slice(&(duplicated.len() as u32).to_be_bytes());
+    duplicate_frame.extend_from_slice(duplicated.as_bytes());
+    assert!(decode_complete_execution_ready_frame(&duplicate_frame).is_err());
+
+    let mut value = payload_value(&encoded);
+    value["launcherPid"] = json!(1234.0);
+    assert!(decode_complete_execution_ready_frame(&frame(&value)).is_err());
+
+    for (field, invalid) in [("activationAllowed", json!(true)), ("ready", json!(false))] {
+        let mut value = payload_value(&encoded);
+        value[field] = invalid;
+        assert!(decode_complete_execution_ready_frame(&frame(&value)).is_err());
+    }
+
+    let mut trailing = encoded;
+    trailing.push(0);
+    assert!(decode_complete_execution_ready_frame(&trailing).is_err());
+}
+
+#[test]
+fn ready_inbound_decoder_rejects_every_invalid_service_identity_class() {
+    let request_frame = encode_execution_request_frame(&request()).unwrap();
+    let hello = ExecutionHello::try_from_execution_request_frame(&request_frame).unwrap();
+    let ready = ExecutionReady::try_new(&hello, execution_ready_fields()).unwrap();
+    let encoded = encode_execution_ready_frame(&ready).unwrap();
+
+    for (field, invalid) in [
+        ("launcherPid", json!(0)),
+        ("launcherUid", json!(1)),
+        ("launcherGid", json!(1)),
+        ("nodeUid", json!(0)),
+        ("nodeGid", json!(0)),
+        ("checkerUid", json!(0)),
+        ("checkerGid", json!(0)),
+        ("checkerUid", json!(1001)),
+        ("checkerGid", json!(1001)),
+    ] {
+        let mut value = payload_value(&encoded);
+        value[field] = invalid;
+        assert!(decode_complete_execution_ready_frame(&frame(&value)).is_err());
     }
 }
 

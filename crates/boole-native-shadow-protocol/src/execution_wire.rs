@@ -21,9 +21,15 @@ const REQUEST_DIGEST_DOMAIN: &[u8] = b"boole.native-shadow.launcher.request.v1\0
 const SUBMISSION_DIGEST_DOMAIN: &[u8] = b"boole.native-shadow.submission.v1\0";
 const MAX_RAW_BYTES: usize = 16_384;
 
-/// Node-owned commitment to one exact encoded Execute frame. Callers cannot
-/// inject its digest or payload length: both are derived from the validated
-/// frame bytes by `try_from_execution_request_frame`.
+/// Node-owned commitment to one exact encoded Execute frame. The safe factory
+/// derives its digest and payload length from validated frame bytes. A session
+/// consumer must still compare a decoded inbound Hello with its own expected
+/// request; decoding alone proves shape, not provenance.
+///
+/// ```compile_fail
+/// let _: boole_native_shadow_protocol::ExecutionHello =
+///     serde_json::from_slice(br#"{}"#).unwrap();
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionHello {
@@ -44,8 +50,15 @@ struct ExecutionHelloDto {
     execution_policy_digest_hex: String,
 }
 
-/// Launcher readiness bound to an `ExecutionHello`. It remains disabled in
-/// this qualification release (`activationAllowed=false`).
+/// Launcher readiness constructed from an `ExecutionHello`. It remains
+/// disabled in this qualification release (`activationAllowed=false`). A
+/// session consumer must compare decoded echo fields and identities with the
+/// expected Hello and kernel-observed peer credentials.
+///
+/// ```compile_fail
+/// let _: boole_native_shadow_protocol::ExecutionReady =
+///     serde_json::from_slice(br#"{}"#).unwrap();
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionReady {
