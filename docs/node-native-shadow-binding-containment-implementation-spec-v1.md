@@ -213,7 +213,7 @@ entry becomes authoritative on `main` only after its required CI and merge:
   later node and launcher. Required CI passed before merge. It does not connect a socket, generate a nonce, resolve accounts, launch
   a process, emit readiness or change lifecycle/journal state, and therefore does not close
   Phase 3B.2b-2.
-* **Phase 3B.2b-2n** — the current guarded node-side Linux-adapter slice: the private production
+* **Phase 3B.2b-2n** — PR #179, main `434534e`: the private production
   entrypoint accepts no socket path, opens the installed authority through Phase 3B.2b-2p, connects
   only to `/run/boole/native-shadow/launcher.sock` with a bounded nonblocking-connect/poll/
   `SO_ERROR` sequence, obtains exactly 32 bytes from one `getrandom(2)` call with flags zero and no
@@ -225,6 +225,15 @@ entry becomes authoritative on `main` only after its required CI and merge:
   expected service IDs are not yet obtained from the fixed-account resolver and there is no root
   launcher, real installed-path happy path, route, journal mutation or checker execution, so no real
   handshake GREEN is claimed.
+* **Phase 3B.2b-2i** — the current fixed-service-identity slice adds one path- and argument-free
+  shared resolver for only `boole-node` and `boole-native-checker`. It uses `getpwnam_r`,
+  `getgrnam_r`, `getgrgid_r` and `getgrouplist`, verifies the complete account/group profile frozen
+  below, and returns a field-private, non-serializable UID/GID view. The node production adapter now
+  performs that independent NSS resolution itself instead of accepting caller-selected numeric
+  identities. A named Ubuntu step creates the exact ephemeral accounts and executes the real libc
+  success path; fake providers cover fail-closed contract branches without mutating the host.
+  This remains a preflight-only slice: it adds no root launcher, lock, socket bind, cgroup recovery,
+  journal transition or checker execution.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do
