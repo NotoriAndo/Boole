@@ -48,7 +48,10 @@ const VERIFIED_RUNTIME_ROOTFS_PATH: &CStr = c"/var/lib/boole/native-shadow/runti
 const RUNTIME_BASE: &CStr = c"/run/boole/native-shadow";
 const RUNTIME_LOWER: &CStr = c"/run/boole/native-shadow/rootfs-lower";
 const RUNTIME_ADDITIONS: &CStr = c"/run/boole/native-shadow/rootfs-additions";
+const RUNTIME_ADDITIONS_ETC: &CStr = c"/run/boole/native-shadow/rootfs-additions/etc";
+const RUNTIME_ADDITIONS_PASSWD: &CStr = c"/run/boole/native-shadow/rootfs-additions/etc/passwd";
 const RUNTIME_ROOT: &CStr = c"/run/boole/native-shadow/rootfs-root";
+const RUNTIME_ROOT_PASSWD: &CStr = c"/run/boole/native-shadow/rootfs-root/etc/passwd";
 const RUNTIME_ROOT_DEV: &CStr = c"/run/boole/native-shadow/rootfs-root/dev";
 const RUNTIME_ROOT_DEV_NULL: &CStr = c"/run/boole/native-shadow/rootfs-root/dev/null";
 
@@ -417,7 +420,12 @@ struct ChildSetup {
 fn child_setup_and_exec(setup: ChildSetup) -> Result<(), String> {
     setup_stage(
         "derive-runtime-root",
-        derive_and_enter_runtime_root(setup.rootfs_fd, setup.dev_null_fd),
+        derive_and_enter_runtime_root(
+            setup.rootfs_fd,
+            setup.dev_null_fd,
+            setup.checker_uid,
+            setup.checker_gid,
+        ),
     )?;
     setup_stage(
         "mount-private-filesystems",
@@ -452,6 +460,10 @@ fn child_setup_and_exec(setup: ChildSetup) -> Result<(), String> {
     setup_stage(
         "verify-privileges",
         verify_dropped_privileges(setup.checker_uid, setup.checker_gid),
+    )?;
+    setup_stage(
+        "verify-runtime-identity-lookup",
+        verify_runtime_identity_lookup(setup.checker_uid, setup.checker_gid),
     )?;
     setup_stage("apply-rlimits", apply_outer_rlimits())?;
     setup_stage("install-landlock", apply_landlock())?;
@@ -644,7 +656,12 @@ fn set_nonblocking(fd: RawFd, enabled: bool) -> Result<(), ContainmentFailure> {
     Ok(())
 }
 
-fn derive_and_enter_runtime_root(rootfs_fd: RawFd, dev_null_fd: RawFd) -> Result<(), String> {
+fn derive_and_enter_runtime_root(
+    rootfs_fd: RawFd,
+    dev_null_fd: RawFd,
+    setup_checker_uid: u32,
+    setup_checker_gid: u32,
+) -> Result<(), String> {
     setup_stage(
         "derive-make-root-private",
         mount_raw(None, c"/", None, libc::MS_REC | libc::MS_PRIVATE, None),
@@ -672,6 +689,10 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd, dev_null_fd: RawFd) -> Result
         ),
     )?;
     setup_stage("derive-create-staging", create_runtime_staging_tree())?;
+    setup_stage(
+        "derive-materialize-passwd",
+        materialize_runtime_passwd(setup_checker_uid, setup_checker_gid),
+    )?;
 
     // The rootfs has one fixed systemd BindReadOnlyPaths location. Verify that
     // location against the retained descriptor immediately before the bind,
@@ -723,7 +744,7 @@ fn derive_and_enter_runtime_root(rootfs_fd: RawFd, dev_null_fd: RawFd) -> Result
     })?;
     let derived_root_identity = setup_stage(
         "derive-verify-overlay",
-        verify_derived_runtime_root(rootfs_fd),
+        verify_derived_runtime_root(rootfs_fd, setup_checker_uid, setup_checker_gid),
     )?;
     // The inherited host device FD predates CLONE_NEWNS, so it is identity
     // authority only. The bind helper reopens that exact device inside the
@@ -773,12 +794,14 @@ fn create_runtime_staging_tree() -> Result<(), String> {
     for path in [c"/run/boole", RUNTIME_BASE, RUNTIME_LOWER, RUNTIME_ROOT] {
         mkdir_fixed(path, 0o700)?;
     }
-    // The first read-only lower layer supplies the merged root metadata and
-    // exactly four otherwise-absent mountpoints.  The untrusted checker runs
-    // after dropping root, so the merged `/` must remain traversable while
-    // every staging parent stays root-only.
+    // The first read-only lower layer supplies the merged root metadata, one
+    // reviewed `/etc/passwd` shadow, and exactly four otherwise-absent
+    // mountpoints. The untrusted checker runs after dropping root, so the
+    // merged `/` must remain traversable while every staging parent stays
+    // root-only.
     mkdir_fixed(RUNTIME_ADDITIONS, 0o755)?;
     for (path, mode) in [
+        (RUNTIME_ADDITIONS_ETC, 0o755),
         (
             c"/run/boole/native-shadow/rootfs-additions/work" as &CStr,
             0o755,
@@ -799,6 +822,90 @@ fn create_runtime_staging_tree() -> Result<(), String> {
         mkdir_fixed(path, mode)?;
     }
     Ok(())
+}
+
+fn runtime_passwd_record(checker_uid: u32, checker_gid: u32) -> Result<Vec<u8>, String> {
+    if checker_uid == 0 || checker_gid == 0 {
+        return Err("runtime checker identity must be non-root".to_string());
+    }
+    Ok(format!(
+        "boole-native-checker:x:{checker_uid}:{checker_gid}:boole-native-checker:/work/scratch:/usr/sbin/nologin\n"
+    )
+    .into_bytes())
+}
+
+fn materialize_runtime_passwd(checker_uid: u32, checker_gid: u32) -> Result<(), String> {
+    let expected = runtime_passwd_record(checker_uid, checker_gid)?;
+    // SAFETY: fixed root-only staging path, exclusive create and no symlink
+    // following. The resulting file is exposed only through the read-only
+    // overlay and never mutates the verified lower rootfs.
+    let output = unsafe {
+        libc::open(
+            RUNTIME_ADDITIONS_PASSWD.as_ptr(),
+            libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            0o444,
+        )
+    };
+    if output < 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    // SAFETY: open returned one fresh descriptor owned by this child.
+    let mut output = unsafe { File::from_raw_fd(output) };
+    output
+        .write_all(&expected)
+        .map_err(|error| error.to_string())?;
+    // The service umask is intentionally restrictive, so fix the reviewed
+    // read-only mode explicitly before any overlay mount can expose the file.
+    if unsafe { libc::fchmod(output.as_raw_fd(), 0o444) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    verify_runtime_passwd(&mut output, &expected)
+}
+
+fn verify_runtime_passwd(output: &mut File, expected: &[u8]) -> Result<(), String> {
+    let mut metadata: libc::stat = unsafe { mem::zeroed() };
+    // SAFETY: output is a live descriptor and metadata is writable.
+    if unsafe { libc::fstat(output.as_raw_fd(), &mut metadata) } != 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    if metadata.st_uid != 0
+        || metadata.st_gid != 0
+        || metadata.st_mode & libc::S_IFMT != libc::S_IFREG
+        || metadata.st_mode & 0o7777 != 0o444
+        || metadata.st_nlink != 1
+        || metadata.st_size != expected.len() as i64
+    {
+        return Err("runtime passwd metadata mismatch".to_string());
+    }
+    output
+        .seek(SeekFrom::Start(0))
+        .map_err(|error| error.to_string())?;
+    let mut observed = Vec::with_capacity(expected.len());
+    output
+        .read_to_end(&mut observed)
+        .map_err(|error| error.to_string())?;
+    if observed != expected {
+        return Err("runtime passwd bytes mismatch".to_string());
+    }
+    Ok(())
+}
+
+fn verify_derived_runtime_passwd(checker_uid: u32, checker_gid: u32) -> Result<(), String> {
+    let expected = runtime_passwd_record(checker_uid, checker_gid)?;
+    // SAFETY: fixed path in the just-mounted read-only overlay; no symlink is
+    // accepted in place of the reviewed regular file.
+    let output = unsafe {
+        libc::open(
+            RUNTIME_ROOT_PASSWD.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if output < 0 {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    // SAFETY: open returned one fresh descriptor.
+    let mut output = unsafe { File::from_raw_fd(output) };
+    verify_runtime_passwd(&mut output, &expected)
 }
 
 fn verify_fixed_runtime_root_path(rootfs_fd: RawFd) -> Result<(), String> {
@@ -948,7 +1055,11 @@ fn require_runtime_paths_absent_from_frozen_lower(rootfs_fd: RawFd) -> Result<()
     Ok(())
 }
 
-fn verify_derived_runtime_root(rootfs_fd: RawFd) -> Result<RuntimeRootIdentity, String> {
+fn verify_derived_runtime_root(
+    rootfs_fd: RawFd,
+    checker_uid: u32,
+    checker_gid: u32,
+) -> Result<RuntimeRootIdentity, String> {
     use std::collections::BTreeSet;
     use std::os::unix::fs::MetadataExt;
 
@@ -978,6 +1089,7 @@ fn verify_derived_runtime_root(rootfs_fd: RawFd) -> Result<RuntimeRootIdentity, 
         return Err("derived runtime root top-level allowlist mismatch".to_string());
     }
     for (name, mode) in [
+        ("etc", 0o755),
         ("work", 0o755),
         ("proc", 0o555),
         ("dev", 0o755),
@@ -994,6 +1106,7 @@ fn verify_derived_runtime_root(rootfs_fd: RawFd) -> Result<RuntimeRootIdentity, 
             return Err(format!("derived runtime root /{name} metadata mismatch"));
         }
     }
+    verify_derived_runtime_passwd(checker_uid, checker_gid)?;
     let mut filesystem: libc::statfs = unsafe { mem::zeroed() };
     // SAFETY: fixed verified overlay root path and writable statfs storage.
     if unsafe { libc::statfs(RUNTIME_ROOT.as_ptr(), &mut filesystem) } != 0 {
@@ -1051,17 +1164,28 @@ fn runtime_root_metadata_is_exact(uid: u32, gid: u32, mode: u32) -> bool {
     uid == 0 && gid == 0 && mode & libc::S_IFMT == libc::S_IFDIR && mode & 0o7777 == 0o755
 }
 
+fn runtime_additions_are_compatible_with_lower(
+    lower: &std::collections::BTreeSet<std::ffi::OsString>,
+) -> bool {
+    let reviewed_overlap = std::ffi::OsString::from("etc");
+    let exclusive_additions = ["work", "proc", "dev", "tmp"]
+        .into_iter()
+        .map(std::ffi::OsString::from)
+        .collect::<std::collections::BTreeSet<_>>();
+    lower.contains(&reviewed_overlap) && lower.is_disjoint(&exclusive_additions)
+}
+
 fn derived_runtime_top_level_is_exact(
     lower: &std::collections::BTreeSet<std::ffi::OsString>,
     observed: &std::collections::BTreeSet<std::ffi::OsString>,
 ) -> bool {
-    let additions = ["work", "proc", "dev", "tmp"]
+    if !runtime_additions_are_compatible_with_lower(lower) {
+        return false;
+    }
+    let additions = ["etc", "work", "proc", "dev", "tmp"]
         .into_iter()
         .map(std::ffi::OsString::from)
         .collect::<std::collections::BTreeSet<_>>();
-    if !lower.is_disjoint(&additions) {
-        return false;
-    }
     let expected = lower.union(&additions).cloned().collect();
     observed == &expected
 }
@@ -1583,6 +1707,51 @@ fn verify_dropped_privileges(uid: u32, gid: u32) -> Result<(), String> {
     Ok(())
 }
 
+fn verify_runtime_identity_lookup(uid: u32, gid: u32) -> Result<(), String> {
+    let mut record: libc::passwd = unsafe { mem::zeroed() };
+    let mut result: *mut libc::passwd = std::ptr::null_mut();
+    let mut buffer = [0 as libc::c_char; 4096];
+    // SAFETY: record, result and the fixed buffer remain writable for the
+    // entire re-entrant NSS lookup. The dynamic passwd overlay was already
+    // byte-verified before privileges were dropped.
+    let status = unsafe {
+        libc::getpwuid_r(
+            uid,
+            &mut record,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut result,
+        )
+    };
+    if status != 0 {
+        return Err(io::Error::from_raw_os_error(status).to_string());
+    }
+    if !std::ptr::eq(result, &record)
+        || record.pw_uid != uid
+        || record.pw_gid != gid
+        || record.pw_name.is_null()
+        || record.pw_passwd.is_null()
+        || record.pw_gecos.is_null()
+        || record.pw_dir.is_null()
+        || record.pw_shell.is_null()
+    {
+        return Err("runtime checker identity lookup mismatch".to_string());
+    }
+    // SAFETY: a successful getpwuid_r result points each checked field into
+    // the live buffer and terminates it with NUL.
+    let fields_match = unsafe {
+        CStr::from_ptr(record.pw_name) == c"boole-native-checker"
+            && CStr::from_ptr(record.pw_passwd) == c"x"
+            && CStr::from_ptr(record.pw_gecos) == c"boole-native-checker"
+            && CStr::from_ptr(record.pw_dir) == c"/work/scratch"
+            && CStr::from_ptr(record.pw_shell) == c"/usr/sbin/nologin"
+    };
+    if !fields_match {
+        return Err("runtime checker identity fields mismatch".to_string());
+    }
+    Ok(())
+}
+
 fn require_status_ids(status: &str, field: &str, expected: u32) -> Result<(), String> {
     let value = require_status_field(status, field)?;
     let ids = value
@@ -1792,8 +1961,9 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::{
-        derived_runtime_top_level_is_exact, runtime_root_metadata_is_exact, setup_stage,
-        CapturedOutput, OutputStream, OUTPUT_LIMIT,
+        derived_runtime_top_level_is_exact, runtime_additions_are_compatible_with_lower,
+        runtime_passwd_record, runtime_root_metadata_is_exact, setup_stage, CapturedOutput,
+        OutputStream, OUTPUT_LIMIT,
     };
 
     fn names(values: &[&str]) -> BTreeSet<OsString> {
@@ -1818,19 +1988,38 @@ mod tests {
     }
 
     #[test]
-    fn derived_runtime_root_adds_only_four_frozen_runtime_mountpoints() {
+    fn derived_runtime_root_adds_one_reviewed_etc_shadow_and_four_mountpoints() {
         let lower = names(&["etc", "opt", "usr"]);
         let exact = names(&["dev", "etc", "opt", "proc", "tmp", "usr", "work"]);
+        assert!(runtime_additions_are_compatible_with_lower(&lower));
         assert!(derived_runtime_top_level_is_exact(&lower, &exact));
 
         let extra = names(&["dev", "etc", "host", "opt", "proc", "tmp", "usr", "work"]);
         assert!(!derived_runtime_top_level_is_exact(&lower, &extra));
 
         let conflicting_lower = names(&["etc", "proc", "usr"]);
+        assert!(!runtime_additions_are_compatible_with_lower(
+            &conflicting_lower
+        ));
         assert!(!derived_runtime_top_level_is_exact(
             &conflicting_lower,
             &exact
         ));
+
+        let missing_reviewed_overlap = names(&["opt", "usr"]);
+        assert!(!runtime_additions_are_compatible_with_lower(
+            &missing_reviewed_overlap
+        ));
+    }
+
+    #[test]
+    fn runtime_passwd_record_is_fixed_and_uses_only_the_numeric_checker_identity() {
+        assert_eq!(
+            runtime_passwd_record(42001, 42002).expect("non-root checker identity"),
+            b"boole-native-checker:x:42001:42002:boole-native-checker:/work/scratch:/usr/sbin/nologin\n"
+        );
+        assert!(runtime_passwd_record(0, 42002).is_err());
+        assert!(runtime_passwd_record(42001, 0).is_err());
     }
 
     #[test]

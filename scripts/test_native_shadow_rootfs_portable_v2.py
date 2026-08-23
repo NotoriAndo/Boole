@@ -148,6 +148,18 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         manager_call = "./scripts/native-shadow-manager-cgroup-gate.sh"
         self.assertIn(manager_call, replay)
         self.assertIn("--closed-local-replay-rootfs", replay)
+        self.assertLess(
+            replay.rindex('--offline-build "$scratch"'),
+            replay.rindex(manager_call),
+        )
+        self.assertLess(
+            replay.rindex(manager_call),
+            replay.rindex('--offline-probe "$scratch"'),
+        )
+        self.assertIn(
+            "consumed unchanged by the real launcher service",
+            replay,
+        )
         self.assertIn(
             "native-shadow-closed-local-replay-report:accepted:accepted:accepted:cleanup=true",
             manager,
@@ -500,6 +512,7 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             "install-stdio",
             "drop-privileges",
             "verify-privileges",
+            "verify-runtime-identity-lookup",
             "apply-rlimits",
             "install-landlock",
             "install-seccomp",
@@ -517,6 +530,7 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             "derive-check-lower",
             "derive-mount-staging",
             "derive-create-staging",
+            "derive-materialize-passwd",
             "derive-verify-fixed-lower-path",
             "derive-bind-lower",
             "derive-remount-lower-read-only",
@@ -658,6 +672,91 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertIn("mkdir_fixed(RUNTIME_ADDITIONS, 0o755)?;", source)
         self.assertIn("runtime_root_metadata_is_exact", source)
 
+    def test_runtime_root_materializes_the_dynamic_checker_passwd_before_overlay(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        child = source.split("fn child_setup_and_exec", 1)[1].split(
+            "fn setup_stage", 1
+        )[0]
+        derive = source.split("fn derive_and_enter_runtime_root", 1)[1].split(
+            "fn create_runtime_staging_tree", 1
+        )[0]
+        record = source.split("fn runtime_passwd_record", 1)[1].split(
+            "fn materialize_runtime_passwd", 1
+        )[0]
+        materialize = source.split("fn materialize_runtime_passwd", 1)[1].split(
+            "fn verify_runtime_passwd", 1
+        )[0]
+        verify = source.split("fn verify_runtime_passwd", 1)[1].split(
+            "fn verify_fixed_runtime_root_path", 1
+        )[0]
+
+        self.assertRegex(
+            child,
+            r"derive_and_enter_runtime_root\(\s*setup\.rootfs_fd,\s*"
+            r"setup\.dev_null_fd,\s*setup\.checker_uid,\s*setup\.checker_gid,?\s*\)",
+        )
+        self.assertIn('"derive-materialize-passwd"', derive)
+        self.assertIn(
+            "materialize_runtime_passwd(setup_checker_uid, setup_checker_gid)",
+            derive,
+        )
+        self.assertLess(
+            derive.index('"derive-materialize-passwd"'),
+            derive.index('"derive-mount-overlay"'),
+        )
+        self.assertIn("RUNTIME_ADDITIONS_PASSWD", materialize)
+        self.assertIn("checker_uid", record)
+        self.assertIn("checker_gid", record)
+        self.assertIn("/work/scratch", record)
+        self.assertIn("libc::O_EXCL", materialize)
+        self.assertIn("libc::O_NOFOLLOW", materialize)
+        self.assertIn("libc::fchmod", materialize)
+        self.assertIn("0o444", materialize)
+        self.assertIn("libc::fstat", verify)
+        self.assertIn("st_uid != 0", verify)
+        self.assertIn("st_gid != 0", verify)
+        self.assertIn("st_nlink != 1", verify)
+        self.assertIn("runtime passwd metadata mismatch", verify)
+        self.assertIn("runtime passwd bytes mismatch", verify)
+        self.assertNotIn("VERIFIED_RUNTIME_ROOTFS_PATH", materialize)
+        self.assertNotIn("RUNTIME_LOWER", materialize)
+
+        lookup = source.split("fn verify_runtime_identity_lookup", 1)[1].split(
+            "fn require_status_ids", 1
+        )[0]
+        self.assertIn("libc::getpwuid_r", lookup)
+        self.assertIn('c"boole-native-checker"', lookup)
+        self.assertIn('c"/work/scratch"', lookup)
+        self.assertLess(
+            child.index('"verify-privileges"'),
+            child.index('"verify-runtime-identity-lookup"'),
+        )
+        self.assertLess(
+            child.index('"verify-runtime-identity-lookup"'),
+            child.index('"apply-rlimits"'),
+        )
+
+    def test_overlay_top_level_permits_only_the_reviewed_etc_overlap(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        compatibility = source.split(
+            "fn runtime_additions_are_compatible_with_lower", 1
+        )[1].split("fn derived_runtime_top_level_is_exact", 1)[0]
+        derived = source.split("fn derived_runtime_top_level_is_exact", 1)[1].split(
+            "fn mkdir_fixed", 1
+        )[0]
+
+        self.assertIn('OsString::from("etc")', compatibility)
+        for exclusive in ("work", "proc", "dev", "tmp"):
+            self.assertIn(f'"{exclusive}"', compatibility)
+        self.assertIn("runtime_additions_are_compatible_with_lower(lower)", derived)
+        self.assertIn('"etc"', derived)
+
     def test_read_only_overlay_uses_same_dot_pivot_without_old_root_path(self) -> None:
         source = (
             ROOT
@@ -679,7 +778,8 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertRegex(
             source,
             r"let derived_root_identity = setup_stage\(\s*"
-            r'"derive-verify-overlay",\s*verify_derived_runtime_root\(rootfs_fd\),\s*\)\?;',
+            r'"derive-verify-overlay",\s*verify_derived_runtime_root\(\s*'
+            r"rootfs_fd,\s*setup_checker_uid,\s*setup_checker_gid,?\s*\),\s*\)\?;",
         )
         self.assertIn(
             "verify_entered_runtime_root(derived_root_identity)",
