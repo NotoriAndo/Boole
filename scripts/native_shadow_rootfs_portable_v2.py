@@ -194,7 +194,7 @@ def portable_source_lock_from_v1(v1_lock: dict[str, Any]) -> dict[str, Any]:
 
 
 def runtime_lock_v1_equivalent(runtime_lock: dict[str, Any]) -> dict[str, Any]:
-    """Remove the one reviewed v2 filesystem fix before comparing to v1."""
+    """Remove the reviewed v2 filesystem aliases before comparing to v1."""
 
     result = copy.deepcopy(runtime_lock)
     derived = result.get("derivedEntries")

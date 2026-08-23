@@ -94,6 +94,25 @@ PY
   [[ -f "$layer_blob" && ! -L "$layer_blob" ]] || die "verified OCI layer is unavailable"
   tar --extract --file "$layer_blob" --directory "$rootfs" --numeric-owner
 
+  # The verified OCI stays byte-identical to the frozen expectation.  The
+  # qualification process nevertheless needs one fixed numeric account record
+  # so Cargo can resolve a home after chroot drops to uid 65534 with HOME
+  # intentionally absent.  Treat this like the gate-owned /dev/null bind below:
+  # an explicit, reviewed runtime input that never becomes rootfs authority.
+  runtime_passwd="$ROOT/native/containment/native-shadow-runtime-passwd-v2"
+  [[ -f "$runtime_passwd" && ! -L "$runtime_passwd" ]] \
+    || die "fixed qualification account file is unavailable"
+  passwd_digest="$(sha256sum "$runtime_passwd")"
+  [[ "$passwd_digest" == \
+    "0de8ff37fb2dc7fb99e17f761181d87ce4380d6a3fbca2b8c14b44c56e4ca9cf  $runtime_passwd" ]] \
+    || die "fixed qualification account file differs"
+  mkdir -p "$rootfs/etc"
+  [[ ! -e "$rootfs/etc/passwd" && ! -L "$rootfs/etc/passwd" ]] \
+    || die "verified OCI unexpectedly owns /etc/passwd"
+  install -m 0444 -o 0 -g 0 "$runtime_passwd" "$rootfs/etc/passwd"
+  cmp --silent "$runtime_passwd" "$rootfs/etc/passwd" \
+    || die "qualification account installation differs"
+
   # The OCI layer intentionally contains no device nodes.  Bind only the
   # minimum kernel devices needed by Python/cargo into this unit's private
   # mount namespace; none survive the unit.
@@ -170,7 +189,7 @@ PY
   exit 0
 fi
 
-for command_name in gpgv jq mount python3 readlink systemd-run tar umount zstd; do
+for command_name in cmp gpgv install jq mount python3 readlink sha256sum systemd-run tar umount zstd; do
   command -v "$command_name" >/dev/null || die "missing command: $command_name"
 done
 

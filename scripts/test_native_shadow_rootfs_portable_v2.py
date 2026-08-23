@@ -92,6 +92,26 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         ):
             portable.runtime_lock_v1_equivalent(runtime_lock)
 
+    def test_linux_replay_installs_the_fixed_qualification_account_before_chroot(self) -> None:
+        passwd = (
+            ROOT / "native/containment/native-shadow-runtime-passwd-v2"
+        ).read_bytes()
+        self.assertEqual(
+            passwd,
+            b"nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n",
+        )
+
+        replay = (
+            ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"
+        ).read_text(encoding="utf-8")
+        install = (
+            'install -m 0444 -o 0 -g 0 "$runtime_passwd" '
+            '"$rootfs/etc/passwd"'
+        )
+        self.assertIn(install, replay)
+        self.assertLess(replay.index(install), replay.index("chroot --groups=''"))
+        self.assertIn('cmp --silent "$runtime_passwd" "$rootfs/etc/passwd"', replay)
+
     def test_portable_source_lock_bytes_ignore_runtime_tool_path_and_digest(self) -> None:
         first = _v1_candidate(
             "/host-a/bin/gpgv",
