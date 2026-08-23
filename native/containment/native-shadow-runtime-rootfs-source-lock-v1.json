@@ -62,7 +62,9 @@
     "maxTotalBytes": 2147483648,
     "network": "forbidden",
     "output": "oci-image-layout-single-uncompressed-layer-v1",
-    "ownership": "root:root-only"
+    "ownership": "root:root-only",
+    "zstdPath": null,
+    "zstdSha256": null
   },
   "closureRoots": [
     {

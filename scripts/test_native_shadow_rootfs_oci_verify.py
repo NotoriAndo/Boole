@@ -28,6 +28,18 @@ class NativeShadowRootfsIndependentVerifierTests(unittest.TestCase):
             "test_tracked_lock_is_canonical_valid_incomplete_and_build_refuses"
         )
 
+    def test_absolute_layer_symlink_is_scoped_to_rootfs(self) -> None:
+        self.assertEqual(
+            verifier._safe_link(
+                "usr/lib/python3.12/sitecustomize.py",
+                "/etc/python3.12/sitecustomize.py",
+                "OCI layer symlink",
+            ),
+            "etc/python3.12/sitecustomize.py",
+        )
+        with self.assertRaises(verifier.OciVerificationError):
+            verifier._safe_link("usr/bin/tool", "/../../outside", "OCI layer symlink")
+
     def _built_layout(
         self, base: pathlib.Path
     ) -> tuple[dict[str, object], bytes, pathlib.Path, pathlib.Path, pathlib.Path, dict[str, object]]:

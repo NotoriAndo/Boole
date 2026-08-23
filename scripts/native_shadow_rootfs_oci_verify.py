@@ -400,15 +400,16 @@ def _mode(value: Any, context: str) -> int:
 
 
 def _safe_link(path: str, target: Any, context: str) -> str:
-    if not isinstance(target, str) or not target or target.startswith("/"):
+    if not isinstance(target, str) or not target:
         raise OciVerificationError(f"{context} link target is unsafe")
     try:
         target.encode("utf-8", errors="strict")
     except UnicodeError as exc:
         raise OciVerificationError(f"{context} link target is not UTF-8") from exc
-    base = list(pathlib.PurePosixPath(path).parent.parts)
+    absolute = target.startswith("/")
+    base = [] if absolute else list(pathlib.PurePosixPath(path).parent.parts)
     for part in pathlib.PurePosixPath(target).parts:
-        if part in ("", "."):
+        if part in ("", ".", "/"):
             continue
         if part == "..":
             if not base:
