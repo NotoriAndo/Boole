@@ -24,6 +24,18 @@ pub struct VerifiedManagerCgroup {
     manager: crate::cgroupfs_fd::CgroupDirectory,
 }
 
+impl VerifiedManagerCgroup {
+    #[cfg(target_os = "linux")]
+    pub(crate) fn recovery_directories(
+        &self,
+    ) -> (
+        &crate::cgroupfs_fd::CgroupDirectory,
+        &crate::cgroupfs_fd::CgroupDirectory,
+    ) {
+        (&self.service_root, &self.manager)
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum ManagerCgroupFailure {
     #[error("manager-cgroup platform failure: {0}")]

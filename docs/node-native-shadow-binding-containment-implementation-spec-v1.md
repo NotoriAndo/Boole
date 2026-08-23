@@ -318,6 +318,18 @@ entry becomes authoritative on `main` only after its required CI and merge:
   multithread rejection, restart and stop against the real kernel, then removes only its owned
   unit, drop-in and authority tree. It does not scan or clean `run-*` leaves and therefore is not
   startup recovery or readiness.
+* **Phase 3B.2b-2v** — the startup-orphan-recovery slice consumes the manager proof and has no
+  caller-selected path, operation ID, timeout or policy. It uses one cumulative ten-second deadline,
+  validates the complete direct-child inventory before any mutation, opens and validates every
+  canonical `run-<64-lowercase-hex>` leaf before the first freeze, and cleans each leaf in canonical
+  order through freeze confirmation, `cgroup.kill`, `populated=0`, empty process/thread files and
+  descriptor-relative removal. It rechecks the leaf's device/inode identity immediately before
+  removal and rescans the complete inventory plus service-root/manager invariants before returning
+  an opaque recovery proof. The named Linux gate uses one live parent/child process tree, one frozen
+  parent/child tree and one empty leaf, then separately injects an unexpected direct child and proves
+  exact fail-closed inventory rejection without changing the valid live leaf's process/thread/event
+  state. This closes only launcher-owned startup cgroup cleanup. Readiness, fixed toolchain probes,
+  bind/listen, node durable recovery, route wiring and checker execution remain open.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do

@@ -6,8 +6,9 @@
 //! composition of that proof with installed authority and fixed service
 //! identities, the fixed-path lifetime launcher lock, and a one-shot launcher
 //! instance identity. It also exposes the next startup boundary for entering
-//! the fixed manager cgroup. It does not bind or accept a socket, recover run
-//! leaves, spawn a checker, or expose an execution/report API.
+//! the fixed manager cgroup and removing exact startup `run-*` orphan leaves.
+//! It does not bind or accept a socket, issue readiness, spawn a checker, or
+//! expose an execution/report API.
 
 mod cgroupfs_fd;
 pub mod instance_id;
@@ -16,3 +17,4 @@ pub mod manager_cgroup;
 pub mod privilege;
 pub mod qualification;
 pub mod startup;
+pub mod startup_recovery;

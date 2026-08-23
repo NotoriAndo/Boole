@@ -373,6 +373,47 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "the manager directory is deliberately root-only mode 0700",
         )
 
+    def test_manager_gate_exercises_real_startup_orphan_recovery_fail_closed(self):
+        body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
+            encoding="utf-8"
+        )
+        for required in (
+            "native-shadow-startup-recovery-prepared",
+            "native-shadow-startup-recovery-complete:3",
+            "native-shadow-startup-inventory-untouched",
+            'startup_recovery_mode=\"startup-recovery\"',
+            'inventory_reject_mode=\"startup-inventory-reject\"',
+            'stream.write(f"{os.getpid()}\\n")',
+            "child = os.fork()",
+            "pid_start_time()",
+            "wait_for_original_process_exit()",
+            "wait_for_background_job()",
+            "recovered_pid_starttimes",
+            'sudo tee "$leaf_b/cgroup.freeze"',
+            '[[ "$frozen" == 0 && "$populated" == 1 ]]',
+            '"_SYSTEMD_INVOCATION_ID=$invocation_id"',
+            'before_procs=$(sudo sort -n "$leaf/cgroup.procs")',
+            '[[ "$before_procs" == "$after_procs" && "$before_threads" == "$after_threads" ]]',
+            '[[ -z $(sudo find "$service_root" -mindepth 1 -maxdepth 1 -type d ! -name manager -print -quit) ]]',
+        ):
+            self.assertIn(required, body)
+        harness = (
+            REPO_ROOT
+            / "crates"
+            / "boole-native-shadow-launcher"
+            / "tests"
+            / "manager_cgroup_linux.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("for _ in 0..4_000", harness)
+        self.assertNotIn(
+            "cgroup.kill capability proven by zero-leaf recovery",
+            body,
+            "the gate must exercise a real populated leaf before claiming cleanup",
+        )
+        self.assertNotIn('wait "$recovered_tree_a"', body)
+        self.assertNotIn('wait "$recovered_tree_b"', body)
+        self.assertNotIn('wait "$reject_tree"', body)
+
     def test_manager_cgroup_gate_uses_an_owned_read_only_authority_bind(self):
         body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
             encoding="utf-8"

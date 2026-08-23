@@ -17,12 +17,18 @@ use boole_native_shadow_launcher::{
     lifetime_lock::acquire_fixed_launcher_lifetime_lock,
     manager_cgroup::{enter_fixed_manager_cgroup, ManagerCgroupError},
     startup::verify_fixed_launcher_prelock_prerequisites,
+    startup_recovery::{recover_fixed_startup_orphans, StartupCgroupRecoveryError},
 };
 
 #[cfg(target_os = "linux")]
 const MODE_PATH: &str = "/run/boole/native-shadow/manager-cgroup-gate-mode";
 #[cfg(target_os = "linux")]
 const SERVICE_ROOT: &str = "/sys/fs/cgroup/system.slice/boole-native-shadow-launcher.service";
+#[cfg(target_os = "linux")]
+const RECOVERY_RELEASE_PATH: &str = "/run/boole/native-shadow/startup-recovery-release";
+#[cfg(target_os = "linux")]
+const INVENTORY_TEST_LEAF: &str =
+    "run-0000000000000000000000000000000000000000000000000000000000000001";
 
 fn main() {
     #[cfg(target_os = "linux")]
@@ -126,8 +132,129 @@ fn run_linux() -> Result<(), String> {
                 Ok(_) => Err("multithread launcher was accepted".to_string()),
             }
         }
+        "startup-recovery" => {
+            let manager = enter_fixed_manager_cgroup(instance).map_err(format_manager_error)?;
+            announce("native-shadow-startup-recovery-prepared")?;
+            wait_for_recovery_release()?;
+            let recovered =
+                recover_fixed_startup_orphans(manager).map_err(format_startup_recovery_error)?;
+            if recovered.recovered_orphan_count() != 3 {
+                return Err(format!(
+                    "startup recovery removed {} leaves instead of 3",
+                    recovered.recovered_orphan_count()
+                ));
+            }
+            announce_and_wait("native-shadow-startup-recovery-complete:3")
+        }
+        "startup-inventory-reject" => {
+            let manager = enter_fixed_manager_cgroup(instance).map_err(format_manager_error)?;
+            announce("native-shadow-startup-inventory-prepared")?;
+            wait_for_recovery_release()?;
+            let before = snapshot_inventory_test_leaf()?;
+            match recover_fixed_startup_orphans(manager) {
+                Err(StartupCgroupRecoveryError::PostMoveFatal {
+                    stage: "validate startup cgroup inventory",
+                    ..
+                }) => {
+                    let after = snapshot_inventory_test_leaf()?;
+                    if after != before {
+                        return Err(format!(
+                            "inventory rejection mutated valid leaf: before={before:?}, after={after:?}"
+                        ));
+                    }
+                    if !Path::new(&format!("{SERVICE_ROOT}/zzz-unexpected")).is_dir() {
+                        return Err("inventory rejection removed the unexpected child".to_string());
+                    }
+                    announce_and_wait("native-shadow-startup-inventory-untouched")
+                }
+                Err(error) => Err(format!(
+                    "startup inventory rejection had wrong error phase: {error}"
+                )),
+                Ok(_) => Err("unexpected startup inventory was accepted".to_string()),
+            }
+        }
         other => Err(format!("unknown manager gate mode: {other}")),
     }
+}
+
+#[cfg(target_os = "linux")]
+fn wait_for_recovery_release() -> Result<(), String> {
+    for _ in 0..4_000 {
+        match fs::remove_file(RECOVERY_RELEASE_PATH) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => return Err(format!("consume startup recovery release failed: {error}")),
+        }
+    }
+    Err("startup recovery release was not provided".to_string())
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Eq, PartialEq)]
+struct LeafSnapshot {
+    frozen: u8,
+    populated: u8,
+    processes: Vec<u32>,
+    threads: Vec<u32>,
+}
+
+#[cfg(target_os = "linux")]
+fn snapshot_inventory_test_leaf() -> Result<LeafSnapshot, String> {
+    let leaf = format!("{SERVICE_ROOT}/{INVENTORY_TEST_LEAF}");
+    let events = fs::read_to_string(format!("{leaf}/cgroup.events"))
+        .map_err(|error| format!("read untouched leaf events failed: {error}"))?;
+    let frozen = parse_cgroup_event(&events, "frozen")?;
+    let populated = parse_cgroup_event(&events, "populated")?;
+    let processes = read_sorted_ids(&format!("{leaf}/cgroup.procs"))?;
+    let threads = read_sorted_ids(&format!("{leaf}/cgroup.threads"))?;
+    if frozen != 0 || populated != 1 || processes.is_empty() || threads.is_empty() {
+        return Err(format!(
+            "inventory rejection fixture is not live and unfrozen: frozen={frozen}, populated={populated}, processes={processes:?}, threads={threads:?}"
+        ));
+    }
+    Ok(LeafSnapshot {
+        frozen,
+        populated,
+        processes,
+        threads,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn read_sorted_ids(path: &str) -> Result<Vec<u32>, String> {
+    let text = fs::read_to_string(path).map_err(|error| format!("read {path} failed: {error}"))?;
+    let mut ids = text
+        .split_whitespace()
+        .map(|value| {
+            value
+                .parse::<u32>()
+                .map_err(|_| format!("{path} contains malformed ID"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    ids.sort_unstable();
+    Ok(ids)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_cgroup_event(events: &str, key: &str) -> Result<u8, String> {
+    let mut found = None;
+    for line in events.lines() {
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        if fields.first().copied() != Some(key) {
+            continue;
+        }
+        if fields.len() != 2 || found.is_some() {
+            return Err(format!("malformed or duplicate cgroup event: {key}"));
+        }
+        found = Some(
+            fields[1]
+                .parse::<u8>()
+                .map_err(|_| format!("malformed cgroup event value: {key}"))?,
+        );
+    }
+    found.ok_or_else(|| format!("missing cgroup event: {key}"))
 }
 
 #[cfg(target_os = "linux")]
@@ -171,11 +298,21 @@ fn format_manager_error(error: ManagerCgroupError) -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn announce_and_wait(marker: &str) -> Result<(), String> {
+fn format_startup_recovery_error(error: StartupCgroupRecoveryError) -> String {
+    format!("fatal startup cgroup recovery failure: {error}")
+}
+
+#[cfg(target_os = "linux")]
+fn announce(marker: &str) -> Result<(), String> {
     println!("{marker}");
     io::stdout()
         .flush()
-        .map_err(|error| format!("flush ready marker failed: {error}"))?;
+        .map_err(|error| format!("flush marker failed: {error}"))
+}
+
+#[cfg(target_os = "linux")]
+fn announce_and_wait(marker: &str) -> Result<(), String> {
+    announce(marker)?;
     loop {
         // SAFETY: `pause` has no pointer or ownership preconditions. The
         // tracked systemd unit supplies the terminating signal.
