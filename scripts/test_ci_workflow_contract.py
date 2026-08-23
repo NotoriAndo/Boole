@@ -332,6 +332,23 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         )
         self.assertIn('die "unit entered failed state while waiting for $expected"', body)
 
+    def test_manager_cgroup_gate_does_not_reset_a_successfully_collected_unit(self):
+        body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
+            encoding="utf-8"
+        )
+        expected_rejection = body.split("run_expected_rejection() {", 1)[1].split("}\n", 1)[0]
+        self.assertNotIn(
+            'systemctl reset-failed "$unit_name"',
+            expected_rejection,
+            "a successful one-shot service may already be garbage-collected",
+        )
+        safe_reuse = body.split("set_mode safe-reuse", 1)[1].split("set_mode normal", 1)[0]
+        self.assertNotIn(
+            'systemctl reset-failed "$unit_name"',
+            safe_reuse,
+            "a cleanly stopped service has no failed state to reset",
+        )
+
     def test_manager_cgroup_gate_uses_an_owned_read_only_authority_bind(self):
         body = (REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh").read_text(
             encoding="utf-8"

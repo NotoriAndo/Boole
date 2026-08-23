@@ -289,7 +289,6 @@ run_expected_rejection() {
   [[ $(grep -Fxc "$marker" "$log" || :) -eq 1 ]] \
     || die "$mode rejection marker was not observed exactly once"
   wait_for_cgroup_removal
-  sudo systemctl reset-failed "$unit_name"
 }
 
 run_expected_rejection nested-reject native-shadow-manager-nested-rejected
@@ -302,7 +301,6 @@ assert_manager_invariants >/dev/null
 sudo systemctl stop boole-native-shadow-launcher.service
 wait_for_state inactive
 wait_for_cgroup_removal
-sudo systemctl reset-failed "$unit_name"
 
 set_mode normal
 sudo systemctl start boole-native-shadow-launcher.service
