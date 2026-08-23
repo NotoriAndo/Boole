@@ -49,6 +49,12 @@ jobs:
             service_identities::tests::real_fixed_accounts_resolve_in_named_linux_gate \
             -- --ignored --exact --nocapture
 
+      - name: Exercise the real launcher Unix qualification session
+        run: >-
+          cargo test --locked -p boole-native-shadow-launcher --lib
+          qualification::unix::tests::real_kernel_stream_round_trip_observes_peer_and_half_close
+          -- --ignored --exact --nocapture
+
       - name: Probe delegated cgroup and namespace capabilities
         run: sudo ./scripts/native-shadow-containment-capability-probe.sh
 

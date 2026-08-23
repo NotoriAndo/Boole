@@ -7,6 +7,11 @@ use boole_native_shadow_protocol::{
 };
 use thiserror::Error;
 
+#[cfg(target_os = "linux")]
+mod unix;
+#[cfg(target_os = "linux")]
+pub use unix::serve_connected_unix_qualification;
+
 mod private {
     pub trait Sealed {}
 }

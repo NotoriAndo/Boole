@@ -313,7 +313,7 @@ Further route-free foundations now narrow the open prerequisite without closing 
   The named Ubuntu job creates the two ephemeral system accounts and must run the real libc happy
   path without skipping. This slice creates no launcher, socket, cgroup, journal transition or
   checker child, so the real installed handshake remains open.
-* Phase 3B.2b-2l — the current launcher behavioral-core slice: a new, non-publishable launcher
+* Phase 3B.2b-2l — PR #181, main `89a4aa2`: a non-publishable launcher
   library accepts only an in-crate, kernel-credential session and an opaque verified-startup token.
   It authenticates the node peer before frame I/O, reads exactly one strict qualification hello,
   matches all three authority digests, writes and flushes the disabled ready frame, requires clean
@@ -321,6 +321,15 @@ Further route-free foundations now narrow the open prerequisite without closing 
   the owned session is dropped. This slice deliberately has no startup-token constructor, Unix
   adapter, executable, lock, socket bind, cgroup recovery, route, journal transition or checker
   child, so it is not a real installed handshake.
+* Phase 3B.2b-2u — the current already-connected Unix-session slice adds the launcher-side Linux
+  adapter without adding a listener. It reads real kernel `SO_PEERCRED` before any frame, applies
+  one cumulative five-second deadline across peer lookup and all stream operations, and performs
+  only `SHUT_WR` after the core has observed clean node EOF. The named Ubuntu job executes the real
+  socketpair/half-close path, while a focused test proves credential rejection does not consume a
+  queued hello. The adapter accepts no caller path, timeout or numeric identity, and the timeout and
+  peer-order rules are bound to the tracked policy. There is still no constructor for the opaque
+  verified-startup token, launcher binary, listener/bind, lock, cgroup recovery, route, journal
+  transition or checker child, so the installed handshake remains open.
 
 There is still no route or checker spawn, no AppState/route use of the `native_busy` primitive, no
 containment-backed per-submission cleanup and no native-checker execution under the combined Linux

@@ -110,6 +110,15 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         ):
             self.assertIn(required, job)
 
+    def test_named_linux_job_exercises_the_real_launcher_unix_session(self):
+        job = self._job("native-shadow-containment-linux")
+        for required in (
+            "boole-native-shadow-launcher",
+            "real_kernel_stream_round_trip_observes_peer_and_half_close",
+            "--ignored --exact",
+        ):
+            self.assertIn(required, job)
+
     def test_required_self_test_cannot_hide_a_failed_probe(self):
         job = self._job("self-test")
         self.assertRegex(

@@ -234,7 +234,7 @@ entry becomes authoritative on `main` only after its required CI and merge:
   success path; fake providers cover fail-closed contract branches without mutating the host.
   This remains a preflight-only slice: it adds no root launcher, lock, socket bind, cgroup recovery,
   journal transition or checker execution.
-* **Phase 3B.2b-2l** — the current launcher behavioral-core slice adds a separate, non-publishable
+* **Phase 3B.2b-2l** — PR #181, main `89a4aa2`: a separate, non-publishable
   launcher library with only the disabled request-free qualification exchange. An owned, sealed
   session must authenticate the fixed node PID/UID/GID before reading; the core then reads one
   strict hello, matches the policy/toolchain/registry digests, builds ready solely from an opaque
@@ -244,6 +244,17 @@ entry becomes authoritative on `main` only after its required CI and merge:
   NSS identities, a fresh launcher-instance ID and zero-leaf recovery. The library has no binary,
   listener, lock, cgroup operation, execution/report message, route, journal mutation or checker
   spawn; actual handshake GREEN remains open.
+* **Phase 3B.2b-2u** — the current connected-Unix-session slice consumes one already-connected
+  Linux `UnixStream`, obtains the node PID/UID/GID from kernel `SO_PEERCRED` before frame I/O, and
+  gives every peer check, read, write, flush and `SHUT_WR` operation only the remainder of one
+  cumulative five-second deadline. It accepts no timeout, path or numeric identity from its caller.
+  A named Ubuntu gate runs the real kernel socketpair and half-close path; focused tests separately
+  prove that a wrong kernel peer leaves an already queued hello unread and that the timeout and
+  peer-order constants match the tracked policy. Malformed-frame, authority-binding and ready-field
+  matrices remain in the shared protocol and behavioral core rather than being repeated here. This
+  slice still has no startup-token constructor, launcher executable, listener, bind/stale-unlink,
+  lifetime lock, cgroup recovery, route, journal transition or checker child, so it cannot make the
+  installed handshake ready by itself.
 
 All listed phases are internal, currently unwired `boole-node` foundations or infrastructure
 gates. They do
