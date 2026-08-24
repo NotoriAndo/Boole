@@ -1736,6 +1736,66 @@ mod tests {
     }
 
     #[test]
+    fn restarted_launcher_grant_still_binds_the_consumed_durable_attempt() {
+        let request = exact_request(
+            TRACKED_REAL_HISTORY_ACCEPTED_RAW_BYTES,
+            trimmed_utf8(TRACKED_REAL_HISTORY_ACCEPTED_BYTES).expect("accepted source"),
+            "746bba0847458159f16dfe79d19958d2f44d1de7b67f946b1831207586b978be",
+            0,
+        );
+        let first_boot = verify_closed_local_replay_grant_bytes(
+            TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+            TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+            &authority(),
+        )
+        .expect("exact grant");
+        first_boot
+            .authorize_execution_request(&request)
+            .expect("first boot spends the accepted case once");
+        drop(first_boot);
+
+        // A launcher restart reloads the same frozen bytes into a fresh grant,
+        // so the in-memory one-shot bits reset. The cross-restart reuse
+        // refusal lives in the node's durable attempt journal; the restarted
+        // grant must keep recognizing the consumed attempt, and matching must
+        // stay read-only so startup recovery never spends a case.
+        let restarted = verify_closed_local_replay_grant_bytes(
+            TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+            TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+            &authority(),
+        )
+        .expect("restarted grant");
+        let consumed_candidate_digest = sha256_hex(TRACKED_REAL_HISTORY_ACCEPTED_RAW_BYTES);
+        let consumed_submission_digest = submission_digest_hex(
+            FAMILY_VERSION,
+            TEMPLATE_ID,
+            CHALLENGE_SHA256,
+            0,
+            TRACKED_REAL_HISTORY_ACCEPTED_RAW_BYTES,
+        )
+        .expect("submission digest");
+        let consumed_attempt = DurableClosedLocalReplayAttemptFields {
+            family_version: FAMILY_VERSION,
+            template_id: TEMPLATE_ID,
+            challenge_sha256: CHALLENGE_SHA256,
+            epoch: 0,
+            operation_id_hex: "746bba0847458159f16dfe79d19958d2f44d1de7b67f946b1831207586b978be",
+            candidate_digest_hex: &consumed_candidate_digest,
+            submission_digest_hex: &consumed_submission_digest,
+            pre_intake_only: false,
+        };
+        assert!(restarted.matches_durable_attempt(consumed_attempt));
+        assert!(restarted.matches_durable_attempt(consumed_attempt));
+        restarted
+            .authorize_execution_request(&request)
+            .expect("matching never spends the restarted in-memory case");
+        assert!(matches!(
+            restarted.authorize_execution_request(&request),
+            Err(ClosedLocalReplayGrantError::CaseAlreadyAuthorized)
+        ));
+    }
+
+    #[test]
     fn only_three_checker_cases_are_authorized_and_empty_stops_at_pre_intake() {
         let grant = verify_closed_local_replay_grant_bytes(
             TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
