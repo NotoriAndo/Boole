@@ -15,6 +15,9 @@ mod local_node;
 mod native_shadow;
 #[allow(dead_code)]
 mod native_shadow_qualification;
+#[cfg(feature = "native-shadow-closed-local-replay")]
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+mod native_shadow_replay_service;
 #[allow(dead_code)]
 mod native_shadow_submission;
 #[allow(dead_code)]
@@ -63,6 +66,8 @@ pub use local_node::{
     serve_local_node_with_shutdown, LocalNodeConfig, DEFAULT_ROUTE_TIMEOUT,
     MAX_CONCURRENT_REQUESTS, MAX_HTTP_BODY_BYTES, PROOF_ROUTE_BODY_BYTES, PROOF_ROUTE_TIMEOUT,
 };
+#[cfg(feature = "native-shadow-closed-local-replay")]
+pub use native_shadow_replay_service::serve_installed_closed_local_native_shadow_replay;
 pub use p2p_ingress::{P2pConfig, PackageServingConfig, DEFAULT_P2P_RATE_LIMIT_PER_60S};
 pub use p2p_package_fetch::{
     PackageAvailabilityScaffoldBlock, PackageFetchRequest, PackageFetchingConfig,

@@ -20,8 +20,9 @@ pub use closed_local_replay_execution_wire::{
 pub use closed_local_replay_grant::{
     ClosedLocalReplayGrantError, ClosedLocalReplayPreIntakeFields,
     ClosedLocalReplayPreIntakeReason, ClosedLocalReplaySubmissionFields,
-    VerifiedClosedLocalReplayAuthorization, VerifiedClosedLocalReplayGrant,
-    VerifiedClosedLocalReplayPreIntakeAuthorization, VerifiedClosedLocalReplayPreparedCase,
+    DurableClosedLocalReplayAttemptFields, VerifiedClosedLocalReplayAuthorization,
+    VerifiedClosedLocalReplayGrant, VerifiedClosedLocalReplayPreIntakeAuthorization,
+    VerifiedClosedLocalReplayPreparedCase, VerifiedClosedLocalReplayPreparedPreIntakeCase,
     INSTALLED_CLOSED_LOCAL_REPLAY_GRANT_PATH, INSTALLED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_PATH,
     TRACKED_CHECKER_BYTES, TRACKED_CHECKER_POLICY_BYTES, TRACKED_CHECKER_RELEASE_MANIFEST_BYTES,
     TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES, TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,

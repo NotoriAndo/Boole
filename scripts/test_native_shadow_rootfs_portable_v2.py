@@ -138,7 +138,7 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertLess(replay.index(install), replay.index("chroot --groups=''"))
         self.assertIn('cmp --silent "$runtime_passwd" "$rootfs/etc/passwd"', replay)
 
-    def test_linux_replay_delegates_checker_adjudication_to_the_real_launcher_service(self) -> None:
+    def test_linux_replay_delegates_http_adjudication_to_the_real_launcher_service(self) -> None:
         replay = (
             ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"
         ).read_text(encoding="utf-8")
@@ -161,18 +161,18 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             "consumed unchanged by the real launcher service",
             replay,
         )
-        self.assertIn(
-            "native-shadow-closed-local-replay-report:accepted:accepted:accepted:cleanup=true",
-            manager,
-        )
-        self.assertIn(
-            "native-shadow-closed-local-replay-report:tampered:deterministic_reject:compile_or_hidden_test_failed:cleanup=true",
-            manager,
-        )
-        self.assertIn(
-            "native-shadow-closed-local-replay-report:constant:deterministic_reject:compile_or_hidden_test_failed:cleanup=true",
-            manager,
-        )
+        self.assertIn('sudo systemctl start "$node_service_name"', manager)
+        self.assertIn('python3 "$http_replay_gate_path"', manager)
+        for marker in (
+            "native-shadow-http-replay-case:accepted:PASS",
+            "native-shadow-http-replay-case:tampered:PASS",
+            "native-shadow-http-replay-case:constant:PASS",
+            "native-shadow-http-replay-case:empty:PASS",
+            "native-shadow-http-replay-journal:PASS",
+            "native-shadow-http-replay-matrix:PASS",
+        ):
+            self.assertIn(marker, manager)
+        self.assertIn("native-shadow production HTTP replay gate: PASS", manager)
 
     def test_linux_replay_rejects_rootfs_drift_before_any_checker_report(self) -> None:
         manager = (
@@ -244,18 +244,28 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertLess(invariants.index(metadata), invariants.index(journal))
         self.assertLess(invariants.index(journal), invariants.index(failure))
 
-    def test_linux_replay_client_failure_dumps_the_exact_launcher_session_error(self) -> None:
+    def test_linux_http_replay_failure_dumps_node_and_launcher_session_errors(self) -> None:
         manager = (
             ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
         ).read_text(encoding="utf-8")
         client_start = manager.index('local client_status=$?')
-        client_end = manager.index('local client_complete', client_start)
+        client_end = manager.index('local marker', client_start)
         failure_block = manager[client_start:client_end]
 
         self.assertIn('if [[ $client_status -ne 0 ]]; then', failure_block)
         self.assertIn(
+            'sudo systemctl show "$node_service_name" \\\n'
+            '      --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :',
+            failure_block,
+        )
+        self.assertIn(
             'sudo systemctl show "$unit_name" \\\n'
             '      --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :',
+            failure_block,
+        )
+        self.assertIn(
+            'sudo journalctl --no-pager -o cat -u "$node_service_name" \\\n'
+            '      "_SYSTEMD_INVOCATION_ID=$node_invocation" >&2 || :',
             failure_block,
         )
         self.assertIn(
@@ -264,7 +274,7 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             failure_block,
         )
         self.assertIn(
-            'die "closed-local replay client failed or exceeded its outer deadline"',
+            'die "production HTTP replay matrix failed or exceeded its outer deadline"',
             failure_block,
         )
 

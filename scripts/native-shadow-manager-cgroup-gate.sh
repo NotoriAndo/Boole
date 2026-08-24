@@ -40,10 +40,21 @@ unit_name=boole-native-shadow-launcher.service
 unit_path=/run/systemd/system/$unit_name
 unit_dropin_directory="/run/systemd/system/${unit_name}.d"
 unit_dropin_path="$unit_dropin_directory/10-manager-gate-authority.conf"
+node_service_name=boole-native-shadow-replay-node.service
+node_service_path=/run/systemd/system/$node_service_name
+node_service_dropin_directory="/run/systemd/system/${node_service_name}.d"
+node_service_dropin_path="$node_service_dropin_directory/10-manager-gate-authority.conf"
 launcher_directory=/usr/libexec/boole
 launcher_path=$launcher_directory/boole-native-shadow-launcher
 node_qualification_path=$launcher_directory/boole-native-shadow-node-qualification
 node_replay_client_path=$launcher_directory/boole-native-shadow-node-replay-client
+node_replay_service_path=$launcher_directory/boole-native-shadow-replay-node
+http_replay_gate_source=$(readlink -f scripts/native_shadow_http_replay_gate.py)
+http_replay_gate_path=$launcher_directory/native-shadow-http-replay-gate.py
+http_replay_grant_source=$(readlink -f native/containment/native-shadow-closed-local-replay-grant-v1.json)
+http_replay_grant_path=$launcher_directory/native-shadow-http-replay-grant-v1.json
+http_replay_fixture_source_directory=$(readlink -f fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history)
+http_replay_fixture_directory=$launcher_directory/native-shadow-http-replay-fixtures
 authority_stage=''
 authority_share=''
 authority_parent=''
@@ -62,15 +73,23 @@ mode_path=$runtime_directory/manager-cgroup-gate-mode
 recovery_release_path=$runtime_directory/startup-recovery-release
 service_root=/sys/fs/cgroup/system.slice/$unit_name
 manager_root=$service_root/manager
+node_service_root=/sys/fs/cgroup/system.slice/$node_service_name
 temp_root=${RUNNER_TEMP:-/tmp}
 build_json=$(mktemp "$temp_root/boole-native-shadow-manager-build.XXXXXX")
 node_build_json=$(mktemp "$temp_root/boole-native-shadow-node-build.XXXXXX")
 replay_client_build_json=$(mktemp "$temp_root/boole-native-shadow-replay-client-build.XXXXXX")
+production_launcher_build_json=$(mktemp "$temp_root/boole-native-shadow-production-launcher-build.XXXXXX")
+production_node_build_json=$(mktemp "$temp_root/boole-native-shadow-production-node-build.XXXXXX")
 log=$(mktemp "$temp_root/boole-native-shadow-manager.XXXXXX")
 node_log=$(mktemp "$temp_root/boole-native-shadow-node.XXXXXX")
 replay_client_log=$(mktemp "$temp_root/boole-native-shadow-replay-client.XXXXXX")
 dropin_source=$(mktemp "$temp_root/boole-native-shadow-manager-dropin.XXXXXX")
+node_dropin_source=$(mktemp "$temp_root/boole-native-shadow-node-dropin.XXXXXX")
 node_unit=''
+node_state_root=/var/lib/boole
+node_state_parent=$node_state_root/native-shadow
+node_state_directory=$node_state_parent/node-state
+node_journal_path=$node_state_directory/replay-v1.ndjson
 work_path=/work
 mutation_backup=''
 mutation_target=''
@@ -84,6 +103,15 @@ unit_dropin_installed=false
 launcher_installed=false
 node_qualification_installed=false
 node_replay_client_installed=false
+node_replay_service_installed=false
+http_replay_gate_installed=false
+http_replay_inputs_install_started=false
+node_service_installed=false
+node_service_dropin_directory_created=false
+node_service_dropin_installed=false
+node_state_root_created=false
+node_state_parent_created=false
+node_state_directory_created=false
 toolchain_parent_created=false
 toolchain_installed=false
 opt_mode_changed=false
@@ -98,6 +126,10 @@ cleanup_gate() {
     sudo cp --preserve=all "$mutation_backup" "$mutation_target" >/dev/null 2>&1 || :
   fi
   [[ -z "$mutation_backup" ]] || sudo rm -f "$mutation_backup"
+  if [[ "$node_service_installed" == true ]]; then
+    sudo systemctl stop "$node_service_name" >/dev/null 2>&1 || :
+    sudo systemctl reset-failed "$node_service_name" >/dev/null 2>&1 || :
+  fi
   if [[ -n "$node_unit" ]]; then
     sudo systemctl stop "${node_unit}.service" >/dev/null 2>&1 || :
     sudo systemctl reset-failed "${node_unit}.service" >/dev/null 2>&1 || :
@@ -111,9 +143,28 @@ cleanup_gate() {
     sudo rm -f "$unit_path"
     sudo systemctl daemon-reload >/dev/null 2>&1 || :
   fi
+  if [[ "$node_service_installed" == true ]]; then
+    [[ "$node_service_dropin_installed" == true ]] && sudo rm -f "$node_service_dropin_path"
+    [[ "$node_service_dropin_directory_created" == true ]] \
+      && sudo rmdir "$node_service_dropin_directory" >/dev/null 2>&1 || :
+    sudo rm -f "$node_service_path"
+  fi
+  if [[ "$unit_installed" == true || "$node_service_installed" == true ]]; then
+    sudo systemctl daemon-reload >/dev/null 2>&1 || :
+  fi
   [[ "$launcher_installed" == true ]] && sudo rm -f "$launcher_path"
   [[ "$node_qualification_installed" == true ]] && sudo rm -f "$node_qualification_path"
   [[ "$node_replay_client_installed" == true ]] && sudo rm -f "$node_replay_client_path"
+  [[ "$node_replay_service_installed" == true ]] && sudo rm -f "$node_replay_service_path"
+  [[ "$http_replay_gate_installed" == true ]] && sudo rm -f "$http_replay_gate_path"
+  if [[ "$http_replay_inputs_install_started" == true ]]; then
+    sudo rm -f "$http_replay_grant_path"
+    sudo rm -f \
+      "$http_replay_fixture_directory/replay-accepted.raw.txt" \
+      "$http_replay_fixture_directory/replay-tampered.raw.txt" \
+      "$http_replay_fixture_directory/replay-constant.raw.txt"
+    sudo rmdir "$http_replay_fixture_directory" >/dev/null 2>&1 || :
+  fi
   [[ "$toolchain_installed" == true ]] && sudo rm -rf "$toolchain_prefix"
   [[ "$toolchain_parent_created" == true ]] && sudo rmdir "$toolchain_parent" >/dev/null 2>&1 || :
   [[ "$opt_mode_changed" == true ]] && sudo chmod "$opt_original_mode" /opt
@@ -140,6 +191,13 @@ cleanup_gate() {
   [[ "$runtime_directory_created" == true ]] && sudo rm -f "$runtime_directory/launcher.lock"
   [[ "$runtime_directory_created" == true ]] && sudo rmdir "$runtime_directory" >/dev/null 2>&1 || :
   [[ "$runtime_parent_created" == true ]] && sudo rmdir "$runtime_parent" >/dev/null 2>&1 || :
+  [[ "$node_state_directory_created" == true ]] && sudo rm -f "$node_journal_path"
+  [[ "$node_state_directory_created" == true ]] \
+    && sudo rmdir "$node_state_directory" >/dev/null 2>&1 || :
+  [[ "$node_state_parent_created" == true ]] \
+    && sudo rmdir "$node_state_parent" >/dev/null 2>&1 || :
+  [[ "$node_state_root_created" == true ]] \
+    && sudo rmdir "$node_state_root" >/dev/null 2>&1 || :
   [[ "$work_created" == true ]] && sudo rmdir "$work_path" >/dev/null 2>&1 || :
   if [[ -n "$authority_stage" ]]; then
     sudo rmdir "$authority_directory" >/dev/null 2>&1 || :
@@ -150,7 +208,8 @@ cleanup_gate() {
   [[ "$launcher_directory_created" == true ]] && sudo rmdir "$launcher_directory" >/dev/null 2>&1 || :
   [[ -z "$toolchain_stage" ]] || rm -rf "$toolchain_stage"
   rm -f "$build_json" "$node_build_json" "$replay_client_build_json" \
-    "$log" "$node_log" "$replay_client_log" "$dropin_source"
+    "$production_launcher_build_json" "$production_node_build_json" \
+    "$log" "$node_log" "$replay_client_log" "$dropin_source" "$node_dropin_source"
 }
 trap cleanup_gate EXIT
 
@@ -158,13 +217,34 @@ for identity in boole-node boole-native-checker; do
   getent passwd "$identity" >/dev/null || die "missing service user: $identity"
   getent group "$identity" >/dev/null || die "missing service group: $identity"
 done
+[[ -f scripts/native_shadow_http_replay_gate.py \
+  && ! -L scripts/native_shadow_http_replay_gate.py ]] \
+  || die "HTTP replay gate source is not one exact nonsymlink file"
+[[ -f native/containment/native-shadow-closed-local-replay-grant-v1.json \
+  && ! -L native/containment/native-shadow-closed-local-replay-grant-v1.json ]] \
+  || die "HTTP replay grant source is not one exact nonsymlink file"
+[[ -d fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history \
+  && ! -L fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history ]] \
+  || die "HTTP replay fixture source is not one exact nonsymlink directory"
+for http_replay_fixture_name in \
+  replay-accepted.raw.txt replay-tampered.raw.txt replay-constant.raw.txt; do
+  [[ -f "$http_replay_fixture_source_directory/$http_replay_fixture_name" \
+    && ! -L "fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/$http_replay_fixture_name" ]] \
+    || die "HTTP replay fixture source is not one exact nonsymlink file: $http_replay_fixture_name"
+done
 
 load_state=$(systemctl show "$unit_name" --property=LoadState --value 2>/dev/null || :)
 [[ "$load_state" == not-found ]] \
   || die "refusing to shadow pre-existing loaded unit: $unit_name ($load_state)"
+node_load_state=$(systemctl show "$node_service_name" --property=LoadState --value 2>/dev/null || :)
+[[ "$node_load_state" == not-found ]] \
+  || die "refusing to shadow pre-existing loaded unit: $node_service_name ($node_load_state)"
 
 for path in "$unit_path" "$unit_dropin_directory" "$launcher_path" \
-  "$node_qualification_path" "$node_replay_client_path" "$runtime_directory" \
+  "$node_service_path" "$node_service_dropin_directory" \
+  "$node_qualification_path" "$node_replay_client_path" "$node_replay_service_path" \
+  "$http_replay_gate_path" "$http_replay_grant_path" "$http_replay_fixture_directory" \
+  "$runtime_directory" "$node_state_directory" "$node_journal_path" \
   "$service_root" "$toolchain_prefix"; do
   [[ ! -e "$path" && ! -L "$path" ]] || die "refusing to replace pre-existing path: $path"
 done
@@ -250,6 +330,54 @@ for line in open(sys.argv[1], encoding="utf-8"):
 node_replay_client_source=${replay_client_executables[0]}
 [[ -x "$node_replay_client_source" ]] || die "closed-local replay client is not executable"
 
+production_launcher_source=''
+production_node_source=''
+if [[ "$closed_local_replay_only" == true ]]; then
+  cargo build --locked -p boole-native-shadow-launcher --bin boole-native-shadow-launcher \
+    --message-format=json >"$production_launcher_build_json"
+  mapfile -t production_launcher_executables < <(
+    python3 -c '
+import json
+import sys
+
+for line in open(sys.argv[1], encoding="utf-8"):
+    item = json.loads(line)
+    if (
+        item.get("reason") == "compiler-artifact"
+        and item.get("target", {}).get("name") == "boole-native-shadow-launcher"
+        and item.get("executable")
+    ):
+        print(item["executable"])
+' "$production_launcher_build_json"
+  )
+  [[ ${#production_launcher_executables[@]} -eq 1 ]] \
+    || die "expected one production launcher executable, got ${#production_launcher_executables[@]}"
+  production_launcher_source=${production_launcher_executables[0]}
+  [[ -x "$production_launcher_source" ]] || die "production launcher is not executable"
+
+  cargo build --locked -p boole-node --features native-shadow-closed-local-replay --bin boole-native-shadow-replay-node \
+    --message-format=json >"$production_node_build_json"
+  mapfile -t production_node_executables < <(
+    python3 -c '
+import json
+import sys
+
+for line in open(sys.argv[1], encoding="utf-8"):
+    item = json.loads(line)
+    if (
+        item.get("reason") == "compiler-artifact"
+        and item.get("target", {}).get("name") == "boole-native-shadow-replay-node"
+        and item.get("executable")
+    ):
+        print(item["executable"])
+' "$production_node_build_json"
+  )
+  [[ ${#production_node_executables[@]} -eq 1 ]] \
+    || die "expected one production replay-node executable, got ${#production_node_executables[@]}"
+  production_node_source=${production_node_executables[0]}
+  [[ -x "$production_node_source" ]] || die "production replay node is not executable"
+fi
+
 toolchain_stage=$(mktemp -d "$temp_root/boole-native-shadow-toolchain.XXXXXX")
 ./scripts/install-native-checker-toolchain.sh "$toolchain_stage"
 [[ $(stat -c %U:%G /opt) == root:root ]] \
@@ -295,6 +423,23 @@ node_qualification_installed=true
 sudo install -o root -g root -m 0755 \
   "$node_replay_client_source" "$node_replay_client_path"
 node_replay_client_installed=true
+if [[ "$closed_local_replay_only" == true ]]; then
+  sudo install -o root -g root -m 0755 \
+    "$production_node_source" "$node_replay_service_path"
+  node_replay_service_installed=true
+  sudo install -o root -g root -m 0555 "$http_replay_gate_source" "$http_replay_gate_path"
+  http_replay_gate_installed=true
+  http_replay_inputs_install_started=true
+  sudo install -o root -g root -m 0444 "$http_replay_grant_source" "$http_replay_grant_path"
+  sudo install -d -o root -g root -m 0755 "$http_replay_fixture_directory"
+  for http_replay_fixture_name in \
+    replay-accepted.raw.txt replay-tampered.raw.txt replay-constant.raw.txt; do
+    sudo install -o root -g root -m 0444 \
+      "$http_replay_fixture_source_directory/$http_replay_fixture_name" \
+      "$http_replay_fixture_directory/$http_replay_fixture_name"
+  done
+  sudo chmod 0555 "$http_replay_fixture_directory"
+fi
 [[ $(sha256sum "$harness" | awk '{ print $1 }') == $(sudo sha256sum "$launcher_path" | awk '{ print $1 }') ]] \
   || die "installed launcher bytes differ from reviewed harness"
 [[ $(sudo stat -c %U:%G:%a "$launcher_path") == root:root:755 ]] \
@@ -307,6 +452,29 @@ node_replay_client_installed=true
   || die "installed closed-local replay client bytes differ from the reviewed binary"
 [[ $(sudo stat -c %U:%G:%a "$node_replay_client_path") == root:root:755 ]] \
   || die "installed closed-local replay client metadata does not match root:root:755"
+if [[ "$closed_local_replay_only" == true ]]; then
+  [[ $(sha256sum "$production_node_source" | awk '{ print $1 }') == $(sudo sha256sum "$node_replay_service_path" | awk '{ print $1 }') ]] \
+    || die "installed production replay-node bytes differ from the reviewed binary"
+  [[ $(sudo stat -c %U:%G:%a "$node_replay_service_path") == root:root:755 ]] \
+    || die "installed production replay-node metadata does not match root:root:755"
+  [[ $(sha256sum "$http_replay_gate_source" | awk '{ print $1 }') == $(sudo sha256sum "$http_replay_gate_path" | awk '{ print $1 }') ]] \
+    || die "installed HTTP replay gate bytes differ from the reviewed script"
+  [[ $(sudo stat -c %U:%G:%a "$http_replay_gate_path") == root:root:555 ]] \
+    || die "installed HTTP replay gate metadata does not match root:root:555"
+  [[ $(sha256sum "$http_replay_grant_source" | awk '{ print $1 }') == $(sudo sha256sum "$http_replay_grant_path" | awk '{ print $1 }') ]] \
+    || die "installed HTTP replay grant bytes differ from the reviewed authority"
+  [[ $(sudo stat -c %U:%G:%a "$http_replay_grant_path") == root:root:444 ]] \
+    || die "installed HTTP replay grant metadata does not match root:root:444"
+  [[ $(sudo stat -c %U:%G:%a "$http_replay_fixture_directory") == root:root:555 ]] \
+    || die "installed HTTP replay fixture directory does not match root:root:555"
+  for http_replay_fixture_name in \
+    replay-accepted.raw.txt replay-tampered.raw.txt replay-constant.raw.txt; do
+    [[ $(sha256sum "$http_replay_fixture_source_directory/$http_replay_fixture_name" | awk '{ print $1 }') == $(sudo sha256sum "$http_replay_fixture_directory/$http_replay_fixture_name" | awk '{ print $1 }') ]] \
+      || die "installed HTTP replay fixture bytes differ: $http_replay_fixture_name"
+    [[ $(sudo stat -c %U:%G:%a "$http_replay_fixture_directory/$http_replay_fixture_name") == root:root:444 ]] \
+      || die "installed HTTP replay fixture metadata does not match root:root:444: $http_replay_fixture_name"
+  done
+fi
 
 authority_stage=$(sudo mktemp -d /run/boole-native-shadow-manager-authority.XXXXXX)
 authority_share="$authority_stage/share"
@@ -379,11 +547,22 @@ fi
 if [[ ! -d "$runtime_directory" ]]; then
   runtime_directory_created=true
 fi
+if [[ ! -d "$node_state_root" ]]; then
+  node_state_root_created=true
+fi
+if [[ ! -d "$node_state_parent" ]]; then
+  node_state_parent_created=true
+fi
+if [[ ! -d "$node_state_directory" ]]; then
+  node_state_directory_created=true
+fi
 tmpfiles_path=$(readlink -f native/tmpfiles.d/boole-native-shadow.conf)
 [[ -f "$tmpfiles_path" ]] || die "tracked tmpfiles input is unavailable"
 sudo systemd-tmpfiles --create "$tmpfiles_path"
 [[ $(stat -c %U:%G:%a "$runtime_directory") == root:boole-node:2750 ]] \
   || die "runtime directory does not match root:boole-node mode 2750"
+[[ $(stat -c %U:%G:%a "$node_state_directory") == boole-node:boole-node:700 ]] \
+  || die "node-state directory does not match boole-node:boole-node mode 0700"
 
 sudo install -o root -g root -m 0644 native/systemd/boole-native-shadow-launcher.service "$unit_path"
 unit_installed=true
@@ -408,6 +587,27 @@ sudo systemctl daemon-reload
   || die "systemd did not load the exact tracked unit fragment"
 [[ $(sudo systemctl show "$unit_name" --property=DropInPaths --value) == "$unit_dropin_path" ]] \
   || die "systemd did not load exactly the gate-owned authority drop-in"
+
+if [[ "$closed_local_replay_only" == true ]]; then
+  sudo install -o root -g root -m 0644 \
+    native/systemd/boole-native-shadow-replay-node.service "$node_service_path"
+  node_service_installed=true
+  [[ $(sha256sum native/systemd/boole-native-shadow-replay-node.service | awk '{ print $1 }') == $(sudo sha256sum "$node_service_path" | awk '{ print $1 }') ]] \
+    || die "installed production replay-node unit differs from tracked bytes"
+  sudo install -d -o root -g root -m 0755 "$node_service_dropin_directory"
+  node_service_dropin_directory_created=true
+  printf '[Service]\nBindReadOnlyPaths=%s:/usr/share\n' "$authority_share" \
+    >"$node_dropin_source"
+  sudo install -o root -g root -m 0644 "$node_dropin_source" "$node_service_dropin_path"
+  node_service_dropin_installed=true
+  [[ $(sudo stat -c %U:%G:%a "$node_service_dropin_path") == root:root:644 ]] \
+    || die "replay-node authority bind drop-in metadata does not match root:root:644"
+  sudo systemctl daemon-reload
+  [[ $(sudo systemctl show "$node_service_name" --property=FragmentPath --value) == "$node_service_path" ]] \
+    || die "systemd did not load the exact tracked replay-node unit fragment"
+  [[ $(sudo systemctl show "$node_service_name" --property=DropInPaths --value) == "$node_service_dropin_path" ]] \
+    || die "systemd did not load exactly the gate-owned replay-node authority drop-in"
+fi
 
 set_mode() {
   local mode=$1
@@ -872,106 +1072,160 @@ PY
   mutation_target=''
   : >"$replay_client_log"
 
-  # Now start a fresh launcher over the restored exact tree and prove all
-  # three checker-executing matrix rows through the real protocol.
-  set_mode closed-local-replay-three
-  sudo systemctl start "$unit_name"
-  local launcher_invocation
-  launcher_invocation=$(unit_invocation_id)
-  assert_manager_invariants >/dev/null
-  wait_for_fixed_socket
+  # Replace the CI harness at the exact production path only after the
+  # request-time drift gate has completed.  The final matrix must traverse the
+  # installed node HTTP route, one qualified launcher process, and the real
+  # contained checker; the old direct Unix three-case client is not used here.
+  sudo install -o root -g root -m 0755 "$production_launcher_source" "$launcher_path"
+  [[ $(sha256sum "$production_launcher_source" | awk '{ print $1 }') == $(sudo sha256sum "$launcher_path" | awk '{ print $1 }') ]] \
+    || die "installed production launcher bytes differ from the reviewed binary"
+  set_mode normal
+  sudo rm -f "$node_journal_path"
 
-  node_unit="boole-native-shadow-node-replay-${suffix}"
+  # Bound the production audit to messages written after this point.  The
+  # journal's InvocationID secondary index can lag behind `journalctl --sync`
+  # on a just-started unit, so it is not sufficient for the exact peer count.
+  # A global cursor gives us one kernel-journal ordering boundary; `_PID`
+  # below then proves every matching message came from the qualified launcher
+  # process rather than an older invocation of the same unit.
+  sudo journalctl --sync
+  local launcher_journal_cursor
+  launcher_journal_cursor=$(sudo journalctl --no-pager --show-cursor -n 0 \
+    | sed -n 's/^-- cursor: //p')
+  [[ -n "$launcher_journal_cursor" ]] \
+    || die "could not freeze the pre-launcher journal cursor"
+
+  # Starting the node is the only explicit start. Its tracked Wants=/After=
+  # relationship starts the launcher, while the node's bounded ENOENT/
+  # ECONNREFUSED retry handles the intentional socket-readiness race. Do not
+  # pre-start or pre-wait for the launcher socket here.
+  sudo systemctl start "$node_service_name"
+  local launcher_invocation
+  local launcher_pid
+  local node_invocation
+  local node_pid_before
+  launcher_invocation=$(unit_invocation_id)
+  launcher_pid=$(assert_manager_invariants)
+  node_invocation=$(sudo systemctl show "$node_service_name" --property=InvocationID --value)
+  [[ "$node_invocation" =~ ^[0-9a-f]{32}$ ]] \
+    || die "production replay node has invalid InvocationID: $node_invocation"
+  node_pid_before=$(sudo systemctl show "$node_service_name" --property=MainPID --value)
+  [[ "$node_pid_before" =~ ^[1-9][0-9]*$ ]] \
+    || die "production replay node has invalid MainPID: $node_pid_before"
+
   set +e
   timeout --foreground --signal=TERM --kill-after=10s 420s \
-    sudo systemd-run --quiet --pipe --wait --collect --unit="$node_unit" \
-      --property=Type=exec --property=User=boole-node --property=Group=boole-node \
-      --property=CapabilityBoundingSet= --property=AmbientCapabilities= \
-      --property=NoNewPrivileges=yes --property=PrivateMounts=yes \
-      --property=PrivateNetwork=yes --property=RestrictAddressFamilies=AF_UNIX \
-      --property=ProtectSystem=strict \
-      --property="BindReadOnlyPaths=${authority_share}:/usr/share" \
-      --property=WorkingDirectory=/ \
-      "$node_replay_client_path" --qualified-all-three >"$replay_client_log" 2>&1
+    sudo -u boole-node python3 "$http_replay_gate_path" \
+      --grant-path "$http_replay_grant_path" \
+      --fixture-directory "$http_replay_fixture_directory" \
+      --journal-path "$node_journal_path" >"$replay_client_log" 2>&1
   local client_status=$?
   set -e
   cat "$replay_client_log"
   if [[ $client_status -ne 0 ]]; then
+    sudo systemctl show "$node_service_name" \
+      --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :
     sudo systemctl show "$unit_name" \
       --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :
+    sudo journalctl --no-pager -o cat -u "$node_service_name" \
+      "_SYSTEMD_INVOCATION_ID=$node_invocation" >&2 || :
     sudo journalctl --no-pager -o cat -u "$unit_name" \
       "_SYSTEMD_INVOCATION_ID=$launcher_invocation" >&2 || :
-    die "closed-local replay client failed or exceeded its outer deadline"
+    die "production HTTP replay matrix failed or exceeded its outer deadline"
   fi
 
-  local client_complete
-  client_complete="native-shadow-closed-local-replay-client-complete:launcher_connections=4:qualification_connections=1:checker_connections=3:empty_connections=0"
-  [[ $(grep -Fxc "$client_complete" "$replay_client_log" || :) -eq 1 ]] \
-    || die "closed-local replay client did not prove one qualification plus exactly three checker connections and zero empty connections"
-  local -a expected_reports=(
-    "native-shadow-closed-local-replay-report:accepted:accepted:accepted:cleanup=true"
-    "native-shadow-closed-local-replay-report:tampered:deterministic_reject:compile_or_hidden_test_failed:cleanup=true"
-    "native-shadow-closed-local-replay-report:constant:deterministic_reject:compile_or_hidden_test_failed:cleanup=true"
-  )
-  local report
-  for report in "${expected_reports[@]}"; do
-    [[ $(grep -Fxc "$report" "$replay_client_log" || :) -eq 1 ]] \
-      || die "closed-local replay client did not validate one exact Report: $report"
+  local marker
+  for marker in \
+    native-shadow-http-replay-case:accepted:PASS \
+    native-shadow-http-replay-case:tampered:PASS \
+    native-shadow-http-replay-case:constant:PASS \
+    native-shadow-http-replay-case:empty:PASS \
+    native-shadow-http-replay-journal:PASS \
+    native-shadow-http-replay-matrix:PASS; do
+    [[ $(grep -Fxc "$marker" "$replay_client_log" || :) -eq 1 ]] \
+      || die "production HTTP replay matrix omitted exact marker: $marker"
   done
-  [[ $(grep -Fc 'native-shadow-closed-local-replay-report:' "$replay_client_log" || :) -eq 3 ]] \
-    || die "closed-local replay client observed a non-exact Report count"
 
-  local client_pid
-  client_pid=$(sed -n 's/^native-shadow-closed-local-replay-client-pid:\([1-9][0-9]*\)$/\1/p' \
-    "$replay_client_log")
-  [[ "$client_pid" =~ ^[1-9][0-9]*$ ]] \
-    || die "closed-local replay client did not publish one exact process identity"
+  # The launcher reads SO_PEERCRED on every checker connection. The HTTP
+  # client talks only to the node, so all three kernel-authenticated launcher
+  # peers must be the one stable replay-node MainPID, never the Python driver.
   sudo journalctl --sync
   local -a peer_pids=()
-  mapfile -t peer_pids < <(
-    sudo journalctl --no-pager -o cat -u "$unit_name" \
-      "_SYSTEMD_INVOCATION_ID=$launcher_invocation" \
-      | sed -n 's/^native-shadow-active-execution-peer:pid=\([1-9][0-9]*\)$/\1/p'
-  )
+  local peer_pid_wait
+  for ((peer_pid_wait = 0; peer_pid_wait < 200; peer_pid_wait++)); do
+    mapfile -t peer_pids < <(
+      sudo journalctl --no-pager -o cat -u "$unit_name" \
+        --after-cursor "$launcher_journal_cursor" "_PID=$launcher_pid" \
+        | sed -n 's/^native-shadow-active-execution-peer:pid=\([1-9][0-9]*\)$/\1/p'
+    )
+    [[ ${#peer_pids[@]} -eq 3 ]] && break
+    (( ${#peer_pids[@]} < 3 )) \
+      || die "launcher emitted more than three active execution peer identities"
+    sleep 0.05
+  done
   if ! [[ ${#peer_pids[@]} -eq 3 ]]; then
     printf 'native-shadow active execution peer PID count: expected=3 observed=%s\n' \
       "${#peer_pids[@]}" >&2
     printf 'native-shadow active execution peer PID observed:%s\n' \
       "${peer_pids[@]:-none}" >&2
+    sudo journalctl --no-pager -o cat -u "$unit_name" \
+      --after-cursor "$launcher_journal_cursor" >&2 || :
     die "launcher did not observe exactly three SO_PEERCRED process identities"
   fi
   local peer_pid
   for peer_pid in "${peer_pids[@]}"; do
-    [[ "$peer_pid" == "$client_pid" ]] \
-      || die "launcher SO_PEERCRED PID differs from the one fixed client process"
+    [[ "$peer_pid" == "$node_pid_before" ]] \
+      || die "launcher SO_PEERCRED PID differs from the one fixed replay-node process"
   done
+
+  # Each successful execution transport validates both SO_PEERCRED launcher
+  # PID and launcherInstanceId against the one qualification result. Keep the
+  # systemd process/invocation stable too, then publish one auditable gate log.
+  [[ $(sudo systemctl show "$node_service_name" --property=MainPID --value) == "$node_pid_before" ]] \
+    || die "production replay node process changed during the matrix"
+  [[ $(sudo systemctl show "$node_service_name" --property=InvocationID --value) == "$node_invocation" ]] \
+    || die "production replay node invocation changed during the matrix"
+  [[ $(sudo systemctl show "$node_service_name" --property=NRestarts --value) == 0 ]] \
+    || die "production replay node restarted during the matrix"
+  grep -F 'execution_launcher_pid_drift' \
+    crates/boole-node/src/native_shadow_replay_service.rs >/dev/null \
+    || die "production transport lost the qualified launcher PID binding"
+  grep -F 'execution_launcher_instance_drift' \
+    crates/boole-node/src/native_shadow_replay_service.rs >/dev/null \
+    || die "production transport lost the qualified launcher instance binding"
+  printf 'native-shadow-production-qualified-binding:launcher_pid=%s;launcher_invocation=%s;node_pid=%s;node_invocation=%s\n' \
+    "$launcher_pid" "$launcher_invocation" "$node_pid_before" "$node_invocation"
 
   wait_for_state inactive
   [[ $(sudo systemctl show "$unit_name" --property=Result --value) == success ]] \
-    || die "three-session replay launcher did not exit successfully"
+    || die "production three-execution launcher did not exit successfully"
   [[ $(sudo systemctl show "$unit_name" --property=NRestarts --value) == 0 ]] \
-    || die "three-session replay launcher restarted unexpectedly"
-  wait_for_marker native-shadow-closed-local-replay-three-complete "$launcher_invocation"
-  sudo test ! -e "$socket_path" && sudo test ! -L "$socket_path" \
-    || die "three-session replay left the fixed socket path behind"
-  wait_for_cgroup_removal
-  [[ -z $(sudo find /run/boole/native-shadow -maxdepth 1 -name 'rootfs-*' -print -quit) ]] \
-    || die "three-session replay left a derived runtime-root path behind"
-  [[ -z $(findmnt -rn -o TARGET | grep -F '/run/boole/native-shadow/rootfs-' || :) ]] \
-    || die "three-session replay left a derived runtime-root mount behind"
+    || die "production three-execution launcher restarted unexpectedly"
+  [[ $(sudo systemctl show "$unit_name" --property=InvocationID --value) == "$launcher_invocation" ]] \
+    || die "production launcher invocation changed during the matrix"
 
-  local node_load_state=''
+  sudo systemctl stop "$node_service_name"
   local i
+  local node_state=''
   for ((i = 0; i < 200; i++)); do
-    node_load_state=$(sudo systemctl show "${node_unit}.service" \
-      --property=LoadState --value 2>/dev/null || :)
-    [[ "$node_load_state" == not-found ]] && break
+    node_state=$(sudo systemctl show "$node_service_name" --property=ActiveState --value 2>/dev/null || :)
+    [[ "$node_state" == inactive ]] && break
     sleep 0.05
   done
-  [[ "$node_load_state" == not-found ]] \
-    || die "closed-local replay transient client unit was not collected"
-  node_unit=''
-  echo "native-shadow closed-local replay three-session gate: PASS"
+  [[ "$node_state" == inactive ]] \
+    || die "production replay node did not stop cleanly"
+  [[ $(sudo systemctl show "$node_service_name" --property=MainPID --value) == 0 ]] \
+    || die "production replay node process remained after stop"
+  sudo test ! -e "$socket_path" && sudo test ! -L "$socket_path" \
+    || die "production HTTP replay left the fixed socket path behind"
+  wait_for_cgroup_removal
+  sudo test ! -e "$node_service_root" \
+    || die "production replay node cgroup remained after stop"
+  [[ -z $(sudo find /run/boole/native-shadow -maxdepth 1 -name 'rootfs-*' -print -quit) ]] \
+    || die "production HTTP replay left a derived runtime-root path behind"
+  [[ -z $(findmnt -rn -o TARGET | grep -F '/run/boole/native-shadow/rootfs-' || :) ]] \
+    || die "production HTTP replay left a derived runtime-root mount behind"
+  echo "native-shadow production HTTP replay gate: PASS"
 }
 
 if [[ "$closed_local_replay_only" == true ]]; then

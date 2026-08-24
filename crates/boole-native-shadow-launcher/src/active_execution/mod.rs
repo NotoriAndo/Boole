@@ -200,7 +200,11 @@ fn serve_active_execution_session<S: ActiveExecutionSession>(
         identities.node_gid(),
         expected_node_pid,
     )?;
-    #[cfg(feature = "manager-cgroup-linux-gate")]
+    // This is a production audit binding, not a CI diagnostic.  The PID was
+    // read from SO_PEERCRED and already passed the fixed UID/GID plus
+    // qualification-PID check above.  Keep the marker in feature-free
+    // production builds so the named Linux gate can prove that every checker
+    // connection came from the one qualified node process.
     eprintln!("native-shadow-active-execution-peer:pid={}", peer.pid);
     let hello_frame = session
         .read_frame(MAX_REQUEST_FRAME_BYTES)

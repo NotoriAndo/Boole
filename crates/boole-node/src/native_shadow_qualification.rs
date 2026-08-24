@@ -10,6 +10,51 @@ use thiserror::Error;
 const FIXED_LAUNCHER_SOCKET_PATH: &str = "/run/boole/native-shadow/launcher.sock";
 const CONNECT_TIMEOUT_MILLIS: u64 = 1_000;
 const HANDSHAKE_TIMEOUT_MILLIS: u64 = 5_000;
+const STARTUP_SOCKET_READY_BUDGET: std::time::Duration = std::time::Duration::from_secs(120);
+const STARTUP_SOCKET_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+
+fn connect_when_launcher_socket_ready<T, C, N, S>(
+    mut connect: C,
+    mut elapsed: N,
+    mut sleep: S,
+) -> io::Result<T>
+where
+    C: FnMut(std::time::Duration) -> io::Result<T>,
+    N: FnMut() -> std::time::Duration,
+    S: FnMut(std::time::Duration),
+{
+    let mut last_not_ready = None;
+    loop {
+        let spent = elapsed();
+        if spent >= STARTUP_SOCKET_READY_BUDGET {
+            return Err(last_not_ready.unwrap_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "launcher socket readiness budget elapsed",
+                )
+            }));
+        }
+        let remaining = STARTUP_SOCKET_READY_BUDGET - spent;
+        let timeout = std::time::Duration::from_millis(CONNECT_TIMEOUT_MILLIS).min(remaining);
+        match connect(timeout) {
+            Ok(stream) => return Ok(stream),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                ) =>
+            {
+                last_not_ready = Some(error);
+                let spent = elapsed();
+                if spent >= STARTUP_SOCKET_READY_BUDGET {
+                    continue;
+                }
+                sleep(STARTUP_SOCKET_RETRY_INTERVAL.min(STARTUP_SOCKET_READY_BUDGET - spent));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
 
 fn fixed_launcher_socket_path() -> &'static Path {
     Path::new(FIXED_LAUNCHER_SOCKET_PATH)
@@ -61,7 +106,7 @@ impl QualificationNonce {
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
-enum NativeShadowStartupError {
+pub(crate) enum NativeShadowStartupError {
     #[cfg(not(target_os = "linux"))]
     #[error("native-shadow qualification requires Linux")]
     UnsupportedPlatform,
@@ -107,7 +152,7 @@ trait NativeShadowQualificationSession: Read + Write {
 ///
 /// This type deliberately has no lifecycle, journal, route, or execution API.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct NativeShadowQualificationReadiness {
+pub(crate) struct NativeShadowQualificationReadiness {
     launcher_pid: u32,
     launcher_instance_id_hex: String,
     registry_digest_hex: String,
@@ -115,8 +160,30 @@ struct NativeShadowQualificationReadiness {
     toolchain_identity_digest_hex: String,
 }
 
+impl NativeShadowQualificationReadiness {
+    pub(crate) fn launcher_pid(&self) -> u32 {
+        self.launcher_pid
+    }
+
+    pub(crate) fn launcher_instance_id_hex(&self) -> &str {
+        &self.launcher_instance_id_hex
+    }
+
+    pub(crate) fn registry_digest_hex(&self) -> &str {
+        &self.registry_digest_hex
+    }
+
+    pub(crate) fn execution_policy_digest_hex(&self) -> &str {
+        &self.execution_policy_digest_hex
+    }
+
+    pub(crate) fn toolchain_identity_digest_hex(&self) -> &str {
+        &self.toolchain_identity_digest_hex
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
-enum NativeShadowQualificationError {
+pub(crate) enum NativeShadowQualificationError {
     #[error("launcher peer credentials are unavailable: {0}")]
     PeerCredentialsUnavailable(String),
     #[error("launcher peer must be root with a non-zero PID")]
@@ -236,7 +303,7 @@ where
 }
 
 #[cfg(not(target_os = "linux"))]
-fn qualify_installed_native_shadow_launcher(
+pub(crate) fn qualify_installed_native_shadow_launcher(
 ) -> Result<NativeShadowQualificationReadiness, NativeShadowStartupError> {
     Err(NativeShadowStartupError::UnsupportedPlatform)
 }
@@ -256,11 +323,11 @@ mod linux {
     };
 
     use super::{
-        fixed_launcher_socket_path, qualification_nonce_from_one_call,
-        qualify_native_shadow_launcher, NativeShadowExpectedIdentities,
-        NativeShadowPeerCredentials, NativeShadowQualificationReadiness,
-        NativeShadowQualificationSession, NativeShadowStartupError, CONNECT_TIMEOUT_MILLIS,
-        HANDSHAKE_TIMEOUT_MILLIS,
+        connect_when_launcher_socket_ready, fixed_launcher_socket_path,
+        qualification_nonce_from_one_call, qualify_native_shadow_launcher,
+        NativeShadowExpectedIdentities, NativeShadowPeerCredentials,
+        NativeShadowQualificationReadiness, NativeShadowQualificationSession,
+        NativeShadowStartupError, HANDSHAKE_TIMEOUT_MILLIS,
     };
 
     struct UnixQualificationSession {
@@ -332,9 +399,11 @@ mod linux {
         .validate()?;
         let authority = open_verified_installed_authority_bundle()
             .map_err(|error| NativeShadowStartupError::Authority(error.to_string()))?;
-        let stream = connect_unix_with_timeout(
-            fixed_launcher_socket_path(),
-            Duration::from_millis(CONNECT_TIMEOUT_MILLIS),
+        let connect_started = Instant::now();
+        let stream = connect_when_launcher_socket_ready(
+            |timeout| connect_unix_with_timeout(fixed_launcher_socket_path(), timeout),
+            || connect_started.elapsed(),
+            std::thread::sleep,
         )
         .map_err(|error| NativeShadowStartupError::Connect(error.to_string()))?;
         let nonce = qualification_nonce_from_one_call(getrandom_once)?;
@@ -667,14 +736,14 @@ mod linux {
 }
 
 #[cfg(target_os = "linux")]
-fn qualify_installed_native_shadow_launcher(
+pub(crate) fn qualify_installed_native_shadow_launcher(
 ) -> Result<NativeShadowQualificationReadiness, NativeShadowStartupError> {
     linux::qualify_installed()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::io::{self, Cursor, Read, Write};
     use std::rc::Rc;
 
@@ -687,16 +756,76 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::{
-        fixed_launcher_socket_path, qualification_nonce_from_one_call,
-        qualify_installed_native_shadow_launcher, qualify_native_shadow_launcher,
-        NativeShadowExpectedIdentities, NativeShadowPeerCredentials,
-        NativeShadowQualificationError, NativeShadowQualificationSession, NativeShadowStartupError,
-        QualificationNonce,
+        connect_when_launcher_socket_ready, fixed_launcher_socket_path,
+        qualification_nonce_from_one_call, qualify_installed_native_shadow_launcher,
+        qualify_native_shadow_launcher, NativeShadowExpectedIdentities,
+        NativeShadowPeerCredentials, NativeShadowQualificationError,
+        NativeShadowQualificationSession, NativeShadowStartupError, QualificationNonce,
     };
 
     const NONCE: [u8; 32] = [0x42; 32];
     const LAUNCHER_INSTANCE_ID: &str =
         "abababababababababababababababababababababababababababababababab";
+
+    #[test]
+    fn startup_wait_retries_only_socket_not_ready_and_never_exceeds_its_budget() {
+        let elapsed = Cell::new(std::time::Duration::ZERO);
+        let attempts = Cell::new(0_usize);
+        let sleeps = Cell::new(0_usize);
+        let mut outcomes = std::collections::VecDeque::from([
+            Err(io::Error::from_raw_os_error(libc::ENOENT)),
+            Err(io::Error::from_raw_os_error(libc::ECONNREFUSED)),
+            Ok(7_u8),
+        ]);
+        let value = connect_when_launcher_socket_ready(
+            |_| {
+                attempts.set(attempts.get() + 1);
+                outcomes.pop_front().expect("frozen connection outcome")
+            },
+            || elapsed.get(),
+            |duration| {
+                sleeps.set(sleeps.get() + 1);
+                elapsed.set(elapsed.get() + duration);
+            },
+        )
+        .expect("socket readiness failures may be retried");
+        assert_eq!(value, 7);
+        assert_eq!(attempts.get(), 3);
+        assert_eq!(sleeps.get(), 2);
+
+        let attempts = Cell::new(0_usize);
+        let error = connect_when_launcher_socket_ready(
+            |_| {
+                attempts.set(attempts.get() + 1);
+                Err::<(), _>(io::Error::from_raw_os_error(libc::EACCES))
+            },
+            || std::time::Duration::ZERO,
+            |_| panic!("permission errors must not enter the readiness wait"),
+        )
+        .expect_err("permission errors are terminal");
+        assert_eq!(error.raw_os_error(), Some(libc::EACCES));
+        assert_eq!(attempts.get(), 1);
+
+        let elapsed = Cell::new(std::time::Duration::ZERO);
+        let attempts = Cell::new(0_usize);
+        let error = connect_when_launcher_socket_ready(
+            |timeout| {
+                assert!(
+                    elapsed.get() < std::time::Duration::from_secs(120),
+                    "the connector must not run after the hard deadline"
+                );
+                attempts.set(attempts.get() + 1);
+                elapsed.set(elapsed.get() + timeout);
+                Err::<(), _>(io::Error::from_raw_os_error(libc::ENOENT))
+            },
+            || elapsed.get(),
+            |duration| elapsed.set(elapsed.get() + duration),
+        )
+        .expect_err("the hard startup budget returns the final readiness error");
+        assert_eq!(error.raw_os_error(), Some(libc::ENOENT));
+        assert!(attempts.get() <= 120);
+        assert_eq!(elapsed.get(), std::time::Duration::from_secs(120));
+    }
 
     #[test]
     fn production_adapter_has_one_literal_socket_path_and_one_nonce_call() {

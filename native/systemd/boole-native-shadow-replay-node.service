@@ -1,0 +1,42 @@
+[Unit]
+Description=Boole closed-local native-shadow replay node
+Wants=boole-native-shadow-launcher.service
+After=boole-native-shadow-launcher.service systemd-tmpfiles-setup.service
+PropagatesStopTo=boole-native-shadow-launcher.service
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/boole/boole-native-shadow-replay-node
+User=boole-node
+Group=boole-node
+WorkingDirectory=/
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=localhost
+ReadWritePaths=/var/lib/boole/native-shadow/node-state
+Restart=no
+KillMode=control-group
+TimeoutStopSec=20s
+SendSIGKILL=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
