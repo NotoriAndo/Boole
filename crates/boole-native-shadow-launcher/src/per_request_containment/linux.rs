@@ -1973,6 +1973,17 @@ fn apply_landlock() -> Result<(), String> {
             .add_rule(PathBeneath::new(fd, AccessFs::Execute))
             .map_err(|error| error.to_string())?;
     }
+    // The checker root is an overlay mount.  Landlock's parent-directory
+    // rule covers ordinary files in that merged tree, but the fixed GCC
+    // cross-driver reaches cc1 through its overlay lower inode. Debian's fixed
+    // `gcc-13-x86-64-linux-gnu` package installs that frontend below
+    // `/usr/lib/gcc-cross`; pin this one exact, provenance-verified file too.
+    // Later helpers stay unchanged until a real execution proves necessity.
+    let gcc_frontend = PathFd::new("/usr/lib/gcc-cross/x86_64-linux-gnu/13/cc1")
+        .map_err(|error| error.to_string())?;
+    ruleset = ruleset
+        .add_rule(PathBeneath::new(gcc_frontend, AccessFs::Execute))
+        .map_err(|error| error.to_string())?;
     let work = PathFd::new("/work").map_err(|error| error.to_string())?;
     ruleset = ruleset
         .add_rule(PathBeneath::new(work, write_access))
