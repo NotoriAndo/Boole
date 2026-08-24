@@ -38,6 +38,22 @@ IMPLEMENTATION_SPEC = (
 SYSTEMD_UNIT = (
     ROOT / "native" / "systemd" / "boole-native-shadow-launcher.service"
 )
+REPLAY_NODE_SYSTEMD_UNIT = (
+    ROOT / "native" / "systemd" / "boole-native-shadow-replay-node.service"
+)
+LAUNCHER_MANIFEST = ROOT / "crates" / "boole-native-shadow-launcher" / "Cargo.toml"
+LAUNCHER_SERVICE_ENTRY = (
+    ROOT
+    / "crates"
+    / "boole-native-shadow-launcher"
+    / "src"
+    / "bin"
+    / "boole-native-shadow-launcher.rs"
+)
+REPLAY_NODE_SERVICE = ROOT / "crates" / "boole-node" / "src" / "native_shadow_replay_service.rs"
+REPLAY_NODE_ENTRY = (
+    ROOT / "crates" / "boole-node" / "src" / "bin" / "boole-native-shadow-replay-node.rs"
+)
 SYSUSERS_CONFIG = (
     ROOT / "native" / "sysusers.d" / "boole-native-shadow.conf"
 )
@@ -186,8 +202,71 @@ u boole-native-checker - \"Boole native-shadow checker\" /nonexistent /bin/false
             TMPFILES_CONFIG.read_text(encoding="utf-8"),
             """d /run/boole 0755 root root -
 d /run/boole/native-shadow 2750 root boole-node -
+d /var/lib/boole 0755 root root -
+d /var/lib/boole/native-shadow 0755 root root -
+d /var/lib/boole/native-shadow/node-state 0700 boole-node boole-node -
 """,
         )
+
+    def test_closed_local_replay_node_unit_is_loopback_only_and_state_scoped(self) -> None:
+        unit = REPLAY_NODE_SYSTEMD_UNIT.read_text(encoding="utf-8")
+        for required in (
+            "Wants=boole-native-shadow-launcher.service",
+            "After=boole-native-shadow-launcher.service systemd-tmpfiles-setup.service",
+            "PropagatesStopTo=boole-native-shadow-launcher.service",
+            "ExecStart=/usr/libexec/boole/boole-native-shadow-replay-node",
+            "User=boole-node",
+            "Group=boole-node",
+            "NoNewPrivileges=yes",
+            "ProtectSystem=strict",
+            "ReadWritePaths=/var/lib/boole/native-shadow/node-state",
+            "RestrictAddressFamilies=AF_UNIX AF_INET",
+            "IPAddressDeny=any",
+            "IPAddressAllow=localhost",
+            "CapabilityBoundingSet=",
+            "Restart=no",
+        ):
+            self.assertIn(required, unit)
+        self.assertNotIn("Requires=boole-native-shadow-launcher.service", unit)
+        self.assertNotIn("Restart=on-failure", unit)
+        self.assertNotIn("RestartSec=", unit)
+        self.assertNotIn("StartLimit", unit)
+        self.assertNotIn("boole-node --", unit)
+
+    def test_launcher_systemd_target_has_a_real_bounded_production_entrypoint(self) -> None:
+        manifest = LAUNCHER_MANIFEST.read_text(encoding="utf-8")
+        source = LAUNCHER_SERVICE_ENTRY.read_text(encoding="utf-8")
+        self.assertIn('name = "boole-native-shadow-launcher"', manifest)
+        self.assertIn(
+            'path = "src/bin/boole-native-shadow-launcher.rs"', manifest
+        )
+        self.assertIn("assemble_verified_closed_local_replay_startup", source)
+        self.assertIn("serve_qualified_three_fixed_unix_executions", source)
+        self.assertNotIn("serve_three_fixed_unix_executions", source)
+
+    def test_closed_local_replay_route_has_no_block_reward_or_p2p_consumer(self) -> None:
+        source = REPLAY_NODE_SERVICE.read_text(encoding="utf-8")
+        entry = REPLAY_NODE_ENTRY.read_text(encoding="utf-8")
+        for forbidden in (
+            "SharePool",
+            "BlockBuilder",
+            "submit_share",
+            "commit_block",
+            "reward_accounting",
+            "local_node::",
+            "p2p_ingress::",
+        ):
+            self.assertNotIn(forbidden, source)
+            self.assertNotIn(forbidden, entry)
+        for required in (
+            "!installed.grant().p2p_allowed()",
+            "!installed.grant().consensus_allowed()",
+            "!installed.grant().reward_allowed()",
+            "!installed.grant().mineable_now()",
+            "!installed.grant().activation_allowed()",
+            "installed.grant().non_issuable()",
+        ):
+            self.assertIn(required, source)
 
     def test_checker_reason_vocabulary_matches_execution_policy(self) -> None:
         source = (CHECKER / "checker.py").read_text(encoding="utf-8")

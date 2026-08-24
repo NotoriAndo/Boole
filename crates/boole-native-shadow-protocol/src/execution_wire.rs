@@ -617,6 +617,22 @@ pub struct ExecutionReportFields {
     pub checker_result: CheckerResult,
 }
 
+/// Read-only node adjudication facts from a fully decoded report. Keeping
+/// this projection typed prevents the node from re-parsing launcher JSON or
+/// trusting free-form checker text while it recomputes the frozen outcome
+/// policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExecutionAdjudicationView {
+    pub timed_out: bool,
+    pub signaled: bool,
+    pub memory_events_max_delta: u64,
+    pub pids_events_max_delta: u64,
+    pub output_limit_exceeded: bool,
+    pub checker_status: CheckerOutputStatus,
+    pub checker_verdict: Option<CheckerVerdict>,
+    pub checker_reason: Option<CheckerReason>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ExecutionReportDto {
@@ -1170,6 +1186,10 @@ impl ExecutionRequest {
         &self.submission_source_digest_hex
     }
 
+    pub fn submission_digest_hex(&self) -> &str {
+        &self.submission_digest_hex
+    }
+
     pub fn registry_version(&self) -> &str {
         &self.registry_version
     }
@@ -1204,6 +1224,10 @@ impl ExecutionRequest {
 
     pub fn execution_policy_digest_hex(&self) -> &str {
         &self.execution_policy_digest_hex
+    }
+
+    pub fn intake_version(&self) -> &str {
+        &self.intake_version
     }
 
     #[cfg(any(target_os = "linux", test))]
@@ -1734,6 +1758,19 @@ impl ExecutionReport {
             && self.cleanup.launcher_pidfd_and_namespace_fds_closed
             && self.cleanup.cgroup_leaf_removed
             && self.cleanup.completed_within_deadline
+    }
+
+    pub fn adjudication_view(&self) -> ExecutionAdjudicationView {
+        ExecutionAdjudicationView {
+            timed_out: self.timed_out,
+            signaled: self.wait_status.kind == WaitKind::Signaled,
+            memory_events_max_delta: self.resource_observations.memory_events_max_delta,
+            pids_events_max_delta: self.resource_observations.pids_events_max_delta,
+            output_limit_exceeded: self.resource_observations.output_limit_exceeded,
+            checker_status: self.checker_result.status,
+            checker_verdict: self.checker_verdict(),
+            checker_reason: self.checker_reason(),
+        }
     }
 }
 

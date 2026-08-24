@@ -15,13 +15,10 @@ use std::sync::Arc;
 use thiserror::Error;
 
 #[cfg(any(target_os = "linux", test))]
+use crate::{execution_wire::ReplayRequestAuthority, ExecutionRequest, ExecutionRequestFields};
 use crate::{
-    execution_wire::ReplayRequestAuthority, submission_digest_hex, ExecutionRequest,
-    ExecutionRequestFields,
-};
-use crate::{
-    sha256_hex, validate_strict_json, AuthorityError, StrictJsonError, VerifiedAuthorityBundle,
-    WireError,
+    sha256_hex, submission_digest_hex, validate_strict_json, AuthorityError, StrictJsonError,
+    VerifiedAuthorityBundle, WireError,
 };
 #[cfg(any(target_os = "linux", test))]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -158,12 +155,37 @@ pub struct ClosedLocalReplaySubmissionFields<'a> {
     pub submission_source_digest_hex: &'a str,
 }
 
+/// Durable node-attempt values checked against the exact frozen four-case
+/// replay matrix during startup recovery. This is data, not authority, and
+/// matching it never spends a grant case.
+#[derive(Debug, Clone, Copy)]
+pub struct DurableClosedLocalReplayAttemptFields<'a> {
+    pub family_version: &'a str,
+    pub template_id: &'a str,
+    pub challenge_sha256: &'a str,
+    pub epoch: u64,
+    pub operation_id_hex: &'a str,
+    pub candidate_digest_hex: &'a str,
+    pub submission_digest_hex: &'a str,
+    pub pre_intake_only: bool,
+}
+
 /// Exact replay case selected without spending its one-shot authorization.
 /// It is deliberately neither cloneable nor serializable. The node may hold
 /// it while attempting the node-wide execution permit; only the later
 /// `authorize_prepared_execution_request` call mutates grant state.
 #[derive(Debug)]
 pub struct VerifiedClosedLocalReplayPreparedCase {
+    parsed: Arc<ClosedLocalReplayGrantDto>,
+    case_index: usize,
+}
+
+/// Exact proof-intake-only row selected without spending its matrix budget.
+/// The node keeps this opaque value across its durable attempt reservation;
+/// only `authorize_prepared_pre_intake_case` flips the grant's one-shot bit.
+#[derive(Debug)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub struct VerifiedClosedLocalReplayPreparedPreIntakeCase {
     parsed: Arc<ClosedLocalReplayGrantDto>,
     case_index: usize,
 }
@@ -801,13 +823,11 @@ fn require_eq(
 }
 
 impl VerifiedClosedLocalReplayGrant {
-    /// Consume the one exact matrix row that is expected to fail frozen
-    /// proof-intake. No Execute request or checker authorization is produced.
     #[cfg(any(target_os = "linux", test))]
-    pub fn authorize_pre_intake_case(
+    fn match_pre_intake_case(
         &self,
         fields: ClosedLocalReplayPreIntakeFields<'_>,
-    ) -> Result<VerifiedClosedLocalReplayPreIntakeAuthorization, ClosedLocalReplayGrantError> {
+    ) -> Result<usize, ClosedLocalReplayGrantError> {
         require_request(
             fields.family_version,
             &self.parsed.task.family_version,
@@ -842,13 +862,53 @@ impl VerifiedClosedLocalReplayGrant {
         {
             return Err(ClosedLocalReplayGrantError::RequestBinding("preIntakeOnly"));
         }
-        self.authorized_cases[case_index]
+        Ok(case_index)
+    }
+
+    /// Select the exact proof-intake-only row without spending its one-shot
+    /// authorization. This is the pre-intake counterpart of
+    /// `prepare_execution_case` and lets the node durably reserve the frozen
+    /// matrix attempt before mutating the in-memory grant.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn prepare_pre_intake_case(
+        &self,
+        fields: ClosedLocalReplayPreIntakeFields<'_>,
+    ) -> Result<VerifiedClosedLocalReplayPreparedPreIntakeCase, ClosedLocalReplayGrantError> {
+        let case_index = self.match_pre_intake_case(fields)?;
+        Ok(VerifiedClosedLocalReplayPreparedPreIntakeCase {
+            parsed: Arc::clone(&self.parsed),
+            case_index,
+        })
+    }
+
+    /// Spend one previously prepared proof-intake-only row. Callers must do
+    /// their durable attempt reservation before invoking this method.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn authorize_prepared_pre_intake_case(
+        &self,
+        prepared: VerifiedClosedLocalReplayPreparedPreIntakeCase,
+    ) -> Result<VerifiedClosedLocalReplayPreIntakeAuthorization, ClosedLocalReplayGrantError> {
+        if !Arc::ptr_eq(&self.parsed, &prepared.parsed) {
+            return Err(ClosedLocalReplayGrantError::PreparedGrantMismatch);
+        }
+        self.authorized_cases[prepared.case_index]
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| ClosedLocalReplayGrantError::CaseAlreadyAuthorized)?;
         Ok(VerifiedClosedLocalReplayPreIntakeAuthorization {
             parsed: Arc::clone(&self.parsed),
-            case_index,
+            case_index: prepared.case_index,
         })
+    }
+
+    /// Consume the one exact matrix row that is expected to fail frozen
+    /// proof-intake. No Execute request or checker authorization is produced.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn authorize_pre_intake_case(
+        &self,
+        fields: ClosedLocalReplayPreIntakeFields<'_>,
+    ) -> Result<VerifiedClosedLocalReplayPreIntakeAuthorization, ClosedLocalReplayGrantError> {
+        let prepared = self.prepare_pre_intake_case(fields)?;
+        self.authorize_prepared_pre_intake_case(prepared)
     }
 
     /// Select one exact checker-executing replay case from values already
@@ -961,8 +1021,47 @@ impl VerifiedClosedLocalReplayGrant {
         self.parsed.scope.non_issuable
     }
 
+    /// Read-only startup check for one already-durable node attempt. This
+    /// does not spend the grant's one-shot bit and deliberately exposes no
+    /// answer bytes; it only confirms that the journal row is one of the four
+    /// exact cases frozen into this verified grant.
+    pub fn matches_durable_attempt(
+        &self,
+        fields: DurableClosedLocalReplayAttemptFields<'_>,
+    ) -> bool {
+        self.parsed.task.family_version == fields.family_version
+            && self.parsed.task.template_id == fields.template_id
+            && self.parsed.task.challenge_sha256 == fields.challenge_sha256
+            && self.parsed.cases.iter().any(|case| {
+                let expected_submission_digest = match case.case_id.as_str() {
+                    "accepted" => TRACKED_REAL_HISTORY_ACCEPTED_RAW_BYTES,
+                    "tampered" => TRACKED_REAL_HISTORY_TAMPERED_RAW_BYTES,
+                    "constant" => TRACKED_REAL_HISTORY_CONSTANT_RAW_BYTES,
+                    "empty" => TRACKED_REAL_HISTORY_EMPTY_RAW_BYTES,
+                    _ => return false,
+                };
+                case.epoch == fields.epoch
+                    && case.operation_id_hex == fields.operation_id_hex
+                    && case.raw_answer_sha256 == fields.candidate_digest_hex
+                    && submission_digest_hex(
+                        &self.parsed.task.family_version,
+                        &self.parsed.task.template_id,
+                        &self.parsed.task.challenge_sha256,
+                        case.epoch,
+                        expected_submission_digest,
+                    )
+                    .is_ok_and(|expected| expected == fields.submission_digest_hex)
+                    && case.pre_intake_only == fields.pre_intake_only
+                    && case.max_checker_executions == u8::from(!fields.pre_intake_only)
+            })
+    }
+
     pub fn registry_digest_hex(&self) -> &str {
         &self.parsed.registry.sha256
+    }
+
+    pub fn registry_version(&self) -> &str {
+        &self.parsed.registry.version
     }
 
     pub fn production_registry_digest_hex(&self) -> &str {
@@ -1085,6 +1184,20 @@ impl VerifiedClosedLocalReplayPreIntakeAuthorization {
 
     pub fn max_checker_executions(&self) -> u8 {
         self.parsed.cases[self.case_index].max_checker_executions
+    }
+}
+
+impl VerifiedClosedLocalReplayPreparedPreIntakeCase {
+    pub fn case_id(&self) -> &str {
+        &self.parsed.cases[self.case_index].case_id
+    }
+
+    pub fn operation_id_hex(&self) -> &str {
+        &self.parsed.cases[self.case_index].operation_id_hex
+    }
+
+    pub fn epoch(&self) -> u64 {
+        self.parsed.cases[self.case_index].epoch
     }
 }
 
@@ -1414,6 +1527,53 @@ mod tests {
             grant.production_registry_digest_hex(),
             sha256_hex(TRACKED_REGISTRY_BYTES)
         );
+        let accepted_submission_digest = submission_digest_hex(
+            FAMILY_VERSION,
+            TEMPLATE_ID,
+            CHALLENGE_SHA256,
+            0,
+            TRACKED_REAL_HISTORY_ACCEPTED_RAW_BYTES,
+        )
+        .expect("submission digest");
+        assert!(
+            grant.matches_durable_attempt(DurableClosedLocalReplayAttemptFields {
+                family_version: FAMILY_VERSION,
+                template_id: TEMPLATE_ID,
+                challenge_sha256: CHALLENGE_SHA256,
+                epoch: 0,
+                operation_id_hex:
+                    "746bba0847458159f16dfe79d19958d2f44d1de7b67f946b1831207586b978be",
+                candidate_digest_hex: &sha256_hex(TRACKED_REAL_HISTORY_ACCEPTED_RAW_BYTES),
+                submission_digest_hex: &accepted_submission_digest,
+                pre_intake_only: false,
+            })
+        );
+        assert!(
+            !grant.matches_durable_attempt(DurableClosedLocalReplayAttemptFields {
+                family_version: FAMILY_VERSION,
+                template_id: TEMPLATE_ID,
+                challenge_sha256: CHALLENGE_SHA256,
+                epoch: 0,
+                operation_id_hex:
+                    "746bba0847458159f16dfe79d19958d2f44d1de7b67f946b1831207586b978be",
+                candidate_digest_hex: &sha256_hex(TRACKED_REAL_HISTORY_TAMPERED_RAW_BYTES),
+                submission_digest_hex: &accepted_submission_digest,
+                pre_intake_only: false,
+            })
+        );
+        assert!(
+            !grant.matches_durable_attempt(DurableClosedLocalReplayAttemptFields {
+                family_version: FAMILY_VERSION,
+                template_id: TEMPLATE_ID,
+                challenge_sha256: CHALLENGE_SHA256,
+                epoch: 0,
+                operation_id_hex:
+                    "746bba0847458159f16dfe79d19958d2f44d1de7b67f946b1831207586b978be",
+                candidate_digest_hex: &sha256_hex(TRACKED_REAL_HISTORY_ACCEPTED_RAW_BYTES),
+                submission_digest_hex: &"0".repeat(64),
+                pre_intake_only: false,
+            })
+        );
     }
 
     #[test]
@@ -1690,6 +1850,61 @@ mod tests {
 
         assert!(matches!(
             grant.authorize_pre_intake_case(fields),
+            Err(ClosedLocalReplayGrantError::CaseAlreadyAuthorized)
+        ));
+    }
+
+    #[test]
+    fn empty_case_preparation_is_read_only_until_the_prepared_case_is_authorized() {
+        let grant = verify_closed_local_replay_grant_bytes(
+            TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+            TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+            &authority(),
+        )
+        .expect("exact grant");
+        let fields = ClosedLocalReplayPreIntakeFields {
+            family_version: FAMILY_VERSION,
+            template_id: TEMPLATE_ID,
+            challenge_sha256: CHALLENGE_SHA256,
+            epoch: 3,
+            candidate_digest_hex: &sha256_hex(TRACKED_REAL_HISTORY_EMPTY_RAW_BYTES),
+            reason: ClosedLocalReplayPreIntakeReason::EmptyResponse,
+        };
+
+        let prepared = grant
+            .prepare_pre_intake_case(fields)
+            .expect("read-only empty-case preparation");
+        assert_eq!(prepared.case_id(), "empty");
+        assert_eq!(prepared.epoch(), 3);
+        assert_eq!(
+            prepared.operation_id_hex(),
+            "c5d9705f2367515cedc06639217b95a40f5a98e377089b49ed97c0e7ec8b3038"
+        );
+        let second_prepared = grant
+            .prepare_pre_intake_case(fields)
+            .expect("preparation must not spend the fixed case");
+
+        let other_grant = verify_closed_local_replay_grant_bytes(
+            TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+            TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+            &authority(),
+        )
+        .expect("second exact grant");
+        assert!(matches!(
+            other_grant.authorize_prepared_pre_intake_case(prepared),
+            Err(ClosedLocalReplayGrantError::PreparedGrantMismatch)
+        ));
+
+        let prepared = grant
+            .prepare_pre_intake_case(fields)
+            .expect("mismatched grant did not spend the original case");
+
+        let authorization = grant
+            .authorize_prepared_pre_intake_case(prepared)
+            .expect("the durable caller may spend the prepared case once");
+        assert_eq!(authorization.case_id(), "empty");
+        assert!(matches!(
+            grant.authorize_prepared_pre_intake_case(second_prepared),
             Err(ClosedLocalReplayGrantError::CaseAlreadyAuthorized)
         ));
     }

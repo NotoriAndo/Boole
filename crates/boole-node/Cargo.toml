@@ -17,6 +17,12 @@ publish = false
 [features]
 default = []
 dev-mock-payment = []
+native-shadow-closed-local-replay = []
+
+[[bin]]
+name = "boole-native-shadow-replay-node"
+path = "src/bin/boole-native-shadow-replay-node.rs"
+required-features = ["native-shadow-closed-local-replay"]
 
 [dependencies]
 anyhow.workspace = true

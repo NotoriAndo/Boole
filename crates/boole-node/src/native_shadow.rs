@@ -40,6 +40,12 @@ use std::sync::Arc;
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd};
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -47,7 +53,8 @@ use boole_core::hash::{h_protocol, Hex32};
 use boole_core::useful_product::{ReceiptRejectReason, ReceiptVerdict, VerificationReceipt};
 use boole_core::useful_work_bf6::NativeTaskIdentity;
 use boole_native_shadow_protocol::{
-    verify_authority_bundle, INSTALLED_REGISTRY_PATH, TRACKED_EXECUTION_POLICY_BYTES,
+    verify_authority_bundle, VerifiedClosedLocalReplayAuthorization,
+    VerifiedClosedLocalReplayGrant, INSTALLED_REGISTRY_PATH, TRACKED_EXECUTION_POLICY_BYTES,
     TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
 };
 
@@ -57,6 +64,8 @@ use crate::durability::{
 use crate::state_dir::flock_exclusive_nonblocking;
 
 const NATIVE_BF3_ARTIFACT_DOMAIN: &[u8] = b"boole.native-shadow.bf3-artifact.v1";
+pub(crate) const PRODUCTION_NATIVE_SHADOW_JOURNAL_PATH: &str =
+    "/var/lib/boole/native-shadow/node-state/replay-v1.ndjson";
 
 #[cfg(test)]
 use crate::durability::append_ndjson_line_durable;
@@ -116,6 +125,69 @@ impl<'de> Deserialize<'de> for NativeShadowExecutionPolicyDigest {
     {
         let value = String::deserialize(deserializer)?;
         Self::try_from(value.as_str()).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Opaque node capability allowing only the frozen closed-local replay
+/// overlay to create one active row despite the production registry remaining
+/// permanently non-issuable. Production construction is possible only from
+/// the protocol grant's exact authorization.
+#[derive(Debug)]
+pub(crate) struct VerifiedNativeShadowReplayBootstrap {
+    four_tuple: NativeShadowFourTuple,
+    registry_version: String,
+    registry_digest: String,
+    execution_policy_digest: NativeShadowExecutionPolicyDigest,
+}
+
+impl VerifiedNativeShadowReplayBootstrap {
+    pub(crate) fn from_authorization(
+        authorization: &VerifiedClosedLocalReplayAuthorization,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            four_tuple: NativeShadowFourTuple {
+                family_version: authorization.family_version().to_string(),
+                template_id: authorization.template_id().to_string(),
+                challenge_sha256: authorization.challenge_sha256().to_string(),
+                epoch: authorization.epoch(),
+            },
+            registry_version: authorization.registry_version().to_string(),
+            registry_digest: authorization.registry_digest_hex().to_string(),
+            execution_policy_digest: NativeShadowExecutionPolicyDigest::try_from(
+                authorization.execution_policy_digest_hex(),
+            )?,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        four_tuple: NativeShadowFourTuple,
+        registry_version: &str,
+        registry_digest: String,
+        execution_policy_digest: NativeShadowExecutionPolicyDigest,
+    ) -> Self {
+        Self {
+            four_tuple,
+            registry_version: registry_version.to_string(),
+            registry_digest,
+            execution_policy_digest,
+        }
+    }
+
+    pub(crate) fn four_tuple(&self) -> &NativeShadowFourTuple {
+        &self.four_tuple
+    }
+
+    pub(crate) fn registry_version(&self) -> &str {
+        &self.registry_version
+    }
+
+    pub(crate) fn registry_digest(&self) -> &str {
+        &self.registry_digest
+    }
+
+    pub(crate) fn execution_policy_digest(&self) -> &NativeShadowExecutionPolicyDigest {
+        &self.execution_policy_digest
     }
 }
 
@@ -580,7 +652,29 @@ impl NativeShadowEvidence {
                 return Err(format!("{name} must not be empty"));
             }
         }
+        if !valid_evidence_verdict_reason(self.verdict, &self.reason_code) {
+            return Err("evidence verdict/reason pair is invalid".to_string());
+        }
         Ok(())
+    }
+}
+
+fn valid_evidence_verdict_reason(verdict: NativeShadowEvidenceVerdict, reason_code: &str) -> bool {
+    match verdict {
+        NativeShadowEvidenceVerdict::Accepted => reason_code == "accepted",
+        NativeShadowEvidenceVerdict::DeterministicReject => matches!(
+            reason_code,
+            "compile_or_hidden_test_failed"
+                | "forbidden_construct"
+                | "malformed_patch_region"
+                | "outside_patch_modified"
+                | "patch_line_limit_exceeded"
+                | "patch_size_exceeded"
+                | "submission_unreadable"
+                | "checker_rejected"
+                | "submission_resource_ceiling_breach"
+                | "checker_reported_reason_unconfirmed"
+        ),
     }
 }
 
@@ -603,6 +697,295 @@ pub(crate) struct DurableNativeShadowEvidenceCommit {
     execution_policy_digest: NativeShadowExecutionPolicyDigest,
     candidate_digest: String,
     evidence_digest: String,
+}
+
+/// Frozen closed-local matrix attempt classes. The three checker rows and
+/// the one proof-intake-only row share one durable four-attempt budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum NativeShadowGrantAttemptKindV1 {
+    PreIntake,
+    Checker,
+}
+
+/// Borrowed node-owned fields for one durable matrix-attempt reservation.
+/// Reservation is deliberately separate from grant authorization so a crash
+/// cannot reopen the in-memory one-shot budget.
+pub(crate) struct NativeShadowGrantAttemptFieldsV1<'a> {
+    pub(crate) four_tuple: &'a NativeShadowFourTuple,
+    pub(crate) registry_digest: &'a str,
+    pub(crate) execution_policy_digest: &'a NativeShadowExecutionPolicyDigest,
+    pub(crate) operation_id_hex: &'a str,
+    pub(crate) candidate_digest: &'a str,
+    pub(crate) submission_digest: &'a str,
+    pub(crate) kind: NativeShadowGrantAttemptKindV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeShadowGrantAttemptRecordV1 {
+    four_tuple: NativeShadowFourTuple,
+    registry_digest: String,
+    execution_policy_digest: NativeShadowExecutionPolicyDigest,
+    operation_id_hex: String,
+    candidate_digest: String,
+    submission_digest: String,
+    kind: NativeShadowGrantAttemptKindV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeShadowGrantAttemptScopeV1 {
+    family_version: String,
+    template_id: String,
+    challenge_sha256: String,
+    registry_digest: String,
+    execution_policy_digest: NativeShadowExecutionPolicyDigest,
+}
+
+#[derive(Debug)]
+#[must_use]
+pub(crate) struct DurableNativeShadowGrantAttemptV1 {
+    record: NativeShadowGrantAttemptRecordV1,
+    journal_authority_id: u64,
+}
+
+impl DurableNativeShadowGrantAttemptV1 {
+    pub(crate) fn four_tuple(&self) -> &NativeShadowFourTuple {
+        &self.record.four_tuple
+    }
+
+    pub(crate) fn operation_id_hex(&self) -> &str {
+        &self.record.operation_id_hex
+    }
+
+    pub(crate) fn candidate_digest(&self) -> &str {
+        &self.record.candidate_digest
+    }
+
+    pub(crate) fn submission_digest(&self) -> &str {
+        &self.record.submission_digest
+    }
+
+    pub(crate) fn kind(&self) -> NativeShadowGrantAttemptKindV1 {
+        self.record.kind
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NativeShadowGrantAttemptErrorV1 {
+    InvalidDigest(&'static str),
+    ScopeDrift,
+    CaseAlreadyReserved,
+    OperationAlreadyReserved,
+    TotalBudgetExceeded,
+    CheckerBudgetExceeded,
+    Durability(String),
+}
+
+impl std::fmt::Display for NativeShadowGrantAttemptErrorV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidDigest(field) => write!(f, "invalid grant-attempt digest: {field}"),
+            Self::ScopeDrift => write!(f, "grant-attempt scope drifted"),
+            Self::CaseAlreadyReserved => write!(f, "grant case was already reserved"),
+            Self::OperationAlreadyReserved => write!(f, "grant operation was already reserved"),
+            Self::TotalBudgetExceeded => write!(f, "grant four-attempt budget exhausted"),
+            Self::CheckerBudgetExceeded => write!(f, "grant three-checker budget exhausted"),
+            Self::Durability(reason) => write!(f, "grant-attempt durable write failed: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for NativeShadowGrantAttemptErrorV1 {}
+
+/// Replayable projection of the fixed 4/3/1 matrix budget. A row is inserted
+/// only after its journal line is fsynced, and replay applies the same caps.
+#[derive(Debug, Default)]
+pub(crate) struct NativeShadowGrantAttemptLedgerV1 {
+    scope: Option<NativeShadowGrantAttemptScopeV1>,
+    records: HashMap<NativeShadowFourTuple, NativeShadowGrantAttemptRecordV1>,
+    operation_ids: HashSet<String>,
+    checker_attempts: usize,
+}
+
+impl NativeShadowGrantAttemptLedgerV1 {
+    pub(crate) fn total_attempts(&self) -> usize {
+        self.records.len()
+    }
+
+    pub(crate) fn checker_attempts(&self) -> usize {
+        self.checker_attempts
+    }
+
+    pub(crate) fn matches_flight(
+        &self,
+        four_tuple: &NativeShadowFourTuple,
+        operation_id_hex: &str,
+        candidate_digest: &str,
+    ) -> bool {
+        self.records.get(four_tuple).is_some_and(|record| {
+            record.kind == NativeShadowGrantAttemptKindV1::Checker
+                && record.operation_id_hex == operation_id_hex
+                && record.candidate_digest == candidate_digest
+        })
+    }
+
+    fn matches_evidence(
+        &self,
+        four_tuple: &NativeShadowFourTuple,
+        candidate_digest: &str,
+        submission_digest: &str,
+    ) -> bool {
+        self.records.get(four_tuple).is_some_and(|record| {
+            record.kind == NativeShadowGrantAttemptKindV1::Checker
+                && record.candidate_digest == candidate_digest
+                && record.submission_digest == submission_digest
+        })
+    }
+
+    pub(crate) fn validate_against_closed_local_grant(
+        &self,
+        grant: &VerifiedClosedLocalReplayGrant,
+        expected_execution_policy_digest: &NativeShadowExecutionPolicyDigest,
+    ) -> anyhow::Result<()> {
+        for record in self.records.values() {
+            anyhow::ensure!(
+                record.registry_digest == grant.registry_digest_hex(),
+                "durable grant attempt registryDigest differs from the exact replay grant"
+            );
+            anyhow::ensure!(
+                &record.execution_policy_digest == expected_execution_policy_digest,
+                "durable grant attempt executionPolicyDigest differs from the exact replay grant"
+            );
+            anyhow::ensure!(
+                grant.matches_durable_attempt(
+                    boole_native_shadow_protocol::DurableClosedLocalReplayAttemptFields {
+                        family_version: &record.four_tuple.family_version,
+                        template_id: &record.four_tuple.template_id,
+                        challenge_sha256: &record.four_tuple.challenge_sha256,
+                        epoch: record.four_tuple.epoch,
+                        operation_id_hex: &record.operation_id_hex,
+                        candidate_digest_hex: &record.candidate_digest,
+                        submission_digest_hex: &record.submission_digest,
+                        pre_intake_only: record.kind == NativeShadowGrantAttemptKindV1::PreIntake,
+                    },
+                ),
+                "durable grant attempt is not one of the four exact replay cases"
+            );
+        }
+        Ok(())
+    }
+
+    pub(crate) fn reserve(
+        &mut self,
+        authority: &mut NativeShadowJournalAuthority,
+        fields: NativeShadowGrantAttemptFieldsV1<'_>,
+    ) -> Result<DurableNativeShadowGrantAttemptV1, NativeShadowGrantAttemptErrorV1> {
+        let record = NativeShadowGrantAttemptRecordV1::try_from(fields)?;
+        self.validate_new_record(&record)?;
+        let event = NativeShadowJournalEvent::GrantAttemptReservedV1 {
+            four_tuple: record.four_tuple.clone(),
+            registry_digest: record.registry_digest.clone(),
+            execution_policy_digest: record.execution_policy_digest.clone(),
+            operation_id_hex: record.operation_id_hex.clone(),
+            candidate_digest: record.candidate_digest.clone(),
+            submission_digest: record.submission_digest.clone(),
+            attempt_kind: record.kind,
+        };
+        let line = serde_json::to_string(&event)
+            .map_err(|error| NativeShadowGrantAttemptErrorV1::Durability(error.to_string()))?;
+        authority
+            .append_line(&line)
+            .map_err(|error| NativeShadowGrantAttemptErrorV1::Durability(error.to_string()))?;
+        self.insert_validated(record.clone());
+        Ok(DurableNativeShadowGrantAttemptV1 {
+            record,
+            journal_authority_id: authority.authority_id(),
+        })
+    }
+
+    fn replay_record(
+        &mut self,
+        record: NativeShadowGrantAttemptRecordV1,
+    ) -> Result<(), NativeShadowGrantAttemptErrorV1> {
+        self.validate_new_record(&record)?;
+        self.insert_validated(record);
+        Ok(())
+    }
+
+    fn validate_new_record(
+        &self,
+        record: &NativeShadowGrantAttemptRecordV1,
+    ) -> Result<(), NativeShadowGrantAttemptErrorV1> {
+        if self.records.contains_key(&record.four_tuple) {
+            return Err(NativeShadowGrantAttemptErrorV1::CaseAlreadyReserved);
+        }
+        if self.operation_ids.contains(&record.operation_id_hex) {
+            return Err(NativeShadowGrantAttemptErrorV1::OperationAlreadyReserved);
+        }
+        let scope = NativeShadowGrantAttemptScopeV1::from(record);
+        if self
+            .scope
+            .as_ref()
+            .is_some_and(|expected| expected != &scope)
+        {
+            return Err(NativeShadowGrantAttemptErrorV1::ScopeDrift);
+        }
+        if self.records.len() >= 4 {
+            return Err(NativeShadowGrantAttemptErrorV1::TotalBudgetExceeded);
+        }
+        if record.kind == NativeShadowGrantAttemptKindV1::Checker && self.checker_attempts >= 3 {
+            return Err(NativeShadowGrantAttemptErrorV1::CheckerBudgetExceeded);
+        }
+        Ok(())
+    }
+
+    fn insert_validated(&mut self, record: NativeShadowGrantAttemptRecordV1) {
+        self.scope
+            .get_or_insert_with(|| NativeShadowGrantAttemptScopeV1::from(&record));
+        if record.kind == NativeShadowGrantAttemptKindV1::Checker {
+            self.checker_attempts += 1;
+        }
+        self.operation_ids.insert(record.operation_id_hex.clone());
+        self.records.insert(record.four_tuple.clone(), record);
+    }
+}
+
+impl TryFrom<NativeShadowGrantAttemptFieldsV1<'_>> for NativeShadowGrantAttemptRecordV1 {
+    type Error = NativeShadowGrantAttemptErrorV1;
+
+    fn try_from(fields: NativeShadowGrantAttemptFieldsV1<'_>) -> Result<Self, Self::Error> {
+        for (field, value) in [
+            ("registryDigest", fields.registry_digest),
+            ("operationIdHex", fields.operation_id_hex),
+            ("candidateDigest", fields.candidate_digest),
+            ("submissionDigest", fields.submission_digest),
+        ] {
+            if !is_lower_sha256_hex(value) {
+                return Err(NativeShadowGrantAttemptErrorV1::InvalidDigest(field));
+            }
+        }
+        Ok(Self {
+            four_tuple: fields.four_tuple.clone(),
+            registry_digest: fields.registry_digest.to_string(),
+            execution_policy_digest: fields.execution_policy_digest.clone(),
+            operation_id_hex: fields.operation_id_hex.to_string(),
+            candidate_digest: fields.candidate_digest.to_string(),
+            submission_digest: fields.submission_digest.to_string(),
+            kind: fields.kind,
+        })
+    }
+}
+
+impl From<&NativeShadowGrantAttemptRecordV1> for NativeShadowGrantAttemptScopeV1 {
+    fn from(record: &NativeShadowGrantAttemptRecordV1) -> Self {
+        Self {
+            family_version: record.four_tuple.family_version.clone(),
+            template_id: record.four_tuple.template_id.clone(),
+            challenge_sha256: record.four_tuple.challenge_sha256.clone(),
+            registry_digest: record.registry_digest.clone(),
+            execution_policy_digest: record.execution_policy_digest.clone(),
+        }
+    }
 }
 
 /// Immutable durable binding for one v3 checker attempt. The operation ID is
@@ -730,7 +1113,7 @@ impl std::fmt::Display for NativeShadowJournalAuthorityError {
             ),
             Self::UnsafePath(path) => write!(
                 f,
-                "native-shadow journal {} must be a regular non-symlink file",
+                "native-shadow journal {} or its state directory has unsafe type, owner, mode, or link count",
                 path.display()
             ),
             Self::PathIdentityChanged(path) => write!(
@@ -758,6 +1141,168 @@ impl std::error::Error for NativeShadowJournalAuthorityError {
 }
 
 impl NativeShadowJournalAuthority {
+    /// Open the sole installed replay journal. The deployment package, not
+    /// this process, creates the fixed private state directory. Refusing to
+    /// create or repair it keeps a missing/unsafe installation fail-closed.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn open_production(
+        expected_node_uid: u32,
+        expected_node_gid: u32,
+    ) -> Result<Self, NativeShadowJournalAuthorityError> {
+        let path = Path::new(PRODUCTION_NATIVE_SHADOW_JOURNAL_PATH);
+        Self::open_prepared_production_dir(
+            path.parent()
+                .expect("fixed production journal has a parent"),
+            path.file_name()
+                .expect("fixed production journal has a file name"),
+            expected_node_uid,
+            expected_node_gid,
+        )
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(crate) fn open_production(
+        _expected_node_uid: u32,
+        _expected_node_gid: u32,
+    ) -> Result<Self, NativeShadowJournalAuthorityError> {
+        Err(NativeShadowJournalAuthorityError::Unsupported)
+    }
+
+    /// Descriptor-relative production opener shared with Unix tests. The
+    /// caller supplies an already provisioned, private state directory; no
+    /// arbitrary path is created or repaired here.
+    #[cfg(unix)]
+    #[allow(unsafe_code)]
+    fn open_prepared_production_dir(
+        directory: &Path,
+        file_name: &std::ffi::OsStr,
+        expected_uid: u32,
+        expected_gid: u32,
+    ) -> Result<Self, NativeShadowJournalAuthorityError> {
+        if file_name.as_bytes().is_empty()
+            || file_name.as_bytes().contains(&b'/')
+            || file_name == std::ffi::OsStr::new(".")
+            || file_name == std::ffi::OsStr::new("..")
+        {
+            return Err(NativeShadowJournalAuthorityError::UnsafePath(
+                directory.join(file_name),
+            ));
+        }
+        let diagnostic_path = directory.join(file_name);
+        let directory_file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(directory)
+            .map_err(|err| {
+                if matches!(err.raw_os_error(), Some(code) if code == libc::ELOOP || code == libc::ENOTDIR) {
+                    NativeShadowJournalAuthorityError::UnsafePath(directory.to_path_buf())
+                } else {
+                    NativeShadowJournalAuthorityError::Io(directory.to_path_buf(), err)
+                }
+            })?;
+        let directory_metadata = directory_file
+            .metadata()
+            .map_err(|err| NativeShadowJournalAuthorityError::Io(directory.to_path_buf(), err))?;
+        if !directory_metadata.file_type().is_dir()
+            || directory_metadata.uid() != expected_uid
+            || directory_metadata.gid() != expected_gid
+            || directory_metadata.mode() & 0o7777 != 0o700
+        {
+            return Err(NativeShadowJournalAuthorityError::UnsafePath(
+                directory.to_path_buf(),
+            ));
+        }
+
+        let name = std::ffi::CString::new(file_name.as_bytes())
+            .map_err(|_| NativeShadowJournalAuthorityError::UnsafePath(diagnostic_path.clone()))?;
+        let base_flags =
+            libc::O_RDWR | libc::O_APPEND | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK;
+        let (raw_fd, created) = {
+            // SAFETY: `directory_file` owns a live directory descriptor and
+            // `name` is a NUL-terminated single path component. `openat`
+            // neither retains either pointer nor aliases Rust memory.
+            let existing =
+                unsafe { libc::openat(directory_file.as_raw_fd(), name.as_ptr(), base_flags, 0) };
+            if existing >= 0 {
+                (existing, false)
+            } else {
+                let existing_error = std::io::Error::last_os_error();
+                if existing_error.kind() != std::io::ErrorKind::NotFound {
+                    return Err(if existing_error.raw_os_error() == Some(libc::ELOOP) {
+                        NativeShadowJournalAuthorityError::UnsafePath(diagnostic_path.clone())
+                    } else {
+                        NativeShadowJournalAuthorityError::Io(
+                            diagnostic_path.clone(),
+                            existing_error,
+                        )
+                    });
+                }
+                // SAFETY: same descriptor/name reasoning as above. O_EXCL
+                // ensures a concurrent creator cannot redirect this open.
+                let created_fd = unsafe {
+                    libc::openat(
+                        directory_file.as_raw_fd(),
+                        name.as_ptr(),
+                        base_flags | libc::O_CREAT | libc::O_EXCL,
+                        0o600,
+                    )
+                };
+                if created_fd < 0 {
+                    return Err(NativeShadowJournalAuthorityError::Io(
+                        diagnostic_path.clone(),
+                        std::io::Error::last_os_error(),
+                    ));
+                }
+                (created_fd, true)
+            }
+        };
+        // SAFETY: `raw_fd` is a newly owned descriptor returned by a
+        // successful `openat` call and is transferred exactly once.
+        let file = unsafe { File::from_raw_fd(raw_fd) };
+        let metadata = file
+            .metadata()
+            .map_err(|err| NativeShadowJournalAuthorityError::Io(diagnostic_path.clone(), err))?;
+        if !metadata.file_type().is_file()
+            || metadata.uid() != expected_uid
+            || metadata.gid() != expected_gid
+            || metadata.mode() & 0o7777 != 0o600
+            || metadata.nlink() != 1
+        {
+            return Err(NativeShadowJournalAuthorityError::UnsafePath(
+                diagnostic_path,
+            ));
+        }
+        flock_exclusive_nonblocking(&file).map_err(|err| {
+            if err.kind() == std::io::ErrorKind::WouldBlock
+                || err.raw_os_error() == Some(libc::EWOULDBLOCK)
+                || err.raw_os_error() == Some(libc::EAGAIN)
+            {
+                NativeShadowJournalAuthorityError::Locked(diagnostic_path.clone())
+            } else {
+                NativeShadowJournalAuthorityError::Io(diagnostic_path.clone(), err)
+            }
+        })?;
+        if created {
+            file.sync_all().map_err(|err| {
+                NativeShadowJournalAuthorityError::Io(diagnostic_path.clone(), err)
+            })?;
+            directory_file.sync_all().map_err(|err| {
+                NativeShadowJournalAuthorityError::Io(directory.to_path_buf(), err)
+            })?;
+        }
+
+        Ok(Self {
+            file,
+            diagnostic_path,
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            authority_id: NEXT_NATIVE_SHADOW_JOURNAL_AUTHORITY_ID.fetch_add(1, Ordering::Relaxed),
+            poisoned: false,
+            #[cfg(test)]
+            fail_next_append: false,
+        })
+    }
+
     #[cfg(unix)]
     pub(crate) fn open(path: impl AsRef<Path>) -> Result<Self, NativeShadowJournalAuthorityError> {
         let path = path.as_ref();
@@ -949,6 +1494,16 @@ pub(crate) struct NativeShadowStateStore {
     journal_authority_id: Option<u64>,
 }
 
+/// Current request bindings required to reproduce one already-terminal BF.3
+/// receipt without re-running the checker.
+pub(crate) struct NativeShadowTerminalReceiptBinding<'a> {
+    pub registry_version: &'a str,
+    pub registry_digest: &'a str,
+    pub execution_policy_digest: &'a NativeShadowExecutionPolicyDigest,
+    pub candidate_digest: &'a str,
+    pub submission_digest: &'a str,
+}
+
 /// Outcome of resolving a submission's targeted four-tuple against the store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResolveOutcome {
@@ -1033,6 +1588,35 @@ impl NativeShadowStateStore {
             .map(|commit| &commit.evidence)
     }
 
+    /// Exact node-owned evidence for a terminal redelivery. This is read-only
+    /// and exists only after the evidence-backed `Consumed` transition.
+    pub(crate) fn terminal_durable_evidence(
+        &self,
+        four_tuple: &NativeShadowFourTuple,
+    ) -> Option<&NativeShadowEvidence> {
+        if self.rows.get(four_tuple)?.state != ChallengeState::Consumed {
+            return None;
+        }
+        self.evidence_commits
+            .get(four_tuple)
+            .map(|commit| &commit.evidence)
+    }
+
+    /// Digest of the exact evidence bytes originally fsynced. Redelivery must
+    /// use this value instead of serializing the typed evidence again, because
+    /// semantically equivalent JSON formatting is not byte identity.
+    pub(crate) fn terminal_durable_evidence_digest(
+        &self,
+        four_tuple: &NativeShadowFourTuple,
+    ) -> Option<&str> {
+        if self.rows.get(four_tuple)?.state != ChallengeState::Consumed {
+            return None;
+        }
+        self.evidence_commits
+            .get(four_tuple)
+            .map(|commit| commit.evidence_digest.as_str())
+    }
+
     /// Map only an already-durable, node-owned v2 checker verdict into the
     /// common BF.3 receipt contract. The non-cloneable capability proves that
     /// the exact evidence bytes were appended for this in-flight row; raw
@@ -1069,6 +1653,56 @@ impl NativeShadowStateStore {
             )
             .map_err(|_| NativeShadowReceiptMapError::DurableEvidenceBindingMismatch)?;
 
+        self.map_internal_v2_evidence_to_bf3_receipt(row, commit, &durable.execution_policy_digest)
+    }
+
+    /// Re-project only already-terminal journal evidence. Every current
+    /// request binding is checked against the exact stored evidence; no JSON
+    /// reserialization is used to decide identity or create a new verdict.
+    pub(crate) fn map_terminal_v2_to_bf3_receipt(
+        &self,
+        four_tuple: &NativeShadowFourTuple,
+        binding: NativeShadowTerminalReceiptBinding<'_>,
+        exhaustion: &NativeShadowExhaustionLedger,
+    ) -> Result<VerificationReceipt, NativeShadowReceiptMapError> {
+        let Some(row) = self.rows.get(four_tuple) else {
+            return Err(NativeShadowReceiptMapError::DurableEvidenceBindingMismatch);
+        };
+        let Some(commit) = self.evidence_commits.get(four_tuple) else {
+            return Err(NativeShadowReceiptMapError::DurableEvidenceBindingMismatch);
+        };
+        if row.state != ChallengeState::Consumed
+            || !exhaustion.contains(four_tuple)
+            || row.registry_digest != binding.registry_digest
+            || row.execution_policy_digest.as_ref() != Some(binding.execution_policy_digest)
+            || commit.candidate_digest != binding.candidate_digest
+            || commit.execution_policy_digest.as_ref() != Some(binding.execution_policy_digest)
+            || commit.evidence.schema != "boole.native-shadow.evidence.v2"
+            || commit.evidence.registry_version != binding.registry_version
+            || commit.evidence.submission_digest != binding.submission_digest
+        {
+            return Err(NativeShadowReceiptMapError::DurableEvidenceBindingMismatch);
+        }
+        commit
+            .evidence
+            .validate_bindings(
+                four_tuple,
+                binding.candidate_digest,
+                Some(binding.execution_policy_digest),
+            )
+            .map_err(|_| NativeShadowReceiptMapError::DurableEvidenceBindingMismatch)?;
+
+        self.map_internal_v2_evidence_to_bf3_receipt(row, commit, binding.execution_policy_digest)
+    }
+
+    fn map_internal_v2_evidence_to_bf3_receipt(
+        &self,
+        row: &NativeShadowStateRow,
+        commit: &NativeShadowEvidenceCommitData,
+        execution_policy_digest: &NativeShadowExecutionPolicyDigest,
+    ) -> Result<VerificationReceipt, NativeShadowReceiptMapError> {
+        let evidence = &commit.evidence;
+
         let parse_digest = |value: &str, field| {
             Hex32::from_hex(value).map_err(|_| NativeShadowReceiptMapError::InvalidDigest(field))
         };
@@ -1079,10 +1713,8 @@ impl NativeShadowStateStore {
         let candidate_digest = parse_digest(&evidence.candidate_digest, "candidateDigest")?;
         let checker_hash = parse_digest(&evidence.checker_digest, "checkerDigest")?;
         let checker_policy_digest = parse_digest(&evidence.policy_digest, "policyDigest")?;
-        let execution_policy_digest = parse_digest(
-            durable.execution_policy_digest.as_str(),
-            "executionPolicyDigest",
-        )?;
+        let execution_policy_digest =
+            parse_digest(execution_policy_digest.as_str(), "executionPolicyDigest")?;
         let toolchain_digest = parse_digest(&evidence.toolchain_digest, "toolchainDigest")?;
         let registry_digest = parse_digest(&row.registry_digest, "registryDigest")?;
 
@@ -1109,6 +1741,17 @@ impl NativeShadowStateStore {
             (NativeShadowEvidenceVerdict::DeterministicReject, "submission_unreadable") => {
                 ReceiptVerdict::Rejected(ReceiptRejectReason::SubmissionUnreadable)
             }
+            (NativeShadowEvidenceVerdict::DeterministicReject, "checker_rejected") => {
+                ReceiptVerdict::Rejected(ReceiptRejectReason::CompileOrHiddenTestFailed)
+            }
+            (
+                NativeShadowEvidenceVerdict::DeterministicReject,
+                "submission_resource_ceiling_breach",
+            ) => ReceiptVerdict::Rejected(ReceiptRejectReason::CompileOrHiddenTestFailed),
+            (
+                NativeShadowEvidenceVerdict::DeterministicReject,
+                "checker_reported_reason_unconfirmed",
+            ) => ReceiptVerdict::Rejected(ReceiptRejectReason::CompileOrHiddenTestFailed),
             _ => return Err(NativeShadowReceiptMapError::InvalidVerdictReason),
         };
         let epoch = evidence.epoch.to_be_bytes();
@@ -1219,6 +1862,21 @@ impl NativeShadowStateStore {
             },
         );
         ResolveOutcome::Bootstrapped(state)
+    }
+
+    /// Bootstrap only the exact row carried by the one-shot replay grant.
+    /// This is the sole exception to the disabled production registry and it
+    /// cannot synthesize an alternate registry or policy binding.
+    pub(crate) fn resolve_verified_closed_local_replay(
+        &mut self,
+        bootstrap: &VerifiedNativeShadowReplayBootstrap,
+    ) -> ResolveOutcome {
+        self.resolve_with_execution_policy(
+            bootstrap.four_tuple(),
+            bootstrap.registry_digest(),
+            bootstrap.execution_policy_digest(),
+            || ChallengeState::ActiveFresh,
+        )
     }
 
     /// Resolve an already-resolved row into the submission-facing view
@@ -1372,6 +2030,38 @@ impl NativeShadowStateStore {
     /// compatibility API, this transition cannot be called without the exact
     /// operation ID and candidate digest that the launcher request will use.
     /// Both values are journaled before the in-memory row becomes InFlight.
+    pub(crate) fn begin_reserved_closed_local_replay_execution_v3(
+        &mut self,
+        authority: &mut NativeShadowJournalAuthority,
+        reservation: DurableNativeShadowGrantAttemptV1,
+    ) -> Result<DurableNativeShadowInFlightV3, NativeShadowTransitionError> {
+        if reservation.journal_authority_id != authority.authority_id() {
+            return Err(NativeShadowTransitionError::AttemptBindingMismatch(
+                reservation.record.four_tuple,
+            ));
+        }
+        let record = reservation.record;
+        let row = self
+            .rows
+            .get(&record.four_tuple)
+            .ok_or_else(|| NativeShadowTransitionError::NoSuchRow(record.four_tuple.clone()))?;
+        if record.kind != NativeShadowGrantAttemptKindV1::Checker
+            || row.registry_digest != record.registry_digest
+            || row.execution_policy_digest.as_ref() != Some(&record.execution_policy_digest)
+        {
+            return Err(NativeShadowTransitionError::AttemptBindingMismatch(
+                record.four_tuple,
+            ));
+        }
+        self.begin_execution_v3(
+            authority,
+            &record.four_tuple,
+            &record.execution_policy_digest,
+            &record.operation_id_hex,
+            &record.candidate_digest,
+        )
+    }
+
     pub fn begin_execution_v3(
         &mut self,
         authority: &mut NativeShadowJournalAuthority,
@@ -1515,6 +2205,72 @@ impl NativeShadowStateStore {
         Ok(DurableNativeShadowInFlightV3 {
             four_tuple: four_tuple.clone(),
             binding: binding.clone(),
+        })
+    }
+
+    /// Recreate the non-cloneable durable-evidence capability after a crash
+    /// that happened after `EvidenceV2` was fsynced but before the matching
+    /// terminal event. This never executes the checker again. It is available
+    /// only after the trusted launcher proved that the exact recovered
+    /// operation's containment tree was cleaned up.
+    pub(crate) fn recover_pending_evidence_v3(
+        &self,
+        cleanup: VerifiedNativeShadowCleanupV3,
+        four_tuple: &NativeShadowFourTuple,
+        execution_policy_digest: &NativeShadowExecutionPolicyDigest,
+        operation_id_hex: &str,
+        candidate_digest: &str,
+    ) -> Result<DurableNativeShadowEvidenceCommit, NativeShadowTransitionError> {
+        if cleanup.operation_id_hex != operation_id_hex {
+            return Err(NativeShadowTransitionError::CleanupBindingMismatch);
+        }
+        let row = self
+            .rows
+            .get(four_tuple)
+            .ok_or_else(|| NativeShadowTransitionError::NoSuchRow(four_tuple.clone()))?;
+        if row.state != ChallengeState::InFlight {
+            return Err(NativeShadowTransitionError::InvalidState {
+                four_tuple: four_tuple.clone(),
+                expected: ChallengeState::InFlight,
+                actual: row.state,
+            });
+        }
+        let binding = self.flight_bindings_v3.get(four_tuple).ok_or_else(|| {
+            NativeShadowTransitionError::FlightBindingMismatch(four_tuple.clone())
+        })?;
+        if binding.execution_policy_digest != *execution_policy_digest
+            || binding.operation_id_hex != operation_id_hex
+            || binding.candidate_digest != candidate_digest
+            || row.registry_digest != binding.registry_digest
+            || row.execution_policy_digest.as_ref() != Some(execution_policy_digest)
+        {
+            return Err(NativeShadowTransitionError::FlightBindingMismatch(
+                four_tuple.clone(),
+            ));
+        }
+        let commit = self.evidence_commits.get(four_tuple).ok_or_else(|| {
+            NativeShadowTransitionError::EvidenceBindingMismatch(four_tuple.clone())
+        })?;
+        if commit.candidate_digest != candidate_digest
+            || commit.execution_policy_digest.as_ref() != Some(execution_policy_digest)
+            || commit.evidence.schema != "boole.native-shadow.evidence.v2"
+        {
+            return Err(NativeShadowTransitionError::EvidenceBindingMismatch(
+                four_tuple.clone(),
+            ));
+        }
+        commit
+            .evidence
+            .validate_bindings(four_tuple, candidate_digest, Some(execution_policy_digest))
+            .map_err(|_| {
+                NativeShadowTransitionError::EvidenceBindingMismatch(four_tuple.clone())
+            })?;
+        Ok(DurableNativeShadowEvidenceCommit {
+            four_tuple: four_tuple.clone(),
+            registry_digest: row.registry_digest.clone(),
+            execution_policy_digest: execution_policy_digest.clone(),
+            candidate_digest: candidate_digest.to_string(),
+            evidence_digest: commit.evidence_digest.clone(),
         })
     }
 
@@ -1756,6 +2512,7 @@ pub(crate) enum NativeShadowTransitionError {
     FlightBindingMismatch(NativeShadowFourTuple),
     RetryableAfterEvidence(NativeShadowFourTuple),
     CleanupBindingMismatch,
+    AttemptBindingMismatch(NativeShadowFourTuple),
     V3Required(NativeShadowFourTuple),
 }
 
@@ -1824,6 +2581,10 @@ impl std::fmt::Display for NativeShadowTransitionError {
                 f,
                 "native-shadow: verified cleanup does not match the recovered operation"
             ),
+            Self::AttemptBindingMismatch(four_tuple) => write!(
+                f,
+                "native-shadow: durable grant attempt does not match state row {four_tuple:?}"
+            ),
             Self::V3Required(four_tuple) => write!(
                 f,
                 "native-shadow: v3 lifecycle row cannot downgrade to v2 for {four_tuple:?}"
@@ -1844,6 +2605,22 @@ impl std::error::Error for NativeShadowTransitionError {}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum NativeShadowJournalEvent {
+    GrantAttemptReservedV1 {
+        #[serde(flatten)]
+        four_tuple: NativeShadowFourTuple,
+        #[serde(rename = "registryDigest")]
+        registry_digest: String,
+        #[serde(rename = "executionPolicyDigest")]
+        execution_policy_digest: NativeShadowExecutionPolicyDigest,
+        #[serde(rename = "operationIdHex")]
+        operation_id_hex: String,
+        #[serde(rename = "candidateDigest")]
+        candidate_digest: String,
+        #[serde(rename = "submissionDigest")]
+        submission_digest: String,
+        #[serde(rename = "attemptKind")]
+        attempt_kind: NativeShadowGrantAttemptKindV1,
+    },
     Bootstrap {
         #[serde(flatten)]
         four_tuple: NativeShadowFourTuple,
@@ -1968,9 +2745,15 @@ pub(crate) struct NativeShadowJournalReplay {
         HashMap<NativeShadowFourTuple, Option<NativeShadowExecutionPolicyDigest>>,
     evidence_commits: HashMap<NativeShadowFourTuple, NativeShadowEvidenceCommitData>,
     flight_bindings_v3: HashMap<NativeShadowFourTuple, NativeShadowFlightBindingV3>,
+    /// Every v3 flight ever observed, including rows later rolled back or
+    /// terminalized. The live map above is intentionally pruned by terminal
+    /// events, but closed-local startup still has to prove that each historic
+    /// execution had a preceding durable checker-attempt reservation.
+    v3_flight_history: Vec<(NativeShadowFourTuple, NativeShadowFlightBindingV3)>,
     seen_operation_ids_v3: HashSet<String>,
     v3_lifecycle_rows: HashSet<NativeShadowFourTuple>,
     exhausted: HashSet<NativeShadowFourTuple>,
+    pub(crate) attempts: NativeShadowGrantAttemptLedgerV1,
     pub stuck_in_flight: Vec<NativeShadowFourTuple>,
 }
 
@@ -1987,14 +2770,42 @@ pub(crate) fn replay_native_shadow_journal(
     let mut evidence_commits: HashMap<NativeShadowFourTuple, NativeShadowEvidenceCommitData> =
         HashMap::new();
     let mut flight_bindings_v3 = HashMap::new();
+    let mut v3_flight_history = Vec::new();
     let mut seen_operation_ids_v3 = HashSet::new();
     let mut v3_lifecycle_rows = HashSet::new();
     let mut exhausted = HashSet::new();
+    let mut attempts = NativeShadowGrantAttemptLedgerV1::default();
     for (i, line) in raw.lines().filter(|line| !line.is_empty()).enumerate() {
         let event: NativeShadowJournalEvent = serde_json::from_str(line).map_err(|err| {
             anyhow::anyhow!("nativeShadowJournal: line {} invalid JSON: {}", i + 1, err)
         })?;
         match event {
+            NativeShadowJournalEvent::GrantAttemptReservedV1 {
+                four_tuple,
+                registry_digest,
+                execution_policy_digest,
+                operation_id_hex,
+                candidate_digest,
+                submission_digest,
+                attempt_kind,
+            } => {
+                let record = NativeShadowGrantAttemptRecordV1 {
+                    four_tuple,
+                    registry_digest,
+                    execution_policy_digest,
+                    operation_id_hex,
+                    candidate_digest,
+                    submission_digest,
+                    kind: attempt_kind,
+                };
+                attempts.replay_record(record).map_err(|error| {
+                    anyhow::anyhow!(
+                        "nativeShadowJournal: line {} invalid grant attempt: {}",
+                        i + 1,
+                        error
+                    )
+                })?;
+            }
             NativeShadowJournalEvent::Bootstrap {
                 four_tuple,
                 registry_digest,
@@ -2124,15 +2935,14 @@ pub(crate) fn replay_native_shadow_journal(
                     "nativeShadowJournal: line {} reuses operationIdHex",
                     i + 1
                 );
-                flight_bindings_v3.insert(
-                    four_tuple.clone(),
-                    NativeShadowFlightBindingV3 {
-                        registry_digest,
-                        execution_policy_digest,
-                        operation_id_hex,
-                        candidate_digest,
-                    },
-                );
+                let binding = NativeShadowFlightBindingV3 {
+                    registry_digest,
+                    execution_policy_digest,
+                    operation_id_hex,
+                    candidate_digest,
+                };
+                v3_flight_history.push((four_tuple.clone(), binding.clone()));
+                flight_bindings_v3.insert(four_tuple.clone(), binding);
                 v3_lifecycle_rows.insert(four_tuple.clone());
                 resolved.insert(four_tuple, ChallengeState::InFlight);
             }
@@ -2396,9 +3206,11 @@ pub(crate) fn replay_native_shadow_journal(
         execution_policy_digests,
         evidence_commits,
         flight_bindings_v3,
+        v3_flight_history,
         seen_operation_ids_v3,
         v3_lifecycle_rows,
         exhausted,
+        attempts,
         stuck_in_flight,
     })
 }
@@ -2415,6 +3227,7 @@ pub(crate) fn replay_native_shadow_journal(
 pub(crate) struct NativeShadowRecovery {
     pub store: NativeShadowStateStore,
     pub exhaustion_ledger: NativeShadowExhaustionLedger,
+    pub(crate) attempts: NativeShadowGrantAttemptLedgerV1,
     pub stuck_in_flight: Vec<NativeShadowFourTuple>,
 }
 
@@ -2518,6 +3331,98 @@ pub(crate) fn recover_native_shadow_state(
     Ok(NativeShadowRecovery {
         store,
         exhaustion_ledger,
+        attempts: replay.attempts,
+        stuck_in_flight: replay.stuck_in_flight,
+    })
+}
+
+/// Recover only the frozen closed-local replay overlay from its dedicated
+/// journal. Unlike ordinary registry recovery, an empty journal stays empty:
+/// the disabled production registry can never create an active row. The row
+/// first appears only through an opaque grant authorization.
+pub(crate) fn recover_verified_closed_local_replay_state(
+    expected_registry_version: &str,
+    expected_registry_digest: &str,
+    expected_execution_policy_digest: &NativeShadowExecutionPolicyDigest,
+    authority: &mut NativeShadowJournalAuthority,
+) -> anyhow::Result<NativeShadowRecovery> {
+    let replay = replay_native_shadow_journal(authority)?;
+    for (four_tuple, binding) in &replay.v3_flight_history {
+        anyhow::ensure!(
+            replay.attempts.matches_flight(
+                four_tuple,
+                &binding.operation_id_hex,
+                &binding.candidate_digest,
+            ),
+            "closed-local replay InFlightV3 has no matching durable checker attempt"
+        );
+    }
+    for (four_tuple, commit) in &replay.evidence_commits {
+        anyhow::ensure!(
+            commit.evidence.registry_version == expected_registry_version,
+            "closed-local replay evidence registryVersion drift"
+        );
+        anyhow::ensure!(
+            replay.attempts.matches_evidence(
+                four_tuple,
+                &commit.candidate_digest,
+                &commit.evidence.submission_digest,
+            ),
+            "closed-local replay evidence has no matching durable checker attempt"
+        );
+    }
+    let mut exhaustion_ledger = NativeShadowExhaustionLedger::default();
+    exhaustion_ledger
+        .exhausted
+        .extend(replay.exhausted.iter().cloned());
+
+    let mut store = NativeShadowStateStore {
+        journal_authority_id: Some(authority.authority_id()),
+        ..NativeShadowStateStore::default()
+    };
+    for (four_tuple, state) in &replay.resolved {
+        let registry_digest = replay
+            .registry_digests
+            .get(four_tuple)
+            .ok_or_else(|| anyhow::anyhow!("closed-local replay row missing registryDigest"))?;
+        let execution_policy_digest =
+            replay
+                .execution_policy_digests
+                .get(four_tuple)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("closed-local replay row missing executionPolicyDigest")
+                })?;
+        anyhow::ensure!(
+            registry_digest == expected_registry_digest,
+            "closed-local replay journal registryDigest drift"
+        );
+        anyhow::ensure!(
+            execution_policy_digest.as_ref() == Some(expected_execution_policy_digest),
+            "closed-local replay journal executionPolicyDigest drift"
+        );
+        anyhow::ensure!(
+            replay.v3_lifecycle_rows.contains(four_tuple),
+            "closed-local replay journal contains a legacy lifecycle row"
+        );
+        store.rows.insert(
+            four_tuple.clone(),
+            NativeShadowStateRow {
+                state: *state,
+                registry_digest: registry_digest.clone(),
+                execution_policy_digest: execution_policy_digest.clone(),
+                durable: true,
+            },
+        );
+    }
+    store.evidence_commits = replay.evidence_commits;
+    store.flight_bindings_v3 = replay.flight_bindings_v3;
+    store.seen_operation_ids_v3 = replay.seen_operation_ids_v3;
+    store.v3_lifecycle_rows = replay.v3_lifecycle_rows;
+
+    Ok(NativeShadowRecovery {
+        store,
+        exhaustion_ledger,
+        attempts: replay.attempts,
         stuck_in_flight: replay.stuck_in_flight,
     })
 }
@@ -2717,6 +3622,71 @@ mod tests {
     }
 
     #[test]
+    fn terminal_redelivery_reuses_the_exact_durable_evidence_and_receipt() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let registry_digest = sha256_hex(b"bf3-terminal-redelivery-registry");
+        let policy = test_execution_policy_digest();
+        let candidate_digest = sha256_hex(b"bf3-terminal-redelivery-candidate");
+        let (journal_path, _) = scratch_journal_and_exhaustion_paths("bf3-terminal-redelivery");
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
+        let mut store = NativeShadowStateStore::default();
+        let mut exhaustion = NativeShadowExhaustionLedger::default();
+        store.resolve_with_execution_policy(&four_tuple, &registry_digest, &policy, || {
+            ChallengeState::ActiveFresh
+        });
+        store
+            .begin_execution(&mut authority, &four_tuple, &policy)
+            .expect("begin execution");
+        let evidence_json = test_evidence_v2_json(
+            &four_tuple,
+            &candidate_digest,
+            "terminal-redelivery",
+            &policy,
+        );
+        let evidence: NativeShadowEvidence =
+            serde_json::from_str(&evidence_json).expect("typed evidence");
+        let durable = store
+            .persist_evidence(
+                &mut authority,
+                &four_tuple,
+                &candidate_digest,
+                &evidence_json,
+            )
+            .expect("persist evidence");
+        let first_receipt = store
+            .map_durable_v2_to_bf3_receipt(&four_tuple, &durable)
+            .expect("first receipt");
+        store
+            .complete_consumed(&mut authority, &mut exhaustion, &four_tuple, durable)
+            .expect("terminal transition");
+
+        assert_eq!(
+            store.terminal_durable_evidence(&four_tuple),
+            Some(&evidence)
+        );
+        assert_eq!(
+            store.terminal_durable_evidence_digest(&four_tuple),
+            Some(sha256_hex(evidence_json.as_bytes()).as_str())
+        );
+        let redelivered = store
+            .map_terminal_v2_to_bf3_receipt(
+                &four_tuple,
+                NativeShadowTerminalReceiptBinding {
+                    registry_version: &evidence.registry_version,
+                    registry_digest: &registry_digest,
+                    execution_policy_digest: &policy,
+                    candidate_digest: &candidate_digest,
+                    submission_digest: &evidence.submission_digest,
+                },
+                &exhaustion,
+            )
+            .expect("terminal redelivery");
+        assert_eq!(redelivered, first_receipt);
+    }
+
+    #[test]
     fn bf3_task_id_is_stable_while_instance_bindings_stay_in_the_artifact_root() {
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let base_tuple = registry.four_tuple(&registry.templates[0]);
@@ -2822,7 +3792,7 @@ mod tests {
     }
 
     #[test]
-    fn durable_v2_semantic_rejects_preserve_every_checker_reason() {
+    fn durable_v2_semantic_rejects_preserve_exact_evidence_but_use_existing_bf3_reason_set() {
         let cases = [
             (
                 "compile_or_hidden_test_failed",
@@ -2834,6 +3804,15 @@ mod tests {
             ("patch_line_limit_exceeded", "patch-line-limit-exceeded"),
             ("patch_size_exceeded", "patch-size-exceeded"),
             ("submission_unreadable", "submission-unreadable"),
+            ("checker_rejected", "compile-or-hidden-test-failed"),
+            (
+                "submission_resource_ceiling_breach",
+                "compile-or-hidden-test-failed",
+            ),
+            (
+                "checker_reported_reason_unconfirmed",
+                "compile-or-hidden-test-failed",
+            ),
         ];
         let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
         let template = &registry.templates[0];
@@ -3034,17 +4013,26 @@ mod tests {
             let mut evidence = base.clone();
             evidence["verdict"] = serde_json::json!(verdict);
             evidence["reasonCode"] = serde_json::json!(reason);
-            assert_eq!(
-                map_test_bf3_receipt(
-                    label,
-                    four_tuple.clone(),
-                    &registry_digest,
-                    policy.clone(),
-                    evidence,
+            let (journal_path, _exhaustion_path) =
+                scratch_journal_and_exhaustion_paths(&format!("bf3-invalid-{label}"));
+            let mut authority =
+                NativeShadowJournalAuthority::open(&journal_path).expect("journal authority");
+            let mut store = NativeShadowStateStore::default();
+            store.resolve(&four_tuple, &registry_digest, || {
+                ChallengeState::ActiveFresh
+            });
+            store
+                .begin_execution(&mut authority, &four_tuple, &policy)
+                .expect("begin execution");
+            assert!(matches!(
+                store.persist_evidence(
+                    &mut authority,
+                    &four_tuple,
+                    &candidate_digest,
+                    &evidence.to_string(),
                 ),
-                Err(NativeShadowReceiptMapError::InvalidVerdictReason),
-                "{label}"
-            );
+                Err(NativeShadowTransitionError::InvalidEvidenceContract(_))
+            ));
         }
 
         assert_eq!(
@@ -3158,6 +4146,53 @@ mod tests {
         assert_eq!(
             store.map_durable_v2_to_bf3_receipt(&four_tuple, &durable),
             Err(NativeShadowReceiptMapError::DurableEvidenceBindingMismatch)
+        );
+    }
+
+    #[test]
+    fn invalid_verdict_reason_pair_is_rejected_before_evidence_is_journaled() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let candidate_digest = sha256_hex(b"invalid-verdict-reason-candidate");
+        let (journal_path, _) =
+            scratch_journal_and_exhaustion_paths("invalid-verdict-reason-persist");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        let mut recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("recovery");
+        let _flight = recovery
+            .store
+            .begin_execution_v3(
+                &mut authority,
+                &four_tuple,
+                &policy,
+                &sha256_hex(b"invalid-verdict-reason-operation"),
+                &candidate_digest,
+            )
+            .expect("begin");
+        let before = std::fs::read(&journal_path).expect("journal before invalid evidence");
+        let mut evidence: serde_json::Value = serde_json::from_str(&test_evidence_v2_json(
+            &four_tuple,
+            &candidate_digest,
+            "invalid-verdict-reason",
+            &policy,
+        ))
+        .expect("typed evidence");
+        evidence["reasonCode"] = serde_json::json!("forbidden_construct");
+
+        assert!(matches!(
+            recovery.store.persist_evidence(
+                &mut authority,
+                &four_tuple,
+                &candidate_digest,
+                &serde_json::to_string(&evidence).expect("evidence JSON"),
+            ),
+            Err(NativeShadowTransitionError::InvalidEvidenceContract(_))
+        ));
+        assert_eq!(
+            std::fs::read(&journal_path).expect("journal after invalid evidence"),
+            before
         );
     }
 
@@ -4488,6 +5523,88 @@ mod tests {
         assert!(matches!(
             NativeShadowJournalAuthority::open(&journal_path),
             Err(NativeShadowJournalAuthorityError::UnsafePath(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepared_production_journal_directory_is_private_and_file_is_one_link() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        let (journal_path, other_path) =
+            scratch_journal_and_exhaustion_paths("production-authority-safe-dir");
+        let directory = journal_path.parent().expect("journal parent");
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+            .expect("private state directory");
+        let directory_metadata = std::fs::metadata(directory).expect("state directory metadata");
+        let uid = directory_metadata.uid();
+        let gid = directory_metadata.gid();
+
+        let authority = NativeShadowJournalAuthority::open_prepared_production_dir(
+            directory,
+            journal_path.file_name().expect("journal name"),
+            uid,
+            gid,
+        )
+        .expect("prepared production journal opens");
+        let metadata = std::fs::metadata(&journal_path).expect("journal metadata");
+        assert_eq!(metadata.mode() & 0o7777, 0o600);
+        assert_eq!(metadata.uid(), uid);
+        assert_eq!(metadata.gid(), gid);
+        assert_eq!(metadata.nlink(), 1);
+        drop(authority);
+
+        std::fs::hard_link(&journal_path, &other_path).expect("second hard link");
+        assert!(matches!(
+            NativeShadowJournalAuthority::open_prepared_production_dir(
+                directory,
+                journal_path.file_name().expect("journal name"),
+                uid,
+                gid,
+            ),
+            Err(NativeShadowJournalAuthorityError::UnsafePath(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepared_production_journal_rejects_permissive_or_symlinked_directory() {
+        use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
+
+        let (journal_path, other_path) =
+            scratch_journal_and_exhaustion_paths("production-authority-unsafe-dir");
+        let directory = journal_path.parent().expect("journal parent");
+        let directory_metadata = std::fs::metadata(directory).expect("state directory metadata");
+        let uid = directory_metadata.uid();
+        let gid = directory_metadata.gid();
+
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o750))
+            .expect("permissive state directory");
+        assert!(matches!(
+            NativeShadowJournalAuthority::open_prepared_production_dir(
+                directory,
+                journal_path.file_name().expect("journal name"),
+                uid,
+                gid,
+            ),
+            Err(NativeShadowJournalAuthorityError::UnsafePath(_))
+        ));
+
+        let real_directory = other_path.with_extension("real-dir");
+        let linked_directory = other_path.with_extension("linked-dir");
+        std::fs::create_dir(&real_directory).expect("real directory");
+        std::fs::set_permissions(&real_directory, std::fs::Permissions::from_mode(0o700))
+            .expect("private real directory");
+        symlink(&real_directory, &linked_directory).expect("directory symlink");
+        assert!(matches!(
+            NativeShadowJournalAuthority::open_prepared_production_dir(
+                &linked_directory,
+                std::ffi::OsStr::new("replay-v1.ndjson"),
+                uid,
+                gid,
+            ),
+            Err(NativeShadowJournalAuthorityError::UnsafePath(_))
+                | Err(NativeShadowJournalAuthorityError::Io(_, _))
         ));
     }
 
@@ -6128,6 +7245,544 @@ mod tests {
             ),
             Err(NativeShadowTransitionError::RetryableAfterEvidence(key)) if key == four_tuple
         ));
+    }
+
+    #[test]
+    fn recovered_v3_flight_with_terminal_evidence_finishes_without_reexecuting_checker() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let operation_id = sha256_hex(b"v3-recovered-evidence-operation");
+        let candidate_digest = sha256_hex(b"v3-recovered-evidence-candidate");
+        let (journal_path, _other_path) =
+            scratch_journal_and_exhaustion_paths("v3-recovered-evidence-terminalize");
+        {
+            let mut authority =
+                NativeShadowJournalAuthority::open(&journal_path).expect("first authority");
+            let mut recovery =
+                recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                    .expect("first recovery");
+            let _flight = recovery
+                .store
+                .begin_execution_v3(
+                    &mut authority,
+                    &four_tuple,
+                    &policy,
+                    &operation_id,
+                    &candidate_digest,
+                )
+                .expect("begin v3");
+            let evidence_json = test_evidence_v2_json(
+                &four_tuple,
+                &candidate_digest,
+                "v3-recovered-evidence",
+                &policy,
+            );
+            let _durable = recovery
+                .store
+                .persist_evidence(
+                    &mut authority,
+                    &four_tuple,
+                    &candidate_digest,
+                    &evidence_json,
+                )
+                .expect("persist evidence before simulated crash");
+        }
+
+        let mut authority =
+            NativeShadowJournalAuthority::open(&journal_path).expect("second authority");
+        let mut recovery =
+            recover_native_shadow_state(&registry, "registry-digest", &policy, &mut authority)
+                .expect("second recovery");
+        let durable = recovery
+            .store
+            .recover_pending_evidence_v3(
+                VerifiedNativeShadowCleanupV3::for_test(&operation_id),
+                &four_tuple,
+                &policy,
+                &operation_id,
+                &candidate_digest,
+            )
+            .expect("recover exact durable evidence capability");
+        recovery
+            .store
+            .complete_consumed(
+                &mut authority,
+                &mut recovery.exhaustion_ledger,
+                &four_tuple,
+                durable,
+            )
+            .expect("finish the already-decided terminal transition");
+
+        assert_eq!(
+            recovery.store.rows.get(&four_tuple).map(|row| row.state),
+            Some(ChallengeState::Consumed)
+        );
+        assert!(recovery.exhaustion_ledger.contains(&four_tuple));
+    }
+
+    #[test]
+    fn closed_local_replay_attempt_budget_is_durable_and_each_case_is_one_shot() {
+        let (journal_path, _) = scratch_journal_and_exhaustion_paths("closed-local-attempt-budget");
+        let policy = test_execution_policy_digest();
+        let registry_digest = sha256_hex(b"closed-local-attempt-registry");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        let mut attempts = NativeShadowGrantAttemptLedgerV1::default();
+
+        for epoch in 0..3_u64 {
+            let four_tuple = NativeShadowFourTuple {
+                family_version: "family-v1".to_string(),
+                template_id: sha256_hex(b"closed-local-attempt-template"),
+                challenge_sha256: sha256_hex(b"closed-local-attempt-challenge"),
+                epoch,
+            };
+            let _reservation = attempts
+                .reserve(
+                    &mut authority,
+                    NativeShadowGrantAttemptFieldsV1 {
+                        four_tuple: &four_tuple,
+                        registry_digest: &registry_digest,
+                        execution_policy_digest: &policy,
+                        operation_id_hex: &sha256_hex(format!("operation-{epoch}").as_bytes()),
+                        candidate_digest: &sha256_hex(format!("candidate-{epoch}").as_bytes()),
+                        submission_digest: &sha256_hex(format!("submission-{epoch}").as_bytes()),
+                        kind: NativeShadowGrantAttemptKindV1::Checker,
+                    },
+                )
+                .expect("three checker rows fit the frozen budget");
+        }
+        let empty = NativeShadowFourTuple {
+            family_version: "family-v1".to_string(),
+            template_id: sha256_hex(b"closed-local-attempt-template"),
+            challenge_sha256: sha256_hex(b"closed-local-attempt-challenge"),
+            epoch: 3,
+        };
+        let _empty_reservation = attempts
+            .reserve(
+                &mut authority,
+                NativeShadowGrantAttemptFieldsV1 {
+                    four_tuple: &empty,
+                    registry_digest: &registry_digest,
+                    execution_policy_digest: &policy,
+                    operation_id_hex: &sha256_hex(b"operation-3"),
+                    candidate_digest: &sha256_hex(b"candidate-3"),
+                    submission_digest: &sha256_hex(b"submission-3"),
+                    kind: NativeShadowGrantAttemptKindV1::PreIntake,
+                },
+            )
+            .expect("the pre-intake row is the fourth and final matrix attempt");
+        assert_eq!(attempts.total_attempts(), 4);
+        assert_eq!(attempts.checker_attempts(), 3);
+        assert!(matches!(
+            attempts.reserve(
+                &mut authority,
+                NativeShadowGrantAttemptFieldsV1 {
+                    four_tuple: &empty,
+                    registry_digest: &registry_digest,
+                    execution_policy_digest: &policy,
+                    operation_id_hex: &sha256_hex(b"different-operation"),
+                    candidate_digest: &sha256_hex(b"different-candidate"),
+                    submission_digest: &sha256_hex(b"different-submission"),
+                    kind: NativeShadowGrantAttemptKindV1::PreIntake,
+                },
+            ),
+            Err(NativeShadowGrantAttemptErrorV1::CaseAlreadyReserved)
+        ));
+
+        drop(authority);
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("reopen");
+        let replay = replay_native_shadow_journal(&mut authority).expect("replay attempts");
+        assert_eq!(replay.attempts.total_attempts(), 4);
+        assert_eq!(replay.attempts.checker_attempts(), 3);
+    }
+
+    #[test]
+    fn fourth_checker_attempt_is_refused_before_any_journal_append() {
+        let (journal_path, _) = scratch_journal_and_exhaustion_paths("closed-local-checker-budget");
+        let policy = test_execution_policy_digest();
+        let registry_digest = sha256_hex(b"closed-local-checker-registry");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        let mut attempts = NativeShadowGrantAttemptLedgerV1::default();
+
+        for epoch in 0..4_u64 {
+            let four_tuple = NativeShadowFourTuple {
+                family_version: "family-v1".to_string(),
+                template_id: sha256_hex(b"closed-local-checker-template"),
+                challenge_sha256: sha256_hex(b"closed-local-checker-challenge"),
+                epoch,
+            };
+            let result = attempts.reserve(
+                &mut authority,
+                NativeShadowGrantAttemptFieldsV1 {
+                    four_tuple: &four_tuple,
+                    registry_digest: &registry_digest,
+                    execution_policy_digest: &policy,
+                    operation_id_hex: &sha256_hex(format!("checker-operation-{epoch}").as_bytes()),
+                    candidate_digest: &sha256_hex(format!("checker-candidate-{epoch}").as_bytes()),
+                    submission_digest: &sha256_hex(
+                        format!("checker-submission-{epoch}").as_bytes(),
+                    ),
+                    kind: NativeShadowGrantAttemptKindV1::Checker,
+                },
+            );
+            if epoch < 3 {
+                let _reservation = result.expect("first three checker rows fit");
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(NativeShadowGrantAttemptErrorV1::CheckerBudgetExceeded)
+                ));
+            }
+        }
+        assert_eq!(attempts.total_attempts(), 3);
+        assert_eq!(attempts.checker_attempts(), 3);
+        let lines = std::fs::read_to_string(&journal_path)
+            .expect("journal")
+            .lines()
+            .count();
+        assert_eq!(lines, 3, "refused attempt must not append a journal line");
+    }
+
+    #[test]
+    fn checker_execution_can_begin_only_from_a_matching_durable_attempt_capability() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let registry_digest = sha256_hex(b"reserved-execution-registry");
+        let operation_id = sha256_hex(b"reserved-execution-operation");
+        let candidate_digest = sha256_hex(b"reserved-execution-candidate");
+        let submission_digest = sha256_hex(b"reserved-execution-submission");
+        let (journal_path, _) =
+            scratch_journal_and_exhaustion_paths("reserved-execution-capability");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        let mut recovery =
+            recover_native_shadow_state(&registry, &registry_digest, &policy, &mut authority)
+                .expect("recovery");
+        let reservation = recovery
+            .attempts
+            .reserve(
+                &mut authority,
+                NativeShadowGrantAttemptFieldsV1 {
+                    four_tuple: &four_tuple,
+                    registry_digest: &registry_digest,
+                    execution_policy_digest: &policy,
+                    operation_id_hex: &operation_id,
+                    candidate_digest: &candidate_digest,
+                    submission_digest: &submission_digest,
+                    kind: NativeShadowGrantAttemptKindV1::Checker,
+                },
+            )
+            .expect("durable checker reservation");
+
+        let flight = recovery
+            .store
+            .begin_reserved_closed_local_replay_execution_v3(&mut authority, reservation)
+            .expect("matching durable attempt starts one flight");
+        assert_eq!(flight.operation_id_hex(), operation_id);
+        assert_eq!(flight.candidate_digest(), candidate_digest);
+    }
+
+    #[test]
+    fn checker_attempt_capability_cannot_cross_journal_authorities() {
+        let registry = parse_fixture(TEST_ONLY_REGISTRY_FIXTURE);
+        let four_tuple = registry.four_tuple(&registry.templates[0]);
+        let policy = test_execution_policy_digest();
+        let registry_digest = sha256_hex(b"cross-journal-reserved-execution-registry");
+        let operation_id = sha256_hex(b"cross-journal-reserved-execution-operation");
+        let candidate_digest = sha256_hex(b"cross-journal-reserved-execution-candidate");
+        let submission_digest = sha256_hex(b"cross-journal-reserved-execution-submission");
+        let (first_journal_path, second_journal_path) =
+            scratch_journal_and_exhaustion_paths("cross-journal-reserved-execution");
+        let mut first_authority =
+            NativeShadowJournalAuthority::open(&first_journal_path).expect("first authority");
+        let mut first_attempts = NativeShadowGrantAttemptLedgerV1::default();
+        let reservation = first_attempts
+            .reserve(
+                &mut first_authority,
+                NativeShadowGrantAttemptFieldsV1 {
+                    four_tuple: &four_tuple,
+                    registry_digest: &registry_digest,
+                    execution_policy_digest: &policy,
+                    operation_id_hex: &operation_id,
+                    candidate_digest: &candidate_digest,
+                    submission_digest: &submission_digest,
+                    kind: NativeShadowGrantAttemptKindV1::Checker,
+                },
+            )
+            .expect("reservation is durable in the first journal");
+
+        let mut second_authority =
+            NativeShadowJournalAuthority::open(&second_journal_path).expect("second authority");
+        let mut second_recovery = recover_native_shadow_state(
+            &registry,
+            &registry_digest,
+            &policy,
+            &mut second_authority,
+        )
+        .expect("second journal recovery");
+
+        assert!(matches!(
+            second_recovery
+                .store
+                .begin_reserved_closed_local_replay_execution_v3(
+                    &mut second_authority,
+                    reservation,
+                ),
+            Err(NativeShadowTransitionError::AttemptBindingMismatch(key)) if key == four_tuple
+        ));
+        assert_eq!(
+            second_recovery
+                .store
+                .rows
+                .get(&four_tuple)
+                .map(|row| row.state),
+            Some(ChallengeState::ActiveFresh),
+            "a capability from another journal must not mutate this journal's row"
+        );
+    }
+
+    #[test]
+    fn closed_local_replay_bootstrap_can_activate_only_its_opaque_overlay_row() {
+        let four_tuple = NativeShadowFourTuple {
+            family_version: "TUPLE-STRUCT-PROJECT/TEST".to_string(),
+            template_id: sha256_hex(b"closed-local-replay-bootstrap-template"),
+            challenge_sha256: sha256_hex(b"closed-local-replay-bootstrap-challenge"),
+            epoch: 0,
+        };
+        let policy = test_execution_policy_digest();
+        let bootstrap = VerifiedNativeShadowReplayBootstrap::for_test(
+            four_tuple.clone(),
+            "CLOSED-LOCAL-REPLAY-OVERLAY-V1",
+            sha256_hex(b"closed-local-replay-bootstrap-registry"),
+            policy,
+        );
+        let mut store = NativeShadowStateStore::default();
+
+        assert_eq!(
+            store.resolve_verified_closed_local_replay(&bootstrap),
+            ResolveOutcome::Bootstrapped(ChallengeState::ActiveFresh)
+        );
+        assert_eq!(
+            store.resolve_verified_closed_local_replay(&bootstrap),
+            ResolveOutcome::Existing(ChallengeState::ActiveFresh)
+        );
+        assert_eq!(store.rows.len(), 1);
+        assert!(store.rows.contains_key(&four_tuple));
+    }
+
+    #[test]
+    fn closed_local_replay_recovery_does_not_bootstrap_the_disabled_registry() {
+        let (journal_path, _) =
+            scratch_journal_and_exhaustion_paths("closed-local-replay-empty-recovery");
+        let registry_digest = sha256_hex(b"closed-local-replay-recovery-registry");
+        let policy = test_execution_policy_digest();
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+
+        let recovery = recover_verified_closed_local_replay_state(
+            "CLOSED-LOCAL-REPLAY-OVERLAY-V1",
+            &registry_digest,
+            &policy,
+            &mut authority,
+        )
+        .expect("empty replay journal recovers without inventing a row");
+
+        assert!(recovery.store.rows.is_empty());
+        assert_eq!(recovery.attempts.total_attempts(), 0);
+        assert!(recovery.stuck_in_flight.is_empty());
+    }
+
+    #[test]
+    fn closed_local_replay_recovery_rejects_evidence_for_another_registry_version() {
+        let (journal_path, _) =
+            scratch_journal_and_exhaustion_paths("closed-local-wrong-registry-version");
+        let registry_digest = sha256_hex(b"closed-local-registry-version-registry");
+        let policy = test_execution_policy_digest();
+        let four_tuple = NativeShadowFourTuple {
+            family_version: "TUPLE-STRUCT-PROJECT/TEST".to_string(),
+            template_id: sha256_hex(b"closed-local-registry-version-template"),
+            challenge_sha256: sha256_hex(b"closed-local-registry-version-challenge"),
+            epoch: 1,
+        };
+        let operation_id = sha256_hex(b"closed-local-registry-version-operation");
+        let candidate_digest = sha256_hex(b"closed-local-registry-version-candidate");
+        let mut evidence: serde_json::Value = serde_json::from_str(&test_evidence_v2_json(
+            &four_tuple,
+            &candidate_digest,
+            "closed-local-registry-version",
+            &policy,
+        ))
+        .expect("evidence");
+        evidence["registryVersion"] = serde_json::json!("WRONG-OVERLAY-VERSION");
+        let submission_digest = evidence["submissionDigest"]
+            .as_str()
+            .expect("submission digest")
+            .to_string();
+        let evidence_json = serde_json::to_string(&evidence).expect("evidence JSON");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        for event in [
+            NativeShadowJournalEvent::GrantAttemptReservedV1 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: registry_digest.clone(),
+                execution_policy_digest: policy.clone(),
+                operation_id_hex: operation_id.clone(),
+                candidate_digest: candidate_digest.clone(),
+                submission_digest,
+                attempt_kind: NativeShadowGrantAttemptKindV1::Checker,
+            },
+            NativeShadowJournalEvent::BootstrapV2 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: registry_digest.clone(),
+                execution_policy_digest: policy.clone(),
+                state: ChallengeState::ActiveFresh,
+            },
+            NativeShadowJournalEvent::InFlightV3 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: registry_digest.clone(),
+                execution_policy_digest: policy.clone(),
+                operation_id_hex: operation_id,
+                candidate_digest: candidate_digest.clone(),
+            },
+            NativeShadowJournalEvent::EvidenceV2 {
+                four_tuple,
+                registry_digest: registry_digest.clone(),
+                execution_policy_digest: policy.clone(),
+                candidate_digest,
+                evidence_digest: sha256_hex(evidence_json.as_bytes()),
+                evidence_json,
+            },
+        ] {
+            authority
+                .append_line(&serde_json::to_string(&event).expect("event"))
+                .expect("append");
+        }
+
+        let error = match recover_verified_closed_local_replay_state(
+            "EXPECTED-OVERLAY-VERSION",
+            &registry_digest,
+            &policy,
+            &mut authority,
+        ) {
+            Ok(_) => panic!("wrong evidence registryVersion must fail startup"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("registryVersion"));
+    }
+
+    #[test]
+    fn closed_local_replay_recovery_rejects_in_flight_without_prior_durable_attempt() {
+        let (journal_path, _) =
+            scratch_journal_and_exhaustion_paths("closed-local-missing-attempt");
+        let registry_digest = sha256_hex(b"closed-local-missing-attempt-registry");
+        let policy = test_execution_policy_digest();
+        let four_tuple = NativeShadowFourTuple {
+            family_version: "TUPLE-STRUCT-PROJECT/TEST".to_string(),
+            template_id: sha256_hex(b"closed-local-missing-attempt-template"),
+            challenge_sha256: sha256_hex(b"closed-local-missing-attempt-challenge"),
+            epoch: 2,
+        };
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        for event in [
+            NativeShadowJournalEvent::BootstrapV2 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: registry_digest.clone(),
+                execution_policy_digest: policy.clone(),
+                state: ChallengeState::ActiveFresh,
+            },
+            NativeShadowJournalEvent::InFlightV3 {
+                four_tuple,
+                registry_digest: registry_digest.clone(),
+                execution_policy_digest: policy.clone(),
+                operation_id_hex: sha256_hex(b"closed-local-missing-attempt-operation"),
+                candidate_digest: sha256_hex(b"closed-local-missing-attempt-candidate"),
+            },
+        ] {
+            authority
+                .append_line(&serde_json::to_string(&event).expect("event"))
+                .expect("append");
+        }
+
+        let error = match recover_verified_closed_local_replay_state(
+            "EXPECTED-OVERLAY-VERSION",
+            &registry_digest,
+            &policy,
+            &mut authority,
+        ) {
+            Ok(_) => panic!("InFlight without a prior durable attempt must fail startup"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("durable checker attempt"));
+    }
+
+    #[test]
+    fn closed_local_replay_recovery_rejects_evidence_with_another_attempt_submission() {
+        let (journal_path, _) =
+            scratch_journal_and_exhaustion_paths("closed-local-evidence-attempt-drift");
+        let registry_digest = sha256_hex(b"closed-local-evidence-attempt-registry");
+        let policy = test_execution_policy_digest();
+        let four_tuple = NativeShadowFourTuple {
+            family_version: "TUPLE-STRUCT-PROJECT/TEST".to_string(),
+            template_id: sha256_hex(b"closed-local-evidence-attempt-template"),
+            challenge_sha256: sha256_hex(b"closed-local-evidence-attempt-challenge"),
+            epoch: 2,
+        };
+        let operation_id = sha256_hex(b"closed-local-evidence-attempt-operation");
+        let candidate_digest = sha256_hex(b"closed-local-evidence-attempt-candidate");
+        let evidence_json = test_evidence_v2_json(
+            &four_tuple,
+            &candidate_digest,
+            "closed-local-evidence-attempt",
+            &policy,
+        );
+        let evidence: NativeShadowEvidence =
+            serde_json::from_str(&evidence_json).expect("evidence");
+        let mut authority = NativeShadowJournalAuthority::open(&journal_path).expect("authority");
+        for event in [
+            NativeShadowJournalEvent::GrantAttemptReservedV1 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: registry_digest.clone(),
+                execution_policy_digest: policy.clone(),
+                operation_id_hex: operation_id.clone(),
+                candidate_digest: candidate_digest.clone(),
+                submission_digest: sha256_hex(b"another-submission"),
+                attempt_kind: NativeShadowGrantAttemptKindV1::Checker,
+            },
+            NativeShadowJournalEvent::BootstrapV2 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: registry_digest.clone(),
+                execution_policy_digest: policy.clone(),
+                state: ChallengeState::ActiveFresh,
+            },
+            NativeShadowJournalEvent::InFlightV3 {
+                four_tuple: four_tuple.clone(),
+                registry_digest: registry_digest.clone(),
+                execution_policy_digest: policy.clone(),
+                operation_id_hex: operation_id,
+                candidate_digest: candidate_digest.clone(),
+            },
+            NativeShadowJournalEvent::EvidenceV2 {
+                four_tuple,
+                registry_digest: registry_digest.clone(),
+                execution_policy_digest: policy.clone(),
+                candidate_digest,
+                evidence_digest: sha256_hex(evidence_json.as_bytes()),
+                evidence_json,
+            },
+        ] {
+            authority
+                .append_line(&serde_json::to_string(&event).expect("event"))
+                .expect("append");
+        }
+
+        let error = match recover_verified_closed_local_replay_state(
+            &evidence.registry_version,
+            &registry_digest,
+            &policy,
+            &mut authority,
+        ) {
+            Ok(_) => panic!("evidence for another durable submission must fail startup"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("durable checker attempt"));
     }
 
     #[test]

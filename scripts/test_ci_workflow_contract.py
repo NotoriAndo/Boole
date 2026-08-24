@@ -19,6 +19,13 @@ NATIVE_CONTAINMENT_PROBE = (
 PORTABLE_ROOTFS_REPLAY_GATE = (
     REPO_ROOT / "scripts" / "native-shadow-portable-rootfs-replay-linux.sh"
 )
+NATIVE_SHADOW_HTTP_REPLAY_GATE = (
+    REPO_ROOT / "scripts" / "native_shadow_http_replay_gate.py"
+)
+NATIVE_SHADOW_REPLAY_NODE_UNIT = (
+    REPO_ROOT / "native" / "systemd" / "boole-native-shadow-replay-node.service"
+)
+SELF_TEST = REPO_ROOT / "scripts" / "self-test.sh"
 LAUNCHER_PRIVILEGE_GATE = (
     REPO_ROOT / "scripts" / "native-shadow-launcher-privilege-gate.sh"
 )
@@ -155,14 +162,11 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         manager = (
             REPO_ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
         ).read_text(encoding="utf-8")
-        replay_client = (
-            REPO_ROOT
-            / "crates/boole-native-shadow-launcher/tests/closed_local_replay_client_linux.rs"
-        ).read_text(encoding="utf-8")
         active_execution = (
             REPO_ROOT
             / "crates/boole-native-shadow-launcher/src/active_execution/mod.rs"
         ).read_text(encoding="utf-8")
+        http_replay = NATIVE_SHADOW_HTTP_REPLAY_GATE.read_text(encoding="utf-8")
         for command in (
             "native_shadow_rootfs_acquire.py",
             "native_shadow_rootfs_portable_v2.py",
@@ -185,19 +189,55 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         ):
             self.assertIn(required, body)
         for required in (
+            "runtime rootfs replay identity drifted",
+            "cargo build --locked -p boole-native-shadow-launcher --bin boole-native-shadow-launcher",
+            "cargo build --locked -p boole-node --features native-shadow-closed-local-replay --bin boole-native-shadow-replay-node",
+            "native/systemd/boole-native-shadow-replay-node.service",
+            "http_replay_gate_source=$(readlink -f scripts/native_shadow_http_replay_gate.py)",
+            "http_replay_gate_path=$launcher_directory/native-shadow-http-replay-gate.py",
+            "http_replay_grant_path=$launcher_directory/native-shadow-http-replay-grant-v1.json",
+            "http_replay_fixture_directory=$launcher_directory/native-shadow-http-replay-fixtures",
+            'sudo install -o root -g root -m 0555 "$http_replay_gate_source" "$http_replay_gate_path"',
+            '$(sha256sum "$http_replay_gate_source"',
+            '$(sudo sha256sum "$http_replay_gate_path"',
+            '$(sudo stat -c %U:%G:%a "$http_replay_gate_path") == root:root:555',
+            'sudo systemctl start "$node_service_name"',
+            '--grant-path "$http_replay_grant_path"',
+            '--fixture-directory "$http_replay_fixture_directory"',
+            '--journal-path "$node_journal_path"',
+            "native-shadow-http-replay-matrix:PASS",
+            "native-shadow-http-replay-journal:PASS",
+            "native-shadow production HTTP replay gate: PASS",
+        ):
+            self.assertIn(required, manager)
+        self.assertNotIn(
+            "launcher_connections=3:empty_connections=0",
+            manager,
+            "the final three-checker matrix must traverse the production HTTP route, "
+            "not the old direct Unix replay client",
+        )
+        for required in (
             "replay-accepted.raw.txt",
             "replay-tampered.raw.txt",
             "replay-constant.raw.txt",
+            '"empty": None',
+            "native-shadow-http-replay-case:{}:PASS",
+            "native-shadow-http-replay-journal:PASS",
+            "native-shadow-http-replay-matrix:PASS",
         ):
-            self.assertIn(required, replay_client)
+            self.assertIn(required, http_replay)
+        self.assertTrue(NATIVE_SHADOW_REPLAY_NODE_UNIT.is_file())
         for required in (
             "runtime rootfs replay identity drifted",
-            "launcher_connections=4:qualification_connections=1:"
-            "checker_connections=3:empty_connections=0",
             "[[ ${#peer_pids[@]} -eq 3 ]]",
+            '[[ "$peer_pid" == "$node_pid_before" ]]',
         ):
             self.assertIn(required, manager)
         self.assertIn("native-shadow-active-execution-peer:pid={}", active_execution)
+        self.assertNotIn(
+            "http_replay_gate_path=$(readlink -f scripts/native_shadow_http_replay_gate.py)",
+            manager,
+        )
         for forbidden in ("continue-on-error", "|| true", "SKIP"):
             self.assertNotIn(forbidden, body)
 
@@ -212,6 +252,14 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         )
         self.assertIn("needs.native-shadow-containment-linux.result", job)
         self.assertIn("needs.native-shadow-rootfs-replay-linux.result", job)
+
+    def test_self_test_runs_the_native_shadow_http_replay_helper_contract(self):
+        self.assertIn(
+            "scripts/test_native_shadow_http_replay_gate.py",
+            SELF_TEST.read_text(encoding="utf-8"),
+            "the ordinary self-test lane must keep the HTTP matrix parser and "
+            "journal contract under test even when the real Linux gate is separate",
+        )
 
     def test_named_linux_job_proves_the_fixed_service_accounts_via_libc(self):
         job = self._job("native-shadow-containment-linux")
@@ -302,7 +350,9 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         body = SYSTEMD_DEPLOYMENT_GATE.read_text(encoding="utf-8")
         for required in (
             "set -euo pipefail",
-            "systemd-analyze --root=\"$stage\" verify boole-native-shadow-launcher.service",
+            "systemd-analyze --root=\"$stage\" verify",
+            "boole-native-shadow-launcher.service",
+            "boole-native-shadow-replay-node.service",
             "systemd-sysusers --root=\"$stage\" \"$stage/usr/lib/sysusers.d/boole-native-shadow.conf\"",
             "systemd-tmpfiles --root=\"$stage\" --create \"$stage/usr/lib/tmpfiles.d/boole-native-shadow.conf\"",
             "for target in sysinit.target basic.target shutdown.target multi-user.target; do",

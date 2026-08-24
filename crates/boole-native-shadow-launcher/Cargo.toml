@@ -30,6 +30,10 @@ serde_json.workspace = true
 [lints]
 workspace = true
 
+[[bin]]
+name = "boole-native-shadow-launcher"
+path = "src/bin/boole-native-shadow-launcher.rs"
+
 [[test]]
 name = "boole-native-shadow-manager-cgroup-linux"
 path = "tests/manager_cgroup_linux.rs"
