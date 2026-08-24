@@ -161,15 +161,22 @@ if [[ ${1:-} == "--offline-parity" ]]; then
     result="$scratch/result-$name.json"
     stderr="$scratch/stderr-$name.txt"
     timing="$scratch/time-$name.txt"
-    /usr/bin/time -f '%e %M' -o "$timing" \
+    if /usr/bin/time -f '%e %M' -o "$timing" \
+      env -i LANG=C LC_ALL=C PATH=/usr/bin:/bin:/usr/sbin:/sbin \
       chroot --groups='' --userspec=65534:65534 "$rootfs" \
-      /usr/bin/env -i LANG=C LC_ALL=C PATH=/usr/bin:/bin:/usr/sbin:/sbin \
       /usr/bin/python3.12 -I -S \
       /usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py \
       --task "$task" \
       --submission "$submission" \
       --toolchain-bin /opt/boole/native-checker-toolchain/bin \
-      --scratch-root /scratch >"$result" 2>"$stderr"
+      --scratch-root /scratch >"$result" 2>"$stderr"; then
+      :
+    else
+      status=$?
+      [[ ! -s "$stderr" ]] || cat "$stderr" >&2
+      [[ ! -s "$result" ]] || cat "$result" >&2
+      die "checker command failed for $name with status $status"
+    fi
     [[ ! -s "$stderr" ]] || die "checker wrote stderr for $name"
     python3 - "$result" "$expected_verdict" "$expected_reason" <<'PY'
 import json
@@ -271,7 +278,7 @@ PY
   exit 0
 fi
 
-for command_name in awk chroot cmp getent gpgv grep id install jq mount mountpoint \
+for command_name in awk chroot cmp env getent gpgv grep id install jq mount mountpoint \
   python3 readlink sha256sum sudo systemd-run tar time timeout umount zstd; do
   command -v "$command_name" >/dev/null || die "missing command: $command_name"
 done

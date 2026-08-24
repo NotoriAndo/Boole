@@ -95,6 +95,23 @@ def _source_json(path: pathlib.Path) -> dict:
 
 
 class NativeShadowArm64AuthorityTest(unittest.TestCase):
+    def test_arm64_direct_parity_cleans_environment_before_entering_rootfs(self) -> None:
+        replay = (
+            ROOT / "scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "env -i LANG=C LC_ALL=C PATH=/usr/bin:/bin:/usr/sbin:/sbin \\\n"
+            "      chroot --groups='' --userspec=65534:65534 \"$rootfs\"",
+            replay,
+        )
+        self.assertNotIn(
+            "chroot --groups='' --userspec=65534:65534 \"$rootfs\" \\\n"
+            "      /usr/bin/env -i",
+            replay,
+        )
+        self.assertIn('die "checker command failed for $name with status $status"', replay)
+        self.assertIn('cat "$stderr" >&2', replay)
+
     def test_linux_authority_selection_is_bound_to_the_compilation_architecture(self) -> None:
         arm64_guard = """#[cfg(all(
     target_os = "linux",
