@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import pathlib
 import re
 import tempfile
@@ -351,6 +352,17 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertEqual(runtime_lock["buildRecipe"]["zstdPath"], str(zstd.resolve()))
         self.assertNotIn(str(gpgv.resolve()), portable_raw.decode("utf-8"))
         self.assertNotIn(str(zstd.resolve()), portable_raw.decode("utf-8"))
+
+    def test_launcher_manifest_pin_matches_the_frozen_replay_expectation(self) -> None:
+        expectation = json.loads(REPLAY_EXPECTATION.read_text(encoding="utf-8"))
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/runtime_rootfs_replay.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            expectation["expectedOutput"]["rootfsContentManifestSha256"],
+            source,
+        )
 
     def test_tracked_portable_successor_is_exact_inactive_and_host_independent(self) -> None:
         authority = portable.load_authority_set(

@@ -23,7 +23,7 @@ mod linux {
     use thiserror::Error;
 
     const CONTENT_MANIFEST_SHA256: &str =
-        "9858aa4ba3e3055580ae19fe1f46c2cbfc1d97e2773f9b40105942ab37266d83";
+        "957761ceaeca18e0af516ed200c7587aa57a609b16ebfe63dacb1371df489763";
     const CONTENT_MANIFEST_SIZE: u64 = 1_275_874;
     const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
 
