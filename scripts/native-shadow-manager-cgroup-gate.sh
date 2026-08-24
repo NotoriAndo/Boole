@@ -690,6 +690,8 @@ run_containment_layer_diagnostics() {
   suffix=${suffix//[^a-zA-Z0-9-]/-}
   local -a diagnostic_modes=(
     closed-local-replay-diagnostic-full
+    closed-local-replay-diagnostic-without-landlock
+    closed-local-replay-diagnostic-without-seccomp
   )
   local diagnostic_mode
   for diagnostic_mode in "${diagnostic_modes[@]}"; do
@@ -734,12 +736,13 @@ run_containment_layer_diagnostics() {
     mapfile -t cargo_diagnostics < <(
       sudo journalctl --no-pager -o cat -u "$unit_name" \
         "_SYSTEMD_INVOCATION_ID=$diagnostic_invocation" \
-        | grep -E '^boole-native-shadow-checker-cargo-diagnostic:v1;category=(success|wall_limit|output_limit|authority_unavailable|rustc_version_permission_denied|rustc_version_failed|rustc_metadata_permission_denied|rustc_metadata_failed|rustc_link_permission_denied|rustc_linker_failed|rustc_link_failed|cc_alias_permission_denied|cc_alias_failed|gcc_link_permission_denied|gcc_link_failed|rustc_default_linker_permission_denied|rustc_explicit_gcc_permission_denied|rustc_explicit_gcc_failed|rustc_probe_permission_denied|rustc_probe_linker_failed|rustc_probe_failed|workspace_execute_denied|workspace_execute_failed|cargo_test_execute_denied|cargo_rustc_execute_denied|cargo_linker_permission_denied|cargo_temp_permission_denied|cargo_directory_permission_denied|permission_denied|read_only_filesystem|missing_file|cargo_lock_wait|process_spawn_failed|linker_failed|temporary_directory_failed|hidden_test_failed|compiler_error|unknown_nonzero)$' \
+        | grep -E '^boole-native-shadow-checker-cargo-diagnostic:v1;category=(success|wall_limit|output_limit|authority_unavailable|rustc_version_permission_denied|rustc_version_failed|rustc_metadata_permission_denied|rustc_metadata_failed|rustc_link_permission_denied|rustc_linker_failed|rustc_link_failed|cc_alias_permission_denied|cc_alias_failed|gcc_link_permission_denied|gcc_link_failed|gcc_frontend_permission_denied|gcc_frontend_failed|gcc_assembler_permission_denied|gcc_assembler_failed|gcc_final_link_permission_denied|gcc_final_link_failed|rustc_default_linker_permission_denied|rustc_explicit_gcc_permission_denied|rustc_explicit_gcc_failed|rustc_probe_permission_denied|rustc_probe_linker_failed|rustc_probe_failed|workspace_execute_denied|workspace_execute_failed|cargo_test_execute_denied|cargo_rustc_execute_denied|cargo_linker_permission_denied|cargo_temp_permission_denied|cargo_directory_permission_denied|permission_denied|read_only_filesystem|missing_file|cargo_lock_wait|process_spawn_failed|linker_failed|temporary_directory_failed|hidden_test_failed|compiler_error|unknown_nonzero)$' \
         || :
     )
     [[ ${#cargo_diagnostics[@]} -eq 1 ]] \
       || die "$diagnostic_mode did not emit exactly one categorical Cargo diagnostic"
-    printf '%s\n' "${cargo_diagnostics[0]}"
+    printf 'native-shadow categorical Cargo diagnostic:%s:%s\n' \
+      "$diagnostic_label" "${cargo_diagnostics[0]}"
     sudo test ! -e "$socket_path" && sudo test ! -L "$socket_path" \
       || die "$diagnostic_mode left the fixed socket behind"
     wait_for_cgroup_removal

@@ -36,6 +36,12 @@ ALLOWED_CATEGORIES = frozenset(
         "cc_alias_failed",
         "gcc_link_permission_denied",
         "gcc_link_failed",
+        "gcc_frontend_permission_denied",
+        "gcc_frontend_failed",
+        "gcc_assembler_permission_denied",
+        "gcc_assembler_failed",
+        "gcc_final_link_permission_denied",
+        "gcc_final_link_failed",
         "rustc_default_linker_permission_denied",
         "rustc_explicit_gcc_permission_denied",
         "rustc_explicit_gcc_failed",
@@ -117,10 +123,55 @@ def load_checker():
     return module
 
 
+def run_exact_gcc_stage_probe(original, cwd, env, limits, c_source) -> str | None:
+    assembly = cwd / "boole-native-shadow-diagnostic.s"
+    object_file = cwd / "boole-native-shadow-diagnostic.o"
+    executable = cwd / "boole-native-shadow-diagnostic-gcc"
+    stages = (
+        (
+            [
+                "/usr/bin/x86_64-linux-gnu-gcc-13",
+                "-S",
+                str(c_source),
+                "-o",
+                str(assembly),
+            ],
+            "gcc_frontend",
+        ),
+        (
+            [
+                "/usr/bin/x86_64-linux-gnu-gcc-13",
+                "-c",
+                str(c_source),
+                "-o",
+                str(object_file),
+            ],
+            "gcc_assembler",
+        ),
+        (
+            [
+                "/usr/bin/x86_64-linux-gnu-gcc-13",
+                str(object_file),
+                "-o",
+                str(executable),
+            ],
+            "gcc_final_link",
+        ),
+    )
+    for command, prefix in stages:
+        code, output = original(command, cwd, env, limits)
+        if code == 0:
+            continue
+        category = classify_cargo_output(code, output)
+        if "permission_denied" in category:
+            return f"{prefix}_permission_denied"
+        return f"{prefix}_failed"
+    return None
+
+
 def run_link_permission_probe(original, cwd, env, limits, source) -> str:
     c_source = cwd / "boole-native-shadow-diagnostic.c"
     cc_executable = cwd / "boole-native-shadow-diagnostic-cc"
-    gcc_executable = cwd / "boole-native-shadow-diagnostic-gcc"
     rust_executable = cwd / "boole-native-shadow-diagnostic-explicit-gcc"
     c_source.write_text("int main(void) { return 0; }\n", encoding="utf-8")
 
@@ -132,25 +183,14 @@ def run_link_permission_probe(original, cwd, env, limits, source) -> str:
     )
     if code != 0:
         alias_category = classify_cargo_output(code, output)
-        code, output = original(
-            [
-                "/usr/bin/x86_64-linux-gnu-gcc-13",
-                str(c_source),
-                "-o",
-                str(gcc_executable),
-            ],
-            cwd,
-            env,
-            limits,
+        exact_gcc_category = run_exact_gcc_stage_probe(
+            original, cwd, env, limits, c_source
         )
-        if code == 0:
+        if exact_gcc_category is None:
             if "permission_denied" in alias_category:
                 return "cc_alias_permission_denied"
             return "cc_alias_failed"
-        category = classify_cargo_output(code, output)
-        if "permission_denied" in category:
-            return "gcc_link_permission_denied"
-        return "gcc_link_failed"
+        return exact_gcc_category
 
     code, output = original(
         [

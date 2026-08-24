@@ -114,6 +114,42 @@ class NativeShadowCheckerCargoDiagnosticTests(unittest.TestCase):
                 "rustc_default_linker_permission_denied",
             )
 
+            def assembler_denied(command, _cwd, _env, _limits):
+                if "--version" in command or "--emit=metadata" in command:
+                    return 0, b""
+                if command[0] == "/usr/bin/cc":
+                    return 1, b"error: Permission denied"
+                if command[0] == "/usr/bin/x86_64-linux-gnu-gcc-13":
+                    if "-S" in command:
+                        return 0, b""
+                    if "-c" in command:
+                        return 1, b"error: Permission denied"
+                return 1, b"error: linker cc: Permission denied"
+
+            self.assertEqual(
+                module.run_fixed_rust_probe(
+                    object(), assembler_denied, cwd, env, limits
+                ),
+                "gcc_assembler_permission_denied",
+            )
+
+    def test_gate_compares_full_landlock_and_seccomp_categories(self):
+        manager = MODULE_PATH.with_name("native-shadow-manager-cgroup-gate.sh").read_text(
+            encoding="utf-8"
+        )
+        modes = manager[
+            manager.index("local -a diagnostic_modes=(") : manager.index(
+                ")", manager.index("local -a diagnostic_modes=(")
+            )
+        ]
+
+        self.assertIn("closed-local-replay-diagnostic-full", modes)
+        self.assertIn("closed-local-replay-diagnostic-without-landlock", modes)
+        self.assertIn("closed-local-replay-diagnostic-without-seccomp", modes)
+        self.assertIn(
+            "native-shadow categorical Cargo diagnostic:%s:%s", manager
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
