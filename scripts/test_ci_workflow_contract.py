@@ -1001,7 +1001,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
 
 
 class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
-    """MAC.2 must execute on a real, non-skippable Linux/arm64 runner."""
+    """The MAC.2 authority-parity subgate executes on real Linux/arm64."""
 
     def setUp(self):
         self.text = WORKFLOW.read_text(encoding="utf-8")
@@ -1077,14 +1077,16 @@ class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
             "--closed-local-replay-rootfs-arm64",
             "MAC2-RESULT.json",
             '"containmentEnforcementParity": "EXACT"',
-            '"mac2Status": "COMPLETE"',
+            '"mac2Status": "PARTIAL"',
+            '"completedSubgate": "CLOSED-LOCAL-LINUX-ARM64-AUTHORITY-PARITY"',
+            '"openRequirement": "POST-UPDATE-IMAGE-AND-RUNTIME-AUTHORITY-REVERIFICATION"',
             '"resourcePolicyDocumentParity": "EXACT-EXCEPT-FROZEN-ARCHITECTURE-IDENTITY"',
             '"resourcePolicyEnforcementParity": "EXACT"',
         ):
             self.assertIn(required, gate)
         self.assertNotIn('"resourcePolicyParity": "EXACT', gate)
         self.assertNotIn('"containmentEnforcementParity": "NOT-YET-PROVEN"', gate)
-        self.assertNotIn('"mac2Status": "PARTIAL', gate)
+        self.assertNotIn('"mac2Status": "COMPLETE"', gate)
         for forbidden in ("continue-on-error", "SKIP", "|| true"):
             self.assertNotIn(forbidden, gate)
 
