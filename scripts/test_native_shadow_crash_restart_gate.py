@@ -8,6 +8,9 @@ redelivery comparison.
 """
 
 import json
+import os
+import socket
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -182,6 +185,44 @@ class CrashRestartKillSafetyContractTests(unittest.TestCase):
             "native-shadow-crash-restart-gate:PASS",
         ):
             self.assertIn(marker, driver)
+
+
+class InertSocketReapTests(unittest.TestCase):
+    """SIGTERM-stopped launchers leave a dead socket inode behind.
+
+    The launcher only unlinks its fixed socket on its own graceful exits, so
+    the gate reaps the leftover inode after stop — but only after proving no
+    live listener still accepts connections on it.
+    """
+
+    def test_dead_socket_inode_is_reaped_after_refused_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "launcher.sock"
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            listener.bind(str(path))
+            listener.listen(1)
+            listener.close()
+            self.assertTrue(os.path.lexists(path))
+            self.assertTrue(gate.reap_inert_socket_inode(path))
+            self.assertFalse(os.path.lexists(path))
+
+    def test_live_listener_is_never_reaped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "launcher.sock"
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                listener.bind(str(path))
+                listener.listen(1)
+                with self.assertRaises(RuntimeError):
+                    gate.reap_inert_socket_inode(path)
+                self.assertTrue(os.path.lexists(path))
+            finally:
+                listener.close()
+
+    def test_absent_socket_reaps_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "launcher.sock"
+            self.assertFalse(gate.reap_inert_socket_inode(path))
 
 
 class CrashRestartGateWiringTests(unittest.TestCase):

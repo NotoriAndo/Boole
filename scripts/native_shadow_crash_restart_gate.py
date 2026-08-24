@@ -398,7 +398,39 @@ def wait_for_journal_row(
         time.sleep(POLL_INTERVAL_SECONDS)
 
 
-def stop_and_verify_clean(socket_path: Path) -> bool:
+def reap_inert_socket_inode(socket_path: Path) -> bool:
+    """Remove a leftover launcher socket inode after proving it is dead.
+
+    The launcher only unlinks its fixed socket on its own graceful exits, so
+    a launcher stopped over SIGTERM leaves the bound inode behind (the
+    manager gate's exit trap reaps it the same way).  A live listener must
+    never be reaped: a connection probe has to be refused first.
+    """
+    if not os.path.lexists(socket_path):
+        return False
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        probe.settimeout(1.0)
+        try:
+            probe.connect(str(socket_path))
+        except ConnectionRefusedError:
+            pass
+        except FileNotFoundError:
+            return False
+        else:
+            raise RuntimeError(
+                "fixed launcher socket still accepts connections after stop"
+            )
+    finally:
+        probe.close()
+    try:
+        os.unlink(socket_path)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def stop_and_verify_clean(socket_path: Path) -> Dict[str, Any]:
     _run(["systemctl", "stop", NODE_SERVICE], check=False)
     _run(["systemctl", "stop", LAUNCHER_SERVICE], check=False)
     for unit in (NODE_SERVICE, LAUNCHER_SERVICE):
@@ -412,13 +444,14 @@ def stop_and_verify_clean(socket_path: Path) -> bool:
             if time.monotonic() >= deadline:
                 raise RuntimeError("{} left its cgroup behind after stop".format(unit))
             time.sleep(POLL_INTERVAL_SECONDS)
+    reaped = reap_inert_socket_inode(socket_path)
     if os.path.lexists(socket_path):
         raise RuntimeError("crash gate left the fixed launcher socket behind")
     if RUNTIME_ROOT.exists():
         for entry in RUNTIME_ROOT.iterdir():
             if entry.name.startswith("rootfs-"):
                 raise RuntimeError("crash gate left a derived runtime root behind")
-    return True
+    return {"verified": True, "inertSocketInodeReaped": reaped}
 
 
 def load_grant(grant_path: Path) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
