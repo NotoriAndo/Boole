@@ -84,14 +84,34 @@ class NativeShadowCheckerCargoDiagnosticTests(unittest.TestCase):
                 "rustc_metadata_permission_denied",
             )
 
-            def link_denied(command, _cwd, _env, _limits):
+            def alias_denied(command, _cwd, _env, _limits):
                 if "--version" in command or "--emit=metadata" in command:
+                    return 0, b""
+                if command[0] == "/usr/bin/cc":
+                    return 1, b"error: Permission denied"
+                if command[0] == "/usr/bin/x86_64-linux-gnu-gcc-13":
                     return 0, b""
                 return 1, b"error: linker cc: Permission denied"
 
             self.assertEqual(
-                module.run_fixed_rust_probe(object(), link_denied, cwd, env, limits),
-                "rustc_link_permission_denied",
+                module.run_fixed_rust_probe(object(), alias_denied, cwd, env, limits),
+                "cc_alias_permission_denied",
+            )
+
+            def default_rust_linker_denied(command, _cwd, _env, _limits):
+                if "--version" in command or "--emit=metadata" in command:
+                    return 0, b""
+                if command[0] == "/usr/bin/cc":
+                    return 0, b""
+                if "linker=/usr/bin/x86_64-linux-gnu-gcc-13" in command:
+                    return 0, b""
+                return 1, b"error: linker cc: Permission denied"
+
+            self.assertEqual(
+                module.run_fixed_rust_probe(
+                    object(), default_rust_linker_denied, cwd, env, limits
+                ),
+                "rustc_default_linker_permission_denied",
             )
 
 

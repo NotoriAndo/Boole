@@ -32,6 +32,13 @@ ALLOWED_CATEGORIES = frozenset(
         "rustc_link_permission_denied",
         "rustc_linker_failed",
         "rustc_link_failed",
+        "cc_alias_permission_denied",
+        "cc_alias_failed",
+        "gcc_link_permission_denied",
+        "gcc_link_failed",
+        "rustc_default_linker_permission_denied",
+        "rustc_explicit_gcc_permission_denied",
+        "rustc_explicit_gcc_failed",
         "rustc_probe_permission_denied",
         "rustc_probe_linker_failed",
         "rustc_probe_failed",
@@ -110,6 +117,65 @@ def load_checker():
     return module
 
 
+def run_link_permission_probe(original, cwd, env, limits, source) -> str:
+    c_source = cwd / "boole-native-shadow-diagnostic.c"
+    cc_executable = cwd / "boole-native-shadow-diagnostic-cc"
+    gcc_executable = cwd / "boole-native-shadow-diagnostic-gcc"
+    rust_executable = cwd / "boole-native-shadow-diagnostic-explicit-gcc"
+    c_source.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+
+    code, output = original(
+        ["/usr/bin/cc", str(c_source), "-o", str(cc_executable)],
+        cwd,
+        env,
+        limits,
+    )
+    if code != 0:
+        alias_category = classify_cargo_output(code, output)
+        code, output = original(
+            [
+                "/usr/bin/x86_64-linux-gnu-gcc-13",
+                str(c_source),
+                "-o",
+                str(gcc_executable),
+            ],
+            cwd,
+            env,
+            limits,
+        )
+        if code == 0:
+            if "permission_denied" in alias_category:
+                return "cc_alias_permission_denied"
+            return "cc_alias_failed"
+        category = classify_cargo_output(code, output)
+        if "permission_denied" in category:
+            return "gcc_link_permission_denied"
+        return "gcc_link_failed"
+
+    code, output = original(
+        [
+            env["RUSTC"],
+            "--crate-name",
+            "boole_native_shadow_diagnostic",
+            "--edition=2021",
+            str(source),
+            "-C",
+            "linker=/usr/bin/x86_64-linux-gnu-gcc-13",
+            "-o",
+            str(rust_executable),
+        ],
+        cwd,
+        env,
+        limits,
+    )
+    if code == 0:
+        return "rustc_default_linker_permission_denied"
+    category = classify_cargo_output(code, output)
+    if "permission_denied" in category:
+        return "rustc_explicit_gcc_permission_denied"
+    return "rustc_explicit_gcc_failed"
+
+
 def run_fixed_rust_probe(checker, original, cwd, env, limits) -> str | None:
     source = cwd / "boole-native-shadow-diagnostic.rs"
     metadata = cwd / "boole-native-shadow-diagnostic.rmeta"
@@ -162,7 +228,7 @@ def run_fixed_rust_probe(checker, original, cwd, env, limits) -> str | None:
     if code != 0:
         category = classify_cargo_output(code, output)
         if "permission_denied" in category:
-            return "rustc_link_permission_denied"
+            return run_link_permission_probe(original, cwd, env, limits, source)
         if category in {"linker_failed", "cargo_linker_permission_denied"}:
             return "rustc_linker_failed"
         return "rustc_link_failed"
