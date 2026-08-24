@@ -258,7 +258,7 @@ run_home=$(getent passwd "$run_user" | awk -F: 'NF == 7 { print $6 }')
 chmod 0711 "$scratch"
 (
   cd "$ROOT"
-  timeout --foreground --signal=TERM --kill-after=15s 600s \
+  timeout --foreground --signal=TERM --kill-after=15s 1200s \
     sudo -u "$run_user" env \
       "HOME=$run_home" \
       "CARGO_HOME=$run_home/.cargo" \
