@@ -95,6 +95,29 @@ def _source_json(path: pathlib.Path) -> dict:
 
 
 class NativeShadowArm64AuthorityTest(unittest.TestCase):
+    def test_linux_authority_selection_is_bound_to_the_compilation_architecture(self) -> None:
+        arm64_guard = """#[cfg(all(
+    target_os = "linux",
+    feature = "linux-arm64-authority",
+    not(target_arch = "aarch64")
+))]
+compile_error!("linux-arm64-authority requires aarch64 Linux");"""
+        x86_guard = """#[cfg(all(
+    target_os = "linux",
+    not(feature = "linux-arm64-authority"),
+    not(target_arch = "x86_64")
+))]
+compile_error!("the default native-shadow authority requires x86_64 Linux");"""
+        for relative in (
+            "crates/boole-native-shadow-protocol/src/lib.rs",
+            "crates/boole-native-shadow-launcher/src/lib.rs",
+            "crates/boole-node/src/lib.rs",
+        ):
+            with self.subTest(relative=relative):
+                source = (ROOT / relative).read_text(encoding="utf-8")
+                self.assertIn(arm64_guard, source)
+                self.assertIn(x86_guard, source)
+
     def test_x86_authority_bytes_remain_frozen(self) -> None:
         self.assertEqual(
             {relative: _sha256(ROOT / relative) for relative in FROZEN_X86_SHA256},

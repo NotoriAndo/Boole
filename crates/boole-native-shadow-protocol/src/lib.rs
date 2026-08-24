@@ -1,6 +1,20 @@
 //! Minimal shared authority and wire contract for the disabled native-shadow
 //! qualification handshake.
 
+#[cfg(all(
+    target_os = "linux",
+    feature = "linux-arm64-authority",
+    not(target_arch = "aarch64")
+))]
+compile_error!("linux-arm64-authority requires aarch64 Linux");
+
+#[cfg(all(
+    target_os = "linux",
+    not(feature = "linux-arm64-authority"),
+    not(target_arch = "x86_64")
+))]
+compile_error!("the default native-shadow authority requires x86_64 Linux");
+
 mod closed_local_replay_execution_wire;
 mod closed_local_replay_grant;
 mod execution_active_wire;
