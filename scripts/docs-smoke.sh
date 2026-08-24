@@ -59,6 +59,20 @@ require_text docs/native-submission-shadow-verification-v1.md "is now claimed an
 require_text docs/native-submission-shadow-verification-v1.md "PR #221"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "CRASH-RESTART-EXACTLY-ONCE-E2E: GREEN"
 
+# MAC.1 closure contract (2026-08-24). Pins the operator-supplied support range
+# (minimum macOS 14.0 on Apple Silicon M1 or later, Intel outside the v1 scope),
+# the MAC.1 COMPLETE status, the MAC.2-not-started cursor, the not-ready Mac
+# production checker boundary, and the mineable_now=0 invariant, so the closed
+# contract can neither rot nor be silently upgraded to a Mac product claim.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.1 status: COMPLETE"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "macOS 14.0 (Sonoma)"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Apple Silicon (M1 or later)"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Intel Mac is not supported by v1"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "The execution cursor moves to **MAC.2"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.2 has NOT been started"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "The Mac production checker is NOT ready"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "mineable_now=0"
+
 # P1.8 — the dev-only mock payment doc must carry an unmistakable banner and
 # name its feature gate, and receipt-commitment.md must caveat the magic header
 # as development-only (not a production payment) with a pointer to the doc.

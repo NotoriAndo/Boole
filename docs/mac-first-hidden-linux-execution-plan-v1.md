@@ -1,7 +1,7 @@
 # Mac-first hidden Linux execution plan v1
 
-Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9); MAC.1 CONTRACT
-FROZEN with status MAC.1-PARTIAL — OPERATOR VALUE REQUIRED (section 10); MAC.2+ NOT STARTED —
+Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9); MAC.1 COMPLETE
+(operator value macOS 14.0 supplied 2026-08-24, sections 10 and 10.5); MAC.2+ NOT STARTED —
 NOT IMPLEMENTED, NOT RELEASE-READY, NO ACTIVATION AUTHORITY.**
 
 This plan defines the product boundary for running Boole's native-answer checker for Mac users.
@@ -223,6 +223,14 @@ verdict parity**. MAC.2 has NOT been started: the Mac VM, the Mac production che
 MAC.2+ gate remain NOT implemented, and no guest download, entitlement change, paid-account
 setup or production activation has occurred in the sealing slice that produced sections 9–10.
 
+### 8.2 Current position addendum (2026-08-24 — operator value supplied, MAC.1 COMPLETE)
+
+Section 8.1's single outstanding operator value is now supplied in section 10.5: the product
+minimum is **macOS 14.0 (Sonoma)** on **Apple Silicon (M1 or later)**, Intel Macs are outside
+the v1 support scope, and MAC.1 is COMPLETE. The next gate remains **MAC.2 — freeze and
+reproduce the Linux/arm64 successor guest authority with exact verdict parity**, and MAC.2 has
+NOT been started.
+
 ## 9. MAC.0 closure record (2026-08-24)
 
 MAC.0 status: COMPLETE — the closed-local Linux judgement baseline of section 5 is sealed.
@@ -382,3 +390,55 @@ Because exactly one numeric item (the product minimum macOS version) is an opera
 cannot be derived from existing artifacts or Apple documentation alone, the overall status is
 **MAC.1-PARTIAL — OPERATOR VALUE REQUIRED** rather than COMPLETE. Supplying that one value
 upgrades MAC.1 to COMPLETE with no other open items.
+
+### 10.5 MAC.1 closure addendum (2026-08-24 — operator value supplied)
+
+MAC.1 status: COMPLETE. Sections 10–10.4 are preserved unchanged as the frozen contract record
+(including the historical MAC.1-PARTIAL status they carried); this addendum supplies the single
+outstanding operator value of 10.2 item 1 and closes the completion accounting of 10.4. No other
+contract line changes.
+
+Operator decision (2026-08-24):
+
+- Product minimum macOS version for Boole for Mac v1: **macOS 14.0 (Sonoma)**.
+- Supported hardware: **Apple Silicon (M1 or later)**, per 10.1 item 1 and 10.2 item 2.
+- **Intel Mac is not supported by v1** — outside the v1 support scope, per 10.1 item 2. Intel
+  support is not designed, claimed or implied by this closure.
+
+Decision basis (operator-supplied sources, re-checked against the cited pages on 2026-08-24):
+
+- macOS 14.0 is at or above the Apple-documented Virtualization framework floor of macOS 11.0
+  (10.2 item 1), so this choice narrows and never violates the frozen contract.
+- Apple's official GUI Linux VM sample ships with a default deployment target of macOS 14
+  (<https://developer.apple.com/documentation/virtualization/running-gui-linux-in-a-virtual-machine-on-a-mac>).
+- macOS Sonoma supports every Apple Silicon Mac including the first M1 machines — MacBook Air
+  (M1, 2020), MacBook Pro (M1, 2020), Mac mini (M1, 2020)
+  (<https://support.apple.com/en-la/105113>) — so this minimum excludes no machine in the 10.1
+  item 1 candidate range.
+- The Virtualization framework path continues to require the
+  `com.apple.security.virtualization` entitlement
+  (<https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.virtualization>)
+  and, on Apple Silicon, an ARM64 Linux guest
+  (<https://developer.apple.com/documentation/virtualization/running-linux-in-a-virtual-machine>),
+  matching the 10.1 item 5 requirement that MAC.2 prove Linux/arm64 authority parity.
+
+Completion accounting after this addendum: every 10.4 line stands, and the single open operator
+value is now fixed, so MAC.1 is COMPLETE with no open items. The remaining NOT-YET-MEASURED
+entries in 10.2 are measurement gates owned by MAC.2/MAC.3/MAC.4/MAC.5 by design; they are not
+open MAC.1 items. The frozen contract of 10.1–10.3 stays binding as written: one signed and
+notarized `Boole.app` install with no user-facing Docker Desktop/Linux/VM-UI/Homebrew/Rust/Python
+requirement, the hidden app-managed guest lifecycle, the ≤512 MiB app download cap, the ≤2 GiB
+guest download cap, the ≤5.5 GiB post-install disk cap, the ≤4 GiB VM memory ceiling, the
+one-generation update rollback, the app/guest version-mismatch fail-closed rule, and
+offline operation only for an already-verified guest.
+
+The execution cursor moves to **MAC.2 — freeze and reproduce the Linux/arm64 successor guest
+authority with exact verdict parity** (inputs and STOP conditions frozen in 10.3).
+MAC.2 has NOT been started.
+This addendum is a docs-only closure: it grants no MAC.2 implementation authority, no production
+activation authority, and no block or reward authority.
+The Mac production checker is NOT ready; no VM was created or run, no guest was downloaded, no
+entitlement was changed, and no Xcode project was created in this slice.
+Invariants unchanged: `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false`, `activationAllowed=false`; consensus, block,
+reward and P2P paths are untouched.
