@@ -1068,6 +1068,13 @@ class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
         offline_build = gate.split('if [[ ${1:-} == "--offline-build" ]]', 1)[1]
         offline_build = offline_build.split('if [[ ${1:-} == "--offline-parity" ]]', 1)[0]
         self.assertIn('"$oci/ROOTFS-CONTENT-MANIFEST.json"', offline_build)
+        self.assertIn("builder = json.loads", offline_build)
+        self.assertIn("independent = json.loads", offline_build)
+        self.assertIn("if builder != independent:", offline_build)
+        self.assertNotIn(
+            'cmp --silent "$oci/BUILD-RECEIPT.json" "$independent_receipt"',
+            offline_build,
+        )
         self.assertNotIn("runtime_passwd=", offline_build)
         self.assertNotIn('rootfs/probe', offline_build)
         manager = gate.index("native-shadow-manager-cgroup-gate.sh")

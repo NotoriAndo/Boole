@@ -69,8 +69,16 @@ if [[ ${1:-} == "--offline-build" ]]; then
     --expected-builder-sha256 "$builder_sha" \
     --expected-layer-digest "$layer_digest" \
     --expected-content-manifest-sha256 "$content_sha" >"$independent_receipt"
-  cmp --silent "$oci/BUILD-RECEIPT.json" "$independent_receipt" \
-    || die "builder and independent verifier receipts differ"
+  python3 - "$oci/BUILD-RECEIPT.json" "$independent_receipt" <<'PY'
+import json
+import pathlib
+import sys
+
+builder = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+independent = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+if builder != independent:
+    raise SystemExit("builder and independent verifier receipts differ")
+PY
   python3 "$ROOT/scripts/native_shadow_rootfs_portable_arm64_v1.py" verify-output \
     --build-receipt "$oci/BUILD-RECEIPT.json" \
     --run-receipt "$run_receipt"
