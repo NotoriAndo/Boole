@@ -505,8 +505,9 @@ fn require_binding(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_execution_report, require_active_peer, serve_qualified_three_fixed_unix_executions,
-        ActiveExecutionListenerError, ActiveExecutionServerError, NodePeerCredentials,
+        build_execution_report, require_active_peer, require_binding,
+        serve_qualified_three_fixed_unix_executions, ActiveExecutionListenerError,
+        ActiveExecutionServerError, NodePeerCredentials,
     };
 
     #[cfg(feature = "manager-cgroup-linux-gate")]
@@ -544,6 +545,60 @@ mod tests {
             ),
             Err(ActiveExecutionServerError::UntrustedNodePeer)
         ));
+    }
+
+    #[test]
+    fn execution_time_authority_digest_mismatch_is_rejected() {
+        let frozen = "5a".repeat(32);
+        assert!(require_binding("executionPolicyDigestHex", &frozen, &frozen).is_ok());
+
+        let drifted = "a5".repeat(32);
+        assert!(matches!(
+            require_binding("executionPolicyDigestHex", &frozen, &drifted),
+            Err(ActiveExecutionServerError::BindingMismatch(
+                "executionPolicyDigestHex"
+            ))
+        ));
+    }
+
+    #[test]
+    fn kernel_zero_pid_peer_is_untrusted_even_without_a_qualified_pid_binding() {
+        assert!(matches!(
+            require_active_peer(
+                NodePeerCredentials {
+                    pid: 0,
+                    uid: 20_001,
+                    gid: 20_001,
+                },
+                20_001,
+                20_001,
+                None,
+            ),
+            Err(ActiveExecutionServerError::UntrustedNodePeer)
+        ));
+    }
+
+    #[test]
+    fn unqualified_execution_listeners_are_absent_from_production_builds() {
+        let source = include_str!("mod.rs");
+        assert!(
+            source.contains(
+                "let stream = listener.accept_one()?;\n        unix::serve_connected_unix_execution(stream, &mut startup, Some(qualified_peer.pid()))"
+            ),
+            "the production listener must bind every execution to the qualified node PID"
+        );
+        assert!(
+            source.contains(
+                "#[cfg(feature = \"manager-cgroup-linux-gate\")]\n#[doc(hidden)]\npub fn serve_three_fixed_unix_executions("
+            ),
+            "the PID-less three-case listener must stay behind the CI diagnostic feature"
+        );
+        assert!(
+            source.contains(
+                "#[cfg(feature = \"manager-cgroup-linux-gate\")]\n#[doc(hidden)]\npub fn serve_one_diagnostic_unix_execution("
+            ),
+            "the PID-less diagnostic listener must stay behind the CI diagnostic feature"
+        );
     }
 
     #[cfg(feature = "manager-cgroup-linux-gate")]

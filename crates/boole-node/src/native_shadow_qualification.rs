@@ -1247,6 +1247,28 @@ mod tests {
     }
 
     #[test]
+    fn stale_ready_token_from_an_earlier_qualification_is_rejected() {
+        // A byte-identical ready token that once qualified under an earlier
+        // nonce must never qualify a later session: each qualification mints
+        // a fresh nonce, so replaying the stale token is a binding mismatch
+        // and the session never reaches shutdown-write.
+        let stale_token = valid_ready_frame();
+        let session = MockSession::new(peer(), stale_token);
+        let observation = session.observation();
+        assert!(matches!(
+            qualify_native_shadow_launcher(
+                session,
+                &authority(),
+                QualificationNonce::from_bytes([0x77; 32]),
+                expected_identities(),
+            ),
+            Err(NativeShadowQualificationError::BindingMismatch { field, .. })
+                if field == "nonceHex"
+        ));
+        assert!(!observation.borrow().shutdown);
+    }
+
+    #[test]
     fn rejects_launcher_peer_and_ready_identity_mismatches() {
         let mut cases = Vec::new();
         let mut launcher_pid = ready_fields();

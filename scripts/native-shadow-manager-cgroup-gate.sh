@@ -1228,8 +1228,52 @@ PY
   echo "native-shadow production HTTP replay gate: PASS"
 }
 
+run_crash_restart_replay_gate() {
+  # Reuses the environment the HTTP matrix installed and verified: the
+  # production node/launcher binaries, tracked units, audited grant and
+  # fixture copies, and the extracted rootfs all stay byte-identical. Each
+  # crash scenario owns a fresh durable journal, kills the real processes at
+  # durable journal points, and proves at-most-once adjudication plus exact
+  # terminal redelivery across a full process restart.
+  local crash_client_log
+  crash_client_log=$(mktemp "$temp_root/boole-native-shadow-crash-restart.XXXXXX")
+  local crash_gate_source=scripts/native_shadow_crash_restart_gate.py
+  set +e
+  timeout --foreground --signal=TERM --kill-after=10s 600s \
+    sudo python3 "$crash_gate_source" \
+      --grant-path "$http_replay_grant_path" \
+      --fixture-directory "$http_replay_fixture_directory" \
+      --journal-path "$node_journal_path" \
+      --socket-path "$socket_path" >"$crash_client_log" 2>&1
+  local crash_status=$?
+  set -e
+  cat "$crash_client_log"
+  if [[ $crash_status -ne 0 ]]; then
+    sudo systemctl show "$node_service_name" \
+      --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :
+    sudo systemctl show "$unit_name" \
+      --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :
+    sudo journalctl --no-pager -o cat -u "$node_service_name" -n 200 >&2 || :
+    sudo journalctl --no-pager -o cat -u "$unit_name" -n 200 >&2 || :
+    sudo systemctl stop "$node_service_name" 2>/dev/null || :
+    sudo systemctl stop "$unit_name" 2>/dev/null || :
+    sudo systemctl reset-failed "$node_service_name" "$unit_name" 2>/dev/null || :
+    die "production crash/restart replay matrix failed or exceeded its outer deadline"
+  fi
+  local crash_marker
+  for crash_marker in \
+    native-shadow-crash-restart-case:terminal-redelivery-across-node-kill:PASS \
+    native-shadow-crash-restart-case:unresolved-inflight-fail-closed:PASS \
+    native-shadow-crash-restart-gate:PASS; do
+    [[ $(grep -Fxc "$crash_marker" "$crash_client_log" || :) -eq 1 ]] \
+      || die "production crash/restart matrix omitted exact marker: $crash_marker"
+  done
+  echo "native-shadow production crash/restart replay gate: PASS"
+}
+
 if [[ "$closed_local_replay_only" == true ]]; then
   run_closed_local_replay_gate
+  run_crash_restart_replay_gate
   exit 0
 fi
 
