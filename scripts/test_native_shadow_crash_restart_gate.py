@@ -157,7 +157,7 @@ class CrashRestartKillSafetyContractTests(unittest.TestCase):
         driver = DRIVER_PATH.read_text(encoding="utf-8")
         self.assertIn("def verified_unit_main_pid", driver)
         self.assertIn("def deliver_verified_signal", driver)
-        self.assertIn("cgroup.procs", driver)
+        self.assertIn('"/proc/{}/cgroup".format(pid)', driver)
         self.assertIn("/proc/", driver)
         # A stale MainPID must never be signalled: the one os.kill call site
         # re-verifies pid, start time, and unit cgroup membership first.

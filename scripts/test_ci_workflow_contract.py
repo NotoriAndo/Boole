@@ -282,7 +282,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         )
         for required in (
             "remains closed while durable InFlight rows are unresolved",
-            "cgroup.procs",
+            '"/proc/{}/cgroup".format(pid)',
             "def verified_unit_main_pid",
             "def deliver_verified_signal",
         ):

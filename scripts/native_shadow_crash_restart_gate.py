@@ -206,11 +206,20 @@ def verified_unit_main_pid(unit: str) -> ProcessIdentity:
     if not re.fullmatch(r"[1-9][0-9]*", pid_text):
         raise RuntimeError("{} has no live MainPID: {!r}".format(unit, pid_text))
     pid = int(pid_text)
-    cgroup_procs = Path(
-        "/sys/fs/cgroup/system.slice/{}/cgroup.procs".format(unit)
-    ).read_text(encoding="ascii").split()
-    if pid_text not in cgroup_procs:
-        raise RuntimeError("{} MainPID {} is outside its own unit cgroup".format(unit, pid))
+    # The launcher unit delegates its cgroup subtree and moves itself into a
+    # child manager cgroup, so membership is proven from the process's own
+    # unified-hierarchy path: it must sit in the unit cgroup or below it.
+    cgroup_text = Path("/proc/{}/cgroup".format(pid)).read_text(encoding="ascii")
+    match = re.search(r"^0::(.+)$", cgroup_text, re.MULTILINE)
+    unit_cgroup = "/system.slice/{}".format(unit)
+    if match is None or not (
+        match.group(1) == unit_cgroup or match.group(1).startswith(unit_cgroup + "/")
+    ):
+        raise RuntimeError(
+            "{} MainPID {} is outside its own unit cgroup: {!r}".format(
+                unit, pid, cgroup_text
+            )
+        )
     return ProcessIdentity(unit=unit, pid=pid, start_time=_proc_start_time(pid))
 
 
