@@ -231,6 +231,9 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "runtime rootfs replay identity drifted",
             "[[ ${#peer_pids[@]} -eq 3 ]]",
             '[[ "$peer_pid" == "$node_pid_before" ]]',
+            "launcher_journal_cursor=$(sudo journalctl --no-pager --show-cursor -n 0",
+            '--after-cursor "$launcher_journal_cursor"',
+            '"_PID=$launcher_pid"',
         ):
             self.assertIn(required, manager)
         self.assertIn("native-shadow-active-execution-peer:pid={}", active_execution)

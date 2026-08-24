@@ -1082,6 +1082,19 @@ PY
   set_mode normal
   sudo rm -f "$node_journal_path"
 
+  # Bound the production audit to messages written after this point.  The
+  # journal's InvocationID secondary index can lag behind `journalctl --sync`
+  # on a just-started unit, so it is not sufficient for the exact peer count.
+  # A global cursor gives us one kernel-journal ordering boundary; `_PID`
+  # below then proves every matching message came from the qualified launcher
+  # process rather than an older invocation of the same unit.
+  sudo journalctl --sync
+  local launcher_journal_cursor
+  launcher_journal_cursor=$(sudo journalctl --no-pager --show-cursor -n 0 \
+    | sed -n 's/^-- cursor: //p')
+  [[ -n "$launcher_journal_cursor" ]] \
+    || die "could not freeze the pre-launcher journal cursor"
+
   # Starting the node is the only explicit start. Its tracked Wants=/After=
   # relationship starts the launcher, while the node's bounded ENOENT/
   # ECONNREFUSED retry handles the intentional socket-readiness race. Do not
@@ -1138,16 +1151,25 @@ PY
   # peers must be the one stable replay-node MainPID, never the Python driver.
   sudo journalctl --sync
   local -a peer_pids=()
-  mapfile -t peer_pids < <(
-    sudo journalctl --no-pager -o cat -u "$unit_name" \
-      "_SYSTEMD_INVOCATION_ID=$launcher_invocation" \
-      | sed -n 's/^native-shadow-active-execution-peer:pid=\([1-9][0-9]*\)$/\1/p'
-  )
+  local peer_pid_wait
+  for ((peer_pid_wait = 0; peer_pid_wait < 200; peer_pid_wait++)); do
+    mapfile -t peer_pids < <(
+      sudo journalctl --no-pager -o cat -u "$unit_name" \
+        --after-cursor "$launcher_journal_cursor" "_PID=$launcher_pid" \
+        | sed -n 's/^native-shadow-active-execution-peer:pid=\([1-9][0-9]*\)$/\1/p'
+    )
+    [[ ${#peer_pids[@]} -eq 3 ]] && break
+    (( ${#peer_pids[@]} < 3 )) \
+      || die "launcher emitted more than three active execution peer identities"
+    sleep 0.05
+  done
   if ! [[ ${#peer_pids[@]} -eq 3 ]]; then
     printf 'native-shadow active execution peer PID count: expected=3 observed=%s\n' \
       "${#peer_pids[@]}" >&2
     printf 'native-shadow active execution peer PID observed:%s\n' \
       "${peer_pids[@]:-none}" >&2
+    sudo journalctl --no-pager -o cat -u "$unit_name" \
+      --after-cursor "$launcher_journal_cursor" >&2 || :
     die "launcher did not observe exactly three SO_PEERCRED process identities"
   fi
   local peer_pid
