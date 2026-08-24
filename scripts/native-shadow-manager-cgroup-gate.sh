@@ -933,8 +933,13 @@ PY
       "_SYSTEMD_INVOCATION_ID=$launcher_invocation" \
       | sed -n 's/^native-shadow-active-execution-peer:pid=\([1-9][0-9]*\)$/\1/p'
   )
-  [[ ${#peer_pids[@]} -eq 4 ]] \
-    || die "launcher did not observe exactly four SO_PEERCRED process identities"
+  if ! [[ ${#peer_pids[@]} -eq 3 ]]; then
+    printf 'native-shadow active execution peer PID count: expected=3 observed=%s\n' \
+      "${#peer_pids[@]}" >&2
+    printf 'native-shadow active execution peer PID observed:%s\n' \
+      "${peer_pids[@]:-none}" >&2
+    die "launcher did not observe exactly three SO_PEERCRED process identities"
+  fi
   local peer_pid
   for peer_pid in "${peer_pids[@]}"; do
     [[ "$peer_pid" == "$client_pid" ]] \

@@ -200,6 +200,8 @@ fn serve_active_execution_session<S: ActiveExecutionSession>(
         identities.node_gid(),
         expected_node_pid,
     )?;
+    #[cfg(feature = "manager-cgroup-linux-gate")]
+    eprintln!("native-shadow-active-execution-peer:pid={}", peer.pid);
     let hello_frame = session
         .read_frame(MAX_REQUEST_FRAME_BYTES)
         .map_err(|error| ActiveExecutionServerError::FrameIo(error.to_string()))?

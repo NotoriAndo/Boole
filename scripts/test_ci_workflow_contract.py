@@ -159,6 +159,10 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             REPO_ROOT
             / "crates/boole-native-shadow-launcher/tests/closed_local_replay_client_linux.rs"
         ).read_text(encoding="utf-8")
+        active_execution = (
+            REPO_ROOT
+            / "crates/boole-native-shadow-launcher/src/active_execution/mod.rs"
+        ).read_text(encoding="utf-8")
         for command in (
             "native_shadow_rootfs_acquire.py",
             "native_shadow_rootfs_portable_v2.py",
@@ -190,9 +194,10 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "runtime rootfs replay identity drifted",
             "launcher_connections=4:qualification_connections=1:"
             "checker_connections=3:empty_connections=0",
-            "[[ ${#peer_pids[@]} -eq 4 ]]",
+            "[[ ${#peer_pids[@]} -eq 3 ]]",
         ):
             self.assertIn(required, manager)
+        self.assertIn("native-shadow-active-execution-peer:pid={}", active_execution)
         for forbidden in ("continue-on-error", "|| true", "SKIP"):
             self.assertNotIn(forbidden, body)
 
