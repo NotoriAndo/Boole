@@ -188,7 +188,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             self.assertIn(required, replay_client)
         for required in (
             "runtime rootfs replay identity drifted",
-            "launcher_connections=3:empty_connections=0",
+            "launcher_connections=4:qualification_connections=1:"
+            "checker_connections=3:empty_connections=0",
         ):
             self.assertIn(required, manager)
         for forbidden in ("continue-on-error", "|| true", "SKIP"):

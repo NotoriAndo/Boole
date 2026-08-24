@@ -1905,11 +1905,9 @@ fn build_seccomp_program() -> Result<seccompiler::BpfProgram, ContainmentFailure
         libc::SYS_process_vm_writev,
         libc::SYS_ptrace,
         libc::SYS_reboot,
-        libc::SYS_recvfrom,
         libc::SYS_recvmsg,
         libc::SYS_request_key,
         libc::SYS_sendmsg,
-        libc::SYS_sendto,
         libc::SYS_setns,
         libc::SYS_socket,
         libc::SYS_swapoff,
@@ -1936,6 +1934,27 @@ fn build_seccomp_program() -> Result<seccompiler::BpfProgram, ContainmentFailure
     .map_err(|error| ContainmentFailure::Platform(error.to_string()))?])
     .map_err(|error| ContainmentFailure::Platform(error.to_string()))?;
     rules.insert(libc::SYS_socketpair, vec![deny_non_local_socketpair]);
+    // A PATH-searched Rust process uses the anonymous AF_UNIX socketpair
+    // above as its close-on-exec error channel and performs connected
+    // send()/recv() calls on it.  Linux lowers those calls to sendto()/
+    // recvfrom() with both address arguments null.  Permit only that exact
+    // connected form: callers still cannot name a destination, observe a
+    // source address, create a socket, or connect one.  Every named/addressed
+    // sendto()/recvfrom() remains EACCES.
+    let deny_addressed_io = || -> Result<Vec<SeccompRule>, ContainmentFailure> {
+        [4, 5]
+            .into_iter()
+            .map(|argument| {
+                let condition =
+                    SeccompCondition::new(argument, SeccompCmpArgLen::Qword, SeccompCmpOp::Ne, 0)
+                        .map_err(|error| ContainmentFailure::Platform(error.to_string()))?;
+                SeccompRule::new(vec![condition])
+                    .map_err(|error| ContainmentFailure::Platform(error.to_string()))
+            })
+            .collect()
+    };
+    rules.insert(libc::SYS_recvfrom, deny_addressed_io()?);
+    rules.insert(libc::SYS_sendto, deny_addressed_io()?);
     let arch = TargetArch::try_from(std::env::consts::ARCH).map_err(|_| {
         ContainmentFailure::Platform("unsupported seccomp target architecture".to_string())
     })?;
@@ -2143,7 +2162,7 @@ mod tests {
         libc::WEXITSTATUS(status)
     }
 
-    fn run_seccomp_spawn_probe() -> i32 {
+    fn run_seccomp_spawn_probe(command: &str) -> i32 {
         let program = build_seccomp_program().expect("fixed seccomp program");
         // SAFETY: the child installs the production filter, starts one fixed
         // harmless executable, and exits with a categorical status. The
@@ -2152,7 +2171,7 @@ mod tests {
         assert!(pid >= 0, "fork seccomp process-spawn probe");
         if pid == 0 {
             let status = match seccompiler::apply_filter(&program) {
-                Ok(()) => match std::process::Command::new("/bin/true").status() {
+                Ok(()) => match std::process::Command::new(command).status() {
                     Ok(status) if status.success() => 0,
                     Err(error) if error.raw_os_error() == Some(libc::EACCES) => libc::EACCES,
                     _ => 2,
@@ -2220,10 +2239,10 @@ mod tests {
         }
     }
 
-    fn local_spawn_channel_recv_is_eacces() -> bool {
+    fn local_spawn_channel_connected_io_succeeds() -> bool {
         let mut fds = [-1; 2];
-        // SAFETY: fds has room for the anonymous local pair. Closing the peer
-        // makes an allowed recv return EOF immediately instead of blocking.
+        // SAFETY: fds has room for the anonymous local pair. Both operations
+        // use the connected no-address form required by Rust's spawn channel.
         unsafe {
             if libc::socketpair(
                 libc::AF_UNIX,
@@ -2234,20 +2253,20 @@ mod tests {
             {
                 return false;
             }
-            libc::close(fds[1]);
-            *libc::__errno_location() = 0;
+            let sent = libc::send(fds[0], b"x".as_ptr().cast(), 1, 0) == 1;
             let mut byte = 0_u8;
-            let denied = libc::recv(fds[0], (&mut byte as *mut u8).cast(), 1, 0) == -1
-                && *libc::__errno_location() == libc::EACCES;
+            let received = libc::recv(fds[1], (&mut byte as *mut u8).cast(), 1, 0) == 1;
             libc::close(fds[0]);
-            denied
+            libc::close(fds[1]);
+            sent && received && byte == b'x'
         }
     }
 
-    fn local_spawn_channel_send_is_eacces() -> bool {
+    fn addressed_socket_io_remains_eacces() -> bool {
         let mut fds = [-1; 2];
-        // SAFETY: fds has room for the anonymous local pair and the one-byte
-        // send cannot escape that unnamed pair.
+        // SAFETY: fds has room for the anonymous local pair. The deliberately
+        // non-null address pointers must be rejected by seccomp before the
+        // kernel interprets these otherwise irrelevant local addresses.
         unsafe {
             if libc::socketpair(
                 libc::AF_UNIX,
@@ -2258,13 +2277,33 @@ mod tests {
             {
                 return false;
             }
+            let address: libc::sockaddr = std::mem::zeroed();
+            let mut address_length = std::mem::size_of::<libc::sockaddr>() as libc::socklen_t;
             *libc::__errno_location() = 0;
             let byte = 0_u8;
-            let denied = libc::send(fds[0], (&byte as *const u8).cast(), 1, 0) == -1
+            let send_denied = libc::sendto(
+                fds[0],
+                (&byte as *const u8).cast(),
+                1,
+                0,
+                &address,
+                address_length,
+            ) == -1
+                && *libc::__errno_location() == libc::EACCES;
+            *libc::__errno_location() = 0;
+            let mut received = 0_u8;
+            let recv_denied = libc::recvfrom(
+                fds[1],
+                (&mut received as *mut u8).cast(),
+                1,
+                0,
+                (&address as *const libc::sockaddr).cast_mut(),
+                &mut address_length,
+            ) == -1
                 && *libc::__errno_location() == libc::EACCES;
             libc::close(fds[0]);
             libc::close(fds[1]);
-            denied
+            send_denied && recv_denied
         }
     }
 
@@ -2393,16 +2432,30 @@ mod tests {
         if std::env::var_os("BOOLE_NATIVE_SHADOW_SECCOMP_SPAWN_PROBE").is_none() {
             return;
         }
-        let spawn_status = run_seccomp_spawn_probe();
-        let recv_eacces = run_seccomp_probe(local_spawn_channel_recv_is_eacces) == 0;
-        let send_eacces = run_seccomp_probe(local_spawn_channel_send_is_eacces) == 0;
+        let absolute_spawn_status = run_seccomp_spawn_probe("/bin/true");
+        let path_spawn_status = run_seccomp_spawn_probe("true");
+        let connected_io = run_seccomp_probe(local_spawn_channel_connected_io_succeeds) == 0;
+        let addressed_io_denied = run_seccomp_probe(addressed_socket_io_remains_eacces) == 0;
         assert_eq!(
-            spawn_status,
+            absolute_spawn_status,
             0,
-            "Rust process spawn failed under the production filter; \
-             categorical evidence: spawn_eacces={}, recv_eacces={recv_eacces}, \
-             send_eacces={send_eacces}",
-            spawn_status == libc::EACCES,
+            "absolute Rust process spawn failed under the production filter; \
+             categorical evidence: spawn_eacces={}, connected_io={connected_io}, \
+             addressed_io_denied={addressed_io_denied}",
+            absolute_spawn_status == libc::EACCES,
+        );
+        assert_eq!(
+            path_spawn_status,
+            0,
+            "PATH-searched Rust process spawn failed under the production filter; \
+             categorical evidence: spawn_eacces={}, connected_io={connected_io}, \
+             addressed_io_denied={addressed_io_denied}",
+            path_spawn_status == libc::EACCES,
+        );
+        assert!(connected_io, "anonymous connected channel I/O was denied");
+        assert!(
+            addressed_io_denied,
+            "addressed socket I/O escaped the production filter"
         );
     }
 }
