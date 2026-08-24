@@ -1,0 +1,33 @@
+{
+  "activationAllowed": false,
+  "checkerArtifactHash": "fa3fea6534d505a8dcce5eca38ecc2c4a60c5173ff19a310dd82cfd797a11598",
+  "checkerSha256": "d17dca244628bb55f6fbbf799c71adcae3d548169ef0655ca27c8eb1f7ba95d7",
+  "containment": {
+    "linuxAddressSpaceLimit": true,
+    "linuxProcessCountLimit": false,
+    "macosAddressSpaceLimit": false,
+    "macosProcessCountLimit": false,
+    "productionQualified": false
+  },
+  "familyVersion": "TUPLE-STRUCT-PROJECT/RUST-TUPLE-STRUCT-PROJECT-V1",
+  "policySha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+  "qualificationFixture": {
+    "nonIssuable": true,
+    "path": "fixtures/native-shadow/rust-tuple-struct-project-v1/task.json",
+    "taskSha256": "675d170d1026a7ed28a460ecb767a65e8bc2729845a9ddefbeaf7fc3cabe0a9f"
+  },
+  "release": "RUST-TUPLE-STRUCT-CHECKER-ARM64-V1-QUALIFICATION",
+  "schema": "boole.native-checker.release.arm64.v1",
+  "toolchain": {
+    "cargoCommitHash": "3efb1f477e99b42974b982d939fd100303cdf7db",
+    "channel": "rust-lang-ci-e7795af6d2449fb05a6393c3320ced873a999eb3",
+    "compilerBinariesIncluded": false,
+    "linuxArm64ArtifactSha256": {
+      "cargo-nightly-aarch64-unknown-linux-gnu.tar.xz": "dd30cce8fc7c5029287dc75b24bb549e6ed957f6ddeac205fd1e6360993d4903",
+      "rust-std-nightly-aarch64-unknown-linux-gnu.tar.xz": "2c8a2d0f1f2c51caf5805f4a0ab510298dfebe4db2551a22b35ccc10d9bc3edc",
+      "rustc-nightly-aarch64-unknown-linux-gnu.tar.xz": "055bf89237ff4e3dfa4259ae5e63a8cc78fb2f1919421ac9e01edccd20ee6a5f"
+    },
+    "rustcCommitHash": "e7795af6d2449fb05a6393c3320ced873a999eb3",
+    "source": "https://ci-artifacts.rust-lang.org/rustc-builds/e7795af6d2449fb05a6393c3320ced873a999eb3/"
+  }
+}

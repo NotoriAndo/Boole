@@ -1,0 +1,28 @@
+{
+  "activationAllowed": false,
+  "bootstrapAuthority": {
+    "acquisitionPlanV1Sha256": "bfc11d201ab72b42afa218948e89bc48e3555aa2ed79f4657c9d3a4b37dfd331",
+    "completeSourceLockV1Sha256": "728d14a59e53ab3101c65384d0db640bc175de886213fa4ab636d4d62130e63a",
+    "signedResolutionV1Sha256": "087d70a80f0d306c4127fdac69d59cc9a114ffaddc6525affc9aed8b46b1e4ce",
+    "sourceClosureResultV1Sha256": "927d1a6c8ccd0e4ae7bdeb56c9ee07bb30fd752c2acb3c47d7331d36e1e697ed",
+    "sourceLockScaffoldV1Sha256": "b920e2f6a83bd98e6225acf855158ceec2ca51026c29f2af3ab2cf7bb26078e6"
+  },
+  "builderSha256": "6fd72d0c4bbf465fb3895a2db42d4e608e9ce0b8aebf0eb979e5f75ec1aca2b8",
+  "portabilityPolicy": {
+    "runtimeToolIdentity": "run-receipt-only",
+    "sourceIdentityIncludesRuntimeToolDigest": false,
+    "sourceIdentityIncludesRuntimeToolPath": false
+  },
+  "release": "NATIVE-SHADOW-RUNTIME-ROOTFS-PORTABLE-SUCCESSOR-ARM64-V1-QUALIFICATION",
+  "replayPolicy": {
+    "automaticAdoptionOnMismatch": false,
+    "exactExpectedOutputRequired": true,
+    "successorNotNewSourceAuthority": true
+  },
+  "runtimeToolRoles": [
+    "gpgv",
+    "zstd"
+  ],
+  "schema": "boole.native-shadow.runtime-rootfs-portable-plan.arm64.v1",
+  "snapshotId": "20240425T160000Z"
+}

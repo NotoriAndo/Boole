@@ -1,0 +1,67 @@
+{
+  "activationAllowed": false,
+  "platform": {
+    "architecture": "aarch64",
+    "os": "linux"
+  },
+  "purpose": "root-owned Linux/arm64 runtime identity authority for native checker qualification",
+  "python": {
+    "implementation": "cpython",
+    "implementationProbe": [
+      "/usr/bin/python3.12",
+      "-I",
+      "-S",
+      "-c",
+      "import sys;print(sys.implementation.name)"
+    ],
+    "path": "/usr/bin/python3.12",
+    "requiredImplementationOutput": "cpython\n",
+    "requiredVersionPrefix": "Python 3.12.",
+    "versionProbe": [
+      "/usr/bin/python3.12",
+      "--version"
+    ]
+  },
+  "release": "NATIVE-SHADOW-TOOLCHAIN-IDENTITY-ARM64-V1-QUALIFICATION",
+  "runtimeVerification": {
+    "activationBlockers": [
+      "installed-rust-toolchain-file-manifest",
+      "python-interpreter-and-stdlib-file-manifest",
+      "system-linker-and-runtime-file-manifest"
+    ],
+    "compatibilityProbeScope": "version-and-implementation-only;not-installed-byte-provenance",
+    "environment": {
+      "LANG": "C",
+      "LC_ALL": "C",
+      "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+      "TZ": "UTC"
+    },
+    "executionAllowedBeforeProvenanceClosure": false,
+    "probeMismatchAction": "fail-closed-before-spawn",
+    "productionByteProvenanceComplete": false,
+    "runBeforeEachExecution": true,
+    "runBeforeSocketBind": true,
+    "toolchainDigestMeaning": "sha256-of-these-exact-tracked-manifest-bytes"
+  },
+  "rust": {
+    "cargoCommitHash": "3efb1f477e99b42974b982d939fd100303cdf7db",
+    "cargoProbe": [
+      "/opt/boole/native-checker-toolchain/bin/cargo",
+      "-Vv"
+    ],
+    "cargoRelease": "1.99.0-nightly",
+    "channel": "rust-lang-ci-e7795af6d2449fb05a6393c3320ced873a999eb3",
+    "linuxArm64ArtifactSha256": {
+      "cargo-nightly-aarch64-unknown-linux-gnu.tar.xz": "dd30cce8fc7c5029287dc75b24bb549e6ed957f6ddeac205fd1e6360993d4903",
+      "rust-std-nightly-aarch64-unknown-linux-gnu.tar.xz": "2c8a2d0f1f2c51caf5805f4a0ab510298dfebe4db2551a22b35ccc10d9bc3edc",
+      "rustc-nightly-aarch64-unknown-linux-gnu.tar.xz": "055bf89237ff4e3dfa4259ae5e63a8cc78fb2f1919421ac9e01edccd20ee6a5f"
+    },
+    "rustcCommitHash": "e7795af6d2449fb05a6393c3320ced873a999eb3",
+    "rustcProbe": [
+      "/opt/boole/native-checker-toolchain/bin/rustc",
+      "-vV"
+    ],
+    "rustcRelease": "1.99.0-nightly"
+  },
+  "schema": "boole.native-shadow.toolchain-identity.arm64.v1"
+}

@@ -19,6 +19,9 @@ NATIVE_CONTAINMENT_PROBE = (
 PORTABLE_ROOTFS_REPLAY_GATE = (
     REPO_ROOT / "scripts" / "native-shadow-portable-rootfs-replay-linux.sh"
 )
+ARM64_ROOTFS_REPLAY_GATE = (
+    REPO_ROOT / "scripts" / "native-shadow-portable-rootfs-replay-linux-arm64.sh"
+)
 NATIVE_SHADOW_HTTP_REPLAY_GATE = (
     REPO_ROOT / "scripts" / "native_shadow_http_replay_gate.py"
 )
@@ -296,17 +299,21 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             self.assertNotIn(forbidden, driver)
         self.assertNotRegex(driver, re.compile(r"\bskip\b", re.IGNORECASE))
 
-    def test_self_test_requires_both_containment_and_rootfs_replay(self):
+    def test_self_test_requires_all_native_shadow_linux_gates(self):
         job = self._job("self-test")
         self.assertRegex(
             job,
             re.compile(
                 r"needs:\s*\[native-shadow-containment-linux,\s*"
-                r"native-shadow-rootfs-replay-linux\]"
+                r"native-shadow-rootfs-replay-linux,\s*"
+                r"native-shadow-rootfs-replay-linux-arm64\]"
             ),
         )
         self.assertIn("needs.native-shadow-containment-linux.result", job)
         self.assertIn("needs.native-shadow-rootfs-replay-linux.result", job)
+        self.assertIn(
+            "needs.native-shadow-rootfs-replay-linux-arm64.result", job
+        )
 
     def test_self_test_runs_the_native_shadow_http_replay_helper_contract(self):
         self.assertIn(
@@ -795,7 +802,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             job,
             re.compile(
                 r"^\s+needs:\s*\[native-shadow-containment-linux,\s*"
-                r"native-shadow-rootfs-replay-linux\]\s*$",
+                r"native-shadow-rootfs-replay-linux,\s*"
+                r"native-shadow-rootfs-replay-linux-arm64\]\s*$",
                 re.MULTILINE,
             ),
         )
@@ -803,11 +811,18 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         self.assertIn("needs.native-shadow-containment-linux.result", job)
         self.assertIn("needs.native-shadow-rootfs-replay-linux.result", job)
         self.assertIn(
+            "needs.native-shadow-rootfs-replay-linux-arm64.result", job
+        )
+        self.assertIn(
             "native-shadow containment capability probe did not pass",
             job,
         )
         self.assertIn(
             "native-shadow portable rootfs replay did not pass",
+            job,
+        )
+        self.assertIn(
+            "native-shadow arm64 portable rootfs replay did not pass",
             job,
         )
 
@@ -983,6 +998,57 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             body,
             "tmpfs and a loopback-backed filesystem are mutually exclusive choices",
         )
+
+
+class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
+    """MAC.2 must execute on a real, non-skippable Linux/arm64 runner."""
+
+    def setUp(self):
+        self.text = WORKFLOW.read_text(encoding="utf-8")
+
+    def _job(self, name: str) -> str:
+        match = re.search(
+            rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+            self.text,
+        )
+        self.assertIsNotNone(match, f"missing CI job: {name}")
+        return match.group(0)
+
+    def test_arm64_rootfs_replay_is_named_native_and_non_skippable(self):
+        job = self._job("native-shadow-rootfs-replay-linux-arm64")
+        self.assertIn("runs-on: ubuntu-24.04-arm", job)
+        self.assertIn(
+            "sudo ./scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh",
+            job,
+        )
+        for forbidden in ("continue-on-error", "SKIP", "|| true"):
+            self.assertNotIn(forbidden, job)
+
+    def test_self_test_requires_arm64_rootfs_replay(self):
+        job = self._job("self-test")
+        self.assertIn("native-shadow-rootfs-replay-linux-arm64", job)
+        self.assertIn(
+            "needs.native-shadow-rootfs-replay-linux-arm64.result", job
+        )
+        self.assertIn("arm64 portable rootfs replay did not pass", job)
+
+    def test_arm64_gate_executes_the_frozen_parity_matrix(self):
+        gate = ARM64_ROOTFS_REPLAY_GATE.read_text(encoding="utf-8")
+        for required in (
+            '[[ $(uname -m) == "aarch64" ]]',
+            "native_shadow_rootfs_portable_arm64_v1.py",
+            "native_shadow_rootfs_oci_verify_arm64_v1.py",
+            "accepted.rs",
+            "empty.rs",
+            "tampered.rs",
+            "constant.rs",
+            "outside_patch_modified",
+            "PrivateNetwork=yes",
+            "MAC2-RESULT.json",
+        ):
+            self.assertIn(required, gate)
+        for forbidden in ("continue-on-error", "SKIP", "|| true"):
+            self.assertNotIn(forbidden, gate)
 
 
 class VerdictCorpusWorkflowContractTest(unittest.TestCase):

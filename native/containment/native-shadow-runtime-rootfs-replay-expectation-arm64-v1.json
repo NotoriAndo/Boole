@@ -1,0 +1,41 @@
+{
+  "activationAllowed": false,
+  "authority": {
+    "bootstrapAuthority": {
+      "acquisitionPlanV1Sha256": "bfc11d201ab72b42afa218948e89bc48e3555aa2ed79f4657c9d3a4b37dfd331",
+      "completeSourceLockV1Sha256": "728d14a59e53ab3101c65384d0db640bc175de886213fa4ab636d4d62130e63a",
+      "signedResolutionV1Sha256": "087d70a80f0d306c4127fdac69d59cc9a114ffaddc6525affc9aed8b46b1e4ce",
+      "sourceClosureResultV1Sha256": "927d1a6c8ccd0e4ae7bdeb56c9ee07bb30fd752c2acb3c47d7331d36e1e697ed",
+      "sourceLockScaffoldV1Sha256": "b920e2f6a83bd98e6225acf855158ceec2ca51026c29f2af3ab2cf7bb26078e6"
+    },
+    "builderSha256": "6fd72d0c4bbf465fb3895a2db42d4e608e9ce0b8aebf0eb979e5f75ec1aca2b8",
+    "portablePlanSha256": "7d1f79fd9d57162b76cdddd234458e7bd72590cc38e31aba3c7d2770da73c663",
+    "portableResolutionSha256": "5e4e8bb107edd6729a5d319a294a295c238309e3ffd8aa5a548338c72bc16d36",
+    "portableSourceLockSha256": "041e91ce62d57fb136cc1aaf6711c21e891ebb76dd2fedfcdc68bec4f2b28c69"
+  },
+  "expectedOutput": {
+    "configDigest": "sha256:68e6211ccba9d608d1b6ebf62ef00c247beba5ee514df273d9e17400b25558da",
+    "configSizeBytes": 264,
+    "indexSha256": "69cd9b385ed08f50b74699ccebfa521184c75f6deac50d0c71b5357689a15f41",
+    "indexSizeBytes": 305,
+    "layerCount": 1,
+    "layerDigest": "sha256:03ced8b1c377e15ab35ba5b5edd10c45aca1df546d70543983a457b8268aead9",
+    "layerSizeBytes": 766556160,
+    "manifestDigest": "sha256:7a073fdc7155b7b085d1cdb87e5a239f28f869c44779383f62b600476091f82a",
+    "manifestSizeBytes": 472,
+    "parentLayerCount": 0,
+    "rootfsContentManifestSha256": "0ef30e20c138f5099b84b94c2d7c5269b6dce79c2bb136350ed003b321ac62f3",
+    "rootfsContentManifestSizeBytes": 1285116
+  },
+  "mismatchPolicy": {
+    "action": "reject-no-adoption",
+    "automaticUpdateAllowed": false
+  },
+  "platform": {
+    "architecture": "arm64",
+    "os": "linux"
+  },
+  "productionByteProvenanceComplete": false,
+  "release": "NATIVE-SHADOW-RUNTIME-ROOTFS-REPLAY-EXPECTATION-ARM64-V1-FROZEN",
+  "schema": "boole.native-shadow.runtime-rootfs-replay-expectation.arm64.v1"
+}
