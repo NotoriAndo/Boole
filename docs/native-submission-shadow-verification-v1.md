@@ -1,7 +1,8 @@
 # Native submission shadow verification v1
 
-Status: **AUTHORITATIVE DESIGN — tracked checker and real ACCEPT parity landed; node registry/state
-durability foundation partially landed; HTTP route and contained checker execution not landed**
+Status: **CLOSED-LOCAL QUALIFICATION GREEN — tracked checker, named-Linux containment, loopback
+node raw-answer HTTP adjudication and durable replay landed; production activation, P2P, block,
+reward and consensus remain forbidden**
 
 Slice: **`NATIVE-SUBMISSION-SHADOW-ADMISSION-V1`**
 
@@ -440,6 +441,64 @@ cgroup/tmpfs/seccomp/Landlock envelope. Phase 3B.2b-2y is a real named-Linux **r
 round trip, not the required real node-process raw-answer run.
 Therefore this is not `NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN`.
 
+### 4.5 Closed-local node-process checker/HTTP closure (2026-08-24)
+
+The paragraph above remains the historical Phase 3B.2b-2y checkpoint. Two later slices close the
+authority spec's second prerequisite for the frozen, non-issuable closed-local lane:
+
+* PR #206 (main `8542386`) ran the frozen real accepted answer in the named-Linux contained checker
+  service. The tampered and constant controls reached deterministic checker rejection. The gate
+  also verified cgroup/rootfs/seccomp/Landlock enforcement, cleanup, and that all three checker
+  connections belonged to the same node client process and launcher instance.
+* PR #219 (main `4de603f`) added the feature-gated replay node at the fixed loopback endpoint
+  `127.0.0.1:8082 POST /native-shadow/submissions`. The node receives a raw answer, resolves the
+  frozen grant and registry itself, invokes that contained checker through the qualified launcher,
+  and durably records the attempt, evidence and terminal challenge state before replying.
+
+The actual HTTP matrix passed the accepted, tampered, constant and empty-answer cases. Exact
+redelivery of the same submission returns the stored terminal result without another checker run;
+a different candidate cannot overwrite a consumed challenge; and the process-wide `native_busy`
+permit rejects a second concurrent execution. After reservation, an outcome the node cannot prove
+terminal is returned as HTTP 504 `adjudication_unknown` with `retryAuthorized=false` rather than
+being guessed or retried. A static authority gate proves that this route has no `SharePool`, block,
+reward, P2P or consensus consumer.
+
+Client cancellation, terminal redelivery and ambiguous-result fail-closed behavior are covered by
+the route's unit contract. A separate process-kill followed by full HTTP-node restart E2E is not
+claimed by this milestone. This limitation does not change the completed frozen one-process
+node-owned judgment claim, and it must not be silently relabelled as a production availability or
+Mac-product claim.
+
+### 4.6 Crash/restart exactly-once closure (2026-08-24 — PR #220 / PR #221)
+
+Section 4.5's limitation line — "a separate process-kill followed by full HTTP-node restart E2E is
+not claimed by this milestone" — is superseded append-only: that E2E is now claimed and closed on
+Linux CI.
+
+* PR #220 (main `9203156950e178277895ac4d282462147ddae23e`) pinned the launcher security
+  invariants restart safety relies on: a restarted launcher grant binds the consumed durable
+  attempt read-only so node startup recovery refuses cross-restart reuse, an execution-time
+  authority digest mismatch is rejected via the exact `executionPolicyDigestHex` binding, a
+  byte-identical ready token minted under an earlier qualification nonce never qualifies a later
+  session, and a kernel-reported zero-PID peer is always untrusted.
+* PR #221 (main `6553360a6291c300ad0d19c50238b8b7c9263c68`; CI run
+  <https://github.com/NotoriAndo/Boole/actions/runs/32709400913>) added a named crash/restart
+  phase to the Linux rootfs-replay gate. It SIGKILLs the real node and launcher processes mid-flow
+  and restarts them through systemd, verifying process identity actually changed
+  (PID/start-time/invocation ID) rather than trusting a soft restart.
+
+Scenario S1 (`terminal-redelivery-across-node-kill`) evidence: 2 checker starts before the kill,
+0 checker starts after restart, 3 redelivered responses, accepted redelivery byte-identical,
+tampered redelivery differing only in the expected redelivery flag, 10 journal rows, and cleanup
+verified including reaping the inert launcher socket inode. Scenario S2
+(`unresolved-inflight-fail-closed`) evidence: 0 checker starts, 3 journal rows, restart refused,
+the fail-closed message observed, and the listener still refused after a restart attempt.
+
+Together with sections 4.1–4.5 this closes the full MAC.0 chain recorded in
+`docs/mac-first-hidden-linux-execution-plan-v1.md` section 9. Scope is unchanged: closed-local,
+loopback-only, frozen non-issuable qualification — not public mining, not production availability
+and not a Mac-product claim.
+
 ## 5. Required decision path
 
 For every submission, the node performs these stages in order:
@@ -598,6 +657,30 @@ That label means node-owned shadow verification works. It does not mean mining i
 reward-bearing, peer-verified or consensus-active. It does not change
 `LLM-MINEABLE-ELIGIBLE-V5 = 14,160` or `mineable_now = 0`.
 
+### 11.1 Current attainment — closed-local qualification only
+
+```text
+NATIVE-SUBMISSION-SHADOW-ADMISSION-V1-GREEN
+scope = CLOSED-LOCAL / LOOPBACK-ONLY / FROZEN-NONISSUABLE-QUALIFICATION
+```
+
+This GREEN means the node process accepts a raw answer, independently runs the actual pinned
+checker, and connects the result to durable evidence and terminal challenge state. It does not mean
+general production routing, remote-miner access, fresh challenge issuance, public mining, block
+admission, reward or consensus activation.
+
+The authority invariants remain `loopbackOnly=true`, `p2pAllowed=false`,
+`consensusAllowed=false`, `rewardAllowed=false`, `activationAllowed=false` and
+`nonIssuable=true`. `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` are unchanged. Block/reward wiring is not a
+missing tail of this approved slice: it is a separately authorized stage that this authority
+explicitly forbids.
+
+_2026-08-24 addendum:_ the GREEN above now also covers the real process crash/restart
+exactly-once E2E and unresolved-`InFlight` fail-closed behavior closed in section 4.6 (PR #220 /
+PR #221). Every other limit in this section stands unchanged, and the Mac product gates MAC.2+
+remain unimplemented.
+
 ## 12. Synchronized local planning mirrors
 
 The detailed master, execution and thesis mirrors remain under gitignored `local-docs`; the
@@ -606,12 +689,12 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 
 | local mirror | sha256 |
 | --- | --- |
-| `local-docs/adr/0021-native-submission-shadow-verification.md` | `6ff953ac229324045b23c283deb702473938ddd4766abe3c9affaa794a964449` |
-| `local-docs/todo/todo-l1-network-master.md` | `b3b6459ee634c784cc7568fbd03ca5990791c0f1cf9f36b143c7fbd3c70f5497` |
-| `local-docs/todo/EXECUTION-ORDER.md` | `52d2d416a4c1c640bc5ded16bae49d23310d8ea7382c0ee0f7c1760294940cb2` (updated 2026-08-24 — Mac-first distribution successor registered; current Linux checker cursor unchanged) |
-| `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `42e216ddbfe56875ccb5d932335ed5963737572bb06a3eda57a55513db7c1635` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `e19d89f1b3b3558c3ee3e3d0a706117e1908cf12a069f22ed494036fddce1bbb` |
-| `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `140b522eb4d72c58823d91e19c458a23dabac14e05ee6a2163921cd65d989333` |
+| `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
+| `local-docs/todo/todo-l1-network-master.md` | `ee042c17aab2bc4b768667bfeaa5e8d0d24132b64afd065192a021fdf11905a7` (updated 2026-08-24b — MAC.0 complete, MAC.1 frozen) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `d88341bc30df5f7811fad913d3a56920bc322cc641fc7e16e2db7d79bb2329e5` (updated 2026-08-24b — crash/restart exactly-once GREEN, MAC.0 complete, MAC.1 frozen; block/reward authority remains HOLD) |
+| `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
+| `local-docs/todo/thesis-realization-roadmap.md` | `f3e8f4850b620b8d73a948905e1e32f81a8a6f7bb7363ae64c90ed6e72094beb` (updated 2026-08-24b — MAC.0 complete, MAC.1 frozen) |
+| `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
 tracked checker/registry migration in section 4; no node may load a `local-docs` file as a trust
@@ -673,6 +756,23 @@ resolution, checker invocation and install/IPC contract; production launcher imp
 provenance testing, authenticated handshake, durable execution ID, route/checker wiring and actual
 native Linux execution remain open.
 
+The 2026-08-24 synchronization supersedes that progress cursor without deleting it. PR #206 and
+PR #219 closed the named-Linux contained checker and frozen loopback raw-answer route described in
+sections 4.5 and 11.1. All six mirrors now carry the same append-only completion boundary: node-owned
+closed-local judgment is GREEN, while process-kill/restart HTTP E2E is not claimed and
+block/reward/P2P/consensus remain authority-held. The table above contains the exact post-update
+SHA-256 of each local mirror. These hashes are synchronization evidence only; `local-docs` is still
+not a runtime trust root.
+
+A second, same-day (2026-08-24b) synchronization appends the MAC.0-complete cursor to three
+mirrors (`todo-l1-network-master.md`, `EXECUTION-ORDER.md`, `thesis-realization-roadmap.md`): the
+crash/restart exactly-once E2E of section 4.6 (PR #220 / PR #221) closes the MAC.0 chain, the
+MAC.1 Mac distribution contract is frozen as MAC.1-PARTIAL — OPERATOR VALUE REQUIRED in
+`docs/mac-first-hidden-linux-execution-plan-v1.md` sections 9–10, and the next gate is MAC.2
+authority parity, which has not been started. The other three mirrors are byte-unchanged. The
+table above holds the exact recomputed post-update SHA-256 of every mirror, replacing the
+2026-08-24a values for the three edited files only.
+
 ## 13. Mac-first product distribution boundary
 
 The current Linux-only execution contract describes the security envelope for untrusted native
@@ -690,3 +790,8 @@ Apple-Silicon Linux/arm64 authority. Architecture parity, guest lifecycle, authe
 transport, clean-Mac installation and signed update/rollback each remain explicit MAC.1–MAC.6
 gates. Their implementation follows this document's exact Linux ACCEPT closure and node raw-answer
 exactly-once E2E; it does not interrupt or bypass those prerequisites.
+
+_2026-08-24 addendum:_ MAC.0 is COMPLETE (section 4.6 crash/restart closure; plan section 9) and
+the MAC.1 distribution contract is frozen as MAC.1-PARTIAL — OPERATOR VALUE REQUIRED (plan
+section 10). MAC.2 and every later Mac gate remain unstarted and unimplemented; this addendum
+still authorizes no Mac production claim.

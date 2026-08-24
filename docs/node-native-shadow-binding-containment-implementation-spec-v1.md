@@ -1,8 +1,8 @@
 # Node-native shadow binding and containment — consolidated implementation spec v1
 
-Status: **IMPLEMENTATION BASELINE APPROVED; PHASED IMPLEMENTATION IN PROGRESS.** Registry/state
-durability foundations are on `main`; containment, checker execution and the HTTP route remain
-open. No consensus change.
+Status: **CLOSED-LOCAL IMPLEMENTATION GREEN.** Registry/state durability, named-Linux containment,
+actual checker execution and the feature-gated loopback HTTP route are on `main`. Production
+activation, P2P, block, reward and consensus remain forbidden.
 
 This document consolidates the base design
 (`docs/node-native-shadow-binding-containment-design-v1.md`), correction round 1
@@ -1542,6 +1542,8 @@ second prerequisite and do not change
 
 ## 13. Status
 
+The following block preserves the Phase 3B.2b-2y checkpoint and is superseded by section 13.1:
+
 ```
 NODE-NATIVE-SHADOW-BINDING-CONTAINMENT-DESIGN-V1: IMPLEMENTATION-BASELINE-APPROVED
 IMPLEMENTATION: PARTIAL (PHASE-1 / PHASE-2 / PHASE-2C / PHASE-2D / PHASE-3A.1 /
@@ -1553,6 +1555,62 @@ PHASE-3B.2B-2W / PHASE-3B.2B-2X LANDED;
 PHASE-3B.2B-2Y ONE-SHOT QUALIFICATION CURRENT GUARDED SLICE)
 CONTAINMENT-ROUTE-GREEN: OPEN / READINESS-HANDSHAKE-ONLY; CHECKER-EXECUTION-AND-ROUTE-UNIMPLEMENTED
 ```
+
+### 13.1 Closed-local implementation closure addendum — 2026-08-24
+
+The status block above is the preserved Phase 3B.2b-2y checkpoint. PR #206 (main `8542386`) and
+PR #219 (main `4de603f`) subsequently closed this document's named-Linux containment and route RED
+matrix for the frozen non-issuable lane.
+
+The frozen accepted answer now reaches `ACCEPT` in the actual contained checker; tampered and
+constant answers reach `DeterministicReject`; and an empty answer reaches `PrecheckReject` without a
+checker run. The named-Linux gate verifies the cgroup/rootfs/seccomp/Landlock boundary, stable
+launcher instance, node peer-PID binding, cleanup and no leftover per-submission cgroup. The
+feature-gated node receives raw answers at the fixed loopback endpoint, resolves its own
+registry/grant authority, and durably records `Active -> InFlight -> TerminalConsumed`, evidence and
+the HTTP result.
+
+Exact redelivery returns the stored terminal result without another checker execution. Concurrent
+execution is limited to one, and an outcome that is ambiguous after durable reservation fails closed
+as `adjudication_unknown`, `retryAuthorized=false`. Client cancellation and ambiguous-result
+handling are proven at the route-unit boundary. A separate process-kill followed by full HTTP-node
+restart E2E is not claimed.
+
+### 13.2 Crash/restart closure addendum — 2026-08-24
+
+Section 13.1's remaining limitation ("a separate process-kill followed by full HTTP-node restart
+E2E is not claimed") is superseded append-only. PR #220 (main
+`9203156950e178277895ac4d282462147ddae23e`) pinned the restart security invariants: no
+cross-restart grant reuse against a consumed durable attempt, execution-time authority digest
+mismatch rejection, stale ready-token non-qualification across sessions, and zero-PID peer
+distrust. PR #221 (main `6553360a6291c300ad0d19c50238b8b7c9263c68`; CI run
+<https://github.com/NotoriAndo/Boole/actions/runs/32709400913>) closed the real crash/restart
+exactly-once E2E on Linux CI: after SIGKILL of the real node and launcher processes and a full
+systemd restart with changed process identity, terminal results are redelivered byte-identically
+with zero additional checker starts, and a synthetic unresolved durable `InFlight` row keeps the
+replay route fail-closed after restart. Cleanup was verified in both scenarios, including reaping
+the inert launcher socket inode a SIGTERM-stopped launcher leaves behind.
+
+```text
+CONTAINMENT-ROUTE-GREEN: GREEN (NAMED-LINUX, CLOSED-LOCAL)
+CRASH-RESTART-EXACTLY-ONCE-E2E: GREEN (CLOSED-LOCAL, LINUX CI)
+```
+
+The boundary of section 13.1 is otherwise unchanged: loopback-only, `nonIssuable=true`,
+`activationAllowed=false`, no `SharePool`/block/reward/P2P/consensus consumer, `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`. This closure feeds the MAC.0 record in
+`docs/mac-first-hidden-linux-execution-plan-v1.md` section 9; it is not a Mac product or
+production availability claim.
+
+```text
+CONTAINMENT-ROUTE-GREEN: GREEN (NAMED-LINUX, CLOSED-LOCAL)
+NATIVE-SUBMISSION-SHADOW-ADMISSION-V1: GREEN (FROZEN NON-ISSUABLE QUALIFICATION ONLY)
+```
+
+This is not general production activation. The route is loopback-only, the fixture remains
+`nonIssuable=true`, and authority remains `activationAllowed=false`. `SharePool`, block, reward,
+P2P and consensus paths are not connected; the static no-consumer regression gate is GREEN.
+Accordingly, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD` and `BF.7=HOLD` remain unchanged.
 
 The base document, r1 and r2 remain the historical record of the first three review passes and are
 not edited by this document beyond their own status markers pointing here. A fourth operator review
