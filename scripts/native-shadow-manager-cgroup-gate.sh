@@ -480,8 +480,12 @@ assert_manager_invariants() {
     || die "manager cgroup does not contain exactly the MainPID process"
   [[ "$manager_tid" == "$pid" ]] \
     || die "manager cgroup does not contain exactly the MainPID thread"
-  [[ $(sudo stat -c %U:%G:%a "$manager_root") == root:root:700 ]] \
-    || die "manager cgroup metadata does not match root:root:700"
+  local manager_metadata
+  manager_metadata=$(sudo stat -c %U:%G:%a "$manager_root" 2>/dev/null || :)
+  if [[ "$manager_metadata" != root:root:700 ]]; then
+    sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :
+    die "manager cgroup metadata does not match root:root:700: $manager_metadata"
+  fi
   [[ -z $(sudo cat "$manager_root/cgroup.subtree_control" | tr -d '[:space:]') ]] \
     || die "manager cgroup has residual subtree controllers"
   [[ $(sudo cat "$manager_root/cgroup.type" | tr -d '[:space:]') == domain ]] \

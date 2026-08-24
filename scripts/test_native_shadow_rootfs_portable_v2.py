@@ -225,6 +225,24 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertLess(manager.index(diagnostic), timeout_index)
         self.assertLess(manager.index(journal, manager.index(diagnostic)), timeout_index)
 
+    def test_manager_metadata_race_preserves_the_launcher_journal(self) -> None:
+        manager = (
+            ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+        invariants = manager[
+            manager.index("assert_manager_invariants() {") : manager.index(
+                "wait_for_leaf_event() {"
+            )
+        ]
+        metadata = 'manager_metadata=$(sudo stat -c %U:%G:%a "$manager_root" 2>/dev/null || :)'
+        journal = 'sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :'
+        failure = 'die "manager cgroup metadata does not match root:root:700: $manager_metadata"'
+        self.assertIn(metadata, invariants)
+        self.assertIn(journal, invariants)
+        self.assertIn(failure, invariants)
+        self.assertLess(invariants.index(metadata), invariants.index(journal))
+        self.assertLess(invariants.index(journal), invariants.index(failure))
+
     def test_linux_replay_client_failure_dumps_the_exact_launcher_session_error(self) -> None:
         manager = (
             ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
