@@ -176,13 +176,13 @@ fn validate_contract(
         && authority.scope == "closed-local-loopback-only"
         && authority.base_execution_policy_sha256 == base_digest
         && authority.runtime_rootfs_portable_plan_sha256
-            == "495ec9d39435ad2850086beeb81481c77bb3f475cfa6d37438a46733f09c290c"
+            == "c325450a15d96bfc13fac66fadf3d4df9249283ed466005da4945be951000016"
         && authority.runtime_rootfs_source_lock_sha256
-            == "4e60da0e59eeee3d05079d2654cf46be7a9804187fdb04d330a925f1afaabfef"
+            == "01b2180a5d9a2274076630775729904448a0894b05cfaaccec142d0d476e12e1"
         && authority.runtime_rootfs_resolution_sha256
-            == "84708c30c75ae9a368243c3e7a3051035a5e6738af5e65eba663b4734f835a9c"
+            == "f5e289a78de3ae0ac98b07343f2af077bb463d2eb6aa9eaa45098b356d284ebd"
         && authority.runtime_rootfs_replay_expectation_sha256
-            == "67e0237c374945ee89c7ab09a4013e6d45872561391109d489f2834f36ddfdaf"
+            == "4169f2a6236536245ed54b70bc4cef21d1bc3bbd29bcc1736c4e5d1ae46b7bc1"
         && authority.fixed_socket_path == FIXED_SOCKET_PATH
         && authority.hello_schema == "boole.native-shadow.launcher.hello.v1"
         && authority.ready_schema == "boole.native-shadow.launcher.ready.v2"

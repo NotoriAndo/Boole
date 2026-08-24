@@ -64,6 +64,10 @@ if [[ ${1:-} == "--offline-build" || ${1:-} == "--offline-probe" ]]; then
     --repo-root "$ROOT" \
     --output "$oci" >"$scratch/builder-stdout.json"
 
+    printf 'native-shadow-portable-rootfs-observed-output: '
+    jq -c '{rootfsContentManifestSha256,rootfsContentManifestSizeBytes,indexSha256,indexSizeBytes,layerDigest,layerSizeBytes,configDigest,configSizeBytes,manifestDigest,manifestSizeBytes,layerCount,parentLayerCount}' \
+      "$oci/BUILD-RECEIPT.json"
+
     runtime_lock_sha="$(jq -er '.runtimeLockSha256' "$run_receipt")"
     builder_sha="$(jq -er '.authority.builderSha256' "$run_receipt")"
     layer_digest="$(jq -er '.expectedOutput.layerDigest' "$expectation")"

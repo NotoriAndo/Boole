@@ -24,13 +24,13 @@ const AUTHORITY_SCHEMA: &str = "boole.native-shadow.closed-local-replay-executio
 const AUTHORITY_VERSION: &str = "REAL-FROZEN-ACCEPT-NAMED-LINUX-EXECUTION-AUTHORITY-V1";
 const READY_SCHEMA: &str = "boole.native-shadow.launcher.ready.v3";
 const FIXED_SOCKET_PATH: &str = "/run/boole/native-shadow/launcher.sock";
-const CHECKER_SHA256: &str = "5a9d20421fd1f82a05f0c5ca902fca84c09b5f0350ca28788f3eb3793b6007e7";
+const CHECKER_SHA256: &str = "d17dca244628bb55f6fbbf799c71adcae3d548169ef0655ca27c8eb1f7ba95d7";
 const CHECKER_ARTIFACT_HASH: &str =
-    "19a43dbab7592953bfdf880f7c93ee6a5e2dafdc93b1b436ef779daa8ef9fa5d";
+    "fa3fea6534d505a8dcce5eca38ecc2c4a60c5173ff19a310dd82cfd797a11598";
 const CHECKER_POLICY_SHA256: &str =
     "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685";
 const CHECKER_RELEASE_MANIFEST_SHA256: &str =
-    "aa7939ebbb4472a82d08a30abfafc628577a76d751a2ae2b6f476e614ac21782";
+    "9e3e6bd9d0ea716988829f0251cc9a5e9bc1b7c63b90c289f9dd4ae1f5345fd7";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -160,13 +160,13 @@ fn validate_authority_contract(
         && value.toolchain_identity_sha256
             == hex::encode(Sha256::digest(TRACKED_TOOLCHAIN_IDENTITY_BYTES))
         && value.runtime_rootfs_portable_plan_sha256
-            == "495ec9d39435ad2850086beeb81481c77bb3f475cfa6d37438a46733f09c290c"
+            == "c325450a15d96bfc13fac66fadf3d4df9249283ed466005da4945be951000016"
         && value.runtime_rootfs_source_lock_sha256
-            == "4e60da0e59eeee3d05079d2654cf46be7a9804187fdb04d330a925f1afaabfef"
+            == "01b2180a5d9a2274076630775729904448a0894b05cfaaccec142d0d476e12e1"
         && value.runtime_rootfs_resolution_sha256
-            == "84708c30c75ae9a368243c3e7a3051035a5e6738af5e65eba663b4734f835a9c"
+            == "f5e289a78de3ae0ac98b07343f2af077bb463d2eb6aa9eaa45098b356d284ebd"
         && value.runtime_rootfs_replay_expectation_sha256
-            == "67e0237c374945ee89c7ab09a4013e6d45872561391109d489f2834f36ddfdaf"
+            == "4169f2a6236536245ed54b70bc4cef21d1bc3bbd29bcc1736c4e5d1ae46b7bc1"
         && value.fixed_socket_path == FIXED_SOCKET_PATH
         && value.hello_schema == "boole.native-shadow.launcher.hello.v1"
         && value.ready_schema == READY_SCHEMA

@@ -114,7 +114,7 @@ const TEMPLATE_ID: &str = "800eee9c303c6a0e771e3a3db914eb15ea4ca68d10b19385d60fe
 const CHALLENGE_SHA256: &str = "0b32a406d00a858545b98c0d0937fd940dcfc368fe8a7ef171acc2159fa0f4c1";
 const INTAKE_VERSION: &str = "RUST-TUPLE-STRUCT-NATIVE-PROOF-INTAKE-V1";
 const CHECKER_ARTIFACT_HASH: &str =
-    "19a43dbab7592953bfdf880f7c93ee6a5e2dafdc93b1b436ef779daa8ef9fa5d";
+    "fa3fea6534d505a8dcce5eca38ecc2c4a60c5173ff19a310dd82cfd797a11598";
 
 /// Exact, parsed grant loaded from the one fixed installed path. Deliberately
 /// not `Serialize`, `Deserialize`, `Clone` or publicly constructible.

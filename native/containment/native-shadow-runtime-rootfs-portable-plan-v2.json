@@ -5,7 +5,7 @@
     "completeSourceLockV1Sha256": "40880be22275155346dab292644943d06817f08f90bb9dee592659aa1fe0588c",
     "signedResolutionV1Sha256": "704796db095c039a175fb0a041d992e1c92ad5dae50c47fffd6a687cc8613e4f",
     "sourceClosureResultV1Sha256": "fc4629c7af5e5f9b0bb9c3649657ae507f8a66055e94d0dc36f87dc3ceb7a08d",
-    "sourceLockScaffoldV1Sha256": "eba07239c656c42e8729b4c2ba00052cb59c4ab80901cb0c4b706151b55b35cd"
+    "sourceLockScaffoldV1Sha256": "9321106a64a5309cce373f0e6ba1a3f2cc7513282ea8398e861fbae0e68fe509"
   },
   "builderSha256": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
   "portabilityPolicy": {

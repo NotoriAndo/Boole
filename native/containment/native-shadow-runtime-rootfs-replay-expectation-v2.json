@@ -6,12 +6,12 @@
       "completeSourceLockV1Sha256": "40880be22275155346dab292644943d06817f08f90bb9dee592659aa1fe0588c",
       "signedResolutionV1Sha256": "704796db095c039a175fb0a041d992e1c92ad5dae50c47fffd6a687cc8613e4f",
       "sourceClosureResultV1Sha256": "fc4629c7af5e5f9b0bb9c3649657ae507f8a66055e94d0dc36f87dc3ceb7a08d",
-      "sourceLockScaffoldV1Sha256": "eba07239c656c42e8729b4c2ba00052cb59c4ab80901cb0c4b706151b55b35cd"
+      "sourceLockScaffoldV1Sha256": "9321106a64a5309cce373f0e6ba1a3f2cc7513282ea8398e861fbae0e68fe509"
     },
     "builderSha256": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
-    "portablePlanSha256": "495ec9d39435ad2850086beeb81481c77bb3f475cfa6d37438a46733f09c290c",
-    "portableResolutionSha256": "84708c30c75ae9a368243c3e7a3051035a5e6738af5e65eba663b4734f835a9c",
-    "portableSourceLockSha256": "4e60da0e59eeee3d05079d2654cf46be7a9804187fdb04d330a925f1afaabfef"
+    "portablePlanSha256": "c325450a15d96bfc13fac66fadf3d4df9249283ed466005da4945be951000016",
+    "portableResolutionSha256": "f5e289a78de3ae0ac98b07343f2af077bb463d2eb6aa9eaa45098b356d284ebd",
+    "portableSourceLockSha256": "01b2180a5d9a2274076630775729904448a0894b05cfaaccec142d0d476e12e1"
   },
   "expectedOutput": {
     "configDigest": "sha256:21f8f32b4ea8b20480423b1c75eb55d9ee6ee3b4a18175d97b9249b57987e01d",

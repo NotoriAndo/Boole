@@ -2067,7 +2067,6 @@ fn exec_checker(operator_diagnostic: bool) -> Result<(), String> {
         c"TZ=UTC",
         c"TERM=dumb",
         c"CARGO_NET_OFFLINE=true",
-        c"CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/x86_64-linux-gnu-gcc-13",
         c"HOME=/work/scratch",
         c"TMPDIR=/work/scratch",
     ];
