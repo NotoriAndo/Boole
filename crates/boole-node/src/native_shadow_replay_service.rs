@@ -1047,6 +1047,14 @@ fn ensure_no_unresolved_in_flight(stuck_in_flight: &[NativeShadowFourTuple]) -> 
     Ok(())
 }
 
+fn qualify_after_recovery_gate<T>(
+    stuck_in_flight: &[NativeShadowFourTuple],
+    qualify: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    ensure_no_unresolved_in_flight(stuck_in_flight)?;
+    qualify()
+}
+
 fn json_response(status: StatusCode, body: Value) -> Response {
     (status, Json(body)).into_response()
 }
@@ -1737,7 +1745,14 @@ pub async fn serve_installed_closed_local_native_shadow_replay() -> anyhow::Resu
         .attempts
         .validate_against_closed_local_grant(installed.grant(), &execution_policy_digest)?;
 
-    let readiness = crate::native_shadow_qualification::qualify_installed_native_shadow_launcher()?;
+    // Recovery already tells us whether an earlier execution is unresolved.
+    // The current grant intentionally cannot mutate that recovery state, so
+    // refuse it before starting the comparatively expensive launcher/rootfs
+    // qualification path, which is especially visible on native ARM runners.
+    // No route or checker process is needed to make this fail-closed decision.
+    let readiness = qualify_after_recovery_gate(&recovery.stuck_in_flight, || {
+        crate::native_shadow_qualification::qualify_installed_native_shadow_launcher()
+    })?;
     anyhow::ensure!(
         readiness.registry_digest_hex() == production_registry_digest,
         "qualified launcher registry digest differs from the replay grant's production registry"
@@ -1751,12 +1766,6 @@ pub async fn serve_installed_closed_local_native_shadow_replay() -> anyhow::Resu
             == sha256_hex(boole_native_shadow_protocol::TRACKED_TOOLCHAIN_IDENTITY_BYTES),
         "qualified launcher toolchain digest differs from the installed replay authority"
     );
-    // The current grant intentionally lacks permission to mutate startup
-    // recovery state. Qualification proves cleanup, but any durable withheld
-    // row still closes this route until a future authority explicitly permits
-    // the corresponding journal transition.
-    ensure_no_unresolved_in_flight(&recovery.stuck_in_flight)?;
-
     let launcher = installed_launcher_transport::InstalledLauncherTransport::new(readiness);
     let service = Arc::new(ClosedLocalReplayService {
         replay_authority: InstalledReplayAuthority::new(installed),
@@ -2762,5 +2771,27 @@ mod tests {
             epoch: 3,
         };
         assert!(ensure_no_unresolved_in_flight(&[stuck]).is_err());
+    }
+
+    #[test]
+    fn unresolved_in_flight_refuses_before_launcher_qualification() {
+        let stuck = NativeShadowFourTuple {
+            family_version: "family-v1".to_string(),
+            template_id: digest('1'),
+            challenge_sha256: digest('2'),
+            epoch: 3,
+        };
+        let qualification_called = std::cell::Cell::new(false);
+
+        let result = qualify_after_recovery_gate(&[stuck], || {
+            qualification_called.set(true);
+            Ok(())
+        });
+
+        assert!(result.is_err());
+        assert!(
+            !qualification_called.get(),
+            "durable unresolved work must fail closed before expensive launcher qualification"
+        );
     }
 }
