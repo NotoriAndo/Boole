@@ -190,6 +190,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "runtime rootfs replay identity drifted",
             "launcher_connections=4:qualification_connections=1:"
             "checker_connections=3:empty_connections=0",
+            "[[ ${#peer_pids[@]} -eq 4 ]]",
         ):
             self.assertIn(required, manager)
         for forbidden in ("continue-on-error", "|| true", "SKIP"):
