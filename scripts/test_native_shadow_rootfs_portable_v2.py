@@ -611,6 +611,20 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertIn("libc::umask(CHECKER_UMASK)", setter)
         self.assertIn("CHECKER_UMASK: libc::mode_t = 0o077", source)
 
+    def test_checker_pins_cargo_to_the_frozen_system_linker(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        checker = source.split("fn exec_checker", 1)[1].split(
+            "fn write_setup_error", 1
+        )[0]
+
+        self.assertIn(
+            'c"CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/x86_64-linux-gnu-gcc-13"',
+            checker,
+        )
+
     def test_landlock_allows_only_the_verified_dev_null_write_sink(self) -> None:
         source = (
             ROOT
