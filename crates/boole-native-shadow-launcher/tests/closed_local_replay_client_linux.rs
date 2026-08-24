@@ -1,5 +1,9 @@
 #[cfg(target_os = "linux")]
+use std::mem::{self, MaybeUninit};
+#[cfg(target_os = "linux")]
 use std::net::Shutdown;
+#[cfg(target_os = "linux")]
+use std::os::fd::AsRawFd;
 #[cfg(target_os = "linux")]
 use std::os::unix::net::UnixStream;
 #[cfg(target_os = "linux")]
@@ -8,12 +12,15 @@ use std::time::Duration;
 #[cfg(target_os = "linux")]
 use boole_native_shadow_protocol::{
     encode_execution_request_frame,
-    installed_authority::open_verified_installed_closed_local_replay_execution_authorities,
-    read_closed_local_replay_execution_ready, read_execution_report, sha256_hex,
-    validate_closed_local_replay_execution_session, write_execution_hello, write_execution_request,
-    CheckerReason, CheckerVerdict, ClosedLocalReplayPreIntakeFields,
-    ClosedLocalReplayPreIntakeReason, ClosedLocalReplaySubmissionFields, ExecutionHello,
-    ExecutionRequest,
+    installed_authority::{
+        open_verified_installed_authority_bundle,
+        open_verified_installed_closed_local_replay_execution_authorities,
+    },
+    read_closed_local_replay_execution_ready, read_execution_report, read_qualification_ready,
+    resolve_fixed_service_identities, sha256_hex, validate_closed_local_replay_execution_session,
+    write_execution_hello, write_execution_request, write_qualification_hello, CheckerReason,
+    CheckerVerdict, ClosedLocalReplayPreIntakeFields, ClosedLocalReplayPreIntakeReason,
+    ClosedLocalReplaySubmissionFields, ExecutionHello, ExecutionRequest, QualificationHello,
 };
 
 #[cfg(target_os = "linux")]
@@ -73,6 +80,12 @@ struct ReplayCase {
     reason: CheckerReason,
 }
 
+#[cfg(target_os = "linux")]
+struct QualifiedLauncher {
+    launcher_pid: u32,
+    launcher_instance_id_hex: String,
+}
+
 fn main() {
     #[cfg(target_os = "linux")]
     if let Err(error) = run_linux() {
@@ -90,11 +103,10 @@ fn main() {
 fn run_linux() -> Result<(), String> {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     let diagnostic = match arguments.as_slice() {
-        [] => false,
+        [argument] if argument == "--qualified-all-three" => false,
         [argument] if argument == "--diagnostic-accepted" => true,
         _ => return Err(
-            "usage: boole-native-shadow-closed-local-replay-client-linux [--diagnostic-accepted]"
-                .to_string(),
+            "usage: boole-native-shadow-closed-local-replay-client-linux (--qualified-all-three|--diagnostic-accepted)".to_string(),
         ),
     };
     println!(
@@ -104,6 +116,11 @@ fn run_linux() -> Result<(), String> {
     let authorities = open_verified_installed_closed_local_replay_execution_authorities()
         .map_err(|error| format!("open exact installed replay authority failed: {error}"))?;
     let grant = authorities.grant();
+    let qualified = if diagnostic {
+        None
+    } else {
+        Some(qualify_launcher()?)
+    };
 
     let empty = grant
         .authorize_pre_intake_case(ClosedLocalReplayPreIntakeFields {
@@ -174,7 +191,7 @@ fn run_linux() -> Result<(), String> {
         let request = prepared
             .build_execution_request(&nonce_hex, replay_case.raw_answer, source)
             .map_err(|error| format!("build {} Execute failed: {error}", replay_case.id))?;
-        execute_one(replay_case, &request, diagnostic)?;
+        execute_one(replay_case, &request, diagnostic, qualified.as_ref())?;
     }
 
     if diagnostic {
@@ -183,10 +200,116 @@ fn run_linux() -> Result<(), String> {
         );
     } else {
         println!(
-            "native-shadow-closed-local-replay-client-complete:launcher_connections=3:empty_connections=0"
+            "native-shadow-closed-local-replay-client-complete:launcher_connections=4:qualification_connections=1:checker_connections=3:empty_connections=0"
         );
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+fn qualify_launcher() -> Result<QualifiedLauncher, String> {
+    let authority = open_verified_installed_authority_bundle()
+        .map_err(|error| format!("open installed qualification authority failed: {error}"))?;
+    let identities = resolve_fixed_service_identities()
+        .map_err(|error| format!("resolve fixed service identities failed: {error}"))?;
+    let mut nonce = [0_u8; 32];
+    // SAFETY: nonce is writable storage of exactly 32 bytes and flags=0 has
+    // no pointer or lifetime side effects beyond this one kernel call.
+    let nonce_bytes = unsafe { libc::getrandom(nonce.as_mut_ptr().cast(), nonce.len(), 0) };
+    if nonce_bytes != nonce.len() as isize {
+        return Err(format!(
+            "qualification getrandom returned {nonce_bytes} bytes instead of 32"
+        ));
+    }
+    let nonce_hex = hex::encode(nonce);
+    let hello = QualificationHello::try_new(
+        nonce_hex.clone(),
+        authority.execution_policy_digest().to_string(),
+        authority.toolchain_identity_digest().to_string(),
+        authority.registry_digest().to_string(),
+    )
+    .map_err(|error| format!("build qualification Hello failed: {error}"))?;
+    let mut stream = UnixStream::connect(SOCKET_PATH)
+        .map_err(|error| format!("connect qualification session failed: {error}"))?;
+    stream
+        .set_read_timeout(Some(SESSION_TIMEOUT))
+        .map_err(|error| format!("set qualification read deadline failed: {error}"))?;
+    stream
+        .set_write_timeout(Some(SESSION_TIMEOUT))
+        .map_err(|error| format!("set qualification write deadline failed: {error}"))?;
+    let launcher_peer = launcher_peer_credentials(&stream)?;
+    if launcher_peer.0 == 0 || launcher_peer.1 != 0 || launcher_peer.2 != 0 {
+        return Err("qualification socket peer is not the root launcher".to_string());
+    }
+    write_qualification_hello(&mut stream, &hello)
+        .map_err(|error| format!("write qualification Hello failed: {error}"))?;
+    let ready = read_qualification_ready(&mut stream)
+        .map_err(|error| format!("read qualification Ready failed: {error}"))?
+        .ok_or_else(|| "launcher closed before qualification Ready".to_string())?;
+    if ready.nonce_hex() != nonce_hex
+        || ready.registry_digest_hex() != authority.registry_digest()
+        || ready.execution_policy_digest_hex() != authority.execution_policy_digest()
+        || ready.toolchain_identity_digest_hex() != authority.toolchain_identity_digest()
+        || ready.launcher_pid() != launcher_peer.0
+        || ready.launcher_uid() != launcher_peer.1
+        || ready.launcher_gid() != launcher_peer.2
+        || ready.node_uid() != identities.node_uid()
+        || ready.node_gid() != identities.node_gid()
+        || ready.checker_uid() != identities.checker_uid()
+        || ready.checker_gid() != identities.checker_gid()
+        || !ready.startup_recovery_complete()
+        || ready.active_execution_leaves() != 0
+        || ready.unexpected_direct_cgroup_children() != 0
+        || !ready.manager_subgroup_verified()
+        || ready.activation_allowed()
+        || !ready.ready()
+    {
+        return Err("qualification Ready does not match the exact launcher authority".to_string());
+    }
+    stream
+        .shutdown(Shutdown::Write)
+        .map_err(|error| format!("close qualification client write half failed: {error}"))?;
+    if read_qualification_ready(&mut stream)
+        .map_err(|error| format!("read qualification terminal EOF failed: {error}"))?
+        .is_some()
+    {
+        return Err("launcher sent a second qualification Ready".to_string());
+    }
+    Ok(QualifiedLauncher {
+        launcher_pid: ready.launcher_pid(),
+        launcher_instance_id_hex: ready.launcher_instance_id_hex().to_string(),
+    })
+}
+
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+fn launcher_peer_credentials(stream: &UnixStream) -> Result<(u32, u32, u32), String> {
+    let mut credentials = MaybeUninit::<libc::ucred>::uninit();
+    let mut length = mem::size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: credentials is exact writable storage and stream owns one live
+    // Unix socket descriptor for the duration of getsockopt.
+    let status = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            credentials.as_mut_ptr().cast::<libc::c_void>(),
+            &mut length,
+        )
+    };
+    if status != 0 || length as usize != mem::size_of::<libc::ucred>() {
+        return Err(format!(
+            "read qualification launcher SO_PEERCRED failed: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    // SAFETY: successful getsockopt with the exact expected length initialized
+    // every byte of libc::ucred.
+    let credentials = unsafe { credentials.assume_init() };
+    let pid = u32::try_from(credentials.pid)
+        .map_err(|_| "qualification launcher SO_PEERCRED PID is negative".to_string())?;
+    Ok((pid, credentials.uid, credentials.gid))
 }
 
 #[cfg(target_os = "linux")]
@@ -194,6 +317,7 @@ fn execute_one(
     replay_case: &ReplayCase,
     request: &ExecutionRequest,
     diagnostic: bool,
+    qualified: Option<&QualifiedLauncher>,
 ) -> Result<(), String> {
     let request_frame = encode_execution_request_frame(request)
         .map_err(|error| format!("encode {} Execute failed: {error}", replay_case.id))?;
@@ -213,6 +337,16 @@ fn execute_one(
     let ready = read_closed_local_replay_execution_ready(&mut stream)
         .map_err(|error| format!("read {} Ready-v3 failed: {error}", replay_case.id))?
         .ok_or_else(|| format!("launcher closed before {} Ready-v3", replay_case.id))?;
+    if let Some(qualified) = qualified {
+        if ready.launcher_pid() != qualified.launcher_pid
+            || ready.launcher_instance_id_hex() != qualified.launcher_instance_id_hex.as_str()
+        {
+            return Err(format!(
+                "{} execution Ready does not match the qualified launcher instance",
+                replay_case.id
+            ));
+        }
+    }
     write_execution_request(&mut stream, request)
         .map_err(|error| format!("write {} Execute failed: {error}", replay_case.id))?;
     stream

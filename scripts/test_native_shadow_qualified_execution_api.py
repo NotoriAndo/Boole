@@ -4,6 +4,9 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ACTIVE = ROOT / "crates/boole-native-shadow-launcher/src/active_execution/mod.rs"
+MANAGER = ROOT / "crates/boole-native-shadow-launcher/tests/manager_cgroup_linux.rs"
+CLIENT = ROOT / "crates/boole-native-shadow-launcher/tests/closed_local_replay_client_linux.rs"
+GATE = ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
 
 
 class NativeShadowQualifiedExecutionApiTests(unittest.TestCase):
@@ -23,6 +26,23 @@ class NativeShadowQualifiedExecutionApiTests(unittest.TestCase):
         )
 
         self.assertGreater(feature_gate, source.rfind("\n}", 0, legacy))
+
+    def test_linux_production_gate_qualifies_and_executes_in_one_node_process(self):
+        manager = MANAGER.read_text(encoding="utf-8")
+        client = CLIENT.read_text(encoding="utf-8")
+        gate = GATE.read_text(encoding="utf-8")
+
+        self.assertIn("serve_qualified_three_fixed_unix_executions", manager)
+        self.assertIn('argument == "--qualified-all-three"', client)
+        self.assertIn("qualify_launcher()", client)
+        self.assertIn("ready.launcher_pid() != qualified.launcher_pid", client)
+        self.assertIn("ready.launcher_instance_id_hex()", client)
+        self.assertIn("qualified.launcher_instance_id_hex.as_str()", client)
+        self.assertIn('"$node_replay_client_path" --qualified-all-three', gate)
+        self.assertIn(
+            "launcher_connections=4:qualification_connections=1:checker_connections=3",
+            gate,
+        )
 
 
 if __name__ == "__main__":

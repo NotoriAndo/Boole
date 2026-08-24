@@ -13,7 +13,9 @@ use std::time::Duration;
 
 #[cfg(target_os = "linux")]
 use boole_native_shadow_launcher::{
-    active_execution::{serve_one_diagnostic_unix_execution, serve_three_fixed_unix_executions},
+    active_execution::{
+        serve_one_diagnostic_unix_execution, serve_qualified_three_fixed_unix_executions,
+    },
     closed_local_replay_startup::assemble_verified_closed_local_replay_startup,
     instance_id::acquire_fresh_launcher_instance,
     lifetime_lock::acquire_fixed_launcher_lifetime_lock,
@@ -210,8 +212,8 @@ fn run_linux() -> Result<(), String> {
             .map_err(|error| format!("exact runtime-rootfs replay failed: {error}"))?;
             let startup = assemble_verified_closed_local_replay_startup(compatibility, rootfs)
                 .map_err(|error| format!("closed-local replay startup failed: {error}"))?;
-            serve_three_fixed_unix_executions(startup)
-                .map_err(|error| format!("three-case replay listener failed: {error}"))?;
+            serve_qualified_three_fixed_unix_executions(startup)
+                .map_err(|error| format!("qualified three-case replay listener failed: {error}"))?;
             announce("native-shadow-closed-local-replay-three-complete")
         }
         diagnostic if diagnostic.starts_with("closed-local-replay-diagnostic-") => {

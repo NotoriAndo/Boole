@@ -822,7 +822,7 @@ PY
       --property=ProtectSystem=strict \
       --property="BindReadOnlyPaths=${authority_share}:/usr/share" \
       --property=WorkingDirectory=/ \
-      "$node_replay_client_path" >"$replay_client_log" 2>&1
+      "$node_replay_client_path" --qualified-all-three >"$replay_client_log" 2>&1
   local drift_client_status=$?
   set -e
   cat "$replay_client_log"
@@ -888,7 +888,7 @@ PY
       --property=ProtectSystem=strict \
       --property="BindReadOnlyPaths=${authority_share}:/usr/share" \
       --property=WorkingDirectory=/ \
-      "$node_replay_client_path" >"$replay_client_log" 2>&1
+      "$node_replay_client_path" --qualified-all-three >"$replay_client_log" 2>&1
   local client_status=$?
   set -e
   cat "$replay_client_log"
@@ -901,9 +901,9 @@ PY
   fi
 
   local client_complete
-  client_complete="native-shadow-closed-local-replay-client-complete:launcher_connections=3:empty_connections=0"
+  client_complete="native-shadow-closed-local-replay-client-complete:launcher_connections=4:qualification_connections=1:checker_connections=3:empty_connections=0"
   [[ $(grep -Fxc "$client_complete" "$replay_client_log" || :) -eq 1 ]] \
-    || die "closed-local replay client did not prove exactly three checker connections and zero empty connections"
+    || die "closed-local replay client did not prove one qualification plus exactly three checker connections and zero empty connections"
   local -a expected_reports=(
     "native-shadow-closed-local-replay-report:accepted:accepted:accepted:cleanup=true"
     "native-shadow-closed-local-replay-report:tampered:deterministic_reject:compile_or_hidden_test_failed:cleanup=true"

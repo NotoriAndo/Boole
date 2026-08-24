@@ -623,6 +623,21 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertIn("AccessFs::WriteFile", landlock)
         self.assertNotIn('PathFd::new("/dev")', landlock)
 
+    def test_landlock_pins_the_cc1_path_from_the_frozen_ubuntu_package(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        landlock = source.split("fn apply_landlock", 1)[1].split(
+            "fn set_checker_umask", 1
+        )[0]
+
+        self.assertIn(
+            'PathFd::new("/usr/libexec/gcc/x86_64-linux-gnu/13/cc1")',
+            landlock,
+        )
+        self.assertNotIn("/usr/lib/gcc-cross/", landlock)
+
     def test_host_dev_null_is_bound_before_the_old_root_is_detached(self) -> None:
         source = (
             ROOT
