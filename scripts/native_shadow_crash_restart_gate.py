@@ -626,9 +626,11 @@ def scenario_unresolved_inflight_fail_closed(
 
     deliver_verified_signal(node_identity, signal.SIGKILL)
     wait_for_unit_state(NODE_SERVICE, ("failed",), UNIT_STATE_WAIT_SECONDS)
-    # The launcher dies while still frozen, so it can never service the
-    # parked connection and no checker ever starts for this attempt.
-    deliver_verified_signal(launcher_identity, signal.SIGKILL)
+    # The launcher dies while still frozen: systemd may already be tearing it
+    # down after the node death, and the stop job below settles every case.
+    # Either way the queued SIGTERM is delivered before any userspace
+    # instruction once SIGCONT wakes the frozen process, so the parked
+    # connection is never serviced and no checker ever starts.
     parked_client.close()
     _run(["systemctl", "stop", LAUNCHER_SERVICE], check=False)
     wait_for_unit_state(LAUNCHER_SERVICE, ("inactive", "failed"), UNIT_STATE_WAIT_SECONDS)
