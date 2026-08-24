@@ -23,6 +23,7 @@ use boole_native_shadow_protocol::{
     VerifiedClosedLocalReplayExecutionAuthority,
 };
 
+use crate::qualification::VerifiedQualificationStartup;
 use crate::runtime_rootfs_replay::VerifiedRuntimeRootfsReplay;
 use crate::toolchain_compatibility::{
     ToolchainProbeFailure, VerifiedStartupToolchainCompatibility,
@@ -45,6 +46,8 @@ pub enum ClosedLocalReplayStartupError {
     Toolchain(#[from] ToolchainProbeFailure),
     #[error("runtime rootfs replay identity drifted: {0}")]
     Rootfs(String),
+    #[error("closed-local replay qualification startup failed: {0}")]
+    Qualification(#[from] crate::readiness::QualificationStartupError),
 }
 
 /// Assemble the only complete startup proof accepted by the bounded replay
@@ -56,8 +59,9 @@ pub fn assemble_verified_closed_local_replay_startup(
     rootfs: VerifiedRuntimeRootfsReplay,
 ) -> Result<VerifiedClosedLocalReplayStartup, ClosedLocalReplayStartupError> {
     let installed = open_verified_installed_closed_local_replay_execution_authorities()?;
+    let qualification = VerifiedQualificationStartup::from_verified_toolchain(compatibility)?;
     Ok(VerifiedClosedLocalReplayStartup::new(
-        compatibility,
+        qualification,
         installed,
         rootfs,
     ))
@@ -67,7 +71,7 @@ pub fn assemble_verified_closed_local_replay_startup(
 /// No caller-selected path, checker or command is stored here.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct VerifiedClosedLocalReplayStartup {
-    compatibility: VerifiedStartupToolchainCompatibility,
+    qualification: VerifiedQualificationStartup,
     installed: VerifiedInstalledClosedLocalReplayExecutionAuthorities,
     rootfs: VerifiedRuntimeRootfsReplay,
     poisoned: bool,
@@ -77,12 +81,12 @@ pub struct VerifiedClosedLocalReplayStartup {
 impl VerifiedClosedLocalReplayStartup {
     #[cfg(target_os = "linux")]
     pub(crate) fn new(
-        compatibility: VerifiedStartupToolchainCompatibility,
+        qualification: VerifiedQualificationStartup,
         installed: VerifiedInstalledClosedLocalReplayExecutionAuthorities,
         rootfs: VerifiedRuntimeRootfsReplay,
     ) -> Self {
         Self {
-            compatibility,
+            qualification,
             installed,
             rootfs,
             poisoned: false,
@@ -96,7 +100,8 @@ impl VerifiedClosedLocalReplayStartup {
 
     #[cfg(target_os = "linux")]
     pub(crate) fn identities(&self) -> ResolvedServiceIdentities {
-        self.compatibility
+        self.qualification
+            .verified_toolchain()
             .recovery()
             .manager()
             .instance()
@@ -108,7 +113,8 @@ impl VerifiedClosedLocalReplayStartup {
     #[cfg(target_os = "linux")]
     pub(crate) fn launcher_instance_id_hex(&self) -> String {
         hex::encode(
-            self.compatibility
+            self.qualification
+                .verified_toolchain()
                 .recovery()
                 .manager()
                 .instance()
@@ -118,7 +124,8 @@ impl VerifiedClosedLocalReplayStartup {
 
     #[cfg(target_os = "linux")]
     pub(crate) fn runtime_directory(&self) -> &std::fs::File {
-        self.compatibility
+        self.qualification
+            .verified_toolchain()
             .recovery()
             .manager()
             .instance()
@@ -136,6 +143,11 @@ impl VerifiedClosedLocalReplayStartup {
         self.poisoned = true;
     }
 
+    #[cfg(target_os = "linux")]
+    pub(crate) fn qualification_startup(&self) -> &VerifiedQualificationStartup {
+        &self.qualification
+    }
+
     /// Mint the only value accepted by the fixed executor.  Every retryable
     /// revalidation occurs before the one-shot grant case is spent.
     #[cfg(target_os = "linux")]
@@ -146,7 +158,9 @@ impl VerifiedClosedLocalReplayStartup {
         if self.poisoned {
             return Err(ClosedLocalReplayStartupError::Poisoned);
         }
-        self.compatibility.reverify_for_execution()?;
+        self.qualification
+            .verified_toolchain()
+            .reverify_for_execution()?;
         let installed_materials = self.installed.reverify_execution_materials()?;
         self.rootfs
             .reverify_for_execution()
@@ -173,7 +187,7 @@ impl VerifiedClosedLocalReplayStartup {
             .grant()
             .authorize_prepared_execution_request(prepared, request)?;
         Ok(VerifiedClosedLocalReplayExecutionPermit {
-            compatibility: &self.compatibility,
+            compatibility: self.qualification.verified_toolchain(),
             authorization,
             installed_materials,
             rootfs,

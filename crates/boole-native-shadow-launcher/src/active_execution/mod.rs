@@ -32,6 +32,7 @@ use crate::qualification::listener::{
     bind_listener_in_directory, require_fixed_umask, FixedQualificationListenerError,
     FIXED_SOCKET_PATH,
 };
+use crate::qualification::unix::serve_connected_unix_qualification_and_capture_peer;
 
 #[cfg(target_os = "linux")]
 mod unix;
@@ -83,15 +84,57 @@ pub enum ActiveExecutionListenerError {
     Listener(#[from] FixedQualificationListenerError),
     #[error("active execution connection {connection} failed: {reason}")]
     Session { connection: usize, reason: String },
+    #[error("launcher qualification connection failed: {0}")]
+    Qualification(String),
 }
 
-/// Serve the exact three closed-local replay cases installed by the reviewed
-/// authority bundle.  The listener is not opened until the complete startup
-/// proof is owned, and no caller can supply an executor or checker command.
+/// Qualify one kernel-authenticated node process and then serve the exact three
+/// closed-local replay cases only to that same PID. The one listener and one
+/// startup proof span the complete four-connection session, so a different
+/// process with the same UID/GID cannot enter after qualification.
+pub fn serve_qualified_three_fixed_unix_executions(
+    mut startup: VerifiedClosedLocalReplayStartup,
+) -> Result<(), ActiveExecutionListenerError> {
+    require_fixed_umask()?;
+    let identities = startup.identities();
+    let runtime_directory = startup.runtime_directory().try_clone().map_err(|source| {
+        FixedQualificationListenerError::Io {
+            stage: "duplicate verified runtime directory for qualified execution listener",
+            source,
+        }
+    })?;
+    let mut listener = bind_listener_in_directory(
+        &runtime_directory,
+        std::path::Path::new(FIXED_SOCKET_PATH),
+        0,
+        identities.node_gid(),
+    )?;
+    let qualification_stream = listener.accept_one()?;
+    let qualified_peer = serve_connected_unix_qualification_and_capture_peer(
+        qualification_stream,
+        startup.qualification_startup(),
+    )
+    .map_err(|error| ActiveExecutionListenerError::Qualification(error.to_string()))?;
+    for connection in 1..=3 {
+        let stream = listener.accept_one()?;
+        unix::serve_connected_unix_execution(stream, &mut startup, Some(qualified_peer.pid()))
+            .map_err(|source| ActiveExecutionListenerError::Session {
+                connection,
+                reason: source.to_string(),
+            })?;
+    }
+    listener.remove_exact_bound_entry()?;
+    Ok(())
+}
+
+/// CI-only UID/GID listener retained for the staged rootfs replay diagnostic.
+/// Production callers must use the qualification-bound entrypoint above.
+#[cfg(feature = "manager-cgroup-linux-gate")]
+#[doc(hidden)]
 pub fn serve_three_fixed_unix_executions(
     startup: VerifiedClosedLocalReplayStartup,
 ) -> Result<(), ActiveExecutionListenerError> {
-    serve_fixed_unix_executions(startup, 3)
+    serve_fixed_unix_executions(startup, 3, None)
 }
 
 /// CI-only one-request listener used to compare the exact accepted replay
@@ -101,12 +144,14 @@ pub fn serve_three_fixed_unix_executions(
 pub fn serve_one_diagnostic_unix_execution(
     startup: VerifiedClosedLocalReplayStartup,
 ) -> Result<(), ActiveExecutionListenerError> {
-    serve_fixed_unix_executions(startup, 1)
+    serve_fixed_unix_executions(startup, 1, None)
 }
 
+#[cfg(feature = "manager-cgroup-linux-gate")]
 fn serve_fixed_unix_executions(
     mut startup: VerifiedClosedLocalReplayStartup,
     connection_count: usize,
+    expected_node_pid: Option<u32>,
 ) -> Result<(), ActiveExecutionListenerError> {
     require_fixed_umask()?;
     let identities = startup.identities();
@@ -124,12 +169,12 @@ fn serve_fixed_unix_executions(
     )?;
     for connection in 1..=connection_count {
         let stream = listener.accept_one()?;
-        unix::serve_connected_unix_execution(stream, &mut startup).map_err(|source| {
-            ActiveExecutionListenerError::Session {
+        unix::serve_connected_unix_execution(stream, &mut startup, expected_node_pid).map_err(
+            |source| ActiveExecutionListenerError::Session {
                 connection,
                 reason: source.to_string(),
-            }
-        })?;
+            },
+        )?;
     }
     listener.remove_exact_bound_entry()?;
     Ok(())
@@ -138,6 +183,7 @@ fn serve_fixed_unix_executions(
 fn serve_active_execution_session<S: ActiveExecutionSession>(
     mut session: S,
     startup: &mut VerifiedClosedLocalReplayStartup,
+    expected_node_pid: Option<u32>,
 ) -> Result<(), ActiveExecutionServerError> {
     if startup.is_poisoned() {
         return Err(ActiveExecutionServerError::FatalContainmentCleanup(
@@ -148,13 +194,12 @@ fn serve_active_execution_session<S: ActiveExecutionSession>(
     let peer = session.peer_credentials().map_err(|error| {
         ActiveExecutionServerError::PeerCredentialsUnavailable(error.to_string())
     })?;
-    // The frozen v1 trust boundary is one dedicated boole-node UID and its
-    // primary GID behind a root:boole-node 2750 directory and 0660 socket.
-    // Every process with that identity is intentionally inside the boundary;
-    // no executable-path or parent-PID contract is invented here.
-    if peer.pid == 0 || peer.uid != identities.node_uid() || peer.gid != identities.node_gid() {
-        return Err(ActiveExecutionServerError::UntrustedNodePeer);
-    }
+    require_active_peer(
+        peer,
+        identities.node_uid(),
+        identities.node_gid(),
+        expected_node_pid,
+    )?;
     let hello_frame = session
         .read_frame(MAX_REQUEST_FRAME_BYTES)
         .map_err(|error| ActiveExecutionServerError::FrameIo(error.to_string()))?
@@ -240,6 +285,23 @@ fn serve_active_execution_session<S: ActiveExecutionSession>(
     session
         .shutdown_write()
         .map_err(|error| ActiveExecutionServerError::ShutdownWrite(error.to_string()))?;
+    Ok(())
+}
+
+fn require_active_peer(
+    peer: NodePeerCredentials,
+    expected_uid: u32,
+    expected_gid: u32,
+    expected_node_pid: Option<u32>,
+) -> Result<(), ActiveExecutionServerError> {
+    if peer.pid == 0 || peer.uid != expected_uid || peer.gid != expected_gid {
+        return Err(ActiveExecutionServerError::UntrustedNodePeer);
+    }
+    if let Some(expected_node_pid) = expected_node_pid {
+        if peer.pid != expected_node_pid {
+            return Err(ActiveExecutionServerError::UntrustedNodePeer);
+        }
+    }
     Ok(())
 }
 
@@ -437,7 +499,8 @@ fn require_binding(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_execution_report, serve_three_fixed_unix_executions, ActiveExecutionListenerError,
+        build_execution_report, require_active_peer, serve_qualified_three_fixed_unix_executions,
+        ActiveExecutionListenerError, ActiveExecutionServerError, NodePeerCredentials,
     };
 
     #[cfg(feature = "manager-cgroup-linux-gate")]
@@ -452,7 +515,29 @@ mod tests {
     fn bounded_listener_consumes_one_complete_startup_and_has_no_executor_seam() {
         let _entrypoint: fn(
             crate::closed_local_replay_startup::VerifiedClosedLocalReplayStartup,
-        ) -> Result<(), ActiveExecutionListenerError> = serve_three_fixed_unix_executions;
+        ) -> Result<(), ActiveExecutionListenerError> = serve_qualified_three_fixed_unix_executions;
+    }
+
+    #[test]
+    fn qualification_pid_is_required_in_addition_to_fixed_uid_and_gid() {
+        let qualified = NodePeerCredentials {
+            pid: 71,
+            uid: 20_001,
+            gid: 20_001,
+        };
+        assert!(require_active_peer(qualified, 20_001, 20_001, Some(71)).is_ok());
+        assert!(matches!(
+            require_active_peer(
+                NodePeerCredentials {
+                    pid: 72,
+                    ..qualified
+                },
+                20_001,
+                20_001,
+                Some(71),
+            ),
+            Err(ActiveExecutionServerError::UntrustedNodePeer)
+        ));
     }
 
     #[cfg(feature = "manager-cgroup-linux-gate")]

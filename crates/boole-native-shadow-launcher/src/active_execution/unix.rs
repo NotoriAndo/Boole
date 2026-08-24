@@ -15,10 +15,12 @@ const EXECUTION_SESSION_TIMEOUT: Duration = Duration::from_millis(115_000);
 pub(super) fn serve_connected_unix_execution(
     stream: UnixStream,
     startup: &mut VerifiedClosedLocalReplayStartup,
+    expected_node_pid: Option<u32>,
 ) -> Result<(), ActiveExecutionServerError> {
     serve_active_execution_session(
         LinuxActiveExecutionSession::new(stream, EXECUTION_SESSION_TIMEOUT),
         startup,
+        expected_node_pid,
     )
 }
 
