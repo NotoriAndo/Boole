@@ -70,7 +70,11 @@ def validate_case_response(case_id: str, status: int, body: Dict[str, Any]) -> N
         expected_reject_reason = None
     elif case_id in ("tampered", "constant"):
         expected_outcome = "deterministic_reject"
-        expected_reason = "compile_or_hidden_test_failed"
+        # The contained checker owns the semantic rejection. The node keeps
+        # that exact internal reason in durable evidence, while the existing
+        # BF.3 receipt vocabulary deliberately projects it to the coarser
+        # compile-or-hidden-test-failed reject reason below.
+        expected_reason = "checker_rejected"
         expected_verdict = "rejected"
         expected_reject_reason = "compile-or-hidden-test-failed"
     else:
@@ -111,15 +115,21 @@ def validate_case_response(case_id: str, status: int, body: Dict[str, Any]) -> N
             for field in ("taskId", "submissionId", "artifactRoot", "checkerHash")
         )
     ):
-        raise ValueError("HTTP replay matrix {} response drifted".format(case_id))
+        raise ValueError(
+            "HTTP replay matrix {} response drifted: status={} body={}".format(
+                case_id,
+                status,
+                json.dumps(body, sort_keys=True, separators=(",", ":")),
+            )
+        )
 
 
 def validate_journal_events(events: list) -> None:
     expected = []
     terminal_verdicts = {
         0: ("accepted", "accepted"),
-        1: ("deterministic_reject", "compile_or_hidden_test_failed"),
-        2: ("deterministic_reject", "compile_or_hidden_test_failed"),
+        1: ("deterministic_reject", "checker_rejected"),
+        2: ("deterministic_reject", "checker_rejected"),
     }
     for epoch in range(3):
         expected.extend(

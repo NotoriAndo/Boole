@@ -39,7 +39,7 @@ class NativeShadowHttpReplayGateTests(unittest.TestCase):
                 {
                     "schema": "boole.native-shadow.adjudication.v1",
                     "outcome": "deterministic_reject",
-                    "reasonCode": "compile_or_hidden_test_failed",
+                    "reasonCode": "checker_rejected",
                     "redelivered": False,
                     "evidenceDigest": "b" * 64,
                     "receipt": self.receipt("rejected"),
@@ -100,8 +100,8 @@ class NativeShadowHttpReplayGateTests(unittest.TestCase):
         events = []
         for epoch, verdict, reason in (
             (0, "accepted", "accepted"),
-            (1, "deterministic_reject", "compile_or_hidden_test_failed"),
-            (2, "deterministic_reject", "compile_or_hidden_test_failed"),
+            (1, "deterministic_reject", "checker_rejected"),
+            (2, "deterministic_reject", "checker_rejected"),
         ):
             events.extend(
                 [
