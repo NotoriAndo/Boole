@@ -1754,7 +1754,7 @@ pub async fn serve_installed_closed_local_native_shadow_replay() -> anyhow::Resu
     // cannot mutate or serve the withheld recovery state after that barrier.
     let readiness = qualify_and_validate_before_recovery_refusal(
         &recovery.stuck_in_flight,
-        || crate::native_shadow_qualification::qualify_installed_native_shadow_launcher(),
+        || Ok(crate::native_shadow_qualification::qualify_installed_native_shadow_launcher()?),
         |readiness| {
             anyhow::ensure!(
                 readiness.registry_digest_hex() == production_registry_digest,
