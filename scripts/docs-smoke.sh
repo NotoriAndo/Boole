@@ -45,6 +45,20 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.6 — Release
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Mac packaging planned"
 require_text docs/native-submission-shadow-verification-v1.md "docs/mac-first-hidden-linux-execution-plan-v1.md"
 
+# MAC.0/MAC.1 minimal contract (2026-08-24). Pins the MAC.0 completion record
+# with its PR #221 crash/restart merge SHA and CI run, the frozen MAC.1 status,
+# the not-yet-implemented Mac production boundary, and the BF.7 HOLD invariant,
+# so none of them can silently rot or be silently upgraded to a product claim.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.0 status: COMPLETE"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "6553360a6291c300ad0d19c50238b8b7c9263c68"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "https://github.com/NotoriAndo/Boole/actions/runs/32709400913"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.1-PARTIAL — OPERATOR VALUE REQUIRED"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Mac VM, the Mac production checker and every MAC.2+ gate remain NOT implemented"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
+require_text docs/native-submission-shadow-verification-v1.md "is now claimed and closed on"
+require_text docs/native-submission-shadow-verification-v1.md "PR #221"
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "CRASH-RESTART-EXACTLY-ONCE-E2E: GREEN"
+
 # P1.8 — the dev-only mock payment doc must carry an unmistakable banner and
 # name its feature gate, and receipt-commitment.md must caveat the magic header
 # as development-only (not a production payment) with a pointer to the doc.
