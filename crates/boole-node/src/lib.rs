@@ -1,3 +1,17 @@
+#[cfg(all(
+    target_os = "linux",
+    feature = "linux-arm64-authority",
+    not(target_arch = "aarch64")
+))]
+compile_error!("linux-arm64-authority requires aarch64 Linux");
+
+#[cfg(all(
+    target_os = "linux",
+    not(feature = "linux-arm64-authority"),
+    not(target_arch = "x86_64")
+))]
+compile_error!("the default native-shadow authority requires x86_64 Linux");
+
 mod block_store;
 mod block_verifier;
 mod bounty_catalog_store;

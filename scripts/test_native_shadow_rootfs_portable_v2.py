@@ -365,13 +365,18 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
 
     def test_launcher_manifest_pin_matches_the_frozen_replay_expectation(self) -> None:
         expectation = json.loads(REPLAY_EXPECTATION.read_text(encoding="utf-8"))
-        source = (
+        replay_source = (
             ROOT
             / "crates/boole-native-shadow-launcher/src/runtime_rootfs_replay.rs"
         ).read_text(encoding="utf-8")
+        architecture_source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/authority_arch.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("RUNTIME_ROOTFS_CONTENT_MANIFEST_SHA256", replay_source)
         self.assertIn(
             expectation["expectedOutput"]["rootfsContentManifestSha256"],
-            source,
+            architecture_source,
         )
 
     def test_tracked_portable_successor_is_exact_inactive_and_host_independent(self) -> None:
@@ -668,17 +673,23 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             ROOT
             / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
         ).read_text(encoding="utf-8")
+        architecture_source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/authority_arch.rs"
+        ).read_text(encoding="utf-8")
         landlock = source.split("fn apply_landlock", 1)[1].split(
             "fn set_checker_umask", 1
         )[0]
 
+        self.assertIn("PathFd::new(GCC_FRONTEND_PATH)", landlock)
+        self.assertIn("PathFd::new(GCC_LINKER_PATH)", landlock)
         self.assertIn(
-            'PathFd::new("/usr/libexec/gcc/x86_64-linux-gnu/13/cc1")',
-            landlock,
+            'GCC_FRONTEND_PATH: &str = "/usr/libexec/gcc/x86_64-linux-gnu/13/cc1"',
+            architecture_source,
         )
         self.assertIn(
-            'PathFd::new("/usr/libexec/gcc/x86_64-linux-gnu/13/collect2")',
-            landlock,
+            'GCC_LINKER_PATH: &str = "/usr/libexec/gcc/x86_64-linux-gnu/13/collect2"',
+            architecture_source,
         )
         self.assertNotIn("/usr/lib/gcc-cross/", landlock)
 

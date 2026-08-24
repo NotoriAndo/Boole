@@ -19,6 +19,9 @@ NATIVE_CONTAINMENT_PROBE = (
 PORTABLE_ROOTFS_REPLAY_GATE = (
     REPO_ROOT / "scripts" / "native-shadow-portable-rootfs-replay-linux.sh"
 )
+ARM64_ROOTFS_REPLAY_GATE = (
+    REPO_ROOT / "scripts" / "native-shadow-portable-rootfs-replay-linux-arm64.sh"
+)
 NATIVE_SHADOW_HTTP_REPLAY_GATE = (
     REPO_ROOT / "scripts" / "native_shadow_http_replay_gate.py"
 )
@@ -296,17 +299,21 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             self.assertNotIn(forbidden, driver)
         self.assertNotRegex(driver, re.compile(r"\bskip\b", re.IGNORECASE))
 
-    def test_self_test_requires_both_containment_and_rootfs_replay(self):
+    def test_self_test_requires_all_native_shadow_linux_gates(self):
         job = self._job("self-test")
         self.assertRegex(
             job,
             re.compile(
                 r"needs:\s*\[native-shadow-containment-linux,\s*"
-                r"native-shadow-rootfs-replay-linux\]"
+                r"native-shadow-rootfs-replay-linux,\s*"
+                r"native-shadow-rootfs-replay-linux-arm64\]"
             ),
         )
         self.assertIn("needs.native-shadow-containment-linux.result", job)
         self.assertIn("needs.native-shadow-rootfs-replay-linux.result", job)
+        self.assertIn(
+            "needs.native-shadow-rootfs-replay-linux-arm64.result", job
+        )
 
     def test_self_test_runs_the_native_shadow_http_replay_helper_contract(self):
         self.assertIn(
@@ -795,7 +802,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             job,
             re.compile(
                 r"^\s+needs:\s*\[native-shadow-containment-linux,\s*"
-                r"native-shadow-rootfs-replay-linux\]\s*$",
+                r"native-shadow-rootfs-replay-linux,\s*"
+                r"native-shadow-rootfs-replay-linux-arm64\]\s*$",
                 re.MULTILINE,
             ),
         )
@@ -803,11 +811,18 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         self.assertIn("needs.native-shadow-containment-linux.result", job)
         self.assertIn("needs.native-shadow-rootfs-replay-linux.result", job)
         self.assertIn(
+            "needs.native-shadow-rootfs-replay-linux-arm64.result", job
+        )
+        self.assertIn(
             "native-shadow containment capability probe did not pass",
             job,
         )
         self.assertIn(
             "native-shadow portable rootfs replay did not pass",
+            job,
+        )
+        self.assertIn(
+            "native-shadow arm64 portable rootfs replay did not pass",
             job,
         )
 
@@ -983,6 +998,163 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             body,
             "tmpfs and a loopback-backed filesystem are mutually exclusive choices",
         )
+
+
+class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
+    """The MAC.2 authority-parity subgate executes on real Linux/arm64."""
+
+    def setUp(self):
+        self.text = WORKFLOW.read_text(encoding="utf-8")
+
+    def _job(self, name: str) -> str:
+        match = re.search(
+            rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+            self.text,
+        )
+        self.assertIsNotNone(match, f"missing CI job: {name}")
+        return match.group(0)
+
+    def test_arm64_rootfs_replay_is_named_native_and_non_skippable(self):
+        job = self._job("native-shadow-rootfs-replay-linux-arm64")
+        self.assertIn("runs-on: ubuntu-24.04-arm", job)
+        self.assertIn("timeout-minutes: 45", job)
+        self.assertIn("dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9", job)
+        self.assertIn("toolchain: 1.95.0", job)
+        self.assertIn("groupadd --system boole-node", job)
+        self.assertIn("groupadd --system boole-native-checker", job)
+        self.assertIn(
+            "sudo ./scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh",
+            job,
+        )
+        for forbidden in ("continue-on-error", "SKIP", "|| true"):
+            self.assertNotIn(forbidden, job)
+
+    def test_arm64_global_deadline_is_applied_and_leaves_workflow_reserve(self):
+        gate = ARM64_ROOTFS_REPLAY_GATE.read_text(encoding="utf-8")
+        job = self._job("native-shadow-rootfs-replay-linux-arm64")
+
+        deadline_match = re.search(
+            r"(?m)^arm64_manager_deadline_seconds=([0-9]+)$", gate
+        )
+        self.assertIsNotNone(deadline_match)
+        manager_seconds = int(deadline_match.group(1))
+        self.assertEqual(manager_seconds, 2100)
+        self.assertEqual(gate.count('"${arm64_manager_deadline_seconds}s"'), 1)
+        self.assertLess(
+            gate.index("arm64_manager_deadline_seconds=2100"),
+            gate.index('"${arm64_manager_deadline_seconds}s"'),
+        )
+
+        workflow_match = re.search(r"timeout-minutes: ([0-9]+)", job)
+        self.assertIsNotNone(workflow_match)
+        workflow_seconds = int(workflow_match.group(1)) * 60
+        self.assertEqual(workflow_seconds, 45 * 60)
+        self.assertGreaterEqual(workflow_seconds - manager_seconds, 600)
+        self.assertIn("global CI orchestration cap", gate)
+        self.assertNotIn("frozen inner deadlines total", gate)
+
+    def test_self_test_requires_arm64_rootfs_replay(self):
+        job = self._job("self-test")
+        self.assertIn("native-shadow-rootfs-replay-linux-arm64", job)
+        self.assertIn(
+            "needs.native-shadow-rootfs-replay-linux-arm64.result", job
+        )
+        self.assertIn("arm64 portable rootfs replay did not pass", job)
+
+    def test_arm64_gate_executes_the_frozen_parity_matrix(self):
+        gate = ARM64_ROOTFS_REPLAY_GATE.read_text(encoding="utf-8")
+        for required in (
+            '[[ $(uname -m) == "aarch64" ]]',
+            "native_shadow_rootfs_portable_arm64_v1.py",
+            "native_shadow_rootfs_oci_verify_arm64_v1.py",
+            "accepted.rs",
+            "empty.rs",
+            "tampered.rs",
+            "constant.rs",
+            "outside_patch_modified",
+            "PrivateNetwork=yes",
+            "native-shadow-manager-cgroup-gate.sh",
+            "--closed-local-replay-rootfs-arm64",
+            "MAC2-RESULT.json",
+            '"containmentEnforcementParity": "EXACT"',
+            '"mac2Status": "PARTIAL"',
+            '"completedSubgate": "CLOSED-LOCAL-LINUX-ARM64-AUTHORITY-PARITY"',
+            '"openRequirement": "POST-UPDATE-IMAGE-AND-RUNTIME-AUTHORITY-REVERIFICATION"',
+            '"resourcePolicyDocumentParity": "EXACT-EXCEPT-FROZEN-ARCHITECTURE-IDENTITY"',
+            '"resourcePolicyEnforcementParity": "EXACT"',
+        ):
+            self.assertIn(required, gate)
+        self.assertNotIn('"resourcePolicyParity": "EXACT', gate)
+        self.assertNotIn('"containmentEnforcementParity": "NOT-YET-PROVEN"', gate)
+        self.assertNotIn('"mac2Status": "COMPLETE"', gate)
+        for forbidden in ("continue-on-error", "SKIP", "|| true"):
+            self.assertNotIn(forbidden, gate)
+
+    def test_arm64_exact_rootfs_runs_launcher_before_transient_probe_files(self):
+        gate = ARM64_ROOTFS_REPLAY_GATE.read_text(encoding="utf-8")
+        offline_build = gate.split('if [[ ${1:-} == "--offline-build" ]]', 1)[1]
+        offline_build = offline_build.split('if [[ ${1:-} == "--offline-parity" ]]', 1)[0]
+        self.assertIn('"$oci/ROOTFS-CONTENT-MANIFEST.json"', offline_build)
+        self.assertIn("builder = json.loads", offline_build)
+        self.assertIn("independent = json.loads", offline_build)
+        self.assertIn("if builder != independent:", offline_build)
+        self.assertNotIn(
+            'cmp --silent "$oci/BUILD-RECEIPT.json" "$independent_receipt"',
+            offline_build,
+        )
+        self.assertNotIn("runtime_passwd=", offline_build)
+        self.assertNotIn('rootfs/probe', offline_build)
+        manager = gate.index("native-shadow-manager-cgroup-gate.sh")
+        parity = gate.rindex('systemd-run --quiet --pipe --wait --collect --unit "$parity_unit"')
+        self.assertLess(manager, parity)
+
+    def test_arm64_manager_mode_is_explicit_and_scratch_prefix_is_exact(self):
+        manager = (
+            REPO_ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "--closed-local-replay-rootfs-arm64",
+            "/tmp/boole-native-shadow-arm64-rootfs.*/*",
+            "authority_profile=arm64",
+            '[[ $(uname -m) == aarch64 ]]',
+        ):
+            self.assertIn(required, manager)
+        self.assertIn(
+            "/tmp/boole-native-shadow-rootfs-replay.*/*",
+            manager,
+            "the established x86 replay mode must keep its exact scratch prefix",
+        )
+
+    def test_arm64_manager_mode_binds_features_authorities_and_verified_toolchain(self):
+        manager = (
+            REPO_ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "manager-cgroup-linux-gate,linux-arm64-authority",
+            "native-shadow-closed-local-replay,linux-arm64-authority",
+            "fixtures/native-shadow/registry-arm64-v1.json registry-v1.json",
+            "native/containment/native-shadow-execution-policy-arm64-v1.json execution-policy-v1.json",
+            "native/containment/native-shadow-toolchain-identity-arm64-v1.json toolchain-identity-v1.json",
+            "native/containment/native-shadow-local-execution-authority-arm64-v1.json local-execution-authority-v1.json",
+            "native/containment/native-shadow-closed-local-replay-grant-arm64-v1.json closed-local-replay-grant-v1.json",
+            "native/containment/native-shadow-closed-local-replay-registry-overlay-arm64-v1.json closed-local-replay-registry-overlay-v1.json",
+            "native/containment/native-shadow-closed-local-replay-execution-authority-arm64-v1.json closed-local-replay-execution-authority-v1.json",
+            "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json",
+            'arm64_toolchain_source="$closed_local_replay_rootfs/opt/boole/native-checker-toolchain"',
+            'cp -a "$arm64_toolchain_source/." "$toolchain_stage/"',
+            './scripts/install-native-checker-toolchain.sh "$toolchain_stage"',
+        ):
+            self.assertIn(required, manager)
+        for required in (
+            "fixtures/native-shadow/registry-v1.json registry-v1.json",
+            "native/containment/native-shadow-local-execution-authority-v1.json local-execution-authority-v1.json",
+            "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+        ):
+            self.assertIn(
+                required,
+                manager,
+                "the default x86 authority/install path must remain present",
+            )
 
 
 class VerdictCorpusWorkflowContractTest(unittest.TestCase):

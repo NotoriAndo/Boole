@@ -1,0 +1,189 @@
+{
+  "activationAllowed": false,
+  "artifacts": [
+    {
+      "id": "cargo-rustdist",
+      "kind": "rust-dist",
+      "sha256": "dd30cce8fc7c5029287dc75b24bb549e6ed957f6ddeac205fd1e6360993d4903",
+      "sizeBytes": null
+    },
+    {
+      "id": "rust-std-rustdist",
+      "kind": "rust-dist",
+      "sha256": "2c8a2d0f1f2c51caf5805f4a0ab510298dfebe4db2551a22b35ccc10d9bc3edc",
+      "sizeBytes": null
+    },
+    {
+      "id": "rustc-rustdist",
+      "kind": "rust-dist",
+      "sha256": "055bf89237ff4e3dfa4259ae5e63a8cc78fb2f1919421ac9e01edccd20ee6a5f",
+      "sizeBytes": null
+    }
+  ],
+  "authorityBindings": [
+    {
+      "id": "checker-entrypoint",
+      "sha256": "d17dca244628bb55f6fbbf799c71adcae3d548169ef0655ca27c8eb1f7ba95d7",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/checker.py"
+    },
+    {
+      "id": "checker-policy",
+      "sha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/policy.json"
+    },
+    {
+      "id": "checker-release",
+      "sha256": "23b9c235a638cf08d38b2082af19d599320c9e5e5fc785bc1e14f51b4667f210",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json"
+    },
+    {
+      "id": "execution-policy",
+      "sha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f",
+      "sourcePath": "native/containment/native-shadow-execution-policy-arm64-v1.json"
+    },
+    {
+      "id": "registry",
+      "sha256": "d636e56dbf7e32d6054a1d4abfaeb97c6ebdf5119d217fe7740db0513984badd",
+      "sourcePath": "fixtures/native-shadow/registry-arm64-v1.json"
+    },
+    {
+      "id": "toolchain-identity",
+      "sha256": "666cdd6a6908822b35a3839e905ab03bed2846ce8e49091ccd163b5f59947f36",
+      "sourcePath": "native/containment/native-shadow-toolchain-identity-arm64-v1.json"
+    }
+  ],
+  "buildRecipe": {
+    "baseImage": "empty",
+    "builderSha256": null,
+    "canonicalMtime": 0,
+    "maintainerScripts": "never-execute-or-copy",
+    "maxEntries": 200000,
+    "maxFileBytes": 536870912,
+    "maxTotalBytes": 2147483648,
+    "network": "forbidden",
+    "output": "oci-image-layout-single-uncompressed-layer-v1",
+    "ownership": "root:root-only",
+    "zstdPath": null,
+    "zstdSha256": null
+  },
+  "closureRoots": [
+    {
+      "logicalRoots": [
+        "/opt/boole/native-checker-toolchain"
+      ],
+      "name": "installed-rust-toolchain-file-manifest"
+    },
+    {
+      "logicalRoots": [
+        "/usr/bin/python3.12",
+        "/usr/lib/python3.12"
+      ],
+      "name": "python-interpreter-and-stdlib-file-manifest"
+    },
+    {
+      "logicalRoots": [
+        "/lib",
+        "/usr/bin",
+        "/usr/lib"
+      ],
+      "name": "system-linker-and-runtime-file-manifest"
+    }
+  ],
+  "derivedEntries": [],
+  "platform": {
+    "debArchitecture": "arm64",
+    "ociArchitecture": "arm64",
+    "os": "linux",
+    "rustTarget": "aarch64-unknown-linux-gnu"
+  },
+  "release": "NATIVE-SHADOW-RUNTIME-ROOTFS-SOURCE-LOCK-ARM64-V1-SCAFFOLD",
+  "rust": {
+    "cargoCommitHash": "3efb1f477e99b42974b982d939fd100303cdf7db",
+    "components": [
+      {
+        "artifactId": "cargo-rustdist",
+        "name": "cargo",
+        "target": "aarch64-unknown-linux-gnu"
+      },
+      {
+        "artifactId": "rust-std-rustdist",
+        "name": "rust-std-aarch64-unknown-linux-gnu",
+        "target": "aarch64-unknown-linux-gnu"
+      },
+      {
+        "artifactId": "rustc-rustdist",
+        "name": "rustc",
+        "target": "aarch64-unknown-linux-gnu"
+      }
+    ],
+    "installPrefix": "/opt/boole/native-checker-toolchain",
+    "rustcCommitHash": "e7795af6d2449fb05a6393c3320ced873a999eb3"
+  },
+  "schema": "boole.native-shadow.runtime-rootfs-source-lock.arm64.runtime.v1",
+  "trackedFiles": [
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+      "mode": "0444",
+      "sha256": "23b9c235a638cf08d38b2082af19d599320c9e5e5fc785bc1e14f51b4667f210",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py",
+      "mode": "0444",
+      "sha256": "d17dca244628bb55f6fbbf799c71adcae3d548169ef0655ca27c8eb1f7ba95d7",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/checker.py",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/policy.json",
+      "mode": "0444",
+      "sha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/policy.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/execution-policy-v1.json",
+      "mode": "0444",
+      "sha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f",
+      "sourcePath": "native/containment/native-shadow-execution-policy-arm64-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/registry-v1.json",
+      "mode": "0444",
+      "sha256": "d636e56dbf7e32d6054a1d4abfaeb97c6ebdf5119d217fe7740db0513984badd",
+      "sourcePath": "fixtures/native-shadow/registry-arm64-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/toolchain-identity-v1.json",
+      "mode": "0444",
+      "sha256": "666cdd6a6908822b35a3839e905ab03bed2846ce8e49091ccd163b5f59947f36",
+      "sourcePath": "native/containment/native-shadow-toolchain-identity-arm64-v1.json",
+      "uid": 0
+    }
+  ],
+  "ubuntu": {
+    "packages": [],
+    "repositories": [],
+    "seedPackageIds": [],
+    "seeds": [
+      "binutils-aarch64-linux-gnu",
+      "gcc-13-aarch64-linux-gnu",
+      "libc6-dev",
+      "python3.12"
+    ],
+    "snapshot": null,
+    "verification": {
+      "gpgvPath": null,
+      "gpgvSha256": null
+    }
+  }
+}

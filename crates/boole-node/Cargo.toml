@@ -19,6 +19,7 @@ publish = false
 default = []
 dev-mock-payment = []
 native-shadow-closed-local-replay = []
+linux-arm64-authority = ["boole-native-shadow-protocol/linux-arm64-authority"]
 
 [[bin]]
 name = "boole-native-shadow-replay-node"

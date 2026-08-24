@@ -9,8 +9,14 @@ die() {
 closed_local_replay_only=false
 closed_local_replay_rootfs=''
 closed_local_replay_manifest=''
-if [[ $# -eq 3 && $1 == --closed-local-replay-rootfs ]]; then
+authority_profile=x86_64
+if [[ $# -eq 3 \
+  && ( $1 == --closed-local-replay-rootfs \
+    || $1 == --closed-local-replay-rootfs-arm64 ) ]]; then
   closed_local_replay_only=true
+  if [[ $1 == --closed-local-replay-rootfs-arm64 ]]; then
+    authority_profile=arm64
+  fi
   closed_local_replay_rootfs=$(readlink -f -- "$2")
   closed_local_replay_manifest=$(readlink -f -- "$3")
   [[ -d "$closed_local_replay_rootfs" && ! -L "$2" ]] \
@@ -18,16 +24,24 @@ if [[ $# -eq 3 && $1 == --closed-local-replay-rootfs ]]; then
   [[ -f "$closed_local_replay_manifest" && ! -L "$3" ]] \
     || die "closed-local replay manifest is not one exact nonsymlink file"
   for replay_path in "$closed_local_replay_rootfs" "$closed_local_replay_manifest"; do
-    [[ "$replay_path" == /tmp/boole-native-shadow-rootfs-replay.*/* ]] \
-      || die "closed-local replay input is outside the gate-owned scratch tree: $replay_path"
+    if [[ "$authority_profile" == arm64 ]]; then
+      [[ "$replay_path" == /tmp/boole-native-shadow-arm64-rootfs.*/* ]] \
+        || die "arm64 closed-local replay input is outside the gate-owned scratch tree: $replay_path"
+    else
+      [[ "$replay_path" == /tmp/boole-native-shadow-rootfs-replay.*/* ]] \
+        || die "closed-local replay input is outside the gate-owned scratch tree: $replay_path"
+    fi
     [[ "$replay_path" != *:* && "$replay_path" != *$'\n'* ]] \
       || die "closed-local replay input cannot be represented safely in the systemd drop-in"
   done
 elif [[ $# -ne 0 ]]; then
-  die "usage: $0 [--closed-local-replay-rootfs ROOTFS CONTENT_MANIFEST]"
+  die "usage: $0 [--closed-local-replay-rootfs ROOTFS CONTENT_MANIFEST | --closed-local-replay-rootfs-arm64 ROOTFS CONTENT_MANIFEST]"
 fi
 
 [[ $(uname -s) == Linux ]] || die "this gate requires Linux"
+if [[ "$authority_profile" == arm64 ]]; then
+  [[ $(uname -m) == aarch64 ]] || die "arm64 replay mode requires native aarch64 Linux"
+fi
 [[ ${EUID} -ne 0 ]] || die "build phase must run as the unprivileged CI user"
 for command_name in awk cargo cp find findmnt getent grep install journalctl paste python3 readlink sed \
   sha256sum sort stat systemctl systemd-run systemd-tmpfiles tee timeout tr; do
@@ -51,7 +65,12 @@ node_replay_client_path=$launcher_directory/boole-native-shadow-node-replay-clie
 node_replay_service_path=$launcher_directory/boole-native-shadow-replay-node
 http_replay_gate_source=$(readlink -f scripts/native_shadow_http_replay_gate.py)
 http_replay_gate_path=$launcher_directory/native-shadow-http-replay-gate.py
-http_replay_grant_source=$(readlink -f native/containment/native-shadow-closed-local-replay-grant-v1.json)
+if [[ "$authority_profile" == arm64 ]]; then
+  http_replay_grant_source_relative=native/containment/native-shadow-closed-local-replay-grant-arm64-v1.json
+else
+  http_replay_grant_source_relative=native/containment/native-shadow-closed-local-replay-grant-v1.json
+fi
+http_replay_grant_source=$(readlink -f "$http_replay_grant_source_relative")
 http_replay_grant_path=$launcher_directory/native-shadow-http-replay-grant-v1.json
 http_replay_fixture_source_directory=$(readlink -f fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history)
 http_replay_fixture_directory=$launcher_directory/native-shadow-http-replay-fixtures
@@ -220,8 +239,7 @@ done
 [[ -f scripts/native_shadow_http_replay_gate.py \
   && ! -L scripts/native_shadow_http_replay_gate.py ]] \
   || die "HTTP replay gate source is not one exact nonsymlink file"
-[[ -f native/containment/native-shadow-closed-local-replay-grant-v1.json \
-  && ! -L native/containment/native-shadow-closed-local-replay-grant-v1.json ]] \
+[[ -f "$http_replay_grant_source" && ! -L "$http_replay_grant_source_relative" ]] \
   || die "HTTP replay grant source is not one exact nonsymlink file"
 [[ -d fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history \
   && ! -L fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history ]] \
@@ -249,16 +267,29 @@ for path in "$unit_path" "$unit_dropin_directory" "$launcher_path" \
   [[ ! -e "$path" && ! -L "$path" ]] || die "refusing to replace pre-existing path: $path"
 done
 
-BOOLE_NATIVE_SHADOW_SECCOMP_SPAWN_PROBE=1 \
-  cargo test --locked -p boole-native-shadow-launcher \
-    --features manager-cgroup-linux-gate --lib \
-    seccomp_preserves_the_rust_process_spawn_control_channel -- \
-    --nocapture --test-threads=1
+if [[ "$authority_profile" == arm64 ]]; then
+  BOOLE_NATIVE_SHADOW_SECCOMP_SPAWN_PROBE=1 \
+    cargo test --locked -p boole-native-shadow-launcher \
+      --features manager-cgroup-linux-gate,linux-arm64-authority --lib \
+      seccomp_preserves_the_rust_process_spawn_control_channel -- \
+      --nocapture --test-threads=1
 
-cargo test --locked -p boole-native-shadow-launcher \
-  --features manager-cgroup-linux-gate \
-  --test boole-native-shadow-manager-cgroup-linux \
-  --no-run --message-format=json >"$build_json"
+  cargo test --locked -p boole-native-shadow-launcher \
+    --features manager-cgroup-linux-gate,linux-arm64-authority \
+    --test boole-native-shadow-manager-cgroup-linux \
+    --no-run --message-format=json >"$build_json"
+else
+  BOOLE_NATIVE_SHADOW_SECCOMP_SPAWN_PROBE=1 \
+    cargo test --locked -p boole-native-shadow-launcher \
+      --features manager-cgroup-linux-gate --lib \
+      seccomp_preserves_the_rust_process_spawn_control_channel -- \
+      --nocapture --test-threads=1
+
+  cargo test --locked -p boole-native-shadow-launcher \
+    --features manager-cgroup-linux-gate \
+    --test boole-native-shadow-manager-cgroup-linux \
+    --no-run --message-format=json >"$build_json"
+fi
 
 mapfile -t executables < <(
   python3 -c '
@@ -279,8 +310,13 @@ for line in open(sys.argv[1], encoding="utf-8"):
 harness=${executables[0]}
 [[ -x "$harness" ]] || die "manager harness is not executable"
 
-cargo test --locked -p boole-node --lib \
-  --no-run --message-format=json >"$node_build_json"
+if [[ "$authority_profile" == arm64 ]]; then
+  cargo test --locked -p boole-node --features linux-arm64-authority --lib \
+    --no-run --message-format=json >"$node_build_json"
+else
+  cargo test --locked -p boole-node --lib \
+    --no-run --message-format=json >"$node_build_json"
+fi
 
 mapfile -t node_executables < <(
   python3 -c '
@@ -305,10 +341,17 @@ for line in open(sys.argv[1], encoding="utf-8"):
 node_qualification_source=${node_executables[0]}
 [[ -x "$node_qualification_source" ]] || die "boole-node qualification test is not executable"
 
-cargo test --locked -p boole-native-shadow-launcher \
-  --features manager-cgroup-linux-gate \
-  --test boole-native-shadow-closed-local-replay-client-linux \
-  --no-run --message-format=json >"$replay_client_build_json"
+if [[ "$authority_profile" == arm64 ]]; then
+  cargo test --locked -p boole-native-shadow-launcher \
+    --features manager-cgroup-linux-gate,linux-arm64-authority \
+    --test boole-native-shadow-closed-local-replay-client-linux \
+    --no-run --message-format=json >"$replay_client_build_json"
+else
+  cargo test --locked -p boole-native-shadow-launcher \
+    --features manager-cgroup-linux-gate \
+    --test boole-native-shadow-closed-local-replay-client-linux \
+    --no-run --message-format=json >"$replay_client_build_json"
+fi
 
 mapfile -t replay_client_executables < <(
   python3 -c '
@@ -333,8 +376,14 @@ node_replay_client_source=${replay_client_executables[0]}
 production_launcher_source=''
 production_node_source=''
 if [[ "$closed_local_replay_only" == true ]]; then
-  cargo build --locked -p boole-native-shadow-launcher --bin boole-native-shadow-launcher \
-    --message-format=json >"$production_launcher_build_json"
+  if [[ "$authority_profile" == arm64 ]]; then
+    cargo build --locked -p boole-native-shadow-launcher \
+      --features linux-arm64-authority --bin boole-native-shadow-launcher \
+      --message-format=json >"$production_launcher_build_json"
+  else
+    cargo build --locked -p boole-native-shadow-launcher --bin boole-native-shadow-launcher \
+      --message-format=json >"$production_launcher_build_json"
+  fi
   mapfile -t production_launcher_executables < <(
     python3 -c '
 import json
@@ -355,8 +404,15 @@ for line in open(sys.argv[1], encoding="utf-8"):
   production_launcher_source=${production_launcher_executables[0]}
   [[ -x "$production_launcher_source" ]] || die "production launcher is not executable"
 
-  cargo build --locked -p boole-node --features native-shadow-closed-local-replay --bin boole-native-shadow-replay-node \
-    --message-format=json >"$production_node_build_json"
+  if [[ "$authority_profile" == arm64 ]]; then
+    cargo build --locked -p boole-node \
+      --features native-shadow-closed-local-replay,linux-arm64-authority \
+      --bin boole-native-shadow-replay-node \
+      --message-format=json >"$production_node_build_json"
+  else
+    cargo build --locked -p boole-node --features native-shadow-closed-local-replay --bin boole-native-shadow-replay-node \
+      --message-format=json >"$production_node_build_json"
+  fi
   mapfile -t production_node_executables < <(
     python3 -c '
 import json
@@ -379,7 +435,17 @@ for line in open(sys.argv[1], encoding="utf-8"):
 fi
 
 toolchain_stage=$(mktemp -d "$temp_root/boole-native-shadow-toolchain.XXXXXX")
-./scripts/install-native-checker-toolchain.sh "$toolchain_stage"
+if [[ "$authority_profile" == arm64 ]]; then
+  arm64_toolchain_source="$closed_local_replay_rootfs/opt/boole/native-checker-toolchain"
+  [[ -d "$arm64_toolchain_source" && ! -L "$arm64_toolchain_source" ]] \
+    || die "verified arm64 replay rootfs does not contain one exact toolchain directory"
+  [[ -x "$arm64_toolchain_source/bin/rustc" \
+    && -x "$arm64_toolchain_source/bin/cargo" ]] \
+    || die "verified arm64 replay rootfs toolchain is not executable"
+  cp -a "$arm64_toolchain_source/." "$toolchain_stage/"
+else
+  ./scripts/install-native-checker-toolchain.sh "$toolchain_stage"
+fi
 [[ $(stat -c %U:%G /opt) == root:root ]] \
   || die "fixed /opt ancestor is not root-owned"
 opt_original_mode=$(stat -c %a /opt)
@@ -495,13 +561,23 @@ install_authority() {
   [[ $(sha256sum "$source" | awk '{ print $1 }') == $(sudo sha256sum "$authority_directory/$basename" | awk '{ print $1 }') ]] \
     || die "installed authority differs: $basename"
 }
-install_authority fixtures/native-shadow/registry-v1.json registry-v1.json
-install_authority native/containment/native-shadow-execution-policy-v1.json execution-policy-v1.json
-install_authority native/containment/native-shadow-toolchain-identity-v1.json toolchain-identity-v1.json
-install_authority native/containment/native-shadow-local-execution-authority-v1.json local-execution-authority-v1.json
-install_authority native/containment/native-shadow-closed-local-replay-grant-v1.json closed-local-replay-grant-v1.json
-install_authority native/containment/native-shadow-closed-local-replay-registry-overlay-v1.json closed-local-replay-registry-overlay-v1.json
-install_authority native/containment/native-shadow-closed-local-replay-execution-authority-v1.json closed-local-replay-execution-authority-v1.json
+if [[ "$authority_profile" == arm64 ]]; then
+  install_authority fixtures/native-shadow/registry-arm64-v1.json registry-v1.json
+  install_authority native/containment/native-shadow-execution-policy-arm64-v1.json execution-policy-v1.json
+  install_authority native/containment/native-shadow-toolchain-identity-arm64-v1.json toolchain-identity-v1.json
+  install_authority native/containment/native-shadow-local-execution-authority-arm64-v1.json local-execution-authority-v1.json
+  install_authority native/containment/native-shadow-closed-local-replay-grant-arm64-v1.json closed-local-replay-grant-v1.json
+  install_authority native/containment/native-shadow-closed-local-replay-registry-overlay-arm64-v1.json closed-local-replay-registry-overlay-v1.json
+  install_authority native/containment/native-shadow-closed-local-replay-execution-authority-arm64-v1.json closed-local-replay-execution-authority-v1.json
+else
+  install_authority fixtures/native-shadow/registry-v1.json registry-v1.json
+  install_authority native/containment/native-shadow-execution-policy-v1.json execution-policy-v1.json
+  install_authority native/containment/native-shadow-toolchain-identity-v1.json toolchain-identity-v1.json
+  install_authority native/containment/native-shadow-local-execution-authority-v1.json local-execution-authority-v1.json
+  install_authority native/containment/native-shadow-closed-local-replay-grant-v1.json closed-local-replay-grant-v1.json
+  install_authority native/containment/native-shadow-closed-local-replay-registry-overlay-v1.json closed-local-replay-registry-overlay-v1.json
+  install_authority native/containment/native-shadow-closed-local-replay-execution-authority-v1.json closed-local-replay-execution-authority-v1.json
+fi
 sudo install -d -o root -g root -m 0555 "$(dirname "$checker_directory")"
 sudo install -d -o root -g root -m 0555 "$checker_directory"
 checker_installed=true
@@ -509,15 +585,26 @@ sudo install -o root -g root -m 0444 \
   native/checker/rust-tuple-struct-project-v1/checker.py "$checker_directory/checker.py"
 sudo install -o root -g root -m 0444 \
   native/checker/rust-tuple-struct-project-v1/policy.json "$checker_directory/policy.json"
-sudo install -o root -g root -m 0444 \
-  native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json \
-  "$checker_directory/RELEASE-MANIFEST.json"
+if [[ "$authority_profile" == arm64 ]]; then
+  sudo install -o root -g root -m 0444 \
+    native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json \
+    "$checker_directory/RELEASE-MANIFEST.json"
+else
+  sudo install -o root -g root -m 0444 \
+    native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json \
+    "$checker_directory/RELEASE-MANIFEST.json"
+fi
 [[ $(sha256sum native/checker/rust-tuple-struct-project-v1/checker.py | awk '{ print $1 }') == $(sudo sha256sum "$checker_directory/checker.py" | awk '{ print $1 }') ]] \
   || die "installed checker bytes differ"
 [[ $(sha256sum native/checker/rust-tuple-struct-project-v1/policy.json | awk '{ print $1 }') == $(sudo sha256sum "$checker_directory/policy.json" | awk '{ print $1 }') ]] \
   || die "installed checker policy bytes differ"
-[[ $(sha256sum native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json | awk '{ print $1 }') == $(sudo sha256sum "$checker_directory/RELEASE-MANIFEST.json" | awk '{ print $1 }') ]] \
-  || die "installed checker release manifest bytes differ"
+if [[ "$authority_profile" == arm64 ]]; then
+  [[ $(sha256sum native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json | awk '{ print $1 }') == $(sudo sha256sum "$checker_directory/RELEASE-MANIFEST.json" | awk '{ print $1 }') ]] \
+    || die "installed arm64 checker release manifest bytes differ"
+else
+  [[ $(sha256sum native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json | awk '{ print $1 }') == $(sudo sha256sum "$checker_directory/RELEASE-MANIFEST.json" | awk '{ print $1 }') ]] \
+    || die "installed checker release manifest bytes differ"
+fi
 sudo install -d -o root -g root -m 0555 "$(dirname "$fixture_directory")"
 sudo install -d -o root -g root -m 0555 "$fixture_directory"
 fixture_installed=true

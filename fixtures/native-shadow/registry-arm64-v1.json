@@ -1,0 +1,27 @@
+{
+  "activationAllowed": false,
+  "executionPolicySha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f",
+  "purpose": "clean-checkout checker qualification only",
+  "schema": "boole.native-shadow.registry.v1",
+  "templates": [
+    {
+      "anchorSha256": "15878d940ac0094a681034af830333ff54e6779bf8bbef545a71ac455557d293",
+      "challengeSha256": "ce3a55487de1c3b46040fc7aebe933cce6b23f19c08248d0dab11732d36c8426",
+      "checkerArtifactHash": "fa3fea6534d505a8dcce5eca38ecc2c4a60c5173ff19a310dd82cfd797a11598",
+      "checkerRelease": "RUST-TUPLE-STRUCT-CHECKER-V1-QUALIFICATION",
+      "checkerReleaseManifestSha256": "23b9c235a638cf08d38b2082af19d599320c9e5e5fc785bc1e14f51b4667f210",
+      "epoch": 0,
+      "familyVersion": "TUPLE-STRUCT-PROJECT/RUST-TUPLE-STRUCT-PROJECT-V1",
+      "intakeVersion": "RUST-TUPLE-STRUCT-NATIVE-PROOF-INTAKE-V1",
+      "nonIssuable": true,
+      "policySha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+      "semanticLocator": "synthetic/FixturePoint:4",
+      "taskPath": "rust-tuple-struct-project-v1/task.json",
+      "taskSha256": "675d170d1026a7ed28a460ecb767a65e8bc2729845a9ddefbeaf7fc3cabe0a9f",
+      "templateId": "8283d4243bb5605db127f877d10aa8acf6c3e54696af285591c8c59f06c1c51e",
+      "toolchainChannel": "rust-lang-ci-e7795af6d2449fb05a6393c3320ced873a999eb3"
+    }
+  ],
+  "toolchainIdentitySha256": "666cdd6a6908822b35a3839e905ab03bed2846ce8e49091ccd163b5f59947f36",
+  "version": "NATIVE-SHADOW-QUALIFICATION-REGISTRY-V1"
+}

@@ -1,0 +1,128 @@
+use boole_native_shadow_protocol::{
+    TRACKED_CHECKER_RELEASE_MANIFEST_BYTES, TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+    TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES, TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+    TRACKED_EXECUTION_POLICY_BYTES, TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
+    TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
+};
+
+#[cfg(feature = "linux-arm64-authority")]
+#[test]
+fn arm64_feature_selects_all_eight_arm64_authority_files() {
+    assert_eq!(
+        TRACKED_REGISTRY_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/native-shadow/registry-arm64-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_EXECUTION_POLICY_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/containment/native-shadow-execution-policy-arm64-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_TOOLCHAIN_IDENTITY_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/containment/native-shadow-toolchain-identity-arm64-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_CHECKER_RELEASE_MANIFEST_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/containment/native-shadow-closed-local-replay-registry-overlay-arm64-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/containment/native-shadow-closed-local-replay-grant-arm64-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/containment/native-shadow-local-execution-authority-arm64-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/containment/native-shadow-closed-local-replay-execution-authority-arm64-v1.json"
+        ))
+    );
+}
+
+#[cfg(not(feature = "linux-arm64-authority"))]
+#[test]
+fn default_feature_keeps_all_eight_frozen_x86_authority_files() {
+    assert_eq!(
+        TRACKED_REGISTRY_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/native-shadow/registry-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_EXECUTION_POLICY_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/containment/native-shadow-execution-policy-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_TOOLCHAIN_IDENTITY_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/containment/native-shadow-toolchain-identity-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_CHECKER_RELEASE_MANIFEST_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/containment/native-shadow-closed-local-replay-registry-overlay-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/containment/native-shadow-closed-local-replay-grant-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/containment/native-shadow-local-execution-authority-v1.json"
+        ))
+    );
+    assert_eq!(
+        TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../native/containment/native-shadow-closed-local-replay-execution-authority-v1.json"
+        ))
+    );
+}

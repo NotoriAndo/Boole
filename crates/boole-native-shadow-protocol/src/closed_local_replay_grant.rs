@@ -23,13 +23,25 @@ use crate::{
 #[cfg(any(target_os = "linux", test))]
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(not(feature = "linux-arm64-authority"))]
 pub const TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/containment/native-shadow-closed-local-replay-grant-v1.json"
 ));
+#[cfg(feature = "linux-arm64-authority")]
+pub const TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-closed-local-replay-grant-arm64-v1.json"
+));
+#[cfg(not(feature = "linux-arm64-authority"))]
 pub const TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/containment/native-shadow-closed-local-replay-registry-overlay-v1.json"
+));
+#[cfg(feature = "linux-arm64-authority")]
+pub const TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-closed-local-replay-registry-overlay-arm64-v1.json"
 ));
 
 pub(crate) const TRACKED_REAL_HISTORY_TASK_BYTES: &[u8] = include_bytes!(concat!(
@@ -76,9 +88,15 @@ pub const TRACKED_CHECKER_POLICY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/checker/rust-tuple-struct-project-v1/policy.json"
 ));
+#[cfg(not(feature = "linux-arm64-authority"))]
 pub const TRACKED_CHECKER_RELEASE_MANIFEST_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json"
+));
+#[cfg(feature = "linux-arm64-authority")]
+pub const TRACKED_CHECKER_RELEASE_MANIFEST_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json"
 ));
 
 pub const INSTALLED_CLOSED_LOCAL_REPLAY_GRANT_PATH: &str =

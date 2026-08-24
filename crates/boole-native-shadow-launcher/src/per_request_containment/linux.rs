@@ -28,6 +28,7 @@ use super::{
     execute_with_operations, ContainedExecution, ContainmentFailure, ContainmentOperations,
     ResourceSnapshot, RunOperationId, TerminalWait, VerifiedCheckerMaterials,
 };
+use crate::authority_arch::{GCC_FRONTEND_PATH, GCC_LINKER_PATH, LANDLOCK_EXECUTE_DIRECTORIES};
 use crate::cgroupfs_fd::{self, ExecutionLeaf};
 use crate::toolchain_compatibility::VerifiedStartupToolchainCompatibility;
 
@@ -1979,14 +1980,7 @@ fn apply_landlock() -> Result<(), String> {
         .map_err(|error| error.to_string())?
         .create()
         .map_err(|error| error.to_string())?;
-    for path in [
-        "/lib",
-        "/lib64",
-        "/usr/bin",
-        "/usr/lib",
-        "/opt/boole/native-checker-toolchain",
-        "/work",
-    ] {
+    for path in LANDLOCK_EXECUTE_DIRECTORIES {
         let fd = PathFd::new(path).map_err(|error| error.to_string())?;
         ruleset = ruleset
             .add_rule(PathBeneath::new(fd, AccessFs::Execute))
@@ -1994,20 +1988,18 @@ fn apply_landlock() -> Result<(), String> {
     }
     // The checker root is an overlay mount.  Landlock's parent-directory
     // rule covers ordinary files in that merged tree, but the fixed GCC
-    // cross-driver reaches cc1 through its overlay lower inode. Debian's fixed
-    // `cpp-13-x86-64-linux-gnu` package installs that frontend below
+    // cross-driver reaches cc1 through its overlay lower inode. The selected
+    // Debian authority installs that architecture's frontend below
     // `/usr/libexec/gcc`; pin this one exact, provenance-verified file too.
     // Later helpers stay unchanged until a real execution proves necessity.
-    let gcc_frontend = PathFd::new("/usr/libexec/gcc/x86_64-linux-gnu/13/cc1")
-        .map_err(|error| error.to_string())?;
+    let gcc_frontend = PathFd::new(GCC_FRONTEND_PATH).map_err(|error| error.to_string())?;
     ruleset = ruleset
         .add_rule(PathBeneath::new(gcc_frontend, AccessFs::Execute))
         .map_err(|error| error.to_string())?;
     // The fixed GCC driver invokes collect2 only for the final link stage.
-    // It is installed by the separately pinned `gcc-13-x86-64-linux-gnu`
+    // It is installed by the separately pinned architecture-specific GCC
     // package; allow this exact executable without opening all of /usr/libexec.
-    let gcc_linker = PathFd::new("/usr/libexec/gcc/x86_64-linux-gnu/13/collect2")
-        .map_err(|error| error.to_string())?;
+    let gcc_linker = PathFd::new(GCC_LINKER_PATH).map_err(|error| error.to_string())?;
     ruleset = ruleset
         .add_rule(PathBeneath::new(gcc_linker, AccessFs::Execute))
         .map_err(|error| error.to_string())?;

@@ -19,7 +19,22 @@
 //! and readiness frame remains `activationAllowed=false`; this crate therefore
 //! does not activate public mining, block admission, or rewards.
 
+#[cfg(all(
+    target_os = "linux",
+    feature = "linux-arm64-authority",
+    not(target_arch = "aarch64")
+))]
+compile_error!("linux-arm64-authority requires aarch64 Linux");
+
+#[cfg(all(
+    target_os = "linux",
+    not(feature = "linux-arm64-authority"),
+    not(target_arch = "x86_64")
+))]
+compile_error!("the default native-shadow authority requires x86_64 Linux");
+
 pub mod active_execution;
+mod authority_arch;
 mod cgroupfs_fd;
 pub mod closed_local_replay_startup;
 pub mod instance_id;

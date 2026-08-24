@@ -1,0 +1,925 @@
+{
+  "accounts": {
+    "checker": {
+      "allowedShells": [
+        "/usr/sbin/nologin",
+        "/bin/false"
+      ],
+      "home": "/nonexistent",
+      "name": "boole-native-checker",
+      "primaryGroup": "boole-native-checker",
+      "requireNonRoot": true,
+      "supplementaryGroupCount": 0
+    },
+    "groupLookup": "getgrnam_r-and-getgrgid_r",
+    "node": {
+      "allowedShells": [
+        "/usr/sbin/nologin",
+        "/bin/false"
+      ],
+      "home": "/nonexistent",
+      "name": "boole-node",
+      "primaryGroup": "boole-node",
+      "requireNonRoot": true,
+      "supplementaryGroupCount": 0
+    },
+    "numericIdsBoundForProcessLifetime": true,
+    "primaryGroupMustMatchPasswdGid": true,
+    "requireDistinctPrimaryGid": true,
+    "requireDistinctUid": true,
+    "resolution": "getpwnam_r-and-getgrnam_r-at-launcher-start",
+    "supplementaryGroupsLookup": "getgrouplist",
+    "userLookup": "getpwnam_r"
+  },
+  "activationAllowed": false,
+  "checkerInvocation": {
+    "anchorOpen": "openat2-task-parent-resolve-beneath-no-symlinks-no-magiclinks",
+    "anchorPathRequirements": "literal:anchor.rs",
+    "argv": [
+      "/usr/bin/python3.12",
+      "-I",
+      "-S",
+      "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py",
+      "--task",
+      "/work/task.json",
+      "--submission",
+      "/work/submission.rs",
+      "--toolchain-bin",
+      "/opt/boole/native-checker-toolchain/bin",
+      "--scratch-root",
+      "/work/scratch"
+    ],
+    "authorityMaterialization": {
+      "actor": "privileged-cloned-child-before-privilege-drop",
+      "anchor": "/work/anchor.rs:root:boole-native-checker:0440",
+      "closeAuthorityFdsBeforeExec": true,
+      "scratch": "/work/scratch:root:boole-native-checker:2770:initially-empty",
+      "source": "parent-verified-sealed-read-only-memfds",
+      "submission": "/work/submission.rs:root:boole-native-checker:0440",
+      "task": "/work/task.json:root:boole-native-checker:0440",
+      "verifyAfterWrite": "bytes-owner-group-mode-and-empty-scratch"
+    },
+    "executePrerequisite": "durable-InFlightV3-with-matching-operationId-before-connect",
+    "executionAllowedUnderThisRelease": false,
+    "intake": {
+      "algorithm": [
+        "reject-if-unicode-trim-is-empty",
+        "find-first-literal-triple-backtick",
+        "after-opening-fence-strip-immediate-lowercase-rust-if-present",
+        "skip-unicode-whitespace",
+        "find-next-literal-triple-backtick",
+        "unicode-trim-enclosed-body",
+        "reject-if-body-empty",
+        "return-body-without-normalization"
+      ],
+      "input": "decoded-rawAnswerBase64-valid-utf8",
+      "launcherMustVerifyBothDigests": true,
+      "nodeMustComputeSubmissionSourceDigest": true,
+      "nodeMustRecomputeCandidateDigest": true,
+      "parityReference": "crates/boole-miner/src/native_mining_e2e.rs:NativeProofIntake::extract",
+      "version": "RUST-TUPLE-STRUCT-NATIVE-PROOF-INTAKE-V1"
+    },
+    "intakeOwner": "boole-node",
+    "launcherReextractsIntake": false,
+    "materializeExactTaskAndAnchorBytesIntoWorkspace": true,
+    "rawStdoutOrStderrSentOverIpc": false,
+    "requestMaySelectPath": false,
+    "stderrIsNeverVerdictAuthority": true,
+    "stderrMustBeEmptyForParsedResult": true,
+    "stdin": "/dev/null",
+    "stdoutMustContainExactlyOneJsonLine": true,
+    "stdoutMustEndWithLf": true,
+    "submissionRequirements": "valid-utf8-no-nul;sha256-matches-submissionSourceDigestHex",
+    "submissionSource": "decoded-submissionSourceBase64",
+    "taskOpen": "openat2-fixture-root-resolve-beneath-no-symlinks-no-magiclinks",
+    "taskPathRequirements": "relative-normalized-no-dot-dot-no-nul",
+    "taskSelection": "trusted-registry-four-tuple-only",
+    "toolchainIdentityDigest": "sha256-of-exact-tracked-native-shadow-toolchain-identity-v1.json-bytes",
+    "verifyAnchorSha256BeforeExec": true,
+    "verifyCheckerReleaseBeforeExec": true,
+    "verifyExecutionPolicyDigestBeforeExec": true,
+    "verifyRegistryDigestBeforeExec": true,
+    "verifyTaskSha256BeforeExec": true,
+    "verifyToolchainIdentityManifestBeforeExec": true,
+    "workingDirectory": "/work",
+    "workspaceAnchorPath": "/work/anchor.rs",
+    "workspaceAuthorityFileMode": "0440",
+    "workspaceMountPath": "/work",
+    "workspaceScratchPath": "/work/scratch",
+    "workspaceSubmissionPath": "/work/submission.rs",
+    "workspaceTaskPath": "/work/task.json"
+  },
+  "crashRecovery": {
+    "cgroupLeafName": "run-<64-lowercase-hex-operation-id>",
+    "cgroupLeafPrefix": "run-",
+    "cgroupParent": "/sys/fs/cgroup/system.slice/boole-native-shadow-launcher.service",
+    "cleanupDeadlineFailure": "close-connection-without-report-and-refuse-ready-until-startup-recovery",
+    "cleanupDeadlineMillis": 10000,
+    "cleanupOwner": "launcher",
+    "cleanupRequiredBeforeResponse": true,
+    "executionLeafParent": "service-cgroup-root",
+    "managerSubgroupContract": {
+      "createModeProcedure": "mkdirat-0700;descriptor-fchmod-0700;descriptor-fstat-root-root-0700-before-control-open",
+      "createOrReuse": "exact-direct-child-directory-only",
+      "failureAtOrAfterMoveAttempt": "post-move-fatal-process-exit",
+      "failureBeforeMove": "pre-move-startup-failure-without-readiness",
+      "path": "/sys/fs/cgroup/system.slice/boole-native-shadow-launcher.service/manager",
+      "postMoveRequires": "only-current-launcher-pid-in-cgroup.procs;only-current-launcher-tid-in-cgroup.threads;cgroup.type-domain;cgroup.subtree_control-empty;no-child-cgroups",
+      "preMoveProcessRequires": "exactly-one-task-entry-equal-current-tid",
+      "requiredMode": "0700",
+      "requiredOwnerGid": 0,
+      "requiredOwnerUid": 0,
+      "reuseRequires": "cgroup.events-populated-and-frozen-zero;cgroup.type-domain;cgroup.subtree_control-empty;cgroup.procs-and-cgroup.threads-empty;no-child-cgroups-before-moving-current-launcher"
+    },
+    "managerSubgroupName": "manager",
+    "namespaceLifetimeRule": "all-untrusted-processes-remain-in-leaf-cgroup;populated-zero-after-reap-releases-private-pid-and-mount-namespaces",
+    "normalCleanupVerification": [
+      "direct-child-reaped",
+      "cgroup.events:populated=0",
+      "launcher-pidfd-and-namespace-fds-closed",
+      "leaf-removed"
+    ],
+    "operationIdBytes": 32,
+    "qualificationReadyBarrier": {
+      "launcherCleansAllRunLeavesBeforeSocketBind": true,
+      "noBarrierAction": "leave-stuck-in-flight-withheld",
+      "nodeOsLockRequiredDuringRollback": true,
+      "nodeRollbackStuckInFlightOnlyAfterAuthenticatedBarrier": true,
+      "nodeRouteMustRemainClosedDuringRollback": true,
+      "readyRequiresActiveExecutionLeaves": 0,
+      "readyRequiresManagerSubgroupVerified": true,
+      "readyRequiresStartupRecoveryComplete": true,
+      "readyRequiresUnexpectedDirectCgroupChildren": 0,
+      "unexpectedDirectChildAction": "fail-closed-without-ready"
+    },
+    "recoveryScanExcludes": [
+      "manager"
+    ],
+    "resourceObservationSnapshot": "after-terminal-wait-and-any-required-kill-after-populated-zero-before-leaf-removal",
+    "responseRule": "report-only-after-child-created-no-setup-error-record-and-cleanup-verification;recorded-setup-failure-or-cleanup-failure-closes-without-report",
+    "scanScope": "direct-children-of-cgroup-parent-with-exact-leaf-name-only",
+    "startupCgroupSequence": [
+      "verify-current-launcher-is-single-threaded",
+      "create-manager-subgroup",
+      "move-launcher-process-to-manager/cgroup.procs",
+      "verify-service-root-cgroup.procs-empty",
+      "enable-cpu-memory-pids-in-service-root-cgroup.subtree_control",
+      "verify-controller-readback",
+      "verify-manager-postmove-pid-tid-type-empty-subtree-control-and-no-child-cgroups"
+    ],
+    "startupOrphanAction": "freeze-kill-confirm-empty-remove-before-ready",
+    "startupRecoveryVerification": [
+      "cgroup.events:populated=0",
+      "cgroup.procs-and-cgroup.threads-empty",
+      "leaf-removed"
+    ],
+    "unexpectedDirectChildAction": "fail-closed-without-ready"
+  },
+  "environment": {
+    "clearInherited": true,
+    "fixedLiterals": {
+      "LANG": "C",
+      "LC_ALL": "C",
+      "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+      "TERM": "dumb",
+      "TZ": "UTC"
+    },
+    "requestOverridesAllowed": false,
+    "workspaceDerived": {
+      "HOME": "home",
+      "TMPDIR": "tmp"
+    }
+  },
+  "installation": {
+    "authorityDirectory": "/usr/share/boole/native-shadow",
+    "authorityDirectoryGroup": "root",
+    "authorityDirectoryMode": "0555",
+    "authorityDirectoryOwner": "root",
+    "checkerEntrypoint": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py",
+    "checkerPolicyPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/policy.json",
+    "checkerReleaseManifestPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+    "checkerRoot": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1",
+    "fixtureRoot": "/usr/share/boole/native-shadow/fixtures",
+    "installedArtifactContracts": {
+      "checkerEntrypoint": "regular-nonsymlink-root:root:0444",
+      "checkerPolicyPath": "regular-nonsymlink-root:root:0444",
+      "checkerReleaseManifestPath": "regular-nonsymlink-root:root:0444",
+      "checkerRoot": "directory-nonsymlink-root:root:0555",
+      "fixtureRoot": "directory-nonsymlink-root:root:0555;descendant-authority-files-0444-no-symlinks",
+      "launcherPath": "regular-nonsymlink-root:root:0755",
+      "policyPath": "regular-nonsymlink-root:root:0444",
+      "pythonInterpreterPath": "regular-nonsymlink-root:root:0755",
+      "registryPath": "regular-nonsymlink-root:root:0444",
+      "toolchainBin": "directory-nonsymlink-root:root:0555;content-modes-deferred-to-provenance-manifest",
+      "toolchainIdentityPath": "regular-nonsymlink-root:root:0444",
+      "workspaceMountpoint": "directory-nonsymlink-root:root:0555"
+    },
+    "launcherGroup": "root",
+    "launcherLockGroup": "boole-node",
+    "launcherLockMode": "0600",
+    "launcherLockOwner": "root",
+    "launcherLockPath": "/run/boole/native-shadow/launcher.lock",
+    "launcherMode": "0755",
+    "launcherOwner": "root",
+    "launcherPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+    "nodeMayWriteSocketDirectory": false,
+    "policyGroup": "root",
+    "policyMode": "0444",
+    "policyOwner": "root",
+    "policyPath": "/usr/share/boole/native-shadow/execution-policy-v1.json",
+    "pythonInterpreterPath": "/usr/bin/python3.12",
+    "registryPath": "/usr/share/boole/native-shadow/registry-v1.json",
+    "rootOwnedPathValidation": {
+      "appliesTo": [
+        "launcherPath",
+        "authorityDirectory",
+        "policyPath",
+        "registryPath",
+        "checkerRoot",
+        "checkerEntrypoint",
+        "checkerPolicyPath",
+        "checkerReleaseManifestPath",
+        "fixtureRoot",
+        "toolchainBin",
+        "toolchainIdentityPath",
+        "pythonInterpreterPath",
+        "workspaceMountpoint"
+      ],
+      "followSymlinks": false,
+      "forbidGroupWrite": true,
+      "forbidOtherWrite": true,
+      "requiredGroupGid": 0,
+      "requiredOwnerUid": 0,
+      "runtimeSocketUsesSeparateOwnershipContract": true,
+      "validateBeforeBindAndBeforeEachExecution": true,
+      "validateEveryAncestor": true
+    },
+    "socketCreation": {
+      "bindUmask": "0117",
+      "groupInheritance": "setgid-directory",
+      "lock": "flock:LOCK_EX|LOCK_NB:/run/boole/native-shadow/launcher.lock:root:boole-node:0600",
+      "lockOpen": "openat-verified-socket-directory-fd:launcher.lock:O_CREAT|O_RDWR|O_CLOEXEC|O_NOFOLLOW:0600",
+      "lockValidation": "fstat-regular-nlink1-root:boole-node-mode0600-before-flock",
+      "postBindAction": "chmod-0660-then-lstat-verify-root:boole-node-socket",
+      "staleSocketRemoval": "only-under-lock-after-lstat-root:boole-node-socket-verification"
+    },
+    "socketDirectory": "/run/boole/native-shadow",
+    "socketDirectoryGroup": "boole-node",
+    "socketDirectoryMode": "2750",
+    "socketDirectoryOwner": "root",
+    "socketGroup": "boole-node",
+    "socketMode": "0660",
+    "socketOwner": "root",
+    "socketPath": "/run/boole/native-shadow/launcher.sock",
+    "toolchainBin": "/opt/boole/native-checker-toolchain/bin",
+    "toolchainIdentityPath": "/usr/share/boole/native-shadow/toolchain-identity-v1.json",
+    "workspaceMountpoint": {
+      "group": "root",
+      "mode": "0555",
+      "mustBeMountpointBeforeExecution": false,
+      "owner": "root",
+      "path": "/work"
+    }
+  },
+  "ipc": {
+    "binaryEncoding": "lowercase-hex",
+    "connectTimeoutMillis": 1000,
+    "digestRules": {
+      "candidateDigest": {
+        "algorithm": "sha256",
+        "encoding": "64-lowercase-hex",
+        "input": "decoded-rawAnswerBase64-exact-utf8-bytes"
+      },
+      "requestDigest": {
+        "algorithm": "sha256",
+        "domainPrefixUtf8Nul": "boole.native-shadow.launcher.request.v1",
+        "encoding": "64-lowercase-hex",
+        "input": "domain-prefix-nul-then-u32be-length-prefix-then-exact-execute-json-payload-bytes"
+      },
+      "submissionDigest": {
+        "algorithm": "sha256",
+        "domainPrefixUtf8Nul": "boole.native-shadow.submission.v1",
+        "encoding": "64-lowercase-hex",
+        "fieldEncoding": {
+          "challengeSha256": "u32be-length-prefixed-64-lowercase-ascii-hex-bytes",
+          "epoch": "u64be-no-length-prefix",
+          "familyVersion": "u32be-length-prefixed-utf8-bytes",
+          "rawAnswer": "u32be-length-prefixed-decoded-utf8-bytes",
+          "templateId": "u32be-length-prefixed-64-lowercase-ascii-hex-bytes"
+        },
+        "input": "domain-prefix-utf8-then-nul-then-fields-in-declared-order"
+      },
+      "submissionSourceDigest": {
+        "algorithm": "sha256",
+        "encoding": "64-lowercase-hex",
+        "input": "decoded-submissionSourceBase64-exact-utf8-bytes"
+      }
+    },
+    "executionReportSchema": "boole.native-shadow.launcher.report.v1",
+    "executionRequestSchema": "boole.native-shadow.launcher.execute.v1",
+    "executionResponseTimeoutMillis": 115000,
+    "frameRules": {
+      "hashLengthPrefix": true,
+      "payloadEncoding": "utf-8-json-object",
+      "rejectAllJsonFloats": true,
+      "rejectBom": true,
+      "rejectBytesBetweenFrames": true,
+      "rejectDuplicateKeys": true,
+      "rejectNonFiniteNumbers": true,
+      "rejectTrailingBytesAfterExpectedFinalFrame": true,
+      "rejectUnknownFields": true,
+      "requireExecuteEofBeforeSpawn": true,
+      "requireReportEofBeforeAccept": true
+    },
+    "framing": "u32-be-length-prefixed-json",
+    "freeFormVerdictAllowed": false,
+    "handshakeTimeoutMillis": 5000,
+    "helloSchema": "boole.native-shadow.launcher.hello.v1",
+    "maxRawAnswerBytes": 16384,
+    "maxRequestFrameBytes": 131072,
+    "maxResponseFrameBytes": 65536,
+    "messageBindingRules": [
+      "nonceHex-identical-across-all-four-messages",
+      "requestDigestHex-in-hello-ready-report-equals-requestDigest-of-execute-frame",
+      "requestLengthBytes-in-hello-equals-execute-frame-payload-length",
+      "operationIdHex-identical-in-execute-and-report",
+      "executionPolicyDigestHex-identical-across-all-four-messages-and-installed-policy",
+      "ready-launcherPid-equals-node-observed-SO_PEERCRED-pid",
+      "report-launcherPid-equals-ready-launcherPid-and-node-observed-SO_PEERCRED-pid",
+      "report-authorityBindings-equal-execute-fields-and-installed-authority-bytes",
+      "all-ready-and-report-uid-gid-values-equal-startup-resolved-values"
+    ],
+    "messageSequence": [
+      "node:hello",
+      "launcher:ready",
+      "node:execute",
+      "node:shutdown-write",
+      "launcher:report",
+      "launcher:shutdown-write",
+      "mutual-eof"
+    ],
+    "messages": {
+      "execute": {
+        "direction": "node-to-launcher",
+        "optionalFields": {},
+        "requiredFields": {
+          "anchorDigestHex": "lower-hex:32-bytes",
+          "candidateDigestHex": "lower-hex:32-bytes",
+          "challengeSha256": "lower-hex:32-bytes",
+          "checkerArtifactHashHex": "lower-hex:32-bytes",
+          "checkerPolicyDigestHex": "lower-hex:32-bytes",
+          "checkerReleaseManifestDigestHex": "lower-hex:32-bytes",
+          "epoch": "u64",
+          "executionPolicyDigestHex": "lower-hex:32-bytes",
+          "familyVersion": "nonempty-utf8:max-256-bytes",
+          "intakeVersion": "nonempty-utf8:max-128-bytes",
+          "nonceHex": "lower-hex:32-bytes",
+          "operationIdHex": "lower-hex:32-bytes",
+          "rawAnswerBase64": "canonical-rfc4648-base64:decoded-max-16384-bytes",
+          "registryDigestHex": "lower-hex:32-bytes",
+          "registryVersion": "nonempty-utf8:max-256-bytes",
+          "schema": "literal:boole.native-shadow.launcher.execute.v1",
+          "submissionDigestHex": "lower-hex:32-bytes",
+          "submissionSourceBase64": "canonical-rfc4648-base64:decoded-max-16384-bytes",
+          "submissionSourceDigestHex": "lower-hex:32-bytes",
+          "taskDigestHex": "lower-hex:32-bytes",
+          "templateId": "lower-hex:32-bytes",
+          "toolchainIdentityDigestHex": "lower-hex:32-bytes"
+        }
+      },
+      "hello": {
+        "direction": "node-to-launcher",
+        "optionalFields": {},
+        "requiredFields": {
+          "executionPolicyDigestHex": "lower-hex:32-bytes",
+          "nonceHex": "lower-hex:32-bytes",
+          "requestDigestHex": "lower-hex:32-bytes",
+          "requestLengthBytes": "u32:1..131072",
+          "schema": "literal:boole.native-shadow.launcher.hello.v1"
+        }
+      },
+      "qualificationHello": {
+        "direction": "node-to-launcher",
+        "optionalFields": {},
+        "requiredFields": {
+          "executionPolicyDigestHex": "lower-hex:32-bytes",
+          "nonceHex": "lower-hex:32-bytes",
+          "registryDigestHex": "lower-hex:32-bytes",
+          "schema": "literal:boole.native-shadow.launcher.qualification-hello.v1",
+          "toolchainIdentityDigestHex": "lower-hex:32-bytes"
+        }
+      },
+      "qualificationReady": {
+        "direction": "launcher-to-node",
+        "optionalFields": {},
+        "requiredFields": {
+          "activationAllowed": "literal-bool:false",
+          "activeExecutionLeaves": "literal-u32:0",
+          "checkerGid": "resolved-u32:boole-native-checker-primary-group",
+          "checkerUid": "resolved-u32:boole-native-checker",
+          "executionPolicyDigestHex": "lower-hex:32-bytes",
+          "launcherGid": "literal-u32:0",
+          "launcherInstanceIdHex": "lower-hex:32-bytes",
+          "launcherPid": "u32:1..4294967295",
+          "launcherUid": "literal-u32:0",
+          "managerSubgroupVerified": "literal-bool:true",
+          "nodeGid": "resolved-u32:boole-node-primary-group",
+          "nodeUid": "resolved-u32:boole-node",
+          "nonceHex": "lower-hex:32-bytes",
+          "ready": "literal-bool:true",
+          "registryDigestHex": "lower-hex:32-bytes",
+          "schema": "literal:boole.native-shadow.launcher.qualification-ready.v1",
+          "startupRecoveryComplete": "literal-bool:true",
+          "toolchainIdentityDigestHex": "lower-hex:32-bytes",
+          "unexpectedDirectCgroupChildren": "literal-u32:0"
+        }
+      },
+      "ready": {
+        "direction": "launcher-to-node",
+        "optionalFields": {},
+        "requiredFields": {
+          "activationAllowed": "literal-bool:false",
+          "checkerGid": "resolved-u32:boole-native-checker-primary-group",
+          "checkerUid": "resolved-u32:boole-native-checker",
+          "executionPolicyDigestHex": "lower-hex:32-bytes",
+          "launcherGid": "literal-u32:0",
+          "launcherPid": "u32:1..4294967295",
+          "launcherUid": "literal-u32:0",
+          "nodeGid": "resolved-u32:boole-node-primary-group",
+          "nodeUid": "resolved-u32:boole-node",
+          "nonceHex": "lower-hex:32-bytes",
+          "ready": "literal-bool:true",
+          "requestDigestHex": "lower-hex:32-bytes",
+          "schema": "literal:boole.native-shadow.launcher.ready.v1"
+        }
+      },
+      "report": {
+        "direction": "launcher-to-node",
+        "optionalFields": {},
+        "requiredFields": {
+          "authorityBindings": "object:authority-bindings-v1",
+          "checkerGid": "resolved-u32:boole-native-checker-primary-group",
+          "checkerResult": "object:checker-result-v1",
+          "checkerUid": "resolved-u32:boole-native-checker",
+          "cleanup": "object:cleanup-v1",
+          "executionPolicyDigestHex": "lower-hex:32-bytes",
+          "launcherGid": "literal-u32:0",
+          "launcherPid": "u32:1..4294967295",
+          "launcherUid": "literal-u32:0",
+          "nodeGid": "resolved-u32:boole-node-primary-group",
+          "nodeUid": "resolved-u32:boole-node",
+          "nonceHex": "lower-hex:32-bytes",
+          "operationIdHex": "lower-hex:32-bytes",
+          "requestDigestHex": "lower-hex:32-bytes",
+          "resourceObservations": "object:resource-observations-v1",
+          "schema": "literal:boole.native-shadow.launcher.report.v1",
+          "timedOut": "bool",
+          "waitStatus": "object:wait-status-v1"
+        }
+      }
+    },
+    "nonceBytes": 32,
+    "nonceSource": "node-getrandom:32-bytes:no-fallback-per-connection",
+    "objectContracts": {
+      "authority-bindings-v1": {
+        "optionalFields": {},
+        "requiredFields": {
+          "anchorDigestHex": "lower-hex:32-bytes",
+          "checkerArtifactHashHex": "lower-hex:32-bytes",
+          "checkerPolicyDigestHex": "lower-hex:32-bytes",
+          "checkerReleaseManifestDigestHex": "lower-hex:32-bytes",
+          "registryDigestHex": "lower-hex:32-bytes",
+          "registryVersion": "nonempty-utf8:max-256-bytes",
+          "taskDigestHex": "lower-hex:32-bytes",
+          "toolchainIdentityDigestHex": "lower-hex:32-bytes"
+        }
+      },
+      "checker-parsed-result-v1": {
+        "invariant": "accepted-or-deterministic_reject-requires-checkerTaskId-and-taskDigest-matching-trusted-task;retryable_unavailable-may-omit-both",
+        "optionalFields": {
+          "checkerTaskId": "nonempty-utf8:max-256-bytes",
+          "taskDigest": "lower-hex:32-bytes"
+        },
+        "requiredFields": {
+          "reasonCode": "enum-by-verdict:checkerReasonVocabulary",
+          "schema": "literal:boole.native-shadow.checker-result.v1",
+          "verdict": "enum:accepted|deterministic_reject|retryable_unavailable"
+        }
+      },
+      "checker-result-v1": {
+        "crossFieldInvariants": [
+          "report-exists-only-after-child-created-no-setup-error-record-and-cleanup-success",
+          "valid-checker-result-iff-exited-zero-not-timed-out-stderr-empty-stdout-one-json-line-and-parsed-nonnull",
+          "output-limit-exceeded-iff-resourceObservations.outputLimitExceeded-true",
+          "invalid-or-nonconforming-output-requires-parsed-null",
+          "no-complete-output-requires-parsed-null"
+        ],
+        "optionalFields": {},
+        "requiredFields": {
+          "parsed": "null-or-object:checker-parsed-result-v1",
+          "status": "enum:valid-checker-result|invalid-or-nonconforming-output|output-limit-exceeded|no-complete-output",
+          "stderrBytes": "u64",
+          "stderrSha256Hex": "lower-hex:32-bytes",
+          "stdoutBytes": "u64",
+          "stdoutSha256Hex": "lower-hex:32-bytes"
+        }
+      },
+      "checkerReasonVocabulary": {
+        "accepted": [
+          "accepted"
+        ],
+        "deterministic_reject": [
+          "compile_or_hidden_test_failed",
+          "forbidden_construct",
+          "malformed_patch_region",
+          "outside_patch_modified",
+          "patch_line_limit_exceeded",
+          "patch_size_exceeded",
+          "submission_unreadable"
+        ],
+        "retryable_unavailable": [
+          "anchor_digest_mismatch",
+          "anchor_size_exceeded",
+          "anchor_unavailable",
+          "checker_internal_error",
+          "contained_process_unavailable",
+          "policy_contract_mismatch",
+          "policy_unavailable",
+          "resource_memory_limit",
+          "resource_output_limit",
+          "resource_process_limit",
+          "resource_process_terminated",
+          "resource_wall_limit",
+          "scratch_root_required",
+          "scratch_root_unavailable",
+          "scratch_workspace_unavailable",
+          "task_binding_mismatch",
+          "task_contract_invalid",
+          "toolchain_identity_mismatch",
+          "toolchain_probe_failed",
+          "toolchain_unavailable"
+        ]
+      },
+      "cleanup-v1": {
+        "optionalFields": {},
+        "requiredFields": {
+          "cgroupLeafRemoved": "bool",
+          "cgroupPopulatedZero": "bool",
+          "childReaped": "bool",
+          "completedWithinDeadline": "bool",
+          "launcherPidfdAndNamespaceFdsClosed": "bool"
+        },
+        "successInvariant": "all-fields-true"
+      },
+      "resource-observations-v1": {
+        "optionalFields": {},
+        "requiredFields": {
+          "cpuUsageUsecDelta": "u64",
+          "memoryEventsHighDelta": "u64",
+          "memoryEventsLowDelta": "u64",
+          "memoryEventsMaxDelta": "u64",
+          "memoryEventsOomDelta": "u64",
+          "memoryEventsOomGroupKillDelta": "u64",
+          "memoryEventsOomKillDelta": "u64",
+          "outputLimitExceeded": "bool",
+          "pidsEventsMaxDelta": "u64"
+        }
+      },
+      "wait-status-v1": {
+        "invariant": "exited=>exitCode-only;signaled=>termSignal-only",
+        "optionalFields": {},
+        "requiredFields": {
+          "coreDumped": "bool",
+          "exitCode": "null-or-u8",
+          "kind": "enum:exited|signaled",
+          "termSignal": "null-or-u8"
+        }
+      }
+    },
+    "oneRequestPerConnection": true,
+    "operationIdBytes": 32,
+    "peerCredentialChecks": {
+      "launcherAcceptsGid": "resolved-boole-node-primary-gid-only",
+      "launcherAcceptsUid": "resolved-boole-node-uid-only",
+      "nodeAcceptsGid": 0,
+      "nodeAcceptsUid": 0,
+      "requirePeerPid": true,
+      "validateBeforeFirstFrame": true
+    },
+    "peerCredentials": "SO_PEERCRED",
+    "qualificationHandshake": {
+      "executeFrameActionUnderThisRelease": "protocol-error-close-without-report-or-spawn",
+      "launcherInstanceIdSource": "getrandom:32-bytes:no-fallback-at-launcher-startup",
+      "launcherReportAllowed": false,
+      "launcherSpawnAllowed": false,
+      "launcherSpawnAllowedMeaning": "no-untrusted-checker-or-execution-child",
+      "messageSequence": [
+        "node:qualification-hello",
+        "launcher:qualification-ready",
+        "node:shutdown-write",
+        "launcher:shutdown-write",
+        "mutual-eof"
+      ],
+      "nodeDurableStateChangeAllowed": false,
+      "preExecuteEofAction": "clean-close-without-report",
+      "requiredPolicyActivationAllowed": false,
+      "trustedIdentityProbeCommands": "exact-toolchain-identity-manifest-probes-only-before-socket-bind",
+      "trustedIdentityProbeSpawnAllowed": true
+    },
+    "qualificationHelloSchema": "boole.native-shadow.launcher.qualification-hello.v1",
+    "qualificationMessageBindingRules": [
+      "nonceHex-identical-across-qualification-hello-and-ready",
+      "executionPolicyDigestHex-identical-across-qualification-hello-ready-and-installed-policy",
+      "toolchainIdentityDigestHex-identical-across-qualification-hello-ready-and-installed-manifest",
+      "registryDigestHex-identical-across-qualification-hello-ready-and-installed-registry",
+      "qualification-ready-launcherPid-equals-node-observed-SO_PEERCRED-pid",
+      "all-qualification-ready-uid-gid-values-equal-startup-resolved-values"
+    ],
+    "qualificationReadySchema": "boole.native-shadow.launcher.qualification-ready.v1",
+    "readySchema": "boole.native-shadow.launcher.ready.v1",
+    "transport": "unix-stream"
+  },
+  "landlock": {
+    "executeAllow": [
+      "/bin",
+      "/lib",
+      "/usr/bin",
+      "/usr/lib",
+      "/opt/boole/native-checker-toolchain",
+      "workspace"
+    ],
+    "failureMode": "fail-closed",
+    "handledAccess": [
+      "execute",
+      "write_file",
+      "remove_dir",
+      "remove_file",
+      "make_char",
+      "make_dir",
+      "make_reg",
+      "make_sock",
+      "make_fifo",
+      "make_block",
+      "make_sym",
+      "refer",
+      "truncate"
+    ],
+    "minimumAbi": 3,
+    "readAccessRestricted": false,
+    "writeAllow": [
+      "workspace"
+    ]
+  },
+  "outcomeMapping": {
+    "authority": "boole-node",
+    "default": {
+      "consumeChallenge": false,
+      "outcome": "RetryableUnavailable",
+      "persistEvidence": false,
+      "reason": "containment_environment_unavailable"
+    },
+    "orderedRules": [
+      {
+        "outcome": "RetryableUnavailable",
+        "reason": "containment_environment_unavailable",
+        "when": "missing-malformed-binding-invalid-report-or-setup-failure-before-checker-exec"
+      },
+      {
+        "outcome": "RetryableUnavailable",
+        "reason": "containment_wall_clock_kill",
+        "when": "outer-timeout-or-valid-checker-resource_wall_limit"
+      },
+      {
+        "outcome": "RetryableUnavailable",
+        "reason": "containment_killed",
+        "when": "signaled-or-valid-checker-resource_process_terminated"
+      },
+      {
+        "outcome": "DeterministicReject",
+        "reason": "submission_resource_ceiling_breach",
+        "when": "valid-checker-resource_process_limit-and-pids-events-max-positive"
+      },
+      {
+        "outcome": "DeterministicReject",
+        "reason": "submission_resource_ceiling_breach",
+        "when": "valid-checker-resource_memory_limit-and-memory-events-max-positive"
+      },
+      {
+        "outcome": "DeterministicReject",
+        "reason": "checker_reported_reason_unconfirmed",
+        "when": "valid-checker-resource_process_limit-or-resource_memory_limit-without-matching-positive-counter"
+      },
+      {
+        "outcome": "ACCEPT",
+        "reason": "accepted",
+        "when": "valid-checker-accepted"
+      },
+      {
+        "outcome": "DeterministicReject",
+        "reason": "checker_rejected",
+        "when": "valid-checker-deterministic_reject"
+      },
+      {
+        "outcome": "RetryableUnavailable",
+        "reason": "checker_internal_error",
+        "when": "valid-checker-checker_internal_error"
+      },
+      {
+        "outcome": "RetryableUnavailable",
+        "reason": "containment_environment_unavailable",
+        "when": "any-other-valid-checker-retryable_unavailable"
+      }
+    ],
+    "retryableConsumesChallenge": false,
+    "retryablePersistsEvidence": false,
+    "terminalOutcomesConsumeChallenge": true,
+    "terminalOutcomesPersistEvidence": true
+  },
+  "platform": {
+    "architecture": "aarch64",
+    "cgroupVersion": 2,
+    "minimumLandlockAbi": 3,
+    "operatingSystem": "linux",
+    "systemdRequired": true
+  },
+  "privilege": {
+    "checkerCapabilities": [],
+    "failIfCapabilitySetDiffers": true,
+    "launcherCapabilitySets": {
+      "ambient": [],
+      "bounding": [
+        "CAP_SETGID",
+        "CAP_SETUID",
+        "CAP_SETPCAP",
+        "CAP_SYS_ADMIN"
+      ],
+      "effective": [
+        "CAP_SETGID",
+        "CAP_SETUID",
+        "CAP_SETPCAP",
+        "CAP_SYS_ADMIN"
+      ],
+      "inheritable": [],
+      "permitted": [
+        "CAP_SETGID",
+        "CAP_SETUID",
+        "CAP_SETPCAP",
+        "CAP_SYS_ADMIN"
+      ]
+    },
+    "launcherGroup": "root",
+    "launcherNoNewPrivileges": false,
+    "launcherUser": "root",
+    "noNewPrivileges": true,
+    "noNewPrivilegesScope": "checker-child-before-exec",
+    "nodeCapabilities": [],
+    "startupSelfCheckBeforeSocketBind": true,
+    "systemdUnit": {
+      "AmbientCapabilities": [],
+      "CapabilityBoundingSet": [
+        "CAP_SETGID",
+        "CAP_SETUID",
+        "CAP_SETPCAP",
+        "CAP_SYS_ADMIN"
+      ],
+      "Delegate": [
+        "cpu",
+        "memory",
+        "pids"
+      ],
+      "Group": "root",
+      "KillMode": "control-group",
+      "MemoryMax": "infinity",
+      "MemorySwapMax": "infinity",
+      "NoNewPrivileges": false,
+      "PrivateMounts": true,
+      "Restart": "on-failure",
+      "RestartSec": "1s",
+      "SendSIGKILL": true,
+      "Slice": "system.slice",
+      "StartLimitBurst": 3,
+      "StartLimitIntervalSec": "30s",
+      "TasksMax": "infinity",
+      "TimeoutStopSec": "20s",
+      "UMask": "0117",
+      "UnitName": "boole-native-shadow-launcher.service",
+      "User": "root"
+    }
+  },
+  "purpose": "non-activatable Linux/arm64 projection of the frozen native-shadow node/launcher containment policy",
+  "release": "NATIVE-SHADOW-EXECUTION-POLICY-ARM64-V1-QUALIFICATION",
+  "resourceLimits": {
+    "busyReason": "native_busy",
+    "cleanupDeadlineMillis": 10000,
+    "concurrency": 1,
+    "cpuLimitAction": "freeze-kill-at-or-above-limit",
+    "cpuMax": "max 100000",
+    "cpuTotalUsec": 120000000,
+    "cpuUsagePollMillis": 10,
+    "fileBytes": 67108864,
+    "finalCpuSampleBeforeReport": true,
+    "memoryMaxBytes": 2147483648,
+    "memoryOomGroup": true,
+    "memorySwapMaxBytes": 0,
+    "openFiles": 128,
+    "outerWallMillis": 100000,
+    "outputBytes": 1048576,
+    "pidsMax": 128
+  },
+  "schema": "boole.native-shadow.execution-policy.arm64.v1",
+  "seccomp": {
+    "defaultAction": "allow",
+    "deniedSyscalls": [
+      "accept",
+      "accept4",
+      "add_key",
+      "bind",
+      "bpf",
+      "connect",
+      "delete_module",
+      "finit_module",
+      "init_module",
+      "io_uring_setup",
+      "kexec_file_load",
+      "kexec_load",
+      "keyctl",
+      "listen",
+      "mount",
+      "name_to_handle_at",
+      "open_by_handle_at",
+      "perf_event_open",
+      "process_vm_readv",
+      "process_vm_writev",
+      "ptrace",
+      "reboot",
+      "recvfrom",
+      "recvmsg",
+      "request_key",
+      "sendmsg",
+      "sendto",
+      "setns",
+      "socket",
+      "socketpair",
+      "swapoff",
+      "swapon",
+      "umount2",
+      "unshare",
+      "userfaultfd"
+    ],
+    "denyAction": "errno:EACCES",
+    "failureMode": "fail-closed"
+  },
+  "spawn": {
+    "childIsPid1InNewPidNamespace": true,
+    "exitSignal": "SIGCHLD",
+    "fallback": "none-fail-before-child-without-report",
+    "flags": [
+      "CLONE_INTO_CGROUP",
+      "CLONE_NEWNS",
+      "CLONE_NEWPID",
+      "CLONE_PIDFD"
+    ],
+    "inheritedAuthorityFds": "sealed-read-only-memfds-only",
+    "operationIdCollisionAction": "fail-before-child",
+    "operationIdSource": "getrandom:32-bytes:no-fallback",
+    "preExecSequence": [
+      "clone3-into-leaf-cgroup-and-private-mount-pid-namespaces-with-pidfd",
+      "mount-root-recursive-private-then-private-proc-and-work-tmpfs",
+      "materialize-sealed-authority-memfds-and-verify-workspace-contract",
+      "close-authority-and-control-fds-except-stdio-and-setup-status-pipe",
+      "drop-supplementary-groups-uid-gid-capabilities-and-set-no-new-privileges",
+      "apply-node-owned-outer-rlimits",
+      "apply-seccomp-and-landlock",
+      "exec-checker-and-close-success-status-pipe-on-cloexec"
+    ],
+    "setupStatusChannel": "close-on-exec-error-record-pipe;eof-means-no-recorded-setup-error-not-proof-of-exec",
+    "syscall": "clone3"
+  },
+  "workspace": {
+    "authorityFiles": {
+      "anchor.rs": "root:boole-native-checker:0440",
+      "submission.rs": "root:boole-native-checker:0440",
+      "task.json": "root:boole-native-checker:0440"
+    },
+    "checkerTemporaryLayout": "/work/scratch/boole-native-check-*/{cargo-home,target,home,tmp,src}",
+    "filesystem": "tmpfs",
+    "group": "boole-native-checker",
+    "inodeLimit": 8192,
+    "mode": "2750",
+    "mountFlags": [
+      "nosuid",
+      "nodev"
+    ],
+    "mountPath": "/work",
+    "owner": "root",
+    "privateMountNamespace": true,
+    "privatePidNamespace": true,
+    "privateProcMountFlags": [
+      "nosuid",
+      "nodev",
+      "noexec"
+    ],
+    "scratchDirectory": "root:boole-native-checker:2770:initially-empty",
+    "sizeBytes": 536870912
+  }
+}
