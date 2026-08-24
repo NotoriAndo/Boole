@@ -17,6 +17,13 @@ thiserror.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock.workspace = true
+seccompiler.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
 [dev-dependencies]
 serde_json.workspace = true
 
@@ -26,5 +33,11 @@ workspace = true
 [[test]]
 name = "boole-native-shadow-manager-cgroup-linux"
 path = "tests/manager_cgroup_linux.rs"
+harness = false
+required-features = ["manager-cgroup-linux-gate"]
+
+[[test]]
+name = "boole-native-shadow-closed-local-replay-client-linux"
+path = "tests/closed_local_replay_client_linux.rs"
 harness = false
 required-features = ["manager-cgroup-linux-gate"]

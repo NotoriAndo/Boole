@@ -436,8 +436,12 @@ version = "0.1.0"
 dependencies = [
  "boole-native-shadow-protocol",
  "hex",
+ "landlock",
  "libc",
+ "seccompiler",
+ "serde",
  "serde_json",
+ "sha2",
  "thiserror 1.0.69",
 ]
 

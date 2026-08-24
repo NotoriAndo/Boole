@@ -3,8 +3,8 @@
   "release": "RUST-TUPLE-STRUCT-CHECKER-V1-QUALIFICATION",
   "familyVersion": "TUPLE-STRUCT-PROJECT/RUST-TUPLE-STRUCT-PROJECT-V1",
   "activationAllowed": false,
-  "checkerArtifactHash": "19a43dbab7592953bfdf880f7c93ee6a5e2dafdc93b1b436ef779daa8ef9fa5d",
-  "checkerSha256": "5a9d20421fd1f82a05f0c5ca902fca84c09b5f0350ca28788f3eb3793b6007e7",
+  "checkerArtifactHash": "fa3fea6534d505a8dcce5eca38ecc2c4a60c5173ff19a310dd82cfd797a11598",
+  "checkerSha256": "d17dca244628bb55f6fbbf799c71adcae3d548169ef0655ca27c8eb1f7ba95d7",
   "policySha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
   "toolchain": {
     "channel": "rust-lang-ci-e7795af6d2449fb05a6393c3320ced873a999eb3",

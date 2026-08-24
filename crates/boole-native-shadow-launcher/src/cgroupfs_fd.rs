@@ -51,6 +51,35 @@ pub(crate) struct RecoveryLeaf {
     identity: DirectoryIdentity,
 }
 
+#[allow(dead_code)] // Becomes live when the active-execution service is wired.
+#[derive(Debug)]
+pub(crate) struct ExecutionLeaf {
+    directory: CgroupDirectory,
+    basename: String,
+    identity: DirectoryIdentity,
+}
+
+#[allow(dead_code)]
+impl ExecutionLeaf {
+    pub(crate) fn raw_fd(&self) -> std::os::fd::RawFd {
+        self.directory.file.as_raw_fd()
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ExecutionResourceSnapshot {
+    pub(crate) cpu_usage_usec: u64,
+    pub(crate) memory_peak_bytes: u64,
+    pub(crate) memory_events_low: u64,
+    pub(crate) memory_events_high: u64,
+    pub(crate) memory_events_max: u64,
+    pub(crate) memory_events_oom: u64,
+    pub(crate) memory_events_oom_kill: u64,
+    pub(crate) memory_events_oom_group_kill: u64,
+    pub(crate) pids_events_max: u64,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct DirectoryIdentity {
     device: libc::dev_t,
@@ -199,6 +228,212 @@ pub(crate) fn verify_manager_after_move(manager: &CgroupDirectory) -> Result<(),
 pub(crate) fn verify_manager_descriptor(manager: &CgroupDirectory) -> Result<(), CgroupFsError> {
     require_cgroup2fs(&manager.file)?;
     require_manager_metadata(&manager.file)
+}
+
+#[allow(dead_code, unsafe_code)]
+pub(crate) fn create_execution_leaf(
+    root: &CgroupDirectory,
+    basename: &str,
+) -> Result<ExecutionLeaf, CgroupFsError> {
+    if !is_exact_run_leaf_name(basename) {
+        return Err(unsafe_state(
+            "execution leaf basename is not exact run-<operationId>",
+        ));
+    }
+    let basename_c =
+        CString::new(basename).map_err(|_| unsafe_state("execution leaf basename contains NUL"))?;
+    // SAFETY: `root` is a live descriptor and `basename_c` is one validated,
+    // NUL-terminated direct-child component.
+    if unsafe { libc::mkdirat(root.file.as_raw_fd(), basename_c.as_ptr(), 0o700) } != 0 {
+        return Err(io_error(
+            "create execution cgroup leaf",
+            io::Error::last_os_error(),
+        ));
+    }
+
+    let result = (|| {
+        let file = open_directory_child(&root.file, basename, "open execution cgroup leaf")?;
+        set_directory_mode(&file, 0o700)?;
+        require_root_directory_metadata(&file, 0o700, "execution cgroup leaf")?;
+        require_cgroup2fs(&file)?;
+        let directory = CgroupDirectory { file };
+        require_exact_domain_type(&read_control(&directory, "cgroup.type")?)?;
+        require_empty_subtree_control(&read_control(&directory, "cgroup.subtree_control")?)?;
+        require_no_child_cgroups(&directory, "execution leaf has nested cgroups")?;
+        require_empty_id_file(&directory, "cgroup.procs")?;
+        require_empty_id_file(&directory, "cgroup.threads")?;
+        let events = read_control(&directory, "cgroup.events")?;
+        if require_binary_event(&events, "populated")? != 0
+            || require_binary_event(&events, "frozen")? != 0
+        {
+            return Err(unsafe_state("new execution leaf is populated or frozen"));
+        }
+        let identity = descriptor_identity(&directory.file, "identify execution cgroup leaf")?;
+        Ok(ExecutionLeaf {
+            directory,
+            basename: basename.to_string(),
+            identity,
+        })
+    })();
+
+    if result.is_err() {
+        // No process can enter before clone3, so direct removal is the only
+        // safe rollback for a partially configured new leaf.
+        // SAFETY: the name remains the exact direct child created above.
+        let _ = unsafe {
+            libc::unlinkat(
+                root.file.as_raw_fd(),
+                basename_c.as_ptr(),
+                libc::AT_REMOVEDIR,
+            )
+        };
+    }
+    result
+}
+
+#[allow(dead_code)]
+pub(crate) fn apply_execution_leaf_limits(leaf: &ExecutionLeaf) -> Result<(), CgroupFsError> {
+    for (name, value) in [
+        ("pids.max", "128\n"),
+        ("memory.max", "2147483648\n"),
+        ("memory.swap.max", "0\n"),
+        ("memory.oom.group", "1\n"),
+        ("cpu.max", "max 100000\n"),
+    ] {
+        write_control(&leaf.directory, name, value)?;
+    }
+    for (name, expected) in [
+        ("pids.max", "128"),
+        ("memory.max", "2147483648"),
+        ("memory.swap.max", "0"),
+        ("memory.oom.group", "1"),
+        ("cpu.max", "max 100000"),
+    ] {
+        if read_control(&leaf.directory, name)?.trim() != expected {
+            return Err(unsafe_state(format!(
+                "execution leaf {name} readback mismatch"
+            )));
+        }
+    }
+    drop(open_control(
+        &leaf.directory.file,
+        "cgroup.freeze",
+        libc::O_WRONLY,
+    )?);
+    drop(open_control(
+        &leaf.directory.file,
+        "cgroup.kill",
+        libc::O_WRONLY,
+    )?);
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub(crate) fn read_execution_resources(
+    leaf: &ExecutionLeaf,
+) -> Result<ExecutionResourceSnapshot, CgroupFsError> {
+    let cpu = read_control(&leaf.directory, "cpu.stat")?;
+    let memory = read_control(&leaf.directory, "memory.events")?;
+    let pids = read_control(&leaf.directory, "pids.events")?;
+    let memory_peak_bytes = read_control(&leaf.directory, "memory.peak")?
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| unsafe_state("memory.peak is malformed"))?;
+    Ok(ExecutionResourceSnapshot {
+        cpu_usage_usec: parse_required_counter(&cpu, "usage_usec")?,
+        memory_peak_bytes,
+        memory_events_low: parse_required_counter(&memory, "low")?,
+        memory_events_high: parse_required_counter(&memory, "high")?,
+        memory_events_max: parse_required_counter(&memory, "max")?,
+        memory_events_oom: parse_required_counter(&memory, "oom")?,
+        memory_events_oom_kill: parse_required_counter(&memory, "oom_kill")?,
+        memory_events_oom_group_kill: parse_required_counter(&memory, "oom_group_kill")?,
+        pids_events_max: parse_required_counter(&pids, "max")?,
+    })
+}
+
+#[allow(dead_code)]
+pub(crate) fn freeze_execution_leaf(leaf: &ExecutionLeaf) -> Result<(), CgroupFsError> {
+    write_control(&leaf.directory, "cgroup.freeze", "1\n")
+}
+
+#[allow(dead_code)]
+pub(crate) fn kill_execution_leaf(leaf: &ExecutionLeaf) -> Result<(), CgroupFsError> {
+    write_control(&leaf.directory, "cgroup.kill", "1\n")
+}
+
+#[allow(dead_code)]
+pub(crate) fn wait_execution_leaf_event(
+    leaf: &ExecutionLeaf,
+    key: &'static str,
+    expected: u64,
+    deadline: std::time::Instant,
+) -> Result<(), CgroupFsError> {
+    const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(5);
+    loop {
+        if std::time::Instant::now() >= deadline {
+            return Err(CgroupFsError::DeadlineExceeded);
+        }
+        let observed =
+            parse_required_counter(&read_control(&leaf.directory, "cgroup.events")?, key)?;
+        if observed == expected {
+            return Ok(());
+        }
+        std::thread::sleep(
+            POLL_INTERVAL.min(deadline.saturating_duration_since(std::time::Instant::now())),
+        );
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn read_execution_leaf_event(
+    leaf: &ExecutionLeaf,
+    key: &'static str,
+) -> Result<u64, CgroupFsError> {
+    require_binary_event(&read_control(&leaf.directory, "cgroup.events")?, key)
+}
+
+#[allow(dead_code)]
+pub(crate) fn verify_execution_leaf_ids_empty(leaf: &ExecutionLeaf) -> Result<(), CgroupFsError> {
+    require_empty_id_file(&leaf.directory, "cgroup.procs")?;
+    require_empty_id_file(&leaf.directory, "cgroup.threads")
+}
+
+#[allow(unsafe_code)]
+#[allow(dead_code)]
+pub(crate) fn remove_execution_leaf(
+    root: &CgroupDirectory,
+    leaf: ExecutionLeaf,
+) -> Result<(), CgroupFsError> {
+    let basename = CString::new(leaf.basename.as_str())
+        .map_err(|_| unsafe_state("execution leaf basename contains NUL"))?;
+    if child_identity(&root.file, &basename)? != leaf.identity {
+        return Err(unsafe_state(
+            "execution leaf identity changed before removal",
+        ));
+    }
+    // SAFETY: the validated descriptor and identity remain live through the
+    // direct-child removal.
+    if unsafe { libc::unlinkat(root.file.as_raw_fd(), basename.as_ptr(), libc::AT_REMOVEDIR) } != 0
+    {
+        return Err(io_error(
+            "remove execution cgroup leaf",
+            io::Error::last_os_error(),
+        ));
+    }
+    drop(leaf);
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn is_exact_run_leaf_name(value: &str) -> bool {
+    let Some(payload) = value.strip_prefix("run-") else {
+        return false;
+    };
+    payload.len() == 64
+        && payload
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 pub(crate) fn scan_service_child_cgroups(
@@ -479,6 +714,33 @@ fn require_manager_metadata(file: &File) -> Result<(), CgroupFsError> {
     if stat.st_uid != 0 || stat.st_gid != 0 || mode != MANAGER_DIRECTORY_MODE {
         return Err(unsafe_state(format!(
             "manager cgroup metadata differs: expected uid=0 gid=0 mode={MANAGER_DIRECTORY_MODE:#05o}, actual uid={} gid={} mode={mode:#05o}",
+            stat.st_uid, stat.st_gid
+        )));
+    }
+    Ok(())
+}
+
+#[allow(unsafe_code)]
+#[allow(dead_code)]
+fn require_root_directory_metadata(
+    file: &File,
+    required_mode: libc::mode_t,
+    label: &'static str,
+) -> Result<(), CgroupFsError> {
+    let mut stat = MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `stat` is writable output storage and `file` remains live.
+    if unsafe { libc::fstat(file.as_raw_fd(), stat.as_mut_ptr()) } != 0 {
+        return Err(io_error(
+            "verify cgroup directory metadata",
+            io::Error::last_os_error(),
+        ));
+    }
+    // SAFETY: successful `fstat` initialized the structure.
+    let stat = unsafe { stat.assume_init() };
+    let mode = stat.st_mode & 0o7777;
+    if stat.st_uid != 0 || stat.st_gid != 0 || mode != required_mode {
+        return Err(unsafe_state(format!(
+            "{label} metadata differs: expected uid=0 gid=0 mode={required_mode:#05o}, actual uid={} gid={} mode={mode:#05o}",
             stat.st_uid, stat.st_gid
         )));
     }

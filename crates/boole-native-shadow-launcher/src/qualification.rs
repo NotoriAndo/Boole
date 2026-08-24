@@ -9,11 +9,11 @@ use thiserror::Error;
 
 use crate::toolchain_compatibility::VerifiedStartupToolchainCompatibility;
 
-mod listener;
+pub(crate) mod listener;
 pub use listener::{serve_one_fixed_unix_qualification, FixedQualificationListenerError};
 
 #[cfg(target_os = "linux")]
-mod unix;
+pub(crate) mod unix;
 
 mod private {
     pub trait Sealed {}
@@ -33,6 +33,13 @@ pub struct NodePeerCredentials {
     pid: u32,
     uid: u32,
     gid: u32,
+}
+
+impl NodePeerCredentials {
+    #[cfg(target_os = "linux")]
+    pub(crate) fn pid(self) -> u32 {
+        self.pid
+    }
 }
 
 /// Opaque proof that launcher startup authority, identities and recovery were
@@ -188,9 +195,19 @@ pub enum QualificationServerError {
 /// The owned session is never returned, so a failed connection cannot be
 /// reused. Success yields no route, execution or activation capability.
 pub fn serve_request_free_qualification<S>(
-    mut session: S,
+    session: S,
     startup: &VerifiedQualificationStartup,
 ) -> Result<(), QualificationServerError>
+where
+    S: QualificationSession,
+{
+    serve_request_free_qualification_and_capture_peer(session, startup).map(|_| ())
+}
+
+pub(crate) fn serve_request_free_qualification_and_capture_peer<S>(
+    mut session: S,
+    startup: &VerifiedQualificationStartup,
+) -> Result<NodePeerCredentials, QualificationServerError>
 where
     S: QualificationSession,
 {
@@ -250,7 +267,7 @@ where
     session
         .shutdown_write()
         .map_err(|error| QualificationServerError::ShutdownWrite(error.to_string()))?;
-    Ok(())
+    Ok(peer)
 }
 
 fn require_binding(
@@ -279,8 +296,10 @@ mod tests {
     };
 
     use super::{
-        private, serve_request_free_qualification, NodePeerCredentials, QualificationServerError,
-        QualificationSession, QualificationStartupGuard, VerifiedQualificationStartup,
+        private, serve_request_free_qualification,
+        serve_request_free_qualification_and_capture_peer, NodePeerCredentials,
+        QualificationServerError, QualificationSession, QualificationStartupGuard,
+        VerifiedQualificationStartup,
     };
 
     const NODE_UID: u32 = 20_001;
@@ -472,7 +491,9 @@ mod tests {
         let startup = startup();
         let (session, observation) = MockSession::new(valid_hello(&startup));
 
-        serve_request_free_qualification(session, &startup).expect("qualification succeeds");
+        let qualified_peer = serve_request_free_qualification_and_capture_peer(session, &startup)
+            .expect("qualification succeeds");
+        assert_eq!(qualified_peer, trusted_peer());
 
         let observation = observation.borrow();
         assert_eq!(

@@ -152,6 +152,17 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
 
     def test_clean_linux_rootfs_replay_binds_networked_acquisition_to_offline_probe(self):
         body = PORTABLE_ROOTFS_REPLAY_GATE.read_text(encoding="utf-8")
+        manager = (
+            REPO_ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+        replay_client = (
+            REPO_ROOT
+            / "crates/boole-native-shadow-launcher/tests/closed_local_replay_client_linux.rs"
+        ).read_text(encoding="utf-8")
+        active_execution = (
+            REPO_ROOT
+            / "crates/boole-native-shadow-launcher/src/active_execution/mod.rs"
+        ).read_text(encoding="utf-8")
         for command in (
             "native_shadow_rootfs_acquire.py",
             "native_shadow_rootfs_portable_v2.py",
@@ -167,12 +178,26 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "PrivateNetwork=yes",
             "native_shadow_rootfs_oci_verify.py",
             "verify-output",
-            "accepted.rs",
-            "tampered.rs",
             "chroot",
             "x86_64-linux-gnu-gcc-13",
+            "native-shadow-manager-cgroup-gate.sh",
+            "--closed-local-replay-rootfs",
         ):
             self.assertIn(required, body)
+        for required in (
+            "replay-accepted.raw.txt",
+            "replay-tampered.raw.txt",
+            "replay-constant.raw.txt",
+        ):
+            self.assertIn(required, replay_client)
+        for required in (
+            "runtime rootfs replay identity drifted",
+            "launcher_connections=4:qualification_connections=1:"
+            "checker_connections=3:empty_connections=0",
+            "[[ ${#peer_pids[@]} -eq 3 ]]",
+        ):
+            self.assertIn(required, manager)
+        self.assertIn("native-shadow-active-execution-peer:pid={}", active_execution)
         for forbidden in ("continue-on-error", "|| true", "SKIP"):
             self.assertNotIn(forbidden, body)
 
@@ -581,6 +606,23 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             re.compile(r"(?:chmod|chown|install[^\n]*)\s+[^\n]*/usr/share(?:\s|/|$)"),
             "the gate must not mutate host /usr/share metadata or contents",
         )
+
+    def test_launcher_gates_install_the_exact_local_execution_authority(self):
+        expected = (
+            "native/containment/native-shadow-local-execution-authority-v1.json "
+            "local-execution-authority-v1.json"
+        )
+        for gate in (
+            LAUNCHER_PRELOCK_GATE,
+            REPO_ROOT / "scripts" / "native-shadow-manager-cgroup-gate.sh",
+        ):
+            body = gate.read_text(encoding="utf-8")
+            self.assertIn(
+                expected,
+                body,
+                f"{gate.name} must stage the exact successor authority beside the "
+                "three frozen v1 authority files",
+            )
 
     def test_launcher_prelock_gate_calls_the_production_instance_identity_path(self):
         body = LAUNCHER_PRELOCK_GATE.read_text(encoding="utf-8")

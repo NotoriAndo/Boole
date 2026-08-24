@@ -6,10 +6,31 @@ die() {
   exit 1
 }
 
+closed_local_replay_only=false
+closed_local_replay_rootfs=''
+closed_local_replay_manifest=''
+if [[ $# -eq 3 && $1 == --closed-local-replay-rootfs ]]; then
+  closed_local_replay_only=true
+  closed_local_replay_rootfs=$(readlink -f -- "$2")
+  closed_local_replay_manifest=$(readlink -f -- "$3")
+  [[ -d "$closed_local_replay_rootfs" && ! -L "$2" ]] \
+    || die "closed-local replay rootfs is not one exact nonsymlink directory"
+  [[ -f "$closed_local_replay_manifest" && ! -L "$3" ]] \
+    || die "closed-local replay manifest is not one exact nonsymlink file"
+  for replay_path in "$closed_local_replay_rootfs" "$closed_local_replay_manifest"; do
+    [[ "$replay_path" == /tmp/boole-native-shadow-rootfs-replay.*/* ]] \
+      || die "closed-local replay input is outside the gate-owned scratch tree: $replay_path"
+    [[ "$replay_path" != *:* && "$replay_path" != *$'\n'* ]] \
+      || die "closed-local replay input cannot be represented safely in the systemd drop-in"
+  done
+elif [[ $# -ne 0 ]]; then
+  die "usage: $0 [--closed-local-replay-rootfs ROOTFS CONTENT_MANIFEST]"
+fi
+
 [[ $(uname -s) == Linux ]] || die "this gate requires Linux"
 [[ ${EUID} -ne 0 ]] || die "build phase must run as the unprivileged CI user"
-for command_name in awk cargo find getent grep install journalctl paste python3 readlink sed \
-  sha256sum sort stat systemctl systemd-run systemd-tmpfiles tee tr; do
+for command_name in awk cargo cp find findmnt getent grep install journalctl paste python3 readlink sed \
+  sha256sum sort stat systemctl systemd-run systemd-tmpfiles tee timeout tr; do
   command -v "$command_name" >/dev/null || die "missing command: $command_name"
 done
 [[ $(cat /proc/1/comm) == systemd ]] || die "PID 1 is not systemd"
@@ -22,10 +43,13 @@ unit_dropin_path="$unit_dropin_directory/10-manager-gate-authority.conf"
 launcher_directory=/usr/libexec/boole
 launcher_path=$launcher_directory/boole-native-shadow-launcher
 node_qualification_path=$launcher_directory/boole-native-shadow-node-qualification
+node_replay_client_path=$launcher_directory/boole-native-shadow-node-replay-client
 authority_stage=''
 authority_share=''
 authority_parent=''
 authority_directory=''
+checker_directory=''
+fixture_directory=''
 toolchain_parent=/opt/boole
 toolchain_prefix=$toolchain_parent/native-checker-toolchain
 toolchain_stage=''
@@ -33,6 +57,7 @@ opt_original_mode=''
 runtime_parent=/run/boole
 runtime_directory=$runtime_parent/native-shadow
 socket_path="$runtime_directory/launcher.sock"
+fixed_socket_wait_attempts=2400
 mode_path=$runtime_directory/manager-cgroup-gate-mode
 recovery_release_path=$runtime_directory/startup-recovery-release
 service_root=/sys/fs/cgroup/system.slice/$unit_name
@@ -40,10 +65,15 @@ manager_root=$service_root/manager
 temp_root=${RUNNER_TEMP:-/tmp}
 build_json=$(mktemp "$temp_root/boole-native-shadow-manager-build.XXXXXX")
 node_build_json=$(mktemp "$temp_root/boole-native-shadow-node-build.XXXXXX")
+replay_client_build_json=$(mktemp "$temp_root/boole-native-shadow-replay-client-build.XXXXXX")
 log=$(mktemp "$temp_root/boole-native-shadow-manager.XXXXXX")
 node_log=$(mktemp "$temp_root/boole-native-shadow-node.XXXXXX")
+replay_client_log=$(mktemp "$temp_root/boole-native-shadow-replay-client.XXXXXX")
 dropin_source=$(mktemp "$temp_root/boole-native-shadow-manager-dropin.XXXXXX")
 node_unit=''
+work_path=/work
+mutation_backup=''
+mutation_target=''
 
 launcher_directory_created=false
 runtime_parent_created=false
@@ -53,13 +83,21 @@ unit_dropin_directory_created=false
 unit_dropin_installed=false
 launcher_installed=false
 node_qualification_installed=false
+node_replay_client_installed=false
 toolchain_parent_created=false
 toolchain_installed=false
 opt_mode_changed=false
+checker_installed=false
+fixture_installed=false
+work_created=false
 declare -a installed_authorities=()
 
 cleanup_gate() {
   set +e
+  if [[ -n "$mutation_backup" && -n "$mutation_target" && -f "$mutation_backup" ]]; then
+    sudo cp --preserve=all "$mutation_backup" "$mutation_target" >/dev/null 2>&1 || :
+  fi
+  [[ -z "$mutation_backup" ]] || sudo rm -f "$mutation_backup"
   if [[ -n "$node_unit" ]]; then
     sudo systemctl stop "${node_unit}.service" >/dev/null 2>&1 || :
     sudo systemctl reset-failed "${node_unit}.service" >/dev/null 2>&1 || :
@@ -75,9 +113,23 @@ cleanup_gate() {
   fi
   [[ "$launcher_installed" == true ]] && sudo rm -f "$launcher_path"
   [[ "$node_qualification_installed" == true ]] && sudo rm -f "$node_qualification_path"
+  [[ "$node_replay_client_installed" == true ]] && sudo rm -f "$node_replay_client_path"
   [[ "$toolchain_installed" == true ]] && sudo rm -rf "$toolchain_prefix"
   [[ "$toolchain_parent_created" == true ]] && sudo rmdir "$toolchain_parent" >/dev/null 2>&1 || :
   [[ "$opt_mode_changed" == true ]] && sudo chmod "$opt_original_mode" /opt
+  if [[ "$checker_installed" == true ]]; then
+    sudo rm -f \
+      "$checker_directory/checker.py" \
+      "$checker_directory/policy.json" \
+      "$checker_directory/RELEASE-MANIFEST.json"
+    sudo rmdir "$checker_directory" >/dev/null 2>&1 || :
+    sudo rmdir "$(dirname "$checker_directory")" >/dev/null 2>&1 || :
+  fi
+  if [[ "$fixture_installed" == true ]]; then
+    sudo rm -f "$fixture_directory/task.json" "$fixture_directory/anchor.rs"
+    sudo rmdir "$fixture_directory" >/dev/null 2>&1 || :
+    sudo rmdir "$(dirname "$fixture_directory")" >/dev/null 2>&1 || :
+  fi
   local basename
   for basename in "${installed_authorities[@]}"; do
     sudo rm -f "$authority_directory/$basename"
@@ -88,6 +140,7 @@ cleanup_gate() {
   [[ "$runtime_directory_created" == true ]] && sudo rm -f "$runtime_directory/launcher.lock"
   [[ "$runtime_directory_created" == true ]] && sudo rmdir "$runtime_directory" >/dev/null 2>&1 || :
   [[ "$runtime_parent_created" == true ]] && sudo rmdir "$runtime_parent" >/dev/null 2>&1 || :
+  [[ "$work_created" == true ]] && sudo rmdir "$work_path" >/dev/null 2>&1 || :
   if [[ -n "$authority_stage" ]]; then
     sudo rmdir "$authority_directory" >/dev/null 2>&1 || :
     sudo rmdir "$authority_parent" >/dev/null 2>&1 || :
@@ -96,7 +149,8 @@ cleanup_gate() {
   fi
   [[ "$launcher_directory_created" == true ]] && sudo rmdir "$launcher_directory" >/dev/null 2>&1 || :
   [[ -z "$toolchain_stage" ]] || rm -rf "$toolchain_stage"
-  rm -f "$build_json" "$node_build_json" "$log" "$node_log" "$dropin_source"
+  rm -f "$build_json" "$node_build_json" "$replay_client_build_json" \
+    "$log" "$node_log" "$replay_client_log" "$dropin_source"
 }
 trap cleanup_gate EXIT
 
@@ -110,9 +164,16 @@ load_state=$(systemctl show "$unit_name" --property=LoadState --value 2>/dev/nul
   || die "refusing to shadow pre-existing loaded unit: $unit_name ($load_state)"
 
 for path in "$unit_path" "$unit_dropin_directory" "$launcher_path" \
-  "$node_qualification_path" "$runtime_directory" "$service_root" "$toolchain_prefix"; do
+  "$node_qualification_path" "$node_replay_client_path" "$runtime_directory" \
+  "$service_root" "$toolchain_prefix"; do
   [[ ! -e "$path" && ! -L "$path" ]] || die "refusing to replace pre-existing path: $path"
 done
+
+BOOLE_NATIVE_SHADOW_SECCOMP_SPAWN_PROBE=1 \
+  cargo test --locked -p boole-native-shadow-launcher \
+    --features manager-cgroup-linux-gate --lib \
+    seccomp_preserves_the_rust_process_spawn_control_channel -- \
+    --nocapture --test-threads=1
 
 cargo test --locked -p boole-native-shadow-launcher \
   --features manager-cgroup-linux-gate \
@@ -164,6 +225,31 @@ for line in open(sys.argv[1], encoding="utf-8"):
 node_qualification_source=${node_executables[0]}
 [[ -x "$node_qualification_source" ]] || die "boole-node qualification test is not executable"
 
+cargo test --locked -p boole-native-shadow-launcher \
+  --features manager-cgroup-linux-gate \
+  --test boole-native-shadow-closed-local-replay-client-linux \
+  --no-run --message-format=json >"$replay_client_build_json"
+
+mapfile -t replay_client_executables < <(
+  python3 -c '
+import json
+import sys
+
+for line in open(sys.argv[1], encoding="utf-8"):
+    item = json.loads(line)
+    if (
+        item.get("reason") == "compiler-artifact"
+        and item.get("target", {}).get("name") == "boole-native-shadow-closed-local-replay-client-linux"
+        and item.get("executable")
+    ):
+        print(item["executable"])
+' "$replay_client_build_json"
+)
+[[ ${#replay_client_executables[@]} -eq 1 ]] \
+  || die "expected one closed-local replay client, got ${#replay_client_executables[@]}"
+node_replay_client_source=${replay_client_executables[0]}
+[[ -x "$node_replay_client_source" ]] || die "closed-local replay client is not executable"
+
 toolchain_stage=$(mktemp -d "$temp_root/boole-native-shadow-toolchain.XXXXXX")
 ./scripts/install-native-checker-toolchain.sh "$toolchain_stage"
 [[ $(stat -c %U:%G /opt) == root:root ]] \
@@ -206,6 +292,9 @@ launcher_installed=true
 sudo install -o root -g root -m 0755 \
   "$node_qualification_source" "$node_qualification_path"
 node_qualification_installed=true
+sudo install -o root -g root -m 0755 \
+  "$node_replay_client_source" "$node_replay_client_path"
+node_replay_client_installed=true
 [[ $(sha256sum "$harness" | awk '{ print $1 }') == $(sudo sha256sum "$launcher_path" | awk '{ print $1 }') ]] \
   || die "installed launcher bytes differ from reviewed harness"
 [[ $(sudo stat -c %U:%G:%a "$launcher_path") == root:root:755 ]] \
@@ -214,11 +303,17 @@ node_qualification_installed=true
   || die "installed boole-node qualification bytes differ from the reviewed test binary"
 [[ $(sudo stat -c %U:%G:%a "$node_qualification_path") == root:root:755 ]] \
   || die "installed boole-node qualification metadata does not match root:root:755"
+[[ $(sha256sum "$node_replay_client_source" | awk '{ print $1 }') == $(sudo sha256sum "$node_replay_client_path" | awk '{ print $1 }') ]] \
+  || die "installed closed-local replay client bytes differ from the reviewed binary"
+[[ $(sudo stat -c %U:%G:%a "$node_replay_client_path") == root:root:755 ]] \
+  || die "installed closed-local replay client metadata does not match root:root:755"
 
 authority_stage=$(sudo mktemp -d /run/boole-native-shadow-manager-authority.XXXXXX)
 authority_share="$authority_stage/share"
 authority_parent="$authority_share/boole"
 authority_directory="$authority_parent/native-shadow"
+checker_directory="$authority_directory/checkers/rust-tuple-struct-project-v1"
+fixture_directory="$authority_directory/fixtures/a-rooted-native-mining-e2e-v1-real-history"
 sudo chmod 0700 "$authority_stage"
 sudo install -d -o root -g root -m 0755 "$authority_share"
 sudo install -d -o root -g root -m 0755 "$authority_parent"
@@ -235,6 +330,48 @@ install_authority() {
 install_authority fixtures/native-shadow/registry-v1.json registry-v1.json
 install_authority native/containment/native-shadow-execution-policy-v1.json execution-policy-v1.json
 install_authority native/containment/native-shadow-toolchain-identity-v1.json toolchain-identity-v1.json
+install_authority native/containment/native-shadow-local-execution-authority-v1.json local-execution-authority-v1.json
+install_authority native/containment/native-shadow-closed-local-replay-grant-v1.json closed-local-replay-grant-v1.json
+install_authority native/containment/native-shadow-closed-local-replay-registry-overlay-v1.json closed-local-replay-registry-overlay-v1.json
+install_authority native/containment/native-shadow-closed-local-replay-execution-authority-v1.json closed-local-replay-execution-authority-v1.json
+sudo install -d -o root -g root -m 0555 "$(dirname "$checker_directory")"
+sudo install -d -o root -g root -m 0555 "$checker_directory"
+checker_installed=true
+sudo install -o root -g root -m 0444 \
+  native/checker/rust-tuple-struct-project-v1/checker.py "$checker_directory/checker.py"
+sudo install -o root -g root -m 0444 \
+  native/checker/rust-tuple-struct-project-v1/policy.json "$checker_directory/policy.json"
+sudo install -o root -g root -m 0444 \
+  native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json \
+  "$checker_directory/RELEASE-MANIFEST.json"
+[[ $(sha256sum native/checker/rust-tuple-struct-project-v1/checker.py | awk '{ print $1 }') == $(sudo sha256sum "$checker_directory/checker.py" | awk '{ print $1 }') ]] \
+  || die "installed checker bytes differ"
+[[ $(sha256sum native/checker/rust-tuple-struct-project-v1/policy.json | awk '{ print $1 }') == $(sudo sha256sum "$checker_directory/policy.json" | awk '{ print $1 }') ]] \
+  || die "installed checker policy bytes differ"
+[[ $(sha256sum native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json | awk '{ print $1 }') == $(sudo sha256sum "$checker_directory/RELEASE-MANIFEST.json" | awk '{ print $1 }') ]] \
+  || die "installed checker release manifest bytes differ"
+sudo install -d -o root -g root -m 0555 "$(dirname "$fixture_directory")"
+sudo install -d -o root -g root -m 0555 "$fixture_directory"
+fixture_installed=true
+sudo install -o root -g root -m 0444 \
+  fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/task.json \
+  "$fixture_directory/task.json"
+sudo install -o root -g root -m 0444 \
+  fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/anchor.rs \
+  "$fixture_directory/anchor.rs"
+for fixture_name in task.json anchor.rs; do
+  [[ $(sha256sum "fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/$fixture_name" | awk '{ print $1 }') == $(sudo sha256sum "$fixture_directory/$fixture_name" | awk '{ print $1 }') ]] \
+    || die "installed replay fixture differs: $fixture_name"
+done
+
+if [[ ! -e "$work_path" && ! -L "$work_path" ]]; then
+  sudo install -d -o root -g root -m 0555 "$work_path"
+  work_created=true
+fi
+[[ -d "$work_path" && ! -L "$work_path" ]] \
+  || die "fixed workspace mountpoint is not a nonsymlink directory"
+[[ $(sudo stat -c %U:%G:%a "$work_path") == root:root:555 ]] \
+  || die "fixed workspace mountpoint does not match root:root:0555"
 
 if [[ ! -d "$runtime_parent" ]]; then
   runtime_parent_created=true
@@ -255,6 +392,10 @@ unit_installed=true
 sudo install -d -o root -g root -m 0755 "$unit_dropin_directory"
 unit_dropin_directory_created=true
 expected_dropin=$'[Service]\n'"BindReadOnlyPaths=${authority_share}:/usr/share"
+if [[ "$closed_local_replay_only" == true ]]; then
+  expected_dropin+=$'\n'"BindReadOnlyPaths=${closed_local_replay_rootfs}:/var/lib/boole/native-shadow/runtime-rootfs"
+  expected_dropin+=$'\n'"BindReadOnlyPaths=${closed_local_replay_manifest}:/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json"
+fi
 printf '%s\n' "$expected_dropin" >"$dropin_source"
 unit_dropin_installed=true
 sudo install -o root -g root -m 0644 "$dropin_source" "$unit_dropin_path"
@@ -339,8 +480,12 @@ assert_manager_invariants() {
     || die "manager cgroup does not contain exactly the MainPID process"
   [[ "$manager_tid" == "$pid" ]] \
     || die "manager cgroup does not contain exactly the MainPID thread"
-  [[ $(sudo stat -c %U:%G:%a "$manager_root") == root:root:700 ]] \
-    || die "manager cgroup metadata does not match root:root:700"
+  local manager_metadata
+  manager_metadata=$(sudo stat -c %U:%G:%a "$manager_root" 2>/dev/null || :)
+  if [[ "$manager_metadata" != root:root:700 ]]; then
+    sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :
+    die "manager cgroup metadata does not match root:root:700: $manager_metadata"
+  fi
   [[ -z $(sudo cat "$manager_root/cgroup.subtree_control" | tr -d '[:space:]') ]] \
     || die "manager cgroup has residual subtree controllers"
   [[ $(sudo cat "$manager_root/cgroup.type" | tr -d '[:space:]') == domain ]] \
@@ -412,7 +557,7 @@ wait_for_marker_increment() {
 wait_for_fixed_socket() {
   local metadata=''
   local i
-  for ((i = 0; i < 200; i++)); do
+  for ((i = 0; i < fixed_socket_wait_attempts; i++)); do
     if sudo test -S "$socket_path"; then
       metadata=$(sudo stat -c %U:%G:%a "$socket_path")
       [[ "$metadata" == root:boole-node:660 ]] \
@@ -425,6 +570,8 @@ wait_for_fixed_socket() {
     fi
     sleep 0.05
   done
+  sudo systemctl show "$unit_name" --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :
+  sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :
   die "fixed qualification socket did not appear"
 }
 
@@ -540,6 +687,297 @@ run_expected_rejection() {
   wait_for_marker_increment "$marker" "$marker_count_before"
   wait_for_cgroup_removal
 }
+
+run_containment_layer_diagnostics() {
+  local suffix
+  suffix=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$
+  suffix=${suffix//[^a-zA-Z0-9-]/-}
+  local -a diagnostic_modes=(
+    closed-local-replay-diagnostic-full
+    closed-local-replay-diagnostic-without-landlock
+    closed-local-replay-diagnostic-without-seccomp
+  )
+  local diagnostic_mode
+  for diagnostic_mode in "${diagnostic_modes[@]}"; do
+    : >"$replay_client_log"
+    set_mode "$diagnostic_mode"
+    sudo systemctl start "$unit_name"
+    local diagnostic_invocation
+    diagnostic_invocation=$(unit_invocation_id)
+    assert_manager_invariants >/dev/null
+    wait_for_fixed_socket
+
+    local diagnostic_label=${diagnostic_mode#closed-local-replay-diagnostic-}
+    diagnostic_label=${diagnostic_label//[^a-zA-Z0-9-]/-}
+    node_unit="boole-native-shadow-containment-${diagnostic_label}-${suffix}"
+    set +e
+    timeout --foreground --signal=TERM --kill-after=10s 180s \
+      sudo systemd-run --quiet --pipe --wait --collect --unit="$node_unit" \
+        --property=Type=exec --property=User=boole-node --property=Group=boole-node \
+        --property=CapabilityBoundingSet= --property=AmbientCapabilities= \
+        --property=NoNewPrivileges=yes --property=PrivateMounts=yes \
+        --property=PrivateNetwork=yes --property=RestrictAddressFamilies=AF_UNIX \
+        --property=ProtectSystem=strict \
+        --property="BindReadOnlyPaths=${authority_share}:/usr/share" \
+        --property=WorkingDirectory=/ \
+        "$node_replay_client_path" --diagnostic-accepted >"$replay_client_log" 2>&1
+    local diagnostic_client_status=$?
+    set -e
+    cat "$replay_client_log"
+    [[ $diagnostic_client_status -eq 0 ]] \
+      || die "$diagnostic_mode client failed before one validated Report"
+    [[ $(grep -Fc 'native-shadow-containment-layer-diagnostic-report:' "$replay_client_log" || :) -eq 1 ]] \
+      || die "$diagnostic_mode did not emit one safe Report diagnostic"
+    [[ $(grep -Fxc 'native-shadow-containment-layer-diagnostic-client-complete:launcher_connections=1' "$replay_client_log" || :) -eq 1 ]] \
+      || die "$diagnostic_mode client did not complete one connection"
+
+    wait_for_state inactive
+    [[ $(sudo systemctl show "$unit_name" --property=Result --value) == success ]] \
+      || die "$diagnostic_mode launcher did not exit successfully"
+    [[ $(sudo systemctl show "$unit_name" --property=NRestarts --value) == 0 ]] \
+      || die "$diagnostic_mode launcher restarted unexpectedly"
+    wait_for_marker native-shadow-containment-layer-diagnostic-complete "$diagnostic_invocation"
+    mapfile -t cargo_diagnostics < <(
+      sudo journalctl --no-pager -o cat -u "$unit_name" \
+        "_SYSTEMD_INVOCATION_ID=$diagnostic_invocation" \
+        | grep -E '^boole-native-shadow-checker-cargo-diagnostic:v1;category=(success|wall_limit|output_limit|authority_unavailable|rustc_version_permission_denied|rustc_version_failed|rustc_metadata_permission_denied|rustc_metadata_failed|rustc_link_permission_denied|rustc_linker_failed|rustc_link_failed|cc_alias_permission_denied|cc_alias_failed|gcc_link_permission_denied|gcc_link_failed|gcc_frontend_permission_denied|gcc_frontend_failed|gcc_assembler_permission_denied|gcc_assembler_failed|gcc_final_link_permission_denied|gcc_final_link_failed|rustc_default_linker_permission_denied|rustc_explicit_gcc_permission_denied|rustc_explicit_gcc_failed|rustc_probe_permission_denied|rustc_probe_linker_failed|rustc_probe_failed|workspace_execute_denied|workspace_execute_failed|cargo_test_execute_denied|cargo_rustc_execute_denied|cargo_linker_permission_denied|cargo_temp_permission_denied|cargo_directory_permission_denied|permission_denied|read_only_filesystem|missing_file|cargo_lock_wait|process_spawn_failed|linker_failed|temporary_directory_failed|hidden_test_failed|compiler_error|unknown_nonzero)$' \
+        || :
+    )
+    [[ ${#cargo_diagnostics[@]} -eq 1 ]] \
+      || die "$diagnostic_mode did not emit exactly one categorical Cargo diagnostic"
+    printf 'native-shadow categorical Cargo diagnostic:%s:%s\n' \
+      "$diagnostic_label" "${cargo_diagnostics[0]}"
+    sudo test ! -e "$socket_path" && sudo test ! -L "$socket_path" \
+      || die "$diagnostic_mode left the fixed socket behind"
+    wait_for_cgroup_removal
+
+    local diagnostic_load_state=''
+    local diagnostic_wait
+    for ((diagnostic_wait = 0; diagnostic_wait < 200; diagnostic_wait++)); do
+      diagnostic_load_state=$(sudo systemctl show "${node_unit}.service" \
+        --property=LoadState --value 2>/dev/null || :)
+      [[ "$diagnostic_load_state" == not-found ]] && break
+      sleep 0.05
+    done
+    [[ "$diagnostic_load_state" == not-found ]] \
+      || die "$diagnostic_mode transient client unit was not collected"
+    node_unit=''
+  done
+  echo "native-shadow categorical Cargo diagnostic: COMPLETE"
+}
+
+run_closed_local_replay_gate() {
+  run_containment_layer_diagnostics
+  local mutation_relative
+  local mutation_expected_sha
+  mutation_relative=$(jq -er \
+    '[.entries[] | select(.kind == "file" and (.sizeBytes // 0) > 0 and (.sizeBytes // 0) <= 4096)] | sort_by(.logicalPath) | .[0].logicalPath | ltrimstr("/")' \
+    "$closed_local_replay_manifest")
+  mutation_expected_sha=$(jq -er --arg path "/$mutation_relative" \
+    '.entries[] | select(.logicalPath == $path) | .sha256' \
+    "$closed_local_replay_manifest")
+  [[ "$mutation_relative" != /* && "$mutation_relative" != *..* && "$mutation_relative" != *$'\n'* ]] \
+    || die "frozen mutation target is not one canonical relative path"
+  [[ "$mutation_expected_sha" =~ ^[0-9a-f]{64}$ ]] \
+    || die "frozen mutation target lacks one exact SHA-256"
+  mutation_target="$closed_local_replay_rootfs/$mutation_relative"
+  [[ -f "$mutation_target" && ! -L "$mutation_target" ]] \
+    || die "frozen mutation target is not one regular file"
+  [[ $(sha256sum "$mutation_target" | awk '{ print $1 }') == "$mutation_expected_sha" ]] \
+    || die "frozen mutation target differs before the rejection gate"
+  mutation_backup=$(mktemp "$temp_root/boole-native-shadow-rootfs-mutation-backup.XXXXXX")
+  sudo cp --preserve=all "$mutation_target" "$mutation_backup"
+
+  # First prove that startup verification is not stale authority.  The
+  # listener opens over the exact tree, then one host-side byte changes before
+  # Execute. The request-time full-tree rehash must close the connection before
+  # a cgroup leaf or checker report can exist.
+  set_mode closed-local-replay-three
+  sudo systemctl start "$unit_name"
+  local drift_invocation
+  drift_invocation=$(unit_invocation_id)
+  assert_manager_invariants >/dev/null
+  wait_for_fixed_socket
+  sudo python3 - "$mutation_target" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+data = bytearray(path.read_bytes())
+if not data:
+    raise SystemExit("mutation target unexpectedly empty")
+data[0] ^= 1
+path.write_bytes(data)
+PY
+  [[ $(sha256sum "$mutation_target" | awk '{ print $1 }') != "$mutation_expected_sha" ]] \
+    || die "rootfs mutation did not change the selected file"
+
+  local suffix
+  suffix=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$
+  suffix=${suffix//[^a-zA-Z0-9-]/-}
+  node_unit="boole-native-shadow-node-replay-drift-${suffix}"
+  set +e
+  timeout --foreground --signal=TERM --kill-after=10s 120s \
+    sudo systemd-run --quiet --pipe --wait --collect --unit="$node_unit" \
+      --property=Type=exec --property=User=boole-node --property=Group=boole-node \
+      --property=CapabilityBoundingSet= --property=AmbientCapabilities= \
+      --property=NoNewPrivileges=yes --property=PrivateMounts=yes \
+      --property=PrivateNetwork=yes --property=RestrictAddressFamilies=AF_UNIX \
+      --property=ProtectSystem=strict \
+      --property="BindReadOnlyPaths=${authority_share}:/usr/share" \
+      --property=WorkingDirectory=/ \
+      "$node_replay_client_path" --qualified-all-three >"$replay_client_log" 2>&1
+  local drift_client_status=$?
+  set -e
+  cat "$replay_client_log"
+  [[ $drift_client_status -ne 0 && $drift_client_status -ne 124 ]] \
+    || die "mutated rootfs did not fail one client promptly before checker execution"
+  [[ $(grep -Fc 'native-shadow-closed-local-replay-report:' "$replay_client_log" || :) -eq 0 ]] \
+    || die "request-time rootfs mutation produced a checker Report"
+  [[ $(grep -Fc 'native-shadow-closed-local-replay-client-complete:' "$replay_client_log" || :) -eq 0 ]] \
+    || die "request-time rootfs mutation completed the three-session matrix"
+  sudo systemctl stop "$unit_name"
+  wait_for_state inactive
+  sudo journalctl --sync
+  local drift_journal
+  drift_journal=$(sudo journalctl --no-pager -o cat -u "$unit_name" \
+    "_SYSTEMD_INVOCATION_ID=$drift_invocation")
+  grep -F 'runtime rootfs replay identity drifted' <<<"$drift_journal" >/dev/null \
+    || die "request-time rootfs mutation was not the launcher rejection reason"
+  if sudo test -d "$service_root"; then
+    [[ -z $(sudo find "$service_root" -mindepth 1 -maxdepth 1 -type d -name 'run-*' -print -quit) ]] \
+      || die "request-time rootfs rejection created a checker cgroup leaf"
+  fi
+  sudo test ! -e "$socket_path" && sudo test ! -L "$socket_path" \
+    || die "request-time rootfs rejection left the fixed socket behind"
+  wait_for_cgroup_removal
+  sudo systemctl reset-failed "$unit_name" >/dev/null 2>&1 || :
+  local drift_load_state=''
+  local drift_wait
+  for ((drift_wait = 0; drift_wait < 200; drift_wait++)); do
+    drift_load_state=$(sudo systemctl show "${node_unit}.service" \
+      --property=LoadState --value 2>/dev/null || :)
+    [[ "$drift_load_state" == not-found ]] && break
+    sleep 0.05
+  done
+  [[ "$drift_load_state" == not-found ]] \
+    || die "rootfs-drift transient client unit was not collected"
+  node_unit=''
+
+  sudo cp --preserve=all "$mutation_backup" "$mutation_target"
+  [[ $(sha256sum "$mutation_target" | awk '{ print $1 }') == "$mutation_expected_sha" ]] \
+    || die "frozen mutation target was not restored exactly"
+  sudo rm -f "$mutation_backup"
+  mutation_backup=''
+  mutation_target=''
+  : >"$replay_client_log"
+
+  # Now start a fresh launcher over the restored exact tree and prove all
+  # three checker-executing matrix rows through the real protocol.
+  set_mode closed-local-replay-three
+  sudo systemctl start "$unit_name"
+  local launcher_invocation
+  launcher_invocation=$(unit_invocation_id)
+  assert_manager_invariants >/dev/null
+  wait_for_fixed_socket
+
+  node_unit="boole-native-shadow-node-replay-${suffix}"
+  set +e
+  timeout --foreground --signal=TERM --kill-after=10s 420s \
+    sudo systemd-run --quiet --pipe --wait --collect --unit="$node_unit" \
+      --property=Type=exec --property=User=boole-node --property=Group=boole-node \
+      --property=CapabilityBoundingSet= --property=AmbientCapabilities= \
+      --property=NoNewPrivileges=yes --property=PrivateMounts=yes \
+      --property=PrivateNetwork=yes --property=RestrictAddressFamilies=AF_UNIX \
+      --property=ProtectSystem=strict \
+      --property="BindReadOnlyPaths=${authority_share}:/usr/share" \
+      --property=WorkingDirectory=/ \
+      "$node_replay_client_path" --qualified-all-three >"$replay_client_log" 2>&1
+  local client_status=$?
+  set -e
+  cat "$replay_client_log"
+  if [[ $client_status -ne 0 ]]; then
+    sudo systemctl show "$unit_name" \
+      --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :
+    sudo journalctl --no-pager -o cat -u "$unit_name" \
+      "_SYSTEMD_INVOCATION_ID=$launcher_invocation" >&2 || :
+    die "closed-local replay client failed or exceeded its outer deadline"
+  fi
+
+  local client_complete
+  client_complete="native-shadow-closed-local-replay-client-complete:launcher_connections=4:qualification_connections=1:checker_connections=3:empty_connections=0"
+  [[ $(grep -Fxc "$client_complete" "$replay_client_log" || :) -eq 1 ]] \
+    || die "closed-local replay client did not prove one qualification plus exactly three checker connections and zero empty connections"
+  local -a expected_reports=(
+    "native-shadow-closed-local-replay-report:accepted:accepted:accepted:cleanup=true"
+    "native-shadow-closed-local-replay-report:tampered:deterministic_reject:compile_or_hidden_test_failed:cleanup=true"
+    "native-shadow-closed-local-replay-report:constant:deterministic_reject:compile_or_hidden_test_failed:cleanup=true"
+  )
+  local report
+  for report in "${expected_reports[@]}"; do
+    [[ $(grep -Fxc "$report" "$replay_client_log" || :) -eq 1 ]] \
+      || die "closed-local replay client did not validate one exact Report: $report"
+  done
+  [[ $(grep -Fc 'native-shadow-closed-local-replay-report:' "$replay_client_log" || :) -eq 3 ]] \
+    || die "closed-local replay client observed a non-exact Report count"
+
+  local client_pid
+  client_pid=$(sed -n 's/^native-shadow-closed-local-replay-client-pid:\([1-9][0-9]*\)$/\1/p' \
+    "$replay_client_log")
+  [[ "$client_pid" =~ ^[1-9][0-9]*$ ]] \
+    || die "closed-local replay client did not publish one exact process identity"
+  sudo journalctl --sync
+  local -a peer_pids=()
+  mapfile -t peer_pids < <(
+    sudo journalctl --no-pager -o cat -u "$unit_name" \
+      "_SYSTEMD_INVOCATION_ID=$launcher_invocation" \
+      | sed -n 's/^native-shadow-active-execution-peer:pid=\([1-9][0-9]*\)$/\1/p'
+  )
+  if ! [[ ${#peer_pids[@]} -eq 3 ]]; then
+    printf 'native-shadow active execution peer PID count: expected=3 observed=%s\n' \
+      "${#peer_pids[@]}" >&2
+    printf 'native-shadow active execution peer PID observed:%s\n' \
+      "${peer_pids[@]:-none}" >&2
+    die "launcher did not observe exactly three SO_PEERCRED process identities"
+  fi
+  local peer_pid
+  for peer_pid in "${peer_pids[@]}"; do
+    [[ "$peer_pid" == "$client_pid" ]] \
+      || die "launcher SO_PEERCRED PID differs from the one fixed client process"
+  done
+
+  wait_for_state inactive
+  [[ $(sudo systemctl show "$unit_name" --property=Result --value) == success ]] \
+    || die "three-session replay launcher did not exit successfully"
+  [[ $(sudo systemctl show "$unit_name" --property=NRestarts --value) == 0 ]] \
+    || die "three-session replay launcher restarted unexpectedly"
+  wait_for_marker native-shadow-closed-local-replay-three-complete "$launcher_invocation"
+  sudo test ! -e "$socket_path" && sudo test ! -L "$socket_path" \
+    || die "three-session replay left the fixed socket path behind"
+  wait_for_cgroup_removal
+  [[ -z $(sudo find /run/boole/native-shadow -maxdepth 1 -name 'rootfs-*' -print -quit) ]] \
+    || die "three-session replay left a derived runtime-root path behind"
+  [[ -z $(findmnt -rn -o TARGET | grep -F '/run/boole/native-shadow/rootfs-' || :) ]] \
+    || die "three-session replay left a derived runtime-root mount behind"
+
+  local node_load_state=''
+  local i
+  for ((i = 0; i < 200; i++)); do
+    node_load_state=$(sudo systemctl show "${node_unit}.service" \
+      --property=LoadState --value 2>/dev/null || :)
+    [[ "$node_load_state" == not-found ]] && break
+    sleep 0.05
+  done
+  [[ "$node_load_state" == not-found ]] \
+    || die "closed-local replay transient client unit was not collected"
+  node_unit=''
+  echo "native-shadow closed-local replay three-session gate: PASS"
+}
+
+if [[ "$closed_local_replay_only" == true ]]; then
+  run_closed_local_replay_gate
+  exit 0
+fi
 
 run_expected_rejection nested-reject native-shadow-manager-nested-rejected
 run_expected_rejection frozen-reject native-shadow-manager-frozen-rejected

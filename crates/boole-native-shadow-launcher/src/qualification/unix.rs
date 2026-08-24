@@ -16,11 +16,22 @@ const HANDSHAKE_TIMEOUT_MILLIS: u64 = 5_000;
 /// This adapter neither binds nor accepts a socket. The opaque startup token
 /// keeps it unusable until a later runtime slice has verified every frozen
 /// launcher-startup prerequisite.
-pub(super) fn serve_connected_unix_qualification(
+pub(crate) fn serve_connected_unix_qualification(
     stream: UnixStream,
     startup: &VerifiedQualificationStartup,
 ) -> Result<(), QualificationServerError> {
     serve_connected_unix_qualification_with_timeout(
+        stream,
+        startup,
+        Duration::from_millis(HANDSHAKE_TIMEOUT_MILLIS),
+    )
+}
+
+pub(crate) fn serve_connected_unix_qualification_and_capture_peer(
+    stream: UnixStream,
+    startup: &VerifiedQualificationStartup,
+) -> Result<NodePeerCredentials, QualificationServerError> {
+    serve_connected_unix_qualification_and_capture_peer_with_timeout(
         stream,
         startup,
         Duration::from_millis(HANDSHAKE_TIMEOUT_MILLIS),
@@ -32,7 +43,16 @@ fn serve_connected_unix_qualification_with_timeout(
     startup: &VerifiedQualificationStartup,
     timeout: Duration,
 ) -> Result<(), QualificationServerError> {
-    super::serve_request_free_qualification(
+    serve_connected_unix_qualification_and_capture_peer_with_timeout(stream, startup, timeout)
+        .map(|_| ())
+}
+
+fn serve_connected_unix_qualification_and_capture_peer_with_timeout(
+    stream: UnixStream,
+    startup: &VerifiedQualificationStartup,
+    timeout: Duration,
+) -> Result<NodePeerCredentials, QualificationServerError> {
+    super::serve_request_free_qualification_and_capture_peer(
         LinuxQualificationSession::new(stream, timeout),
         startup,
     )

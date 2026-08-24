@@ -3,7 +3,7 @@ use thiserror::Error;
 use super::{QualificationServerError, VerifiedQualificationStartup};
 
 #[cfg(target_os = "linux")]
-const FIXED_SOCKET_PATH: &str = "/run/boole/native-shadow/launcher.sock";
+pub(crate) const FIXED_SOCKET_PATH: &str = "/run/boole/native-shadow/launcher.sock";
 
 #[derive(Debug, Error)]
 pub enum FixedQualificationListenerError {
@@ -61,7 +61,7 @@ pub fn serve_one_fixed_unix_qualification(
 }
 
 #[cfg(target_os = "linux")]
-fn require_fixed_umask() -> Result<(), FixedQualificationListenerError> {
+pub(crate) fn require_fixed_umask() -> Result<(), FixedQualificationListenerError> {
     let status = std::fs::read_to_string("/proc/thread-self/status").map_err(|source| {
         FixedQualificationListenerError::Io {
             stage: "read launcher thread status for Umask",
@@ -89,7 +89,7 @@ struct SocketEntryIdentity {
 }
 
 #[cfg(target_os = "linux")]
-struct BoundQualificationListener<'a> {
+pub(crate) struct BoundQualificationListener<'a> {
     listener: std::os::unix::net::UnixListener,
     directory: &'a std::fs::File,
     path: &'a std::path::Path,
@@ -102,27 +102,35 @@ struct BoundQualificationListener<'a> {
 
 #[cfg(target_os = "linux")]
 impl BoundQualificationListener<'_> {
-    fn accept_one_and_remove(
+    pub(crate) fn accept_one(
         &mut self,
     ) -> Result<std::os::unix::net::UnixStream, FixedQualificationListenerError> {
-        let accepted =
+        let (stream, _) =
             self.listener
                 .accept()
                 .map_err(|source| FixedQualificationListenerError::Io {
-                    stage: "accept exactly one qualification connection",
+                    stage: "accept fixed launcher connection",
                     source,
-                });
-        let cleanup = self.remove_exact_bound_entry();
-        cleanup?;
-        let (stream, _) = accepted?;
+                })?;
         require_cloexec(
             std::os::fd::AsRawFd::as_raw_fd(&stream),
-            "verify accepted qualification stream CLOEXEC",
+            "verify accepted launcher stream CLOEXEC",
         )?;
         Ok(stream)
     }
 
-    fn remove_exact_bound_entry(&mut self) -> Result<(), FixedQualificationListenerError> {
+    fn accept_one_and_remove(
+        &mut self,
+    ) -> Result<std::os::unix::net::UnixStream, FixedQualificationListenerError> {
+        let accepted = self.accept_one();
+        let cleanup = self.remove_exact_bound_entry();
+        cleanup?;
+        accepted
+    }
+
+    pub(crate) fn remove_exact_bound_entry(
+        &mut self,
+    ) -> Result<(), FixedQualificationListenerError> {
         verify_parent_identity(self.directory, self.path)?;
         let metadata = socket_metadata_at(self.directory, &self.basename)?
             .ok_or(FixedQualificationListenerError::SocketEntryChanged)?;
@@ -150,7 +158,7 @@ impl Drop for BoundQualificationListener<'_> {
 }
 
 #[cfg(target_os = "linux")]
-fn bind_listener_in_directory<'a>(
+pub(crate) fn bind_listener_in_directory<'a>(
     directory: &'a std::fs::File,
     path: &'a std::path::Path,
     expected_uid: u32,
@@ -562,5 +570,31 @@ mod tests {
             UnixStream::connect(&path).is_err(),
             "second connect must fail"
         );
+    }
+
+    #[test]
+    fn bounded_active_listener_keeps_one_exact_socket_for_three_accepts_then_removes_it() {
+        let tree = TestSocketDirectory::new();
+        let path = tree.socket_path();
+        let mut bound = bind_listener_in_directory(&tree.directory, &path, tree.uid, tree.gid)
+            .expect("bind active execution socket");
+
+        for _ in 0..3 {
+            let client_path = path.clone();
+            let client = std::thread::spawn(move || {
+                UnixStream::connect(client_path).expect("bounded client connects")
+            });
+            let _accepted = bound.accept_one().expect("accept bounded client");
+            client.join().expect("client thread joins");
+            assert!(
+                fs::symlink_metadata(&path).is_ok(),
+                "socket must remain through the bounded service"
+            );
+        }
+
+        bound
+            .remove_exact_bound_entry()
+            .expect("remove exact active socket after the bound");
+        assert!(fs::symlink_metadata(&path).is_err());
     }
 }

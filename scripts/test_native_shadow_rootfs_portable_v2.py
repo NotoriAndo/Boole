@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import pathlib
+import re
 import tempfile
 import unittest
 
@@ -136,28 +138,135 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertLess(replay.index(install), replay.index("chroot --groups=''"))
         self.assertIn('cmp --silent "$runtime_passwd" "$rootfs/etc/passwd"', replay)
 
-    def test_linux_replay_reports_only_the_safe_checker_verdict_fields_on_mismatch(self) -> None:
+    def test_linux_replay_delegates_checker_adjudication_to_the_real_launcher_service(self) -> None:
         replay = (
             ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"
         ).read_text(encoding="utf-8")
-
-        self.assertIn('f"checker verdict differs: {path}: "', replay)
-        self.assertIn('f"verdict={result.get(\'verdict\')!r} "', replay)
-        self.assertIn('f"reasonCode={result.get(\'reasonCode\')!r}"', replay)
-
-    def test_linux_replay_diagnoses_a_real_accept_compile_failure_without_adjudicating_it(self) -> None:
-        replay = (
-            ROOT / "scripts/native-shadow-portable-rootfs-replay-linux.sh"
+        manager = (
+            ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
         ).read_text(encoding="utf-8")
 
-        mismatch = '!= "accepted/accepted"'
-        diagnostic = "DIAGNOSTIC-ONLY: the second run is not adjudication"
-        self.assertIn(mismatch, replay)
-        self.assertIn(diagnostic, replay)
-        self.assertIn("original_run_contained = checker_module._run_contained", replay)
-        self.assertIn("checker_module._run_contained = traced_run_contained", replay)
-        self.assertLess(replay.index(mismatch), replay.index(diagnostic))
-        self.assertLess(replay.index(diagnostic), replay.index("cases = ("))
+        manager_call = "./scripts/native-shadow-manager-cgroup-gate.sh"
+        self.assertIn(manager_call, replay)
+        self.assertIn("--closed-local-replay-rootfs", replay)
+        self.assertLess(
+            replay.rindex('--offline-build "$scratch"'),
+            replay.rindex(manager_call),
+        )
+        self.assertLess(
+            replay.rindex(manager_call),
+            replay.rindex('--offline-probe "$scratch"'),
+        )
+        self.assertIn(
+            "consumed unchanged by the real launcher service",
+            replay,
+        )
+        self.assertIn(
+            "native-shadow-closed-local-replay-report:accepted:accepted:accepted:cleanup=true",
+            manager,
+        )
+        self.assertIn(
+            "native-shadow-closed-local-replay-report:tampered:deterministic_reject:compile_or_hidden_test_failed:cleanup=true",
+            manager,
+        )
+        self.assertIn(
+            "native-shadow-closed-local-replay-report:constant:deterministic_reject:compile_or_hidden_test_failed:cleanup=true",
+            manager,
+        )
+
+    def test_linux_replay_rejects_rootfs_drift_before_any_checker_report(self) -> None:
+        manager = (
+            ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+
+        mutation = 'sudo python3 - "$mutation_target"'
+        report_guard = "request-time rootfs mutation produced a checker Report"
+        drift_reason = "runtime rootfs replay identity drifted"
+        restore = 'sudo cp --preserve=all "$mutation_backup" "$mutation_target"'
+        self.assertIn(mutation, manager)
+        self.assertIn(report_guard, manager)
+        self.assertIn(drift_reason, manager)
+        self.assertIn(restore, manager)
+        mutation_index = manager.index(mutation)
+        report_guard_index = manager.index(report_guard, mutation_index)
+        restore_index = manager.index(restore, report_guard_index)
+        self.assertLess(mutation_index, report_guard_index)
+        self.assertLess(report_guard_index, restore_index)
+
+    def test_linux_replay_socket_timeout_preserves_the_service_failure_reason(self) -> None:
+        manager = (
+            ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+
+        timeout_reason = "fixed qualification socket did not appear"
+        timeout_index = manager.index(timeout_reason)
+        diagnostic = (
+            'sudo systemctl show "$unit_name" '
+            '--property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :'
+        )
+        journal = 'sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :'
+        socket_wait = manager[
+            manager.index("wait_for_fixed_socket() {") : manager.index(
+                "wait_for_leaf_event() {"
+            )
+        ]
+        state_wait = manager[
+            manager.index("wait_for_state() {") : manager.index(
+                "wait_for_cgroup_removal() {"
+            )
+        ]
+        self.assertIn("fixed_socket_wait_attempts=2400", manager)
+        self.assertIn(
+            "for ((i = 0; i < fixed_socket_wait_attempts; i++)); do",
+            socket_wait,
+        )
+        self.assertIn("for ((i = 0; i < 200; i++)); do", state_wait)
+        self.assertIn(diagnostic, manager)
+        self.assertIn(journal, manager)
+        self.assertLess(manager.index(diagnostic), timeout_index)
+        self.assertLess(manager.index(journal, manager.index(diagnostic)), timeout_index)
+
+    def test_manager_metadata_race_preserves_the_launcher_journal(self) -> None:
+        manager = (
+            ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+        invariants = manager[
+            manager.index("assert_manager_invariants() {") : manager.index(
+                "wait_for_leaf_event() {"
+            )
+        ]
+        metadata = 'manager_metadata=$(sudo stat -c %U:%G:%a "$manager_root" 2>/dev/null || :)'
+        journal = 'sudo journalctl --no-pager -o cat -u "$unit_name" >&2 || :'
+        failure = 'die "manager cgroup metadata does not match root:root:700: $manager_metadata"'
+        self.assertIn(metadata, invariants)
+        self.assertIn(journal, invariants)
+        self.assertIn(failure, invariants)
+        self.assertLess(invariants.index(metadata), invariants.index(journal))
+        self.assertLess(invariants.index(journal), invariants.index(failure))
+
+    def test_linux_replay_client_failure_dumps_the_exact_launcher_session_error(self) -> None:
+        manager = (
+            ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+        client_start = manager.index('local client_status=$?')
+        client_end = manager.index('local client_complete', client_start)
+        failure_block = manager[client_start:client_end]
+
+        self.assertIn('if [[ $client_status -ne 0 ]]; then', failure_block)
+        self.assertIn(
+            'sudo systemctl show "$unit_name" \\\n'
+            '      --property=ActiveState,SubState,Result,ExecMainStatus,NRestarts >&2 || :',
+            failure_block,
+        )
+        self.assertIn(
+            'sudo journalctl --no-pager -o cat -u "$unit_name" \\\n'
+            '      "_SYSTEMD_INVOCATION_ID=$launcher_invocation" >&2 || :',
+            failure_block,
+        )
+        self.assertIn(
+            'die "closed-local replay client failed or exceeded its outer deadline"',
+            failure_block,
+        )
 
     def test_linux_replay_mounts_a_private_proc_for_the_frozen_lld_wrapper(self) -> None:
         replay = (
@@ -244,6 +353,17 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         self.assertNotIn(str(gpgv.resolve()), portable_raw.decode("utf-8"))
         self.assertNotIn(str(zstd.resolve()), portable_raw.decode("utf-8"))
 
+    def test_launcher_manifest_pin_matches_the_frozen_replay_expectation(self) -> None:
+        expectation = json.loads(REPLAY_EXPECTATION.read_text(encoding="utf-8"))
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/runtime_rootfs_replay.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            expectation["expectedOutput"]["rootfsContentManifestSha256"],
+            source,
+        )
+
     def test_tracked_portable_successor_is_exact_inactive_and_host_independent(self) -> None:
         authority = portable.load_authority_set(
             PORTABLE_PLAN,
@@ -261,7 +381,7 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         )
         self.assertEqual(
             authority["plan"]["bootstrapAuthority"]["acquisitionPlanV1Sha256"],
-            "09b1bb420c3c2317872e8408384b388d4fc8909554af15e759f12684d23db1c8",
+            "8d8ac1a4fd82370c1f0c12a270bd38b9b2b78f0c1a155432298b4d654a0fb06e",
         )
         self.assertEqual(
             authority["plan"]["bootstrapAuthority"]["completeSourceLockV1Sha256"],
@@ -405,6 +525,390 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         changed["builderSha256"] = "f" * 64
         with self.assertRaisesRegex(portable.PortableAuthorityError, "builder"):
             portable.verify_replay_receipts(expectation, changed, run_receipt)
+
+    def test_contained_child_setup_reports_the_exact_failed_stage(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        for stage in (
+            "derive-runtime-root",
+            "mount-private-filesystems",
+            "materialize-task",
+            "materialize-anchor",
+            "materialize-submission",
+            "create-scratch",
+            "set-working-directory",
+            "install-stdio",
+            "drop-privileges",
+            "verify-privileges",
+            "verify-runtime-identity-lookup",
+            "apply-rlimits",
+            "install-landlock",
+            "install-seccomp",
+            "exec-checker",
+        ):
+            self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
+
+    def test_runtime_root_derivation_reports_the_exact_failed_substage(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        for stage in (
+            "derive-make-root-private",
+            "derive-check-lower",
+            "derive-mount-staging",
+            "derive-create-staging",
+            "derive-materialize-passwd",
+            "derive-verify-fixed-lower-path",
+            "derive-bind-lower",
+            "derive-remount-lower-read-only",
+            "derive-verify-bound-lower",
+            "derive-mount-overlay",
+            "derive-verify-overlay",
+            "derive-enter-overlay",
+            "derive-pivot-root",
+            "derive-detach-old-root",
+            "derive-enter-new-root",
+            "derive-verify-entered-root",
+        ):
+            self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
+
+    def test_private_filesystem_setup_reports_the_exact_failed_substage(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        for stage in (
+            "mount-private-proc",
+            "mount-private-work",
+            "mount-private-tmp",
+            "mount-private-dev",
+            "bind-private-dev-null",
+            "verify-private-work",
+        ):
+            self.assertRegex(source, rf'setup_stage\(\s*"{re.escape(stage)}"')
+
+    def test_scratch_keeps_parent_setgid_without_post_create_chmod(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        create = source.split("fn create_scratch", 1)[1].split(
+            "fn set_working_directory", 1
+        )[0]
+        self.assertIn("let previous_umask = unsafe { libc::umask(0) };", create)
+        self.assertIn(
+            'libc::mkdir(c"/work/scratch".as_ptr(), 0o770)', create
+        )
+        self.assertIn("libc::umask(previous_umask)", create)
+        self.assertNotIn("libc::chmod", create)
+        self.assertIn("metadata.st_mode & 0o7777 != 0o2770", create)
+
+    def test_seccomp_allows_only_the_local_socketpair_needed_to_spawn_rustc(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        seccomp = source.split("fn build_seccomp_program", 1)[1].split(
+            "fn apply_landlock", 1
+        )[0]
+        unconditional = seccomp.split("let syscalls = [", 1)[1].split("]", 1)[0]
+
+        self.assertNotIn("libc::SYS_socketpair", unconditional)
+        self.assertIn("libc::SYS_socketpair", seccomp)
+        self.assertIn("SeccompCmpArgLen::Dword", seccomp)
+        self.assertIn("SeccompCmpOp::Ne", seccomp)
+        self.assertIn("libc::AF_UNIX as u64", seccomp)
+        self.assertIn("libc::SYS_socket,", unconditional)
+
+    def test_checker_child_replaces_service_umask_before_exec(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        setup = source.split("fn child_setup_and_exec", 1)[1].split(
+            "fn setup_stage", 1
+        )[0]
+        self.assertIn('setup_stage("set-checker-umask", set_checker_umask())?', setup)
+        self.assertLess(
+            setup.index('"set-checker-umask"'), setup.index('"exec-checker"')
+        )
+        setter = source.split("fn set_checker_umask", 1)[1].split(
+            "fn exec_checker", 1
+        )[0]
+        self.assertIn("libc::umask(CHECKER_UMASK)", setter)
+        self.assertIn("CHECKER_UMASK: libc::mode_t = 0o077", source)
+
+    def test_landlock_allows_only_the_verified_dev_null_write_sink(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        landlock = source.split("fn apply_landlock", 1)[1].split(
+            "fn set_checker_umask", 1
+        )[0]
+        self.assertIn('PathFd::new("/dev/null")', landlock)
+        self.assertIn("AccessFs::WriteFile", landlock)
+        self.assertNotIn('PathFd::new("/dev")', landlock)
+
+    def test_landlock_pins_the_cc1_path_from_the_frozen_ubuntu_package(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        landlock = source.split("fn apply_landlock", 1)[1].split(
+            "fn set_checker_umask", 1
+        )[0]
+
+        self.assertIn(
+            'PathFd::new("/usr/libexec/gcc/x86_64-linux-gnu/13/cc1")',
+            landlock,
+        )
+        self.assertIn(
+            'PathFd::new("/usr/libexec/gcc/x86_64-linux-gnu/13/collect2")',
+            landlock,
+        )
+        self.assertNotIn("/usr/lib/gcc-cross/", landlock)
+
+    def test_host_dev_null_is_bound_before_the_old_root_is_detached(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        derive = source.split("fn derive_and_enter_runtime_root", 1)[1].split(
+            "fn create_runtime_staging_tree", 1
+        )[0]
+        self.assertIn('"mount-private-dev"', derive)
+        self.assertIn('"bind-private-dev-null"', derive)
+        self.assertLess(
+            derive.index('"mount-private-dev"'), derive.index('"derive-pivot-root"')
+        )
+        self.assertLess(
+            derive.index('"bind-private-dev-null"'),
+            derive.index('"derive-detach-old-root"'),
+        )
+
+    def test_private_dev_bind_reopens_dev_null_inside_the_child_namespace(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        bind = source.split("fn bind_and_verify_dev_null", 1)[1].split(
+            "fn verify_bound_dev_null", 1
+        )[0]
+        self.assertNotIn('format!("/proc/self/fd/{source_fd}', bind)
+        self.assertIn(
+            "let child_local = open_verified_child_dev_null(source_fd)?;", bind
+        )
+        self.assertIn("let child_local_fd = child_local.as_raw_fd();", bind)
+        self.assertIn(
+            'format!("/proc/self/fd/{child_local_fd}")',
+            bind,
+        )
+        self.assertLess(
+            bind.index("open_verified_child_dev_null(source_fd)?"),
+            bind.index('format!("/proc/self/fd/{child_local_fd}")'),
+        )
+        self.assertLess(
+            bind.index('mount_raw(Some(&source), target, None, libc::MS_BIND, None)?'),
+            bind.rindex("verify_bound_dev_null(source_fd, target)"),
+        )
+
+    def test_overlay_binds_only_the_fixed_path_and_rechecks_the_verified_fd(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn('const RUNTIME_LOWER: &CStr = c"/run/boole/native-shadow/rootfs-lower";', source)
+        self.assertIn(
+            'const RUNTIME_ADDITIONS: &CStr = '
+            'c"/run/boole/native-shadow/rootfs-additions";',
+            source,
+        )
+        self.assertIn(
+            'const VERIFIED_RUNTIME_ROOTFS_PATH: &CStr = '
+            'c"/var/lib/boole/native-shadow/runtime-rootfs";',
+            source,
+        )
+        self.assertRegex(
+            source,
+            r'setup_stage\(\s*"derive-verify-fixed-lower-path",\s*'
+            r'verify_fixed_runtime_root_path\(rootfs_fd\)',
+        )
+        self.assertRegex(
+            source,
+            r'mount_raw\(\s*Some\(VERIFIED_RUNTIME_ROOTFS_PATH\),\s*'
+            r'RUNTIME_LOWER,\s*None,\s*libc::MS_BIND',
+        )
+        self.assertIn("verify_bound_lower(rootfs_fd)", source)
+        self.assertIn('"lowerdir={}:{}"', source)
+        self.assertIn("RUNTIME_ADDITIONS.to_string_lossy()", source)
+        self.assertIn("RUNTIME_LOWER.to_string_lossy()", source)
+        self.assertNotIn("upperdir=", source)
+        self.assertNotIn("workdir=", source)
+        self.assertNotIn("RUNTIME_WORK", source)
+        self.assertRegex(
+            source,
+            r'mount_raw\(\s*Some\(c"overlay"\),\s*RUNTIME_ROOT,\s*'
+            r'Some\(c"overlay"\),\s*libc::MS_RDONLY\s*\|\s*libc::MS_NOSUID\s*\|\s*libc::MS_NODEV',
+        )
+        self.assertNotIn('"lowerdir=/proc/self/fd/{rootfs_fd}', source)
+        self.assertNotIn("let lower_source = CString", source)
+        self.assertNotIn("libc::SYS_open_tree", source)
+        self.assertNotIn("libc::SYS_move_mount", source)
+        self.assertNotIn("libc::AT_EMPTY_PATH", source)
+
+    def test_overlay_root_remains_traversable_after_checker_privilege_drop(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("mkdir_fixed(RUNTIME_ADDITIONS, 0o755)?;", source)
+        self.assertIn("runtime_root_metadata_is_exact", source)
+
+    def test_runtime_root_materializes_the_dynamic_checker_passwd_before_overlay(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        child = source.split("fn child_setup_and_exec", 1)[1].split(
+            "fn setup_stage", 1
+        )[0]
+        derive = source.split("fn derive_and_enter_runtime_root", 1)[1].split(
+            "fn create_runtime_staging_tree", 1
+        )[0]
+        record = source.split("fn runtime_passwd_record", 1)[1].split(
+            "fn materialize_runtime_passwd", 1
+        )[0]
+        materialize = source.split("fn materialize_runtime_passwd", 1)[1].split(
+            "fn verify_runtime_passwd", 1
+        )[0]
+        verify = source.split("fn verify_runtime_passwd", 1)[1].split(
+            "fn verify_fixed_runtime_root_path", 1
+        )[0]
+
+        self.assertRegex(
+            child,
+            r"derive_and_enter_runtime_root\(\s*setup\.rootfs_fd,\s*"
+            r"setup\.dev_null_fd,\s*setup\.checker_uid,\s*setup\.checker_gid,?\s*\)",
+        )
+        self.assertIn('"derive-materialize-passwd"', derive)
+        self.assertIn(
+            "materialize_runtime_passwd(setup_checker_uid, setup_checker_gid)",
+            derive,
+        )
+        self.assertLess(
+            derive.index('"derive-materialize-passwd"'),
+            derive.index('"derive-mount-overlay"'),
+        )
+        self.assertIn("RUNTIME_ADDITIONS_PASSWD", materialize)
+        self.assertIn("checker_uid", record)
+        self.assertIn("checker_gid", record)
+        self.assertIn("/work/scratch", record)
+        self.assertIn("libc::O_EXCL", materialize)
+        self.assertIn("libc::O_NOFOLLOW", materialize)
+        self.assertIn("libc::fchmod", materialize)
+        self.assertIn("0o444", materialize)
+        self.assertIn("libc::fstat", verify)
+        self.assertIn("st_uid != 0", verify)
+        self.assertIn("st_gid != 0", verify)
+        self.assertIn("st_nlink != 1", verify)
+        self.assertIn("runtime passwd metadata mismatch", verify)
+        self.assertIn("runtime passwd bytes mismatch", verify)
+        self.assertNotIn("VERIFIED_RUNTIME_ROOTFS_PATH", materialize)
+        self.assertNotIn("RUNTIME_LOWER", materialize)
+
+        lookup = source.split("fn verify_runtime_identity_lookup", 1)[1].split(
+            "fn require_status_ids", 1
+        )[0]
+        self.assertIn("libc::getpwuid_r", lookup)
+        self.assertIn('c"boole-native-checker"', lookup)
+        self.assertIn('c"/work/scratch"', lookup)
+        self.assertLess(
+            child.index('"verify-privileges"'),
+            child.index('"verify-runtime-identity-lookup"'),
+        )
+        self.assertLess(
+            child.index('"verify-runtime-identity-lookup"'),
+            child.index('"apply-rlimits"'),
+        )
+
+    def test_overlay_top_level_permits_only_the_reviewed_etc_overlap(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        compatibility = source.split(
+            "fn runtime_additions_are_compatible_with_lower", 1
+        )[1].split("fn derived_runtime_top_level_is_exact", 1)[0]
+        derived = source.split("fn derived_runtime_top_level_is_exact", 1)[1].split(
+            "fn mkdir_fixed", 1
+        )[0]
+
+        self.assertIn('OsString::from("etc")', compatibility)
+        for exclusive in ("work", "proc", "dev", "tmp"):
+            self.assertIn(f'"{exclusive}"', compatibility)
+        self.assertIn("runtime_additions_are_compatible_with_lower(lower)", derived)
+        self.assertIn('"etc"', derived)
+
+    def test_read_only_overlay_uses_same_dot_pivot_without_old_root_path(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "libc::syscall(libc::SYS_pivot_root, c\".\".as_ptr(), c\".\".as_ptr())",
+            source,
+        )
+        self.assertIn("libc::umount2(c\".\".as_ptr(), libc::MNT_DETACH)", source)
+        self.assertNotIn(".old-root", source)
+        self.assertNotIn("libc::rmdir", source)
+
+    def test_entered_root_must_match_the_pre_pivot_overlay_identity(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        self.assertRegex(
+            source,
+            r"let derived_root_identity = setup_stage\(\s*"
+            r'"derive-verify-overlay",\s*verify_derived_runtime_root\(\s*'
+            r"rootfs_fd,\s*setup_checker_uid,\s*setup_checker_gid,?\s*\),\s*\)\?;",
+        )
+        self.assertIn(
+            "verify_entered_runtime_root(derived_root_identity)",
+            source,
+        )
+        self.assertIn("root.dev() != expected.device", source)
+        self.assertIn("root.ino() != expected.inode", source)
+
+    def test_overlay_staging_filesystem_remains_exec_capable_for_the_merged_root(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        staging_mount = re.search(
+            r'"derive-mount-staging",\s*mount_raw\((.*?)\),\s*\)\?;',
+            source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(staging_mount)
+        self.assertIn("libc::MS_NOSUID | libc::MS_NODEV", staging_mount.group(1))
+        self.assertNotIn(
+            "libc::MS_NOEXEC",
+            staging_mount.group(1),
+            "an executable merged root cannot be backed by a noexec upper filesystem",
+        )
+        self.assertIn("overlay_mount_failure_context", source)
+
+    def test_landlock_does_not_require_an_untracked_bin_alias(self) -> None:
+        source = (
+            ROOT
+            / "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn('        "/bin",\n', source)
 
 
 if __name__ == "__main__":

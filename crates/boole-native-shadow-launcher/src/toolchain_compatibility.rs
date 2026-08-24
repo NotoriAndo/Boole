@@ -23,11 +23,22 @@ use crate::startup_recovery::VerifiedStartupCgroupRecovery;
 #[allow(dead_code)]
 pub struct VerifiedStartupToolchainCompatibility {
     recovery: VerifiedStartupCgroupRecovery,
+    #[cfg(target_os = "linux")]
+    installed_files: InstalledToolchainFiles,
 }
 
 impl VerifiedStartupToolchainCompatibility {
     pub(crate) fn recovery(&self) -> &VerifiedStartupCgroupRecovery {
         &self.recovery
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn reverify_for_execution(&self) -> Result<(), ToolchainProbeFailure> {
+        self.recovery
+            .verify_cgroup_state_after_trusted_probes()
+            .map_err(ToolchainProbeFailure::ManagerDrift)?;
+        let observed = verify_fixed_installed_paths()?;
+        require_same_installed_toolchain_files(self.installed_files, observed)
     }
 }
 
@@ -210,6 +221,20 @@ impl InstalledToolchainFiles {
             "/usr/bin/python3.12" => Some(self.python),
             _ => None,
         }
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn require_same_installed_toolchain_files(
+    expected: InstalledToolchainFiles,
+    observed: InstalledToolchainFiles,
+) -> Result<(), ToolchainProbeFailure> {
+    if expected == observed {
+        Ok(())
+    } else {
+        Err(ToolchainProbeFailure::UnsafeInstalledPath(
+            "installed executable identity changed after startup verification".to_string(),
+        ))
     }
 }
 
@@ -893,7 +918,10 @@ pub fn verify_fixed_startup_toolchain_compatibility(
             }
         }
         compatibility?;
-        Ok(VerifiedStartupToolchainCompatibility { recovery })
+        Ok(VerifiedStartupToolchainCompatibility {
+            recovery,
+            installed_files: post_files,
+        })
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -911,11 +939,12 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::{
-        validate_execution, verify_installed_paths_beneath, verify_probe_sequence,
-        InstalledToolchainFiles, ProbeExecution, ProbeExpectation, ProbeRequest, ProbeRunner,
-        ProcessProbeRunner, ToolchainCompatibilityError, ToolchainProbeFailure, CARGO_COMMIT,
-        CARGO_RELEASE, FIXED_ENVIRONMENT, FIXED_PROBES, PROBE_DEADLINE, PYTHON_IMPLEMENTATION,
-        PYTHON_VERSION_PREFIX, RUSTC_COMMIT, RUSTC_RELEASE, STREAM_LIMIT,
+        require_same_installed_toolchain_files, validate_execution, verify_installed_paths_beneath,
+        verify_probe_sequence, InstalledToolchainFiles, ProbeExecution, ProbeExpectation,
+        ProbeRequest, ProbeRunner, ProcessProbeRunner, ToolchainCompatibilityError,
+        ToolchainProbeFailure, CARGO_COMMIT, CARGO_RELEASE, FIXED_ENVIRONMENT, FIXED_PROBES,
+        PROBE_DEADLINE, PYTHON_IMPLEMENTATION, PYTHON_VERSION_PREFIX, RUSTC_COMMIT, RUSTC_RELEASE,
+        STREAM_LIMIT,
     };
 
     const RUSTC_OK: &[u8] = b"rustc 1.99.0-nightly (e7795af6d 2026-07-22)\n\
@@ -1207,6 +1236,27 @@ os: Ubuntu 24.04 (noble) [64-bit]\n";
         symlink("rustc", &python).expect("create final-component symlink");
         assert!(matches!(
             tree.verify(),
+            Err(ToolchainProbeFailure::UnsafeInstalledPath(_))
+        ));
+    }
+
+    #[test]
+    fn execution_time_toolchain_recheck_rejects_any_identity_drift() {
+        let tree = InstalledTree::new();
+        let startup = tree.verify().expect("startup file identities");
+        require_same_installed_toolchain_files(startup, startup)
+            .expect("unchanged identities remain valid");
+
+        let rustc = tree.path("opt/boole/native-checker-toolchain/bin/rustc");
+        let bin = tree.path("opt/boole/native-checker-toolchain/bin");
+        set_mode(&bin, 0o755);
+        fs::remove_file(&rustc).expect("replace rustc fixture inode");
+        fs::write(&rustc, b"replacement executable").expect("write replacement fixture");
+        set_mode(&rustc, 0o755);
+        set_mode(&bin, 0o555);
+        let execution = tree.verify().expect("safe replacement path shape");
+        assert!(matches!(
+            require_same_installed_toolchain_files(startup, execution),
             Err(ToolchainProbeFailure::UnsafeInstalledPath(_))
         ));
     }

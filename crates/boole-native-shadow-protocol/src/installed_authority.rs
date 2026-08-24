@@ -13,10 +13,18 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use thiserror::Error;
 
 use crate::{
-    closed_local_replay_grant::verify_closed_local_replay_grant_bytes, verify_authority_bundle,
-    AuthorityError, ClosedLocalReplayGrantError, VerifiedAuthorityBundle,
-    VerifiedClosedLocalReplayGrant, TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
-    TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES, TRACKED_EXECUTION_POLICY_BYTES,
+    closed_local_replay_grant::verify_closed_local_replay_grant_bytes,
+    closed_local_replay_grant::{
+        TRACKED_REAL_HISTORY_ANCHOR_BYTES, TRACKED_REAL_HISTORY_TASK_BYTES,
+    },
+    verify_authority_bundle, verify_closed_local_replay_execution_authority_bytes,
+    verify_local_execution_authority_bytes, AuthorityError,
+    ClosedLocalReplayExecutionAuthorityError, ClosedLocalReplayGrantError, VerifiedAuthorityBundle,
+    VerifiedClosedLocalReplayExecutionAuthority, VerifiedClosedLocalReplayGrant,
+    VerifiedLocalExecutionAuthority, TRACKED_CHECKER_BYTES, TRACKED_CHECKER_POLICY_BYTES,
+    TRACKED_CHECKER_RELEASE_MANIFEST_BYTES, TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+    TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES, TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
+    TRACKED_EXECUTION_POLICY_BYTES, TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
     TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
 };
 
@@ -38,6 +46,59 @@ pub enum InstalledAuthorityError {
     Authority(#[from] AuthorityError),
     #[error(transparent)]
     ReplayGrant(#[from] ClosedLocalReplayGrantError),
+    #[error(transparent)]
+    ReplayExecutionAuthority(#[from] ClosedLocalReplayExecutionAuthorityError),
+}
+
+/// Exact installed grant, execution authority, checker, checker policy and
+/// checker release proven through fixed descriptor-relative paths.
+#[derive(Debug)]
+pub struct VerifiedInstalledClosedLocalReplayExecutionAuthorities {
+    grant: VerifiedClosedLocalReplayGrant,
+    execution_authority: VerifiedClosedLocalReplayExecutionAuthority,
+    material_root: File,
+    required_uid: u32,
+    required_gid: u32,
+}
+
+/// Per-request proof that the installed checker release and replay fixture
+/// still match the compiled authority. The exact installed task/anchor bytes
+/// are retained so the executor consumes what was re-opened, not a parallel
+/// compile-time copy.
+#[derive(Debug)]
+pub struct VerifiedInstalledClosedLocalReplayExecutionMaterials {
+    task: Vec<u8>,
+    anchor: Vec<u8>,
+}
+
+impl VerifiedInstalledClosedLocalReplayExecutionMaterials {
+    pub fn task_bytes(&self) -> &[u8] {
+        &self.task
+    }
+
+    pub fn anchor_bytes(&self) -> &[u8] {
+        &self.anchor
+    }
+}
+
+impl VerifiedInstalledClosedLocalReplayExecutionAuthorities {
+    pub fn grant(&self) -> &VerifiedClosedLocalReplayGrant {
+        &self.grant
+    }
+
+    pub fn execution_authority(&self) -> &VerifiedClosedLocalReplayExecutionAuthority {
+        &self.execution_authority
+    }
+
+    pub fn reverify_execution_materials(
+        &self,
+    ) -> Result<VerifiedInstalledClosedLocalReplayExecutionMaterials, InstalledAuthorityError> {
+        verify_closed_local_replay_execution_materials_beneath(
+            &self.material_root,
+            self.required_uid,
+            self.required_gid,
+        )
+    }
 }
 
 struct ExpectedAuthorityFile {
@@ -92,6 +153,180 @@ pub fn open_verified_installed_closed_local_replay_grant(
         .open("/")
         .map_err(|source| io_failure("/", source))?;
     open_verified_closed_local_replay_grant_beneath(&root, 0, 0)
+}
+
+/// Open the exact installed closed-local successor authority through the same
+/// descriptor-relative, root-owned hierarchy as the qualification bundle.
+pub fn open_verified_installed_local_execution_authority(
+) -> Result<VerifiedLocalExecutionAuthority, InstalledAuthorityError> {
+    let root = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open("/")
+        .map_err(|source| io_failure("/", source))?;
+    open_verified_local_execution_authority_beneath(&root, 0, 0)
+}
+
+/// Open the complete installed replay execution authority. No path or release
+/// selector is accepted from the caller.
+pub fn open_verified_installed_closed_local_replay_execution_authorities(
+) -> Result<VerifiedInstalledClosedLocalReplayExecutionAuthorities, InstalledAuthorityError> {
+    let root = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open("/")
+        .map_err(|source| io_failure("/", source))?;
+    open_verified_closed_local_replay_execution_authorities_beneath(&root, 0, 0)
+}
+
+fn open_verified_closed_local_replay_execution_authorities_beneath(
+    root: &File,
+    required_uid: u32,
+    required_gid: u32,
+) -> Result<VerifiedInstalledClosedLocalReplayExecutionAuthorities, InstalledAuthorityError> {
+    let material_root = root
+        .try_clone()
+        .map_err(|source| io_failure("duplicate installed material root", source))?;
+    let grant = open_verified_closed_local_replay_grant_beneath(root, required_uid, required_gid)?;
+    let (directory, display_path) =
+        open_verified_authority_directory(root, required_uid, required_gid)?;
+    let basename = "closed-local-replay-execution-authority-v1.json";
+    let label = format!("{display_path}/{basename}");
+    let file = open_child(&directory, basename, false, &label)?;
+    let bytes = read_verified_file(
+        file,
+        &label,
+        required_uid,
+        required_gid,
+        TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES.len(),
+    )?;
+    let execution_authority = verify_closed_local_replay_execution_authority_bytes(&bytes)?;
+    verify_closed_local_replay_execution_materials_from_directory(
+        directory,
+        &display_path,
+        required_uid,
+        required_gid,
+    )?;
+    Ok(VerifiedInstalledClosedLocalReplayExecutionAuthorities {
+        grant,
+        execution_authority,
+        material_root,
+        required_uid,
+        required_gid,
+    })
+}
+
+fn verify_closed_local_replay_execution_materials_beneath(
+    root: &File,
+    required_uid: u32,
+    required_gid: u32,
+) -> Result<VerifiedInstalledClosedLocalReplayExecutionMaterials, InstalledAuthorityError> {
+    let (directory, display_path) =
+        open_verified_authority_directory(root, required_uid, required_gid)?;
+    verify_closed_local_replay_execution_materials_from_directory(
+        directory,
+        &display_path,
+        required_uid,
+        required_gid,
+    )
+}
+
+fn verify_closed_local_replay_execution_materials_from_directory(
+    mut directory: File,
+    display_path: &str,
+    required_uid: u32,
+    required_gid: u32,
+) -> Result<VerifiedInstalledClosedLocalReplayExecutionMaterials, InstalledAuthorityError> {
+    let fixtures_label = format!("{display_path}/fixtures");
+    let fixtures = open_child(&directory, "fixtures", true, &fixtures_label)?;
+    validate_directory(
+        &fixtures,
+        &fixtures_label,
+        required_uid,
+        required_gid,
+        Some(AUTHORITY_DIRECTORY_MODE),
+    )?;
+    let fixture_label = format!("{fixtures_label}/a-rooted-native-mining-e2e-v1-real-history");
+    let fixture = open_child(
+        &fixtures,
+        "a-rooted-native-mining-e2e-v1-real-history",
+        true,
+        &fixture_label,
+    )?;
+    validate_directory(
+        &fixture,
+        &fixture_label,
+        required_uid,
+        required_gid,
+        Some(AUTHORITY_DIRECTORY_MODE),
+    )?;
+    let mut verified_fixture_bytes = Vec::with_capacity(2);
+    for (basename, tracked) in [
+        ("task.json", TRACKED_REAL_HISTORY_TASK_BYTES),
+        ("anchor.rs", TRACKED_REAL_HISTORY_ANCHOR_BYTES),
+    ] {
+        let label = format!("{fixture_label}/{basename}");
+        let file = open_child(&fixture, basename, false, &label)?;
+        let bytes = read_verified_file(file, &label, required_uid, required_gid, tracked.len())?;
+        if bytes != tracked {
+            return Err(unsafe_metadata(
+                label,
+                "installed replay fixture bytes differ from the compiled authority",
+            ));
+        }
+        verified_fixture_bytes.push(bytes);
+    }
+
+    let checkers_label = format!("{display_path}/checkers");
+    directory = open_child(&directory, "checkers", true, &checkers_label)?;
+    validate_directory(
+        &directory,
+        &checkers_label,
+        required_uid,
+        required_gid,
+        Some(AUTHORITY_DIRECTORY_MODE),
+    )?;
+    let release_label = format!("{checkers_label}/rust-tuple-struct-project-v1");
+    directory = open_child(
+        &directory,
+        "rust-tuple-struct-project-v1",
+        true,
+        &release_label,
+    )?;
+    validate_directory(
+        &directory,
+        &release_label,
+        required_uid,
+        required_gid,
+        Some(AUTHORITY_DIRECTORY_MODE),
+    )?;
+    for (basename, tracked) in [
+        ("checker.py", TRACKED_CHECKER_BYTES),
+        ("policy.json", TRACKED_CHECKER_POLICY_BYTES),
+        (
+            "RELEASE-MANIFEST.json",
+            TRACKED_CHECKER_RELEASE_MANIFEST_BYTES,
+        ),
+    ] {
+        let label = format!("{release_label}/{basename}");
+        let file = open_child(&directory, basename, false, &label)?;
+        let bytes = read_verified_file(file, &label, required_uid, required_gid, tracked.len())?;
+        if bytes != tracked {
+            return Err(unsafe_metadata(
+                label,
+                "installed checker release bytes differ from the compiled release",
+            ));
+        }
+    }
+    let mut verified_fixture_bytes = verified_fixture_bytes.into_iter();
+    Ok(VerifiedInstalledClosedLocalReplayExecutionMaterials {
+        task: verified_fixture_bytes
+            .next()
+            .expect("the fixed task fixture was pushed"),
+        anchor: verified_fixture_bytes
+            .next()
+            .expect("the fixed anchor fixture was pushed"),
+    })
 }
 
 fn open_verified_closed_local_replay_grant_beneath(
@@ -158,6 +393,62 @@ fn open_verified_authority_bundle_beneath(
     required_uid: u32,
     required_gid: u32,
 ) -> Result<VerifiedAuthorityBundle, InstalledAuthorityError> {
+    let (current, display_path) =
+        open_verified_authority_directory(root, required_uid, required_gid)?;
+
+    let mut opened = Vec::with_capacity(EXPECTED_AUTHORITY_FILES.len());
+    for expected in &EXPECTED_AUTHORITY_FILES {
+        let label = format!("{display_path}/{}", expected.basename);
+        let file = open_child(&current, expected.basename, false, &label)?;
+        let bytes = read_verified_file(
+            file,
+            &label,
+            required_uid,
+            required_gid,
+            expected.tracked.len(),
+        )?;
+        opened.push((expected.label, bytes));
+    }
+
+    verify_authority_bundle(&opened[0].1, &opened[1].1, &opened[2].1)
+        .map_err(InstalledAuthorityError::from)
+}
+
+fn open_verified_local_execution_authority_beneath(
+    root: &File,
+    required_uid: u32,
+    required_gid: u32,
+) -> Result<VerifiedLocalExecutionAuthority, InstalledAuthorityError> {
+    let (directory, display_path) =
+        open_verified_authority_directory(root, required_uid, required_gid)?;
+    let basename = "local-execution-authority-v1.json";
+    let label = format!("{display_path}/{basename}");
+    let file = open_child(&directory, basename, false, &label)?;
+    let bytes = read_verified_file(
+        file,
+        &label,
+        required_uid,
+        required_gid,
+        TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES.len(),
+    )?;
+    verify_local_execution_authority_bytes(&bytes).map_err(|error| {
+        InstalledAuthorityError::UnsafeMetadata {
+            label,
+            reason: match error {
+                crate::LocalExecutionAuthorityError::ByteMismatch => {
+                    "local execution authority differs from tracked bytes"
+                }
+                _ => "local execution authority violates its strict contract",
+            },
+        }
+    })
+}
+
+fn open_verified_authority_directory(
+    root: &File,
+    required_uid: u32,
+    required_gid: u32,
+) -> Result<(File, String), InstalledAuthorityError> {
     validate_directory(root, "/", required_uid, required_gid, None)?;
 
     let mut current = root.try_clone().map_err(|source| io_failure("/", source))?;
@@ -178,22 +469,7 @@ fn open_verified_authority_bundle_beneath(
         current = child;
     }
 
-    let mut opened = Vec::with_capacity(EXPECTED_AUTHORITY_FILES.len());
-    for expected in &EXPECTED_AUTHORITY_FILES {
-        let label = format!("{display_path}/{}", expected.basename);
-        let file = open_child(&current, expected.basename, false, &label)?;
-        let bytes = read_verified_file(
-            file,
-            &label,
-            required_uid,
-            required_gid,
-            expected.tracked.len(),
-        )?;
-        opened.push((expected.label, bytes));
-    }
-
-    verify_authority_bundle(&opened[0].1, &opened[1].1, &opened[2].1)
-        .map_err(InstalledAuthorityError::from)
+    Ok((current, display_path))
 }
 
 #[allow(unsafe_code)]
@@ -338,15 +614,25 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use crate::{
-        AuthorityError, TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
+        closed_local_replay_grant::{
+            TRACKED_REAL_HISTORY_ANCHOR_BYTES, TRACKED_REAL_HISTORY_TASK_BYTES,
+        },
+        AuthorityError, TRACKED_CHECKER_BYTES, TRACKED_CHECKER_POLICY_BYTES,
+        TRACKED_CHECKER_RELEASE_MANIFEST_BYTES,
+        TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+        TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES,
         TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES, TRACKED_EXECUTION_POLICY_BYTES,
-        TRACKED_REGISTRY_BYTES, TRACKED_TOOLCHAIN_IDENTITY_BYTES,
+        TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES, TRACKED_REGISTRY_BYTES,
+        TRACKED_TOOLCHAIN_IDENTITY_BYTES,
     };
 
     use super::{
-        open_verified_authority_bundle_beneath, open_verified_closed_local_replay_grant_beneath,
-        open_verified_installed_authority_bundle,
-        open_verified_installed_closed_local_replay_grant, InstalledAuthorityError,
+        open_verified_authority_bundle_beneath,
+        open_verified_closed_local_replay_execution_authorities_beneath,
+        open_verified_closed_local_replay_grant_beneath, open_verified_installed_authority_bundle,
+        open_verified_installed_closed_local_replay_grant,
+        open_verified_installed_local_execution_authority,
+        open_verified_local_execution_authority_beneath, InstalledAuthorityError,
     };
 
     static NEXT_TEST_TREE: AtomicU64 = AtomicU64::new(0);
@@ -384,11 +670,48 @@ mod tests {
                     "closed-local-replay-registry-overlay-v1.json",
                     TRACKED_CLOSED_LOCAL_REPLAY_REGISTRY_OVERLAY_BYTES,
                 ),
+                (
+                    "local-execution-authority-v1.json",
+                    TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES,
+                ),
+                (
+                    "closed-local-replay-execution-authority-v1.json",
+                    TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES,
+                ),
             ] {
                 let path = authority_dir.join(basename);
                 fs::write(&path, bytes).expect("authority fixture must be writable");
                 set_mode(&path, 0o444);
             }
+            let checker_dir = authority_dir.join("checkers/rust-tuple-struct-project-v1");
+            fs::create_dir_all(&checker_dir).expect("checker tree must be creatable");
+            for (basename, bytes) in [
+                ("checker.py", TRACKED_CHECKER_BYTES),
+                ("policy.json", TRACKED_CHECKER_POLICY_BYTES),
+                (
+                    "RELEASE-MANIFEST.json",
+                    TRACKED_CHECKER_RELEASE_MANIFEST_BYTES,
+                ),
+            ] {
+                let path = checker_dir.join(basename);
+                fs::write(&path, bytes).expect("checker fixture must be writable");
+                set_mode(&path, 0o444);
+            }
+            set_mode(&checker_dir, 0o555);
+            set_mode(checker_dir.parent().expect("checkers parent"), 0o555);
+            let fixture_dir =
+                authority_dir.join("fixtures/a-rooted-native-mining-e2e-v1-real-history");
+            fs::create_dir_all(&fixture_dir).expect("replay fixture tree must be creatable");
+            for (basename, bytes) in [
+                ("task.json", TRACKED_REAL_HISTORY_TASK_BYTES),
+                ("anchor.rs", TRACKED_REAL_HISTORY_ANCHOR_BYTES),
+            ] {
+                let path = fixture_dir.join(basename);
+                fs::write(&path, bytes).expect("replay fixture must be writable");
+                set_mode(&path, 0o444);
+            }
+            set_mode(&fixture_dir, 0o555);
+            set_mode(fixture_dir.parent().expect("fixtures parent"), 0o555);
             set_mode(&authority_dir, 0o555);
             let metadata = fs::metadata(&root).expect("test root metadata");
             Self {
@@ -417,6 +740,21 @@ mod tests {
             open_verified_closed_local_replay_grant_beneath(&root, self.uid, self.gid)
         }
 
+        fn open_replay_execution_authorities(
+            &self,
+        ) -> Result<
+            super::VerifiedInstalledClosedLocalReplayExecutionAuthorities,
+            InstalledAuthorityError,
+        > {
+            let root = OpenOptions::new()
+                .read(true)
+                .open(&self.root)
+                .expect("test root must open");
+            open_verified_closed_local_replay_execution_authorities_beneath(
+                &root, self.uid, self.gid,
+            )
+        }
+
         fn make_authority_dir_writable(&self) {
             set_mode(&self.authority_dir, 0o755);
         }
@@ -443,6 +781,8 @@ mod tests {
         let _entrypoint: fn() -> Result<_, _> = open_verified_installed_authority_bundle;
         let _replay_entrypoint: fn() -> Result<_, _> =
             open_verified_installed_closed_local_replay_grant;
+        let _successor_entrypoint: fn() -> Result<_, _> =
+            open_verified_installed_local_execution_authority;
     }
 
     #[test]
@@ -470,6 +810,64 @@ mod tests {
                 .expect("installed grant bytes"),
             TRACKED_CLOSED_LOCAL_REPLAY_GRANT_BYTES
         );
+    }
+
+    #[test]
+    fn replay_execution_authorities_require_the_exact_authority_and_checker_release() {
+        let tree = TestAuthorityTree::new();
+        let installed = tree
+            .open_replay_execution_authorities()
+            .expect("exact execution authorities must verify");
+        assert_eq!(installed.grant().max_checker_executions_total(), 3);
+        assert!(!installed.execution_authority().activation_allowed());
+        assert!(installed
+            .execution_authority()
+            .requires_runtime_rootfs_replay());
+
+        for relative in [
+            "closed-local-replay-execution-authority-v1.json",
+            "checkers/rust-tuple-struct-project-v1/checker.py",
+            "checkers/rust-tuple-struct-project-v1/policy.json",
+            "checkers/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+            "fixtures/a-rooted-native-mining-e2e-v1-real-history/task.json",
+            "fixtures/a-rooted-native-mining-e2e-v1-real-history/anchor.rs",
+        ] {
+            let tree = TestAuthorityTree::new();
+            let path = tree.path(relative);
+            set_mode(&path, 0o644);
+            let mut bytes = fs::read(&path).expect("installed bytes");
+            bytes[0] ^= 1;
+            fs::write(&path, bytes).expect("drift installed bytes");
+            set_mode(&path, 0o444);
+            assert!(
+                tree.open_replay_execution_authorities().is_err(),
+                "{relative}"
+            );
+        }
+    }
+
+    #[test]
+    fn replay_execution_reopens_task_and_anchor_for_every_permit() {
+        for relative in [
+            "fixtures/a-rooted-native-mining-e2e-v1-real-history/task.json",
+            "fixtures/a-rooted-native-mining-e2e-v1-real-history/anchor.rs",
+        ] {
+            let tree = TestAuthorityTree::new();
+            let installed = tree
+                .open_replay_execution_authorities()
+                .expect("exact startup authority must verify");
+            let path = tree.path(relative);
+            set_mode(&path, 0o644);
+            let mut bytes = fs::read(&path).expect("installed fixture bytes");
+            bytes[0] ^= 1;
+            fs::write(&path, bytes).expect("drift installed fixture after startup");
+            set_mode(&path, 0o444);
+
+            assert!(
+                installed.reverify_execution_materials().is_err(),
+                "per-request revalidation missed {relative}"
+            );
+        }
     }
 
     #[test]
@@ -525,6 +923,21 @@ mod tests {
             linked.open_replay_grant(),
             Err(InstalledAuthorityError::Io { .. })
         ));
+    }
+
+    #[test]
+    fn installed_successor_authority_uses_the_same_safe_descriptor_walk() {
+        let tree = TestAuthorityTree::new();
+        let root = OpenOptions::new()
+            .read(true)
+            .open(&tree.root)
+            .expect("test root must open");
+        let authority = open_verified_local_execution_authority_beneath(&root, tree.uid, tree.gid)
+            .expect("exact installed successor authority verifies");
+
+        assert!(!authority.activation_allowed());
+        assert!(authority.loopback_only());
+        assert!(!authority.mineable_now());
     }
 
     #[test]

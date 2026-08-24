@@ -93,6 +93,14 @@ def resolve_toolchain_bin() -> pathlib.Path:
 class NativeShadowAuthorityTests(unittest.TestCase):
     maxDiff = None
 
+    def test_checker_pins_cargo_to_the_frozen_system_linker(self) -> None:
+        checker = (CHECKER / "checker.py").read_text(encoding="utf-8")
+        self.assertIn(
+            '"CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER": '
+            '"/usr/bin/x86_64-linux-gnu-gcc-13"',
+            checker,
+        )
+
     def test_clean_ci_gate_runs_this_authority_test(self) -> None:
         self.assertIn(
             "scripts/test_native_shadow_authority.py",

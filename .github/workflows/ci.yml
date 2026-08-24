@@ -88,6 +88,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+
+      - name: Install fixed native-shadow service accounts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for identity in boole-node boole-native-checker; do
+            if getent passwd "$identity" >/dev/null || getent group "$identity" >/dev/null; then
+              echo "native-shadow service identity unexpectedly pre-exists: $identity" >&2
+              exit 1
+            fi
+          done
+          sudo groupadd --system boole-node
+          sudo useradd --system --gid boole-node --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin boole-node
+          sudo groupadd --system boole-native-checker
+          sudo useradd --system --gid boole-native-checker --home-dir /nonexistent --no-create-home --shell /bin/false boole-native-checker
+
       - name: Rebuild, independently verify, and probe the portable checker rootfs
         run: sudo ./scripts/native-shadow-portable-rootfs-replay-linux.sh
 
