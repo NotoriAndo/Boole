@@ -690,10 +690,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `ee042c17aab2bc4b768667bfeaa5e8d0d24132b64afd065192a021fdf11905a7` (updated 2026-08-24b — MAC.0 complete, MAC.1 frozen) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `d88341bc30df5f7811fad913d3a56920bc322cc641fc7e16e2db7d79bb2329e5` (updated 2026-08-24b — crash/restart exactly-once GREEN, MAC.0 complete, MAC.1 frozen; block/reward authority remains HOLD) |
+| `local-docs/todo/todo-l1-network-master.md` | `3cdf9b1294d906b6237757906e08d69392875a23b42f7a987f9a7eaa0aee3ffd` (updated 2026-08-24c — MAC.1 COMPLETE, operator value macOS 14.0) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `8f47e25a8823eef1ad5340e712ba9e4986b4cd167a888729288415cded44486e` (updated 2026-08-24c — MAC.1 COMPLETE, cursor at MAC.2 not started; block/reward authority remains HOLD) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `f3e8f4850b620b8d73a948905e1e32f81a8a6f7bb7363ae64c90ed6e72094beb` (updated 2026-08-24b — MAC.0 complete, MAC.1 frozen) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `baeb15193aa2ed8ef084a162b490d20c8b2f2da9090bf6288c8d01ee3a8ad22a` (updated 2026-08-24c — MAC.1 COMPLETE, operator value macOS 14.0) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -773,6 +773,15 @@ authority parity, which has not been started. The other three mirrors are byte-u
 table above holds the exact recomputed post-update SHA-256 of every mirror, replacing the
 2026-08-24a values for the three edited files only.
 
+A third, same-day (2026-08-24c) synchronization appends the MAC.1-closure cursor to the same
+three mirrors (`todo-l1-network-master.md`, `EXECUTION-ORDER.md`,
+`thesis-realization-roadmap.md`): the operator supplied the single outstanding MAC.1 value
+(product minimum macOS 14.0, Apple Silicon M1 or later, Intel outside the v1 scope), MAC.1 is
+COMPLETE per plan section 10.5 with the frozen contract unchanged, and the cursor moves to
+MAC.2 — Linux/arm64 successor authority parity — which has not been started. The other three
+mirrors are byte-unchanged. The table above holds the exact recomputed post-update SHA-256 of
+every mirror, replacing the 2026-08-24b values for the three edited files only.
+
 ## 13. Mac-first product distribution boundary
 
 The current Linux-only execution contract describes the security envelope for untrusted native
@@ -795,3 +804,12 @@ _2026-08-24 addendum:_ MAC.0 is COMPLETE (section 4.6 crash/restart closure; pla
 the MAC.1 distribution contract is frozen as MAC.1-PARTIAL — OPERATOR VALUE REQUIRED (plan
 section 10). MAC.2 and every later Mac gate remain unstarted and unimplemented; this addendum
 still authorizes no Mac production claim.
+
+_2026-08-24b addendum:_ the operator supplied the single outstanding MAC.1 value, closing it in
+plan section 10.5: MAC.1 is COMPLETE with product minimum **macOS 14.0 (Sonoma)** on
+**Apple Silicon (M1 or later)**; Intel Macs are outside the v1 support scope. The frozen
+one-install/resource/rollback contract of plan sections 10.1–10.3 is unchanged. The execution
+cursor is now MAC.2 — Linux/arm64 successor guest authority reproduction and exact verdict
+parity — and MAC.2 has NOT been started. The Mac production checker is still NOT ready; this
+addendum grants no implementation, activation, block or reward authority and authorizes no Mac
+production claim.
