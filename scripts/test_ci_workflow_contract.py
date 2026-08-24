@@ -237,6 +237,15 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         ):
             self.assertIn(required, manager)
         self.assertIn("native-shadow-active-execution-peer:pid={}", active_execution)
+        self.assertNotRegex(
+            active_execution,
+            re.compile(
+                r'#\[cfg\(feature = "manager-cgroup-linux-gate"\)\]\s*'
+                r'eprintln!\("native-shadow-active-execution-peer:pid=\{\}"'
+            ),
+            "the production launcher must retain the kernel-authenticated peer audit; "
+            "only the CI-only diagnostic entrypoints belong behind the feature gate",
+        )
         self.assertNotIn(
             "http_replay_gate_path=$(readlink -f scripts/native_shadow_http_replay_gate.py)",
             manager,
