@@ -336,12 +336,13 @@ run_home=$(getent passwd "$run_user" | awk -F: 'NF == 7 { print $6 }')
 [[ -n "$run_home" && -x "$run_home/.cargo/bin/cargo" ]] \
   || die "the original CI user lacks the pinned Rust toolchain"
 chmod 0711 "$scratch"
-# The manager's frozen inner deadlines total 1,680 seconds: three 180-second
-# containment diagnostics, a 120-second drift probe, the 420-second HTTP
-# matrix, and the 600-second crash/restart matrix. Native ARM compilation and
-# service installation measured another bounded setup cost on the clean CI
-# runner, so keep a separate 420-second outer allowance. This changes only the
-# CI orchestration deadline; every checker/resource deadline remains frozen.
+# A 1,200-second global cap cut the native ARM run after every diagnostic,
+# rootfs-drift rejection and HTTP case had passed, while crash/restart was
+# still advancing normally. Use a 2,100-second global CI orchestration cap for
+# this manager invocation and leave another 600 seconds in the 45-minute job
+# for acquisition, exact rootfs construction and direct parity. This is not a
+# claim that one outer cap sums every theoretical nested wait. Every checker,
+# HTTP, crash/restart and resource-policy deadline remains independently frozen.
 arm64_manager_deadline_seconds=2100
 (
   cd "$ROOT"

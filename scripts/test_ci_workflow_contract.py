@@ -1029,23 +1029,29 @@ class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
         for forbidden in ("continue-on-error", "SKIP", "|| true"):
             self.assertNotIn(forbidden, job)
 
-    def test_arm64_outer_deadline_covers_the_frozen_nested_gate_budgets(self):
+    def test_arm64_global_deadline_is_applied_and_leaves_workflow_reserve(self):
         gate = ARM64_ROOTFS_REPLAY_GATE.read_text(encoding="utf-8")
-        manager = (
-            REPO_ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
-        ).read_text(encoding="utf-8")
+        job = self._job("native-shadow-rootfs-replay-linux-arm64")
 
-        # The manager can spend 3x180s on containment diagnostics, 120s on
-        # request-time drift, 420s on the HTTP matrix, and 600s on the
-        # crash/restart matrix.  The ARM runner also needs a measured setup
-        # allowance for native compilation and service installation.  Pin the
-        # outer budget independently so an inner gate cannot be killed merely
-        # because its architecture is slower.
-        for inner_deadline in ("180s", "120s", "420s", "600s"):
-            self.assertIn(inner_deadline, manager)
-        self.assertIn("arm64_manager_deadline_seconds=2100", gate)
-        self.assertIn('"${arm64_manager_deadline_seconds}s"', gate)
-        self.assertGreaterEqual(2100, (3 * 180) + 120 + 420 + 600 + 420)
+        deadline_match = re.search(
+            r"(?m)^arm64_manager_deadline_seconds=([0-9]+)$", gate
+        )
+        self.assertIsNotNone(deadline_match)
+        manager_seconds = int(deadline_match.group(1))
+        self.assertEqual(manager_seconds, 2100)
+        self.assertEqual(gate.count('"${arm64_manager_deadline_seconds}s"'), 1)
+        self.assertLess(
+            gate.index("arm64_manager_deadline_seconds=2100"),
+            gate.index('"${arm64_manager_deadline_seconds}s"'),
+        )
+
+        workflow_match = re.search(r"timeout-minutes: ([0-9]+)", job)
+        self.assertIsNotNone(workflow_match)
+        workflow_seconds = int(workflow_match.group(1)) * 60
+        self.assertEqual(workflow_seconds, 45 * 60)
+        self.assertGreaterEqual(workflow_seconds - manager_seconds, 600)
+        self.assertIn("global CI orchestration cap", gate)
+        self.assertNotIn("frozen inner deadlines total", gate)
 
     def test_self_test_requires_arm64_rootfs_replay(self):
         job = self._job("self-test")
