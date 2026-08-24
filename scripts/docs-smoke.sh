@@ -21,6 +21,15 @@ require_text() {
   fi
 }
 
+forbid_text() {
+  local path="$1"
+  local needle="$2"
+  if grep -Fq -- "$needle" "$path"; then
+    printf 'docs-smoke: forbidden %q in %s\n' "$needle" "$path" >&2
+    return 1
+  fi
+}
+
 require_file README.md
 require_file install.sh
 require_file docs/install.md
@@ -72,6 +81,61 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "The execution cur
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.2 has NOT been started"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "The Mac production checker is NOT ready"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "mineable_now=0"
+
+# MAC.1 accounting correction and MAC.2 Linux/arm64 closure (2026-08-25).
+# Historical MAC.1-COMPLETE/MAC.2-NOT-STARTED pins above remain on purpose;
+# these pins require a later append-only current-state correction and the
+# executed arm64 authority evidence without granting Mac-product activation.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.1-PARTIAL — DISTRIBUTION MODE, PUBLIC IDENTITY, AND MEASUREMENT PROTOCOL REQUIRED"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.2 status: **MAC.2-PARTIAL — CLOSED-LOCAL LINUX/ARM64 AUTHORITY PARITY COMPLETE; STAGED VERIFIER AND POST-ADOPTION REVERIFICATION OPEN.**"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "POST-UPDATE-IMAGE-AND-RUNTIME-AUTHORITY-REVERIFICATION"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.3 is BLOCKED / NOT STARTED"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.1-PARTIAL — DISTRIBUTION MODE, PUBLIC IDENTITY, AND MEASUREMENT PROTOCOL REQUIRED"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.2-A — architecture authority parity"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.2-B — authenticated staged-update verification"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.2-C — post-adoption re-verification"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Measurement results are earned in MAC.2–MAC.5"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "PR #224"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "2a6de07ba6c77355d19a3d342ab718f7358fd76a"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "https://github.com/NotoriAndo/Boole/actions/runs/32766488279"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "d636e56dbf7e32d6054a1d4abfaeb97c6ebdf5119d217fe7740db0513984badd"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "666cdd6a6908822b35a3839e905ab03bed2846ce8e49091ccd163b5f59947f36"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "23b9c235a638cf08d38b2082af19d599320c9e5e5fc785bc1e14f51b4667f210"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "2962adef8d1aea9ba1c8466b8e014b71f1ec3c9555ce8b685d58ede6b631fe74"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "bd5cd9fc87e5e47a23e6fa12844ec0c47bdb01ee34090cddff24568c18d7236f"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "b7ef42d084adb8d660d7446092d768546cb555a868d2bbe7a5d6f4f9b1985d09"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "d220d20b7adaa22357929729d2f0666a8c9cbe50ce8031f90539ba1309950c6b"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "79073e541856c9be3bfbf56bf9c4415677679dc994c1342902f631716db7f312"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "62 artifacts / 56 Ubuntu packages / 181,623,999 bytes"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "sha256:dfeafb2918764736bdcd94d0fd121ed8eee2ef88d0a82e1ef28b3e625723bc0d"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "766,556,160 bytes"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "1,285,116 bytes"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md '"authorityInputBytes": 181623999'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md '"rootfsContentEntryCount": 4216'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| accepted | 0.39 | 139,296 |'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| accepted replay | 0.39 | 139,168 |'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| empty | 0.23 | 36,280 |'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| tampered | 0.40 | 139,264 |'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| constant | 0.39 | 137,376 |'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| cross real to synthetic | 0.24 | 36,280 |'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| cross synthetic to real | 0.24 | 36,280 |'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "productionByteProvenanceComplete=false"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "activationAllowed=false"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "LLM-MINEABLE-ELIGIBLE-V5=14,160"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "REWARD_READY=0"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
+require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
+require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
+require_text docs/native-submission-shadow-verification-v1.md "e992cdb6da8f69b773d03ce3a0c00d96e6ec513f5dd7f546d9b387cc6c99a2de"
+require_text docs/native-submission-shadow-verification-v1.md "85bd2a3b670027e9893fa6a6d1c6a7c8339586170befa3071bf10a99a03a39ce"
+require_text docs/native-submission-shadow-verification-v1.md "e439aa86bd663cff37e1b434e5d5f683612cb23b8172d00d68418b1625ed4b8e"
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
+forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
+forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"
+forbid_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "MAC2_MERGE_SHA_PENDING"
 
 # P1.8 — the dev-only mock payment doc must carry an unmistakable banner and
 # name its feature gate, and receipt-commitment.md must caveat the magic header

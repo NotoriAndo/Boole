@@ -499,6 +499,23 @@ Together with sections 4.1–4.5 this closes the full MAC.0 chain recorded in
 loopback-only, frozen non-issuable qualification — not public mining, not production availability
 and not a Mac-product claim.
 
+### 4.7 Linux/arm64 successor-authority parity milestone (2026-08-25)
+
+PR #224 (main `2a6de07ba6c77355d19a3d342ab718f7358fd76a`; CI
+<https://github.com/NotoriAndo/Boole/actions/runs/32766488279>) reproduced the separately frozen
+native authority on a native Linux/aarch64 runner. This was executed parity evidence, not an
+architecture inference: the accepted fixture and byte-identical replay were accepted; empty,
+tampered, constant and both cross-task directions produced the same typed deterministic rejects as
+the x86_64 baseline. The arm64 authority also passed the named containment, HTTP replay and real
+crash/restart gates.
+
+Linux now has compile-time architecture/authority binding in both directions: an arm64 authority
+feature cannot build as a Linux/x86_64 authority, and the default x86_64 authority cannot build on
+Linux/aarch64. The executed result records exact semantic, binding, containment and resource-policy
+parity, while preserving `productionByteProvenanceComplete=false`, `activationAllowed=false`,
+`nonIssuable=true` and all no-consumer boundaries. It is not a Mac VM, app distribution, signing,
+notarization, update or production-activation result.
+
 ## 5. Required decision path
 
 For every submission, the node performs these stages in order:
@@ -684,16 +701,16 @@ remain unimplemented.
 ## 12. Synchronized local planning mirrors
 
 The detailed master, execution and thesis mirrors remain under gitignored `local-docs`; the
-repository must not unignore that directory wholesale. Their synchronized 2026-08-23 byte
+repository must not unignore that directory wholesale. Their synchronized 2026-08-25 byte
 digests are recorded here so a later local edit cannot be mistaken for this reviewed state:
 
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `3cdf9b1294d906b6237757906e08d69392875a23b42f7a987f9a7eaa0aee3ffd` (updated 2026-08-24c — MAC.1 COMPLETE, operator value macOS 14.0) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `8f47e25a8823eef1ad5340e712ba9e4986b4cd167a888729288415cded44486e` (updated 2026-08-24c — MAC.1 COMPLETE, cursor at MAC.2 not started; block/reward authority remains HOLD) |
+| `local-docs/todo/todo-l1-network-master.md` | `e992cdb6da8f69b773d03ce3a0c00d96e6ec513f5dd7f546d9b387cc6c99a2de` (updated 2026-08-25 — MAC.1 partial accounting, MAC.2-A complete, MAC.2-B/C open) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `85bd2a3b670027e9893fa6a6d1c6a7c8339586170befa3071bf10a99a03a39ce` (updated 2026-08-25 — cursor at MAC.1 choices/measurement protocol then MAC.2-B; block/reward authority remains HOLD) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `baeb15193aa2ed8ef084a162b490d20c8b2f2da9090bf6288c8d01ee3a8ad22a` (updated 2026-08-24c — MAC.1 COMPLETE, operator value macOS 14.0) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `e439aa86bd663cff37e1b434e5d5f683612cb23b8172d00d68418b1625ed4b8e` (updated 2026-08-25 — Linux/arm64 evidence and corrected Mac gate dependency graph) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -813,3 +830,20 @@ cursor is now MAC.2 — Linux/arm64 successor guest authority reproduction and e
 parity — and MAC.2 has NOT been started. The Mac production checker is still NOT ready; this
 addendum grants no implementation, activation, block or reward authority and authorizes no Mac
 production claim.
+
+_2026-08-25 current-state addendum:_ plan sections 8.3 and 10.6 preserve the historical MAC.1
+operator decision but correct its completion accounting. The current state is
+**MAC.1-PARTIAL — DISTRIBUTION MODE, PUBLIC IDENTITY, AND MEASUREMENT PROTOCOL REQUIRED**;
+**MAC.2-PARTIAL — CLOSED-LOCAL LINUX/ARM64 AUTHORITY PARITY COMPLETE; STAGED VERIFIER AND
+POST-ADOPTION REVERIFICATION OPEN** by section 4.7; and
+**MAC.3 BLOCKED / NOT STARTED**. MAC.4–MAC.6 remain unstarted. The Mac production checker is
+still not ready and no activation, block or reward authority is granted.
+
+The 2026-08-25 mirror synchronization appends that same current cursor to
+`todo-l1-network-master.md`, `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`: MAC.0 is
+complete, MAC.1 remains partial for distribution mode/public identities/measurement protocol,
+MAC.2 has completed only its closed-local Linux/arm64 parity subgate while its authenticated staged
+verifier and post-adoption reverification remain open, MAC.3 is blocked and later Mac gates
+remain unstarted. The other three mirror files are byte-unchanged. The section 12 table contains
+the recomputed post-update SHA-256 values for the three edited mirrors only. Local mirrors remain
+synchronization evidence, not runtime trust roots.

@@ -1,8 +1,11 @@
 # Mac-first hidden Linux execution plan v1
 
-Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9); MAC.1 COMPLETE
-(operator value macOS 14.0 supplied 2026-08-24, sections 10 and 10.5); MAC.2+ NOT STARTED —
-NOT IMPLEMENTED, NOT RELEASE-READY, NO ACTIVATION AUTHORITY.**
+Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
+MAC.1-PARTIAL — DISTRIBUTION MODE, PUBLIC IDENTITY, AND MEASUREMENT PROTOCOL REQUIRED (completion
+accounting corrected 2026-08-25, section 10.6; macOS 14/M1/Intel decision remains fixed);
+MAC.2-PARTIAL — CLOSED-LOCAL LINUX/ARM64 AUTHORITY PARITY COMPLETE; STAGED VERIFIER AND
+POST-ADOPTION REVERIFICATION OPEN (section 11); MAC.3 BLOCKED /
+NOT STARTED — NOT IMPLEMENTED, NOT RELEASE-READY, NO ACTIVATION AUTHORITY.**
 
 This plan defines the product boundary for running Boole's native-answer checker for Mac users.
 It does not weaken or replace the current Linux production-containment authority, and it does not
@@ -123,6 +126,11 @@ Freeze before implementation:
 - app signing, notarization, virtualization entitlement and update-signing identities; and
 - explicit statement that Docker/Linux/manual VM installation is not part of the user contract.
 
+Timing correction: section 10.6 supersedes the phrase “values set from a small measurement before
+implementation” above. Before implementation, MAC.1 freezes binding caps, workloads, collection
+methods and acceptance rules; the actual values are earned only by MAC.2–MAC.5 when the relevant
+artifact or product path exists.
+
 ### MAC.2 — Freeze and reproduce the guest authority
 
 - Build the selected Linux guest architecture from signed, exact inputs.
@@ -230,6 +238,22 @@ minimum is **macOS 14.0 (Sonoma)** on **Apple Silicon (M1 or later)**, Intel Mac
 the v1 support scope, and MAC.1 is COMPLETE. The next gate remains **MAC.2 — freeze and
 reproduce the Linux/arm64 successor guest authority with exact verdict parity**, and MAC.2 has
 NOT been started.
+
+### 8.3 Current position correction (2026-08-25 — MAC.1 accounting corrected; MAC.2 closed-local parity complete)
+
+Sections 8.1–8.2 are preserved as historical checkpoints. Their statement that MAC.1 had only
+one open value and became COMPLETE is superseded by section 10.6: the minimum macOS/hardware
+decision is complete, but the distribution mode, public release identities and measurement
+protocol required by section 5 remain open. Product values are later unearned results, not MAC.1
+prerequisites.
+
+The closed-local Linux/arm64 guest-authority parity subgate recorded in section 11 is COMPLETE,
+but MAC.2 as a whole remains PARTIAL because the authenticated staged-update verifier and the
+post-adoption image/runtime-authority reverification have not run. That result created no Apple
+Virtualization VM, `Boole.app`, signed/notarized artifact, update channel or Mac production checker.
+MAC.3 is BLOCKED / NOT STARTED until the MAC.1 product choices/measurement protocol are frozen and
+the MAC.2-B staged verifier is implemented and GREEN; it is not blocked on measurements that only a later working product
+path can produce. MAC.4–MAC.6 remain unstarted. No later gate may use MAC.2-A to bypass those inputs.
 
 ## 9. MAC.0 closure record (2026-08-24)
 
@@ -442,3 +466,111 @@ entitlement was changed, and no Xcode project was created in this slice.
 Invariants unchanged: `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false`, `activationAllowed=false`; consensus, block,
 reward and P2P paths are untouched.
+
+### 10.6 MAC.1 completion-accounting correction (2026-08-25)
+
+Section 10.5 is preserved as the historical operator-decision record, but its claim that the
+macOS minimum was the only open MAC.1 item is incorrect relative to section 5 and is superseded
+here. The macOS 14.0 minimum, Apple Silicon M1-or-later scope, Intel exclusion and
+no-Docker/manual-Linux user contract remain fixed.
+
+The still-open MAC.1 items are exactly:
+
+1. **Distribution mode:** choose and freeze bundled guest versus first-run guest download,
+   including the public distribution/update channel.
+2. **Measurement protocol:** freeze the existing product caps, measurement workloads, collection
+   method and acceptance rule before implementation. Measurement results are earned in MAC.2–MAC.5
+   at the gates that first create the relevant artifact or product path; they cannot be prerequisites
+   for that path's implementation. Existing PRE-FROZEN PRODUCT CAP values remain binding ceilings,
+   not measurements. MAC.2's authority-input/layer/checker measurements are evidence for one guest
+   artifact only and do not replace the later app/VM/product-path measurements.
+3. **Public release identities and policy:** freeze the Bundle ID, Apple Developer Team ID,
+   public signing-certificate fingerprint/policy, notarization and stapling policy, exact
+   entitlement set (including virtualization), hardened-runtime/codesign options, App Sandbox
+   decision and boundary, and the public app/guest update trust keys with rotation, revocation and
+   rollback rules. Private keys, passwords, notary credentials and other secrets must never be
+   written to this repository.
+
+These three buckets are the unresolved portions of section 5's third, fourth and fifth bullets;
+they do not reopen its completed first, second or sixth bullets. Therefore the current status is
+**MAC.1-PARTIAL — DISTRIBUTION MODE, PUBLIC IDENTITY, AND MEASUREMENT PROTOCOL REQUIRED**.
+
+The ordered gates are a dependency graph rather than an impossible demand for measurements before
+their producer exists:
+
+- **MAC.2-A — architecture authority parity:** complete by PR #224.
+- **MAC.2-B — authenticated staged-update verification:** before MAC.3 may adopt an image, an
+  offline verifier must authenticate the operator-frozen public update trust root and manifest,
+  then verify every candidate image/runtime authority byte before adoption.
+- **MAC.2-C — post-adoption re-verification:** MAC.3 implements atomic adoption/rollback and MAC.5
+  exercises a real update followed by the same authority verification and verdict matrix.
+
+MAC.3 may start only after MAC.1 freezes the distribution/update choices, public trust policy and
+measurement protocol, and after MAC.2-B is GREEN. It does not wait for measurements assigned to
+MAC.3–MAC.5 or for MAC.2-C, because those require the lifecycle it creates. This sequencing correction
+changes no runtime authority and does not weaken any pre-frozen cap or final release gate.
+
+## 11. MAC.2 closed-local Linux/arm64 authority-parity subgate closure (2026-08-25)
+
+MAC.2 status: **MAC.2-PARTIAL — CLOSED-LOCAL LINUX/ARM64 AUTHORITY PARITY COMPLETE; STAGED VERIFIER AND POST-ADOPTION REVERIFICATION OPEN.** PR #224
+(main `2a6de07ba6c77355d19a3d342ab718f7358fd76a`; CI
+<https://github.com/NotoriAndo/Boole/actions/runs/32766488279>) rebuilt the separately frozen
+authority on a native Linux/aarch64 runner and executed, rather than inferred, the parity matrix.
+The executed result reports `mac2Status=PARTIAL`, completed subgate
+`CLOSED-LOCAL-LINUX-ARM64-AUTHORITY-PARITY`, and open requirement
+`POST-UPDATE-IMAGE-AND-RUNTIME-AUTHORITY-REVERIFICATION`.
+That last value is the executed artifact's umbrella status field, not the dependency scheduler;
+section 10.6 now separates its remaining work into MAC.2-B and MAC.2-C.
+
+The accepted fixture and its byte-identical replay returned `accepted/accepted`; empty returned
+`deterministic_reject/malformed_patch_region`; tampered and constant returned
+`deterministic_reject/compile_or_hidden_test_failed`; both cross-task directions returned
+`deterministic_reject/outside_patch_modified`. The named containment, HTTP replay and
+crash/restart gates also passed under the arm64 authority.
+
+Frozen authority SHA-256 values:
+
+| authority | SHA-256 |
+| --- | --- |
+| registry | `d636e56dbf7e32d6054a1d4abfaeb97c6ebdf5119d217fe7740db0513984badd` |
+| execution policy | `df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f` |
+| toolchain identity | `666cdd6a6908822b35a3839e905ab03bed2846ce8e49091ccd163b5f59947f36` |
+| checker release | `23b9c235a638cf08d38b2082af19d599320c9e5e5fc785bc1e14f51b4667f210` |
+| registry overlay | `2962adef8d1aea9ba1c8466b8e014b71f1ec3c9555ce8b685d58ede6b631fe74` |
+| closed-local replay grant | `bd5cd9fc87e5e47a23e6fa12844ec0c47bdb01ee34090cddff24568c18d7236f` |
+| local execution authority | `b7ef42d084adb8d660d7446092d768546cb555a868d2bbe7a5d6f4f9b1985d09` |
+| closed replay authority | `d220d20b7adaa22357929729d2f0666a8c9cbe50ce8031f90539ba1309950c6b` |
+
+The source closure is **62 artifacts / 56 Ubuntu packages / 181,623,999 bytes** with result SHA-256
+`79073e541856c9be3bfbf56bf9c4415677679dc994c1342902f631716db7f312`. The OCI rootfs layer is
+`sha256:dfeafb2918764736bdcd94d0fd121ed8eee2ef88d0a82e1ef28b3e625723bc0d`,
+**766,556,160 bytes**. Its content manifest is
+`200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa`,
+**1,285,116 bytes**, covering 4,216 entries.
+
+The executed `MAC2-RESULT.json` recorded `"authorityInputBytes": 181623999`,
+`"rootfsContentEntryCount": 4216` and these per-case measurements:
+
+| case | wall seconds | max RSS KiB |
+| --- | ---: | ---: |
+| accepted | 0.39 | 139,296 |
+| accepted replay | 0.39 | 139,168 |
+| empty | 0.23 | 36,280 |
+| tampered | 0.40 | 139,264 |
+| constant | 0.39 | 137,376 |
+| cross real to synthetic | 0.24 | 36,280 |
+| cross synthetic to real | 0.24 | 36,280 |
+
+The architecture-feature compile guard prevents an arm64 authority from being selected on Linux
+x86_64 and prevents the default x86_64 authority from being selected on Linux/aarch64. The
+existing x86_64 containment/rootfs gate remained GREEN. Its execution policy, rootfs inputs,
+`checker.py` and x86_64 release manifest bytes were unchanged; the shared `SHA256SUMS` release
+channel index changed only to cover the newly added arm64 release manifest.
+
+Boundary: this platform is Linux/arm64, not macOS; `productionByteProvenanceComplete=false` and
+`activationAllowed=false`. No Apple VM/app/signing/notarization/update lifecycle was built or
+tested. The authenticated staged verifier (MAC.2-B) and real post-adoption reverification
+(MAC.2-C) remain open. These measurements are architecture evidence, not the later MAC.3–MAC.5
+product-path measurements, which are not MAC.3 prerequisites.
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged.
