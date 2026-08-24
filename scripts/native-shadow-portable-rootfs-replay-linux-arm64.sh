@@ -222,6 +222,8 @@ result = {
     "activationAllowed": False,
     "bindingsAndNegativeControls": "EXACT-PARITY",
     "caseVerdicts": verdicts,
+    "containmentEnforcementParity": "NOT-YET-PROVEN",
+    "mac2Status": "PARTIAL-GUEST-AUTHORITY-AND-VERDICT-PARITY",
     "platform": {"architecture": "arm64", "os": "linux"},
     "productionByteProvenanceComplete": False,
     "replayByteIdentical": True,
@@ -231,7 +233,7 @@ result = {
         "rootfsContentEntryCount": entry_count,
         "rootfsLayerBytes": layer_bytes,
     },
-    "resourcePolicyParity": "EXACT-EXCEPT-FROZEN-ARCHITECTURE-IDENTITY",
+    "resourcePolicyDocumentParity": "EXACT-EXCEPT-FROZEN-ARCHITECTURE-IDENTITY",
     "schema": "boole.native-shadow.mac2-arm64-parity-result.v1",
     "semanticVerdictParity": "EXACT",
 }

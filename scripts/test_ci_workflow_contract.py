@@ -1045,8 +1045,12 @@ class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
             "outside_patch_modified",
             "PrivateNetwork=yes",
             "MAC2-RESULT.json",
+            '"containmentEnforcementParity": "NOT-YET-PROVEN"',
+            '"mac2Status": "PARTIAL-GUEST-AUTHORITY-AND-VERDICT-PARITY"',
+            '"resourcePolicyDocumentParity": "EXACT-EXCEPT-FROZEN-ARCHITECTURE-IDENTITY"',
         ):
             self.assertIn(required, gate)
+        self.assertNotIn('"resourcePolicyParity": "EXACT', gate)
         for forbidden in ("continue-on-error", "SKIP", "|| true"):
             self.assertNotIn(forbidden, gate)
 
