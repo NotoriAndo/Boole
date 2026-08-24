@@ -1,7 +1,7 @@
 {
   "activationAllowed": false,
   "bootstrapAuthority": {
-    "acquisitionPlanV1Sha256": "09b1bb420c3c2317872e8408384b388d4fc8909554af15e759f12684d23db1c8",
+    "acquisitionPlanV1Sha256": "8d8ac1a4fd82370c1f0c12a270bd38b9b2b78f0c1a155432298b4d654a0fb06e",
     "completeSourceLockV1Sha256": "40880be22275155346dab292644943d06817f08f90bb9dee592659aa1fe0588c",
     "signedResolutionV1Sha256": "704796db095c039a175fb0a041d992e1c92ad5dae50c47fffd6a687cc8613e4f",
     "sourceClosureResultV1Sha256": "fc4629c7af5e5f9b0bb9c3649657ae507f8a66055e94d0dc36f87dc3ceb7a08d",

@@ -351,7 +351,7 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
         )
         self.assertEqual(
             authority["plan"]["bootstrapAuthority"]["acquisitionPlanV1Sha256"],
-            "09b1bb420c3c2317872e8408384b388d4fc8909554af15e759f12684d23db1c8",
+            "8d8ac1a4fd82370c1f0c12a270bd38b9b2b78f0c1a155432298b4d654a0fb06e",
         )
         self.assertEqual(
             authority["plan"]["bootstrapAuthority"]["completeSourceLockV1Sha256"],

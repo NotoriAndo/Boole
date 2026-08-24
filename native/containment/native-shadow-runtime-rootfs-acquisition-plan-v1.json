@@ -82,7 +82,7 @@
   },
   "snapshotId": "20240425T160000Z",
   "snapshotTime": "2024-04-25T16:00:00Z",
-  "sourceLockScaffoldSha256": "eba07239c656c42e8729b4c2ba00052cb59c4ab80901cb0c4b706151b55b35cd",
+  "sourceLockScaffoldSha256": "9321106a64a5309cce373f0e6ba1a3f2cc7513282ea8398e861fbae0e68fe509",
   "toolDigests": {
     "gpgvSha256": "f1c71affd4ce40e3c5a53b8cb0ac9601fbcd31d6834b732dd0c7b0145dce1995",
     "zstdSha256": "aff8169fb421bb925fb16c44a7e0143fa2c7a941dc45cce76b15062a2ce54917"
