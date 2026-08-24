@@ -148,7 +148,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
     def test_clean_linux_rootfs_replay_is_a_named_non_skippable_gate(self):
         job = self._job("native-shadow-rootfs-replay-linux")
         self.assertIn("runs-on: ubuntu-24.04", job)
-        self.assertIn("timeout-minutes: 20", job)
+        self.assertIn("timeout-minutes: 30", job)
         self.assertIn(
             "sudo ./scripts/native-shadow-portable-rootfs-replay-linux.sh",
             job,
@@ -252,6 +252,49 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         )
         for forbidden in ("continue-on-error", "|| true", "SKIP"):
             self.assertNotIn(forbidden, body)
+
+    def test_clean_linux_rootfs_replay_runs_the_crash_restart_gate(self):
+        manager = (
+            REPO_ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+        driver_path = REPO_ROOT / "scripts/native_shadow_crash_restart_gate.py"
+        self.assertTrue(driver_path.is_file())
+        driver = driver_path.read_text(encoding="utf-8")
+        for required in (
+            'sudo python3 "$crash_gate_source"',
+            "native-shadow-crash-restart-case:terminal-redelivery-across-node-kill:PASS",
+            "native-shadow-crash-restart-case:unresolved-inflight-fail-closed:PASS",
+            "native-shadow-crash-restart-gate:PASS",
+            "native-shadow production crash/restart replay gate: PASS",
+        ):
+            self.assertIn(required, manager)
+        # The crash phase must reuse the environment the HTTP matrix installed
+        # and run strictly after that matrix has proven the normal path.
+        self.assertLess(
+            manager.index("native-shadow production HTTP replay gate: PASS"),
+            manager.index("run_crash_restart_replay_gate() {"),
+        )
+        self.assertRegex(
+            manager,
+            re.compile(
+                r"run_closed_local_replay_gate\n\s*run_crash_restart_replay_gate\n\s*exit 0"
+            ),
+        )
+        for required in (
+            "remains closed while durable InFlight rows are unresolved",
+            "cgroup.procs",
+            "def verified_unit_main_pid",
+            "def deliver_verified_signal",
+        ):
+            self.assertIn(required, driver)
+        self.assertEqual(
+            driver.count("os.kill("),
+            1,
+            "every signal must flow through the one verified-identity call site",
+        )
+        for forbidden in ("pkill", "killall", "continue-on-error", "|| true"):
+            self.assertNotIn(forbidden, driver)
+        self.assertNotRegex(driver, re.compile(r"\bskip\b", re.IGNORECASE))
 
     def test_self_test_requires_both_containment_and_rootfs_replay(self):
         job = self._job("self-test")
