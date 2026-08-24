@@ -28,6 +28,20 @@ SCAFFOLD = (
 )
 BUILDER = ROOT / "scripts/native_shadow_rootfs_builder_arm64_v1.py"
 ACQUIRER = ROOT / "scripts/native_shadow_rootfs_acquire_arm64_v1.py"
+BASE_AUTHORITY_SHA256 = {
+    "native/containment/native-shadow-closed-local-replay-registry-overlay-v1.json": "4c8673b18b0183cc4525ba73314b9860bb6a60792db9bef48c238b903a1486d5",
+    "native/containment/native-shadow-closed-local-replay-grant-v1.json": "ebb7392ce8049ebd2beb8b9fde25023d53e96505c8d1fa55d1cbcc892104d291",
+    "native/containment/native-shadow-local-execution-authority-v1.json": "e231a0558324fec409f955ec14924c286a5cb612db9893ce9f90ce0e865dcf7f",
+    "native/containment/native-shadow-closed-local-replay-execution-authority-v1.json": "c4d25ccd3b4de15ebcb1bdda91b15f953ea054ad20f1a6713600618141b67ff0",
+}
+
+ARM64_POLICY = CONTAINMENT / "native-shadow-execution-policy-arm64-v1.json"
+ARM64_TOOLCHAIN = CONTAINMENT / "native-shadow-toolchain-identity-arm64-v1.json"
+ARM64_RELEASE = (
+    ROOT
+    / "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json"
+)
+ARM64_REGISTRY = ROOT / "fixtures/native-shadow/registry-arm64-v1.json"
 
 
 def _sha(raw: bytes) -> str:
@@ -44,6 +58,119 @@ def _read_canonical(path: pathlib.Path, context: str) -> tuple[dict[str, Any], b
     if not isinstance(value, dict):
         raise ValueError(f"{context} must be an object")
     return value, raw
+
+
+def _read_frozen_base(relative: str) -> dict[str, Any]:
+    path = ROOT / relative
+    raw = path.read_bytes()
+    if _sha(raw) != BASE_AUTHORITY_SHA256[relative]:
+        raise ValueError(f"frozen x86 authority differs: {relative}")
+    value = json.loads(raw.decode("utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"frozen x86 authority is not an object: {relative}")
+    return value
+
+
+def dependent_authority(
+    generated: dict[pathlib.Path, bytes],
+) -> dict[pathlib.Path, bytes]:
+    """Project the post-build authority chain after expectation is known."""
+
+    expectation_path = (
+        CONTAINMENT
+        / "native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json"
+    )
+    required = {
+        CONTAINMENT / "native-shadow-runtime-rootfs-portable-plan-arm64-v1.json",
+        CONTAINMENT / "native-shadow-runtime-rootfs-resolution-arm64-v1.json",
+        CONTAINMENT / "native-shadow-runtime-rootfs-source-lock-arm64-v1.json",
+        expectation_path,
+    }
+    if not required.issubset(generated):
+        raise ValueError("arm64 post-build authority inputs are incomplete")
+
+    arm_raw = {
+        "policy": ARM64_POLICY.read_bytes(),
+        "toolchain": ARM64_TOOLCHAIN.read_bytes(),
+        "release": ARM64_RELEASE.read_bytes(),
+        "registry": ARM64_REGISTRY.read_bytes(),
+        "plan": generated[
+            CONTAINMENT
+            / "native-shadow-runtime-rootfs-portable-plan-arm64-v1.json"
+        ],
+        "resolution": generated[
+            CONTAINMENT / "native-shadow-runtime-rootfs-resolution-arm64-v1.json"
+        ],
+        "lock": generated[
+            CONTAINMENT / "native-shadow-runtime-rootfs-source-lock-arm64-v1.json"
+        ],
+        "expectation": generated[expectation_path],
+    }
+    for key, raw in arm_raw.items():
+        rootfs.load_json_exact(raw, f"arm64 {key}", require_canonical=True)
+
+    overlay = _read_frozen_base(
+        "native/containment/native-shadow-closed-local-replay-registry-overlay-v1.json"
+    )
+    overlay["baseRegistrySha256"] = _sha(arm_raw["registry"])
+    overlay["executionPolicySha256"] = _sha(arm_raw["policy"])
+    overlay["toolchainIdentitySha256"] = _sha(arm_raw["toolchain"])
+    for template in overlay["templates"]:
+        template["checkerReleaseManifestSha256"] = _sha(arm_raw["release"])
+    overlay_raw = _canonical(overlay)
+
+    grant = _read_frozen_base(
+        "native/containment/native-shadow-closed-local-replay-grant-v1.json"
+    )
+    grant["productionRegistry"]["sha256"] = _sha(arm_raw["registry"])
+    grant["registry"]["sha256"] = _sha(overlay_raw)
+    grant["checker"]["releaseManifestSha256"] = _sha(arm_raw["release"])
+    grant["executionPolicy"]["sha256"] = _sha(arm_raw["policy"])
+    grant["toolchainIdentity"]["sha256"] = _sha(arm_raw["toolchain"])
+    grant_raw = _canonical(grant)
+
+    local_execution = _read_frozen_base(
+        "native/containment/native-shadow-local-execution-authority-v1.json"
+    )
+    local_execution["baseExecutionPolicySha256"] = _sha(arm_raw["policy"])
+    local_execution["runtimeRootfsPortablePlanSha256"] = _sha(arm_raw["plan"])
+    local_execution["runtimeRootfsSourceLockSha256"] = _sha(arm_raw["lock"])
+    local_execution["runtimeRootfsResolutionSha256"] = _sha(
+        arm_raw["resolution"]
+    )
+    local_execution["runtimeRootfsReplayExpectationSha256"] = _sha(
+        arm_raw["expectation"]
+    )
+    local_execution_raw = _canonical(local_execution)
+
+    closed_execution = _read_frozen_base(
+        "native/containment/native-shadow-closed-local-replay-execution-authority-v1.json"
+    )
+    closed_execution["baseExecutionPolicySha256"] = _sha(arm_raw["policy"])
+    closed_execution["closedLocalReplayGrantSha256"] = _sha(grant_raw)
+    closed_execution["closedLocalReplayRegistryOverlaySha256"] = _sha(overlay_raw)
+    closed_execution["checkerReleaseManifestSha256"] = _sha(arm_raw["release"])
+    closed_execution["toolchainIdentitySha256"] = _sha(arm_raw["toolchain"])
+    closed_execution["runtimeRootfsPortablePlanSha256"] = _sha(arm_raw["plan"])
+    closed_execution["runtimeRootfsSourceLockSha256"] = _sha(arm_raw["lock"])
+    closed_execution["runtimeRootfsResolutionSha256"] = _sha(
+        arm_raw["resolution"]
+    )
+    closed_execution["runtimeRootfsReplayExpectationSha256"] = _sha(
+        arm_raw["expectation"]
+    )
+    closed_execution_raw = _canonical(closed_execution)
+
+    return {
+        CONTAINMENT
+        / "native-shadow-closed-local-replay-registry-overlay-arm64-v1.json": overlay_raw,
+        CONTAINMENT
+        / "native-shadow-closed-local-replay-grant-arm64-v1.json": grant_raw,
+        CONTAINMENT
+        / "native-shadow-local-execution-authority-arm64-v1.json": local_execution_raw,
+        CONTAINMENT
+        / "native-shadow-closed-local-replay-execution-authority-arm64-v1.json": closed_execution_raw,
+    }
 
 
 def generate(
@@ -244,6 +371,7 @@ def main() -> int:
             CONTAINMENT
             / "native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json"
         ] = replay_expectation(args.build_receipt, outputs)
+        outputs.update(dependent_authority(outputs))
     for path, raw in outputs.items():
         if args.write:
             path.write_bytes(raw)

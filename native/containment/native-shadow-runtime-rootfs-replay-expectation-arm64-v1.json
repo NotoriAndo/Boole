@@ -2,29 +2,29 @@
   "activationAllowed": false,
   "authority": {
     "bootstrapAuthority": {
-      "acquisitionPlanV1Sha256": "bfc11d201ab72b42afa218948e89bc48e3555aa2ed79f4657c9d3a4b37dfd331",
-      "completeSourceLockV1Sha256": "728d14a59e53ab3101c65384d0db640bc175de886213fa4ab636d4d62130e63a",
-      "signedResolutionV1Sha256": "087d70a80f0d306c4127fdac69d59cc9a114ffaddc6525affc9aed8b46b1e4ce",
-      "sourceClosureResultV1Sha256": "927d1a6c8ccd0e4ae7bdeb56c9ee07bb30fd752c2acb3c47d7331d36e1e697ed",
-      "sourceLockScaffoldV1Sha256": "b920e2f6a83bd98e6225acf855158ceec2ca51026c29f2af3ab2cf7bb26078e6"
+      "acquisitionPlanV1Sha256": "3f78559e29fbdb5b417eeb316687a4347907e4624b75da057c3f255e810ff35d",
+      "completeSourceLockV1Sha256": "e618aa97853e25eb34c7908a05ccccc449aaa167fa3c58476339924b82920105",
+      "signedResolutionV1Sha256": "0269d614c04849be878e479c5e23ede30428e9d305bc9755eeff86b0f34031fe",
+      "sourceClosureResultV1Sha256": "79073e541856c9be3bfbf56bf9c4415677679dc994c1342902f631716db7f312",
+      "sourceLockScaffoldV1Sha256": "16eed120701650044a9fd8f48decb54d812205d9eafd2a9d0723fdd548656a84"
     },
-    "builderSha256": "6fd72d0c4bbf465fb3895a2db42d4e608e9ce0b8aebf0eb979e5f75ec1aca2b8",
-    "portablePlanSha256": "7d1f79fd9d57162b76cdddd234458e7bd72590cc38e31aba3c7d2770da73c663",
-    "portableResolutionSha256": "5e4e8bb107edd6729a5d319a294a295c238309e3ffd8aa5a548338c72bc16d36",
-    "portableSourceLockSha256": "041e91ce62d57fb136cc1aaf6711c21e891ebb76dd2fedfcdc68bec4f2b28c69"
+    "builderSha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+    "portablePlanSha256": "3f36b2e7491a729455f569d0915a0c027662e424d2608febaad7f76e5a1f4880",
+    "portableResolutionSha256": "69d7d12cfeb12d842ddf23ea795c07c5a6fa6ad58b7b1053f7a262d5da17ea52",
+    "portableSourceLockSha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0"
   },
   "expectedOutput": {
-    "configDigest": "sha256:68e6211ccba9d608d1b6ebf62ef00c247beba5ee514df273d9e17400b25558da",
+    "configDigest": "sha256:91c8592275b962f3376c9d666b5ca7f64997c1313ea4755c7b417e16072ae262",
     "configSizeBytes": 264,
-    "indexSha256": "69cd9b385ed08f50b74699ccebfa521184c75f6deac50d0c71b5357689a15f41",
+    "indexSha256": "11b6c9ba4678469e9b39c13e92e14021a019c0b33151ecb3693665100105864e",
     "indexSizeBytes": 305,
     "layerCount": 1,
-    "layerDigest": "sha256:03ced8b1c377e15ab35ba5b5edd10c45aca1df546d70543983a457b8268aead9",
+    "layerDigest": "sha256:dfeafb2918764736bdcd94d0fd121ed8eee2ef88d0a82e1ef28b3e625723bc0d",
     "layerSizeBytes": 766556160,
-    "manifestDigest": "sha256:7a073fdc7155b7b085d1cdb87e5a239f28f869c44779383f62b600476091f82a",
+    "manifestDigest": "sha256:80eeec3445de46fc30ec4375871ea81f1d023becd323352919f73c7e4dde1390",
     "manifestSizeBytes": 472,
     "parentLayerCount": 0,
-    "rootfsContentManifestSha256": "0ef30e20c138f5099b84b94c2d7c5269b6dce79c2bb136350ed003b321ac62f3",
+    "rootfsContentManifestSha256": "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa",
     "rootfsContentManifestSizeBytes": 1285116
   },
   "mismatchPolicy": {

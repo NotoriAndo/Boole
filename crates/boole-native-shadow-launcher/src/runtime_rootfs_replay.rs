@@ -22,9 +22,11 @@ mod linux {
     use sha2::{Digest, Sha256};
     use thiserror::Error;
 
-    const CONTENT_MANIFEST_SHA256: &str =
-        "957761ceaeca18e0af516ed200c7587aa57a609b16ebfe63dacb1371df489763";
-    const CONTENT_MANIFEST_SIZE: u64 = 1_275_874;
+    use crate::authority_arch::{
+        RUNTIME_ROOTFS_CONTENT_MANIFEST_SCHEMA, RUNTIME_ROOTFS_CONTENT_MANIFEST_SHA256,
+        RUNTIME_ROOTFS_CONTENT_MANIFEST_SIZE,
+    };
+
     const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
 
     #[derive(Debug, Error)]
@@ -140,12 +142,12 @@ mod linux {
         let directory = open_directory(rootfs)?;
         require_read_only_mount(directory.as_raw_fd())?;
         let manifest_raw = read_manifest(content_manifest)?;
-        if hex::encode(Sha256::digest(&manifest_raw)) != CONTENT_MANIFEST_SHA256 {
+        if hex::encode(Sha256::digest(&manifest_raw)) != RUNTIME_ROOTFS_CONTENT_MANIFEST_SHA256 {
             return Err(RuntimeRootfsReplayError::Manifest("SHA-256 mismatch"));
         }
         let manifest: ContentManifest = serde_json::from_slice(&manifest_raw)
             .map_err(|_| RuntimeRootfsReplayError::Manifest("strict schema mismatch"))?;
-        if manifest.schema != "boole.native-shadow.rootfs-content-manifest.v1"
+        if manifest.schema != RUNTIME_ROOTFS_CONTENT_MANIFEST_SCHEMA
             || manifest.activation_allowed
             || manifest.production_byte_provenance_complete
         {
@@ -166,7 +168,7 @@ mod linux {
             directory,
             device: metadata.st_dev,
             inode: metadata.st_ino,
-            content_manifest_sha256: CONTENT_MANIFEST_SHA256.to_string(),
+            content_manifest_sha256: RUNTIME_ROOTFS_CONTENT_MANIFEST_SHA256.to_string(),
             expected_entries: expected,
         })
     }
@@ -188,7 +190,7 @@ mod linux {
             || metadata.gid() != 0
             || metadata.mode() & 0o7777 != 0o444
             || metadata.nlink() != 1
-            || metadata.len() != CONTENT_MANIFEST_SIZE
+            || metadata.len() != RUNTIME_ROOTFS_CONTENT_MANIFEST_SIZE
         {
             return Err(RuntimeRootfsReplayError::Manifest(
                 "content-manifest metadata mismatch",
@@ -199,12 +201,12 @@ mod linux {
             .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
             .open(path)
             .map_err(|source| io_error(path.display().to_string(), source))?;
-        let mut bytes = Vec::with_capacity(CONTENT_MANIFEST_SIZE as usize);
+        let mut bytes = Vec::with_capacity(RUNTIME_ROOTFS_CONTENT_MANIFEST_SIZE as usize);
         (&mut file)
-            .take(CONTENT_MANIFEST_SIZE + 1)
+            .take(RUNTIME_ROOTFS_CONTENT_MANIFEST_SIZE + 1)
             .read_to_end(&mut bytes)
             .map_err(|source| io_error(path.display().to_string(), source))?;
-        if bytes.len() as u64 != CONTENT_MANIFEST_SIZE {
+        if bytes.len() as u64 != RUNTIME_ROOTFS_CONTENT_MANIFEST_SIZE {
             return Err(RuntimeRootfsReplayError::Manifest(
                 "content-manifest length changed while reading",
             ));

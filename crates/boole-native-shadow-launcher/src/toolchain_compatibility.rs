@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use thiserror::Error;
 
+use crate::authority_arch::EXPECTED_RUST_HOST;
 use crate::startup_recovery::VerifiedStartupCgroupRecovery;
 
 /// Opaque proof that the four fixed compatibility probes matched.
@@ -656,7 +657,7 @@ fn validate_rust_version_output(
             if lines.len() != 7
                 || field(1, "binary")? != "rustc"
                 || field(2, "commit-hash")? != commit
-                || field(4, "host")? != "x86_64-unknown-linux-gnu"
+                || field(4, "host")? != EXPECTED_RUST_HOST
                 || field(5, "release")? != release
                 || field(6, "LLVM version")?.trim().is_empty()
             {
@@ -669,7 +670,7 @@ fn validate_rust_version_output(
             if !(lines.len() == 8 || lines.len() == 9)
                 || field(1, "release")? != release
                 || field(2, "commit-hash")? != commit
-                || field(4, "host")? != "x86_64-unknown-linux-gnu"
+                || field(4, "host")? != EXPECTED_RUST_HOST
                 || field(5, "libgit2")?.trim().is_empty()
                 || field(6, "libcurl")?.trim().is_empty()
             {
@@ -947,6 +948,7 @@ mod tests {
         STREAM_LIMIT,
     };
 
+    #[cfg(not(feature = "linux-arm64-authority"))]
     const RUSTC_OK: &[u8] = b"rustc 1.99.0-nightly (e7795af6d 2026-07-22)\n\
 binary: rustc\n\
 commit-hash: e7795af6d2449fb05a6393c3320ced873a999eb3\n\
@@ -954,11 +956,30 @@ commit-date: 2026-07-22\n\
 host: x86_64-unknown-linux-gnu\n\
 release: 1.99.0-nightly\n\
 LLVM version: 21.1.0\n";
+    #[cfg(feature = "linux-arm64-authority")]
+    const RUSTC_OK: &[u8] = b"rustc 1.99.0-nightly (e7795af6d 2026-07-22)\n\
+binary: rustc\n\
+commit-hash: e7795af6d2449fb05a6393c3320ced873a999eb3\n\
+commit-date: 2026-07-22\n\
+host: aarch64-unknown-linux-gnu\n\
+release: 1.99.0-nightly\n\
+LLVM version: 21.1.0\n";
+    #[cfg(not(feature = "linux-arm64-authority"))]
     const CARGO_OK: &[u8] = b"cargo 1.99.0-nightly (3efb1f477 2026-07-21)\n\
 release: 1.99.0-nightly\n\
 commit-hash: 3efb1f477e99b42974b982d939fd100303cdf7db\n\
 commit-date: 2026-07-21\n\
 host: x86_64-unknown-linux-gnu\n\
+libgit2: 1.9.1 (sys:0.20.2 vendored)\n\
+libcurl: 8.14.1-DEV (sys:0.4.82+curl-8.14.1 vendored ssl:OpenSSL/1.1.1w)\n\
+ssl: OpenSSL 1.1.1w  11 Sep 2023\n\
+os: Ubuntu 24.04 (noble) [64-bit]\n";
+    #[cfg(feature = "linux-arm64-authority")]
+    const CARGO_OK: &[u8] = b"cargo 1.99.0-nightly (3efb1f477 2026-07-21)\n\
+release: 1.99.0-nightly\n\
+commit-hash: 3efb1f477e99b42974b982d939fd100303cdf7db\n\
+commit-date: 2026-07-21\n\
+host: aarch64-unknown-linux-gnu\n\
 libgit2: 1.9.1 (sys:0.20.2 vendored)\n\
 libcurl: 8.14.1-DEV (sys:0.4.82+curl-8.14.1 vendored ssl:OpenSSL/1.1.1w)\n\
 ssl: OpenSSL 1.1.1w  11 Sep 2023\n\

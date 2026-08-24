@@ -387,18 +387,18 @@
     },
     {
       "id": "checker-release",
-      "sha256": "22f71513ca5b585857486ac69bbbb65ad2818ffd7684e8241a5d41a0ad1cc9ee",
+      "sha256": "23b9c235a638cf08d38b2082af19d599320c9e5e5fc785bc1e14f51b4667f210",
       "sourcePath": "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json"
     },
     {
       "id": "execution-policy",
-      "sha256": "ba0d4a08a554878bff443a29b60fab6a94b8f946cb77a7c7d4b7f26470d4d8a9",
+      "sha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f",
       "sourcePath": "native/containment/native-shadow-execution-policy-arm64-v1.json"
     },
     {
       "id": "registry",
-      "sha256": "53a8271fdf92ae5a4204a9779c0badfec86c7fd3399b8b12700199c6de9dc61a",
-      "sourcePath": "fixtures/native-shadow/registry-v1.json"
+      "sha256": "d636e56dbf7e32d6054a1d4abfaeb97c6ebdf5119d217fe7740db0513984badd",
+      "sourcePath": "fixtures/native-shadow/registry-arm64-v1.json"
     },
     {
       "id": "toolchain-identity",
@@ -408,7 +408,7 @@
   ],
   "buildRecipe": {
     "baseImage": "empty",
-    "builderSha256": "6fd72d0c4bbf465fb3895a2db42d4e608e9ce0b8aebf0eb979e5f75ec1aca2b8",
+    "builderSha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
     "canonicalMtime": 0,
     "maintainerScripts": "never-execute-or-copy",
     "maxEntries": 200000,
@@ -535,7 +535,7 @@
       "gid": 0,
       "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
       "mode": "0444",
-      "sha256": "22f71513ca5b585857486ac69bbbb65ad2818ffd7684e8241a5d41a0ad1cc9ee",
+      "sha256": "23b9c235a638cf08d38b2082af19d599320c9e5e5fc785bc1e14f51b4667f210",
       "sourcePath": "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json",
       "uid": 0
     },
@@ -559,7 +559,7 @@
       "gid": 0,
       "logicalPath": "/usr/share/boole/native-shadow/execution-policy-v1.json",
       "mode": "0444",
-      "sha256": "ba0d4a08a554878bff443a29b60fab6a94b8f946cb77a7c7d4b7f26470d4d8a9",
+      "sha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f",
       "sourcePath": "native/containment/native-shadow-execution-policy-arm64-v1.json",
       "uid": 0
     },
@@ -567,8 +567,8 @@
       "gid": 0,
       "logicalPath": "/usr/share/boole/native-shadow/registry-v1.json",
       "mode": "0444",
-      "sha256": "53a8271fdf92ae5a4204a9779c0badfec86c7fd3399b8b12700199c6de9dc61a",
-      "sourcePath": "fixtures/native-shadow/registry-v1.json",
+      "sha256": "d636e56dbf7e32d6054a1d4abfaeb97c6ebdf5119d217fe7740db0513984badd",
+      "sourcePath": "fixtures/native-shadow/registry-arm64-v1.json",
       "uid": 0
     },
     {

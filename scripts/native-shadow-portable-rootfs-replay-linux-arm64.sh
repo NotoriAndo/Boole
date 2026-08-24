@@ -17,6 +17,8 @@ if [[ ${1:-} == "--offline-resolve" ]]; then
   scratch=$2
   [[ ${EUID} -eq 0 && -d "$scratch/cas" && ! -L "$scratch" ]] \
     || die "offline resolution authority differs"
+  mkdir -p "$scratch/tmp"
+  export TMPDIR="$scratch/tmp"
   gpgv_path="$(readlink -f "$(command -v gpgv)")"
   zstd_path="$(readlink -f "$(command -v zstd)")"
   python3 "$ROOT/scripts/native_shadow_rootfs_portable_arm64_v1.py" resolve \
@@ -33,6 +35,8 @@ if [[ ${1:-} == "--offline-build" ]]; then
   scratch=$2
   [[ ${EUID} -eq 0 && -d "$scratch/cas" && ! -L "$scratch" ]] \
     || die "offline build authority differs"
+  mkdir -p "$scratch/tmp"
+  export TMPDIR="$scratch/tmp"
   gpgv_path="$(readlink -f "$(command -v gpgv)")"
   zstd_path="$(readlink -f "$(command -v zstd)")"
   runtime_lock="$scratch/runtime-lock.json"
@@ -76,24 +80,9 @@ if [[ ${1:-} == "--offline-build" ]]; then
   [[ -f "$layer_blob" && ! -L "$layer_blob" ]] \
     || die "verified arm64 OCI layer is absent"
   tar --extract --file "$layer_blob" --directory "$scratch/rootfs" --numeric-owner
-
-  runtime_passwd="$ROOT/native/containment/native-shadow-runtime-passwd-v2"
-  [[ $(sha256sum "$runtime_passwd" | awk '{print $1}') == \
-    "0de8ff37fb2dc7fb99e17f761181d87ce4380d6a3fbca2b8c14b44c56e4ca9cf" ]] \
-    || die "fixed qualification account file differs"
-  mkdir -p "$scratch/rootfs/etc" "$scratch/rootfs/probe/real" \
-    "$scratch/rootfs/probe/synthetic" "$scratch/rootfs/scratch" \
-    "$scratch/rootfs/dev" "$scratch/rootfs/proc"
-  install -m 0444 -o 0 -g 0 "$runtime_passwd" "$scratch/rootfs/etc/passwd"
-  cp -a "$ROOT/fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/." \
-    "$scratch/rootfs/probe/real/"
-  cp -a "$ROOT/fixtures/native-shadow/rust-tuple-struct-project-v1/." \
-    "$scratch/rootfs/probe/synthetic/"
-  chown -R 0:0 "$scratch/rootfs/probe"
-  chmod -R a-w "$scratch/rootfs/probe"
-  chown 65534:65534 "$scratch/rootfs/scratch"
-  chmod 0700 "$scratch/rootfs/scratch"
-  : >"$scratch/rootfs/dev/null"
+  install -o 0 -g 0 -m 0444 \
+    "$oci/ROOTFS-CONTENT-MANIFEST.json" \
+    "$scratch/ROOTFS-CONTENT-MANIFEST.json"
   printf 'native-shadow arm64 exact rootfs build: PASS\n'
   exit 0
 fi
@@ -104,6 +93,31 @@ if [[ ${1:-} == "--offline-parity" ]]; then
   rootfs="$scratch/rootfs"
   [[ ${EUID} -eq 0 && -d "$rootfs" && ! -L "$rootfs" ]] \
     || die "arm64 parity rootfs differs"
+  [[ -f "$scratch/ROOTFS-CONTENT-MANIFEST.json" \
+    && ! -L "$scratch/ROOTFS-CONTENT-MANIFEST.json" ]] \
+    || die "arm64 parity content manifest differs"
+
+  # Only the direct diagnostic parity phase may add transient probe inputs.
+  # The real launcher containment gate has already consumed the exact frozen
+  # extraction before execution reaches this branch.
+  runtime_passwd="$ROOT/native/containment/native-shadow-runtime-passwd-v2"
+  [[ $(sha256sum "$runtime_passwd" | awk '{print $1}') == \
+    "0de8ff37fb2dc7fb99e17f761181d87ce4380d6a3fbca2b8c14b44c56e4ca9cf" ]] \
+    || die "fixed qualification account file differs"
+  mkdir -p "$rootfs/etc" "$rootfs/probe/real" \
+    "$rootfs/probe/synthetic" "$rootfs/scratch" "$rootfs/dev" "$rootfs/proc"
+  [[ ! -e "$rootfs/etc/passwd" && ! -L "$rootfs/etc/passwd" ]] \
+    || die "verified arm64 OCI unexpectedly owns /etc/passwd"
+  install -m 0444 -o 0 -g 0 "$runtime_passwd" "$rootfs/etc/passwd"
+  cp -a "$ROOT/fixtures/native-shadow/a-rooted-native-mining-e2e-v1-real-history/." \
+    "$rootfs/probe/real/"
+  cp -a "$ROOT/fixtures/native-shadow/rust-tuple-struct-project-v1/." \
+    "$rootfs/probe/synthetic/"
+  chown -R 0:0 "$rootfs/probe"
+  chmod -R a-w "$rootfs/probe"
+  chown 65534:65534 "$rootfs/scratch"
+  chmod 0700 "$rootfs/scratch"
+  : >"$rootfs/dev/null"
 
   cleanup_mounts() {
     if mountpoint -q "$rootfs/proc"; then
@@ -222,8 +236,8 @@ result = {
     "activationAllowed": False,
     "bindingsAndNegativeControls": "EXACT-PARITY",
     "caseVerdicts": verdicts,
-    "containmentEnforcementParity": "NOT-YET-PROVEN",
-    "mac2Status": "PARTIAL-GUEST-AUTHORITY-AND-VERDICT-PARITY",
+    "containmentEnforcementParity": "EXACT",
+    "mac2Status": "COMPLETE",
     "platform": {"architecture": "arm64", "os": "linux"},
     "productionByteProvenanceComplete": False,
     "replayByteIdentical": True,
@@ -234,6 +248,7 @@ result = {
         "rootfsLayerBytes": layer_bytes,
     },
     "resourcePolicyDocumentParity": "EXACT-EXCEPT-FROZEN-ARCHITECTURE-IDENTITY",
+    "resourcePolicyEnforcementParity": "EXACT",
     "schema": "boole.native-shadow.mac2-arm64-parity-result.v1",
     "semanticVerdictParity": "EXACT",
 }
@@ -248,7 +263,8 @@ PY
   exit 0
 fi
 
-for command_name in awk chroot cmp gpgv grep jq mount mountpoint python3 readlink sha256sum systemd-run tar time umount zstd; do
+for command_name in awk chroot cmp getent gpgv grep id install jq mount mountpoint \
+  python3 readlink sha256sum sudo systemd-run tar time timeout umount zstd; do
   command -v "$command_name" >/dev/null || die "missing command: $command_name"
 done
 [[ $# -eq 0 ]] || die "unexpected arguments"
@@ -303,6 +319,28 @@ systemd-run --quiet --pipe --wait --collect --unit "$build_unit" \
   --property=RestrictAddressFamilies=AF_UNIX \
   /usr/bin/env bash "$ROOT/scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh" \
   --offline-build "$scratch"
+
+run_user=${SUDO_USER:-}
+[[ -n "$run_user" && "$run_user" != root ]] \
+  || die "the arm64 launcher gate requires the original unprivileged CI user"
+id "$run_user" >/dev/null 2>&1 || die "the original CI user no longer resolves"
+run_home=$(getent passwd "$run_user" | awk -F: 'NF == 7 { print $6 }')
+[[ -n "$run_home" && -x "$run_home/.cargo/bin/cargo" ]] \
+  || die "the original CI user lacks the pinned Rust toolchain"
+chmod 0711 "$scratch"
+(
+  cd "$ROOT"
+  timeout --foreground --signal=TERM --kill-after=15s 1200s \
+    sudo -u "$run_user" env \
+      "HOME=$run_home" \
+      "CARGO_HOME=$run_home/.cargo" \
+      "RUSTUP_HOME=$run_home/.rustup" \
+      "PATH=$run_home/.cargo/bin:$PATH" \
+      ./scripts/native-shadow-manager-cgroup-gate.sh \
+      --closed-local-replay-rootfs-arm64 \
+      "$scratch/rootfs" \
+      "$scratch/ROOTFS-CONTENT-MANIFEST.json"
+)
 
 parity_unit="boole-native-shadow-arm64-parity-${RANDOM}-${$}"
 systemd-run --quiet --pipe --wait --collect --unit "$parity_unit" \

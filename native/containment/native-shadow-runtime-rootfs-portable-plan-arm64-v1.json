@@ -1,13 +1,13 @@
 {
   "activationAllowed": false,
   "bootstrapAuthority": {
-    "acquisitionPlanV1Sha256": "bfc11d201ab72b42afa218948e89bc48e3555aa2ed79f4657c9d3a4b37dfd331",
-    "completeSourceLockV1Sha256": "728d14a59e53ab3101c65384d0db640bc175de886213fa4ab636d4d62130e63a",
-    "signedResolutionV1Sha256": "087d70a80f0d306c4127fdac69d59cc9a114ffaddc6525affc9aed8b46b1e4ce",
-    "sourceClosureResultV1Sha256": "927d1a6c8ccd0e4ae7bdeb56c9ee07bb30fd752c2acb3c47d7331d36e1e697ed",
-    "sourceLockScaffoldV1Sha256": "b920e2f6a83bd98e6225acf855158ceec2ca51026c29f2af3ab2cf7bb26078e6"
+    "acquisitionPlanV1Sha256": "3f78559e29fbdb5b417eeb316687a4347907e4624b75da057c3f255e810ff35d",
+    "completeSourceLockV1Sha256": "e618aa97853e25eb34c7908a05ccccc449aaa167fa3c58476339924b82920105",
+    "signedResolutionV1Sha256": "0269d614c04849be878e479c5e23ede30428e9d305bc9755eeff86b0f34031fe",
+    "sourceClosureResultV1Sha256": "79073e541856c9be3bfbf56bf9c4415677679dc994c1342902f631716db7f312",
+    "sourceLockScaffoldV1Sha256": "16eed120701650044a9fd8f48decb54d812205d9eafd2a9d0723fdd548656a84"
   },
-  "builderSha256": "6fd72d0c4bbf465fb3895a2db42d4e608e9ce0b8aebf0eb979e5f75ec1aca2b8",
+  "builderSha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
   "portabilityPolicy": {
     "runtimeToolIdentity": "run-receipt-only",
     "sourceIdentityIncludesRuntimeToolDigest": false,

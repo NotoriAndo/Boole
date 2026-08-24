@@ -1,6 +1,6 @@
 {
   "activationAllowed": false,
-  "bootstrapResolutionV1Sha256": "087d70a80f0d306c4127fdac69d59cc9a114ffaddc6525affc9aed8b46b1e4ce",
+  "bootstrapResolutionV1Sha256": "0269d614c04849be878e479c5e23ede30428e9d305bc9755eeff86b0f34031fe",
   "keyring": {
     "artifactId": "ubuntu-keyring",
     "sha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31",
@@ -2138,7 +2138,7 @@
       "version": "13.2.0-23ubuntu4"
     }
   ],
-  "planSha256": "7d1f79fd9d57162b76cdddd234458e7bd72590cc38e31aba3c7d2770da73c663",
+  "planSha256": "3f36b2e7491a729455f569d0915a0c027662e424d2608febaad7f76e5a1f4880",
   "release": "NATIVE-SHADOW-RUNTIME-ROOTFS-RESOLUTION-ARM64-V1-PORTABLE",
   "schema": "boole.native-shadow.runtime-rootfs-resolution.arm64.v1",
   "seedPackageIds": [

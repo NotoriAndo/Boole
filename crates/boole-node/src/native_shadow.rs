@@ -3431,8 +3431,12 @@ pub(crate) fn recover_verified_closed_local_replay_state(
 mod tests {
     use super::*;
 
+    #[cfg(not(feature = "linux-arm64-authority"))]
     const PRODUCTION_REGISTRY_FIXTURE: &str =
         include_str!("../../../fixtures/native-shadow/registry-v1.json");
+    #[cfg(feature = "linux-arm64-authority")]
+    const PRODUCTION_REGISTRY_FIXTURE: &str =
+        include_str!("../../../fixtures/native-shadow/registry-arm64-v1.json");
     const TEST_ONLY_REGISTRY_FIXTURE: &str =
         include_str!("../../../fixtures/native-shadow/registry-test-only-v1.json");
 
@@ -4287,7 +4291,8 @@ mod tests {
         let unknown = PRODUCTION_REGISTRY_FIXTURE.replacen('{', "{\"unknown\":1,", 1);
         assert!(load_native_shadow_registry_from_bytes(unknown.as_bytes()).is_err());
 
-        let missing = PRODUCTION_REGISTRY_FIXTURE.replacen("      \"nonIssuable\": true\n", "", 1);
+        let missing = PRODUCTION_REGISTRY_FIXTURE.replacen("\"nonIssuable\": true", "", 1);
+        assert_ne!(missing, PRODUCTION_REGISTRY_FIXTURE);
         assert!(load_native_shadow_registry_from_bytes(missing.as_bytes()).is_err());
 
         let duplicate = PRODUCTION_REGISTRY_FIXTURE.replacen(

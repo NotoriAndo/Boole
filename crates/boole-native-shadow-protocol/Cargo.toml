@@ -6,6 +6,10 @@ license.workspace = true
 authors.workspace = true
 publish = false
 
+[features]
+default = []
+linux-arm64-authority = []
+
 [dependencies]
 base64.workspace = true
 hex.workspace = true

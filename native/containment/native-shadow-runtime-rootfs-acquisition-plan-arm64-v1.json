@@ -1,7 +1,7 @@
 {
   "acquirerAuthoritySha256": "2c73fef79914f6f35a6b82b1bdba9965d5f34081e3368bb950646c9a0390bd6b",
   "activationAllowed": false,
-  "builderSha256": "6fd72d0c4bbf465fb3895a2db42d4e608e9ce0b8aebf0eb979e5f75ec1aca2b8",
+  "builderSha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
   "keyringBootstrap": {
     "bootstrapArtifactId": "ubuntu-keyring-bootstrap-deb",
     "keyringArtifactId": "ubuntu-keyring",
@@ -82,7 +82,7 @@
   },
   "snapshotId": "20240425T160000Z",
   "snapshotTime": "2024-04-25T16:00:00Z",
-  "sourceLockScaffoldSha256": "b920e2f6a83bd98e6225acf855158ceec2ca51026c29f2af3ab2cf7bb26078e6",
+  "sourceLockScaffoldSha256": "16eed120701650044a9fd8f48decb54d812205d9eafd2a9d0723fdd548656a84",
   "toolDigests": {
     "gpgvSha256": "f1c71affd4ce40e3c5a53b8cb0ac9601fbcd31d6834b732dd0c7b0145dce1995",
     "zstdSha256": "aff8169fb421bb925fb16c44a7e0143fa2c7a941dc45cce76b15062a2ce54917"

@@ -1,0 +1,94 @@
+{
+  "anchor": {
+    "path": "/usr/share/boole/native-shadow/fixtures/a-rooted-native-mining-e2e-v1-real-history/anchor.rs",
+    "sha256": "693f62acfa0626a0831c9133a26fcfc1dbb30922c1ab2036231c42a363cfd7fe"
+  },
+  "cases": [
+    {
+      "caseId": "accepted",
+      "epoch": 0,
+      "maxCheckerExecutions": 1,
+      "operationIdHex": "746bba0847458159f16dfe79d19958d2f44d1de7b67f946b1831207586b978be",
+      "preIntakeOnly": false,
+      "rawAnswerSha256": "1b6074b330afeeffeab381a6bdf72365dd0f6ded96ebe0869189dadc91136c5d",
+      "submissionSourceSha256": "12c6f6868f6949c324e9de94d1b5a07e751c20cd46eca1d7da7a12a47b0b2ad5"
+    },
+    {
+      "caseId": "tampered",
+      "epoch": 1,
+      "maxCheckerExecutions": 1,
+      "operationIdHex": "99407a29b50c4c378f7b49d423515eb584f961ae005ed510723e676d1c7121cd",
+      "preIntakeOnly": false,
+      "rawAnswerSha256": "dbeaa59e28cd186d9f3a5df452cb137d7584e7844f2c3bbf2d54c665d3b5eff0",
+      "submissionSourceSha256": "0b7bba98f6c7217a13611da4b98ae90754e062883199dea5620af04633d4bea8"
+    },
+    {
+      "caseId": "constant",
+      "epoch": 2,
+      "maxCheckerExecutions": 1,
+      "operationIdHex": "3558b66ce8d5ce7549e7ddb951ed6452cfa9ca575515bd8bb30598eda6f00b61",
+      "preIntakeOnly": false,
+      "rawAnswerSha256": "8d75d6a6e523e6b4afa4556f0a26ea68365015fef2d413b56d099fed1fb6d3a1",
+      "submissionSourceSha256": "5475c1e101bbc5f64be66e6e89539f23cd30196bc810842a5d7e485c527baa33"
+    },
+    {
+      "caseId": "empty",
+      "epoch": 3,
+      "maxCheckerExecutions": 0,
+      "operationIdHex": "c5d9705f2367515cedc06639217b95a40f5a98e377089b49ed97c0e7ec8b3038",
+      "preIntakeOnly": true,
+      "rawAnswerSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "submissionSourceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "checker": {
+    "artifactHash": "fa3fea6534d505a8dcce5eca38ecc2c4a60c5173ff19a310dd82cfd797a11598",
+    "path": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py",
+    "policyPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/policy.json",
+    "policySha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+    "releaseManifestPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+    "releaseManifestSha256": "23b9c235a638cf08d38b2082af19d599320c9e5e5fc785bc1e14f51b4667f210",
+    "sha256": "d17dca244628bb55f6fbbf799c71adcae3d548169ef0655ca27c8eb1f7ba95d7"
+  },
+  "executionPolicy": {
+    "path": "/usr/share/boole/native-shadow/execution-policy-v1.json",
+    "sha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f"
+  },
+  "productionRegistry": {
+    "path": "/usr/share/boole/native-shadow/registry-v1.json",
+    "sha256": "d636e56dbf7e32d6054a1d4abfaeb97c6ebdf5119d217fe7740db0513984badd",
+    "version": "NATIVE-SHADOW-QUALIFICATION-REGISTRY-V1"
+  },
+  "purpose": "one bounded four-case named-Linux verification replay matrix of the permanently non-issuable real-history fixture; each case has a distinct fixed epoch; never production issuance",
+  "registry": {
+    "path": "/usr/share/boole/native-shadow/closed-local-replay-registry-overlay-v1.json",
+    "sha256": "2962adef8d1aea9ba1c8466b8e014b71f1ec3c9555ce8b685d58ede6b631fe74",
+    "version": "REAL-FROZEN-ACCEPT-REPLAY-OVERLAY-V1"
+  },
+  "schema": "boole.native-shadow.closed-local-replay-grant.v1",
+  "scope": {
+    "activationAllowed": false,
+    "consensusAllowed": false,
+    "loopbackOnly": true,
+    "maxCheckerExecutionsTotal": 3,
+    "maxMatrixRequestsTotal": 4,
+    "mineableNow": false,
+    "namedLinuxVerificationReplayOnly": true,
+    "nonIssuable": true,
+    "p2pAllowed": false,
+    "rewardAllowed": false
+  },
+  "task": {
+    "challengeSha256": "0b32a406d00a858545b98c0d0937fd940dcfc368fe8a7ef171acc2159fa0f4c1",
+    "familyVersion": "TUPLE-STRUCT-PROJECT/RUST-TUPLE-STRUCT-PROJECT-V1",
+    "intakeVersion": "RUST-TUPLE-STRUCT-NATIVE-PROOF-INTAKE-V1",
+    "path": "/usr/share/boole/native-shadow/fixtures/a-rooted-native-mining-e2e-v1-real-history/task.json",
+    "sha256": "f25a8a6d92ac556937eaacbec6d12d9d09be675878eb7d942952b35838ee7c82",
+    "templateId": "800eee9c303c6a0e771e3a3db914eb15ea4ca68d10b19385d60fedd2c23e04b5"
+  },
+  "toolchainIdentity": {
+    "path": "/usr/share/boole/native-shadow/toolchain-identity-v1.json",
+    "sha256": "666cdd6a6908822b35a3839e905ab03bed2846ce8e49091ccd163b5f59947f36"
+  },
+  "version": "REAL-FROZEN-ACCEPT-NAMED-LINUX-REPLAY-V1"
+}

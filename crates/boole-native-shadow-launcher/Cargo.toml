@@ -8,6 +8,7 @@ publish = false
 
 [features]
 manager-cgroup-linux-gate = []
+linux-arm64-authority = ["boole-native-shadow-protocol/linux-arm64-authority"]
 
 [dependencies]
 boole-native-shadow-protocol = { path = "../boole-native-shadow-protocol" }

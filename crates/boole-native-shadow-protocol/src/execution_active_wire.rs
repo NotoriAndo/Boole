@@ -176,13 +176,21 @@ fn validate_contract(
         && authority.scope == "closed-local-loopback-only"
         && authority.base_execution_policy_sha256 == base_digest
         && authority.runtime_rootfs_portable_plan_sha256
-            == "fa4119964d87f30ad9fde496f509f0dbcc641f33ea52a345b19c1d2296cabb42"
+            == hex::encode(Sha256::digest(
+                crate::TRACKED_RUNTIME_ROOTFS_PORTABLE_PLAN_BYTES,
+            ))
         && authority.runtime_rootfs_source_lock_sha256
-            == "01b2180a5d9a2274076630775729904448a0894b05cfaaccec142d0d476e12e1"
+            == hex::encode(Sha256::digest(
+                crate::TRACKED_RUNTIME_ROOTFS_SOURCE_LOCK_BYTES,
+            ))
         && authority.runtime_rootfs_resolution_sha256
-            == "5ff55eb8193ef8e5236b7401264bac08144b3431fd1cf0d378c8130d0d602af5"
+            == hex::encode(Sha256::digest(
+                crate::TRACKED_RUNTIME_ROOTFS_RESOLUTION_BYTES,
+            ))
         && authority.runtime_rootfs_replay_expectation_sha256
-            == "ce1597ce06ed7a89d3293e69997c3c129085e326ee90e8fb1d17cb6e92d2518b"
+            == hex::encode(Sha256::digest(
+                crate::TRACKED_RUNTIME_ROOTFS_REPLAY_EXPECTATION_BYTES,
+            ))
         && authority.fixed_socket_path == FIXED_SOCKET_PATH
         && authority.hello_schema == "boole.native-shadow.launcher.hello.v1"
         && authority.ready_schema == "boole.native-shadow.launcher.ready.v2"

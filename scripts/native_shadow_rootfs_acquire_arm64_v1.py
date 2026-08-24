@@ -13,7 +13,7 @@ from typing import Optional
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 
-EXPECTED_PLAN_SHA256 = "bfc11d201ab72b42afa218948e89bc48e3555aa2ed79f4657c9d3a4b37dfd331"
+EXPECTED_PLAN_SHA256 = "3f78559e29fbdb5b417eeb316687a4347907e4624b75da057c3f255e810ff35d"
 LEGACY = pathlib.Path(__file__).with_name("native_shadow_rootfs_acquire.py")
 LEGACY_SHA256 = "31348981687939ff7cf63b5584947b3e09a92bb35f9f4e76f78a657ae139d49b"
 

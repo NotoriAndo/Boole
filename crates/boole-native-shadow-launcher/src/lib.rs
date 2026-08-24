@@ -20,6 +20,7 @@
 //! does not activate public mining, block admission, or rewards.
 
 pub mod active_execution;
+mod authority_arch;
 mod cgroupfs_fd;
 pub mod closed_local_replay_startup;
 pub mod instance_id;

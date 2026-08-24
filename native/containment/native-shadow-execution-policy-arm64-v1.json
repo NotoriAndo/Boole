@@ -643,7 +643,6 @@
     "executeAllow": [
       "/bin",
       "/lib",
-      "/lib64",
       "/usr/bin",
       "/usr/lib",
       "/opt/boole/native-checker-toolchain",

@@ -29,8 +29,6 @@ const CHECKER_ARTIFACT_HASH: &str =
     "fa3fea6534d505a8dcce5eca38ecc2c4a60c5173ff19a310dd82cfd797a11598";
 const CHECKER_POLICY_SHA256: &str =
     "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685";
-const CHECKER_RELEASE_MANIFEST_SHA256: &str =
-    "9e3e6bd9d0ea716988829f0251cc9a5e9bc1b7c63b90c289f9dd4ae1f5345fd7";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -156,17 +154,28 @@ fn validate_authority_contract(
         && value.checker_sha256 == CHECKER_SHA256
         && value.checker_artifact_hash_hex == CHECKER_ARTIFACT_HASH
         && value.checker_policy_sha256 == CHECKER_POLICY_SHA256
-        && value.checker_release_manifest_sha256 == CHECKER_RELEASE_MANIFEST_SHA256
+        && value.checker_release_manifest_sha256
+            == hex::encode(Sha256::digest(
+                crate::TRACKED_CHECKER_RELEASE_MANIFEST_BYTES,
+            ))
         && value.toolchain_identity_sha256
             == hex::encode(Sha256::digest(TRACKED_TOOLCHAIN_IDENTITY_BYTES))
         && value.runtime_rootfs_portable_plan_sha256
-            == "fa4119964d87f30ad9fde496f509f0dbcc641f33ea52a345b19c1d2296cabb42"
+            == hex::encode(Sha256::digest(
+                crate::TRACKED_RUNTIME_ROOTFS_PORTABLE_PLAN_BYTES,
+            ))
         && value.runtime_rootfs_source_lock_sha256
-            == "01b2180a5d9a2274076630775729904448a0894b05cfaaccec142d0d476e12e1"
+            == hex::encode(Sha256::digest(
+                crate::TRACKED_RUNTIME_ROOTFS_SOURCE_LOCK_BYTES,
+            ))
         && value.runtime_rootfs_resolution_sha256
-            == "5ff55eb8193ef8e5236b7401264bac08144b3431fd1cf0d378c8130d0d602af5"
+            == hex::encode(Sha256::digest(
+                crate::TRACKED_RUNTIME_ROOTFS_RESOLUTION_BYTES,
+            ))
         && value.runtime_rootfs_replay_expectation_sha256
-            == "ce1597ce06ed7a89d3293e69997c3c129085e326ee90e8fb1d17cb6e92d2518b"
+            == hex::encode(Sha256::digest(
+                crate::TRACKED_RUNTIME_ROOTFS_REPLAY_EXPECTATION_BYTES,
+            ))
         && value.fixed_socket_path == FIXED_SOCKET_PATH
         && value.hello_schema == "boole.native-shadow.launcher.hello.v1"
         && value.ready_schema == READY_SCHEMA

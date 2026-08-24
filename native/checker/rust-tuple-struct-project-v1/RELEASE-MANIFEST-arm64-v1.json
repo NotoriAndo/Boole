@@ -16,8 +16,8 @@
     "path": "fixtures/native-shadow/rust-tuple-struct-project-v1/task.json",
     "taskSha256": "675d170d1026a7ed28a460ecb767a65e8bc2729845a9ddefbeaf7fc3cabe0a9f"
   },
-  "release": "RUST-TUPLE-STRUCT-CHECKER-ARM64-V1-QUALIFICATION",
-  "schema": "boole.native-checker.release.arm64.v1",
+  "release": "RUST-TUPLE-STRUCT-CHECKER-V1-QUALIFICATION",
+  "schema": "boole.native-checker.release.v1",
   "toolchain": {
     "cargoCommitHash": "3efb1f477e99b42974b982d939fd100303cdf7db",
     "channel": "rust-lang-ci-e7795af6d2449fb05a6393c3320ced873a999eb3",

@@ -1017,6 +1017,10 @@ class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
     def test_arm64_rootfs_replay_is_named_native_and_non_skippable(self):
         job = self._job("native-shadow-rootfs-replay-linux-arm64")
         self.assertIn("runs-on: ubuntu-24.04-arm", job)
+        self.assertIn("dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9", job)
+        self.assertIn("toolchain: 1.95.0", job)
+        self.assertIn("groupadd --system boole-node", job)
+        self.assertIn("groupadd --system boole-native-checker", job)
         self.assertIn(
             "sudo ./scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh",
             job,
@@ -1044,15 +1048,79 @@ class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
             "constant.rs",
             "outside_patch_modified",
             "PrivateNetwork=yes",
+            "native-shadow-manager-cgroup-gate.sh",
+            "--closed-local-replay-rootfs-arm64",
             "MAC2-RESULT.json",
-            '"containmentEnforcementParity": "NOT-YET-PROVEN"',
-            '"mac2Status": "PARTIAL-GUEST-AUTHORITY-AND-VERDICT-PARITY"',
+            '"containmentEnforcementParity": "EXACT"',
+            '"mac2Status": "COMPLETE"',
             '"resourcePolicyDocumentParity": "EXACT-EXCEPT-FROZEN-ARCHITECTURE-IDENTITY"',
+            '"resourcePolicyEnforcementParity": "EXACT"',
         ):
             self.assertIn(required, gate)
         self.assertNotIn('"resourcePolicyParity": "EXACT', gate)
+        self.assertNotIn('"containmentEnforcementParity": "NOT-YET-PROVEN"', gate)
+        self.assertNotIn('"mac2Status": "PARTIAL', gate)
         for forbidden in ("continue-on-error", "SKIP", "|| true"):
             self.assertNotIn(forbidden, gate)
+
+    def test_arm64_exact_rootfs_runs_launcher_before_transient_probe_files(self):
+        gate = ARM64_ROOTFS_REPLAY_GATE.read_text(encoding="utf-8")
+        offline_build = gate.split('if [[ ${1:-} == "--offline-build" ]]', 1)[1]
+        offline_build = offline_build.split('if [[ ${1:-} == "--offline-parity" ]]', 1)[0]
+        self.assertIn('"$oci/ROOTFS-CONTENT-MANIFEST.json"', offline_build)
+        self.assertNotIn("runtime_passwd=", offline_build)
+        self.assertNotIn('rootfs/probe', offline_build)
+        manager = gate.index("native-shadow-manager-cgroup-gate.sh")
+        parity = gate.rindex('systemd-run --quiet --pipe --wait --collect --unit "$parity_unit"')
+        self.assertLess(manager, parity)
+
+    def test_arm64_manager_mode_is_explicit_and_scratch_prefix_is_exact(self):
+        manager = (
+            REPO_ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "--closed-local-replay-rootfs-arm64",
+            "/tmp/boole-native-shadow-arm64-rootfs.*/*",
+            "authority_profile=arm64",
+            '[[ $(uname -m) == aarch64 ]]',
+        ):
+            self.assertIn(required, manager)
+        self.assertIn(
+            "/tmp/boole-native-shadow-rootfs-replay.*/*",
+            manager,
+            "the established x86 replay mode must keep its exact scratch prefix",
+        )
+
+    def test_arm64_manager_mode_binds_features_authorities_and_verified_toolchain(self):
+        manager = (
+            REPO_ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "manager-cgroup-linux-gate,linux-arm64-authority",
+            "native-shadow-closed-local-replay,linux-arm64-authority",
+            "fixtures/native-shadow/registry-arm64-v1.json registry-v1.json",
+            "native/containment/native-shadow-execution-policy-arm64-v1.json execution-policy-v1.json",
+            "native/containment/native-shadow-toolchain-identity-arm64-v1.json toolchain-identity-v1.json",
+            "native/containment/native-shadow-local-execution-authority-arm64-v1.json local-execution-authority-v1.json",
+            "native/containment/native-shadow-closed-local-replay-grant-arm64-v1.json closed-local-replay-grant-v1.json",
+            "native/containment/native-shadow-closed-local-replay-registry-overlay-arm64-v1.json closed-local-replay-registry-overlay-v1.json",
+            "native/containment/native-shadow-closed-local-replay-execution-authority-arm64-v1.json closed-local-replay-execution-authority-v1.json",
+            "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json",
+            'arm64_toolchain_source="$closed_local_replay_rootfs/opt/boole/native-checker-toolchain"',
+            'cp -a "$arm64_toolchain_source/." "$toolchain_stage/"',
+            './scripts/install-native-checker-toolchain.sh "$toolchain_stage"',
+        ):
+            self.assertIn(required, manager)
+        for required in (
+            "fixtures/native-shadow/registry-v1.json registry-v1.json",
+            "native/containment/native-shadow-local-execution-authority-v1.json local-execution-authority-v1.json",
+            "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+        ):
+            self.assertIn(
+                required,
+                manager,
+                "the default x86 authority/install path must remain present",
+            )
 
 
 class VerdictCorpusWorkflowContractTest(unittest.TestCase):

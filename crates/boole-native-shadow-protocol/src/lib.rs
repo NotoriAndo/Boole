@@ -49,25 +49,99 @@ use thiserror::Error;
 
 const NON_INTEGER_SENTINEL: &str = "native-shadow JSON requires integer-only numbers";
 
+#[cfg(not(feature = "linux-arm64-authority"))]
 pub const TRACKED_REGISTRY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/native-shadow/registry-v1.json"
 ));
+#[cfg(feature = "linux-arm64-authority")]
+pub const TRACKED_REGISTRY_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../fixtures/native-shadow/registry-arm64-v1.json"
+));
+#[cfg(not(feature = "linux-arm64-authority"))]
 pub const TRACKED_EXECUTION_POLICY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/containment/native-shadow-execution-policy-v1.json"
 ));
+#[cfg(feature = "linux-arm64-authority")]
+pub const TRACKED_EXECUTION_POLICY_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-execution-policy-arm64-v1.json"
+));
+#[cfg(not(feature = "linux-arm64-authority"))]
 pub const TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/containment/native-shadow-local-execution-authority-v1.json"
 ));
+#[cfg(feature = "linux-arm64-authority")]
+pub const TRACKED_LOCAL_EXECUTION_AUTHORITY_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-local-execution-authority-arm64-v1.json"
+));
+#[cfg(not(feature = "linux-arm64-authority"))]
 pub const TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/containment/native-shadow-closed-local-replay-execution-authority-v1.json"
 ));
+#[cfg(feature = "linux-arm64-authority")]
+pub const TRACKED_CLOSED_LOCAL_REPLAY_EXECUTION_AUTHORITY_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-closed-local-replay-execution-authority-arm64-v1.json"
+));
+#[cfg(not(feature = "linux-arm64-authority"))]
 pub const TRACKED_TOOLCHAIN_IDENTITY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../native/containment/native-shadow-toolchain-identity-v1.json"
+));
+#[cfg(feature = "linux-arm64-authority")]
+pub const TRACKED_TOOLCHAIN_IDENTITY_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-toolchain-identity-arm64-v1.json"
+));
+
+// These four byte sets are not separately installed protocol authorities.
+// They make the two selected execution-authority documents prove that their
+// embedded runtime-rootfs digests name the matching architecture projection.
+#[cfg(not(feature = "linux-arm64-authority"))]
+pub(crate) const TRACKED_RUNTIME_ROOTFS_PORTABLE_PLAN_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-runtime-rootfs-portable-plan-v2.json"
+));
+#[cfg(feature = "linux-arm64-authority")]
+pub(crate) const TRACKED_RUNTIME_ROOTFS_PORTABLE_PLAN_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-runtime-rootfs-portable-plan-arm64-v1.json"
+));
+#[cfg(not(feature = "linux-arm64-authority"))]
+pub(crate) const TRACKED_RUNTIME_ROOTFS_SOURCE_LOCK_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-runtime-rootfs-source-lock-v2.json"
+));
+#[cfg(feature = "linux-arm64-authority")]
+pub(crate) const TRACKED_RUNTIME_ROOTFS_SOURCE_LOCK_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json"
+));
+#[cfg(not(feature = "linux-arm64-authority"))]
+pub(crate) const TRACKED_RUNTIME_ROOTFS_RESOLUTION_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-runtime-rootfs-resolution-v2.json"
+));
+#[cfg(feature = "linux-arm64-authority")]
+pub(crate) const TRACKED_RUNTIME_ROOTFS_RESOLUTION_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-runtime-rootfs-resolution-arm64-v1.json"
+));
+#[cfg(not(feature = "linux-arm64-authority"))]
+pub(crate) const TRACKED_RUNTIME_ROOTFS_REPLAY_EXPECTATION_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-runtime-rootfs-replay-expectation-v2.json"
+));
+#[cfg(feature = "linux-arm64-authority")]
+pub(crate) const TRACKED_RUNTIME_ROOTFS_REPLAY_EXPECTATION_BYTES: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../native/containment/native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json"
 ));
 
 pub const INSTALLED_REGISTRY_PATH: &str = "/usr/share/boole/native-shadow/registry-v1.json";

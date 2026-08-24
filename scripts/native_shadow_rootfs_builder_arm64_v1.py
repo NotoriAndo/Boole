@@ -34,6 +34,11 @@ REPLACEMENTS = (
         1,
     ),
     (
+        "fixtures/native-shadow/registry-v1.json",
+        "fixtures/native-shadow/registry-arm64-v1.json",
+        1,
+    ),
+    (
         "native/containment/native-shadow-execution-policy-v1.json",
         "native/containment/native-shadow-execution-policy-arm64-v1.json",
         1,

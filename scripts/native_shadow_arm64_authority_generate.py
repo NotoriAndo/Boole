@@ -18,6 +18,9 @@ from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE_SHA256 = {
+    "fixtures/native-shadow/registry-v1.json": (
+        "53a8271fdf92ae5a4204a9779c0badfec86c7fd3399b8b12700199c6de9dc61a"
+    ),
     "native/containment/native-shadow-execution-policy-v1.json": (
         "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2"
     ),
@@ -64,6 +67,10 @@ def generate() -> dict[pathlib.Path, bytes]:
         "node/launcher containment policy"
     )
     policy["platform"]["architecture"] = "aarch64"
+    # The arm64 rootfs has no /lib64 compatibility tree.  Keeping that path in
+    # the Landlock authority would make the launcher require a path that the
+    # frozen arm64 filesystem deliberately does not contain.
+    policy["landlock"]["executeAllow"].remove("/lib64")
 
     toolchain = _load(
         "native/containment/native-shadow-toolchain-identity-v1.json"
@@ -83,16 +90,27 @@ def generate() -> dict[pathlib.Path, bytes]:
     release = _load(
         "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json"
     )
-    release["schema"] = "boole.native-checker.release.arm64.v1"
-    release["release"] = "RUST-TUPLE-STRUCT-CHECKER-ARM64-V1-QUALIFICATION"
     release["toolchain"].pop("linuxX8664ArtifactSha256")
     release["toolchain"]["linuxArm64ArtifactSha256"] = ARM64_RUST_ARTIFACTS
+
+    registry = _load("fixtures/native-shadow/registry-v1.json")
+    registry["executionPolicySha256"] = hashlib.sha256(
+        _canonical(policy)
+    ).hexdigest()
+    registry["toolchainIdentitySha256"] = hashlib.sha256(
+        _canonical(toolchain)
+    ).hexdigest()
+    for template in registry["templates"]:
+        template["checkerReleaseManifestSha256"] = hashlib.sha256(
+            _canonical(release)
+        ).hexdigest()
 
     return {
         ROOT / "native/containment/native-shadow-execution-policy-arm64-v1.json": _canonical(policy),
         ROOT / "native/containment/native-shadow-toolchain-identity-arm64-v1.json": _canonical(toolchain),
         ROOT
         / "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json": _canonical(release),
+        ROOT / "fixtures/native-shadow/registry-arm64-v1.json": _canonical(registry),
     }
 
 

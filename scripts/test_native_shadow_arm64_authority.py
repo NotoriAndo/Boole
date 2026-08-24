@@ -40,6 +40,23 @@ ARM64_RELEASE = (
     ROOT
     / "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json"
 )
+ARM64_REGISTRY = ROOT / "fixtures/native-shadow/registry-arm64-v1.json"
+ARM64_OVERLAY = (
+    ROOT
+    / "native/containment/native-shadow-closed-local-replay-registry-overlay-arm64-v1.json"
+)
+ARM64_GRANT = (
+    ROOT
+    / "native/containment/native-shadow-closed-local-replay-grant-arm64-v1.json"
+)
+ARM64_LOCAL_EXECUTION = (
+    ROOT
+    / "native/containment/native-shadow-local-execution-authority-arm64-v1.json"
+)
+ARM64_CLOSED_EXECUTION = (
+    ROOT
+    / "native/containment/native-shadow-closed-local-replay-execution-authority-arm64-v1.json"
+)
 ARM64_SOURCE_RESULT = (
     ROOT
     / "native/containment/native-shadow-runtime-rootfs-source-closure-result-arm64-v1.json"
@@ -167,6 +184,10 @@ class NativeShadowArm64AuthorityTest(unittest.TestCase):
 
         generated = generator.generate()
         self.assertEqual(
+            set(generated),
+            {ARM64_POLICY, ARM64_TOOLCHAIN, ARM64_RELEASE, ARM64_REGISTRY},
+        )
+        self.assertEqual(
             {path: path.read_bytes() for path in generated},
             generated,
         )
@@ -260,7 +281,104 @@ class NativeShadowArm64AuthorityTest(unittest.TestCase):
             document.pop("release")
             document.pop("purpose")
             document["platform"].pop("architecture")
+        arm64["landlock"]["executeAllow"].append("/lib64")
+        arm64["landlock"]["executeAllow"].sort()
+        base["landlock"]["executeAllow"].sort()
         self.assertEqual(arm64, base)
+
+    def test_arm64_registry_binds_the_arm64_authority_chain(self) -> None:
+        registry = _json(ARM64_REGISTRY)
+        self.assertEqual(
+            registry["executionPolicySha256"], _sha256(ARM64_POLICY)
+        )
+        self.assertEqual(
+            registry["toolchainIdentitySha256"], _sha256(ARM64_TOOLCHAIN)
+        )
+        self.assertEqual(
+            {row["checkerReleaseManifestSha256"] for row in registry["templates"]},
+            {_sha256(ARM64_RELEASE)},
+        )
+
+    def test_arm64_dependent_authority_chain_is_exactly_cross_bound(self) -> None:
+        overlay = _json(ARM64_OVERLAY)
+        grant = _json(ARM64_GRANT)
+        local_execution = _json(ARM64_LOCAL_EXECUTION)
+        closed_execution = _json(ARM64_CLOSED_EXECUTION)
+
+        self.assertEqual(overlay["baseRegistrySha256"], _sha256(ARM64_REGISTRY))
+        self.assertEqual(
+            overlay["executionPolicySha256"], _sha256(ARM64_POLICY)
+        )
+        self.assertEqual(
+            overlay["toolchainIdentitySha256"], _sha256(ARM64_TOOLCHAIN)
+        )
+        self.assertEqual(
+            {row["checkerReleaseManifestSha256"] for row in overlay["templates"]},
+            {_sha256(ARM64_RELEASE)},
+        )
+
+        self.assertEqual(
+            grant["productionRegistry"]["sha256"], _sha256(ARM64_REGISTRY)
+        )
+        self.assertEqual(grant["registry"]["sha256"], _sha256(ARM64_OVERLAY))
+        self.assertEqual(
+            grant["checker"]["releaseManifestSha256"], _sha256(ARM64_RELEASE)
+        )
+        self.assertEqual(
+            grant["executionPolicy"]["sha256"], _sha256(ARM64_POLICY)
+        )
+        self.assertEqual(
+            grant["toolchainIdentity"]["sha256"], _sha256(ARM64_TOOLCHAIN)
+        )
+
+        rootfs_digests = {
+            "runtimeRootfsPortablePlanSha256": _sha256(ARM64_PORTABLE_PLAN),
+            "runtimeRootfsSourceLockSha256": _sha256(ARM64_LOCK),
+            "runtimeRootfsResolutionSha256": _sha256(ARM64_RESOLUTION),
+            "runtimeRootfsReplayExpectationSha256": _sha256(ARM64_EXPECTATION),
+        }
+        self.assertEqual(local_execution["baseExecutionPolicySha256"], _sha256(ARM64_POLICY))
+        self.assertEqual(
+            {key: local_execution[key] for key in rootfs_digests}, rootfs_digests
+        )
+        self.assertEqual(
+            closed_execution["baseExecutionPolicySha256"], _sha256(ARM64_POLICY)
+        )
+        self.assertEqual(
+            closed_execution["closedLocalReplayGrantSha256"], _sha256(ARM64_GRANT)
+        )
+        self.assertEqual(
+            closed_execution["closedLocalReplayRegistryOverlaySha256"],
+            _sha256(ARM64_OVERLAY),
+        )
+        self.assertEqual(
+            closed_execution["checkerReleaseManifestSha256"],
+            _sha256(ARM64_RELEASE),
+        )
+        self.assertEqual(
+            closed_execution["toolchainIdentitySha256"],
+            _sha256(ARM64_TOOLCHAIN),
+        )
+        self.assertEqual(
+            {key: closed_execution[key] for key in rootfs_digests},
+            rootfs_digests,
+        )
+
+    def test_arm64_dependent_projection_reproduces_tracked_bytes(self) -> None:
+        from scripts import native_shadow_arm64_portable_authority_generate as generator
+
+        inputs = {
+            ARM64_PORTABLE_PLAN: ARM64_PORTABLE_PLAN.read_bytes(),
+            ARM64_RESOLUTION: ARM64_RESOLUTION.read_bytes(),
+            ARM64_LOCK: ARM64_LOCK.read_bytes(),
+            ARM64_EXPECTATION: ARM64_EXPECTATION.read_bytes(),
+        }
+        generated = generator.dependent_authority(inputs)
+        self.assertEqual(
+            set(generated),
+            {ARM64_OVERLAY, ARM64_GRANT, ARM64_LOCAL_EXECUTION, ARM64_CLOSED_EXECUTION},
+        )
+        self.assertEqual({path: path.read_bytes() for path in generated}, generated)
 
     def test_arm64_checker_release_changes_only_toolchain_artifacts(self) -> None:
         base = _source_json(
@@ -268,8 +386,6 @@ class NativeShadowArm64AuthorityTest(unittest.TestCase):
         )
         arm64 = _json(ARM64_RELEASE)
         for document in (base, arm64):
-            document.pop("schema")
-            document.pop("release")
             document["toolchain"].pop(
                 "linuxX8664ArtifactSha256", None
             )
