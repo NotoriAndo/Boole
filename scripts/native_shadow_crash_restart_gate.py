@@ -47,6 +47,7 @@ LAUNCHER_SERVICE = "boole-native-shadow-launcher.service"
 
 LISTENER_WAIT_SECONDS = 120.0
 IN_FLIGHT_WAIT_SECONDS = 60.0
+ARM64_STARTUP_RECOVERY_WAIT_SECONDS = 240.0
 TERMINAL_WAIT_SECONDS = 240.0
 UNIT_STATE_WAIT_SECONDS = 30.0
 POLL_INTERVAL_SECONDS = 0.05
@@ -59,6 +60,16 @@ UNRESOLVED_IN_FLIGHT_MESSAGE = (
 PEER_MARKER_PATTERN = re.compile(
     r"^native-shadow-active-execution-peer:pid=([1-9][0-9]*)$", re.MULTILINE
 )
+
+
+def startup_recovery_wait_seconds(machine: str) -> float:
+    # This is a gate-only observation deadline, not a production execution or
+    # cleanup limit. Native ARM re-hashes and probes the complete verified
+    # rootfs during the mandatory launcher recovery/readiness barrier before
+    # the node may refuse a durable InFlight row. The x86 gate stays unchanged.
+    if machine in ("aarch64", "arm64"):
+        return ARM64_STARTUP_RECOVERY_WAIT_SECONDS
+    return IN_FLIGHT_WAIT_SECONDS
 
 TERMINAL_ROW_KINDS = (
     "grant_attempt_reserved_v1",
@@ -639,7 +650,11 @@ def scenario_unresolved_inflight_fail_closed(
 
     restart_cursor = freeze_journal_cursor()
     _run(["systemctl", "start", NODE_SERVICE], check=False)
-    wait_for_unit_state(NODE_SERVICE, ("failed",), IN_FLIGHT_WAIT_SECONDS)
+    wait_for_unit_state(
+        NODE_SERVICE,
+        ("failed",),
+        startup_recovery_wait_seconds(os.uname().machine),
+    )
     require_listener_refused()
 
     message_deadline = time.monotonic() + UNIT_STATE_WAIT_SECONDS

@@ -226,6 +226,16 @@ class InertSocketReapTests(unittest.TestCase):
 
 
 class CrashRestartGateWiringTests(unittest.TestCase):
+    def test_arm64_startup_recovery_wait_covers_the_qualification_barrier(self) -> None:
+        self.assertEqual(gate.startup_recovery_wait_seconds("x86_64"), 60.0)
+        self.assertEqual(gate.startup_recovery_wait_seconds("aarch64"), 240.0)
+        self.assertEqual(gate.startup_recovery_wait_seconds("arm64"), 240.0)
+        driver = DRIVER_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            "startup_recovery_wait_seconds(os.uname().machine)",
+            driver,
+        )
+
     def test_manager_gate_runs_crash_phase_after_http_matrix(self) -> None:
         manager = MANAGER_GATE_PATH.read_text(encoding="utf-8")
         self.assertIn('sudo python3 "$crash_gate_source"', manager)

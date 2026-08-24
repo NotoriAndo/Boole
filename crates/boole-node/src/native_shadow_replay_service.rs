@@ -1047,6 +1047,17 @@ fn ensure_no_unresolved_in_flight(stuck_in_flight: &[NativeShadowFourTuple]) -> 
     Ok(())
 }
 
+fn qualify_and_validate_before_recovery_refusal<T>(
+    stuck_in_flight: &[NativeShadowFourTuple],
+    qualify: impl FnOnce() -> anyhow::Result<T>,
+    validate: impl FnOnce(&T) -> anyhow::Result<()>,
+) -> anyhow::Result<T> {
+    let readiness = qualify()?;
+    validate(&readiness)?;
+    ensure_no_unresolved_in_flight(stuck_in_flight)?;
+    Ok(readiness)
+}
+
 fn json_response(status: StatusCode, body: Value) -> Response {
     (status, Json(body)).into_response()
 }
@@ -1737,26 +1748,30 @@ pub async fn serve_installed_closed_local_native_shadow_replay() -> anyhow::Resu
         .attempts
         .validate_against_closed_local_grant(installed.grant(), &execution_policy_digest)?;
 
-    let readiness = crate::native_shadow_qualification::qualify_installed_native_shadow_launcher()?;
-    anyhow::ensure!(
-        readiness.registry_digest_hex() == production_registry_digest,
-        "qualified launcher registry digest differs from the replay grant's production registry"
-    );
-    anyhow::ensure!(
-        readiness.execution_policy_digest_hex() == execution_policy_digest.as_str(),
-        "qualified launcher execution-policy digest differs from the replay authority"
-    );
-    anyhow::ensure!(
-        readiness.toolchain_identity_digest_hex()
-            == sha256_hex(boole_native_shadow_protocol::TRACKED_TOOLCHAIN_IDENTITY_BYTES),
-        "qualified launcher toolchain digest differs from the installed replay authority"
-    );
-    // The current grant intentionally lacks permission to mutate startup
-    // recovery state. Qualification proves cleanup, but any durable withheld
-    // row still closes this route until a future authority explicitly permits
-    // the corresponding journal transition.
-    ensure_no_unresolved_in_flight(&recovery.stuck_in_flight)?;
-
+    // The launcher cleanup/readiness barrier must finish before a durable
+    // InFlight row is refused. Otherwise node shutdown could interrupt orphan
+    // cleanup and leave an old execution tree alive. The current grant still
+    // cannot mutate or serve the withheld recovery state after that barrier.
+    let readiness = qualify_and_validate_before_recovery_refusal(
+        &recovery.stuck_in_flight,
+        || crate::native_shadow_qualification::qualify_installed_native_shadow_launcher(),
+        |readiness| {
+            anyhow::ensure!(
+                readiness.registry_digest_hex() == production_registry_digest,
+                "qualified launcher registry digest differs from the replay grant's production registry"
+            );
+            anyhow::ensure!(
+                readiness.execution_policy_digest_hex() == execution_policy_digest.as_str(),
+                "qualified launcher execution-policy digest differs from the replay authority"
+            );
+            anyhow::ensure!(
+                readiness.toolchain_identity_digest_hex()
+                    == sha256_hex(boole_native_shadow_protocol::TRACKED_TOOLCHAIN_IDENTITY_BYTES),
+                "qualified launcher toolchain digest differs from the installed replay authority"
+            );
+            Ok(())
+        },
+    )?;
     let launcher = installed_launcher_transport::InstalledLauncherTransport::new(readiness);
     let service = Arc::new(ClosedLocalReplayService {
         replay_authority: InstalledReplayAuthority::new(installed),
@@ -2762,5 +2777,74 @@ mod tests {
             epoch: 3,
         };
         assert!(ensure_no_unresolved_in_flight(&[stuck]).is_err());
+    }
+
+    #[test]
+    fn launcher_recovery_barrier_precedes_unresolved_in_flight_refusal() {
+        let stuck = NativeShadowFourTuple {
+            family_version: "family-v1".to_string(),
+            template_id: digest('1'),
+            challenge_sha256: digest('2'),
+            epoch: 3,
+        };
+        let qualification_called = std::cell::Cell::new(false);
+
+        let result = qualify_and_validate_before_recovery_refusal(
+            &[stuck],
+            || {
+                qualification_called.set(true);
+                Ok(())
+            },
+            |_| Ok(()),
+        );
+
+        assert!(result.is_err());
+        assert!(
+            qualification_called.get(),
+            "launcher cleanup/readiness must finish before durable unresolved work is refused"
+        );
+    }
+
+    #[test]
+    fn launcher_qualification_failure_precedes_unresolved_in_flight_refusal() {
+        let stuck = NativeShadowFourTuple {
+            family_version: "family-v1".to_string(),
+            template_id: digest('1'),
+            challenge_sha256: digest('2'),
+            epoch: 3,
+        };
+
+        let error = qualify_and_validate_before_recovery_refusal::<()>(
+            &[stuck],
+            || anyhow::bail!("qualification barrier failed"),
+            |_| Ok(()),
+        )
+        .expect_err("qualification failure must remain the first fail-closed reason");
+
+        assert_eq!(error.to_string(), "qualification barrier failed");
+    }
+
+    #[test]
+    fn launcher_authority_validation_precedes_unresolved_in_flight_refusal() {
+        let stuck = NativeShadowFourTuple {
+            family_version: "family-v1".to_string(),
+            template_id: digest('1'),
+            challenge_sha256: digest('2'),
+            epoch: 3,
+        };
+        let validation_called = std::cell::Cell::new(false);
+
+        let error = qualify_and_validate_before_recovery_refusal(
+            &[stuck],
+            || Ok(()),
+            |_| {
+                validation_called.set(true);
+                anyhow::bail!("authority validation failed")
+            },
+        )
+        .expect_err("authority validation must remain before unresolved recovery refusal");
+
+        assert!(validation_called.get());
+        assert_eq!(error.to_string(), "authority validation failed");
     }
 }
