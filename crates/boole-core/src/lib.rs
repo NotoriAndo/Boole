@@ -24,6 +24,7 @@ pub mod fork_choice;
 pub mod genesis;
 pub mod hash;
 pub mod lean_bound_canon;
+pub mod native_shadow_update;
 pub mod package_sidecar;
 pub mod package_store;
 pub mod paths;
@@ -101,6 +102,12 @@ pub use hash::{
     submission_pow_ok, target_seed, ticket, Hex32, Hex64, TicketResult, TARGET_SEED_J_INDEX_BOUND,
 };
 pub use lean_bound_canon::{lean_bound_canon_package, lean_bound_verifier_hash};
+pub use native_shadow_update::{
+    authenticate_staged_native_shadow_update, AuthenticatedStagedNativeShadowUpdate,
+    GuestArtifactRole, NativeShadowUpdateFloor, NativeShadowUpdateTrustRoot,
+    NativeShadowUpdateVerifyError, VerifiedStagedNativeShadowUpdate, GUEST_UPDATE_MANIFEST_SCHEMA,
+    MAX_GUEST_UPDATE_ARTIFACT_BYTES, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
+};
 pub use package_sidecar::{
     CanonicalPackage, PackageFile, PackageRoot, PackageSidecarError, MAX_PACKAGE_CANONICAL_BYTES,
     MAX_PACKAGE_FILES, PACKAGE_SIDECAR_ROOT_DOMAIN, PACKAGE_SIDECAR_SCHEMA,
