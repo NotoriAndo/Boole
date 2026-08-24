@@ -100,7 +100,7 @@ class NativeShadowArm64AuthorityTest(unittest.TestCase):
             ROOT / "scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh"
         ).read_text(encoding="utf-8")
         self.assertIn(
-            "env -i LANG=C LC_ALL=C PATH=/usr/bin:/bin:/usr/sbin:/sbin \\\n"
+            "/usr/bin/env -i LANG=C LC_ALL=C PATH=/usr/bin:/bin:/usr/sbin:/sbin \\\n"
             "      chroot --groups='' --userspec=65534:65534 \"$rootfs\"",
             replay,
         )
@@ -111,6 +111,7 @@ class NativeShadowArm64AuthorityTest(unittest.TestCase):
         )
         self.assertIn('die "checker command failed for $name with status $status"', replay)
         self.assertIn('cat "$stderr" >&2', replay)
+        self.assertIn('cat "$result" >&2', replay)
 
     def test_linux_authority_selection_is_bound_to_the_compilation_architecture(self) -> None:
         arm64_guard = """#[cfg(all(

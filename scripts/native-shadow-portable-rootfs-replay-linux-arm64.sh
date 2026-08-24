@@ -162,7 +162,7 @@ if [[ ${1:-} == "--offline-parity" ]]; then
     stderr="$scratch/stderr-$name.txt"
     timing="$scratch/time-$name.txt"
     if /usr/bin/time -f '%e %M' -o "$timing" \
-      env -i LANG=C LC_ALL=C PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+      /usr/bin/env -i LANG=C LC_ALL=C PATH=/usr/bin:/bin:/usr/sbin:/sbin \
       chroot --groups='' --userspec=65534:65534 "$rootfs" \
       /usr/bin/python3.12 -I -S \
       /usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py \
