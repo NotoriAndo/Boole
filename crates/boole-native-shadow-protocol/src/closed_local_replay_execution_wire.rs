@@ -166,7 +166,7 @@ fn validate_authority_contract(
         && value.runtime_rootfs_resolution_sha256
             == "5ff55eb8193ef8e5236b7401264bac08144b3431fd1cf0d378c8130d0d602af5"
         && value.runtime_rootfs_replay_expectation_sha256
-            == "56ad265826450b9deeb27c818b3191ccaf3ac25c2db75419efccf9c09e76a96c"
+            == "ce1597ce06ed7a89d3293e69997c3c129085e326ee90e8fb1d17cb6e92d2518b"
         && value.fixed_socket_path == FIXED_SOCKET_PATH
         && value.hello_schema == "boole.native-shadow.launcher.hello.v1"
         && value.ready_schema == READY_SCHEMA

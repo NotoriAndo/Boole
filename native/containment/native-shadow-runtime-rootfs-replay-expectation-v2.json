@@ -14,17 +14,17 @@
     "portableSourceLockSha256": "01b2180a5d9a2274076630775729904448a0894b05cfaaccec142d0d476e12e1"
   },
   "expectedOutput": {
-    "configDigest": "sha256:21f8f32b4ea8b20480423b1c75eb55d9ee6ee3b4a18175d97b9249b57987e01d",
+    "configDigest": "sha256:cc5707d75796aa3d62b87cd1ea18bb207c200950c638d387bf328a3ed91d72f8",
     "configSizeBytes": 264,
-    "indexSha256": "38585fed19eab4fffd691fecb6e82989a6ed24b4f31ed278deecbb4d3ef44696",
+    "indexSha256": "ecc87955a1c4adb36cd386cdea6e10b6f75463f6decbd243b9eafbaa756f7367",
     "indexSizeBytes": 305,
     "layerCount": 1,
-    "layerDigest": "sha256:e20cb97594ae0f9650f5ae375c0d806ac256c663de94857a2d5e3f70f5fc5e42",
+    "layerDigest": "sha256:39dfeb99de296afc55cb03bbeff7cd7a1c15dfd15c3a4802425d0defcdcf67ae",
     "layerSizeBytes": 861511680,
-    "manifestDigest": "sha256:90c1ba21a4663e18ff18dce50343b7d24ca1f9094b35046dfcfa0a9d0db2ac03",
+    "manifestDigest": "sha256:7584bc44716311e16cb4c9bfd472de5f99ffeea6940a338e1fda568f74c87c94",
     "manifestSizeBytes": 472,
     "parentLayerCount": 0,
-    "rootfsContentManifestSha256": "9858aa4ba3e3055580ae19fe1f46c2cbfc1d97e2773f9b40105942ab37266d83",
+    "rootfsContentManifestSha256": "957761ceaeca18e0af516ed200c7587aa57a609b16ebfe63dacb1371df489763",
     "rootfsContentManifestSizeBytes": 1275874
   },
   "mismatchPolicy": {

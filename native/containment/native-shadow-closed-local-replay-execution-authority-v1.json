@@ -15,7 +15,7 @@
   "runtimeRootfsPortablePlanSha256": "fa4119964d87f30ad9fde496f509f0dbcc641f33ea52a345b19c1d2296cabb42",
   "runtimeRootfsSourceLockSha256": "01b2180a5d9a2274076630775729904448a0894b05cfaaccec142d0d476e12e1",
   "runtimeRootfsResolutionSha256": "5ff55eb8193ef8e5236b7401264bac08144b3431fd1cf0d378c8130d0d602af5",
-  "runtimeRootfsReplayExpectationSha256": "56ad265826450b9deeb27c818b3191ccaf3ac25c2db75419efccf9c09e76a96c",
+  "runtimeRootfsReplayExpectationSha256": "ce1597ce06ed7a89d3293e69997c3c129085e326ee90e8fb1d17cb6e92d2518b",
   "fixedSocketPath": "/run/boole/native-shadow/launcher.sock",
   "helloSchema": "boole.native-shadow.launcher.hello.v1",
   "readySchema": "boole.native-shadow.launcher.ready.v3",
