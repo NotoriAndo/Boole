@@ -336,9 +336,17 @@ run_home=$(getent passwd "$run_user" | awk -F: 'NF == 7 { print $6 }')
 [[ -n "$run_home" && -x "$run_home/.cargo/bin/cargo" ]] \
   || die "the original CI user lacks the pinned Rust toolchain"
 chmod 0711 "$scratch"
+# The manager's frozen inner deadlines total 1,680 seconds: three 180-second
+# containment diagnostics, a 120-second drift probe, the 420-second HTTP
+# matrix, and the 600-second crash/restart matrix. Native ARM compilation and
+# service installation measured another bounded setup cost on the clean CI
+# runner, so keep a separate 420-second outer allowance. This changes only the
+# CI orchestration deadline; every checker/resource deadline remains frozen.
+arm64_manager_deadline_seconds=2100
 (
   cd "$ROOT"
-  timeout --foreground --signal=TERM --kill-after=15s 1200s \
+  timeout --foreground --signal=TERM --kill-after=15s \
+    "${arm64_manager_deadline_seconds}s" \
     sudo -u "$run_user" env \
       "HOME=$run_home" \
       "CARGO_HOME=$run_home/.cargo" \

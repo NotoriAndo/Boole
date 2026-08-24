@@ -1017,6 +1017,7 @@ class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
     def test_arm64_rootfs_replay_is_named_native_and_non_skippable(self):
         job = self._job("native-shadow-rootfs-replay-linux-arm64")
         self.assertIn("runs-on: ubuntu-24.04-arm", job)
+        self.assertIn("timeout-minutes: 45", job)
         self.assertIn("dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9", job)
         self.assertIn("toolchain: 1.95.0", job)
         self.assertIn("groupadd --system boole-node", job)
@@ -1027,6 +1028,24 @@ class NativeShadowArm64RootfsWorkflowContractTest(unittest.TestCase):
         )
         for forbidden in ("continue-on-error", "SKIP", "|| true"):
             self.assertNotIn(forbidden, job)
+
+    def test_arm64_outer_deadline_covers_the_frozen_nested_gate_budgets(self):
+        gate = ARM64_ROOTFS_REPLAY_GATE.read_text(encoding="utf-8")
+        manager = (
+            REPO_ROOT / "scripts/native-shadow-manager-cgroup-gate.sh"
+        ).read_text(encoding="utf-8")
+
+        # The manager can spend 3x180s on containment diagnostics, 120s on
+        # request-time drift, 420s on the HTTP matrix, and 600s on the
+        # crash/restart matrix.  The ARM runner also needs a measured setup
+        # allowance for native compilation and service installation.  Pin the
+        # outer budget independently so an inner gate cannot be killed merely
+        # because its architecture is slower.
+        for inner_deadline in ("180s", "120s", "420s", "600s"):
+            self.assertIn(inner_deadline, manager)
+        self.assertIn("arm64_manager_deadline_seconds=2100", gate)
+        self.assertIn('"${arm64_manager_deadline_seconds}s"', gate)
+        self.assertGreaterEqual(2100, (3 * 180) + 120 + 420 + 600 + 420)
 
     def test_self_test_requires_arm64_rootfs_replay(self):
         job = self._job("self-test")
