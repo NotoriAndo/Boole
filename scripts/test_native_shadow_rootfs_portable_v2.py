@@ -636,6 +636,10 @@ class NativeShadowRootfsPortableV2Tests(unittest.TestCase):
             'PathFd::new("/usr/libexec/gcc/x86_64-linux-gnu/13/cc1")',
             landlock,
         )
+        self.assertIn(
+            'PathFd::new("/usr/libexec/gcc/x86_64-linux-gnu/13/collect2")',
+            landlock,
+        )
         self.assertNotIn("/usr/lib/gcc-cross/", landlock)
 
     def test_host_dev_null_is_bound_before_the_old_root_is_detached(self) -> None:

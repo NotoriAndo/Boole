@@ -1984,6 +1984,14 @@ fn apply_landlock() -> Result<(), String> {
     ruleset = ruleset
         .add_rule(PathBeneath::new(gcc_frontend, AccessFs::Execute))
         .map_err(|error| error.to_string())?;
+    // The fixed GCC driver invokes collect2 only for the final link stage.
+    // It is installed by the separately pinned `gcc-13-x86-64-linux-gnu`
+    // package; allow this exact executable without opening all of /usr/libexec.
+    let gcc_linker = PathFd::new("/usr/libexec/gcc/x86_64-linux-gnu/13/collect2")
+        .map_err(|error| error.to_string())?;
+    ruleset = ruleset
+        .add_rule(PathBeneath::new(gcc_linker, AccessFs::Execute))
+        .map_err(|error| error.to_string())?;
     let work = PathFd::new("/work").map_err(|error| error.to_string())?;
     ruleset = ruleset
         .add_rule(PathBeneath::new(work, write_access))
