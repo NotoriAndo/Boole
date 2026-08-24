@@ -1625,3 +1625,27 @@ identity-resolution contract. Further containment/route implementation remains f
 Phase 3 GREEN may be claimed until the authenticated launcher handshake, execution-ID durability,
 actual checker containment/cleanup and route binding are implemented and pass the named Linux gate.
 The partial foundation does not authorize an endpoint, child-process execution or activation.
+
+### 13.3 Linux/arm64 authority-parity closure addendum — 2026-08-25
+
+PR #224 (main `2a6de07ba6c77355d19a3d342ab718f7358fd76a`; CI
+<https://github.com/NotoriAndo/Boole/actions/runs/32766488279>) rebuilt the separately frozen
+authority on native Linux/aarch64 and ran the same accepted/replay/empty/tampered/constant and
+two-way cross-task verdict matrix as the x86_64 baseline. Exact verdict and binding parity, the
+named Linux containment gate, node HTTP replay path and crash/restart exactly-once gate were GREEN.
+
+The implementation now rejects a Linux build whose selected authority feature does not match its
+target architecture: the arm64 successor authority is native-aarch64-only and the default authority
+is native-x86_64-only. Resource-policy document parity is exact except for the explicitly frozen
+architecture identity, and containment/resource enforcement parity is exact.
+
+This closes only the Linux/arm64 guest-authority parity subgate; MAC.2 remains PARTIAL while the
+authenticated staged verifier and post-adoption image/runtime-authority reverification remain open.
+The qualification remains loopback-only,
+`nonIssuable=true` and `activationAllowed=false`; no `SharePool`, block, reward, P2P or consensus
+consumer was added. It is not an Apple Virtualization VM, `Boole.app`, signed/notarized release or
+Mac production result. MAC.1 remains partial for distribution mode, release identities and the
+measurement protocol; MAC.3 is blocked/not started until those choices are frozen and the authenticated
+MAC.2-B staged verifier is implemented and GREEN. Later measurement results are earned by MAC.3–MAC.5 rather than
+being impossible preconditions to MAC.3. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`
+and `BF.7=HOLD` remain unchanged.
