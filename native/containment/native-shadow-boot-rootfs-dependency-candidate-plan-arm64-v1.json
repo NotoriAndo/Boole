@@ -1,0 +1,136 @@
+{
+  "activationAllowed": false,
+  "authorityInputs": {
+    "acquirer": {
+      "sha256": "0d82a724332d6cd9ed3b8d30b13d18c545c56caf855d608e68410cd9124e303b",
+      "sizeBytes": 2815
+    },
+    "acquisitionPlan": {
+      "sha256": "3f78559e29fbdb5b417eeb316687a4347907e4624b75da057c3f255e810ff35d",
+      "sizeBytes": 3661
+    },
+    "baselineResolution": {
+      "sha256": "69d7d12cfeb12d842ddf23ea795c07c5a6fa6ad58b7b1053f7a262d5da17ea52",
+      "sizeBytes": 85358
+    },
+    "baselineSourceLock": {
+      "sha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+      "sizeBytes": 102952
+    },
+    "builder": {
+      "sha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+      "sizeBytes": 3680
+    },
+    "candidateGenerator": {
+      "sha256": "e4f591cdfea32de8285842d5c3bfc32044d27915ea04d4de8c9d90a37036a53c",
+      "sizeBytes": 29207
+    },
+    "guestInitCompatibility": {
+      "sha256": "ee67e23bc89fa456a6e43a1c93d9d4a0faa8cf09e5d04b9a9678c17499d267b0",
+      "sizeBytes": 4718
+    },
+    "portablePlan": {
+      "sha256": "3f36b2e7491a729455f569d0915a0c027662e424d2608febaad7f76e5a1f4880",
+      "sizeBytes": 1237
+    },
+    "resolver": {
+      "sha256": "3da80225641d67567205f36854ae6041e66c3382ce2c8824f2436ef21d95e876",
+      "sizeBytes": 11900
+    }
+  },
+  "bootArtifactsWritten": 0,
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "imageBuilderAuthorityPresent": false,
+    "kernelImageExtracted": false,
+    "launcherElfPresent": false,
+    "maintainerScriptsExecuted": false,
+    "packagePayloadsAcquired": false,
+    "packagePayloadsVerified": false,
+    "runtimeCompatibilityVerified": false
+  },
+  "expected": {
+    "baselinePackageBytes": 66992762,
+    "baselinePackageCount": 56,
+    "candidatePackageBytes": 208936876,
+    "candidatePackageCount": 191,
+    "newPackageBytes": 141944114,
+    "newPackageCount": 135
+  },
+  "release": "NATIVE-SHADOW-BOOT-ROOTFS-DEPENDENCY-CANDIDATE-ARM64-V1-PREFROZEN-NONAUTHORITATIVE",
+  "repository": {
+    "architecture": "arm64",
+    "component": "main",
+    "id": "noble-main",
+    "inRelease": {
+      "path": "dists/noble/InRelease",
+      "sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+      "sizeBytes": 255850
+    },
+    "packagesIndex": {
+      "path": "dists/noble/main/binary-arm64/Packages.xz",
+      "releasePath": "main/binary-arm64/Packages.xz",
+      "sha256": "4a1901e6124fb0a111f5dffc8f5c14474f449e2ecfa71f2eaf0b29917edb53f9",
+      "sizeBytes": 1376632
+    },
+    "snapshotId": "20240425T160000Z",
+    "snapshotTime": "2024-04-25T16:00:00Z",
+    "trustedUbuntuFingerprints": [
+      "F6ECB3762474EDA9D21B7022871920D1991BC93C"
+    ]
+  },
+  "requiredPackages": {
+    "linux-image-6.8.0-31-generic": {
+      "artifactSha256": "7d0168a6ea0ebc7263fed3cce3dc45153ddd4e0e4a4b2737f74f0bd72cbaa292",
+      "artifactSizeBytes": 17910700,
+      "packageId": "deb-7d0168a6ea0ebc7263fed3cce3dc45153ddd4e0e4a4b2737f74f0bd72cbaa292",
+      "version": "6.8.0-31.31"
+    },
+    "linux-image-virtual": {
+      "artifactSha256": "cc527dda6420685bede14a12467d5c98e98280bf08a3cc6769917a165d2af7cf",
+      "artifactSizeBytes": 9922,
+      "packageId": "deb-cc527dda6420685bede14a12467d5c98e98280bf08a3cc6769917a165d2af7cf",
+      "version": "6.8.0-31.31"
+    },
+    "linux-modules-6.8.0-31-generic": {
+      "artifactSha256": "9586c56b4c20b61edad5c9d871ef9f83cd1a8575f2d31a589b7f110e60fe1016",
+      "artifactSizeBytes": 85790912,
+      "packageId": "deb-9586c56b4c20b61edad5c9d871ef9f83cd1a8575f2d31a589b7f110e60fe1016",
+      "version": "6.8.0-31.31"
+    },
+    "systemd": {
+      "artifactSha256": "306d48240e77337c6d9380508356b8e88c70096baf19d695a0a5a1048d55ebb5",
+      "artifactSizeBytes": 3403010,
+      "packageId": "deb-306d48240e77337c6d9380508356b8e88c70096baf19d695a0a5a1048d55ebb5",
+      "version": "255.4-1ubuntu8"
+    },
+    "ubuntu-minimal": {
+      "artifactSha256": "e787041fabd76687be8f94d682766f91dcee57aa9aa833a7ac2d52d5b6f3c7f1",
+      "artifactSizeBytes": 10984,
+      "packageId": "deb-e787041fabd76687be8f94d682766f91dcee57aa9aa833a7ac2d52d5b6f3c7f1",
+      "version": "1.539"
+    }
+  },
+  "schema": "boole.native-shadow.boot-rootfs-dependency-candidate-plan.arm64.v1",
+  "selection": {
+    "seeds": [
+      "binutils-aarch64-linux-gnu",
+      "gcc-13-aarch64-linux-gnu",
+      "libc6-dev",
+      "linux-image-virtual",
+      "python3.12",
+      "systemd",
+      "ubuntu-minimal"
+    ],
+    "virtualProviderPins": {}
+  },
+  "target": {
+    "architecture": "arm64",
+    "os": "linux"
+  },
+  "toolDigests": {
+    "gpgvSha256": "f1c71affd4ce40e3c5a53b8cb0ac9601fbcd31d6834b732dd0c7b0145dce1995",
+    "zstdSha256": "aff8169fb421bb925fb16c44a7e0143fa2c7a941dc45cce76b15062a2ce54917"
+  }
+}

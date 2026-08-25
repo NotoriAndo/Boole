@@ -16,7 +16,9 @@ DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED (sections 18–19); BOOTABLE GUE
 AND PRODUCT-RELEASE V2 CONTRACT GREEN — REAL BOOT ARTIFACTS AND V2 INSTALL CONSUMER ABSENT;
 BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 GREEN — ROOTFS CLOSURE AND SYSTEMD EXECUTION POLICY AUDITED,
 KERNEL/SYSTEMD-GUEST/IMAGE-BUILDER AUTHORITIES UNDEFINED AND NO BOOT ARTIFACTS PRODUCED
-(section 20);
+(section 20); BOOT-GUEST-INIT-COMPATIBILITY-V1 CONTRACT GREEN — CURRENT BASELINE MISSING SEVEN
+REQUIREMENTS (section 21); BOOT-ROOTFS-DEPENDENCY-CANDIDATE-ARM64-V1 FROZEN — SIGNED-METADATA
+SELECTION ONLY, PACKAGE PAYLOADS AND BOOT AUTHORITY ABSENT (section 22);
 MAC.3 CLOSED-LOCAL DEVELOPMENT UNBLOCKED BUT NOT STARTED — NOT RELEASE-READY, NO ACTIVATION
 AUTHORITY.**
 
@@ -1331,3 +1333,72 @@ MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No network,
 download, package installation, image build, VM boot, public mining, paid API benchmark,
 production key, release upload or activation occurred.
+
+## 22. BOOT-ROOTFS-DEPENDENCY-CANDIDATE-ARM64-V1 (2026-08-26)
+
+Status: **DEPENDENCY-CANDIDATE-FROZEN-NOT-BOOT-AUTHORITY.** This slice closes only deterministic
+package selection from already-cached, signed Ubuntu repository metadata. It does not download or
+verify the selected package payloads and does not create an executable guest.
+
+### 22.1 Pinned candidate and conservation
+
+The canonical plan
+`native/containment/native-shadow-boot-rootfs-dependency-candidate-plan-arm64-v1.json`
+(SHA-256 `f5465cd62b8b96f2e5b1702e72d2be2b2d73d3924968974604697a4a1614681f`)
+binds the exact source generator, resolver, ARM64 acquirer/builder wrappers, baseline authority
+files, snapshot identity, Ubuntu archive fingerprint, `gpgv`/`zstd` executables and selection
+seeds. The generated result
+`native/containment/native-shadow-boot-rootfs-dependency-candidate-result-arm64-v1.json`
+(SHA-256 `a8329d35b480e6b40823e8823551c16eb71a0d7bbc1da40483f05b4535815f26`)
+replays the signed `20240425T160000Z` Ubuntu Noble ARM64 metadata and conserves:
+
+- existing baseline: 56 packages / 66,992,762 declared payload bytes;
+- dependency candidate: 191 packages / 208,936,876 declared payload bytes; and
+- successor delta: 135 packages / 141,944,114 declared payload bytes.
+
+The baseline 56 rows are an exact-row subset of the 191 rows. The result fixes five required
+package identities, including systemd and the selected Linux image/modules package rows. These
+figures are signed-index declarations, not downloaded-byte evidence and not installed-size or
+guest-image measurements.
+
+The generator never imports repository authority modules from Python's bytecode cache. It reads
+the pinned source files without following links, compiles those exact bytes into isolated module
+objects and calls only those objects. Tests pin poisoned import-cache rejection, generator/source
+digest binding, exact baseline inclusion, count/byte conservation, canonical output and output
+symlink rejection. A second closed-local generation was byte-identical.
+
+### 22.2 Explicitly absent authority
+
+The result keeps every boundary below false or zero:
+
+- package payload acquisition and package payload verification;
+- maintainer-script execution;
+- uncompressed Linux/arm64 kernel `Image` extraction;
+- ARM64 launcher ELF;
+- image-builder authority and runtime-compatibility verification;
+- initrd, read-only root disk and VM boot;
+- production byte provenance, boot authority, bootable claim and activation authority; and
+- generated boot artifacts (`bootArtifactsWritten=0`).
+
+No package, tool or key was downloaded or installed. The tracked result came only from the
+already-existing content-addressed metadata cache. The next networked step, if separately
+approved, is exact acquisition and digest verification of the fixed 135-package delta (with the
+full 191-row closure rechecked); it may not execute maintainer scripts or claim a guest image.
+
+### 22.3 Execution cursor
+
+```text
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — MAC.5/MAC.6 전 필수
+BOOT-GUEST-INIT-COMPATIBILITY-V1  CONTRACT GREEN
+BOOT-ROOTFS-DEPENDENCY-CANDIDATE-ARM64-V1  FROZEN-NOT-BOOT-AUTHORITY
+BOOT-INPUT-AUTHORITY-V1  PARTIAL — signed-metadata dependency selection only
+BOOT-PAYLOAD-ACQUISITION/VERIFICATION  NEXT — separate network approval required
+LAUNCHER-ELF / IMAGE-BUILDER / KERNEL-EXTRACTION  OPEN
+REAL-BOOT-ARTIFACTS  NOT-PRODUCED
+MAC.3 HOST/GUEST TRANSPORT  NOT STARTED
+MAC.5 / MAC.6  BLOCKED
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. CURL.3 stays
+a mandatory release qualification gate; this deferral is neither a pass nor a waiver.
