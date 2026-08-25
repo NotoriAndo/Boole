@@ -1,0 +1,150 @@
+{
+  "activationAllowed": false,
+  "authorityBindings": {
+    "baselineRootfsSourceClosureResultSha256": "79073e541856c9be3bfbf56bf9c4415677679dc994c1342902f631716db7f312",
+    "baselineRootfsSourceLockSha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+    "bootArtifactAuditPlanSha256": "b0fd7055265018753f08f3863626c0860fb7d0b05e5eb3b6a1eb6b4ac89dc919",
+    "executionPolicySha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f",
+    "launcherUnitSha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+    "sysusersConfigSha256": "75b1ae8eb024396dcb36d3713435115dba68a8c52b05705ce4fe3b8e7f616445",
+    "tmpfilesConfigSha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721"
+  },
+  "authorityBoundary": {
+    "durableJournalOwner": "mac-host-node",
+    "guestNodeAuthorityAllowed": false,
+    "hostGuestTransport": "deferred-to-MAC.3-authenticated-bounded-channel",
+    "replayNodeUnitAllowed": false
+  },
+  "bootableClaim": false,
+  "derivedEntryRequirements": [
+    {
+      "logicalPath": "/etc/systemd/system/multi-user.target.wants/boole-native-shadow-launcher.service",
+      "role": "launcher-enablement",
+      "target": "/usr/lib/systemd/system/boole-native-shadow-launcher.service"
+    }
+  ],
+  "filesystemLayout": {
+    "machineId": "empty-root-file-with-ephemeral-runtime-identity",
+    "readOnlyMounts": [
+      {
+        "filesystem": "sysfs",
+        "path": "/sys"
+      }
+    ],
+    "rootDiskReadOnly": true,
+    "writableMounts": [
+      {
+        "filesystem": "devtmpfs",
+        "path": "/dev",
+        "persistence": "boot"
+      },
+      {
+        "filesystem": "proc",
+        "path": "/proc",
+        "persistence": "boot"
+      },
+      {
+        "filesystem": "tmpfs",
+        "path": "/run",
+        "persistence": "boot"
+      },
+      {
+        "filesystem": "cgroup2",
+        "path": "/sys/fs/cgroup",
+        "persistence": "boot"
+      },
+      {
+        "filesystem": "tmpfs",
+        "path": "/tmp",
+        "persistence": "boot"
+      },
+      {
+        "filesystem": "tmpfs",
+        "path": "/var/lib/boole",
+        "persistence": "boot"
+      }
+    ]
+  },
+  "initSystem": {
+    "accountProvisioning": "systemd-sysusers-at-every-boot",
+    "dynamicNumericIdsAllowed": true,
+    "kind": "systemd",
+    "pid1Path": "/usr/lib/systemd/systemd",
+    "requiredPackageSeed": "systemd",
+    "serviceTarget": "multi-user.target",
+    "staticPid1Allowed": false,
+    "tmpfilesProvisioning": "systemd-tmpfiles-at-every-boot"
+  },
+  "kernelCompatibility": {
+    "cgroupControllers": [
+      "cpu",
+      "memory",
+      "pids"
+    ],
+    "cgroupVersion": 2,
+    "minimumLandlockAbi": 3,
+    "requiredFacilities": [
+      "cgroup-freeze",
+      "cgroup-kill",
+      "clone3-clone-into-cgroup",
+      "mount-namespace",
+      "pid-namespace",
+      "pidfd",
+      "seccomp-filter"
+    ]
+  },
+  "release": "NATIVE-SHADOW-GUEST-INIT-COMPATIBILITY-ARM64-V1-CONTRACT-FROZEN-MATERIALIZATION-BLOCKED",
+  "schema": "boole.native-shadow.guest-init-compatibility.arm64.v1",
+  "trackedFileRequirements": [
+    {
+      "gid": 0,
+      "logicalPath": "/etc/machine-id",
+      "mode": "0444",
+      "role": "empty-machine-id",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+      "mode": "0444",
+      "role": "launcher-unit",
+      "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/lib/sysusers.d/boole-native-shadow.conf",
+      "mode": "0444",
+      "role": "sysusers-config",
+      "sha256": "75b1ae8eb024396dcb36d3713435115dba68a8c52b05705ce4fe3b8e7f616445",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/lib/tmpfiles.d/boole-native-shadow.conf",
+      "mode": "0444",
+      "role": "tmpfiles-config",
+      "sha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+      "mode": "0755",
+      "role": "launcher-binary",
+      "sha256": null,
+      "uid": 0
+    }
+  ],
+  "verificationBoundary": {
+    "compatibleStatusIsBootClaim": false,
+    "currentOciRootfsIsGuestRootDisk": false,
+    "hostSystemdGateIsGuestBootEvidence": false,
+    "materializationMayUseNetwork": false,
+    "outputsAllowed": false,
+    "sourceShapeStatusIsAuthorityBoundaryEvidence": false,
+    "sourceShapeStatusIsRuntimeCompatibilityEvidence": false,
+    "sourceShapeStatusIsSignedClosureEvidence": false
+  }
+}

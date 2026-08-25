@@ -1256,3 +1256,78 @@ MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
 `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. This slice
 contains no public mining, paid API benchmark, production key, release upload or activation.
+
+## 21. BOOT-GUEST-INIT-COMPATIBILITY-V1 (2026-08-26)
+
+Status: **CONTRACT GREEN; CURRENT ARM64 SOURCE LOCK =
+BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS; REAL BOOT ARTIFACTS NOT PRODUCED.** This slice freezes what a
+self-contained Linux/arm64 systemd guest must contain. It does not select package bytes, build a
+kernel or image, start a VM, or turn the current checker OCI rootfs into a boot claim.
+
+### 21.1 Frozen compatibility boundary
+
+`native/containment/native-shadow-guest-init-compatibility-arm64-v1.json` (SHA-256
+`ee67e23bc89fa456a6e43a1c93d9d4a0faa8cf09e5d04b9a9678c17499d267b0`) binds the current
+baseline source lock/closure, the ARM64 execution policy, the audit-only boot plan and the exact
+launcher unit, sysusers and tmpfiles bytes. Those baseline hashes are comparison evidence, not a
+rule that a future source lock must reuse the incomplete bytes. A separately pinned successor
+source lock is checked against the same compatibility requirements before the later input-authority
+slice may adopt it.
+
+The contract requires real systemd at `/usr/lib/systemd/systemd`, a full-shape `systemd` package
+row selected as a dependency-closure seed, the exact launcher service enabled under
+`multi-user.target`, the exact
+sysusers/tmpfiles inputs, an exact ARM64 launcher binary role and an empty root-disk
+`/etc/machine-id` whose runtime identity is ephemeral. The root disk stays read-only. `/dev`,
+`/proc`, `/run`, `/sys/fs/cgroup`, `/tmp` and `/var/lib/boole` are explicit boot-lifetime mounts;
+`/sys` is read-only apart from the separately mounted writable cgroup v2 hierarchy. Required
+kernel facilities include the `cpu`/`memory`/`pids` controllers, cgroup freeze/kill,
+`clone3` with cgroup placement, PID/mount namespaces, pidfd, seccomp and Landlock ABI 3 or later.
+
+The Mac host node remains the durable journal owner. Explicit replay-node binary, service and
+enablement paths are rejected, and the guest contract forbids node, wallet, reward or consensus
+authority. This source-shape audit alone does not prove the absence of every renamed or package-
+embedded authority; that remains a separate input-authority and runtime gate. The authenticated bounded
+host/guest transport remains a MAC.3 concern; this contract cannot silently solve that later
+boundary by placing a second node in the guest. A static one-off PID 1, host `/bin/true` service
+stub, host systemd syntax gate or current OCI rootfs is not guest-boot evidence.
+
+### 21.2 Current baseline result
+
+The read-only auditor `scripts/native_shadow_guest_init_compatibility_arm64_v1.py` reports exactly
+seven missing roles in the current 62-artifact source lock:
+
+- signed `systemd` package seed/closure;
+- tracked ARM64 launcher binary;
+- tracked launcher unit;
+- tracked sysusers configuration;
+- tracked tmpfiles configuration;
+- tracked empty `/etc/machine-id`; and
+- the launcher unit enablement symlink under `multi-user.target.wants`.
+
+Therefore the current result is `BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS`, with
+`artifactsWritten=0`, `bootableClaim=false` and `activationAllowed=false`. A synthetic successor
+shape can reach only `SOURCE_SHAPE_REQUIREMENTS_PRESENT_UNVERIFIED`. That label explicitly leaves
+`signedClosureVerified=false`, `runtimeCompatibilityVerified=false` and
+`authorityBoundaryVerified=false`; it is neither a signed-closure result nor a boot claim and does
+not make its bytes authoritative. Seventeen focused tests are GREEN, including malformed package,
+unsafe ownership/source path, extra guest-node service/binary, exact authority drift, current
+missing-role accounting, read-only/writable declaration, policy/unit delegation and direct CLI
+behavior. The later input-authority slice must independently validate archive signatures, the full
+dependency closure and artifacts, while actual boot must verify mounts and kernel facilities.
+
+### 21.3 Execution cursor
+
+```text
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — release gate retained
+BOOT-GUEST-INIT-COMPATIBILITY-V1  CONTRACT GREEN — baseline missing seven requirements
+BOOT-INPUT-AUTHORITY-V1  NEXT — pin a successor systemd package closure, launcher and build inputs
+REAL-BOOT-ARTIFACTS  NOT-PRODUCED — kernel/initrd/root disk, VM boot and v2 install absent
+MAC.3 HOST/GUEST TRANSPORT  NOT STARTED — guest receives no node authority
+MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No network,
+download, package installation, image build, VM boot, public mining, paid API benchmark,
+production key, release upload or activation occurred.
