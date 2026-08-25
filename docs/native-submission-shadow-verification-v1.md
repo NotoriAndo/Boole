@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `c38e1d25c17adc71e206d3c6fa63780c086d019015cbedc908fa7973f1d2e05a` (updated 2026-08-25h — CURL.3-PREP canary contract frozen, canary not run) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `f39ae0b7f1367b970650837108e2287f5f44b2aadfdde05c4034045222bf5f23` (updated 2026-08-25h — cursor holds at CURL.3, canary blocked on a clean Mac) |
+| `local-docs/todo/todo-l1-network-master.md` | `6e354699eefa25056848a913cf44c62195e5e0736dc9707318e33647fb18870a` (updated 2026-08-26 — CURL.3 deferred/not passed; bootable guest contract v2 green) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `ff91ea4a66e958acca9ab0bbc67553ef3540bc5e2628bef70cc74651336c5b23` (updated 2026-08-26 — cursor moved to deterministic boot-artifact builder) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `79f2c59153bc0b099f668aaef22038b0c4d3c0c1411ece451c63b0cb3b4717e7` (updated 2026-08-25h — CURL.3 acceptance grounds realized in code) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `645858c513f260d2620527ebd305a9d6c9b8b027d548d8069c23046bd16edfae` (updated 2026-08-26 — clean-Mac gate retained; bootable authority successor realized) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1024,3 +1024,31 @@ The 2026-08-25h mirror synchronization appends this same state to `todo-l1-netwo
 `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other three section 12 mirrors
 are byte-unchanged. The section 12 table contains the recomputed SHA-256 values for the three
 edited mirrors; these values are synchronization evidence only, never runtime trust roots.
+
+_2026-08-26 implementation addendum:_ **CURL.3 DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT
+PASSED; BOOTABLE GUEST CONTRACT V2 GREEN.** The clean-Mac canary remains a mandatory release
+qualification gate, but it is no longer a circular prerequisite for building the host controller,
+boot artifacts and closed-local VM lifecycle that the canary itself needs. Development on the
+current Mac may continue only as non-qualifying closed-local evidence. CURL.3 is still required
+before MAC.5 clean-install acceptance, MAC.6 release readiness, any Mac production-support claim,
+production trust-root distribution or activation.
+
+The implementation also closes the previously inconsistent artifact boundary. Frozen guest-update
+v1 remains exact-ten with `guest-rootfs`. Successor guest-update v2 has a separate schema/signing
+domain, requires `bootFormatVersion=1`, replaces that role with the shared `guest-kernel`,
+`guest-initrd` and `guest-root-disk` vocabulary and authenticates exact-twelve artifacts under the
+same 2 GiB cap. Product-release v2 likewise has a separate schema/signing domain and rejects an
+embedded guest manifest unless it carries the exact bootable v2 role set. Product-release v1 and
+all existing v1 tests remain unchanged.
+
+This is a contract slice, not a boot or release. CURL.2 installer/transport still consume v1; no
+v2 bundle, real Linux/arm64 kernel, initrd, bootable root disk, minimal PID 1, VM lifecycle,
+production key or release exists. The next execution cursor is the deterministic boot-artifact
+builder. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false`
+and `activationAllowed=false` remain unchanged.
+
+The 2026-08-26 mirror synchronization appends this corrected state to
+`todo-l1-network-master.md`, `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other
+three section 12 mirrors are byte-unchanged. The section 12 table contains the recomputed SHA-256
+values for the edited local mirrors; these values are synchronization evidence only, never runtime
+trust roots.

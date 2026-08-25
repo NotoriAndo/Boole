@@ -214,6 +214,24 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.3-PREP  CONT
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.3  NOT STARTED — no clean macOS 14/M1 host"
 require_text docs/native-submission-shadow-verification-v1.md "CURL.3-PREP CONTRACT FROZEN — CANARY NOT RUN"
 require_text docs/native-submission-shadow-verification-v1.md "a developer machine can never be recorded as a"
+# CURL.3 environment deferral + bootable guest contract v2 (2026-08-26,
+# section 19). The old clean-Mac canary is neither passed nor waived. It moves
+# out of the implementation prerequisite chain only to break the circular
+# dependency, and remains mandatory before clean-install/release claims. The
+# successor contract must keep v1 exact-ten while binding exact-twelve bootable
+# guest inputs under separate schemas/signing domains; real boot bytes and the
+# v2 installer consumer remain absent.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.3 DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Circular prerequisite corrected"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "before MAC.5 clean-install acceptance, MAC.6 release readiness"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "guest-update v1 remains byte/meaning compatible and exact-ten"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "authenticates exactly twelve artifacts in a fixed order"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "current CURL.2 installer and transport still consume"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ARTIFACT-BUILDER  NEXT"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.3-CLOSED-LOCAL  UNBLOCKED / NOT STARTED"
+require_text docs/native-submission-shadow-verification-v1.md "BOOTABLE GUEST CONTRACT V2 GREEN"
+require_text docs/native-submission-shadow-verification-v1.md "Successor guest-update v2 has a separate schema/signing"
+require_text docs/native-submission-shadow-verification-v1.md "CURL.2 installer/transport still consume v1"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
 require_text docs/install.md "must not be presented as the finished Mac product installer"
 require_text README.md "current command is a source/developer bootstrap"
@@ -233,9 +251,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "c38e1d25c17adc71e206d3c6fa63780c086d019015cbedc908fa7973f1d2e05a"
-require_text docs/native-submission-shadow-verification-v1.md "f39ae0b7f1367b970650837108e2287f5f44b2aadfdde05c4034045222bf5f23"
-require_text docs/native-submission-shadow-verification-v1.md "79f2c59153bc0b099f668aaef22038b0c4d3c0c1411ece451c63b0cb3b4717e7"
+require_text docs/native-submission-shadow-verification-v1.md "6e354699eefa25056848a913cf44c62195e5e0736dc9707318e33647fb18870a"
+require_text docs/native-submission-shadow-verification-v1.md "ff91ea4a66e958acca9ab0bbc67553ef3540bc5e2628bef70cc74651336c5b23"
+require_text docs/native-submission-shadow-verification-v1.md "645858c513f260d2620527ebd305a9d6c9b8b027d548d8069c23046bd16edfae"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"

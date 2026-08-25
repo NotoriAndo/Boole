@@ -30,13 +30,16 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::native_shadow_update::{
-    GUEST_UPDATE_MANIFEST_SCHEMA, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
+    GuestArtifactRole, GUEST_UPDATE_MANIFEST_SCHEMA, GUEST_UPDATE_MANIFEST_SCHEMA_V2,
+    NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
 };
 use crate::release_contract_util::{self, ContractJsonError, RequiredPreviousManifestSha256};
 use crate::{verify_signature_with_network, Hex32, SIGNED_ENVELOPE_SCHEMA};
 
 pub const CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA: &str = "boole.curl-product-release.v1";
 pub const CURL_PRODUCT_RELEASE_SIGNING_CONTEXT: &str = "boole-curl-product-release-v1";
+pub const CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V2: &str = "boole.curl-product-release.v2";
+pub const CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V2: &str = "boole-curl-product-release-v2";
 pub const CURL_PRODUCT_RELEASE_CONTROLLER_PROTOCOL_VERSION: u64 = 1;
 pub const MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES: u64 = 536_870_912;
 pub const CURL_PRODUCT_RELEASE_MINIMUM_MACOS: &str = "14.0";
@@ -201,8 +204,45 @@ struct ProductArtifactDescriptor {
     sha256: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProductReleaseContract {
+    FrozenV1,
+    BootableV2,
+}
+
+impl ProductReleaseContract {
+    const fn manifest_schema(self) -> &'static str {
+        match self {
+            Self::FrozenV1 => CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA,
+            Self::BootableV2 => CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V2,
+        }
+    }
+
+    const fn signing_context(self) -> &'static str {
+        match self {
+            Self::FrozenV1 => CURL_PRODUCT_RELEASE_SIGNING_CONTEXT,
+            Self::BootableV2 => CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V2,
+        }
+    }
+
+    const fn guest_manifest_schema(self) -> &'static str {
+        match self {
+            Self::FrozenV1 => GUEST_UPDATE_MANIFEST_SCHEMA,
+            Self::BootableV2 => GUEST_UPDATE_MANIFEST_SCHEMA_V2,
+        }
+    }
+
+    const fn guest_signing_context(self) -> &'static str {
+        match self {
+            Self::FrozenV1 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
+            Self::BootableV2 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct AuthenticatedCurlProductRelease {
+    contract: ProductReleaseContract,
     release_sequence: u64,
     release_version: String,
     source_revision: String,
@@ -313,6 +353,8 @@ impl AuthenticatedCurlProductRelease {
             )));
         }
         Ok(VerifiedCurlProductRelease {
+            manifest_schema: self.contract.manifest_schema(),
+            guest_manifest_schema: self.contract.guest_manifest_schema(),
             release_sequence: self.release_sequence,
             release_version: self.release_version,
             source_revision: self.source_revision,
@@ -333,10 +375,26 @@ impl AuthenticatedCurlProductRelease {
             raw,
             MAX_EMBEDDED_GUEST_MANIFEST_BYTES as usize,
         )?;
-        if value["schema"] != GUEST_UPDATE_MANIFEST_SCHEMA {
+        if value["schema"] != self.contract.guest_manifest_schema() {
             return Err(CurlProductReleaseVerifyError::GuestBinding(
                 "guest-update-manifest schema mismatch".to_string(),
             ));
+        }
+        match self.contract {
+            ProductReleaseContract::FrozenV1 if value.get("bootFormatVersion").is_some() => {
+                return Err(CurlProductReleaseVerifyError::GuestBinding(
+                    "guest-update-manifest v1 must not declare bootFormatVersion".to_string(),
+                ));
+            }
+            ProductReleaseContract::BootableV2 if value["bootFormatVersion"] != 1 => {
+                return Err(CurlProductReleaseVerifyError::GuestBinding(
+                    "guest-update-manifest v2 bootFormatVersion must be 1".to_string(),
+                ));
+            }
+            _ => {}
+        }
+        if self.contract == ProductReleaseContract::BootableV2 {
+            require_bootable_guest_roles(&value)?;
         }
         if value["targetOs"] != "linux" || value["targetArch"] != "aarch64" {
             return Err(CurlProductReleaseVerifyError::GuestBinding(
@@ -372,7 +430,7 @@ impl AuthenticatedCurlProductRelease {
                 "guest-update-signature schema mismatch".to_string(),
             ));
         }
-        if value["networkId"] != NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT {
+        if value["networkId"] != self.contract.guest_signing_context() {
             return Err(CurlProductReleaseVerifyError::GuestBinding(
                 "guest-update-signature is not in the guest-update signing domain".to_string(),
             ));
@@ -386,8 +444,35 @@ impl AuthenticatedCurlProductRelease {
     }
 }
 
+fn require_bootable_guest_roles(
+    value: &serde_json::Value,
+) -> Result<(), CurlProductReleaseVerifyError> {
+    let artifacts = value["artifacts"].as_array().ok_or_else(|| {
+        CurlProductReleaseVerifyError::GuestBinding(
+            "guest-update-manifest v2 artifacts must be an array".to_string(),
+        )
+    })?;
+    if artifacts.len() != GuestArtifactRole::BOOTABLE_ALL.len() {
+        return Err(CurlProductReleaseVerifyError::GuestBinding(format!(
+            "guest-update-manifest v2 must declare exactly {} artifacts",
+            GuestArtifactRole::BOOTABLE_ALL.len()
+        )));
+    }
+    for (descriptor, expected_role) in artifacts.iter().zip(GuestArtifactRole::BOOTABLE_ALL) {
+        if descriptor["role"] != expected_role.as_str() {
+            return Err(CurlProductReleaseVerifyError::GuestBinding(
+                "guest-update-manifest v2 artifacts must use the fixed bootable role order"
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 pub struct VerifiedCurlProductRelease {
+    manifest_schema: &'static str,
+    guest_manifest_schema: &'static str,
     release_sequence: u64,
     release_version: String,
     source_revision: String,
@@ -399,6 +484,14 @@ pub struct VerifiedCurlProductRelease {
 }
 
 impl VerifiedCurlProductRelease {
+    pub fn manifest_schema(&self) -> &str {
+        self.manifest_schema
+    }
+
+    pub fn guest_manifest_schema(&self) -> &str {
+        self.guest_manifest_schema
+    }
+
     pub fn release_sequence(&self) -> u64 {
         self.release_sequence
     }
@@ -452,6 +545,40 @@ pub fn authenticate_curl_product_release(
     trust_root: &CurlProductReleaseTrustRoot,
     floor: &CurlProductReleaseFloor,
 ) -> Result<AuthenticatedCurlProductRelease, CurlProductReleaseVerifyError> {
+    authenticate_curl_product_release_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        floor,
+        ProductReleaseContract::FrozenV1,
+    )
+}
+
+/// Authenticate the product-release successor that embeds the bootable guest
+/// update v2 contract.  Keeping a separate entrypoint prevents the frozen v1
+/// product manifest from being silently upgraded into a bootable release.
+pub fn authenticate_bootable_curl_product_release(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &CurlProductReleaseTrustRoot,
+    floor: &CurlProductReleaseFloor,
+) -> Result<AuthenticatedCurlProductRelease, CurlProductReleaseVerifyError> {
+    authenticate_curl_product_release_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        floor,
+        ProductReleaseContract::BootableV2,
+    )
+}
+
+fn authenticate_curl_product_release_for_contract(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &CurlProductReleaseTrustRoot,
+    floor: &CurlProductReleaseFloor,
+    contract: ProductReleaseContract,
+) -> Result<AuthenticatedCurlProductRelease, CurlProductReleaseVerifyError> {
     let manifest_value = parse_canonical_json(
         "manifest",
         manifest_raw,
@@ -472,7 +599,7 @@ pub fn authenticate_curl_product_release(
     if signature.key_id != trust_root.key_id || signature.pk != trust_root.public_key.to_hex() {
         return Err(CurlProductReleaseVerifyError::UntrustedKey);
     }
-    if signature.network_id.as_deref() != Some(CURL_PRODUCT_RELEASE_SIGNING_CONTEXT) {
+    if signature.network_id.as_deref() != Some(contract.signing_context()) {
         return Err(CurlProductReleaseVerifyError::InvalidSignatureContext);
     }
     let manifest_sha256 = hex::encode(Sha256::digest(manifest_raw));
@@ -493,13 +620,14 @@ pub fn authenticate_curl_product_release(
 
     let manifest: CurlProductReleaseManifest = serde_json::from_value(manifest_value)
         .map_err(|error| CurlProductReleaseVerifyError::Malformed(error.to_string()))?;
-    validate_manifest(&manifest, floor)?;
+    validate_manifest(&manifest, floor, contract)?;
     let descriptors = manifest
         .artifacts
         .into_iter()
         .map(|descriptor| (descriptor.role, descriptor))
         .collect();
     Ok(AuthenticatedCurlProductRelease {
+        contract,
         release_sequence: manifest.release_sequence,
         release_version: manifest.release_version,
         source_revision: manifest.source_revision,
@@ -515,8 +643,9 @@ pub fn authenticate_curl_product_release(
 fn validate_manifest(
     manifest: &CurlProductReleaseManifest,
     floor: &CurlProductReleaseFloor,
+    contract: ProductReleaseContract,
 ) -> Result<(), CurlProductReleaseVerifyError> {
-    if manifest.schema != CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA {
+    if manifest.schema != contract.manifest_schema() {
         return Err(CurlProductReleaseVerifyError::Malformed(
             "unexpected manifest schema".to_string(),
         ));
