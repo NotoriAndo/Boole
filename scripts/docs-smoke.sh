@@ -232,6 +232,35 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.3-CLOSED-LOCA
 require_text docs/native-submission-shadow-verification-v1.md "BOOTABLE GUEST CONTRACT V2 GREEN"
 require_text docs/native-submission-shadow-verification-v1.md "Successor guest-update v2 has a separate schema/signing"
 require_text docs/native-submission-shadow-verification-v1.md "CURL.2 installer/transport still consume v1"
+# BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 (2026-08-26, section 20). This is an
+# audit-only GREEN implementation while the real inputs remain fail-closed.
+# It must bind the frozen systemd execution policy and must not revive the
+# discarded static-PID-1 shortcut. Keep zero outputs/no boot claim separate
+# from future builder or VM evidence.
+require_file native/containment/native-shadow-boot-artifact-build-plan-arm64-v1-scaffold.json
+require_file scripts/native_shadow_boot_artifact_builder_arm64_v1.py
+require_file scripts/test_native_shadow_boot_artifact_builder_arm64_v1.py
+require_text scripts/self-test.sh "scripts/test_native_shadow_boot_artifact_builder_arm64_v1.py"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 = GREEN"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "KERNEL/SYSTEMD-GUEST/IMAGE-BUILDER AUTHORITIES UNDEFINED"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "NATIVE-SHADOW-BOOT-ARTIFACT-BUILD-PLAN-ARM64-V1-SCAFFOLD-NOT-ACTIVATABLE"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "REAL-BOOT-ARTIFACTS ="
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BLOCKED_MISSING_INPUTS"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "artifactsWritten=0"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "bootableClaim=false"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-GUEST-INIT-COMPATIBILITY-V1  NEXT"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-INPUT-AUTHORITY-V1  BLOCKED"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "boole-native-shadow-launcher.service"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "static one-off PID 1"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "permanently audit-only"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "successor plan/schema/tool"
+require_text docs/native-submission-shadow-verification-v1.md "BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 GREEN"
+require_text docs/native-submission-shadow-verification-v1.md "CURRENT INPUT READINESS BLOCKED_MISSING_INPUTS"
+require_text docs/native-submission-shadow-verification-v1.md "REAL BOOT ARTIFACTS NOT PRODUCED"
+require_text docs/native-submission-shadow-verification-v1.md "BOOT-GUEST-INIT-COMPATIBILITY-V1"
+require_text docs/native-submission-shadow-verification-v1.md "static-PID-1 shortcut contradicted"
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v1-scaffold.json '"systemdGuestClosure"'
+require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
 require_text docs/install.md "must not be presented as the finished Mac product installer"
 require_text README.md "current command is a source/developer bootstrap"
@@ -251,9 +280,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "6e354699eefa25056848a913cf44c62195e5e0736dc9707318e33647fb18870a"
-require_text docs/native-submission-shadow-verification-v1.md "ff91ea4a66e958acca9ab0bbc67553ef3540bc5e2628bef70cc74651336c5b23"
-require_text docs/native-submission-shadow-verification-v1.md "645858c513f260d2620527ebd305a9d6c9b8b027d548d8069c23046bd16edfae"
+require_text docs/native-submission-shadow-verification-v1.md "2fb026c06af06a60147e582265f2864b96b6b297392ab989a6c5423d9bb77565"
+require_text docs/native-submission-shadow-verification-v1.md "9c659aa341eff6f7bc9e1f38808d6babc74c6bf0690a97511e6e69a9daf1ae8b"
+require_text docs/native-submission-shadow-verification-v1.md "3a2e846d94364124bef6a6c08d796e611a6381ecf9ef1dc952417efaab5f5b61"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"

@@ -37,6 +37,10 @@ class SelfTestContractTests(unittest.TestCase):
                 "scripts/test_native_shadow_rootfs_oci_verify.py",
                 "the builder-independent OCI verification contract",
             ),
+            (
+                "scripts/test_native_shadow_boot_artifact_builder_arm64_v1.py",
+                "the fail-closed ARM64 boot-artifact preflight contract",
+            ),
         ):
             self.assertIn(test_file, body, f"{purpose} must run in self-test")
 

@@ -14,6 +14,9 @@ REAL RELEASE ARTIFACT AND PRODUCTION TRUST ROOT ABSENT (section 17); CURL.3-PREP
 FROZEN — CLEAN-MAC TEAM-ID-FREE ENTITLEMENT CANARY GROUNDS MACHINE-CHECKED; CURL.3
 DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED (sections 18–19); BOOTABLE GUEST-UPDATE V2
 AND PRODUCT-RELEASE V2 CONTRACT GREEN — REAL BOOT ARTIFACTS AND V2 INSTALL CONSUMER ABSENT;
+BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 GREEN — ROOTFS CLOSURE AND SYSTEMD EXECUTION POLICY AUDITED,
+KERNEL/SYSTEMD-GUEST/IMAGE-BUILDER AUTHORITIES UNDEFINED AND NO BOOT ARTIFACTS PRODUCED
+(section 20);
 MAC.3 CLOSED-LOCAL DEVELOPMENT UNBLOCKED BUT NOT STARTED — NOT RELEASE-READY, NO ACTIVATION
 AUTHORITY.**
 
@@ -1179,3 +1182,77 @@ MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No clean-Mac
 canary, VM boot, real release build, production key, public mining, paid API benchmark, user
 installation or activation occurred.
+
+## 20. BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 (2026-08-26)
+
+Status: **BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 = GREEN; REAL-BOOT-ARTIFACTS =
+NOT-PRODUCED.** This is an audit-only prerequisite, not an artifact builder and not a boot
+claim. The command exposes only `audit`; it has no build command, no output directory and no
+path that writes a kernel, initrd or root disk.
+
+### 20.1 Frozen preflight authority
+
+`native/containment/native-shadow-boot-artifact-build-plan-arm64-v1-scaffold.json` binds the
+existing Linux/arm64 source lock byte-for-byte: SHA-256
+`829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0`, exactly 62 source
+artifacts and exactly 181,623,999 source bytes. It is explicitly
+`NATIVE-SHADOW-BOOT-ARTIFACT-BUILD-PLAN-ARM64-V1-SCAFFOLD-NOT-ACTIVATABLE`, keeps
+`activationAllowed=false`, retains
+the 2 GiB guest cap and binds the already-frozen ARM64 execution policy byte-for-byte (SHA-256
+`df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f`). That policy requires
+Linux/aarch64, systemd, the `boole-native-shadow-launcher.service` unit and its fixed cgroup path.
+The real kernel, systemd guest closure and initrd/ext4 image-builder toolchain authorities remain
+explicitly unresolved. This v1 file/schema/tool is permanently audit-only: its three authority
+fields must stay null forever. Future populated pins require a separately reviewed successor
+plan/schema/tool; placeholder bytes cannot become release authority.
+
+The preflight implementation in
+`scripts/native_shadow_boot_artifact_builder_arm64_v1.py` enforces:
+
+- canonical JSON with duplicate-key rejection and exact schema/key sets;
+- the source-lock digest, architecture, artifact count, byte total and every artifact row;
+- the execution-policy digest, Linux/aarch64 platform, systemd requirement, fixed service unit and
+  fixed cgroup parent;
+- symlink-free traversal of every path component and file-descriptor-based size/digest checks;
+- unresolved kernel, systemd guest-closure and image-builder authorities cannot be populated in
+  this scaffold; and
+- no network path, no generated artifact, an unconditional `BLOCKED_MISSING_INPUTS` status and an
+  unconditional `bootableClaim=false`.
+
+Even a complete source cache cannot make this scaffold reach a ready/build state. A future build
+state belongs only to a successor plan/schema/tool after all three authority contracts exist.
+Thirteen focused preflight tests and the self-test registration contract are GREEN.
+They include policy drift, premature authority population, parent-symlink, digest/size,
+file-descriptor cleanup and network-attempt regressions.
+
+### 20.2 Current local observation
+
+A fresh closed-local audit found all 62 frozen rootfs source artifacts (181,623,999 bytes) in
+the already-existing local content-addressed cache. This is a local availability observation,
+not a tracked release input and not a promise that another machine has the same cache. The real
+kernel authority, systemd guest-closure authority and image-builder-toolchain authority remain
+absent, so the result is still `BLOCKED_MISSING_INPUTS`; `artifactsWritten=0` and
+`bootableClaim=false`.
+
+No package was downloaded, no source closure was changed, no kernel/initrd/root disk was made,
+no VM booted and no v2 bundle was installed. Before bytes can be selected, the next slice must
+freeze a self-contained systemd guest-closure compatibility contract (init system, service unit,
+runtime packages and the fixed cgroup layout). Only after that may `BOOT-INPUT-AUTHORITY-V1`
+freeze exact kernel, guest-closure and image-builder bytes. It may not substitute an OCI rootfs,
+a static one-off PID 1 or an unpinned host tool.
+
+### 20.3 Execution cursor
+
+```text
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — release gate retained
+BOOT-CONTRACT-V2  GREEN — exact-12 bootable guest + product successor trust boundary
+BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1  GREEN — audit-only; zero outputs and no boot claim
+BOOT-GUEST-INIT-COMPATIBILITY-V1  NEXT — freeze systemd/unit/runtime/cgroup closure contract
+BOOT-INPUT-AUTHORITY-V1  BLOCKED — exact bytes wait for the compatibility contract
+REAL-BOOT-ARTIFACTS  NOT-PRODUCED — builder, boot and v2 install remain absent
+MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. This slice
+contains no public mining, paid API benchmark, production key, release upload or activation.

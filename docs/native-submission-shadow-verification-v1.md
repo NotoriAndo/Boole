@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `6e354699eefa25056848a913cf44c62195e5e0736dc9707318e33647fb18870a` (updated 2026-08-26 — CURL.3 deferred/not passed; bootable guest contract v2 green) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `ff91ea4a66e958acca9ab0bbc67553ef3540bc5e2628bef70cc74651336c5b23` (updated 2026-08-26 — cursor moved to deterministic boot-artifact builder) |
+| `local-docs/todo/todo-l1-network-master.md` | `2fb026c06af06a60147e582265f2864b96b6b297392ab989a6c5423d9bb77565` (updated 2026-08-26c — preflight bound to the frozen systemd execution policy) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `9c659aa341eff6f7bc9e1f38808d6babc74c6bf0690a97511e6e69a9daf1ae8b` (updated 2026-08-26c — cursor moved to guest-init compatibility) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `645858c513f260d2620527ebd305a9d6c9b8b027d548d8069c23046bd16edfae` (updated 2026-08-26 — clean-Mac gate retained; bootable authority successor realized) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `3a2e846d94364124bef6a6c08d796e611a6381ecf9ef1dc952417efaab5f5b61` (updated 2026-08-26c — static-PID-1 shortcut removed before merge) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1052,3 +1052,27 @@ The 2026-08-26 mirror synchronization appends this corrected state to
 three section 12 mirrors are byte-unchanged. The section 12 table contains the recomputed SHA-256
 values for the edited local mirrors; these values are synchronization evidence only, never runtime
 trust roots.
+
+_2026-08-26b implementation addendum (corrected before merge):_ **BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 GREEN;
+CURRENT INPUT READINESS BLOCKED_MISSING_INPUTS; REAL BOOT ARTIFACTS NOT PRODUCED.** The
+audit-only `scripts/native_shadow_boot_artifact_builder_arm64_v1.py` now validates the exact
+Linux/arm64 rootfs source lock (62 artifacts, 181,623,999 bytes), content-addressed inputs and
+the exact existing ARM64 execution policy without network access or output creation. That policy
+requires Linux/aarch64, systemd, `boole-native-shadow-launcher.service` and its fixed cgroup. The
+scaffold keeps the kernel, systemd guest closure and initrd/ext4 image-builder toolchain as three
+unresolved authorities. This v1 scaffold/schema/tool is permanently audit-only and requires all
+three fields to stay null; future populated pins require a separately reviewed successor
+plan/schema/tool. Every result in this slice stays `BLOCKED_MISSING_INPUTS` with `artifactsWritten=0`,
+`bootableClaim=false` and `activationAllowed=false`.
+
+The current closed-local cache contained all 62 frozen source artifacts when audited, but this is
+ephemeral availability evidence rather than a release input. No kernel, initrd, root disk, v2
+product installation or VM boot exists. The next cursor is
+`BOOT-GUEST-INIT-COMPATIBILITY-V1`, which must first freeze the self-contained systemd/unit/runtime
+and cgroup-compatible guest closure. `BOOT-INPUT-AUTHORITY-V1` remains blocked until that contract
+exists, and only then may it freeze exact kernel, guest-closure and builder bytes. The discarded
+static-PID-1 shortcut contradicted the already-frozen systemd policy and is not an allowed path.
+CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED` and remains mandatory before MAC.5/MAC.6 or
+any production-support claim. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation `false` and `activationAllowed=false` are unchanged.
