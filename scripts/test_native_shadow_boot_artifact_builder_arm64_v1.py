@@ -9,7 +9,6 @@ import os
 import pathlib
 import socket
 import stat
-import struct
 import tempfile
 import unittest
 from unittest import mock
@@ -24,6 +23,9 @@ TRACKED_PLAN = (
 )
 TRACKED_LOCK = (
     ROOT / "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json"
+)
+TRACKED_POLICY = (
+    ROOT / "native/containment/native-shadow-execution-policy-arm64-v1.json"
 )
 
 
@@ -41,74 +43,25 @@ def _sha(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _arm64_image() -> bytes:
-    raw = bytearray(4096)
-    struct.pack_into("<Q", raw, 0x10, len(raw))
-    raw[0x38:0x3C] = b"ARM\x64"
-    return bytes(raw)
-
-
-def _elf64_aarch64(*, dynamic: bool = False) -> bytes:
-    program_count = 2 if dynamic else 1
-    raw = bytearray(64 + (56 * program_count))
-    raw[:16] = b"\x7fELF\x02\x01\x01" + (b"\x00" * 9)
-    struct.pack_into("<H", raw, 16, 2)
-    struct.pack_into("<H", raw, 18, 183)
-    struct.pack_into("<I", raw, 20, 1)
-    struct.pack_into("<Q", raw, 24, 0x400000)
-    struct.pack_into("<Q", raw, 32, 64)
-    struct.pack_into("<H", raw, 52, 64)
-    struct.pack_into("<H", raw, 54, 56)
-    struct.pack_into("<H", raw, 56, program_count)
-    struct.pack_into("<I", raw, 64, 1)
-    struct.pack_into("<I", raw, 68, 5)
-    struct.pack_into("<Q", raw, 72, 0)
-    struct.pack_into("<Q", raw, 80, 0x400000)
-    struct.pack_into("<Q", raw, 96, len(raw))
-    struct.pack_into("<Q", raw, 104, len(raw))
-    struct.pack_into("<Q", raw, 112, 4096)
-    if dynamic:
-        struct.pack_into("<I", raw, 120, 3)
-    return bytes(raw)
-
-
-def _elf64_aarch64_with_needed_but_no_interp() -> bytes:
-    program_count = 2
-    dynamic_offset = 64 + (56 * program_count)
-    raw = bytearray(dynamic_offset + 32)
-    raw[:16] = b"\x7fELF\x02\x01\x01" + (b"\x00" * 9)
-    struct.pack_into("<H", raw, 16, 2)
-    struct.pack_into("<H", raw, 18, 183)
-    struct.pack_into("<I", raw, 20, 1)
-    struct.pack_into("<Q", raw, 24, 0x400000)
-    struct.pack_into("<Q", raw, 32, 64)
-    struct.pack_into("<H", raw, 52, 64)
-    struct.pack_into("<H", raw, 54, 56)
-    struct.pack_into("<H", raw, 56, program_count)
-
-    struct.pack_into("<I", raw, 64, 1)
-    struct.pack_into("<I", raw, 68, 5)
-    struct.pack_into("<Q", raw, 72, 0)
-    struct.pack_into("<Q", raw, 80, 0x400000)
-    struct.pack_into("<Q", raw, 96, len(raw))
-    struct.pack_into("<Q", raw, 104, len(raw))
-    struct.pack_into("<Q", raw, 112, 4096)
-
-    second = 64 + 56
-    struct.pack_into("<I", raw, second, 2)
-    struct.pack_into("<I", raw, second + 4, 6)
-    struct.pack_into("<Q", raw, second + 8, dynamic_offset)
-    struct.pack_into("<Q", raw, second + 16, 0x401000)
-    struct.pack_into("<Q", raw, second + 32, 32)
-    struct.pack_into("<Q", raw, second + 40, 32)
-    struct.pack_into("<Q", raw, second + 48, 8)
-
-    struct.pack_into("<qQ", raw, dynamic_offset, 1, 1)
-    struct.pack_into("<qQ", raw, dynamic_offset + 16, 0, 0)
-    return bytes(raw)
-
-
 class NativeShadowBootArtifactBuilderPreflightTests(unittest.TestCase):
+    def test_tracked_scaffold_binds_systemd_policy_and_never_static_pid1(self) -> None:
+        plan = json.loads(TRACKED_PLAN.read_bytes())
+        policy_raw = TRACKED_POLICY.read_bytes()
+        self.assertNotIn("pid1", plan["inputs"])
+        self.assertEqual(
+            set(plan["inputs"]),
+            {"imageBuilderToolchain", "kernel", "systemdGuestClosure"},
+        )
+        self.assertEqual(
+            plan["guestExecutionPolicy"],
+            {
+                "cgroupParent": "/sys/fs/cgroup/system.slice/boole-native-shadow-launcher.service",
+                "sha256": _sha(policy_raw),
+                "systemdRequired": True,
+                "unitName": "boole-native-shadow-launcher.service",
+            },
+        )
+
     def _write_regular(
         self, path: pathlib.Path, raw: bytes, *, executable: bool = False
     ) -> None:
@@ -148,35 +101,51 @@ class NativeShadowBootArtifactBuilderPreflightTests(unittest.TestCase):
         lock_path = root / "source-lock.json"
         lock_path.write_bytes(lock_raw)
 
-        kernel = _arm64_image()
-        pid1 = _elf64_aarch64()
-        ext4_tool = b"synthetic-ext4-tool"
-        kernel_path = root / "kernel.Image"
-        pid1_path = root / "pid1"
-        ext4_path = root / "mke2fs"
-        self._write_regular(kernel_path, kernel)
-        self._write_regular(pid1_path, pid1, executable=True)
-        self._write_regular(ext4_path, ext4_tool, executable=True)
+        cgroup_parent = (
+            "/sys/fs/cgroup/system.slice/boole-native-shadow-launcher.service"
+        )
+        policy = {
+            "activationAllowed": False,
+            "crashRecovery": {"cgroupParent": cgroup_parent},
+            "platform": {
+                "architecture": "aarch64",
+                "operatingSystem": "linux",
+                "systemdRequired": True,
+            },
+            "privilege": {
+                "systemdUnit": {"UnitName": "boole-native-shadow-launcher.service"}
+            },
+            "schema": "boole.native-shadow.execution-policy.arm64.v1",
+        }
+        policy_raw = _canonical(policy)
+        policy_path = root / "execution-policy.json"
+        policy_path.write_bytes(policy_raw)
 
         plan = {
             "activationAllowed": False,
             "bootFormatVersion": 1,
+            "guestExecutionPolicy": {
+                "cgroupParent": cgroup_parent,
+                "sha256": _sha(policy_raw),
+                "systemdRequired": True,
+                "unitName": "boole-native-shadow-launcher.service",
+            },
             "guestDownloadMaxBytes": 2_147_483_648,
             "inputs": {
-                "ext4Tool": {
-                    "format": "pinned-host-executable",
-                    "sha256": _sha(ext4_tool),
-                    "sizeBytes": len(ext4_tool),
+                "imageBuilderToolchain": {
+                    "format": "initrd-ext4-builder-authority-v1",
+                    "sha256": None,
+                    "sizeBytes": None,
                 },
                 "kernel": {
                     "format": "linux-arm64-image",
-                    "sha256": _sha(kernel),
-                    "sizeBytes": len(kernel),
+                    "sha256": None,
+                    "sizeBytes": None,
                 },
-                "pid1": {
-                    "format": "elf64-aarch64-static",
-                    "sha256": _sha(pid1),
-                    "sizeBytes": len(pid1),
+                "systemdGuestClosure": {
+                    "format": "systemd-rootfs-closure-authority-v1",
+                    "sha256": None,
+                    "sizeBytes": None,
                 },
             },
             "release": "SYNTHETIC-BOOT-ARTIFACT-PREFLIGHT-NOT-ACTIVATABLE",
@@ -196,21 +165,17 @@ class NativeShadowBootArtifactBuilderPreflightTests(unittest.TestCase):
             "artifact_b": artifact_b,
             "artifacts": artifacts,
             "cas": cas,
-            "ext4": ext4_path,
-            "kernel": kernel_path,
             "lock": lock_path,
-            "pid1": pid1_path,
             "plan": plan_path,
+            "policy": policy_path,
         }
 
     def _audit(self, fixture: dict[str, object]) -> dict[str, object]:
         return boot.audit_inputs(
             pathlib.Path(fixture["plan"]),
             pathlib.Path(fixture["lock"]),
+            pathlib.Path(fixture["policy"]),
             [pathlib.Path(fixture["cas"])],
-            kernel_path=pathlib.Path(fixture["kernel"]),
-            pid1_path=pathlib.Path(fixture["pid1"]),
-            ext4_tool_path=pathlib.Path(fixture["ext4"]),
         )
 
     def test_tracked_scaffold_pins_the_exact_incomplete_arm64_closure(self) -> None:
@@ -223,7 +188,10 @@ class NativeShadowBootArtifactBuilderPreflightTests(unittest.TestCase):
         self.assertEqual(len(lock["artifacts"]), 62)
         self.assertEqual(sum(row["sizeBytes"] for row in lock["artifacts"]), 181_623_999)
         self.assertEqual(
-            [plan["inputs"][name]["sha256"] for name in ("kernel", "pid1", "ext4Tool")],
+            [
+                plan["inputs"][name]["sha256"]
+                for name in ("imageBuilderToolchain", "kernel", "systemdGuestClosure")
+            ],
             [None, None, None],
         )
 
@@ -253,7 +221,7 @@ class NativeShadowBootArtifactBuilderPreflightTests(unittest.TestCase):
         self.assertEqual(result["artifactsWritten"], 0)
         self.assertIs(result["bootableClaim"], False)
 
-    def test_complete_synthetic_inputs_reach_preflight_only(self) -> None:
+    def test_complete_source_closure_stays_blocked_until_authorities_exist(self) -> None:
         with tempfile.TemporaryDirectory() as raw_root:
             fixture = self._fixture(pathlib.Path(raw_root))
             for artifact, key in zip(
@@ -264,9 +232,12 @@ class NativeShadowBootArtifactBuilderPreflightTests(unittest.TestCase):
                     fixture[key],
                 )
             result = self._audit(fixture)
-        self.assertEqual(result["status"], "PREFLIGHT_READY")
+        self.assertEqual(result["status"], "BLOCKED_MISSING_INPUTS")
         self.assertEqual(result["missingArtifactIds"], [])
-        self.assertEqual(result["missingPinnedInputs"], [])
+        self.assertEqual(
+            result["missingInputAuthorities"],
+            ["imageBuilderToolchain", "kernel", "systemdGuestClosure"],
+        )
         self.assertEqual(result["artifactsWritten"], 0)
         self.assertIs(result["bootableClaim"], False)
 
@@ -283,85 +254,6 @@ class NativeShadowBootArtifactBuilderPreflightTests(unittest.TestCase):
             self._write_regular(target, fixture["artifact_a"])
             destination.symlink_to(target)
             with self.assertRaisesRegex(boot.BootArtifactPreflightError, "symlink|unsafe"):
-                self._audit(fixture)
-
-    def test_kernel_must_be_an_uncompressed_arm64_image(self) -> None:
-        with tempfile.TemporaryDirectory() as raw_root:
-            fixture = self._fixture(pathlib.Path(raw_root))
-            bad = b"not-an-arm64-image"
-            self._write_regular(pathlib.Path(fixture["kernel"]), bad)
-            plan = json.loads(pathlib.Path(fixture["plan"]).read_bytes())
-            plan["inputs"]["kernel"].update(sha256=_sha(bad), sizeBytes=len(bad))
-            pathlib.Path(fixture["plan"]).write_bytes(_canonical(plan))
-            with self.assertRaisesRegex(boot.BootArtifactPreflightError, "ARM64 Image"):
-                self._audit(fixture)
-
-    def test_kernel_magic_without_a_nonzero_image_size_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as raw_root:
-            fixture = self._fixture(pathlib.Path(raw_root))
-            fake = bytearray(4096)
-            fake[0x38:0x3C] = b"ARM\x64"
-            raw = bytes(fake)
-            self._write_regular(pathlib.Path(fixture["kernel"]), raw)
-            plan = json.loads(pathlib.Path(fixture["plan"]).read_bytes())
-            plan["inputs"]["kernel"].update(sha256=_sha(raw), sizeBytes=len(raw))
-            pathlib.Path(fixture["plan"]).write_bytes(_canonical(plan))
-            with self.assertRaisesRegex(boot.BootArtifactPreflightError, "image size"):
-                self._audit(fixture)
-
-    def test_kernel_requires_the_complete_64_byte_arm64_header(self) -> None:
-        truncated = bytearray(0x3C)
-        struct.pack_into("<Q", truncated, 0x10, 1)
-        truncated[0x38:0x3C] = b"ARM\x64"
-        with self.assertRaisesRegex(boot.BootArtifactPreflightError, "ARM64 Image"):
-            boot._validate_arm64_image(bytes(truncated))
-
-    def test_kernel_effective_image_size_may_exceed_the_file_length(self) -> None:
-        raw = bytearray(_arm64_image())
-        struct.pack_into("<Q", raw, 0x10, len(raw) + 4096)
-        boot._validate_arm64_image(bytes(raw))
-
-    def test_pid1_must_be_static_elf64_aarch64(self) -> None:
-        with tempfile.TemporaryDirectory() as raw_root:
-            fixture = self._fixture(pathlib.Path(raw_root))
-            dynamic = _elf64_aarch64(dynamic=True)
-            self._write_regular(pathlib.Path(fixture["pid1"]), dynamic, executable=True)
-            plan = json.loads(pathlib.Path(fixture["plan"]).read_bytes())
-            plan["inputs"]["pid1"].update(
-                sha256=_sha(dynamic), sizeBytes=len(dynamic)
-            )
-            pathlib.Path(fixture["plan"]).write_bytes(_canonical(plan))
-            with self.assertRaisesRegex(boot.BootArtifactPreflightError, "PT_INTERP|static"):
-                self._audit(fixture)
-
-    def test_pid1_requires_an_entrypoint_in_an_executable_load_segment(self) -> None:
-        with tempfile.TemporaryDirectory() as raw_root:
-            fixture = self._fixture(pathlib.Path(raw_root))
-            invalid = bytearray(_elf64_aarch64())
-            struct.pack_into("<Q", invalid, 24, 0)
-            raw = bytes(invalid)
-            self._write_regular(pathlib.Path(fixture["pid1"]), raw, executable=True)
-            plan = json.loads(pathlib.Path(fixture["plan"]).read_bytes())
-            plan["inputs"]["pid1"].update(sha256=_sha(raw), sizeBytes=len(raw))
-            pathlib.Path(fixture["plan"]).write_bytes(_canonical(plan))
-            with self.assertRaisesRegex(
-                boot.BootArtifactPreflightError, "entrypoint|executable PT_LOAD"
-            ):
-                self._audit(fixture)
-
-    def test_pid1_rejects_dt_needed_even_without_pt_interp(self) -> None:
-        with tempfile.TemporaryDirectory() as raw_root:
-            fixture = self._fixture(pathlib.Path(raw_root))
-            dynamic = _elf64_aarch64_with_needed_but_no_interp()
-            self._write_regular(pathlib.Path(fixture["pid1"]), dynamic, executable=True)
-            plan = json.loads(pathlib.Path(fixture["plan"]).read_bytes())
-            plan["inputs"]["pid1"].update(
-                sha256=_sha(dynamic), sizeBytes=len(dynamic)
-            )
-            pathlib.Path(fixture["plan"]).write_bytes(_canonical(plan))
-            with self.assertRaisesRegex(
-                boot.BootArtifactPreflightError, "DT_NEEDED|static"
-            ):
                 self._audit(fixture)
 
     def test_audit_has_no_network_path(self) -> None:
@@ -404,26 +296,39 @@ class NativeShadowBootArtifactBuilderPreflightTests(unittest.TestCase):
                     boot.audit_inputs(
                         pathlib.Path(fixture["plan"]),
                         pathlib.Path(fixture["lock"]),
+                        pathlib.Path(fixture["policy"]),
                         [pathlib.Path("first"), pathlib.Path("second")],
                     )
         close.assert_any_call(101)
 
-    def test_unpinned_boot_inputs_are_reported_without_opening_paths(self) -> None:
+    def test_systemd_policy_mismatch_is_a_hard_error(self) -> None:
         with tempfile.TemporaryDirectory() as raw_root:
             fixture = self._fixture(pathlib.Path(raw_root))
-            plan = json.loads(pathlib.Path(fixture["plan"]).read_bytes())
-            for name in ("kernel", "pid1", "ext4Tool"):
-                plan["inputs"][name]["sha256"] = None
-                plan["inputs"][name]["sizeBytes"] = None
-            pathlib.Path(fixture["plan"]).write_bytes(_canonical(plan))
-            for name in ("kernel", "pid1", "ext4"):
-                pathlib.Path(fixture[name]).unlink()
-            result = self._audit(fixture)
-        self.assertEqual(
-            result["missingPinnedInputs"], ["ext4Tool", "kernel", "pid1"]
-        )
-        self.assertEqual(result["status"], "BLOCKED_MISSING_INPUTS")
-        self.assertIs(result["bootableClaim"], False)
+            policy_path = pathlib.Path(fixture["policy"])
+            policy = json.loads(policy_path.read_bytes())
+            policy["platform"]["systemdRequired"] = False
+            policy_raw = _canonical(policy)
+            policy_path.write_bytes(policy_raw)
+            plan_path = pathlib.Path(fixture["plan"])
+            plan = json.loads(plan_path.read_bytes())
+            plan["guestExecutionPolicy"]["sha256"] = _sha(policy_raw)
+            plan_path.write_bytes(_canonical(plan))
+            with self.assertRaisesRegex(
+                boot.BootArtifactPreflightError, "require systemd"
+            ):
+                self._audit(fixture)
+
+    def test_undefined_authority_cannot_be_populated_in_the_scaffold(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            fixture = self._fixture(pathlib.Path(raw_root))
+            plan_path = pathlib.Path(fixture["plan"])
+            plan = json.loads(plan_path.read_bytes())
+            plan["inputs"]["kernel"].update(sha256="0" * 64, sizeBytes=1)
+            plan_path.write_bytes(_canonical(plan))
+            with self.assertRaisesRegex(
+                boot.BootArtifactPreflightError, "authority contract exists"
+            ):
+                self._audit(fixture)
 
 
 if __name__ == "__main__":

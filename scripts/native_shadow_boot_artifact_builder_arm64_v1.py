@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Fail-closed preflight for deterministic Linux/arm64 boot artifacts.
 
-This slice deliberately produces no kernel, initrd or root disk.  It proves
-that the frozen rootfs closure and the separately pinned boot inputs are
-complete before a later builder is allowed to create an output directory.
+This slice deliberately produces no kernel, initrd or root disk.  It audits
+the frozen rootfs closure and the existing systemd execution policy while
+keeping the still-undefined kernel, systemd guest-closure and image-builder
+authorities fail-closed for a later contract slice.
 """
 
 from __future__ import annotations
@@ -14,24 +15,18 @@ import json
 import os
 import pathlib
 import stat
-import struct
 import sys
 from typing import Any, Optional
 
 
 PLAN_SCHEMA = "boole.native-shadow.boot-artifact-build-plan.arm64.v1"
 LOCK_SCHEMA = "boole.native-shadow.runtime-rootfs-source-lock.arm64.v1"
+POLICY_SCHEMA = "boole.native-shadow.execution-policy.arm64.v1"
 RESULT_SCHEMA = "boole.native-shadow.boot-artifact-preflight-result.arm64.v1"
-ARM64_IMAGE_MAGIC = b"ARM\x64"
-ELF_MACHINE_AARCH64 = 183
-ET_EXEC = 2
-ET_DYN = 3
-PT_LOAD = 1
-PT_DYNAMIC = 2
-PT_INTERP = 3
-PF_X = 1
-DT_NULL = 0
-DT_NEEDED = 1
+SYSTEMD_UNIT_NAME = "boole-native-shadow-launcher.service"
+SYSTEMD_CGROUP_PARENT = (
+    "/sys/fs/cgroup/system.slice/boole-native-shadow-launcher.service"
+)
 
 
 class BootArtifactPreflightError(RuntimeError):
@@ -224,12 +219,22 @@ def _pin(value: Any, name: str, expected_format: str) -> dict[str, Any]:
     return pin
 
 
+def _unresolved_authority(value: Any, name: str, expected_format: str) -> dict[str, Any]:
+    pin = _pin(value, name, expected_format)
+    if pin["sha256"] is not None or pin["sizeBytes"] is not None:
+        raise BootArtifactPreflightError(
+            f"inputs.{name} cannot be populated before its authority contract exists"
+        )
+    return pin
+
+
 def _validate_plan(value: Any) -> dict[str, Any]:
     plan = _exact(
         value,
         {
             "activationAllowed",
             "bootFormatVersion",
+            "guestExecutionPolicy",
             "guestDownloadMaxBytes",
             "inputs",
             "release",
@@ -256,10 +261,34 @@ def _validate_plan(value: Any) -> dict[str, Any]:
     _digest(rootfs["sha256"], "rootfsSourceLock.sha256")
     _size(rootfs["artifactCount"], "rootfsSourceLock.artifactCount")
     _size(rootfs["totalBytes"], "rootfsSourceLock.totalBytes")
-    inputs = _exact(plan["inputs"], {"ext4Tool", "kernel", "pid1"}, "inputs")
-    _pin(inputs["ext4Tool"], "ext4Tool", "pinned-host-executable")
-    _pin(inputs["kernel"], "kernel", "linux-arm64-image")
-    _pin(inputs["pid1"], "pid1", "elf64-aarch64-static")
+    policy = _exact(
+        plan["guestExecutionPolicy"],
+        {"cgroupParent", "sha256", "systemdRequired", "unitName"},
+        "guestExecutionPolicy",
+    )
+    _digest(policy["sha256"], "guestExecutionPolicy.sha256")
+    if policy["systemdRequired"] is not True:
+        raise BootArtifactPreflightError("guest execution policy must require systemd")
+    if policy["unitName"] != SYSTEMD_UNIT_NAME:
+        raise BootArtifactPreflightError("guest execution policy unit name differs")
+    if policy["cgroupParent"] != SYSTEMD_CGROUP_PARENT:
+        raise BootArtifactPreflightError("guest execution policy cgroup parent differs")
+    inputs = _exact(
+        plan["inputs"],
+        {"imageBuilderToolchain", "kernel", "systemdGuestClosure"},
+        "inputs",
+    )
+    _unresolved_authority(
+        inputs["imageBuilderToolchain"],
+        "imageBuilderToolchain",
+        "initrd-ext4-builder-authority-v1",
+    )
+    _unresolved_authority(inputs["kernel"], "kernel", "linux-arm64-image")
+    _unresolved_authority(
+        inputs["systemdGuestClosure"],
+        "systemdGuestClosure",
+        "systemd-rootfs-closure-authority-v1",
+    )
     return plan
 
 
@@ -312,6 +341,37 @@ def _validate_source_lock(
     return artifacts
 
 
+def _validate_execution_policy(value: Any, raw: bytes, plan: dict[str, Any]) -> None:
+    if value.get("schema") != POLICY_SCHEMA:
+        raise BootArtifactPreflightError("guest execution policy schema differs")
+    if value.get("activationAllowed") is not False:
+        raise BootArtifactPreflightError("guest execution policy must not allow activation")
+    if hashlib.sha256(raw).hexdigest() != plan["guestExecutionPolicy"]["sha256"]:
+        raise BootArtifactPreflightError("guest execution policy digest differs")
+    platform = value.get("platform")
+    if not isinstance(platform, dict):
+        raise BootArtifactPreflightError("guest execution policy platform is absent")
+    if platform.get("operatingSystem") != "linux":
+        raise BootArtifactPreflightError("guest execution policy operating system differs")
+    if platform.get("architecture") != "aarch64":
+        raise BootArtifactPreflightError("guest execution policy architecture differs")
+    if platform.get("systemdRequired") is not True:
+        raise BootArtifactPreflightError("guest execution policy does not require systemd")
+    crash_recovery = value.get("crashRecovery")
+    if (
+        not isinstance(crash_recovery, dict)
+        or crash_recovery.get("cgroupParent") != SYSTEMD_CGROUP_PARENT
+    ):
+        raise BootArtifactPreflightError("guest execution policy cgroup parent differs")
+    privilege = value.get("privilege")
+    systemd_unit = privilege.get("systemdUnit") if isinstance(privilege, dict) else None
+    if (
+        not isinstance(systemd_unit, dict)
+        or systemd_unit.get("UnitName") != SYSTEMD_UNIT_NAME
+    ):
+        raise BootArtifactPreflightError("guest execution policy systemd unit differs")
+
+
 def _cas_sha_directory(cas: pathlib.Path) -> int:
     return _open_directory_nofollow(cas / "sha256", "CAS sha256")
 
@@ -342,119 +402,20 @@ def _artifact_state(
     return "present", len(matches[0])
 
 
-def _pinned_bytes(
-    pin: dict[str, Any], path: Optional[pathlib.Path], name: str, *, executable: bool
-) -> Optional[bytes]:
-    if pin["sha256"] is None:
-        return None
-    if path is None:
-        raise BootArtifactPreflightError(f"pinned input path is absent: {name}")
-    raw = _read_regular_nofollow(
-        path, f"pinned input {name}", executable=executable
-    )
-    if len(raw) != pin["sizeBytes"] or hashlib.sha256(raw).hexdigest() != pin["sha256"]:
-        raise BootArtifactPreflightError(f"pinned input digest/size differs: {name}")
-    return raw
-
-
-def _validate_arm64_image(raw: bytes) -> None:
-    if len(raw) < 0x40 or raw[0x38:0x3C] != ARM64_IMAGE_MAGIC:
-        raise BootArtifactPreflightError("kernel is not an uncompressed Linux ARM64 Image")
-    image_size = struct.unpack_from("<Q", raw, 0x10)[0]
-    # Linux records the effective in-memory Image size here.  It can include
-    # zero-filled sections that are not present in the file, so it need not be
-    # bounded by len(raw).  Zero is still not a pinned, self-describing Image.
-    if image_size == 0:
-        raise BootArtifactPreflightError("kernel ARM64 image size is invalid")
-
-
-def _validate_static_aarch64_elf(raw: bytes) -> None:
-    if len(raw) < 64 or raw[:7] != b"\x7fELF\x02\x01\x01":
-        raise BootArtifactPreflightError("PID 1 is not ELF64 little-endian")
-    if struct.unpack_from("<H", raw, 18)[0] != ELF_MACHINE_AARCH64:
-        raise BootArtifactPreflightError("PID 1 is not ELF64 AArch64")
-    if struct.unpack_from("<H", raw, 16)[0] not in {ET_EXEC, ET_DYN}:
-        raise BootArtifactPreflightError("PID 1 ELF type is not executable")
-    if struct.unpack_from("<I", raw, 20)[0] != 1:
-        raise BootArtifactPreflightError("PID 1 ELF version differs")
-    entrypoint = struct.unpack_from("<Q", raw, 24)[0]
-    if entrypoint == 0:
-        raise BootArtifactPreflightError("PID 1 entrypoint is absent")
-    program_offset = struct.unpack_from("<Q", raw, 32)[0]
-    entry_size = struct.unpack_from("<H", raw, 54)[0]
-    entry_count = struct.unpack_from("<H", raw, 56)[0]
-    if entry_size < 56 or program_offset + (entry_size * entry_count) > len(raw):
-        raise BootArtifactPreflightError("PID 1 ELF program headers are invalid")
-    entrypoint_is_executable = False
-    for index in range(entry_count):
-        offset = program_offset + (index * entry_size)
-        program_type = struct.unpack_from("<I", raw, offset)[0]
-        if program_type == PT_INTERP:
-            raise BootArtifactPreflightError("PID 1 has PT_INTERP and is not static")
-        if program_type == PT_DYNAMIC:
-            file_offset = struct.unpack_from("<Q", raw, offset + 8)[0]
-            file_size = struct.unpack_from("<Q", raw, offset + 32)[0]
-            memory_size = struct.unpack_from("<Q", raw, offset + 40)[0]
-            if (
-                file_size == 0
-                or file_size > memory_size
-                or file_size % 16 != 0
-                or file_offset + file_size > len(raw)
-            ):
-                raise BootArtifactPreflightError(
-                    "PID 1 PT_DYNAMIC bounds are invalid"
-                )
-            saw_terminator = False
-            for dynamic_offset in range(
-                file_offset, file_offset + file_size, 16
-            ):
-                tag = struct.unpack_from("<q", raw, dynamic_offset)[0]
-                if tag == DT_NULL:
-                    saw_terminator = True
-                    break
-                if tag == DT_NEEDED:
-                    raise BootArtifactPreflightError(
-                        "PID 1 has DT_NEEDED and is not static"
-                    )
-            if not saw_terminator:
-                raise BootArtifactPreflightError(
-                    "PID 1 PT_DYNAMIC has no DT_NULL terminator"
-                )
-            continue
-        if program_type != PT_LOAD:
-            continue
-        flags = struct.unpack_from("<I", raw, offset + 4)[0]
-        file_offset = struct.unpack_from("<Q", raw, offset + 8)[0]
-        virtual_address = struct.unpack_from("<Q", raw, offset + 16)[0]
-        file_size = struct.unpack_from("<Q", raw, offset + 32)[0]
-        memory_size = struct.unpack_from("<Q", raw, offset + 40)[0]
-        if file_size > memory_size or file_offset + file_size > len(raw):
-            raise BootArtifactPreflightError("PID 1 PT_LOAD bounds are invalid")
-        if (
-            flags & PF_X
-            and memory_size > 0
-            and virtual_address <= entrypoint < virtual_address + memory_size
-        ):
-            entrypoint_is_executable = True
-    if not entrypoint_is_executable:
-        raise BootArtifactPreflightError(
-            "PID 1 entrypoint is outside an executable PT_LOAD segment"
-        )
-
-
 def audit_inputs(
     plan_path: pathlib.Path,
     source_lock_path: pathlib.Path,
+    execution_policy_path: pathlib.Path,
     cas_roots: list[pathlib.Path],
-    *,
-    kernel_path: Optional[pathlib.Path] = None,
-    pid1_path: Optional[pathlib.Path] = None,
-    ext4_tool_path: Optional[pathlib.Path] = None,
 ) -> dict[str, Any]:
     plan, plan_raw = _load_canonical(plan_path, "boot artifact plan")
     plan = _validate_plan(plan)
     lock, lock_raw = _load_canonical(source_lock_path, "rootfs source lock")
     artifacts = _validate_source_lock(lock, lock_raw, plan)
+    policy, policy_raw = _load_canonical(
+        execution_policy_path, "guest execution policy"
+    )
+    _validate_execution_policy(policy, policy_raw, plan)
     sha_directories: list[int] = []
     try:
         for path in cas_roots:
@@ -473,31 +434,8 @@ def audit_inputs(
         for descriptor in sha_directories:
             os.close(descriptor)
 
-    missing_pins: list[str] = []
-    paths = {
-        "ext4Tool": ext4_tool_path,
-        "kernel": kernel_path,
-        "pid1": pid1_path,
-    }
-    for name in sorted(paths):
-        pin = plan["inputs"][name]
-        if pin["sha256"] is None:
-            missing_pins.append(name)
-            continue
-        raw = _pinned_bytes(
-            pin,
-            paths[name],
-            name,
-            executable=name in {"ext4Tool", "pid1"},
-        )
-        assert raw is not None
-        if name == "kernel":
-            _validate_arm64_image(raw)
-        elif name == "pid1":
-            _validate_static_aarch64_elf(raw)
-
+    missing_authorities = sorted(plan["inputs"])
     missing_bytes = sum(row["sizeBytes"] for row in missing)
-    blocked = bool(missing or missing_pins)
     return {
         "activationAllowed": False,
         "artifactsWritten": 0,
@@ -511,12 +449,13 @@ def audit_inputs(
             "presentArtifacts": present_count,
             "presentBytes": present_bytes,
         },
+        "guestExecutionPolicySha256": hashlib.sha256(policy_raw).hexdigest(),
         "missingArtifactIds": sorted(row["id"] for row in missing),
-        "missingPinnedInputs": missing_pins,
+        "missingInputAuthorities": missing_authorities,
         "planSha256": hashlib.sha256(plan_raw).hexdigest(),
         "rootfsSourceLockSha256": hashlib.sha256(lock_raw).hexdigest(),
         "schema": RESULT_SCHEMA,
-        "status": "BLOCKED_MISSING_INPUTS" if blocked else "PREFLIGHT_READY",
+        "status": "BLOCKED_MISSING_INPUTS",
     }
 
 
@@ -526,10 +465,8 @@ def _parser() -> argparse.ArgumentParser:
     audit = subparsers.add_parser("audit")
     audit.add_argument("--plan", type=pathlib.Path, required=True)
     audit.add_argument("--source-lock", type=pathlib.Path, required=True)
+    audit.add_argument("--execution-policy", type=pathlib.Path, required=True)
     audit.add_argument("--cas", type=pathlib.Path, action="append", required=True)
-    audit.add_argument("--kernel", type=pathlib.Path)
-    audit.add_argument("--pid1", type=pathlib.Path)
-    audit.add_argument("--ext4-tool", type=pathlib.Path)
     return parser
 
 
@@ -539,10 +476,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         result = audit_inputs(
             args.plan,
             args.source_lock,
+            args.execution_policy,
             args.cas,
-            kernel_path=args.kernel,
-            pid1_path=args.pid1,
-            ext4_tool_path=args.ext4_tool,
         )
     except BootArtifactPreflightError as exc:
         print(f"native-shadow boot artifact preflight: {exc}", file=sys.stderr)

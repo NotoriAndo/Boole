@@ -2,9 +2,15 @@
   "activationAllowed": false,
   "bootFormatVersion": 1,
   "guestDownloadMaxBytes": 2147483648,
+  "guestExecutionPolicy": {
+    "cgroupParent": "/sys/fs/cgroup/system.slice/boole-native-shadow-launcher.service",
+    "sha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f",
+    "systemdRequired": true,
+    "unitName": "boole-native-shadow-launcher.service"
+  },
   "inputs": {
-    "ext4Tool": {
-      "format": "pinned-host-executable",
+    "imageBuilderToolchain": {
+      "format": "initrd-ext4-builder-authority-v1",
       "sha256": null,
       "sizeBytes": null
     },
@@ -13,8 +19,8 @@
       "sha256": null,
       "sizeBytes": null
     },
-    "pid1": {
-      "format": "elf64-aarch64-static",
+    "systemdGuestClosure": {
+      "format": "systemd-rootfs-closure-authority-v1",
       "sha256": null,
       "sizeBytes": null
     }
