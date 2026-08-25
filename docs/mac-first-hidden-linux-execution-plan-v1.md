@@ -7,8 +7,9 @@ MAC.2-PARTIAL — CLOSED-LOCAL LINUX/ARM64 AUTHORITY PARITY COMPLETE; STAGED VER
 CORE/KAT GREEN; PRODUCTION AUTHORIZATION, ADOPTION AND POST-ADOPTION REVERIFICATION OPEN
 (sections 11 and 13); CURL-FIRST-CLI-SERVICE-DISTRIBUTION — CURRENT (section 14 supersedes the
 Boole.app/Developer-ID/Team-ID product-form decision); CURL.1 CONTRACT/VERIFIER GREEN —
-RELEASE CONTRACT AND GUEST BOOT FORMAT FROZEN; INSTALLER, REAL RELEASE ARTIFACT AND
-PRODUCTION TRUST ROOT ABSENT (section 15); MAC.3 BLOCKED /
+RELEASE CONTRACT AND GUEST BOOT FORMAT FROZEN (section 15); CURL.2-CORE INSTALLER CORE GREEN —
+VERIFIED ATOMIC LOCAL ADOPTION WITH A DURABLE REPLAY FLOOR; DOWNLOAD/TRANSPORT, REAL RELEASE
+ARTIFACT AND PRODUCTION TRUST ROOT ABSENT (section 16); MAC.3 BLOCKED /
 NOT STARTED — NOT IMPLEMENTED, NOT RELEASE-READY, NO ACTIVATION AUTHORITY.**
 
 This plan defines the product boundary for running Boole's native-answer checker for Mac users.
@@ -852,3 +853,74 @@ MAC.3-CLI BLOCKED / NOT STARTED — CLI-managed hidden VM lifecycle follows CURL
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No public
 mining, paid API benchmark, release build or upload, user installation or production activation
 occurred in this slice.
+
+## 16. CURL.2-CORE — verified local installer core (2026-08-25)
+
+CURL.2-CORE status: **INSTALLER CORE GREEN — VERIFIED ATOMIC LOCAL ADOPTION WITH A DURABLE
+REPLAY FLOOR; DOWNLOAD/TRANSPORT, REAL RELEASE ARTIFACT AND PRODUCTION TRUST ROOT ABSENT.**
+This section records the first CURL.2 slice: the installer core in
+`crates/boole-core/src/curl_product_install.rs`. It consumes the frozen CURL.1 verifier
+(section 15) and adopts a locally staged release bundle; it performs no network I/O. Fetching
+the bundle is a separate follow-up slice, and URLs/GitHub Releases remain transport, never
+trust. The host-controller binary decision stays deferred to the real-release-build slice: the
+installer adopts whatever bytes the signed manifest pins, so its logic is independent of which
+binary fills each role.
+
+### 16.1 Frozen install boundary and durable state contract
+
+`install_curl_product_release` takes an install root, the raw manifest and detached-signature
+bytes, the injected trust root, a pinned first-install minimum sequence and a local artifact
+source directory. The whole bundle is verified through the CURL.1 chain — manifest
+authentication, per-role artifact byte streaming, complete-set finish — before the install
+root is mutated in any way; a tampered artifact, a missing source file, a forged signature or
+a floor violation leaves the root byte-identical to its prior state.
+
+The durable install state is schema **`boole.curl-product-install-state.v1`** stored as
+`installed-release.json` at the install root: canonical JSON with unknown fields rejected,
+pinning `releaseSequence`, `releaseVersion`, `manifestSha256` and `versionDirectory`. On the
+next install this record is the sole floor source — the successor must advance the sequence
+and bind the exact active manifest digest — and the pinned first-install minimum applies only
+when no record exists. A corrupt, non-canonical, unknown-field, wrong-schema, zero-sequence or
+malformed-digest record **fails closed with the on-disk evidence preserved**; it is never
+silently replaced by the first-install floor.
+
+Install layout and crash safety: verified bytes are copied from the exact file handles the
+verifier streamed (TOCTOU carry-through — swapping the source directory after verification
+cannot change what is adopted) into a transient `staging/` tree with per-file fsync, flipped
+into a `versions/` entry (named by zero-padded sequence plus a manifest-digest prefix) with a
+single directory rename, and the state record is replaced via a fsynced temp-file rename. The
+durable state is therefore always the old release or the new one, never a mix. Earlier version
+directories are retained as rollback material; leftover `staging/` content and orphan version
+directories from an interrupted run are replaced, never trusted. Each version directory also
+retains the exact `release-manifest.json`/`release-signature.json` bytes for offline re-audit.
+
+### 16.2 Closed-local evidence
+
+19 focused installer tests went RED→GREEN in `crates/boole-core/tests/curl_product_install.rs`:
+first install end-to-end (canonical state bytes, exact adopted artifact bytes, retained
+manifest/signature copies, no staging or temp residue), signed successor upgrade with the old
+version retained, replay and wrong-predecessor rejection with untouched state, below-minimum
+first install, tampered/missing artifact and forged signature with an untouched root, five
+fail-closed corrupt-state cases, orphan-directory and leftover-staging replacement,
+source-directory independence after adoption, state reload, and install-root creation. The 37
+CURL.1 contract tests stayed green; `cargo fmt` and both CI clippy variants are clean. All
+verification used a non-production KAT key; **no download, no release build or upload, no
+production trust root and no installation of real binaries occurred**.
+
+### 16.3 Corrected execution cursor
+
+```text
+CURL.0  COMPLETE — curl-first CLI/service product contract corrected and frozen
+CURL.1  CONTRACT/VERIFIER GREEN — release contract and guest boot format frozen
+CURL.2-CORE  INSTALLER CORE GREEN — verified atomic local adoption with a durable replay floor
+CURL.2-TRANSPORT  NOT STARTED — bundle download/staging and the curl entrypoint that drives the core
+CURL.3  NOT STARTED — clean macOS 14/M1 Team-ID-free virtualization-entitlement canary
+MAC.2-B-CORE/KAT GREEN — reusable offline guest-update verifier
+MAC.2-B production OPEN — real update trust root, first signed manifest and durable adoption open
+MAC.3-CLI BLOCKED / NOT STARTED — CLI-managed hidden VM lifecycle follows CURL.1–CURL.3 evidence
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No public
+mining, paid API benchmark, release build or upload, user installation or production activation
+occurred in this slice either.

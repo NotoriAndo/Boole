@@ -171,6 +171,20 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "no signed product
 require_text docs/native-submission-shadow-verification-v1.md "CURL.1 CONTRACT/VERIFIER GREEN"
 require_text docs/native-submission-shadow-verification-v1.md "boole.curl-product-release.v1"
 require_text docs/native-submission-shadow-verification-v1.md "CURL-FIRST-CLI-SERVICE-DISTRIBUTION — CURRENT"
+# CURL.2-CORE installer core closure (2026-08-25, section 16). The historical
+# "CURL.2  NOT STARTED" cursor above stays in the append-only record; these pins
+# require the successor state — verified atomic local adoption behind a durable
+# fail-closed replay floor, with download/transport explicitly still absent — so
+# the local installer core can never silently rot into a transport, release or
+# production-installation claim.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.2-CORE status: **INSTALLER CORE GREEN"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "boole.curl-product-install-state.v1"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "installed-release.json"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "fails closed with the on-disk evidence preserved"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.2-CORE  INSTALLER CORE GREEN"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.2-TRANSPORT  NOT STARTED"
+require_text docs/native-submission-shadow-verification-v1.md "CURL.2-CORE INSTALLER CORE GREEN"
+require_text docs/native-submission-shadow-verification-v1.md "boole.curl-product-install-state.v1"
 require_text docs/native-submission-shadow-verification-v1.md "Team ID is not a runtime authority"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
 require_text docs/install.md "must not be presented as the finished Mac product installer"
@@ -191,9 +205,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "cee9df4d232bb570552073d1b3b53a9a3f2c0d85794b3b6bc965280ea62e727f"
-require_text docs/native-submission-shadow-verification-v1.md "2be6105c4511b1248897c8798780ed9852335d103597085b13241e097b8c9b84"
-require_text docs/native-submission-shadow-verification-v1.md "1d80a4ee6c5dcdcb13c68e4121cca2f686d9ecac4910245c1c4b6ba80aec6724"
+require_text docs/native-submission-shadow-verification-v1.md "e0dbf46b878261a16118734dddf6707c28f916181d17200b24ae785c4aa52ee8"
+require_text docs/native-submission-shadow-verification-v1.md "8007e52c1b6f896012ad0df0b4e07fa595f05f3c8a604f46804b96cfbbd9a0c1"
+require_text docs/native-submission-shadow-verification-v1.md "dbe3e96e5734d689118ef5382b2245fa39ab11c79a996b3ec493ff1980357664"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"

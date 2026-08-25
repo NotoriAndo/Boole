@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `cee9df4d232bb570552073d1b3b53a9a3f2c0d85794b3b6bc965280ea62e727f` (updated 2026-08-25e — CURL.1 contract/verifier GREEN, boot format frozen) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `2be6105c4511b1248897c8798780ed9852335d103597085b13241e097b8c9b84` (updated 2026-08-25e — cursor advances to CURL.2 product installer v2) |
+| `local-docs/todo/todo-l1-network-master.md` | `e0dbf46b878261a16118734dddf6707c28f916181d17200b24ae785c4aa52ee8` (updated 2026-08-25f — CURL.2-CORE installer core GREEN, atomic adoption) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `8007e52c1b6f896012ad0df0b4e07fa595f05f3c8a604f46804b96cfbbd9a0c1` (updated 2026-08-25f — cursor advances to CURL.2-TRANSPORT) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `1d80a4ee6c5dcdcb13c68e4121cca2f686d9ecac4910245c1c4b6ba80aec6724` (updated 2026-08-25e — CURL.1 release contract realized in code) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `dbe3e96e5734d689118ef5382b2245fa39ab11c79a996b3ec493ff1980357664` (updated 2026-08-25f — CURL.2-CORE local install core realized in code) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -931,3 +931,31 @@ The 2026-08-25e mirror synchronization appends this same state to `todo-l1-netwo
 `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other three section 12 mirrors are
 byte-unchanged. The section 12 table contains the recomputed SHA-256 values for the three edited
 mirrors; these values are synchronization evidence only, never runtime trust roots.
+
+_2026-08-25f implementation addendum:_ **CURL.2-CORE INSTALLER CORE GREEN** — the verified
+local installer core for the curl-first product is implemented in
+`crates/boole-core/src/curl_product_install.rs` (execution-plan section 16). It consumes the
+frozen CURL.1 verifier end to end before the install root is mutated in any way, copies
+verified bytes from the verifier's retained file handles (post-verification source swaps
+cannot change what is adopted), stages into a transient tree with per-file fsync, adopts a
+version directory with a single rename and replaces the durable
+`boole.curl-product-install-state.v1` record (`installed-release.json`) via a fsynced
+temp-file rename. That record is the sole replay/rollback floor for the next install; a
+corrupt, non-canonical, unknown-field, wrong-schema, zero-sequence or malformed-digest record
+fails closed with the evidence preserved and is never silently replaced by the first-install
+floor. Earlier version directories are retained as rollback material together with the exact
+manifest/signature bytes; crash residue in staging or an orphan version directory is replaced,
+never trusted. 19 focused installer tests went RED→GREEN and the 37 CURL.1 contract tests
+stayed green.
+
+This closes only the local adoption core under a non-production KAT key. Download/transport
+(the curl entrypoint that drives this core), any real release artifact, the production trust
+root and signing custody, the entitlement canary and the VM lifecycle remain absent, so
+**CURL.2-TRANSPORT/CURL.3 NOT STARTED**, **MAC.2-B production OPEN** and **MAC.3-CLI BLOCKED**
+are the current boundary. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base
+activation `false` and `activationAllowed=false` are unchanged.
+
+The 2026-08-25f mirror synchronization appends this same state to `todo-l1-network-master.md`,
+`EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other three section 12 mirrors
+are byte-unchanged. The section 12 table contains the recomputed SHA-256 values for the three
+edited mirrors; these values are synchronization evidence only, never runtime trust roots.
