@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `e0dbf46b878261a16118734dddf6707c28f916181d17200b24ae785c4aa52ee8` (updated 2026-08-25f — CURL.2-CORE installer core GREEN, atomic adoption) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `8007e52c1b6f896012ad0df0b4e07fa595f05f3c8a604f46804b96cfbbd9a0c1` (updated 2026-08-25f — cursor advances to CURL.2-TRANSPORT) |
+| `local-docs/todo/todo-l1-network-master.md` | `b4f019c523c281aca7229f3abfa1458f7acbc8fd68006b9c56cc39997033610f` (updated 2026-08-25g — CURL.2-TRANSPORT GREEN, fail-closed download + curl entrypoint) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `fc2ed77a6a6e6b4cb69ce21a8ada8abd23d81bff32ee69342e94febc0dac4998` (updated 2026-08-25g — cursor advances to CURL.3) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `dbe3e96e5734d689118ef5382b2245fa39ab11c79a996b3ec493ff1980357664` (updated 2026-08-25f — CURL.2-CORE local install core realized in code) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `b365d7998f9930c17c28c53bdc3111d547583ccb6d1aa511c2ae773725435b74` (updated 2026-08-25g — CURL.2-TRANSPORT transport path realized in code) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -956,6 +956,40 @@ are the current boundary. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF
 activation `false` and `activationAllowed=false` are unchanged.
 
 The 2026-08-25f mirror synchronization appends this same state to `todo-l1-network-master.md`,
+`EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other three section 12 mirrors
+are byte-unchanged. The section 12 table contains the recomputed SHA-256 values for the three
+edited mirrors; these values are synchronization evidence only, never runtime trust roots.
+
+_2026-08-25g implementation addendum:_ **CURL.2-TRANSPORT GREEN** — the fail-closed bundle
+download/staging transport and the `boole product install` curl entrypoint are implemented in
+`crates/boole-cli/src/curl_product_transport.rs` and the `boole-cli` binary (execution-plan
+section 17). Transport is never trust: the URL, HTTP status, server headers and file names
+carry no authority. The frozen download order is: validate the URL shape and staging layout;
+read the durable install state (a corrupt `installed-release.json` aborts before any network
+request); fetch the manifest and detached signature into memory under the frozen contract
+caps, now public as
+`MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES`/`MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES`;
+authenticate against the injected trust root and replay floor (a forged or replayed bundle
+aborts before any artifact request); download exactly the signed artifact set, each stream
+bounded by the signed `byteLength` via the new authenticated-stage `artifact_byte_length`
+accessor rather than `Content-Length`, into a transient staging directory that is never the
+install tree; drive the CURL.2-CORE installer, which re-verifies everything and adopts
+atomically; and remove the staging directory on every outcome. The transport reuses the
+workspace-pinned `reqwest`, adding no new supply-chain crate, and `boole-core` stays
+network-free. 18 focused tests went RED→GREEN against a loopback server with a non-production
+KAT key (zero-request corrupt-state abort, two-request forged/replay abort, tampered bytes
+behind HTTP 200 rejected, over-long/truncated streams rejected, staging residue replaced,
+non-http(s) URLs and staging-inside-root rejected, envelope success/failure surfaces), and
+the CURL.1 suite grew to 38.
+
+This closes only the closed-local transport under a KAT key and loopback HTTP. Any real
+release artifact, the production trust root and signing custody, release upload, the
+entitlement canary and the VM lifecycle remain absent, so **CURL.3 NOT STARTED**, **MAC.2-B
+production OPEN** and **MAC.3-CLI BLOCKED** are the current boundary. `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` are unchanged.
+
+The 2026-08-25g mirror synchronization appends this same state to `todo-l1-network-master.md`,
 `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other three section 12 mirrors
 are byte-unchanged. The section 12 table contains the recomputed SHA-256 values for the three
 edited mirrors; these values are synchronization evidence only, never runtime trust roots.

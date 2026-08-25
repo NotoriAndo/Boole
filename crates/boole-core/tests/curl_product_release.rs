@@ -8,7 +8,8 @@ use boole_core::{
     authenticate_curl_product_release, canonicalize, CurlProductReleaseFloor,
     CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError, GuestArtifactRole,
     ProductArtifactRole, SigningKeyV2, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT,
-    MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
+    MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES, MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES,
+    MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -1056,4 +1057,33 @@ fn verified_artifact_handle_survives_path_replacement() {
         .read_to_end(&mut observed)
         .expect("read retained handle");
     assert_eq!(observed, artifacts[&ProductArtifactRole::HostCli]);
+}
+
+#[test]
+fn the_authenticated_release_exposes_declared_artifact_byte_lengths() {
+    let (trust_root, manifest, signature, artifacts) = signed_product_fixture();
+
+    let authenticated = authenticate_curl_product_release(
+        &manifest,
+        &signature,
+        &trust_root,
+        &first_install_floor(),
+    )
+    .expect("manifest authentication");
+
+    // A transport must be able to bound every artifact download by the
+    // signed manifest before any artifact bytes exist locally.
+    for role in ProductArtifactRole::ALL {
+        assert_eq!(
+            authenticated.artifact_byte_length(role),
+            Some(artifacts[&role].len() as u64),
+            "declared byte length for {}",
+            role.as_str()
+        );
+    }
+
+    // The bundle byte caps a transport applies to the manifest and detached
+    // signature downloads are the frozen contract caps, publicly exported.
+    assert_eq!(MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES, 1_048_576);
+    assert_eq!(MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES, 4_096);
 }

@@ -185,6 +185,21 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.2-CORE  INST
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.2-TRANSPORT  NOT STARTED"
 require_text docs/native-submission-shadow-verification-v1.md "CURL.2-CORE INSTALLER CORE GREEN"
 require_text docs/native-submission-shadow-verification-v1.md "boole.curl-product-install-state.v1"
+# CURL.2-TRANSPORT closure (2026-08-25, section 17). The historical
+# "CURL.2-TRANSPORT  NOT STARTED" cursor above stays in the append-only record;
+# these pins require the successor state — a fail-closed download order in which
+# transport signals (URL, HTTP status, file names) are never trust grounds and
+# downloaded bytes live only in transient staging until the verified installer
+# adopts them — so the closed-local loopback evidence can never silently rot
+# into a real-release, production-trust-root or public-distribution claim.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.2-TRANSPORT status: **GREEN"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "aborts **before any"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "bounded by its signed \`byteLength\`"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "transient download staging directory that is never the"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.2-TRANSPORT  GREEN"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "No default trust root ships in the binary"
+require_text docs/native-submission-shadow-verification-v1.md "CURL.2-TRANSPORT GREEN"
+require_text docs/native-submission-shadow-verification-v1.md "Transport is never trust"
 require_text docs/native-submission-shadow-verification-v1.md "Team ID is not a runtime authority"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
 require_text docs/install.md "must not be presented as the finished Mac product installer"
@@ -205,9 +220,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "e0dbf46b878261a16118734dddf6707c28f916181d17200b24ae785c4aa52ee8"
-require_text docs/native-submission-shadow-verification-v1.md "8007e52c1b6f896012ad0df0b4e07fa595f05f3c8a604f46804b96cfbbd9a0c1"
-require_text docs/native-submission-shadow-verification-v1.md "dbe3e96e5734d689118ef5382b2245fa39ab11c79a996b3ec493ff1980357664"
+require_text docs/native-submission-shadow-verification-v1.md "b4f019c523c281aca7229f3abfa1458f7acbc8fd68006b9c56cc39997033610f"
+require_text docs/native-submission-shadow-verification-v1.md "fc2ed77a6a6e6b4cb69ce21a8ada8abd23d81bff32ee69342e94febc0dac4998"
+require_text docs/native-submission-shadow-verification-v1.md "b365d7998f9930c17c28c53bdc3111d547583ccb6d1aa511c2ae773725435b74"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"

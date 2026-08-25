@@ -110,6 +110,15 @@ enum Command {
         #[command(subcommand)]
         command: FaucetCommand,
     },
+    /// Verified product release management. `install` is the curl
+    /// entrypoint: it downloads a release bundle into a transient staging
+    /// directory, verifies every byte against an injected Ed25519 trust
+    /// root (URL/HTTP status/file names are never trust grounds) and only
+    /// then adopts it atomically via the verified installer.
+    Product {
+        #[command(subcommand)]
+        command: ProductCommand,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -762,6 +771,41 @@ enum FaucetCommand {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum ProductCommand {
+    /// Download and install a verified release bundle from a base URL.
+    /// Downloaded bytes live only in the transient download staging
+    /// directory until the CURL.1 verification and the verified installer
+    /// both accept the release; the staging directory is removed whether
+    /// the install succeeds or fails. Always emits the unified JSON
+    /// envelope (`command: "product.install"`).
+    Install {
+        /// Base URL the bundle files are published under (http/https).
+        #[arg(long = "base-url")]
+        base_url: String,
+        /// Install root the verified release is adopted into.
+        #[arg(long = "install-root")]
+        install_root: PathBuf,
+        /// Transient staging directory for downloaded artifacts. Must not
+        /// overlap the install root. Defaults to a per-run temp directory.
+        #[arg(long = "download-staging")]
+        download_staging: Option<PathBuf>,
+        /// Key id of the injected release trust root.
+        #[arg(long = "trust-root-key-id")]
+        trust_root_key_id: String,
+        /// Ed25519 public key (64 lowercase hex chars) of the trust root.
+        #[arg(long = "trust-root-public-key")]
+        trust_root_public_key: String,
+        /// Minimum accepted release sequence when no release is installed
+        /// yet (first-install anti-rollback floor).
+        #[arg(long = "first-install-minimum")]
+        first_install_minimum: u64,
+        /// Per-request timeout in seconds.
+        #[arg(long = "timeout-seconds", default_value_t = 30)]
+        timeout_seconds: u64,
+    },
+}
+
 fn main() {
     // P0.5 slice 65 — install the telemetry subscriber before any work so
     // tracing/panic/error events from the CLI are observable. Default-silent
@@ -945,6 +989,25 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 faucet_url,
                 json,
             } => faucet_claim(network, &address, faucet_url.as_deref(), json),
+        },
+        Some(Command::Product { command }) => match command {
+            ProductCommand::Install {
+                base_url,
+                install_root,
+                download_staging,
+                trust_root_key_id,
+                trust_root_public_key,
+                first_install_minimum,
+                timeout_seconds,
+            } => product_install(
+                &base_url,
+                &install_root,
+                download_staging.as_deref(),
+                &trust_root_key_id,
+                &trust_root_public_key,
+                first_install_minimum,
+                timeout_seconds,
+            ),
         },
         Some(Command::Keys { command }) => match command {
             KeysCommand::New { id, dev, dry_run } => keys_new(&id, dev, dry_run),
@@ -2099,6 +2162,91 @@ fn account_balance(pk: &str, node: Option<&str>, json: bool) -> anyhow::Result<(
 
 fn is_well_formed_hex32(s: &str) -> bool {
     boole_core::Hex32::from_hex(s).is_ok()
+}
+
+/// Emit a `product.install` unified-envelope error to stderr and exit 1.
+fn product_install_emit_err(reason: &str, message: String) -> ! {
+    let envelope = boole_cli::cli_envelope::encode_err(
+        "product.install",
+        reason,
+        serde_json::json!({ "message": message }),
+    );
+    eprintln!("{envelope}");
+    std::process::exit(1);
+}
+
+fn product_install(
+    base_url: &str,
+    install_root: &Path,
+    download_staging: Option<&Path>,
+    trust_root_key_id: &str,
+    trust_root_public_key: &str,
+    first_install_minimum: u64,
+    timeout_seconds: u64,
+) -> anyhow::Result<()> {
+    use boole_cli::curl_product_transport::{
+        download_and_install_curl_product_release, CurlProductTransportError,
+    };
+
+    let trust_root =
+        boole_core::CurlProductReleaseTrustRoot::new(trust_root_key_id, trust_root_public_key)
+            .unwrap_or_else(|error| {
+                product_install_emit_err("trust-root-rejected", error.to_string())
+            });
+    // Default staging is a per-run temp directory: unique, outside any
+    // install root, and removed by the transport on every outcome.
+    let default_staging = download_staging.is_none().then(|| {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!(
+            "boole-curl-product-download-{}-{nonce}",
+            std::process::id()
+        ))
+    });
+    let staging = download_staging.unwrap_or_else(|| {
+        default_staging
+            .as_deref()
+            .expect("default staging exists when no override is given")
+    });
+
+    let installed = download_and_install_curl_product_release(
+        base_url,
+        install_root,
+        staging,
+        &trust_root,
+        first_install_minimum,
+        std::time::Duration::from_secs(timeout_seconds),
+    )
+    .unwrap_or_else(|error| {
+        // The reason token classifies the rejection; verification-layer
+        // rejections (CURL.1 directly or re-raised by the installer) all
+        // collapse to `release-rejected`.
+        let reason = match &error {
+            CurlProductTransportError::Url(_) => "url-rejected",
+            CurlProductTransportError::Download(_) => "download-failed",
+            CurlProductTransportError::Verify(_) => "release-rejected",
+            CurlProductTransportError::Install(boole_core::CurlProductInstallError::Verify(_)) => {
+                "release-rejected"
+            }
+            CurlProductTransportError::Install(_) => "install-rejected",
+            CurlProductTransportError::Io(_) => "staging-io-failed",
+        };
+        product_install_emit_err(reason, error.to_string())
+    });
+
+    let result = serde_json::json!({
+        "releaseSequence": installed.release_sequence(),
+        "releaseVersion": installed.release_version(),
+        "manifestSha256": installed.manifest_sha256(),
+        "versionDirectory": installed.version_directory().display().to_string(),
+    });
+    println!(
+        "{}",
+        boole_cli::cli_envelope::encode_ok("product.install", result)
+    );
+    Ok(())
 }
 
 fn reputation_inspect(ledger: &Path, agent_pk: &str, json: bool) -> anyhow::Result<()> {

@@ -25,6 +25,10 @@ boole-node = { path = "../boole-node" }
 clap.workspace = true
 hex.workspace = true
 rand_core.workspace = true
+# CURL.2-TRANSPORT — bundle download for `boole product install`. Reuses the
+# workspace-pinned reqwest (blocking + rustls-tls) already linked by
+# boole-miner/boole-mcp, so the supply-chain surface gains no new crate.
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
