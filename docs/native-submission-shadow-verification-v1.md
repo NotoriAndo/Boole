@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `aacbddae954cf073d00ed81595a49955710a2eb5245ee0958b692b3b78563361` (updated 2026-08-26d — guest-init result narrowed to unverified source shape) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `6c536f81a09bc790c05a9b5c3ca277b89353776eeee2342a0fea5dfd658e62f1` (updated 2026-08-26d — input-authority cursor retains three unverified boundaries) |
+| `local-docs/todo/todo-l1-network-master.md` | `a2ac02b1d1c7c0dd25d4ac59509bbf7b97b7a22a2a6f9e59a2eb951c99ad6b70` (updated 2026-08-26e — signed-metadata dependency candidate frozen without boot authority) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `3b43c67e17fb49169ba3c749d077470ff9673e86555aaa656927f0d26b7c0631` (updated 2026-08-26e — cursor moves to separately approved payload acquisition) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `d67b4e8f4f799a45de0f36bda5b1d3a0d2e35f1ec73a3c5330d88ae89b91f22a` (updated 2026-08-26d — systemd shape contract realized without authority overclaim) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `5d43fa2e3f48cff0098797dca9895c0c82729d17b65a58d59b16534de14a3b81` (updated 2026-08-26e — dependency-list proposition realized without payload or boot claim) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1099,3 +1099,31 @@ all three independently. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED` and remains mandatory before MAC.5/MAC.6 or any
 production-support claim. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base
 activation `false` and `activationAllowed=false` are unchanged.
+
+_2026-08-26e dependency-candidate addendum:_ **BOOT-ROOTFS-DEPENDENCY-CANDIDATE-ARM64-V1 =
+FROZEN-NOT-BOOT-AUTHORITY.** The canonical plan (SHA-256
+`f5465cd62b8b96f2e5b1702e72d2be2b2d73d3924968974604697a4a1614681f`) and result (SHA-256
+`a8329d35b480e6b40823e8823551c16eb71a0d7bbc1da40483f05b4535815f26`) replay the already-cached,
+signed Ubuntu Noble ARM64 repository metadata and deterministically select 191 package rows with
+208,936,876 declared payload bytes. The prior 56-row / 66,992,762-byte baseline is an exact-row
+subset, leaving a fixed 135-row / 141,944,114-byte successor delta.
+
+Signed repository metadata replay is verified; package payload acquisition and verification are
+not. The candidate is not a source lock, boot authority, image, VM-boot result, production
+authority or activation authority. No maintainer script ran; no uncompressed kernel `Image`, ARM64
+launcher ELF, initrd or root disk was produced; runtime compatibility and production byte
+provenance remain false; `bootArtifactsWritten=0`, `bootableClaim=false` and
+`activationAllowed=false`. The generator executes resolver/acquirer/builder logic only from exact
+pinned source bytes rather than an import cache, and the tracked result contains no local cache
+path. A future networked payload-acquisition slice requires separate approval and may only fetch
+and digest-check the fixed rows; it cannot silently install packages or earn boot authority.
+
+CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`, is neither passed nor waived,
+and remains mandatory before MAC.5/MAC.6, release readiness or activation. `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` remain unchanged.
+
+The 2026-08-26e mirror synchronization appends this same candidate-only boundary to
+`todo-l1-network-master.md`, `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other
+three section 12 mirrors are byte-unchanged. The section 12 table contains the recomputed SHA-256
+values for the three edited local mirrors; these values are synchronization evidence only, never
+runtime trust roots.

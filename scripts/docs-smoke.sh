@@ -284,6 +284,36 @@ require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.
 require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.json '"sourceShapeStatusIsSignedClosureEvidence": false'
 require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.json '"sourceShapeStatusIsRuntimeCompatibilityEvidence": false'
 require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.json '"sourceShapeStatusIsAuthorityBoundaryEvidence": false'
+# BOOT-ROOTFS-DEPENDENCY-CANDIDATE-ARM64-V1 freezes signed-metadata selection
+# only. Payload acquisition, image construction, VM boot and activation remain
+# absent and CURL.3 remains an unpassed release gate.
+require_file native/containment/native-shadow-boot-rootfs-dependency-candidate-plan-arm64-v1.json
+require_file native/containment/native-shadow-boot-rootfs-dependency-candidate-result-arm64-v1.json
+require_file scripts/native_shadow_boot_rootfs_dependency_candidate_arm64_v1.py
+require_file scripts/test_native_shadow_boot_rootfs_dependency_candidate_arm64_v1.py
+require_text scripts/self-test.sh "scripts/test_native_shadow_boot_rootfs_dependency_candidate_arm64_v1.py"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEPENDENCY-CANDIDATE-FROZEN-NOT-BOOT-AUTHORITY"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "191 packages / 208,936,876 declared payload bytes"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "135 packages / 141,944,114 declared payload bytes"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-PAYLOAD-ACQUISITION/VERIFICATION  NEXT"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "REAL-BOOT-ARTIFACTS  NOT-PRODUCED"
+require_text docs/native-submission-shadow-verification-v1.md "FROZEN-NOT-BOOT-AUTHORITY"
+require_text docs/native-submission-shadow-verification-v1.md "Signed repository metadata replay is verified; package payload acquisition and verification are"
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-plan-arm64-v1.json '"packagePayloadsAcquired": false'
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-plan-arm64-v1.json '"packagePayloadsVerified": false'
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-plan-arm64-v1.json '"maintainerScriptsExecuted": false'
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-plan-arm64-v1.json '"kernelImageExtracted": false'
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-plan-arm64-v1.json '"launcherElfPresent": false'
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-plan-arm64-v1.json '"imageBuilderAuthorityPresent": false'
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-plan-arm64-v1.json '"runtimeCompatibilityVerified": false'
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-plan-arm64-v1.json '"bootAuthority": false'
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-result-arm64-v1.json '"signedRepositoryMetadataVerified": true'
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-result-arm64-v1.json '"productionByteProvenanceComplete": false'
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-result-arm64-v1.json '"bootArtifactsWritten": 0'
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-result-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-result-arm64-v1.json '"activationAllowed": false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
+require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
 require_text docs/install.md "must not be presented as the finished Mac product installer"
 require_text README.md "current command is a source/developer bootstrap"
@@ -303,9 +333,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "aacbddae954cf073d00ed81595a49955710a2eb5245ee0958b692b3b78563361"
-require_text docs/native-submission-shadow-verification-v1.md "6c536f81a09bc790c05a9b5c3ca277b89353776eeee2342a0fea5dfd658e62f1"
-require_text docs/native-submission-shadow-verification-v1.md "d67b4e8f4f799a45de0f36bda5b1d3a0d2e35f1ec73a3c5330d88ae89b91f22a"
+require_text docs/native-submission-shadow-verification-v1.md "a2ac02b1d1c7c0dd25d4ac59509bbf7b97b7a22a2a6f9e59a2eb951c99ad6b70"
+require_text docs/native-submission-shadow-verification-v1.md "3b43c67e17fb49169ba3c749d077470ff9673e86555aaa656927f0d26b7c0631"
+require_text docs/native-submission-shadow-verification-v1.md "5d43fa2e3f48cff0098797dca9895c0c82729d17b65a58d59b16534de14a3b81"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"
