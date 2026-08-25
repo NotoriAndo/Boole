@@ -261,6 +261,29 @@ require_text docs/native-submission-shadow-verification-v1.md "BOOT-GUEST-INIT-C
 require_text docs/native-submission-shadow-verification-v1.md "static-PID-1 shortcut contradicted"
 require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v1-scaffold.json '"systemdGuestClosure"'
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
+# BOOT-GUEST-INIT-COMPATIBILITY-V1 freezes the real systemd guest shape
+# without reinterpreting the incomplete OCI source lock as a boot disk.
+require_file native/containment/native-shadow-guest-init-compatibility-arm64-v1.json
+require_file scripts/native_shadow_guest_init_compatibility_arm64_v1.py
+require_file scripts/test_native_shadow_guest_init_compatibility_arm64_v1.py
+require_text scripts/self-test.sh "scripts/test_native_shadow_guest_init_compatibility_arm64_v1.py"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-GUEST-INIT-COMPATIBILITY-V1 (2026-08-26)"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "SOURCE_SHAPE_REQUIREMENTS_PRESENT_UNVERIFIED"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'signedClosureVerified=false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'runtimeCompatibilityVerified=false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'authorityBoundaryVerified=false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Explicit replay-node binary, service and"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-INPUT-AUTHORITY-V1  NEXT"
+require_text docs/native-submission-shadow-verification-v1.md "BOOT-GUEST-INIT-COMPATIBILITY-V1 CONTRACT"
+require_text docs/native-submission-shadow-verification-v1.md "Explicit replay-node paths are rejected"
+require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.json '"guestNodeAuthorityAllowed": false'
+require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.json '"rootDiskReadOnly": true'
+require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.json '"requiredPackageSeed": "systemd"'
+require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.json '"staticPid1Allowed": false'
+require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.json '"sourceShapeStatusIsSignedClosureEvidence": false'
+require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.json '"sourceShapeStatusIsRuntimeCompatibilityEvidence": false'
+require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.json '"sourceShapeStatusIsAuthorityBoundaryEvidence": false'
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
 require_text docs/install.md "must not be presented as the finished Mac product installer"
 require_text README.md "current command is a source/developer bootstrap"
@@ -280,9 +303,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "2fb026c06af06a60147e582265f2864b96b6b297392ab989a6c5423d9bb77565"
-require_text docs/native-submission-shadow-verification-v1.md "9c659aa341eff6f7bc9e1f38808d6babc74c6bf0690a97511e6e69a9daf1ae8b"
-require_text docs/native-submission-shadow-verification-v1.md "3a2e846d94364124bef6a6c08d796e611a6381ecf9ef1dc952417efaab5f5b61"
+require_text docs/native-submission-shadow-verification-v1.md "aacbddae954cf073d00ed81595a49955710a2eb5245ee0958b692b3b78563361"
+require_text docs/native-submission-shadow-verification-v1.md "6c536f81a09bc790c05a9b5c3ca277b89353776eeee2342a0fea5dfd658e62f1"
+require_text docs/native-submission-shadow-verification-v1.md "d67b4e8f4f799a45de0f36bda5b1d3a0d2e35f1ec73a3c5330d88ae89b91f22a"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"

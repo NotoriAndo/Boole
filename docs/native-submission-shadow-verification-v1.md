@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `2fb026c06af06a60147e582265f2864b96b6b297392ab989a6c5423d9bb77565` (updated 2026-08-26c — preflight bound to the frozen systemd execution policy) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `9c659aa341eff6f7bc9e1f38808d6babc74c6bf0690a97511e6e69a9daf1ae8b` (updated 2026-08-26c — cursor moved to guest-init compatibility) |
+| `local-docs/todo/todo-l1-network-master.md` | `aacbddae954cf073d00ed81595a49955710a2eb5245ee0958b692b3b78563361` (updated 2026-08-26d — guest-init result narrowed to unverified source shape) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `6c536f81a09bc790c05a9b5c3ca277b89353776eeee2342a0fea5dfd658e62f1` (updated 2026-08-26d — input-authority cursor retains three unverified boundaries) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `3a2e846d94364124bef6a6c08d796e611a6381ecf9ef1dc952417efaab5f5b61` (updated 2026-08-26c — static-PID-1 shortcut removed before merge) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `d67b4e8f4f799a45de0f36bda5b1d3a0d2e35f1ec73a3c5330d88ae89b91f22a` (updated 2026-08-26d — systemd shape contract realized without authority overclaim) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1076,3 +1076,26 @@ CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED` and remains mandatory before MAC.5/MAC.6 or
 any production-support claim. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
 Base activation `false` and `activationAllowed=false` are unchanged.
+
+_2026-08-26c guest-init compatibility addendum:_ **BOOT-GUEST-INIT-COMPATIBILITY-V1 CONTRACT
+GREEN; CURRENT ARM64 SOURCE LOCK BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS.** The frozen compatibility
+authority requires real systemd PID 1, the exact launcher unit/sysusers/tmpfiles inputs, an ARM64
+launcher binary, explicit unit enablement, a read-only root disk with named ephemeral runtime
+mounts, cgroup v2 `cpu`/`memory`/`pids` delegation and the kernel facilities already required by
+the ARM64 execution policy. The current 62-artifact source lock lacks exactly seven source-shape
+requirements: systemd package seed, launcher binary, launcher unit, sysusers config, tmpfiles config,
+empty machine-id and launcher enablement. The audit result therefore writes no artifacts and makes
+no boot claim.
+
+The Mac host node remains the durable journal authority. Explicit replay-node paths are rejected,
+but source shape alone does not prove the absence of every renamed or package-embedded authority;
+authenticated host/guest transport and runtime boundary verification remain deferred to MAC.3.
+The current OCI rootfs, a host systemd syntax gate, a fake `/bin/true` service or a static PID 1
+cannot satisfy this contract. The next cursor is `BOOT-INPUT-AUTHORITY-V1`, which may pin a
+separately resolved successor source lock and exact kernel/image-builder/launcher bytes only after
+the auditor reports `SOURCE_SHAPE_REQUIREMENTS_PRESENT_UNVERIFIED`. That result keeps signed
+closure, runtime compatibility and authority-boundary verification false; later gates must verify
+all three independently. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED` and remains mandatory before MAC.5/MAC.6 or any
+production-support claim. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base
+activation `false` and `activationAllowed=false` are unchanged.
