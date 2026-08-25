@@ -1,0 +1,103 @@
+{
+  "activationAllowed": false,
+  "authorityInputs": {
+    "acquisitionPlan": {
+      "sha256": "3f78559e29fbdb5b417eeb316687a4347907e4624b75da057c3f255e810ff35d",
+      "sizeBytes": 3661
+    },
+    "baselineResolution": {
+      "sha256": "69d7d12cfeb12d842ddf23ea795c07c5a6fa6ad58b7b1053f7a262d5da17ea52",
+      "sizeBytes": 85358
+    },
+    "candidateGenerator": {
+      "sha256": "e4f591cdfea32de8285842d5c3bfc32044d27915ea04d4de8c9d90a37036a53c",
+      "sizeBytes": 29207
+    },
+    "candidatePlan": {
+      "sha256": "f5465cd62b8b96f2e5b1702e72d2be2b2d73d3924968974604697a4a1614681f",
+      "sizeBytes": 4768
+    },
+    "candidateResult": {
+      "sha256": "a8329d35b480e6b40823e8823551c16eb71a0d7bbc1da40483f05b4535815f26",
+      "sizeBytes": 343125
+    },
+    "payloadAcquirer": {
+      "sha256": "7cc4b44e9240dd6c7938521c166a9a7cfd7f9671ea8a5d11ef28a0ae7dd662f3",
+      "sizeBytes": 40782
+    }
+  },
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "imageBuilderAuthorityPresent": false,
+    "kernelImageExtracted": false,
+    "launcherElfPresent": false,
+    "maintainerScriptsExecuted": false,
+    "packagePayloadsAcquired": false,
+    "packagePayloadsVerified": false,
+    "runtimeCompatibilityVerified": false
+  },
+  "excludedRustArtifactIds": [
+    "cargo-rustdist",
+    "rust-std-rustdist",
+    "rustc-rustdist"
+  ],
+  "expected": {
+    "baselineFetchBytes": 66498278,
+    "baselineFetches": 51,
+    "baselinePackageBytes": 66992762,
+    "baselinePackages": 56,
+    "candidatePackageBytes": 208936876,
+    "candidatePackages": 191,
+    "deltaFetchBytes": 141932990,
+    "deltaFetches": 134,
+    "deltaPackageBytes": 141944114,
+    "deltaPackages": 135,
+    "metadataFetchBytes": 1376632,
+    "metadataFetches": 1
+  },
+  "initialCas": {
+    "packagesIndexPresent": false,
+    "presentBaselinePackageIds": [
+      "deb-31bfb7eec55ab6d34a50ba995150e1498d4cb897714085d8025e330d3b529747",
+      "deb-879bfd7f8a9bc4c0f7cdc777cdd8bc6de5f8c4a2ac80c060322a1b22f13504bb",
+      "deb-8cdbc9c3dca01e660759bf9d840f72e45ac72faf5d19ca1faecacaf6a60c1a87",
+      "deb-bb390da466a7461bfc87aa3e6b7cd145dae84af3e26bf437f2c0c218ba226294",
+      "deb-f5bca0c788a4fc465c435f7e8a54b2594e9cbf1a22abb263a59e393f1cb666e1"
+    ],
+    "presentDeltaPackageIds": [
+      "deb-36de43b15853ccae0028e9a767613770c704833f82586f28eb262f0311adb8a8"
+    ]
+  },
+  "release": "NATIVE-SHADOW-BOOT-ROOTFS-PAYLOAD-ACQUISITION-ARM64-V1",
+  "repository": {
+    "inRelease": {
+      "artifactId": "ubuntu-inrelease",
+      "path": "dists/noble/InRelease",
+      "sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+      "sizeBytes": 255850
+    },
+    "keyringBootstrap": {
+      "bootstrapArtifactId": "ubuntu-keyring-bootstrap-deb",
+      "keyringArtifactId": "ubuntu-keyring",
+      "memberPath": "usr/share/keyrings/ubuntu-archive-keyring.gpg",
+      "sha256": "36de43b15853ccae0028e9a767613770c704833f82586f28eb262f0311adb8a8",
+      "sizeBytes": 11124,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1_all.deb"
+    },
+    "packagesIndex": {
+      "artifactId": "ubuntu-packages-index",
+      "path": "dists/noble/main/binary-arm64/Packages.xz",
+      "releasePath": "main/binary-arm64/Packages.xz",
+      "sha256": "4a1901e6124fb0a111f5dffc8f5c14474f449e2ecfa71f2eaf0b29917edb53f9",
+      "sizeBytes": 1376632
+    },
+    "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z",
+    "snapshotId": "20240425T160000Z"
+  },
+  "schema": "boole.native-shadow.boot-rootfs-payload-acquisition-plan.arm64.v1",
+  "toolDigests": {
+    "gpgvSha256": "f1c71affd4ce40e3c5a53b8cb0ac9601fbcd31d6834b732dd0c7b0145dce1995",
+    "zstdSha256": "aff8169fb421bb925fb16c44a7e0143fa2c7a941dc45cce76b15062a2ce54917"
+  }
+}
