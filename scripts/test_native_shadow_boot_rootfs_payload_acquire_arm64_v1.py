@@ -15,6 +15,7 @@ from scripts import native_shadow_boot_rootfs_payload_acquire_arm64_v1 as payloa
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PLAN = ROOT / "native/containment/native-shadow-boot-rootfs-payload-acquisition-plan-arm64-v1.json"
+RESULT = ROOT / "native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json"
 ACQUIRER = ROOT / "scripts/native_shadow_boot_rootfs_payload_acquire_arm64_v1.py"
 
 def _spec(identifier: str, raw: bytes) -> dict[str, object]:
@@ -27,6 +28,37 @@ def _spec(identifier: str, raw: bytes) -> dict[str, object]:
 
 
 class NativeShadowBootRootfsPayloadAcquireArm64Tests(unittest.TestCase):
+    def test_tracked_result_closes_191_payloads_without_boot_authority(self) -> None:
+        raw = RESULT.read_bytes()
+        result = payloads._canonical_object(raw, "tracked payload result")
+        self.assertEqual(result["schema"], payloads.RESULT_SCHEMA)
+        self.assertEqual(result["status"], payloads.RESULT_STATUS)
+        self.assertEqual(result["planSha256"], hashlib.sha256(PLAN.read_bytes()).hexdigest())
+        self.assertEqual(result["counts"]["metadataFetched"], 1)
+        self.assertEqual(result["counts"]["baselineFetched"], 51)
+        self.assertEqual(result["counts"]["baselineReused"], 5)
+        self.assertEqual(result["counts"]["deltaFetched"], 134)
+        self.assertEqual(result["counts"]["deltaReused"], 1)
+        self.assertEqual(result["counts"]["candidatePackages"], 191)
+        self.assertEqual(result["counts"]["fetchedBytes"], 209_807_900)
+        self.assertEqual(len(result["fetchedArtifactIds"]), 186)
+        self.assertEqual(len(result["reusedPackageIds"]), 6)
+        self.assertTrue(result["boundaries"]["packagePayloadsAcquired"])
+        self.assertTrue(result["boundaries"]["packagePayloadsVerified"])
+        for name in (
+            "bootAuthority",
+            "imageBuilderAuthorityPresent",
+            "kernelImageExtracted",
+            "launcherElfPresent",
+            "maintainerScriptsExecuted",
+            "runtimeCompatibilityVerified",
+        ):
+            self.assertFalse(result["boundaries"][name])
+        self.assertFalse(result["productionByteProvenanceComplete"])
+        self.assertFalse(result["bootableClaim"])
+        self.assertFalse(result["activationAllowed"])
+        self.assertEqual(result["bootArtifactsWritten"], 0)
+
     def test_tracked_plan_pins_exact_authorities_and_51_then_134_contract(self) -> None:
         plan, raw = payloads._load_execution_plan(PLAN)
         self.assertEqual(hashlib.sha256(raw).hexdigest(), payloads.EXPECTED_PLAN_SHA256)

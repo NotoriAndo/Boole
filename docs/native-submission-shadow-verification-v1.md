@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `a2ac02b1d1c7c0dd25d4ac59509bbf7b97b7a22a2a6f9e59a2eb951c99ad6b70` (updated 2026-08-26e — signed-metadata dependency candidate frozen without boot authority) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `3b43c67e17fb49169ba3c749d077470ff9673e86555aaa656927f0d26b7c0631` (updated 2026-08-26e — cursor moves to separately approved payload acquisition) |
+| `local-docs/todo/todo-l1-network-master.md` | `0b6a66165104bd68bcfe238fe5adcfe0ebb9837ef42f66af8424f88836cf5a4d` (updated 2026-08-26f — 191/191 ARM64 package payloads acquired and verified without boot authority) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `c1ad7007c6e32b3bab0f2f30462e32218224157fbaab5b06850b72adbf232efc` (updated 2026-08-26f — cursor moves to successor source-lock/input authority) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `5d43fa2e3f48cff0098797dca9895c0c82729d17b65a58d59b16534de14a3b81` (updated 2026-08-26e — dependency-list proposition realized without payload or boot claim) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `4a62c56781575800ad4da8bffc699e06d90f6c4e361611835533f57643001f8c` (updated 2026-08-26f — package-byte provenance realized without source-lock or boot claim) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1123,6 +1123,28 @@ and remains mandatory before MAC.5/MAC.6, release readiness or activation. `mine
 `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` remain unchanged.
 
 The 2026-08-26e mirror synchronization appends this same candidate-only boundary to
+`todo-l1-network-master.md`, `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other
+three section 12 mirrors are byte-unchanged. The section 12 table contains the recomputed SHA-256
+values for the three edited local mirrors; these values are synchronization evidence only, never
+runtime trust roots.
+
+_2026-08-26f package-payload addendum:_ **BOOT-ROOTFS-PAYLOAD-ACQUISITION-ARM64-V1 =
+PACKAGE-PAYLOADS-ACQUIRED-VERIFIED-NOT-BOOT-AUTHORITY.** A pre-registered plan (SHA-256
+`f6589fe619e83531d9e76c998dbd5ab33436595e307579ccfecd2de644069fd1`) fetched the missing
+ARM64 `Packages.xz`, replayed the signed Ubuntu snapshot and required byte equality with the
+tracked 191-row candidate before opening a package URL. It then fetched baseline 51 and verified
+56/56 before fetching delta 134 and verifying 191/191. Six exact package CAS hits were reused with
+zero requests. The 186 network responses totaled 209,807,900 bytes. The canonical result SHA-256
+is `60408c39ac48f3b7ef272e050349dee84ee28693d6c33e528c77898927f4b3df`.
+
+The package files remain opaque bytes. No `apt`/`dpkg`, extraction, maintainer script, ARM64 Rust
+distribution, launcher ELF, kernel extraction, image builder, initrd/root disk or VM boot ran.
+Only package acquisition/verification are true; runtime compatibility, production provenance,
+bootability and activation remain false. CURL.3 remains deferred and unpassed, and remains a
+mandatory release gate. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD` and Base
+activation `false` are unchanged.
+
+The 2026-08-26f mirror synchronization appends this same payload-only boundary to
 `todo-l1-network-master.md`, `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other
 three section 12 mirrors are byte-unchanged. The section 12 table contains the recomputed SHA-256
 values for the three edited local mirrors; these values are synchronization evidence only, never
