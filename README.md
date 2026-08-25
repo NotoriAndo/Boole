@@ -27,7 +27,9 @@ Boundary: the linked sample artifact demonstrates the verifier/replay benchmark 
 
 ## Quick install
 
-Install required local dependencies, clone/update Boole, and run the setup doctor:
+Developer/source bootstrap — the current command is a source/developer bootstrap, not the finished
+curl-first Mac product installer. It installs local dependencies, clones/updates Boole, and runs
+the setup doctor:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh | bash

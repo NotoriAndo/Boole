@@ -1,6 +1,16 @@
 # Boole installer
 
-Boole provides a one-line bootstrapper for users who should not need to manually clone the repository or install every toolchain by hand.
+Status: **SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER**.
+
+The command below is the current developer/source bootstrap. It clones or updates the repository
+and installs development toolchains. It **must not be presented as the finished Mac product installer**.
+The curl-first product successor will instead install immutable, prebuilt macOS arm64
+CLI/controller artifacts and a separately verified Linux/arm64 guest without requiring Git, Rust,
+Lean, Python, Homebrew or other build tools on the user's Mac. That successor is not implemented
+yet.
+
+Boole currently provides a one-line source bootstrapper for developers and local evaluators who
+do not want to clone the repository or prepare every toolchain manually.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NotoriAndo/Boole/main/install.sh | bash

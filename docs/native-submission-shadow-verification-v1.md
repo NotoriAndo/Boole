@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `aa555992275d69411eb7f09ff51764d950001b59f8690b56d637719223e92d83` (updated 2026-08-25c — MAC.2-B core/KAT green; production update authority open) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `72ec7a25c47235aabb54cc4b6ec48f3698483727fac46e4b8b2b36519da6efd0` (updated 2026-08-25c — cursor at production identity and durable same-FD staging/adoption) |
+| `local-docs/todo/todo-l1-network-master.md` | `b86d4ed1da903fa00c4cebaf6a0400e72fbb281cf41882f4306dd0e7887ad0fe` (updated 2026-08-25d — curl-first CLI/service supersedes GUI app distribution) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `4a9a163a2a5d31fcf618bb8f83e84830ae5381fd6f9169462ac70ac5e662fdaa` (updated 2026-08-25d — cursor at immutable release contract, then installer v2) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `47771f0a1fd215d56f176bcdf8b3973af65dd904380c2fafaab22284f5012ff5` (updated 2026-08-25c — offline verifier core/KAT evidence and production boundary) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `20a890c5e3792a9cd7faf9a465676ff017f894b0dc49df99ee17204ff2829f5e` (updated 2026-08-25d — curl-first product realization chain) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -881,3 +881,25 @@ offline verifier core/KAT is GREEN, production identity and durable adoption rem
 MAC.3 remains blocked. The other three section 12 mirrors are byte-unchanged. The section 12
 table contains the recomputed SHA-256 values of all three edited local mirrors; those digests are
 synchronization evidence only and do not make `local-docs` a runtime trust root.
+
+_2026-08-25d product-form correction:_ **CURL-FIRST-CLI-SERVICE-DISTRIBUTION — CURRENT** now
+supersedes the prior GUI `Boole.app`, Developer ID and Bundle/Team-ID product-form decision. The
+consumer contract is one reviewed curl command that installs a verified prebuilt macOS arm64 CLI,
+an internal host controller and a versioned Linux/arm64 guest. Team ID is not a runtime authority
+and is not a prerequisite for this curl-first implementation. Apple signing/notarization may be
+added later as distribution hardening, while a clean supported Mac must independently prove that
+the chosen Team-ID-free code signature carries the Virtualization entitlement and runs the hidden
+guest without a developer toolchain.
+
+The correction changes packaging, not verifier authority. MAC.0, MAC.2-A and
+**MAC.2-B-CORE/KAT GREEN** remain valid. The production Ed25519 update trust root, signed release
+manifest, durable staging/adoption and post-adoption verification remain open, so MAC.2-B
+production and MAC.3-CLI remain blocked. The existing `install.sh` is a source/developer bootstrap,
+not the immutable product installer. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged.
+
+The 2026-08-25d mirror synchronization appends this corrected product form to
+`todo-l1-network-master.md`, `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other
+three section 12 mirrors are byte-unchanged. The section 12 table contains the recomputed SHA-256
+values for the three edited mirrors; these values are synchronization evidence only, never runtime
+trust roots.

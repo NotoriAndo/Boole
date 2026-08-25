@@ -1,11 +1,12 @@
 # Mac-first hidden Linux execution plan v1
 
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
-MAC.1-PARTIAL — DISTRIBUTION MODE, PUBLIC IDENTITY, AND MEASUREMENT PROTOCOL REQUIRED (completion
-accounting corrected 2026-08-25, section 10.6; macOS 14/M1/Intel decision remains fixed);
+MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PROTOCOL OPEN
+(product-form correction 2026-08-25, section 14; macOS 14/M1/Intel decision remains fixed);
 MAC.2-PARTIAL — CLOSED-LOCAL LINUX/ARM64 AUTHORITY PARITY COMPLETE; STAGED VERIFIER
 CORE/KAT GREEN; PRODUCTION AUTHORIZATION, ADOPTION AND POST-ADOPTION REVERIFICATION OPEN
-(sections 11 and 13); MAC.3 BLOCKED /
+(sections 11 and 13); CURL-FIRST-CLI-SERVICE-DISTRIBUTION — CURRENT (section 14 supersedes the
+Boole.app/Developer-ID/Team-ID product-form decision); MAC.3 BLOCKED /
 NOT STARTED — NOT IMPLEMENTED, NOT RELEASE-READY, NO ACTIVATION AUTHORITY.**
 
 This plan defines the product boundary for running Boole's native-answer checker for Mac users.
@@ -676,3 +677,81 @@ MAC.3    BLOCKED — no hidden VM lifecycle work may start through this closure
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. This is a
 closed-local implementation and CI result, not public mining, an API benchmark, a released Mac
 product or a production update authorization.
+
+## 14. Curl-first CLI/service distribution correction (2026-08-25)
+
+Current product form: **CURL-FIRST-CLI-SERVICE-DISTRIBUTION — CURRENT**. The operator clarified
+that “app” had been shorthand for the installed product, not an instruction to ship a GUI app
+bundle. The earlier **Boole.app distribution decision is SUPERSEDED**. Its historical text remains
+above so the correction is auditable, but it no longer controls implementation or completion
+accounting.
+
+The supported user journey is:
+
+```text
+one reviewed curl command
+→ curl installer → verified prebuilt macOS arm64 CLI and host controller
+→ exact signed-manifest verification of the versioned Linux/arm64 guest
+→ CLI-managed, user-invisible Linux checker service
+→ node-owned durable verdict/evidence/replay behavior
+```
+
+The installed product is a command-line interface plus an internal host controller/service. A GUI,
+`.app` bundle, App Store listing and Bundle ID are not v1 requirements. The user may use the
+terminal for the single install command and normal Boole CLI commands, but must not need to install
+or administer Docker Desktop, Homebrew, Rust, Python, Linux, a VM application or a guest login.
+
+**Team ID is not a prerequisite for the curl-first path.** Developer ID signing and Apple
+notarization are optional future distribution hardening, not blockers for the release/installer
+architecture or for closed-local implementation. The macOS process that calls Virtualization.framework
+must still carry `com.apple.security.virtualization` in its code signature. Whether the chosen
+Team-ID-free/ad-hoc signing form works on a clean supported Mac is an explicit measured acceptance
+gate; it must not be inferred from a developer machine or bypassed by relying on quarantine quirks.
+If that clean-Mac gate fails, stop and choose a separately reviewed execution alternative rather
+than silently requiring an Apple identity or weakening containment.
+
+GitHub Releases remains the initial transport for immutable, versioned CLI/controller/guest
+artifacts. Transport is not authority. The injected Ed25519 update trust policy, canonical signed
+manifest, exact sizes and SHA-256 values remain the authority. The production update public key,
+private signing custody, initial sequence floor and rotation/revocation procedure still require an
+operator-owned release decision, independently of any Apple Team ID.
+
+The current `install.sh` command is a source/developer bootstrap: it clones `main` and installs
+Git, Rust, Lean, Python and build tools. It is not the finished curl product installer and must not
+be relabelled as one. The product successor must install an immutable release version, verify its
+manifest/signature and exact artifacts before adoption, avoid developer toolchains on the user's
+Mac, and provide deterministic update, rollback and uninstall behavior.
+
+The earlier app-shaped acceptance language maps to the curl-first product as follows; it is not an
+additional GUI requirement:
+
+- MAC.3's `app-scoped` lifecycle and `app quit` boundary mean an install-scoped host
+  controller/service lifecycle, explicit service stop or uninstall, and Mac reboot. No prior guest
+  instance or session may survive any of those boundaries.
+- MAC.5's “install only `Boole.app`” requirement means one reviewed curl install followed by normal
+  Boole CLI use. Terminal use for Boole is allowed; manual VM, Linux or developer-toolchain
+  administration remains forbidden.
+- MAC.6's signed-app artifact means the complete host payload (CLI plus controller/service) verified
+  by the Boole release manifest. The old 512 MiB app cap becomes a 512 MiB total host-payload cap;
+  the guest and rollback caps remain unchanged.
+
+Unchanged evidence: **MAC.2-B-CORE/KAT GREEN remains valid**. MAC.0 exactly-once behavior,
+MAC.2-A Linux/arm64 parity, the Linux containment authority and PR #226's offline update verifier
+are independent of GUI packaging and remain valid.
+
+Corrected execution cursor:
+
+```text
+CURL.0  COMPLETE — curl-first CLI/service product contract corrected and frozen
+CURL.1  OPEN — immutable prebuilt macOS arm64 CLI/controller/guest release contract
+CURL.2  OPEN — product installer v2 with signature/hash/version verification and no dev toolchain
+CURL.3  OPEN — clean macOS 14/M1 Team-ID-free virtualization-entitlement canary
+MAC.2-B-CORE/KAT GREEN — reusable offline verifier
+MAC.2-B production OPEN — real update trust root, first signed manifest and durable adoption open
+MAC.3-CLI BLOCKED / NOT STARTED — CLI-managed hidden VM lifecycle follows CURL.1–CURL.3 evidence
+MAC.2-C / MAC.4–MAC.6 OPEN — post-adoption, host/guest, clean-install and release gates remain
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No public
+mining, paid API benchmark, release upload, user installation or production activation occurred.
