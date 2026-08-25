@@ -25,6 +25,7 @@ pub mod family_manifest_registry;
 pub mod family_v1_lenbound;
 pub mod fork_choice;
 pub mod genesis;
+pub mod guest_boot;
 pub mod hash;
 pub mod lean_bound_canon;
 pub mod native_shadow_update;
@@ -96,12 +97,14 @@ pub use curl_product_install::{
     CURL_PRODUCT_INSTALL_STATE_TEMP_FILE, CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY,
 };
 pub use curl_product_release::{
-    authenticate_curl_product_release, AuthenticatedCurlProductRelease, CurlProductReleaseFloor,
-    CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError, ProductArtifactRole,
-    VerifiedCurlProductRelease, CURL_PRODUCT_RELEASE_CONTROLLER_PROTOCOL_VERSION,
-    CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA, CURL_PRODUCT_RELEASE_MINIMUM_MACOS,
-    CURL_PRODUCT_RELEASE_SIGNING_CONTEXT, MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES,
-    MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES, MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
+    authenticate_bootable_curl_product_release, authenticate_curl_product_release,
+    AuthenticatedCurlProductRelease, CurlProductReleaseFloor, CurlProductReleaseTrustRoot,
+    CurlProductReleaseVerifyError, ProductArtifactRole, VerifiedCurlProductRelease,
+    CURL_PRODUCT_RELEASE_CONTROLLER_PROTOCOL_VERSION, CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA,
+    CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA_V2, CURL_PRODUCT_RELEASE_MINIMUM_MACOS,
+    CURL_PRODUCT_RELEASE_SIGNING_CONTEXT, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT_V2,
+    MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES, MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES,
+    MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
 };
 pub use curl_virtualization_canary::{
     evaluate_curl_virtualization_canary, CanaryBootInputPin, CanaryBootInputRole, CanaryBootLoader,
@@ -123,6 +126,7 @@ pub use family_manifest::{
 pub use family_manifest_registry::FamilyManifestRegistry;
 pub use fork_choice::{choose_canonical_head, cumulative_difficulty_weight, head_block_hash};
 pub use genesis::{network_genesis_preset, GenesisInitialState, GenesisParams, GenesisSpec};
+pub use guest_boot::GuestBootArtifactRole;
 pub use hash::{
     block_hash, difficulty_weight, digest_to_biguint, find_target_seed_j_index, h_protocol,
     min_share_score, parse_biguint_hex, share_hash, share_score, submission_pow_hash,
@@ -130,10 +134,11 @@ pub use hash::{
 };
 pub use lean_bound_canon::{lean_bound_canon_package, lean_bound_verifier_hash};
 pub use native_shadow_update::{
-    authenticate_staged_native_shadow_update, AuthenticatedStagedNativeShadowUpdate,
-    GuestArtifactRole, NativeShadowUpdateFloor, NativeShadowUpdateTrustRoot,
-    NativeShadowUpdateVerifyError, VerifiedStagedNativeShadowUpdate, GUEST_UPDATE_MANIFEST_SCHEMA,
-    MAX_GUEST_UPDATE_ARTIFACT_BYTES, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
+    authenticate_staged_bootable_native_shadow_update, authenticate_staged_native_shadow_update,
+    AuthenticatedStagedNativeShadowUpdate, GuestArtifactRole, NativeShadowUpdateFloor,
+    NativeShadowUpdateTrustRoot, NativeShadowUpdateVerifyError, VerifiedStagedNativeShadowUpdate,
+    GUEST_UPDATE_MANIFEST_SCHEMA, GUEST_UPDATE_MANIFEST_SCHEMA_V2, MAX_GUEST_UPDATE_ARTIFACT_BYTES,
+    NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT, NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
 };
 pub use package_sidecar::{
     CanonicalPackage, PackageFile, PackageRoot, PackageSidecarError, MAX_PACKAGE_CANONICAL_BYTES,

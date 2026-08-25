@@ -44,6 +44,8 @@ use std::fmt;
 
 use thiserror::Error;
 
+pub use crate::guest_boot::GuestBootArtifactRole as CanaryBootInputRole;
+
 /// The entitlement the signed host controller must carry to call
 /// Virtualization.framework.
 pub const CURL_CANARY_REQUIRED_ENTITLEMENT: &str = "com.apple.security.virtualization";
@@ -81,33 +83,6 @@ impl fmt::Display for MacOsVersion {
 pub enum HostArchitecture {
     AppleSilicon,
     Intel,
-}
-
-/// The three host-side boot inputs frozen by the CURL.1 direct-kernel-boot
-/// decision.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CanaryBootInputRole {
-    GuestKernel,
-    GuestInitrd,
-    GuestRootDisk,
-}
-
-impl CanaryBootInputRole {
-    pub const ALL: [Self; 3] = [Self::GuestKernel, Self::GuestInitrd, Self::GuestRootDisk];
-
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::GuestKernel => "guest-kernel",
-            Self::GuestInitrd => "guest-initrd",
-            Self::GuestRootDisk => "guest-root-disk",
-        }
-    }
-}
-
-impl fmt::Display for CanaryBootInputRole {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

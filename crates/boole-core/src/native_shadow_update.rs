@@ -14,19 +14,53 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+use crate::guest_boot::GuestBootArtifactRole;
 use crate::release_contract_util::{self, ContractJsonError, RequiredPreviousManifestSha256};
 use crate::{verify_signature_with_network, Hex32, SIGNED_ENVELOPE_SCHEMA};
 
 pub const GUEST_UPDATE_MANIFEST_SCHEMA: &str = "boole.native-shadow.guest-update-manifest.v1";
 pub const NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT: &str = "boole-native-shadow-guest-update-v1";
+pub const GUEST_UPDATE_MANIFEST_SCHEMA_V2: &str = "boole.native-shadow.guest-update-manifest.v2";
+pub const NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2: &str = "boole-native-shadow-guest-update-v2";
 pub const MAX_GUEST_UPDATE_ARTIFACT_BYTES: u64 = 2_147_483_648;
 const MAX_MANIFEST_BYTES: usize = 1_048_576;
 const MAX_DETACHED_SIGNATURE_BYTES: usize = 4_096;
+
+const GUEST_ARTIFACT_ROLES_V1: [GuestArtifactRole; 10] = [
+    GuestArtifactRole::GuestRootfs,
+    GuestArtifactRole::RootfsContentManifest,
+    GuestArtifactRole::Registry,
+    GuestArtifactRole::ExecutionPolicy,
+    GuestArtifactRole::ToolchainIdentity,
+    GuestArtifactRole::CheckerReleaseManifest,
+    GuestArtifactRole::RegistryOverlay,
+    GuestArtifactRole::ClosedLocalReplayGrant,
+    GuestArtifactRole::LocalExecutionAuthority,
+    GuestArtifactRole::ClosedLocalReplayExecutionAuthority,
+];
+
+const GUEST_ARTIFACT_ROLES_V2: [GuestArtifactRole; 12] = [
+    GuestArtifactRole::GuestKernel,
+    GuestArtifactRole::GuestInitrd,
+    GuestArtifactRole::GuestRootDisk,
+    GuestArtifactRole::RootfsContentManifest,
+    GuestArtifactRole::Registry,
+    GuestArtifactRole::ExecutionPolicy,
+    GuestArtifactRole::ToolchainIdentity,
+    GuestArtifactRole::CheckerReleaseManifest,
+    GuestArtifactRole::RegistryOverlay,
+    GuestArtifactRole::ClosedLocalReplayGrant,
+    GuestArtifactRole::LocalExecutionAuthority,
+    GuestArtifactRole::ClosedLocalReplayExecutionAuthority,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum GuestArtifactRole {
     GuestRootfs,
+    GuestKernel,
+    GuestInitrd,
+    GuestRootDisk,
     RootfsContentManifest,
     Registry,
     ExecutionPolicy,
@@ -39,22 +73,20 @@ pub enum GuestArtifactRole {
 }
 
 impl GuestArtifactRole {
-    pub const ALL: [Self; 10] = [
-        Self::GuestRootfs,
-        Self::RootfsContentManifest,
-        Self::Registry,
-        Self::ExecutionPolicy,
-        Self::ToolchainIdentity,
-        Self::CheckerReleaseManifest,
-        Self::RegistryOverlay,
-        Self::ClosedLocalReplayGrant,
-        Self::LocalExecutionAuthority,
-        Self::ClosedLocalReplayExecutionAuthority,
-    ];
+    /// Frozen v1 runtime-authority set.  Keep this exact-ten list unchanged:
+    /// deployed/KAT v1 material uses one OCI-style `guest-rootfs` artifact.
+    pub const ALL: [Self; 10] = GUEST_ARTIFACT_ROLES_V1;
+
+    /// Bootable v2 runtime-authority set.  The legacy OCI `guest-rootfs` is
+    /// replaced by the three host-side files required by VZLinuxBootLoader.
+    pub const BOOTABLE_ALL: [Self; 12] = GUEST_ARTIFACT_ROLES_V2;
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::GuestRootfs => "guest-rootfs",
+            Self::GuestKernel => GuestBootArtifactRole::GuestKernel.as_str(),
+            Self::GuestInitrd => GuestBootArtifactRole::GuestInitrd.as_str(),
+            Self::GuestRootDisk => GuestBootArtifactRole::GuestRootDisk.as_str(),
             Self::RootfsContentManifest => "rootfs-content-manifest",
             Self::Registry => "registry",
             Self::ExecutionPolicy => "execution-policy",
@@ -167,6 +199,8 @@ struct DetachedUpdateSignature {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct NativeShadowUpdateManifest {
     schema: String,
+    #[serde(default)]
+    boot_format_version: Option<u64>,
     channel: String,
     release_sequence: u64,
     release_version: String,
@@ -185,8 +219,47 @@ struct GuestArtifactDescriptor {
     sha256: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GuestUpdateContract {
+    FrozenV1,
+    BootableV2,
+}
+
+impl GuestUpdateContract {
+    const fn manifest_schema(self) -> &'static str {
+        match self {
+            Self::FrozenV1 => GUEST_UPDATE_MANIFEST_SCHEMA,
+            Self::BootableV2 => GUEST_UPDATE_MANIFEST_SCHEMA_V2,
+        }
+    }
+
+    const fn signing_context(self) -> &'static str {
+        match self {
+            Self::FrozenV1 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT,
+            Self::BootableV2 => NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT_V2,
+        }
+    }
+
+    const fn boot_format_version(self) -> Option<u64> {
+        match self {
+            Self::FrozenV1 => None,
+            Self::BootableV2 => Some(1),
+        }
+    }
+
+    const fn required_roles(self) -> &'static [GuestArtifactRole] {
+        match self {
+            Self::FrozenV1 => &GUEST_ARTIFACT_ROLES_V1,
+            Self::BootableV2 => &GUEST_ARTIFACT_ROLES_V2,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct AuthenticatedStagedNativeShadowUpdate {
+    manifest_schema: &'static str,
+    boot_format_version: Option<u64>,
+    required_roles: &'static [GuestArtifactRole],
     release_sequence: u64,
     release_version: String,
     target_arch: String,
@@ -197,6 +270,8 @@ pub struct AuthenticatedStagedNativeShadowUpdate {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedStagedNativeShadowUpdate {
+    manifest_schema: &'static str,
+    boot_format_version: Option<u64>,
     release_sequence: u64,
     release_version: String,
     target_arch: String,
@@ -205,6 +280,14 @@ pub struct VerifiedStagedNativeShadowUpdate {
 }
 
 impl VerifiedStagedNativeShadowUpdate {
+    pub fn manifest_schema(&self) -> &str {
+        self.manifest_schema
+    }
+
+    pub fn boot_format_version(&self) -> Option<u64> {
+        self.boot_format_version
+    }
+
     pub fn release_sequence(&self) -> u64 {
         self.release_sequence
     }
@@ -312,8 +395,10 @@ impl AuthenticatedStagedNativeShadowUpdate {
     }
 
     pub fn finish(self) -> Result<VerifiedStagedNativeShadowUpdate, NativeShadowUpdateVerifyError> {
-        let missing: Vec<_> = GuestArtifactRole::ALL
-            .into_iter()
+        let missing: Vec<_> = self
+            .required_roles
+            .iter()
+            .copied()
             .filter(|role| !self.verified_roles.contains(role))
             .map(GuestArtifactRole::as_str)
             .collect();
@@ -324,6 +409,8 @@ impl AuthenticatedStagedNativeShadowUpdate {
             )));
         }
         Ok(VerifiedStagedNativeShadowUpdate {
+            manifest_schema: self.manifest_schema,
+            boot_format_version: self.boot_format_version,
             release_sequence: self.release_sequence,
             release_version: self.release_version,
             target_arch: self.target_arch,
@@ -338,6 +425,41 @@ pub fn authenticate_staged_native_shadow_update(
     detached_signature_raw: &[u8],
     trust_root: &NativeShadowUpdateTrustRoot,
     floor: &NativeShadowUpdateFloor,
+) -> Result<AuthenticatedStagedNativeShadowUpdate, NativeShadowUpdateVerifyError> {
+    authenticate_staged_native_shadow_update_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        floor,
+        GuestUpdateContract::FrozenV1,
+    )
+}
+
+/// Authenticate the successor contract used by a directly bootable
+/// Linux/arm64 guest.  It is deliberately a separate entrypoint: callers
+/// cannot accidentally reinterpret the frozen v1 exact-ten manifest as a
+/// bootable release.
+pub fn authenticate_staged_bootable_native_shadow_update(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &NativeShadowUpdateTrustRoot,
+    floor: &NativeShadowUpdateFloor,
+) -> Result<AuthenticatedStagedNativeShadowUpdate, NativeShadowUpdateVerifyError> {
+    authenticate_staged_native_shadow_update_for_contract(
+        manifest_raw,
+        detached_signature_raw,
+        trust_root,
+        floor,
+        GuestUpdateContract::BootableV2,
+    )
+}
+
+fn authenticate_staged_native_shadow_update_for_contract(
+    manifest_raw: &[u8],
+    detached_signature_raw: &[u8],
+    trust_root: &NativeShadowUpdateTrustRoot,
+    floor: &NativeShadowUpdateFloor,
+    contract: GuestUpdateContract,
 ) -> Result<AuthenticatedStagedNativeShadowUpdate, NativeShadowUpdateVerifyError> {
     let manifest_value = parse_canonical_json("manifest", manifest_raw, MAX_MANIFEST_BYTES)?;
     let signature_value = parse_canonical_json(
@@ -355,7 +477,7 @@ pub fn authenticate_staged_native_shadow_update(
     if signature.key_id != trust_root.key_id || signature.pk != trust_root.public_key.to_hex() {
         return Err(NativeShadowUpdateVerifyError::UntrustedKey);
     }
-    if signature.network_id.as_deref() != Some(NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT) {
+    if signature.network_id.as_deref() != Some(contract.signing_context()) {
         return Err(NativeShadowUpdateVerifyError::InvalidSignatureContext);
     }
     let manifest_sha256 = hex::encode(Sha256::digest(manifest_raw));
@@ -376,13 +498,16 @@ pub fn authenticate_staged_native_shadow_update(
 
     let manifest: NativeShadowUpdateManifest = serde_json::from_value(manifest_value)
         .map_err(|error| NativeShadowUpdateVerifyError::Malformed(error.to_string()))?;
-    validate_manifest(&manifest, floor)?;
+    validate_manifest(&manifest, floor, contract)?;
     let descriptors = manifest
         .artifacts
         .into_iter()
         .map(|descriptor| (descriptor.role, descriptor))
         .collect();
     Ok(AuthenticatedStagedNativeShadowUpdate {
+        manifest_schema: contract.manifest_schema(),
+        boot_format_version: contract.boot_format_version(),
+        required_roles: contract.required_roles(),
         release_sequence: manifest.release_sequence,
         release_version: manifest.release_version,
         target_arch: manifest.target_arch,
@@ -408,11 +533,22 @@ fn parse_canonical_json(
 fn validate_manifest(
     manifest: &NativeShadowUpdateManifest,
     floor: &NativeShadowUpdateFloor,
+    contract: GuestUpdateContract,
 ) -> Result<(), NativeShadowUpdateVerifyError> {
-    if manifest.schema != GUEST_UPDATE_MANIFEST_SCHEMA {
+    if manifest.schema != contract.manifest_schema() {
         return Err(NativeShadowUpdateVerifyError::Malformed(
             "unexpected manifest schema".to_string(),
         ));
+    }
+    if manifest.boot_format_version != contract.boot_format_version() {
+        return Err(NativeShadowUpdateVerifyError::WrongTarget(match contract {
+            GuestUpdateContract::FrozenV1 => {
+                "bootFormatVersion is not part of the frozen v1 contract".to_string()
+            }
+            GuestUpdateContract::BootableV2 => {
+                "bootFormatVersion must be 1 for the bootable v2 contract".to_string()
+            }
+        }));
     }
     if manifest.channel != "stable" {
         return Err(NativeShadowUpdateVerifyError::WrongTarget(
@@ -460,16 +596,17 @@ fn validate_manifest(
         }
     }
 
-    if manifest.artifacts.len() != GuestArtifactRole::ALL.len() {
+    let required_roles = contract.required_roles();
+    if manifest.artifacts.len() != required_roles.len() {
         return Err(NativeShadowUpdateVerifyError::ArtifactSet(format!(
             "expected {} artifact descriptors",
-            GuestArtifactRole::ALL.len()
+            required_roles.len()
         )));
     }
     let mut names = BTreeSet::new();
     let mut total_bytes = 0_u64;
-    for (descriptor, expected_role) in manifest.artifacts.iter().zip(GuestArtifactRole::ALL) {
-        if descriptor.role != expected_role {
+    for (descriptor, expected_role) in manifest.artifacts.iter().zip(required_roles) {
+        if descriptor.role != *expected_role {
             return Err(NativeShadowUpdateVerifyError::ArtifactSet(
                 "artifact descriptors must use the fixed role order".to_string(),
             ));

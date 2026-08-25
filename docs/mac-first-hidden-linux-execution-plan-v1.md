@@ -11,9 +11,11 @@ RELEASE CONTRACT AND GUEST BOOT FORMAT FROZEN (section 15); CURL.2-CORE INSTALLE
 VERIFIED ATOMIC LOCAL ADOPTION WITH A DURABLE REPLAY FLOOR (section 16); CURL.2-TRANSPORT
 GREEN — FAIL-CLOSED BUNDLE DOWNLOAD/STAGING AND THE `boole product install` CURL ENTRYPOINT;
 REAL RELEASE ARTIFACT AND PRODUCTION TRUST ROOT ABSENT (section 17); CURL.3-PREP CONTRACT
-FROZEN — CLEAN-MAC TEAM-ID-FREE ENTITLEMENT CANARY GROUNDS MACHINE-CHECKED, CANARY NOT RUN ON
-ANY CLEAN MAC (section 18); MAC.3 BLOCKED /
-NOT STARTED — NOT IMPLEMENTED, NOT RELEASE-READY, NO ACTIVATION AUTHORITY.**
+FROZEN — CLEAN-MAC TEAM-ID-FREE ENTITLEMENT CANARY GROUNDS MACHINE-CHECKED; CURL.3
+DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED (sections 18–19); BOOTABLE GUEST-UPDATE V2
+AND PRODUCT-RELEASE V2 CONTRACT GREEN — REAL BOOT ARTIFACTS AND V2 INSTALL CONSUMER ABSENT;
+MAC.3 CLOSED-LOCAL DEVELOPMENT UNBLOCKED BUT NOT STARTED — NOT RELEASE-READY, NO ACTIVATION
+AUTHORITY.**
 
 This plan defines the product boundary for running Boole's native-answer checker for Mac users.
 It does not weaken or replace the current Linux production-containment authority, and it does not
@@ -1110,3 +1112,70 @@ MAC.3-CLI BLOCKED / NOT STARTED — CLI-managed hidden VM lifecycle follows CURL
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No public
 mining, paid API benchmark, release build or upload, user installation, production key or
 production activation occurred in this slice either.
+
+## 19. CURL.3 environment deferral and bootable guest contract v2 (2026-08-26)
+
+Status: **CURL.3 DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED; BOOTABLE GUEST-UPDATE V2
+AND PRODUCT-RELEASE V2 CONTRACT GREEN; REAL BOOT ARTIFACTS, V2 INSTALL CONSUMER AND VM
+LIFECYCLE ABSENT.** This is an execution-order correction, not a waiver and not a successful
+canary. A clean supported Mac cannot be supplied in the current development environment, so
+repeating CURL.3 preparation cannot create the missing evidence.
+
+### 19.1 Circular prerequisite corrected
+
+The section 18 cursor made CURL.3 a prerequisite for MAC.3 implementation even though the
+CURL.3 lifecycle itself needs a real host controller and pinned boot inputs produced by that
+implementation. That is a circular dependency. The corrected order separates development
+permission from product qualification:
+
+1. CURL.3 is removed only from the prerequisites for **closed-local implementation** of the
+   host controller, boot artifact builder and hidden-VM lifecycle.
+2. Development-machine runs are always labelled non-qualifying and can never become a CURL.3
+   pass, a clean-install pass or a release claim.
+3. CURL.3 remains mandatory before MAC.5 clean-install acceptance, MAC.6 release readiness,
+   any Mac production-support claim, distribution of a production trust root or activation.
+4. If a suitable clean supported Mac becomes available, the frozen section 18 evaluator is
+   run unchanged. Until then the state is `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`.
+
+This correction allows useful implementation work to continue without converting unavailable
+hardware into invented evidence.
+
+### 19.2 Bootable successor contract
+
+The earlier update and boot contracts described different file sets. The frozen guest-update
+v1 authenticates exactly ten roles and carries one OCI-style `guest-rootfs`; CURL.1 direct
+Linux boot requires three host-visible files: `guest-kernel`, `guest-initrd` and
+`guest-root-disk`. A product could therefore pass the old release verifier while still lacking
+the files its boot loader needs.
+
+The successor closes that contract gap without reinterpreting v1:
+
+- guest-update v1 remains byte/meaning compatible and exact-ten;
+- guest-update v2 uses a separate schema and signing domain, requires
+  `bootFormatVersion=1`, replaces `guest-rootfs` with the three shared boot roles and therefore
+  authenticates exactly twelve artifacts in a fixed order;
+- the canary and update verifier use one shared boot-role vocabulary;
+- product-release v2 has its own schema/signing domain and accepts only an embedded guest v2
+  manifest with the exact bootable role set; product-release v1 cannot be silently promoted;
+- all twelve guest artifacts count toward the unchanged 2 GiB guest download cap.
+
+This slice establishes contracts only. The current CURL.2 installer and transport still consume
+the frozen product-release v1 entrypoint; no v2 bundle has been installed or downloaded. No
+uncompressed Linux/arm64 kernel `Image`, initrd, bootable read-only root disk or minimal PID 1
+has been produced, and the available ARM64 source closure is incomplete. A real artifact builder
+must pin those inputs and generation tools before any VM boot attempt.
+
+### 19.3 Corrected execution cursor
+
+```text
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — release gate retained
+BOOT-CONTRACT-V2  GREEN — exact-12 bootable guest + product successor trust boundary
+BOOT-ARTIFACT-BUILDER  NEXT — deterministic kernel/initrd/root-disk production
+MAC.3-CLOSED-LOCAL  UNBLOCKED / NOT STARTED — controller and lifecycle development allowed
+MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No clean-Mac
+canary, VM boot, real release build, production key, public mining, paid API benchmark, user
+installation or activation occurred.
