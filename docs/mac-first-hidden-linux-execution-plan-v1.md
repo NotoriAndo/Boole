@@ -6,7 +6,9 @@ MAC.1-PARTIAL — CURL-FIRST MODE FROZEN; UPDATE TRUST POLICY AND MEASUREMENT PR
 MAC.2-PARTIAL — CLOSED-LOCAL LINUX/ARM64 AUTHORITY PARITY COMPLETE; STAGED VERIFIER
 CORE/KAT GREEN; PRODUCTION AUTHORIZATION, ADOPTION AND POST-ADOPTION REVERIFICATION OPEN
 (sections 11 and 13); CURL-FIRST-CLI-SERVICE-DISTRIBUTION — CURRENT (section 14 supersedes the
-Boole.app/Developer-ID/Team-ID product-form decision); MAC.3 BLOCKED /
+Boole.app/Developer-ID/Team-ID product-form decision); CURL.1 CONTRACT/VERIFIER GREEN —
+RELEASE CONTRACT AND GUEST BOOT FORMAT FROZEN; INSTALLER, REAL RELEASE ARTIFACT AND
+PRODUCTION TRUST ROOT ABSENT (section 15); MAC.3 BLOCKED /
 NOT STARTED — NOT IMPLEMENTED, NOT RELEASE-READY, NO ACTIVATION AUTHORITY.**
 
 This plan defines the product boundary for running Boole's native-answer checker for Mac users.
@@ -755,3 +757,98 @@ MAC.2-C / MAC.4–MAC.6 OPEN — post-adoption, host/guest, clean-install and re
 `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No public
 mining, paid API benchmark, release upload, user installation or production activation occurred.
+
+## 15. CURL.1 — product release contract and guest boot format freeze (2026-08-25)
+
+CURL.1 status: **CONTRACT/VERIFIER GREEN — INSTALLER, REAL RELEASE ARTIFACT AND PRODUCTION
+TRUST ROOT ABSENT.** This section freezes the immutable release contract of the curl-first
+product and the boot format of the versioned Linux/arm64 guest, and records their closed-local
+verifier implementation. No release artifact was built or uploaded, no installer exists, no
+download occurred, and no production key, certificate or Apple identity was created.
+
+### 15.1 Guest boot format decision — direct Linux boot (option A) is FROZEN
+
+The versioned guest boots by **direct kernel boot with `VZLinuxBootLoader`**
+(<https://developer.apple.com/documentation/virtualization/vzlinuxbootloader>), available since
+macOS 11.0 and therefore fully covered by the frozen macOS 14.0 (Sonoma) support floor. The
+frozen boot contract is `bootFormatVersion=1` and names three exact host-side files that the
+signed guest manifest must pin by exact byte size and SHA-256 once they are produced:
+
+- `guest-kernel` — an uncompressed arm64 Linux kernel `Image` (Virtualization.framework does
+  not accept a gzip-compressed `Image.gz` on Apple silicon);
+- `guest-initrd` — the initial ramdisk; and
+- `guest-root-disk` — a read-only root filesystem disk image built from verified rootfs content.
+
+Each boot input is a plain host-side file that the host controller can hash-pin before any VM
+configuration exists. The existing 2 GiB total guest cap is unchanged and covers these roles.
+
+The EFI alternative, `VZEFIBootLoader`
+(<https://developer.apple.com/documentation/virtualization/vzefibootloader>), is REJECTED for
+v1: it requires an in-guest bootloader (GRUB or systemd-boot) inside the disk image, which is
+not part of the pinned Ubuntu package closure, and it requires a mutable `VZEFIVariableStore`,
+which contradicts immutable per-file hash pinning of every boot input.
+
+**The current verified OCI rootfs content is NOT a bootable VM image.** The MAC.2-A closure
+pinned an OCI-layout Ubuntu rootfs (62 artifacts / 4,216 content entries); it contains no
+kernel, no initrd, no bootloader and no `init` (PID 1) contract. No kernel, initrd or init
+binary is pinned anywhere today. Converting the verified rootfs content into the
+`guest-root-disk` image and supplying a pinned `guest-kernel`/`guest-initrd` pair (for example
+from a pinned `snapshot.ubuntu.com` snapshot verified with `gpgv`) is explicit follow-up work
+in the guest image-build slice; this CURL.1 slice performed no downloads and built no image.
+
+### 15.2 Frozen CURL.1 release contract and implemented verifier
+
+The immutable product release contract is schema **`boole.curl-product-release.v1`**, signed in
+the dedicated domain `boole-curl-product-release-v1` with an injected Ed25519 trust root
+(weak-point keys rejected). The manifest is canonical JSON with unknown fields rejected, so
+transport identity (`downloadUrl`) and Apple identity (`teamId`) can never enter the authority
+surface. GitHub Releases stays transport, never trust.
+
+One release pins exactly six artifact roles in fixed order — `host-cli`, `host-node`,
+`host-wallet-agent`, `host-controller`, `guest-update-manifest`, `guest-update-signature` —
+each with a unique plain file name, a non-zero exact byte length and a lowercase SHA-256
+digest. The four host roles are bounded by the frozen **512 MiB total host-payload cap**; the
+embedded guest update manifest and detached guest signature are bounded at 1 MiB and 4 KiB.
+The manifest also pins `targetOs=macos`, `targetArch=arm64`, `minimumMacOs=14.0`,
+`channel=stable`, `controllerProtocolVersion=1` and a 40-hex `sourceRevision`.
+
+The guest is bound by exact bytes: `guestManifestSha256` must equal the `guest-update-manifest`
+descriptor digest; the embedded guest manifest must itself be canonical
+`boole.native-shadow.guest-update.v1` content targeting linux/aarch64 with the product's pinned
+`guestReleaseSequence`/`guestReleaseVersion`; and the embedded guest signature envelope must
+live in the guest-update signing domain and bind that same `guestManifestSha256`. The guest
+signature is not cryptographically re-verified by the product verifier — the guest trust root
+is injected separately at guest staging (MAC.2-B), and the product release pins the exact bytes
+it ships.
+
+Replay and rollback are fail-closed through a release floor (a pinned first-install minimum, or
+an installed sequence plus the exact active-manifest digest that any successor must bind), and
+the verified-byte boundary is TOCTOU-safe: artifact verification streams from an open file
+descriptor and retains that handle, so replacing the file path after verification cannot swap
+the verified bytes.
+
+Closed-local evidence: 37 new focused contract tests went RED→GREEN in
+`crates/boole-core/tests/curl_product_release.rs`, and the 23 existing guest staged-update
+verifier tests stayed green after the shared low-level rules (canonical JSON envelope, safe
+identifiers and file names, SHA-256 shape, previous-manifest field) moved into one internal
+helper module with byte-identical messages. `cargo fmt` and both CI clippy variants are clean.
+All verification used a non-production KAT key; **no production trust root, no production key
+custody, no signed production release and no installer exist**.
+
+### 15.3 Corrected execution cursor
+
+```text
+CURL.0  COMPLETE — curl-first CLI/service product contract corrected and frozen
+CURL.1  CONTRACT/VERIFIER GREEN — release contract and guest boot format frozen; installer,
+                                  real release artifact and production trust root absent
+CURL.2  NOT STARTED — product installer v2 with signature/hash/version verification, no dev toolchain
+CURL.3  NOT STARTED — clean macOS 14/M1 Team-ID-free virtualization-entitlement canary
+MAC.2-B-CORE/KAT GREEN — reusable offline guest-update verifier
+MAC.2-B production OPEN — real update trust root, first signed manifest and durable adoption open
+MAC.3-CLI BLOCKED / NOT STARTED — CLI-managed hidden VM lifecycle follows CURL.1–CURL.3 evidence
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No public
+mining, paid API benchmark, release build or upload, user installation or production activation
+occurred in this slice.
