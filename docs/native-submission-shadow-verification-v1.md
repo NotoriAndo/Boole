@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `e992cdb6da8f69b773d03ce3a0c00d96e6ec513f5dd7f546d9b387cc6c99a2de` (updated 2026-08-25 — MAC.1 partial accounting, MAC.2-A complete, MAC.2-B/C open) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `85bd2a3b670027e9893fa6a6d1c6a7c8339586170befa3071bf10a99a03a39ce` (updated 2026-08-25 — cursor at MAC.1 choices/measurement protocol then MAC.2-B; block/reward authority remains HOLD) |
+| `local-docs/todo/todo-l1-network-master.md` | `7044736c408362c619ccf0949f2ac9eeab8564b3d4f4adcd994598be2eab1cf7` (updated 2026-08-25b — approved distribution choices frozen; Team ID and production update trust root open) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `a04eb8890df08daa639efe0a5399305b9b073ced31105d21ab40b22b134479c8` (updated 2026-08-25b — cursor at MAC.2-B-CORE with production MAC.2-B still blocked) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `e439aa86bd663cff37e1b434e5d5f683612cb23b8172d00d68418b1625ed4b8e` (updated 2026-08-25 — Linux/arm64 evidence and corrected Mac gate dependency graph) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `6e511807ea720f861e38b113d79942d1ec0e4a323862ad7f526633e577814674` (updated 2026-08-25b — Mac distribution choices and test-key/product-key boundary) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -847,3 +847,12 @@ verifier and post-adoption reverification remain open, MAC.3 is blocked and late
 remain unstarted. The other three mirror files are byte-unchanged. The section 12 table contains
 the recomputed post-update SHA-256 values for the three edited mirrors only. Local mirrors remain
 synchronization evidence, not runtime trust roots.
+
+_2026-08-25 operator-decision addendum:_ the current Mac decision boundary is
+**MAC.1-DECISIONS-FROZEN — TEAM-ID-AND-PRODUCTION-TRUST-ROOT-OPEN**. The approved product path is a
+small directly distributed Developer-ID `Boole.app` (`io.github.NotoriAndo.Boole`) that obtains an
+exactly verified Linux/arm64 guest from GitHub Releases on first run. The Apple Team ID, production
+certificate/notarization identity, production guest-update public trust root and its rotation and
+revocation rules do not exist in the repository and remain open. A non-production KAT key may
+exercise the offline MAC.2-B verifier core, but it cannot authorize an update or close MAC.2-B.
+MAC.3 remains blocked; all activation, block, reward and BF.7 invariants remain unchanged.

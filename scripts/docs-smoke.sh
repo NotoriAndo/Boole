@@ -113,6 +113,20 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "766,556,160 bytes
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "1,285,116 bytes"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '"authorityInputBytes": 181623999'
+
+# MAC.1 operator decisions with no Team ID yet (2026-08-25). These pins keep
+# the approved user-facing distribution choices distinct from the still-open
+# Apple signing identity and production update trust root. A test key must
+# never silently upgrade either missing production identity to COMPLETE.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.1-DECISIONS-FROZEN — TEAM-ID-AND-PRODUCTION-TRUST-ROOT-OPEN"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "first-run download of a verified Linux/arm64 guest"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Developer ID direct distribution"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "GitHub Releases"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "io.github.NotoriAndo.Boole"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Apple Developer Team ID is not available"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "No production private key is generated or stored by this slice"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.2-B-CORE may be tested with a non-production KAT key"
+require_text docs/native-submission-shadow-verification-v1.md "TEAM-ID-AND-PRODUCTION-TRUST-ROOT-OPEN"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '"rootfsContentEntryCount": 4216'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| accepted | 0.39 | 139,296 |'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| accepted replay | 0.39 | 139,168 |'
@@ -129,9 +143,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "e992cdb6da8f69b773d03ce3a0c00d96e6ec513f5dd7f546d9b387cc6c99a2de"
-require_text docs/native-submission-shadow-verification-v1.md "85bd2a3b670027e9893fa6a6d1c6a7c8339586170befa3071bf10a99a03a39ce"
-require_text docs/native-submission-shadow-verification-v1.md "e439aa86bd663cff37e1b434e5d5f683612cb23b8172d00d68418b1625ed4b8e"
+require_text docs/native-submission-shadow-verification-v1.md "7044736c408362c619ccf0949f2ac9eeab8564b3d4f4adcd994598be2eab1cf7"
+require_text docs/native-submission-shadow-verification-v1.md "a04eb8890df08daa639efe0a5399305b9b073ced31105d21ab40b22b134479c8"
+require_text docs/native-submission-shadow-verification-v1.md "6e511807ea720f861e38b113d79942d1ec0e4a323862ad7f526633e577814674"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"

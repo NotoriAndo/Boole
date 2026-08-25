@@ -574,3 +574,55 @@ tested. The authenticated staged verifier (MAC.2-B) and real post-adoption rever
 product-path measurements, which are not MAC.3 prerequisites.
 `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged.
+
+## 12. MAC.1 operator decision addendum without an Apple Team ID (2026-08-25)
+
+Current decision status: **MAC.1-DECISIONS-FROZEN — TEAM-ID-AND-PRODUCTION-TRUST-ROOT-OPEN**.
+This addendum closes the three product choices explicitly approved by the operator; it does not
+pretend that an unavailable Apple or update-signing identity exists.
+
+1. **Guest delivery:** `Boole.app` remains small and uses a first-run download of a verified Linux/arm64 guest.
+   The app must authenticate the signed manifest and verify the exact artifact
+   size and SHA-256 before the bytes may enter the staged install area. The app must not build the
+   guest from source on the user's Mac and must not require Docker, Linux, Homebrew, Rust, Python or
+   a terminal-managed VM.
+2. **Initial public channel:** the Mac product uses **Developer ID direct distribution**, not the
+   Mac App Store. **GitHub Releases** is the initial public channel for both the app and versioned
+   guest assets. A GitHub transport success is not trust: only the pinned update-verification
+   policy may authorize staged bytes.
+3. **Public app name:** the Bundle ID is **`io.github.NotoriAndo.Boole`**. The minimum product range
+   remains macOS 14.0 or later on Apple Silicon M1 or later; Intel remains outside v1.
+
+The following identity boundary remains deliberately open:
+
+- The Apple Developer Team ID is not available. No placeholder Team ID, certificate fingerprint,
+  entitlement profile or notarization identity may be invented.
+- No production private key is generated or stored by this slice. Passwords, Developer ID
+  certificates, notary credentials and guest-update signing secrets remain outside the repository.
+- The production guest-update public trust root, its rotation/revocation policy and the first
+  signed release manifest remain operator-owned inputs. Until they are frozen, a staged verifier
+  cannot authorize a production update.
+- MAC.2-B-CORE may be tested with a non-production KAT key (a public known-answer-test identity),
+  but that key must be visibly test-only, must not be compiled as a production trust root and must
+  not upgrade MAC.2-B or MAC.1 to COMPLETE.
+
+The measurement protocol bucket from section 10.6 also remains open. Existing byte, disk and
+memory caps continue to be binding ceilings, while the exact clean-Mac workloads, repetitions,
+collection method and acceptance rule must be frozen before MAC.3 product measurement begins.
+
+Therefore the current dependency cursor is:
+
+```text
+MAC.0    COMPLETE
+MAC.1    PARTIAL — delivery/channel/Bundle ID frozen; Team ID, production trust policy,
+                    signing/notarization details and measurement protocol open
+MAC.2-A  COMPLETE — closed-local Linux/arm64 authority parity
+MAC.2-B-CORE  AUTHORIZED — offline verifier implementation with injected trust root and KAT tests
+MAC.2-B  OPEN — production public trust root + signed manifest + exact candidate artifact required
+MAC.2-C  OPEN — real post-adoption re-verification
+MAC.3    BLOCKED / NOT STARTED
+```
+
+No app bundle, VM lifecycle, network downloader, signing certificate, release upload or activation
+is authorized by this addendum. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation `false` and `activationAllowed=false` remain unchanged.
