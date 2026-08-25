@@ -10,7 +10,9 @@ Boole.app/Developer-ID/Team-ID product-form decision); CURL.1 CONTRACT/VERIFIER 
 RELEASE CONTRACT AND GUEST BOOT FORMAT FROZEN (section 15); CURL.2-CORE INSTALLER CORE GREEN —
 VERIFIED ATOMIC LOCAL ADOPTION WITH A DURABLE REPLAY FLOOR (section 16); CURL.2-TRANSPORT
 GREEN — FAIL-CLOSED BUNDLE DOWNLOAD/STAGING AND THE `boole product install` CURL ENTRYPOINT;
-REAL RELEASE ARTIFACT AND PRODUCTION TRUST ROOT ABSENT (section 17); MAC.3 BLOCKED /
+REAL RELEASE ARTIFACT AND PRODUCTION TRUST ROOT ABSENT (section 17); CURL.3-PREP CONTRACT
+FROZEN — CLEAN-MAC TEAM-ID-FREE ENTITLEMENT CANARY GROUNDS MACHINE-CHECKED, CANARY NOT RUN ON
+ANY CLEAN MAC (section 18); MAC.3 BLOCKED /
 NOT STARTED — NOT IMPLEMENTED, NOT RELEASE-READY, NO ACTIVATION AUTHORITY.**
 
 This plan defines the product boundary for running Boole's native-answer checker for Mac users.
@@ -1011,3 +1013,100 @@ MAC.3-CLI BLOCKED / NOT STARTED — CLI-managed hidden VM lifecycle follows CURL
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No public
 mining, paid API benchmark, release build or upload, user installation or production activation
 occurred in this slice either.
+
+## 18. CURL.3-PREP — clean-Mac Team-ID-free entitlement canary contract frozen (2026-08-25)
+
+CURL.3-PREP status: **CONTRACT FROZEN AND MACHINE-CHECKED; CANARY NOT RUN — NO CLEAN
+SUPPORTED MAC WAS AVAILABLE.** This section freezes what a CURL.3 answer must look like and
+records the closed-local implementation of its evaluator. No clean-Mac canary ran, no guest
+booted, no Apple identity, certificate or provisioning profile was created or used, and no
+release artifact was built, downloaded or installed.
+
+### 18.1 Frozen canary acceptance contract
+
+The CURL.3 question is narrow: does a host controller signed **without an Apple Team ID**,
+carrying only `com.apple.security.virtualization` in an ad-hoc signature, drive a contained
+Linux guest through a full lifecycle on a **clean** supported Mac? A canary report is accepted
+only if every ground below holds, evaluated in this frozen fail-closed order so that an
+earlier ground never depends on a later one:
+
+1. **macOS floor** — below the frozen product minimum of macOS 14.0 the report aborts before
+   anything else is read. The canary floor is pinned to the same frozen constant as the
+   product minimum, so the two can never drift apart.
+2. **Architecture** — Apple Silicon (M1 and later) only; Intel stays outside the v1 range.
+3. **Clean-machine grounds** — cleanliness is never inferred from a successful run. Four
+   grounds must be separately established: `erase-install`, `developer-toolchain-absent`,
+   `boole-source-tree-absent` and `prior-boole-install-absent`. Every unestablished ground is
+   named in the rejection. **A successful run on a developer machine can never be recorded as
+   a clean-Mac pass** — the machine check precedes every success signal, so a flawless run on
+   a dirty host is rejected outright rather than counted.
+4. **Signing form** — the Team-ID-free ad-hoc signature is the subject of the experiment. A
+   Team-ID signature is rejected because it answers a different question, and an unsigned
+   binary is rejected because it carries no entitlement at all.
+5. **Entitlement** — `com.apple.security.virtualization` must be present in that signature.
+6. **Execution mode** — only an entitled, isolated virtual machine counts. An unentitled
+   fallback or a workload run directly on the host is a rejection, never a degraded pass.
+7. **Boot loader** — section 15.1 froze direct kernel boot with `VZLinuxBootLoader`, so the
+   `VZEFIBootLoader` path is rejected here too.
+8. **Fixed boot inputs** — exactly the three frozen roles `guest-kernel`, `guest-initrd` and
+   `guest-root-disk`, in that order, each non-empty and pinned by a lowercase hex SHA-256
+   digest, and **the reboot must reuse byte-identical pins**; a canary that re-fetches
+   different inputs proves nothing about a fixed guest.
+9. **Minimal lifecycle** — exactly the boot, shutdown and reboot boundaries, in that order,
+   each completed. A failed boundary names the failure.
+10. **Residue** — every boundary must leave no file and no process behind. One leftover path
+    or one surviving process rejects the whole report.
+
+### 18.2 Closed-local evidence
+
+`crates/boole-core/src/curl_virtualization_canary.rs` implements this contract as a pure
+evaluator: it signs nothing, downloads nothing, boots nothing and probes no host, so it is
+deterministic on every platform. 23 closed-local tests pin the contract
+(`crates/boole-core/tests/curl_virtualization_canary.rs` plus two in-module tests), including
+the drift pin between the canary floor and the frozen product minimum, the developer-machine
+rejection with every success signal intact, the Team-ID and unsigned rejections, the missing
+entitlement, the unentitled and non-isolated execution rejections, the EFI rejection, the
+exact boot-input role set and reboot-identity requirement, the exact lifecycle sequence and
+the residue rejection at each boundary.
+
+`scripts/curl-virtualization-entitlement-probe.sh` is the operator's first step on a clean
+Mac. It signs one probe binary twice — once with the entitlement, once without — and requires
+the entitled binary to reach `VZVirtualMachine` instantiation while the unentitled binary is
+refused. It uses no Apple identity, boots no guest and removes its temporary tree on every
+exit path. Passing it is explicitly **not** a CURL.3 pass: it covers the entitlement ground
+only, on whatever machine ran it.
+
+**Developer-machine observation, recorded as non-qualifying.** On the development Mac
+(macOS 26.5.2, build 25F84, Apple M4 Max — not macOS 14, not a clean machine) that probe
+passed: the ad-hoc signature reported `Signature=adhoc` with `TeamIdentifier=not set`, the
+entitled binary reached `instantiate=ok`, and the unentitled binary was refused with
+`VZErrorDomain Code=2 "The process doesn't have the com.apple.security.virtualization
+entitlement."` This is early evidence that the Team-ID-free form is not rejected outright and
+that the unentitled path fails closed. **It is not a CURL.3 pass**: the host is a developer
+machine, it is not the frozen floor version, no guest booted, and no lifecycle or residue
+boundary was exercised.
+
+### 18.3 STOP condition and corrected execution cursor
+
+No clean supported Mac was available, so the canary was not run and CURL.3 remains **NOT
+STARTED**. Per section 14 this gate must be measured on a clean supported Mac and must never
+be inferred from a developer machine; that rule is now enforced in code rather than by
+convention. Running CURL.3 additionally requires the host-controller binary and the pinned
+`guest-kernel`/`guest-initrd`/`guest-root-disk` set, none of which exist yet.
+
+```text
+CURL.0  COMPLETE — curl-first CLI/service product contract corrected and frozen
+CURL.1  CONTRACT/VERIFIER GREEN — release contract and guest boot format frozen
+CURL.2-CORE  INSTALLER CORE GREEN — verified atomic local adoption with a durable replay floor
+CURL.2-TRANSPORT  GREEN — fail-closed bundle download/staging and the curl entrypoint
+CURL.3-PREP  CONTRACT FROZEN — canary acceptance grounds machine-checked; canary NOT RUN
+CURL.3  NOT STARTED — no clean macOS 14/M1 host, no host controller, no pinned boot inputs
+MAC.2-B-CORE/KAT GREEN — reusable offline guest-update verifier
+MAC.2-B production OPEN — real update trust root, first signed manifest and durable adoption open
+MAC.3-CLI BLOCKED / NOT STARTED — CLI-managed hidden VM lifecycle follows CURL.1–CURL.3 evidence
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No public
+mining, paid API benchmark, release build or upload, user installation, production key or
+production activation occurred in this slice either.

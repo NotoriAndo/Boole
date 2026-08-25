@@ -201,6 +201,19 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "No default trust 
 require_text docs/native-submission-shadow-verification-v1.md "CURL.2-TRANSPORT GREEN"
 require_text docs/native-submission-shadow-verification-v1.md "Transport is never trust"
 require_text docs/native-submission-shadow-verification-v1.md "Team ID is not a runtime authority"
+# CURL.3-PREP freeze (2026-08-25, section 18). The canary acceptance grounds are
+# frozen before any canary runs, and the cursor must keep saying the canary has
+# NOT run. The load-bearing pin is the clean-machine rule: machine grounds are
+# evaluated before any success signal, so a flawless run on this developer Mac
+# can never be relabelled a clean-Mac pass, and pinned boot inputs must survive
+# the reboot byte-identically rather than being re-fetched.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.3-PREP status: **CONTRACT FROZEN"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "A successful run on a developer machine can never be recorded as"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "the reboot must reuse byte-identical pins"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.3-PREP  CONTRACT FROZEN"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.3  NOT STARTED — no clean macOS 14/M1 host"
+require_text docs/native-submission-shadow-verification-v1.md "CURL.3-PREP CONTRACT FROZEN — CANARY NOT RUN"
+require_text docs/native-submission-shadow-verification-v1.md "a developer machine can never be recorded as a"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
 require_text docs/install.md "must not be presented as the finished Mac product installer"
 require_text README.md "current command is a source/developer bootstrap"
@@ -220,9 +233,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "b4f019c523c281aca7229f3abfa1458f7acbc8fd68006b9c56cc39997033610f"
-require_text docs/native-submission-shadow-verification-v1.md "fc2ed77a6a6e6b4cb69ce21a8ada8abd23d81bff32ee69342e94febc0dac4998"
-require_text docs/native-submission-shadow-verification-v1.md "b365d7998f9930c17c28c53bdc3111d547583ccb6d1aa511c2ae773725435b74"
+require_text docs/native-submission-shadow-verification-v1.md "c38e1d25c17adc71e206d3c6fa63780c086d019015cbedc908fa7973f1d2e05a"
+require_text docs/native-submission-shadow-verification-v1.md "f39ae0b7f1367b970650837108e2287f5f44b2aadfdde05c4034045222bf5f23"
+require_text docs/native-submission-shadow-verification-v1.md "79f2c59153bc0b099f668aaef22038b0c4d3c0c1411ece451c63b0cb3b4717e7"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"
