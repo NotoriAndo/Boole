@@ -45,9 +45,9 @@ require_file docs/verified-answer-local-mvp-closeout.md
 require_file docs/dev-mock-payment.md
 require_file docs/mac-first-hidden-linux-execution-plan-v1.md
 
-# Mac-first native-checker distribution contract: the consumer path is one
-# Boole app, not a user-managed Docker/Linux installation, while the reviewed
-# Linux containment authority remains fail-closed until the explicit MAC gates.
+# Historical Mac-first native-checker contract pins. These strings remain in
+# the append-only record, but the current curl-first correction below controls
+# product form. The no-user-managed-Docker/Linux boundary remains current.
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "never require the user to install Docker Desktop"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "user-invisible Linux execution appliance"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.6 — Release gate"
@@ -140,6 +140,25 @@ require_text docs/native-submission-shadow-verification-v1.md "MAC.2-B-CORE/KAT 
 require_text docs/native-submission-shadow-verification-v1.md "fb7142d21129852847ff1ab6c19ca3deb9713692"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-B production OPEN"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.3 BLOCKED"
+# Curl-first distribution correction (2026-08-25). Historical Boole.app,
+# Developer ID and Team-ID records stay in the append-only plan, but they must
+# not remain the current product contract or block the next implementation.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL-FIRST-CLI-SERVICE-DISTRIBUTION — CURRENT"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Boole.app distribution decision is SUPERSEDED"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Team ID is not a prerequisite for the curl-first path"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Bundle ID are not v1 requirements"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "notarization are optional future distribution hardening"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "curl installer → verified prebuilt macOS arm64 CLI and host controller"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "install-scoped host"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "512 MiB total host-payload cap"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.0  COMPLETE"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CURL.1  OPEN"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.2-B-CORE/KAT GREEN remains valid"
+require_text docs/native-submission-shadow-verification-v1.md "CURL-FIRST-CLI-SERVICE-DISTRIBUTION — CURRENT"
+require_text docs/native-submission-shadow-verification-v1.md "Team ID is not a runtime authority"
+require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
+require_text docs/install.md "must not be presented as the finished Mac product installer"
+require_text README.md "current command is a source/developer bootstrap"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '"rootfsContentEntryCount": 4216'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| accepted | 0.39 | 139,296 |'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| accepted replay | 0.39 | 139,168 |'
@@ -156,9 +175,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "aa555992275d69411eb7f09ff51764d950001b59f8690b56d637719223e92d83"
-require_text docs/native-submission-shadow-verification-v1.md "72ec7a25c47235aabb54cc4b6ec48f3698483727fac46e4b8b2b36519da6efd0"
-require_text docs/native-submission-shadow-verification-v1.md "47771f0a1fd215d56f176bcdf8b3973af65dd904380c2fafaab22284f5012ff5"
+require_text docs/native-submission-shadow-verification-v1.md "b86d4ed1da903fa00c4cebaf6a0400e72fbb281cf41882f4306dd0e7887ad0fe"
+require_text docs/native-submission-shadow-verification-v1.md "4a9a163a2a5d31fcf618bb8f83e84830ae5381fd6f9169462ac70ac5e662fdaa"
+require_text docs/native-submission-shadow-verification-v1.md "20a890c5e3792a9cd7faf9a465676ff017f894b0dc49df99ee17204ff2829f5e"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"
