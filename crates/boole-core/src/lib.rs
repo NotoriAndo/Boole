@@ -18,6 +18,7 @@ pub mod canonical_json;
 pub mod config;
 pub mod curl_product_install;
 pub mod curl_product_release;
+pub mod curl_virtualization_canary;
 pub mod difficulty;
 pub mod family_manifest;
 pub mod family_manifest_registry;
@@ -98,9 +99,17 @@ pub use curl_product_release::{
     authenticate_curl_product_release, AuthenticatedCurlProductRelease, CurlProductReleaseFloor,
     CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError, ProductArtifactRole,
     VerifiedCurlProductRelease, CURL_PRODUCT_RELEASE_CONTROLLER_PROTOCOL_VERSION,
-    CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT,
-    MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES, MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES,
-    MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
+    CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA, CURL_PRODUCT_RELEASE_MINIMUM_MACOS,
+    CURL_PRODUCT_RELEASE_SIGNING_CONTEXT, MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES,
+    MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES, MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
+};
+pub use curl_virtualization_canary::{
+    evaluate_curl_virtualization_canary, CanaryBootInputPin, CanaryBootInputRole, CanaryBootLoader,
+    CanaryExecutionMode, CanaryHostSignature, CanaryLifecyclePhase, CanaryPhaseOutcome,
+    CanaryPhaseRecord, CanaryResidueScan, CanarySigningForm, CleanMachineEvidence,
+    CurlVirtualizationCanaryPass, CurlVirtualizationCanaryRejection,
+    CurlVirtualizationCanaryReport, HostArchitecture, MacOsVersion, CURL_CANARY_MINIMUM_MACOS,
+    CURL_CANARY_REQUIRED_ENTITLEMENT,
 };
 pub use difficulty::{
     expected_retarget_difficulty_for_height, retarget_t_block, validate_retargeted_difficulty,

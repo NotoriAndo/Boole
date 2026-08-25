@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `b4f019c523c281aca7229f3abfa1458f7acbc8fd68006b9c56cc39997033610f` (updated 2026-08-25g — CURL.2-TRANSPORT GREEN, fail-closed download + curl entrypoint) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `fc2ed77a6a6e6b4cb69ce21a8ada8abd23d81bff32ee69342e94febc0dac4998` (updated 2026-08-25g — cursor advances to CURL.3) |
+| `local-docs/todo/todo-l1-network-master.md` | `c38e1d25c17adc71e206d3c6fa63780c086d019015cbedc908fa7973f1d2e05a` (updated 2026-08-25h — CURL.3-PREP canary contract frozen, canary not run) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `f39ae0b7f1367b970650837108e2287f5f44b2aadfdde05c4034045222bf5f23` (updated 2026-08-25h — cursor holds at CURL.3, canary blocked on a clean Mac) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `b365d7998f9930c17c28c53bdc3111d547583ccb6d1aa511c2ae773725435b74` (updated 2026-08-25g — CURL.2-TRANSPORT transport path realized in code) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `79f2c59153bc0b099f668aaef22038b0c4d3c0c1411ece451c63b0cb3b4717e7` (updated 2026-08-25h — CURL.3 acceptance grounds realized in code) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -990,6 +990,37 @@ production OPEN** and **MAC.3-CLI BLOCKED** are the current boundary. `mineable_
 `activationAllowed=false` are unchanged.
 
 The 2026-08-25g mirror synchronization appends this same state to `todo-l1-network-master.md`,
+`EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other three section 12 mirrors
+are byte-unchanged. The section 12 table contains the recomputed SHA-256 values for the three
+edited mirrors; these values are synchronization evidence only, never runtime trust roots.
+
+_2026-08-25h implementation addendum:_ **CURL.3-PREP CONTRACT FROZEN — CANARY NOT RUN.** The
+acceptance grounds of the clean-Mac, Team-ID-free virtualization-entitlement canary are now a
+machine-checked contract rather than prose. `crates/boole-core/src/curl_virtualization_canary.rs`
+evaluates a canary report in a frozen fail-closed order: macOS 14.0 floor (pinned to the same
+constant as the product minimum so the two cannot drift), Apple Silicon only, clean-machine
+grounds, Team-ID-free ad-hoc signing form, the `com.apple.security.virtualization` entitlement,
+entitled-and-isolated execution only, `VZLinuxBootLoader` direct kernel boot, the exact
+`guest-kernel`/`guest-initrd`/`guest-root-disk` pin set reused byte-identically across the
+reboot, the exact boot/shutdown/reboot sequence, and a zero-residue scan after every boundary.
+The central rule is enforced structurally: **a developer machine can never be recorded as a
+clean-Mac pass**, because the machine grounds are checked before any success signal is read.
+23 closed-local tests pin this contract, and `scripts/curl-virtualization-entitlement-probe.sh`
+gives the operator a reproducible entitlement A/B check that uses no Apple identity and boots
+no guest.
+
+On the development Mac (macOS 26.5.2, Apple M4 Max) that probe passed — the ad-hoc signature
+carried no Team ID, the entitled binary reached `VZVirtualMachine` instantiation and the
+unentitled binary was refused by `VZErrorDomain Code=2`. That observation is recorded as
+developer-machine evidence and is explicitly **not** a CURL.3 pass: the host is not clean, not
+the frozen floor version, no guest booted and no lifecycle or residue boundary was exercised.
+No clean supported Mac was available, so the canary was not run and **CURL.3 stays NOT
+STARTED**, alongside **MAC.2-B production OPEN** and **MAC.3-CLI BLOCKED**. No Apple identity,
+certificate, provisioning profile, production key, release build, upload or installation was
+created or used. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base
+activation `false` and `activationAllowed=false` are unchanged.
+
+The 2026-08-25h mirror synchronization appends this same state to `todo-l1-network-master.md`,
 `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other three section 12 mirrors
 are byte-unchanged. The section 12 table contains the recomputed SHA-256 values for the three
 edited mirrors; these values are synchronization evidence only, never runtime trust roots.
