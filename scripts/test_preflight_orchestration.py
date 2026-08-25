@@ -113,11 +113,14 @@ class PreflightOrchestrationTests(unittest.TestCase):
                 if stripped.startswith("reqwest =") or stripped.startswith("reqwest.workspace"):
                     reqwest_lines.append((manifest.relative_to(ROOT).as_posix(), stripped))
         # P2.1/P2.2 — boole-mcp joined boole-miner as a reqwest consumer
-        # (HTTP proxy to upstream boole-node). Both must continue to take
-        # reqwest via the workspace declaration, never re-declare it.
+        # (HTTP proxy to upstream boole-node). CURL.2-TRANSPORT — boole-cli
+        # joined as the verified product-release downloader. All three must
+        # continue to take reqwest via the workspace declaration, never
+        # re-declare it.
         self.assertEqual(
             reqwest_lines,
             [
+                ("crates/boole-cli/Cargo.toml", "reqwest.workspace = true"),
                 ("crates/boole-mcp/Cargo.toml", "reqwest.workspace = true"),
                 ("crates/boole-miner/Cargo.toml", "reqwest.workspace = true"),
             ],
