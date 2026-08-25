@@ -14,6 +14,8 @@ REAL RELEASE ARTIFACT AND PRODUCTION TRUST ROOT ABSENT (section 17); CURL.3-PREP
 FROZEN — CLEAN-MAC TEAM-ID-FREE ENTITLEMENT CANARY GROUNDS MACHINE-CHECKED; CURL.3
 DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED (sections 18–19); BOOTABLE GUEST-UPDATE V2
 AND PRODUCT-RELEASE V2 CONTRACT GREEN — REAL BOOT ARTIFACTS AND V2 INSTALL CONSUMER ABSENT;
+BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 GREEN — ROOTFS CLOSURE AUDITED, REAL KERNEL/PID 1/EXT4
+TOOL UNPINNED AND NO BOOT ARTIFACTS PRODUCED (section 20);
 MAC.3 CLOSED-LOCAL DEVELOPMENT UNBLOCKED BUT NOT STARTED — NOT RELEASE-READY, NO ACTIVATION
 AUTHORITY.**
 
@@ -1179,3 +1181,67 @@ MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No clean-Mac
 canary, VM boot, real release build, production key, public mining, paid API benchmark, user
 installation or activation occurred.
+
+## 20. BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 (2026-08-26)
+
+Status: **BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 = GREEN; REAL-BOOT-ARTIFACTS =
+NOT-PRODUCED.** This is an audit-only prerequisite, not an artifact builder and not a boot
+claim. The command exposes only `audit`; it has no build command, no output directory and no
+path that writes a kernel, initrd or root disk.
+
+### 20.1 Frozen preflight authority
+
+`native/containment/native-shadow-boot-artifact-build-plan-arm64-v1-scaffold.json` binds the
+existing Linux/arm64 source lock byte-for-byte: SHA-256
+`829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0`, exactly 62 source
+artifacts and exactly 181,623,999 source bytes. It is explicitly
+`NATIVE-SHADOW-BOOT-ARTIFACT-BUILD-PLAN-ARM64-V1-SCAFFOLD-NOT-ACTIVATABLE`, keeps
+`activationAllowed=false`, retains
+the 2 GiB guest cap and leaves the real kernel, PID 1 and ext4 construction-tool pins empty.
+Those empty pins are a deliberate fail-closed boundary; placeholder bytes cannot become release
+authority.
+
+The preflight implementation in
+`scripts/native_shadow_boot_artifact_builder_arm64_v1.py` enforces:
+
+- canonical JSON with duplicate-key rejection and exact schema/key sets;
+- the source-lock digest, architecture, artifact count, byte total and every artifact row;
+- symlink-free traversal of every path component and file-descriptor-based size/digest checks;
+- an uncompressed Linux ARM64 `Image` header with a nonzero effective image size;
+- a static ELF64/AArch64 PID 1 with no `PT_INTERP` or `DT_NEEDED`, and an entry point inside a
+  bounds-checked executable load segment;
+- a separately pinned executable ext4 construction tool; and
+- no network path, no generated artifact and an unconditional `bootableClaim=false`.
+
+Synthetic complete inputs may reach only `PREFLIGHT_READY`; they still produce zero artifacts
+and no bootability claim. Fifteen focused preflight tests and the self-test registration
+contract are GREEN. They include truncated-kernel-header, dynamic-ELF-without-`PT_INTERP`,
+parent-symlink, digest/size, executable-entrypoint and network-attempt regressions.
+
+### 20.2 Current local observation
+
+A fresh closed-local audit found all 62 frozen rootfs source artifacts (181,623,999 bytes) in
+the already-existing local content-addressed cache. This is a local availability observation,
+not a tracked release input and not a promise that another machine has the same cache. The real
+kernel, static PID 1 and ext4 construction-tool pins remain absent, so the result is still
+`BLOCKED_MISSING_INPUTS`; `artifactsWritten=0` and `bootableClaim=false`.
+
+No package was downloaded, no source closure was changed, no kernel/initrd/root disk was made,
+no VM booted and no v2 bundle was installed. The next slice must first freeze the provenance,
+bytes and exact digests of those three missing construction inputs. It may not substitute an OCI
+rootfs, a fake header or an unpinned host tool.
+
+### 20.3 Execution cursor
+
+```text
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — release gate retained
+BOOT-CONTRACT-V2  GREEN — exact-12 bootable guest + product successor trust boundary
+BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1  GREEN — audit-only; zero outputs and no boot claim
+BOOT-INPUT-AUTHORITY-V1  NEXT — freeze real kernel/PID 1/ext4-tool provenance and pins
+REAL-BOOT-ARTIFACTS  NOT-PRODUCED — builder, boot and v2 install remain absent
+MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. This slice
+contains no public mining, paid API benchmark, production key, release upload or activation.

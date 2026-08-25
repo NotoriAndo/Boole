@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `6e354699eefa25056848a913cf44c62195e5e0736dc9707318e33647fb18870a` (updated 2026-08-26 — CURL.3 deferred/not passed; bootable guest contract v2 green) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `ff91ea4a66e958acca9ab0bbc67553ef3540bc5e2628bef70cc74651336c5b23` (updated 2026-08-26 — cursor moved to deterministic boot-artifact builder) |
+| `local-docs/todo/todo-l1-network-master.md` | `e73c9a87ca7e6f2c37605e615b3d0b122a5e199a308f950e12034129f701cace` (updated 2026-08-26b — boot-artifact preflight green; real inputs still blocked) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `4abb3f13ccd82aae87a1af4635d6cb3ed21300fe8c8e3c91683b430383076d8b` (updated 2026-08-26b — cursor moved to boot-input authority) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `645858c513f260d2620527ebd305a9d6c9b8b027d548d8069c23046bd16edfae` (updated 2026-08-26 — clean-Mac gate retained; bootable authority successor realized) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `fa570c9c975940116a3ee896e6bb7aba815ce32f7b42473f9bcbb09a66eee962` (updated 2026-08-26b — audit authority realized; real boot artifacts absent) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1052,3 +1052,23 @@ The 2026-08-26 mirror synchronization appends this corrected state to
 three section 12 mirrors are byte-unchanged. The section 12 table contains the recomputed SHA-256
 values for the edited local mirrors; these values are synchronization evidence only, never runtime
 trust roots.
+
+_2026-08-26b implementation addendum:_ **BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 GREEN;
+CURRENT INPUT READINESS BLOCKED_MISSING_INPUTS; REAL BOOT ARTIFACTS NOT PRODUCED.** The
+audit-only `scripts/native_shadow_boot_artifact_builder_arm64_v1.py` now validates the exact
+Linux/arm64 rootfs source lock (62 artifacts, 181,623,999 bytes), content-addressed inputs and
+separately pinned kernel/PID 1/ext4-tool identities without network access or output creation.
+It rejects unsafe path components, altered size/digest, incomplete ARM64 headers, dynamic PID 1
+dependencies and executable-entrypoint violations. Synthetic complete fixtures can reach only
+`PREFLIGHT_READY`; every result in this slice keeps `artifactsWritten=0`,
+`bootableClaim=false` and `activationAllowed=false`.
+
+The current closed-local cache contained all 62 frozen source artifacts when audited, but this is
+ephemeral availability evidence rather than a release input. The real kernel, static PID 1 and
+ext4 construction-tool pins are still absent, so the actual scaffold remains
+`BLOCKED_MISSING_INPUTS`. No kernel, initrd, root disk, v2 product installation or VM boot exists.
+The next cursor is `BOOT-INPUT-AUTHORITY-V1`, which must freeze the provenance and exact bytes of
+those missing inputs before a builder can exist. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED` and remains mandatory before MAC.5/MAC.6 or
+any production-support claim. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation `false` and `activationAllowed=false` are unchanged.

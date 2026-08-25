@@ -1,0 +1,29 @@
+{
+  "activationAllowed": false,
+  "bootFormatVersion": 1,
+  "guestDownloadMaxBytes": 2147483648,
+  "inputs": {
+    "ext4Tool": {
+      "format": "pinned-host-executable",
+      "sha256": null,
+      "sizeBytes": null
+    },
+    "kernel": {
+      "format": "linux-arm64-image",
+      "sha256": null,
+      "sizeBytes": null
+    },
+    "pid1": {
+      "format": "elf64-aarch64-static",
+      "sha256": null,
+      "sizeBytes": null
+    }
+  },
+  "release": "NATIVE-SHADOW-BOOT-ARTIFACT-BUILD-PLAN-ARM64-V1-SCAFFOLD-NOT-ACTIVATABLE",
+  "rootfsSourceLock": {
+    "artifactCount": 62,
+    "sha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+    "totalBytes": 181623999
+  },
+  "schema": "boole.native-shadow.boot-artifact-build-plan.arm64.v1"
+}
