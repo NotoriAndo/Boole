@@ -16,6 +16,7 @@ pub mod bounty_registry;
 pub mod bounty_side_pool;
 pub mod canonical_json;
 pub mod config;
+pub mod curl_product_install;
 pub mod curl_product_release;
 pub mod difficulty;
 pub mod family_manifest;
@@ -85,6 +86,13 @@ pub use canonical_json::canonicalize;
 pub use config::{
     calibration_policy, calibration_thresholds, hex_to_biguint, parse_decimal_nanos,
     validate_calibration_report, CalibrationPolicy, CalibrationReport, CalibrationThresholds,
+};
+pub use curl_product_install::{
+    install_curl_product_release, read_installed_curl_product_state, CurlProductInstallError,
+    CurlProductInstallState, InstalledCurlProduct, CURL_PRODUCT_INSTALLED_MANIFEST_FILE,
+    CURL_PRODUCT_INSTALLED_SIGNATURE_FILE, CURL_PRODUCT_INSTALL_STAGING_DIRECTORY,
+    CURL_PRODUCT_INSTALL_STATE_FILE, CURL_PRODUCT_INSTALL_STATE_SCHEMA,
+    CURL_PRODUCT_INSTALL_STATE_TEMP_FILE, CURL_PRODUCT_INSTALL_VERSIONS_DIRECTORY,
 };
 pub use curl_product_release::{
     authenticate_curl_product_release, AuthenticatedCurlProductRelease, CurlProductReleaseFloor,
