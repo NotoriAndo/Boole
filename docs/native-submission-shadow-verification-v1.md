@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `7044736c408362c619ccf0949f2ac9eeab8564b3d4f4adcd994598be2eab1cf7` (updated 2026-08-25b — approved distribution choices frozen; Team ID and production update trust root open) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `a04eb8890df08daa639efe0a5399305b9b073ced31105d21ab40b22b134479c8` (updated 2026-08-25b — cursor at MAC.2-B-CORE with production MAC.2-B still blocked) |
+| `local-docs/todo/todo-l1-network-master.md` | `aa555992275d69411eb7f09ff51764d950001b59f8690b56d637719223e92d83` (updated 2026-08-25c — MAC.2-B core/KAT green; production update authority open) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `72ec7a25c47235aabb54cc4b6ec48f3698483727fac46e4b8b2b36519da6efd0` (updated 2026-08-25c — cursor at production identity and durable same-FD staging/adoption) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `6e511807ea720f861e38b113d79942d1ec0e4a323862ad7f526633e577814674` (updated 2026-08-25b — Mac distribution choices and test-key/product-key boundary) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `47771f0a1fd215d56f176bcdf8b3973af65dd904380c2fafaab22284f5012ff5` (updated 2026-08-25c — offline verifier core/KAT evidence and production boundary) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -856,3 +856,28 @@ certificate/notarization identity, production guest-update public trust root and
 revocation rules do not exist in the repository and remain open. A non-production KAT key may
 exercise the offline MAC.2-B verifier core, but it cannot authorize an update or close MAC.2-B.
 MAC.3 remains blocked; all activation, block, reward and BF.7 invariants remain unchanged.
+
+_2026-08-25b implementation addendum:_ **MAC.2-B-CORE/KAT GREEN** is now backed by PR #226,
+main `fb7142d21129852847ff1ab6c19ca3deb9713692`, and CI runs
+<https://github.com/NotoriAndo/Boole/actions/runs/32790547865> and
+<https://github.com/NotoriAndo/Boole/actions/runs/32790547760>. The portable `boole-core` verifier
+authenticates a canonical, domain-separated Linux/arm64 manifest with an injected Ed25519 public
+key, verifies all ten fixed authority roles by exact size and streaming SHA-256 under the 2 GiB
+ceiling, retains verified descriptors, and rejects malformed keys/manifests, wrong identity or
+target, missing/tampered bytes, rollback, replay, predecessor mismatch and counter overflow. The
+focused verifier suite passed 23/23 and the existing signing/canonicalization regressions remained
+green.
+
+This closes only the verifier core and non-production known-answer tests. The production trust
+root, private signing custody, first signed release manifest, initial sequence pin, downloader,
+durable update floor, same-file-descriptor atomic adoption, VM lifecycle and post-adoption verdict
+reverification remain absent. Consequently **MAC.2-B production OPEN**, **MAC.2-C OPEN** and
+**MAC.3 BLOCKED** are the current authority boundary. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` are unchanged.
+
+The 2026-08-25c mirror synchronization appends this same boundary to
+`todo-l1-network-master.md`, `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`: the
+offline verifier core/KAT is GREEN, production identity and durable adoption remain open, and
+MAC.3 remains blocked. The other three section 12 mirrors are byte-unchanged. The section 12
+table contains the recomputed SHA-256 values of all three edited local mirrors; those digests are
+synchronization evidence only and do not make `local-docs` a runtime trust root.
