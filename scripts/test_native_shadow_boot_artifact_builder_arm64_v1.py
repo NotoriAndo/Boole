@@ -195,6 +195,25 @@ class NativeShadowBootArtifactBuilderPreflightTests(unittest.TestCase):
             [None, None, None],
         )
 
+    def test_tracked_plan_lock_and_policy_audit_together_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            cas = pathlib.Path(raw_root) / "cas"
+            (cas / "sha256").mkdir(parents=True)
+            result = boot.audit_inputs(
+                TRACKED_PLAN,
+                TRACKED_LOCK,
+                TRACKED_POLICY,
+                [cas],
+            )
+        self.assertEqual(result["status"], "BLOCKED_MISSING_INPUTS")
+        self.assertEqual(result["inputSummary"]["expectedArtifacts"], 62)
+        self.assertEqual(result["inputSummary"]["missingArtifacts"], 62)
+        self.assertEqual(
+            result["guestExecutionPolicySha256"], _sha(TRACKED_POLICY.read_bytes())
+        )
+        self.assertEqual(result["artifactsWritten"], 0)
+        self.assertIs(result["bootableClaim"], False)
+
     def test_missing_rootfs_inputs_are_sorted_and_never_claim_bootability(self) -> None:
         with tempfile.TemporaryDirectory() as raw_root:
             fixture = self._fixture(pathlib.Path(raw_root))
@@ -221,7 +240,7 @@ class NativeShadowBootArtifactBuilderPreflightTests(unittest.TestCase):
         self.assertEqual(result["artifactsWritten"], 0)
         self.assertIs(result["bootableClaim"], False)
 
-    def test_complete_source_closure_stays_blocked_until_authorities_exist(self) -> None:
+    def test_complete_source_closure_stays_blocked_for_a_successor_plan(self) -> None:
         with tempfile.TemporaryDirectory() as raw_root:
             fixture = self._fixture(pathlib.Path(raw_root))
             for artifact, key in zip(
@@ -318,6 +337,40 @@ class NativeShadowBootArtifactBuilderPreflightTests(unittest.TestCase):
             ):
                 self._audit(fixture)
 
+    def test_execution_policy_digest_drift_is_a_hard_error(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_root:
+            fixture = self._fixture(pathlib.Path(raw_root))
+            plan_path = pathlib.Path(fixture["plan"])
+            plan = json.loads(plan_path.read_bytes())
+            plan["guestExecutionPolicy"]["sha256"] = "0" * 64
+            plan_path.write_bytes(_canonical(plan))
+            with self.assertRaisesRegex(
+                boot.BootArtifactPreflightError, "policy digest differs"
+            ):
+                self._audit(fixture)
+
+    def test_execution_policy_unit_and_cgroup_drift_are_hard_errors(self) -> None:
+        mutations = (
+            ("cgroup", lambda policy: policy["crashRecovery"].update(cgroupParent="/wrong")),
+            ("unit", lambda policy: policy["privilege"]["systemdUnit"].update(UnitName="wrong.service")),
+        )
+        for name, mutate in mutations:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as raw_root:
+                fixture = self._fixture(pathlib.Path(raw_root))
+                policy_path = pathlib.Path(fixture["policy"])
+                policy = json.loads(policy_path.read_bytes())
+                mutate(policy)
+                policy_raw = _canonical(policy)
+                policy_path.write_bytes(policy_raw)
+                plan_path = pathlib.Path(fixture["plan"])
+                plan = json.loads(plan_path.read_bytes())
+                plan["guestExecutionPolicy"]["sha256"] = _sha(policy_raw)
+                plan_path.write_bytes(_canonical(plan))
+                with self.assertRaisesRegex(
+                    boot.BootArtifactPreflightError, f"policy .*{name}"
+                ):
+                    self._audit(fixture)
+
     def test_undefined_authority_cannot_be_populated_in_the_scaffold(self) -> None:
         with tempfile.TemporaryDirectory() as raw_root:
             fixture = self._fixture(pathlib.Path(raw_root))
@@ -326,7 +379,7 @@ class NativeShadowBootArtifactBuilderPreflightTests(unittest.TestCase):
             plan["inputs"]["kernel"].update(sha256="0" * 64, sizeBytes=1)
             plan_path.write_bytes(_canonical(plan))
             with self.assertRaisesRegex(
-                boot.BootArtifactPreflightError, "authority contract exists"
+                boot.BootArtifactPreflightError, "successor plan/schema/tool"
             ):
                 self._audit(fixture)
 

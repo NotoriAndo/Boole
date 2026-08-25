@@ -14,8 +14,9 @@ REAL RELEASE ARTIFACT AND PRODUCTION TRUST ROOT ABSENT (section 17); CURL.3-PREP
 FROZEN — CLEAN-MAC TEAM-ID-FREE ENTITLEMENT CANARY GROUNDS MACHINE-CHECKED; CURL.3
 DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED (sections 18–19); BOOTABLE GUEST-UPDATE V2
 AND PRODUCT-RELEASE V2 CONTRACT GREEN — REAL BOOT ARTIFACTS AND V2 INSTALL CONSUMER ABSENT;
-BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 GREEN — ROOTFS CLOSURE AUDITED, REAL KERNEL/PID 1/EXT4
-TOOL UNPINNED AND NO BOOT ARTIFACTS PRODUCED (section 20);
+BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 GREEN — ROOTFS CLOSURE AND SYSTEMD EXECUTION POLICY AUDITED,
+KERNEL/SYSTEMD-GUEST/IMAGE-BUILDER AUTHORITIES UNDEFINED AND NO BOOT ARTIFACTS PRODUCED
+(section 20);
 MAC.3 CLOSED-LOCAL DEVELOPMENT UNBLOCKED BUT NOT STARTED — NOT RELEASE-READY, NO ACTIVATION
 AUTHORITY.**
 
@@ -1201,8 +1202,9 @@ the 2 GiB guest cap and binds the already-frozen ARM64 execution policy byte-for
 `df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f`). That policy requires
 Linux/aarch64, systemd, the `boole-native-shadow-launcher.service` unit and its fixed cgroup path.
 The real kernel, systemd guest closure and initrd/ext4 image-builder toolchain authorities remain
-explicitly unresolved. The scaffold rejects attempts to populate those fields before separate
-authority contracts exist; placeholder bytes cannot become release authority.
+explicitly unresolved. This v1 file/schema/tool is permanently audit-only: its three authority
+fields must stay null forever. Future populated pins require a separately reviewed successor
+plan/schema/tool; placeholder bytes cannot become release authority.
 
 The preflight implementation in
 `scripts/native_shadow_boot_artifact_builder_arm64_v1.py` enforces:
@@ -1217,8 +1219,9 @@ The preflight implementation in
 - no network path, no generated artifact, an unconditional `BLOCKED_MISSING_INPUTS` status and an
   unconditional `bootableClaim=false`.
 
-Even a complete source cache cannot reach a ready/build state until all three successor authority
-contracts exist. Ten focused preflight tests and the self-test registration contract are GREEN.
+Even a complete source cache cannot make this scaffold reach a ready/build state. A future build
+state belongs only to a successor plan/schema/tool after all three authority contracts exist.
+Thirteen focused preflight tests and the self-test registration contract are GREEN.
 They include policy drift, premature authority population, parent-symlink, digest/size,
 file-descriptor cleanup and network-attempt regressions.
 

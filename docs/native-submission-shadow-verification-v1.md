@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `8b59ee640f1aea0bf4b2f49fe7f2c8138fa19a11abf5aa37037a004810f54dfd` (updated 2026-08-26c — preflight bound to the frozen systemd execution policy) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `bc482171754944d11029108a3cc6fc50eb4e505147fb875cb5262554ecd8f6ae` (updated 2026-08-26c — cursor moved to guest-init compatibility) |
+| `local-docs/todo/todo-l1-network-master.md` | `2fb026c06af06a60147e582265f2864b96b6b297392ab989a6c5423d9bb77565` (updated 2026-08-26c — preflight bound to the frozen systemd execution policy) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `9c659aa341eff6f7bc9e1f38808d6babc74c6bf0690a97511e6e69a9daf1ae8b` (updated 2026-08-26c — cursor moved to guest-init compatibility) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `7e16a4462af5773e78e72a24446021ab111914bade288e9bbd4692ce4f7bdf1e` (updated 2026-08-26c — static-PID-1 shortcut removed before merge) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `3a2e846d94364124bef6a6c08d796e611a6381ecf9ef1dc952417efaab5f5b61` (updated 2026-08-26c — static-PID-1 shortcut removed before merge) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1060,8 +1060,9 @@ Linux/arm64 rootfs source lock (62 artifacts, 181,623,999 bytes), content-addres
 the exact existing ARM64 execution policy without network access or output creation. That policy
 requires Linux/aarch64, systemd, `boole-native-shadow-launcher.service` and its fixed cgroup. The
 scaffold keeps the kernel, systemd guest closure and initrd/ext4 image-builder toolchain as three
-unresolved authorities and rejects any attempt to populate them before their authority contracts
-exist. Every result in this slice stays `BLOCKED_MISSING_INPUTS` with `artifactsWritten=0`,
+unresolved authorities. This v1 scaffold/schema/tool is permanently audit-only and requires all
+three fields to stay null; future populated pins require a separately reviewed successor
+plan/schema/tool. Every result in this slice stays `BLOCKED_MISSING_INPUTS` with `artifactsWritten=0`,
 `bootableClaim=false` and `activationAllowed=false`.
 
 The current closed-local cache contained all 62 frozen source artifacts when audited, but this is

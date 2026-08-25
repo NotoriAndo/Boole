@@ -223,7 +223,8 @@ def _unresolved_authority(value: Any, name: str, expected_format: str) -> dict[s
     pin = _pin(value, name, expected_format)
     if pin["sha256"] is not None or pin["sizeBytes"] is not None:
         raise BootArtifactPreflightError(
-            f"inputs.{name} cannot be populated before its authority contract exists"
+            f"inputs.{name} belongs to an audit-only scaffold and must stay null; "
+            "use a successor plan/schema/tool"
         )
     return pin
 
