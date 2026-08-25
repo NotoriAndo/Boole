@@ -9,13 +9,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 
 use ed25519_dalek::VerifyingKey;
-use serde::de::Error as _;
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::{canonicalize, verify_signature_with_network, Hex32, SIGNED_ENVELOPE_SCHEMA};
+use crate::release_contract_util::{self, ContractJsonError, RequiredPreviousManifestSha256};
+use crate::{verify_signature_with_network, Hex32, SIGNED_ENVELOPE_SCHEMA};
 
 pub const GUEST_UPDATE_MANIFEST_SCHEMA: &str = "boole.native-shadow.guest-update-manifest.v1";
 pub const NATIVE_SHADOW_UPDATE_SIGNING_CONTEXT: &str = "boole-native-shadow-guest-update-v1";
@@ -174,24 +174,6 @@ struct NativeShadowUpdateManifest {
     target_arch: String,
     previous_manifest_sha256: RequiredPreviousManifestSha256,
     artifacts: Vec<GuestArtifactDescriptor>,
-}
-
-#[derive(Debug)]
-struct RequiredPreviousManifestSha256(Option<String>);
-
-impl<'de> Deserialize<'de> for RequiredPreviousManifestSha256 {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        match Value::deserialize(deserializer)? {
-            Value::Null => Ok(Self(None)),
-            Value::String(value) => Ok(Self(Some(value))),
-            _ => Err(D::Error::custom(
-                "previousManifestSha256 must be null or a lowercase SHA-256 string",
-            )),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -415,19 +397,12 @@ fn parse_canonical_json(
     raw: &[u8],
     max_bytes: usize,
 ) -> Result<Value, NativeShadowUpdateVerifyError> {
-    if raw.is_empty() || raw.len() > max_bytes {
-        return Err(NativeShadowUpdateVerifyError::Malformed(format!(
-            "{name} size is outside its allowed range"
-        )));
-    }
-    let value: Value = serde_json::from_slice(raw)
-        .map_err(|error| NativeShadowUpdateVerifyError::Malformed(error.to_string()))?;
-    if canonicalize(&value) != raw {
-        return Err(NativeShadowUpdateVerifyError::NonCanonicalJson(
-            name.to_string(),
-        ));
-    }
-    Ok(value)
+    release_contract_util::parse_canonical_json(name, raw, max_bytes).map_err(|error| match error {
+        ContractJsonError::Malformed(reason) => NativeShadowUpdateVerifyError::Malformed(reason),
+        ContractJsonError::NonCanonical(name) => {
+            NativeShadowUpdateVerifyError::NonCanonicalJson(name)
+        }
+    })
 }
 
 fn validate_manifest(
@@ -526,41 +501,18 @@ fn validate_manifest(
 }
 
 fn require_safe_identifier(name: &str, value: &str) -> Result<(), NativeShadowUpdateVerifyError> {
-    if value.is_empty()
-        || value.len() > 64
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'+' | b'-'))
-    {
-        return Err(NativeShadowUpdateVerifyError::Malformed(format!(
-            "{name} must be 1..64 safe ASCII characters"
-        )));
-    }
-    Ok(())
+    release_contract_util::check_safe_identifier(name, value)
+        .map_err(NativeShadowUpdateVerifyError::Malformed)
 }
 
 fn require_safe_file_name(value: &str) -> Result<(), NativeShadowUpdateVerifyError> {
-    require_safe_identifier("fileName", value)?;
-    if value == "." || value == ".." || value.starts_with('.') || value.contains("..") {
-        return Err(NativeShadowUpdateVerifyError::Malformed(
-            "fileName must be a plain non-hidden release-asset name".to_string(),
-        ));
-    }
-    Ok(())
+    release_contract_util::check_safe_file_name(value)
+        .map_err(NativeShadowUpdateVerifyError::Malformed)
 }
 
 fn require_sha256(name: &str, value: &str) -> Result<(), NativeShadowUpdateVerifyError> {
-    if value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
-        Ok(())
-    } else {
-        Err(NativeShadowUpdateVerifyError::Malformed(format!(
-            "{name} must be 64 lowercase hexadecimal characters"
-        )))
-    }
+    release_contract_util::check_sha256(name, value)
+        .map_err(NativeShadowUpdateVerifyError::Malformed)
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]

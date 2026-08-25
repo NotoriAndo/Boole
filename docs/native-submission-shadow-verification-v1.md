@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `b86d4ed1da903fa00c4cebaf6a0400e72fbb281cf41882f4306dd0e7887ad0fe` (updated 2026-08-25d — curl-first CLI/service supersedes GUI app distribution) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `4a9a163a2a5d31fcf618bb8f83e84830ae5381fd6f9169462ac70ac5e662fdaa` (updated 2026-08-25d — cursor at immutable release contract, then installer v2) |
+| `local-docs/todo/todo-l1-network-master.md` | `cee9df4d232bb570552073d1b3b53a9a3f2c0d85794b3b6bc965280ea62e727f` (updated 2026-08-25e — CURL.1 contract/verifier GREEN, boot format frozen) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `2be6105c4511b1248897c8798780ed9852335d103597085b13241e097b8c9b84` (updated 2026-08-25e — cursor advances to CURL.2 product installer v2) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `20a890c5e3792a9cd7faf9a465676ff017f894b0dc49df99ee17204ff2829f5e` (updated 2026-08-25d — curl-first product realization chain) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `1d80a4ee6c5dcdcb13c68e4121cca2f686d9ecac4910245c1c4b6ba80aec6724` (updated 2026-08-25e — CURL.1 release contract realized in code) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -903,3 +903,31 @@ The 2026-08-25d mirror synchronization appends this corrected product form to
 three section 12 mirrors are byte-unchanged. The section 12 table contains the recomputed SHA-256
 values for the three edited mirrors; these values are synchronization evidence only, never runtime
 trust roots.
+
+_2026-08-25e implementation addendum:_ **CURL.1 CONTRACT/VERIFIER GREEN** — the immutable
+curl-first product release contract `boole.curl-product-release.v1` and its offline verifier are
+implemented in `boole-core` (execution-plan section 15). One signed canonical manifest, in the
+dedicated `boole-curl-product-release-v1` Ed25519 domain, pins six fixed artifact roles (four
+host binaries under the 512 MiB total host-payload cap plus the embedded guest update
+manifest/signature pair bound by exact bytes), the macOS 14.0 arm64 target, the controller
+protocol version, a replay/rollback floor, and rejects transport (`downloadUrl`) and Apple
+(`teamId`) identity from the authority surface. Verified artifacts keep their open file handles,
+so post-verification path replacement cannot swap verified bytes. The guest boot format is
+frozen as direct Linux boot (`VZLinuxBootLoader`, uncompressed arm64 `Image` + initrd +
+read-only root disk, `bootFormatVersion=1`); EFI is rejected and the current OCI rootfs content
+remains NOT a bootable VM image. 37 new focused contract tests went RED→GREEN and the 23
+existing guest staged-update verifier tests stayed green: the shared low-level envelope rules
+moved into one internal `boole-core` helper without changing the guest verifier's messages or
+semantics.
+
+This closes only the release contract and its offline verifier under a non-production KAT key.
+The product installer v2, any real release artifact, the production trust root and signing
+custody, the clean-Mac Team-ID-free entitlement canary, durable adoption and the VM lifecycle
+remain absent, so **CURL.2/CURL.3 NOT STARTED**, **MAC.2-B production OPEN** and
+**MAC.3-CLI BLOCKED** are the current boundary. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` are unchanged.
+
+The 2026-08-25e mirror synchronization appends this same state to `todo-l1-network-master.md`,
+`EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other three section 12 mirrors are
+byte-unchanged. The section 12 table contains the recomputed SHA-256 values for the three edited
+mirrors; these values are synchronization evidence only, never runtime trust roots.

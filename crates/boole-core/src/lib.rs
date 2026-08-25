@@ -16,6 +16,7 @@ pub mod bounty_registry;
 pub mod bounty_side_pool;
 pub mod canonical_json;
 pub mod config;
+pub mod curl_product_release;
 pub mod difficulty;
 pub mod family_manifest;
 pub mod family_manifest_registry;
@@ -31,6 +32,7 @@ pub mod paths;
 pub mod rate_limiter;
 pub mod receipt;
 pub mod rejection_log;
+pub(crate) mod release_contract_util;
 pub mod replay;
 pub(crate) mod replay_evidence;
 pub mod rules;
@@ -83,6 +85,13 @@ pub use canonical_json::canonicalize;
 pub use config::{
     calibration_policy, calibration_thresholds, hex_to_biguint, parse_decimal_nanos,
     validate_calibration_report, CalibrationPolicy, CalibrationReport, CalibrationThresholds,
+};
+pub use curl_product_release::{
+    authenticate_curl_product_release, AuthenticatedCurlProductRelease, CurlProductReleaseFloor,
+    CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError, ProductArtifactRole,
+    VerifiedCurlProductRelease, CURL_PRODUCT_RELEASE_CONTROLLER_PROTOCOL_VERSION,
+    CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT,
+    MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES,
 };
 pub use difficulty::{
     expected_retarget_difficulty_for_height, retarget_t_block, validate_retargeted_difficulty,
