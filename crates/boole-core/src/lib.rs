@@ -99,7 +99,8 @@ pub use curl_product_release::{
     CurlProductReleaseTrustRoot, CurlProductReleaseVerifyError, ProductArtifactRole,
     VerifiedCurlProductRelease, CURL_PRODUCT_RELEASE_CONTROLLER_PROTOCOL_VERSION,
     CURL_PRODUCT_RELEASE_MANIFEST_SCHEMA, CURL_PRODUCT_RELEASE_SIGNING_CONTEXT,
-    MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES,
+    MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES, MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES,
+    MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
 };
 pub use difficulty::{
     expected_retarget_difficulty_for_height, retarget_t_block, validate_retargeted_difficulty,

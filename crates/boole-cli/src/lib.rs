@@ -6,3 +6,4 @@
 // from sibling crates (e.g. boole-mcp may eventually want to validate
 // envelope shape on the proxy side).
 pub mod cli_envelope;
+pub mod curl_product_transport;

@@ -40,8 +40,8 @@ pub const CURL_PRODUCT_RELEASE_SIGNING_CONTEXT: &str = "boole-curl-product-relea
 pub const CURL_PRODUCT_RELEASE_CONTROLLER_PROTOCOL_VERSION: u64 = 1;
 pub const MAX_CURL_PRODUCT_HOST_PAYLOAD_BYTES: u64 = 536_870_912;
 const CURL_PRODUCT_RELEASE_MINIMUM_MACOS: &str = "14.0";
-const MAX_MANIFEST_BYTES: usize = 1_048_576;
-const MAX_DETACHED_SIGNATURE_BYTES: usize = 4_096;
+pub const MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES: usize = 1_048_576;
+pub const MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES: usize = 4_096;
 const MAX_EMBEDDED_GUEST_MANIFEST_BYTES: u64 = 1_048_576;
 const MAX_EMBEDDED_GUEST_SIGNATURE_BYTES: u64 = 4_096;
 
@@ -219,6 +219,15 @@ impl AuthenticatedCurlProductRelease {
         self.descriptors
             .get(&role)
             .map(|descriptor| descriptor.file_name.as_str())
+    }
+
+    /// Declared byte length of an artifact before its bytes exist locally,
+    /// so a transport can bound each download by the signed manifest instead
+    /// of trusting server-controlled headers.
+    pub fn artifact_byte_length(&self, role: ProductArtifactRole) -> Option<u64> {
+        self.descriptors
+            .get(&role)
+            .map(|descriptor| descriptor.byte_length)
     }
 
     pub fn verify_artifact(
@@ -443,11 +452,15 @@ pub fn authenticate_curl_product_release(
     trust_root: &CurlProductReleaseTrustRoot,
     floor: &CurlProductReleaseFloor,
 ) -> Result<AuthenticatedCurlProductRelease, CurlProductReleaseVerifyError> {
-    let manifest_value = parse_canonical_json("manifest", manifest_raw, MAX_MANIFEST_BYTES)?;
+    let manifest_value = parse_canonical_json(
+        "manifest",
+        manifest_raw,
+        MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES,
+    )?;
     let signature_value = parse_canonical_json(
         "detached signature",
         detached_signature_raw,
-        MAX_DETACHED_SIGNATURE_BYTES,
+        MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES,
     )?;
     let signature: DetachedProductSignature = serde_json::from_value(signature_value)
         .map_err(|error| CurlProductReleaseVerifyError::Malformed(error.to_string()))?;

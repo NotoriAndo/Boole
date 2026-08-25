@@ -343,4 +343,13 @@ pub const COMMAND_INVENTORY: &[CommandSurface] = &[
         output_with_json: OutputKind::Unified,
         output_default: OutputKind::RawServerForward,
     },
+    // CURL.2-TRANSPORT — the curl entrypoint driving the verified release
+    // installer. Born unified: machine-readable success/error envelopes on
+    // every exit path, no `--json` flag needed.
+    CommandSurface {
+        path: &["product", "install"],
+        has_json_flag: false,
+        output_with_json: OutputKind::Unified,
+        output_default: OutputKind::Unified,
+    },
 ];

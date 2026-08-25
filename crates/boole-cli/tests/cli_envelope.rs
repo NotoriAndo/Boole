@@ -147,6 +147,7 @@ fn inventory_covers_known_command_paths() {
         &["wallet", "sign"],
         &["wallet", "migrate"],
         &["faucet", "claim"],
+        &["product", "install"],
     ];
 
     let actual_paths: Vec<&[&str]> = COMMAND_INVENTORY.iter().map(|c| c.path).collect();

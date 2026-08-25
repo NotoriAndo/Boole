@@ -8,8 +8,9 @@ CORE/KAT GREEN; PRODUCTION AUTHORIZATION, ADOPTION AND POST-ADOPTION REVERIFICAT
 (sections 11 and 13); CURL-FIRST-CLI-SERVICE-DISTRIBUTION — CURRENT (section 14 supersedes the
 Boole.app/Developer-ID/Team-ID product-form decision); CURL.1 CONTRACT/VERIFIER GREEN —
 RELEASE CONTRACT AND GUEST BOOT FORMAT FROZEN (section 15); CURL.2-CORE INSTALLER CORE GREEN —
-VERIFIED ATOMIC LOCAL ADOPTION WITH A DURABLE REPLAY FLOOR; DOWNLOAD/TRANSPORT, REAL RELEASE
-ARTIFACT AND PRODUCTION TRUST ROOT ABSENT (section 16); MAC.3 BLOCKED /
+VERIFIED ATOMIC LOCAL ADOPTION WITH A DURABLE REPLAY FLOOR (section 16); CURL.2-TRANSPORT
+GREEN — FAIL-CLOSED BUNDLE DOWNLOAD/STAGING AND THE `boole product install` CURL ENTRYPOINT;
+REAL RELEASE ARTIFACT AND PRODUCTION TRUST ROOT ABSENT (section 17); MAC.3 BLOCKED /
 NOT STARTED — NOT IMPLEMENTED, NOT RELEASE-READY, NO ACTIVATION AUTHORITY.**
 
 This plan defines the product boundary for running Boole's native-answer checker for Mac users.
@@ -914,6 +915,92 @@ CURL.0  COMPLETE — curl-first CLI/service product contract corrected and froze
 CURL.1  CONTRACT/VERIFIER GREEN — release contract and guest boot format frozen
 CURL.2-CORE  INSTALLER CORE GREEN — verified atomic local adoption with a durable replay floor
 CURL.2-TRANSPORT  NOT STARTED — bundle download/staging and the curl entrypoint that drives the core
+CURL.3  NOT STARTED — clean macOS 14/M1 Team-ID-free virtualization-entitlement canary
+MAC.2-B-CORE/KAT GREEN — reusable offline guest-update verifier
+MAC.2-B production OPEN — real update trust root, first signed manifest and durable adoption open
+MAC.3-CLI BLOCKED / NOT STARTED — CLI-managed hidden VM lifecycle follows CURL.1–CURL.3 evidence
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. No public
+mining, paid API benchmark, release build or upload, user installation or production activation
+occurred in this slice either.
+
+## 17. CURL.2-TRANSPORT — fail-closed bundle download and the curl entrypoint (2026-08-25)
+
+CURL.2-TRANSPORT status: **GREEN — FAIL-CLOSED BUNDLE DOWNLOAD/STAGING AND THE
+`boole product install` CURL ENTRYPOINT; REAL RELEASE ARTIFACT AND PRODUCTION TRUST ROOT
+ABSENT.** This section records the second CURL.2 slice: the transport in
+`crates/boole-cli/src/curl_product_transport.rs` and the `boole product install` CLI command
+that drives it. The transport fetches a release bundle over HTTP(S) and hands it to the
+CURL.2-CORE installer (section 16). Transport is never trust: the URL, the HTTP status code,
+server headers and file names carry no authority, and every downloaded byte is verified by the
+frozen CURL.1 chain (section 15) before adoption. The transport reuses the workspace-pinned
+`reqwest` (blocking + rustls-tls) already linked by `boole-miner`/`boole-mcp`, so the
+supply-chain surface gains no new crate. `boole-core` remains network-free.
+
+### 17.1 Frozen fail-closed download order
+
+`download_and_install_curl_product_release` executes exactly this order and aborts at the
+first failure:
+
+1. validate the base URL shape (http/https only) and reject a download staging directory that
+   overlaps the install root in either direction;
+2. read the durable install state — a corrupt `installed-release.json` aborts **before any
+   network request is made**, with the on-disk evidence preserved;
+3. download the manifest and detached signature into memory only, each stream hard-capped by
+   the frozen CURL.1 contract limits (1 MiB / 4 KiB) regardless of server-declared lengths;
+4. authenticate them against the injected trust root and the replay floor — a forged or
+   replayed bundle aborts **before any artifact request**;
+5. download exactly the artifacts the signed manifest declares, in the fixed role order, each
+   stream bounded by its signed `byteLength` (a longer stream is aborted mid-transfer; a
+   shorter one is rejected), into a transient download staging directory that is never the
+   install tree, with leftover residue from an interrupted run removed first;
+6. run the CURL.2-CORE installer, which re-verifies the full release end to end and adopts it
+   atomically behind the durable replay floor; and
+7. remove the download staging directory whether the install succeeded or failed — downloaded
+   bytes never persist anywhere except the verified, atomically adopted install tree.
+
+The declared per-artifact bound comes from a new accessor on the authenticated (pre-artifact)
+CURL.1 stage, `artifact_byte_length`, so the transport caps every artifact stream from the
+signed manifest instead of trusting `Content-Length`. The previously private manifest and
+signature caps are now the public contract constants
+`MAX_CURL_PRODUCT_RELEASE_MANIFEST_BYTES`/`MAX_CURL_PRODUCT_RELEASE_DETACHED_SIGNATURE_BYTES`.
+
+`boole product install` is the curl entrypoint over this transport: it takes the base URL,
+install root, optional download staging override, the injected trust-root key id and public
+key, the pinned first-install minimum sequence and a request timeout, and always emits the
+unified JSON envelope (`command: "product.install"`) — success on stdout with the adopted
+release identity, rejection on stderr with a typed reason token (`url-rejected`,
+`download-failed`, `release-rejected`, `install-rejected`, `staging-io-failed`) and a nonzero
+exit. No default trust root ships in the binary; a trust root must be injected explicitly.
+
+### 17.2 Closed-local evidence
+
+18 focused tests went RED→GREEN, all against a loopback HTTP server started inside the test
+process and a non-production KAT key: 15 transport tests in
+`crates/boole-cli/tests/curl_product_transport.rs` (happy-path first install and signed
+successor with the exact 8-request order pinned; corrupt state aborting with zero network
+requests; forged signature and replayed bundle aborting after exactly the two metadata
+requests; a tampered artifact behind HTTP 200 rejected by digest; over-long and truncated
+artifact streams rejected against the signed byte length; missing artifact and manifest error
+statuses as transport failures; the manifest transport cap; an unreachable server; staging
+residue replaced, never trusted; non-http(s) URLs rejected without any request; and a staging
+directory inside the install root rejected), 2 CLI entrypoint tests in
+`crates/boole-cli/tests/product_install_cli.rs` (envelope success and typed
+`release-rejected` failure with nonzero exit), and 1 byte-length accessor test extending the
+CURL.1 suite to 38. The CLI envelope inventory gained `product install` under the drift
+guard. `cargo fmt` and both CI clippy variants are clean. **No public network interaction, no
+download of any real release, no release build or upload, no production trust root and no
+installation of real binaries occurred.**
+
+### 17.3 Corrected execution cursor
+
+```text
+CURL.0  COMPLETE — curl-first CLI/service product contract corrected and frozen
+CURL.1  CONTRACT/VERIFIER GREEN — release contract and guest boot format frozen
+CURL.2-CORE  INSTALLER CORE GREEN — verified atomic local adoption with a durable replay floor
+CURL.2-TRANSPORT  GREEN — fail-closed bundle download/staging and the curl entrypoint
 CURL.3  NOT STARTED — clean macOS 14/M1 Team-ID-free virtualization-entitlement canary
 MAC.2-B-CORE/KAT GREEN — reusable offline guest-update verifier
 MAC.2-B production OPEN — real update trust root, first signed manifest and durable adoption open
