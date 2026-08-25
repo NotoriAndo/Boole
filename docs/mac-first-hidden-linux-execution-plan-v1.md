@@ -3,8 +3,9 @@
 Status: **MAC.0 COMPLETE (closed-local Linux baseline, 2026-08-24, section 9);
 MAC.1-PARTIAL — DISTRIBUTION MODE, PUBLIC IDENTITY, AND MEASUREMENT PROTOCOL REQUIRED (completion
 accounting corrected 2026-08-25, section 10.6; macOS 14/M1/Intel decision remains fixed);
-MAC.2-PARTIAL — CLOSED-LOCAL LINUX/ARM64 AUTHORITY PARITY COMPLETE; STAGED VERIFIER AND
-POST-ADOPTION REVERIFICATION OPEN (section 11); MAC.3 BLOCKED /
+MAC.2-PARTIAL — CLOSED-LOCAL LINUX/ARM64 AUTHORITY PARITY COMPLETE; STAGED VERIFIER
+CORE/KAT GREEN; PRODUCTION AUTHORIZATION, ADOPTION AND POST-ADOPTION REVERIFICATION OPEN
+(sections 11 and 13); MAC.3 BLOCKED /
 NOT STARTED — NOT IMPLEMENTED, NOT RELEASE-READY, NO ACTIVATION AUTHORITY.**
 
 This plan defines the product boundary for running Boole's native-answer checker for Mac users.
@@ -626,3 +627,52 @@ MAC.3    BLOCKED / NOT STARTED
 No app bundle, VM lifecycle, network downloader, signing certificate, release upload or activation
 is authorized by this addendum. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
 Base activation `false` and `activationAllowed=false` remain unchanged.
+
+## 13. MAC.2-B offline verifier core/KAT closure (2026-08-25)
+
+Current subgate status: **MAC.2-B-CORE/KAT GREEN**. PR #226 (main
+`fb7142d21129852847ff1ab6c19ca3deb9713692`; CI
+<https://github.com/NotoriAndo/Boole/actions/runs/32790547865> and
+<https://github.com/NotoriAndo/Boole/actions/runs/32790547760>) added the portable, offline
+staged-update verifier core to `boole-core`. Its focused verifier suite passed 23/23, and the full
+required CI set passed on Linux x86_64, Linux arm64 and the existing corpus/supply-chain lanes.
+
+The verifier accepts an injected Ed25519 public trust root, authenticates a canonical manifest in
+the fixed `boole-native-shadow-guest-update-v1` domain, requires `stable/linux/aarch64`, and binds
+exactly ten fixed authority roles. It streams each artifact once while enforcing its exact length
+and SHA-256 and enforces the frozen aggregate 2 GiB ceiling. It retains the verified artifact
+descriptors so a later adoption layer can consume the same verified bytes rather than silently
+selecting a replacement by path. Unknown fields, noncanonical or duplicate JSON, malformed or
+small-order public keys, wrong signatures/domain/target, missing, truncated or tampered artifacts,
+rollback, replay, predecessor mismatch and sequence overflow all fail closed.
+
+First install requires an explicit operator-provided minimum sequence and an explicit null
+predecessor. An installed update must have a strictly newer sequence and bind its predecessor to
+the exact active manifest digest. The code deliberately has no permissive genesis default. These
+are verifier-core invariants only; they do not create an install transaction or product authority.
+
+Boundary: the **production trust root remains absent**. The repository contains no production
+private key, Team ID, Developer ID certificate, notarization credential, downloader, release
+upload, durable update floor, atomic same-file-descriptor adoption, rollback implementation, VM
+lifecycle or post-adoption execution/reverification. The KAT identity is visibly test-only and is
+not compiled as a production trust root. Therefore **MAC.2-B production OPEN**, **MAC.2-C OPEN**
+and **MAC.3 BLOCKED / NOT STARTED** remain the only valid product accounting.
+
+The current dependency cursor is:
+
+```text
+MAC.0    COMPLETE
+MAC.1    PARTIAL — product choices frozen; Team ID, production signing/trust policy and
+                    measurement protocol open
+MAC.2-A  COMPLETE — Linux/arm64 authority parity
+MAC.2-B-CORE/KAT GREEN — offline injected-key verifier and known-answer tests
+MAC.2-B production OPEN — real public trust root, signed release manifest, durable staged
+                          adoption and initial sequence pin not supplied
+MAC.2-C  OPEN — adopted bytes must be reverified and execute the frozen verdict matrix
+MAC.3    BLOCKED — no hidden VM lifecycle work may start through this closure
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. This is a
+closed-local implementation and CI result, not public mining, an API benchmark, a released Mac
+product or a production update authorization.

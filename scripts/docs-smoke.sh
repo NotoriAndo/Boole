@@ -127,6 +127,19 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Apple Developer T
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "No production private key is generated or stored by this slice"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.2-B-CORE may be tested with a non-production KAT key"
 require_text docs/native-submission-shadow-verification-v1.md "TEAM-ID-AND-PRODUCTION-TRUST-ROOT-OPEN"
+# MAC.2-B offline verifier core/KAT closure (2026-08-25). This is deliberately
+# narrower than production update authorization: no production trust root,
+# downloader, durable adoption or post-adoption execution is claimed.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.2-B-CORE/KAT GREEN"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "PR #226"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "fb7142d21129852847ff1ab6c19ca3deb9713692"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "production trust root remains absent"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.2-B production OPEN"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.3 BLOCKED"
+require_text docs/native-submission-shadow-verification-v1.md "MAC.2-B-CORE/KAT GREEN"
+require_text docs/native-submission-shadow-verification-v1.md "fb7142d21129852847ff1ab6c19ca3deb9713692"
+require_text docs/native-submission-shadow-verification-v1.md "MAC.2-B production OPEN"
+require_text docs/native-submission-shadow-verification-v1.md "MAC.3 BLOCKED"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '"rootfsContentEntryCount": 4216'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| accepted | 0.39 | 139,296 |'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md '| accepted replay | 0.39 | 139,168 |'
@@ -143,9 +156,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "7044736c408362c619ccf0949f2ac9eeab8564b3d4f4adcd994598be2eab1cf7"
-require_text docs/native-submission-shadow-verification-v1.md "a04eb8890df08daa639efe0a5399305b9b073ced31105d21ab40b22b134479c8"
-require_text docs/native-submission-shadow-verification-v1.md "6e511807ea720f861e38b113d79942d1ec0e4a323862ad7f526633e577814674"
+require_text docs/native-submission-shadow-verification-v1.md "aa555992275d69411eb7f09ff51764d950001b59f8690b56d637719223e92d83"
+require_text docs/native-submission-shadow-verification-v1.md "72ec7a25c47235aabb54cc4b6ec48f3698483727fac46e4b8b2b36519da6efd0"
+require_text docs/native-submission-shadow-verification-v1.md "47771f0a1fd215d56f176bcdf8b3973af65dd904380c2fafaab22284f5012ff5"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"
