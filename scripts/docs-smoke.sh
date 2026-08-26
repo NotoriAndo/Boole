@@ -373,6 +373,33 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "a digest cannot b
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "ARM64 RUST/LAUNCHER/IMAGE-BUILDER INPUT AUTHORITY  NEXT"
 require_text docs/native-submission-shadow-verification-v1.md "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf"
 require_text docs/native-submission-shadow-verification-v1.md "sealing a source lock is not a boot claim"
+# BOOT-RUSTDIST-ACQUISITION-ARM64-V1 pre-registration. The three ARM64 Rust
+# archives are declared — exact URL, size and SHA-256 carried unchanged from the
+# merged runtime acquisition plan — *before* a single byte is fetched, so a
+# later result cannot quietly widen what was requested. The transport stays
+# fail-closed: one exact HTTPS request per artifact, no proxy, no redirect, no
+# retry, no Range, no parallelism. Holding archive bytes installs no toolchain,
+# builds no launcher and boots nothing; every boundary stays false.
+require_file native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json
+require_file scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py
+require_file scripts/test_native_shadow_boot_rustdist_acquire_arm64_v1.py
+require_text scripts/self-test.sh "scripts/test_native_shadow_boot_rustdist_acquire_arm64_v1.py"
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"allowEnvironmentProxy": false'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"allowRangeRequests": false'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"allowRedirects": false'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"allowRetries": false'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"concurrency": 1'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"minimumTlsVersion": "TLSv1.2"'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"requireCertificateValidation": true'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"requireContentLengthMatch": true'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"requireHostnameValidation": true'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"ci-artifacts.rust-lang.org"'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"launcherElfBuilt": false'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"toolchainInstalled": false'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"reproducibleBuildProven": false'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"activationAllowed": false'
+require_text native/containment/native-shadow-boot-rustdist-acquisition-plan-arm64-v1.json '"totalBytes": 112995148'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"

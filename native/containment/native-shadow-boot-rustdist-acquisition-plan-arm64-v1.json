@@ -1,0 +1,88 @@
+{
+  "activationAllowed": false,
+  "artifacts": [
+    {
+      "artifactId": "cargo-rustdist",
+      "sha256": "dd30cce8fc7c5029287dc75b24bb549e6ed957f6ddeac205fd1e6360993d4903",
+      "sizeBytes": 10562020,
+      "url": "https://ci-artifacts.rust-lang.org/rustc-builds/e7795af6d2449fb05a6393c3320ced873a999eb3/cargo-nightly-aarch64-unknown-linux-gnu.tar.xz"
+    },
+    {
+      "artifactId": "rust-std-rustdist",
+      "sha256": "2c8a2d0f1f2c51caf5805f4a0ab510298dfebe4db2551a22b35ccc10d9bc3edc",
+      "sizeBytes": 32190332,
+      "url": "https://ci-artifacts.rust-lang.org/rustc-builds/e7795af6d2449fb05a6393c3320ced873a999eb3/rust-std-nightly-aarch64-unknown-linux-gnu.tar.xz"
+    },
+    {
+      "artifactId": "rustc-rustdist",
+      "sha256": "055bf89237ff4e3dfa4259ae5e63a8cc78fb2f1919421ac9e01edccd20ee6a5f",
+      "sizeBytes": 70242796,
+      "url": "https://ci-artifacts.rust-lang.org/rustc-builds/e7795af6d2449fb05a6393c3320ced873a999eb3/rustc-nightly-aarch64-unknown-linux-gnu.tar.xz"
+    }
+  ],
+  "authorityInputs": {
+    "bootSourceLock": {
+      "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+      "sizeBytes": 357104
+    },
+    "runtimeAcquisitionPlan": {
+      "sha256": "3f78559e29fbdb5b417eeb316687a4347907e4624b75da057c3f255e810ff35d",
+      "sizeBytes": 3661
+    },
+    "rustdistAcquirer": {
+      "sha256": "f1bc4bbc623228f8ea43a1f17d43226178679cd7fe6cc92918d4e405274a4329",
+      "sizeBytes": 22505
+    }
+  },
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "imageBuilderAuthorityPresent": false,
+    "kernelImageExtracted": false,
+    "launcherElfBuilt": false,
+    "reproducibleBuildProven": false,
+    "runtimeCompatibilityVerified": false,
+    "toolchainInstalled": false
+  },
+  "cas": {
+    "layout": "sha256",
+    "relativeRoot": "local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas"
+  },
+  "expected": {
+    "artifactCount": 3,
+    "fetchArtifactIds": [
+      "cargo-rustdist",
+      "rust-std-rustdist",
+      "rustc-rustdist"
+    ],
+    "fetchBytes": 112995148,
+    "presentArtifactIds": [],
+    "totalBytes": 112995148
+  },
+  "networkPolicy": {
+    "allowEnvironmentProxy": false,
+    "allowRangeRequests": false,
+    "allowRedirects": false,
+    "allowRetries": false,
+    "allowedHosts": [
+      "ci-artifacts.rust-lang.org"
+    ],
+    "concurrency": 1,
+    "httpsOnly": true,
+    "maxArtifactBytes": 536870912,
+    "maxTotalBytes": 2147483648,
+    "minimumTlsVersion": "TLSv1.2",
+    "requireCertificateValidation": true,
+    "requireContentLengthMatch": true,
+    "requireHostnameValidation": true
+  },
+  "release": "NATIVE-SHADOW-BOOT-RUSTDIST-ACQUISITION-ARM64-V1",
+  "schema": "boole.native-shadow.boot-rustdist-acquisition-plan.arm64.v1",
+  "toolchain": {
+    "cargoCommitHash": "3efb1f477e99b42974b982d939fd100303cdf7db",
+    "commitPathPrefix": "/rustc-builds/e7795af6d2449fb05a6393c3320ced873a999eb3/",
+    "installPrefix": "/opt/boole/native-checker-toolchain",
+    "rustTarget": "aarch64-unknown-linux-gnu",
+    "rustcCommitHash": "e7795af6d2449fb05a6393c3320ced873a999eb3"
+  }
+}
