@@ -1,0 +1,376 @@
+{
+  "activationAllowed": false,
+  "assumptions": [
+    {
+      "detail": "The producer recorded this as unsettled and named the exact evidence that would settle it. That evidence arrived and refuted it: the feature exists but the value chosen to invoke it is the value that turns it off.",
+      "disposition": "FALSIFIED",
+      "id": "fake-time-honoured-by-this-build",
+      "settledBy": "the superblock times in the two independent builds"
+    },
+    {
+      "detail": "All 13,448 entries share inode number, directory entry order and physical layout across the two images, so the ordering the plan depended on did hold on this filesystem.",
+      "disposition": "HELD",
+      "id": "staging-readdir-order-is-creation-order",
+      "settledBy": "the byte comparison between the two independent builds"
+    },
+    {
+      "detail": "The executor computes the resolved library digests but the produce result does not emit them, so the named evidence is absent from the artifacts and this assumption cannot be called settled either way.",
+      "disposition": "UNSETTLED",
+      "id": "loader-resolves-only-frozen-libraries",
+      "settledBy": "the resolved library paths recorded at build time"
+    }
+  ],
+  "bootableClaim": false,
+  "boundaries": {
+    "byteIdentityCriterionRelaxed": false,
+    "guestBootVerified": false,
+    "imageAdopted": false,
+    "productionCodeChanged": false,
+    "runtimeCompatibilityVerified": false,
+    "thirdImageProduced": false
+  },
+  "cause": {
+    "binaries": [
+      {
+        "name": "mke2fs",
+        "package": "e2fsprogs",
+        "packageSha256": "6e1cdd65bf58fe77968f8ac45f1802586baf18bfb8541f4a88fe843ab85bef8b",
+        "sha256": "763be3ec03774647799b1186d30b4b524e6e73dd27be01cbe0be4b6043f62cb1"
+      },
+      {
+        "name": "libext2fs.so.2.4",
+        "package": "libext2fs2t64",
+        "packageSha256": "31767baaa0e96453db7fc381970c7e5357a8e7deb3eb95a2309642129b43ed3b",
+        "sha256": "83b1c7cbda2767c400f70af2c7648eb0457bc8be4eba9224c8f5c2d8ce16ac3c"
+      }
+    ],
+    "confirmedBy": "static reading of the frozen binaries; nothing was executed to establish it",
+    "disassembly": [
+      {
+        "address": "0x2cb10",
+        "binary": "libext2fs.so.2.4",
+        "instruction": "bl <getenv@plt>",
+        "note": "the variable is read; the feature does exist in this build",
+        "site": "ext2fs_initialize:read-env"
+      },
+      {
+        "address": "0x2cb20",
+        "binary": "libext2fs.so.2.4",
+        "instruction": "bl <__isoc23_strtoul@plt>",
+        "note": "the string is parsed to an integer",
+        "site": "ext2fs_initialize:parse-env"
+      },
+      {
+        "address": "0x2cb28",
+        "binary": "libext2fs.so.2.4",
+        "instruction": "str x0, [x2, #0xb8]",
+        "note": "the parsed value is stored in fs->now",
+        "site": "ext2fs_initialize:store-fs-now"
+      },
+      {
+        "address": "0x2cd28",
+        "binary": "libext2fs.so.2.4",
+        "instruction": "ldr x0, [x25, #0xb8]",
+        "note": "fs->now is read back at the point of stamping",
+        "site": "ext2fs_initialize:read-fs-now"
+      },
+      {
+        "address": "0x2cd2c",
+        "binary": "libext2fs.so.2.4",
+        "instruction": "cbz x0, 0x2d3f8",
+        "note": "zero is treated as unset, so the pinned value 0 takes the fallback branch",
+        "site": "ext2fs_initialize:sentinel-branch"
+      },
+      {
+        "address": "0x2d3f8",
+        "binary": "libext2fs.so.2.4",
+        "instruction": "bl <time@plt>; b 0x2cd30",
+        "note": "the wall clock is fetched and control returns to the stamping path",
+        "site": "ext2fs_initialize:call-time"
+      },
+      {
+        "address": "0x2cd3c",
+        "binary": "libext2fs.so.2.4",
+        "instruction": "str w0, [x21, #0x40]",
+        "note": "superblock s_lastcheck receives the wall clock",
+        "site": "ext2fs_initialize:store-s_lastcheck"
+      },
+      {
+        "address": "0x2cd40",
+        "binary": "libext2fs.so.2.4",
+        "instruction": "str w0, [x21, #0x108]",
+        "note": "superblock s_mkfs_time receives the wall clock",
+        "site": "ext2fs_initialize:store-s_mkfs_time"
+      },
+      {
+        "address": "0x7b20",
+        "binary": "mke2fs",
+        "instruction": "ldr x0, [x25, #0xb8]; cbz x0, 0x81a8",
+        "note": "the same sentinel test is inlined in mke2fs itself",
+        "site": "mke2fs:sentinel-branch-a"
+      },
+      {
+        "address": "0x13414",
+        "binary": "mke2fs",
+        "instruction": "ldr x0, [x20, #0xb8]; cbz x0, 0x1347c",
+        "note": "covers the -d path that stamps each copied inode, which is why i_ctime and i_crtime moved too",
+        "site": "mke2fs:sentinel-branch-b"
+      }
+    ],
+    "observedSkewSeconds": 58,
+    "pinTookEffect": false,
+    "rejectedExplanations": [
+      {
+        "explanation": "the environment variable never reached the writer",
+        "rejectedBecause": "the executor passes the plan's environment verbatim as the child's entire environment, and the string is present in the frozen library"
+      },
+      {
+        "explanation": "the staging tree was walked in a different order",
+        "rejectedBecause": "every directory's entry order, every inode number and every extent is identical across the two images"
+      },
+      {
+        "explanation": "the read-back step perturbed one image",
+        "rejectedBecause": "the read-back mounts read-only and each job recorded the same digest before and after it"
+      },
+      {
+        "explanation": "the two runner hosts differed",
+        "rejectedBecause": "the hosts did differ, but every differing byte is accounted for by the clock, so the host difference explains nothing that is left over"
+      }
+    ],
+    "sentinel": "0",
+    "summary": "The producer pins the filesystem clock with E2FSPROGS_FAKE_TIME=0. In this build of e2fsprogs a zero is the sentinel for 'no time was pinned', so the pin silently disables itself and the writer falls through to the wall clock. The two jobs started 58 seconds apart and stamped 58 seconds apart.",
+    "valueSet": "0",
+    "variable": "E2FSPROGS_FAKE_TIME"
+  },
+  "hardStop": {
+    "byteIdentity": "FAILED",
+    "declaredBefore": "the production run, in the operator directive that authorised it",
+    "detectedBy": "the compare job of the produce workflow",
+    "held": true,
+    "replicas": [
+      {
+        "azureRegion": "westus2",
+        "initrdSha256": "4674128144befeea20b1cbeb5af340b981b7b125d32d43630c721bb4b0aecab2",
+        "jobId": "98169171517",
+        "kernelSha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "mkfsTime": 1787745901,
+        "replica": 1,
+        "rootDiskSha256": "b3299ed161557a195a9f58bb899fc61979ecb7456de94b9d89ac951c2e320b96",
+        "rootDiskSizeBytes": 1168314368,
+        "runnerImage": "20260823.101.1",
+        "writeTime": 1787745904
+      },
+      {
+        "azureRegion": "northcentralus",
+        "initrdSha256": "4674128144befeea20b1cbeb5af340b981b7b125d32d43630c721bb4b0aecab2",
+        "jobId": "98169171232",
+        "kernelSha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "mkfsTime": 1787745843,
+        "replica": 2,
+        "rootDiskSha256": "11099b116c3241a4441ba6ed3cfd4b7db6a160779c97271bcce5bf6e99b7153a",
+        "rootDiskSizeBytes": 1168314368,
+        "runnerImage": "20260817.96.1",
+        "writeTime": 1787745846
+      }
+    ],
+    "rule": "Two arm64 Linux CI jobs produce the boot outputs independently and the three digests must agree byte for byte. On disagreement the pre-registered response is to stop, not to lower the bar to semantic equivalence.",
+    "run": {
+      "compareOutcome": "failure",
+      "jobs": {
+        "compare": "98170767403",
+        "produce-1": "98169171517",
+        "produce-2": "98169171232"
+      },
+      "repository": "NotoriAndo/Boole",
+      "runId": "32966212739",
+      "workflow": ".github/workflows/native-shadow-boot-produce-arm64.yml"
+    }
+  },
+  "investigation": {
+    "blockDiff": {
+      "blockSizeBytes": 4096,
+      "differingBlockFraction": "0.297%",
+      "differingBlocks": 847,
+      "identicalRegions": [
+        "every data block",
+        "every directory block",
+        "every block and inode bitmap",
+        "all 9 group descriptors"
+      ],
+      "method": "Block-level comparison run before any ext4 structure was parsed, so the question was bounded by measurement rather than by expectation.",
+      "ranges": [
+        {
+          "byteOffset": 0,
+          "count": 1,
+          "first": 0,
+          "last": 0,
+          "region": "primary superblock"
+        },
+        {
+          "byteOffset": 651264,
+          "count": 842,
+          "first": 159,
+          "last": 1000,
+          "region": "inode table, exactly the used part (13,457 used inodes x 256 bytes = 842 blocks)"
+        },
+        {
+          "byteOffset": 134217728,
+          "count": 1,
+          "first": 32768,
+          "last": 32768,
+          "region": "backup superblock, group 1"
+        },
+        {
+          "byteOffset": 402653184,
+          "count": 1,
+          "first": 98304,
+          "last": 98304,
+          "region": "backup superblock, group 3"
+        },
+        {
+          "byteOffset": 671088640,
+          "count": 1,
+          "first": 163840,
+          "last": 163840,
+          "region": "backup superblock, group 5"
+        },
+        {
+          "byteOffset": 939524096,
+          "count": 1,
+          "first": 229376,
+          "last": 229376,
+          "region": "backup superblock, group 7"
+        }
+      ],
+      "totalBlocks": 285233
+    },
+    "byteDiff": {
+      "atimeDifferingInodes": [
+        1,
+        2,
+        7,
+        8,
+        11
+      ],
+      "byField": {
+        "i_atime": 5,
+        "i_checksum_hi": 26900,
+        "i_checksum_lo": 26902,
+        "i_crtime": 13450,
+        "i_ctime": 13451,
+        "i_mtime": 5,
+        "s_checksum": 20,
+        "s_lastcheck": 5,
+        "s_mkfs_time": 5,
+        "s_wtime": 5
+      },
+      "differingBytes": 80748,
+      "differingInodeRecords": 13451,
+      "method": "Each differing byte was mapped to the ext4 field whose offset contains it. A byte that landed in no named field would have been counted as unexplained; none did.",
+      "populationReconciliation": {
+        "detail": "The byte counts are over inode records and the per-file counts are over the entries a walk from the root reaches, so the two populations differ by exactly the reserved inodes no path points at: 1 (bad blocks), 7 (reserved group descriptors) and 8 (journal). 13,451 = 13,448 + 3. The five records whose i_atime moved are those three plus the two mke2fs stamps itself, / and /lost+found, which is why five bytes of i_atime differ while only two walked entries report a changed atime.",
+        "inodeRecordsDiffering": 13451,
+        "reservedInodesNotWalked": [
+          1,
+          7,
+          8
+        ],
+        "walkedEntries": 13448
+      },
+      "unexplainedBytes": 0
+    },
+    "classification": {
+      "detail": "Every differing byte in the 1.09 GiB image is a timestamp or a checksum computed over one. This classifies the difference; it does not excuse it. The criterion is byte identity and the criterion was not met.",
+      "fileContentDifferences": 0,
+      "verdict": "METADATA-TIMESTAMPS-ONLY"
+    },
+    "inputs": {
+      "commit": "b5557470c0db3d2a783792cf0d70c308dedf27d4",
+      "detail": "Same commit, same producer argv, same environment, same rustdist (3 fetched / 112,995,148 bytes), same package closure (193 fetched, 3 reused, 1 derived / 210,569,358 bytes), same launcher ELF (2,006,632 bytes, sha256 11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434). The kernel and initrd came out byte-identical, which is what an identical-input run looks like when nothing reads the clock.",
+      "identical": true
+    },
+    "inventory": {
+      "atimeDifferingPaths": [
+        "/",
+        "/lost+found"
+      ],
+      "detail": "Only the two entries mke2fs creates itself carry a stamped atime and mtime; every staged entry kept the time it was staged with, which is why just those two moved. ctime moved on all of them because mke2fs sets it as it writes each inode, and crtime spans a few seconds within each run because it is stamped as the tree is copied in.",
+      "differingFields": {
+        "atime": 2,
+        "crtime": 13448,
+        "ctime": 13448,
+        "mtime": 2
+      },
+      "directories": 1445,
+      "entries": 13448,
+      "entriesWithXattrs": 0,
+      "fileContentBytesHashed": 1008783262,
+      "files": 11350,
+      "filesystemIdentity": {
+        "allIdenticalAcrossReplicas": true,
+        "hashSeed": "00000000-0000-4000-8000-000000000002",
+        "journalInode": 8,
+        "journalUuid": "00000000-0000-0000-0000-000000000000",
+        "uuid": "00000000-0000-4000-8000-000000000001"
+      },
+      "identicalFields": [
+        "path",
+        "walkOrder",
+        "inode",
+        "kind",
+        "mode",
+        "uid",
+        "gid",
+        "size",
+        "links",
+        "flags",
+        "contentSha256",
+        "target",
+        "xattrs",
+        "fileAcl",
+        "entryOrder",
+        "layout"
+      ],
+      "method": "Both images were walked from the root inode in directory-block order and every entry compared field by field, content included.",
+      "symlinks": 653
+    },
+    "provenance": {
+      "artifactsChecked": 6,
+      "detail": "All three outputs of both replicas were re-hashed on the auditing host and each matched the digest the producing job had recorded, so the bytes analysed below are the bytes CI produced.",
+      "digestsMatchedTheCiManifest": true
+    },
+    "scope": "Read-only. The two artifacts were downloaded before expiry and hashed before anything read them; both images were opened read-only and neither was mounted, repaired, or rewritten."
+  },
+  "notPerformed": [
+    {
+      "detail": "The read-only consistency check was permitted but could not be run: the auditing host is macOS with no e2fsck, and the frozen e2fsck is an aarch64 Linux binary. Superblocks, group descriptors, bitmaps, inodes and extents were parsed directly instead. No e2fsck verdict is claimed.",
+      "id": "e2fsck-n"
+    },
+    {
+      "detail": "The images carry no extended attributes at all, confirmed by scanning the raw inode table for the xattr magic as well as by the walk. 'The xattrs agree' is therefore true of an empty set and is not evidence.",
+      "id": "xattr-comparison-vacuous"
+    },
+    {
+      "detail": "The two jobs ran on different runner images (20260823.101.1 and 20260817.96.1) in different Azure regions. This did not cause the observed difference, but 'two independent builds' did not mean two identical hosts, and a later determinism claim should not assume it did.",
+      "id": "replica-hosts-were-not-identical"
+    },
+    {
+      "detail": "No further production run was started, no retry was attempted, and neither existing image was adopted as the official one.",
+      "id": "no-third-image"
+    }
+  ],
+  "release": "NATIVE-SHADOW-BOOT-PRODUCE-PHASE-ARM64-V1",
+  "schema": "boole.native-shadow.boot-root-disk-determinism-hard-stop.arm64.v1",
+  "status": "ROOT-DISK-BYTE-IDENTITY-FAILED-CAUSE-CONFIRMED-STOP-HELD-NOT-BOOT-AUTHORITY",
+  "successor": {
+    "decision": "DEFERRED-TO-SUCCESSOR",
+    "fixAttemptedHere": false,
+    "notAuthorisedByThisRecord": [
+      "booting either image",
+      "adopting either image",
+      "treating metadata-only difference as passing",
+      "any claim that the root disk is reproducible"
+    ],
+    "requirement": "A successor must decide the determinism fix on its own RED-to-GREEN evidence: a failing test that pins the stamped times, then a change that makes them constant. Any candidate value must be non-zero, because zero is the sentinel; and the fix must reach the inode stamps as well as the superblock, since both moved. Byte identity across two independent arm64 Linux jobs remains the acceptance criterion and is not weakened by this record."
+  }
+}
