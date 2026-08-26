@@ -48,11 +48,15 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from scripts.native_shadow_boot_root_disk_arm64_v1 import (
     CANONICAL_MTIME,
+    E2FSCK_ACCEPTED_EXIT_CODES,
+    FAKE_TIME_ENV,
     SHARED_LIBRARIES,
+    WALL_CLOCK_LOWER_BOUND,
     canonical_json,
     layer_entries,
     staging_entries,
 )
+from scripts.native_shadow_boot_root_disk_time_audit_arm64_v1 import TimeAuditError, audit
 
 
 BOOTABLE_CLAIM = False
@@ -61,6 +65,10 @@ GUEST_IMAGE_BUILT = False
 
 ABORT_TOOL_DIGEST_MISMATCH = "tool-binary-digest-mismatch"
 ABORT_OUTPUT_MISSING = "output-missing-or-empty"
+ABORT_WRITER_TIME = "ext4-writer-time-unusable"
+ABORT_LOADER_EVIDENCE = "loader-provenance-outside-the-frozen-closure"
+ABORT_FSCK = "read-only-filesystem-check-did-not-pass"
+ABORT_WALL_CLOCK = "wall-clock-survived-in-the-image"
 
 SCHEMA = "boole.native-shadow.boot-root-disk-execute-result.arm64.v1"
 RELEASE = "NATIVE-SHADOW-BOOT-ROOT-DISK-EXECUTE-ARM64-V1"
@@ -266,6 +274,133 @@ def resolved_libraries(tree: pathlib.Path) -> dict[str, dict[str, Any]]:
     return resolved
 
 
+def loader_evidence(tree: pathlib.Path) -> dict[str, Any]:
+    """Which files on disk the loader was pointed at, named as such.
+
+    ``resolved_libraries`` already computes this; the loader itself is one of the
+    rows, and this says which one so a reader does not have to know that a
+    soname beginning ``ld-`` is the interpreter.
+    """
+
+    libraries = resolved_libraries(tree)
+    soname = pathlib.PurePosixPath(_loader_logical_path()).name
+    return {
+        "libraries": libraries,
+        "libraryPath": str(tree / str(_library_directory()).lstrip("/")),
+        "loader": dict(libraries[soname], soname=soname),
+        "tree": str(tree),
+    }
+
+
+def assert_loader_evidence(evidence: Mapping[str, Any], *, tree: pathlib.Path) -> bool:
+    """Every file the writer loaded is a frozen file, and is written down.
+
+    The runner ships its own copy of all eight sonames.  A path outside the
+    frozen tree means the image was written partly by the runner, and no digest
+    comparison downstream would show it -- the image would just be different, or
+    worse, the same by luck.
+    """
+
+    loader = evidence.get("loader")
+    if not isinstance(loader, Mapping):
+        raise RootDiskExecuteError(f"{ABORT_LOADER_EVIDENCE}: no dynamic loader recorded")
+    libraries = evidence.get("libraries")
+    if not isinstance(libraries, Mapping):
+        raise RootDiskExecuteError(f"{ABORT_LOADER_EVIDENCE}: no library paths recorded")
+    missing = {row["soname"] for row in SHARED_LIBRARIES} - set(libraries)
+    if missing:
+        raise RootDiskExecuteError(
+            f"{ABORT_LOADER_EVIDENCE}: no path recorded for {sorted(missing)}"
+        )
+    root = str(tree)
+    for name, row in sorted(list(libraries.items()) + [("the dynamic loader", loader)]):
+        path = row.get("path") if isinstance(row, Mapping) else None
+        if not path:
+            raise RootDiskExecuteError(f"{ABORT_LOADER_EVIDENCE}: {name} has no path")
+        digest = str(row.get("sha256", ""))
+        if len(digest) != 64 or set(digest) - set("0123456789abcdef"):
+            raise RootDiskExecuteError(
+                f"{ABORT_LOADER_EVIDENCE}: {name} at {path} has no usable digest"
+            )
+        if not str(path).startswith(root + "/"):
+            raise RootDiskExecuteError(
+                f"{ABORT_LOADER_EVIDENCE}: {name} resolved to {path}, which is "
+                f"outside the frozen tree {root}"
+            )
+    return True
+
+
+def assert_writer_time(env: Mapping[str, str]) -> int:
+    """The writer is handed a fixed time, and not the library's unset sentinel."""
+
+    raw = env.get(FAKE_TIME_ENV)
+    if raw is None:
+        raise RootDiskExecuteError(
+            f"{ABORT_WRITER_TIME}: the environment pins no {FAKE_TIME_ENV}, so every "
+            f"time field would come from the wall clock"
+        )
+    try:
+        value = int(str(raw))
+    except ValueError as exc:
+        raise RootDiskExecuteError(f"{ABORT_WRITER_TIME}: {FAKE_TIME_ENV}={raw!r}") from exc
+    if value == 0:
+        raise RootDiskExecuteError(
+            f"{ABORT_WRITER_TIME}: {FAKE_TIME_ENV}=0 is the library's unset sentinel, "
+            f"not a time; it asks for the wall clock"
+        )
+    if value >= WALL_CLOCK_LOWER_BOUND:
+        raise RootDiskExecuteError(
+            f"{ABORT_WRITER_TIME}: {FAKE_TIME_ENV}={value} is in wall-clock range"
+        )
+    return value
+
+
+def fsck_passed(exit_code: int) -> bool:
+    """Only zero.  One and two mean the checker changed something, which `-n` forbids."""
+
+    return exit_code in E2FSCK_ACCEPTED_EXIT_CODES
+
+
+def assert_fsck_ran(result: Mapping[str, Any]) -> bool:
+    """A result with no check in it is a failure, not a pass by omission."""
+
+    report = result.get("fsck")
+    if not isinstance(report, Mapping) or "exitCode" not in report:
+        raise RootDiskExecuteError(f"{ABORT_FSCK}: the checker did not run")
+    if not fsck_passed(int(report["exitCode"])):
+        raise RootDiskExecuteError(f"{ABORT_FSCK}: e2fsck exited {report['exitCode']}")
+    return True
+
+
+def run_fsck(plan: Mapping[str, Any], tree: pathlib.Path) -> dict[str, Any]:
+    """Read the produced filesystem back with the frozen checker, repairing nothing."""
+
+    contract = plan.get("e2fsck")
+    if not isinstance(contract, Mapping) or not contract.get("argv"):
+        raise RootDiskExecuteError(f"{ABORT_FSCK}: the plan carries no e2fsck argv")
+    argv = [str(item) for item in contract["argv"]]
+    forbidden = sorted(set(argv) & set(contract.get("forbiddenOptions", ())))
+    if forbidden:
+        raise RootDiskExecuteError(f"{ABORT_FSCK}: the argv carries {forbidden}")
+    loader = tree / _loader_logical_path().lstrip("/")
+    library_path = tree / str(_library_directory()).lstrip("/")
+    finished = subprocess.run(  # noqa: S603 - pinned argv from the frozen plan
+        [str(loader), LIBRARY_PATH_OPTION, str(library_path), *argv],
+        env={str(k): str(v) for k, v in contract.get("env", {}).items()},
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+    )
+    return {
+        "argv": argv,
+        "exitCode": finished.returncode,
+        "passed": fsck_passed(finished.returncode),
+        "repairOptionsUsed": False,
+        "stderr": finished.stderr.decode("utf-8", "replace").strip()[:2048],
+        "stdout": finished.stdout.decode("utf-8", "replace").strip()[:2048],
+    }
+
+
 def frozen_invocation(plan: Mapping[str, Any], tree: pathlib.Path) -> list[str]:
     """The plan's argv, run by the frozen loader against only frozen libraries.
 
@@ -291,12 +426,15 @@ def execute(plan: Mapping[str, Any], layer: bytes, tree: pathlib.Path) -> dict[s
             "into the image, and the frozen plan says root:root throughout"
         )
     digests = assert_tools(plan)
-    libraries = resolved_libraries(tree)
+    evidence = loader_evidence(tree)
+    assert_loader_evidence(evidence, tree=tree)
+    environment = mke2fs_environment(plan)
+    writer_time = assert_writer_time(environment)
     created = stage_tree(plan, layer)
     argv = frozen_invocation(plan, tree)
     finished = subprocess.run(  # noqa: S603 - pinned argv from the frozen plan
         argv,
-        env=mke2fs_environment(plan),
+        env=environment,
         stdin=subprocess.DEVNULL,
         capture_output=True,
         check=False,
@@ -312,7 +450,19 @@ def execute(plan: Mapping[str, Any], layer: bytes, tree: pathlib.Path) -> dict[s
     raw = image.read_bytes()
     if not raw:
         raise RootDiskExecuteError(f"{ABORT_OUTPUT_MISSING}: {image} is zero bytes")
-    return {
+    try:
+        times = audit(raw)
+    except TimeAuditError as exc:
+        raise RootDiskExecuteError(f"{ABORT_WALL_CLOCK}: {exc}") from exc
+    if not times["passed"]:
+        first = times["violations"][0]
+        raise RootDiskExecuteError(
+            f"{ABORT_WALL_CLOCK}: {times['violationCount']} timestamps are outside "
+            f"{times['allowedTimestamps']}; {first['field']} in {first['where']} "
+            f"is {first['value']}"
+        )
+    fsck = run_fsck(plan, tree)
+    result = {
         "activationAllowed": ACTIVATION_ALLOWED,
         "bootableClaim": BOOTABLE_CLAIM,
         "boundaries": {
@@ -322,18 +472,24 @@ def execute(plan: Mapping[str, Any], layer: bytes, tree: pathlib.Path) -> dict[s
             "runtimeCompatibilityVerified": False,
         },
         "executed": True,
+        "fsck": fsck,
         "image": {
             "name": image.name,
             "sha256": hashlib.sha256(raw).hexdigest(),
             "sizeBytes": len(raw),
         },
+        "loaderEvidence": evidence,
         "release": RELEASE,
-        "resolvedLibraries": libraries,
+        "resolvedLibraries": evidence["libraries"],
         "schema": SCHEMA,
         "stagedEntryCount": len(created),
         "status": STATUS,
+        "timeAudit": times,
         "toolDigests": digests,
+        "writerTime": writer_time,
     }
+    assert_fsck_ran(result)
+    return result
 
 
 def _parser() -> argparse.ArgumentParser:

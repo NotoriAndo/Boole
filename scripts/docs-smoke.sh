@@ -715,6 +715,39 @@ require_text scripts/native_shadow_boot_root_disk_arm64_v1.py '"onMismatch": "ab
 forbid_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'SOURCE_DATE_EPOCH": "0"'
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_root_disk_arm64_v1.py
 
+# Two replicas built that disk from identical inputs and disagreed. The hard
+# stop is the sealed failure; the successor is the bar the fix must clear,
+# written before the fix exists. Both must keep running -- a record whose tests
+# are not wired into CI is a record nothing is checking.
+require_file native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json
+require_file native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_root_disk_determinism_arm64_v1.py
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_root_disk_determinism_successor_arm64_v1.py
+
+# The successor may not soften what it inherits: byte identity stays the
+# criterion, the filesystem check stays read-only with one accepted exit code,
+# and a mismatch stays a stop rather than another roll of the dice.
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"criterion": "byte identity, unchanged from the predecessor"'
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"criterionRelaxationForbidden": true'
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"acceptedExitCodes"'
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"onMismatch": "HARD STOP; report; do not produce a third image"'
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"successorValue": "1"'
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"activationAllowed": false'
+
+# The fix itself. Zero is the library's unset sentinel, so the writer is handed
+# a fixed non-zero time; the staged inputs keep their own epoch, which is a
+# different thing and stays zero. The checker is forced and read-only, and none
+# of the repair flags may reappear in its argv.
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_root_disk_determinism_fix_arm64_v1.py
+require_file scripts/native_shadow_boot_root_disk_time_audit_arm64_v1.py
+forbid_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'EXT4_WRITER_TIME = "0"'
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'EXT4_WRITER_TIME = "1"'
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'E2FSCK_ARGV_OPTIONS = ("-f", "-n")'
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'E2FSCK_ACCEPTED_EXIT_CODES = (0,)'
+require_text scripts/native_shadow_boot_root_disk_execute_arm64_v1.py 'def assert_loader_evidence('
+require_text scripts/native_shadow_boot_root_disk_execute_arm64_v1.py 'def assert_writer_time('
+require_text scripts/native_shadow_boot_produce_phase_arm64_v1.py '"rootDiskEvidence": root_disk_evidence(disk_result)'
+
 # The verification stage is separate from the producer on purpose: a producer
 # that checks its own output can only confirm that it did what it did. debugfs
 # keeps the inspector role v1 sealed for it -- read-only, never `-w`.
@@ -808,10 +841,21 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "ac6b09d6ffe081abb650f51dde8a172f7b124a7d6e61ba14a7f80f3c00267693"
-require_text docs/native-submission-shadow-verification-v1.md "573e2d36f8f9637ca29bd52f9c0ae9530667b5f16d9e36bbdf204ab9dbc4c345"
-require_text docs/native-submission-shadow-verification-v1.md "70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb"
+require_text docs/native-submission-shadow-verification-v1.md "ecd12ca61b0249b70de17373aaf1d28a246cb9eadcf0013d9905553ed49f939f"
+require_text docs/native-submission-shadow-verification-v1.md "b739eb51b3991199092e3b1f3d1fe85c5db83b015386b9053d93b2799af22ec6"
+require_text docs/native-submission-shadow-verification-v1.md "4e2d05e017dce46c7f59d14b60cd8b7358564710446ab5a20976c48cd9c90430"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "That sentence stays as written."
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "necessary but not sufficient"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "staged-inode-ctime-is-not-fs-now"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "wall-clock-survived-in-the-image"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "read rather than deduced"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "counted rather than"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "the control that makes the zero mean something"
+require_text docs/native-submission-shadow-verification-v1.md "successor correction addendum"
+require_text docs/native-submission-shadow-verification-v1.md "The sentence stays as written."
+require_text docs/native-submission-shadow-verification-v1.md "necessary but not sufficient"
+require_text docs/native-submission-shadow-verification-v1.md "wall-clock-survived-in-the-image"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "MAC2_MERGE_SHA_PENDING"

@@ -15,6 +15,7 @@ IMAGE = "/scratch/guest-root-disk.img"
 STAGING = "/staging/root"
 MKE2FS = "/tools/mke2fs"
 DEBUGFS = "/tools/debugfs"
+E2FSCK = "/tools/e2fsck"
 CONF = "/tools/etc/mke2fs.conf"
 SIZE = 64 * 1024 * 1024
 
@@ -24,6 +25,7 @@ def plan(**overrides):
         "layer": LAYER,
         "mke2fs": MKE2FS,
         "debugfs": DEBUGFS,
+        "e2fsck": E2FSCK,
         "config": CONF,
         "image": IMAGE,
         "staging": STAGING,
@@ -80,8 +82,13 @@ class EnvironmentTests(unittest.TestCase):
         """1.47.0 has no SOURCE_DATE_EPOCH; libext2fs reads E2FSPROGS_FAKE_TIME."""
 
         env = plan()["mke2fs"]["env"]
-        self.assertEqual(env["E2FSPROGS_FAKE_TIME"], "0")
+        self.assertEqual(env["E2FSPROGS_FAKE_TIME"], mod.EXT4_WRITER_TIME)
         self.assertNotIn("SOURCE_DATE_EPOCH", env)
+
+    def test_the_time_knob_is_not_the_value_the_library_treats_as_unset(self) -> None:
+        """Setting it to zero is how the first pair of builds got two wall clocks."""
+
+        self.assertNotEqual(plan()["mke2fs"]["env"]["E2FSPROGS_FAKE_TIME"], "0")
 
     def test_the_config_comes_from_the_frozen_package_not_the_runner(self) -> None:
         """mke2fs reads its feature defaults from this file."""

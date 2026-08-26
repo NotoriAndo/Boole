@@ -64,6 +64,11 @@ BOOT_SOURCE_LOCK_PATH = (
     REPOSITORY_ROOT
     / "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json"
 )
+SUCCESSOR_AUTHORITY_PATH = (
+    REPOSITORY_ROOT
+    / "native/containment/"
+    "native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json"
+)
 
 SCHEMA = "boole.native-shadow.boot-produce-phase-result.arm64.v1"
 RELEASE = "NATIVE-SHADOW-BOOT-PRODUCE-PHASE-ARM64-V1"
@@ -99,6 +104,39 @@ def builder_authority(
         raise ProducePhaseError(f"the builder authority is unreadable: {path}") from exc
 
 
+def successor_authority(
+    path: pathlib.Path = SUCCESSOR_AUTHORITY_PATH,
+) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ProducePhaseError(f"the successor authority is unreadable: {path}") from exc
+
+
+def assert_production_unblocked(
+    record: Optional[Mapping[str, Any]] = None,
+) -> bool:
+    """Refuse to start while a known cause of the last mismatch is still present.
+
+    The successor record allows one production pair and forbids retrying a pair
+    that has produced a result.  So a run dispatched against a cause the record
+    itself lists as open would spend the single attempt on an outcome already
+    known.  The audit inside this phase would catch such an image, loudly -- this
+    is about not spending the attempt, not about trusting the result.
+    """
+
+    readiness = (record if record is not None else successor_authority()).get(
+        "productionReadiness", {}
+    )
+    if readiness.get("blocked"):
+        causes = ", ".join(readiness.get("blockedBy", [])) or "an unnamed cause"
+        raise ProducePhaseError(
+            f"the successor authority blocks production: {causes}. "
+            f"{readiness.get('why', '')}".strip()
+        )
+    return True
+
+
 def tool_paths(
     tree: pathlib.Path, *, authority: Optional[Mapping[str, Any]] = None
 ) -> dict[str, str]:
@@ -126,7 +164,48 @@ def tool_paths(
             "the builder authority pins no " + ", ".join(missing)
         )
     found["config"] = str(tree / MKE2FS_CONFIG_GUEST_PATH.lstrip("/"))
+    # The read-only checker was not pinned when this authority was sealed, and
+    # the authority is not edited after the fact to say it was.  It ships in the
+    # same e2fsprogs package as the writer, so the binding is that package: the
+    # successor record pins the binary's own digest, and `assert_tools` re-hashes
+    # the file before it is run.
+    packages = {str(row.get("packageSha256")) for row in rows}
+    if packages != {root_disk.E2FSPROGS_PACKAGE_SHA256}:
+        raise ProducePhaseError(
+            "the pinned tools do not all come from the frozen e2fsprogs package: "
+            f"{sorted(packages)}"
+        )
+    found["e2fsck"] = str(tree / root_disk.E2FSCK_MEMBER_PATH.lstrip("./"))
     return found
+
+
+ROOT_DISK_EVIDENCE_FIELDS = (
+    "fsck",
+    "loaderEvidence",
+    "timeAudit",
+    "toolDigests",
+    "writerTime",
+)
+
+
+def root_disk_evidence(disk_result: Mapping[str, Any]) -> dict[str, Any]:
+    """The four things the executor settles that a plan cannot, kept.
+
+    Which library files the loader really opened, what fixed time the writer was
+    handed, whether any timestamp in the produced image is outside the closed
+    set, and what the frozen read-only checker said.  All of it was computed here
+    and then dropped before, which is why the record of the first failed pair had
+    to leave the loader question open.  Missing evidence is an error rather than
+    an absent key: a result that quietly lacks a checker verdict would read as
+    one that passed.
+    """
+
+    missing = [name for name in ROOT_DISK_EVIDENCE_FIELDS if name not in disk_result]
+    if missing:
+        raise ProducePhaseError(
+            "the root disk executor returned no " + ", ".join(missing)
+        )
+    return {name: disk_result[name] for name in ROOT_DISK_EVIDENCE_FIELDS}
 
 
 def pinned_size_bytes(layer: bytes) -> int:
@@ -158,6 +237,7 @@ def plan_for(
             layer=layer,
             mke2fs=tools["mke2fs"],
             debugfs=tools["debugfs"],
+            e2fsck=tools["e2fsck"],
             config=tools["config"],
             image=str(image),
             staging=str(staging),
@@ -282,6 +362,7 @@ def produce(
             "the produce phase must run as root: mke2fs -d copies the staged owner "
             "into the image, and the frozen plan says root:root throughout"
         )
+    assert_production_unblocked()
     store = scratch / "cas" if cas is None else cas
     oci = scratch / "oci"
     tree = scratch / "tree"
@@ -356,10 +437,57 @@ def produce(
         },
         "manifest": manifest,
         "release": RELEASE,
+        # The executor settles four things a plan cannot: which library files the
+        # loader really opened, what fixed time the writer was handed, whether any
+        # timestamp in the produced image is outside the closed set, and what the
+        # frozen read-only checker said about the filesystem.  All four used to be
+        # computed here and then dropped, which is why the record of the first
+        # failed pair had to leave the loader question open.
         "rootDisk": disk_result["image"],
+        "rootDiskEvidence": root_disk_evidence(disk_result),
         "schema": SCHEMA,
         "status": STATUS,
         "verification": report,
+    }
+
+
+def assert_replica_evidence(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Read a replica's own result back and require it to have proved itself.
+
+    The executor already stops a run that fails any of this, so a replica that
+    got here should pass.  That is the reason to check it again from outside:
+    the failure this guards against is not a bad image but a result that never
+    ran the check and reads as though it did.  Absence is a failure here.
+    """
+
+    evidence = result.get("rootDiskEvidence")
+    if not isinstance(evidence, Mapping):
+        raise ProducePhaseError("the result carries no root disk evidence")
+    missing = [name for name in ROOT_DISK_EVIDENCE_FIELDS if name not in evidence]
+    if missing:
+        raise ProducePhaseError("the evidence carries no " + ", ".join(missing))
+    fsck = evidence["fsck"]
+    if not isinstance(fsck, Mapping) or fsck.get("exitCode") != 0:
+        raise ProducePhaseError(f"the read-only check did not pass: {fsck}")
+    times = evidence["timeAudit"]
+    if not isinstance(times, Mapping) or not times.get("passed"):
+        raise ProducePhaseError(
+            f"the image carries {times.get('violationCount')} timestamps outside "
+            f"{times.get('allowedTimestamps')}"
+        )
+    writer = evidence["writerTime"]
+    if not isinstance(writer, int) or writer <= 0:
+        raise ProducePhaseError(f"the writer was handed no fixed time: {writer!r}")
+    loader = evidence["loaderEvidence"]
+    if not isinstance(loader, Mapping) or not loader.get("tree"):
+        raise ProducePhaseError("the evidence names no frozen tree")
+    root_disk_execute.assert_loader_evidence(loader, tree=pathlib.Path(loader["tree"]))
+    return {
+        "fsckExitCode": fsck["exitCode"],
+        "librariesRecorded": len(loader["libraries"]),
+        "rootDiskSha256": result.get("rootDisk", {}).get("sha256"),
+        "timestampsOutsideTheClosedSet": 0,
+        "writerTime": writer,
     }
 
 
@@ -374,11 +502,26 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--launcher", type=pathlib.Path, required=True)
     run.add_argument("--cas", type=pathlib.Path)
     run.add_argument("--result", type=pathlib.Path)
+    check = sub.add_parser(
+        "evidence", help="require a replica's own result to have proved itself"
+    )
+    check.add_argument("--result", type=pathlib.Path, required=True)
     return parser
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "evidence":
+        try:
+            summary = assert_replica_evidence(
+                json.loads(args.result.read_text(encoding="utf-8"))
+            )
+        except (ProducePhaseError, root_disk_execute.RootDiskExecuteError, OSError, ValueError) as exc:
+            print(f"produce-phase: {exc}", file=sys.stderr)
+            return 1
+        json.dump(summary, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        return 0
     # Here rather than inside produce(): the binding is process-global, and the
     # process boundary is the one place where changing process-global state is
     # not a surprise to whoever called.

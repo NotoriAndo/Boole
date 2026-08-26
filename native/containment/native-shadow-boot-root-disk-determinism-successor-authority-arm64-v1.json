@@ -1,0 +1,679 @@
+{
+  "acceptance": {
+    "criterion": "byte identity, unchanged from the predecessor",
+    "criterionRelaxationForbidden": true,
+    "greenConditions": [
+      "the two replicas' kernel files are byte-identical",
+      "the two replicas' initrd files are byte-identical",
+      "the two replicas' root disk files are byte-identical",
+      "no timestamp anywhere in the image is a wall-clock value",
+      "loader provenance lies entirely inside the frozen closure on both replicas",
+      "frozen e2fsck -f -n exits 0 on both replicas",
+      "zero unexplained differences"
+    ],
+    "onGreen": {
+      "doesNotUnlock": [
+        "CURL.3",
+        "clean-Mac evidence",
+        "product release",
+        "public mining",
+        "activationAllowed"
+      ],
+      "mustRecord": "that the digest is not one replica chosen over the other, but the single value both replicas independently converged on",
+      "predecessorLinkedAs": "cause removed in the successor",
+      "predecessorStaysAsWritten": true,
+      "sealAppendOnly": "ROOT-DISK-DETERMINISM-GREEN successor result",
+      "unlocks": [
+        "MAC.3 closed-local development-Mac boot work"
+      ]
+    },
+    "onRed": {
+      "action": "HARD STOP",
+      "criterionEditForbidden": true,
+      "thirdImageForbidden": true
+    },
+    "semanticEquivalenceIsNotIdentity": true,
+    "timestampRule": {
+      "allowedValues": [
+        0,
+        1
+      ],
+      "rule": "Every time field in the produced image is either the canonical source epoch or the ext4 writer time. Any third value is a reject, and any value large enough to be a plausible clock reading is definitionally a wall clock.",
+      "wallClockLowerBound": 1000000,
+      "why": "Stated as a closed set rather than as 'differs from expected', because a closed set cannot be widened after the fact to admit what was produced."
+    }
+  },
+  "activationAllowed": false,
+  "bootableClaim": false,
+  "boundaries": {
+    "guestBootVerified": false,
+    "imageAdopted": false,
+    "imageProduced": false,
+    "productionCodeChanged": false,
+    "runtimeCompatibilityVerified": false,
+    "sealedRecordsModified": false,
+    "thirdImageProduced": false
+  },
+  "corrections": [
+    {
+      "binary": {
+        "digestPinnedBy": "scripts/native_shadow_boot_root_disk_arm64_v1.py MKE2FS_SHA256",
+        "name": "mke2fs",
+        "package": "e2fsprogs",
+        "path": "/usr/sbin/mke2fs"
+      },
+      "blocksProduction": true,
+      "correctsClaimAt": "time.mechanicalPreVerification.coverage",
+      "detectedRatherThanSilent": "The successor's timestamp audit runs inside the produce phase and rejects any value outside {0, 1}, so a replica carrying a staged ctime aborts with wall-clock-survived-in-the-image before any comparison. The failure mode is loud. The reason not to dispatch anyway is that the record allows one production pair, not that the result would be misread.",
+      "effectOnTheSuccessorValue": {
+        "fieldsRemovedByTheSuccessorValue": [
+          "i_atime",
+          "i_crtime",
+          "i_mtime",
+          "s_lastcheck",
+          "s_mkfs_time",
+          "s_wtime"
+        ],
+        "fieldsStillNonDeterministic": [
+          "i_ctime"
+        ],
+        "necessary": true,
+        "restatedPlainly": "E2FSPROGS_FAKE_TIME=1 is necessary and is not sufficient. It removes every differing field except the ctime of the 13,448 entries copied from staging.",
+        "sufficient": false
+      },
+      "foundBefore": "any image was produced by this record",
+      "id": "staged-inode-ctime-is-not-fs-now",
+      "method": "static disassembly of the frozen mke2fs with /usr/bin/objdump; nothing was executed to establish it",
+      "offsetArithmetic": {
+        "copies": [
+          {
+            "at": "0x13dac",
+            "from": "st_atim.tv_sec",
+            "note": "the low half of the 64-bit store at sp+0x190",
+            "to": "i_atime"
+          },
+          {
+            "at": "0x13dac",
+            "from": "st_ctim.tv_sec",
+            "note": "the high half of the same store, packed by 0x13d78 mov v0.d[1], v1.d[0] and narrowed by 0x13da4 xtn v0.2s, v0.2d",
+            "to": "i_ctime"
+          },
+          {
+            "at": "0x13da0",
+            "from": "st_mtim.tv_sec",
+            "note": "0x13d9c ldr x6, [sp, #0xd8] -> str w6, [sp, #0x198]",
+            "to": "i_mtime"
+          }
+        ],
+        "corroboration": "st_mode, st_uid and st_gid are copied to i_mode, i_uid and i_gid in the same straight line, with the high halves of the two ids going to l_i_uid_high and l_i_gid_high. They are no part of the claim, which is what makes them useful witnesses: a base that were wrong by any amount would land the ownership and the mode somewhere they visibly are not.",
+        "inodeBuffer": {
+          "base": "sp+0x188",
+          "baseEstablishedAt": "0x13d08",
+          "baseEstablishedBy": "strh w0, [sp, #0x1a2] stores the link count of 1 set at 0x13d00, and i_links_count sits at inode offset 0x1a. 0x13d04 add x2, sp, #0x188 then passes the same address to ext2fs_write_new_inode and later to ext2fs_read_inode and ext2fs_write_inode.",
+          "fields": [
+            {
+              "address": "sp+0x188",
+              "name": "i_mode",
+              "structOffset": 0,
+              "writtenAt": "0x13d98"
+            },
+            {
+              "address": "sp+0x18a",
+              "name": "i_uid",
+              "structOffset": 2,
+              "writtenAt": "0x13d74"
+            },
+            {
+              "address": "sp+0x190",
+              "name": "i_atime",
+              "structOffset": 8,
+              "writtenAt": "0x13dac"
+            },
+            {
+              "address": "sp+0x194",
+              "name": "i_ctime",
+              "structOffset": 12,
+              "writtenAt": "0x13dac"
+            },
+            {
+              "address": "sp+0x198",
+              "name": "i_mtime",
+              "structOffset": 16,
+              "writtenAt": "0x13da0"
+            },
+            {
+              "address": "sp+0x1a0",
+              "name": "i_gid",
+              "structOffset": 24,
+              "writtenAt": "0x13d88"
+            },
+            {
+              "address": "sp+0x1a2",
+              "name": "i_links_count",
+              "structOffset": 26,
+              "writtenAt": "0x13d08"
+            }
+          ],
+          "layout": "struct ext2_inode"
+        },
+        "statBuffer": {
+          "base": "sp+0x80",
+          "baseEstablishedAt": "0x13970",
+          "baseEstablishedBy": "add x0, sp, #0x80 -> 0x13974 str x0, [sp, #0x18] -> 0x139e8 ldr x1, [sp, #0x18] -> 0x139f0 bl lstat64@plt. The base is the operand of the instruction that forms the pointer lstat64 fills, so it is read rather than inferred from a field.",
+          "fields": [
+            {
+              "address": "sp+0x90",
+              "name": "st_mode",
+              "readAt": "0x13d80",
+              "structOffset": 16
+            },
+            {
+              "address": "sp+0x98",
+              "name": "st_uid",
+              "readAt": "0x13d70",
+              "structOffset": 24
+            },
+            {
+              "address": "sp+0x9c",
+              "name": "st_gid",
+              "readAt": "0x13d70",
+              "structOffset": 28
+            },
+            {
+              "address": "sp+0xc8",
+              "name": "st_atim.tv_sec",
+              "readAt": "0x13d60",
+              "structOffset": 72
+            },
+            {
+              "address": "sp+0xd8",
+              "name": "st_mtim.tv_sec",
+              "readAt": "0x13d9c",
+              "structOffset": 88
+            },
+            {
+              "address": "sp+0xe8",
+              "name": "st_ctim.tv_sec",
+              "readAt": "0x13d68",
+              "structOffset": 104
+            }
+          ],
+          "layout": "struct stat, aarch64 LP64"
+        },
+        "why": "The walk above was read off a disassembly by hand. A mistyped displacement moves a field without making anything read less plausible -- sp+0xd8 and sp+0xe8 are one character apart and name different times -- so the operands are recorded here and the addresses are recomputed from them by scripts/test_native_shadow_boot_root_disk_determinism_successor_arm64_v1.py rather than trusted as written."
+      },
+      "optionsPutToTheOperator": [
+        {
+          "confirmationContract": {
+            "nothingHereChoosesThisOption": true,
+            "orderThatWouldApply": "Acquiring a candidate is an external download, so the pre-registration would be pushed to a remote branch before the download, and the source lock would gain the candidate as an appended entry with the existing 191 left byte-unchanged.",
+            "whatWouldCount": [
+              "the same read that produced this correction, run against the candidate mke2fs: the staging stat is located from its lstat call site, the inode buffer from its i_links_count store, and the instructions between them are shown to take the pinned time rather than the staged one",
+              "the candidate's own libext2fs re-read the way this record's was, since a program fix that its library undoes is not a fix",
+              "digests of the candidate binaries recorded beside the sites, as the correction above does"
+            ],
+            "whatWouldNotCount": [
+              "a release note, changelog entry or upstream commit message asserting reproducible output, with no read of the shipped binary",
+              "a produced pair of images that happen to match, which cannot separate a fixed cause from two runs that shared a clock",
+              "this record's own reasoning about which version ought to work"
+            ],
+            "why": "The requirement above says a version must be confirmed to exist. Left unsaid, confirming would drift towards reading a changelog and believing it. This says what would have to be read instead, so the confirmation is the same kind of evidence as the finding it answers."
+          },
+          "option": "pin an e2fsprogs whose create_inode honours fs->now",
+          "recommended": true,
+          "requires": [
+            "confirming such a version exists",
+            "appending it to the frozen source lock, leaving the existing 191 unchanged"
+          ],
+          "why": "removes the cause without touching the image builder, the acceptance criterion or the role debugfs was sealed with"
+        },
+        {
+          "option": "build the image without mke2fs -d staging",
+          "recommended": false,
+          "why": "removes the cause, but rewrites the builder, so the blast radius is large"
+        },
+        {
+          "option": "normalise i_ctime after mke2fs with the frozen debugfs",
+          "recommended": false,
+          "why": "forbidden here, and it would make the produced bytes something no single tool accounts for"
+        }
+      ],
+      "originalClaimStaysAsWritten": true,
+      "reconciliationWithThePredecessorMeasurements": {
+        "i_atime": "5 inodes differed, not 13,451, because set_inode_extra copied the staged st_atime and every staged entry carries 0. The 5 are the inodes mke2fs creates, which took fs->now.",
+        "i_crtime": "13,450 inodes differed, from ext2fs_write_new_inode and fs->now; the successor value removes this one",
+        "i_ctime": "13,451 inodes differed, which is all of them, because st_ctime is the one of the three that no staging step can set",
+        "i_mtime": "5 inodes differed, for the same reason as i_atime",
+        "note": "The predecessor recorded atimeDifferingInodes as [1, 2, 7, 8, 11]. Those are exactly the inodes mke2fs creates for itself, which is the same split this correction describes, measured from the other side."
+      },
+      "resolutionRequiresOperatorDecision": true,
+      "sites": [
+        {
+          "address": "0x139f0",
+          "binary": "mke2fs",
+          "establishes": "the struct stat the copy path reads",
+          "instruction": "ldr x1, [sp, #0x18] -> bl lstat64@plt; 0x139f8 ldr w0, [sp, #0x90] -> and w0, w0, #0xf000 -> cmp against 0x4000 and 0xa000",
+          "note": "sp+0x90 is compared as st_mode, which sits at struct stat offset 0x10, so the buffer base is sp+0x80: st_atime at sp+0xc8, st_mtime at sp+0xd8, st_ctime at sp+0xe8"
+        },
+        {
+          "address": "0x13d08",
+          "binary": "mke2fs",
+          "establishes": "the ext2_inode the copy path writes",
+          "instruction": "strh w0, [sp, #0x1a2]",
+          "note": "i_links_count sits at inode offset 0x1a, so the inode base is sp+0x188: i_atime at sp+0x190, i_ctime at sp+0x194, i_mtime at sp+0x198"
+        },
+        {
+          "address": "0x13dac",
+          "binary": "mke2fs",
+          "field": "i_atime and i_ctime",
+          "function": "set_inode_extra, inlined into the -d population path",
+          "inodeOffset": "0x8 and 0xc",
+          "instruction": "0x13d60 ldr d0, [sp, #0xc8] (st_atime) -> 0x13d68 ldr d1, [sp, #0xe8] (st_ctime) -> 0x13d78 mov v0.d[1], v1.d[0] -> 0x13da4 xtn v0.2s, v0.2d -> 0x13dac str d0, [sp, #0x190]",
+          "note": "one 64-bit store writes both fields from the staging stat; there is no fs->now anywhere in it"
+        },
+        {
+          "address": "0x13da0",
+          "binary": "mke2fs",
+          "field": "i_mtime",
+          "function": "set_inode_extra, inlined into the -d population path",
+          "inodeOffset": "0x10",
+          "instruction": "0x13d9c ldr x6, [sp, #0xd8] (st_mtime) -> str w6, [sp, #0x198]"
+        },
+        {
+          "address": "0x13db0",
+          "binary": "mke2fs",
+          "field": "the overwrite is committed",
+          "function": "set_inode_extra, inlined into the -d population path",
+          "instruction": "bl ext2fs_write_inode@plt",
+          "note": "the block from 0x13d5c to here is straight-line with no branch, so the staging values are not conditional on anything"
+        },
+        {
+          "address": "0x13ca4",
+          "binary": "mke2fs",
+          "field": "the contrast case, which the successor value does fix",
+          "function": "the inodes mke2fs creates itself",
+          "instruction": "ldr x1, [x21, #0xb8] (fs->now) -> 0x13cc0 cbz x1, 0x14900 -> 0x13cd0/0x13cd8/0x13cdc str w0, [sp, #0x190/0x194/0x198]",
+          "note": "same three fields, taken from fs->now with the zero sentinel behind a branch, which is why only these inodes moved in i_atime and i_mtime"
+        }
+      ],
+      "staticNegative": {
+        "claim": "The staging overwrite reads nothing from the ext2_filsys struct, so no value of the successor variable can reach i_atime, i_ctime or i_mtime on this path.",
+        "consequence": "E2FSPROGS_FAKE_TIME is necessary and not sufficient: it fixes the fields ext2fs_write_new_inode writes, and the overwrite that follows puts the staging file's wall clock back into three of them.",
+        "fsNowDisplacement": "0xb8",
+        "fsRegisterEstablishedBy": "x21 is moved into x0 before ext2fs_write_new_inode at 0x13d0c, before ext2fs_read_inode at 0x13d48 and before ext2fs_write_inode at 0x13d6c, and all three take ext2_filsys as their first argument.",
+        "fsRegisterInThatWindow": "x21",
+        "howCounted": "objdump -d over the window, counting loads whose base register is x21 and, separately, loads at displacement 0xb8 from any base. Both counts are zero.",
+        "loadsAtTheFsNowDisplacementInTheWindow": 0,
+        "loadsFromTheFsRegisterInTheWindow": 0,
+        "positiveControl": {
+          "address": "0x13ca4",
+          "instruction": "ldr x1, [x21, #0xb8] -> 0x13cc0 cbz x1, 0x14900",
+          "why": "The same binary, the same register and the same displacement read fs->now for the inodes mke2fs creates itself, a few instructions before the window. The zero is therefore a property of this path and not of the search."
+        },
+        "window": {
+          "endsAt": "bl ext2fs_write_inode@plt, which commits the overwrite",
+          "from": "0x13d1c",
+          "startsAt": "the return of ext2fs_write_new_inode, which is the last writer that does honour fs->now",
+          "to": "0x13db0"
+        }
+      },
+      "whatTheOriginalClaimGotRight": "Every site it lists is real, and for the superblock, for i_crtime and for the handful of inodes mke2fs creates itself, a fixed non-zero fs->now does reach the field and time() sits behind the zero branch.",
+      "whatTheOriginalClaimGotWrong": "It generalised ext2fs_write_new_inode to every inode. For the entries mke2fs copies under -d, set_inode_extra runs afterwards and overwrites i_atime, i_ctime and i_mtime from the staging filesystem's struct stat. fs->now is never read on that path, so the writer time cannot reach it.",
+      "whyItCannotBeSetFromUserspace": "utimensat sets atime and mtime only. ctime is written by the kernel on every metadata change, including the utimensat that sets the other two, so a staged file's ctime is the moment staging touched it. Two replicas stage at different moments.",
+      "whyOperatorDecision": "Every remaining remedy crosses a line this record or the directive draws: a different e2fsprogs changes the sealed source lock, a post-hoc pass promotes debugfs from inspector to writer, and excluding i_ctime from the comparison relaxes the acceptance criterion. None may be chosen here.",
+      "whyTheFirstPassMissedIt": "The first pass read the library, where every time field really is guarded by fs->now, and stopped once every differing field had a site. The overwrite lives in mke2fs itself, after the library has already written a correct value, so reading the library alone cannot show it."
+    }
+  ],
+  "e2fsckContract": {
+    "absentResultIsAFailure": true,
+    "argv": [
+      "e2fsck",
+      "-f",
+      "-n",
+      "<image>"
+    ],
+    "argvNotes": {
+      "-f": "force a full check. Without it e2fsck sees a clean superblock and exits 0 without reading the filesystem, and a pass that checked nothing is close enough to not running to be worthless.",
+      "-n": "answer no to every question: the filesystem is opened read-only and nothing is written"
+    },
+    "binary": {
+      "firstPinnedHere": true,
+      "firstPinnedHereBecause": "mke2fs and debugfs already carry digests in the plan module; e2fsck carries none anywhere, so this is a first pin rather than a copy of one.",
+      "loaderSoname": "ld-linux-aarch64.so.1",
+      "name": "e2fsck",
+      "neededLibraries": [
+        "libblkid.so.1",
+        "libc.so.6",
+        "libcom_err.so.2",
+        "libe2p.so.2",
+        "libext2fs.so.2",
+        "libuuid.so.1"
+      ],
+      "neededSetIsSubsetOfThePlanClosure": true,
+      "package": "e2fsprogs",
+      "packageDigestPinnedBy": "scripts/native_shadow_boot_root_disk_arm64_v1.py E2FSPROGS_PACKAGE_SHA256",
+      "path": "/usr/sbin/e2fsck",
+      "sha256": "05b3292174fdaadf96324ad349c006b1881b20647826bd869162e5ad8d34723b",
+      "sizeBytes": 413720
+    },
+    "forbiddenOptions": [
+      "-p",
+      "-y",
+      "-a",
+      "-b with a rebuild intent",
+      "any option that writes"
+    ],
+    "normalExit": {
+      "acceptedExitCodes": [
+        0
+      ],
+      "preRegisteredBefore": "any run",
+      "rejected": {
+        "1": "errors corrected -- impossible under -n, so its appearance means the contract was not honoured",
+        "128": "shared library error, which would also mean the loader closure is wrong",
+        "16": "usage or syntax error",
+        "2": "errors corrected, reboot needed -- same",
+        "32": "cancelled",
+        "4": "errors left uncorrected: the filesystem is not clean",
+        "8": "operational error"
+      }
+    },
+    "notRunIsNotAPass": true,
+    "runOn": "the produced image, in the job that produced it, before any comparison",
+    "runsPerReplica": 1,
+    "why": "The predecessor recorded that no filesystem check was run. Byte identity says two images agree; it does not say either one is a well-formed filesystem."
+  },
+  "invariants": {
+    "BF.7": "HOLD",
+    "CURL.3": "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED",
+    "LLM-MINEABLE-ELIGIBLE-V5": 14160,
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "activationAllowed": false,
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "loaderEvidenceContract": {
+    "appliesTo": [
+      "mke2fs",
+      "e2fsck",
+      "debugfs"
+    ],
+    "digestsAreNotRestatedHere": {
+      "exception": "e2fsck, pinned below because no existing record pins it",
+      "required": true,
+      "why": "The pinned packages already carry these bytes. A second copy of a sealed fact can drift from it silently, so the expected digests are derived from the frozen packages at verification time rather than typed into this record."
+    },
+    "emitDoNotRecompute": {
+      "existingComputation": "resolved_libraries() in scripts/native_shadow_boot_root_disk_execute_arm64_v1.py",
+      "note": "The value already exists at run time and is thrown away. The successor records that value rather than adding a second computation that could disagree with the one that actually fed the loader.",
+      "required": true
+    },
+    "hardStopConditions": [
+      "any resolved path outside the frozen extraction tree",
+      "any runner default library mixed into the resolved set",
+      "any resolved file whose bytes do not come from the frozen provider package",
+      "any required library missing from the emitted evidence",
+      "the two replicas' loader evidence differing in any field"
+    ],
+    "notRunIsNotAPass": true,
+    "requiredFields": [
+      "absolute path of the dynamic loader actually invoked",
+      "absolute path of every shared library the frozen invocation points the loader at",
+      "sha256 of each of those real files as they exist on the runner",
+      "sizeBytes of each",
+      "the frozen package each file is bound to"
+    ],
+    "why": "The predecessor left 'loader-resolves-only-frozen-libraries' unsettled, because the executor computed the resolved library set and then discarded it. A run whose library provenance is not written down cannot be audited after the fact."
+  },
+  "preRegistration": {
+    "amendForbidden": true,
+    "amendForbiddenReason": "A pre-registration that can be rewritten after seeing the outcome is not a pre-registration. Follow-up implementation commits may be added to the same branch; this commit's bytes must stay as pushed.",
+    "followUpCommitsAllowedOnSameBranch": true,
+    "producedArtifactsByThisRecord": 0,
+    "productionCodeChangedByThisRecord": false,
+    "purpose": "Freeze the acceptance criteria, the fixed-time design, the loader evidence contract and the read-only filesystem check before any production code is changed, so a later result cannot be judged against a bar written after it."
+  },
+  "predecessor": {
+    "mustNotBeModified": true,
+    "mustNotBeReinterpretedAsSuccess": true,
+    "path": "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json",
+    "relationship": "This record removes the cause that record identified. It does not revise, soften or supersede that record's failure verdict, which stands as written.",
+    "sealedFilesThatStayByteUnchanged": [
+      "native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json",
+      "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json",
+      "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json"
+    ],
+    "sha256": "af815ee609a2fbee4dc4a81ba0d331bd851b8a60792b87ed61583d642e861725",
+    "sizeBytes": 16053,
+    "status": "ROOT-DISK-BYTE-IDENTITY-FAILED-CAUSE-CONFIRMED-STOP-HELD-NOT-BOOT-AUTHORITY"
+  },
+  "production": {
+    "jobsAreSeparate": true,
+    "networkAllowed": [
+      "payload acquisition from the Ubuntu snapshot the existing workflow already pins",
+      "GitHub Actions artifact upload and download",
+      "git push, pull request and CI checks"
+    ],
+    "networkForbidden": [
+      "discovering new packages",
+      "discovering new tools",
+      "resolving any latest version"
+    ],
+    "perReplicaReport": [
+      "kernel sha256 and sizeBytes",
+      "initrd sha256 and sizeBytes",
+      "root disk sha256 and sizeBytes",
+      "evidence that the fixed writer time was applied",
+      "loader actual paths and sha256 values",
+      "frozen e2fsck -f -n exit code and verdict",
+      "the six static verification checks",
+      "the input authority sha256 values"
+    ],
+    "producesPerJob": 1,
+    "replicas": 2,
+    "retryPolicy": {
+      "onMismatch": "HARD STOP; report; do not produce a third image",
+      "rerunAllowedCount": 1,
+      "rerunAllowedOnlyWhen": "CI infrastructure failed before any artifact was created",
+      "rerunForbiddenWhen": "outputs were created and then did not match",
+      "why": "Re-rolling until two images agree measures patience, not determinism, and the first mismatch is the finding."
+    },
+    "runner": "ubuntu-24.04-arm",
+    "sameCommit": true,
+    "sameFrozenInputs": true
+  },
+  "productionReadiness": {
+    "blocked": true,
+    "blockedBy": [
+      "staged-inode-ctime-is-not-fs-now"
+    ],
+    "dispatchForbiddenWhileBlocked": true,
+    "why": "This record allows one production pair and forbids retrying a pair that has produced a result. Dispatching against a cause known to be still present would spend that one attempt on a known outcome."
+  },
+  "release": "NATIVE-SHADOW-BOOT-PRODUCE-PHASE-ARM64-V1",
+  "schema": "boole.native-shadow.boot-root-disk-determinism-successor-authority.arm64.v1",
+  "status": "SUCCESSOR-PRE-REGISTERED-NOT-IMPLEMENTED-NOT-PRODUCED-NOT-BOOT-AUTHORITY",
+  "time": {
+    "canonicalSourceEpoch": {
+      "changedBySuccessor": false,
+      "definedIn": "scripts/native_shadow_boot_initrd_arm64_v1.py",
+      "role": "the logical timestamp every staged entry carries into the image; the historical record and the input's own meaning",
+      "symbol": "CANONICAL_MTIME",
+      "value": 0
+    },
+    "debugfsMustNotBecomeAWriter": {
+      "required": true,
+      "why": "Stamping the image after the fact would produce a filesystem whose bytes no single tool accounts for, and would move the writer role to an inspector that v1 sealed read-only."
+    },
+    "ext4WriterTime": {
+      "currentValue": "0",
+      "isNotAWallClock": true,
+      "reason": "In this build of libext2fs, 0 is the unset sentinel: fs->now == 0 means 'nobody pinned a time', and every stamping site falls back to time(). 1 is the smallest value that is both non-zero and fixed, so it is the smallest change that makes the pin take effect at all.",
+      "role": "the value actually handed to the frozen e2fsprogs, which is a separate fact from what the staged inputs mean",
+      "successorValue": "1",
+      "variable": "E2FSPROGS_FAKE_TIME"
+    },
+    "forbiddenSubstitutions": [
+      {
+        "value": "SOURCE_DATE_EPOCH",
+        "why": "this build reads no such variable; setting it would look like a fix and do nothing"
+      },
+      {
+        "value": "the current time",
+        "why": "a clock read at build time is exactly the non-determinism being removed"
+      },
+      {
+        "value": "an arbitrary release timestamp",
+        "why": "a number chosen for how it reads is a fact nobody can re-derive later"
+      },
+      {
+        "value": "0",
+        "why": "the sentinel; already falsified by the predecessor record"
+      }
+    ],
+    "mechanicalPreVerification": {
+      "answer": "It reaches both, and it reaches every field that differed between the two replicas. Each stamping site loads fs->now from offset 0xb8 and branches on zero; the non-zero path stores that value directly, and time() is reached only through the zero branch.",
+      "binaries": [
+        {
+          "digestPinnedBy": "scripts/native_shadow_boot_root_disk_arm64_v1.py MKE2FS_SHA256",
+          "name": "mke2fs",
+          "package": "e2fsprogs",
+          "path": "/usr/sbin/mke2fs"
+        },
+        {
+          "digestPinnedBy": "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json cause.binaries",
+          "name": "libext2fs.so.2.4",
+          "package": "libext2fs2t64",
+          "path": "/usr/lib/aarch64-linux-gnu/libext2fs.so.2.4"
+        }
+      ],
+      "coverage": {
+        "claimLimit": "This says a fixed non-zero value reaches every field that moved. It does not say the produced images will be identical; only a produced pair says that.",
+        "fieldsDerivedFromThose": [
+          "s_checksum",
+          "i_checksum_lo",
+          "i_checksum_hi"
+        ],
+        "fieldsLeftUnexplained": 0,
+        "fieldsThatDifferedBetweenReplicas": [
+          "s_wtime",
+          "s_lastcheck",
+          "s_mkfs_time",
+          "s_checksum",
+          "i_atime",
+          "i_ctime",
+          "i_mtime",
+          "i_crtime",
+          "i_checksum_lo",
+          "i_checksum_hi"
+        ],
+        "fieldsTracedToFsNow": [
+          "s_wtime",
+          "s_lastcheck",
+          "s_mkfs_time",
+          "i_atime",
+          "i_ctime",
+          "i_mtime",
+          "i_crtime"
+        ],
+        "supersededBy": "corrections[0] (staged-inode-ctime-is-not-fs-now). Every key above stays as written; the correction says which of them held and which did not, and why the difference was not visible from the sites listed here."
+      },
+      "digestsAreNotCopiedHere": "These are the same two binaries the predecessor record pins by digest, and that record is bound above by path and sha256. Restating the hex here would create a second copy that can drift from the first without saying so.",
+      "method": "static disassembly of the exact frozen binaries with /usr/bin/objdump; nothing was executed to establish it",
+      "performedBefore": "any production change, any build, any result",
+      "question": "Does a non-zero E2FSPROGS_FAKE_TIME actually reach the superblock and the inodes mke2fs creates, or only the superblock?",
+      "sites": [
+        {
+          "address": "0x2cb10",
+          "binary": "libext2fs.so.2.4",
+          "field": "fs->now",
+          "function": "ext2fs_initialize",
+          "instruction": "bl getenv@plt -> 0x2cb20 bl __isoc23_strtoul@plt -> 0x2cb28 str x0, [x2, #0xb8]",
+          "note": "strtoul(\"1\") is 1, so the successor value lands in fs->now as 1"
+        },
+        {
+          "address": "0x2cd28",
+          "binary": "libext2fs.so.2.4",
+          "fallback": "0x2d3f8 bl time@plt, reached only when fs->now == 0",
+          "field": "s_lastcheck",
+          "function": "ext2fs_initialize",
+          "instruction": "ldr x0, [x25, #0xb8] -> 0x2cd2c cbz x0, 0x2d3f8 -> 0x2cd3c str w0, [x21, #0x40]",
+          "superblockOffset": "0x40"
+        },
+        {
+          "address": "0x2cd40",
+          "binary": "libext2fs.so.2.4",
+          "fallback": "same zero branch as s_lastcheck",
+          "field": "s_mkfs_time",
+          "function": "ext2fs_initialize",
+          "instruction": "str w0, [x21, #0x108]",
+          "superblockOffset": "0x108"
+        },
+        {
+          "address": "0x13774",
+          "binary": "libext2fs.so.2.4",
+          "fallback": "0x13aac bl time@plt then 0x13ab8 str w0, [x20, #0x30], reached only when fs->now == 0",
+          "field": "s_wtime",
+          "function": "ext2fs_flush2",
+          "instruction": "ldr x0, [x27, #0xb8] -> 0x13780 cbz x0, 0x13aac -> 0x13788 str w0, [x20, #0x30]",
+          "superblockOffset": "0x30"
+        },
+        {
+          "address": "0x30508",
+          "binary": "libext2fs.so.2.4",
+          "field": "i_ctime",
+          "function": "ext2fs_write_new_inode",
+          "inodeOffset": "0xc",
+          "instruction": "0x304f8 ldr x21, [x23, #0xb8] -> 0x304fc cbz x21, 0x305cc -> 0x30508 str w21, [x19, #0xc]",
+          "note": "guarded by 0x30504 cbnz: written only where the field is still zero"
+        },
+        {
+          "address": "0x30514",
+          "binary": "libext2fs.so.2.4",
+          "field": "i_mtime",
+          "function": "ext2fs_write_new_inode",
+          "inodeOffset": "0x10",
+          "instruction": "str w21, [x19, #0x10]",
+          "note": "same x21, same zero-guard"
+        },
+        {
+          "address": "0x30520",
+          "binary": "libext2fs.so.2.4",
+          "field": "i_atime",
+          "function": "ext2fs_write_new_inode",
+          "inodeOffset": "0x8",
+          "instruction": "str w21, [x19, #0x8]",
+          "note": "same x21, same zero-guard"
+        },
+        {
+          "address": "0x305c4",
+          "binary": "libext2fs.so.2.4",
+          "field": "i_crtime",
+          "function": "ext2fs_write_new_inode",
+          "inodeOffset": "0x90",
+          "instruction": "0x3056c ldr w0, [x20, #0x90] -> 0x30580 cbz w0, 0x305c4 -> 0x305c4 str w21, [x20, #0x90]",
+          "note": "reached only for inodes larger than 128 bytes (0x30524 cmp w22, #0x80; 0x30528 b.eq skips it). This image uses 256-byte inodes, so it applies."
+        },
+        {
+          "address": "0x7b20",
+          "binary": "mke2fs",
+          "fallback": "0x81a8 mov x0, #0 / bl time@plt, reached only when fs->now == 0",
+          "field": "inode time trio at creation",
+          "function": "(mke2fs body)",
+          "instruction": "ldr x0, [x25, #0xb8] -> 0x7b24 cbz x0, 0x81a8 -> 0x7b4c stp w0, w0, [sp, #0xe0] -> 0x7b50 str w0, [sp, #0xe8]",
+          "note": "three consecutive 32-bit time slots filled from the same value"
+        },
+        {
+          "address": "0x305cc",
+          "binary": "libext2fs.so.2.4",
+          "field": "wall-clock fallback in ext2fs_write_new_inode",
+          "function": "ext2fs_write_new_inode",
+          "instruction": "mov x0, #0 -> 0x305d0 bl time@plt -> 0x305d4 mov w21, w0",
+          "note": "the only way a clock enters this function, and the zero sentinel is its only door"
+        }
+      ]
+    },
+    "twoDistinctValuesOnPurpose": "The staged inputs carry a logical epoch; the filesystem writer needs a clock. They were the same number before, and that is how a sentinel swallowed one of them unnoticed. They are separate fields now so neither can hide inside the other."
+  }
+}

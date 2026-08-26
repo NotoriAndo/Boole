@@ -61,13 +61,43 @@ VOLUME_LABEL = ""
 BOOTABLE_CLAIM = False
 ACTIVATION_ALLOWED = False
 
+# The time handed to the ext4 writer, which is not the time the staged inputs
+# carry.  `CANONICAL_MTIME` is zero and stays zero: it is what every staged file
+# is stamped with, and the image reproduces it faithfully.  But zero is also the
+# frozen library's "no fixed time was given" sentinel -- `ext2fs_initialize`
+# stores the parsed variable at `fs->now` and every writer of a time field tests
+# `cbz` against it before falling back to `time()`.  Handing it zero therefore
+# asked for the wall clock, which is how two builds of identical inputs came out
+# different.  One is the smallest value the sentinel does not swallow.
+EXT4_WRITER_TIME = "1"
+ALLOWED_TIMESTAMPS = (CANONICAL_MTIME, int(EXT4_WRITER_TIME))
+
+# Any surviving wall clock is far above both allowed values; this only exists so
+# a violation report can say which kind of wrong value it found.
+WALL_CLOCK_LOWER_BOUND = 1000000
+
 MKE2FS_SHA256 = "763be3ec03774647799b1186d30b4b524e6e73dd27be01cbe0be4b6043f62cb1"
 MKE2FS_SIZE_BYTES = 133512
 DEBUGFS_SHA256 = "2c0bf348d91f9b3bd6eec6666b9897b9f733c430e6baa8066bd70b645b2ca023"
 DEBUGFS_SIZE_BYTES = 271944
+E2FSCK_SHA256 = "05b3292174fdaadf96324ad349c006b1881b20647826bd869162e5ad8d34723b"
+E2FSCK_SIZE_BYTES = 413720
+# The checker ships in the same e2fsprogs package as the writer and the
+# inspector, so it is bound to the frozen closure by a path inside it rather
+# than by a new acquisition.
+E2FSCK_MEMBER_PATH = "./usr/sbin/e2fsck"
 E2FSPROGS_PACKAGE_SHA256 = (
     "6e1cdd65bf58fe77968f8ac45f1802586baf18bfb8541f4a88fe843ab85bef8b"
 )
+
+# `-f` forces the check.  Without it e2fsck reads a superblock that mke2fs just
+# marked clean and exits zero without looking at the filesystem, which is close
+# enough to not running that recording it as a pass would be dishonest.  It is a
+# force flag, not a repair flag; the repair flags are `-p`, `-y` and `-a`, and
+# `-n` answers no to every question the checker could ask.
+E2FSCK_ARGV_OPTIONS = ("-f", "-n")
+E2FSCK_FORBIDDEN_OPTIONS = ("-a", "-p", "-w", "-y")
+E2FSCK_ACCEPTED_EXIT_CODES = (0,)
 
 # Spare inodes above the entry count.  Pinning `-N` keeps the inode table a
 # function of the layer instead of a function of the config's `inode_ratio`.
@@ -177,18 +207,33 @@ def mke2fs_argv(*, mke2fs: str, image: str, staging: str, blocks: int, inodes: i
 
 def mke2fs_env(*, config: str) -> dict[str, str]:
     return {
-        FAKE_TIME_ENV: "0",
+        FAKE_TIME_ENV: EXT4_WRITER_TIME,
         "LC_ALL": "C",
         "MKE2FS_CONFIG": config,
         "TZ": "UTC",
     }
 
 
+def e2fsck_argv(*, e2fsck: str, image: str) -> list[str]:
+    """Read the produced filesystem back and answer no to every question."""
+
+    return [e2fsck, *E2FSCK_ARGV_OPTIONS, image]
+
+
+def e2fsck_env() -> dict[str, str]:
+    """No fake time here: the checker is a reader and writes no time field."""
+
+    return {"LC_ALL": "C", "TZ": "UTC"}
+
+
 UNVERIFIED_ASSUMPTIONS = [
     {
         "detail": (
             "this build of mke2fs has no SOURCE_DATE_EPOCH string; the shipped "
-            "libext2fs.so.2.4 has E2FSPROGS_FAKE_TIME. Read from the binaries, not run."
+            "libext2fs.so.2.4 has E2FSPROGS_FAKE_TIME. Read from the binaries, not run. "
+            "The first pair of builds falsified the value this was set to rather than "
+            "the variable: zero is the library's unset sentinel, so it was honoured by "
+            "being ignored. A non-zero fixed time replaces it."
         ),
         "id": "fake-time-honoured-by-this-build",
         "onMismatch": "abort-never-relax",
@@ -234,6 +279,7 @@ def root_disk_plan(
     layer: bytes,
     mke2fs: str,
     debugfs: str,
+    e2fsck: str,
     config: str,
     image: str,
     staging: str,
@@ -266,6 +312,14 @@ def root_disk_plan(
             ),
             "env": mke2fs_env(config=config),
         },
+        "e2fsck": {
+            "acceptedExitCodes": list(E2FSCK_ACCEPTED_EXIT_CODES),
+            "argv": e2fsck_argv(e2fsck=e2fsck, image=image),
+            "env": e2fsck_env(),
+            "forbiddenOptions": list(E2FSCK_FORBIDDEN_OPTIONS),
+            "notRunIsNotAPass": True,
+            "runs": 1,
+        },
         "sharedLibraries": SHARED_LIBRARIES,
         "sizeBytes": {"pinned": sizeBytes, "required": floor},
         "staging": {
@@ -279,6 +333,13 @@ def root_disk_plan(
                 "role": "ext4-image-inspector",
                 "sha256": DEBUGFS_SHA256,
                 "sizeBytes": DEBUGFS_SIZE_BYTES,
+            },
+            "e2fsck": {
+                "packageSha256": E2FSPROGS_PACKAGE_SHA256,
+                "path": e2fsck,
+                "role": "ext4-image-read-only-checker",
+                "sha256": E2FSCK_SHA256,
+                "sizeBytes": E2FSCK_SIZE_BYTES,
             },
             "mke2fs": {
                 "packageSha256": E2FSPROGS_PACKAGE_SHA256,
@@ -300,6 +361,7 @@ def _parser() -> argparse.ArgumentParser:
     make.add_argument("--layer", type=pathlib.Path, required=True)
     make.add_argument("--mke2fs", required=True)
     make.add_argument("--debugfs", required=True)
+    make.add_argument("--e2fsck", required=True)
     make.add_argument("--config", required=True)
     make.add_argument("--image", required=True)
     make.add_argument("--staging", required=True)
@@ -315,6 +377,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             layer=args.layer.read_bytes(),
             mke2fs=args.mke2fs,
             debugfs=args.debugfs,
+            e2fsck=args.e2fsck,
             config=args.config,
             image=args.image,
             staging=args.staging,

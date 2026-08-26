@@ -124,17 +124,31 @@ jobs:
       - name: Write the SHA-256 manifest
         run: |
           set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
           python3 scripts/native_shadow_boot_image_produce_arm64_v1.py manifest \
             --repository-root . \
             --outputs "$RUNNER_TEMP/boot-outputs" \
-            > "$RUNNER_TEMP/OUTPUT-MANIFEST.txt"
-          cat "$RUNNER_TEMP/OUTPUT-MANIFEST.txt"
+            > "$RUNNER_TEMP/evidence/OUTPUT-MANIFEST.txt"
+          cat "$RUNNER_TEMP/evidence/OUTPUT-MANIFEST.txt"
 
-      - name: Keep the manifest
+      - name: Require this replica to have proved what it did
+        # The producer already stops a run whose filesystem check failed, whose
+        # image carries a timestamp outside the closed set, or whose loader
+        # opened a library from outside the frozen tree. This is the other case:
+        # a result that never ran the check and reads like one that passed. It
+        # is checked here, and again in compare, from the file a reader gets.
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/boot-outputs/PRODUCE-RESULT.json" \
+            "$RUNNER_TEMP/evidence/PRODUCE-RESULT.json"
+          python3 scripts/native_shadow_boot_produce_phase_arm64_v1.py evidence \
+            --result "$RUNNER_TEMP/evidence/PRODUCE-RESULT.json"
+
+      - name: Keep the manifest and the evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: boot-manifest-${{ matrix.replica }}
-          path: ${{ runner.temp }}/OUTPUT-MANIFEST.txt
+          path: ${{ runner.temp }}/evidence
           if-no-files-found: error
           retention-days: 7
 
@@ -171,6 +185,17 @@ jobs:
         with:
           name: boot-manifest-2
           path: second
+
+      - name: Require each run to have proved what it did
+        # Before the two are compared at all. Two replicas that both skipped the
+        # filesystem check would agree with each other perfectly.
+        run: |
+          set -euo pipefail
+          for replica in first second; do
+            printf '== %s ==\n' "$replica"
+            python3 scripts/native_shadow_boot_produce_phase_arm64_v1.py evidence \
+              --result "$replica/PRODUCE-RESULT.json"
+          done
 
       - name: Require the two independent runs to agree byte for byte
         run: |

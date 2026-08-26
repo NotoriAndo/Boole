@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `ac6b09d6ffe081abb650f51dde8a172f7b124a7d6e61ba14a7f80f3c00267693` (updated 2026-08-26s — the builder projection that can read the sealed boot lock, and the produce-phase isolation, manifest and byte comparison) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `573e2d36f8f9637ca29bd52f9c0ae9530667b5f16d9e36bbdf204ab9dbc4c345` (updated 2026-08-26s — D2.1 and D3.1 written; nothing produced, isolated, compared, inspected or booted) |
+| `local-docs/todo/todo-l1-network-master.md` | `ecd12ca61b0249b70de17373aaf1d28a246cb9eadcf0013d9905553ed49f939f` (updated 2026-08-27b — the successor completeness claim was corrected; production blocked while its cause stands) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `b739eb51b3991199092e3b1f3d1fe85c5db83b015386b9053d93b2799af22ec6` (updated 2026-08-27b — the cursor moves back: the successor is blocked, Phase C not dispatched) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb` (updated 2026-08-26o — choosing not to make a second copy of a sealed fact) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `4e2d05e017dce46c7f59d14b60cd8b7358564710446ab5a20976c48cd9c90430` (updated 2026-08-27b — a completeness claim holds only over what was read, and this one said so too late) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1878,3 +1878,92 @@ is not a deployment. No launcher was rebuilt here, none was placed, and nothing 
 `bootableClaim: false`, `activationAllowed: false`, `guestImageBuilt: false`. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
 `BF.7=HOLD`, Base activation false — unchanged.
+
+_2026-08-27 root-disk determinism addendum:_ **THE DISK WAS BUILT TWICE FROM IDENTICAL INPUTS AND
+THE TWO COPIES DIFFERED. THE STOP WAS TAKEN, THE CAUSE IS CONFIRMED, AND NOTHING WAS BOOTED.**
+
+Two arm64 CI jobs produced the guest root disk. The kernel and the initrd were byte-identical. The
+disk was not: `b3299ed161557a195a9f58bb899fc61979ecb7456de94b9d89ac951c2e320b96` against
+`11099b116c3241a4441ba6ed3cfd4b7db6a160779c97271bcce5bf6e99b7153a`, both 1,168,314,368 bytes. The
+pre-registered rule for that outcome was to stop rather than relax the criterion, and it is sealed
+append-only in `native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json`
+as `ROOT-DISK-BYTE-IDENTITY-FAILED-CAUSE-CONFIRMED-STOP-HELD-NOT-BOOT-AUTHORITY`. That record is not
+edited and not reread as a success by anything after it.
+
+The difference was measured, not characterised. 847 of 285,233 blocks, all of them superblock,
+backup superblock or inode table; every data block, directory block, bitmap and group descriptor
+identical. 80,748 differing bytes with **zero unexplained** — each is a timestamp field or a checksum
+over one. A read-only walk of both images compared 13,448 entries and 1,008,783,262 bytes of file
+content: **no file's contents differed**, and path, order, inode, mode, ownership, size, links,
+symlink target, extended attributes and layout matched everywhere. The verdict
+`METADATA-TIMESTAMPS-ONLY` describes the difference; it is not a reason to accept it, and byte
+identity remains the criterion.
+
+The cause was read out of the frozen binaries rather than inferred from the outcome.
+`E2FSPROGS_FAKE_TIME=0` is a no-op because `0` is this library's "unset" sentinel, so pinning the
+time to zero is indistinguishable from not pinning it, and both jobs read clocks 58 seconds apart.
+
+`native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json`
+carries the bar the fix must clear and was pushed before any production code changed. It splits one
+number into two: the canonical source epoch stays `0` as the staged inputs' own meaning, while the
+value handed to the ext4 writer becomes `1` — the smallest non-zero fixed value, and so the smallest
+change that makes the pin take effect. Before that was written, every field that moved was traced
+statically to `fs->now`: the superblock's write, last-check and mkfs times, and the inodes' access,
+change, modify and creation times, each storing the pinned value directly with `time()` behind the
+zero branch. Nothing is left over. That is a claim about which fields the value reaches, not a claim
+that the images will match — only a produced pair settles that. The successor also emits the loader
+provenance the executor already computed and discarded, and pins `e2fsck` by digest to run `-f -n`
+per replica with `0` as the only accepted exit code.
+
+The 2026-08-27b mirror synchronization appends the correction below to those same three mirrors,
+each of which carried the superseded completeness claim in its own words. The claim stays as written
+in all three and the correction follows it; the other three mirrors are byte-unchanged, confirmed by
+recomputing all six digests from the files rather than carrying any value forward by hand. The
+section 12 table holds those recomputed values.
+
+The 2026-08-27 mirror synchronization appends this same state to `todo-l1-network-master.md`,
+`EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other three section 12 mirrors are
+byte-unchanged, which was confirmed by recomputing all six digests from the files themselves rather
+than carrying any value forward by hand. The section 12 table holds those recomputed values; they
+are synchronization evidence only, never runtime trust roots.
+
+`bootableClaim: false`, `activationAllowed: false`, `guestBootVerified: false`. No image was adopted,
+no third image was produced and nothing was booted. MAC.3 closed-local boot stays blocked until the
+successor is green. CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`.
+`mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
+
+_2026-08-27 successor correction addendum:_ **"NOTHING IS LEFT OVER" ABOVE WAS WRONG. ONE FIELD
+SURVIVES THE SUCCESSOR VALUE, IT WAS FOUND BEFORE ANY IMAGE WAS PRODUCED, AND PRODUCTION IS NOW
+BLOCKED RATHER THAN ATTEMPTED.**
+
+The sentence stays as written. The pre-verification read `libext2fs` and found every timestamp writer
+there gated on `fs->now`; that part holds. It did not read `mke2fs`. Under `-d`, `mke2fs` calls
+`ext2fs_write_new_inode` for each staged entry — the library path that was checked — and then
+overwrites `i_atime`, `i_ctime` and `i_mtime` from the staging file's `struct stat`, without reading
+`fs->now`. The overwrite is in the program, not the library, which is why reading the library looked
+complete.
+
+`objdump` over the frozen `mke2fs`, whose digest the plan already pins; nothing executed, no image
+produced. The stat buffer is fixed by the `lstat64` call at `0x139f0` and the `S_IFMT` mask after it,
+the inode buffer by the `i_links_count` store at `0x13d08`; the copies are at `0x13dac` and `0x13da0`
+into inode offsets `0x8`, `0xc` and `0x10`, then `ext2fs_write_inode` at `0x13db0`. The inodes
+`mke2fs` creates on its own account do read `fs->now`, at `0x13ca4` with the zero-branch at `0x13cc0`.
+That matches the measured diff exactly: `i_atime` and `i_mtime` each differed in five inodes — the
+five `mke2fs` creates itself — while `i_ctime` differed in all of them.
+
+`st_ctime` cannot be pinned from userspace: `utimensat` sets atime and mtime only, and any metadata
+change updates ctime. So the successor's writer time is **necessary but not sufficient** — it removes
+`i_atime`, `i_crtime`, `i_mtime`, `s_lastcheck`, `s_mkfs_time` and `s_wtime`, and `i_ctime` survives.
+
+The correction is appended to the successor authority as a `corrections` entry; the corrected claim
+is byte-identical and the three sealed predecessor files are untouched. The produce phase refuses to
+start while a named cause is recorded as present, because that record allows one production pair and
+forbids retrying a pair that has produced a result. No remedy is adopted: a different `e2fsprogs`
+changes the sealed source lock, `debugfs` as a post-hoc writer is refused in writing, and dropping
+`i_ctime` from the comparison relaxes the criterion. The options are recorded; the choice is the
+operator's. Nothing here is silent — the produce phase's timestamp audit aborts a replica with
+`wall-clock-survived-in-the-image` before any comparison.
+
+`bootableClaim: false`, `activationAllowed: false`, `guestBootVerified: false`, `imageProduced: false`.
+CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
