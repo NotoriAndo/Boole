@@ -1,0 +1,28 @@
+{
+  "activationAllowed": false,
+  "authoritySha256": "64f4ea0c6b574e1479e51a78e250da8fac6f3d3522d60cb03dde65b53da594ee",
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "guestImageBuilt": false,
+    "imageBuilderAuthorityPresent": false,
+    "kernelImageExtracted": false,
+    "launcherDeployedIntoGuest": false,
+    "runtimeCompatibilityVerified": false,
+    "toolchainByteProvenanceClosed": false
+  },
+  "independentBuildCount": 2,
+  "launcher": {
+    "guestLogicalPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+    "sha256": "11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434",
+    "sizeBytes": 2006632
+  },
+  "observedToolchain": {
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "host": "aarch64-unknown-linux-gnu",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)"
+  },
+  "release": "NATIVE-SHADOW-LAUNCHER-BUILD-ARM64-V1",
+  "schema": "boole.native-shadow.launcher-build-result.arm64.v1",
+  "status": "LAUNCHER-ELF-BUILT-BYTE-IDENTICAL-NOT-BOOT-AUTHORITY"
+}

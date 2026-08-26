@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `8fb7a8eb0d520327ba84557c31a768a9f88763b96a47fecc44a799e3465701fe` (updated 2026-08-26i — launcher build inputs frozen and enforced by CI; artifact not sealed) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `a3d2809f8bfd661e2ec6abb84a1aede1e0e56c835e3b9833b8ea5c78288258c2` (updated 2026-08-26i — cursor moves to the sealed launcher artifact, then the image builder) |
+| `local-docs/todo/todo-l1-network-master.md` | `e9c2d9b22feca523c39d3bc6da948f196a3e6b94d0fd22eb59350d4c484908e9` (updated 2026-08-26k — image builder inputs frozen; launcher artifact sealed) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `9b3fd04ac4632681b72a6db96b619edb6773fc814206e86e2e74520e1758e072` (updated 2026-08-26k — launcher sealed; cursor moves to Phase C with the ext4 blocker recorded) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `66193a0bb0ab38e243535579c071a584f1e47a77dc9c3326a8d2aa86737e4d46` (updated 2026-08-26i — inputs frozen and machine-checked; reproducibility not yet demonstrated) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `f2ba2f7a3a765d6d5af602ad718409b39bd221507a5ad3665746bdbbcac889cd` (updated 2026-08-26k — reproducibility moves from claim to self-checking record) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1247,5 +1247,102 @@ deferred, and every boundary the authority declares stays false: `toolchainByteP
 `imageBuilderAuthorityPresent`, `runtimeCompatibilityVerified` and `bootAuthority`.
 A byte-identical pair of builds is not a boot,
 and freezing build inputs is not an image, a kernel or a running guest. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` are unchanged.
+
+_2026-08-26j image-builder addendum:_ **NATIVE-SHADOW-BOOT-IMAGE-BUILDER-AUTHORITY-ARM64-V1 =
+IMAGE BUILDER INPUTS FROZEN, NO IMAGE BUILT.** One step between the sealed stages had no owner: the
+rootfs stage produces an OCI image layout, and the boot stage consumes a kernel, an initrd and a
+root disk, but nothing stated which tools turn the first into the second. The authority (SHA-256
+`59a14469bbb9710a1f6c79202d3e804b2f79268966c12d4259cd99e59e8d6e1e`, 4,714 bytes) fixes that step's
+inputs and its input/output roles, and does not build anything.
+
+No tool is taken from `PATH`. `mke2fs` and `debugfs` are pinned as named members of `e2fsprogs`
+1.47.0-2.4~exp1ubuntu4 (package SHA-256
+`6e1cdd65bf58fe77968f8ac45f1802586baf18bfb8541f4a88fe843ab85bef8b`), with their own member
+digests, sizes and mode `0755`; the kernel is a named member of `linux-image-6.8.0-31-generic`
+6.8.0-31.31 (package SHA-256
+`7d0168a6ea0ebc7263fed3cce3dc45153ddd4e0e4a4b2737f74f0bd72cbaa292`). Every one of those packages
+was already inside the sealed source lock, so this addendum introduces no new address, no new
+digest and no download; the 191 previously verified payloads were not re-fetched. Maintainer
+scripts are never run, versions are never resolved to "latest", and no production signing material
+-- key, Team ID, certificate or provisioning profile -- appears anywhere in the document, which a
+test enforces by substring.
+
+`mkfs.ext4` is a symlink to `mke2fs`, so the role pins `mke2fs` itself. Pinning the symlink would
+let an upstream rename repoint the tool while the pinned path kept matching, which is why
+`forbidSymlinkToolPins` is part of the contract rather than a habit.
+
+The kernel ships gzip-compressed inside its package, and Apple's `VZLinuxBootLoader` wants a raw
+arm64 `Image`, so both forms are recorded: compressed
+`f67ad535a1b19295985d0266394d1c3a5620178a3ba61aca22cda1b6c1e27a2a` (18,199,471 bytes) and expanded
+`d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336` (57,860,488 bytes), the latter
+carrying the arm64 magic `ARM\x64` at offset 0x38. Declaring the decompression step now is cheaper
+than discovering it when a boot fails.
+
+Determinism is declared before anything is built, because two of its inputs are drawn from host
+entropy by default: `mke2fs` would pick a filesystem UUID and a directory hash seed per run, and
+either alone is enough to make two builds of identical inputs differ. Both are fixed to stated
+synthetic constants. The initrd is uncompressed `cpio-newc` so no gzip implementation difference
+can enter, file order is sorted by logical path bytes, ownership is `root:root` only, mtimes are
+canonicalised to 0, `machine-id` is an empty file for first boot, `SOURCE_DATE_EPOCH` is left
+unset, and `forbidTimestampSuppression` records that hiding a differing value to force a match is
+not permitted. Two independent builds are required and `mismatchAction` stays
+`report-the-difference-never-force-a-match`.
+
+Verification is split by what each environment can actually see, and the document says which half
+is which. The source lock is tracked, so CI re-hashes it and proves every pinned package, digest
+and version is one the lock already froze. The content-addressed store is gitignored, so extracting
+the pinned members from those packages and re-hashing the tool bytes is a local-only check; it
+passed here for both tool binaries and both kernel forms, and `toolByteProvenanceVerifiedInCi`
+stays false because a check CI cannot run must not be recorded as one it did.
+
+This is a successor input, not an edit. The sealed scaffold plan named exactly
+`initrd-ext4-builder-authority-v1` for its `imageBuilderToolchain` slot and left the digest null;
+the scaffold file is untouched, and the preflight tool refuses any non-null value there by design.
+Earlier sealed documents record `imageBuilderAuthorityPresent=false` as the state at their own
+sealing and are not rewritten to agree with this one.
+
+One process deviation is recorded rather than smoothed over: the tool, the document and the tests
+were written before a failing test existed, so the RED-first order this repository requires was not
+followed for this slice. The remedy applied was a mutation harness that weakens one guard at a time
+and requires the test module to fail; all eight mutations were caught and the tool was restored
+byte-for-byte. That is evidence the guards are load-bearing, not a substitute for the order, and
+the next slice starts from RED.
+
+Every boundary this authority declares stays false: `guestImageBuilt`, `initrdBuilt`,
+`kernelImageExtracted`, `rootDiskBuilt`, `runtimeCompatibilityVerified`,
+`toolByteProvenanceVerifiedInCi` and `bootAuthority`, with `bootableClaim` and `activationAllowed`
+false alongside them.
+Pinning the inputs of an image is not an image,
+and it is not a kernel, an initrd, a root disk or a boot. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` are unchanged.
+
+_2026-08-26k launcher-artifact seal addendum:_ **THE ARTIFACT THE 2026-08-26i ADDENDUM LEFT OPEN
+IS NOW SEALED.** That addendum recorded the launcher build inputs as frozen and the artifact as not
+yet sealed, because the double build can only run on an arm64 Linux runner. It has now run: the
+`native-shadow-launcher-build-arm64` job reports `builds=2 identical=yes`, and the launcher ELF is
+`11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434` (2,006,632 bytes) for
+`/usr/libexec/boole/boole-native-shadow-launcher`, built by `rustc 1.95.0 (59807616e 2026-04-14)`
+and `cargo 1.95.0 (f2d3ce0bd 2026-03-21)` on host `aarch64-unknown-linux-gnu`.
+
+The sealed result (SHA-256 `eca743b903a6ef22ef214a14890042edaee3afd80af11c97503c255b67c0764c`,
+1,028 bytes) is committed exactly as CI produced it. It was not retyped: the document CI printed
+was parsed and re-emitted through this repository's own canonical serializer, and the digest of
+those bytes equals the digest CI computed, which is what makes the local copy and the remote one
+provably the same file rather than two similar ones. From this commit onward the build step no
+longer seals anything -- it re-proves. A later run that produces different bytes fails and reports
+the difference; it may never rewrite the seal to agree with itself, because the seal is the only
+evidence that reproducibility ever held.
+
+Sealing the artifact settles one boundary and no others. The boundaries the build authority
+declares -- `toolchainByteProvenanceClosed`, `guestImageBuilt`, `kernelImageExtracted`,
+`launcherDeployedIntoGuest`, `imageBuilderAuthorityPresent`, `runtimeCompatibilityVerified` and
+`bootAuthority` -- all remain false in the sealed result, and the source lock's
+`tracked-file:launcher-binary` role is not rewritten here; changing a sealed lock is a successor's
+job, not an edit made in passing.
+Two byte-identical builds are a reproducibility result, not a running program,
+and an ELF that has never been executed anywhere is not a boot. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` are unchanged.
