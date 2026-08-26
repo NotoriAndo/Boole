@@ -12,7 +12,63 @@ ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "install.sh"
 
 
+def _head_of(repository: Path) -> tuple[str, str]:
+    """The branch name and commit this repository is sitting on."""
+
+    def read(*args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(repository), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    return read("rev-parse", "--abbrev-ref", "HEAD"), read("rev-parse", "HEAD")
+
+
 class InstallScriptTests(unittest.TestCase):
+    """The installer updates whatever checkout it is pointed at.
+
+    That is correct behaviour for an installer and wrong to aim at this
+    repository: given a clean tree it runs `git checkout main` and
+    `git pull --ff-only`, so a developer running these tests on a feature
+    branch is moved off it mid-run.  CI never notices because its checkout is a
+    throwaway.  Every test here therefore points the installer at a temporary
+    directory, and the guard below fails the test if this repository moved.
+    """
+
+    def setUp(self) -> None:
+        self._head_before = _head_of(ROOT)
+
+    def tearDown(self) -> None:
+        self.assertEqual(
+            _head_of(ROOT),
+            self._head_before,
+            "the installer moved this repository; point it at a temporary checkout",
+        )
+
+    def existing_checkout(self, directory: Path) -> Path:
+        """A directory the installer accepts as an existing Boole checkout.
+
+        It carries an untracked file on purpose.  The installer treats a dirty
+        tree as "do not touch" and skips the fetch/checkout/pull, which keeps
+        the test off the network and off any real branch.
+        """
+
+        scripts = directory / "scripts"
+        scripts.mkdir(parents=True)
+        wizard = scripts / "boole-preflight-wizard.py"
+        wizard.write_text("#!/usr/bin/env python3\nprint('fake doctor ok')\n", encoding="utf-8")
+        wizard.chmod(0o755)
+        for args in (
+            ["init"],
+            ["remote", "add", "origin", "https://github.com/NotoriAndo/Boole"],
+        ):
+            subprocess.run(
+                ["git", "-C", str(directory), *args], check=True, capture_output=True, text=True
+            )
+        return directory
+
     def run_installer(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         merged_env = os.environ.copy()
         merged_env.update(
@@ -102,7 +158,9 @@ class InstallScriptTests(unittest.TestCase):
             self.assertIn("Safe preflight not requested", combined)
 
     def test_no_install_doctor_uses_existing_checkout_without_system_installs(self) -> None:
-        proc = self.run_installer("--no-install", "--doctor", "--dir", str(ROOT))
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = self.existing_checkout(Path(tmp) / "boole")
+            proc = self.run_installer("--no-install", "--doctor", "--dir", str(checkout))
         combined = proc.stdout + proc.stderr
         self.assertEqual(proc.returncode, 0, combined)
         self.assertIn("Skipping dependency installation", combined)
@@ -111,30 +169,31 @@ class InstallScriptTests(unittest.TestCase):
         self.assertNotIn("apt-get install", combined)
         self.assertNotIn("brew install", combined)
 
+    def test_pointing_the_installer_at_this_repository_would_move_it(self) -> None:
+        """Why no test above passes `--dir ROOT`.
+
+        A dry run prints what a real run would execute rather than executing it.
+        Given a clean tree, a real run executes exactly these, which is how a
+        developer on a feature branch gets moved to main partway through a test
+        session.  Keeping the hazard in a test rather than a comment means a
+        later change to the installer cannot quietly make the comment stale.
+        """
+
+        proc = self.run_installer("--dry-run", "--no-install", "--doctor", "--dir", str(ROOT))
+        combined = proc.stdout + proc.stderr
+        self.assertIn("checkout main", combined)
+        self.assertIn("pull --ff-only origin main", combined)
+
     def test_existing_checkout_accepts_github_actions_origin_without_dot_git_suffix(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            checkout = Path(tmp) / "boole"
-            scripts = checkout / "scripts"
-            scripts.mkdir(parents=True)
-            wizard = scripts / "boole-preflight-wizard.py"
-            wizard.write_text("#!/usr/bin/env python3\nprint('fake doctor ok')\n", encoding="utf-8")
-            wizard.chmod(0o755)
-            subprocess.run(["git", "init"], cwd=checkout, check=True, capture_output=True, text=True)
-            subprocess.run(
-                ["git", "remote", "add", "origin", "https://github.com/NotoriAndo/Boole"],
-                cwd=checkout,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-
+            checkout = self.existing_checkout(Path(tmp) / "boole")
             proc = self.run_installer("--no-install", "--doctor", "--dir", str(checkout))
 
-            combined = proc.stdout + proc.stderr
-            self.assertEqual(proc.returncode, 0, combined)
-            self.assertIn("Using existing Boole checkout", combined)
-            self.assertIn("fake doctor ok", combined)
-            self.assertNotIn("existing checkout origin is not", combined)
+        combined = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 0, combined)
+        self.assertIn("Using existing Boole checkout", combined)
+        self.assertIn("fake doctor ok", combined)
+        self.assertNotIn("existing checkout origin is not", combined)
 
 
 if __name__ == "__main__":
