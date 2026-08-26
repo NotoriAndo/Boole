@@ -1,0 +1,36 @@
+{
+  "activationAllowed": false,
+  "authoritySha256": "59a14469bbb9710a1f6c79202d3e804b2f79268966c12d4259cd99e59e8d6e1e",
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "guestImageBuilt": false,
+    "initrdBuilt": false,
+    "kernelImageExtracted": true,
+    "launcherDeployedIntoGuest": false,
+    "rootDiskBuilt": false,
+    "runtimeCompatibilityVerified": false
+  },
+  "compressedKernel": {
+    "sha256": "f67ad535a1b19295985d0266394d1c3a5620178a3ba61aca22cda1b6c1e27a2a",
+    "sizeBytes": 18199471
+  },
+  "hostTools": [
+    {
+      "path": "/opt/homebrew/bin/zstd",
+      "role": "zstd",
+      "sha256": "aff8169fb421bb925fb16c44a7e0143fa2c7a941dc45cce76b15062a2ce54917"
+    }
+  ],
+  "independentExtractionCount": 2,
+  "kernel": {
+    "architecture": "aarch64",
+    "magicOffset": 56,
+    "name": "guest-kernel",
+    "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+    "sizeBytes": 57860488
+  },
+  "release": "NATIVE-SHADOW-BOOT-KERNEL-EXTRACT-ARM64-V1",
+  "schema": "boole.native-shadow.boot-kernel-extract-result.arm64.v1",
+  "status": "KERNEL-IMAGE-EXTRACTED-REPRODUCIBLY-NOT-BOOT-AUTHORITY"
+}

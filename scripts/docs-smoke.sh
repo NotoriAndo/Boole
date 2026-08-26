@@ -512,6 +512,46 @@ require_text native/containment/native-shadow-boot-image-builder-authority-arm64
 require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"bootableClaim": false'
 require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"activationAllowed": false'
 
+# The first real boot artifact: the guest kernel image. The builder authority above
+# pinned the kernel as a gzip member inside a frozen Ubuntu package; this step turns
+# that pin into bytes on disk and proves the bytes are the pinned ones. Two things
+# are worth pinning here. First, the arm64 check reads the magic at offset 0x38 (56)
+# where the kernel header defines it -- searching the file for "ARM\x64" would also
+# match an x86 image that happens to contain those bytes, so the offset is the test.
+# Second, the extraction runs twice in independent temp directories and the digests
+# must agree; decompression has no freedom to differ, so that second run rules out
+# state leaking between runs rather than proving compiler reproducibility.
+# CI cannot re-prove this result the way it re-proves the launcher build: the package
+# bytes live in the gitignored content store, so the runner has never seen them.
+require_file native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json
+require_file scripts/native_shadow_boot_kernel_extract_arm64_v1.py
+require_file scripts/test_native_shadow_boot_kernel_extract_arm64_v1.py
+require_text scripts/self-test.sh "scripts/test_native_shadow_boot_kernel_extract_arm64_v1.py"
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"status": "KERNEL-IMAGE-EXTRACTED-REPRODUCIBLY-NOT-BOOT-AUTHORITY"'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336"'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"sizeBytes": 57860488'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"architecture": "aarch64"'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"magicOffset": 56'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"name": "guest-kernel"'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"sha256": "f67ad535a1b19295985d0266394d1c3a5620178a3ba61aca22cda1b6c1e27a2a"'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"independentExtractionCount": 2'
+# The document binds itself to the image builder authority that pinned the kernel.
+# If that authority is ever superseded, this digest stops matching and the successor
+# has to say so out loud instead of inheriting the claim silently.
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"authoritySha256": "59a14469bbb9710a1f6c79202d3e804b2f79268966c12d4259cd99e59e8d6e1e"'
+# Exactly one boundary flips true. A kernel is not an image, and the remaining six
+# stay false until something actually produces and runs one.
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"kernelImageExtracted": true'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"guestImageBuilt": false'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"initrdBuilt": false'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"rootDiskBuilt": false'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"launcherDeployedIntoGuest": false'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"runtimeCompatibilityVerified": false'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"bootAuthority": false'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"activationAllowed": false'
+require_text docs/native-submission-shadow-verification-v1.md "A kernel image is a file the boot loader can read, not a system that has booted"
+
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
@@ -533,9 +573,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "e9c2d9b22feca523c39d3bc6da948f196a3e6b94d0fd22eb59350d4c484908e9"
-require_text docs/native-submission-shadow-verification-v1.md "9b3fd04ac4632681b72a6db96b619edb6773fc814206e86e2e74520e1758e072"
-require_text docs/native-submission-shadow-verification-v1.md "f2ba2f7a3a765d6d5af602ad718409b39bd221507a5ad3665746bdbbcac889cd"
+require_text docs/native-submission-shadow-verification-v1.md "515df8b08f0c136130ade09e23effb00539081ce5bad3b9afa258ace0b4a4628"
+require_text docs/native-submission-shadow-verification-v1.md "b301b0171cd25ec3c8ff8fda90e403aadc4abeb0c8649f17628cfc542028cd22"
+require_text docs/native-submission-shadow-verification-v1.md "d15462e470e8235d5cddc3d88350b5a53c9e3b32da5b86321c64d96f4cf3de20"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"
