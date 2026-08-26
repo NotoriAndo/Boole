@@ -1,0 +1,136 @@
+{
+  "activationAllowed": false,
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "guestImageBuilt": false,
+    "initrdBuilt": false,
+    "kernelImageExtracted": false,
+    "rootDiskBuilt": false,
+    "runtimeCompatibilityVerified": false,
+    "toolByteProvenanceVerifiedInCi": false
+  },
+  "builderScripts": [
+    {
+      "path": "scripts/native_shadow_boot_artifact_builder_arm64_v1.py",
+      "role": "boot-artifact-preflight",
+      "sha256": "82f8988c0b64ba2f0a6c1768ff48664c95b00f7394c4de50c00b69870c008fd6",
+      "sizeBytes": 19164
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_builder_arm64_v1.py",
+      "role": "oci-rootfs-builder-arm64-projection",
+      "sha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+      "sizeBytes": 3680
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_builder.py",
+      "role": "oci-rootfs-builder-frozen-legacy",
+      "sha256": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
+      "sizeBytes": 108296
+    }
+  ],
+  "determinism": {
+    "canonicalMtime": 0,
+    "ext4": {
+      "hashSeed": "00000000-0000-4000-8000-000000000002",
+      "uuid": "00000000-0000-4000-8000-000000000001"
+    },
+    "fileOrder": "sorted-by-logical-path-bytes",
+    "forbidTimestampSuppression": true,
+    "independentBuildCount": 2,
+    "initrdCompression": "none",
+    "kernelDecompression": "gzip",
+    "machineId": "empty-file-first-boot",
+    "mismatchAction": "report-the-difference-never-force-a-match",
+    "ownership": "root:root-only",
+    "sourceDateEpoch": null
+  },
+  "format": "initrd-ext4-builder-authority-v1",
+  "generator": {
+    "path": "scripts/native_shadow_boot_image_builder_authority_arm64_v1.py",
+    "sha256": "e8bf40e1a4942676d8028ad1cd5ae1f0435d7594773eaf2d6cb143aeb7ac18d1"
+  },
+  "hostTools": [
+    {
+      "path": null,
+      "pinnedAtBuildTime": true,
+      "role": "zstd",
+      "sha256": null
+    }
+  ],
+  "kernelSource": {
+    "compressedSha256": "f67ad535a1b19295985d0266394d1c3a5620178a3ba61aca22cda1b6c1e27a2a",
+    "compressedSizeBytes": 18199471,
+    "compression": "gzip",
+    "imageSha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+    "imageSizeBytes": 57860488,
+    "memberPath": "./boot/vmlinuz-6.8.0-31-generic",
+    "package": "linux-image-6.8.0-31-generic",
+    "packageArtifactId": "deb-7d0168a6ea0ebc7263fed3cce3dc45153ddd4e0e4a4b2737f74f0bd72cbaa292",
+    "packageSha256": "7d0168a6ea0ebc7263fed3cce3dc45153ddd4e0e4a4b2737f74f0bd72cbaa292",
+    "version": "6.8.0-31.31"
+  },
+  "platform": {
+    "architecture": "aarch64",
+    "os": "linux",
+    "rustTarget": "aarch64-unknown-linux-gnu"
+  },
+  "prohibitions": {
+    "forbidHostPathLookup": true,
+    "forbidLatestVersionSelection": true,
+    "forbidMaintainerScripts": true,
+    "forbidNetworkDuringBuild": true,
+    "forbidProductionSigningMaterial": true,
+    "forbidSymlinkToolPins": true
+  },
+  "release": "NATIVE-SHADOW-BOOT-IMAGE-BUILDER-AUTHORITY-ARM64-V1",
+  "roles": {
+    "input": "oci-image-layout-single-uncompressed-layer-v1",
+    "outputs": [
+      {
+        "format": "linux-arm64-image-uncompressed",
+        "name": "guest-kernel"
+      },
+      {
+        "format": "cpio-newc-uncompressed",
+        "name": "guest-initrd"
+      },
+      {
+        "format": "ext4-filesystem-image",
+        "name": "guest-root-disk"
+      }
+    ]
+  },
+  "schema": "boole.native-shadow.boot-image-builder-authority.arm64.v1",
+  "sourceLock": {
+    "artifactCount": 197,
+    "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+    "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+    "sizeBytes": 357104
+  },
+  "toolBinaries": [
+    {
+      "memberMode": "0755",
+      "memberPath": "./usr/sbin/debugfs",
+      "package": "e2fsprogs",
+      "packageArtifactId": "deb-6e1cdd65bf58fe77968f8ac45f1802586baf18bfb8541f4a88fe843ab85bef8b",
+      "packageSha256": "6e1cdd65bf58fe77968f8ac45f1802586baf18bfb8541f4a88fe843ab85bef8b",
+      "role": "ext4-image-inspector",
+      "sha256": "2c0bf348d91f9b3bd6eec6666b9897b9f733c430e6baa8066bd70b645b2ca023",
+      "sizeBytes": 271944,
+      "version": "1.47.0-2.4~exp1ubuntu4"
+    },
+    {
+      "memberMode": "0755",
+      "memberPath": "./usr/sbin/mke2fs",
+      "package": "e2fsprogs",
+      "packageArtifactId": "deb-6e1cdd65bf58fe77968f8ac45f1802586baf18bfb8541f4a88fe843ab85bef8b",
+      "packageSha256": "6e1cdd65bf58fe77968f8ac45f1802586baf18bfb8541f4a88fe843ab85bef8b",
+      "role": "ext4-image-writer",
+      "sha256": "763be3ec03774647799b1186d30b4b524e6e73dd27be01cbe0be4b6043f62cb1",
+      "sizeBytes": 133512,
+      "version": "1.47.0-2.4~exp1ubuntu4"
+    }
+  ]
+}

@@ -450,6 +450,68 @@ require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.
 require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"bootableClaim": false'
 require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"activationAllowed": false'
 
+# The artifact that authority describes, now sealed by the arm64 CI job that is the
+# only place the double build can run. Pinning the launcher digest here is what turns
+# the build step from "seal whatever comes out" into "re-prove these exact bytes": a
+# later run that produces something else fails instead of quietly agreeing with itself.
+require_file native/containment/native-shadow-launcher-build-result-arm64-v1.json
+require_text native/containment/native-shadow-launcher-build-result-arm64-v1.json '"status": "LAUNCHER-ELF-BUILT-BYTE-IDENTICAL-NOT-BOOT-AUTHORITY"'
+require_text native/containment/native-shadow-launcher-build-result-arm64-v1.json '"sha256": "11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434"'
+require_text native/containment/native-shadow-launcher-build-result-arm64-v1.json '"sizeBytes": 2006632'
+require_text native/containment/native-shadow-launcher-build-result-arm64-v1.json '"guestLogicalPath": "/usr/libexec/boole/boole-native-shadow-launcher"'
+require_text native/containment/native-shadow-launcher-build-result-arm64-v1.json '"authoritySha256": "64f4ea0c6b574e1479e51a78e250da8fac6f3d3522d60cb03dde65b53da594ee"'
+require_text native/containment/native-shadow-launcher-build-result-arm64-v1.json '"independentBuildCount": 2'
+require_text native/containment/native-shadow-launcher-build-result-arm64-v1.json '"bootAuthority": false'
+require_text native/containment/native-shadow-launcher-build-result-arm64-v1.json '"guestImageBuilt": false'
+require_text native/containment/native-shadow-launcher-build-result-arm64-v1.json '"launcherDeployedIntoGuest": false'
+require_text native/containment/native-shadow-launcher-build-result-arm64-v1.json '"runtimeCompatibilityVerified": false'
+require_text native/containment/native-shadow-launcher-build-result-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-launcher-build-result-arm64-v1.json '"activationAllowed": false'
+require_text docs/native-submission-shadow-verification-v1.md "Two byte-identical builds are a reproducibility result, not a running program"
+
+# The guest image builder input authority. The rootfs stage already owns the step
+# that produces an OCI layout; nothing owned the step that turns that layout into a
+# kernel, an initrd and an ext4 root disk. This authority fixes that step's inputs.
+# Its whole point is that no tool is taken from PATH: each executable is a member of
+# an Ubuntu package the source lock already froze by digest, so "which mke2fs" has
+# one answer a different build machine cannot change. mkfs.ext4 is a symlink to
+# mke2fs, so the role pins mke2fs itself -- pinning the symlink would let an upstream
+# rename repoint the tool without moving the digest. The kernel ships gzip-compressed
+# and Apple's VZLinuxBootLoader wants a raw arm64 Image, so both digests are recorded
+# and the decompression step is declared rather than discovered later.
+require_file native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json
+require_file scripts/native_shadow_boot_image_builder_authority_arm64_v1.py
+require_file scripts/test_native_shadow_boot_image_builder_authority_arm64_v1.py
+require_text scripts/self-test.sh "scripts/test_native_shadow_boot_image_builder_authority_arm64_v1.py"
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"format": "initrd-ext4-builder-authority-v1"'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"memberPath": "./usr/sbin/mke2fs"'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"role": "ext4-image-writer"'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"memberPath": "./boot/vmlinuz-6.8.0-31-generic"'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"compression": "gzip"'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"forbidHostPathLookup": true'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"forbidMaintainerScripts": true'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"forbidLatestVersionSelection": true'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"forbidNetworkDuringBuild": true'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"forbidProductionSigningMaterial": true'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"forbidSymlinkToolPins": true'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"independentBuildCount": 2'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"ownership": "root:root-only"'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"machineId": "empty-file-first-boot"'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"path": "scripts/native_shadow_boot_image_builder_authority_arm64_v1.py"'
+# The sealed scaffold plan named this exact format for its imageBuilderToolchain
+# input and left the digest null. The two format strings have to keep agreeing, or
+# this authority is answering a slot nothing asked for. The scaffold itself stays
+# untouched -- its null digest is filled by a successor plan, never by editing it.
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v1-scaffold.json '"format": "initrd-ext4-builder-authority-v1"'
+require_text docs/native-submission-shadow-verification-v1.md "Pinning the inputs of an image is not an image"
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"guestImageBuilt": false'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"kernelImageExtracted": false'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"rootDiskBuilt": false'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"initrdBuilt": false'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"bootAuthority": false'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"activationAllowed": false'
+
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
@@ -471,9 +533,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "8fb7a8eb0d520327ba84557c31a768a9f88763b96a47fecc44a799e3465701fe"
-require_text docs/native-submission-shadow-verification-v1.md "a3d2809f8bfd661e2ec6abb84a1aede1e0e56c835e3b9833b8ea5c78288258c2"
-require_text docs/native-submission-shadow-verification-v1.md "66193a0bb0ab38e243535579c071a584f1e47a77dc9c3326a8d2aa86737e4d46"
+require_text docs/native-submission-shadow-verification-v1.md "e9c2d9b22feca523c39d3bc6da948f196a3e6b94d0fd22eb59350d4c484908e9"
+require_text docs/native-submission-shadow-verification-v1.md "9b3fd04ac4632681b72a6db96b619edb6773fc814206e86e2e74520e1758e072"
+require_text docs/native-submission-shadow-verification-v1.md "f2ba2f7a3a765d6d5af602ad718409b39bd221507a5ad3665746bdbbcac889cd"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"
