@@ -21,6 +21,14 @@ file's owner into the image, so the produce phase runs as root and the image is
 root-owned throughout; a run that is not root stages fine and refuses to build,
 rather than writing an image owned by whoever happened to invoke it.
 
+The runner is Ubuntu 24.04 arm64, which is the same distribution the closure was
+frozen from, and that similarity is the hazard rather than the convenience: the
+runner ships its own copy of every soname the tools need, and the default search
+would find those first.  The plan says which copy wins is a run-time fact it
+cannot settle, so this module settles it -- the frozen loader runs the tool
+against the frozen library directory and nothing else -- and records which
+copies were named, with their digests, in the result.
+
 This module reads the local filesystem and runs one pinned aarch64 tool.  It
 fetches nothing.
 """
@@ -40,6 +48,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from scripts.native_shadow_boot_root_disk_arm64_v1 import (
     CANONICAL_MTIME,
+    SHARED_LIBRARIES,
     canonical_json,
     layer_entries,
     staging_entries,
@@ -61,6 +70,13 @@ STATUS = "ROOT-DISK-IMAGE-WRITTEN-FROM-THE-FROZEN-PLAN-NOT-BOOT-AUTHORITY"
 # real mode arrives in the second pass, once the children are in place.
 BUILD_DIRECTORY_MODE = 0o755
 BUILD_FILE_MODE = 0o600
+
+# The dynamic loader is the one library that is also a program, and it is the
+# one that decides where the other seven come from. It is picked out of the
+# plan's own list by the prefix every loader carries, so this module keeps no
+# second copy of a soname the plan already froze.
+LOADER_SONAME_PREFIX = "ld-"
+LIBRARY_PATH_OPTION = "--library-path"
 
 
 class RootDiskExecuteError(RuntimeError):
@@ -199,7 +215,74 @@ def mke2fs_environment(plan: Mapping[str, Any]) -> dict[str, str]:
     return {str(key): str(value) for key, value in env.items()}
 
 
-def execute(plan: Mapping[str, Any], layer: bytes) -> dict[str, Any]:
+def _library_directory() -> pathlib.PurePosixPath:
+    """The one directory the plan's eight libraries all live in."""
+
+    directories = {
+        pathlib.PurePosixPath(row["logicalPath"]).parent for row in SHARED_LIBRARIES
+    }
+    if len(directories) != 1:
+        raise RootDiskExecuteError(
+            "the plan's libraries are spread across directories; "
+            "there is no single path to point the loader at"
+        )
+    return directories.pop()
+
+
+def _loader_logical_path() -> str:
+    """The plan's own entry for the dynamic loader."""
+
+    rows = [
+        row for row in SHARED_LIBRARIES if row["soname"].startswith(LOADER_SONAME_PREFIX)
+    ]
+    if len(rows) != 1:
+        raise RootDiskExecuteError("the plan does not name exactly one dynamic loader")
+    return rows[0]["logicalPath"]
+
+
+def resolved_libraries(tree: pathlib.Path) -> dict[str, dict[str, Any]]:
+    """The copy of each pinned library that the loader will be pointed at.
+
+    The plan lists what is needed and says which copy wins is a run-time fact it
+    cannot settle.  This is the settling: the paths are recorded, with their
+    digests, so a later reader can see which bytes wrote the image.
+    """
+
+    resolved: dict[str, dict[str, Any]] = {}
+    for row in SHARED_LIBRARIES:
+        path = tree / row["logicalPath"].lstrip("/")
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise RootDiskExecuteError(
+                f"the frozen tree has no {row['soname']} at {path}"
+            ) from exc
+        resolved[row["soname"]] = {
+            "package": row["package"],
+            "path": str(path),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "sizeBytes": len(raw),
+        }
+    return resolved
+
+
+def frozen_invocation(plan: Mapping[str, Any], tree: pathlib.Path) -> list[str]:
+    """The plan's argv, run by the frozen loader against only frozen libraries.
+
+    The runner is Ubuntu 24.04 arm64 and ships its own copies of every one of
+    these sonames, so leaving the search to the default path would let the
+    runner's libraries write an image the closure never pinned.
+    """
+
+    resolved_libraries(tree)
+    loader = tree / _loader_logical_path().lstrip("/")
+    if not loader.is_file():
+        raise RootDiskExecuteError(f"the frozen tree has no dynamic loader at {loader}")
+    library_path = tree / str(_library_directory()).lstrip("/")
+    return [str(loader), LIBRARY_PATH_OPTION, str(library_path), *mke2fs_command(plan)]
+
+
+def execute(plan: Mapping[str, Any], layer: bytes, tree: pathlib.Path) -> dict[str, Any]:
     """Stage, check the tools, write the image, and report what was written."""
 
     if os.geteuid() != 0:
@@ -208,8 +291,9 @@ def execute(plan: Mapping[str, Any], layer: bytes) -> dict[str, Any]:
             "into the image, and the frozen plan says root:root throughout"
         )
     digests = assert_tools(plan)
+    libraries = resolved_libraries(tree)
     created = stage_tree(plan, layer)
-    argv = mke2fs_command(plan)
+    argv = frozen_invocation(plan, tree)
     finished = subprocess.run(  # noqa: S603 - pinned argv from the frozen plan
         argv,
         env=mke2fs_environment(plan),
@@ -244,6 +328,7 @@ def execute(plan: Mapping[str, Any], layer: bytes) -> dict[str, Any]:
             "sizeBytes": len(raw),
         },
         "release": RELEASE,
+        "resolvedLibraries": libraries,
         "schema": SCHEMA,
         "stagedEntryCount": len(created),
         "status": STATUS,
@@ -257,6 +342,7 @@ def _parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="execute a frozen root disk plan")
     run.add_argument("--plan", type=pathlib.Path, required=True)
     run.add_argument("--layer", type=pathlib.Path, required=True)
+    run.add_argument("--tree", type=pathlib.Path, required=True)
     run.add_argument("--output", type=pathlib.Path, required=True)
     return parser
 
@@ -265,7 +351,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
     try:
         plan = json.loads(args.plan.read_text(encoding="utf-8"))
-        result = execute(plan, args.layer.read_bytes())
+        result = execute(plan, args.layer.read_bytes(), args.tree)
     except (RootDiskExecuteError, OSError, ValueError) as exc:
         print(f"root-disk-execute: {exc}", file=sys.stderr)
         return 1

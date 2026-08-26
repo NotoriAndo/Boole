@@ -217,6 +217,82 @@ class CommandTests(unittest.TestCase):
             self.assertNotIn(forbidden, source)
 
 
+class FrozenLoaderTests(unittest.TestCase):
+    """The runner is Ubuntu 24.04 arm64 too, and that is exactly the hazard.
+
+    Left alone, the loader would find the runner's own ``libext2fs.so.2`` before
+    the frozen one, and the image would be written by a tool the closure never
+    pinned.  The plan lists the eight sonames it needs and says which copy wins
+    is a run-time fact it cannot settle; settling it means naming the frozen
+    loader and the frozen library directory explicitly, and recording what was
+    named.
+    """
+
+    def enterContext(self, cm):
+        result = cm.__enter__()
+        self.addCleanup(cm.__exit__, None, None, None)
+        return result
+
+    def tree(self) -> pathlib.Path:
+        root = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        for row in plan_mod.SHARED_LIBRARIES:
+            path = root / row["logicalPath"].lstrip("/")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(row["soname"].encode("utf-8"))
+        return root
+
+    def test_the_plan_s_argv_is_kept_whole_after_the_loader(self) -> None:
+        scratch = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        plan = a_plan(scratch)
+        argv = mod.frozen_invocation(plan, self.tree())
+        self.assertEqual(argv[-len(plan["mke2fs"]["argv"]) :], plan["mke2fs"]["argv"])
+
+    def test_the_loader_that_runs_it_is_the_one_in_the_tree(self) -> None:
+        scratch = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        tree = self.tree()
+        argv = mod.frozen_invocation(a_plan(scratch), tree)
+        self.assertEqual(
+            argv[0], str(tree / "usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1")
+        )
+
+    def test_only_the_frozen_library_directory_is_searched(self) -> None:
+        scratch = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        tree = self.tree()
+        argv = mod.frozen_invocation(a_plan(scratch), tree)
+        self.assertEqual(argv[1], "--library-path")
+        self.assertEqual(argv[2], str(tree / "usr/lib/aarch64-linux-gnu"))
+
+    def test_a_tree_without_the_loader_is_refused(self) -> None:
+        scratch = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        empty = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        with self.assertRaises(mod.RootDiskExecuteError):
+            mod.frozen_invocation(a_plan(scratch), empty)
+
+    def test_a_tree_missing_one_pinned_library_is_refused(self) -> None:
+        scratch = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        tree = self.tree()
+        (tree / plan_mod.SHARED_LIBRARIES[-1]["logicalPath"].lstrip("/")).unlink()
+        with self.assertRaises(mod.RootDiskExecuteError) as caught:
+            mod.frozen_invocation(a_plan(scratch), tree)
+        self.assertIn(plan_mod.SHARED_LIBRARIES[-1]["soname"], str(caught.exception))
+
+    def test_the_copies_that_were_named_are_recorded(self) -> None:
+        tree = self.tree()
+        resolved = mod.resolved_libraries(tree)
+        self.assertEqual(
+            sorted(resolved), sorted(row["soname"] for row in plan_mod.SHARED_LIBRARIES)
+        )
+        for row in resolved.values():
+            self.assertEqual(len(row["sha256"]), 64)
+
+    def test_the_soname_list_comes_from_the_plan_not_from_here(self) -> None:
+        source = pathlib.Path(
+            "scripts/native_shadow_boot_root_disk_execute_arm64_v1.py"
+        ).read_text(encoding="utf-8")
+        for row in plan_mod.SHARED_LIBRARIES:
+            self.assertNotIn(row["soname"], source)
+
+
 class BoundaryTests(unittest.TestCase):
     def test_running_the_plan_is_still_not_a_boot_claim(self) -> None:
         self.assertFalse(mod.BOOTABLE_CLAIM)
