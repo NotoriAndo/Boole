@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `3d976826e33b50a95e85f4f8a3a75c33023720cc7fbb47a5e474b27f6bb4425a` (updated 2026-08-27 — the root disk was produced twice and differed; cause sealed; successor pre-registered) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `2d8a61950a05050dd7301c51e9a7ca62e72a4069fcdd7c404a273a3c77eaabf0` (updated 2026-08-27 — D3 produced a mismatch; the fixed-time successor is written before the fix) |
+| `local-docs/todo/todo-l1-network-master.md` | `ecd12ca61b0249b70de17373aaf1d28a246cb9eadcf0013d9905553ed49f939f` (updated 2026-08-27b — the successor completeness claim was corrected; production blocked while its cause stands) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `b739eb51b3991199092e3b1f3d1fe85c5db83b015386b9053d93b2799af22ec6` (updated 2026-08-27b — the cursor moves back: the successor is blocked, Phase C not dispatched) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `857df87bd2b4538c8e481ef1d86b8c3e851f55dcfbf6d974d20744b3a9401067` (updated 2026-08-27 — writing down that two images differed instead of calling them equivalent) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `4e2d05e017dce46c7f59d14b60cd8b7358564710446ab5a20976c48cd9c90430` (updated 2026-08-27b — a completeness claim holds only over what was read, and this one said so too late) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1914,6 +1914,12 @@ zero branch. Nothing is left over. That is a claim about which fields the value 
 that the images will match — only a produced pair settles that. The successor also emits the loader
 provenance the executor already computed and discarded, and pins `e2fsck` by digest to run `-f -n`
 per replica with `0` as the only accepted exit code.
+
+The 2026-08-27b mirror synchronization appends the correction below to those same three mirrors,
+each of which carried the superseded completeness claim in its own words. The claim stays as written
+in all three and the correction follows it; the other three mirrors are byte-unchanged, confirmed by
+recomputing all six digests from the files rather than carrying any value forward by hand. The
+section 12 table holds those recomputed values.
 
 The 2026-08-27 mirror synchronization appends this same state to `todo-l1-network-master.md`,
 `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other three section 12 mirrors are
