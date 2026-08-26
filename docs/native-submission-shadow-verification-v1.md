@@ -1807,3 +1807,47 @@ the thing that runs it.
 no unit was started and no two manifests were compared. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
+
+_2026-08-26t boot closure exception addendum:_ **THE CLOSURE'S DEPARTURES ARE ENUMERATED. NO IMAGE IS
+AN AUTHORITY RESULT AND NOTHING WAS BOOTED.**
+
+The frozen builder had never been pointed at a real usrmerged Ubuntu closure. Pointed at the sealed
+191-package boot lock, it refuses — four times, for four different reasons, all of them correct. A
+knob would have made each refusal go away. `native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json`
+writes the four down instead, and the projection reads that file rather than restating it, so the
+enumeration cannot drift from the code that honours it.
+
+The sealed rule is `ownership: root:root-only`, and eleven members of the closure arrive owned
+otherwise or carrying a set-id bit — `sudo`, `mount`/`umount`, six `passwd` tools, two PAM helpers.
+The builder already hardcodes `uid: 0, gid: 0` into every entry it emits, so the refusal was never
+preserving those bits; it was refusing to rewrite them silently. The rewrite is therefore written
+down: each row records what it changes away from, a listed path arriving with different ownership
+than recorded is still refused, and an unlisted member is refused exactly as before.
+
+The closure ships `bin`, `lib` and `sbin` as directories while the sealed lock derives `/lib` as a
+symlink into `/usr`, which is a collision only because the two halves of merged-`/usr` were being
+read literally. Relocation canonicalises the path and then reuses the frozen collision rule verbatim,
+so it moves paths without ever deciding which of two members wins. `base-files` is not in this
+closure, so nothing ships the merged-`/usr` symlinks at all; `/bin` and `/sbin` are added the same
+way `/lib` already was, and `/lib64` is not, because arm64 does not use it. Nine symlinks point at
+targets the closure does not contain: six resolve into `dev`, `proc`, `run`, `sys` or `tmp` and are
+allowed as a category, since a filesystem mounted at boot is absent from an image by construction;
+the other three are named individually, with a reason each.
+
+Adding `/bin` fixes a layout, not an interpreter. No package among the 191 provides a shell — no
+dash, no bash, no busybox — so the eighty-nine members whose shebang names one cannot run however
+their path resolves, and the record says so beside the row rather than letting `/bin` read as a
+repair it is not. Every unit this image enables names a binary directly, so the boot path asks for no
+shell; confirming that against a produced image is a verify step's job, not this record's.
+
+On this host, the chain does now run end to end: two independent builds of the assembled rootfs were
+byte-identical, 13,444 entries, and `builderSha256` still equalled the sealed pin, which is what
+makes the four departures departures of the projection rather than of the frozen builder. That is a
+host observation. It is not a CI-proven result, not a produced boot artifact and not an authority
+record, and the status line in the exception file says so:
+`CLOSURE-EXCEPTIONS-ENUMERATED-NOT-APPLIED-NOT-BOOTED`.
+
+`bootableClaim: false`, `activationAllowed: false`, `guestImageBuilt: false`. Enumerating a departure
+is not building, booting or qualifying an image. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation false — unchanged.

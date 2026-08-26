@@ -769,6 +769,21 @@ require_text scripts/native_shadow_boot_image_produce_arm64_v1.py "GUEST_IMAGE_B
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_image_produce_arm64_v1.py
 require_text docs/native-submission-shadow-verification-v1.md "THE WRAPPER AND THE COMPARISON EXIST. NOTHING WAS"
 require_text docs/native-submission-shadow-verification-v1.md "A BUILDER CAN NOW READ THE SEALED BOOT LOCK. NO"
+require_text docs/native-submission-shadow-verification-v1.md "THE CLOSURE'S DEPARTURES ARE ENUMERATED. NO IMAGE IS"
+
+require_file native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json
+require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"schema": "boole.native-shadow.boot-rootfs-closure-exception.arm64.v1"'
+require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"release": "NATIVE-SHADOW-BOOT-ROOTFS-CLOSURE-EXCEPTION-ARM64-V1"'
+require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"status": "CLOSURE-EXCEPTIONS-ENUMERATED-NOT-APPLIED-NOT-BOOTED"'
+require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"memberCount": 11'
+require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"danglingSymlinkCount": 3'
+require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"uid": 0'
+require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"gid": 0'
+require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"driftAction": "raise-the-frozen-builder-refusal-unchanged"'
+require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"unlistedMemberAction": "raise-the-frozen-builder-refusal-unchanged"'
+require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"guestImageBuilt": false'
+require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"activationAllowed": false'
 require_text docs/native-submission-shadow-verification-v1.md "that pattern fires 98 times and is wrong all"
 
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"

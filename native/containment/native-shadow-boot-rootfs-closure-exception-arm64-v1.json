@@ -1,0 +1,232 @@
+{
+  "activationAllowed": false,
+  "authoritySha256": "59a14469bbb9710a1f6c79202d3e804b2f79268966c12d4259cd99e59e8d6e1e",
+  "bootableClaim": false,
+  "boundaries": {
+    "fidelity": "the eleven members below are NOT the bytes Ubuntu ships; their ownership and mode differ",
+    "notAPass": "recording a departure is not building, booting or qualifying an image",
+    "scope": "metadata and paths only; file contents are untouched and still carry their sealed sha-256",
+    "shellAbsence": "no package among the sealed 191 provides a shell -- there is no dash, no bash and no busybox -- so the 89 members whose shebang names /bin/sh, /bin/bash or /bin/dash cannot run, however their path resolves. Every unit this image enables names a binary directly, so the boot path asks for no shell; a verify step against a produced image, not this record, is what confirms that."
+  },
+  "danglingSymlinkCount": 3,
+  "danglingSymlinks": [
+    {
+      "package": "kmod",
+      "path": "etc/modules-load.d/modules.conf",
+      "reason": "points at the /etc/modules conffile, which dpkg would create from control.tar; the frozen builder never reads control.tar",
+      "resolvedTarget": "etc/modules",
+      "target": "../modules"
+    },
+    {
+      "package": "tar",
+      "path": "etc/rmt",
+      "reason": "points at the rmt package, which is not in this closure; dangling on a stock system too",
+      "resolvedTarget": "usr/sbin/rmt",
+      "target": "/usr/sbin/rmt"
+    },
+    {
+      "package": "systemd",
+      "path": "usr/lib/environment.d/99-environment.conf",
+      "reason": "points at the /etc/environment conffile, which dpkg would create from control.tar; the frozen builder never reads control.tar",
+      "resolvedTarget": "etc/environment",
+      "target": "/etc/environment"
+    }
+  ],
+  "derivedUsrmergeSymlinks": [
+    {
+      "gid": 0,
+      "kind": "symlink",
+      "logicalPath": "/bin",
+      "mode": "0777",
+      "target": "usr/bin",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "kind": "symlink",
+      "logicalPath": "/sbin",
+      "mode": "0777",
+      "target": "usr/sbin",
+      "uid": 0
+    }
+  ],
+  "guestImageBuilt": false,
+  "memberCount": 11,
+  "metadataMembers": [
+    {
+      "artifactId": "deb-2715e156244a11459cbb385c8497c92cdb15e8fc399642c7fede079e73866f62",
+      "normalizedGid": 0,
+      "normalizedMode": "0o0755",
+      "normalizedUid": 0,
+      "originalGid": 42,
+      "originalGname": "shadow",
+      "originalMode": "0o2755",
+      "originalUid": 0,
+      "originalUname": "root",
+      "package": "libpam-modules-bin",
+      "path": "usr/sbin/pam_extrausers_chkpwd"
+    },
+    {
+      "artifactId": "deb-2715e156244a11459cbb385c8497c92cdb15e8fc399642c7fede079e73866f62",
+      "normalizedGid": 0,
+      "normalizedMode": "0o0755",
+      "normalizedUid": 0,
+      "originalGid": 42,
+      "originalGname": "shadow",
+      "originalMode": "0o2755",
+      "originalUid": 0,
+      "originalUname": "root",
+      "package": "libpam-modules-bin",
+      "path": "usr/sbin/unix_chkpwd"
+    },
+    {
+      "artifactId": "deb-ad2f31b92f8fe3bcf27441a8758f56c5b9f20356fcf92d85cb03fab9b0d7cc4e",
+      "normalizedGid": 0,
+      "normalizedMode": "0o0755",
+      "normalizedUid": 0,
+      "originalGid": 0,
+      "originalGname": "root",
+      "originalMode": "0o4755",
+      "originalUid": 0,
+      "originalUname": "root",
+      "package": "mount",
+      "path": "usr/bin/mount"
+    },
+    {
+      "artifactId": "deb-ad2f31b92f8fe3bcf27441a8758f56c5b9f20356fcf92d85cb03fab9b0d7cc4e",
+      "normalizedGid": 0,
+      "normalizedMode": "0o0755",
+      "normalizedUid": 0,
+      "originalGid": 0,
+      "originalGname": "root",
+      "originalMode": "0o4755",
+      "originalUid": 0,
+      "originalUname": "root",
+      "package": "mount",
+      "path": "usr/bin/umount"
+    },
+    {
+      "artifactId": "deb-ad4fa969d46235d32dcb53641920fc774bc33014b9f20295a1feccf74d4e91c0",
+      "normalizedGid": 0,
+      "normalizedMode": "0o0755",
+      "normalizedUid": 0,
+      "originalGid": 42,
+      "originalGname": "shadow",
+      "originalMode": "0o2755",
+      "originalUid": 0,
+      "originalUname": "root",
+      "package": "passwd",
+      "path": "usr/bin/chage"
+    },
+    {
+      "artifactId": "deb-ad4fa969d46235d32dcb53641920fc774bc33014b9f20295a1feccf74d4e91c0",
+      "normalizedGid": 0,
+      "normalizedMode": "0o0755",
+      "normalizedUid": 0,
+      "originalGid": 0,
+      "originalGname": "root",
+      "originalMode": "0o4755",
+      "originalUid": 0,
+      "originalUname": "root",
+      "package": "passwd",
+      "path": "usr/bin/chfn"
+    },
+    {
+      "artifactId": "deb-ad4fa969d46235d32dcb53641920fc774bc33014b9f20295a1feccf74d4e91c0",
+      "normalizedGid": 0,
+      "normalizedMode": "0o0755",
+      "normalizedUid": 0,
+      "originalGid": 0,
+      "originalGname": "root",
+      "originalMode": "0o4755",
+      "originalUid": 0,
+      "originalUname": "root",
+      "package": "passwd",
+      "path": "usr/bin/chsh"
+    },
+    {
+      "artifactId": "deb-ad4fa969d46235d32dcb53641920fc774bc33014b9f20295a1feccf74d4e91c0",
+      "normalizedGid": 0,
+      "normalizedMode": "0o0755",
+      "normalizedUid": 0,
+      "originalGid": 42,
+      "originalGname": "shadow",
+      "originalMode": "0o2755",
+      "originalUid": 0,
+      "originalUname": "root",
+      "package": "passwd",
+      "path": "usr/bin/expiry"
+    },
+    {
+      "artifactId": "deb-ad4fa969d46235d32dcb53641920fc774bc33014b9f20295a1feccf74d4e91c0",
+      "normalizedGid": 0,
+      "normalizedMode": "0o0755",
+      "normalizedUid": 0,
+      "originalGid": 0,
+      "originalGname": "root",
+      "originalMode": "0o4755",
+      "originalUid": 0,
+      "originalUname": "root",
+      "package": "passwd",
+      "path": "usr/bin/gpasswd"
+    },
+    {
+      "artifactId": "deb-ad4fa969d46235d32dcb53641920fc774bc33014b9f20295a1feccf74d4e91c0",
+      "normalizedGid": 0,
+      "normalizedMode": "0o0755",
+      "normalizedUid": 0,
+      "originalGid": 0,
+      "originalGname": "root",
+      "originalMode": "0o4755",
+      "originalUid": 0,
+      "originalUname": "root",
+      "package": "passwd",
+      "path": "usr/bin/passwd"
+    },
+    {
+      "artifactId": "deb-b0019d9155d2d5f07fd2cd7f16d1fd38de0da5732da600be8518f9e3a0dee83f",
+      "normalizedGid": 0,
+      "normalizedMode": "0o0755",
+      "normalizedUid": 0,
+      "originalGid": 0,
+      "originalGname": "root",
+      "originalMode": "0o4755",
+      "originalUid": 0,
+      "originalUname": "root",
+      "package": "sudo",
+      "path": "usr/bin/sudo"
+    }
+  ],
+  "normalization": {
+    "driftAction": "raise-the-frozen-builder-refusal-unchanged",
+    "gid": 0,
+    "modeMask": "0o1777",
+    "uid": 0,
+    "unlistedMemberAction": "raise-the-frozen-builder-refusal-unchanged"
+  },
+  "rationale": {
+    "bootPathUse": "no member below is referenced by the guest boot path; sudo and passwd appear only as package names in the dependency closure",
+    "danglingSymlinks": "a symlink whose target is absent is not an error the closure can fix; masking units point at /dev/null on purpose and conffile targets come from control.tar, which the frozen builder never reads",
+    "derivedUsrmergeSymlinks": "base-files is not in this closure, so no package ships the merged-/usr symlinks; the sealed lock derives /lib because 347 binaries name their ELF interpreter under it, but stops there, and the kernel hands PID 1 to /sbin/init. /bin completes the same canonical merged-/usr layout that every path in the closure already assumes. Adding these two rows does not supply a shell -- see boundaries.shellAbsence. /lib64 is not added because arm64 does not use it and nothing in the closure references it.",
+    "ruleSatisfied": "native-shadow-boot-image-builder-authority-arm64-v1.json determinism.ownership = root:root-only",
+    "usrmerge": "Ubuntu 24.04 is merged-/usr and the sealed lock already derives /lib -> usr/lib, so lib/x and usr/lib/x name one file; relocating moves paths and never decides which of two colliding members wins",
+    "why": "the sealed image rule already requires root:root-only; the frozen builder refuses rather than silently rewriting, so the rewrite is enumerated here instead"
+  },
+  "release": "NATIVE-SHADOW-BOOT-ROOTFS-CLOSURE-EXCEPTION-ARM64-V1",
+  "rootfsSourceLockSha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+  "runtimeFilesystemRoots": [
+    "dev",
+    "proc",
+    "run",
+    "sys",
+    "tmp"
+  ],
+  "schema": "boole.native-shadow.boot-rootfs-closure-exception.arm64.v1",
+  "status": "CLOSURE-EXCEPTIONS-ENUMERATED-NOT-APPLIED-NOT-BOOTED",
+  "usrmergeRoots": {
+    "bin": "usr/bin",
+    "lib": "usr/lib",
+    "lib64": "usr/lib64",
+    "sbin": "usr/sbin"
+  }
+}
