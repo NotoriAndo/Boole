@@ -1,0 +1,42 @@
+{
+  "activationAllowed": false,
+  "artifacts": [
+    {
+      "artifactId": "cargo-rustdist",
+      "disposition": "fetched",
+      "sha256": "dd30cce8fc7c5029287dc75b24bb549e6ed957f6ddeac205fd1e6360993d4903",
+      "sizeBytes": 10562020
+    },
+    {
+      "artifactId": "rust-std-rustdist",
+      "disposition": "fetched",
+      "sha256": "2c8a2d0f1f2c51caf5805f4a0ab510298dfebe4db2551a22b35ccc10d9bc3edc",
+      "sizeBytes": 32190332
+    },
+    {
+      "artifactId": "rustc-rustdist",
+      "disposition": "fetched",
+      "sha256": "055bf89237ff4e3dfa4259ae5e63a8cc78fb2f1919421ac9e01edccd20ee6a5f",
+      "sizeBytes": 70242796
+    }
+  ],
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "imageBuilderAuthorityPresent": false,
+    "kernelImageExtracted": false,
+    "launcherElfBuilt": false,
+    "reproducibleBuildProven": false,
+    "runtimeCompatibilityVerified": false,
+    "toolchainInstalled": false
+  },
+  "casHitCount": 0,
+  "fetchedBytes": 112995148,
+  "fetchedCount": 3,
+  "planSha256": "8ee39ab4c828c31bdd82bf8da12546d9b6595aeac8e6e9f4da9899eaacf0accc",
+  "release": "NATIVE-SHADOW-BOOT-RUSTDIST-ACQUISITION-ARM64-V1",
+  "schema": "boole.native-shadow.boot-rustdist-acquisition-result.arm64.v1",
+  "status": "RUSTDIST-PAYLOADS-ACQUIRED-VERIFIED-NOT-TOOLCHAIN-AUTHORITY",
+  "totalBytes": 112995148,
+  "verifiedCount": 3
+}

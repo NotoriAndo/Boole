@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `ec7272462c678e753c23b4950b3ca9abef441cb545db607b11b32a8e8a8e1248` (updated 2026-08-26g — successor source lock sealed over the 191 verified package rows; launcher binary role deferred) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `296b73618d3f71f07ed51036244d845c18dd605abbeedc36236ffd152891bee5` (updated 2026-08-26g — cursor moves to ARM64 Rust/launcher/image-builder input authority) |
+| `local-docs/todo/todo-l1-network-master.md` | `27dd174b82fd048c027f9480aabe6cd77ea6df8c0cf8371c5fca625fcde87451` (updated 2026-08-26h — three ARM64 Rust archives acquired and verified; not a toolchain authority) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `b8d36b55bbeb8448835528b79ca14be2a02e9161deedb7a8e9655e03214368ac` (updated 2026-08-26h — cursor moves to the launcher ELF two-build determinism authority) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `ec881a35604fe47cf9afd0620614535d4f0312a1f710f86607a93d7b85a39563` (updated 2026-08-26g — input-shape proposition realized; runtime compatibility and boot still unrealized) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `9fa3eabab67436c1bbad7ce6bc7e3bc95c4d86b16dce34a62cd3e58d36f983fd` (updated 2026-08-26h — compiler bytes held in verified form; execution and reproducibility unrealized) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1174,3 +1174,35 @@ sealing a source lock is not a boot claim.
 CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`, neither
 passed nor waived. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD` and Base
 activation `false` are unchanged.
+
+_2026-08-26h rustdist-acquisition addendum:_ **BOOT-RUSTDIST-ACQUISITION-ARM64-V1 = PAYLOADS
+ACQUIRED AND VERIFIED, NOT A TOOLCHAIN AUTHORITY.** The three
+`aarch64-unknown-linux-gnu` Rust archives were pre-registered before a single byte was fetched
+(plan SHA-256 `8ee39ab4c828c31bdd82bf8da12546d9b6595aeac8e6e9f4da9899eaacf0accc`), and the
+pre-registration commit was pushed to its remote branch before the download ran. Every URL, size
+and SHA-256 was carried unchanged from the already merged runtime acquisition plan (SHA-256
+`3f78559e29fbdb5b417eeb316687a4347907e4624b75da057c3f255e810ff35d`); no address or digest was
+introduced here. The plan also pinned the sealed boot rootfs source lock and recorded the
+content-addressed store state observed before the download: all three artifacts absent,
+112,995,148 bytes to fetch.
+
+The acquirer reuses the merged payload acquirer's nofollow, atomic-link and write-once primitives
+without modifying that module, adding only a host-parameterized stream that refuses redirects,
+environment proxies, retries, range requests, concurrency, non-allowlisted hosts, content
+encodings, a non-200 status, a `Content-Length` mismatch and any byte count differing from the
+frozen size. A store hit issues no network request; the 191 previously verified package payloads
+were not re-fetched. The result (SHA-256
+`284b8da0a94bedb6bae8edf2f77daaeff42d2951e981cf388ed65bab0e9afa1b`) records 3 fetched, 3 verified,
+0 store hits and 112,995,148 bytes, 5.3% of the 2 GiB acquisition ceiling. Re-hashing the three
+stored objects with an independent tool reproduces the frozen digests exactly; each is mode
+`0600`, link count 1, owned by the invoking uid, and the store grew from 250 to 253 entries with
+no partial or temporary file left behind.
+
+No archive was extracted and no toolchain was installed, so nothing here establishes that these
+binaries run anywhere: `runtimeCompatibilityVerified` stays false alongside `toolchainInstalled`,
+`launcherElfBuilt`, `reproducibleBuildProven`, `kernelImageExtracted`,
+`imageBuilderAuthorityPresent` and `bootAuthority`.
+Acquiring verified bytes is not an installed toolchain,
+and it is not a launcher, kernel, root disk or boot claim. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` are unchanged.

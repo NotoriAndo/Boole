@@ -551,6 +551,45 @@ class SealedDocumentTests(unittest.TestCase):
         self.assertEqual(plan["expected"]["fetchBytes"], plan["expected"]["totalBytes"])
         self.assertLess(plan["expected"]["fetchBytes"], 2 * 1024**3)
 
+    def test_sealed_result_answers_exactly_the_pre_registered_request(self) -> None:
+        plan = _load(rustdist.PLAN_PATH)
+        raw = rustdist.PLAN_PATH.read_bytes()
+        result = _load(rustdist.RESULT_PATH)
+        self.assertEqual(result["planSha256"], rustdist.sha256_bytes(raw))
+        self.assertEqual(result["schema"], rustdist.RESULT_SCHEMA)
+        self.assertEqual(result["release"], rustdist.RELEASE)
+        self.assertEqual(result["status"], rustdist.RESULT_STATUS)
+        # The result may not answer a request that was never registered, and it
+        # may not quietly drop one that was.
+        self.assertEqual(
+            [row["artifactId"] for row in result["artifacts"]],
+            [row["artifactId"] for row in plan["artifacts"]],
+        )
+        frozen = {row["artifactId"]: row for row in plan["artifacts"]}
+        for row in result["artifacts"]:
+            origin = frozen[row["artifactId"]]
+            self.assertEqual(row["sha256"], origin["sha256"])
+            self.assertEqual(row["sizeBytes"], origin["sizeBytes"])
+            self.assertIn(row["disposition"], {"fetched", "present"})
+        self.assertEqual(result["verifiedCount"], len(plan["artifacts"]))
+        self.assertEqual(
+            result["fetchedCount"] + result["casHitCount"], result["verifiedCount"]
+        )
+        self.assertEqual(result["totalBytes"], plan["expected"]["totalBytes"])
+        self.assertEqual(result["fetchedBytes"], plan["expected"]["fetchBytes"])
+
+    def test_sealed_result_claims_no_toolchain_launcher_or_boot_authority(self) -> None:
+        result = _load(rustdist.RESULT_PATH)
+        self.assertEqual(sorted(result["boundaries"]), sorted(rustdist.BOUNDARY_KEYS))
+        for name, value in result["boundaries"].items():
+            self.assertIs(value, False, f"boundary {name} must stay false")
+        self.assertIs(result["bootableClaim"], False)
+        self.assertIs(result["activationAllowed"], False)
+        # Verified bytes in a store are not an installed toolchain: nothing here
+        # has executed, so runtime compatibility cannot have been observed.
+        self.assertIs(result["boundaries"]["toolchainInstalled"], False)
+        self.assertIs(result["boundaries"]["runtimeCompatibilityVerified"], False)
+
 
 if __name__ == "__main__":
     unittest.main()
