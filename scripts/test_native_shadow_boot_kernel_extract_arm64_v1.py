@@ -336,5 +336,68 @@ class NoOverclaimTests(unittest.TestCase):
             self.assertNotIn(phrase, text, phrase)
 
 
+class ForeignHostTests(unittest.TestCase):
+    """The sealed record names a Mac's zstd; the producer is a Linux runner.
+
+    The whole result document is compared when a run re-proves a seal, and the
+    host tool row inside it is genuinely different on a different machine -- so
+    a Linux run would be refused for a reason that has nothing to do with the
+    kernel.  The artifact is what has to match, so a run on another host seals
+    its own record and answers to the frozen one on the kernel block alone.
+    Loosening that to "the digests are close enough" is not on offer: the kernel
+    block is compared whole.
+    """
+
+    def sealed(self) -> dict:
+        return json.loads(kernel.RESULT_PATH.read_text(encoding="utf-8"))
+
+    def test_the_sealed_kernel_block_is_accepted(self) -> None:
+        kernel.assert_kernel_matches_seal(self.sealed())
+
+    def test_a_different_kernel_digest_is_refused(self) -> None:
+        result = self.sealed()
+        result["kernel"]["sha256"] = "0" * 64
+        with self.assertRaises(kernel.KernelExtractError):
+            kernel.assert_kernel_matches_seal(result)
+
+    def test_a_different_kernel_size_is_refused(self) -> None:
+        result = self.sealed()
+        result["kernel"]["sizeBytes"] += 1
+        with self.assertRaises(kernel.KernelExtractError):
+            kernel.assert_kernel_matches_seal(result)
+
+    def test_a_different_architecture_is_refused(self) -> None:
+        result = self.sealed()
+        result["kernel"]["architecture"] = "x86_64"
+        with self.assertRaises(kernel.KernelExtractError):
+            kernel.assert_kernel_matches_seal(result)
+
+    def test_a_result_with_no_kernel_block_is_refused(self) -> None:
+        result = self.sealed()
+        result.pop("kernel")
+        with self.assertRaises(kernel.KernelExtractError):
+            kernel.assert_kernel_matches_seal(result)
+
+    def test_the_host_tool_row_is_allowed_to_differ(self) -> None:
+        result = self.sealed()
+        result["hostTools"] = [
+            {"path": "/usr/bin/zstd", "role": "zstd", "sha256": "1" * 64}
+        ]
+        kernel.assert_kernel_matches_seal(result)
+
+    def test_a_run_can_be_told_where_to_seal_its_own_record(self) -> None:
+        parsed = kernel._parser().parse_args(
+            ["extract", "--cas", "/cas", "--zstd", "/zstd", "--out", "/out",
+             "--result", "/scratch/kernel-extract-result.json"]
+        )
+        self.assertEqual(str(parsed.result), "/scratch/kernel-extract-result.json")
+
+    def test_leaving_it_off_still_answers_to_the_frozen_record(self) -> None:
+        parsed = kernel._parser().parse_args(
+            ["extract", "--cas", "/cas", "--zstd", "/zstd", "--out", "/out"]
+        )
+        self.assertEqual(parsed.result, kernel.RESULT_PATH)
+
+
 if __name__ == "__main__":
     unittest.main()

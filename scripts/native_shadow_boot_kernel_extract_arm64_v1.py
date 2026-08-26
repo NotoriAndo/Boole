@@ -275,6 +275,40 @@ def build_result(
     }
 
 
+def assert_kernel_matches_seal(
+    result: dict[str, Any], *, sealed_path: pathlib.Path = RESULT_PATH
+) -> None:
+    """Require a run on another host to reproduce the sealed kernel block.
+
+    The sealed record was written on a Mac and names that Mac's zstd by path and
+    digest.  A Linux runner has a different zstd, truthfully, so comparing the
+    whole document would refuse a correct extraction for a reason that has
+    nothing to do with the kernel.  What has to match is the artifact, so the
+    kernel block is what is compared -- and it is compared whole, key for key.
+    A weaker comparison would let a differently sized or differently named image
+    through on the strength of a digest that was never the only pin.
+    """
+
+    try:
+        sealed = payload.json.loads(sealed_path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise KernelExtractError(
+            f"the sealed kernel extract result is unreadable: {sealed_path}"
+        ) from error
+    frozen = sealed.get("kernel")
+    if not isinstance(frozen, dict):
+        raise KernelExtractError("the sealed kernel extract result seals no kernel")
+    found = result.get("kernel")
+    if not isinstance(found, dict):
+        raise KernelExtractError("this extraction produced no kernel block to compare")
+    if found != frozen:
+        raise KernelExtractError(
+            "this extraction disagrees with the sealed kernel: "
+            f"{canonical_json(found)!r} against {canonical_json(frozen)!r} -- "
+            "report the difference, never overwrite the seal"
+        )
+
+
 def seal_or_reprove(
     result: dict[str, Any], *, result_path: pathlib.Path = RESULT_PATH
 ) -> str:
@@ -339,6 +373,13 @@ def extract(
             host_tools=[_host_tool_row("zstd", zstd_path)],
             extraction_count=len(produced),
         )
+        if result_path != RESULT_PATH:
+            # A run told to seal its own record is a run on another host, whose
+            # host tool rows differ truthfully.  It still has to reproduce the
+            # frozen kernel, so that is checked before its own record is written.
+            assert_kernel_matches_seal(result)
+            seal_or_reprove(result, result_path=result_path)
+            return result, "matched-the-seal"
         return result, seal_or_reprove(result, result_path=result_path)
     finally:
         for hold in holds:
@@ -353,6 +394,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--cas", type=pathlib.Path, action="append", required=True)
     run.add_argument("--zstd", type=pathlib.Path, required=True)
     run.add_argument("--out", type=pathlib.Path, required=True)
+    run.add_argument("--result", type=pathlib.Path, default=RESULT_PATH)
     return parser
 
 
@@ -368,7 +410,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
 
     result, disposition = extract(
-        cas_roots=list(args.cas), zstd_path=args.zstd, out_dir=args.out
+        cas_roots=list(args.cas),
+        zstd_path=args.zstd,
+        out_dir=args.out,
+        result_path=args.result,
     )
     print(
         f"kernel extract: {result['status']} "

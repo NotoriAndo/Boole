@@ -8,7 +8,7 @@ pin -- and records its own digest separately as ``BOOT_PROJECTION_SHA256``,
 because the widening below is not covered by the pin and should not pretend to
 be.
 
-Five kinds of change, in decreasing order of ordinariness.
+Six kinds of change, in decreasing order of ordinariness.
 
 The first two are what a projection is for: the authority-file table grows from
 six entries to ten (machine-id, the launcher unit, and the sysusers and tmpfiles
@@ -47,29 +47,44 @@ refuses a second concrete architecture, and the projected matcher refuses
 ``:any`` against a provider that does not declare ``Multi-Arch: allowed``.
 ``:native`` stays unsupported.
 
-The fifth is the one that changes what ends up inside an image rather than what
-the builder will read, and it is enumerated rather than described.
+The fifth changes what ends up inside an image rather than what the builder will
+read, and it is enumerated rather than described.  Pointed at the sealed
+191-package closure, the frozen builder refuses four times, and every refusal is
+correct.  ``native-shadow-boot-rootfs-closure-exception-arm64-v1.json`` names the
+four; this module reads that file rather than restating it, so the enumeration
+cannot drift from the code that honours it.
 
 The sealed image rule is ``ownership: root:root-only``.  The frozen builder
 already writes every entry as uid 0 and gid 0 unconditionally; its two refusals
 here exist so that a member arriving as something else stops the build instead
-of being silently rewritten.  Eleven members of the sealed 191-package closure
-do arrive as something else -- four owned by group ``shadow`` and eleven
-carrying a set-id bit, across ``libpam-modules-bin``, ``mount``, ``passwd`` and
-``sudo``.  A full scan of the closure finds no other blocker of any kind: no
-forbidden path, device node, whiteout, sparse member, unexpected PAX header or
-cross-package path collision, and 11,836 paths totalling 490 MB against limits
-of 200,000 and 2 GiB.
+of being silently rewritten.  Eleven members do arrive as something else -- some
+owned by group ``shadow``, all carrying a set-id bit, across
+``libpam-modules-bin``, ``mount``, ``passwd`` and ``sudo``.  The record names
+them with the exact ownership and mode each arrives with, and a member is
+admitted only when all three match; a twelfth member, or one of the eleven
+arriving differently, meets the original refusal with its original message.
 
-So the rewrite is written down.  ``native-shadow-boot-rootfs-metadata-exception-arm64-v1.json``
-names those eleven members with the exact ownership and mode each one arrives
-with, and this projection admits a member only when all three match, dropping
-the set-id bits and letting the builder's own unconditional root:root stand.
-Anything the list does not name -- a twelfth member, or one of the eleven paths
-arriving with different metadata -- meets the original refusal with its original
-message.  File contents are untouched and still carry their sealed digests; what
-differs from stock Ubuntu is metadata on eleven files, and none of them is
-reachable from this guest's boot path.
+Ubuntu 24.04 is merged-``/usr``, so ``bin``, ``lib`` and ``sbin`` arriving as
+directories collide with the sealed lock's ``/lib -> usr/lib`` only because the
+two halves are being read literally.  Relocation canonicalises the path and then
+reuses the frozen collision rule verbatim, so it moves paths without deciding
+which of two members wins.  ``base-files`` is not in this closure, so nothing
+ships the merged-``/usr`` symlinks at all: ``/bin`` and ``/sbin`` are derived the
+same way ``/lib`` already was, and ``/lib64`` is not, because arm64 does not use
+it.  Nine symlinks point outside the image: six resolve into ``dev``, ``proc``,
+``run``, ``sys`` or ``tmp`` and are allowed as a category, since a filesystem
+mounted at boot is absent by construction; the other three are named one by one.
+
+File contents are untouched throughout and still carry their sealed digests.
+
+The sixth places the launcher.  ``/usr/libexec/boole`` is a declared closure root
+that nothing fills, because the launcher is a build product rather than a deb or
+a tracked repository file.  The frozen producer authority says how it may arrive
+instead -- ``rebuild-and-match-seal`` -- and ``launcher_entry`` enforces exactly
+that: a binary whose size or digest differs from the seal stops the build with
+the authority's own ``launcher-digest-mismatch`` rather than being written into
+the tree.  Supplying it is the caller's decision, so ``build_oci_layout`` takes
+it by keyword and ``verify_oci_layout`` forwards it to its own rebuild.
 
 Projecting a builder is not building an image.  Nothing here writes one.
 """
@@ -141,6 +156,13 @@ CLOSURE_EXCEPTION_PATH = (
     / "native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json"
 )
 CLOSURE_EXCEPTION_RELEASE = "NATIVE-SHADOW-BOOT-ROOTFS-CLOSURE-EXCEPTION-ARM64-V1"
+PRODUCER_AUTHORITY_PATH = (
+    REPOSITORY_ROOT
+    / "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json"
+)
+ABORT_LAUNCHER_DIGEST_MISMATCH = "launcher-digest-mismatch"
+LAUNCHER_ACQUISITION = "rebuild-and-match-seal"
+LAUNCHER_MODE = 0o755
 SET_ID_BITS = stat.S_ISUID | stat.S_ISGID
 NORMALIZED_MODE_MASK = 0o1777
 
@@ -215,6 +237,135 @@ REPLACEMENTS = (
         '                raise RootfsBuildError(f"rootfs symlink target is absent: {current}")\n',
         1,
     ),
+    (
+        "def _assemble_entries(\n"
+        "    validated: dict[str, Any], repository_root: pathlib.Path, artifact_store: pathlib.Path\n"
+        ") -> dict[str, dict[str, Any]]:\n",
+        "def _assemble_entries(\n"
+        "    validated: dict[str, Any],\n"
+        "    repository_root: pathlib.Path,\n"
+        "    artifact_store: pathlib.Path,\n"
+        "    launcher_binary: Any = None,\n"
+        ") -> dict[str, dict[str, Any]]:\n",
+        1,
+    ),
+    (
+        '    for derived in lock["derivedEntries"]:\n',
+        "    if launcher_binary is not None:\n"
+        "        entry = launcher_entry(launcher_binary)\n"
+        '        _merge(entries, {entry["path"]: entry}, "rebuilt launcher")\n'
+        '    for derived in lock["derivedEntries"]:\n',
+        1,
+    ),
+    (
+        "def build_oci_layout(\n"
+        "    lock: Any,\n"
+        "    lock_raw: bytes,\n"
+        "    repository_root: pathlib.Path,\n"
+        "    artifact_store: pathlib.Path,\n"
+        "    output_dir: pathlib.Path,\n"
+        "    *,\n"
+        "    trusted_ubuntu_fingerprints: frozenset[str] = UBUNTU_ARCHIVE_SIGNING_FINGERPRINTS,\n"
+        ") -> dict[str, Any]:\n",
+        "def build_oci_layout(\n"
+        "    lock: Any,\n"
+        "    lock_raw: bytes,\n"
+        "    repository_root: pathlib.Path,\n"
+        "    artifact_store: pathlib.Path,\n"
+        "    output_dir: pathlib.Path,\n"
+        "    *,\n"
+        "    trusted_ubuntu_fingerprints: frozenset[str] = UBUNTU_ARCHIVE_SIGNING_FINGERPRINTS,\n"
+        "    launcher_binary: Any = None,\n"
+        ") -> dict[str, Any]:\n",
+        1,
+    ),
+    (
+        "    entries = _assemble_entries(validated, repository_root, artifact_store)\n",
+        "    entries = _assemble_entries(\n"
+        "        validated, repository_root, artifact_store, launcher_binary\n"
+        "    )\n",
+        1,
+    ),
+    (
+        "def verify_oci_layout(\n"
+        "    lock: Any,\n"
+        "    lock_raw: bytes,\n"
+        "    repository_root: pathlib.Path,\n"
+        "    artifact_store: pathlib.Path,\n"
+        "    layout: pathlib.Path,\n"
+        "    *,\n"
+        "    trusted_ubuntu_fingerprints: frozenset[str] = UBUNTU_ARCHIVE_SIGNING_FINGERPRINTS,\n"
+        ") -> dict[str, Any]:\n",
+        "def verify_oci_layout(\n"
+        "    lock: Any,\n"
+        "    lock_raw: bytes,\n"
+        "    repository_root: pathlib.Path,\n"
+        "    artifact_store: pathlib.Path,\n"
+        "    layout: pathlib.Path,\n"
+        "    *,\n"
+        "    trusted_ubuntu_fingerprints: frozenset[str] = UBUNTU_ARCHIVE_SIGNING_FINGERPRINTS,\n"
+        "    launcher_binary: Any = None,\n"
+        ") -> dict[str, Any]:\n",
+        1,
+    ),
+    (
+        "            rebuilt,\n"
+        "            trusted_ubuntu_fingerprints=trusted_ubuntu_fingerprints,\n"
+        "        )\n",
+        "            rebuilt,\n"
+        "            trusted_ubuntu_fingerprints=trusted_ubuntu_fingerprints,\n"
+        "            launcher_binary=launcher_binary,\n"
+        "        )\n",
+        1,
+    ),
+    # A CI job runs the builder as a process, so the keyword parameter needs a
+    # flag. It stays optional: a build that supplies no launcher is still the
+    # build the two local runs already agreed on, byte for byte.
+    (
+        '        if command == "build":\n'
+        '            sub.add_argument("--output", required=True, type=pathlib.Path)\n'
+        '        elif command == "verify":\n'
+        '            sub.add_argument("--layout", required=True, type=pathlib.Path)\n',
+        '        if command == "build":\n'
+        '            sub.add_argument("--output", required=True, type=pathlib.Path)\n'
+        '            sub.add_argument("--launcher", type=pathlib.Path)\n'
+        '        elif command == "verify":\n'
+        '            sub.add_argument("--layout", required=True, type=pathlib.Path)\n'
+        '            sub.add_argument("--launcher", type=pathlib.Path)\n',
+        1,
+    ),
+    (
+        '        elif args.command == "build":\n'
+        "            receipt = build_oci_layout(\n"
+        "                lock, raw, args.repo_root, args.artifact_store, args.output\n"
+        "            )\n",
+        '        elif args.command == "build":\n'
+        "            receipt = build_oci_layout(\n"
+        "                lock,\n"
+        "                raw,\n"
+        "                args.repo_root,\n"
+        "                args.artifact_store,\n"
+        "                args.output,\n"
+        "                launcher_binary=read_launcher(args.launcher),\n"
+        "            )\n",
+        1,
+    ),
+    (
+        "        else:\n"
+        "            receipt = verify_oci_layout(\n"
+        "                lock, raw, args.repo_root, args.artifact_store, args.layout\n"
+        "            )\n",
+        "        else:\n"
+        "            receipt = verify_oci_layout(\n"
+        "                lock,\n"
+        "                raw,\n"
+        "                args.repo_root,\n"
+        "                args.artifact_store,\n"
+        "                args.layout,\n"
+        "                launcher_binary=read_launcher(args.launcher),\n"
+        "            )\n",
+        1,
+    ),
 )
 
 # Ubuntu 24.04 is merged-/usr: ``/lib`` is a symlink to ``usr/lib``, so a member
@@ -243,6 +394,106 @@ def _closure_exception() -> dict[str, Any]:
     if document.get("release") != CLOSURE_EXCEPTION_RELEASE:
         raise BootProjectionError("boot closure exception release differs")
     return document
+
+
+def _launcher_seal() -> dict[str, Any]:
+    """The sealed launcher block, read from the frozen producer authority.
+
+    ``/usr/libexec/boole`` is a declared closure root that nothing fills: the
+    launcher is a build product, so it arrives neither as a deb nor as a tracked
+    repository file.  The authority is what says how it may arrive instead, and
+    reading it here rather than restating the digest keeps one copy of the fact.
+    """
+
+    try:
+        document = json.loads(PRODUCER_AUTHORITY_PATH.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise BootProjectionError("boot producer authority is unreadable") from exc
+    launcher = document.get("launcher")
+    if not isinstance(launcher, dict):
+        raise BootProjectionError("boot producer authority seals no launcher")
+    if launcher.get("acquisition") != LAUNCHER_ACQUISITION:
+        raise BootProjectionError("boot producer authority changed how the launcher arrives")
+    aborts = {
+        row.get("id")
+        for row in document.get("abortConditions", [])
+        if isinstance(row, dict)
+    }
+    if ABORT_LAUNCHER_DIGEST_MISMATCH not in aborts:
+        raise BootProjectionError("boot producer authority dropped the launcher abort condition")
+    digest = launcher.get("sha256")
+    size = launcher.get("sizeBytes")
+    path = launcher.get("guestLogicalPath")
+    if not isinstance(digest, str) or len(digest) != 64:
+        raise BootProjectionError("sealed launcher digest is unusable")
+    if not isinstance(size, int) or size <= 0:
+        raise BootProjectionError("sealed launcher size is unusable")
+    if not isinstance(path, str) or not path.startswith("/"):
+        raise BootProjectionError("sealed launcher guest path is unusable")
+    return launcher
+
+
+def sha256_hex(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def launcher_entry(
+    binary: bytes,
+    *,
+    sha256: Optional[str] = None,
+    size: Optional[int] = None,
+) -> dict[str, Any]:
+    """The rebuilt launcher, checked against the seal, placed on its guest path.
+
+    ``rebuild-and-match-seal`` is the whole rule: a launcher that does not match
+    stops the build with the authority's own ``launcher-digest-mismatch`` rather
+    than being written into the tree and noticed later, or not at all.
+    """
+
+    expected_digest = LAUNCHER_SHA256 if sha256 is None else sha256
+    expected_size = LAUNCHER_SIZE_BYTES if size is None else size
+    if not binary:
+        raise RootfsBuildError(
+            f"{ABORT_LAUNCHER_DIGEST_MISMATCH}: the rebuilt launcher is empty"
+        )
+    if len(binary) != expected_size:
+        raise RootfsBuildError(
+            f"{ABORT_LAUNCHER_DIGEST_MISMATCH}: the rebuilt launcher is "
+            f"{len(binary)} bytes, the seal says {expected_size}"
+        )
+    actual = sha256_hex(binary)
+    if actual != expected_digest:
+        raise RootfsBuildError(
+            f"{ABORT_LAUNCHER_DIGEST_MISMATCH}: the rebuilt launcher hashes to "
+            f"{actual}, the seal says {expected_digest}"
+        )
+    return {
+        "path": LAUNCHER_GUEST_PATH.lstrip("/"),
+        "kind": "file",
+        "mode": LAUNCHER_MODE,
+        "uid": 0,
+        "gid": 0,
+        "raw": binary,
+    }
+
+
+def read_launcher(path: Optional[pathlib.Path]) -> Optional[bytes]:
+    """The rebuilt launcher named on the command line, or nothing.
+
+    Nothing is a real answer: builds that place no launcher are the ones whose
+    bytes are already known to agree, and the difference between "no launcher"
+    and "an empty launcher" is the difference between that build and a refusal.
+    A launcher that was named but cannot be read is neither, so it stops here.
+    """
+
+    if path is None:
+        return None
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise RootfsBuildError(
+            f"{ABORT_LAUNCHER_DIGEST_MISMATCH}: cannot read the rebuilt launcher: {path}"
+        ) from exc
 
 
 def _load_metadata_exceptions(document: dict[str, Any]) -> dict[str, tuple[int, int, int]]:
@@ -317,6 +568,11 @@ def _load_derived_usrmerge_symlinks(document: dict[str, Any]) -> tuple[dict[str,
             raise BootProjectionError(f"derived usrmerge entry is not a merged root: {path}")
     return tuple(rows)
 
+
+_LAUNCHER_SEAL = _launcher_seal()
+LAUNCHER_SHA256 = _LAUNCHER_SEAL["sha256"]
+LAUNCHER_SIZE_BYTES = _LAUNCHER_SEAL["sizeBytes"]
+LAUNCHER_GUEST_PATH = _LAUNCHER_SEAL["guestLogicalPath"]
 
 _CLOSURE_EXCEPTION = _closure_exception()
 METADATA_EXCEPTIONS = _load_metadata_exceptions(_CLOSURE_EXCEPTION)
@@ -426,6 +682,8 @@ _IMPL["_usrmerge"] = _usrmerge
 _IMPL["USRMERGE_ROOTS"] = USRMERGE_ROOTS
 _IMPL["_dangling_allowed"] = _dangling_allowed
 _IMPL["DANGLING_SYMLINKS"] = DANGLING_SYMLINKS
+_IMPL["launcher_entry"] = launcher_entry
+_IMPL["read_launcher"] = read_launcher
 
 RootfsBuildError = _IMPL["RootfsBuildError"]
 BUILDER_SHA256 = _IMPL["BUILDER_SHA256"]

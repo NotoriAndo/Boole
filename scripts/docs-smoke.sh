@@ -770,6 +770,7 @@ require_text scripts/self-test.sh scripts/test_native_shadow_boot_image_produce_
 require_text docs/native-submission-shadow-verification-v1.md "THE WRAPPER AND THE COMPARISON EXIST. NOTHING WAS"
 require_text docs/native-submission-shadow-verification-v1.md "A BUILDER CAN NOW READ THE SEALED BOOT LOCK. NO"
 require_text docs/native-submission-shadow-verification-v1.md "THE CLOSURE'S DEPARTURES ARE ENUMERATED. NO IMAGE IS"
+require_text docs/native-submission-shadow-verification-v1.md "THE LAUNCHER HAS A WAY IN AND A SEAL TO MATCH. NOTHING"
 
 require_file native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json
 require_text native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json '"schema": "boole.native-shadow.boot-rootfs-closure-exception.arm64.v1"'
