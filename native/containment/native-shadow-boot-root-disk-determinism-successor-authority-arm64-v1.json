@@ -86,6 +86,21 @@
       "method": "static disassembly of the frozen mke2fs with /usr/bin/objdump; nothing was executed to establish it",
       "optionsPutToTheOperator": [
         {
+          "confirmationContract": {
+            "nothingHereChoosesThisOption": true,
+            "orderThatWouldApply": "Acquiring a candidate is an external download, so the pre-registration would be pushed to a remote branch before the download, and the source lock would gain the candidate as an appended entry with the existing 191 left byte-unchanged.",
+            "whatWouldCount": [
+              "the same read that produced this correction, run against the candidate mke2fs: the staging stat is located from its lstat call site, the inode buffer from its i_links_count store, and the instructions between them are shown to take the pinned time rather than the staged one",
+              "the candidate's own libext2fs re-read the way this record's was, since a program fix that its library undoes is not a fix",
+              "digests of the candidate binaries recorded beside the sites, as the correction above does"
+            ],
+            "whatWouldNotCount": [
+              "a release note, changelog entry or upstream commit message asserting reproducible output, with no read of the shipped binary",
+              "a produced pair of images that happen to match, which cannot separate a fixed cause from two runs that shared a clock",
+              "this record's own reasoning about which version ought to work"
+            ],
+            "why": "The requirement above says a version must be confirmed to exist. Left unsaid, confirming would drift towards reading a changelog and believing it. This says what would have to be read instead, so the confirmation is the same kind of evidence as the finding it answers."
+          },
           "option": "pin an e2fsprogs whose create_inode honours fs->now",
           "recommended": true,
           "requires": [

@@ -323,6 +323,37 @@ class CorrectionTests(unittest.TestCase):
         self.assertFalse(document()["boundaries"]["sealedRecordsModified"])
         self.assertTrue(document()["time"]["debugfsMustNotBecomeAWriter"]["required"])
 
+    def test_the_recommended_option_says_what_confirming_it_would_take(self) -> None:
+        """Its requirement is that a version be confirmed to exist.
+
+        Left at that, confirming drifts towards reading a changelog and believing
+        it -- which is the same shape of mistake this correction exists to record.
+        The contract names the read instead, and names the substitutes that do not
+        count, including a matching pair of images: two runs that shared a clock
+        look exactly like a fixed cause.
+        """
+
+        option = next(o for o in self.correction()["optionsPutToTheOperator"] if o["recommended"])
+        contract = option["confirmationContract"]
+        self.assertTrue(contract["nothingHereChoosesThisOption"])
+        counts = " ".join(contract["whatWouldCount"])
+        self.assertIn("lstat", counts)
+        self.assertIn("i_links_count", counts)
+        self.assertIn("libext2fs", counts)
+        self.assertIn("digests", counts)
+        rejected = " ".join(contract["whatWouldNotCount"])
+        self.assertIn("changelog", rejected)
+        self.assertIn("shared a clock", rejected)
+
+    def test_confirming_the_recommended_option_keeps_the_download_order(self) -> None:
+        """An external download is pre-registered before it happens, not after."""
+
+        option = next(o for o in self.correction()["optionsPutToTheOperator"] if o["recommended"])
+        order = option["confirmationContract"]["orderThatWouldApply"]
+        self.assertIn("before the download", order)
+        self.assertIn("191", order)
+        self.assertIn("byte-unchanged", order)
+
 
 class ProductionReadinessTests(unittest.TestCase):
     def test_production_is_blocked_by_the_correction(self) -> None:
