@@ -113,6 +113,16 @@ done < <(
 "${isolation[@]}"
 
 [[ -f $result && ! -L $result ]] || die "the produce phase wrote no result document"
+
+# The image is opened and read here rather than inside the unit above. That unit
+# is sealed with private devices and a loop mount is exactly a device, so the
+# reading has to be its own stage -- which is also the honest arrangement, since
+# the stage that checks the work is then not the stage that did it.
+python3 "$ROOT/scripts/native_shadow_boot_root_disk_readback_arm64_v1.py" verify \
+  --outputs "$outputs" \
+  --mountpoint "$scratch/readback" \
+  --result "$outputs/ROOT-DISK-READBACK.json"
+
 python3 "$ROOT/scripts/native_shadow_boot_image_produce_arm64_v1.py" manifest \
   --repository-root "$ROOT" \
   --outputs "$outputs"

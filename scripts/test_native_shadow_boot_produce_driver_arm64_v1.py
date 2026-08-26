@@ -24,6 +24,7 @@ import unittest
 
 from scripts import native_shadow_boot_image_produce_arm64_v1 as producer
 from scripts import native_shadow_boot_produce_phase_arm64_v1 as phase
+from scripts import native_shadow_boot_root_disk_readback_arm64_v1 as readback_module
 
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -145,6 +146,28 @@ class RestatementTests(unittest.TestCase):
     def test_the_image_size_is_not_chosen_here(self) -> None:
         for token in ("count=", "seek=", "truncate", "fallocate", "dd "):
             self.assertNotIn(token, DRIVER_TEXT)
+
+
+class ReadbackTests(unittest.TestCase):
+    """Writing the image and reading it back are two stages, in that order."""
+
+    def test_the_produced_image_is_read_back_before_it_is_reported(self) -> None:
+        readback = DRIVER_TEXT.find("root_disk_readback")
+        manifest = DRIVER_TEXT.find('produce_arm64_v1.py" manifest')
+        self.assertNotEqual(readback, -1, "the driver never reads the image back")
+        self.assertNotEqual(manifest, -1, "the driver never prints the manifest")
+        self.assertLess(readback, manifest, "the manifest is printed before the check")
+
+    def test_the_image_is_read_back_outside_the_sealed_unit(self) -> None:
+        """The unit seals private devices, and a loop mount is exactly a device."""
+
+        unit = DRIVER_TEXT.find('"${isolation[@]}"')
+        self.assertNotEqual(unit, -1)
+        self.assertLess(unit, DRIVER_TEXT.find("root_disk_readback"))
+
+    def test_the_checks_are_not_restated_in_the_driver(self) -> None:
+        for identifier in readback_module.REQUIRED_CHECKS:
+            self.assertNotIn(identifier, DRIVER_TEXT)
 
 
 class BoundaryTests(unittest.TestCase):
