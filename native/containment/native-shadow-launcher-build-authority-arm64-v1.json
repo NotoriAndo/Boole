@@ -1,0 +1,259 @@
+{
+  "activationAllowed": false,
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "guestImageBuilt": false,
+    "imageBuilderAuthorityPresent": false,
+    "kernelImageExtracted": false,
+    "launcherDeployedIntoGuest": false,
+    "runtimeCompatibilityVerified": false,
+    "toolchainByteProvenanceClosed": false
+  },
+  "build": {
+    "artifactRelativePath": "target/aarch64-unknown-linux-gnu/release/boole-native-shadow-launcher",
+    "binary": "boole-native-shadow-launcher",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--offline",
+      "--release",
+      "--target",
+      "aarch64-unknown-linux-gnu",
+      "-p",
+      "boole-native-shadow-launcher",
+      "--features",
+      "linux-arm64-authority",
+      "--bin",
+      "boole-native-shadow-launcher"
+    ],
+    "features": [
+      "linux-arm64-authority"
+    ],
+    "guestLogicalPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+    "linker": {
+      "byteProvenanceClosed": false,
+      "selection": "rustc-default-cc-driver-for-aarch64-unknown-linux-gnu"
+    },
+    "package": "boole-native-shadow-launcher",
+    "prefetchCommand": [
+      "cargo",
+      "fetch",
+      "--locked"
+    ],
+    "profile": "release",
+    "profileFlags": {
+      "overflowChecks": true,
+      "panic": "abort"
+    },
+    "rustflags": [
+      "--remap-path-prefix",
+      "{sourceRoot}=/boole/launcher-build"
+    ]
+  },
+  "determinism": {
+    "artifactMustBeByteIdentical": true,
+    "declaredEnvironment": {
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_TERM_COLOR": "never",
+      "LANG": "C",
+      "LC_ALL": "C",
+      "SOURCE_DATE_EPOCH": null,
+      "TZ": "UTC"
+    },
+    "forbidEnvironmentNormalizationBeyondDeclared": true,
+    "forbidTimestampSuppression": true,
+    "independentBuildCount": 2,
+    "mismatchAction": "report-the-difference-never-force-a-match",
+    "sourceTreeOrigin": "git-archive-of-tracked-files-only"
+  },
+  "generator": {
+    "path": "scripts/native_shadow_launcher_build_arm64_v1.py",
+    "sha256": "753944efea3208b03b8287653254e6244a83da75733a72611d4f14399521e9e5"
+  },
+  "platform": {
+    "architecture": "aarch64",
+    "os": "linux",
+    "rustTarget": "aarch64-unknown-linux-gnu"
+  },
+  "release": "NATIVE-SHADOW-LAUNCHER-BUILD-ARM64-V1",
+  "schema": "boole.native-shadow.launcher-build-authority.arm64.v1",
+  "sourceFiles": [
+    {
+      "path": "Cargo.lock",
+      "sha256": "82e7a8e2066a56c1ad75e4cd912c7538cda036bb2e8c02791335a6f9c0b9a1a8",
+      "sizeBytes": 97842
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "59bcab525c8d5443a24bda3a1bb929f6c649aad39dd01ce737d4a9a9fa537773",
+      "sizeBytes": 3387
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/Cargo.toml",
+      "sha256": "415eb1f6ced366a5471a242faef3ab8fe1c537cb877fce4a190087fc040051b4",
+      "sizeBytes": 1185
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/active_execution/mod.rs",
+      "sha256": "27d84c2ead6465fc69e2b81cf809e5d407317666ca7f9c0d78af0af04d9164cd",
+      "sizeBytes": 23777
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/active_execution/unix.rs",
+      "sha256": "ff7ec39e7738a7c250076a0081d612d5a7abe2119882516258d72019738bc97c",
+      "sizeBytes": 6480
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/authority_arch.rs",
+      "sha256": "505ad22ce435beb30a5f592434f04a63473744eb85ef439a9b4e1da1190cac2a",
+      "sizeBytes": 4878
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/bin/boole-native-shadow-launcher.rs",
+      "sha256": "d3d41bc4b06670bf557490210fc57acc0977f999334abafb2c0284be08c83e20",
+      "sizeBytes": 1855
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/cgroupfs_fd.rs",
+      "sha256": "cdaeeaebedca7e624fc88b00ddc2dedd160efd0d521dc2bbec6381a5d4c436c2",
+      "sizeBytes": 36877
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/closed_local_replay_startup.rs",
+      "sha256": "5a58468fe947e30906cc6844c935a4e433b59c40162d0546fab0bee322aaa1f5",
+      "sizeBytes": 8658
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/instance_id.rs",
+      "sha256": "13076a7a72e52f5f21979f50d110543dae19dd50a3fe59acb927d358712964b8",
+      "sizeBytes": 7208
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/lib.rs",
+      "sha256": "4a54514c6968640ed37ee3c2ba1a68e4d2f2d199b8cb33cc27aecd5c0ce7c29d",
+      "sizeBytes": 2274
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/lifetime_lock.rs",
+      "sha256": "f40fd403ba3d74bbcd494000cc414847e8ca0cfd24c1b7f45df4cf8a16b58f64",
+      "sizeBytes": 28323
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/manager_cgroup.rs",
+      "sha256": "932edbbcd88e51bdb523b054ccab9f752e0759c5f42aa447fa2b0eb6c303b3d8",
+      "sizeBytes": 14415
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/per_request_containment.rs",
+      "sha256": "72a11da34818f14e4ca24ab6d529b713654637d72f40746f7d876735edebe902",
+      "sizeBytes": 22510
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs",
+      "sha256": "881869e356647d31aead38a9f4b4addaa5227042f60cef72249225dd945dae6a",
+      "sizeBytes": 94164
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/privilege.rs",
+      "sha256": "f8d479c04077cc931bf3c49fec01a4fee28c2384ee8ac6f22e00930f73be0aae",
+      "sizeBytes": 13709
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/qualification.rs",
+      "sha256": "7281233a536e930c68f3ee087bd99a1cb2067328c1583f69bedd8485da58bada",
+      "sizeBytes": 23968
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/qualification/listener.rs",
+      "sha256": "bbc831b00c3b387f51dba57da5184966948de1f17116e1fedc7ba3efa5b74b99",
+      "sizeBytes": 21257
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/qualification/unix.rs",
+      "sha256": "2aa011348d081edfd87a64feb50b3444d43b0848e501464f0584227a9156cf92",
+      "sizeBytes": 12237
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/readiness.rs",
+      "sha256": "9dfce1bceda8b117ced320f8b97d14b1749bd70c2931998d4ce854f2675d82d7",
+      "sizeBytes": 1835
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/runtime_rootfs_replay.rs",
+      "sha256": "7cac9770285ed1660fbb400fee97668d620c49b13a00a3de7e272c4a9b9380b9",
+      "sizeBytes": 20148
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/startup.rs",
+      "sha256": "84c4e8a6d4e2192fc9de20bfbad48dd23859d6db8ba251972fe555a2c5e2f7db",
+      "sizeBytes": 7208
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/startup_recovery.rs",
+      "sha256": "1ab1d7a5eb8ea17b7b1bbbd27ed85765f7c475b66f036a489fa3220a1b60e224",
+      "sizeBytes": 28673
+    },
+    {
+      "path": "crates/boole-native-shadow-launcher/src/toolchain_compatibility.rs",
+      "sha256": "a6f2543a7a49d57e59867bd486c31005d881fa44d9631c757c6cb33834e07bc6",
+      "sizeBytes": 49273
+    },
+    {
+      "path": "crates/boole-native-shadow-protocol/Cargo.toml",
+      "sha256": "3791f6bf8710960dd8b0277e4f13c579efef0671ed3945fd8cdfe691b1a2a956",
+      "sizeBytes": 460
+    },
+    {
+      "path": "crates/boole-native-shadow-protocol/src/closed_local_replay_execution_wire.rs",
+      "sha256": "465181a87a2507d0f879fc3d8db56c0301176eafee82542dfa474aee30cfa6a8",
+      "sizeBytes": 24697
+    },
+    {
+      "path": "crates/boole-native-shadow-protocol/src/closed_local_replay_grant.rs",
+      "sha256": "6258201d389c5ce54e9298d640979a957acd4735b5a73cd355d5142122c2d874",
+      "sizeBytes": 79450
+    },
+    {
+      "path": "crates/boole-native-shadow-protocol/src/execution_active_wire.rs",
+      "sha256": "52555574edae0daf0806e352ffc48d8bb6b30be56b4e22d820596335d67fd3de",
+      "sizeBytes": 23318
+    },
+    {
+      "path": "crates/boole-native-shadow-protocol/src/execution_wire.rs",
+      "sha256": "0ba442950f3154da3a086a64f0de9802a0f40f7759ad824bf5e717fa4631a3e5",
+      "sizeBytes": 67991
+    },
+    {
+      "path": "crates/boole-native-shadow-protocol/src/installed_authority.rs",
+      "sha256": "f367dfc97427ad834c38aecabf71de7ce34f4fd918a621ec78371847611518e7",
+      "sizeBytes": 37614
+    },
+    {
+      "path": "crates/boole-native-shadow-protocol/src/lib.rs",
+      "sha256": "f2a2f2350602d70c43c41c5aadbd0bccbb048065f96ad69e79b4c0b920d22bc1",
+      "sizeBytes": 58548
+    },
+    {
+      "path": "crates/boole-native-shadow-protocol/src/service_identities.rs",
+      "sha256": "285bb0f98a1dddd5fe607661331dba818ddbdad1bb0b79164d07c2b6a51ddd16",
+      "sizeBytes": 25324
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "sha256": "97aab3493c1fb14fe9a21c760433577f434714f5725bbb176e67048dde581afe",
+      "sizeBytes": 86
+    }
+  ],
+  "toolchain": {
+    "byteProvenanceClosed": false,
+    "channel": "1.95.0",
+    "declaredBy": "rust-toolchain.toml",
+    "identityProbeScope": "version-and-host-only;not-installed-byte-provenance",
+    "installer": "dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9",
+    "requiredCargoVersionPrefix": "cargo 1.95.0",
+    "requiredHostTriple": "aarch64-unknown-linux-gnu",
+    "requiredRustcVersionPrefix": "rustc 1.95.0"
+  }
+}

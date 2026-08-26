@@ -420,6 +420,36 @@ require_text native/containment/native-shadow-boot-rustdist-acquisition-result-a
 require_text native/containment/native-shadow-boot-rustdist-acquisition-result-arm64-v1.json '"activationAllowed": false'
 require_text docs/native-submission-shadow-verification-v1.md "Acquiring verified bytes is not an installed toolchain"
 
+# NATIVE-SHADOW-LAUNCHER-BUILD-ARM64-V1. The guest source lock defers exactly one
+# role, the launcher binary, because a digest cannot be stated for a file that does
+# not exist. This authority fixes every input that decides those bytes and requires
+# two independent builds to agree. Determinism is declared, never manufactured:
+# --remap-path-prefix is written into the recipe in the open, and nothing suppresses
+# a timestamp. The build toolchain is the workspace channel, NOT the rust-lang-ci
+# nightly acquired for the guest checker -- conflating them would misattribute the
+# launcher's provenance, so byte provenance stays explicitly unclosed.
+require_file native/containment/native-shadow-launcher-build-authority-arm64-v1.json
+require_file scripts/native_shadow_launcher_build_arm64_v1.py
+require_file scripts/test_native_shadow_launcher_build_arm64_v1.py
+require_text scripts/self-test.sh "scripts/test_native_shadow_launcher_build_arm64_v1.py"
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"rustTarget": "aarch64-unknown-linux-gnu"'
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"channel": "1.95.0"'
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"byteProvenanceClosed": false'
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"independentBuildCount": 2'
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"artifactMustBeByteIdentical": true'
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"forbidTimestampSuppression": true'
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"mismatchAction": "report-the-difference-never-force-a-match"'
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"sourceTreeOrigin": "git-archive-of-tracked-files-only"'
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"path": "scripts/native_shadow_launcher_build_arm64_v1.py"'
+require_text .github/workflows/ci.yml 'native-shadow-launcher-build-arm64'
+require_text .github/workflows/ci.yml 'python3 scripts/native_shadow_launcher_build_arm64_v1.py --build'
+require_text docs/native-submission-shadow-verification-v1.md "A byte-identical pair of builds is not a boot"
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"guestImageBuilt": false'
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"launcherDeployedIntoGuest": false'
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"bootAuthority": false'
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-launcher-build-authority-arm64-v1.json '"activationAllowed": false'
+
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
@@ -441,9 +471,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "27dd174b82fd048c027f9480aabe6cd77ea6df8c0cf8371c5fca625fcde87451"
-require_text docs/native-submission-shadow-verification-v1.md "b8d36b55bbeb8448835528b79ca14be2a02e9161deedb7a8e9655e03214368ac"
-require_text docs/native-submission-shadow-verification-v1.md "9fa3eabab67436c1bbad7ce6bc7e3bc95c4d86b16dce34a62cd3e58d36f983fd"
+require_text docs/native-submission-shadow-verification-v1.md "8fb7a8eb0d520327ba84557c31a768a9f88763b96a47fecc44a799e3465701fe"
+require_text docs/native-submission-shadow-verification-v1.md "a3d2809f8bfd661e2ec6abb84a1aede1e0e56c835e3b9833b8ea5c78288258c2"
+require_text docs/native-submission-shadow-verification-v1.md "66193a0bb0ab38e243535579c071a584f1e47a77dc9c3326a8d2aa86737e4d46"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"

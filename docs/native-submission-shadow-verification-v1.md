@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `27dd174b82fd048c027f9480aabe6cd77ea6df8c0cf8371c5fca625fcde87451` (updated 2026-08-26h — three ARM64 Rust archives acquired and verified; not a toolchain authority) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `b8d36b55bbeb8448835528b79ca14be2a02e9161deedb7a8e9655e03214368ac` (updated 2026-08-26h — cursor moves to the launcher ELF two-build determinism authority) |
+| `local-docs/todo/todo-l1-network-master.md` | `8fb7a8eb0d520327ba84557c31a768a9f88763b96a47fecc44a799e3465701fe` (updated 2026-08-26i — launcher build inputs frozen and enforced by CI; artifact not sealed) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `a3d2809f8bfd661e2ec6abb84a1aede1e0e56c835e3b9833b8ea5c78288258c2` (updated 2026-08-26i — cursor moves to the sealed launcher artifact, then the image builder) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `9fa3eabab67436c1bbad7ce6bc7e3bc95c4d86b16dce34a62cd3e58d36f983fd` (updated 2026-08-26h — compiler bytes held in verified form; execution and reproducibility unrealized) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `66193a0bb0ab38e243535579c071a584f1e47a77dc9c3326a8d2aa86737e4d46` (updated 2026-08-26i — inputs frozen and machine-checked; reproducibility not yet demonstrated) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1204,5 +1204,48 @@ binaries run anywhere: `runtimeCompatibilityVerified` stays false alongside `too
 `imageBuilderAuthorityPresent` and `bootAuthority`.
 Acquiring verified bytes is not an installed toolchain,
 and it is not a launcher, kernel, root disk or boot claim. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` are unchanged.
+
+_2026-08-26i launcher-build addendum:_ **NATIVE-SHADOW-LAUNCHER-BUILD-ARM64-V1 = BUILD INPUTS
+FROZEN AND ENFORCED, ARTIFACT NOT YET SEALED.** The rootfs source lock defers exactly one role,
+`tracked-file:launcher-binary`, because a digest cannot be stated for a file that does not exist
+yet. The build authority (SHA-256
+`64f4ea0c6b574e1479e51a78e250da8fac6f3d3522d60cb03dde65b53da594ee`) fixes every input that decides
+those bytes: 33 pinned source files with digests and sizes, the workspace manifests and lockfile,
+the target triple `aarch64-unknown-linux-gnu`, the release profile with `panic = "abort"` and
+overflow checks, the exact `cargo build --locked --offline` argument vector, the linker selection,
+and the tool that generated the document. Only `cargo fetch` may reach the network, and it runs
+before either build so `--offline` holds while code is compiled.
+
+Two inputs are named without being frozen, and the document says so rather than implying
+otherwise. The linker is whatever `cc` driver the runner image ships, so
+`build.linker.byteProvenanceClosed` is false; a build authority that omitted the linker entirely
+would look tidier and claim more than it knows.
+
+The build toolchain named here is the *workspace* channel `1.95.0` declared by
+`rust-toolchain.toml`, not the `rust-lang-ci` nightly acquired above. Those are two different
+toolchains with two different jobs: the nightly compiles submitted proof projects inside the guest,
+while the launcher is an ordinary workspace crate. The authority says so explicitly, and
+`toolchainByteProvenanceClosed` stays false because the workspace toolchain is installed by a
+commit-pinned action rather than unpacked from bytes this project froze.
+
+Determinism is declared, never manufactured. Each build runs in its own temporary directory from a
+`git archive` of tracked files only, and the pinned digests are re-verified *inside* the exported
+tree so a dirty working file cannot slip past a check made somewhere else. `--remap-path-prefix`
+is written into the authority in the open; `SOURCE_DATE_EPOCH` is deliberately left unset and a
+test asserts its absence. If the two artifacts differ, the difference is reported --
+`mismatchAction` is `report-the-difference-never-force-a-match`.
+
+The double build cannot run on the development Mac, whose target is not Linux/arm64, so it runs as
+the named non-skippable CI job `native-shadow-launcher-build-arm64` on an arm64 runner, and the
+required `self-test` check depends on its success. The first run discovers the launcher digest and
+seals it; every later run must reproduce those exact bytes and may never rewrite the seal to agree
+with a newer build. Until that sealed result is committed, `tracked-file:launcher-binary` stays
+deferred, and every boundary the authority declares stays false: `toolchainByteProvenanceClosed`,
+`guestImageBuilt`, `kernelImageExtracted`, `launcherDeployedIntoGuest`,
+`imageBuilderAuthorityPresent`, `runtimeCompatibilityVerified` and `bootAuthority`.
+A byte-identical pair of builds is not a boot,
+and freezing build inputs is not an image, a kernel or a running guest. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` are unchanged.
