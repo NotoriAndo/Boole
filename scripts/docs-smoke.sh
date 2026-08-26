@@ -637,6 +637,54 @@ require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.
 require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"activationAllowed": false'
 require_text docs/native-submission-shadow-verification-v1.md "A resolved input is a pinned digest, not a built image"
 
+# 2026-08-26o -- frozen producer authority for the arm64 CI image build (v2).
+# The v1 builder authority left sourceDateEpoch null and could not say where the
+# build would run. This successor states the rest and is frozen BEFORE anything
+# is produced; the v1 document keeps its sealed digest.
+require_file scripts/native_shadow_boot_image_producer_authority_arm64_v2.py
+require_file scripts/test_native_shadow_boot_image_producer_authority_arm64_v2.py
+require_file native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json
+require_text scripts/self-test.sh "scripts/test_native_shadow_boot_image_producer_authority_arm64_v2.py"
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"schema": "boole.native-shadow.boot-image-producer-authority.arm64.v2"'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"release": "NATIVE-SHADOW-BOOT-IMAGE-PRODUCER-AUTHORITY-ARM64-V2"'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"format": "initrd-ext4-producer-authority-v2"'
+# The sealed v1 authority is pinned, not copied. Its tool digests must not be
+# restated here -- two copies of one fact can drift invisibly.
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"sha256": "59a14469bbb9710a1f6c79202d3e804b2f79268966c12d4259cd99e59e8d6e1e"'
+forbid_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json "763be3ec03774647799b1186d30b4b524e6e73dd27be01cbe0be4b6043f62cb1"
+forbid_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json "2c0bf348d91f9b3bd6eec6666b9897b9f733c430e6baa8066bd70b645b2ca023"
+# The two slots v1 deliberately left open.
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"sourceDateEpoch": 0'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"sourceDateEpoch": null'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"hostToolPinning": "record-at-build-time"'
+# No network during the produce phase is enforced by the kernel, not promised.
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"PrivateNetwork=yes"'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"RestrictAddressFamilies=AF_UNIX"'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"runner": "ubuntu-24.04-arm"'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"separateJobs": true'
+# A determinism mismatch is a hard stop, never a knob turned down.
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"id": "independent-builds-differ"'
+# Maintainer scripts in the frozen packages are normal (262 of them); the abort
+# is one reaching the assembled tree. Wording it as the consumed set would stop
+# every run that ever starts.
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"id": "maintainer-script-copied-into-tree"'
+forbid_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json "consumed set"
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"id": "package-path-collision"'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"relaxKnobAllowed": false'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"mismatchAction": "report-the-difference-never-force-a-match"'
+# The launcher is rebuilt and matched against the seal, never received as a handoff.
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"acquisition": "rebuild-and-match-seal"'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"sha256": "11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434"'
+# Images stay out of git and out of releases.
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"commitImagesToGit": false'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"uploadToRelease": false'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"keep": "ci-artifact-and-sha256-manifest"'
+# Freezing a contract is not a build.
+require_text scripts/native_shadow_boot_image_producer_authority_arm64_v2.py '"IMAGE-PRODUCER-AUTHORITY-FROZEN-NOTHING-PRODUCED"'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"bootableClaim": false'
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"activationAllowed": false'
+require_text docs/native-submission-shadow-verification-v1.md "A frozen contract is a promise about a build, not the build"
+
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
@@ -658,9 +706,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "313981c027ee3ca16b25184082f8bad406bd19d07e5c212ee21aea028350b3d6"
-require_text docs/native-submission-shadow-verification-v1.md "a74c010a2364683383ea6b3129bc2554c97ffc6b42ebcafa1f0c90c1c477c283"
-require_text docs/native-submission-shadow-verification-v1.md "60ae5f070cd6f7dd87851a9d0e03dbde66a2c9f9ad5f0c49c3ad551039be1757"
+require_text docs/native-submission-shadow-verification-v1.md "6cc72cef28b270a1b630b64670fc3531499184f7b0d5701b9ce99562f65c61c1"
+require_text docs/native-submission-shadow-verification-v1.md "b9af9d378307a044b33fb9e493877b2bb43746ed5020e901b6df5cda86f2a05a"
+require_text docs/native-submission-shadow-verification-v1.md "70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"
