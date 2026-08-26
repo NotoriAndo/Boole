@@ -324,8 +324,8 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "PACKAGE-PAYLOADS-
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "records exactly 186 GETs"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Total network payload was 209,807,900 bytes"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-INPUT-AUTHORITY/SOURCE-LOCK SUCCESSOR  NEXT"
-require_text docs/native-submission-shadow-verification-v1.md "078e1601b24374fe164cd883228f532b5da7de05290f69b7fc7f5715be9eb8a0"
-require_text docs/native-submission-shadow-verification-v1.md "6707e110d1c7f5033cf1c85335c2e196fab259878951b741dac1e4d32e6f4a5c"
+require_text docs/native-submission-shadow-verification-v1.md "43becf01889f8ca5b4fc9acff20b95b12ef78f3736dd13c9081001c5110aac2a"
+require_text docs/native-submission-shadow-verification-v1.md "cb4d6bc0f85d2dead1fbae20d9dcebcc3310e734d9a2d1937855997ae22b61ea"
 require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"packagePayloadsAcquired": true'
 require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"packagePayloadsVerified": true'
 require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"baselineFetched": 51'
@@ -714,6 +714,21 @@ require_text scripts/native_shadow_boot_root_disk_arm64_v1.py "ACTIVATION_ALLOWE
 require_text scripts/native_shadow_boot_root_disk_arm64_v1.py '"onMismatch": "abort-never-relax"'
 forbid_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'SOURCE_DATE_EPOCH": "0"'
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_root_disk_arm64_v1.py
+
+# The verification stage is separate from the producer on purpose: a producer
+# that checks its own output can only confirm that it did what it did. debugfs
+# keeps the inspector role v1 sealed for it -- read-only, never `-w`.
+require_file scripts/native_shadow_boot_image_verify_arm64_v1.py
+require_file scripts/test_native_shadow_boot_image_verify_arm64_v1.py
+require_text scripts/native_shadow_boot_image_verify_arm64_v1.py 'KERNEL_MAGIC = b"ARM\x64"'
+require_text scripts/native_shadow_boot_image_verify_arm64_v1.py '"kernel-is-arm64"'
+require_text scripts/native_shadow_boot_image_verify_arm64_v1.py '"pid1-is-systemd"'
+require_text scripts/native_shadow_boot_image_verify_arm64_v1.py '"launcher-digest-matches-seal"'
+require_text scripts/native_shadow_boot_image_verify_arm64_v1.py '"launcher-service-is-enabled"'
+require_text scripts/native_shadow_boot_image_verify_arm64_v1.py '"replay-node-absent"'
+require_text scripts/native_shadow_boot_image_verify_arm64_v1.py '"modes-owners-and-paths-match-the-lock"'
+require_text scripts/native_shadow_boot_image_verify_arm64_v1.py '"guestBootVerified": False'
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_image_verify_arm64_v1.py
 
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"

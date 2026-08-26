@@ -707,8 +707,8 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `a7eaa112ee1006e89500c77870187af10c55168b29d2b7b286d6754ce4064087` (updated 2026-08-26p — the initrd writer and the root disk plan, with the mke2fs time and ordering findings that corrected an earlier assumption in the same slice) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `b00cf676eb397a4928e1ec9b64e3be8d1b491ad53eec24d89c8d917b22cd48e3` (updated 2026-08-26p — D2.2 and D2.3 written; E2FSPROGS_FAKE_TIME, tmpfs staging order and the missing libe2p recorded) |
+| `local-docs/todo/todo-l1-network-master.md` | `a7eaa112ee1006e89500c77870187af10c55168b29d2b7b286d6754ce4064087` (updated 2026-08-26q — the initrd writer, the root disk plan and the separate verification stage that can disagree with the producer) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `b00cf676eb397a4928e1ec9b64e3be8d1b491ad53eec24d89c8d917b22cd48e3` (updated 2026-08-26q — D2.2, D2.3 and D4 written; nothing produced, inspected or booted) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
 | `local-docs/todo/thesis-realization-roadmap.md` | `70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb` (updated 2026-08-26o — choosing not to make a second copy of a sealed fact) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
@@ -1130,12 +1130,12 @@ runtime trust roots.
 
 _2026-08-26f package-payload addendum:_ **BOOT-ROOTFS-PAYLOAD-ACQUISITION-ARM64-V1 =
 PACKAGE-PAYLOADS-ACQUIRED-VERIFIED-NOT-BOOT-AUTHORITY.** A pre-registered plan (SHA-256
-`078e1601b24374fe164cd883228f532b5da7de05290f69b7fc7f5715be9eb8a0`) fetched the missing
+`43becf01889f8ca5b4fc9acff20b95b12ef78f3736dd13c9081001c5110aac2a`) fetched the missing
 ARM64 `Packages.xz`, replayed the signed Ubuntu snapshot and required byte equality with the
 tracked 191-row candidate before opening a package URL. It then fetched baseline 51 and verified
 56/56 before fetching delta 134 and verifying 191/191. Six exact package CAS hits were reused with
 zero requests. The 186 network responses totaled 209,807,900 bytes. The canonical result SHA-256
-is `6707e110d1c7f5033cf1c85335c2e196fab259878951b741dac1e4d32e6f4a5c`.
+is `cb4d6bc0f85d2dead1fbae20d9dcebcc3310e734d9a2d1937855997ae22b61ea`.
 
 The package files remain opaque bytes. No `apt`/`dpkg`, extraction, maintainer script, ARM64 Rust
 distribution, launcher ELF, kernel extraction, image builder, initrd/root disk or VM boot ran.
@@ -1655,5 +1655,38 @@ where the sealed roles allow rather than by promoting the inspector to a writer.
 Boundaries are unchanged and every one of them is still false. `bootableClaim: false`,
 `activationAllowed: false`. A writer for a format is not an image, a plan for an image is not an
 image, and an image is not a boot. Nothing was produced, staged, mounted or run. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
+
+_2026-08-26q verification stage addendum:_ **THE VERIFICATION STAGE EXISTS. NO IMAGE WAS PRODUCED,
+NOTHING WAS INSPECTED FOR REAL AND NOTHING WAS BOOTED.**
+
+`scripts/native_shadow_boot_image_verify_arm64_v1.py` (25 tests) reads produced boot artifacts back
+and runs the six checks the operator named: the kernel is arm64, PID 1 is real systemd, the
+launcher's digest equals the sealed build result, the launcher unit is enabled through its
+`multi-user.target.wants` symlink, no replay node appears anywhere in the tree, and every tracked
+path's mode, ownership and content match the sealed lock. Its tests run against synthetic trees, so
+this addendum records a checker, not a verdict on any image.
+
+It is deliberately not part of the producer. A producer that verifies its own output can only
+confirm that it did what it did; these checks are written against the sealed lock and the sealed
+launcher result, which means they are able to disagree with the thing that built the image.
+
+Two of the six deserve their reasoning written down. The kernel check reads the arm64 `Image`
+header — 64 bytes with the magic at offset `0x38` — rather than trusting a filename, and it rejects
+a payload that is still a gzip member, because v1 froze `kernelDecompression: gzip` and a
+compressed output would mean that step did not run. The launcher check fails when the launcher is
+absent rather than passing vacuously, which is the difference between "the digest matched" and
+"nothing contradicted us"; the same shape covers a run given no kernel at all, where an absent check
+would otherwise read exactly like a passing one.
+
+The initrd side runs anywhere, because a `newc` archive is readable without root and without a Linux
+host. The root disk side does not: it is an ext4 image and the tool that reads it is `debugfs`, which
+v1 sealed as `ext4-image-inspector`. This module emits read-only `debugfs` commands for that stage
+and a test asserts `-w` never appears in the invocation, so the inspector cannot become a writer by
+accident.
+
+`bootableClaim: false`, `activationAllowed: false`, and the report itself carries
+`guestBootVerified: false`. Reading an image is not booting it. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
