@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `515df8b08f0c136130ade09e23effb00539081ce5bad3b9afa258ace0b4a4628` (updated 2026-08-26l — first real boot artifact: guest kernel extracted) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `b301b0171cd25ec3c8ff8fda90e403aadc4abeb0c8649f17628cfc542028cd22` (updated 2026-08-26l — kernel slot filled; only systemdGuestClosure remains open) |
+| `local-docs/todo/todo-l1-network-master.md` | `432fc9d069a5b1c834c19ac9160430ddcd6bdb8d3745978ffaba27183737519d` (updated 2026-08-26m — systemd guest closure audited; init chain followed to PID 1) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `fbdc5a955fcb845ee20f128d613d2d52289a2242148a0ef2faf38ae9eb1b2a99` (updated 2026-08-26m — all three scaffold inputs answered; static audits exhausted) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `d15462e470e8235d5cddc3d88350b5a53c9e3b32da5b86321c64d96f4cf3de20` (updated 2026-08-26l — evidence strength matched to claim strength) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `6c2d2938ee1cd72026ba1d1b639c5fc768dc46ed2f3b6bb07a12ebc8e3cdc16e` (updated 2026-08-26m — presence is not a chain; a silent skip looks like a pass) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1381,5 +1381,54 @@ null input slots. This slice answers the `kernel` slot and the 2026-08-26j adden
 plan's job -- the scaffold is not edited in place.
 A kernel image is a file the boot loader can read, not a system that has booted,
 and extracting one proves nothing about whether it starts. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` are unchanged.
+
+_2026-08-26m systemd guest closure addendum:_ **THE PLAN SCAFFOLD'S LAST NULL SLOT IS ANSWERED.**
+The boot-artifact plan scaffold declared three inputs and left all three digests null:
+`imageBuilderToolchain`, `kernel` and `systemdGuestClosure`. The 2026-08-26j addendum answered the
+first, 2026-08-26l the second, and this one answers the third. The scaffold itself is still not
+edited -- filling its nulls is a successor plan's job, and this is the material that successor will
+have to draw on.
+
+The question is narrow: would PID 1 be real systemd, and would systemd start the launcher? Both
+halves resolve into chains of file facts, and both chains were followed rather than assumed. The
+init chain: `systemd-sysv` 255.4-1ubuntu8 ships `/usr/sbin/init` -- not `/sbin/init`, because Ubuntu
+24.04 is usr-merged -- as a symlink whose target is the *relative* string `../lib/systemd/systemd`.
+Resolved against the link's own directory that lands on `/usr/lib/systemd/systemd`, which the
+`systemd` package ships as a regular file whose ELF header carries `e_machine` 183, AArch64, digest
+`ab970cc6f829555cad7e6891823b9c82b02f277b8fae081b7072b05e94f23f90`. The launcher chain: the unit's
+`ExecStart` names `/usr/libexec/boole/boole-native-shadow-launcher`, the exact guest path the
+2026-08-26k launcher seal recorded, and the enablement symlink sits in the wants directory that the
+unit's own `WantedBy=multi-user.target` asks for. A unit enabled into the wrong target is present
+and never starts, so agreement between those two is checked rather than presence alone.
+
+Three details are worth recording because each was a place this could have quietly gone wrong. The
+relative symlink is resolved against its own directory and a target that would climb above the root
+is refused rather than clamped -- clamping turns an escape into a plausible-looking path. The ELF
+architecture is read at its defined header offset, the same discipline the kernel magic check uses.
+And the package reader accepts `control.tar`, `control.tar.gz`, `control.tar.xz` and
+`control.tar.zst`, because the frozen set is not uniform: 188 packages use zstd, two use xz, and the
+kernel modules package is uncompressed. A reader that knew only some of those would not fail --
+it would silently skip packages, and a missing systemd would look exactly like a present one. The
+first run of this audit did fail that way, on the two xz packages, and the fix was to widen the
+reader rather than to narrow the claim.
+
+The result keeps two tiers of evidence apart and labels each with `reproducibleInCi`. The lock tier
+is true: those guest files are tracked in this repository, so a clean runner can check the whole
+chain source file -> digest -> lock entry, and the audit does check the unit's bytes against the
+digest the lock declares rather than trusting either alone. The package tier is false: the package
+bytes live in the gitignored content store and the runner has never seen them. Averaging the two
+into a single boolean would let the weaker half borrow the stronger half's credibility.
+
+`/etc/machine-id` is tracked as an empty file, which is what makes systemd generate a fresh identity
+on first boot instead of every image sharing one. No replay-node service is declared anywhere in the
+closure, checked against source paths as well as logical ones, since a unit named innocuously but
+copied from a replay-node file would still be a replay node. One boundary flips:
+`systemdGuestClosureAudited`. `guestBootVerified`, `guestImageBuilt`, `initrdBuilt`, `rootDiskBuilt`,
+`launcherDeployedIntoGuest`, `runtimeCompatibilityVerified` and `bootAuthority` all stay false, and
+the sealed boot source lock still lists `tracked-file:launcher-binary` in `missingRoles`.
+An audited closure is a set of file facts, not a system that has started,
+and nothing here ran. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` are unchanged.
