@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import pathlib
 import ssl
@@ -72,12 +73,39 @@ class NativeShadowBootRootfsPayloadAcquireArm64Tests(unittest.TestCase):
             },
         )
         loaded = payloads._load_pinned_authorities(plan, ROOT)
-        metadata, baseline, delta = payloads._validate_authority_and_specs(
-            plan,
-            loaded,
-            pathlib.Path("/opt/homebrew/bin/gpgv").resolve(),
-            pathlib.Path("/opt/homebrew/bin/zstd").resolve(),
+        self.assertEqual(
+            plan["toolDigests"],
+            {
+                "gpgvSha256": "f1c71affd4ce40e3c5a53b8cb0ac9601fbcd31d6834b732dd0c7b0145dce1995",
+                "zstdSha256": "aff8169fb421bb925fb16c44a7e0143fa2c7a941dc45cce76b15062a2ce54917",
+            },
         )
+        self.assertEqual(plan["toolDigests"], loaded["acquisition"]["toolDigests"])
+
+        # The tracked digests above identify the exact acquisition tools used on
+        # the operator Mac.  Repository tests must not require those Homebrew
+        # paths to exist on a clean Linux CI runner, so exercise the remaining
+        # authority/spec validation with deterministic regular-file stand-ins.
+        portable_plan = copy.deepcopy(plan)
+        portable_loaded = copy.deepcopy(loaded)
+        with tempfile.TemporaryDirectory() as raw_directory:
+            directory = pathlib.Path(raw_directory)
+            gpgv = directory / "gpgv"
+            zstd = directory / "zstd"
+            gpgv.write_bytes(b"ci-contract-gpgv")
+            zstd.write_bytes(b"ci-contract-zstd")
+            portable_digests = {
+                "gpgvSha256": hashlib.sha256(gpgv.read_bytes()).hexdigest(),
+                "zstdSha256": hashlib.sha256(zstd.read_bytes()).hexdigest(),
+            }
+            portable_plan["toolDigests"] = portable_digests
+            portable_loaded["acquisition"]["toolDigests"] = portable_digests
+            metadata, baseline, delta = payloads._validate_authority_and_specs(
+                portable_plan,
+                portable_loaded,
+                gpgv,
+                zstd,
+            )
         self.assertEqual(metadata["sizeBytes"], 1_376_632)
         self.assertEqual(len(baseline), 56)
         self.assertEqual(len(delta), 135)
