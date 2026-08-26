@@ -44,6 +44,30 @@ jobs:
           # rustup from fetching anything once the network is taken away.
           components: rustfmt, clippy
 
+      - name: Require the host tools the build resolves from PATH
+        # Exactly the list the driver itself checks, and nothing beyond it. The
+        # driver checks it too, but by then the run has fetched 200 MB and
+        # rebuilt the launcher, so all that is wanted here is to find out in
+        # thirty seconds rather than twenty minutes.
+        #
+        # mke2fs and debugfs are deliberately absent: the image is written by
+        # the copies inside the frozen tree, never by the runner's. Asking the
+        # runner for them here would suggest its copies mattered.
+        #
+        # Nothing in this list is pinned either. The build records the digest of
+        # whichever gpgv and zstd the runner has, which is the arrangement the
+        # replay already uses.
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in env gpgv mkdir mktemp mount mountpoint python3 readlink \
+            rm systemd-run umount uname zstd; do
+            command -v "$tool" >/dev/null || {
+              printf 'the runner has no %s\n' "$tool" >&2
+              exit 1
+            }
+          done
+
       - name: Acquire the frozen Rust distribution and re-prove its sealed record
         # This runs first so that what it fetches is decided by nothing except an
         # empty store, and the sealed record it must reproduce says exactly that:
@@ -64,23 +88,22 @@ jobs:
           git diff --exit-code -- "$sealed"
 
       - name: Acquire the frozen package payloads
+        # Not the acquirer that filled the developer Mac's store. That one pins
+        # the Mac's gpgv and zstd, the packages its store already held, and the
+        # exact request count of one run -- all true about that run, none of it
+        # true here, and none of it something to loosen after the fact.
+        #
+        # This one reads the same sealed digests and refuses anything else. The
+        # result is written to scratch rather than into the tree: which payloads
+        # a host had to fetch is a fact about the host, not about the artifacts.
         shell: bash
         run: |
           set -euo pipefail
-          cas="$PWD/local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas"
-          mkdir -p "$cas" "$RUNNER_TEMP/acquire"
-          # The acquisition record is written to scratch, not to the sealed one
-          # in the tree: that document records which payloads this host had
-          # already and which it fetched, which is a fact about the host and not
-          # about the artifacts. The artifacts themselves are verified by digest
-          # here and again by the source lock when the image is built.
-          python3 scripts/native_shadow_boot_rootfs_payload_acquire_arm64_v1.py \
-            --plan native/containment/native-shadow-boot-rootfs-payload-acquisition-plan-arm64-v1.json \
-            --repository-root . \
-            --cas "$cas" \
-            --gpgv "$(readlink -f "$(command -v gpgv)")" \
+          mkdir -p "$RUNNER_TEMP/acquire"
+          python3 scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
+            --cas "$PWD/local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas" \
             --zstd "$(readlink -f "$(command -v zstd)")" \
-            --output "$RUNNER_TEMP/acquire/payload-acquisition.json"
+            --result "$RUNNER_TEMP/acquire/ci-payload-acquisition.json"
 
       - name: Rebuild the launcher and match its sealed digest
         # The last step that is allowed to reach the network. Everything after

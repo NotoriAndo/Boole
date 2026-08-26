@@ -224,10 +224,67 @@ class WorkflowTests(unittest.TestCase):
         """The sealed record says three fetched and no store hits, so it goes first."""
 
         rust = WORKFLOW_TEXT.find("rustdist_acquire")
-        payloads = WORKFLOW_TEXT.find("payload_acquire")
+        payloads = WORKFLOW_TEXT.find("ci_payload_acquire")
         self.assertNotEqual(rust, -1)
         self.assertNotEqual(payloads, -1)
         self.assertLess(rust, payloads)
+
+    def test_the_closure_is_acquired_by_the_tool_that_can_run_here(self) -> None:
+        """The Mac-pinned acquirer is a pre-registration record, not a CI step.
+
+        It pins that machine's `gpgv` and `zstd`, the packages its store already
+        held, and the exact request count of one run.  Every one of those is a
+        true statement about that run, so it is left alone rather than loosened,
+        and the runner uses the acquirer that reads the same sealed digests
+        without pinning anybody's host.
+        """
+
+        self.assertTrue(
+            "native_shadow_boot_ci_payload_acquire_arm64_v1.py" in WORKFLOW_TEXT,
+            "the runner never acquires the closure",
+        )
+        self.assertTrue(
+            "native_shadow_boot_rootfs_payload_acquire_arm64_v1.py" not in WORKFLOW_TEXT,
+            "the runner runs the Mac-pinned acquirer",
+        )
+        self.assertTrue("--gpgv" not in WORKFLOW_TEXT, "a host gpgv is still pinned in")
+
+    def required_commands(self, text: str, variable: str) -> set:
+        """The one list a `for <variable> in ...; do` header names."""
+
+        found = re.search(rf"for {variable} in (.*?); do", text, re.DOTALL)
+        self.assertIsNotNone(found, f"no `for {variable} in` list")
+        return set(found.group(1).replace("\\\n", " ").split())
+
+    def test_the_host_tools_are_checked_before_anything_is_downloaded(self) -> None:
+        """The driver checks them too, but by then the run has fetched 200 MB.
+
+        The driver resolves `gpgv` and `zstd` from the runner's own PATH, which
+        is the arrangement the build already uses: their digests are recorded
+        rather than pinned. A runner that has neither is still a fine thing to
+        find out about -- in thirty seconds rather than twenty minutes.
+        """
+
+        preflight = WORKFLOW_TEXT.find("for tool in")
+        acquire = WORKFLOW_TEXT.find("rustdist_acquire")
+        self.assertNotEqual(preflight, -1, "no step checks for the host tools")
+        self.assertNotEqual(acquire, -1)
+        self.assertLess(preflight, acquire, "the check runs after the downloads")
+
+    def test_the_early_check_asks_for_what_the_driver_asks_for(self) -> None:
+        """Restating the list would let the two drift; deriving it cannot.
+
+        Notably absent from both: `mke2fs` and `debugfs`. The image is written
+        by the copies inside the frozen tree, so whether the runner has its own
+        is not a fact the produce run depends on.
+        """
+
+        self.assertEqual(
+            self.required_commands(WORKFLOW_TEXT, "tool"),
+            self.required_commands(DRIVER_TEXT, "command_name"),
+        )
+        for absent in ("mke2fs", "debugfs"):
+            self.assertNotIn(absent, self.required_commands(WORKFLOW_TEXT, "tool"))
 
     def test_the_comparison_runs_and_cannot_be_softened(self) -> None:
         self.assertIn("compare", WORKFLOW_TEXT)
