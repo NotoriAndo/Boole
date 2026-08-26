@@ -1476,3 +1476,96 @@ MAC.5 / MAC.6  BLOCKED
 `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. CURL.3 is
 still mandatory before release qualification; this deferral is neither a pass nor a waiver.
+
+## 24. BOOT-ROOTFS-SOURCE-LOCK-ARM64-V1 (2026-08-26)
+
+Status: **SEALED — SOURCE SHAPE ONLY, LAUNCHER BINARY DEFERRED, NOT BOOT AUTHORITY.** The
+predecessor lock described a 56-package checker toolchain closure with no init system, no
+launcher deployment bytes and no kernel seed, so it could never describe a bootable guest. This
+slice seals a successor lock over the 191 verified package rows plus the guest-init deployment
+bytes. It builds nothing, boots nothing and activates nothing.
+
+### 24.1 Acceptance grounds frozen before any result
+
+`native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v1.json`
+(SHA-256 `c047c20144167a4f28f222c4026a33e2d70b89340ee13cba79c207b7c92dc583`, 14,099 bytes) was
+written before the successor lock existed. It binds the Ubuntu snapshot `20240425T160000Z` and
+its fixed repository paths, the package selection policy and canonical ordering, the systemd
+package seed, the launcher binary's guest placement, the launcher unit, the sysusers and tmpfiles
+configuration, the empty machine-id rule, the unit enablement symlink, the read-only root against
+the ephemeral runtime mounts, cgroup delegation through the existing launcher policy, the
+generator/verifier/builder source digests, `maintainerScriptsExecuted=false` and
+`activationAllowed=false`. Every one of the guest-init contract's seven requirements is listed by
+role together with the ground that closes it.
+
+The plan pins the generator by digest and the generator pins the plan by digest. A literal digest
+cannot be part of its own preimage, so the generator is hashed with its embedded plan digest
+replaced by 64 zeros — the same cycle-breaking rule the payload acquirer already uses. A naive
+`sha256` of the generator therefore differs from the pinned value by design, not by tampering.
+
+Two deployment files the frozen contract had pinned by digest since 2026-08-23 were confirmed to
+exist at `native/sysusers.d/boole-native-shadow.conf` and
+`native/tmpfiles.d/boole-native-shadow.conf` with exactly the pinned bytes. Only the empty
+machine-id source was genuinely absent; it was created as a zero-byte file whose digest is the
+SHA-256 of the empty string the contract already required.
+
+### 24.2 Sealed successor lock
+
+`native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json`
+(SHA-256 `9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf`, 357,104 bytes) carries
+197 artifacts, 191 package rows totalling 208,936,876 payload bytes, 7 seed packages including
+`systemd`, 10 tracked files, 8 derived entries and 10 authority bindings. Every package row is
+byte-identical to the verified dependency candidate closure, every payload digest and size matches
+the artifact row, and every package appears in the payload acquisition result, so no row can be
+borrowed from a different source lock or a different snapshot.
+
+Thirty-four acceptance tests fail first and pass only against the sealed documents. They refuse a
+dropped package, an extra package, reordered packages or artifacts, a tampered size, a tampered
+digest, a mixed snapshot, a mixed repository base, a missing systemd seed, a renamed systemd
+package, a missing launcher unit, a missing sysusers or tmpfiles configuration, a missing or
+non-empty machine-id, a missing or misdirected enablement symlink, a replay-node service tracked
+or enabled inside the guest, permitted maintainer-script execution, permitted build-time network,
+`activationAllowed=true`, a package borrowed from the predecessor lock, the predecessor lock
+offered as its own successor, an invented launcher binary digest, tracked source bytes that do not
+match the pinned digest, and an authority binding whose digest does not match the file on disk.
+
+### 24.3 The one requirement that stays open, and why
+
+Six of the guest-init contract's seven requirements are closed. The seventh —
+`tracked-file:launcher-binary` — is recorded as deferred rather than closed:
+
+```text
+role:       tracked-file:launcher-binary
+guestPath:  /usr/libexec/boole/boole-native-shadow-launcher
+cause:      the guest launcher ELF is a build output of the ARM64 launcher build authority,
+            which has not run; a digest cannot be stated for a file that does not exist
+resolvedBy: arm64-launcher-build-authority
+```
+
+The contract itself already refuses a launcher binary digest at this stage, and a tracked file row
+requires a real digest bound to real bytes. The honest outcome is therefore
+`BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS` with exactly one missing role, not
+`SOURCE_SHAPE_REQUIREMENTS_PRESENT_UNVERIFIED`. Reaching that ceiling verdict later would still
+mean source shape only: it would say the declared inputs are present and internally consistent,
+and it would say nothing about runtime compatibility, boot authority or boot success.
+
+### 24.4 Execution cursor
+
+`launcherElfPresent=false`, `imageBuilderAuthorityPresent=false`, `kernelImageExtracted=false`,
+`maintainerScriptsExecuted=false`, `runtimeCompatibilityVerified=false`, `guestBootVerified=false`,
+`bootAuthority=false`, `bootArtifactsWritten=0`, `bootableClaim=false` and
+`activationAllowed=false` are all unchanged by this slice.
+
+```text
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — MAC.5/MAC.6 전 필수
+BOOT-ROOTFS-PAYLOAD-ACQUISITION-ARM64-V1  COMPLETE — 191/191 exact payload bytes
+BOOT-ROOTFS-SOURCE-LOCK-ARM64-V1  SEALED — 191 verified package rows + guest-init deployment bytes
+LAUNCHER BINARY DIGEST  DEFERRED — ARM64 launcher build authority 미실행
+ARM64 RUST/LAUNCHER/IMAGE-BUILDER INPUT AUTHORITY  NEXT
+REAL-BOOT-ARTIFACTS  NOT-PRODUCED
+MAC.3 HOST/GUEST TRANSPORT  NOT STARTED
+MAC.5 / MAC.6  BLOCKED
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged.

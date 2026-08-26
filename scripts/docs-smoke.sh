@@ -338,6 +338,41 @@ require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-re
 require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"bootArtifactsWritten": 0'
 require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"bootableClaim": false'
 require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"activationAllowed": false'
+# BOOT-ROOTFS-SOURCE-LOCK-ARM64-V1 (2026-08-26, section 24). The successor lock
+# seals the 191 verified package rows together with the guest-init deployment
+# bytes, and nothing more. The load-bearing pin is the deferred launcher binary:
+# the guest placement is bound, but its digest belongs to a build that has not
+# run, so the audit reports the gap instead of inventing a digest. A lock that
+# ever reads SOURCE_SHAPE_REQUIREMENTS_PRESENT_UNVERIFIED would still be source
+# shape only — never runtime compatibility, boot authority or boot success.
+require_file native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v1.json
+require_file native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json
+require_file native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json
+require_file native/etc/machine-id
+require_file native/sysusers.d/boole-native-shadow.conf
+require_file native/tmpfiles.d/boole-native-shadow.conf
+require_file scripts/native_shadow_boot_rootfs_source_lock_arm64_v1.py
+require_file scripts/test_native_shadow_boot_rootfs_source_lock_arm64_v1.py
+require_text scripts/self-test.sh "scripts/test_native_shadow_boot_rootfs_source_lock_arm64_v1.py"
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json '"status": "BOOT-ROOTFS-SOURCE-LOCK-SEALED-LAUNCHER-BINARY-DEFERRED-NOT-BOOT-AUTHORITY"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json '"role": "tracked-file:launcher-binary"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json '"launcherElfPresent": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json '"imageBuilderAuthorityPresent": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json '"kernelImageExtracted": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json '"maintainerScriptsExecuted": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json '"runtimeCompatibilityVerified": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json '"guestBootVerified": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json '"bootAuthority": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json '"bootArtifactsWritten": 0'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v1.json '"activationAllowed": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v1.json '"digestBoundary": "deferred-to-arm64-launcher-build-authority"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json '"activationAllowed": false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-ARM64-V1  SEALED — 191 verified package rows"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "a digest cannot be stated for a file that does not exist"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "ARM64 RUST/LAUNCHER/IMAGE-BUILDER INPUT AUTHORITY  NEXT"
+require_text docs/native-submission-shadow-verification-v1.md "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf"
+require_text docs/native-submission-shadow-verification-v1.md "sealing a source lock is not a boot claim"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
@@ -359,9 +394,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "0b6a66165104bd68bcfe238fe5adcfe0ebb9837ef42f66af8424f88836cf5a4d"
-require_text docs/native-submission-shadow-verification-v1.md "c1ad7007c6e32b3bab0f2f30462e32218224157fbaab5b06850b72adbf232efc"
-require_text docs/native-submission-shadow-verification-v1.md "4a62c56781575800ad4da8bffc699e06d90f6c4e361611835533f57643001f8c"
+require_text docs/native-submission-shadow-verification-v1.md "ec7272462c678e753c23b4950b3ca9abef441cb545db607b11b32a8e8a8e1248"
+require_text docs/native-submission-shadow-verification-v1.md "296b73618d3f71f07ed51036244d845c18dd605abbeedc36236ffd152891bee5"
+require_text docs/native-submission-shadow-verification-v1.md "ec881a35604fe47cf9afd0620614535d4f0312a1f710f86607a93d7b85a39563"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"
