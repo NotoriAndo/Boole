@@ -439,6 +439,32 @@
     "mustNotBeReinterpretedAsSuccess": true,
     "path": "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json",
     "relationship": "This record removes the cause that record identified. It does not revise, soften or supersede that record's failure verdict, which stands as written.",
+    "sealedFileDigests": [
+      {
+        "path": "native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json",
+        "sealedBy": "b392627ab707bb82986a1d2aaa4a9e19e25301a1",
+        "sealedBySubject": "native-shadow: pin the three answered authorities in a successor boot plan (#245)",
+        "sha256": "8afb175747adcc7ce1440884ce81a1e7450b34f59d67bc7c73642b8af3051d47",
+        "sizeBytes": 1320,
+        "verifiedAgainstTheSealingCommit": true
+      },
+      {
+        "path": "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json",
+        "sealedBy": "5c2692a2189793062bb902630313b95f4e508bd6",
+        "sealedBySubject": "native-shadow: freeze the arm64 CI image producer contract before producing (#246)",
+        "sha256": "6e4a2ae19493f81a58e6130ea95676967cb08fd7d7f3694eb90f673e6e3a1820",
+        "sizeBytes": 4938,
+        "verifiedAgainstTheSealingCommit": true
+      },
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json",
+        "sealedBy": "6961eacd9d2b05b2298aa7753380600f08a6ea46",
+        "sealedBySubject": "native-shadow: seal the arm64 root-disk determinism hard stop and its cause (#253)",
+        "sha256": "af815ee609a2fbee4dc4a81ba0d331bd851b8a60792b87ed61583d642e861725",
+        "sizeBytes": 16053,
+        "verifiedAgainstTheSealingCommit": true
+      }
+    ],
     "sealedFilesThatStayByteUnchanged": [
       "native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json",
       "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json",
