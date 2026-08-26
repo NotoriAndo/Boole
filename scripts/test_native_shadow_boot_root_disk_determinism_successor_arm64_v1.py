@@ -151,7 +151,15 @@ class MechanicalPreVerificationTests(unittest.TestCase):
         self.assertEqual(proof["performedBefore"], "any production change, any build, any result")
 
     def test_every_field_that_differed_is_accounted_for(self) -> None:
-        """The proof answers the failure, so its field list is the failure's field list."""
+        """The proof answers the failure, so its field list is the failure's field list.
+
+        This checks the block as originally written, which is kept as written.  Its
+        conclusion was later narrowed -- a second pass found that `mke2fs -d`
+        overwrites three of these fields from the staging filesystem after the
+        library has already stamped them -- so the block must carry the pointer to
+        that correction.  Without the pointer, a reader arriving at this block alone
+        would take a superseded claim for the current one.
+        """
 
         coverage = document()["time"]["mechanicalPreVerification"]["coverage"]
         differed = set(predecessor()["investigation"]["byteDiff"]["byField"])
@@ -161,6 +169,7 @@ class MechanicalPreVerificationTests(unittest.TestCase):
             differed,
         )
         self.assertEqual(coverage["fieldsLeftUnexplained"], 0)
+        self.assertIn("corrections[0]", coverage["supersededBy"])
 
     def test_the_traced_and_derived_fields_do_not_overlap(self) -> None:
         coverage = document()["time"]["mechanicalPreVerification"]["coverage"]
@@ -196,6 +205,142 @@ class MechanicalPreVerificationTests(unittest.TestCase):
     def test_the_proof_does_not_claim_the_images_will_match(self) -> None:
         limit = document()["time"]["mechanicalPreVerification"]["coverage"]["claimLimit"]
         self.assertIn("does not say", limit)
+
+
+class CorrectionTests(unittest.TestCase):
+    """The second pass over the frozen writer, and what it costs the fix.
+
+    The first pass read the library, where every time field is guarded by
+    `fs->now`, and stopped once each differing field had a site.  The overwrite
+    lives in `mke2fs` itself and runs after the library has already written a
+    correct value, so reading the library alone could not show it.  These tests
+    hold the correction to the same standard the original claim was held to, and
+    hold the original claim in place rather than letting it be quietly rewritten.
+    """
+
+    def correction(self) -> dict:
+        return document()["corrections"][0]
+
+    def test_the_claim_it_corrects_is_named_and_still_says_what_it_said(self) -> None:
+        """A correction that edits the claim away leaves nothing to check it against."""
+
+        row = self.correction()
+        self.assertEqual(row["correctsClaimAt"], "time.mechanicalPreVerification.coverage")
+        self.assertTrue(row["originalClaimStaysAsWritten"])
+        answer = document()["time"]["mechanicalPreVerification"]["answer"]
+        self.assertIn("every field that differed", answer)
+
+    def test_it_was_found_before_an_image_was_produced(self) -> None:
+        """Reading the binary costs one attempt less than producing a pair and comparing."""
+
+        row = self.correction()
+        self.assertEqual(row["foundBefore"], "any image was produced by this record")
+        self.assertIn("objdump", row["method"])
+        self.assertIn("nothing was executed", row["method"])
+        self.assertFalse(document()["boundaries"]["imageProduced"])
+
+    def test_the_writer_time_is_called_necessary_and_not_sufficient(self) -> None:
+        effect = self.correction()["effectOnTheSuccessorValue"]
+        self.assertTrue(effect["necessary"])
+        self.assertFalse(effect["sufficient"])
+
+    def test_the_field_that_survives_the_fix_is_named(self) -> None:
+        effect = self.correction()["effectOnTheSuccessorValue"]
+        self.assertEqual(effect["fieldsStillNonDeterministic"], ["i_ctime"])
+
+    def test_the_two_field_lists_partition_the_times_that_differed(self) -> None:
+        """Removed plus surviving must be every differing time, with no overlap."""
+
+        effect = self.correction()["effectOnTheSuccessorValue"]
+        removed = set(effect["fieldsRemovedByTheSuccessorValue"])
+        surviving = set(effect["fieldsStillNonDeterministic"])
+        derived = set(
+            document()["time"]["mechanicalPreVerification"]["coverage"]["fieldsDerivedFromThose"]
+        )
+        differed = set(predecessor()["investigation"]["byteDiff"]["byField"])
+        self.assertEqual(removed & surviving, set())
+        self.assertEqual(removed | surviving, differed - derived)
+
+    def test_every_site_says_which_binary_and_which_address(self) -> None:
+        for row in self.correction()["sites"]:
+            self.assertEqual(row["binary"], "mke2fs")
+            self.assertTrue(row["address"].startswith("0x"))
+            self.assertTrue(row["instruction"].strip())
+
+    def test_the_overwrite_site_names_the_offsets_the_predecessor_measured(self) -> None:
+        offsets = {
+            row.get("field"): row["inodeOffset"]
+            for row in self.correction()["sites"]
+            if "inodeOffset" in row
+        }
+        self.assertEqual(offsets["i_atime and i_ctime"], "0x8 and 0xc")
+        self.assertEqual(offsets["i_mtime"], "0x10")
+
+    def test_the_reconciliation_covers_the_inode_times_the_predecessor_counted(self) -> None:
+        """The correction predicts a 5 / 5 / all / all split; the record measured one."""
+
+        rows = self.correction()["reconciliationWithThePredecessorMeasurements"]
+        counts = predecessor()["investigation"]["byteDiff"]["byField"]
+        for field in ("i_atime", "i_ctime", "i_mtime", "i_crtime"):
+            self.assertIn(field, rows)
+            self.assertIn(str(counts[field]), rows[field].replace(",", ""))
+        self.assertEqual(counts["i_atime"], counts["i_mtime"])
+        self.assertGreater(counts["i_ctime"], counts["i_atime"])
+
+    def test_the_reason_userspace_cannot_fix_it_is_stated(self) -> None:
+        why = self.correction()["whyItCannotBeSetFromUserspace"]
+        self.assertIn("utimensat", why)
+        self.assertIn("ctime", why)
+
+    def test_the_failure_mode_is_recorded_as_loud_rather_than_silent(self) -> None:
+        """The audit added by this slice is what turns this into a detected fault."""
+
+        self.assertIn(
+            "wall-clock-survived-in-the-image",
+            self.correction()["detectedRatherThanSilent"],
+        )
+
+    def test_the_correction_does_not_touch_the_bar(self) -> None:
+        """A correction that moved the criterion would be a relaxation wearing a hat."""
+
+        acceptance = document()["acceptance"]
+        self.assertEqual(acceptance["criterion"], "byte identity, unchanged from the predecessor")
+        self.assertTrue(acceptance["criterionRelaxationForbidden"])
+        self.assertEqual(acceptance["timestampRule"]["allowedValues"], [0, 1])
+
+    def test_the_remedy_is_left_to_the_operator_with_one_recommendation(self) -> None:
+        row = self.correction()
+        self.assertTrue(row["resolutionRequiresOperatorDecision"])
+        recommended = [o for o in row["optionsPutToTheOperator"] if o["recommended"]]
+        self.assertEqual(len(recommended), 1)
+        self.assertIn("e2fsprogs", recommended[0]["option"])
+        for option in row["optionsPutToTheOperator"]:
+            self.assertTrue(option["why"].strip())
+
+    def test_none_of_the_offered_options_is_taken_here(self) -> None:
+        """Offering a remedy is not adopting one; the sealed files stay sealed."""
+
+        self.assertFalse(document()["boundaries"]["sealedRecordsModified"])
+        self.assertTrue(document()["time"]["debugfsMustNotBecomeAWriter"]["required"])
+
+
+class ProductionReadinessTests(unittest.TestCase):
+    def test_production_is_blocked_by_the_correction(self) -> None:
+        readiness = document()["productionReadiness"]
+        self.assertTrue(readiness["blocked"])
+        self.assertTrue(readiness["dispatchForbiddenWhileBlocked"])
+        self.assertIn("staged-inode-ctime-is-not-fs-now", readiness["blockedBy"])
+
+    def test_every_named_blocker_is_a_correction_that_says_it_blocks(self) -> None:
+        rows = {row["id"]: row for row in document()["corrections"]}
+        for blocker in document()["productionReadiness"]["blockedBy"]:
+            self.assertIn(blocker, rows)
+            self.assertTrue(rows[blocker]["blocksProduction"])
+
+    def test_the_reason_is_the_one_pair_rule_rather_than_a_doubt_about_the_result(self) -> None:
+        why = document()["productionReadiness"]["why"]
+        self.assertIn("one production pair", why)
+        self.assertEqual(document()["production"]["replicas"], 2)
 
 
 class LoaderEvidenceTests(unittest.TestCase):

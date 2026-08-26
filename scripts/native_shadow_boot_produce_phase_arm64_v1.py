@@ -64,6 +64,11 @@ BOOT_SOURCE_LOCK_PATH = (
     REPOSITORY_ROOT
     / "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json"
 )
+SUCCESSOR_AUTHORITY_PATH = (
+    REPOSITORY_ROOT
+    / "native/containment/"
+    "native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json"
+)
 
 SCHEMA = "boole.native-shadow.boot-produce-phase-result.arm64.v1"
 RELEASE = "NATIVE-SHADOW-BOOT-PRODUCE-PHASE-ARM64-V1"
@@ -97,6 +102,39 @@ def builder_authority(
         return json.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
         raise ProducePhaseError(f"the builder authority is unreadable: {path}") from exc
+
+
+def successor_authority(
+    path: pathlib.Path = SUCCESSOR_AUTHORITY_PATH,
+) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ProducePhaseError(f"the successor authority is unreadable: {path}") from exc
+
+
+def assert_production_unblocked(
+    record: Optional[Mapping[str, Any]] = None,
+) -> bool:
+    """Refuse to start while a known cause of the last mismatch is still present.
+
+    The successor record allows one production pair and forbids retrying a pair
+    that has produced a result.  So a run dispatched against a cause the record
+    itself lists as open would spend the single attempt on an outcome already
+    known.  The audit inside this phase would catch such an image, loudly -- this
+    is about not spending the attempt, not about trusting the result.
+    """
+
+    readiness = (record if record is not None else successor_authority()).get(
+        "productionReadiness", {}
+    )
+    if readiness.get("blocked"):
+        causes = ", ".join(readiness.get("blockedBy", [])) or "an unnamed cause"
+        raise ProducePhaseError(
+            f"the successor authority blocks production: {causes}. "
+            f"{readiness.get('why', '')}".strip()
+        )
+    return True
 
 
 def tool_paths(
@@ -324,6 +362,7 @@ def produce(
             "the produce phase must run as root: mke2fs -d copies the staged owner "
             "into the image, and the frozen plan says root:root throughout"
         )
+    assert_production_unblocked()
     store = scratch / "cas" if cas is None else cas
     oci = scratch / "oci"
     tree = scratch / "tree"

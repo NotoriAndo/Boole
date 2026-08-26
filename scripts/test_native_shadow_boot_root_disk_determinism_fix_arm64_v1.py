@@ -489,5 +489,44 @@ def initrd_layer() -> bytes:
     return buffer.getvalue()
 
 
+class ProductionGateTests(unittest.TestCase):
+    """The one production pair is not spent on a cause already known to be open.
+
+    A second pass over the frozen `mke2fs` found that the `-d` copy path
+    overwrites `i_ctime` from the staging filesystem, which no fixed writer time
+    reaches.  The audit above would catch such an image on both replicas, so the
+    fault is loud rather than silent.  The reason to refuse the dispatch anyway is
+    that the record allows one pair and forbids retrying a pair that produced a
+    result -- spending it on a known outcome is spending it for nothing.
+    """
+
+    def test_the_live_record_currently_blocks_production(self) -> None:
+        with self.assertRaises(produce.ProducePhaseError):
+            produce.assert_production_unblocked()
+
+    def test_the_refusal_names_the_cause_so_it_can_be_looked_up(self) -> None:
+        with self.assertRaises(produce.ProducePhaseError) as caught:
+            produce.assert_production_unblocked()
+        self.assertIn("staged-inode-ctime-is-not-fs-now", str(caught.exception))
+
+    def test_a_record_with_nothing_open_lets_production_start(self) -> None:
+        """The gate opens by closing the cause, not by deleting the gate."""
+
+        self.assertTrue(produce.assert_production_unblocked({"productionReadiness": {}}))
+        self.assertTrue(
+            produce.assert_production_unblocked({"productionReadiness": {"blocked": False}})
+        )
+
+    def test_a_record_that_blocks_without_naming_a_cause_still_blocks(self) -> None:
+        with self.assertRaises(produce.ProducePhaseError):
+            produce.assert_production_unblocked({"productionReadiness": {"blocked": True}})
+
+    def test_the_gate_reads_the_successor_record_and_not_a_copy_of_it(self) -> None:
+        self.assertTrue(produce.SUCCESSOR_AUTHORITY_PATH.is_file())
+        self.assertIn(
+            "successor-authority", produce.SUCCESSOR_AUTHORITY_PATH.name
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -54,6 +54,122 @@
     "sealedRecordsModified": false,
     "thirdImageProduced": false
   },
+  "corrections": [
+    {
+      "binary": {
+        "digestPinnedBy": "scripts/native_shadow_boot_root_disk_arm64_v1.py MKE2FS_SHA256",
+        "name": "mke2fs",
+        "package": "e2fsprogs",
+        "path": "/usr/sbin/mke2fs"
+      },
+      "blocksProduction": true,
+      "correctsClaimAt": "time.mechanicalPreVerification.coverage",
+      "detectedRatherThanSilent": "The successor's timestamp audit runs inside the produce phase and rejects any value outside {0, 1}, so a replica carrying a staged ctime aborts with wall-clock-survived-in-the-image before any comparison. The failure mode is loud. The reason not to dispatch anyway is that the record allows one production pair, not that the result would be misread.",
+      "effectOnTheSuccessorValue": {
+        "fieldsRemovedByTheSuccessorValue": [
+          "i_atime",
+          "i_crtime",
+          "i_mtime",
+          "s_lastcheck",
+          "s_mkfs_time",
+          "s_wtime"
+        ],
+        "fieldsStillNonDeterministic": [
+          "i_ctime"
+        ],
+        "necessary": true,
+        "restatedPlainly": "E2FSPROGS_FAKE_TIME=1 is necessary and is not sufficient. It removes every differing field except the ctime of the 13,448 entries copied from staging.",
+        "sufficient": false
+      },
+      "foundBefore": "any image was produced by this record",
+      "id": "staged-inode-ctime-is-not-fs-now",
+      "method": "static disassembly of the frozen mke2fs with /usr/bin/objdump; nothing was executed to establish it",
+      "optionsPutToTheOperator": [
+        {
+          "option": "pin an e2fsprogs whose create_inode honours fs->now",
+          "recommended": true,
+          "requires": [
+            "confirming such a version exists",
+            "appending it to the frozen source lock, leaving the existing 191 unchanged"
+          ],
+          "why": "removes the cause without touching the image builder, the acceptance criterion or the role debugfs was sealed with"
+        },
+        {
+          "option": "build the image without mke2fs -d staging",
+          "recommended": false,
+          "why": "removes the cause, but rewrites the builder, so the blast radius is large"
+        },
+        {
+          "option": "normalise i_ctime after mke2fs with the frozen debugfs",
+          "recommended": false,
+          "why": "forbidden here, and it would make the produced bytes something no single tool accounts for"
+        }
+      ],
+      "originalClaimStaysAsWritten": true,
+      "reconciliationWithThePredecessorMeasurements": {
+        "i_atime": "5 inodes differed, not 13,451, because set_inode_extra copied the staged st_atime and every staged entry carries 0. The 5 are the inodes mke2fs creates, which took fs->now.",
+        "i_crtime": "13,450 inodes differed, from ext2fs_write_new_inode and fs->now; the successor value removes this one",
+        "i_ctime": "13,451 inodes differed, which is all of them, because st_ctime is the one of the three that no staging step can set",
+        "i_mtime": "5 inodes differed, for the same reason as i_atime",
+        "note": "The predecessor recorded atimeDifferingInodes as [1, 2, 7, 8, 11]. Those are exactly the inodes mke2fs creates for itself, which is the same split this correction describes, measured from the other side."
+      },
+      "resolutionRequiresOperatorDecision": true,
+      "sites": [
+        {
+          "address": "0x139f0",
+          "binary": "mke2fs",
+          "establishes": "the struct stat the copy path reads",
+          "instruction": "ldr x1, [sp, #0x18] -> bl lstat64@plt; 0x139f8 ldr w0, [sp, #0x90] -> and w0, w0, #0xf000 -> cmp against 0x4000 and 0xa000",
+          "note": "sp+0x90 is compared as st_mode, which sits at struct stat offset 0x10, so the buffer base is sp+0x80: st_atime at sp+0xc8, st_mtime at sp+0xd8, st_ctime at sp+0xe8"
+        },
+        {
+          "address": "0x13d08",
+          "binary": "mke2fs",
+          "establishes": "the ext2_inode the copy path writes",
+          "instruction": "strh w0, [sp, #0x1a2]",
+          "note": "i_links_count sits at inode offset 0x1a, so the inode base is sp+0x188: i_atime at sp+0x190, i_ctime at sp+0x194, i_mtime at sp+0x198"
+        },
+        {
+          "address": "0x13dac",
+          "binary": "mke2fs",
+          "field": "i_atime and i_ctime",
+          "function": "set_inode_extra, inlined into the -d population path",
+          "inodeOffset": "0x8 and 0xc",
+          "instruction": "0x13d60 ldr d0, [sp, #0xc8] (st_atime) -> 0x13d68 ldr d1, [sp, #0xe8] (st_ctime) -> 0x13d78 mov v0.d[1], v1.d[0] -> 0x13da4 xtn v0.2s, v0.2d -> 0x13dac str d0, [sp, #0x190]",
+          "note": "one 64-bit store writes both fields from the staging stat; there is no fs->now anywhere in it"
+        },
+        {
+          "address": "0x13da0",
+          "binary": "mke2fs",
+          "field": "i_mtime",
+          "function": "set_inode_extra, inlined into the -d population path",
+          "inodeOffset": "0x10",
+          "instruction": "0x13d9c ldr x6, [sp, #0xd8] (st_mtime) -> str w6, [sp, #0x198]"
+        },
+        {
+          "address": "0x13db0",
+          "binary": "mke2fs",
+          "field": "the overwrite is committed",
+          "function": "set_inode_extra, inlined into the -d population path",
+          "instruction": "bl ext2fs_write_inode@plt",
+          "note": "the block from 0x13d5c to here is straight-line with no branch, so the staging values are not conditional on anything"
+        },
+        {
+          "address": "0x13ca4",
+          "binary": "mke2fs",
+          "field": "the contrast case, which the successor value does fix",
+          "function": "the inodes mke2fs creates itself",
+          "instruction": "ldr x1, [x21, #0xb8] (fs->now) -> 0x13cc0 cbz x1, 0x14900 -> 0x13cd0/0x13cd8/0x13cdc str w0, [sp, #0x190/0x194/0x198]",
+          "note": "same three fields, taken from fs->now with the zero sentinel behind a branch, which is why only these inodes moved in i_atime and i_mtime"
+        }
+      ],
+      "whatTheOriginalClaimGotRight": "Every site it lists is real, and for the superblock, for i_crtime and for the handful of inodes mke2fs creates itself, a fixed non-zero fs->now does reach the field and time() sits behind the zero branch.",
+      "whatTheOriginalClaimGotWrong": "It generalised ext2fs_write_new_inode to every inode. For the entries mke2fs copies under -d, set_inode_extra runs afterwards and overwrites i_atime, i_ctime and i_mtime from the staging filesystem's struct stat. fs->now is never read on that path, so the writer time cannot reach it.",
+      "whyItCannotBeSetFromUserspace": "utimensat sets atime and mtime only. ctime is written by the kernel on every metadata change, including the utimensat that sets the other two, so a staged file's ctime is the moment staging touched it. Two replicas stage at different moments.",
+      "whyOperatorDecision": "Every remaining remedy crosses a line this record or the directive draws: a different e2fsprogs changes the sealed source lock, a post-hoc pass promotes debugfs from inspector to writer, and excluding i_ctime from the comparison relaxes the acceptance criterion. None may be chosen here.",
+      "whyTheFirstPassMissedIt": "The first pass read the library, where every time field really is guarded by fs->now, and stopped once every differing field had a site. The overwrite lives in mke2fs itself, after the library has already written a correct value, so reading the library alone cannot show it."
+    }
+  ],
   "e2fsckContract": {
     "absentResultIsAFailure": true,
     "argv": [
@@ -213,6 +329,14 @@
     "sameCommit": true,
     "sameFrozenInputs": true
   },
+  "productionReadiness": {
+    "blocked": true,
+    "blockedBy": [
+      "staged-inode-ctime-is-not-fs-now"
+    ],
+    "dispatchForbiddenWhileBlocked": true,
+    "why": "This record allows one production pair and forbids retrying a pair that has produced a result. Dispatching against a cause known to be still present would spend that one attempt on a known outcome."
+  },
   "release": "NATIVE-SHADOW-BOOT-PRODUCE-PHASE-ARM64-V1",
   "schema": "boole.native-shadow.boot-root-disk-determinism-successor-authority.arm64.v1",
   "status": "SUCCESSOR-PRE-REGISTERED-NOT-IMPLEMENTED-NOT-PRODUCED-NOT-BOOT-AUTHORITY",
@@ -298,7 +422,8 @@
           "i_ctime",
           "i_mtime",
           "i_crtime"
-        ]
+        ],
+        "supersededBy": "corrections[0] (staged-inode-ctime-is-not-fs-now). Every key above stays as written; the correction says which of them held and which did not, and why the difference was not visible from the sites listed here."
       },
       "digestsAreNotCopiedHere": "These are the same two binaries the predecessor record pins by digest, and that record is bound above by path and sha256. Restating the hex here would create a second copy that can drift from the first without saying so.",
       "method": "static disassembly of the exact frozen binaries with /usr/bin/objdump; nothing was executed to establish it",

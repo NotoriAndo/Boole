@@ -1925,3 +1925,39 @@ are synchronization evidence only, never runtime trust roots.
 no third image was produced and nothing was booted. MAC.3 closed-local boot stays blocked until the
 successor is green. CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`.
 `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
+
+_2026-08-27 successor correction addendum:_ **"NOTHING IS LEFT OVER" ABOVE WAS WRONG. ONE FIELD
+SURVIVES THE SUCCESSOR VALUE, IT WAS FOUND BEFORE ANY IMAGE WAS PRODUCED, AND PRODUCTION IS NOW
+BLOCKED RATHER THAN ATTEMPTED.**
+
+The sentence stays as written. The pre-verification read `libext2fs` and found every timestamp writer
+there gated on `fs->now`; that part holds. It did not read `mke2fs`. Under `-d`, `mke2fs` calls
+`ext2fs_write_new_inode` for each staged entry — the library path that was checked — and then
+overwrites `i_atime`, `i_ctime` and `i_mtime` from the staging file's `struct stat`, without reading
+`fs->now`. The overwrite is in the program, not the library, which is why reading the library looked
+complete.
+
+`objdump` over the frozen `mke2fs`, whose digest the plan already pins; nothing executed, no image
+produced. The stat buffer is fixed by the `lstat64` call at `0x139f0` and the `S_IFMT` mask after it,
+the inode buffer by the `i_links_count` store at `0x13d08`; the copies are at `0x13dac` and `0x13da0`
+into inode offsets `0x8`, `0xc` and `0x10`, then `ext2fs_write_inode` at `0x13db0`. The inodes
+`mke2fs` creates on its own account do read `fs->now`, at `0x13ca4` with the zero-branch at `0x13cc0`.
+That matches the measured diff exactly: `i_atime` and `i_mtime` each differed in five inodes — the
+five `mke2fs` creates itself — while `i_ctime` differed in all of them.
+
+`st_ctime` cannot be pinned from userspace: `utimensat` sets atime and mtime only, and any metadata
+change updates ctime. So the successor's writer time is **necessary but not sufficient** — it removes
+`i_atime`, `i_crtime`, `i_mtime`, `s_lastcheck`, `s_mkfs_time` and `s_wtime`, and `i_ctime` survives.
+
+The correction is appended to the successor authority as a `corrections` entry; the corrected claim
+is byte-identical and the three sealed predecessor files are untouched. The produce phase refuses to
+start while a named cause is recorded as present, because that record allows one production pair and
+forbids retrying a pair that has produced a result. No remedy is adopted: a different `e2fsprogs`
+changes the sealed source lock, `debugfs` as a post-hoc writer is refused in writing, and dropping
+`i_ctime` from the comparison relaxes the criterion. The options are recorded; the choice is the
+operator's. Nothing here is silent — the produce phase's timestamp audit aborts a replica with
+`wall-clock-survived-in-the-image` before any comparison.
+
+`bootableClaim: false`, `activationAllowed: false`, `guestBootVerified: false`, `imageProduced: false`.
+CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.

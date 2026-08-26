@@ -1661,3 +1661,73 @@ CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED
 `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
 Base activation `false` and `activationAllowed=false` remain unchanged. No public mining, no
 paid-API benchmark and no release claim is made anywhere in this section.
+
+## 26. The §25.5 completeness claim was wrong, and the successor value is not sufficient
+
+### 26.1 What the earlier claim said and what it left out
+
+§25.5 above says of the pre-verification: "Nothing is left over." That sentence stays as written. It
+was wrong, and this section says how, because a record that quietly repairs its own past is not
+evidence of anything.
+
+The pre-verification read `libext2fs` and found every timestamp writer in the library gated on
+`fs->now`. That part holds and is unchanged. What it did not read is `mke2fs` itself. When `mke2fs`
+is given `-d`, it walks the staging tree and, for each entry it copies in, calls
+`ext2fs_write_new_inode` — the library path that was checked — and then immediately overwrites three
+of the fields that call just wrote, from the staging file's own `struct stat`. That second write
+never reads `fs->now`. It is in the program, not the library, which is why reading the library
+looked complete.
+
+### 26.2 How it was read
+
+`objdump` over the frozen `mke2fs`, whose digest the plan already pins. Nothing was executed and no
+image was produced. The stat buffer is identified by the `lstat64` call site at `0x139f0` and the
+`S_IFMT` mask that follows it; the inode buffer by the `i_links_count` store at `0x13d08`. Between
+them, at `0x13dac` and `0x13da0`, sit two stores that move `st_atime`, `st_ctime` and `st_mtime` into
+inode offsets `0x8`, `0xc` and `0x10`, followed at `0x13db0` by `ext2fs_write_inode`. For contrast,
+the inodes `mke2fs` creates on its own account do read `fs->now`, at `0x13ca4`, with the zero-branch
+at `0x13cc0` — so the pinned value does reach those, and only those.
+
+This reconciles exactly with what the predecessor measured. Of the inodes that differed between the
+two images, `i_atime` differed in five and `i_mtime` in five — and those five are the inodes `mke2fs`
+creates itself — while `i_ctime` differed in all of them.
+
+### 26.3 Why the fix does not follow from this
+
+`st_atime` and `st_mtime` can be pinned from userspace; `st_ctime` cannot. `utimensat` sets atime and
+mtime only, and any call that changes an inode's metadata updates its ctime as a side effect. So
+every staged entry carries the wall clock of the moment it was staged, and copying that into the
+image reproduces the original failure in one field.
+
+The successor's writer time is therefore **necessary but not sufficient**. It removes `i_atime`,
+`i_crtime`, `i_mtime`, `s_lastcheck`, `s_mkfs_time` and `s_wtime`. `i_ctime` survives it.
+
+### 26.4 What was done about it, and what was not
+
+The correction is recorded in the successor authority as an append-only `corrections` entry; the
+claim it corrects stays byte-identical, and the three sealed predecessor files are untouched. The
+produce phase now refuses to start while a named cause is still recorded as present, because this
+record allows exactly one production pair and forbids retrying a pair that has produced a result —
+spending that attempt on a known outcome would burn it.
+
+No remedy is adopted here. Every candidate reaches past this record's authority: pinning a different
+`e2fsprogs` changes the sealed source lock, promoting `debugfs` to a post-hoc writer is refused in
+writing, and excluding `i_ctime` from the comparison relaxes the acceptance criterion. The options
+are stated in the record and the choice is the operator's.
+
+Had this been missed, it would not have been silent: the timestamp audit added to the produce phase
+aborts a replica with `wall-clock-survived-in-the-image` before any comparison runs.
+
+### 26.5 Execution cursor
+
+```text
+ROOT-DISK-BYTE-IDENTITY  FAILED — 두 복제본 불일치, HARD STOP 봉인 유지
+DETERMINISM SUCCESSOR  BLOCKED — 원인 staged-inode-ctime-is-not-fs-now 미해소, 생산 금지
+PHASE C (production pair)  NOT DISPATCHED — 운영자 결정 대기
+PHASE D (MAC.3 closed-local boot)  BLOCKED — successor GREEN 이후에만 허용
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation `false` and `activationAllowed=false` remain unchanged. No public mining, no
+paid-API benchmark and no release claim is made anywhere in this section.
