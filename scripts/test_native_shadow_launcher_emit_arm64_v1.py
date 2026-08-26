@@ -15,10 +15,12 @@ must hold is the refusal, not the compiler.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import tempfile
 import unittest
 
+from scripts import native_shadow_launcher_build_arm64_v1 as build
 from scripts import native_shadow_launcher_emit_arm64_v1 as emit
 from scripts import native_shadow_rootfs_builder_boot_arm64_v1 as boot
 
@@ -143,6 +145,34 @@ class EmitTests(unittest.TestCase):
             path = pathlib.Path(scratch) / "boole-native-shadow-launcher"
             with self.assertRaises(emit.LauncherEmitError):
                 emit.emit(path, builder=lambda: raw)
+
+
+class HostTests(unittest.TestCase):
+    """A host that cannot produce this binary is told so, not shown a mismatch."""
+
+    def test_a_host_that_is_not_arm64_linux_is_refused_before_anything_is_built(
+        self,
+    ) -> None:
+        uname = os.uname()
+        if uname.sysname == "Linux" and uname.machine in {"aarch64", "arm64"}:
+            self.skipTest("this host can build the launcher; the refusal is not visible")
+
+        def explode(*args: object, **kwargs: object) -> None:
+            raise AssertionError(
+                "the build started on a host that cannot produce this binary"
+            )
+
+        original = build.prefetch
+        build.prefetch = explode
+        try:
+            with self.assertRaises(build.LauncherBuildError) as caught:
+                emit.rebuild()
+        finally:
+            build.prefetch = original
+        # Without this, a wrong-arch host compiles a wrong-arch binary and the
+        # failure arrives as `launcher-digest-mismatch`, which is a report about
+        # the launcher rather than about the host.
+        self.assertIn("aarch64", str(caught.exception))
 
 
 class BoundaryTests(unittest.TestCase):
