@@ -600,6 +600,43 @@ require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-
 require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"activationAllowed": false'
 require_text docs/native-submission-shadow-verification-v1.md "An audited closure is a set of file facts, not a system that has started"
 
+# 2026-08-26n -- successor boot artifact build plan (arm64 v2).
+# The audit-only v1 preflight refuses any plan whose three authority slots carry
+# a digest and says so in its own words: use a successor plan/schema/tool. This
+# is that successor, so the v1 scaffold must stay exactly as it is.
+require_file scripts/native_shadow_boot_artifact_plan_arm64_v2.py
+require_file scripts/test_native_shadow_boot_artifact_plan_arm64_v2.py
+require_file native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json
+require_text scripts/self-test.sh "scripts/test_native_shadow_boot_artifact_plan_arm64_v2.py"
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"schema": "boole.native-shadow.boot-artifact-build-plan.arm64.v2"'
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"release": "NATIVE-SHADOW-BOOT-ARTIFACT-BUILD-PLAN-ARM64-V2-RESOLVED-NOT-ACTIVATABLE"'
+# The scaffold keeps its own v1 schema and its null slots. If either changes the
+# v1 preflight starts rejecting it.
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v1-scaffold.json '"schema": "boole.native-shadow.boot-artifact-build-plan.arm64.v1"'
+require_text scripts/native_shadow_boot_artifact_plan_arm64_v2.py 'use a successor plan/schema/tool'
+# Three resolved slots. Two pin an authority document, one pins raw image bytes.
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"format": "initrd-ext4-builder-authority-v1"'
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"sha256": "59a14469bbb9710a1f6c79202d3e804b2f79268966c12d4259cd99e59e8d6e1e"'
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"sizeBytes": 4714'
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"format": "linux-arm64-image"'
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336"'
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"sizeBytes": 57860488'
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"format": "systemd-rootfs-closure-authority-v1"'
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"sha256": "9bcc1819fa406ef0479b8c200231d08a66023477d57a1cd3ade6637968ea8501"'
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"sizeBytes": 2529'
+# The two documents do not agree on what to call the field that declares their
+# format. A reader that tried one name and fell back to the other would accept
+# either document in either slot, so the key is pinned per slot.
+require_text scripts/native_shadow_boot_artifact_plan_arm64_v2.py '"imageBuilderToolchain": "format"'
+require_text scripts/native_shadow_boot_artifact_plan_arm64_v2.py '"systemdGuestClosure": "closureFormat"'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"format": "initrd-ext4-builder-authority-v1"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"closureFormat": "systemd-rootfs-closure-authority-v1"'
+# Resolving inputs is not building and not booting.
+require_text scripts/native_shadow_boot_artifact_plan_arm64_v2.py '"BOOT-INPUT-AUTHORITIES-RESOLVED-NOT-BOOT-AUTHORITY"'
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"bootableClaim": false'
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json '"activationAllowed": false'
+require_text docs/native-submission-shadow-verification-v1.md "A resolved input is a pinned digest, not a built image"
+
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
@@ -621,9 +658,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "432fc9d069a5b1c834c19ac9160430ddcd6bdb8d3745978ffaba27183737519d"
-require_text docs/native-submission-shadow-verification-v1.md "fbdc5a955fcb845ee20f128d613d2d52289a2242148a0ef2faf38ae9eb1b2a99"
-require_text docs/native-submission-shadow-verification-v1.md "6c2d2938ee1cd72026ba1d1b639c5fc768dc46ed2f3b6bb07a12ebc8e3cdc16e"
+require_text docs/native-submission-shadow-verification-v1.md "313981c027ee3ca16b25184082f8bad406bd19d07e5c212ee21aea028350b3d6"
+require_text docs/native-submission-shadow-verification-v1.md "a74c010a2364683383ea6b3129bc2554c97ffc6b42ebcafa1f0c90c1c477c283"
+require_text docs/native-submission-shadow-verification-v1.md "60ae5f070cd6f7dd87851a9d0e03dbde66a2c9f9ad5f0c49c3ad551039be1757"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"
