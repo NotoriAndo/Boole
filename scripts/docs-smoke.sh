@@ -324,8 +324,8 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "PACKAGE-PAYLOADS-
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "records exactly 186 GETs"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Total network payload was 209,807,900 bytes"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-INPUT-AUTHORITY/SOURCE-LOCK SUCCESSOR  NEXT"
-require_text docs/native-submission-shadow-verification-v1.md "f6589fe619e83531d9e76c998dbd5ab33436595e307579ccfecd2de644069fd1"
-require_text docs/native-submission-shadow-verification-v1.md "60408c39ac48f3b7ef272e050349dee84ee28693d6c33e528c77898927f4b3df"
+require_text docs/native-submission-shadow-verification-v1.md "078e1601b24374fe164cd883228f532b5da7de05290f69b7fc7f5715be9eb8a0"
+require_text docs/native-submission-shadow-verification-v1.md "6707e110d1c7f5033cf1c85335c2e196fab259878951b741dac1e4d32e6f4a5c"
 require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"packagePayloadsAcquired": true'
 require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"packagePayloadsVerified": true'
 require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"baselineFetched": 51'
@@ -685,6 +685,36 @@ require_text native/containment/native-shadow-boot-image-producer-authority-arm6
 require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"activationAllowed": false'
 require_text docs/native-submission-shadow-verification-v1.md "A frozen contract is a promise about a build, not the build"
 
+# The initrd writer holds the shape v1 froze: newc, uncompressed, canonical
+# mtime, root-only. Inode numbers are archive positions -- a host inode would
+# differ between the two independent jobs and fail the byte comparison for a
+# reason that has nothing to do with the image.
+require_file scripts/native_shadow_boot_initrd_arm64_v1.py
+require_file scripts/test_native_shadow_boot_initrd_arm64_v1.py
+require_text scripts/native_shadow_boot_initrd_arm64_v1.py 'MAGIC = b"070701"'
+require_text scripts/native_shadow_boot_initrd_arm64_v1.py 'COMPRESSION = "none"'
+require_text scripts/native_shadow_boot_initrd_arm64_v1.py "CANONICAL_MTIME = 0"
+require_text scripts/native_shadow_boot_initrd_arm64_v1.py "BOOTABLE_CLAIM = False"
+require_text scripts/native_shadow_boot_initrd_arm64_v1.py "ACTIVATION_ALLOWED = False"
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"initrdCompression": "none"'
+require_text native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json '"fileOrder": "sorted-by-logical-path-bytes"'
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_initrd_arm64_v1.py
+
+# The root disk plan pins the knobs this build of mke2fs actually reads.
+# SOURCE_DATE_EPOCH is absent from the frozen binary, so it must not appear
+# here as if it did anything; E2FSPROGS_FAKE_TIME is the one libext2fs reads.
+require_file scripts/native_shadow_boot_root_disk_arm64_v1.py
+require_file scripts/test_native_shadow_boot_root_disk_arm64_v1.py
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'FAKE_TIME_ENV = "E2FSPROGS_FAKE_TIME"'
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'STAGING_FILESYSTEM = "tmpfs"'
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'EXT4_UUID = "00000000-0000-4000-8000-000000000001"'
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'EXT4_HASH_SEED = "00000000-0000-4000-8000-000000000002"'
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py "BOOTABLE_CLAIM = False"
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py "ACTIVATION_ALLOWED = False"
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py '"onMismatch": "abort-never-relax"'
+forbid_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'SOURCE_DATE_EPOCH": "0"'
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_root_disk_arm64_v1.py
+
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
@@ -706,8 +736,8 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "6cc72cef28b270a1b630b64670fc3531499184f7b0d5701b9ce99562f65c61c1"
-require_text docs/native-submission-shadow-verification-v1.md "b9af9d378307a044b33fb9e493877b2bb43746ed5020e901b6df5cda86f2a05a"
+require_text docs/native-submission-shadow-verification-v1.md "a7eaa112ee1006e89500c77870187af10c55168b29d2b7b286d6754ce4064087"
+require_text docs/native-submission-shadow-verification-v1.md "b00cf676eb397a4928e1ec9b64e3be8d1b491ad53eec24d89c8d917b22cd48e3"
 require_text docs/native-submission-shadow-verification-v1.md "70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"

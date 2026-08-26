@@ -707,8 +707,8 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `6cc72cef28b270a1b630b64670fc3531499184f7b0d5701b9ce99562f65c61c1` (updated 2026-08-26o — the arm64 CI producer's contract frozen before anything is produced, with the maintainer-script and path-collision aborts corrected before merge) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `b9af9d378307a044b33fb9e493877b2bb43746ed5020e901b6df5cda86f2a05a` (updated 2026-08-26o — the operator chose CI production; D1 froze the contract) |
+| `local-docs/todo/todo-l1-network-master.md` | `a7eaa112ee1006e89500c77870187af10c55168b29d2b7b286d6754ce4064087` (updated 2026-08-26p — the initrd writer and the root disk plan, with the mke2fs time and ordering findings that corrected an earlier assumption in the same slice) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `b00cf676eb397a4928e1ec9b64e3be8d1b491ad53eec24d89c8d917b22cd48e3` (updated 2026-08-26p — D2.2 and D2.3 written; E2FSPROGS_FAKE_TIME, tmpfs staging order and the missing libe2p recorded) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
 | `local-docs/todo/thesis-realization-roadmap.md` | `70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb` (updated 2026-08-26o — choosing not to make a second copy of a sealed fact) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
@@ -1130,12 +1130,12 @@ runtime trust roots.
 
 _2026-08-26f package-payload addendum:_ **BOOT-ROOTFS-PAYLOAD-ACQUISITION-ARM64-V1 =
 PACKAGE-PAYLOADS-ACQUIRED-VERIFIED-NOT-BOOT-AUTHORITY.** A pre-registered plan (SHA-256
-`f6589fe619e83531d9e76c998dbd5ab33436595e307579ccfecd2de644069fd1`) fetched the missing
+`078e1601b24374fe164cd883228f532b5da7de05290f69b7fc7f5715be9eb8a0`) fetched the missing
 ARM64 `Packages.xz`, replayed the signed Ubuntu snapshot and required byte equality with the
 tracked 191-row candidate before opening a package URL. It then fetched baseline 51 and verified
 56/56 before fetching delta 134 and verifying 191/191. Six exact package CAS hits were reused with
 zero requests. The 186 network responses totaled 209,807,900 bytes. The canonical result SHA-256
-is `60408c39ac48f3b7ef272e050349dee84ee28693d6c33e528c77898927f4b3df`.
+is `6707e110d1c7f5033cf1c85335c2e196fab259878951b741dac1e4d32e6f4a5c`.
 
 The package files remain opaque bytes. No `apt`/`dpkg`, extraction, maintainer script, ARM64 Rust
 distribution, launcher ELF, kernel extraction, image builder, initrd/root disk or VM boot ran.
@@ -1558,3 +1558,102 @@ A frozen contract is a promise about a build, not the build.
 CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED` and no dev-Mac trial substitutes
 for it. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
 `BF.7=HOLD`, Base activation false — unchanged.
+
+_2026-08-26p initrd writer addendum:_ **THE INITRD WRITER EXISTS. NO INITRD OF THE REAL ROOTFS WAS
+WRITTEN, NOTHING WAS BUILT AND NOTHING WAS BOOTED.**
+
+`scripts/native_shadow_boot_initrd_arm64_v1.py` turns a frozen OCI rootfs layer into the initrd
+shape v1 sealed on 2026-08-26j: `cpio` in the `newc` format, `initrdCompression: "none"`,
+`fileOrder: "sorted-by-logical-path-bytes"`, canonical mtime 0, root-only ownership. It reads a tar
+and writes an archive; it does not fetch, resolve, assemble or boot. Its tests run against synthetic
+layers, so this addendum records a writer, not an image.
+
+One field in the `newc` header decides whether the two independent CI jobs can ever agree. `newc`
+carries an inode number, and the obvious way to fill it — ask the filesystem — would differ between
+two runners and fail the byte comparison for a reason that has nothing to do with the image.
+Numbering from 1 in archive order makes the field a function of the layer alone. Compression stays
+off for the same class of reason: a gzip member carries its own mtime, so compressing here would
+reintroduce the timestamp the canonical mtime exists to remove, and v1's
+`forbidTimestampSuppression` rules out papering over it afterwards.
+
+The layer's ordering and ownership are re-checked rather than assumed. The frozen OCI builder
+already sorts by path bytes and already forces uid/gid to 0, so these checks should never fire —
+which is exactly why they are worth keeping. An invariant only ever asserted somewhere else is one
+that quietly stops holding the day this writer is handed a different tar.
+
+The archive was cross-checked against a second implementation rather than only the parser shipped
+beside it: the system `cpio` lists the modes, root ownership, epoch timestamps, sizes and the
+symlink target correctly, and `cpio -idm` round-trips the content byte for byte.
+
+Two read-only findings are recorded here because they shape what comes next, and both are
+**observations, not verified properties** — they were made against the gitignored local content
+store and CI cannot re-prove them.
+
+First, an earlier reading of this work concluded that no existing tool could turn the boot source
+lock into a filesystem tree, and that the producer would have to assemble one. That was wrong. The
+gap is already bridged by `materialize_runtime_lock()` in the portable arm64 projection, which
+accepts exactly the boot lock's schema. The boot lock and the runtime arm64 lock are structurally
+identical — same top-level keys, byte-identical `buildRecipe` — and the boot lock is a strict
+superset in content: 197 artifacts against 62, and four extra tracked files with their bindings plus
+one derived symlink, which are precisely the boot files and nothing else. Writing a second assembler
+would have produced a tool that can disagree with the frozen one about what the tree is.
+
+Second, the frozen `e2fsprogs` package (`6e1cdd65…`) yields `mke2fs` at 133,512 bytes with digest
+`763be3ec…` and `debugfs` at 271,944 bytes with digest `2c0bf348…` — exactly v1's pins. The same
+package also ships `./etc/mke2fs.conf`, and that matters: `mke2fs` reads its feature defaults from
+that file, so running the frozen binary against a runner's conf would let a distro change pick the
+ext4 feature set while both jobs could still claim to have used the frozen tool. Pointing
+`MKE2FS_CONFIG` at the conf extracted from the same verified package closes it and needs no new pin,
+because the package digest already covers the conf.
+
+A third finding is recorded as an open inconsistency rather than a fix. The sealed boot source lock
+holds `/usr/lib/sysusers.d` before `/usr/lib/systemd` in one `closureRoots` group. That reads as
+alphabetical to a person but is not byte-sorted, and the frozen builder requires byte-sorted unique
+roots, so the sealed lock cannot be fed to the builder its own `buildRecipe` names. The generator
+sorted closure groups by name and copied each group's roots verbatim from the plan, and no check
+covered the inner order. The ordering is provably output-neutral — the builder consumes those roots
+only inside an existence test, and no root in that group is a prefix of another — but the sealed
+lock and the frozen builder still disagree, and the remedy is the operator's to choose. Nothing was
+edited, normalized or worked around here.
+
+The root disk plan (`scripts/native_shadow_boot_root_disk_arm64_v1.py`, 27 tests) turns the same
+layer into the argv, environment and staging order that `mke2fs` will be given. It executes nothing:
+`mke2fs` is an aarch64 ELF, the host that plans is not the host that builds, and keeping the two
+apart is what makes the plan reviewable before anything is written. Reading the frozen binaries
+changed three things about it.
+
+`SOURCE_DATE_EPOCH` does nothing to this build of `mke2fs`. The string is absent from the binary;
+what the shipped `libext2fs.so.2.4` reads is `E2FSPROGS_FAKE_TIME`, and that is the variable the plan
+sets to `0`. This does not weaken v1's `determinism.sourceDateEpoch: 0` — that field is the canonical
+epoch for the build as a whole and remains 0 — but it does correct an assumption made earlier in this
+same slice, which had `SOURCE_DATE_EPOCH` closing the superblock-time trap. It would not have. Both
+jobs would have stamped their own wall clock into `s_mkfs_time` and differed on a field neither of
+them chose. The plan's `docs-smoke` gate forbids the wrong variable from reappearing.
+
+`mke2fs -d` does not sort. `opendir` and `readdir` are present in the binary and `scandir`,
+`alphasort` and `versionsort` are all absent, so the population order is whatever the staging
+filesystem returns. On ext4 a directory large enough to become an htree is returned in filename-hash
+order and that hash is seeded per filesystem, so two runners would disagree. The plan stages on
+`tmpfs`, whose readdir order is creation order, and creates entries in logical path byte order. That
+is an assumption about the runner's kernel rather than a proof, so the plan carries it as one of
+three named `unverifiedAssumptions`, each with `onMismatch: "abort-never-relax"`.
+
+Every shared library the two tools need is already frozen. Parsing `DT_NEEDED` out of both ELF
+headers gives eight sonames, and each is shipped by one of the 191 packages: `libext2fs.so.2` and
+`libe2p.so.2` from `libext2fs2t64`, `libcom_err.so.2` from `libcom-err2`, `libss.so.2` from `libss2`,
+`libblkid.so.1` from `libblkid1`, `libuuid.so.1` from `libuuid1`, and `libc.so.6` with
+`ld-linux-aarch64.so.1` from `libc6`. A first pass through this reported `libe2p` as a gap on the
+strength of no `libe2p2t64` being in the set; there is no such package in this release, and
+`libext2fs2t64` carries the library. The plan records the eight providers. What it cannot settle is
+which copy the loader picks at run time, so that — not availability — is the third assumption, to be
+closed by recording the resolved paths at build time.
+
+`debugfs` keeps the role v1 sealed for it. The plan names it as `ext4-image-inspector` and a test
+asserts it never appears in the `mke2fs` invocation, so the determinism problems above are solved
+where the sealed roles allow rather than by promoting the inspector to a writer.
+
+Boundaries are unchanged and every one of them is still false. `bootableClaim: false`,
+`activationAllowed: false`. A writer for a format is not an image, a plan for an image is not an
+image, and an image is not a boot. Nothing was produced, staged, mounted or run. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
