@@ -44,6 +44,30 @@ jobs:
           # rustup from fetching anything once the network is taken away.
           components: rustfmt, clippy
 
+      - name: Require the host tools the build resolves from PATH
+        # Exactly the list the driver itself checks, and nothing beyond it. The
+        # driver checks it too, but by then the run has fetched 200 MB and
+        # rebuilt the launcher, so all that is wanted here is to find out in
+        # thirty seconds rather than twenty minutes.
+        #
+        # mke2fs and debugfs are deliberately absent: the image is written by
+        # the copies inside the frozen tree, never by the runner's. Asking the
+        # runner for them here would suggest its copies mattered.
+        #
+        # Nothing in this list is pinned either. The build records the digest of
+        # whichever gpgv and zstd the runner has, which is the arrangement the
+        # replay already uses.
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in env gpgv mkdir mktemp mount mountpoint python3 readlink \
+            rm systemd-run umount uname zstd; do
+            command -v "$tool" >/dev/null || {
+              printf 'the runner has no %s\n' "$tool" >&2
+              exit 1
+            }
+          done
+
       - name: Acquire the frozen Rust distribution and re-prove its sealed record
         # This runs first so that what it fetches is decided by nothing except an
         # empty store, and the sealed record it must reproduce says exactly that:
