@@ -730,6 +730,30 @@ require_text scripts/native_shadow_boot_image_verify_arm64_v1.py '"modes-owners-
 require_text scripts/native_shadow_boot_image_verify_arm64_v1.py '"guestBootVerified": False'
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_image_verify_arm64_v1.py
 
+# The boot projection widens the frozen builder's tables and corrects two
+# dependency-reading defects. It must keep reading the exact builder bytes the
+# sealed boot lock pins, and record its own bytes separately -- the widening is
+# not covered by that pin and must not pretend to be. Both dependency changes
+# stay guarded: `:native` is still refused, `:any` needs a Multi-Arch: allowed
+# provider, and the closure must hold exactly one concrete architecture.
+require_file scripts/native_shadow_rootfs_builder_boot_arm64_v1.py
+require_file scripts/test_native_shadow_rootfs_builder_boot_arm64_v1.py
+require_file scripts/native_shadow_rootfs_portable_boot_arm64_v1.py
+require_file scripts/test_native_shadow_rootfs_portable_boot_arm64_v1.py
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py 'ARM64_BUILDER_SHA256 = "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4"'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py "BOOT_PROJECTION_SHA256 = hashlib.sha256("
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py 'MULTI_ARCH_ANY_REQUIREMENT = "allowed"'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py "def assert_single_architecture"
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py "def normalized_runtime_lock"
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py "BOOTABLE_CLAIM = False"
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py "ACTIVATION_ALLOWED = False"
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py 'if match.group("qualifier") not in (None, ":any"):'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py 'if match.group("qualifier") == ":any" and candidate.get("multiArch") != "allowed":'
+require_text scripts/self-test.sh scripts/test_native_shadow_rootfs_builder_boot_arm64_v1.py
+require_text scripts/self-test.sh scripts/test_native_shadow_rootfs_portable_boot_arm64_v1.py
+require_text docs/native-submission-shadow-verification-v1.md "A BUILDER CAN NOW READ THE SEALED BOOT LOCK. NO"
+require_text docs/native-submission-shadow-verification-v1.md "that pattern fires 98 times and is wrong all"
+
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
@@ -751,8 +775,8 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "a7eaa112ee1006e89500c77870187af10c55168b29d2b7b286d6754ce4064087"
-require_text docs/native-submission-shadow-verification-v1.md "b00cf676eb397a4928e1ec9b64e3be8d1b491ad53eec24d89c8d917b22cd48e3"
+require_text docs/native-submission-shadow-verification-v1.md "70f834e5385b5d4bbecc47118d63e4112a1280c81b8028474c78d3194b7e5054"
+require_text docs/native-submission-shadow-verification-v1.md "63d8a09b64e9c6767e2657a3b6caea6fc5c260b4bcca3009e0dfff82b42f48ba"
 require_text docs/native-submission-shadow-verification-v1.md "70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"

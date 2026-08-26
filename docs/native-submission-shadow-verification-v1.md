@@ -707,8 +707,8 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `a7eaa112ee1006e89500c77870187af10c55168b29d2b7b286d6754ce4064087` (updated 2026-08-26q — the initrd writer, the root disk plan and the separate verification stage that can disagree with the producer) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `b00cf676eb397a4928e1ec9b64e3be8d1b491ad53eec24d89c8d917b22cd48e3` (updated 2026-08-26q — D2.2, D2.3 and D4 written; nothing produced, inspected or booted) |
+| `local-docs/todo/todo-l1-network-master.md` | `70f834e5385b5d4bbecc47118d63e4112a1280c81b8028474c78d3194b7e5054` (updated 2026-08-26r — the builder projection that can read the sealed boot lock, and the counted evidence behind each of its five differences) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `63d8a09b64e9c6767e2657a3b6caea6fc5c260b4bcca3009e0dfff82b42f48ba` (updated 2026-08-26r — D2.1 written and the prior open ordering mismatch closed without touching sealed bytes; nothing produced, inspected or booted) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
 | `local-docs/todo/thesis-realization-roadmap.md` | `70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb` (updated 2026-08-26o — choosing not to make a second copy of a sealed fact) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
@@ -1690,3 +1690,74 @@ accident.
 `guestBootVerified: false`. Reading an image is not booting it. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
+
+_2026-08-26r boot builder projection addendum:_ **A BUILDER CAN NOW READ THE SEALED BOOT LOCK. NO
+IMAGE WAS PRODUCED AND NOTHING WAS BOOTED.**
+
+The boot source lock was sealed against a builder that could not read it. Its
+`buildRecipe.builderSha256` pins `scripts/native_shadow_rootfs_builder_arm64_v1.py`, and that file
+knows six authority files, three provenance closures, and a dependency grammar narrower than the one
+this closure actually uses. `scripts/native_shadow_rootfs_builder_boot_arm64_v1.py` (26 tests) and
+`scripts/native_shadow_rootfs_portable_boot_arm64_v1.py` (12 tests) close that gap the way this
+repository has closed every previous one: by reprojecting the frozen bytes with counted string
+replacements rather than forking them.
+
+The pin is preserved rather than worked around. The projected namespace is executed with `__file__`
+pointing at the arm64 builder, which is the single place that file reads it, so `BUILDER_SHA256`
+still equals the sealed pin and a test asserts that equality against the lock itself. The widening
+is not inside the pin, so it gets its own digest — `BOOT_PROJECTION_SHA256`, the projection's own
+bytes — instead of being smuggled under one that was computed before it existed.
+
+Two of the five differences are ordinary configuration. The authority-file table grows from six
+entries to ten, adding the guest `machine-id`, the launcher unit, and the sysusers and tmpfiles
+configuration that unit depends on; a test asserts the widened table equals the lock's `trackedFiles`
+exactly, so it cannot drift wider than what was sealed. The provenance-closure table grows from
+three to five, adding the guest init/launcher closure and the guest kernel/module closure.
+
+The third is an ordering difference, and the honest answer was not to sort silently. One closure in
+the sealed lock lists its logical roots alphabetically but not byte-sorted, and the frozen builder
+compares against `sorted(set(roots))`. `normalized_runtime_lock` sorts a copy, leaves the sealed
+bytes untouched, and records the declared and normalised orders side by side with a `reordered` flag,
+so the difference stays visible instead of disappearing into a comparison. It refuses outright if
+sorting would also collapse a duplicate root, because the "unique" half of the builder's check has to
+stay real; `sorted(set(...))` would have absorbed a duplicate without comment.
+
+The fourth and fifth touch the frozen builder's dependency reading, so they were measured rather than
+argued. `_split_dependency_groups` rejects architecture-qualified and build-profile dependencies —
+correctly — but applies the pattern `\[[^\]]*\]|<[^<>=]+>` to the whole comma-joined field, where
+`python3 (<< 3.13), python3 (>= 3.12~)` matches because the `<` of one constraint and the `>` of a
+later one look like a profile once everything between them is ignored. Scanning all 5816 `Depends`
+and `Pre-Depends` fields in the frozen Packages index, that pattern fires 98 times and is wrong all
+98 times, and the same scan finds no real architecture qualifier or build profile anywhere in the
+index. Applying the identical pattern per alternative instead of per field flags zero of the 5816. A
+real `[arm64]` or `<!nocheck>` lives entirely inside one alternative, so narrowing the scope cannot
+let one through, and tests hold that line: `libc6, gcc [arm64]`, `libc6, dpkg-dev <!nocheck>` and
+`libc6 | gcc [arm64]` are all still refused.
+
+`_dependency_matches` refuses every Multi-Arch qualifier. Exactly one qualified alternative appears
+in this closure — `python3:any`, used by `python3-apt`, `python3-dbus`, `python3-pkg-resources`,
+`python3-yaml` and `ubuntu-pro-client` — and all five resolve to the same `python3`, which declares
+`Multi-Arch: allowed`. `:any` means "satisfied by that package from any architecture", and this
+closure holds exactly one concrete architecture (`arm64`, plus `all`), so `:any` and the bare name
+select the same candidate. That is a fact about this closure and not a general one, so it is guarded
+twice: `assert_single_architecture` stops the build if a second concrete architecture ever appears or
+if the declared architecture disagrees with the platform, and the projected matcher refuses `:any`
+against a provider that does not declare `Multi-Arch: allowed`. `:native` stays unsupported.
+
+The portable projection changes two strings and nothing else: the accepted release becomes the boot
+lock's own, and the builder the chain reaches becomes the boot projection. What
+`materialize_runtime_lock` verifies is unchanged, and tests assert that a non-canonical lock, an
+`activationAllowed: true` lock, and a lock with the wrong tool roles are all still refused, and that
+the portable release is no longer accepted here — widening which lock is accepted must not mean
+accepting both. Both projections execute into their own namespace, and a test asserts the arm64
+module still reports six authority files and three closures after the boot module is imported, so a
+widened boot table cannot leak into the portable path.
+
+The end-to-end test runs the whole chain — sealed lock, materialised runtime lock, normalisation,
+full validation against the acquired closure — and skips where that closure is not on disk, which is
+every CI runner, since `local-docs` is gitignored. What CI proves is the contract; what this host
+proved is the run. Both are recorded, and neither is described as the other.
+
+`bootableClaim: false`, `activationAllowed: false`. A builder that can read a lock has not built
+anything. CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
