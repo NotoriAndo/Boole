@@ -715,6 +715,25 @@ require_text scripts/native_shadow_boot_root_disk_arm64_v1.py '"onMismatch": "ab
 forbid_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'SOURCE_DATE_EPOCH": "0"'
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_root_disk_arm64_v1.py
 
+# Two replicas built that disk from identical inputs and disagreed. The hard
+# stop is the sealed failure; the successor is the bar the fix must clear,
+# written before the fix exists. Both must keep running -- a record whose tests
+# are not wired into CI is a record nothing is checking.
+require_file native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json
+require_file native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_root_disk_determinism_arm64_v1.py
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_root_disk_determinism_successor_arm64_v1.py
+
+# The successor may not soften what it inherits: byte identity stays the
+# criterion, the filesystem check stays read-only with one accepted exit code,
+# and a mismatch stays a stop rather than another roll of the dice.
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"criterion": "byte identity, unchanged from the predecessor"'
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"criterionRelaxationForbidden": true'
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"acceptedExitCodes"'
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"onMismatch": "HARD STOP; report; do not produce a third image"'
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"successorValue": "1"'
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"activationAllowed": false'
+
 # The verification stage is separate from the producer on purpose: a producer
 # that checks its own output can only confirm that it did what it did. debugfs
 # keeps the inspector role v1 sealed for it -- read-only, never `-w`.
@@ -808,9 +827,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "ac6b09d6ffe081abb650f51dde8a172f7b124a7d6e61ba14a7f80f3c00267693"
-require_text docs/native-submission-shadow-verification-v1.md "573e2d36f8f9637ca29bd52f9c0ae9530667b5f16d9e36bbdf204ab9dbc4c345"
-require_text docs/native-submission-shadow-verification-v1.md "70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb"
+require_text docs/native-submission-shadow-verification-v1.md "3d976826e33b50a95e85f4f8a3a75c33023720cc7fbb47a5e474b27f6bb4425a"
+require_text docs/native-submission-shadow-verification-v1.md "2d8a61950a05050dd7301c51e9a7ca62e72a4069fcdd7c404a273a3c77eaabf0"
+require_text docs/native-submission-shadow-verification-v1.md "857df87bd2b4538c8e481ef1d86b8c3e851f55dcfbf6d974d20744b3a9401067"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"

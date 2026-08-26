@@ -1569,3 +1569,95 @@ MAC.5 / MAC.6  BLOCKED
 
 `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged.
+
+## 25. The root disk was produced twice and the two copies differed
+
+### 25.1 What happened
+
+Two arm64 Linux CI jobs built the guest root disk from byte-identical inputs and produced two
+different images. The kernel and the initrd matched. The disk did not:
+`b3299ed161557a195a9f58bb899fc61979ecb7456de94b9d89ac951c2e320b96` against
+`11099b116c3241a4441ba6ed3cfd4b7db6a160779c97271bcce5bf6e99b7153a`, both 1,168,314,368 bytes.
+
+The pre-registered response to that outcome was to stop rather than to relax the criterion, and the
+stop was taken. It is sealed in
+`native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json` with status
+`ROOT-DISK-BYTE-IDENTITY-FAILED-CAUSE-CONFIRMED-STOP-HELD-NOT-BOOT-AUTHORITY`. That record is
+append-only. It is not revised, softened or reread as a success by anything that follows it.
+
+### 25.2 What differed, measured rather than asserted
+
+847 of 285,233 blocks differed — 0.297 per cent — and every one of them was superblock, backup
+superblock or inode table. Every data block, every directory block, every bitmap and all nine group
+descriptors were identical.
+
+At byte granularity, 80,748 bytes differed and **zero were unexplained**. Each one is a timestamp
+field or a checksum computed over one: `s_wtime`, `s_lastcheck`, `s_mkfs_time`, `s_checksum`,
+`i_atime`, `i_ctime`, `i_mtime`, `i_crtime`, `i_checksum_lo`, `i_checksum_hi`.
+
+A read-only walk of both images compared 13,448 entries — 1,445 directories, 653 symlinks, 11,350
+files, 1,008,783,262 bytes of file content hashed. Path, walk order, inode number, kind, mode, uid,
+gid, size, link count, flags, content digest, symlink target, extended attributes and block layout
+were identical in every entry. **The number of files whose contents differed is zero.** The
+filesystem UUID, hash seed and journal inode were identical too. The verdict recorded is
+`METADATA-TIMESTAMPS-ONLY`, which is a description of the difference and explicitly not a reason to
+accept it.
+
+### 25.3 The cause, read out of the frozen binaries
+
+`E2FSPROGS_FAKE_TIME=0` is a silent no-op. In this build of `libext2fs`, `fs->now == 0` is the
+"nobody pinned a time" sentinel: `ext2fs_initialize` reads the variable, stores it at offset `0xb8`,
+then branches on zero and calls `time()` on the zero path. Setting the pin to the sentinel is
+indistinguishable from not setting it, so both jobs read their own clock and their clocks were 58
+seconds apart.
+
+Nothing was executed to establish this. It was read statically out of the exact binaries the plan
+pins, and the disassembly sites are recorded in the sealed record beside the digests of the files
+they came from.
+
+### 25.4 What this record does not authorise
+
+Neither image is adopted. No third image was produced. No image was booted. `bootableClaim: false`,
+`activationAllowed: false`, `guestBootVerified: false`, `runtimeCompatibilityVerified: false`. A
+metadata-only difference is still a difference, and byte identity remains the criterion.
+
+### 25.5 The successor, pre-registered before the fix exists
+
+`native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json`
+carries the bar the fix has to clear. It was written and pushed before any production code changed,
+because a bar written after a result is not a bar.
+
+It separates two numbers that used to be one. The canonical source epoch stays `0`: that is what the
+staged inputs mean and it is unchanged. The ext4 writer time becomes `1` — the smallest value that
+is both non-zero and fixed, and therefore the smallest change that makes the pin take effect at all.
+Substituting `SOURCE_DATE_EPOCH`, the current time or an arbitrary release timestamp is refused in
+writing, and `debugfs` may not be promoted from inspector to writer.
+
+Before any of that was written down, the claim was checked mechanically against the frozen binaries.
+Every field that moved is traced to `fs->now`: `s_wtime` through `ext2fs_flush2` at `0x13774`,
+`s_lastcheck` and `s_mkfs_time` through `ext2fs_initialize` at `0x2cd3c` and `0x2cd40`, and
+`i_ctime`, `i_mtime`, `i_atime` and `i_crtime` through `ext2fs_write_new_inode` at `0x30508`,
+`0x30514`, `0x30520` and `0x305c4`. In every case the store takes the pinned value directly and
+`time()` sits behind the zero branch. The checksums follow from the fields they cover. Nothing is
+left over. That says a fixed non-zero value reaches every field that moved; it does not say the
+images will match, because only a produced pair says that.
+
+The successor also closes two things the predecessor recorded as open. The executor already computes
+which library files the loader will use and then discards the answer, so the successor records that
+value rather than adding a second computation that could disagree with the one that fed the loader.
+And no filesystem check was ever run, so the successor pins `e2fsck` by digest and runs it `-f -n`
+per replica: forced, because a check that exits 0 without reading anything is close enough to not
+running to be worthless, and read-only, with `0` as the single accepted exit code.
+
+### 25.6 Execution cursor
+
+```text
+ROOT-DISK-BYTE-IDENTITY  FAILED — 두 복제본 불일치, 원인 확정, HARD STOP 봉인 완료
+DETERMINISM SUCCESSOR  PRE-REGISTERED — 구현 전, 생산 전
+PHASE D (MAC.3 closed-local boot)  BLOCKED — successor GREEN 이후에만 허용
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation `false` and `activationAllowed=false` remain unchanged. No public mining, no
+paid-API benchmark and no release claim is made anywhere in this section.
