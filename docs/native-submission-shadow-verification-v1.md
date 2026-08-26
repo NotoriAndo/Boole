@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `e9c2d9b22feca523c39d3bc6da948f196a3e6b94d0fd22eb59350d4c484908e9` (updated 2026-08-26k — image builder inputs frozen; launcher artifact sealed) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `9b3fd04ac4632681b72a6db96b619edb6773fc814206e86e2e74520e1758e072` (updated 2026-08-26k — launcher sealed; cursor moves to Phase C with the ext4 blocker recorded) |
+| `local-docs/todo/todo-l1-network-master.md` | `515df8b08f0c136130ade09e23effb00539081ce5bad3b9afa258ace0b4a4628` (updated 2026-08-26l — first real boot artifact: guest kernel extracted) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `b301b0171cd25ec3c8ff8fda90e403aadc4abeb0c8649f17628cfc542028cd22` (updated 2026-08-26l — kernel slot filled; only systemdGuestClosure remains open) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `f2ba2f7a3a765d6d5af602ad718409b39bd221507a5ad3665746bdbbcac889cd` (updated 2026-08-26k — reproducibility moves from claim to self-checking record) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `d15462e470e8235d5cddc3d88350b5a53c9e3b32da5b86321c64d96f4cf3de20` (updated 2026-08-26l — evidence strength matched to claim strength) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1344,5 +1344,42 @@ declares -- `toolchainByteProvenanceClosed`, `guestImageBuilt`, `kernelImageExtr
 job, not an edit made in passing.
 Two byte-identical builds are a reproducibility result, not a running program,
 and an ELF that has never been executed anywhere is not a boot. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` are unchanged.
+
+_2026-08-26l boot-kernel extraction addendum:_ **THE FIRST REAL BOOT ARTIFACT EXISTS.** Every step
+before this one pinned something. This one produces bytes: `guest-kernel`, SHA-256
+`d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336`, 57,860,488 bytes, extracted
+from the `linux-image-6.8.0-31-generic` package the 2026-08-26j authority froze. The compressed
+member inside that package is `f67ad535a1b19295985d0266394d1c3a5620178a3ba61aca22cda1b6c1e27a2a`
+(18,199,471 bytes), and both digests are recorded so that neither the input nor the output can be
+swapped without the mismatch showing.
+
+Two properties are worth stating precisely, because both are easy to overclaim. The architecture
+check reads the arm64 magic at offset 0x38, the location the kernel image header defines, instead of
+searching the file for those four bytes -- a search would also succeed on an x86 image that happens
+to contain them somewhere, so the offset is the whole test. Independently, `file(1)` reports "Linux
+kernel ARM64 boot executable Image, little-endian, 4K pages", which is a second opinion from a tool
+that knows nothing about this repository. The extraction also ran twice, in two independent
+temporary directories, and the two digests agree; decompressing a frozen byte string has no freedom
+to differ, so what the second run rules out is state leaking between runs, not compiler
+nondeterminism. It is a weaker claim than the launcher's double build and is recorded as the weaker
+claim.
+
+One boundary flips. `kernelImageExtracted` becomes true in the sealed result;
+`guestImageBuilt`, `initrdBuilt`, `rootDiskBuilt`,
+`launcherDeployedIntoGuest`, `runtimeCompatibilityVerified` and `bootAuthority` all stay false.
+Unlike the launcher seal, CI cannot re-prove this one: the package bytes live in the gitignored
+content store and the runner has never seen them, so the committed tests verify the extraction
+logic against synthetic archives while the artifact digest rests on the local run. That asymmetry is
+recorded rather than smoothed over.
+
+The sealed boot source lock still lists `tracked-file:launcher-binary` in `missingRoles` with status
+`BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS`, and the boot-artifact plan scaffold still carries three
+null input slots. This slice answers the `kernel` slot and the 2026-08-26j addendum answered
+`imageBuilderToolchain`; `systemdGuestClosure` remains open. Filling those nulls is a successor
+plan's job -- the scaffold is not edited in place.
+A kernel image is a file the boot loader can read, not a system that has booted,
+and extracting one proves nothing about whether it starts. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` are unchanged.
