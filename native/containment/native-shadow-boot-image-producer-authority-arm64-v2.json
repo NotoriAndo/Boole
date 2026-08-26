@@ -1,0 +1,145 @@
+{
+  "abortConditions": [
+    {
+      "action": "stop-and-report-both-digests",
+      "detects": "the two independent CI jobs produced different bytes",
+      "id": "independent-builds-differ",
+      "relaxKnobAllowed": false
+    },
+    {
+      "action": "stop-and-report-the-member",
+      "detects": "a tool extracted from the frozen package failed its sha-256",
+      "id": "tool-binary-digest-mismatch",
+      "relaxKnobAllowed": false
+    },
+    {
+      "action": "stop-and-report-the-attempt",
+      "detects": "the produce phase attempted to reach the network",
+      "id": "network-attempted-during-produce",
+      "relaxKnobAllowed": false
+    },
+    {
+      "action": "stop-and-report-the-package",
+      "detects": "a maintainer script appeared in the consumed set",
+      "id": "maintainer-script-present",
+      "relaxKnobAllowed": false
+    },
+    {
+      "action": "stop-and-report-the-output",
+      "detects": "a required output is missing or zero bytes",
+      "id": "output-missing-or-empty",
+      "relaxKnobAllowed": false
+    },
+    {
+      "action": "stop-and-report-both-digests",
+      "detects": "the rebuilt launcher differs from the sealed build result",
+      "id": "launcher-digest-mismatch",
+      "relaxKnobAllowed": false
+    }
+  ],
+  "activationAllowed": false,
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "guestBootVerified": false,
+    "guestImageBuilt": false,
+    "initrdBuilt": false,
+    "launcherDeployedIntoGuest": false,
+    "rootDiskBuilt": false,
+    "runtimeCompatibilityVerified": false,
+    "toolByteProvenanceVerifiedInCi": false
+  },
+  "buildIsolation": {
+    "phases": [
+      {
+        "name": "acquire",
+        "networkAllowed": true,
+        "reads": "pinned urls with pinned digests into a scratch store"
+      },
+      {
+        "name": "produce",
+        "networkAllowed": false,
+        "reads": "only the scratch store and the read-only repository"
+      }
+    ],
+    "runner": "ubuntu-24.04-arm",
+    "separateJobs": true,
+    "systemdRunProperties": [
+      "PrivateNetwork=yes",
+      "ProtectSystem=strict",
+      "NoNewPrivileges=yes",
+      "PrivateDevices=yes",
+      "PrivateMounts=yes",
+      "RestrictAddressFamilies=AF_UNIX"
+    ]
+  },
+  "builderAuthority": {
+    "path": "native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json",
+    "sha256": "59a14469bbb9710a1f6c79202d3e804b2f79268966c12d4259cd99e59e8d6e1e",
+    "sizeBytes": 4714
+  },
+  "determinism": {
+    "hostToolPinning": "record-at-build-time",
+    "independentJobCount": 2,
+    "inheritedFrom": "native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json",
+    "mismatchAction": "report-the-difference-never-force-a-match",
+    "sourceDateEpoch": 0
+  },
+  "format": "initrd-ext4-producer-authority-v2",
+  "generator": {
+    "path": "scripts/native_shadow_boot_image_producer_authority_arm64_v2.py",
+    "sha256": "a71baa0cab68cd0c6b7f8633052167c54a6bdf8371c16f13a5274863427d3cf7",
+    "sizeBytes": 19005
+  },
+  "inputs": {
+    "kernelResult": {
+      "path": "native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json",
+      "sha256": "3316fdabcca893b2572041dbe9eb8d6561de7ba593c9d927a45886f047c0c15a",
+      "sizeBytes": 1159
+    },
+    "plan": {
+      "path": "native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json",
+      "sha256": "8afb175747adcc7ce1440884ce81a1e7450b34f59d67bc7c73642b8af3051d47",
+      "sizeBytes": 1320
+    }
+  },
+  "launcher": {
+    "acquisition": "rebuild-and-match-seal",
+    "buildScript": {
+      "path": "scripts/native_shadow_launcher_build_arm64_v1.py",
+      "sha256": "fcec46877a9077106a0a9d1be6fcc1fb32a55918cba4fbb4db9beb4058fb4b01",
+      "sizeBytes": 21037
+    },
+    "guestLogicalPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+    "resultPath": "native/containment/native-shadow-launcher-build-result-arm64-v1.json",
+    "sha256": "11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434",
+    "sizeBytes": 2006632
+  },
+  "outputs": [
+    {
+      "format": "linux-arm64-image-uncompressed",
+      "name": "guest-kernel"
+    },
+    {
+      "format": "cpio-newc-uncompressed",
+      "name": "guest-initrd"
+    },
+    {
+      "format": "ext4-filesystem-image",
+      "name": "guest-root-disk"
+    }
+  ],
+  "platform": {
+    "architecture": "aarch64",
+    "os": "linux",
+    "rustTarget": "aarch64-unknown-linux-gnu"
+  },
+  "release": "NATIVE-SHADOW-BOOT-IMAGE-PRODUCER-AUTHORITY-ARM64-V2",
+  "resultRetention": {
+    "commitImagesToGit": false,
+    "keep": "ci-artifact-and-sha256-manifest",
+    "manifestFormat": "sha256sum-text",
+    "uploadToRelease": false
+  },
+  "schema": "boole.native-shadow.boot-image-producer-authority.arm64.v2"
+}

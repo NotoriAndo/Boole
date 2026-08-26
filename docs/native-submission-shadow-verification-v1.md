@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `313981c027ee3ca16b25184082f8bad406bd19d07e5c212ee21aea028350b3d6` (updated 2026-08-26n — three authorities pinned in a successor plan; one earlier claim of ours corrected) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `a74c010a2364683383ea6b3129bc2554c97ffc6b42ebcafa1f0c90c1c477c283` (updated 2026-08-26n — end of the static path; image production is an operator decision) |
+| `local-docs/todo/todo-l1-network-master.md` | `38fe722450ca09bfa575caefff25cccd330dcf23eef991108358a387edd5a482` (updated 2026-08-26o — the arm64 CI producer's contract frozen before anything is produced) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `2b42501774eccffbd80ebe33bed0a677a0cb6ffafb0dd1d9676407194277a37e` (updated 2026-08-26o — the operator chose CI production; D1 froze the contract) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `60ae5f070cd6f7dd87851a9d0e03dbde66a2c9f9ad5f0c49c3ad551039be1757` (updated 2026-08-26n — a fallback chain hid a difference we then reported as fact) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb` (updated 2026-08-26o — choosing not to make a second copy of a sealed fact) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1479,3 +1479,65 @@ The initrd and root disk remain unproduced here, for two independent reasons re-
 image exists only on an arm64 Linux runner and is not committed. Whether to move image production to
 arm64 Linux CI or to redesign toward an initramfs-only boot is an operator decision, not one this
 slice takes.
+
+_2026-08-26o image producer authority addendum:_ **THE ARM64 CI PRODUCER'S CONTRACT IS FROZEN BEFORE
+ANYTHING IS PRODUCED. NOTHING WAS BUILT AND NOTHING WAS BOOTED.**
+
+The operator answered the question the previous addendum left open: move image production to arm64
+Linux CI, and do not redesign toward initramfs. The first condition attached to that approval was
+that the contract be frozen before any result exists, so
+`native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json` is that contract and
+it is committed with every boundary still false.
+
+Most of what such a contract needs was already sealed on 2026-08-26j. The v1 image builder authority
+fixed the three output roles, the ext4 UUID and hash seed, a canonical mtime of 0, root-only
+ownership, sorted file order, an uncompressed initrd, two independent builds, six prohibitions, and
+the two tool binaries — `mke2fs` and `debugfs` — by their own digests and by the digest of the frozen
+`e2fsprogs` package they are extracted from. This successor does not restate any of it. It pins that
+document by digest and reads the tools out of it, because a second copy of a digest can drift from
+the sealed one and a drift between two copies of the same fact is invisible. Where a value genuinely
+had to be repeated — the output roles, the mismatch action, the canonical mtime, the platform — the
+repetition is checked against v1 mechanically, and a smoke gate forbids the tool digests appearing
+here at all.
+
+What v1 could not say, because there was no producer yet, is what this document adds. It fills the
+two slots v1 deliberately left open: `sourceDateEpoch` was null and is now 0, checked equal to v1's
+own `canonicalMtime`; the zstd host tool stays `record-at-build-time`, so its digest is recorded on
+the runner rather than guessed here. It names the runner (`ubuntu-24.04-arm`), requires the initrd
+and the root disk to come from two separate jobs, and states what happens to the images afterwards:
+CI artifact plus a SHA-256 manifest, never committed to git, never uploaded to a release.
+
+"No network during the build" is not written here as a promise. The acquire phase runs with the
+network and populates a scratch store from pinned URLs with pinned digests; the produce phase runs
+inside a transient systemd unit with `PrivateNetwork=yes`, `ProtectSystem=strict`, `NoNewPrivileges=yes`,
+`PrivateDevices=yes`, `PrivateMounts=yes` and `RestrictAddressFamilies=AF_UNIX`. A unit with no network
+namespace has nothing for a download to reach, so the prohibition is enforced by the kernel rather
+than by this paragraph. The shape is not invented — it is the one
+`scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh` already uses.
+
+The guest launcher is obtained the same way, by refusing a handoff. The producer runs the frozen
+`scripts/native_shadow_launcher_build_arm64_v1.py` itself — that script already builds twice and
+requires identical bytes — and checks the result against the sealed
+`native-shadow-launcher-build-result-arm64-v1.json` before placing it at
+`/usr/libexec/boole/boole-native-shadow-launcher`. Receiving the ELF as an artifact from another job
+would mean trusting the handoff; rebuilding and re-checking trusts only the seal.
+
+Six abort conditions are named, and every one of them carries `relaxKnobAllowed: false`: two
+independent jobs producing different bytes, a tool binary failing its digest, the produce phase
+reaching for the network, a maintainer script appearing in the consumed set, a required output
+missing or empty, and a rebuilt launcher differing from the seal. The first is the one worth being
+explicit about — if the two jobs disagree on ext4 timestamps, UUID or file order, the run stops and
+reports both digests. It does not lower a determinism knob until they agree.
+
+The document names its own generator and the generator names the document, which cannot both be a
+plain file digest. The cycle is broken the way v1 already breaks it: the generator is hashed with its
+own authority pin blanked to sixty-four zeros, so either side reproduces the other's value. A test
+asserts that changing only the pin leaves the generator digest untouched.
+
+Boundaries: `bootAuthority`, `guestBootVerified`, `guestImageBuilt`, `initrdBuilt`, `rootDiskBuilt`,
+`launcherDeployedIntoGuest`, `runtimeCompatibilityVerified` and `toolByteProvenanceVerifiedInCi` are
+all false — not one is true. `bootableClaim: false`, `activationAllowed: false`.
+A frozen contract is a promise about a build, not the build.
+CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED` and no dev-Mac trial substitutes
+for it. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation false — unchanged.
