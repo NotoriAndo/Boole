@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `432fc9d069a5b1c834c19ac9160430ddcd6bdb8d3745978ffaba27183737519d` (updated 2026-08-26m — systemd guest closure audited; init chain followed to PID 1) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `fbdc5a955fcb845ee20f128d613d2d52289a2242148a0ef2faf38ae9eb1b2a99` (updated 2026-08-26m — all three scaffold inputs answered; static audits exhausted) |
+| `local-docs/todo/todo-l1-network-master.md` | `313981c027ee3ca16b25184082f8bad406bd19d07e5c212ee21aea028350b3d6` (updated 2026-08-26n — three authorities pinned in a successor plan; one earlier claim of ours corrected) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `a74c010a2364683383ea6b3129bc2554c97ffc6b42ebcafa1f0c90c1c477c283` (updated 2026-08-26n — end of the static path; image production is an operator decision) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `6c2d2938ee1cd72026ba1d1b639c5fc768dc46ed2f3b6bb07a12ebc8e3cdc16e` (updated 2026-08-26m — presence is not a chain; a silent skip looks like a pass) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `60ae5f070cd6f7dd87851a9d0e03dbde66a2c9f9ad5f0c49c3ad551039be1757` (updated 2026-08-26n — a fallback chain hid a difference we then reported as fact) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1432,3 +1432,50 @@ An audited closure is a set of file facts, not a system that has started,
 and nothing here ran. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD` and Base activation `false` are unchanged.
+
+---
+
+_2026-08-26n successor boot artifact plan addendum:_ **THE THREE ANSWERED AUTHORITIES ARE NOW
+PINNED IN A SUCCESSOR PLAN. NOTHING WAS BUILT AND NOTHING WAS BOOTED.**
+
+The audit-only preflight in `scripts/native_shadow_boot_artifact_builder_arm64_v1.py` refuses any
+plan whose three authority slots carry a digest, and its own error text names the remedy:
+`belongs to an audit-only scaffold and must stay null; use a successor plan/schema/tool`. Its
+module docstring names the three it deferred — the kernel, the systemd guest closure and the image
+builder. All three now exist (2026-08-26l, 2026-08-26m, 2026-08-26j), so
+`native/containment/native-shadow-boot-artifact-build-plan-arm64-v2.json` carries them under a
+successor schema while the v1 scaffold is left byte-for-byte as it was. A test asserts the scaffold
+still holds null slots, and the v1 preflight's own 13 tests still pass against it.
+
+Two of the three slots pin an authority **document**; one pins raw **image** bytes. That asymmetry
+is what the format strings say, not an inconsistency to smooth over: `initrd-ext4-builder-authority-v1`
+and `systemd-rootfs-closure-authority-v1` name documents, `linux-arm64-image` names an image, and the
+kernel result document carries no format field at all, so it cannot be what that slot pins.
+
+The trap was one layer below that. The two documents do not agree on what to call the field that
+declares their format: the image builder authority says `format`, the systemd closure result says
+`closureFormat`. An earlier probe of ours read them through a fallback chain that tried one name and
+then the other, and that fallback hid the difference — the same silent-skip shape that had already
+cost a run when a package reader knew zstd but not xz. A reader with that fallback would accept
+either document in either slot. The key is therefore pinned per slot, and a document offering the
+right value under the other slot's key is refused.
+
+All three pins are checkable on a clean runner, because each is compared against a document tracked
+in this repository — the two authority documents by hashing their own bytes, and the kernel pin
+against the sealed extraction result's `kernel` block. What a runner still cannot confirm is that
+the kernel image bytes exist anywhere with that digest; that remains the separately recorded, non-CI
+fact it was on 2026-08-26l, and this slice does not borrow credit from it.
+
+Boundaries: only `bootInputAuthoritiesResolved` is true. `bootAuthority`, `guestBootVerified`,
+`guestImageBuilt`, `initrdBuilt`, `rootDiskBuilt`, `launcherDeployedIntoGuest` and
+`runtimeCompatibilityVerified` all stay false, and the plan sets `bootableClaim: false` and
+`activationAllowed: false`. A resolved input is a pinned digest, not a built image. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation false — unchanged.
+
+The initrd and root disk remain unproduced here, for two independent reasons re-verified on
+2026-08-26: every ext4 tool is absent from this host (`mke2fs`, `mkfs.ext4`, `debugfs`, `e2fsck`,
+`genext2fs`, `qemu-img`, and every container runtime), and the launcher ELF that must live inside the
+image exists only on an arm64 Linux runner and is not committed. Whether to move image production to
+arm64 Linux CI or to redesign toward an initramfs-only boot is an operator decision, not one this
+slice takes.
