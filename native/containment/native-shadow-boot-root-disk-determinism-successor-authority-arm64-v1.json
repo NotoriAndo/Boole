@@ -84,6 +84,124 @@
       "foundBefore": "any image was produced by this record",
       "id": "staged-inode-ctime-is-not-fs-now",
       "method": "static disassembly of the frozen mke2fs with /usr/bin/objdump; nothing was executed to establish it",
+      "offsetArithmetic": {
+        "copies": [
+          {
+            "at": "0x13dac",
+            "from": "st_atim.tv_sec",
+            "note": "the low half of the 64-bit store at sp+0x190",
+            "to": "i_atime"
+          },
+          {
+            "at": "0x13dac",
+            "from": "st_ctim.tv_sec",
+            "note": "the high half of the same store, packed by 0x13d78 mov v0.d[1], v1.d[0] and narrowed by 0x13da4 xtn v0.2s, v0.2d",
+            "to": "i_ctime"
+          },
+          {
+            "at": "0x13da0",
+            "from": "st_mtim.tv_sec",
+            "note": "0x13d9c ldr x6, [sp, #0xd8] -> str w6, [sp, #0x198]",
+            "to": "i_mtime"
+          }
+        ],
+        "corroboration": "st_mode, st_uid and st_gid are copied to i_mode, i_uid and i_gid in the same straight line, with the high halves of the two ids going to l_i_uid_high and l_i_gid_high. They are no part of the claim, which is what makes them useful witnesses: a base that were wrong by any amount would land the ownership and the mode somewhere they visibly are not.",
+        "inodeBuffer": {
+          "base": "sp+0x188",
+          "baseEstablishedAt": "0x13d08",
+          "baseEstablishedBy": "strh w0, [sp, #0x1a2] stores the link count of 1 set at 0x13d00, and i_links_count sits at inode offset 0x1a. 0x13d04 add x2, sp, #0x188 then passes the same address to ext2fs_write_new_inode and later to ext2fs_read_inode and ext2fs_write_inode.",
+          "fields": [
+            {
+              "address": "sp+0x188",
+              "name": "i_mode",
+              "structOffset": 0,
+              "writtenAt": "0x13d98"
+            },
+            {
+              "address": "sp+0x18a",
+              "name": "i_uid",
+              "structOffset": 2,
+              "writtenAt": "0x13d74"
+            },
+            {
+              "address": "sp+0x190",
+              "name": "i_atime",
+              "structOffset": 8,
+              "writtenAt": "0x13dac"
+            },
+            {
+              "address": "sp+0x194",
+              "name": "i_ctime",
+              "structOffset": 12,
+              "writtenAt": "0x13dac"
+            },
+            {
+              "address": "sp+0x198",
+              "name": "i_mtime",
+              "structOffset": 16,
+              "writtenAt": "0x13da0"
+            },
+            {
+              "address": "sp+0x1a0",
+              "name": "i_gid",
+              "structOffset": 24,
+              "writtenAt": "0x13d88"
+            },
+            {
+              "address": "sp+0x1a2",
+              "name": "i_links_count",
+              "structOffset": 26,
+              "writtenAt": "0x13d08"
+            }
+          ],
+          "layout": "struct ext2_inode"
+        },
+        "statBuffer": {
+          "base": "sp+0x80",
+          "baseEstablishedAt": "0x13970",
+          "baseEstablishedBy": "add x0, sp, #0x80 -> 0x13974 str x0, [sp, #0x18] -> 0x139e8 ldr x1, [sp, #0x18] -> 0x139f0 bl lstat64@plt. The base is the operand of the instruction that forms the pointer lstat64 fills, so it is read rather than inferred from a field.",
+          "fields": [
+            {
+              "address": "sp+0x90",
+              "name": "st_mode",
+              "readAt": "0x13d80",
+              "structOffset": 16
+            },
+            {
+              "address": "sp+0x98",
+              "name": "st_uid",
+              "readAt": "0x13d70",
+              "structOffset": 24
+            },
+            {
+              "address": "sp+0x9c",
+              "name": "st_gid",
+              "readAt": "0x13d70",
+              "structOffset": 28
+            },
+            {
+              "address": "sp+0xc8",
+              "name": "st_atim.tv_sec",
+              "readAt": "0x13d60",
+              "structOffset": 72
+            },
+            {
+              "address": "sp+0xd8",
+              "name": "st_mtim.tv_sec",
+              "readAt": "0x13d9c",
+              "structOffset": 88
+            },
+            {
+              "address": "sp+0xe8",
+              "name": "st_ctim.tv_sec",
+              "readAt": "0x13d68",
+              "structOffset": 104
+            }
+          ],
+          "layout": "struct stat, aarch64 LP64"
+        },
+        "why": "The walk above was read off a disassembly by hand. A mistyped displacement moves a field without making anything read less plausible -- sp+0xd8 and sp+0xe8 are one character apart and name different times -- so the operands are recorded here and the addresses are recomputed from them by scripts/test_native_shadow_boot_root_disk_determinism_successor_arm64_v1.py rather than trusted as written."
+      },
       "optionsPutToTheOperator": [
         {
           "confirmationContract": {
@@ -178,6 +296,27 @@
           "note": "same three fields, taken from fs->now with the zero sentinel behind a branch, which is why only these inodes moved in i_atime and i_mtime"
         }
       ],
+      "staticNegative": {
+        "claim": "The staging overwrite reads nothing from the ext2_filsys struct, so no value of the successor variable can reach i_atime, i_ctime or i_mtime on this path.",
+        "consequence": "E2FSPROGS_FAKE_TIME is necessary and not sufficient: it fixes the fields ext2fs_write_new_inode writes, and the overwrite that follows puts the staging file's wall clock back into three of them.",
+        "fsNowDisplacement": "0xb8",
+        "fsRegisterEstablishedBy": "x21 is moved into x0 before ext2fs_write_new_inode at 0x13d0c, before ext2fs_read_inode at 0x13d48 and before ext2fs_write_inode at 0x13d6c, and all three take ext2_filsys as their first argument.",
+        "fsRegisterInThatWindow": "x21",
+        "howCounted": "objdump -d over the window, counting loads whose base register is x21 and, separately, loads at displacement 0xb8 from any base. Both counts are zero.",
+        "loadsAtTheFsNowDisplacementInTheWindow": 0,
+        "loadsFromTheFsRegisterInTheWindow": 0,
+        "positiveControl": {
+          "address": "0x13ca4",
+          "instruction": "ldr x1, [x21, #0xb8] -> 0x13cc0 cbz x1, 0x14900",
+          "why": "The same binary, the same register and the same displacement read fs->now for the inodes mke2fs creates itself, a few instructions before the window. The zero is therefore a property of this path and not of the search."
+        },
+        "window": {
+          "endsAt": "bl ext2fs_write_inode@plt, which commits the overwrite",
+          "from": "0x13d1c",
+          "startsAt": "the return of ext2fs_write_new_inode, which is the last writer that does honour fs->now",
+          "to": "0x13db0"
+        }
+      },
       "whatTheOriginalClaimGotRight": "Every site it lists is real, and for the superblock, for i_crtime and for the handful of inodes mke2fs creates itself, a fixed non-zero fs->now does reach the field and time() sits behind the zero branch.",
       "whatTheOriginalClaimGotWrong": "It generalised ext2fs_write_new_inode to every inode. For the entries mke2fs copies under -d, set_inode_extra runs afterwards and overwrites i_atime, i_ctime and i_mtime from the staging filesystem's struct stat. fs->now is never read on that path, so the writer time cannot reach it.",
       "whyItCannotBeSetFromUserspace": "utimensat sets atime and mtime only. ctime is written by the kernel on every metadata change, including the utimensat that sets the other two, so a staged file's ctime is the moment staging touched it. Two replicas stage at different moments.",

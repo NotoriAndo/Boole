@@ -1692,6 +1692,19 @@ This reconciles exactly with what the predecessor measured. Of the inodes that d
 two images, `i_atime` differed in five and `i_mtime` in five — and those five are the inodes `mke2fs`
 creates itself — while `i_ctime` differed in all of them.
 
+A second pass replaced the two weak links in that reading. The stat buffer no longer rests on an
+inference from `S_IFMT`: `0x13970` computes its address outright and `0x13974` spills it to the slot
+`lstat64` is handed, so the base is read rather than deduced. And the walk's displacements are no
+longer trusted as transcribed — the record now carries each field's offset inside its struct beside
+its address, and the test module recomputes every address from the base. Six fields are recomputed
+against each base, three of which — the mode and the two ownership ids — are no part of the claim,
+which is what makes them useful: a base wrong by any amount would land the ownership somewhere it
+visibly is not. The load-bearing half of the finding is an absence, so it is counted rather than
+asserted: across the whole window from `0x13d1c` to `0x13db0`, the number of loads from the
+`ext2_filsys` pointer is zero, and the number at the `fs->now` displacement `0xb8` is zero. The
+contrast at `0x13ca4` is the control that makes the zero mean something — the same register and the
+same displacement, in the same binary, a few instructions earlier.
+
 ### 26.3 Why the fix does not follow from this
 
 `st_atime` and `st_mtime` can be pinned from userspace; `st_ctime` cannot. `utimensat` sets atime and

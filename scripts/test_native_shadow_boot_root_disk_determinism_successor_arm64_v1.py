@@ -355,6 +355,155 @@ class CorrectionTests(unittest.TestCase):
         self.assertIn("byte-unchanged", order)
 
 
+class WalkArithmeticTests(unittest.TestCase):
+    """The walk was read off a disassembly by hand, and hand-read displacements slip.
+
+    A mistyped one moves a field without making the record read any less
+    plausible: `sp+0xd8` and `sp+0xe8` are one character apart and name
+    different times, and swapping them would leave the correction pointing at
+    the wrong cause while every sentence around it still made sense.  The record
+    therefore carries the operands the walk used -- the two buffer bases and each
+    field's offset inside its struct -- and these tests recompute every address
+    from them rather than trusting the address as written.
+
+    They also refuse to let a base rest on the field it was derived from.  Six
+    fields are recomputed against each base, so a base off by a byte fails six
+    times instead of passing as an assumption.
+    """
+
+    def arithmetic(self) -> dict:
+        return document()["corrections"][0]["offsetArithmetic"]
+
+    @staticmethod
+    def displacement(address: str) -> int:
+        prefix, _, offset = address.partition("+")
+        assert prefix == "sp", address
+        return int(offset, 16)
+
+    def test_every_stat_field_address_follows_from_its_offset_in_the_struct(self) -> None:
+        buffer = self.arithmetic()["statBuffer"]
+        base = self.displacement(buffer["base"])
+        for row in buffer["fields"]:
+            self.assertEqual(
+                base + row["structOffset"],
+                self.displacement(row["address"]),
+                f"{row['name']} does not sit where {buffer['base']} puts it",
+            )
+
+    def test_every_inode_field_address_follows_from_its_offset_in_the_struct(self) -> None:
+        buffer = self.arithmetic()["inodeBuffer"]
+        base = self.displacement(buffer["base"])
+        for row in buffer["fields"]:
+            self.assertEqual(
+                base + row["structOffset"],
+                self.displacement(row["address"]),
+                f"{row['name']} does not sit where {buffer['base']} puts it",
+            )
+
+    def test_each_base_is_corroborated_by_fields_the_finding_does_not_rest_on(self) -> None:
+        """`st_mode`, `st_uid` and `st_gid` are copied in the same straight line.
+
+        They are not part of the claim, which makes them the useful witnesses: if
+        the base were wrong the timestamps could still be explained away, but the
+        mode and the ownership landing correctly could not.
+        """
+
+        arithmetic = self.arithmetic()
+        for buffer in (arithmetic["statBuffer"], arithmetic["inodeBuffer"]):
+            named = {row["name"] for row in buffer["fields"]}
+            times = {n for n in named if "time" in n or "tim." in n}
+            self.assertGreaterEqual(len(named - times), 3, buffer["base"])
+
+    def test_the_stat_buffer_base_is_computed_rather_than_inferred(self) -> None:
+        """One instruction takes the address and hands it to `lstat64`.
+
+        Deriving the base from `st_mode` alone would be an inference about a
+        struct layout.  Reading the instruction that forms the pointer is not.
+        """
+
+        buffer = self.arithmetic()["statBuffer"]
+        self.assertEqual(buffer["baseEstablishedAt"], "0x13970")
+        established = buffer["baseEstablishedBy"]
+        self.assertIn("add x0, sp, #0x80", established)
+        self.assertIn("lstat64", established)
+
+    def test_the_three_copies_run_from_the_stat_times_to_the_inode_times(self) -> None:
+        copies = {row["to"]: row["from"] for row in self.arithmetic()["copies"]}
+        self.assertEqual(
+            copies,
+            {
+                "i_atime": "st_atim.tv_sec",
+                "i_ctime": "st_ctim.tv_sec",
+                "i_mtime": "st_mtim.tv_sec",
+            },
+        )
+        addressed = {row["name"] for row in self.arithmetic()["statBuffer"]["fields"]}
+        self.assertTrue(set(copies.values()) <= addressed)
+
+    def test_the_surviving_field_is_one_of_the_copies(self) -> None:
+        """The arithmetic has to land on the field the correction says survives."""
+
+        surviving = self.correction_fields()
+        copied = {row["to"] for row in self.arithmetic()["copies"]}
+        self.assertTrue(set(surviving) <= copied)
+
+    @staticmethod
+    def correction_fields() -> list:
+        return document()["corrections"][0]["effectOnTheSuccessorValue"][
+            "fieldsStillNonDeterministic"
+        ]
+
+
+class StaticNegativeTests(unittest.TestCase):
+    """The load-bearing half of the correction is an absence.
+
+    The claim is not that the staging path reads the wrong time; it is that it
+    reads no time from the filesystem struct at all, which is why no value of
+    the successor variable can reach these fields.  An absence found by looking
+    is worth what the looking was worth, so the record has to say where it
+    looked, how wide, and what would have shown up.  The positive control is the
+    part that makes the zero mean something: the same register in the same binary
+    does read `fs->now` a few instructions earlier.
+    """
+
+    def negative(self) -> dict:
+        return document()["corrections"][0]["staticNegative"]
+
+    def test_the_window_is_bounded_and_ends_at_the_write_back(self) -> None:
+        window = self.negative()["window"]
+        self.assertLess(int(window["from"], 16), int(window["to"], 16))
+        self.assertIn("ext2fs_write_inode", window["endsAt"])
+
+    def test_nothing_in_the_window_reads_the_filesystem_struct(self) -> None:
+        row = self.negative()
+        self.assertEqual(row["loadsFromTheFsRegisterInTheWindow"], 0)
+        self.assertEqual(row["loadsAtTheFsNowDisplacementInTheWindow"], 0)
+        self.assertEqual(row["fsNowDisplacement"], "0xb8")
+
+    def test_the_register_it_counted_is_shown_to_be_the_filesystem_pointer(self) -> None:
+        """A count over the wrong register would be zero for an uninteresting reason."""
+
+        row = self.negative()
+        self.assertEqual(row["fsRegisterInThatWindow"], "x21")
+        shown = row["fsRegisterEstablishedBy"]
+        for callee in ("ext2fs_write_new_inode", "ext2fs_read_inode", "ext2fs_write_inode"):
+            self.assertIn(callee, shown)
+
+    def test_the_zero_has_a_positive_control_in_the_same_binary(self) -> None:
+        control = self.negative()["positiveControl"]
+        self.assertEqual(control["address"], "0x13ca4")
+        self.assertIn("x21", control["instruction"])
+        self.assertIn("0xb8", control["instruction"])
+        self.assertOutsideWindow = int(control["address"], 16)
+        window = self.negative()["window"]
+        self.assertLess(self.assertOutsideWindow, int(window["from"], 16))
+
+    def test_the_absence_is_what_makes_the_successor_value_insufficient(self) -> None:
+        consequence = self.negative()["consequence"]
+        self.assertIn(root_disk.FAKE_TIME_ENV, consequence)
+        self.assertIn("not sufficient", consequence)
+
+
 class ProductionReadinessTests(unittest.TestCase):
     def test_production_is_blocked_by_the_correction(self) -> None:
         readiness = document()["productionReadiness"]
