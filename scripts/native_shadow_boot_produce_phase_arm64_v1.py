@@ -36,6 +36,7 @@ import os
 import pathlib
 import sys
 import tarfile
+import tempfile
 from typing import Any, Mapping, Optional, Sequence
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -243,6 +244,27 @@ def _runtime_lock(gpgv: pathlib.Path, zstd: pathlib.Path) -> tuple[Any, bytes]:
     return normalized, normalized_raw
 
 
+def bind_temporary_directory(scratch: pathlib.Path) -> pathlib.Path:
+    """Put every temporary file in the one tree the sealed unit can write.
+
+    `systemd-run` starts a transient unit with a clean environment, so the
+    `TMPDIR` the driver exports never arrives here; and the unit is sealed with
+    the filesystem read-only apart from the paths it was given, so /tmp,
+    /var/tmp, /usr/tmp and / are all refused.  Python finds nothing usable and
+    dies before the phase has written anything.
+
+    Binding it here rather than carrying it in leaves no environment variable to
+    forget.  The environment is set as well as `tempfile`, because `zstd`,
+    `mke2fs` and `debugfs` read the variable rather than Python's idea of it.
+    """
+
+    temporary = scratch / "tmp"
+    temporary.mkdir(parents=True, exist_ok=True)
+    os.environ["TMPDIR"] = str(temporary)
+    tempfile.tempdir = str(temporary)
+    return temporary
+
+
 def produce(
     *,
     scratch: pathlib.Path,
@@ -357,7 +379,11 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
+    # Here rather than inside produce(): the binding is process-global, and the
+    # process boundary is the one place where changing process-global state is
+    # not a surprise to whoever called.
     try:
+        bind_temporary_directory(args.scratch)
         result = produce(
             scratch=args.scratch,
             outputs=args.outputs,

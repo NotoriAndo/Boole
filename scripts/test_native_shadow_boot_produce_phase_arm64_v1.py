@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import pathlib
 import tempfile
 import unittest
@@ -183,6 +184,89 @@ class RefusalTests(unittest.TestCase):
                     launcher=pathlib.Path("/nonexistent/launcher"),
                 )
             self.assertIn("root", str(caught.exception).lower())
+
+
+class TemporaryDirectoryTests(unittest.TestCase):
+    """The unit is sealed read-only and started clean, so it has no /tmp.
+
+    `systemd-run` does not carry the caller's environment into a transient
+    unit, so the `TMPDIR` the driver exports never arrives; and the unit is
+    sealed with the filesystem read-only except the paths it was given, so
+    Python walks /tmp, /var/tmp, /usr/tmp and / and finds none of them
+    writable.  The first run on the arm64 runner died on exactly that, before
+    it had written anything.
+
+    Binding the directory inside the phase rather than passing it in leaves no
+    environment variable to forget: the phase is already told where its scratch
+    is, and that is the one place it puts anything.
+    """
+
+    def setUp(self) -> None:
+        previous_environ = os.environ.get("TMPDIR")
+        previous_tempdir = tempfile.tempdir
+
+        def restore() -> None:
+            tempfile.tempdir = previous_tempdir
+            if previous_environ is None:
+                os.environ.pop("TMPDIR", None)
+            else:
+                os.environ["TMPDIR"] = previous_environ
+
+        self.addCleanup(restore)
+
+    def test_temporaries_land_in_the_scratch_the_unit_can_write(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            root = pathlib.Path(scratch)
+            bound = phase.bind_temporary_directory(root)
+            self.assertEqual(bound, root / "tmp")
+            self.assertTrue(bound.is_dir())
+            self.assertEqual(os.environ["TMPDIR"], str(bound))
+            self.assertEqual(tempfile.gettempdir(), str(bound))
+
+    def test_the_children_it_starts_are_told_the_same_place(self) -> None:
+        """`zstd`, `mke2fs` and `debugfs` read TMPDIR, not Python's idea of it."""
+
+        with tempfile.TemporaryDirectory() as scratch:
+            bound = phase.bind_temporary_directory(pathlib.Path(scratch))
+            self.assertEqual(os.environ["TMPDIR"], str(bound))
+
+    def test_the_command_binds_it_before_the_phase_can_need_one(self) -> None:
+        """Even the run that is refused had somewhere to put a temporary."""
+
+        if os.geteuid() == 0:
+            self.skipTest("this host is root; the early refusal is not observable")
+        with tempfile.TemporaryDirectory() as scratch:
+            root = pathlib.Path(scratch)
+            code = phase.main(
+                [
+                    "produce",
+                    "--scratch", str(root),
+                    "--outputs", str(root / "out"),
+                    "--gpgv", "/nonexistent/gpgv",
+                    "--zstd", "/nonexistent/zstd",
+                    "--launcher", "/nonexistent/launcher",
+                ]
+            )
+            self.assertEqual(code, 1)
+            self.assertEqual(os.environ["TMPDIR"], str(root / "tmp"))
+
+    def test_calling_the_phase_directly_changes_nothing_process_wide(self) -> None:
+        """A caller in a shared process should not have its temporaries moved."""
+
+        if os.geteuid() == 0:
+            self.skipTest("this host is root; the early refusal is not observable")
+        before = tempfile.gettempdir()
+        with tempfile.TemporaryDirectory() as scratch:
+            root = pathlib.Path(scratch)
+            with self.assertRaises(phase.ProducePhaseError):
+                phase.produce(
+                    scratch=root,
+                    outputs=root / "out",
+                    gpgv=pathlib.Path("/nonexistent/gpgv"),
+                    zstd=pathlib.Path("/nonexistent/zstd"),
+                    launcher=pathlib.Path("/nonexistent/launcher"),
+                )
+        self.assertEqual(tempfile.gettempdir(), before)
 
 
 class BoundaryTests(unittest.TestCase):
