@@ -1,0 +1,67 @@
+{
+  "activationAllowed": false,
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "guestBootVerified": false,
+    "guestImageBuilt": false,
+    "initrdBuilt": false,
+    "launcherDeployedIntoGuest": false,
+    "rootDiskBuilt": false,
+    "runtimeCompatibilityVerified": false,
+    "systemdGuestClosureAudited": true
+  },
+  "closureFormat": "systemd-rootfs-closure-authority-v1",
+  "lockAudit": {
+    "enablementTarget": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+    "execStart": "/usr/libexec/boole/boole-native-shadow-launcher",
+    "launcherUnitSha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+    "machineIdEmpty": true,
+    "replayNodeReferences": [],
+    "reproducibleInCi": true,
+    "sysusersSha256": "75b1ae8eb024396dcb36d3713435115dba68a8c52b05705ce4fe3b8e7f616445",
+    "tmpfilesSha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+    "wantedBy": "multi-user.target"
+  },
+  "packageAudit": {
+    "initLinkPath": "/usr/sbin/init",
+    "initLinkProvidedBy": "systemd-sysv",
+    "initLinkResolvesTo": "/usr/lib/systemd/systemd",
+    "initLinkTarget": "../lib/systemd/systemd",
+    "packages": [
+      {
+        "architecture": "all",
+        "name": "init-system-helpers",
+        "sha256": "8eb801f9ce084dab9bf4cbc3ec0ee5ac75516a4cc1f25e3f92298c632e75b700",
+        "version": "1.66ubuntu1"
+      },
+      {
+        "architecture": "arm64",
+        "name": "systemd",
+        "sha256": "306d48240e77337c6d9380508356b8e88c70096baf19d695a0a5a1048d55ebb5",
+        "version": "255.4-1ubuntu8"
+      },
+      {
+        "architecture": "arm64",
+        "name": "systemd-sysv",
+        "sha256": "0ecdd0777ab6a64d29ea6dfaad358342232ffef49c5a209a01798cd4f836c6bf",
+        "version": "255.4-1ubuntu8"
+      },
+      {
+        "architecture": "arm64",
+        "name": "udev",
+        "sha256": "44067d2b7cad1777084133340f27be642fa444f7631c444e199c88179a3cb0e4",
+        "version": "255.4-1ubuntu8"
+      }
+    ],
+    "pid1Machine": "aarch64",
+    "pid1Path": "/usr/lib/systemd/systemd",
+    "pid1ProvidedBy": "systemd",
+    "pid1Sha256": "ab970cc6f829555cad7e6891823b9c82b02f277b8fae081b7072b05e94f23f90",
+    "reproducibleInCi": false
+  },
+  "release": "NATIVE-SHADOW-BOOT-SYSTEMD-CLOSURE-ARM64-V1",
+  "schema": "boole.native-shadow.boot-systemd-closure-result.arm64.v1",
+  "sourceLockSha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+  "status": "SYSTEMD-GUEST-CLOSURE-AUDITED-NOT-BOOT-AUTHORITY"
+}

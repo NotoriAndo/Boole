@@ -552,6 +552,54 @@ require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v
 require_text native/containment/native-shadow-boot-kernel-extract-result-arm64-v1.json '"activationAllowed": false'
 require_text docs/native-submission-shadow-verification-v1.md "A kernel image is a file the boot loader can read, not a system that has booted"
 
+# The systemd guest closure audit -- the third and last null slot in the plan
+# scaffold. It answers one question from files alone: would PID 1 be real systemd,
+# and would systemd start the launcher? Both halves are chains of file facts, and
+# the pins below hold each link. The init symlink is the interesting one: Ubuntu
+# 24.04 is usr-merged, so systemd-sysv ships /usr/sbin/init rather than /sbin/init,
+# and its target is RELATIVE. Resolving that against the link's own directory is
+# part of the audit -- reading the target string would accept a link that lands
+# anywhere. A target climbing above the root is refused rather than clamped.
+require_file native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json
+require_file scripts/native_shadow_boot_systemd_closure_arm64_v1.py
+require_file scripts/test_native_shadow_boot_systemd_closure_arm64_v1.py
+require_text scripts/self-test.sh "scripts/test_native_shadow_boot_systemd_closure_arm64_v1.py"
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"status": "SYSTEMD-GUEST-CLOSURE-AUDITED-NOT-BOOT-AUTHORITY"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"closureFormat": "systemd-rootfs-closure-authority-v1"'
+require_text native/containment/native-shadow-boot-artifact-build-plan-arm64-v1-scaffold.json '"format": "systemd-rootfs-closure-authority-v1"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"initLinkPath": "/usr/sbin/init"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"initLinkTarget": "../lib/systemd/systemd"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"initLinkResolvesTo": "/usr/lib/systemd/systemd"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"initLinkProvidedBy": "systemd-sysv"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"pid1Path": "/usr/lib/systemd/systemd"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"pid1ProvidedBy": "systemd"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"pid1Sha256": "ab970cc6f829555cad7e6891823b9c82b02f277b8fae081b7072b05e94f23f90"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"pid1Machine": "aarch64"'
+# systemd being installed is not the same as systemd being PID 1. systemd-sysv is
+# the package that makes the init symlink exist, so its absence would turn the
+# claim back into an assumption.
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"name": "systemd-sysv"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"version": "255.4-1ubuntu8"'
+# Enablement has to agree with what the unit itself asks for. A unit symlinked
+# into the wrong target's wants directory is present and never starts.
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"wantedBy": "multi-user.target"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"execStart": "/usr/libexec/boole/boole-native-shadow-launcher"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"enablementTarget": "/usr/lib/systemd/system/boole-native-shadow-launcher.service"'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"machineIdEmpty": true'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"replayNodeReferences": []'
+# The two evidence tiers stay separate and each says which it is. Averaging them
+# into one boolean would let the package half borrow the lock half's credibility.
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"reproducibleInCi": true'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"reproducibleInCi": false'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"systemdGuestClosureAudited": true'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"guestBootVerified": false'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"guestImageBuilt": false'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"rootDiskBuilt": false'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"bootAuthority": false'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-boot-systemd-closure-result-arm64-v1.json '"activationAllowed": false'
+require_text docs/native-submission-shadow-verification-v1.md "An audited closure is a set of file facts, not a system that has started"
+
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
@@ -573,9 +621,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "515df8b08f0c136130ade09e23effb00539081ce5bad3b9afa258ace0b4a4628"
-require_text docs/native-submission-shadow-verification-v1.md "b301b0171cd25ec3c8ff8fda90e403aadc4abeb0c8649f17628cfc542028cd22"
-require_text docs/native-submission-shadow-verification-v1.md "d15462e470e8235d5cddc3d88350b5a53c9e3b32da5b86321c64d96f4cf3de20"
+require_text docs/native-submission-shadow-verification-v1.md "432fc9d069a5b1c834c19ac9160430ddcd6bdb8d3745978ffaba27183737519d"
+require_text docs/native-submission-shadow-verification-v1.md "fbdc5a955fcb845ee20f128d613d2d52289a2242148a0ef2faf38ae9eb1b2a99"
+require_text docs/native-submission-shadow-verification-v1.md "6c2d2938ee1cd72026ba1d1b639c5fc768dc46ed2f3b6bb07a12ebc8e3cdc16e"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"
