@@ -83,6 +83,10 @@ def sealed_digest() -> str:
 def rebuild(repo_root: pathlib.Path = REPOSITORY_ROOT) -> bytes:
     """One build through the frozen build authority, on the arm64 runner."""
 
+    # The host is checked before the compiler is. A wrong-arch host would
+    # otherwise compile a wrong-arch binary and fail as `launcher-digest-mismatch`,
+    # which reads as a report about the launcher when it is one about the host.
+    build._require_arm64_linux()
     authority = build.load_authority()
     drifted = build.verify_sources(authority, repo_root=repo_root)
     if drifted:

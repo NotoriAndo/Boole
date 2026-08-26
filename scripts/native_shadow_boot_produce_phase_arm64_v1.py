@@ -1,0 +1,380 @@
+#!/usr/bin/env python3
+"""Run the offline half of the arm64 boot image producer, deciding nothing.
+
+Every step this performs already exists and is already frozen.  What did not
+exist is the thing that says in which order they run and where each one's
+inputs come from, and that is precisely the part with room to differ between two
+jobs whose outputs are supposed to be identical.  So this module contributes no
+values of its own: the tool paths are read out of the builder authority, the
+image size is the root disk plan's own floor for this layer, and the output
+names are the producer authority's.  Each of those is derived rather than
+restated, because a second copy of a frozen value is a second thing that can
+drift.
+
+The phase is offline on purpose.  Everything it needs -- the 191 verified
+payloads, the Rust distribution, the rebuilt launcher -- was placed on disk by
+the acquire phase, and the sealed producer authority runs this half with the
+network taken away.  Nothing here fetches anything, and there is no fallback
+that would.
+
+Two host facts are not negotiable.  `mke2fs -d` copies each staged file's owner
+into the image, so this runs as root; and the frozen tools are aarch64 ELFs, so
+this runs on the arm64 runner.  A run that is neither refuses at the start
+rather than producing an image that answers to whoever invoked it.
+
+Producing the three files is not booting them.  Nothing here starts a virtual
+machine, and `bootableClaim` stays false in everything it writes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import io
+import json
+import os
+import pathlib
+import sys
+import tarfile
+from typing import Any, Mapping, Optional, Sequence
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+from scripts import native_shadow_boot_image_produce_arm64_v1 as producer
+from scripts import native_shadow_boot_image_verify_arm64_v1 as image_verify
+from scripts import native_shadow_boot_initrd_arm64_v1 as initrd
+from scripts import native_shadow_boot_kernel_extract_arm64_v1 as kernel_extract
+from scripts import native_shadow_boot_root_disk_arm64_v1 as root_disk
+from scripts import native_shadow_boot_root_disk_execute_arm64_v1 as root_disk_execute
+from scripts import native_shadow_rootfs_builder_boot_arm64_v1 as boot_builder
+from scripts import native_shadow_rootfs_portable_boot_arm64_v1 as portable_boot
+
+
+BOOTABLE_CLAIM = False
+ACTIVATION_ALLOWED = False
+GUEST_BOOT_VERIFIED = False
+
+REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
+BUILDER_AUTHORITY_PATH = (
+    REPOSITORY_ROOT
+    / "native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json"
+)
+BOOT_SOURCE_LOCK_PATH = (
+    REPOSITORY_ROOT
+    / "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json"
+)
+
+SCHEMA = "boole.native-shadow.boot-produce-phase-result.arm64.v1"
+RELEASE = "NATIVE-SHADOW-BOOT-PRODUCE-PHASE-ARM64-V1"
+STATUS = "BOOT-IMAGE-FILES-PRODUCED-OFFLINE-NOT-BOOT-AUTHORITY"
+
+# The only guest path this module names.  `mke2fs` reads `MKE2FS_CONFIG` and
+# falls back to the host's own file when it is unset, which would let the
+# runner's configuration choose feature flags the closure never froze.  The
+# frozen tree ships e2fsprogs, so the config it reads is that tree's.
+MKE2FS_CONFIG_GUEST_PATH = "/etc/mke2fs.conf"
+
+# The authority names each tool by the job it does, not by the name of the file.
+TOOL_ROLES = {"ext4-image-writer": "mke2fs", "ext4-image-inspector": "debugfs"}
+
+# The three things this phase produces, said once.  The producer authority owns
+# what each file is called; these are only enough to tell the three apart, so a
+# renamed output is found here rather than written under the old name.
+OUTPUT_ROLES = ("kernel", "initrd", "root-disk")
+
+DIGEST_PREFIX = "sha256:"
+
+
+class ProducePhaseError(RuntimeError):
+    """The produce phase cannot run, or what it produced does not answer."""
+
+
+def builder_authority(
+    path: pathlib.Path = BUILDER_AUTHORITY_PATH,
+) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ProducePhaseError(f"the builder authority is unreadable: {path}") from exc
+
+
+def tool_paths(
+    tree: pathlib.Path, *, authority: Optional[Mapping[str, Any]] = None
+) -> dict[str, str]:
+    """Where the two frozen tools and their config sit inside the frozen tree.
+
+    The runner is Ubuntu 24.04 arm64 and ships its own `mke2fs`, its own
+    `debugfs` and its own `mke2fs.conf`.  Every one of the three is named
+    relative to the tree so that none of the runner's copies can be the one that
+    writes the image.
+    """
+
+    document = builder_authority() if authority is None else authority
+    rows = document.get("toolBinaries")
+    if not isinstance(rows, list) or not rows:
+        raise ProducePhaseError("the builder authority pins no tool binaries")
+    found: dict[str, str] = {}
+    for row in rows:
+        name = TOOL_ROLES.get(str(row.get("role")))
+        if name is None:
+            raise ProducePhaseError(f"unknown tool role: {row.get('role')!r}")
+        found[name] = str(tree / str(row["memberPath"]).lstrip("./"))
+    missing = sorted(set(TOOL_ROLES.values()) - set(found))
+    if missing:
+        raise ProducePhaseError(
+            "the builder authority pins no " + ", ".join(missing)
+        )
+    found["config"] = str(tree / MKE2FS_CONFIG_GUEST_PATH.lstrip("/"))
+    return found
+
+
+def pinned_size_bytes(layer: bytes) -> int:
+    """The image size, derived from the layer rather than chosen for it.
+
+    The plan already computes the smallest size that provably holds this tree --
+    content blocks, inode table, journal and a flat metadata allowance.  Taking
+    that number is the one option that is not a decision: any headroom above it
+    would be a figure this module invented, and two jobs agree only on figures
+    neither of them invented.  If the floor turns out not to hold the tree, that
+    is the plan's `abort-never-relax` case and is reported, not padded.
+    """
+
+    return root_disk.required_bytes(root_disk.layer_entries(layer))
+
+
+def plan_for(
+    *,
+    layer: bytes,
+    tree: pathlib.Path,
+    image: pathlib.Path,
+    staging: pathlib.Path,
+) -> dict[str, Any]:
+    """The frozen root disk plan for this layer, with nothing left to choose."""
+
+    tools = tool_paths(tree)
+    try:
+        return root_disk.root_disk_plan(
+            layer=layer,
+            mke2fs=tools["mke2fs"],
+            debugfs=tools["debugfs"],
+            config=tools["config"],
+            image=str(image),
+            staging=str(staging),
+            sizeBytes=pinned_size_bytes(layer),
+        )
+    except root_disk.RootDiskPlanError as exc:
+        raise ProducePhaseError(str(exc)) from exc
+
+
+def layer_bytes(oci: pathlib.Path, receipt: Mapping[str, Any]) -> bytes:
+    """The one layer blob the build receipt named, re-hashed before it is used."""
+
+    digest = receipt.get("layerDigest")
+    if not isinstance(digest, str) or not digest.startswith(DIGEST_PREFIX):
+        raise ProducePhaseError(f"the build receipt names no layer: {digest!r}")
+    hexdigest = digest[len(DIGEST_PREFIX) :]
+    blob = oci / "blobs" / "sha256" / hexdigest
+    try:
+        raw = blob.read_bytes()
+    except OSError as exc:
+        raise ProducePhaseError(f"the verified layer blob is absent: {blob}") from exc
+    found = hashlib.sha256(raw).hexdigest()
+    if found != hexdigest:
+        raise ProducePhaseError(
+            f"the layer blob hashes to {found}, the receipt says {hexdigest}"
+        )
+    return raw
+
+
+def output_names() -> tuple[str, ...]:
+    """The three files the produce phase owes, as the producer authority names them."""
+
+    return producer.output_names(producer.load_authority(REPOSITORY_ROOT))
+
+
+def output_paths(outputs: pathlib.Path) -> dict[str, pathlib.Path]:
+    """One path per role, spelled the way the producer authority spells it."""
+
+    names = output_names()
+    found: dict[str, pathlib.Path] = {}
+    for role in OUTPUT_ROLES:
+        matched = [name for name in names if name.endswith(role)]
+        if len(matched) != 1:
+            raise ProducePhaseError(
+                f"the producer authority names {len(matched)} outputs for {role}"
+            )
+        found[role] = outputs / matched[0]
+    if len(set(found.values())) != len(names):
+        raise ProducePhaseError(
+            "the producer authority names an output this phase does not produce"
+        )
+    return found
+
+
+def _extract_tree(layer: bytes, tree: pathlib.Path) -> None:
+    """Unpack the verified layer, keeping the numeric owners it recorded."""
+
+    tree.mkdir(parents=True, exist_ok=True)
+    extra: dict[str, Any] = {"numeric_owner": True}
+    if hasattr(tarfile, "fully_trusted_filter"):
+        # The bytes were just re-hashed against the receipt, so they are the
+        # frozen layer; the filter argument only silences a default that would
+        # otherwise change under us on a newer interpreter.
+        extra["filter"] = "fully_trusted"
+    with tarfile.open(fileobj=io.BytesIO(layer), mode="r:") as handle:
+        handle.extractall(tree, **extra)
+
+
+def _runtime_lock(gpgv: pathlib.Path, zstd: pathlib.Path) -> tuple[Any, bytes]:
+    """Bind this runner's gpgv and zstd into an ephemeral builder input."""
+
+    try:
+        sealed_raw = BOOT_SOURCE_LOCK_PATH.read_bytes()
+    except OSError as exc:
+        raise ProducePhaseError("the sealed boot source lock is unreadable") from exc
+    sealed = json.loads(sealed_raw.decode("utf-8"))
+    try:
+        runtime, _ = portable_boot.materialize_runtime_lock(
+            sealed, sealed_raw, gpgv, zstd
+        )
+        normalized, normalized_raw, _ = boot_builder.normalized_runtime_lock(runtime)
+    except (portable_boot.PortableAuthorityError, boot_builder.BootProjectionError) as exc:
+        raise ProducePhaseError(str(exc)) from exc
+    return normalized, normalized_raw
+
+
+def produce(
+    *,
+    scratch: pathlib.Path,
+    outputs: pathlib.Path,
+    gpgv: pathlib.Path,
+    zstd: pathlib.Path,
+    launcher: pathlib.Path,
+    cas: Optional[pathlib.Path] = None,
+    repository_root: pathlib.Path = REPOSITORY_ROOT,
+) -> dict[str, Any]:
+    """Build the three boot files from the frozen closure, offline."""
+
+    if os.geteuid() != 0:
+        raise ProducePhaseError(
+            "the produce phase must run as root: mke2fs -d copies the staged owner "
+            "into the image, and the frozen plan says root:root throughout"
+        )
+    store = scratch / "cas" if cas is None else cas
+    oci = scratch / "oci"
+    tree = scratch / "tree"
+    outputs.mkdir(parents=True, exist_ok=True)
+    produced = output_paths(outputs)
+
+    lock, lock_raw = _runtime_lock(gpgv, zstd)
+    try:
+        launcher_binary = launcher.read_bytes()
+    except OSError as exc:
+        raise ProducePhaseError(f"the rebuilt launcher is unreadable: {launcher}") from exc
+    build_receipt = boot_builder.build_oci_layout(
+        lock,
+        lock_raw,
+        repository_root,
+        store,
+        oci,
+        launcher_binary=launcher_binary,
+    )
+    layer = layer_bytes(oci, build_receipt)
+    _extract_tree(layer, tree)
+
+    kernel_result, kernel_disposition = kernel_extract.extract(
+        cas_roots=[store],
+        zstd_path=zstd,
+        out_dir=outputs,
+        result_path=scratch / "kernel-extract-result.json",
+    )
+    if not produced["kernel"].is_file():
+        raise ProducePhaseError(
+            "the kernel extractor named its file something other than the producer "
+            f"authority's {produced['kernel'].name}"
+        )
+    initrd_raw = initrd.initrd_bytes(layer)
+    produced["initrd"].write_bytes(initrd_raw)
+
+    image = produced["root-disk"]
+    plan = plan_for(layer=layer, tree=tree, image=image, staging=scratch / "staging")
+    (scratch / "root-disk-plan.json").write_bytes(root_disk.canonical_json(plan))
+    try:
+        disk_result = root_disk_execute.execute(plan, layer, tree)
+    except root_disk_execute.RootDiskExecuteError as exc:
+        raise ProducePhaseError(str(exc)) from exc
+
+    report = image_verify.verify_tree(
+        tree=image_verify.tree_from_initrd(initrd_raw),
+        expectations=image_verify.expectations_from_lock(
+            json.loads(BOOT_SOURCE_LOCK_PATH.read_text(encoding="utf-8"))
+        ),
+        launcherSha256=hashlib.sha256(launcher_binary).hexdigest(),
+        kernel=produced["kernel"].read_bytes(),
+    )
+    if not report["passed"]:
+        failed = [row["id"] for row in report["checks"] if not row["ok"]]
+        raise ProducePhaseError("the produced image failed: " + ", ".join(failed))
+
+    entries = producer.manifest_from_directory(outputs, output_names())
+    manifest = producer.manifest_text(entries)
+    (scratch / "OUTPUT-MANIFEST.txt").write_text(manifest, encoding="utf-8")
+    return {
+        "activationAllowed": ACTIVATION_ALLOWED,
+        "bootableClaim": BOOTABLE_CLAIM,
+        "boundaries": {
+            "guestBootVerified": GUEST_BOOT_VERIFIED,
+            "guestImageBuilt": True,
+            "runtimeCompatibilityVerified": False,
+        },
+        "buildReceipt": build_receipt,
+        "kernel": {
+            "disposition": kernel_disposition,
+            "sha256": kernel_result["kernel"]["sha256"],
+        },
+        "manifest": manifest,
+        "release": RELEASE,
+        "rootDisk": disk_result["image"],
+        "schema": SCHEMA,
+        "status": STATUS,
+        "verification": report,
+    }
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    run = sub.add_parser("produce", help="build the boot files offline, as root")
+    run.add_argument("--scratch", type=pathlib.Path, required=True)
+    run.add_argument("--outputs", type=pathlib.Path, required=True)
+    run.add_argument("--gpgv", type=pathlib.Path, required=True)
+    run.add_argument("--zstd", type=pathlib.Path, required=True)
+    run.add_argument("--launcher", type=pathlib.Path, required=True)
+    run.add_argument("--cas", type=pathlib.Path)
+    run.add_argument("--result", type=pathlib.Path)
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        result = produce(
+            scratch=args.scratch,
+            outputs=args.outputs,
+            gpgv=args.gpgv,
+            zstd=args.zstd,
+            launcher=args.launcher,
+            cas=args.cas,
+        )
+    except (ProducePhaseError, OSError, ValueError) as exc:
+        print(f"produce-phase: {exc}", file=sys.stderr)
+        return 1
+    if args.result:
+        args.result.write_bytes(root_disk.canonical_json(result))
+    sys.stdout.write(result["manifest"])
+    print(f"bootableClaim: {str(BOOTABLE_CLAIM).lower()}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

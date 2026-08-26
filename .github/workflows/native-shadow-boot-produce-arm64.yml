@@ -1,0 +1,158 @@
+name: native-shadow-boot-produce-arm64
+
+# The three arm64 boot files have to be produced twice, independently, and come
+# out byte for byte identical. The developer Mac cannot produce them at all --
+# the tools are aarch64 ELFs and the image is ext4 -- so the two runs happen
+# here, on the runner the producer authority sealed.
+#
+# This is asked for rather than run on every change. Each run acquires the
+# frozen closure and writes a multi-gigabyte root disk, which is not something
+# to do twice on every pull request. Dispatch it when the evidence is wanted.
+#
+# What comes out is evidence, not a release. The images are kept as workflow
+# artifacts and as a SHA-256 manifest; nothing here commits them, and nothing
+# here publishes them. Producing the files is also not booting them.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  produce:
+    # Two independent jobs out of one definition. The authority requires the
+    # runs to be separate; a second copy of the recipe would be a second thing
+    # that can drift, which is exactly what the byte comparison is looking for.
+    name: produce (${{ matrix.replica }})
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    strategy:
+      # Two runs are two pieces of evidence. If the first one fails, the second
+      # still has something to say about why.
+      fail-fast: false
+      matrix:
+        replica: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+          # rust-toolchain.toml asks for these; installing them up front keeps
+          # rustup from fetching anything once the network is taken away.
+          components: rustfmt, clippy
+
+      - name: Acquire the frozen Rust distribution and re-prove its sealed record
+        # This runs first so that what it fetches is decided by nothing except an
+        # empty store, and the sealed record it must reproduce says exactly that:
+        # three archives fetched, no store hits.
+        #
+        # The acquirer writes its result exactly once and refuses to overwrite
+        # one, which on a fresh checkout is a file that is already there. So the
+        # sealed record is set aside, regenerated from this runner's own fetch,
+        # and required to come back byte for byte identical. A difference fails
+        # the run here and is never resolved by keeping the newer one: this
+        # checkout is thrown away, and the seal in the repository is untouched.
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed=native/containment/native-shadow-boot-rustdist-acquisition-result-arm64-v1.json
+          rm "$sealed"
+          python3 scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py --acquire
+          git diff --exit-code -- "$sealed"
+
+      - name: Acquire the frozen package payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          cas="$PWD/local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas"
+          mkdir -p "$cas" "$RUNNER_TEMP/acquire"
+          # The acquisition record is written to scratch, not to the sealed one
+          # in the tree: that document records which payloads this host had
+          # already and which it fetched, which is a fact about the host and not
+          # about the artifacts. The artifacts themselves are verified by digest
+          # here and again by the source lock when the image is built.
+          python3 scripts/native_shadow_boot_rootfs_payload_acquire_arm64_v1.py \
+            --plan native/containment/native-shadow-boot-rootfs-payload-acquisition-plan-arm64-v1.json \
+            --repository-root . \
+            --cas "$cas" \
+            --gpgv "$(readlink -f "$(command -v gpgv)")" \
+            --zstd "$(readlink -f "$(command -v zstd)")" \
+            --output "$RUNNER_TEMP/acquire/payload-acquisition.json"
+
+      - name: Rebuild the launcher and match its sealed digest
+        # The last step that is allowed to reach the network. Everything after
+        # this runs with the network taken away.
+        run: >-
+          python3 scripts/native_shadow_launcher_emit_arm64_v1.py emit
+          --out "$RUNNER_TEMP/launcher"
+
+      - name: Produce the three boot files offline
+        run: |
+          set -euo pipefail
+          sudo ./scripts/native-shadow-boot-produce-arm64.sh \
+            --cas "$PWD/local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas" \
+            --launcher "$RUNNER_TEMP/launcher" \
+            --outputs "$RUNNER_TEMP/boot-outputs" \
+            --result "$RUNNER_TEMP/boot-outputs/PRODUCE-RESULT.json"
+
+      - name: Write the SHA-256 manifest
+        run: |
+          set -euo pipefail
+          python3 scripts/native_shadow_boot_image_produce_arm64_v1.py manifest \
+            --repository-root . \
+            --outputs "$RUNNER_TEMP/boot-outputs" \
+            > "$RUNNER_TEMP/OUTPUT-MANIFEST.txt"
+          cat "$RUNNER_TEMP/OUTPUT-MANIFEST.txt"
+
+      - name: Keep the manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: boot-manifest-${{ matrix.replica }}
+          path: ${{ runner.temp }}/OUTPUT-MANIFEST.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Keep the produced files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: boot-outputs-${{ matrix.replica }}
+          path: ${{ runner.temp }}/boot-outputs
+          if-no-files-found: error
+          retention-days: 7
+          # The root disk is mostly zeroes, so even the cheapest setting shrinks
+          # it a long way, and the expensive ones cost minutes for very little.
+          compression-level: 1
+
+  compare:
+    # Byte identity or nothing. A difference is reported and stops the run; it
+    # is never resolved by picking one of the two.
+    name: compare
+    needs: [produce]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Fetch the first manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: boot-manifest-1
+          path: first
+
+      - name: Fetch the second manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: boot-manifest-2
+          path: second
+
+      - name: Require the two independent runs to agree byte for byte
+        run: |
+          set -euo pipefail
+          cat first/OUTPUT-MANIFEST.txt
+          python3 scripts/native_shadow_boot_image_produce_arm64_v1.py compare \
+            --first first/OUTPUT-MANIFEST.txt \
+            --second second/OUTPUT-MANIFEST.txt
