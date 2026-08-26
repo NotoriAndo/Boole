@@ -12,9 +12,13 @@ match the seal stops the build with the authority's own abort id.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import pathlib
+import tempfile
 import unittest
+from typing import Any, Optional
 
 from scripts import native_shadow_rootfs_builder_boot_arm64_v1 as boot
 
@@ -24,6 +28,9 @@ PRODUCER_AUTHORITY_PATH = pathlib.Path(
 )
 PROJECTION_PATH = pathlib.Path(
     "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py"
+)
+SOURCE_LOCK_PATH = pathlib.Path(
+    "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json"
 )
 
 
@@ -118,6 +125,113 @@ class AssemblyTests(unittest.TestCase):
         roots = {root for row in lock["closureRoots"] for root in row["logicalRoots"]}
         parent = boot.LAUNCHER_GUEST_PATH.rsplit("/", 1)[0]
         self.assertIn(parent, roots)
+
+
+class CommandLineTests(unittest.TestCase):
+    """The launcher has to reach the build through the command line too.
+
+    A CI job cannot call ``build_oci_layout`` directly; it runs the builder as a
+    process.  These tests pin that the keyword parameter is reachable from
+    ``--launcher``, that leaving the flag off still means "no launcher" rather
+    than "empty launcher", and that a launcher the job cannot read stops the
+    build with the authority's abort id instead of quietly building without it.
+    """
+
+    def record(self, name: str, argv: list[str]) -> tuple[int, dict[str, Any], str]:
+        """Run the builder CLI with ``name`` replaced by a recorder."""
+
+        captured: dict[str, Any] = {}
+
+        def recorder(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return {"recorded": name}
+
+        original = boot._IMPL[name]
+        boot._IMPL[name] = recorder
+        stdout, stderr = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                code = boot.main(argv)
+        finally:
+            boot._IMPL[name] = original
+        return code, captured, stderr.getvalue()
+
+    def build_argv(self, output: str, launcher: Optional[str]) -> list[str]:
+        argv = [
+            "build",
+            "--lock",
+            str(SOURCE_LOCK_PATH),
+            "--artifact-store",
+            output,
+            "--repo-root",
+            ".",
+            "--output",
+            output,
+        ]
+        if launcher is not None:
+            argv.extend(["--launcher", launcher])
+        return argv
+
+    def test_build_forwards_the_launcher_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            launcher = pathlib.Path(scratch) / "boole-native-shadow-launcher"
+            launcher.write_bytes(b"rebuilt-launcher-bytes")
+            code, captured, _ = self.record(
+                "build_oci_layout", self.build_argv(scratch, str(launcher))
+            )
+        self.assertEqual(code, 0)
+        self.assertEqual(captured["kwargs"]["launcher_binary"], b"rebuilt-launcher-bytes")
+
+    def test_build_without_the_flag_forwards_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            code, captured, _ = self.record(
+                "build_oci_layout", self.build_argv(scratch, None)
+            )
+        self.assertEqual(code, 0)
+        self.assertIsNone(captured["kwargs"]["launcher_binary"])
+
+    def test_verify_forwards_the_launcher_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            launcher = pathlib.Path(scratch) / "boole-native-shadow-launcher"
+            launcher.write_bytes(b"rebuilt-launcher-bytes")
+            code, captured, _ = self.record(
+                "verify_oci_layout",
+                [
+                    "verify",
+                    "--lock",
+                    str(SOURCE_LOCK_PATH),
+                    "--artifact-store",
+                    scratch,
+                    "--repo-root",
+                    ".",
+                    "--layout",
+                    scratch,
+                    "--launcher",
+                    str(launcher),
+                ],
+            )
+        self.assertEqual(code, 0)
+        self.assertEqual(captured["kwargs"]["launcher_binary"], b"rebuilt-launcher-bytes")
+
+    def test_a_launcher_the_job_cannot_read_stops_the_build(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            missing = str(pathlib.Path(scratch) / "absent")
+            code, captured, stderr = self.record(
+                "build_oci_layout", self.build_argv(scratch, missing)
+            )
+        self.assertEqual(code, 2)
+        self.assertEqual(captured, {})
+        self.assertIn(boot.ABORT_LAUNCHER_DIGEST_MISMATCH, stderr)
+
+    def test_reading_no_launcher_is_not_the_same_as_an_empty_one(self) -> None:
+        self.assertIsNone(boot.read_launcher(None))
+
+    def test_reading_a_launcher_gives_its_bytes_back(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            path = pathlib.Path(scratch) / "launcher"
+            path.write_bytes(b"\x7fELF-stand-in")
+            self.assertEqual(boot.read_launcher(path), b"\x7fELF-stand-in")
 
 
 if __name__ == "__main__":

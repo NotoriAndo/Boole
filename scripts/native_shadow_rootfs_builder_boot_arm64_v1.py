@@ -318,6 +318,54 @@ REPLACEMENTS = (
         "        )\n",
         1,
     ),
+    # A CI job runs the builder as a process, so the keyword parameter needs a
+    # flag. It stays optional: a build that supplies no launcher is still the
+    # build the two local runs already agreed on, byte for byte.
+    (
+        '        if command == "build":\n'
+        '            sub.add_argument("--output", required=True, type=pathlib.Path)\n'
+        '        elif command == "verify":\n'
+        '            sub.add_argument("--layout", required=True, type=pathlib.Path)\n',
+        '        if command == "build":\n'
+        '            sub.add_argument("--output", required=True, type=pathlib.Path)\n'
+        '            sub.add_argument("--launcher", type=pathlib.Path)\n'
+        '        elif command == "verify":\n'
+        '            sub.add_argument("--layout", required=True, type=pathlib.Path)\n'
+        '            sub.add_argument("--launcher", type=pathlib.Path)\n',
+        1,
+    ),
+    (
+        '        elif args.command == "build":\n'
+        "            receipt = build_oci_layout(\n"
+        "                lock, raw, args.repo_root, args.artifact_store, args.output\n"
+        "            )\n",
+        '        elif args.command == "build":\n'
+        "            receipt = build_oci_layout(\n"
+        "                lock,\n"
+        "                raw,\n"
+        "                args.repo_root,\n"
+        "                args.artifact_store,\n"
+        "                args.output,\n"
+        "                launcher_binary=read_launcher(args.launcher),\n"
+        "            )\n",
+        1,
+    ),
+    (
+        "        else:\n"
+        "            receipt = verify_oci_layout(\n"
+        "                lock, raw, args.repo_root, args.artifact_store, args.layout\n"
+        "            )\n",
+        "        else:\n"
+        "            receipt = verify_oci_layout(\n"
+        "                lock,\n"
+        "                raw,\n"
+        "                args.repo_root,\n"
+        "                args.artifact_store,\n"
+        "                args.layout,\n"
+        "                launcher_binary=read_launcher(args.launcher),\n"
+        "            )\n",
+        1,
+    ),
 )
 
 # Ubuntu 24.04 is merged-/usr: ``/lib`` is a symlink to ``usr/lib``, so a member
@@ -427,6 +475,25 @@ def launcher_entry(
         "gid": 0,
         "raw": binary,
     }
+
+
+def read_launcher(path: Optional[pathlib.Path]) -> Optional[bytes]:
+    """The rebuilt launcher named on the command line, or nothing.
+
+    Nothing is a real answer: builds that place no launcher are the ones whose
+    bytes are already known to agree, and the difference between "no launcher"
+    and "an empty launcher" is the difference between that build and a refusal.
+    A launcher that was named but cannot be read is neither, so it stops here.
+    """
+
+    if path is None:
+        return None
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise RootfsBuildError(
+            f"{ABORT_LAUNCHER_DIGEST_MISMATCH}: cannot read the rebuilt launcher: {path}"
+        ) from exc
 
 
 def _load_metadata_exceptions(document: dict[str, Any]) -> dict[str, tuple[int, int, int]]:
@@ -616,6 +683,7 @@ _IMPL["USRMERGE_ROOTS"] = USRMERGE_ROOTS
 _IMPL["_dangling_allowed"] = _dangling_allowed
 _IMPL["DANGLING_SYMLINKS"] = DANGLING_SYMLINKS
 _IMPL["launcher_entry"] = launcher_entry
+_IMPL["read_launcher"] = read_launcher
 
 RootfsBuildError = _IMPL["RootfsBuildError"]
 BUILDER_SHA256 = _IMPL["BUILDER_SHA256"]
