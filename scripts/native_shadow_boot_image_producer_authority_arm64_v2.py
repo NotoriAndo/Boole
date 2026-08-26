@@ -123,9 +123,15 @@ ABORT_CONDITIONS = [
         "relaxKnobAllowed": False,
     },
     {
-        "action": "stop-and-report-the-package",
-        "detects": "a maintainer script appeared in the consumed set",
-        "id": "maintainer-script-present",
+        "action": "stop-and-report-the-path",
+        "detects": "a maintainer script was copied into the assembled tree",
+        "id": "maintainer-script-copied-into-tree",
+        "relaxKnobAllowed": False,
+    },
+    {
+        "action": "stop-and-report-both-packages",
+        "detects": "two packages claim the same logical path",
+        "id": "package-path-collision",
         "relaxKnobAllowed": False,
     },
     {
@@ -167,7 +173,7 @@ RESULT_RETENTION = {
     "uploadToRelease": False,
 }
 
-AUTHORITY_SHA256 = "2af2fddfba29ef3302274c8e8e9ddf0e06bacb977f2efd5ce78844b9a2b3b12a"
+AUTHORITY_SHA256 = "6e4a2ae19493f81a58e6130ea95676967cb08fd7d7f3694eb90f673e6e3a1820"
 
 HEX = frozenset("0123456789abcdef")
 

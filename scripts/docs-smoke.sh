@@ -664,6 +664,12 @@ require_text native/containment/native-shadow-boot-image-producer-authority-arm6
 require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"separateJobs": true'
 # A determinism mismatch is a hard stop, never a knob turned down.
 require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"id": "independent-builds-differ"'
+# Maintainer scripts in the frozen packages are normal (262 of them); the abort
+# is one reaching the assembled tree. Wording it as the consumed set would stop
+# every run that ever starts.
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"id": "maintainer-script-copied-into-tree"'
+forbid_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json "consumed set"
+require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"id": "package-path-collision"'
 require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"relaxKnobAllowed": false'
 require_text native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json '"mismatchAction": "report-the-difference-never-force-a-match"'
 # The launcher is rebuilt and matched against the seal, never received as a handoff.
@@ -700,8 +706,8 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "38fe722450ca09bfa575caefff25cccd330dcf23eef991108358a387edd5a482"
-require_text docs/native-submission-shadow-verification-v1.md "2b42501774eccffbd80ebe33bed0a677a0cb6ffafb0dd1d9676407194277a37e"
+require_text docs/native-submission-shadow-verification-v1.md "6cc72cef28b270a1b630b64670fc3531499184f7b0d5701b9ce99562f65c61c1"
+require_text docs/native-submission-shadow-verification-v1.md "b9af9d378307a044b33fb9e493877b2bb43746ed5020e901b6df5cda86f2a05a"
 require_text docs/native-submission-shadow-verification-v1.md "70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"

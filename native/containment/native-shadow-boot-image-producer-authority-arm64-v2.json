@@ -19,9 +19,15 @@
       "relaxKnobAllowed": false
     },
     {
-      "action": "stop-and-report-the-package",
-      "detects": "a maintainer script appeared in the consumed set",
-      "id": "maintainer-script-present",
+      "action": "stop-and-report-the-path",
+      "detects": "a maintainer script was copied into the assembled tree",
+      "id": "maintainer-script-copied-into-tree",
+      "relaxKnobAllowed": false
+    },
+    {
+      "action": "stop-and-report-both-packages",
+      "detects": "two packages claim the same logical path",
+      "id": "package-path-collision",
       "relaxKnobAllowed": false
     },
     {
@@ -88,8 +94,8 @@
   "format": "initrd-ext4-producer-authority-v2",
   "generator": {
     "path": "scripts/native_shadow_boot_image_producer_authority_arm64_v2.py",
-    "sha256": "a71baa0cab68cd0c6b7f8633052167c54a6bdf8371c16f13a5274863427d3cf7",
-    "sizeBytes": 19005
+    "sha256": "4bfc0f9554b31e8e34eeca93d1a2c38b0ac1ffb0131d41206530473547d2a96a",
+    "sizeBytes": 19219
   },
   "inputs": {
     "kernelResult": {

@@ -707,8 +707,8 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `38fe722450ca09bfa575caefff25cccd330dcf23eef991108358a387edd5a482` (updated 2026-08-26o — the arm64 CI producer's contract frozen before anything is produced) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `2b42501774eccffbd80ebe33bed0a677a0cb6ffafb0dd1d9676407194277a37e` (updated 2026-08-26o — the operator chose CI production; D1 froze the contract) |
+| `local-docs/todo/todo-l1-network-master.md` | `6cc72cef28b270a1b630b64670fc3531499184f7b0d5701b9ce99562f65c61c1` (updated 2026-08-26o — the arm64 CI producer's contract frozen before anything is produced, with the maintainer-script and path-collision aborts corrected before merge) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `b9af9d378307a044b33fb9e493877b2bb43746ed5020e901b6df5cda86f2a05a` (updated 2026-08-26o — the operator chose CI production; D1 froze the contract) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
 | `local-docs/todo/thesis-realization-roadmap.md` | `70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb` (updated 2026-08-26o — choosing not to make a second copy of a sealed fact) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
@@ -1522,12 +1522,29 @@ requires identical bytes — and checks the result against the sealed
 `/usr/libexec/boole/boole-native-shadow-launcher`. Receiving the ELF as an artifact from another job
 would mean trusting the handoff; rebuilding and re-checking trusts only the seal.
 
-Six abort conditions are named, and every one of them carries `relaxKnobAllowed: false`: two
+Seven abort conditions are named, and every one of them carries `relaxKnobAllowed: false`: two
 independent jobs producing different bytes, a tool binary failing its digest, the produce phase
-reaching for the network, a maintainer script appearing in the consumed set, a required output
-missing or empty, and a rebuilt launcher differing from the seal. The first is the one worth being
-explicit about — if the two jobs disagree on ext4 timestamps, UUID or file order, the run stops and
-reports both digests. It does not lower a determinism knob until they agree.
+reaching for the network, a maintainer script copied into the assembled tree, two packages claiming
+the same logical path, a required output missing or empty, and a rebuilt launcher differing from the
+seal. The first is the one worth being explicit about — if the two jobs disagree on ext4 timestamps,
+UUID or file order, the run stops and reports both digests. It does not lower a determinism knob
+until they agree.
+
+Two of those seven were corrected before this document was merged, by a read-only pass over the
+frozen packages in the local content store. That pass is **not reproducible in CI** — the store is
+gitignored — so it is recorded here as a local observation, not as a verified property. It found
+15,297 entries across the 191 `data.tar` layers (3,460 directories, 11,193 regular files, 643
+symlinks, 1 hardlink), 490,719,409 bytes of regular file content — 0.46 GiB against the frozen 2 GiB
+cap — 11,837 distinct non-directory paths, and **262 maintainer scripts**.
+
+That last number is the correction. The abort condition first said "a maintainer script appeared in
+the consumed set", which every Debian archive violates by construction and which would therefore
+have stopped the first run that ever started. The source lock's rule is `never-execute-or-copy`, so
+the condition that must stop a build is one reaching the assembled tree, and that is what it now
+says. The pass also found **0 path collisions**, which is why the second condition exists: nothing
+in the design decides which of two colliding files wins, so union order would become observable and
+the two independent jobs could disagree for a reason no digest comparison would explain. Zero today
+is a measurement of this package set, not a property of it.
 
 The document names its own generator and the generator names the document, which cannot both be a
 plain file digest. The cycle is broken the way v1 already breaks it: the generator is hashed with its

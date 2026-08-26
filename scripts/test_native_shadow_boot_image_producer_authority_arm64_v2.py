@@ -170,11 +170,47 @@ class AbortConditionTests(unittest.TestCase):
             "independent-builds-differ",
             "tool-binary-digest-mismatch",
             "network-attempted-during-produce",
-            "maintainer-script-present",
+            "maintainer-script-copied-into-tree",
             "output-missing-or-empty",
             "launcher-digest-mismatch",
         ):
             self.assertIn(required, ids)
+
+    def test_the_maintainer_script_abort_is_about_the_tree_not_the_packages(
+        self,
+    ) -> None:
+        """Maintainer scripts in the source packages are normal, not an abort.
+
+        A read-only pass over the 191 frozen debs found 262 of them in the
+        `control.tar` layers, which is what any Debian archive looks like.  The
+        source lock says `never-execute-or-copy`, so the condition that must
+        stop a build is one appearing in the assembled tree.  Wording it as
+        "appeared in the consumed set" would abort every run that ever starts.
+        """
+
+        script = [
+            a
+            for a in doc_abort(authority())
+            if a["id"] == "maintainer-script-copied-into-tree"
+        ][0]
+        self.assertIn("assembled tree", script["detects"])
+        self.assertNotIn("consumed set", script["detects"])
+
+    def test_two_packages_claiming_one_path_is_an_abort(self) -> None:
+        """Nothing decides which of two colliding files wins.
+
+        The same read-only pass found 0 collisions across 11,837 distinct
+        non-directory paths, so union order is unobservable today.  That is a
+        measurement of the current set, not a property of it -- if a collision
+        ever appears, the tree becomes order-dependent and the two independent
+        jobs can disagree for a reason no digest comparison would explain.
+        """
+
+        collision = [
+            a for a in doc_abort(authority()) if a["id"] == "package-path-collision"
+        ][0]
+        self.assertIs(collision["relaxKnobAllowed"], False)
+        self.assertIn("same logical path", collision["detects"])
 
 
 def doc_abort(doc: dict) -> list:
