@@ -1851,3 +1851,30 @@ record, and the status line in the exception file says so:
 is not building, booting or qualifying an image. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
 `BF.7=HOLD`, Base activation false — unchanged.
+
+_2026-08-26u launcher placement addendum:_ **THE LAUNCHER HAS A WAY IN AND A SEAL TO MATCH. NOTHING
+WAS DEPLOYED OR BOOTED.**
+
+`/usr/libexec/boole` is a closure root the sealed lock declares and no package fills. It cannot fill
+itself: the launcher is a build product, so it arrives neither as a deb nor as a tracked repository
+file, and the tracked-file table is an exact set match against the authority bindings — widening it
+to admit a binary that has no repository bytes would be lying about what a tracked authority file is.
+
+The frozen producer authority already said how it may arrive instead, and this is the code that obeys
+it. `acquisition: rebuild-and-match-seal` is the whole rule, so `launcher_entry` checks the rebuilt
+binary's size and digest against the seal separately and stops on either with the authority's own
+`launcher-digest-mismatch`. The digest is read out of the authority rather than restated in the
+projection, and a test asserts the literal does not appear in the projection's source, because a
+second copy of a sealed fact can drift from it silently.
+
+Supplying the launcher is the caller's decision rather than a default, so `build_oci_layout` takes it
+by keyword and `verify_oci_layout` forwards it into its own rebuild — a verify that rebuilt without
+the launcher would report a difference it had itself created. Building this closure with no launcher
+supplied still produces the same bytes it produced before this change, which is what says the
+placement is an addition and not a rewrite.
+
+`launcherDeployedIntoGuest: false` in every sealed record still, and correctly: a path into the tree
+is not a deployment. No launcher was rebuilt here, none was placed, and nothing was booted.
+`bootableClaim: false`, `activationAllowed: false`, `guestImageBuilt: false`. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation false — unchanged.
