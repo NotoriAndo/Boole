@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import pathlib
 import struct
+import tempfile
 import unittest
+import unittest.mock
 
 from scripts import native_shadow_boot_initrd_arm64_v1 as initrd
 from scripts import native_shadow_boot_root_disk_arm64_v1 as root_disk
@@ -526,6 +528,45 @@ class ProductionGateTests(unittest.TestCase):
         self.assertIn(
             "successor-authority", produce.SUCCESSOR_AUTHORITY_PATH.name
         )
+
+    def test_the_gate_is_wired_into_the_entry_point_the_dispatch_actually_calls(
+        self,
+    ) -> None:
+        """A gate that exists and is never called is not a gate.
+
+        `scripts/native-shadow-boot-produce-arm64.sh` -- the script the workflow
+        runs under sudo -- invokes this module's `produce` subcommand, so that is
+        the function the dispatch reaches.  Running as root is checked first, so
+        this stands the effective UID at 0 to get past it and asserts the refusal
+        that follows is the one naming the open cause.
+        """
+
+        with unittest.mock.patch.object(produce.os, "geteuid", return_value=0):
+            with self.assertRaises(produce.ProducePhaseError) as caught:
+                produce.produce(
+                    scratch=pathlib.Path("/nonexistent/scratch"),
+                    outputs=pathlib.Path("/nonexistent/outputs"),
+                    gpgv=pathlib.Path("/nonexistent/gpgv"),
+                    zstd=pathlib.Path("/nonexistent/zstd"),
+                    launcher=pathlib.Path("/nonexistent/launcher"),
+                )
+        self.assertIn("staged-inode-ctime-is-not-fs-now", str(caught.exception))
+
+    def test_the_gate_refuses_before_anything_is_written(self) -> None:
+        """Refusing after the output directory exists would leave a half-run behind."""
+
+        with tempfile.TemporaryDirectory() as scratch:
+            outputs = pathlib.Path(scratch) / "outputs"
+            with unittest.mock.patch.object(produce.os, "geteuid", return_value=0):
+                with self.assertRaises(produce.ProducePhaseError):
+                    produce.produce(
+                        scratch=pathlib.Path(scratch),
+                        outputs=outputs,
+                        gpgv=pathlib.Path("/nonexistent/gpgv"),
+                        zstd=pathlib.Path("/nonexistent/zstd"),
+                        launcher=pathlib.Path("/nonexistent/launcher"),
+                    )
+            self.assertFalse(outputs.exists())
 
 
 if __name__ == "__main__":
