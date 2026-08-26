@@ -734,6 +734,20 @@ require_text native/containment/native-shadow-boot-root-disk-determinism-success
 require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"successorValue": "1"'
 require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"activationAllowed": false'
 
+# The fix itself. Zero is the library's unset sentinel, so the writer is handed
+# a fixed non-zero time; the staged inputs keep their own epoch, which is a
+# different thing and stays zero. The checker is forced and read-only, and none
+# of the repair flags may reappear in its argv.
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_root_disk_determinism_fix_arm64_v1.py
+require_file scripts/native_shadow_boot_root_disk_time_audit_arm64_v1.py
+forbid_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'EXT4_WRITER_TIME = "0"'
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'EXT4_WRITER_TIME = "1"'
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'E2FSCK_ARGV_OPTIONS = ("-f", "-n")'
+require_text scripts/native_shadow_boot_root_disk_arm64_v1.py 'E2FSCK_ACCEPTED_EXIT_CODES = (0,)'
+require_text scripts/native_shadow_boot_root_disk_execute_arm64_v1.py 'def assert_loader_evidence('
+require_text scripts/native_shadow_boot_root_disk_execute_arm64_v1.py 'def assert_writer_time('
+require_text scripts/native_shadow_boot_produce_phase_arm64_v1.py '"rootDiskEvidence": root_disk_evidence(disk_result)'
+
 # The verification stage is separate from the producer on purpose: a producer
 # that checks its own output can only confirm that it did what it did. debugfs
 # keeps the inspector role v1 sealed for it -- read-only, never `-w`.

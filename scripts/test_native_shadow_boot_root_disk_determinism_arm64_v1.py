@@ -235,7 +235,22 @@ class CauseTests(unittest.TestCase):
     def test_the_cause_names_the_variable_the_producer_sets(self) -> None:
         cause = document()["cause"]
         self.assertEqual(cause["variable"], root_disk.FAKE_TIME_ENV)
-        self.assertEqual(cause["valueSet"], root_disk.mke2fs_env(config="/x")[root_disk.FAKE_TIME_ENV])
+
+    def test_the_record_keeps_the_value_that_was_set_when_it_failed(self) -> None:
+        """The record is a seal, not a mirror of the producer.
+
+        It says the producer set zero, and the producer no longer does.  Making
+        this an equality against the live module would quietly rewrite what the
+        failure was every time the fix moved, which is the one thing this record
+        exists to prevent.
+        """
+
+        cause = document()["cause"]
+        self.assertEqual(cause["valueSet"], "0")
+        self.assertNotEqual(
+            root_disk.mke2fs_env(config="/x")[root_disk.FAKE_TIME_ENV],
+            cause["valueSet"],
+        )
 
     def test_the_value_that_was_set_is_the_sentinel_that_disables_it(self) -> None:
         cause = document()["cause"]

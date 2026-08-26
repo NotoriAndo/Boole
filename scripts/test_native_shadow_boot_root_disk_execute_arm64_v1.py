@@ -36,6 +36,7 @@ def a_plan(scratch: pathlib.Path, **overrides):
         "layer": LAYER,
         "mke2fs": str(scratch / "mke2fs"),
         "debugfs": str(scratch / "debugfs"),
+        "e2fsck": str(scratch / "e2fsck"),
         "config": str(scratch / "mke2fs.conf"),
         "image": str(scratch / "guest-root-disk"),
         "staging": str(scratch / "staging"),
