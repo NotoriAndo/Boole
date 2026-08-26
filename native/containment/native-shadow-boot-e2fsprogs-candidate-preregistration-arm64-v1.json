@@ -88,12 +88,19 @@
     "publicMiningOrBenchmark": false
   },
   "candidateDiscovery": {
+    "debsFetchedSoFar": 0,
     "fieldsResolvedFromTheSignedIndex": [
       "version",
       "poolPath",
       "sizeBytes",
       "sha256",
       "indexStanzaSha256"
+    ],
+    "howResolved": [
+      "Reconstructed the frozen Ubuntu archive keyring from the digest-pinned ubuntu-keyring deb and confirmed both the deb and the extracted keyring against the digests the existing lock already pins.",
+      "Fetched each candidate suite's InRelease and verified its signature with that keyring using gpgv.",
+      "Took the Packages index digest from the signed InRelease body and checked the fetched index against it.",
+      "Read the e2fsprogs and libext2fs2t64 stanzas from the verified index."
     ],
     "mustBeAppendedAndPushedBeforeFetchingTheDeb": true,
     "order": [
@@ -103,8 +110,140 @@
       "Push this record with those values.",
       "Only then fetch the debs and check each against the recorded sha256."
     ],
-    "resolvedCandidates": [],
-    "whyEmpty": "No index has been read and nothing has been fetched. This record is the thing that must exist first."
+    "resolvedAt": "before any deb was fetched",
+    "resolvedCandidates": [
+      {
+        "inReleaseSignatureVerified": true,
+        "packages": [
+          {
+            "name": "e2fsprogs",
+            "poolPath": "pool/main/e/e2fsprogs/e2fsprogs_1.47.0-2.4~exp1ubuntu4.1_arm64.deb",
+            "sha256": "95f305751689654f41813818f9d4f029880072657d2ee7a1a27b7d19e02a53e6",
+            "sizeBytes": 594152,
+            "version": "1.47.0-2.4~exp1ubuntu4.1"
+          },
+          {
+            "name": "libext2fs2t64",
+            "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.0-2.4~exp1ubuntu4.1_arm64.deb",
+            "sha256": "f32a0f3298b60aa158c3bae59ba5ebef9de600901bb1918d3ee133ba58cd4648",
+            "sizeBytes": 224882,
+            "version": "1.47.0-2.4~exp1ubuntu4.1"
+          }
+        ],
+        "packagesIndexDigestVerified": true,
+        "packagesIndexPath": "main/binary-arm64/Packages.xz",
+        "packagesIndexSha256": "85c042d164bd52f463d0b401e3a5b6a5141c0d2e0b5564db552d939b32a26d7b",
+        "packagesIndexSizeBytes": 1190484,
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20260801T000000Z",
+        "suite": "noble-updates",
+        "verifiedWithKeyringSha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+      },
+      {
+        "inReleaseSignatureVerified": true,
+        "packages": [
+          {
+            "name": "e2fsprogs",
+            "poolPath": "pool/main/e/e2fsprogs/e2fsprogs_1.47.1-1ubuntu1_arm64.deb",
+            "sha256": "d24dba5be1955df2c544d6a76372e0e36fd993680bc1dc0b4c741aeabd7cbb8d",
+            "sizeBytes": 602670,
+            "version": "1.47.1-1ubuntu1"
+          },
+          {
+            "name": "libext2fs2t64",
+            "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.1-1ubuntu1_arm64.deb",
+            "sha256": "3fde6dfdbc4f0701ee109e46aa67c5d537978580df68cd3824fc2027f05b70f4",
+            "sizeBytes": 227946,
+            "version": "1.47.1-1ubuntu1"
+          }
+        ],
+        "packagesIndexDigestVerified": true,
+        "packagesIndexPath": "main/binary-arm64/Packages.xz",
+        "packagesIndexSha256": "cea09535469d6c66b69abae64e389340d2c6441677ac9d6ffc4038fa2ada291c",
+        "packagesIndexSizeBytes": 1409024,
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20260801T000000Z",
+        "suite": "oracular",
+        "verifiedWithKeyringSha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+      },
+      {
+        "inReleaseSignatureVerified": true,
+        "packages": [
+          {
+            "name": "e2fsprogs",
+            "poolPath": "pool/main/e/e2fsprogs/e2fsprogs_1.47.2-1ubuntu1_arm64.deb",
+            "sha256": "89c94171d47851896b9c0bf600dd753b5b8770a4550b38304cd873fa7c8aabea",
+            "sizeBytes": 607866,
+            "version": "1.47.2-1ubuntu1"
+          },
+          {
+            "name": "libext2fs2t64",
+            "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.2-1ubuntu1_arm64.deb",
+            "sha256": "da4d465823f2653b35bd316f9c479e4a531165e01840151184f015f6e0d391a5",
+            "sizeBytes": 230570,
+            "version": "1.47.2-1ubuntu1"
+          }
+        ],
+        "packagesIndexDigestVerified": true,
+        "packagesIndexPath": "main/binary-arm64/Packages.xz",
+        "packagesIndexSha256": "0ac59116f4c564b241181d7a26d84d4497e2449162cd4424c944b27d2c649a9f",
+        "packagesIndexSizeBytes": 1432472,
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20260801T000000Z",
+        "suite": "plucky",
+        "verifiedWithKeyringSha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+      },
+      {
+        "inReleaseSignatureVerified": true,
+        "packages": [
+          {
+            "name": "e2fsprogs",
+            "poolPath": "pool/main/e/e2fsprogs/e2fsprogs_1.47.2-3ubuntu2_arm64.deb",
+            "sha256": "d1db6b13455d2b6c090e2a4132c2f25de61c7cac2aff9351e18e6f144b55a69b",
+            "sizeBytes": 619922,
+            "version": "1.47.2-3ubuntu2"
+          },
+          {
+            "name": "libext2fs2t64",
+            "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.2-3ubuntu2_arm64.deb",
+            "sha256": "fb8dc5582731c824805b55a425925c37be331cd746b5768cb718755c10582b7a",
+            "sizeBytes": 243532,
+            "version": "1.47.2-3ubuntu2"
+          }
+        ],
+        "packagesIndexDigestVerified": true,
+        "packagesIndexPath": "main/binary-arm64/Packages.xz",
+        "packagesIndexSha256": "bef71adde2ea52b690f150b86e9a0185f27fb1c245ea6067f7551c5467fa9814",
+        "packagesIndexSizeBytes": 1435080,
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20260801T000000Z",
+        "suite": "questing",
+        "verifiedWithKeyringSha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+      },
+      {
+        "inReleaseSignatureVerified": true,
+        "packages": [
+          {
+            "name": "e2fsprogs",
+            "poolPath": "pool/main/e/e2fsprogs/e2fsprogs_1.47.2-3ubuntu4_arm64.deb",
+            "sha256": "e2cfcc93c594746fd1ca6f7a55141638d9eea74d92d18c98bb2b2cb11e02e7fc",
+            "sizeBytes": 603218,
+            "version": "1.47.2-3ubuntu4"
+          },
+          {
+            "name": "libext2fs2t64",
+            "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.2-3ubuntu4_arm64.deb",
+            "sha256": "9cdd0a8467cb8938710b66e3f6b6bfb617d8719c64887149fb103d28996e3c30",
+            "sizeBytes": 231636,
+            "version": "1.47.2-3ubuntu4"
+          }
+        ],
+        "packagesIndexDigestVerified": true,
+        "packagesIndexPath": "main/binary-arm64/Packages.xz",
+        "packagesIndexSha256": "537715817d9ed77cc919f5123edb91a48d9ae97abf05588a8f18208cc7227e08",
+        "packagesIndexSizeBytes": 1468492,
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20260801T000000Z",
+        "suite": "resolute",
+        "verifiedWithKeyringSha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+      }
+    ],
+    "whyEmpty": "Empty at pre-registration and filled here from signature-verified indexes. No deb has been fetched at the time this list was written."
   },
   "candidateFamily": {
     "assumeNewerVersionIsFixed": false,

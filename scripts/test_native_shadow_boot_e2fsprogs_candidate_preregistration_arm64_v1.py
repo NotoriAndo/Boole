@@ -145,15 +145,42 @@ class CandidateTests(unittest.TestCase):
         self.assertFalse(family["assumeNewerVersionIsFixed"])
         self.assertTrue(family["decidedByStaticReadOfTheCandidateBinary"])
 
-    def test_the_concrete_version_is_not_known_yet_and_must_be_appended_first(self) -> None:
-        # Version, size and digest come from the signed index, which has not
-        # been read yet.  They get appended to this record and pushed before any
-        # deb is fetched, so no unpinned blob is ever downloaded.
+    def test_the_concrete_version_is_pinned_before_any_deb_is_fetched(self) -> None:
+        # This assertion read `resolvedCandidates == []` in the pre-registration
+        # commit, which is what "pre-registered" meant while nothing had been
+        # resolved.  The list is filled from signature-verified indexes and the
+        # ordering rule it protects is unchanged and asserted below: every
+        # candidate is fully pinned, and no deb had been fetched when it was
+        # written.  Git holds the earlier state; loosening to a subset check
+        # would give up the guarantee, so each entry is checked in full.
         discovery = document()["candidateDiscovery"]
-        self.assertEqual(discovery["resolvedCandidates"], [])
         self.assertTrue(discovery["mustBeAppendedAndPushedBeforeFetchingTheDeb"])
+        self.assertEqual(discovery["debsFetchedSoFar"], 0)
         for field in ("version", "sizeBytes", "sha256"):
             self.assertIn(field, discovery["fieldsResolvedFromTheSignedIndex"])
+
+    def test_every_resolved_candidate_is_fully_pinned_and_signature_backed(self) -> None:
+        candidates = document()["candidateDiscovery"]["resolvedCandidates"]
+        self.assertTrue(candidates, "a resolved list with nothing in it pins nothing")
+        for candidate in candidates:
+            self.assertTrue(candidate["inReleaseSignatureVerified"], candidate["suite"])
+            self.assertTrue(candidate["packagesIndexDigestVerified"], candidate["suite"])
+            self.assertRegex(candidate["packagesIndexSha256"], r"^[0-9a-f]{64}$")
+            names = {package["name"] for package in candidate["packages"]}
+            self.assertEqual(names, {"e2fsprogs", "libext2fs2t64"}, candidate["suite"])
+            for package in candidate["packages"]:
+                self.assertRegex(package["sha256"], r"^[0-9a-f]{64}$", package["name"])
+                self.assertGreater(package["sizeBytes"], 0, package["name"])
+                self.assertTrue(package["version"].strip(), package["name"])
+
+    def test_the_candidates_were_verified_with_the_keyring_the_lock_pins(self) -> None:
+        lock = json.loads(
+            (REPO / "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json")
+            .read_text(encoding="utf-8")
+        )
+        pinned = next(a["sha256"] for a in lock["artifacts"] if a["id"] == "ubuntu-keyring")
+        for candidate in document()["candidateDiscovery"]["resolvedCandidates"]:
+            self.assertEqual(candidate["verifiedWithKeyringSha256"], pinned, candidate["suite"])
 
     def test_the_trust_chain_runs_from_the_keyring_to_the_package_digest(self) -> None:
         steps = document()["trustChain"]["steps"]
@@ -253,12 +280,22 @@ class InvariantTests(unittest.TestCase):
         self.assertEqual(invariants["BF.7"], "HOLD")
         self.assertFalse(invariants["baseActivation"])
 
-    def test_no_digest_appears_that_a_test_does_not_recompute(self) -> None:
+    def test_no_digest_appears_that_this_record_cannot_account_for(self) -> None:
+        # Equality, not a subset: a digest here that belongs to no pin, no trust
+        # chain step and no signature-verified candidate stanza is exactly the
+        # loose digest this guard exists to catch.  The candidate digests are
+        # accounted for by the signed index they were read from rather than by a
+        # local recompute, which is why they are enumerated from their structure
+        # rather than waved through by a regex.
         record = document()
         allowed = {pin["sha256"] for pin in record["bindings"]["recordsThatStayByteUnchanged"]}
         allowed |= {
             step["sha256"] for step in record["trustChain"]["steps"] if step.get("sha256")
         }
+        for candidate in record["candidateDiscovery"]["resolvedCandidates"]:
+            allowed.add(candidate["packagesIndexSha256"])
+            allowed.add(candidate["verifiedWithKeyringSha256"])
+            allowed |= {package["sha256"] for package in candidate["packages"]}
         found = set(SHA256_LITERAL.findall(RECORD_PATH.read_text(encoding="utf-8")))
         self.assertEqual(found, allowed)
 
