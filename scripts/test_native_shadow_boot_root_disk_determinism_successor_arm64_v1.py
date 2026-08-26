@@ -98,6 +98,48 @@ class PredecessorTests(unittest.TestCase):
         self.assertIn(bound["path"], bound["sealedFilesThatStayByteUnchanged"])
 
 
+class SealedFilePinTests(unittest.TestCase):
+    """The promise is byte-unchanged; the check has to be a digest.
+
+    The predecessor record is pinned by `predecessor.sha256` and so cannot rot
+    unnoticed.  The other two files in the same sealed set were promised the
+    same thing with nothing recomputing them, which makes the promise a
+    convention rather than a check.  These pins close that: every file the
+    record promises stays byte-unchanged carries a digest recorded from the
+    commit that sealed it, and each is recomputed from disk here.
+    """
+
+    def pins(self) -> list[dict]:
+        return document()["predecessor"]["sealedFileDigests"]
+
+    def test_every_file_promised_byte_unchanged_is_pinned_by_a_digest(self) -> None:
+        promised = set(document()["predecessor"]["sealedFilesThatStayByteUnchanged"])
+        pinned = {pin["path"] for pin in self.pins()}
+        self.assertEqual(pinned, promised, "a sealed file with no digest is unenforced")
+
+    def test_every_pinned_sealed_file_still_matches_its_digest(self) -> None:
+        for pin in self.pins():
+            raw = (REPO / pin["path"]).read_bytes()
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), pin["sha256"], pin["path"])
+            self.assertEqual(len(raw), pin["sizeBytes"], pin["path"])
+
+    def test_the_pin_for_the_predecessor_agrees_with_the_binding_above_it(self) -> None:
+        # Two places now record the same file's digest.  If an edit ever moves
+        # one of them, they must not silently disagree.
+        bound = document()["predecessor"]
+        pin = next(p for p in self.pins() if p["path"] == bound["path"])
+        self.assertEqual(pin["sha256"], bound["sha256"])
+        self.assertEqual(pin["sizeBytes"], bound["sizeBytes"])
+
+    def test_each_pin_names_the_commit_that_sealed_the_file(self) -> None:
+        # The digest is only a faithful baseline if it came from the sealing
+        # commit rather than from whatever happened to be on disk later.
+        for pin in self.pins():
+            self.assertRegex(pin["sealedBy"], r"^[0-9a-f]{7,40}$", pin["path"])
+            self.assertTrue(pin["sealedBySubject"].strip(), pin["path"])
+            self.assertTrue(pin["verifiedAgainstTheSealingCommit"], pin["path"])
+
+
 class TimeDesignTests(unittest.TestCase):
     def test_the_source_epoch_is_the_epoch_the_staged_entries_actually_carry(self) -> None:
         source = document()["time"]["canonicalSourceEpoch"]
@@ -681,13 +723,27 @@ class NoSecondCopyTests(unittest.TestCase):
         ):
             self.assertNotIn(pinned, raw)
 
-    def test_the_only_digests_present_are_the_binding_and_the_first_pin(self) -> None:
+    def test_every_digest_present_is_one_this_record_recomputes(self) -> None:
+        # The set grew when the sealed files were pinned, and the test stays an
+        # equality rather than a subset: a digest that appears here and is not
+        # recomputed from a file on disk is exactly what this guard is for.
+        # Each member of the allowed set is checked against reality elsewhere —
+        # the pins by SealedFilePinTests, the e2fsck binary by its own contract.
         record = document()
+        allowed = {pin["sha256"] for pin in record["predecessor"]["sealedFileDigests"]}
+        allowed.add(record["predecessor"]["sha256"])
+        allowed.add(record["e2fsckContract"]["binary"]["sha256"])
         found = set(SHA256_LITERAL.findall(RECORD_PATH.read_text(encoding="utf-8")))
-        self.assertEqual(
-            found,
-            {record["predecessor"]["sha256"], record["e2fsckContract"]["binary"]["sha256"]},
-        )
+        self.assertEqual(found, allowed)
+
+    def test_the_predecessor_digest_is_the_only_one_written_twice(self) -> None:
+        # It is restated by the pin block, which is the drift risk this class
+        # names.  SealedFilePinTests ties the two copies together, so the
+        # restatement cannot drift in silence; nothing else may be restated.
+        record = document()
+        pinned = [pin["sha256"] for pin in record["predecessor"]["sealedFileDigests"]]
+        self.assertEqual(len(pinned), len(set(pinned)))
+        self.assertIn(record["predecessor"]["sha256"], pinned)
 
     def test_the_binaries_point_at_their_pins_rather_than_repeating_them(self) -> None:
         for row in document()["time"]["mechanicalPreVerification"]["binaries"]:
