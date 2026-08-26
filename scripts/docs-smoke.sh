@@ -312,6 +312,32 @@ require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-r
 require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-result-arm64-v1.json '"bootArtifactsWritten": 0'
 require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-result-arm64-v1.json '"bootableClaim": false'
 require_text native/containment/native-shadow-boot-rootfs-dependency-candidate-result-arm64-v1.json '"activationAllowed": false'
+# BOOT-ROOTFS-PAYLOAD-ACQUISITION-ARM64-V1 promotes only exact package-byte
+# acquisition/verification. Source-lock, image, runtime, boot and activation
+# authority remain absent; Rust dist artifacts are explicitly out of scope.
+require_file native/containment/native-shadow-boot-rootfs-payload-acquisition-plan-arm64-v1.json
+require_file native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json
+require_file scripts/native_shadow_boot_rootfs_payload_acquire_arm64_v1.py
+require_file scripts/test_native_shadow_boot_rootfs_payload_acquire_arm64_v1.py
+require_text scripts/self-test.sh "scripts/test_native_shadow_boot_rootfs_payload_acquire_arm64_v1.py"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "PACKAGE-PAYLOADS-ACQUIRED-VERIFIED-NOT-BOOT-AUTHORITY"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "records exactly 186 GETs"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Total network payload was 209,807,900 bytes"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-INPUT-AUTHORITY/SOURCE-LOCK SUCCESSOR  NEXT"
+require_text docs/native-submission-shadow-verification-v1.md "f6589fe619e83531d9e76c998dbd5ab33436595e307579ccfecd2de644069fd1"
+require_text docs/native-submission-shadow-verification-v1.md "60408c39ac48f3b7ef272e050349dee84ee28693d6c33e528c77898927f4b3df"
+require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"packagePayloadsAcquired": true'
+require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"packagePayloadsVerified": true'
+require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"baselineFetched": 51'
+require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"deltaFetched": 134'
+require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"metadataFetched": 1'
+require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"maintainerScriptsExecuted": false'
+require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"runtimeCompatibilityVerified": false'
+require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"productionByteProvenanceComplete": false'
+require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"bootAuthority": false'
+require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"bootArtifactsWritten": 0'
+require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json '"activationAllowed": false'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/native-submission-shadow-verification-v1.md "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED"
 require_text docs/install.md "SOURCE-BOOTSTRAP — NOT THE CURL PRODUCT INSTALLER"
@@ -333,9 +359,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "a2ac02b1d1c7c0dd25d4ac59509bbf7b97b7a22a2a6f9e59a2eb951c99ad6b70"
-require_text docs/native-submission-shadow-verification-v1.md "3b43c67e17fb49169ba3c749d077470ff9673e86555aaa656927f0d26b7c0631"
-require_text docs/native-submission-shadow-verification-v1.md "5d43fa2e3f48cff0098797dca9895c0c82729d17b65a58d59b16534de14a3b81"
+require_text docs/native-submission-shadow-verification-v1.md "0b6a66165104bd68bcfe238fe5adcfe0ebb9837ef42f66af8424f88836cf5a4d"
+require_text docs/native-submission-shadow-verification-v1.md "c1ad7007c6e32b3bab0f2f30462e32218224157fbaab5b06850b72adbf232efc"
+require_text docs/native-submission-shadow-verification-v1.md "4a62c56781575800ad4da8bffc699e06d90f6c4e361611835533f57643001f8c"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"
 forbid_text docs/native-submission-shadow-verification-v1.md "MAC2_MERGE_SHA_PENDING"

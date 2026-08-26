@@ -18,7 +18,8 @@ BOOT-ARTIFACT-BUILDER-PREFLIGHT-V1 GREEN — ROOTFS CLOSURE AND SYSTEMD EXECUTIO
 KERNEL/SYSTEMD-GUEST/IMAGE-BUILDER AUTHORITIES UNDEFINED AND NO BOOT ARTIFACTS PRODUCED
 (section 20); BOOT-GUEST-INIT-COMPATIBILITY-V1 CONTRACT GREEN — CURRENT BASELINE MISSING SEVEN
 REQUIREMENTS (section 21); BOOT-ROOTFS-DEPENDENCY-CANDIDATE-ARM64-V1 FROZEN — SIGNED-METADATA
-SELECTION ONLY, PACKAGE PAYLOADS AND BOOT AUTHORITY ABSENT (section 22);
+SELECTION ONLY (section 22); BOOT-ROOTFS-PAYLOAD-ACQUISITION-ARM64-V1 GREEN — 191/191 PACKAGE
+PAYLOADS ACQUIRED AND VERIFIED, SOURCE LOCK/BOOT AUTHORITY STILL ABSENT (section 23);
 MAC.3 CLOSED-LOCAL DEVELOPMENT UNBLOCKED BUT NOT STARTED — NOT RELEASE-READY, NO ACTIVATION
 AUTHORITY.**
 
@@ -1402,3 +1403,76 @@ MAC.5 / MAC.6  BLOCKED
 `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. CURL.3 stays
 a mandatory release qualification gate; this deferral is neither a pass nor a waiver.
+
+## 23. BOOT-ROOTFS-PAYLOAD-ACQUISITION-ARM64-V1 (2026-08-26)
+
+Status: **PACKAGE-PAYLOADS-ACQUIRED-VERIFIED-NOT-BOOT-AUTHORITY.** This slice acquires and
+digest-checks only the package bytes selected in section 22. It does not extract or execute a
+package, create a successor source lock, build an image, boot a VM or grant activation authority.
+
+### 23.1 Pre-registered order and measured result
+
+The network contract was fixed before the first request in
+`native/containment/native-shadow-boot-rootfs-payload-acquisition-plan-arm64-v1.json`
+(SHA-256 `f6589fe619e83531d9e76c998dbd5ab33436595e307579ccfecd2de644069fd1`). It pins the
+candidate plan/result, baseline resolution, acquisition/generator tools, exact Ubuntu snapshot,
+`gpgv`/`zstd` binaries, initial CAS inventory and these ordered gates:
+
+1. fetch exactly the missing ARM64 `Packages.xz`, then replay the signed repository metadata;
+2. require the replayed 191-row candidate to be byte-identical to the tracked candidate result;
+3. reuse five exact baseline blobs and fetch the missing 51 sequentially;
+4. verify all 56 baseline rows by file descriptor, SHA-256 and size before opening any delta URL;
+5. reuse one exact delta blob, fetch the missing 134 sequentially, then verify all 191 rows; and
+6. never request the three ARM64 Rust-distribution artifacts in this slice.
+
+The tracked result
+`native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json`
+(SHA-256 `60408c39ac48f3b7ef272e050349dee84ee28693d6c33e528c77898927f4b3df`)
+records exactly 186 GETs: one 1,376,632-byte index, 51 baseline payloads / 66,498,278 bytes and
+134 delta payloads / 141,932,990 bytes. Total network payload was 209,807,900 bytes. Six exact CAS
+hits were verified and reused without a request. Independent post-run verification re-read all
+191 package files and confirmed SHA-256, size, regular-file mode and single-link publication.
+
+The historical section 22 forecast described only the fixed 135-row delta. The execution plan
+correctly accounted for the actual persistent CAS inventory discovered before the network run:
+51 of the 56 baseline rows were also absent. They were not deleted by the earlier `target/`
+cleanup; this was the first persistent ARM64 payload acquisition. The baseline was therefore
+recovered and fully verified before the delta, rather than silently assuming it existed.
+
+### 23.2 Network and CAS boundary
+
+Every request was an exact HTTPS GET to `snapshot.ubuntu.com:443` under snapshot
+`20240425T160000Z`, TLS 1.2 or newer, with environment proxies, redirects, retries, Range and
+parallel downloads disabled. Each response required status 200, identity encoding and exact
+`Content-Length`; bytes streamed into a mode-0600 temporary file, were checked before publication,
+file-synced, hard-linked without replacement and directory-synced. Exact CAS hits caused zero
+network calls. A corrupt, symlinked, differently owned or insecurely permissioned existing entry
+is a hard stop, never a reason to overwrite it.
+
+The first CLI invocation supplied a relative result path and stopped before any request because
+the frozen writer accepts only a normalized absolute output path. The successful invocation used
+the same pre-registered plan with an absolute output path; it made the only 186 network requests.
+
+### 23.3 Explicitly absent authority and cursor
+
+`packagePayloadsAcquired=true` and `packagePayloadsVerified=true` are the only promoted boundary
+facts. `maintainerScriptsExecuted=false`, `kernelImageExtracted=false`,
+`launcherElfPresent=false`, `imageBuilderAuthorityPresent=false`,
+`runtimeCompatibilityVerified=false`, `productionByteProvenanceComplete=false`,
+`bootAuthority=false`, `bootArtifactsWritten=0`, `bootableClaim=false` and
+`activationAllowed=false` remain fixed.
+
+```text
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — MAC.5/MAC.6 전 필수
+BOOT-ROOTFS-DEPENDENCY-CANDIDATE-ARM64-V1  FROZEN-NOT-BOOT-AUTHORITY
+BOOT-ROOTFS-PAYLOAD-ACQUISITION-ARM64-V1  COMPLETE — 191/191 exact payload bytes
+BOOT-INPUT-AUTHORITY/SOURCE-LOCK SUCCESSOR  NEXT — package rows를 source closure에 봉인
+ARM64 RUST DIST / LAUNCHER ELF / IMAGE BUILDER / KERNEL EXTRACTION  OPEN
+REAL-BOOT-ARTIFACTS  NOT-PRODUCED
+MAC.3 HOST/GUEST TRANSPORT  NOT STARTED
+MAC.5 / MAC.6  BLOCKED
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged. CURL.3 is
+still mandatory before release qualification; this deferral is neither a pass nor a waiver.
