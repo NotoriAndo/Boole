@@ -751,6 +751,23 @@ require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py 'if match.gro
 require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py 'if match.group("qualifier") == ":any" and candidate.get("multiArch") != "allowed":'
 require_text scripts/self-test.sh scripts/test_native_shadow_rootfs_builder_boot_arm64_v1.py
 require_text scripts/self-test.sh scripts/test_native_shadow_rootfs_portable_boot_arm64_v1.py
+
+# The produce phase must be unable to reach the network, and two independent
+# jobs that disagree must stop rather than be reconciled. The properties are
+# read out of the sealed authority rather than restated here, so the gate below
+# checks the refusals that deriving alone would not give: a weakened network
+# property, and a read-write hole wide enough to undo ProtectSystem=strict.
+require_file scripts/native_shadow_boot_image_produce_arm64_v1.py
+require_file scripts/test_native_shadow_boot_image_produce_arm64_v1.py
+require_text scripts/native_shadow_boot_image_produce_arm64_v1.py 'NETWORK_PROPERTY_REQUIRED_VALUE = "yes"'
+require_text scripts/native_shadow_boot_image_produce_arm64_v1.py 'MISMATCH_ACTION = "report-the-difference-never-force-a-match"'
+require_text scripts/native_shadow_boot_image_produce_arm64_v1.py 'ABORT_BUILDS_DIFFER = "independent-builds-differ"'
+require_text scripts/native_shadow_boot_image_produce_arm64_v1.py 'ABORT_OUTPUT_MISSING = "output-missing-or-empty"'
+require_text scripts/native_shadow_boot_image_produce_arm64_v1.py "read-write path would undo ProtectSystem=strict"
+require_text scripts/native_shadow_boot_image_produce_arm64_v1.py "BOOTABLE_CLAIM = False"
+require_text scripts/native_shadow_boot_image_produce_arm64_v1.py "GUEST_IMAGE_BUILT = False"
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_image_produce_arm64_v1.py
+require_text docs/native-submission-shadow-verification-v1.md "THE WRAPPER AND THE COMPARISON EXIST. NOTHING WAS"
 require_text docs/native-submission-shadow-verification-v1.md "A BUILDER CAN NOW READ THE SEALED BOOT LOCK. NO"
 require_text docs/native-submission-shadow-verification-v1.md "that pattern fires 98 times and is wrong all"
 
@@ -775,8 +792,8 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "70f834e5385b5d4bbecc47118d63e4112a1280c81b8028474c78d3194b7e5054"
-require_text docs/native-submission-shadow-verification-v1.md "63d8a09b64e9c6767e2657a3b6caea6fc5c260b4bcca3009e0dfff82b42f48ba"
+require_text docs/native-submission-shadow-verification-v1.md "ac6b09d6ffe081abb650f51dde8a172f7b124a7d6e61ba14a7f80f3c00267693"
+require_text docs/native-submission-shadow-verification-v1.md "573e2d36f8f9637ca29bd52f9c0ae9530667b5f16d9e36bbdf204ab9dbc4c345"
 require_text docs/native-submission-shadow-verification-v1.md "70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 forbid_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC2_MERGE_SHA_PENDING"

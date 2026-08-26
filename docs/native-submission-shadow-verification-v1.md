@@ -707,8 +707,8 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `70f834e5385b5d4bbecc47118d63e4112a1280c81b8028474c78d3194b7e5054` (updated 2026-08-26r — the builder projection that can read the sealed boot lock, and the counted evidence behind each of its five differences) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `63d8a09b64e9c6767e2657a3b6caea6fc5c260b4bcca3009e0dfff82b42f48ba` (updated 2026-08-26r — D2.1 written and the prior open ordering mismatch closed without touching sealed bytes; nothing produced, inspected or booted) |
+| `local-docs/todo/todo-l1-network-master.md` | `ac6b09d6ffe081abb650f51dde8a172f7b124a7d6e61ba14a7f80f3c00267693` (updated 2026-08-26s — the builder projection that can read the sealed boot lock, and the produce-phase isolation, manifest and byte comparison) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `573e2d36f8f9637ca29bd52f9c0ae9530667b5f16d9e36bbdf204ab9dbc4c345` (updated 2026-08-26s — D2.1 and D3.1 written; nothing produced, isolated, compared, inspected or booted) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
 | `local-docs/todo/thesis-realization-roadmap.md` | `70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb` (updated 2026-08-26o — choosing not to make a second copy of a sealed fact) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
@@ -1761,3 +1761,49 @@ proved is the run. Both are recorded, and neither is described as the other.
 `bootableClaim: false`, `activationAllowed: false`. A builder that can read a lock has not built
 anything. CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`,
 `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
+
+_2026-08-26s produce-phase isolation addendum:_ **THE WRAPPER AND THE COMPARISON EXIST. NOTHING WAS
+PRODUCED, ISOLATED FOR REAL OR COMPARED.**
+
+The frozen producer authority splits the work in two: `acquire` may reach the network to fetch pinned
+URLs at pinned digests, and `produce` may not reach it at all. `scripts/native_shadow_boot_image_produce_arm64_v1.py`
+(30 tests) is the part that makes the second half true rather than merely stated, plus the two pieces
+that decide whether two independent runs agreed.
+
+The isolation wrapper builds a transient `systemd-run` unit carrying the six properties the authority
+sealed. Those properties are read out of the sealed document rather than restated in the script,
+because a second copy of a sealed fact can drift from it and a drift between two copies of the same
+fact is invisible; a test proves the derivation by adding a property to the document and finding it in
+the argv. Deriving is not the same as trusting, though. A document that dropped `PrivateNetwork=yes`,
+or set it to `no`, or allowed the network in the `produce` phase, or named a runner other than
+`ubuntu-24.04-arm`, or stopped requiring two separate jobs, is refused rather than faithfully turned
+into a weaker command line. That is the difference between inheriting a contract and inheriting
+whatever the file happens to say.
+
+`ProtectSystem=strict` makes the whole hierarchy read-only, so the produce phase needs an explicit
+hole for its outputs, and the hole is where such a wrapper usually leaks. Read-write paths are the
+caller's to name — the sealed list is refused if it tries to carry one — and `/` is refused outright,
+as is any path at or inside `/usr`, `/etc`, `/boot`, `/bin`, `/lib` or `/sbin`. A hole that wide would
+undo the property rather than make room beside it. The unit also waits and reports its own exit
+status, because a fire-and-forget unit would let a failed produce read as a pass.
+
+The manifest is `sha256sum` text, byte-sorted by name, and the parser refuses what a lenient one
+would absorb: a line without the two-space separator, a digest that is not lowercase sha-256 hex, and
+a repeated name — last-one-wins on a duplicate would silently drop a real disagreement. An output
+that is missing or zero bytes stops with the authority's own `output-missing-or-empty`, because an
+absent artifact must not read like a passing one.
+
+The comparison is the part conditions 5 and 6 turn on, so it was written to have no other option. It
+reports the difference and names both digests; an output present in only one job is a difference too,
+not something to skip; and a test asserts the function takes exactly two parameters with no defaults,
+so there is no knob — present or future — that could force a match. `MISMATCH_ACTION` is checked
+equal to the authority's own `report-the-difference-never-force-a-match`.
+
+The module builds argv and computes digests. A test reads its own source and asserts it contains no
+process-spawning call at all, so the thing that describes the isolated build cannot quietly become
+the thing that runs it.
+
+`bootableClaim: false`, `activationAllowed: false`, `guestImageBuilt: false`. No image was produced,
+no unit was started and no two manifests were compared. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
