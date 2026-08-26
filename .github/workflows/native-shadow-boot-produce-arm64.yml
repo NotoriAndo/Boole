@@ -44,6 +44,25 @@ jobs:
           # rustup from fetching anything once the network is taken away.
           components: rustfmt, clippy
 
+      - name: Acquire the frozen Rust distribution and re-prove its sealed record
+        # This runs first so that what it fetches is decided by nothing except an
+        # empty store, and the sealed record it must reproduce says exactly that:
+        # three archives fetched, no store hits.
+        #
+        # The acquirer writes its result exactly once and refuses to overwrite
+        # one, which on a fresh checkout is a file that is already there. So the
+        # sealed record is set aside, regenerated from this runner's own fetch,
+        # and required to come back byte for byte identical. A difference fails
+        # the run here and is never resolved by keeping the newer one: this
+        # checkout is thrown away, and the seal in the repository is untouched.
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed=native/containment/native-shadow-boot-rustdist-acquisition-result-arm64-v1.json
+          rm "$sealed"
+          python3 scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py --acquire
+          git diff --exit-code -- "$sealed"
+
       - name: Acquire the frozen package payloads
         shell: bash
         run: |
@@ -62,12 +81,6 @@ jobs:
             --gpgv "$(readlink -f "$(command -v gpgv)")" \
             --zstd "$(readlink -f "$(command -v zstd)")" \
             --output "$RUNNER_TEMP/acquire/payload-acquisition.json"
-
-      - name: Acquire the frozen Rust distribution
-        # This one re-proves the sealed acquisition record rather than writing a
-        # new one: a clean runner fetches all three archives, which is what the
-        # sealed document already says happened.
-        run: python3 scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py --acquire
 
       - name: Rebuild the launcher and match its sealed digest
         # The last step that is allowed to reach the network. Everything after

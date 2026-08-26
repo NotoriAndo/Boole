@@ -200,6 +200,35 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("replica: [1, 2]", WORKFLOW_TEXT)
         self.assertEqual(WORKFLOW_TEXT.count(f"./scripts/{DRIVER.name}"), 1)
 
+    def test_the_sealed_acquisition_record_is_reproved_and_never_rewritten(self) -> None:
+        """The acquirer writes its result once, so a fresh checkout already has one.
+
+        Setting the sealed record aside and requiring the runner's own fetch to
+        reproduce it byte for byte is the only reading of that file that is both
+        runnable twice and honest: the seal in the repository is never touched,
+        and a difference stops the run instead of becoming the new seal.
+        """
+
+        sealed = (
+            "native/containment/"
+            "native-shadow-boot-rustdist-acquisition-result-arm64-v1.json"
+        )
+        self.assertTrue(sealed in WORKFLOW_TEXT, "the sealed record is never re-proved")
+        self.assertIn("git diff --exit-code", WORKFLOW_TEXT)
+        for forbidden in ("git add", "git checkout", "git stash"):
+            self.assertNotIn(forbidden, WORKFLOW_TEXT)
+
+    def test_nothing_is_already_in_the_store_when_the_rust_archives_are_fetched(
+        self,
+    ) -> None:
+        """The sealed record says three fetched and no store hits, so it goes first."""
+
+        rust = WORKFLOW_TEXT.find("rustdist_acquire")
+        payloads = WORKFLOW_TEXT.find("payload_acquire")
+        self.assertNotEqual(rust, -1)
+        self.assertNotEqual(payloads, -1)
+        self.assertLess(rust, payloads)
+
     def test_the_comparison_runs_and_cannot_be_softened(self) -> None:
         self.assertIn("compare", WORKFLOW_TEXT)
         for forbidden in ("continue-on-error", "|| true", "if: always()"):
