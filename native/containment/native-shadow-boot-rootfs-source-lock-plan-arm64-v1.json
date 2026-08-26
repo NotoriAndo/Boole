@@ -1,0 +1,372 @@
+{
+  "activationAllowed": false,
+  "authorityBindings": [
+    {
+      "id": "checker-entrypoint",
+      "sha256": "d17dca244628bb55f6fbbf799c71adcae3d548169ef0655ca27c8eb1f7ba95d7",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/checker.py"
+    },
+    {
+      "id": "checker-policy",
+      "sha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/policy.json"
+    },
+    {
+      "id": "checker-release",
+      "sha256": "23b9c235a638cf08d38b2082af19d599320c9e5e5fc785bc1e14f51b4667f210",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json"
+    },
+    {
+      "id": "execution-policy",
+      "sha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f",
+      "sourcePath": "native/containment/native-shadow-execution-policy-arm64-v1.json"
+    },
+    {
+      "id": "guest-machine-id",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sourcePath": "native/etc/machine-id"
+    },
+    {
+      "id": "launcher-unit",
+      "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+      "sourcePath": "native/systemd/boole-native-shadow-launcher.service"
+    },
+    {
+      "id": "registry",
+      "sha256": "d636e56dbf7e32d6054a1d4abfaeb97c6ebdf5119d217fe7740db0513984badd",
+      "sourcePath": "fixtures/native-shadow/registry-arm64-v1.json"
+    },
+    {
+      "id": "sysusers-config",
+      "sha256": "75b1ae8eb024396dcb36d3713435115dba68a8c52b05705ce4fe3b8e7f616445",
+      "sourcePath": "native/sysusers.d/boole-native-shadow.conf"
+    },
+    {
+      "id": "tmpfiles-config",
+      "sha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+      "sourcePath": "native/tmpfiles.d/boole-native-shadow.conf"
+    },
+    {
+      "id": "toolchain-identity",
+      "sha256": "666cdd6a6908822b35a3839e905ab03bed2846ce8e49091ccd163b5f59947f36",
+      "sourcePath": "native/containment/native-shadow-toolchain-identity-arm64-v1.json"
+    }
+  ],
+  "authorityInputs": {
+    "baselineSourceLock": {
+      "sha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+      "sizeBytes": 102952,
+      "sourcePath": "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json"
+    },
+    "canonicalJsonHelper": {
+      "sha256": "82f8988c0b64ba2f0a6c1768ff48664c95b00f7394c4de50c00b69870c008fd6",
+      "sizeBytes": 19164,
+      "sourcePath": "scripts/native_shadow_boot_artifact_builder_arm64_v1.py"
+    },
+    "dependencyCandidateResult": {
+      "sha256": "a8329d35b480e6b40823e8823551c16eb71a0d7bbc1da40483f05b4535815f26",
+      "sizeBytes": 343125,
+      "sourcePath": "native/containment/native-shadow-boot-rootfs-dependency-candidate-result-arm64-v1.json"
+    },
+    "guestExecutionPolicy": {
+      "sha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f",
+      "sizeBytes": 35821,
+      "sourcePath": "native/containment/native-shadow-execution-policy-arm64-v1.json"
+    },
+    "guestInitContract": {
+      "sha256": "ee67e23bc89fa456a6e43a1c93d9d4a0faa8cf09e5d04b9a9678c17499d267b0",
+      "sizeBytes": 4718,
+      "sourcePath": "native/containment/native-shadow-guest-init-compatibility-arm64-v1.json"
+    },
+    "guestInitContractAuditor": {
+      "sha256": "8c81ff6ca723d1f4cfb4872fa4893eebb713d7c5a39db9be91cc23d77217b01b",
+      "sizeBytes": 33969,
+      "sourcePath": "scripts/native_shadow_guest_init_compatibility_arm64_v1.py"
+    },
+    "launcherCrateManifest": {
+      "sha256": "415eb1f6ced366a5471a242faef3ab8fe1c537cb877fce4a190087fc040051b4",
+      "sizeBytes": 1185,
+      "sourcePath": "crates/boole-native-shadow-launcher/Cargo.toml"
+    },
+    "payloadAcquisitionPlan": {
+      "sha256": "f6589fe619e83531d9e76c998dbd5ab33436595e307579ccfecd2de644069fd1",
+      "sizeBytes": 3808,
+      "sourcePath": "native/containment/native-shadow-boot-rootfs-payload-acquisition-plan-arm64-v1.json"
+    },
+    "payloadAcquisitionResult": {
+      "sha256": "60408c39ac48f3b7ef272e050349dee84ee28693d6c33e528c77898927f4b3df",
+      "sizeBytes": 16113,
+      "sourcePath": "native/containment/native-shadow-boot-rootfs-payload-acquisition-result-arm64-v1.json"
+    },
+    "rustToolchainPin": {
+      "sha256": "97aab3493c1fb14fe9a21c760433577f434714f5725bbb176e67048dde581afe",
+      "sizeBytes": 86,
+      "sourcePath": "rust-toolchain.toml"
+    },
+    "sourceLockGenerator": {
+      "sha256": "3edbc2d68afb7bdb0bd4061f1d01e0609e7721cda3fcc25eb6c1a0dbdb025ed4",
+      "sizeBytes": 25470,
+      "sourcePath": "scripts/native_shadow_boot_rootfs_source_lock_arm64_v1.py"
+    },
+    "workspaceLockfile": {
+      "sha256": "82e7a8e2066a56c1ad75e4cd912c7538cda036bb2e8c02791335a6f9c0b9a1a8",
+      "sizeBytes": 97842,
+      "sourcePath": "Cargo.lock"
+    }
+  },
+  "bootableClaim": false,
+  "buildRecipe": {
+    "baseImage": "empty",
+    "builderSha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+    "canonicalMtime": 0,
+    "maintainerScripts": "never-execute-or-copy",
+    "maxEntries": 200000,
+    "maxFileBytes": 536870912,
+    "maxTotalBytes": 2147483648,
+    "network": "forbidden",
+    "output": "oci-image-layout-single-uncompressed-layer-v1",
+    "ownership": "root:root-only",
+    "zstdToolRole": "zstd"
+  },
+  "closureRoots": [
+    {
+      "logicalRoots": [
+        "/etc/systemd",
+        "/usr/lib/sysusers.d",
+        "/usr/lib/systemd",
+        "/usr/lib/tmpfiles.d",
+        "/usr/libexec/boole"
+      ],
+      "name": "guest-init-and-launcher-file-manifest"
+    },
+    {
+      "logicalRoots": [
+        "/boot",
+        "/usr/lib/modules"
+      ],
+      "name": "guest-kernel-and-module-file-manifest"
+    }
+  ],
+  "derivedEntries": [
+    {
+      "gid": 0,
+      "kind": "symlink",
+      "logicalPath": "/etc/systemd/system/multi-user.target.wants/boole-native-shadow-launcher.service",
+      "mode": "0777",
+      "target": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+      "uid": 0
+    }
+  ],
+  "expected": {
+    "artifactCount": 197,
+    "auditMissingRoles": [
+      "tracked-file:launcher-binary"
+    ],
+    "auditStatus": "BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS",
+    "derivedEntryRoles": {
+      "/etc/systemd/system/multi-user.target.wants/boole-native-shadow-launcher.service": "launcher-enablement"
+    },
+    "lockRelease": "NATIVE-SHADOW-BOOT-ROOTFS-SOURCE-LOCK-ARM64-V1-SOURCE-SHAPE-ONLY-NOT-BOOTABLE",
+    "packageBytes": 208936876,
+    "packageCount": 191,
+    "resultStatus": "BOOT-ROOTFS-SOURCE-LOCK-SEALED-LAUNCHER-BINARY-DEFERRED-NOT-BOOT-AUTHORITY",
+    "seedNames": [
+      "binutils-aarch64-linux-gnu",
+      "gcc-13-aarch64-linux-gnu",
+      "libc6-dev",
+      "linux-image-virtual",
+      "python3.12",
+      "systemd",
+      "ubuntu-minimal"
+    ],
+    "seedPackageCount": 7,
+    "trackedFileCount": 10
+  },
+  "guestInitRoles": [
+    {
+      "closedBy": "derivedEntries: the multi-user.target.wants symlink is pinned by path and target",
+      "role": "derived-entry:launcher-enablement",
+      "state": "closed"
+    },
+    {
+      "closedBy": "ubuntu.seeds and ubuntu.seedPackageIds carry the systemd package, so PID 1 is real systemd rather than a static shim",
+      "role": "package-seed:systemd",
+      "state": "closed"
+    },
+    {
+      "closedBy": "trackedFiles: /etc/machine-id is a zero-byte source file, so every boot derives an ephemeral runtime identity",
+      "role": "tracked-file:empty-machine-id",
+      "state": "closed"
+    },
+    {
+      "closedBy": "the guest placement is pinned here, but the digest belongs to the ARM64 launcher build authority, which has not run",
+      "role": "tracked-file:launcher-binary",
+      "state": "deferred"
+    },
+    {
+      "closedBy": "trackedFiles: the launcher unit source bytes are pinned and match the digest the guest-init contract froze",
+      "role": "tracked-file:launcher-unit",
+      "state": "closed"
+    },
+    {
+      "closedBy": "trackedFiles: the sysusers source bytes are pinned, so accounts are provisioned by systemd-sysusers at every boot",
+      "role": "tracked-file:sysusers-config",
+      "state": "closed"
+    },
+    {
+      "closedBy": "trackedFiles: the tmpfiles source bytes are pinned, so runtime directories are provisioned by systemd-tmpfiles at every boot",
+      "role": "tracked-file:tmpfiles-config",
+      "state": "closed"
+    }
+  ],
+  "launcherBinary": {
+    "binaryName": "boole-native-shadow-launcher",
+    "cargoProfile": "release",
+    "cratePath": "crates/boole-native-shadow-launcher",
+    "digestBoundary": "deferred-to-arm64-launcher-build-authority",
+    "gid": 0,
+    "logicalPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+    "mode": "0755",
+    "rustTarget": "aarch64-unknown-linux-gnu",
+    "uid": 0
+  },
+  "packageSelection": {
+    "canonicalOrdering": "packages sorted by packageId, artifacts sorted by id, seeds and seed package IDs sorted and unique",
+    "dependencyFields": [
+      "Depends",
+      "Pre-Depends"
+    ],
+    "foreignArchitectureSelection": "forbidden",
+    "multiArchQualifier": "native-index-only",
+    "providerSelection": "direct-then-explicit-pin-else-stop",
+    "sourceOfTruth": "every package row must be byte-identical to the verified dependency candidate closure and must appear in the payload acquisition result"
+  },
+  "release": "NATIVE-SHADOW-BOOT-ROOTFS-SOURCE-LOCK-PLAN-ARM64-V1-FROZEN-BEFORE-RESULT",
+  "repository": {
+    "repositories": [
+      {
+        "architecture": "arm64",
+        "component": "main",
+        "id": "noble-main",
+        "inReleaseArtifactId": "ubuntu-inrelease",
+        "keyringArtifactId": "ubuntu-keyring",
+        "packagesIndexArtifactId": "ubuntu-packages-index",
+        "packagesIndexPath": "main/binary-arm64/Packages.xz",
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z",
+        "suite": "noble"
+      }
+    ],
+    "snapshot": "2024-04-25T16:00:00Z",
+    "snapshotId": "20240425T160000Z",
+    "verification": {
+      "toolRole": "gpgv"
+    }
+  },
+  "schema": "boole.native-shadow.boot-rootfs-source-lock-plan.arm64.v1",
+  "toolDigests": {
+    "gpgvSha256": "f1c71affd4ce40e3c5a53b8cb0ac9601fbcd31d6834b732dd0c7b0145dce1995",
+    "zstdSha256": "aff8169fb421bb925fb16c44a7e0143fa2c7a941dc45cce76b15062a2ce54917"
+  },
+  "trackedFiles": [
+    {
+      "gid": 0,
+      "logicalPath": "/etc/machine-id",
+      "mode": "0444",
+      "role": "empty-machine-id",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sourcePath": "native/etc/machine-id",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+      "mode": "0444",
+      "role": "launcher-unit",
+      "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+      "sourcePath": "native/systemd/boole-native-shadow-launcher.service",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/lib/sysusers.d/boole-native-shadow.conf",
+      "mode": "0444",
+      "role": "sysusers-config",
+      "sha256": "75b1ae8eb024396dcb36d3713435115dba68a8c52b05705ce4fe3b8e7f616445",
+      "sourcePath": "native/sysusers.d/boole-native-shadow.conf",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/lib/tmpfiles.d/boole-native-shadow.conf",
+      "mode": "0444",
+      "role": "tmpfiles-config",
+      "sha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+      "sourcePath": "native/tmpfiles.d/boole-native-shadow.conf",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+      "mode": "0444",
+      "role": "checker-release-manifest",
+      "sha256": "23b9c235a638cf08d38b2082af19d599320c9e5e5fc785bc1e14f51b4667f210",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py",
+      "mode": "0444",
+      "role": "checker-entrypoint",
+      "sha256": "d17dca244628bb55f6fbbf799c71adcae3d548169ef0655ca27c8eb1f7ba95d7",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/checker.py",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/policy.json",
+      "mode": "0444",
+      "role": "checker-policy",
+      "sha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/policy.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/execution-policy-v1.json",
+      "mode": "0444",
+      "role": "guest-execution-policy",
+      "sha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f",
+      "sourcePath": "native/containment/native-shadow-execution-policy-arm64-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/registry-v1.json",
+      "mode": "0444",
+      "role": "checker-registry",
+      "sha256": "d636e56dbf7e32d6054a1d4abfaeb97c6ebdf5119d217fe7740db0513984badd",
+      "sourcePath": "fixtures/native-shadow/registry-arm64-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/toolchain-identity-v1.json",
+      "mode": "0444",
+      "role": "toolchain-identity",
+      "sha256": "666cdd6a6908822b35a3839e905ab03bed2846ce8e49091ccd163b5f59947f36",
+      "sourcePath": "native/containment/native-shadow-toolchain-identity-arm64-v1.json",
+      "uid": 0
+    }
+  ],
+  "verificationBoundary": {
+    "bootAuthority": false,
+    "guestBootVerified": false,
+    "imageBuilderAuthorityPresent": false,
+    "kernelImageExtracted": false,
+    "launcherElfPresent": false,
+    "maintainerScriptsExecuted": false,
+    "runtimeCompatibilityVerified": false,
+    "sourceShapeStatusIsBootEvidence": false
+  }
+}

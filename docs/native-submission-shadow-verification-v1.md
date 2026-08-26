@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `0b6a66165104bd68bcfe238fe5adcfe0ebb9837ef42f66af8424f88836cf5a4d` (updated 2026-08-26f — 191/191 ARM64 package payloads acquired and verified without boot authority) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `c1ad7007c6e32b3bab0f2f30462e32218224157fbaab5b06850b72adbf232efc` (updated 2026-08-26f — cursor moves to successor source-lock/input authority) |
+| `local-docs/todo/todo-l1-network-master.md` | `ec7272462c678e753c23b4950b3ca9abef441cb545db607b11b32a8e8a8e1248` (updated 2026-08-26g — successor source lock sealed over the 191 verified package rows; launcher binary role deferred) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `296b73618d3f71f07ed51036244d845c18dd605abbeedc36236ffd152891bee5` (updated 2026-08-26g — cursor moves to ARM64 Rust/launcher/image-builder input authority) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `4a62c56781575800ad4da8bffc699e06d90f6c4e361611835533f57643001f8c` (updated 2026-08-26f — package-byte provenance realized without source-lock or boot claim) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `ec881a35604fe47cf9afd0620614535d4f0312a1f710f86607a93d7b85a39563` (updated 2026-08-26g — input-shape proposition realized; runtime compatibility and boot still unrealized) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1149,3 +1149,28 @@ The 2026-08-26f mirror synchronization appends this same payload-only boundary t
 three section 12 mirrors are byte-unchanged. The section 12 table contains the recomputed SHA-256
 values for the three edited local mirrors; these values are synchronization evidence only, never
 runtime trust roots.
+
+_2026-08-26g source-lock addendum:_ **BOOT-ROOTFS-SOURCE-LOCK-ARM64-V1 = SEALED, SOURCE SHAPE
+ONLY, LAUNCHER BINARY DEFERRED, NOT BOOT AUTHORITY.** A plan frozen before any result (SHA-256
+`c047c20144167a4f28f222c4026a33e2d70b89340ee13cba79c207b7c92dc583`) fixed the acceptance grounds,
+and the successor lock (SHA-256
+`9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf`, 357,104 bytes) seals 197
+artifacts, 191 verified package rows over 208,936,876 payload bytes, 7 seed packages including
+`systemd`, 10 tracked files, 8 derived entries and 10 authority bindings. Thirty-four acceptance
+tests refuse a dropped, extra, reordered, tampered, foreign-snapshot or borrowed package row, a
+missing init seed, missing launcher/sysusers/tmpfiles/machine-id deployment bytes, a missing or
+misdirected enablement symlink, a replay-node unit inside the guest, permitted maintainer scripts,
+permitted build-time network and `activationAllowed=true`.
+
+Six of the guest-init contract's seven requirements are closed. `tracked-file:launcher-binary`
+stays deferred: the guest launcher ELF is a build output of the ARM64 launcher build authority,
+which has not run, and a digest cannot be stated for a file that does not exist. The audit
+therefore reads `BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS` with exactly one missing role rather
+than a clean verdict, and the deferral is recorded with its cause instead of being hidden.
+
+No package was extracted, no maintainer script ran, no ARM64 Rust distribution, launcher ELF,
+kernel, initrd, root disk or image builder was produced, and no VM booted:
+sealing a source lock is not a boot claim.
+CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`, neither
+passed nor waived. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD` and Base
+activation `false` are unchanged.
