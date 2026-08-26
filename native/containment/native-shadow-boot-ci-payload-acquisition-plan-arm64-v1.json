@@ -1,0 +1,1248 @@
+{
+  "abortConditions": [
+    "cas-object-fails-its-frozen-digest",
+    "derived-artifact-differs-from-the-lock",
+    "locked-artifact-has-no-frozen-source",
+    "plan-differs-from-the-sealed-authorities",
+    "response-differs-from-the-frozen-size-or-digest",
+    "reused-artifact-absent-from-the-store",
+    "sealed-authorities-disagree-about-an-artifact",
+    "url-outside-the-frozen-snapshot"
+  ],
+  "activationAllowed": false,
+  "artifacts": [
+    {
+      "artifactId": "deb-017fa4bd88e8ff1cbaf75a26765b8c1255a5cd91d6ce838273bcb64190f15e37",
+      "sha256": "017fa4bd88e8ff1cbaf75a26765b8c1255a5cd91d6ce838273bcb64190f15e37",
+      "sizeBytes": 11390,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-14/libatomic1_14-20240412-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-034c221d82ca715ddfd19592ff936c70fc56a7722d56dbef94a595453a32736e",
+      "sha256": "034c221d82ca715ddfd19592ff936c70fc56a7722d56dbef94a595453a32736e",
+      "sizeBytes": 233610,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/k/kbd/kbd_2.6.4-2ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-04acd8968fe240312931581b1919203bc0e225baa51167753bd04439bcb367db",
+      "sha256": "04acd8968fe240312931581b1919203bc0e225baa51167753bd04439bcb367db",
+      "sizeBytes": 770646,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/v/vim/vim-tiny_9.1.0016-1ubuntu7_arm64.deb"
+    },
+    {
+      "artifactId": "deb-04d7cb73e608b41713b63ef915577f7f5d75e95b1b33174e82e05687fdb6cfaf",
+      "sha256": "04d7cb73e608b41713b63ef915577f7f5d75e95b1b33174e82e05687fdb6cfaf",
+      "sizeBytes": 2774086,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/glibc/libc6_2.39-0ubuntu8_arm64.deb"
+    },
+    {
+      "artifactId": "deb-07a4937bc8eb5a30373a6dcbd54f72761981d4dc342cd62b2e5fb5efe7f0b9b7",
+      "sha256": "07a4937bc8eb5a30373a6dcbd54f72761981d4dc342cd62b2e5fb5efe7f0b9b7",
+      "sizeBytes": 79892,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libs/libselinux/libselinux1_3.5-2ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-0ae566092f2d6f3000ce25a7a68497a97b637abf8dc25cbdf961c8ee66e562a7",
+      "sha256": "0ae566092f2d6f3000ce25a7a68497a97b637abf8dc25cbdf961c8ee66e562a7",
+      "sizeBytes": 6564,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/l/lsb-release-minimal/lsb-release_12.0-2_all.deb"
+    },
+    {
+      "artifactId": "deb-0dd8e2b5abba5ebbdc33cbb403367cebc29db9ea0a68970689f433fcc2255c0a",
+      "sha256": "0dd8e2b5abba5ebbdc33cbb403367cebc29db9ea0a68970689f433fcc2255c0a",
+      "sizeBytes": 69962,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libg/libgpg-error/libgpg-error0_1.47-3build2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-0ecdd0777ab6a64d29ea6dfaad358342232ffef49c5a209a01798cd4f836c6bf",
+      "sha256": "0ecdd0777ab6a64d29ea6dfaad358342232ffef49c5a209a01798cd4f836c6bf",
+      "sizeBytes": 11876,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/systemd/systemd-sysv_255.4-1ubuntu8_arm64.deb"
+    },
+    {
+      "artifactId": "deb-0fafd5db6f7905b8be982628705cfa1fbc58ccaa1804c5a2c23320486adb4313",
+      "sha256": "0fafd5db6f7905b8be982628705cfa1fbc58ccaa1804c5a2c23320486adb4313",
+      "sizeBytes": 261612,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/c/cryptsetup/libcryptsetup12_2.7.0-1ubuntu4_arm64.deb"
+    },
+    {
+      "artifactId": "deb-10348d220295f690691bd8111ba0cc9aa7f581aa62c0c465547f6447b138b557",
+      "sha256": "10348d220295f690691bd8111ba0cc9aa7f581aa62c0c465547f6447b138b557",
+      "sizeBytes": 1155428,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-14/libubsan1_14-20240412-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-107537c94bf3a8822c93281a67d301d4cec7f65e0139b53abd9627cdd20a66da",
+      "sha256": "107537c94bf3a8822c93281a67d301d4cec7f65e0139b53abd9627cdd20a66da",
+      "sizeBytes": 1777024,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/perl/perl-base_5.38.2-3.2build2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-12287f3d3d5901f45a8680c868195e4ccca6d7d6a023abc1068d6bdfdb9f4be6",
+      "sha256": "12287f3d3d5901f45a8680c868195e4ccca6d7d6a023abc1068d6bdfdb9f4be6",
+      "sizeBytes": 167200,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/python-apt/python3-apt_2.7.7ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-1271fe13aad91222da5b73a4027c12c8642e1fba036016c6be7f5f3c4eb536e6",
+      "sha256": "1271fe13aad91222da5b73a4027c12c8642e1fba036016c6be7f5f3c4eb536e6",
+      "sizeBytes": 43080,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libt/libtasn1-6/libtasn1-6_4.19.0-3build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-151ec13d51227eaf412ae2ad891fb1484fb541d4c24034eca5bdb638ed99b5df",
+      "sha256": "151ec13d51227eaf412ae2ad891fb1484fb541d4c24034eca5bdb638ed99b5df",
+      "sizeBytes": 19666,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/glibc/libc-dev-bin_2.39-0ubuntu8_arm64.deb"
+    },
+    {
+      "artifactId": "deb-1987aeb576cf27007d8ee9d6f6e3e59f298a6885eacaaddf5c102a828a76f297",
+      "sha256": "1987aeb576cf27007d8ee9d6f6e3e59f298a6885eacaaddf5c102a828a76f297",
+      "sizeBytes": 47570,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/a/audit/libaudit1_3.1.2-2.1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-1be335428c6731a33f648af5d77c0dbce9d30158957c1f7549b5267422f5090c",
+      "sha256": "1be335428c6731a33f648af5d77c0dbce9d30158957c1f7549b5267422f5090c",
+      "sizeBytes": 99500,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/d/dbus-python/python3-dbus_1.3.2-5build3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-1d139fdc52af51c89a044d973937d411750c254f636b7b3228c8570085d59586",
+      "sha256": "1d139fdc52af51c89a044d973937d411750c254f636b7b3228c8570085d59586",
+      "sizeBytes": 204734,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/d/debconf/debconf-i18n_1.5.86ubuntu1_all.deb"
+    },
+    {
+      "artifactId": "deb-212d8873ac952bc68f4cf56d7eaf17566f86f5c7cc4b971899a0c56e174699cc",
+      "sha256": "212d8873ac952bc68f4cf56d7eaf17566f86f5c7cc4b971899a0c56e174699cc",
+      "sizeBytes": 8094,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libt/libtirpc/libtirpc-common_1.3.4+ds-1.1build1_all.deb"
+    },
+    {
+      "artifactId": "deb-21b483a81b4120ecc8b4588d1036c734676f9eb31556d3b1c292a8e068eb9ec0",
+      "sha256": "21b483a81b4120ecc8b4588d1036c734676f9eb31556d3b1c292a8e068eb9ec0",
+      "sizeBytes": 277982,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/pam/libpam-modules_1.5.3-5ubuntu5_arm64.deb"
+    },
+    {
+      "artifactId": "deb-25e749dbe3331ec8c04dfde36cc3e24d4871a2f7a46dff4282d521973f4698b6",
+      "sha256": "25e749dbe3331ec8c04dfde36cc3e24d4871a2f7a46dff4282d521973f4698b6",
+      "sizeBytes": 13118,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libt/libtext-iconv-perl/libtext-iconv-perl_1.7-8build3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-2715e156244a11459cbb385c8497c92cdb15e8fc399642c7fede079e73866f62",
+      "sha256": "2715e156244a11459cbb385c8497c92cdb15e8fc399642c7fede079e73866f62",
+      "sizeBytes": 50416,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/pam/libpam-modules-bin_1.5.3-5ubuntu5_arm64.deb"
+    },
+    {
+      "artifactId": "deb-274606669b68336bf54c7098614660b7987fcb906b68a1d23be3c7efdc92c3bb",
+      "sha256": "274606669b68336bf54c7098614660b7987fcb906b68a1d23be3c7efdc92c3bb",
+      "sizeBytes": 33496,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libc/libcap2/libcap2-bin_2.66-5ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-274fa3f3fce678479ad85e834ef99247c0874fe56c6c4a76f086a1110614ffef",
+      "sha256": "274fa3f3fce678479ad85e834ef99247c0874fe56c6c4a76f086a1110614ffef",
+      "sizeBytes": 122736,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/u/util-linux/libblkid1_2.39.3-9ubuntu6_arm64.deb"
+    },
+    {
+      "artifactId": "deb-27d4a76723a77bfaa7c8035907bddf5d9c573d36165c476935f88c30e2fddee5",
+      "sha256": "27d4a76723a77bfaa7c8035907bddf5d9c573d36165c476935f88c30e2fddee5",
+      "sizeBytes": 329230,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/m/mpfr4/libmpfr6_4.2.1-1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-27d6f3321a5b126ff1cfa76399506bb11e53ac38b5d263c3acdae2452356932d",
+      "sha256": "27d6f3321a5b126ff1cfa76399506bb11e53ac38b5d263c3acdae2452356932d",
+      "sizeBytes": 141356,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/k/krb5/libgssapi-krb5-2_1.20.1-6ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-2ae733be7fe2dc55e1fe419c5483488f8ee91393aac467f18ba30cd70bed6766",
+      "sha256": "2ae733be7fe2dc55e1fe419c5483488f8ee91393aac467f18ba30cd70bed6766",
+      "sizeBytes": 167522,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/setuptools/python3-pkg-resources_68.1.2-2ubuntu1_all.deb"
+    },
+    {
+      "artifactId": "deb-2df76253d79fd27b8e10b4b1426e2a229c1f374406a80607878eb66bdc1edcf6",
+      "sha256": "2df76253d79fd27b8e10b4b1426e2a229c1f374406a80607878eb66bdc1edcf6",
+      "sizeBytes": 247906,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/t/tar/tar_1.35+dfsg-3build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-2e1c92f23f82f85454900335e857939fa31d87eecce7c81ded680e8779228e74",
+      "sha256": "2e1c92f23f82f85454900335e857939fa31d87eecce7c81ded680e8779228e74",
+      "sizeBytes": 1120940,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/i/iproute2/iproute2_6.1.0-1ubuntu6_arm64.deb"
+    },
+    {
+      "artifactId": "deb-2ecb09dc18787ccef3abb87964e4b80d7bd96f2ef376a1e4b7f39765b94534d8",
+      "sha256": "2ecb09dc18787ccef3abb87964e4b80d7bd96f2ef376a1e4b7f39765b94534d8",
+      "sizeBytes": 590832,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/glibc/libc-bin_2.39-0ubuntu8_arm64.deb"
+    },
+    {
+      "artifactId": "deb-2f0dad97c31c7e59d51f65b0591ca3e9a7a794081f5b965640f14e17b2fa2d8f",
+      "sha256": "2f0dad97c31c7e59d51f65b0591ca3e9a7a794081f5b965640f14e17b2fa2d8f",
+      "sizeBytes": 67194,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libi/libidn2/libidn2-0_2.3.7-2build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-306d48240e77337c6d9380508356b8e88c70096baf19d695a0a5a1048d55ebb5",
+      "sha256": "306d48240e77337c6d9380508356b8e88c70096baf19d695a0a5a1048d55ebb5",
+      "sizeBytes": 3403010,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/systemd/systemd_255.4-1ubuntu8_arm64.deb"
+    },
+    {
+      "artifactId": "deb-31767baaa0e96453db7fc381970c7e5357a8e7deb3eb95a2309642129b43ed3b",
+      "sha256": "31767baaa0e96453db7fc381970c7e5357a8e7deb3eb95a2309642129b43ed3b",
+      "sizeBytes": 224814,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/e/e2fsprogs/libext2fs2t64_1.47.0-2.4~exp1ubuntu4_arm64.deb"
+    },
+    {
+      "artifactId": "deb-31bfb7eec55ab6d34a50ba995150e1498d4cb897714085d8025e330d3b529747",
+      "sha256": "31bfb7eec55ab6d34a50ba995150e1498d4cb897714085d8025e330d3b529747",
+      "sizeBytes": 27474,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/m/media-types/media-types_10.1.0_all.deb"
+    },
+    {
+      "artifactId": "deb-369be6a7c9e8d85de7eb81697bad038016805cf510ea5d7cb03b0c6e91d7eda5",
+      "sha256": "369be6a7c9e8d85de7eb81697bad038016805cf510ea5d7cb03b0c6e91d7eda5",
+      "sizeBytes": 22376,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/e/e2fsprogs/libcom-err2_1.47.0-2.4~exp1ubuntu4_arm64.deb"
+    },
+    {
+      "artifactId": "deb-36de43b15853ccae0028e9a767613770c704833f82586f28eb262f0311adb8a8",
+      "sha256": "36de43b15853ccae0028e9a767613770c704833f82586f28eb262f0311adb8a8",
+      "sizeBytes": 11124,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/u/ubuntu-keyring/ubuntu-keyring_2023.11.28.1_all.deb"
+    },
+    {
+      "artifactId": "deb-37bb83418588fe128c3d428b2ea80d82cd62f01a9a3c12bfbade49acb0a031b8",
+      "sha256": "37bb83418588fe128c3d428b2ea80d82cd62f01a9a3c12bfbade49acb0a031b8",
+      "sizeBytes": 1603960,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-14/libhwasan0_14-20240412-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-3914bb94008149aae3874d14185f9a2e0e3a87cdb284702a85818fd6c33b8685",
+      "sha256": "3914bb94008149aae3874d14185f9a2e0e3a87cdb284702a85818fd6c33b8685",
+      "sizeBytes": 20456,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/a/argon2/libargon2-1_0~20190702+dfsg-4build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-3f777eac64c87e2db843675b229efd16efe2ac1ae977318d687b39b812747863",
+      "sha256": "3f777eac64c87e2db843675b229efd16efe2ac1ae977318d687b39b812747863",
+      "sizeBytes": 144242,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-14/libgomp1_14-20240412-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-410c29ff82c6916d14e235b511287e67a45cb78d509b19aab48608acdc941254",
+      "sha256": "410c29ff82c6916d14e235b511287e67a45cb78d509b19aab48608acdc941254",
+      "sizeBytes": 22462,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/sensible-utils/sensible-utils_0.0.22_all.deb"
+    },
+    {
+      "artifactId": "deb-4127999ca395e8abac0ef09d17faaa8d1c2024c6779c8d35a0d1ab1b8e75cf7e",
+      "sha256": "4127999ca395e8abac0ef09d17faaa8d1c2024c6779c8d35a0d1ab1b8e75cf7e",
+      "sizeBytes": 65774,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/netplan.io/netplan.io_1.0-2ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-41573b1954447002ab707baacb9b9e1c30a3b78be0165dc14a805e88cb906b74",
+      "sha256": "41573b1954447002ab707baacb9b9e1c30a3b78be0165dc14a805e88cb906b74",
+      "sizeBytes": 239232,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/b/binutils/binutils-common_2.42-4ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-43339b502a91d0900b2e96ba9c30a3cc0175797a916d4d91dae26870f6d4655a",
+      "sha256": "43339b502a91d0900b2e96ba9c30a3cc0175797a916d4d91dae26870f6d4655a",
+      "sizeBytes": 290818,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libs/libsepol/libsepol2_3.5-2build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-44067d2b7cad1777084133340f27be642fa444f7631c444e199c88179a3cb0e4",
+      "sha256": "44067d2b7cad1777084133340f27be642fa444f7631c444e199c88179a3cb0e4",
+      "sizeBytes": 1851808,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/systemd/udev_255.4-1ubuntu8_arm64.deb"
+    },
+    {
+      "artifactId": "deb-45f2427ee2de6006348e6acfc6f104a4624fbe8577275ce7ab6a9a510842cdc3",
+      "sha256": "45f2427ee2de6006348e6acfc6f104a4624fbe8577275ce7ab6a9a510842cdc3",
+      "sizeBytes": 349134,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/k/krb5/libkrb5-3_1.20.1-6ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-479e36b48cd3a32ea00e3376ff80591036e22e5acf2386c92dfd393907be3b55",
+      "sha256": "479e36b48cd3a32ea00e3376ff80591036e22e5acf2386c92dfd393907be3b55",
+      "sizeBytes": 6186,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/i/init-system-helpers/init_1.66ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-4939fe4f1e3552afa6294921fe02c92dbffb636037efdc02b887c31306d730f2",
+      "sha256": "4939fe4f1e3552afa6294921fe02c92dbffb636037efdc02b887c31306d730f2",
+      "sizeBytes": 51766,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/k/kmod/libkmod2_31+20240202-2ubuntu7_arm64.deb"
+    },
+    {
+      "artifactId": "deb-4a3154766752bbdfabd7b9c1c70db097723d1d0571439772c4996bf93933631a",
+      "sha256": "4a3154766752bbdfabd7b9c1c70db097723d1d0571439772c4996bf93933631a",
+      "sizeBytes": 17860,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/netifaces/python3-netifaces_0.11.0-2build3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-4e95eb1b7442b15561b17349f293da82a786f6a95346ef3196fb39b7998348d4",
+      "sha256": "4e95eb1b7442b15561b17349f293da82a786f6a95346ef3196fb39b7998348d4",
+      "sizeBytes": 1265468,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/d/dpkg/dpkg_1.22.6ubuntu6_arm64.deb"
+    },
+    {
+      "artifactId": "deb-542aff2395eb912a56833e11a78076342779689d8fede7adcf08d1d6b0d0cd8b",
+      "sha256": "542aff2395eb912a56833e11a78076342779689d8fede7adcf08d1d6b0d0cd8b",
+      "sizeBytes": 100872,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/a/adduser/adduser_3.137ubuntu1_all.deb"
+    },
+    {
+      "artifactId": "deb-566a415cccb36807b88d5339b463cfe9c3c3890bdb6d097fb5d7a172f95f2b97",
+      "sha256": "566a415cccb36807b88d5339b463cfe9c3c3890bdb6d097fb5d7a172f95f2b97",
+      "sizeBytes": 14366,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/b/binutils/libsframe1_2.42-4ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-576128e2012238110464877112d022165173d5101ec6945ee5075d207ba9300c",
+      "sha256": "576128e2012238110464877112d022165173d5101ec6945ee5075d207ba9300c",
+      "sizeBytes": 83586,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libt/libtirpc/libtirpc3t64_1.3.4+ds-1.1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-582e3e512e7077d42e9bec32b1c52ea311402837b1474a2613334ab1dced8edf",
+      "sha256": "582e3e512e7077d42e9bec32b1c52ea311402837b1474a2613334ab1dced8edf",
+      "sizeBytes": 192208,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/nettle/libnettle8t64_3.9.1-2.2build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-58349bda8fa236d841b492f8bf9d6872be53cc0a61ce7152ca1025ba340a5d71",
+      "sha256": "58349bda8fa236d841b492f8bf9d6872be53cc0a61ce7152ca1025ba340a5d71",
+      "sizeBytes": 142310,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/u/util-linux/libfdisk1_2.39.3-9ubuntu6_arm64.deb"
+    },
+    {
+      "artifactId": "deb-588fb547a21582c0be546db0fb2de4b1edef705dd7069e2dfdd45708b36d9a98",
+      "sha256": "588fb547a21582c0be546db0fb2de4b1edef705dd7069e2dfdd45708b36d9a98",
+      "sizeBytes": 3291448,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/b/binutils/binutils-aarch64-linux-gnu_2.42-4ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-59dffab38adcb02ef245502a4e9aa18120090edd692795da19331f96511857d8",
+      "sha256": "59dffab38adcb02ef245502a4e9aa18120090edd692795da19331f96511857d8",
+      "sizeBytes": 21532,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/netplan.io/python3-netplan_1.0-2ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-5cd73ba112507dabd8e43b528ca9f530719a370e014b8e3e797770e6e940cccf",
+      "sha256": "5cd73ba112507dabd8e43b528ca9f530719a370e014b8e3e797770e6e940cccf",
+      "sizeBytes": 85888,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libx/libxcrypt/libcrypt1_4.4.36-4build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-5f0a5188398b606d723f1bed48ee38c11eaeb98357ab29a3bf33c451056815d1",
+      "sha256": "5f0a5188398b606d723f1bed48ee38c11eaeb98357ab29a3bf33c451056815d1",
+      "sizeBytes": 395132,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/x/xkeyboard-config/xkb-data_2.41-2ubuntu1_all.deb"
+    },
+    {
+      "artifactId": "deb-5fc6de2984dcebecc202f07dd6b42396024ab532536832562a969437923fbb22",
+      "sha256": "5fc6de2984dcebecc202f07dd6b42396024ab532536832562a969437923fbb22",
+      "sizeBytes": 211794,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/c/console-setup/keyboard-configuration_1.226ubuntu1_all.deb"
+    },
+    {
+      "artifactId": "deb-6200ae28cdd976f9bf98571e4f7d49f9c632cfbc7eba241a3fed0f21ec8fe3ca",
+      "sha256": "6200ae28cdd976f9bf98571e4f7d49f9c632cfbc7eba241a3fed0f21ec8fe3ca",
+      "sizeBytes": 40926,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libb/libbsd/libbsd0_0.12.1-1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-62567062c6f08702d6876bd5ad8993ff618478df9bd8613270032e9477b82e93",
+      "sha256": "62567062c6f08702d6876bd5ad8993ff618478df9bd8613270032e9477b82e93",
+      "sizeBytes": 172824,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/systemd/libudev1_255.4-1ubuntu8_arm64.deb"
+    },
+    {
+      "artifactId": "deb-643c8461a9a1ff3a14bccfabe68ec6dac03645d393cc39f3c06c9bba423d7d60",
+      "sha256": "643c8461a9a1ff3a14bccfabe68ec6dac03645d393cc39f3c06c9bba423d7d60",
+      "sizeBytes": 11280,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/c/cdebconf/libdebconfclient0_0.271ubuntu3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-649856baf5e43a011c46b0fd3a2a1bad574f4663e0b90c39a3ac609f297d60b7",
+      "sha256": "649856baf5e43a011c46b0fd3a2a1bad574f4663e0b90c39a3ac609f297d60b7",
+      "sizeBytes": 125356,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/x/xz-utils/liblzma5_5.6.1+really5.4.5-1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-66aaebb68401a88b4f70a5f48e1a516b611fdcaae15208d8aee677c556d2cf01",
+      "sha256": "66aaebb68401a88b4f70a5f48e1a516b611fdcaae15208d8aee677c556d2cf01",
+      "sizeBytes": 61682,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/z/zlib/zlib1g_1.3.dfsg-3.1ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-6b372dcd362202fba55fe40dabc9e6216fb96757b3f908a0056049fd1d3e6706",
+      "sha256": "6b372dcd362202fba55fe40dabc9e6216fb96757b3f908a0056049fd1d3e6706",
+      "sizeBytes": 85566,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/k/krb5/libk5crypto3_1.20.1-6ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-6e1cdd65bf58fe77968f8ac45f1802586baf18bfb8541f4a88fe843ab85bef8b",
+      "sha256": "6e1cdd65bf58fe77968f8ac45f1802586baf18bfb8541f4a88fe843ab85bef8b",
+      "sizeBytes": 594168,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/e/e2fsprogs/e2fsprogs_1.47.0-2.4~exp1ubuntu4_arm64.deb"
+    },
+    {
+      "artifactId": "deb-6ee6fcd0dae8beaa3090704c21864cf44121646444d14127cf675131ced5d6cb",
+      "sha256": "6ee6fcd0dae8beaa3090704c21864cf44121646444d14127cf675131ced5d6cb",
+      "sizeBytes": 24100,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/python3-defaults/python3_3.12.3-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-72cd6add0f8eaaa45f44dd5c0903df083ab3847091d0633b4e46e8f80443718a",
+      "sha256": "72cd6add0f8eaaa45f44dd5c0903df083ab3847091d0633b4e46e8f80443718a",
+      "sizeBytes": 35914,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/i/iptables/libxtables12_1.8.10-3ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-752ba1420f11452a2c3c9c8b8a68988defc4ea39d2d26a0372676722a27ebe0c",
+      "sha256": "752ba1420f11452a2c3c9c8b8a68988defc4ea39d2d26a0372676722a27ebe0c",
+      "sizeBytes": 1289432,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/glib2.0/libglib2.0-0t64_2.80.0-6ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-75815ee5f4a7c5098705dc31538ab7732fdee08ea71219c136bfa27cc7388685",
+      "sha256": "75815ee5f4a7c5098705dc31538ab7732fdee08ea71219c136bfa27cc7388685",
+      "sizeBytes": 1336188,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/a/apt/apt_2.7.14build2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-7742985212c35abf6934385394b29a7f83e23d7ad9b504215c0a019dad457856",
+      "sha256": "7742985212c35abf6934385394b29a7f83e23d7ad9b504215c0a019dad457856",
+      "sizeBytes": 109854,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/c/console-setup/console-setup_1.226ubuntu1_all.deb"
+    },
+    {
+      "artifactId": "deb-7771d3d291d4650fa0f23d647db99a99cb06c5c8281d1db3a53dbbae475b524d",
+      "sha256": "7771d3d291d4650fa0f23d647db99a99cb06c5c8281d1db3a53dbbae475b524d",
+      "sizeBytes": 211388,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/d/dhcpcd/dhcpcd-base_10.0.6-1ubuntu3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-77b4b81dd3d5783772dc0b742c79680ce1eef18a771cf1f421e9a9e5eaf2d71e",
+      "sha256": "77b4b81dd3d5783772dc0b742c79680ce1eef18a771cf1f421e9a9e5eaf2d71e",
+      "sizeBytes": 476406,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/slang2/libslang2_2.3.3-3build2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-78578e93d617223edea964c9151a0e066ba90e435673df102a6839beac5c4031",
+      "sha256": "78578e93d617223edea964c9151a0e066ba90e435673df102a6839beac5c4031",
+      "sizeBytes": 113332,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/pyyaml/python3-yaml_6.0.1-2build2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-7aed0e332aeb4de38ae918a35c8853e9ac1c85e50f16790395bb50a7cee29c7b",
+      "sha256": "7aed0e332aeb4de38ae918a35c8853e9ac1c85e50f16790395bb50a7cee29c7b",
+      "sizeBytes": 27214,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/python3-defaults/python3-minimal_3.12.3-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-7b2d243bb9bcb7348328c5b9f64f267dca67ac37a07f8e43219e64405febe22e",
+      "sha256": "7b2d243bb9bcb7348328c5b9f64f267dca67ac37a07f8e43219e64405febe22e",
+      "sizeBytes": 28400,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/popt/libpopt0_1.19+dfsg-1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-7d0168a6ea0ebc7263fed3cce3dc45153ddd4e0e4a4b2737f74f0bd72cbaa292",
+      "sha256": "7d0168a6ea0ebc7263fed3cce3dc45153ddd4e0e4a4b2737f74f0bd72cbaa292",
+      "sizeBytes": 17910700,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/l/linux-signed/linux-image-6.8.0-31-generic_6.8.0-31.31_arm64.deb"
+    },
+    {
+      "artifactId": "deb-7d6c7b49d63422d3cb813406d0b5f698439b4619d6491ef6a73c09bbf30ba625",
+      "sha256": "7d6c7b49d63422d3cb813406d0b5f698439b4619d6491ef6a73c09bbf30ba625",
+      "sizeBytes": 36750,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/liba/libassuan/libassuan0_2.5.6-1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-7df513df25a70056d93f07024efd373a140e529976a140e093cd0555eaed023c",
+      "sha256": "7df513df25a70056d93f07024efd373a140e529976a140e093cd0555eaed023c",
+      "sizeBytes": 67792,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/pam/libpam0g_1.5.3-5ubuntu5_arm64.deb"
+    },
+    {
+      "artifactId": "deb-7ece50a59b234d05a5ad8d146cd5435a570c014b6c15ea143f473d787b799aa5",
+      "sha256": "7ece50a59b234d05a5ad8d146cd5435a570c014b6c15ea143f473d787b799aa5",
+      "sizeBytes": 2920710,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-14/libasan8_14-20240412-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-7f46b2f3ca588cd2f05d2cfb6844017309760b4201105cdfda4b339f9e6c69da",
+      "sha256": "7f46b2f3ca588cd2f05d2cfb6844017309760b4201105cdfda4b339f9e6c69da",
+      "sizeBytes": 153046,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/r/readline/libreadline8t64_8.2-4build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-7f4ebb6ba4a412fd7a4b659186ea0f57cad65839635a251562301efba9f0b82b",
+      "sha256": "7f4ebb6ba4a412fd7a4b659186ea0f57cad65839635a251562301efba9f0b82b",
+      "sizeBytes": 384936,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/v/vim/vim-common_9.1.0016-1ubuntu7_all.deb"
+    },
+    {
+      "artifactId": "deb-7fd438efa44a794b438e7dde7ac280166fb8d4b1cf7846393ce019714d8bb3e3",
+      "sha256": "7fd438efa44a794b438e7dde7ac280166fb8d4b1cf7846393ce019714d8bb3e3",
+      "sizeBytes": 1572188,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/l/linux/linux-libc-dev_6.8.0-31.31_arm64.deb"
+    },
+    {
+      "artifactId": "deb-80ed4d6149e4214c057e5b12b629f8ed5fffb39e34421a5da25f79a6c082cad6",
+      "sha256": "80ed4d6149e4214c057e5b12b629f8ed5fffb39e34421a5da25f79a6c082cad6",
+      "sizeBytes": 2692084,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-14/libtsan2_14-20240412-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-81d4ecb48598a3c5012f325c911d6232c6b4c7f497f017fce96d10a92a968273",
+      "sha256": "81d4ecb48598a3c5012f325c911d6232c6b4c7f497f017fce96d10a92a968273",
+      "sizeBytes": 942468,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gnutls28/libgnutls30t64_3.8.3-1.1ubuntu3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-840f28f78e5fed0267a7b1088ac4736deeda53ec1ff956b5d83e0d3f64a8649a",
+      "sha256": "840f28f78e5fed0267a7b1088ac4736deeda53ec1ff956b5d83e0d3f64a8649a",
+      "sizeBytes": 707816,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/procps/procps_4.0.4-4ubuntu3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-844a1f5bb590b74b141cabc53c2d44a3c1b676e53c9bbfa7b45252c17cfa7a68",
+      "sha256": "844a1f5bb590b74b141cabc53c2d44a3c1b676e53c9bbfa7b45252c17cfa7a68",
+      "sizeBytes": 103640,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/systemd/systemd-dev_255.4-1ubuntu8_all.deb"
+    },
+    {
+      "artifactId": "deb-87048543c7651248068f89542f30efcfd2ea5c6e02b4766c46a1b654adbe7022",
+      "sha256": "87048543c7651248068f89542f30efcfd2ea5c6e02b4766c46a1b654adbe7022",
+      "sizeBytes": 9406,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libt/libtext-charwidth-perl/libtext-charwidth-perl_0.04-11build3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-879bfd7f8a9bc4c0f7cdc777cdd8bc6de5f8c4a2ac80c060322a1b22f13504bb",
+      "sha256": "879bfd7f8a9bc4c0f7cdc777cdd8bc6de5f8c4a2ac80c060322a1b22f13504bb",
+      "sizeBytes": 56484,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/r/readline/readline-common_8.2-4build1_all.deb"
+    },
+    {
+      "artifactId": "deb-88c75467ee09a14981661782bf62f4a0029458922245d7f22225c2ca4441eeee",
+      "sha256": "88c75467ee09a14981661782bf62f4a0029458922245d7f22225c2ca4441eeee",
+      "sizeBytes": 30200,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libc/libcap2/libcap2_2.66-5ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-89eefec795475ab9fd9bd13d74412a4ec49b06bffb3a3fbd3af78aed60941aa9",
+      "sha256": "89eefec795475ab9fd9bd13d74412a4ec49b06bffb3a3fbd3af78aed60941aa9",
+      "sizeBytes": 35656,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/b/bzip2/libbz2-1.0_1.0.8-5.1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-8b09803a6318428836ed522f8891edb2a7cf3197433d6aa1bbdedcd07d4124db",
+      "sha256": "8b09803a6318428836ed522f8891edb2a7cf3197433d6aa1bbdedcd07d4124db",
+      "sizeBytes": 243082,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gmp/libgmp10_6.3.0+dfsg-2ubuntu6_arm64.deb"
+    },
+    {
+      "artifactId": "deb-8c29035a9153c5087a4853dae51db5b804d52be90ca5b6f08e9d9684e6d64448",
+      "sha256": "8c29035a9153c5087a4853dae51db5b804d52be90ca5b6f08e9d9684e6d64448",
+      "sizeBytes": 50004,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/a/apparmor/libapparmor1_4.0.0-beta3-0ubuntu3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-8cdbc9c3dca01e660759bf9d840f72e45ac72faf5d19ca1faecacaf6a60c1a87",
+      "sha256": "8cdbc9c3dca01e660759bf9d840f72e45ac72faf5d19ca1faecacaf6a60c1a87",
+      "sizeBytes": 13112,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/netbase/netbase_6.4_all.deb"
+    },
+    {
+      "artifactId": "deb-8eb801f9ce084dab9bf4cbc3ec0ee5ac75516a4cc1f25e3f92298c632e75b700",
+      "sha256": "8eb801f9ce084dab9bf4cbc3ec0ee5ac75516a4cc1f25e3f92298c632e75b700",
+      "sizeBytes": 39402,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/i/init-system-helpers/init-system-helpers_1.66ubuntu1_all.deb"
+    },
+    {
+      "artifactId": "deb-8f4f8a13f2f5658b68b47f4eee4a61f75b78a68c52f7c89176574544a5dcffd9",
+      "sha256": "8f4f8a13f2f5658b68b47f4eee4a61f75b78a68c52f7c89176574544a5dcffd9",
+      "sizeBytes": 205248,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/a/apt/apt-utils_2.7.14build2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-905e0dfd142df77fe170c6a4b19512cc627d95ee1df98a7d919936a3aad265f6",
+      "sha256": "905e0dfd142df77fe170c6a4b19512cc627d95ee1df98a7d919936a3aad265f6",
+      "sizeBytes": 828606,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/python3.12/libpython3.12-minimal_3.12.3-1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-9085ce0c1a9ff8da0ffdbfa3aaf34c2f7504c46ba17198d3a6b9c968398ce495",
+      "sha256": "9085ce0c1a9ff8da0ffdbfa3aaf34c2f7504c46ba17198d3a6b9c968398ce495",
+      "sizeBytes": 17036,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/a/acl/libacl1_2.3.2-1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-921f29e63209d1ca4c6b4391132139c567121c6e2ebc2c1de25b25528dc713ea",
+      "sha256": "921f29e63209d1ca4c6b4391132139c567121c6e2ebc2c1de25b25528dc713ea",
+      "sizeBytes": 95726,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/b/binutils/libctf0_2.42-4ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-9307130913c6173ddb03bdb3493807c19aac38ccadf612dfe98d074b3746ebc9",
+      "sha256": "9307130913c6173ddb03bdb3493807c19aac38ccadf612dfe98d074b3746ebc9",
+      "sizeBytes": 275798,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/p11-kit/libp11-kit0_0.25.3-4ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-936619071dd5d81ff672b685af9ad20e1f524be2241cbd80556aedc376844a36",
+      "sha256": "936619071dd5d81ff672b685af9ad20e1f524be2241cbd80556aedc376844a36",
+      "sizeBytes": 7694,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libt/libtext-wrapi18n-perl/libtext-wrapi18n-perl_0.06-10_all.deb"
+    },
+    {
+      "artifactId": "deb-936e214b03c52c83800f2607e43f25922b683b970b6fe19b914099d1b80b413b",
+      "sha256": "936e214b03c52c83800f2607e43f25922b683b970b6fe19b914099d1b80b413b",
+      "sizeBytes": 27932,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-14/libitm1_14-20240412-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-938632f5c41bee14ba2eed9b8c79eae1979653b720d7ec56c67f96475c84fd05",
+      "sha256": "938632f5c41bee14ba2eed9b8c79eae1979653b720d7ec56c67f96475c84fd05",
+      "sizeBytes": 51088,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libs/libseccomp/libseccomp2_2.5.5-1ubuntu3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-9442f15a4bbc6148e527045adaf85c86ae3ffe159176d6a5f3b471b49150e470",
+      "sha256": "9442f15a4bbc6148e527045adaf85c86ae3ffe159176d6a5f3b471b49150e470",
+      "sizeBytes": 12372,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libm/libmnl/libmnl0_1.0.5-2build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-944e2018f6f893854ef013d2b4b99a8aa7bea1195918070fdf17d4d0211998ad",
+      "sha256": "944e2018f6f893854ef013d2b4b99a8aa7bea1195918070fdf17d4d0211998ad",
+      "sizeBytes": 82208,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/python-cffi/python3-cffi-backend_1.16.0-2build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-945677b07a158c7f8beac4fde8c0acf200006631bad954c4f8ca58f8691c310c",
+      "sha256": "945677b07a158c7f8beac4fde8c0acf200006631bad954c4f8ca58f8691c310c",
+      "sizeBytes": 100952,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/k/kmod/kmod_31+20240202-2ubuntu7_arm64.deb"
+    },
+    {
+      "artifactId": "deb-954d3ced597fb8668677621135a6e7336f9f5e18ae1771ee27733c7599a355bc",
+      "sha256": "954d3ced597fb8668677621135a6e7336f9f5e18ae1771ee27733c7599a355bc",
+      "sizeBytes": 58904,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/netplan.io/netplan-generator_1.0-2ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-9586c56b4c20b61edad5c9d871ef9f83cd1a8575f2d31a589b7f110e60fe1016",
+      "sha256": "9586c56b4c20b61edad5c9d871ef9f83cd1a8575f2d31a589b7f110e60fe1016",
+      "sizeBytes": 85790912,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/l/linux/linux-modules-6.8.0-31-generic_6.8.0-31.31_arm64.deb"
+    },
+    {
+      "artifactId": "deb-959fbcbc05817cdf9191b73d8d78ac0b8919559c4c3b4e9d0bbf157b39716652",
+      "sha256": "959fbcbc05817cdf9191b73d8d78ac0b8919559c4c3b4e9d0bbf157b39716652",
+      "sizeBytes": 36390,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/j/json-c/libjson-c5_0.17-1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-98568129024af1a71702d5a13f2e01c53afd5e2c3f71b2ee97fdd9a19cd97eda",
+      "sha256": "98568129024af1a71702d5a13f2e01c53afd5e2c3f71b2ee97fdd9a19cd97eda",
+      "sizeBytes": 271224,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libz/libzstd/libzstd1_1.5.5+dfsg2-2build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-9d5429f28e8d8bfc8bbee3783d27c3f9d490802b103ca77013bc019ceb0030f8",
+      "sha256": "9d5429f28e8d8bfc8bbee3783d27c3f9d490802b103ca77013bc019ceb0030f8",
+      "sizeBytes": 20096,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/python-apt/python-apt-common_2.7.7ubuntu1_all.deb"
+    },
+    {
+      "artifactId": "deb-9d957330c83693dfd870a56794317395b9519b385a69933828ff8e8e14829aa0",
+      "sha256": "9d957330c83693dfd870a56794317395b9519b385a69933828ff8e8e14829aa0",
+      "sizeBytes": 24590,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libm/libmd/libmd0_1.1.0-2build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-9ebb6ce8788d75beeb127ee13ebd28746511cf6f2d0499cab5f8f031858152ee",
+      "sha256": "9ebb6ce8788d75beeb127ee13ebd28746511cf6f2d0499cab5f8f031858152ee",
+      "sizeBytes": 211682,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/pcre2/libpcre2-8-0_10.42-4ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-9fe12a105632719ce3ba4d1a12dbce638a4dee7e31f881e742a0d151598fde8d",
+      "sha256": "9fe12a105632719ce3ba4d1a12dbce638a4dee7e31f881e742a0d151598fde8d",
+      "sizeBytes": 2016072,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/systemd/libsystemd-shared_255.4-1ubuntu8_arm64.deb"
+    },
+    {
+      "artifactId": "deb-a173ba6e41b491be25b6b83502f2afebe92f63ed2535e56119ea059aeedfecff",
+      "sha256": "a173ba6e41b491be25b6b83502f2afebe92f63ed2535e56119ea059aeedfecff",
+      "sizeBytes": 6336,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/d/distro-info-data/distro-info-data_0.60_all.deb"
+    },
+    {
+      "artifactId": "deb-a28a8d99596fda6558e6391325618edf82ae5eee16d5617b59175c87e9254b23",
+      "sha256": "a28a8d99596fda6558e6391325618edf82ae5eee16d5617b59175c87e9254b23",
+      "sizeBytes": 214100,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/u/ubuntu-advantage-tools/ubuntu-pro-client_31.2.3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-a3d40edb1295a8c7a6074a1f4a4fa23f52a8f682014da965cd7d7a020729428d",
+      "sha256": "a3d40edb1295a8c7a6074a1f4a4fa23f52a8f682014da965cd7d7a020729428d",
+      "sizeBytes": 8144,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/npth/libnpth0t64_1.6-3.1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-a473987e9704cbfa2c795b7c94b57f38ed2b27f7068c8338e1deed9bbf279877",
+      "sha256": "a473987e9704cbfa2c795b7c94b57f38ed2b27f7068c8338e1deed9bbf279877",
+      "sizeBytes": 47626,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-14/gcc-14-base_14-20240412-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-a4d4607144bc599328a913d7312761fd8f4a650d67c7d5058f1f3667d771d37c",
+      "sha256": "a4d4607144bc599328a913d7312761fd8f4a650d67c7d5058f1f3667d771d37c",
+      "sizeBytes": 22716,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libf/libffi/libffi8_3.4.6-1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-a65efa480539f8792960d24a02b7dcffd34c3ef9610660d7953d82ee1e8560f4",
+      "sha256": "a65efa480539f8792960d24a02b7dcffd34c3ef9610660d7953d82ee1e8560f4",
+      "sizeBytes": 669174,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/i/isl/libisl23_0.26-3build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-a69cf89fe33b386e63c26f6992be1e20bfa2ea2dd30c3619af8b1174612c4525",
+      "sha256": "a69cf89fe33b386e63c26f6992be1e20bfa2ea2dd30c3619af8b1174612c4525",
+      "sizeBytes": 21684,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/x/xxhash/libxxhash0_0.8.2-2build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-a6fa75e49de6327ccdbf664e905cde229df77116a966c310e81c778eba756dca",
+      "sha256": "a6fa75e49de6327ccdbf664e905cde229df77116a966c310e81c778eba756dca",
+      "sizeBytes": 123594,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/m/mawk/mawk_1.3.4.20240123-1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-a9d513eae76f4efb1c7370413bd21634fcfc0955e103d26af95f298af6c90abd",
+      "sha256": "a9d513eae76f4efb1c7370413bd21634fcfc0955e103d26af95f298af6c90abd",
+      "sizeBytes": 34362,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/j/jansson/libjansson4_2.14-2build2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-ad2f31b92f8fe3bcf27441a8758f56c5b9f20356fcf92d85cb03fab9b0d7cc4e",
+      "sha256": "ad2f31b92f8fe3bcf27441a8758f56c5b9f20356fcf92d85cb03fab9b0d7cc4e",
+      "sizeBytes": 116188,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/u/util-linux/mount_2.39.3-9ubuntu6_arm64.deb"
+    },
+    {
+      "artifactId": "deb-ad4fa969d46235d32dcb53641920fc774bc33014b9f20295a1feccf74d4e91c0",
+      "sha256": "ad4fa969d46235d32dcb53641920fc774bc33014b9f20295a1feccf74d4e91c0",
+      "sizeBytes": 838766,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/shadow/passwd_4.13+dfsg1-4ubuntu3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-ae527152fc2bf9c1a645c2620d802b0849db32c8aa48328b4ae94c59cc57bcc9",
+      "sha256": "ae527152fc2bf9c1a645c2620d802b0849db32c8aa48328b4ae94c59cc57bcc9",
+      "sizeBytes": 64816,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/r/rpcsvc-proto/rpcsvc-proto_1.4.2-0ubuntu7_arm64.deb"
+    },
+    {
+      "artifactId": "deb-af8dcffc0db13621e7725145bb3bbfd4353c1c317b01ccd69d85724bbfc05f8e",
+      "sha256": "af8dcffc0db13621e7725145bb3bbfd4353c1c317b01ccd69d85724bbfc05f8e",
+      "sizeBytes": 1285918,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-14/liblsan0_14-20240412-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-afa768e7a0349c8dc1e0c43a2675ede405f097b6fd55f7188027470c4812dd8a",
+      "sha256": "afa768e7a0349c8dc1e0c43a2675ede405f097b6fd55f7188027470c4812dd8a",
+      "sizeBytes": 20078664,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-13/gcc-13-aarch64-linux-gnu_13.2.0-23ubuntu4_arm64.deb"
+    },
+    {
+      "artifactId": "deb-b0019d9155d2d5f07fd2cd7f16d1fd38de0da5732da600be8518f9e3a0dee83f",
+      "sha256": "b0019d9155d2d5f07fd2cd7f16d1fd38de0da5732da600be8518f9e3a0dee83f",
+      "sizeBytes": 928598,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/sudo/sudo_1.9.15p5-3ubuntu5_arm64.deb"
+    },
+    {
+      "artifactId": "deb-b04d246b871e2e745538fa71ce2d1a127dfd65e7b1438bc6b8e2bb86538f519e",
+      "sha256": "b04d246b871e2e745538fa71ce2d1a127dfd65e7b1438bc6b8e2bb86538f519e",
+      "sizeBytes": 732284,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/d/db5.3/libdb5.3t64_5.3.28+dfsg2-7_arm64.deb"
+    },
+    {
+      "artifactId": "deb-b301f776112fadae74852adb953e9b3f8ce5f896a4b927a916b402e51d8b08a9",
+      "sha256": "b301f776112fadae74852adb953e9b3f8ce5f896a4b927a916b402e51d8b08a9",
+      "sizeBytes": 145424,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/ncurses/libncursesw6_6.4+20240113-1ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-b71c08ea650c212b2c8fa5bbcef9957e5e85c8f5c484a85cfb8961a8271bf376",
+      "sha256": "b71c08ea650c212b2c8fa5bbcef9957e5e85c8f5c484a85cfb8961a8271bf376",
+      "sizeBytes": 703114,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/sqlite3/libsqlite3-0_3.45.1-1ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-b73ba8b07a22d5a1b182c4141998a7bac800f6113ef41f6a74ec9ea93cf92194",
+      "sha256": "b73ba8b07a22d5a1b182c4141998a7bac800f6113ef41f6a74ec9ea93cf92194",
+      "sizeBytes": 934734,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/a/apt/libapt-pkg6.0t64_2.7.14build2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-b8062c2e37b8b44fd1cbfc193d2943761e1bd02e32dd0b47bea5ff860fcb4dcb",
+      "sha256": "b8062c2e37b8b44fd1cbfc193d2943761e1bd02e32dd0b47bea5ff860fcb4dcb",
+      "sizeBytes": 10318634,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-13/cpp-13-aarch64-linux-gnu_13.2.0-23ubuntu4_arm64.deb"
+    },
+    {
+      "artifactId": "deb-b8522683a59e988f2ea5db0fafe9f508780cc4e125e27e9a4f2d24bbcc6b9029",
+      "sha256": "b8522683a59e988f2ea5db0fafe9f508780cc4e125e27e9a4f2d24bbcc6b9029",
+      "sizeBytes": 99834,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/b/binutils/libctf-nobfd0_2.42-4ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-baabcb3ee4dc69580797e788255faa259f9eb7ea86703ec9222550553e6df46f",
+      "sha256": "baabcb3ee4dc69580797e788255faa259f9eb7ea86703ec9222550553e6df46f",
+      "sizeBytes": 198788,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/nettle/libhogweed6t64_3.9.1-2.2build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-bb1c262f2ac9aeb357d3344a06f22f1057306694f6200896775a03ecced08b13",
+      "sha256": "bb1c262f2ac9aeb357d3344a06f22f1057306694f6200896775a03ecced08b13",
+      "sizeBytes": 61720,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-14/libgcc-s1_14-20240412-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-bb390da466a7461bfc87aa3e6b7cd145dae84af3e26bf437f2c0c218ba226294",
+      "sha256": "bb390da466a7461bfc87aa3e6b7cd145dae84af3e26bf437f2c0c218ba226294",
+      "sizeBytes": 124096,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/d/debconf/debconf_1.5.86ubuntu1_all.deb"
+    },
+    {
+      "artifactId": "deb-bd7e0d87cdf6363691abd7b4470b5e43dc8cb91b874f054f6efd9421a7a88099",
+      "sha256": "bd7e0d87cdf6363691abd7b4470b5e43dc8cb91b874f054f6efd9421a7a88099",
+      "sizeBytes": 167516,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libb/libbpf/libbpf1_1.3.0-2build2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-c0f3ff9f8407b185ffeaac43faebc66f63b01cc85896e8040c075f18ce063acd",
+      "sha256": "c0f3ff9f8407b185ffeaac43faebc66f63b01cc85896e8040c075f18ce063acd",
+      "sizeBytes": 776902,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/b/binutils/libgprofng0_2.42-4ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-c25e54d256ad15e8b183165bf47021bc97f4604372b3264c63904d56955c9098",
+      "sha256": "c25e54d256ad15e8b183165bf47021bc97f4604372b3264c63904d56955c9098",
+      "sizeBytes": 132878,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/u/util-linux/libmount1_2.39.3-9ubuntu6_arm64.deb"
+    },
+    {
+      "artifactId": "deb-c269be28a2ed45d08f85ca2e7eb8a333f7ef5b01a052f4ad561e6834fe4c8964",
+      "sha256": "c269be28a2ed45d08f85ca2e7eb8a333f7ef5b01a052f4ad561e6834fe4c8964",
+      "sizeBytes": 209862,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/d/dbus/libdbus-1-3_1.14.10-4ubuntu4_arm64.deb"
+    },
+    {
+      "artifactId": "deb-c3144809501d6ea37016251170892c54c6d1806217ff681f61cfc7bea55c52c1",
+      "sha256": "c3144809501d6ea37016251170892c54c6d1806217ff681f61cfc7bea55c52c1",
+      "sizeBytes": 22172,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/e/e2fsprogs/logsave_1.47.0-2.4~exp1ubuntu4_arm64.deb"
+    },
+    {
+      "artifactId": "deb-c5ce70a0cc04dbe9e7e6a1bdf21c0989f7d7c69ef2fd53ff98a6d3ac00d02d5f",
+      "sha256": "c5ce70a0cc04dbe9e7e6a1bdf21c0989f7d7c69ef2fd53ff98a6d3ac00d02d5f",
+      "sizeBytes": 2251184,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/python3.12/python3.12-minimal_3.12.3-1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-c73fb14a5bdbdc9a026d62d4bee3aeec0f1d5df0c40abd6cc136403b1b24df9a",
+      "sha256": "c73fb14a5bdbdc9a026d62d4bee3aeec0f1d5df0c40abd6cc136403b1b24df9a",
+      "sizeBytes": 650732,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/python3.12/python3.12_3.12.3-1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-c81f6acf21c9a0c8ecfdd87ff33a666c6ff8c73c981a6fa3d39910750899c7df",
+      "sha256": "c81f6acf21c9a0c8ecfdd87ff33a666c6ff8c73c981a6fa3d39910750899c7df",
+      "sizeBytes": 26480,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/u/util-linux/eject_2.39.3-9ubuntu6_arm64.deb"
+    },
+    {
+      "artifactId": "deb-c9a0cfcdb6c7b52de7a9f1dd00af2db427e83fa6c93a967742888d1d7a23bd33",
+      "sha256": "c9a0cfcdb6c7b52de7a9f1dd00af2db427e83fa6c93a967742888d1d7a23bd33",
+      "sizeBytes": 44724,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-14/libcc1-0_14-20240412-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-ca49b1a29c5fc04533248d9bbe1b7fca75e38f6b9e808683a62b569541ef9d98",
+      "sha256": "ca49b1a29c5fc04533248d9bbe1b7fca75e38f6b9e808683a62b569541ef9d98",
+      "sizeBytes": 64062,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/l/lz4/liblz4-1_1.9.4-1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-cac9f6e3b9b0829335d2194d20e92c5003c5033a15676cf9adb9a1495239d45a",
+      "sha256": "cac9f6e3b9b0829335d2194d20e92c5003c5033a15676cf9adb9a1495239d45a",
+      "sizeBytes": 57984,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/e/elfutils/libelf1t64_0.190-1.1build4_arm64.deb"
+    },
+    {
+      "artifactId": "deb-cad864376e78dfacef9f41133e67a0545c79a2c408fbbf3ca55663748759c54e",
+      "sha256": "cad864376e78dfacef9f41133e67a0545c79a2c408fbbf3ca55663748759c54e",
+      "sizeBytes": 17468,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/newt/whiptail_0.52.24-2ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-cadcc00021aa1082a8cb5cd1c2686b25b7a4d396f2029eaa1b12159ca46f1766",
+      "sha256": "cadcc00021aa1082a8cb5cd1c2686b25b7a4d396f2029eaa1b12159ca46f1766",
+      "sizeBytes": 118238,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libx/libxcrypt/libcrypt-dev_4.4.36-4build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-cc527dda6420685bede14a12467d5c98e98280bf08a3cc6769917a165d2af7cf",
+      "sha256": "cc527dda6420685bede14a12467d5c98e98280bf08a3cc6769917a165d2af7cf",
+      "sizeBytes": 9922,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/l/linux-meta/linux-image-virtual_6.8.0-31.31_arm64.deb"
+    },
+    {
+      "artifactId": "deb-cd9ad360c8eee25e1fd9869303f4782eeaa47723594e85631c3def7ec42c3b08",
+      "sha256": "cd9ad360c8eee25e1fd9869303f4782eeaa47723594e85631c3def7ec42c3b08",
+      "sizeBytes": 747982,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-14/libstdc++6_14-20240412-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-cf7dab0cead51db4dbc5b9a91a33537d11b29cf040d9f269bc3fdaba58b889e1",
+      "sha256": "cf7dab0cead51db4dbc5b9a91a33537d11b29cf040d9f269bc3fdaba58b889e1",
+      "sizeBytes": 149882,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gnupg2/gpgv_2.4.4-2ubuntu17_arm64.deb"
+    },
+    {
+      "artifactId": "deb-cf8d2af040044ea5f9205a7a7a3eceabe9bc182fd780a1dac8e849f8eccee1f1",
+      "sha256": "cf8d2af040044ea5f9205a7a7a3eceabe9bc182fd780a1dac8e849f8eccee1f1",
+      "sizeBytes": 1596150,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/glibc/libc6-dev_2.39-0ubuntu8_arm64.deb"
+    },
+    {
+      "artifactId": "deb-cf8e14c8157fefbe33e63c87bd1810e716f4184d950ea620ec17be547aeb614f",
+      "sha256": "cf8e14c8157fefbe33e63c87bd1810e716f4184d950ea620ec17be547aeb614f",
+      "sizeBytes": 56356,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/m/mpclib3/libmpc3_1.3.1-1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-d00a8dfd142a1af64c0346b2c8d47c9bd412e15c6b63cf3a42606029bdb862e7",
+      "sha256": "d00a8dfd142a1af64c0346b2c8d47c9bd412e15c6b63cf3a42606029bdb862e7",
+      "sizeBytes": 1880202,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/c/console-setup/console-setup-linux_1.226ubuntu1_all.deb"
+    },
+    {
+      "artifactId": "deb-d0801a0cd5602d8b4b98d52e3a7682aca63b35f567d1163ee18cfb2f994563df",
+      "sha256": "d0801a0cd5602d8b4b98d52e3a7682aca63b35f567d1163ee18cfb2f994563df",
+      "sizeBytes": 529568,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libu/libunistring/libunistring5_1.1-2build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-d1337ebd313be21fafb250fad741d0f21398b67fab7fc24bd1b28f7008714d2b",
+      "sha256": "d1337ebd313be21fafb250fad741d0f21398b67fab7fc24bd1b28f7008714d2b",
+      "sizeBytes": 64428,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/u/util-linux/libsmartcols1_2.39.3-9ubuntu6_arm64.deb"
+    },
+    {
+      "artifactId": "deb-d141e94ed3b32ea6540f2e927a83b3d42cd4378256a1aad60cda583ffdbd78af",
+      "sha256": "d141e94ed3b32ea6540f2e927a83b3d42cd4378256a1aad60cda583ffdbd78af",
+      "sizeBytes": 9654,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/k/keyutils/libkeyutils1_1.6.3-3build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-d2207f12435060893997880a34d7ed91d14e163862d5d1394d51918d0723d7e0",
+      "sha256": "d2207f12435060893997880a34d7ed91d14e163862d5d1394d51918d0723d7e0",
+      "sizeBytes": 1793064,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/o/openssl/libssl3t64_3.0.13-0ubuntu3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-d2ee92a2af9f42729479fdb45f92a7047e07552836a3dd95b158fdcbd2577416",
+      "sha256": "d2ee92a2af9f42729479fdb45f92a7047e07552836a3dd95b158fdcbd2577416",
+      "sizeBytes": 43814,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/netcat-openbsd/netcat-openbsd_1.226-1ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-d353aa63f68f7ef84e43d6d032535a6f3a2aaeb48d5dfb22fa8ab480dc52922d",
+      "sha256": "d353aa63f68f7ef84e43d6d032535a6f3a2aaeb48d5dfb22fa8ab480dc52922d",
+      "sizeBytes": 90806,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libs/libsemanage/libsemanage2_3.5-1build5_arm64.deb"
+    },
+    {
+      "artifactId": "deb-d641e399e9d89f12214a1ebaad829ed44c692dd7f41cd4bce129d7f625ca692d",
+      "sha256": "d641e399e9d89f12214a1ebaad829ed44c692dd7f41cd4bce129d7f625ca692d",
+      "sizeBytes": 46682,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/newt/libnewt0.52_0.52.24-2ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-d9bbc2cfb535ee6f177df8ef685be8932a24c3ec46269183dc78319770e78caf",
+      "sha256": "d9bbc2cfb535ee6f177df8ef685be8932a24c3ec46269183dc78319770e78caf",
+      "sizeBytes": 51144,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/b/base-passwd/base-passwd_3.6.3build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-dbcae911fea308447474b1f95f1979a741779941b2761fe7be1c722a1be7026c",
+      "sha256": "dbcae911fea308447474b1f95f1979a741779941b2761fe7be1c722a1be7026c",
+      "sizeBytes": 19172,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/d/distro-info/distro-info_1.7build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-de586cb30e40abfe653d5e5b8031deba6d88ea9caff8e2ad75f3ff3e0e416c5b",
+      "sha256": "de586cb30e40abfe653d5e5b8031deba6d88ea9caff8e2ad75f3ff3e0e416c5b",
+      "sizeBytes": 4233588,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/glibc/locales_2.39-0ubuntu8_all.deb"
+    },
+    {
+      "artifactId": "deb-e0e76b1e306019516f56e6c6aeab4af0fd715487909345f3c0eb729ce0cd33f0",
+      "sha256": "e0e76b1e306019516f56e6c6aeab4af0fd715487909345f3c0eb729ce0cd33f0",
+      "sizeBytes": 17808,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/l/linux-base/linux-base_4.5ubuntu9_all.deb"
+    },
+    {
+      "artifactId": "deb-e10cd93f0b6941566de04b860b723df57ca3fe4a9255a73b2be0d1dc7df2850e",
+      "sha256": "e10cd93f0b6941566de04b860b723df57ca3fe4a9255a73b2be0d1dc7df2850e",
+      "sizeBytes": 10144,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libs/libsemanage/libsemanage-common_3.5-1build5_all.deb"
+    },
+    {
+      "artifactId": "deb-e3952081e47f611e911484d5ed1e620cafbc89a22219f54af6307bb46338d6f3",
+      "sha256": "e3952081e47f611e911484d5ed1e620cafbc89a22219f54af6307bb46338d6f3",
+      "sizeBytes": 141338,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/l/less/less_590-2ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-e53f4ef00e591c05a5a59e7c004a77132a82de1fa9ccf29c3fe52a6667e240bc",
+      "sha256": "e53f4ef00e591c05a5a59e7c004a77132a82de1fa9ccf29c3fe52a6667e240bc",
+      "sizeBytes": 127978,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/l/lvm2/libdevmapper1.02.1_1.02.185-3ubuntu3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-e787041fabd76687be8f94d682766f91dcee57aa9aa833a7ac2d52d5b6f3c7f1",
+      "sha256": "e787041fabd76687be8f94d682766f91dcee57aa9aa833a7ac2d52d5b6f3c7f1",
+      "sizeBytes": 10984,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/u/ubuntu-meta/ubuntu-minimal_1.539_arm64.deb"
+    },
+    {
+      "artifactId": "deb-e8d06277be81d0f6e7d49ce796a477a9fc88e755bf3048e0afe44fc14a310b72",
+      "sha256": "e8d06277be81d0f6e7d49ce796a477a9fc88e755bf3048e0afe44fc14a310b72",
+      "sizeBytes": 104360,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/ncurses/libtinfo6_6.4+20240113-1ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-e947228f1659b8252993a8ba59908b9f171fbef8b5dade338aa7a1bacc8150fe",
+      "sha256": "e947228f1659b8252993a8ba59908b9f171fbef8b5dade338aa7a1bacc8150fe",
+      "sizeBytes": 15326,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libl/liblocale-gettext-perl/liblocale-gettext-perl_1.07-6ubuntu5_arm64.deb"
+    },
+    {
+      "artifactId": "deb-eb0f14172a5cedb68ccea3be266672c9059893341a82fad185f2548dd99b8371",
+      "sha256": "eb0f14172a5cedb68ccea3be266672c9059893341a82fad185f2548dd99b8371",
+      "sizeBytes": 51548,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/liby/libyaml/libyaml-0-2_0.2.5-1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-ef72eafe2393bdc23d37750a2c8ee025b0d61f8158397bd8bca21b5319b5e2c6",
+      "sha256": "ef72eafe2393bdc23d37750a2c8ee025b0d61f8158397bd8bca21b5319b5e2c6",
+      "sizeBytes": 471954,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libg/libgcrypt20/libgcrypt20_1.10.3-2build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-f168c956126f5051136a5ce6fc43e0eab4fc762ae9488ce5d3692ce54b6f1235",
+      "sha256": "f168c956126f5051136a5ce6fc43e0eab4fc762ae9488ce5d3692ce54b6f1235",
+      "sizeBytes": 35402,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/u/util-linux/libuuid1_2.39.3-9ubuntu6_arm64.deb"
+    },
+    {
+      "artifactId": "deb-f24500abe0707ad5f16371e9f511d48923d8378f240afe9caa77a91b4854a95a",
+      "sha256": "f24500abe0707ad5f16371e9f511d48923d8378f240afe9caa77a91b4854a95a",
+      "sizeBytes": 33890,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/k/krb5/libkrb5support0_1.20.1-6ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-f2dd99597b416cff8cefeb350c1e4eb7e15fc6f7a57cd37f4a4c11f4a8049a92",
+      "sha256": "f2dd99597b416cff8cefeb350c1e4eb7e15fc6f7a57cd37f4a4c11f4a8049a92",
+      "sizeBytes": 5736,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/a/audit/libaudit-common_3.1.2-2.1build1_all.deb"
+    },
+    {
+      "artifactId": "deb-f38ec0d006bf89d5b07f6dd2cf0f6206e78c79a04f4d6e41f680cddd75c13108",
+      "sha256": "f38ec0d006bf89d5b07f6dd2cf0f6206e78c79a04f4d6e41f680cddd75c13108",
+      "sizeBytes": 767324,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/b/binutils/libbinutils_2.42-4ubuntu2_arm64.deb"
+    },
+    {
+      "artifactId": "deb-f5669a5361bcb028bbbcf88d5811f83298278ae8247eff249164a5e0333c9a7e",
+      "sha256": "f5669a5361bcb028bbbcf88d5811f83298278ae8247eff249164a5e0333c9a7e",
+      "sizeBytes": 2036086,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/python3.12/libpython3.12-stdlib_3.12.3-1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-f5bca0c788a4fc465c435f7e8a54b2594e9cbf1a22abb263a59e393f1cb666e1",
+      "sha256": "f5bca0c788a4fc465c435f7e8a54b2594e9cbf1a22abb263a59e393f1cb666e1",
+      "sizeBytes": 273318,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/t/tzdata/tzdata_2024a-2ubuntu1_all.deb"
+    },
+    {
+      "artifactId": "deb-f60822f9c13027f1266bdbe05cb1606ef4e694ea89529e8355d7604074bbe656",
+      "sha256": "f60822f9c13027f1266bdbe05cb1606ef4e694ea89529e8355d7604074bbe656",
+      "sizeBytes": 44314,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/i/iputils/iputils-ping_20240117-1build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-f608afcee73fd60999388deaa2a88e399601f5e55f6ff301f737602e0e76977e",
+      "sha256": "f608afcee73fd60999388deaa2a88e399601f5e55f6ff301f737602e0e76977e",
+      "sizeBytes": 424374,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/s/systemd/libsystemd0_255.4-1ubuntu8_arm64.deb"
+    },
+    {
+      "artifactId": "deb-f6cea0cbe617519480ab3501166eab7092a9a75332cb186c30eee8107da381b9",
+      "sha256": "f6cea0cbe617519480ab3501166eab7092a9a75332cb186c30eee8107da381b9",
+      "sizeBytes": 76070,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/e/expat/libexpat1_2.6.1-2build1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-f6fb3faf5bba564776a040f2911233dc56caccb7627c81cebae3bc919f5d5d0a",
+      "sha256": "f6fb3faf5bba564776a040f2911233dc56caccb7627c81cebae3bc919f5d5d0a",
+      "sizeBytes": 9896,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/python3-defaults/libpython3-stdlib_3.12.3-0ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-f87c4383dda7bea627cb32dc1fa4c27ec44bf0f68aa6d11fa8e44e1877883577",
+      "sha256": "f87c4383dda7bea627cb32dc1fa4c27ec44bf0f68aa6d11fa8e44e1877883577",
+      "sizeBytes": 58502,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/p/procps/libproc2-0_4.0.4-4ubuntu3_arm64.deb"
+    },
+    {
+      "artifactId": "deb-f8faa5fee7174ec5fdd3eecbc27f38d530f7b500ad6763e2b57a9ac88622dc37",
+      "sha256": "f8faa5fee7174ec5fdd3eecbc27f38d530f7b500ad6763e2b57a9ac88622dc37",
+      "sizeBytes": 2469614,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-13/libgcc-13-dev_13.2.0-23ubuntu4_arm64.deb"
+    },
+    {
+      "artifactId": "deb-fbdbb6f8664d964b6c12a3416c68a5aaef353b0dd99383f8552b74552d50a02c",
+      "sha256": "fbdbb6f8664d964b6c12a3416c68a5aaef353b0dd99383f8552b74552d50a02c",
+      "sizeBytes": 16466,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/e/e2fsprogs/libss2_1.47.0-2.4~exp1ubuntu4_arm64.deb"
+    },
+    {
+      "artifactId": "deb-fe2c21057a9f9a02d4fec5c646280f51eb1063e84802a83e70b6184a68182512",
+      "sha256": "fe2c21057a9f9a02d4fec5c646280f51eb1063e84802a83e70b6184a68182512",
+      "sizeBytes": 48978,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/g/gcc-13/gcc-13-base_13.2.0-23ubuntu4_arm64.deb"
+    },
+    {
+      "artifactId": "deb-fe84a648238e7cef90874680893d16ee29472db31bd4931b5b34813264e99138",
+      "sha256": "fe84a648238e7cef90874680893d16ee29472db31bd4931b5b34813264e99138",
+      "sizeBytes": 118888,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/n/netplan.io/libnetplan1_1.0-2ubuntu1_arm64.deb"
+    },
+    {
+      "artifactId": "deb-ffaaedcfab1d1cc48997f09e88b6664f2cc7cba1c7e15bf1078084f512697d4d",
+      "sha256": "ffaaedcfab1d1cc48997f09e88b6664f2cc7cba1c7e15bf1078084f512697d4d",
+      "sizeBytes": 14850,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/pool/main/libc/libcap-ng/libcap-ng0_0.8.4-2build2_arm64.deb"
+    },
+    {
+      "artifactId": "ubuntu-inrelease",
+      "sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+      "sizeBytes": 255850,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/dists/noble/InRelease"
+    },
+    {
+      "artifactId": "ubuntu-packages-index",
+      "sha256": "4a1901e6124fb0a111f5dffc8f5c14474f449e2ecfa71f2eaf0b29917edb53f9",
+      "sizeBytes": 1376632,
+      "url": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z/dists/noble/main/binary-arm64/Packages.xz"
+    }
+  ],
+  "authorityInputs": {
+    "bootSourceLock": {
+      "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+      "sizeBytes": 357104
+    },
+    "dependencyCandidateResult": {
+      "sha256": "a8329d35b480e6b40823e8823551c16eb71a0d7bbc1da40483f05b4535815f26",
+      "sizeBytes": 343125
+    },
+    "runtimeAcquisitionPlan": {
+      "sha256": "3f78559e29fbdb5b417eeb316687a4347907e4624b75da057c3f255e810ff35d",
+      "sizeBytes": 3661
+    }
+  },
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "imageBuilderAuthorityPresent": false,
+    "kernelImageExtracted": false,
+    "launcherElfPresent": false,
+    "maintainerScriptsExecuted": false,
+    "packagePayloadsAcquired": false,
+    "packagePayloadsVerified": false,
+    "runtimeCompatibilityVerified": false
+  },
+  "cas": {
+    "layout": "sha256",
+    "relativeRoot": "local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas"
+  },
+  "derivedArtifacts": [
+    {
+      "artifactId": "ubuntu-keyring",
+      "fromArtifactId": "deb-36de43b15853ccae0028e9a767613770c704833f82586f28eb262f0311adb8a8",
+      "memberPath": "usr/share/keyrings/ubuntu-archive-keyring.gpg",
+      "sha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31",
+      "sizeBytes": 3607
+    }
+  ],
+  "expected": {
+    "artifactCount": 197,
+    "derivedCount": 1,
+    "fetchBytes": 210569358,
+    "fetchCount": 193,
+    "reusedCount": 3,
+    "totalBytes": 323568113
+  },
+  "networkPolicy": {
+    "allowEnvironmentProxy": false,
+    "allowRangeRequests": false,
+    "allowRedirects": false,
+    "allowRetries": false,
+    "allowedHosts": [
+      "snapshot.ubuntu.com"
+    ],
+    "concurrency": 1,
+    "httpsOnly": true,
+    "maxArtifactBytes": 536870912,
+    "maxTotalBytes": 2147483648,
+    "minimumTlsVersion": "TLSv1.2",
+    "requireCertificateValidation": true,
+    "requireContentLengthMatch": true,
+    "requireHostnameValidation": true
+  },
+  "release": "NATIVE-SHADOW-BOOT-CI-PAYLOAD-ACQUISITION-ARM64-V1",
+  "reusedArtifactIds": [
+    "cargo-rustdist",
+    "rust-std-rustdist",
+    "rustc-rustdist"
+  ],
+  "schema": "boole.native-shadow.boot-ci-payload-acquisition-plan.arm64.v1",
+  "tools": {
+    "fetch": "python-stdlib-tls-one-request-no-proxy-no-redirect-no-retry",
+    "zstdIdentity": "recorded-in-the-result-never-pinned",
+    "zstdToolRole": "zstd"
+  }
+}

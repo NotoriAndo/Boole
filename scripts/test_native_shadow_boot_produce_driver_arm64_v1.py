@@ -224,10 +224,30 @@ class WorkflowTests(unittest.TestCase):
         """The sealed record says three fetched and no store hits, so it goes first."""
 
         rust = WORKFLOW_TEXT.find("rustdist_acquire")
-        payloads = WORKFLOW_TEXT.find("payload_acquire")
+        payloads = WORKFLOW_TEXT.find("ci_payload_acquire")
         self.assertNotEqual(rust, -1)
         self.assertNotEqual(payloads, -1)
         self.assertLess(rust, payloads)
+
+    def test_the_closure_is_acquired_by_the_tool_that_can_run_here(self) -> None:
+        """The Mac-pinned acquirer is a pre-registration record, not a CI step.
+
+        It pins that machine's `gpgv` and `zstd`, the packages its store already
+        held, and the exact request count of one run.  Every one of those is a
+        true statement about that run, so it is left alone rather than loosened,
+        and the runner uses the acquirer that reads the same sealed digests
+        without pinning anybody's host.
+        """
+
+        self.assertTrue(
+            "native_shadow_boot_ci_payload_acquire_arm64_v1.py" in WORKFLOW_TEXT,
+            "the runner never acquires the closure",
+        )
+        self.assertTrue(
+            "native_shadow_boot_rootfs_payload_acquire_arm64_v1.py" not in WORKFLOW_TEXT,
+            "the runner runs the Mac-pinned acquirer",
+        )
+        self.assertTrue("--gpgv" not in WORKFLOW_TEXT, "a host gpgv is still pinned in")
 
     def test_the_comparison_runs_and_cannot_be_softened(self) -> None:
         self.assertIn("compare", WORKFLOW_TEXT)
