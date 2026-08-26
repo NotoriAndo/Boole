@@ -707,8 +707,8 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `6cc72cef28b270a1b630b64670fc3531499184f7b0d5701b9ce99562f65c61c1` (updated 2026-08-26o — the arm64 CI producer's contract frozen before anything is produced, with the maintainer-script and path-collision aborts corrected before merge) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `b9af9d378307a044b33fb9e493877b2bb43746ed5020e901b6df5cda86f2a05a` (updated 2026-08-26o — the operator chose CI production; D1 froze the contract) |
+| `local-docs/todo/todo-l1-network-master.md` | `70f834e5385b5d4bbecc47118d63e4112a1280c81b8028474c78d3194b7e5054` (updated 2026-08-26r — the builder projection that can read the sealed boot lock, and the counted evidence behind each of its five differences) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `63d8a09b64e9c6767e2657a3b6caea6fc5c260b4bcca3009e0dfff82b42f48ba` (updated 2026-08-26r — D2.1 written and the prior open ordering mismatch closed without touching sealed bytes; nothing produced, inspected or booted) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
 | `local-docs/todo/thesis-realization-roadmap.md` | `70a9f152039ba6dce9fde4603ee90ec0c65c5d0186129fdf94c26aaf78d063bb` (updated 2026-08-26o — choosing not to make a second copy of a sealed fact) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
@@ -1130,12 +1130,12 @@ runtime trust roots.
 
 _2026-08-26f package-payload addendum:_ **BOOT-ROOTFS-PAYLOAD-ACQUISITION-ARM64-V1 =
 PACKAGE-PAYLOADS-ACQUIRED-VERIFIED-NOT-BOOT-AUTHORITY.** A pre-registered plan (SHA-256
-`f6589fe619e83531d9e76c998dbd5ab33436595e307579ccfecd2de644069fd1`) fetched the missing
+`43becf01889f8ca5b4fc9acff20b95b12ef78f3736dd13c9081001c5110aac2a`) fetched the missing
 ARM64 `Packages.xz`, replayed the signed Ubuntu snapshot and required byte equality with the
 tracked 191-row candidate before opening a package URL. It then fetched baseline 51 and verified
 56/56 before fetching delta 134 and verifying 191/191. Six exact package CAS hits were reused with
 zero requests. The 186 network responses totaled 209,807,900 bytes. The canonical result SHA-256
-is `60408c39ac48f3b7ef272e050349dee84ee28693d6c33e528c77898927f4b3df`.
+is `cb4d6bc0f85d2dead1fbae20d9dcebcc3310e734d9a2d1937855997ae22b61ea`.
 
 The package files remain opaque bytes. No `apt`/`dpkg`, extraction, maintainer script, ARM64 Rust
 distribution, launcher ELF, kernel extraction, image builder, initrd/root disk or VM boot ran.
@@ -1558,3 +1558,206 @@ A frozen contract is a promise about a build, not the build.
 CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED` and no dev-Mac trial substitutes
 for it. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
 `BF.7=HOLD`, Base activation false — unchanged.
+
+_2026-08-26p initrd writer addendum:_ **THE INITRD WRITER EXISTS. NO INITRD OF THE REAL ROOTFS WAS
+WRITTEN, NOTHING WAS BUILT AND NOTHING WAS BOOTED.**
+
+`scripts/native_shadow_boot_initrd_arm64_v1.py` turns a frozen OCI rootfs layer into the initrd
+shape v1 sealed on 2026-08-26j: `cpio` in the `newc` format, `initrdCompression: "none"`,
+`fileOrder: "sorted-by-logical-path-bytes"`, canonical mtime 0, root-only ownership. It reads a tar
+and writes an archive; it does not fetch, resolve, assemble or boot. Its tests run against synthetic
+layers, so this addendum records a writer, not an image.
+
+One field in the `newc` header decides whether the two independent CI jobs can ever agree. `newc`
+carries an inode number, and the obvious way to fill it — ask the filesystem — would differ between
+two runners and fail the byte comparison for a reason that has nothing to do with the image.
+Numbering from 1 in archive order makes the field a function of the layer alone. Compression stays
+off for the same class of reason: a gzip member carries its own mtime, so compressing here would
+reintroduce the timestamp the canonical mtime exists to remove, and v1's
+`forbidTimestampSuppression` rules out papering over it afterwards.
+
+The layer's ordering and ownership are re-checked rather than assumed. The frozen OCI builder
+already sorts by path bytes and already forces uid/gid to 0, so these checks should never fire —
+which is exactly why they are worth keeping. An invariant only ever asserted somewhere else is one
+that quietly stops holding the day this writer is handed a different tar.
+
+The archive was cross-checked against a second implementation rather than only the parser shipped
+beside it: the system `cpio` lists the modes, root ownership, epoch timestamps, sizes and the
+symlink target correctly, and `cpio -idm` round-trips the content byte for byte.
+
+Two read-only findings are recorded here because they shape what comes next, and both are
+**observations, not verified properties** — they were made against the gitignored local content
+store and CI cannot re-prove them.
+
+First, an earlier reading of this work concluded that no existing tool could turn the boot source
+lock into a filesystem tree, and that the producer would have to assemble one. That was wrong. The
+gap is already bridged by `materialize_runtime_lock()` in the portable arm64 projection, which
+accepts exactly the boot lock's schema. The boot lock and the runtime arm64 lock are structurally
+identical — same top-level keys, byte-identical `buildRecipe` — and the boot lock is a strict
+superset in content: 197 artifacts against 62, and four extra tracked files with their bindings plus
+one derived symlink, which are precisely the boot files and nothing else. Writing a second assembler
+would have produced a tool that can disagree with the frozen one about what the tree is.
+
+Second, the frozen `e2fsprogs` package (`6e1cdd65…`) yields `mke2fs` at 133,512 bytes with digest
+`763be3ec…` and `debugfs` at 271,944 bytes with digest `2c0bf348…` — exactly v1's pins. The same
+package also ships `./etc/mke2fs.conf`, and that matters: `mke2fs` reads its feature defaults from
+that file, so running the frozen binary against a runner's conf would let a distro change pick the
+ext4 feature set while both jobs could still claim to have used the frozen tool. Pointing
+`MKE2FS_CONFIG` at the conf extracted from the same verified package closes it and needs no new pin,
+because the package digest already covers the conf.
+
+A third finding is recorded as an open inconsistency rather than a fix. The sealed boot source lock
+holds `/usr/lib/sysusers.d` before `/usr/lib/systemd` in one `closureRoots` group. That reads as
+alphabetical to a person but is not byte-sorted, and the frozen builder requires byte-sorted unique
+roots, so the sealed lock cannot be fed to the builder its own `buildRecipe` names. The generator
+sorted closure groups by name and copied each group's roots verbatim from the plan, and no check
+covered the inner order. The ordering is provably output-neutral — the builder consumes those roots
+only inside an existence test, and no root in that group is a prefix of another — but the sealed
+lock and the frozen builder still disagree, and the remedy is the operator's to choose. Nothing was
+edited, normalized or worked around here.
+
+The root disk plan (`scripts/native_shadow_boot_root_disk_arm64_v1.py`, 27 tests) turns the same
+layer into the argv, environment and staging order that `mke2fs` will be given. It executes nothing:
+`mke2fs` is an aarch64 ELF, the host that plans is not the host that builds, and keeping the two
+apart is what makes the plan reviewable before anything is written. Reading the frozen binaries
+changed three things about it.
+
+`SOURCE_DATE_EPOCH` does nothing to this build of `mke2fs`. The string is absent from the binary;
+what the shipped `libext2fs.so.2.4` reads is `E2FSPROGS_FAKE_TIME`, and that is the variable the plan
+sets to `0`. This does not weaken v1's `determinism.sourceDateEpoch: 0` — that field is the canonical
+epoch for the build as a whole and remains 0 — but it does correct an assumption made earlier in this
+same slice, which had `SOURCE_DATE_EPOCH` closing the superblock-time trap. It would not have. Both
+jobs would have stamped their own wall clock into `s_mkfs_time` and differed on a field neither of
+them chose. The plan's `docs-smoke` gate forbids the wrong variable from reappearing.
+
+`mke2fs -d` does not sort. `opendir` and `readdir` are present in the binary and `scandir`,
+`alphasort` and `versionsort` are all absent, so the population order is whatever the staging
+filesystem returns. On ext4 a directory large enough to become an htree is returned in filename-hash
+order and that hash is seeded per filesystem, so two runners would disagree. The plan stages on
+`tmpfs`, whose readdir order is creation order, and creates entries in logical path byte order. That
+is an assumption about the runner's kernel rather than a proof, so the plan carries it as one of
+three named `unverifiedAssumptions`, each with `onMismatch: "abort-never-relax"`.
+
+Every shared library the two tools need is already frozen. Parsing `DT_NEEDED` out of both ELF
+headers gives eight sonames, and each is shipped by one of the 191 packages: `libext2fs.so.2` and
+`libe2p.so.2` from `libext2fs2t64`, `libcom_err.so.2` from `libcom-err2`, `libss.so.2` from `libss2`,
+`libblkid.so.1` from `libblkid1`, `libuuid.so.1` from `libuuid1`, and `libc.so.6` with
+`ld-linux-aarch64.so.1` from `libc6`. A first pass through this reported `libe2p` as a gap on the
+strength of no `libe2p2t64` being in the set; there is no such package in this release, and
+`libext2fs2t64` carries the library. The plan records the eight providers. What it cannot settle is
+which copy the loader picks at run time, so that — not availability — is the third assumption, to be
+closed by recording the resolved paths at build time.
+
+`debugfs` keeps the role v1 sealed for it. The plan names it as `ext4-image-inspector` and a test
+asserts it never appears in the `mke2fs` invocation, so the determinism problems above are solved
+where the sealed roles allow rather than by promoting the inspector to a writer.
+
+Boundaries are unchanged and every one of them is still false. `bootableClaim: false`,
+`activationAllowed: false`. A writer for a format is not an image, a plan for an image is not an
+image, and an image is not a boot. Nothing was produced, staged, mounted or run. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
+
+_2026-08-26q verification stage addendum:_ **THE VERIFICATION STAGE EXISTS. NO IMAGE WAS PRODUCED,
+NOTHING WAS INSPECTED FOR REAL AND NOTHING WAS BOOTED.**
+
+`scripts/native_shadow_boot_image_verify_arm64_v1.py` (25 tests) reads produced boot artifacts back
+and runs the six checks the operator named: the kernel is arm64, PID 1 is real systemd, the
+launcher's digest equals the sealed build result, the launcher unit is enabled through its
+`multi-user.target.wants` symlink, no replay node appears anywhere in the tree, and every tracked
+path's mode, ownership and content match the sealed lock. Its tests run against synthetic trees, so
+this addendum records a checker, not a verdict on any image.
+
+It is deliberately not part of the producer. A producer that verifies its own output can only
+confirm that it did what it did; these checks are written against the sealed lock and the sealed
+launcher result, which means they are able to disagree with the thing that built the image.
+
+Two of the six deserve their reasoning written down. The kernel check reads the arm64 `Image`
+header — 64 bytes with the magic at offset `0x38` — rather than trusting a filename, and it rejects
+a payload that is still a gzip member, because v1 froze `kernelDecompression: gzip` and a
+compressed output would mean that step did not run. The launcher check fails when the launcher is
+absent rather than passing vacuously, which is the difference between "the digest matched" and
+"nothing contradicted us"; the same shape covers a run given no kernel at all, where an absent check
+would otherwise read exactly like a passing one.
+
+The initrd side runs anywhere, because a `newc` archive is readable without root and without a Linux
+host. The root disk side does not: it is an ext4 image and the tool that reads it is `debugfs`, which
+v1 sealed as `ext4-image-inspector`. This module emits read-only `debugfs` commands for that stage
+and a test asserts `-w` never appears in the invocation, so the inspector cannot become a writer by
+accident.
+
+`bootableClaim: false`, `activationAllowed: false`, and the report itself carries
+`guestBootVerified: false`. Reading an image is not booting it. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
+
+_2026-08-26r boot builder projection addendum:_ **A BUILDER CAN NOW READ THE SEALED BOOT LOCK. NO
+IMAGE WAS PRODUCED AND NOTHING WAS BOOTED.**
+
+The boot source lock was sealed against a builder that could not read it. Its
+`buildRecipe.builderSha256` pins `scripts/native_shadow_rootfs_builder_arm64_v1.py`, and that file
+knows six authority files, three provenance closures, and a dependency grammar narrower than the one
+this closure actually uses. `scripts/native_shadow_rootfs_builder_boot_arm64_v1.py` (26 tests) and
+`scripts/native_shadow_rootfs_portable_boot_arm64_v1.py` (12 tests) close that gap the way this
+repository has closed every previous one: by reprojecting the frozen bytes with counted string
+replacements rather than forking them.
+
+The pin is preserved rather than worked around. The projected namespace is executed with `__file__`
+pointing at the arm64 builder, which is the single place that file reads it, so `BUILDER_SHA256`
+still equals the sealed pin and a test asserts that equality against the lock itself. The widening
+is not inside the pin, so it gets its own digest — `BOOT_PROJECTION_SHA256`, the projection's own
+bytes — instead of being smuggled under one that was computed before it existed.
+
+Two of the five differences are ordinary configuration. The authority-file table grows from six
+entries to ten, adding the guest `machine-id`, the launcher unit, and the sysusers and tmpfiles
+configuration that unit depends on; a test asserts the widened table equals the lock's `trackedFiles`
+exactly, so it cannot drift wider than what was sealed. The provenance-closure table grows from
+three to five, adding the guest init/launcher closure and the guest kernel/module closure.
+
+The third is an ordering difference, and the honest answer was not to sort silently. One closure in
+the sealed lock lists its logical roots alphabetically but not byte-sorted, and the frozen builder
+compares against `sorted(set(roots))`. `normalized_runtime_lock` sorts a copy, leaves the sealed
+bytes untouched, and records the declared and normalised orders side by side with a `reordered` flag,
+so the difference stays visible instead of disappearing into a comparison. It refuses outright if
+sorting would also collapse a duplicate root, because the "unique" half of the builder's check has to
+stay real; `sorted(set(...))` would have absorbed a duplicate without comment.
+
+The fourth and fifth touch the frozen builder's dependency reading, so they were measured rather than
+argued. `_split_dependency_groups` rejects architecture-qualified and build-profile dependencies —
+correctly — but applies the pattern `\[[^\]]*\]|<[^<>=]+>` to the whole comma-joined field, where
+`python3 (<< 3.13), python3 (>= 3.12~)` matches because the `<` of one constraint and the `>` of a
+later one look like a profile once everything between them is ignored. Scanning all 5816 `Depends`
+and `Pre-Depends` fields in the frozen Packages index, that pattern fires 98 times and is wrong all
+98 times, and the same scan finds no real architecture qualifier or build profile anywhere in the
+index. Applying the identical pattern per alternative instead of per field flags zero of the 5816. A
+real `[arm64]` or `<!nocheck>` lives entirely inside one alternative, so narrowing the scope cannot
+let one through, and tests hold that line: `libc6, gcc [arm64]`, `libc6, dpkg-dev <!nocheck>` and
+`libc6 | gcc [arm64]` are all still refused.
+
+`_dependency_matches` refuses every Multi-Arch qualifier. Exactly one qualified alternative appears
+in this closure — `python3:any`, used by `python3-apt`, `python3-dbus`, `python3-pkg-resources`,
+`python3-yaml` and `ubuntu-pro-client` — and all five resolve to the same `python3`, which declares
+`Multi-Arch: allowed`. `:any` means "satisfied by that package from any architecture", and this
+closure holds exactly one concrete architecture (`arm64`, plus `all`), so `:any` and the bare name
+select the same candidate. That is a fact about this closure and not a general one, so it is guarded
+twice: `assert_single_architecture` stops the build if a second concrete architecture ever appears or
+if the declared architecture disagrees with the platform, and the projected matcher refuses `:any`
+against a provider that does not declare `Multi-Arch: allowed`. `:native` stays unsupported.
+
+The portable projection changes two strings and nothing else: the accepted release becomes the boot
+lock's own, and the builder the chain reaches becomes the boot projection. What
+`materialize_runtime_lock` verifies is unchanged, and tests assert that a non-canonical lock, an
+`activationAllowed: true` lock, and a lock with the wrong tool roles are all still refused, and that
+the portable release is no longer accepted here — widening which lock is accepted must not mean
+accepting both. Both projections execute into their own namespace, and a test asserts the arm64
+module still reports six authority files and three closures after the boot module is imported, so a
+widened boot table cannot leak into the portable path.
+
+The end-to-end test runs the whole chain — sealed lock, materialised runtime lock, normalisation,
+full validation against the acquired closure — and skips where that closure is not on disk, which is
+every CI runner, since `local-docs` is gitignored. What CI proves is the contract; what this host
+proved is the run. Both are recorded, and neither is described as the other.
+
+`bootableClaim: false`, `activationAllowed: false`. A builder that can read a lock has not built
+anything. CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
