@@ -41,6 +41,13 @@ ROWS = [
         "raw": UNIT,
     },
     {"path": "usr/lib/systemd/systemd", "kind": "file", "mode": 0o755, "raw": b"\x7fELF-systemd"},
+    # The five the kernel filesystems are mounted on. A fixture without them is
+    # not a picture of an image that could boot.
+    {"path": "dev", "kind": "directory", "mode": 0o755},
+    {"path": "proc", "kind": "directory", "mode": 0o555},
+    {"path": "run", "kind": "directory", "mode": 0o755},
+    {"path": "sys", "kind": "directory", "mode": 0o555},
+    {"path": "tmp", "kind": "directory", "mode": 0o1777},
     {"path": "usr/libexec", "kind": "directory", "mode": 0o755},
     {"path": "usr/libexec/boole", "kind": "directory", "mode": 0o755},
     {
@@ -153,6 +160,35 @@ class CheckTests(unittest.TestCase):
             if row["path"].endswith("multi-user.target.wants/boole-native-shadow-launcher.service"):
                 row["target"] = "/usr/lib/systemd/system/other.service"
         self.assertFalse(check("launcher-service-is-enabled", rows)["ok"])
+
+    def test_the_five_runtime_mount_points_must_be_in_the_tree(self) -> None:
+        self.assertTrue(check("runtime-mount-points-present")["ok"])
+
+    def test_a_tree_without_proc_fails_the_way_the_boot_did(self) -> None:
+        rows = [row for row in ROWS if row["path"] != "proc"]
+        found = check("runtime-mount-points-present", rows)
+        self.assertFalse(found["ok"])
+        self.assertIn("/proc", found["detail"])
+
+    def test_a_tree_without_run_fails_even_though_no_console_named_it(self) -> None:
+        # /run is the half of the answer the transcript never reached, and an
+        # image missing it would freeze one mount later than the one that did.
+        rows = [row for row in ROWS if row["path"] != "run"]
+        found = check("runtime-mount-points-present", rows)
+        self.assertFalse(found["ok"])
+        self.assertIn("/run", found["detail"])
+
+    def test_a_mount_point_arriving_as_a_file_is_not_a_mount_point(self) -> None:
+        rows = [row for row in ROWS if row["path"] != "sys"]
+        rows.append({"path": "sys", "kind": "file", "mode": 0o644, "raw": b""})
+        self.assertFalse(check("runtime-mount-points-present", rows)["ok"])
+
+    def test_tmp_without_its_sticky_bit_fails(self) -> None:
+        rows = [row for row in ROWS if row["path"] != "tmp"]
+        rows.append({"path": "tmp", "kind": "directory", "mode": 0o777})
+        found = check("runtime-mount-points-present", rows)
+        self.assertFalse(found["ok"])
+        self.assertIn("/tmp", found["detail"])
 
     def test_a_replay_node_anywhere_in_the_tree_is_a_failure(self) -> None:
         self.assertTrue(check("replay-node-absent")["ok"])

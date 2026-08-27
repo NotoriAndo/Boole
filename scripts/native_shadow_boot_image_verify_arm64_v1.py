@@ -6,11 +6,19 @@ A producer that verifies its own output can only confirm that it did what it
 did; the checks here are written against the sealed lock and the sealed launcher
 result, so they can disagree with the thing that built the image.
 
-Six checks, one per item on the operator's list: the kernel is arm64, PID 1 is
-real systemd, the launcher's digest equals the sealed build result, the launcher
-unit is enabled through the `multi-user.target.wants` symlink, no replay node is
+Six checks came from the operator's list: the kernel is arm64, PID 1 is real
+systemd, the launcher's digest equals the sealed build result, the launcher unit
+is enabled through the `multi-user.target.wants` symlink, no replay node is
 anywhere in the tree, and every tracked path's mode, ownership and content match
 the lock.
+
+A seventh came from a boot.  The single MAC.3 attempt got as far as PID 1 and
+froze, because the image carries no directory for the kernel filesystems to be
+mounted on -- and every check above passed on that image.  `pid1-is-systemd`
+asks whether systemd is present, not whether it can get past its first act, so
+the five directories are now checked for by name, mode and ownership.  The list
+is not written here: it is read from the audit record that took it from the
+guest's own systemd, so this stage and the builder cannot end up disagreeing.
 
 The initrd side runs here, because a `newc` archive is readable without root and
 without a Linux host.  The root disk side does not: it is an ext4 image, and the
@@ -29,6 +37,7 @@ import pathlib
 import sys
 from typing import Any, Optional
 
+from scripts import native_shadow_boot_rootfs_mount_point_audit_arm64_v1 as mount_points
 from scripts.native_shadow_boot_initrd_arm64_v1 import InitrdBuildError, parse_newc
 
 
@@ -57,6 +66,7 @@ REQUIRED_CHECKS = [
     "modes-owners-and-paths-match-the-lock",
     "pid1-is-systemd",
     "replay-node-absent",
+    "runtime-mount-points-present",
 ]
 
 DEBUGFS_READ_COMMANDS = ("stat", "dump", "ls", "features", "show_super_stats")
@@ -217,6 +227,33 @@ def verify_tree(
             and enablement.get("target") == LAUNCHER_UNIT_PATH,
             f"{LAUNCHER_ENABLEMENT_PATH}: "
             + ("missing" if enablement is None else f"target {enablement.get('target')}"),
+        )
+    )
+
+    # PID 1 mounts four of these before it runs a unit and stops if one is
+    # missing; nothing mounts over the fifth, so it has to be a real directory.
+    # An image that reaches this check without them is the image the single
+    # MAC.3 boot froze on, and it is cheaper to say so here than to spend a boot
+    # finding out.
+    mount_point_differences: list[str] = []
+    for row in mount_points.required_root_directories():
+        path = "/" + row["path"]
+        found = tree.get(path)
+        if found is None:
+            mount_point_differences.append(f"{path}: missing")
+        elif found["kind"] != "directory":
+            mount_point_differences.append(f"{path}: {found['kind']} rather than a directory")
+        elif (found["mode"], found["uid"], found["gid"]) != (int(row["mode"], 8), 0, 0):
+            mount_point_differences.append(
+                f"{path}: mode {found['mode']:04o} uid {found['uid']} gid {found['gid']}"
+            )
+    checks.append(
+        _check(
+            "runtime-mount-points-present",
+            not mount_point_differences,
+            "all present"
+            if not mount_point_differences
+            else "; ".join(mount_point_differences),
         )
     )
 
