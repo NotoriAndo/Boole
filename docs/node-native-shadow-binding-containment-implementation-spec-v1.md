@@ -1875,3 +1875,58 @@ No builder, lock, plan or unit file was edited. No image was produced, no
 production dispatched and no boot performed. Serving is not claimed.
 mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false
 and activationAllowed=false are unchanged. MAC.4 route binding is not started.
+
+### 13.10 Condition 4 correction addendum (2026-08-28)
+
+`native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json`
+pre-registers the corrected fourth MAC.3 condition before any image is built
+against it. The operator chose the correction over the redesign.
+
+The original wording made the launcher the process that must be unprivileged.
+The launcher is the privilege manager -- it verifies the frozen capability mask
+against its own kernel status before binding a socket, materializes the authority
+files, and performs the descent. What must be unprivileged is the checker and the
+submitted answer it creates. The sealed contract had already offered exactly this
+reformulation and declined to apply it without an operator decision; that
+decision has now been given.
+
+Seven clauses, each carrying its own source wording and each required to name
+code already in the tree that enforces it. The launcher half is the startup
+self-check: root in all four UID and GID slots, and the effective, permitted and
+bounding sets compared against the compile-time mask by equality rather than
+containment, with inheritable and ambient exactly zero. Equality is the
+load-bearing choice -- a containment check would accept the extra capability the
+clause forbids. The submissions half is an ordering claim read out of the source:
+drop-privileges at line 532, verify-privileges at 536, exec at 2088, with the
+bounding set emptied while `CAP_SETPCAP` is still held and before the identity
+changes, which is what forecloses reacquisition. The post-descent verification
+requires the real, effective and saved identities to match, no supplementary
+groups, all five capability sets exactly empty and `no_new_privs` set; a failed
+stage propagates and returns before the exec rather than continuing past it.
+
+That it is a correction rather than a relaxation is tested rather than asserted:
+no clause removes a check, every clause is marked as restating an existing
+refusal, and the cited files are stamped by digest and size so the tests
+re-derive them from the tree. Under the original wording nothing satisfied the
+condition; under the corrected wording the same unchanged tree satisfies all
+seven.
+
+The guest runtime contract is not edited. It still carries the condition at
+status `held` with relaxed false, waived false, satisfied false and
+`readingApplied` false, and docs-smoke pins both that and the correction, so the
+state before the decision stays readable. 28 tests, registered in self-test and
+pinned in docs-smoke; four deliberate mutations -- calling it a relaxation,
+drifting a cited digest, adding a fifth capability to the mask, and claiming the
+sealed contract had been edited -- were each caught, and regenerating restored
+the identical digest.
+
+Deciding a condition is not passing it. Nothing was booted against the corrected
+wording, the descent path is read here rather than run, and the three serving
+gaps are untouched: the guest still has no account database, which is why the
+launcher refuses at startup stage one rather than reaching the runtime rootfs
+check at stage seven.
+
+No builder, lock, plan, unit or launcher source file was edited. No image was
+produced, no production dispatched and no boot performed. Serving is not claimed.
+mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false
+and activationAllowed=false are unchanged. MAC.4 route binding is not started.
