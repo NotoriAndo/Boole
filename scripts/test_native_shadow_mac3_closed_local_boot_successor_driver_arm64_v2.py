@@ -39,6 +39,9 @@ SECOND_QUALIFICATION = (
 FIRST_RESULT = (
     CONTAINMENT / "native-shadow-mac3-closed-local-boot-result-arm64-v1.json"
 )
+SECOND_RESULT = (
+    CONTAINMENT / "native-shadow-mac3-closed-local-boot-result-arm64-v2.json"
+)
 
 # Written out rather than read from the records, so a record that agrees with
 # itself about the wrong image still fails here.
@@ -212,10 +215,15 @@ class SeparateResultPathTests(unittest.TestCase):
         with self.assertRaises(driver.RefusedError):
             driver.assert_no_run_has_been_spent(driver.sealed_result_path(FIRST))
 
-    def test_the_spent_first_attempt_does_not_block_the_successor(self) -> None:
-        # The successor's own receipt does not exist yet, and the first
-        # attempt's existing one is not read as the successor's.
-        driver.assert_no_run_has_been_spent(driver.sealed_result_path(SECOND))
+    def test_each_attempt_is_refused_by_its_own_receipt(self) -> None:
+        # The successor has since been run, so both attempts are spent. What
+        # this was written to catch still holds and is what is checked: each
+        # refusal names that attempt's own receipt. If the first attempt's file
+        # were standing in for the successor's, the message would say so.
+        with self.assertRaises(driver.RefusedError) as refusal:
+            driver.assert_no_run_has_been_spent(driver.sealed_result_path(SECOND))
+        self.assertIn(SECOND_RESULT.name, str(refusal.exception))
+        self.assertNotIn(FIRST_RESULT.name, str(refusal.exception))
 
     def test_running_the_successor_does_not_reset_the_first_allowance(self) -> None:
         record = read(SECOND_QUALIFICATION)

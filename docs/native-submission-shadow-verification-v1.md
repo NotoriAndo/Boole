@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `61419bac03a28776fd258308431cdc0a2c7b04974f7fd11ecab50f9de742cef6` (updated 2026-08-27c — testnet/public issued-instance domains and activation order are separated; Phase C is ready but undispatched) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `d811c7569f8396e3725ce11a1da0bca373133bb6c2b80aea34e8d42c95bef35f` (updated 2026-08-27c — testnet follows runtime and cross-network replay gates; Phase C is ready but undispatched) |
+| `local-docs/todo/todo-l1-network-master.md` | `2d33aa36f85797b1694cb080edaf3e62e945b2eb1f2e14530839894c79724844` (updated 2026-08-27f — the successor guest booted once and passed 6/6; the launcher is recorded as started and not as serving. This digest also picks up the 27d and 27e entries, which were written but never mirrored here) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `7eb836eefeb7b7565cad5c548d9db170d7c70ea650871dd550a7798463f05157` (updated 2026-08-27f — Phase D successor attempt is RUN ONCE / PASS, cursor moves to MAC.3 guest runtime. This digest also picks up the 27d and 27e entries, which were written but never mirrored here) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `c822e7a1e849184ffe8ffaf95d97b3041cbda25a990415e636fc8552cd254195` (updated 2026-08-27c — template supply, issued instances and static fixtures are separated) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `a143135ec0538f0731e687e74b24af7448df1739c9aa8a246d71150f7196ed59` (updated 2026-08-27f — one precondition is met and only that one; the ordering to BF.7 and activation is unchanged. This digest also picks up the 27d and 27e entries, which were written but never mirrored here) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the

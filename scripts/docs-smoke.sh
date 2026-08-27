@@ -885,6 +885,24 @@ require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'assert_co
 require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'assert_isolation_is_closed(record)'
 require_text scripts/self-test.sh scripts/test_native_shadow_mac3_closed_local_boot_successor_driver_arm64_v2.py
 
+# The successor attempt ran once and passed. A pass is easier to inflate than a
+# failure, so what is pinned here is mostly its size: the attempt is spent and
+# not rerunnable, the launcher is recorded as started and explicitly not as
+# serving, where it refused is recorded as unobserved rather than guessed, and
+# every boundary a boot does not move stays false. CURL.3 stays not passed and
+# activation stays disallowed in the same words the frozen record used.
+require_file native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json '"verdict": "PASS"'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json '"runsPerformed": 1'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json '"rerunPermitted": false'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json '"launcherServing": false'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json '"cleanMacEvidence": false'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json '"productRelease": false'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json '"whereItRefused": "not observable from this run"'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json '"activationAllowed": false'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json 'DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_closed_local_boot_result_arm64_v2.py
+
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
 # the three the console named because it comes from the guest's own systemd --
@@ -1000,9 +1018,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "61419bac03a28776fd258308431cdc0a2c7b04974f7fd11ecab50f9de742cef6"
-require_text docs/native-submission-shadow-verification-v1.md "d811c7569f8396e3725ce11a1da0bca373133bb6c2b80aea34e8d42c95bef35f"
-require_text docs/native-submission-shadow-verification-v1.md "c822e7a1e849184ffe8ffaf95d97b3041cbda25a990415e636fc8552cd254195"
+require_text docs/native-submission-shadow-verification-v1.md "2d33aa36f85797b1694cb080edaf3e62e945b2eb1f2e14530839894c79724844"
+require_text docs/native-submission-shadow-verification-v1.md "7eb836eefeb7b7565cad5c548d9db170d7c70ea650871dd550a7798463f05157"
+require_text docs/native-submission-shadow-verification-v1.md "a143135ec0538f0731e687e74b24af7448df1739c9aa8a246d71150f7196ed59"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "That sentence stays as written."
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "necessary but not sufficient"

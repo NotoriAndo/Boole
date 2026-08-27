@@ -75,7 +75,12 @@ def canonical(value) -> str:
 
 
 class PreFreezeTests(unittest.TestCase):
-    """The record exists, and says of itself that nothing has been run yet."""
+    """The record still reads as it did before the run, because it was frozen.
+
+    The attempt has since been spent. None of that is written back into this
+    file: it keeps saying "not run", which is the point of freezing it. The
+    outcome lives in the separate receipt named by ``resultPath``.
+    """
 
     def test_the_record_is_on_disk_and_parses(self) -> None:
         self.assertTrue(QUALIFICATION_PATH.is_file())
@@ -92,11 +97,16 @@ class PreFreezeTests(unittest.TestCase):
     def test_the_conditions_are_frozen_before_the_attempt(self) -> None:
         self.assertEqual(document()["frozenBefore"], "any qualification run")
 
-    def test_no_receipt_for_this_attempt_exists_yet(self) -> None:
-        # The driver refuses to start when the receipt path is occupied, so its
-        # absence is what makes "not yet run" mechanical rather than asserted.
+    def test_the_receipt_path_is_what_makes_the_count_mechanical(self) -> None:
+        # Written before the run, when this asserted the receipt was absent and
+        # so nothing had been spent. The run has since happened, and the same
+        # path now carries the opposite half of the same guarantee: the driver
+        # refuses to start when the receipt is occupied, so the one allowed
+        # attempt cannot be spent twice. Either way the count is read off the
+        # filesystem rather than taken on trust from this record.
         receipt = REPO / document()["resultPath"]
-        self.assertFalse(receipt.exists(), receipt)
+        self.assertTrue(receipt.exists(), receipt)
+        self.assertEqual(json.loads(receipt.read_text(encoding="utf-8"))["runsPerformed"], 1)
 
     def test_the_record_carries_no_verdict_of_its_own(self) -> None:
         for absent in ("verdict", "console", "whatFailed", "whatWorked"):
