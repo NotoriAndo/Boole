@@ -1744,3 +1744,84 @@ CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED
 `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
 Base activation `false` and `activationAllowed=false` remain unchanged. No public mining, no
 paid-API benchmark and no release claim is made anywhere in this section.
+
+## 27. Testnet/public task-instance separation and activation-order correction (2026-08-27)
+
+### 27.1 What this corrects
+
+The arm64 image work in sections 18–26 prepares a deterministic place to run the checker. It does
+not issue a mining task, consume a task, start a testnet or authorize mining. A bootable guest is a
+runtime prerequisite only. Treating its completion as an activation step would skip the network
+and replay gates that still have to be built and measured.
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160` is the number of currently counted templates from which the
+frozen families can issue instances. It is not a stockpile of 14,160 answer strings and it is not a
+claim that a model solved 14,160 individual tasks. An anchor is source material. A template binds
+that anchor to a frozen family/generator/checker contract. An issued instance is the network- and
+epoch-specific challenge made from that template.
+
+### 27.2 Frozen separation rule
+
+The successor protocol gate is named `TESTNET-INSTANCE-DOMAIN-SEPARATION-V1`. Before a private
+testnet may use these families, every challenge commitment, submission binding, receipt and replay
+key must be bound to at least:
+
+```text
+network_id || chain_id || family_version || template_id || epoch || challenge_seed
+```
+
+This expression names fields; it does not authorize ambiguous string concatenation. The successor
+must use a versioned domain tag and canonical length-delimited encoding. It may bind additional
+frozen fields such as the challenge, policy and registry digests, but it may not remove any field
+above. The node must recompute the binding from its own network configuration and registry rather
+than trust values supplied by a miner. A receipt or submission envelope created for the testnet
+must therefore be unusable in the public-network domain. Testnet and public issuance/consumption
+ledgers must be separate even when they use the same template family.
+
+The rejection gate is bidirectional: a public-domain envelope/receipt must likewise be unusable in
+the testnet domain. This is domain replay rejection, not a global blacklist of identical raw source
+bytes submitted independently to two fresh tasks.
+
+`TEMPLATE-INVENTORY-DOES-NOT-DECREASE-ON-FRESH-ISSUANCE`: issuing a fresh instance with a new
+network/epoch/seed does not consume its template. What is consumed is that particular issued
+instance in that particular network domain. This statement applies only to families whose frozen
+generator can create fresh instances and whose checker remains bound to them. It is not a claim of
+unlimited freshness for every counted family.
+
+`STATIC-INSTANCE-EXPOSED-NEVER-PROMOTED`: a static, non-fresh or one-shot fixture exposed on a
+testnet may never later be counted or issued as a public-network task. Such fixtures require a
+test-only inventory and permanent public-domain exclusion. Passing a testnet with fixtures is not
+evidence that public inventory grew.
+
+### 27.3 Correct execution ladder
+
+The product-level order is:
+
+```text
+runtime image -> closed-local issue/check -> cross-network replay gate -> private testnet -> BF.7 zero-reward testnet -> BF.8 activation evidence -> separately approved activation
+```
+
+Here `private testnet` means a non-consensus integration network before BF.7. This short product
+view does not remove or replace the formal BF.3, BF.6, BF.6a, RP0-MD or deterministic-resource
+prerequisites already frozen by the master plan. Each arrow is a gate, not an automatic
+continuation. In particular:
+
+1. the current root-disk successor and later Mac boot can only establish the runtime-image step;
+2. the closed-local step must issue a fresh instance and complete the node-owned check path without
+   block or reward effects;
+3. the replay gate must prove that a testnet-bound submission/receipt is rejected under a distinct
+   public-network domain, that the reverse direction is also rejected and that the two ledgers
+   cannot alias;
+4. the private testnet must run with rewards and activation disabled;
+5. BF.7 remains its own zero-reward protocol gate and BF.8 remains a later evidence gate, not an
+   activation implementation; and
+6. actual activation still requires the formal prerequisites, an Economic ADR, a separate
+   implementation plan and an operator decision after those gates are green.
+
+This correction is a plan and test contract, not its implementation. No network-domain binding,
+testnet run or activation is claimed here. The current image cursor in section 26.5 is unchanged:
+the plucky writer remedy and sealed production path are landed on `main`; the one-shot Phase C
+production pair is ready but has not been dispatched, and Phase D remains blocked until that pair
+is GREEN.
+`mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false`,
+`activationAllowed=false` and `bootableClaim=false` remain unchanged.
