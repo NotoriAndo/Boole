@@ -15,6 +15,8 @@ guards exists because its absence already produced a wrong answer once.
 
 from __future__ import annotations
 
+import copy
+import json
 import pathlib
 import struct
 import tempfile
@@ -621,14 +623,46 @@ class ProductionGateTests(unittest.TestCase):
     result -- spending it on a known outcome is spending it for nothing.
     """
 
-    def test_the_live_record_currently_blocks_production(self) -> None:
-        with self.assertRaises(produce.ProducePhaseError):
-            produce.assert_production_unblocked()
+    def test_the_sealed_record_still_says_the_cause_is_open(self) -> None:
+        """The sealed record is not edited to agree with what was found later.
 
-    def test_the_refusal_names_the_cause_so_it_can_be_looked_up(self) -> None:
-        with self.assertRaises(produce.ProducePhaseError) as caught:
-            produce.assert_production_unblocked()
+        It was written while the frozen writer was the only writer, and against
+        that writer the cause is open and stays open.  What changed is which
+        binary writes the image, which is a fact the sealed record cannot know
+        and must not be rewritten to pretend it did.
+        """
+
+        readiness = produce.successor_authority()["productionReadiness"]
+        self.assertTrue(readiness["blocked"])
+        self.assertIn("staged-inode-ctime-is-not-fs-now", readiness["blockedBy"])
+
+    def test_a_named_cause_with_no_clearance_still_refuses(self) -> None:
+        with unittest.mock.patch.object(produce, "BLOCKER_CLEARANCES", {}):
+            with self.assertRaises(produce.ProducePhaseError) as caught:
+                produce.assert_production_unblocked()
         self.assertIn("staged-inode-ctime-is-not-fs-now", str(caught.exception))
+
+    def test_the_live_gate_opens_because_the_cause_was_removed(self) -> None:
+        """Not because the gate was deleted: the clearance is what opens it."""
+
+        self.assertTrue(produce.assert_production_unblocked())
+
+    def test_a_second_cause_alongside_the_cleared_one_still_refuses(self) -> None:
+        """Clearing one named cause is not clearing the record."""
+
+        with self.assertRaises(produce.ProducePhaseError) as caught:
+            produce.assert_production_unblocked(
+                {
+                    "productionReadiness": {
+                        "blocked": True,
+                        "blockedBy": [
+                            produce.STAGED_CTIME_BLOCKER,
+                            "something-nobody-has-read-yet",
+                        ],
+                    }
+                }
+            )
+        self.assertIn("something-nobody-has-read-yet", str(caught.exception))
 
     def test_a_record_with_nothing_open_lets_production_start(self) -> None:
         """The gate opens by closing the cause, not by deleting the gate."""
@@ -656,19 +690,22 @@ class ProductionGateTests(unittest.TestCase):
         `scripts/native-shadow-boot-produce-arm64.sh` -- the script the workflow
         runs under sudo -- invokes this module's `produce` subcommand, so that is
         the function the dispatch reaches.  Running as root is checked first, so
-        this stands the effective UID at 0 to get past it and asserts the refusal
-        that follows is the one naming the open cause.
+        this stands the effective UID at 0 to get past it.  The clearances are
+        taken away for the length of the call: with none registered the live
+        record's named cause is uncleared, and what the entry point does with an
+        uncleared cause is the thing being asserted.
         """
 
-        with unittest.mock.patch.object(produce.os, "geteuid", return_value=0):
-            with self.assertRaises(produce.ProducePhaseError) as caught:
-                produce.produce(
-                    scratch=pathlib.Path("/nonexistent/scratch"),
-                    outputs=pathlib.Path("/nonexistent/outputs"),
-                    gpgv=pathlib.Path("/nonexistent/gpgv"),
-                    zstd=pathlib.Path("/nonexistent/zstd"),
-                    launcher=pathlib.Path("/nonexistent/launcher"),
-                )
+        with unittest.mock.patch.object(produce, "BLOCKER_CLEARANCES", {}):
+            with unittest.mock.patch.object(produce.os, "geteuid", return_value=0):
+                with self.assertRaises(produce.ProducePhaseError) as caught:
+                    produce.produce(
+                        scratch=pathlib.Path("/nonexistent/scratch"),
+                        outputs=pathlib.Path("/nonexistent/outputs"),
+                        gpgv=pathlib.Path("/nonexistent/gpgv"),
+                        zstd=pathlib.Path("/nonexistent/zstd"),
+                        launcher=pathlib.Path("/nonexistent/launcher"),
+                    )
         self.assertIn("staged-inode-ctime-is-not-fs-now", str(caught.exception))
 
     def test_the_gate_refuses_before_anything_is_written(self) -> None:
@@ -676,16 +713,144 @@ class ProductionGateTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as scratch:
             outputs = pathlib.Path(scratch) / "outputs"
-            with unittest.mock.patch.object(produce.os, "geteuid", return_value=0):
-                with self.assertRaises(produce.ProducePhaseError):
-                    produce.produce(
-                        scratch=pathlib.Path(scratch),
-                        outputs=outputs,
-                        gpgv=pathlib.Path("/nonexistent/gpgv"),
-                        zstd=pathlib.Path("/nonexistent/zstd"),
-                        launcher=pathlib.Path("/nonexistent/launcher"),
-                    )
+            with unittest.mock.patch.object(produce, "BLOCKER_CLEARANCES", {}):
+                with unittest.mock.patch.object(produce.os, "geteuid", return_value=0):
+                    with self.assertRaises(produce.ProducePhaseError):
+                        produce.produce(
+                            scratch=pathlib.Path(scratch),
+                            outputs=outputs,
+                            gpgv=pathlib.Path("/nonexistent/gpgv"),
+                            zstd=pathlib.Path("/nonexistent/zstd"),
+                            launcher=pathlib.Path("/nonexistent/launcher"),
+                        )
             self.assertFalse(outputs.exists())
+
+
+class StagedCtimeClearanceTests(unittest.TestCase):
+    """What it takes to say the cause the sealed record named is no longer there.
+
+    The sealed record is the wrong place to answer that: it was written when the
+    frozen writer was the only writer, and a record edited to agree with a later
+    finding stops being evidence of anything.  So the clearance is derived from
+    the two append-only records that came after it, and every assertion below is
+    a way of removing one piece of that derivation and requiring the refusal back.
+
+    The load-bearing one is the writer digest.  A selection record that says
+    FIXED about some binary decides nothing unless that binary is the one the
+    plan hands to the runner, so the plan's own pin is checked against the
+    control that was read.
+    """
+
+    def selection(self) -> dict:
+        return json.loads(produce.SELECTION_PATH.read_text(encoding="utf-8"))
+
+    def without(self, **changes) -> dict:
+        document = copy.deepcopy(self.selection())
+        for dotted, value in changes.items():
+            keys = dotted.split("__")
+            cursor = document
+            for key in keys[:-1]:
+                cursor = cursor[key]
+            cursor[keys[-1]] = value
+        return document
+
+    def test_the_live_records_clear_the_cause(self) -> None:
+        self.assertTrue(produce.assert_staged_ctime_cause_removed())
+
+    def test_the_two_records_it_reads_are_the_ones_on_disk(self) -> None:
+        self.assertTrue(produce.SELECTION_PATH.is_file())
+        self.assertTrue(produce.PREREGISTRATION_PATH.is_file())
+
+    def test_a_selection_that_did_not_pass_clears_nothing(self) -> None:
+        with self.assertRaises(produce.ProducePhaseError):
+            produce.assert_staged_ctime_cause_removed(
+                self.without(controls__positive__verdict="DEFECT")
+            )
+
+    def test_a_rule_that_failed_no_control_clears_nothing(self) -> None:
+        """A rule that passes everything it is shown has decided nothing."""
+
+        with self.assertRaises(produce.ProducePhaseError):
+            produce.assert_staged_ctime_cause_removed(
+                self.without(controls__negative__verdict="FIXED")
+            )
+
+    def test_a_verdict_about_some_other_binary_clears_nothing(self) -> None:
+        """The binary that was read has to be the binary the plan runs."""
+
+        with self.assertRaises(produce.ProducePhaseError) as caught:
+            produce.assert_staged_ctime_cause_removed(
+                self.without(
+                    controls__positive__writer__sha256="0" * 64,
+                )
+            )
+        self.assertIn(root_disk.MKE2FS_SHA256, str(caught.exception))
+
+    def test_carrying_the_superseded_time_variable_across_clears_nothing(self) -> None:
+        """Setting the fallback sets the time and leaves the flag clear."""
+
+        with self.assertRaises(produce.ProducePhaseError):
+            produce.assert_staged_ctime_cause_removed(
+                self.without(
+                    writerTime__variableTheSelectedBuildHonours=(
+                        root_disk.SUPERSEDED_WRITER_TIME_ENV
+                    )
+                )
+            )
+
+    def test_a_selection_written_against_a_different_rule_clears_nothing(self) -> None:
+        """The chain back to the record that granted the unblock has to hold."""
+
+        with self.assertRaises(produce.ProducePhaseError):
+            produce.assert_staged_ctime_cause_removed(
+                self.without(appendOnly__predecessor__sha256="0" * 64)
+            )
+
+    def test_a_selection_that_moved_the_guest_lock_clears_nothing(self) -> None:
+        """The writer is an addition; the 191 packages do not move."""
+
+        with self.assertRaises(produce.ProducePhaseError):
+            produce.assert_staged_ctime_cause_removed(
+                self.without(guestPackages__sourceLockSha256="0" * 64)
+            )
+        with self.assertRaises(produce.ProducePhaseError):
+            produce.assert_staged_ctime_cause_removed(
+                self.without(guestPackages__replaced=True)
+            )
+
+    def test_the_sealed_record_the_clearance_answers_is_the_bound_one(self) -> None:
+        """Editing the sealed record breaks production rather than enabling it.
+
+        The pre-registration bound the successor authority by digest while it was
+        still the only word on the subject.  Reading that digest back off disk
+        here means a sealed record quietly rewritten to say something friendlier
+        fails the clearance instead of passing it.
+        """
+
+        bound = {
+            row["path"]: row["sha256"]
+            for row in produce.candidate_preregistration()["bindings"][
+                "recordsThatStayByteUnchanged"
+            ]
+        }
+        relative = produce.SUCCESSOR_AUTHORITY_PATH.relative_to(
+            produce.REPOSITORY_ROOT
+        ).as_posix()
+        self.assertEqual(
+            bound[relative], produce.file_digest(produce.SUCCESSOR_AUTHORITY_PATH)
+        )
+
+    def test_the_plans_fixed_time_is_not_the_no_op_the_failure_ran_with(self) -> None:
+        """Zero is the library's unset sentinel: the sealed run set exactly that."""
+
+        self.assertNotEqual(int(root_disk.EXT4_WRITER_TIME), 0)
+
+    def test_the_docs_gate_pins_the_cause_this_module_clears(self) -> None:
+        """A renamed cause has to fail here, not silently clear nothing there."""
+
+        smoke = (REPO / "scripts" / "docs-smoke.sh").read_text(encoding="utf-8")
+        needle = f'STAGED_CTIME_BLOCKER = "{produce.STAGED_CTIME_BLOCKER}"'
+        self.assertTrue(needle in smoke, f"docs-smoke does not pin {needle}")
 
 
 if __name__ == "__main__":

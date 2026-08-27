@@ -70,6 +70,20 @@ SUCCESSOR_AUTHORITY_PATH = (
     / "native/containment/"
     "native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json"
 )
+PREREGISTRATION_PATH = (
+    REPOSITORY_ROOT
+    / "native/containment/"
+    "native-shadow-boot-e2fsprogs-candidate-preregistration-arm64-v1.json"
+)
+SELECTION_PATH = (
+    REPOSITORY_ROOT
+    / "native/containment/native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json"
+)
+
+# The one cause the successor authority lists as open.  It is named here rather
+# than matched loosely so that a second cause, or this one under a new name, has
+# no clearance and refuses -- clearing a cause is not clearing the record.
+STAGED_CTIME_BLOCKER = "staged-inode-ctime-is-not-fs-now"
 
 SCHEMA = "boole.native-shadow.boot-produce-phase-result.arm64.v1"
 RELEASE = "NATIVE-SHADOW-BOOT-PRODUCE-PHASE-ARM64-V1"
@@ -114,6 +128,147 @@ def successor_authority(
         raise ProducePhaseError(f"the successor authority is unreadable: {path}") from exc
 
 
+def candidate_preregistration(
+    path: pathlib.Path = PREREGISTRATION_PATH,
+) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ProducePhaseError(f"the pre-registration is unreadable: {path}") from exc
+
+
+def selection_record(path: pathlib.Path = SELECTION_PATH) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ProducePhaseError(f"the selection record is unreadable: {path}") from exc
+
+
+def file_digest(path: pathlib.Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise ProducePhaseError(f"a bound record is unreadable: {path}") from exc
+
+
+def assert_staged_ctime_cause_removed(
+    record: Optional[Mapping[str, Any]] = None,
+) -> bool:
+    """Say whether the cause the sealed record named is still in the writer.
+
+    The sealed record cannot answer this and must not be edited to try.  It was
+    written when the frozen `mke2fs` was the only `mke2fs`, and against that
+    binary the cause is open and stays open: `create_inode` overwrites `i_ctime`
+    from the staged file's `st_ctime`, which no caller can set.  What changed is
+    which binary writes the image, and that is a fact from after the seal.
+
+    So the answer is derived from the two append-only records that came after it.
+    The pre-registration fixed the accept rule while no deb had been fetched, and
+    it is the record that grants an unblock at all; the selection applied that
+    rule by reading binaries rather than running them.  Both are checked back to
+    the sealed record by digest, which means a sealed record quietly rewritten to
+    say something friendlier fails this rather than passing it.
+
+    The load-bearing check is the last one.  A record saying FIXED about some
+    binary settles nothing unless that binary is the one this plan hands to the
+    runner, so the plan's own pinned digest is required to be the control that
+    was read.  Nothing here relaxes what the produced images must then satisfy.
+    """
+
+    document = record if record is not None else selection_record()
+
+    predecessor = document.get("appendOnly", {}).get("predecessor", {})
+    on_disk = file_digest(PREREGISTRATION_PATH)
+    if predecessor.get("sha256") != on_disk:
+        raise ProducePhaseError(
+            "the selection was written against a different pre-registration: it "
+            f"binds {predecessor.get('sha256')} and the one on disk is {on_disk}"
+        )
+
+    preregistration = candidate_preregistration()
+    readiness = preregistration.get("productionReadiness", {})
+    if not readiness.get("unblocksOnlyOnAPassingStaticRead"):
+        raise ProducePhaseError(
+            "the pre-registration does not grant an unblock on a passing read, "
+            "so a passing read does not unblock anything"
+        )
+
+    bound = {
+        row.get("path"): row.get("sha256")
+        for row in preregistration.get("bindings", {}).get(
+            "recordsThatStayByteUnchanged", []
+        )
+    }
+    relative = SUCCESSOR_AUTHORITY_PATH.relative_to(REPOSITORY_ROOT).as_posix()
+    sealed = file_digest(SUCCESSOR_AUTHORITY_PATH)
+    if bound.get(relative) != sealed:
+        raise ProducePhaseError(
+            "the sealed record this clearance answers is not the one the "
+            f"pre-registration bound: it binds {bound.get(relative)} and the one "
+            f"on disk is {sealed}"
+        )
+
+    controls = document.get("controls", {})
+    positive = controls.get("positive", {})
+    negative = controls.get("negative", {})
+    if positive.get("verdict") != "FIXED":
+        raise ProducePhaseError(
+            "the selected writer did not pass the static read: its verdict is "
+            f"{positive.get('verdict')}"
+        )
+    if negative.get("verdict") != "DEFECT":
+        raise ProducePhaseError(
+            "the rule failed no control, so it accepted the selected writer "
+            "without having rejected anything"
+        )
+
+    guest = document.get("guestPackages", {})
+    lock = file_digest(BOOT_SOURCE_LOCK_PATH)
+    if guest.get("sourceLockSha256") != lock:
+        raise ProducePhaseError(
+            "the guest package lock moved under the selection: it binds "
+            f"{guest.get('sourceLockSha256')} and the one on disk is {lock}"
+        )
+    if guest.get("replaced") or guest.get("deleted"):
+        raise ProducePhaseError(
+            "the writer is an addition, not a substitution, and this selection "
+            "records the guest packages as replaced or deleted"
+        )
+
+    writer_time = document.get("writerTime", {})
+    honoured = writer_time.get("variableTheSelectedBuildHonours")
+    if root_disk.WRITER_TIME_ENV != honoured:
+        raise ProducePhaseError(
+            f"the plan sets {root_disk.WRITER_TIME_ENV} and the selected build "
+            f"honours {honoured}, which would set the time and leave the flag "
+            "the writer branches on clear"
+        )
+    superseded = writer_time.get("variableThePlanCurrentlySets")
+    if root_disk.SUPERSEDED_WRITER_TIME_ENV != superseded:
+        raise ProducePhaseError(
+            f"the plan knows {root_disk.SUPERSEDED_WRITER_TIME_ENV} as the "
+            f"superseded variable and the selection names {superseded}"
+        )
+    if int(root_disk.EXT4_WRITER_TIME) == 0:
+        raise ProducePhaseError(
+            "the plan hands the writer the unset sentinel 0, which is what the "
+            "sealed run set and why every stamp fell back to the wall clock"
+        )
+
+    pinned = positive.get("writer", {}).get("sha256")
+    if root_disk.MKE2FS_SHA256 != pinned:
+        raise ProducePhaseError(
+            f"the plan pins writer {root_disk.MKE2FS_SHA256} and the binary that "
+            f"was read and found fixed is {pinned}"
+        )
+    return True
+
+
+# Each entry is one named cause and the derivation that says it is gone.  A cause
+# with no entry has no clearance, which is the default and the safe one.
+BLOCKER_CLEARANCES = {STAGED_CTIME_BLOCKER: assert_staged_ctime_cause_removed}
+
+
 def assert_production_unblocked(
     record: Optional[Mapping[str, Any]] = None,
 ) -> bool:
@@ -124,17 +279,34 @@ def assert_production_unblocked(
     itself lists as open would spend the single attempt on an outcome already
     known.  The audit inside this phase would catch such an image, loudly -- this
     is about not spending the attempt, not about trusting the result.
+
+    A cause the record names can be answered by a later append-only record, but
+    only by evidence: the clearance has to derive the cause's absence from what
+    is on disk, and it refuses if it cannot.  Removing the gate would also let
+    the dispatch through, which is why no clearance is allowed to be a statement
+    that the cause is gone -- each one is a re-derivation of why.
     """
 
     readiness = (record if record is not None else successor_authority()).get(
         "productionReadiness", {}
     )
-    if readiness.get("blocked"):
-        causes = ", ".join(readiness.get("blockedBy", [])) or "an unnamed cause"
+    if not readiness.get("blocked"):
+        return True
+
+    why = readiness.get("why", "")
+    open_causes = [
+        cause
+        for cause in readiness.get("blockedBy", [])
+        if cause not in BLOCKER_CLEARANCES
+    ]
+    if open_causes or not readiness.get("blockedBy"):
+        causes = ", ".join(open_causes) or "an unnamed cause"
         raise ProducePhaseError(
-            f"the successor authority blocks production: {causes}. "
-            f"{readiness.get('why', '')}".strip()
+            f"the successor authority blocks production: {causes}. {why}".strip()
         )
+
+    for cause in readiness["blockedBy"]:
+        BLOCKER_CLEARANCES[cause]()
     return True
 
 

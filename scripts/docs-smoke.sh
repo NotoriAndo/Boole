@@ -788,6 +788,17 @@ require_file scripts/native_shadow_boot_writer_tree_arm64_v1.py
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_writer_set_acquire_arm64_v1.py
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_writer_tree_arm64_v1.py
 
+# The sealed record names one open cause and forbids dispatching against it. It
+# is not edited to agree with what the two records above later found -- it was
+# written when the frozen writer was the only writer, and against that writer
+# the cause is open and stays open. What clears it is a derivation from those
+# records, keyed on the cause by name, so a second cause or a renamed one has no
+# clearance and still refuses.
+require_text scripts/native_shadow_boot_produce_phase_arm64_v1.py 'STAGED_CTIME_BLOCKER = "staged-inode-ctime-is-not-fs-now"'
+require_text scripts/native_shadow_boot_produce_phase_arm64_v1.py 'BLOCKER_CLEARANCES = {STAGED_CTIME_BLOCKER: assert_staged_ctime_cause_removed}'
+require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"staged-inode-ctime-is-not-fs-now"'
+require_text native/containment/native-shadow-boot-e2fsprogs-candidate-preregistration-arm64-v1.json '"unblocksOnlyOnAPassingStaticRead": true'
+
 # The verification stage is separate from the producer on purpose: a producer
 # that checks its own output can only confirm that it did what it did. debugfs
 # keeps the inspector role v1 sealed for it -- read-only, never `-w`.
