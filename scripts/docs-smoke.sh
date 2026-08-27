@@ -825,6 +825,21 @@ require_text native/containment/native-shadow-mac3-closed-local-boot-qualificati
 require_text native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json '"activationAllowed": false'
 require_text scripts/self-test.sh scripts/test_native_shadow_mac3_closed_local_boot_qualification_arm64_v1.py
 
+# The successor qualification, frozen before the one attempt it opens against
+# the rebuilt image. The first attempt failed and its allowance is spent; the
+# pins below are the ones a successor would be tempted to soften into a second
+# try at the same attempt -- its own single allowance, the count already spent
+# on the first, and the statement that reopening it is not what this is.
+require_file native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json
+require_text native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json '"runsAllowed": 1'
+require_text native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json '"runsPerformed": 0'
+require_text native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json '"resetsTheSpentAttempt": false'
+require_text native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json '"reusesTheSpentAttempt": false'
+require_text native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json '"rootDiskAttachedReadOnly": true'
+require_text native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json '"bootableClaim": false'
+require_text native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json '"activationAllowed": false'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_closed_local_boot_qualification_arm64_v2.py
+
 # The host that performs it. It is a development-Mac program that CI cannot run,
 # so what the gate holds is its contract: no network device, no shared
 # directory, the image opened read-only, and an ad-hoc signature carrying the
