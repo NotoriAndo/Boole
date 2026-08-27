@@ -123,6 +123,26 @@ jobs:
             --cas "$PWD/local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas" \
             --result "$RUNNER_TEMP/acquire/writer-set-acquisition.json"
 
+      - name: Prove the writer set unpacks to the three sealed digests
+        # Three files come out of those two packages, and only two of the three
+        # were measured before anything was fetched: the writer, and the library
+        # its own Pre-Depends pins to the writer's exact version. The second
+        # library it loads is pinned in the production plan and had no package
+        # to measure against until now.
+        #
+        # Unpacking here settles that while the run has produced nothing. A
+        # wrong pin stops a job with no image in it, which is recoverable; the
+        # same stop inside the one-shot production step would not be. The tree
+        # is thrown away -- production builds its own.
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/native_shadow_boot_writer_tree_arm64_v1.py \
+            --cas "$PWD/local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas" \
+            --zstd "$(readlink -f "$(command -v zstd)")" \
+            --writer-tree "$RUNNER_TEMP/writer-set-proof" \
+            --receipt "$RUNNER_TEMP/acquire/writer-tree-receipt.json"
+
       - name: Rebuild the launcher and match its sealed digest
         # The last step that is allowed to reach the network. Everything after
         # this runs with the network taken away.

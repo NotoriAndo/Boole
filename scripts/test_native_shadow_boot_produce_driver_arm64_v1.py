@@ -249,6 +249,41 @@ class WorkflowTests(unittest.TestCase):
         )
         self.assertTrue("--gpgv" not in WORKFLOW_TEXT, "a host gpgv is still pinned in")
 
+    def test_the_writer_set_arrives_while_the_network_is_still_there(self) -> None:
+        """It is two packages the frozen closure's own acquirer cannot carry.
+
+        That acquirer derives its plan from the sealed boot source lock and
+        requires the lock's closure to be covered exactly once, so adding these
+        to it would mean editing a sealed record.  They come in on a path of
+        their own instead, and it has to be a path that runs before the network
+        is taken away.
+        """
+
+        writer_set = WORKFLOW_TEXT.find("native_shadow_boot_writer_set_acquire_arm64_v1.py")
+        offline = WORKFLOW_TEXT.find(f"./scripts/{DRIVER.name}")
+        self.assertNotEqual(writer_set, -1, "the runner never acquires the writer set")
+        self.assertNotEqual(offline, -1)
+        self.assertLess(writer_set, offline, "the writer set is fetched offline")
+
+    def test_the_writer_set_is_proved_to_unpack_before_anything_is_produced(self) -> None:
+        """One of the three sealed member digests was never independently measured.
+
+        The record that selected this build measured the writer and the library
+        the writer's own `Pre-Depends` pins to it exactly; the second library it
+        loads is pinned in the production plan but has no measurement of its own
+        until the package exists.  Unpacking the set right after it is fetched
+        turns that from something the one-shot production run would discover
+        into something this run already knows, and a wrong pin then stops a job
+        that has produced nothing rather than one that has produced an image.
+        """
+
+        proof = WORKFLOW_TEXT.find("native_shadow_boot_writer_tree_arm64_v1.py")
+        acquire = WORKFLOW_TEXT.find("native_shadow_boot_writer_set_acquire_arm64_v1.py")
+        offline = WORKFLOW_TEXT.find(f"./scripts/{DRIVER.name}")
+        self.assertNotEqual(proof, -1, "nothing proves the writer set unpacks")
+        self.assertLess(acquire, proof, "the set is unpacked before it is fetched")
+        self.assertLess(proof, offline, "the proof runs after the image is written")
+
     def required_commands(self, text: str, variable: str) -> set:
         """The one list a `for <variable> in ...; do` header names."""
 
