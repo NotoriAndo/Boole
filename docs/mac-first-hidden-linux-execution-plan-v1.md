@@ -2469,3 +2469,106 @@ secret was read, copied or staged anywhere. CURL.3 remains
 `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` are unchanged. No
 serving claim, no public mining, no testnet and no paid-API benchmark is made anywhere in this
 section.
+
+## 35. Closing the serving gap: all three holes, and whether the big one fits (2026-08-27)
+
+Section 34 measured one gap. Reading the sealed MAC.3 runtime contract back shows
+three, and the launcher refuses at the earliest of them. That changes the
+schedule, because exactly one image production is allowed.
+
+### 35.1 Three gaps, not one
+
+| # | What is missing | Where the launcher stops | Kind of change |
+|---|---|---|---|
+| 1 | the account database at `/etc/passwd` | stage 1, the service-identity prerequisite | rows in the lock and the staging table |
+| 2 | the runtime rootfs and its content manifest | stage 7, `verify_runtime_rootfs_replay` | a second tree nested under a prefix |
+| 3 | a channel the refusal can be read on | nowhere -- it hides the refusal | one edit to the launcher unit |
+
+The account database is missing for a structural reason rather than an oversight:
+`systemd-sysusers` would create those accounts at boot and cannot, because the
+root is read-only. So an image that closes only gap 2 still refuses at stage 1,
+and the single allowed production would have answered nothing. The three are one
+unit of work.
+
+### 35.2 The one that is a decision rather than a table edit
+
+Gaps 1 and 3 are edits. Gap 2 is not: the launcher requires an actual tree at a
+compiled-in path, and it verifies that tree against a manifest whose digest it
+compiles against.
+
+Three checks in the verifier decide what that costs. The directory must be on a
+read-only mount. The manifest must be a regular file, root-owned, mode 0444,
+with exactly one link and exactly the sealed size. And the observed path set must
+equal the manifest's exactly -- every path present must be named, every path
+named must be present, kind included.
+
+That last one rules out the cheap answer. Pointing the nested path at the copy
+the boot image already carries at top level would cost almost no bytes, and a
+symlink where the manifest says file is a mismatch. The tree has to be
+duplicated, so the question becomes a byte question.
+
+### 35.3 Whether it fits
+
+Both locks carry the same build recipe, and the recipe is enforced rather than
+advisory -- the builder raises rather than truncates.
+
+| Quantity | Bytes |
+|---|---|
+| `maxTotalBytes`, sealed in both locks | 2,147,483,648 |
+| current boot initrd, built uncompressed from the single input layer | 1,010,933,296 |
+| runtime rootfs layer to be nested | 766,556,160 |
+| upper-bound sum | 1,777,489,456 |
+| headroom | 369,994,192 |
+
+This is an upper bound, not a result. Both sizes are archives and carry headers
+and padding the assembled payload does not, so the real sum is smaller. What it
+establishes is that the pinned numbers leave room; what it does not establish is
+that the assembled result fits, and it says nothing at all about the entry limit,
+because neither tree's entry count is pinned anywhere in the repository and
+neither can be counted without a build.
+
+### 35.4 Why the nested tree is not new material
+
+The boot rootfs and the runtime rootfs are not different kinds of object. One
+builder digest is named by both locks, both carry the same schema and the same
+recipe, and the boot closure roots are a strict superset of the runtime ones. So
+the nested tree is content the boot image already carries, placed a second time
+under a prefix.
+
+Worth recording precisely, because the first reading got it wrong: the digest the
+locks name belongs to the arm64 *projection*, a small module that reads the
+frozen legacy builder, refuses unless those bytes match the digest it pins,
+applies a fixed list of replacements and executes the result. The limit checks
+live in the legacy module and are reached only through a projection that has
+already verified it. Two files, one of which checks the other.
+
+### 35.5 The staging path is not masked
+
+A read-only path is worth nothing if something mounts over it at boot. Every
+writable path in the sealed contract is under `/run` on tmpfs, and the tmpfiles
+configuration creates directories under `/var/lib/boole` rather than mounting
+anything there. So both fixed guest paths stay visible.
+
+### 35.6 What is still held
+
+The held condition -- that the launcher itself run under an unprivileged account
+-- is still awaiting an operator decision, still not relaxed and still not
+satisfied. A boot judged against a condition under question could not return a
+clean verdict, which is a second reason the one allowed production is not spent
+yet. The reformulation offered in the contract stays offered rather than applied.
+
+### 35.7 Cursor
+
+```
+MAC.3 serving gap closure = PLANNED / NOT IMPLEMENTED
+  three gaps, not one -- earliest refusal is the account database at stage 1
+  gap 2 is the only design decision: duplication, not symlinks
+  byte headroom 369,994,192 as an upper bound; entry count unknown
+  nothing built, staged, produced or booted; held condition unrelaxed
+```
+
+No image was produced, no production was dispatched and no boot was performed.
+Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD,
+Base activation false and activationAllowed=false are unchanged. No public
+mining, no leaderboard claim and no paid-API benchmark is made anywhere in this
+section.

@@ -1836,3 +1836,42 @@ mutations were each caught.
 
 No image was produced, no boot was performed, nothing was fetched, and no sealed record was
 modified. `activationAllowed` stays `false` and no serving claim is made.
+
+### 13.9 Serving gap closure plan addendum (2026-08-27)
+
+Sealed as
+`native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json`
+at status `MAC3-SERVING-GAP-CLOSURE-PLANNED-NOT-IMPLEMENTED`. Append-only: it
+edits no earlier record and resolves no open question.
+
+The plan exists because §13.8 measured one gap and the sealed runtime contract
+names three. The launcher refuses at the earliest of them -- the account
+database, which `systemd-sysusers` cannot create on a read-only root -- so an
+image closing only the measured gap would spend the single allowed production
+without reaching the stage it was built for. All three move the same four sealed
+records in the same fixed order, so they are scheduled as one unit.
+
+Two of the three are table edits. The third requires a second rootfs tree nested
+at a compiled-in guest path, duplicated rather than symlinked, because the
+verifier compares the observed path set against the manifest exactly and rejects
+a kind mismatch. The plan therefore turns on a byte budget: `maxTotalBytes` is
+2,147,483,648 in both locks, and the upper-bound sum of the current initrd and
+the runtime layer is 1,777,489,456, leaving 369,994,192. The record states this
+as a bound rather than a result, and states plainly that the entry limit is not
+answered by any pinned number in the tree.
+
+The plan also corrects a conflation that the tests caught before it was sealed:
+the builder digest both locks name belongs to the arm64 projection, not to the
+module whose code enforces the limits. The projection verifies the legacy
+module's bytes against a digest it pins, then executes a fixed textual
+projection of them. Both files are pinned separately in the record.
+
+The held condition on launcher privilege is carried over unchanged --
+`relaxed: false`, `waived: false`, `satisfied: false`, awaiting an operator
+decision. 37 tests re-derive every repository-derived number from the file it
+names; three deliberate mutations were each caught.
+
+No builder, lock, plan or unit file was edited. No image was produced, no
+production dispatched and no boot performed. Serving is not claimed.
+mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false
+and activationAllowed=false are unchanged. MAC.4 route binding is not started.
