@@ -280,6 +280,32 @@ class SharedLibraryTests(unittest.TestCase):
         self.assertEqual(plan()["sharedLibraries"], mod.SHARED_LIBRARIES)
 
 
+class GateTests(unittest.TestCase):
+    """The docs gate pins the time knob by name, so it has to follow a rename.
+
+    It pinned the old name as a literal and kept pinning it after the constant
+    moved, which is a gate that reads like it is watching something and is not.
+    The needles are built from the module's own values here rather than typed
+    out again: renaming the constant without moving the gate now fails on the
+    developer's machine instead of on the runner.
+    """
+
+    def smoke(self) -> str:
+        return (REPO / "scripts" / "docs-smoke.sh").read_text(encoding="utf-8")
+
+    def test_the_gate_pins_the_variable_the_writer_honours(self) -> None:
+        needle = f'WRITER_TIME_ENV = "{mod.WRITER_TIME_ENV}"'
+        self.assertTrue(needle in self.smoke(), f"docs-smoke does not pin {needle}")
+
+    def test_the_gate_pins_the_superseded_variable_as_superseded(self) -> None:
+        """Naming it is the point: the two are not interchangeable."""
+
+        needle = (
+            f'SUPERSEDED_WRITER_TIME_ENV = "{mod.SUPERSEDED_WRITER_TIME_ENV}"'
+        )
+        self.assertTrue(needle in self.smoke(), f"docs-smoke does not pin {needle}")
+
+
 class BoundaryTests(unittest.TestCase):
     def test_planning_an_image_is_not_building_one(self) -> None:
         self.assertIs(mod.BOOTABLE_CLAIM, False)
