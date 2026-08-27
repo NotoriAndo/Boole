@@ -991,6 +991,26 @@ require_text native/containment/native-shadow-mac3-serving-gap-closure-plan-arm6
 require_text native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json 'heldConditionUnchanged'
 require_text scripts/self-test.sh scripts/test_native_shadow_mac3_serving_gap_closure_plan_arm64_v1.py
 
+# The corrected fourth MAC.3 condition, pre-registered before an image is built
+# against it. Pinned here is what keeps it a correction rather than a relaxation:
+# it stays a pre-registration and not a result, the sealed contract is not edited
+# so the held state before the decision remains readable, the launcher half is an
+# equality check on exactly four capabilities, and the submissions half still runs
+# unprivileged. The three serving gaps stay open and nothing was built.
+require_file native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json
+require_text native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json 'MAC3-CONDITION-4-CORRECTED-PRE-REGISTERED-NOT-IMPLEMENTED'
+require_text native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json '"isARelaxation": false'
+require_text native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json '"allowsSubmissionsToRunAsRoot": false'
+require_text native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json '"originalRecordEdited": false'
+require_text native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json '"comparison": "exact-equality"'
+require_text native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json '"failClosedBeforeExec": true'
+require_text native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json '"servingGapsRemaining": 3'
+require_text native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json '"imageProduced": false'
+require_text native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json 'whatThisDoesNotEstablish'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_condition_4_correction_arm64_v1.py
+# The sealed contract keeps saying held; the correction succeeds it, never edits it.
+require_text native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json '"readingApplied": false'
+
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
 # the three the console named because it comes from the guest's own systemd --
@@ -1106,9 +1126,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "041ebbfde81a04a81791201c1214c145619a3d85945b87314e6bee44f85fea72"
-require_text docs/native-submission-shadow-verification-v1.md "babc7f18fb71f0c365b703559694d85d08d32c1038e3c17024e0670cc4489086"
-require_text docs/native-submission-shadow-verification-v1.md "da47bdf36df592ba029081585baa3618e55cee02ce217c80d80e1dffa5167f17"
+require_text docs/native-submission-shadow-verification-v1.md "644346f308f7bc181a8616eb135248e8ab84c75b55128bcad2d618d2ba3bd4c5"
+require_text docs/native-submission-shadow-verification-v1.md "9e1e4d0bd2472ba2f13b7c58bf47f47aad96c616455afd8005b62d0e5553a17a"
+require_text docs/native-submission-shadow-verification-v1.md "1d3ec2e81c43e1b6d399170c79b5270724726d560d793eec3b18f818c53e0e46"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "That sentence stays as written."
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "necessary but not sufficient"

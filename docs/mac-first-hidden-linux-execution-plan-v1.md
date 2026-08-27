@@ -2572,3 +2572,112 @@ Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD,
 Base activation false and activationAllowed=false are unchanged. No public
 mining, no leaderboard claim and no paid-API benchmark is made anywhere in this
 section.
+
+## 36. The fourth condition, corrected rather than relaxed (2026-08-28)
+
+The fourth MAC.3 condition was the one thing this work could not decide for
+itself. It read "the launcher runs under an unprivileged account", and nothing in
+the tree satisfied it, because the launcher is root by design. Section 35 carried
+it forward unrelaxed and stopped. The operator has now decided it, choosing the
+correction over the redesign.
+
+### 36.1 What was wrong with the sentence
+
+The subject. The launcher is the privilege manager: it verifies the frozen
+capability mask against its own kernel status before it binds a socket, it
+materializes the authority files, and it is what performs the descent to the
+unprivileged accounts. The processes that must be unprivileged are the ones it
+creates to run the checker and the submitted answer -- not the manager itself.
+Under the original wording, satisfying the condition would have meant deleting
+the delegation the containment is built on.
+
+The sealed contract had already noticed this and offered the reformulation in its
+`readingOffered` field, then declined to apply it, on the grounds that applying a
+reading the operator had not given would decide the question the record was
+holding open. The decision applies that reading.
+
+### 36.2 The corrected condition
+
+| clause | what it requires |
+| --- | --- |
+| 1 | the launcher runs as root as the least-privilege supervisor that prepares the isolated environment |
+| 2 | it holds exactly `CAP_SETGID`, `CAP_SETUID`, `CAP_SETPCAP`, `CAP_SYS_ADMIN` -- four, no more, no fewer |
+| 3 | one missing or one additional capability refuses startup fail-closed |
+| 4 | the ambient capability set is empty |
+| 5 | the submitted answer and the checker start only after descent to a sealed unprivileged account |
+| 6 | a failed descent, an answer running while still root, or any possibility of regaining privilege is refused |
+| 7 | the root launcher is given no wallet, model API key, reward, block, consensus or peer-to-peer authority |
+
+### 36.3 Why this is a correction and not a relaxation
+
+The distinction is the whole weight of the decision, so it is tested rather than
+asserted. Every one of the seven clauses is required to name code already in the
+tree that enforces it, and the record stamps those files by digest and size so
+the tests re-derive them rather than quoting them.
+
+- Clauses 1 to 4 are the launcher's startup self-check. It reads its own kernel
+  status, requires root in all four UID and all four GID slots, and compares the
+  effective, permitted and bounding sets against a compile-time mask by
+  **equality, not containment** -- which is what makes an extra capability a
+  failure rather than a pass. Inheritable and ambient must be exactly zero. The
+  same four names appear in the sealed execution policy and in the systemd unit,
+  and a launcher test compares the compiled mask against the tracked policy so
+  the two cannot drift apart quietly.
+- Clause 5 is an ordering claim, so the order is read out of the source: the
+  per-request setup runs drop-privileges, then verify-privileges, then the
+  runtime identity lookup, and the exec is the last stage. Everything untrusted
+  is on the far side of it.
+- Clause 6 has three parts and all three are already closed. A failed stage
+  propagates its error and returns before the exec rather than continuing past
+  it. The post-descent verification re-reads the kernel and requires the real,
+  effective and saved identities to be the target account, no supplementary
+  groups, all five capability sets exactly empty, and `no_new_privs` set.
+  Reacquisition is closed earlier still: the entire bounding set is dropped while
+  `CAP_SETPCAP` is still held and **before** the identity changes, so there is
+  nothing left to regain.
+- Clause 7 holds because the inherited environment is cleared and per-request
+  overrides are refused, the node and checker capability lists are empty, and the
+  guest contract already freezes both that no host wallet, model key or node
+  secret is in the guest and that the machine has no network device.
+
+The signature of a misdescription rather than a weakened rule: under the original
+wording nothing in the tree satisfied the condition; under the corrected wording
+the same unchanged tree satisfies every clause. No check was removed. What would
+have made it a relaxation is written down too -- permitting the checker or the
+answer to execute while still root, accepting a capability set by containment
+instead of equality, or letting a failed descent reach the exec. None of the
+three is written, and all three remain refused.
+
+### 36.4 Append-only, not an edit
+
+The guest runtime contract is left exactly as sealed. It still carries the
+condition at status `held` and the held block at relaxed false, waived false,
+satisfied false, `readingApplied` false. The correction succeeds it in a separate
+file rather than replacing it in place, so the state before the decision stays
+readable afterwards, and docs-smoke pins both halves.
+
+### 36.5 What this does not establish
+
+Deciding a condition is not passing it. Nothing has been booted against the
+corrected wording; the descent path is read here, not run. The three serving
+gaps are untouched and still open -- the guest still has no account database,
+which is why the launcher refuses at its first startup stage today, long before
+the runtime rootfs check at stage seven. Production remains one dispatch,
+unspent, and still gated on an entry-count check that no pinned number in the
+tree answers.
+
+### 36.6 Cursor
+
+```
+MAC.3 condition 4 = CORRECTED / PRE-REGISTERED / NOT IMPLEMENTED
+  operator chose 1-a: correct the subject, keep the delegation
+  seven clauses, each naming code that already refuses -- not one removes a check
+  sealed contract unedited; it still reads held
+  three serving gaps still open; nothing built, produced or booted
+```
+
+No image was produced, no production was dispatched and no boot was performed.
+Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD,
+Base activation false and activationAllowed=false are unchanged. No public
+mining, no leaderboard claim and no paid-API benchmark is made anywhere in this
+section.

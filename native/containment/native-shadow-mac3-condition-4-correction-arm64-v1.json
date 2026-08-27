@@ -1,0 +1,324 @@
+{
+  "schema": "boole.native-shadow.mac3-condition-4-correction.arm64.v1",
+  "release": "MAC3-CONDITION-4-CORRECTION-ARM64-V1-PRE-REGISTERED-NOT-IMPLEMENTED",
+  "status": "MAC3-CONDITION-4-CORRECTED-PRE-REGISTERED-NOT-IMPLEMENTED",
+  "activationAllowed": false,
+  "servingClaim": false,
+  "servingGapsClosed": false,
+  "servingGapsRemaining": 3,
+  "whatThisIs": "The fourth MAC.3 condition was held rather than frozen because its wording conflicted with the containment it was meant to describe. The operator has now corrected it. This record pre-registers the corrected wording before any image is built against it, and requires every clause of that wording to name code already in the tree that enforces it. That requirement is what distinguishes a correction from a relaxation: a relaxation would have at least one clause with nothing behind it.",
+  "appendOnly": {
+    "originalRecordEdited": false,
+    "originalHeldConditionStillReadsAsHeld": true,
+    "how": "the guest runtime contract is left exactly as sealed, still carrying the condition at status held and the held block at relaxed false, waived false, satisfied false and readingApplied false. This record supersedes it by succession rather than by edit, so the state before the decision stays readable afterwards."
+  },
+  "supersededCondition": {
+    "contractStamp": {
+      "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+      "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f",
+      "sizeBytes": 17589
+    },
+    "id": "launcher-runs-under-an-unprivileged-account",
+    "originalWording": "the launcher runs under an unprivileged account",
+    "originalStatus": "held",
+    "originalHeldState": {
+      "relaxed": false,
+      "waived": false,
+      "satisfied": false,
+      "state": "awaiting an operator decision"
+    },
+    "theSubjectThatWasWrong": "the sentence made the launcher the thing that must be unprivileged. The launcher is the privilege manager: it is what verifies the frozen mask, what materializes the authority files, and what performs the descent. The processes that must be unprivileged are the ones it creates to run the checker and the submitted answer."
+  },
+  "operatorDecision": {
+    "choice": "1-a",
+    "rejectedChoice": "1-b",
+    "whyTheOtherWasRejected": "making the launcher itself unprivileged is not a hardening tweak but a redesign: it discards the delegation and account separation the containment is built on and rebuilds them from nothing.",
+    "clauseCount": 7,
+    "clauses": [
+      {
+        "order": 1,
+        "id": "launcher-is-a-root-privilege-supervisor",
+        "text": "the launcher runs as root as the least-privileged supervisor that prepares the isolated environment",
+        "sourceWording": "launcher는 격리 환경을 준비하는 최소 권한 supervisor로서 root로 실행한다."
+      },
+      {
+        "order": 2,
+        "id": "launcher-capabilities-are-exactly-the-sealed-four",
+        "text": "the launcher holds exactly the four sealed capabilities CAP_SETGID, CAP_SETUID, CAP_SETPCAP and CAP_SYS_ADMIN",
+        "sourceWording": "launcher가 가진 capability는 기존 봉인값인 CAP_SETGID, CAP_SETUID, CAP_SETPCAP, CAP_SYS_ADMIN 정확히 4개여야 한다."
+      },
+      {
+        "order": 3,
+        "id": "any-missing-or-extra-capability-refuses-startup",
+        "text": "a single missing or additional capability refuses startup fail-closed",
+        "sourceWording": "권한이 하나라도 빠지거나 추가되면 fail-closed로 시작을 거부한다."
+      },
+      {
+        "order": 4,
+        "id": "ambient-capabilities-are-empty",
+        "text": "the ambient capability set is empty",
+        "sourceWording": "ambient capability는 비어 있어야 한다."
+      },
+      {
+        "order": 5,
+        "id": "submissions-and-checker-start-only-after-descent",
+        "text": "the actual submitted answer and the checker start only after descent to the sealed unprivileged account",
+        "sourceWording": "실제 제출 답안과 checker 실행은 반드시 봉인된 비특권 계정으로 강등된 뒤에만 시작한다."
+      },
+      {
+        "order": 6,
+        "id": "descent-failure-root-execution-or-reacquisition-refuses",
+        "text": "a failed descent, an answer executing while still root, or any possibility of reacquiring privilege is refused",
+        "sourceWording": "권한 강등 실패, root 상태의 답안 실행, 권한 재획득 가능성이 발견되면 거절한다."
+      },
+      {
+        "order": 7,
+        "id": "root-launcher-holds-no-wallet-model-or-node-authority",
+        "text": "the root launcher is given no wallet, model API key, reward, block, consensus or peer-to-peer authority",
+        "sourceWording": "root launcher에는 지갑, 모델 API 키, 보상, 블록, 합의, P2P 권한을 주지 않는다."
+      }
+    ]
+  },
+  "correctedCondition": {
+    "id": "launcher-supervises-as-root-and-submissions-run-unprivileged",
+    "condition": "the launcher runs as root as a least-privilege supervisor holding exactly the four sealed capabilities, and every checker and submission process it creates runs only after descent to a sealed unprivileged account",
+    "howItWillBeChecked": "in two halves that fail independently. The launcher half is read from the guest's own kernel status at startup, before the socket is bound: root in every identity slot, effective, permitted and bounding equal to the sealed four-capability mask, inheritable and ambient exactly zero. The submission half is read from the per-request setup order: the descent and its verification both precede the exec, the verification requires empty capability sets and no_new_privs on the child, and any stage failing stops the request before the exec rather than continuing past it.",
+    "status": "frozen",
+    "replacesConditionId": "launcher-runs-under-an-unprivileged-account"
+  },
+  "clauseEnforcement": [
+    {
+      "clauseId": "launcher-is-a-root-privilege-supervisor",
+      "direction": "restates-an-existing-refusal",
+      "existsBeforeThisRecord": true,
+      "theCheck": "the launcher reads its own kernel status before doing anything else and requires root in all four UID slots and all four GID slots; the sealed policy and the unit both name root, so a launcher started as anything else refuses rather than degrades.",
+      "enforcedBy": [
+        {
+          "path": "crates/boole-native-shadow-launcher/src/privilege.rs",
+          "sha256": "f8d479c04077cc931bf3c49fec01a4fee28c2384ee8ac6f22e00930f73be0aae",
+          "sizeBytes": 13709
+        },
+        {
+          "path": "native/containment/native-shadow-execution-policy-v1.json",
+          "sha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2",
+          "sizeBytes": 35807
+        },
+        {
+          "path": "native/systemd/boole-native-shadow-launcher.service",
+          "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+          "sizeBytes": 704
+        }
+      ]
+    },
+    {
+      "clauseId": "launcher-capabilities-are-exactly-the-sealed-four",
+      "direction": "restates-an-existing-refusal",
+      "existsBeforeThisRecord": true,
+      "theCheck": "the four capabilities are a compile-time mask in the launcher, the same four are listed for the effective, permitted and bounding sets in the sealed execution policy, and the unit's CapabilityBoundingSet names the same four. A launcher test compares the compiled mask against the tracked policy so the two cannot drift apart silently.",
+      "enforcedBy": [
+        {
+          "path": "crates/boole-native-shadow-launcher/src/privilege.rs",
+          "sha256": "f8d479c04077cc931bf3c49fec01a4fee28c2384ee8ac6f22e00930f73be0aae",
+          "sizeBytes": 13709
+        },
+        {
+          "path": "native/containment/native-shadow-execution-policy-v1.json",
+          "sha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2",
+          "sizeBytes": 35807
+        },
+        {
+          "path": "native/systemd/boole-native-shadow-launcher.service",
+          "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+          "sizeBytes": 704
+        }
+      ]
+    },
+    {
+      "clauseId": "any-missing-or-extra-capability-refuses-startup",
+      "direction": "restates-an-existing-refusal",
+      "existsBeforeThisRecord": true,
+      "theCheck": "the comparison is equality rather than containment, so a missing bit and an extra bit are the same failure; the policy carries failIfCapabilitySetDiffers and startupSelfCheckBeforeSocketBind, which places the refusal before the launcher can be spoken to at all. The privilege gate script is the tracked check that this shape holds.",
+      "enforcedBy": [
+        {
+          "path": "crates/boole-native-shadow-launcher/src/privilege.rs",
+          "sha256": "f8d479c04077cc931bf3c49fec01a4fee28c2384ee8ac6f22e00930f73be0aae",
+          "sizeBytes": 13709
+        },
+        {
+          "path": "native/containment/native-shadow-execution-policy-v1.json",
+          "sha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2",
+          "sizeBytes": 35807
+        },
+        {
+          "path": "scripts/native-shadow-launcher-privilege-gate.sh",
+          "sha256": "72c5b5136600919c765750a119d6e72d32f7edd52e45059ac243c4149953e63b",
+          "sizeBytes": 4689
+        }
+      ]
+    },
+    {
+      "clauseId": "ambient-capabilities-are-empty",
+      "direction": "restates-an-existing-refusal",
+      "existsBeforeThisRecord": true,
+      "theCheck": "the ambient set is required to be exactly zero, as is the inheritable set, which is what stops a capability surviving an exec into a child; the unit sets AmbientCapabilities to empty and the policy lists it empty.",
+      "enforcedBy": [
+        {
+          "path": "crates/boole-native-shadow-launcher/src/privilege.rs",
+          "sha256": "f8d479c04077cc931bf3c49fec01a4fee28c2384ee8ac6f22e00930f73be0aae",
+          "sizeBytes": 13709
+        },
+        {
+          "path": "native/containment/native-shadow-execution-policy-v1.json",
+          "sha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2",
+          "sizeBytes": 35807
+        },
+        {
+          "path": "native/systemd/boole-native-shadow-launcher.service",
+          "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+          "sizeBytes": 704
+        }
+      ]
+    },
+    {
+      "clauseId": "submissions-and-checker-start-only-after-descent",
+      "direction": "restates-an-existing-refusal",
+      "existsBeforeThisRecord": true,
+      "theCheck": "the per-request setup runs drop-privileges, then verify-privileges, then the runtime identity lookup, and only afterwards execs the checker. The order is the check: the exec is the last stage, and everything untrusted runs on the far side of it.",
+      "enforcedBy": [
+        {
+          "path": "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs",
+          "sha256": "881869e356647d31aead38a9f4b4addaa5227042f60cef72249225dd945dae6a",
+          "sizeBytes": 94164
+        },
+        {
+          "path": "native/containment/native-shadow-execution-policy-v1.json",
+          "sha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2",
+          "sizeBytes": 35807
+        }
+      ]
+    },
+    {
+      "clauseId": "descent-failure-root-execution-or-reacquisition-refuses",
+      "direction": "restates-an-existing-refusal",
+      "existsBeforeThisRecord": true,
+      "theCheck": "each stage returns a Result that the caller propagates, so a failed descent stops before the exec instead of continuing into it. The post-descent verification re-reads the kernel and requires the real, effective and saved identities to be the target account, no supplementary groups, all five capability sets exactly empty and no_new_privs set. Reacquisition is closed earlier: the whole bounding set is dropped before the identity changes, so there is nothing left to regain.",
+      "enforcedBy": [
+        {
+          "path": "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs",
+          "sha256": "881869e356647d31aead38a9f4b4addaa5227042f60cef72249225dd945dae6a",
+          "sizeBytes": 94164
+        }
+      ]
+    },
+    {
+      "clauseId": "root-launcher-holds-no-wallet-model-or-node-authority",
+      "direction": "restates-an-existing-refusal",
+      "existsBeforeThisRecord": true,
+      "theCheck": "the inherited environment is cleared and per-request overrides are refused, so no host wallet path or model API key reaches the launcher through it; the node and checker capability lists are empty; and the guest contract already freezes both that no host wallet, model key or node secret is present in the guest and that the machine has no network device, which is what would be needed for peer-to-peer authority to mean anything.",
+      "enforcedBy": [
+        {
+          "path": "native/containment/native-shadow-execution-policy-v1.json",
+          "sha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2",
+          "sizeBytes": 35807
+        },
+        {
+          "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+          "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f",
+          "sizeBytes": 17589
+        }
+      ]
+    }
+  ],
+  "capabilityMask": {
+    "names": [
+      "CAP_SETGID",
+      "CAP_SETUID",
+      "CAP_SETPCAP",
+      "CAP_SYS_ADMIN"
+    ],
+    "count": 4,
+    "bitPositions": [
+      6,
+      7,
+      8,
+      21
+    ],
+    "maskDecimal": 2097600,
+    "maskHex": "0x00000000002001c0",
+    "comparison": "exact-equality",
+    "whyEqualityAndNotContainment": "a containment check accepts a superset, which is exactly the case the clause forbids -- an added capability would pass. Equality makes a missing bit and an extra bit the same failure.",
+    "pinnedIn": [
+      {
+        "path": "crates/boole-native-shadow-launcher/src/privilege.rs",
+        "sha256": "f8d479c04077cc931bf3c49fec01a4fee28c2384ee8ac6f22e00930f73be0aae",
+        "sizeBytes": 13709
+      },
+      {
+        "path": "native/containment/native-shadow-execution-policy-v1.json",
+        "sha256": "8806708be7c624b202e7ef8a88bfbd1d99fbb78064442d1c0f1baad6252e90c2",
+        "sizeBytes": 35807
+      },
+      {
+        "path": "native/systemd/boole-native-shadow-launcher.service",
+        "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+        "sizeBytes": 704
+      }
+    ]
+  },
+  "dropOrder": {
+    "sourceStamp": {
+      "path": "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs",
+      "sha256": "881869e356647d31aead38a9f4b4addaa5227042f60cef72249225dd945dae6a",
+      "sizeBytes": 94164
+    },
+    "dropAtLine": 532,
+    "verifyAtLine": 536,
+    "execAtLine": 2088,
+    "orderClaim": "descent precedes its verification, which precedes the exec",
+    "boundingSetEmptiedBeforeIdentityChange": true,
+    "whyThatOrderMatters": "every bounding-set entry is dropped while the launcher still holds CAP_SETPCAP and before the identity changes. Doing it the other way round would leave capabilities that a later exec could raise again, which is the reacquisition the clause refuses.",
+    "capabilitySetsRequiredEmptyAfterDrop": [
+      "CapInh",
+      "CapPrm",
+      "CapEff",
+      "CapBnd",
+      "CapAmb"
+    ],
+    "noNewPrivilegesRequiredOnTheChecker": true,
+    "failClosedBeforeExec": true,
+    "howFailureStops": "each step is wrapped by the setup-stage helper and its Result is propagated, so a failed descent or a failed post-descent verification returns from the setup before the exec stage is reached. There is no branch that continues to the exec with the failure noted."
+  },
+  "whyThisIsNotARelaxation": {
+    "isARelaxation": false,
+    "allowsSubmissionsToRunAsRoot": false,
+    "whatChanged": "the subject of the sentence",
+    "theArgument": "no clause of the corrected wording removes a check. Every one of the seven names code that already refuses, and this record's tests re-digest those files rather than quoting them, so the claim fails here if any of them changes. What the correction changes is which process the word unprivileged applies to. Under the original wording nothing in the tree satisfied the condition; under the corrected wording the same tree satisfies every clause, which is the signature of a misdescription rather than of a weakened rule.",
+    "readingOfferedByTheSealedContract": "the launcher starts as root holding exactly the four sealed capabilities, verifies that mask itself and refuses on any mismatch, and every execution it serves runs under an unprivileged account. This keeps the intent -- least privilege -- and matches what is already sealed, but it is a different sentence from the one given, so it is not applied here.",
+    "operatorAppliedThatReading": true,
+    "whatWouldHaveMadeItARelaxation": "permitting the checker or the submitted answer to execute while still root, accepting a capability set by containment instead of equality, or allowing a failed descent to continue to the exec. None of the three is written here and all three remain refused by the tree."
+  },
+  "whatThisDoesNotEstablish": [
+    "not that the corrected condition passes on a booted guest -- nothing has been booted against it.",
+    "not that the launcher reaches serving; the three sealed runtime gaps are untouched and still open.",
+    "not that the checker descent has been observed in the guest; the code path is read here, not run.",
+    "not that the guest carries an account database at all, which is the earliest of the three gaps and the reason the launcher refuses at its first startup stage today.",
+    "not that a new image may be produced; production remains one dispatch, unspent, and gated on the entry-count check that no pinned number in the tree currently answers."
+  ],
+  "boundaries": [
+    "no image was produced, no production was dispatched and no boot was performed.",
+    "no builder, source lock, systemd unit or launcher source file was modified by this record.",
+    "the guest runtime contract is unedited; this record succeeds it rather than replacing it in place.",
+    "serving is not claimed.",
+    "no wallet material, model API key or node secret is introduced anywhere by this change.",
+    "mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and activationAllowed=false are unchanged.",
+    "no public mining, paid-API benchmark or leaderboard claim is made."
+  ],
+  "nothingWasBuilt": {
+    "imageProduced": false,
+    "productionDispatched": false,
+    "bootPerformed": false,
+    "builderChanged": false,
+    "unitFileChanged": false,
+    "launcherCodeChanged": false
+  }
+}
