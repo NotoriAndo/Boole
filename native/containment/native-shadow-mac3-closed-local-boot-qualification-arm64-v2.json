@@ -1,0 +1,501 @@
+{
+  "abortConditions": [
+    "a second qualification run of any kind against this image",
+    "the sealed kernel or root disk failing its digest check immediately before boot",
+    "needing a Team ID, a Developer ID certificate, a provisioning profile or notarization to carry the virtualization entitlement",
+    "needing to modify, repack or remount the sealed image to get further",
+    "the sealed root disk being byte-different after the run",
+    "a network device, a shared directory or a writable disk appearing in the machine configuration",
+    "needing to relax, reword or drop any condition below to call the run a pass",
+    "reaching for the first attempt's spent allowance, or any allowance other than the single one this record opens",
+    "the first attempt's records, or the sealed determinism failure, needing an edit of any kind before this attempt can proceed",
+    "the successor image turning out to differ from the failed one in anything beyond the five directories named here"
+  ],
+  "activationAllowed": false,
+  "appendOnly": {
+    "policy": "Records already sealed are bound here by digest and left byte-unchanged.",
+    "recordsLeftByteUnchanged": [
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+        "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a",
+        "sizeBytes": 8597
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json",
+        "sha256": "0fdd8b4711c9f76127a9bf71c86c63f87a8a05501eb61ef864cef2e8bca24f8c",
+        "sizeBytes": 10837
+      },
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json",
+        "sha256": "07a41497c99554eba5453bbc9771f3c450ec22bb80d2852c30174d66fa76fad1",
+        "sizeBytes": 15925
+      },
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json",
+        "sha256": "af815ee609a2fbee4dc4a81ba0d331bd851b8a60792b87ed61583d642e861725",
+        "sizeBytes": 16053
+      }
+    ],
+    "why": "The first attempt failed and that verdict stands. A successor that edited it would be re-reading the failure rather than succeeding it."
+  },
+  "attemptId": "MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-2",
+  "boot": {
+    "kernelCommandLine": "console=hvc0 root=/dev/vda ro init=/usr/lib/systemd/systemd",
+    "loader": "linux",
+    "noInitrd": true,
+    "why": {
+      "console=hvc0": "the virtio console the host attaches. Without it the run produces no evidence in either direction.",
+      "init=/usr/lib/systemd/systemd": "the real binary. /usr/sbin/init is a symlink to it, and naming the symlink adds a way for the boot to fail for a reason that is not about the image.",
+      "ro": "matches the read-only attachment. The guest is refused writes at the device, and asking for them would only produce noise.",
+      "root=/dev/vda": "the sealed image is a bare ext4 filesystem with no partition table, attached as the only block device."
+    }
+  },
+  "bootableClaim": false,
+  "boundaries": {
+    "cleanMacEvidence": false,
+    "guestBootVerified": false,
+    "launcherServing": false,
+    "productRelease": false,
+    "publicMiningOrBenchmark": false,
+    "runtimeCompatibilityVerified": false
+  },
+  "causeFix": {
+    "addedAs": "empty directories, mode 0755, owned by root:root, carrying no extended attributes and no children",
+    "addedPaths": [
+      "/dev",
+      "/proc",
+      "/run",
+      "/sys",
+      "/tmp"
+    ],
+    "authority": "native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json",
+    "cause": "The root filesystem has no mount-point directories for the kernel's virtual filesystems. Its top level holds usr, etc, opt, var, boot and the usr-merge symlinks and nothing else, so there is no /proc, /sys or /dev for PID 1 to mount over.",
+    "commit": "8585d3fff1aa0cdbc326cc959412c2a1f6eb8582",
+    "comparison": {
+      "bootableClaim": false,
+      "earlierRunId": "33045285925",
+      "fieldsCompared": [
+        "contentDigest",
+        "extendedAttributes",
+        "group",
+        "hardLinkGrouping",
+        "kind",
+        "mode",
+        "modificationTime",
+        "owner",
+        "path",
+        "size",
+        "symlinkTarget"
+      ],
+      "guestBootVerified": false,
+      "headSha": "7a8d307b9775779c1c814f6303cc6914ba5c2f48",
+      "imagesAreByteIdentical": false,
+      "initrds": {
+        "addedPaths": [
+          "/dev",
+          "/proc",
+          "/run",
+          "/sys",
+          "/tmp"
+        ],
+        "byteAccounting": {
+          "addedRecordBytes": 580,
+          "afterBytes": 1010933296,
+          "balanced": true,
+          "beforeBytes": 1010932716,
+          "recordsByShift": {
+            "0": 5,
+            "1": 390,
+            "3": 1,
+            "5": 13050
+          },
+          "renumberingConsistent": true
+        },
+        "changedPaths": [],
+        "ok": true,
+        "removedPaths": []
+      },
+      "laterRunId": "33055489573",
+      "readOnly": true,
+      "replica": "1",
+      "rootDisks": {
+        "addedPaths": [
+          "/dev",
+          "/proc",
+          "/run",
+          "/sys",
+          "/tmp"
+        ],
+        "changedPaths": [],
+        "hardlinkGroups": {
+          "after": [],
+          "before": []
+        },
+        "ok": true,
+        "removedPaths": []
+      },
+      "runId": "33072742108",
+      "whatItSettles": "Five more inodes and five more blocks agree with 'five empty directories were added' and do not establish it: the same counts survive a file whose contents changed, a mode that moved, an owner that changed or a symlink retargeted. Both trees were opened read-only and compared entry by entry, and the only difference in either container is the five directories.",
+      "whyTheInitrdDigestMoved": "Records in the archive are numbered sequentially in sorted path order, so five insertions in the middle of the alphabet renumber every record after them. Nothing else moved: no field differs on any shared record, every shift equals the number of insertions ahead of it, and the archive grew by exactly the size of the five new records.",
+      "workflow": ".github/workflows/native-shadow-boot-tree-diff-arm64.yml"
+    },
+    "failedCondition": "guest-systemd-is-pid-1",
+    "what": "The failed image had no mount-point directories for the kernel's virtual filesystems, so PID 1 could not mount /proc, /sys or /dev and froze before identifying itself. The successor image's builder creates them, along with the /run and /tmp the same startup needs."
+  },
+  "convergence": {
+    "dispatchCount": 1,
+    "headSha": "8585d3fff1aa0cdbc326cc959412c2a1f6eb8582",
+    "note": "The sealed digest is not one replica's file chosen over the other's. Two jobs on separate runners, each producing exactly once and neither able to see the other's output, both arrived at it.",
+    "perReplicaReport": [
+      {
+        "fsck": {
+          "argvOptions": [
+            "-f",
+            "-n"
+          ],
+          "exitCode": 0,
+          "passed": true,
+          "ran": true,
+          "repairOptionsUsed": false,
+          "verdict": "13462/18432 files (0.2% non-contiguous), 252720/285238 blocks"
+        },
+        "initrd": {
+          "sha256": "3ae76ced73f180ccd9feb44260694871dde3e158b82bff18d2c23327989488ca",
+          "sizeBytes": 1010933296
+        },
+        "kernel": {
+          "disposition": "matched-the-seal",
+          "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+          "sizeBytes": 57860488
+        },
+        "loaderProvenance": {
+          "checkerLibraryCount": 8,
+          "identicalAcrossReplicas": true,
+          "insideTheFrozenClosure": true,
+          "toolDigests": {
+            "debugfs": "2c0bf348d91f9b3bd6eec6666b9897b9f733c430e6baa8066bd70b645b2ca023",
+            "e2fsck": "05b3292174fdaadf96324ad349c006b1881b20647826bd869162e5ad8d34723b",
+            "mke2fs": "d20ac1862b68136bd1ffc03b19d3be24733d714345c2e1531178d13d3ddb5945"
+          },
+          "writerLibraryCount": 7
+        },
+        "replica": "r1",
+        "rootDisk": {
+          "sha256": "566614b67ea749ee0061d73aad4e3320f92fe7d352df29d11e4494a8c063d41b",
+          "sizeBytes": 1168334848
+        },
+        "timeAudit": {
+          "allowedTimestamps": [
+            0,
+            1
+          ],
+          "inodesRead": 18432,
+          "passed": true,
+          "superblockTimes": {
+            "s_lastcheck": 1,
+            "s_mkfs_time": 1,
+            "s_mtime": 0,
+            "s_wtime": 1
+          },
+          "violationCount": 0
+        },
+        "verification": {
+          "checkIds": [
+            "kernel-is-arm64",
+            "launcher-digest-matches-seal",
+            "launcher-service-is-enabled",
+            "modes-owners-and-paths-match-the-lock",
+            "pid1-is-systemd",
+            "replay-node-absent",
+            "runtime-mount-points-present"
+          ],
+          "guestBootVerified": false,
+          "passed": true
+        },
+        "writerTime": 1
+      },
+      {
+        "fsck": {
+          "argvOptions": [
+            "-f",
+            "-n"
+          ],
+          "exitCode": 0,
+          "passed": true,
+          "ran": true,
+          "repairOptionsUsed": false,
+          "verdict": "13462/18432 files (0.2% non-contiguous), 252720/285238 blocks"
+        },
+        "initrd": {
+          "sha256": "3ae76ced73f180ccd9feb44260694871dde3e158b82bff18d2c23327989488ca",
+          "sizeBytes": 1010933296
+        },
+        "kernel": {
+          "disposition": "matched-the-seal",
+          "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+          "sizeBytes": 57860488
+        },
+        "loaderProvenance": {
+          "checkerLibraryCount": 8,
+          "identicalAcrossReplicas": true,
+          "insideTheFrozenClosure": true,
+          "toolDigests": {
+            "debugfs": "2c0bf348d91f9b3bd6eec6666b9897b9f733c430e6baa8066bd70b645b2ca023",
+            "e2fsck": "05b3292174fdaadf96324ad349c006b1881b20647826bd869162e5ad8d34723b",
+            "mke2fs": "d20ac1862b68136bd1ffc03b19d3be24733d714345c2e1531178d13d3ddb5945"
+          },
+          "writerLibraryCount": 7
+        },
+        "replica": "r2",
+        "rootDisk": {
+          "sha256": "566614b67ea749ee0061d73aad4e3320f92fe7d352df29d11e4494a8c063d41b",
+          "sizeBytes": 1168334848
+        },
+        "timeAudit": {
+          "allowedTimestamps": [
+            0,
+            1
+          ],
+          "inodesRead": 18432,
+          "passed": true,
+          "superblockTimes": {
+            "s_lastcheck": 1,
+            "s_mkfs_time": 1,
+            "s_mtime": 0,
+            "s_wtime": 1
+          },
+          "violationCount": 0
+        },
+        "verification": {
+          "checkIds": [
+            "kernel-is-arm64",
+            "launcher-digest-matches-seal",
+            "launcher-service-is-enabled",
+            "modes-owners-and-paths-match-the-lock",
+            "pid1-is-systemd",
+            "replay-node-absent",
+            "runtime-mount-points-present"
+          ],
+          "guestBootVerified": false,
+          "passed": true
+        },
+        "writerTime": 1
+      }
+    ],
+    "producedPerReplica": 1,
+    "replicas": 2,
+    "runId": "33055489573",
+    "runner": "ubuntu-24.04-arm",
+    "unexplainedDifferences": {
+      "count": 0,
+      "explained": true,
+      "how": "The two PRODUCE-RESULT.json files are byte-identical once that name is masked; every digest, exit code, timestamp and library path below it agrees without masking.",
+      "theOnlyDifference": "the ephemeral scratch directory name in recorded paths (boole-native-shadow-boot-produce.SWubxk against .sK6p01)"
+    },
+    "workflow": ".github/workflows/native-shadow-boot-produce-arm64.yml"
+  },
+  "frozenBefore": "any qualification run",
+  "host": {
+    "architecture": "arm64",
+    "closedLocal": true,
+    "framework": "Virtualization.framework",
+    "machine": "development Mac",
+    "os": "macOS",
+    "why": "MAC.3 is closed-local development work. The clean-Mac question is a different gate with a different environment, and this record does not touch it."
+  },
+  "invariants": {
+    "BF.7": "HOLD",
+    "CURL.3": "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED",
+    "LLM-MINEABLE-ELIGIBLE-V5": 14160,
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "activationAllowed": false,
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "isolation": {
+    "hostFilesystemExposedToGuest": false,
+    "networkDevices": 0,
+    "rootDiskAttachedReadOnly": true,
+    "sharedDirectories": 0,
+    "why": "The guest is a filesystem built from 191 pinned packages and a launcher. It has no reason to reach the network or the host's files, and the cheapest way to keep a boot from becoming something else is to give it nothing to reach.",
+    "writableDisksAttached": 0
+  },
+  "knownAbsentBeforeTheRun": [
+    {
+      "consequence": "systemd cannot resolve boole-node or boole-native-checker, so the launcher's service-identity prerequisite will refuse. systemd-sysusers would normally create them at boot, and it cannot on a read-only root. This is recorded now so that refusal is a known result rather than a surprise, and so nobody later reads it as the image being broken.",
+      "how": "the read-only comparison of the two trees added exactly /dev, /proc, /run, /sys, /tmp and removed nothing, so every path the failed image lacked this one lacks too",
+      "howItWasEstablishedForTheFailedImage": "listed from the produced image's own entry table: /etc/passwd, /etc/group, /etc/fstab and /etc/nsswitch.conf have no entry",
+      "path": "/etc/passwd",
+      "stillAbsentInTheSuccessorImage": true,
+      "what": "the account database the guest's own sysusers file expects to fill in"
+    },
+    {
+      "consequence": "the launcher refuses at verify_runtime_rootfs_replay. Serving executions was never in reach for this image, and no pass condition below asks for it.",
+      "how": "the read-only comparison of the two trees added exactly /dev, /proc, /run, /sys, /tmp and removed nothing, so every path the failed image lacked this one lacks too",
+      "howItWasEstablishedForTheFailedImage": "the produced image has 0 entries under /var/lib/boole",
+      "path": "/var/lib/boole/native-shadow/runtime-rootfs",
+      "stillAbsentInTheSuccessorImage": true,
+      "what": "the runtime rootfs and its content manifest the launcher verifies before it serves anything"
+    }
+  ],
+  "notEstablishedByAPass": [
+    "the launcher reaching a serving state, or serving any execution",
+    "runtime compatibility of the guest toolchain",
+    "CURL.3, which stays DEFERRED / NOT PASSED",
+    "clean-Mac evidence, which needs an environment this is not",
+    "product release readiness of any kind",
+    "public mining, a paid-API benchmark or a leaderboard claim",
+    "activation, which stays false with every gate before it still in place"
+  ],
+  "passConditions": [
+    {
+      "condition": "the two files loaded are the ones two arm64 replicas independently converged on",
+      "id": "loads-the-converged-image",
+      "judgedBy": "the host re-hashes the kernel and the root disk immediately before configuring the machine and refuses to start on any mismatch; both digests are written into the run receipt"
+    },
+    {
+      "condition": "the machine is configured with no network device, no shared directory and no writable disk",
+      "id": "closed-local-configuration",
+      "judgedBy": "the configuration the host built is serialised into the run receipt and read back: the counts must be zero and the single disk attachment must be read-only"
+    },
+    {
+      "condition": "the guest kernel executes and mounts the sealed ext4 as its root filesystem",
+      "id": "kernel-reaches-its-root-filesystem",
+      "judgedBy": "the captured console shows the kernel banner and an EXT4-fs line naming the root device mounted read-only"
+    },
+    {
+      "condition": "PID 1 is the systemd that was built into this image",
+      "id": "guest-systemd-is-pid-1",
+      "judgedBy": "the captured console shows systemd's own startup banner reporting version 255, which is the version the image carries"
+    },
+    {
+      "condition": "the sealed root disk is byte-identical after the run",
+      "id": "sealed-image-unchanged-after-the-run",
+      "judgedBy": "the host re-hashes the root disk file after the machine stops and compares it with the digest in the green record. Read-only is a claim about the attachment; this is the check that the claim held, and it is the one condition the guest cannot fake."
+    },
+    {
+      "condition": "the run leaves a transcript that can be read by someone who was not there",
+      "id": "console-transcript-captured-and-hashed",
+      "judgedBy": "the whole console stream is written to a file, its sha256 and byte count go into the run receipt, and the file is kept whatever the verdict"
+    }
+  ],
+  "passConditionsUnchanged": {
+    "count": 6,
+    "identical": true,
+    "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+    "pointerNote": "One condition speaks of comparing the image afterwards against 'the digest in the green record'. What the host actually compares against, and did on the first attempt, is the subject digest in the qualification it is being judged by. The criterion is unchanged -- byte-identical before and after -- and subject.digestSourceForTheUnchangedCheck names which document holds that digest for this attempt.",
+    "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a",
+    "why": "A successor that reworded its conditions would be scoring a new run on an easier exam. These six are the first attempt's six, byte for byte, including the one it failed."
+  },
+  "predecessorAttempt": {
+    "attemptId": "MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-1",
+    "attemptIdNote": "The first attempt predates this identifier scheme and carries no attemptId of its own. It is named here for reference; its record is not edited.",
+    "qualification": {
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+      "role": "the conditions the first attempt was judged by",
+      "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a",
+      "sizeBytes": 8597
+    },
+    "rerunPermitted": false,
+    "resetsTheSpentAttempt": false,
+    "result": {
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json",
+      "role": "the verdict of the first attempt",
+      "sha256": "0fdd8b4711c9f76127a9bf71c86c63f87a8a05501eb61ef864cef2e8bca24f8c",
+      "sizeBytes": 10837
+    },
+    "resultPath": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json",
+    "reusesTheSpentAttempt": false,
+    "runsAllowed": 1,
+    "runsPerformed": 1,
+    "verdict": "FAIL",
+    "why": "The first attempt was made once, against a different image, and failed. Its one allowance is spent and stays spent. This record opens a separate allowance against a separate image, on the ground that the cause of that failure was found and removed -- not on the ground that a second try would go better."
+  },
+  "predecessorRecords": [
+    {
+      "path": "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json",
+      "role": "the sealed determinism failure, left as it stands",
+      "sha256": "af815ee609a2fbee4dc4a81ba0d331bd851b8a60792b87ed61583d642e861725",
+      "sizeBytes": 16053
+    },
+    {
+      "path": "native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json",
+      "role": "the determinism method the successor image was produced by",
+      "sha256": "07a41497c99554eba5453bbc9771f3c450ec22bb80d2852c30174d66fa76fad1",
+      "sizeBytes": 15925
+    },
+    {
+      "path": "native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json",
+      "role": "the authority the production phase ran under",
+      "sha256": "f125e487c03b560fd753924bee7d830d25eec97ddcfd6bf8982526f57e636f6c",
+      "sizeBytes": 35393
+    },
+    {
+      "path": "native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json",
+      "role": "what the builder was allowed to add, frozen before it was added",
+      "sha256": "d1d76942070408e1c0e2163b58165eca60468a44365ed9cb3e695b49a9efba70",
+      "sizeBytes": 12632
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+      "role": "the first attempt's conditions, reused unchanged",
+      "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a",
+      "sizeBytes": 8597
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json",
+      "role": "the first attempt's FAIL verdict",
+      "sha256": "0fdd8b4711c9f76127a9bf71c86c63f87a8a05501eb61ef864cef2e8bca24f8c",
+      "sizeBytes": 10837
+    }
+  ],
+  "record": "native-shadow-mac3-closed-local-boot-qualification-arm64-v2",
+  "recordRegardlessOfVerdict": [
+    "the furthest boot stage the console shows the guest reaching",
+    "every service that entered a failed state, by unit name",
+    "whether the launcher unit was started at all, and where it refused",
+    "the machine's stop reason and exit status",
+    "the console transcript in full, by digest and byte count"
+  ],
+  "release": "NATIVE-SHADOW-MAC3-CLOSED-LOCAL-BOOT-QUALIFICATION-ARM64-V2",
+  "resultPath": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json",
+  "runsAllowed": 1,
+  "runsPerformed": 0,
+  "schema": "boole.native-shadow.mac3-closed-local-boot-qualification.arm64.v2",
+  "signing": {
+    "adHocOnly": true,
+    "developerIdCertificate": false,
+    "entitlement": "com.apple.security.virtualization",
+    "notarization": false,
+    "provisioningProfile": false,
+    "teamId": false,
+    "why": "the entitlement is what Virtualization.framework requires; an ad-hoc signature carries it on the machine that produced it and nowhere else, which is exactly the reach this work is allowed."
+  },
+  "status": "MAC3-CLOSED-LOCAL-BOOT-SUCCESSOR-QUALIFICATION-PRE-FROZEN-NOT-RUN",
+  "subject": {
+    "digestSourceForTheUnchangedCheck": {
+      "field": "subject.rootDisk.sha256",
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json",
+      "why": "The host reads the expected digest from the qualification it is judged by, hashes the file before configuring the machine and again after it stops, and both must equal this value. Naming the source here leaves no room to decide afterwards which document was authoritative."
+    },
+    "initrd": {
+      "sha256": "3ae76ced73f180ccd9feb44260694871dde3e158b82bff18d2c23327989488ca",
+      "sizeBytes": 1010933296,
+      "used": false,
+      "whyItsDigestMoved": "The fix targeted the root disk, and this archive carries the same tree, so it gained the same five directories. Its records are numbered in sorted path order, so five insertions mid-alphabet renumbered every later record and moved the archive digest without moving any content. Measured, not assumed: no field differs on any shared record, every shift equals the number of insertions ahead of it, and the file grew by exactly the 580 bytes the five new records occupy.",
+      "whyUnused": "the guest kernel has virtio-blk and ext4 built in rather than as modules, so it can reach the sealed root filesystem without one. The initrd carries the same tree as a cpio archive and has no /init, so using it would mean adding a boot path this image was not built for."
+    },
+    "kernel": {
+      "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+      "sizeBytes": 57860488,
+      "unchangedFromTheFirstAttempt": true,
+      "why": "The kernel was not rebuilt. The produce phase re-hashed the sealed file and recorded it as matching, so the same binary the failed attempt ran is the one this attempt will run."
+    },
+    "rootDisk": {
+      "sha256": "566614b67ea749ee0061d73aad4e3320f92fe7d352df29d11e4494a8c063d41b",
+      "sizeBytes": 1168334848
+    },
+    "verifiedImmediatelyBeforeBoot": true
+  }
+}
