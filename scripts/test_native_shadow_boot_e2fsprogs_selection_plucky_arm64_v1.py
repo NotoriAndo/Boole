@@ -276,6 +276,63 @@ class HardStopTests(unittest.TestCase):
             self.assertEqual(by_id[cleared_by_reading]["state"], "CLEARED")
 
 
+class GateTests(unittest.TestCase):
+    """Both records are wired into the gates that would catch their drift.
+
+    A record nothing checks is a record that can be softened quietly, and this
+    pair is worth checking twice over: the pre-registration record is only
+    evidence because it was written before any deb was fetched, and the
+    selection record is only evidence because the rule it applied failed a
+    control.  Either claim could be weakened by an edit that no test would
+    notice, so the claims are pinned as text as well as read as data.
+    """
+
+    def smoke(self) -> str:
+        return (REPO / "scripts" / "docs-smoke.sh").read_text(encoding="utf-8")
+
+    def self_test(self) -> str:
+        return (REPO / "scripts" / "self-test.sh").read_text(encoding="utf-8")
+
+    def test_both_records_are_pinned_by_the_docs_gate(self) -> None:
+        smoke = self.smoke()
+        for path in (PREREGISTRATION_PATH, RECORD_PATH):
+            relative = path.relative_to(REPO).as_posix()
+            self.assertTrue(relative in smoke, f"{relative} is not pinned by docs-smoke")
+
+    def test_the_gate_holds_the_rule_to_having_been_written_first(self) -> None:
+        """Zero debs fetched, and a rule read out of the binary rather than run."""
+
+        smoke = self.smoke()
+        for needle in ('"debsFetchedSoFar": 0', '"staticOnly": true'):
+            self.assertTrue(needle in smoke, f"docs-smoke does not pin {needle}")
+
+    def test_the_gate_holds_the_selection_to_having_failed_something(self) -> None:
+        smoke = self.smoke()
+        for needle in ('"verdict": "FIXED"', '"verdict": "DEFECT"'):
+            self.assertTrue(needle in smoke, f"docs-smoke does not pin {needle}")
+
+    def test_the_gate_holds_the_guest_set_to_being_untouched(self) -> None:
+        smoke = self.smoke()
+        for needle in ('"replacesAGuestPackage": false', '"replacedByTheSelection": false'):
+            self.assertTrue(needle in smoke, f"docs-smoke does not pin {needle}")
+
+    def test_both_test_modules_stay_registered_in_the_self_test(self) -> None:
+        registered = self.self_test()
+        for name in (
+            "scripts/test_native_shadow_boot_e2fsprogs_candidate_preregistration_arm64_v1.py",
+            "scripts/test_native_shadow_boot_e2fsprogs_selection_plucky_arm64_v1.py",
+        ):
+            self.assertTrue(name in registered, f"{name} is not run by scripts/self-test.sh")
+        smoke = self.smoke()
+        for name in (
+            "scripts/test_native_shadow_boot_e2fsprogs_candidate_preregistration_arm64_v1.py",
+            "scripts/test_native_shadow_boot_e2fsprogs_selection_plucky_arm64_v1.py",
+        ):
+            self.assertTrue(
+                name in smoke, f"docs-smoke does not require {name} to stay registered"
+            )
+
+
 def _digest(path: Path) -> str:
     import hashlib
 

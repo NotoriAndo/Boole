@@ -496,5 +496,38 @@ class AcquireTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), payload.canonical_json(result))
 
 
+class GateTests(unittest.TestCase):
+    """The two scripts that add a writer are wired into both gates.
+
+    Everything else that reaches the network on the production runner is named
+    in the docs gate.  These two are the newest things that do, and they are
+    the ones that decide which bytes write the image, so being unlisted there
+    is the wrong kind of quiet.
+    """
+
+    def smoke(self) -> str:
+        return (REPO / "scripts" / "docs-smoke.sh").read_text(encoding="utf-8")
+
+    def test_both_scripts_are_pinned_by_the_docs_gate(self) -> None:
+        smoke = self.smoke()
+        for name in (
+            "scripts/native_shadow_boot_writer_set_acquire_arm64_v1.py",
+            "scripts/native_shadow_boot_writer_tree_arm64_v1.py",
+        ):
+            self.assertTrue(name in smoke, f"{name} is not pinned by docs-smoke")
+
+    def test_both_test_modules_are_required_to_stay_registered(self) -> None:
+        smoke = self.smoke()
+        self_test = (REPO / "scripts" / "self-test.sh").read_text(encoding="utf-8")
+        for name in (
+            "scripts/test_native_shadow_boot_writer_set_acquire_arm64_v1.py",
+            "scripts/test_native_shadow_boot_writer_tree_arm64_v1.py",
+        ):
+            self.assertTrue(name in self_test, f"{name} is not run by scripts/self-test.sh")
+            self.assertTrue(
+                name in smoke, f"docs-smoke does not require {name} to stay registered"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

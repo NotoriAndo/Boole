@@ -754,6 +754,40 @@ require_text scripts/native_shadow_boot_root_disk_execute_arm64_v1.py 'def asser
 require_text scripts/native_shadow_boot_root_disk_execute_arm64_v1.py 'def assert_writer_time('
 require_text scripts/native_shadow_boot_produce_phase_arm64_v1.py '"rootDiskEvidence": root_disk_evidence(disk_result)'
 
+# Handing the writer a non-zero time is only half of it: the frozen writer
+# cannot honour it at all, because it overwrites each staged file's i_ctime
+# from a field userspace cannot set. So a different writer was chosen, and the
+# two records that make that choice evidence are pinned here. The first was
+# written while no deb had been fetched, which is the only reason its rule is a
+# rule; the second applied that rule by reading the binaries rather than running
+# them, and had to fail a control to have decided anything.
+require_file native/containment/native-shadow-boot-e2fsprogs-candidate-preregistration-arm64-v1.json
+require_file native/containment/native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json
+require_text native/containment/native-shadow-boot-e2fsprogs-candidate-preregistration-arm64-v1.json '"debsFetchedSoFar": 0'
+require_text native/containment/native-shadow-boot-e2fsprogs-candidate-preregistration-arm64-v1.json '"staticOnly": true'
+require_text native/containment/native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json '"establishedByRunningTheBinary": false'
+require_text native/containment/native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json '"verdict": "FIXED"'
+require_text native/containment/native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json '"verdict": "DEFECT"'
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_e2fsprogs_candidate_preregistration_arm64_v1.py
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_e2fsprogs_selection_plucky_arm64_v1.py
+
+# The writer is an addition and never a substitution. The 191 packages the guest
+# is built from do not move, and the image inspector and the read-only checker
+# stay on the build that did not write the image.
+require_text native/containment/native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json '"replacesAGuestPackage": false'
+require_text native/containment/native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json '"replacedByTheSelection": false'
+require_text native/containment/native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json '"count": 191'
+require_text native/containment/native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json '"deleted": false'
+
+# The two scripts that put that writer on the runner: one fetches the sealed
+# pair beside the frozen closure, the other unpacks it into a tree of its own.
+# They are the newest things in the production run that reach the network, and
+# they decide which bytes write the image.
+require_file scripts/native_shadow_boot_writer_set_acquire_arm64_v1.py
+require_file scripts/native_shadow_boot_writer_tree_arm64_v1.py
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_writer_set_acquire_arm64_v1.py
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_writer_tree_arm64_v1.py
+
 # The verification stage is separate from the producer on purpose: a producer
 # that checks its own output can only confirm that it did what it did. debugfs
 # keeps the inspector role v1 sealed for it -- read-only, never `-w`.
