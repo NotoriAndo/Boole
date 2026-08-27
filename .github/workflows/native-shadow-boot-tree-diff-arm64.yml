@@ -1,0 +1,104 @@
+name: native-shadow-boot-tree-diff-arm64
+
+# Two produced sets, opened read-only and compared entry by entry.
+#
+# The successor image was built to add five directories and nothing else, and
+# what the production run could show for that was arithmetic: five more inodes,
+# five more blocks, twenty kilobytes more image. Those counts are consistent
+# with the claim and are not the claim -- they survive a file whose contents
+# changed, a mode that moved, a symlink retargeted. So the trees themselves get
+# compared: path, kind, mode, owner, content digest, link target, hard link
+# grouping and extended attributes.
+#
+# It runs here because the root disk is ext4 and the developer Mac cannot open
+# one. It is asked for rather than run on every change: each run pulls two
+# multi-gigabyte artifacts. Nothing is produced, nothing is written to either
+# image, and comparing two images is not booting either of them.
+on:
+  workflow_dispatch:
+    inputs:
+      earlier_run_id:
+        description: The produce run whose files are the earlier side
+        required: true
+      later_run_id:
+        description: The produce run whose files are the later side
+        required: true
+      replica:
+        description: Which replica of each run to open (the two are byte identical)
+        required: false
+        default: "1"
+
+permissions:
+  contents: read
+  # Reading two earlier runs' artifacts, and nothing else.
+  actions: read
+
+jobs:
+  compare:
+    name: compare trees
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Fetch the earlier run's produced files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: boot-outputs-${{ inputs.replica }}
+          path: earlier
+          run-id: ${{ inputs.earlier_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Fetch the later run's produced files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: boot-outputs-${{ inputs.replica }}
+          path: later
+          run-id: ${{ inputs.later_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Record which files are about to be compared
+        # The digests each side's producer already sealed, restated here from
+        # the files themselves. If either side is not the image the manifest
+        # named, that shows up before anything is concluded from it.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          for side in earlier later; do
+            printf '== %s ==\n' "$side"
+            ( cd "$side" && sha256sum guest-* )
+          done | tee evidence/COMPARED-INPUTS.txt
+
+      - name: Compare the two initrd trees
+        # No root and no mount: a `newc` archive is bytes. This is also the
+        # answer to why the initrd digest moved at all, which the diff either
+        # closes or contradicts.
+        run: |
+          set -euo pipefail
+          python3 scripts/native_shadow_boot_root_disk_tree_diff_arm64_v1.py initrds \
+            --before-outputs earlier \
+            --after-outputs later \
+            --result evidence/INITRD-TREE-DIFF.json
+
+      - name: Compare the two root disk trees
+        # Root, because opening an ext4 image means a loop mount. The mount is
+        # the read-back stage's: read-only, nodev, noexec, nosuid, spelled once
+        # over there rather than twice.
+        run: |
+          set -euo pipefail
+          sudo python3 scripts/native_shadow_boot_root_disk_tree_diff_arm64_v1.py root-disks \
+            --before-outputs earlier \
+            --after-outputs later \
+            --result evidence/ROOT-DISK-TREE-DIFF.json
+          sudo chown "$(id -u):$(id -g)" evidence/ROOT-DISK-TREE-DIFF.json
+
+      - name: Keep both comparisons
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tree-diff
+          path: evidence
+          if-no-files-found: error
+          retention-days: 7
