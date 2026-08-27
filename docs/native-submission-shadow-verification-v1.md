@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `ecd12ca61b0249b70de17373aaf1d28a246cb9eadcf0013d9905553ed49f939f` (updated 2026-08-27b — the successor completeness claim was corrected; production blocked while its cause stands) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `b739eb51b3991199092e3b1f3d1fe85c5db83b015386b9053d93b2799af22ec6` (updated 2026-08-27b — the cursor moves back: the successor is blocked, Phase C not dispatched) |
+| `local-docs/todo/todo-l1-network-master.md` | `61419bac03a28776fd258308431cdc0a2c7b04974f7fd11ecab50f9de742cef6` (updated 2026-08-27c — testnet/public issued-instance domains and activation order are separated; Phase C is ready but undispatched) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `d811c7569f8396e3725ce11a1da0bca373133bb6c2b80aea34e8d42c95bef35f` (updated 2026-08-27c — testnet follows runtime and cross-network replay gates; Phase C is ready but undispatched) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `4e2d05e017dce46c7f59d14b60cd8b7358564710446ab5a20976c48cd9c90430` (updated 2026-08-27b — a completeness claim holds only over what was read, and this one said so too late) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `c822e7a1e849184ffe8ffaf95d97b3041cbda25a990415e636fc8552cd254195` (updated 2026-08-27c — template supply, issued instances and static fixtures are separated) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -1967,3 +1967,53 @@ operator's. Nothing here is silent — the produce phase's timestamp audit abort
 `bootableClaim: false`, `activationAllowed: false`, `guestBootVerified: false`, `imageProduced: false`.
 CURL.3 remains `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation false — unchanged.
+
+## 14. Testnet/public task-inventory correction (2026-08-27)
+
+**TESTNET/PUBLIC TASK-INVENTORY CORRECTION.** The current native-shadow path proves closed-local
+qualification and node-owned judgment. It does not yet define a public task domain, authorize a
+testnet or connect an accepted answer to consensus or rewards.
+
+`14,160 is a template/issuance-supply count, not 14,160 one-shot public answers`. A template remains
+available when its frozen generator issues a fresh network/epoch/seed instance. Only that issued
+instance becomes spent in its own domain. Conversely, any static or non-fresh fixture disclosed on
+a testnet is permanently test-only and must never be promoted into public inventory.
+
+For the future networked path, an "answer" in the rule below means the complete network-bound
+submission envelope and receipt, not merely source-code text that might coincidentally satisfy more
+than one independently generated task:
+
+**A testnet answer MUST be rejected in every public-network domain.**
+
+Before checker execution can authorize a terminal result, the node must independently recompute a
+version-tagged, canonically length-delimited domain commitment containing at least `network_id`,
+`chain_id`, `family_version`, `template_id`, `epoch` and `challenge_seed`, plus the frozen
+challenge/policy/registry digests required by the successor contract. It must reject a mismatch
+before accepting or redelivering checker evidence.
+Testnet and public issuance, spent-instance and replay ledgers must have disjoint authority and must
+not alias through a shared key that omits the network domain.
+
+The reciprocal replay must also fail: a public-domain submission/receipt presented to the testnet
+domain is rejected before checker execution or testnet-ledger mutation. This bidirectional rule
+does not globally ban identical raw answer bytes from being judged independently for two genuinely
+fresh tasks.
+
+The required proof is two-sided: the same valid fresh-family workflow must succeed in its own
+testnet domain, while its exact signed submission/receipt must fail in a separately configured
+public-network domain without invoking the checker or mutating the public ledger. Static fixtures
+are allowed only from a permanently excluded test inventory. The reciprocal public-to-testnet case
+must satisfy the same no-checker, no-ledger-mutation rule.
+
+This is a frozen future RED-gate contract, not landed protocol code. The product-level order is
+runtime image, closed-local fresh issue/check, cross-network replay rejection, private
+non-consensus integration testnet, BF.7 zero-reward testnet, BF.8 activation evidence, and only
+then separately approved activation. This shorthand does not remove BF.3, BF.6, BF.6a, RP0-MD,
+deterministic-resource, Economic ADR or separate implementation-plan gates. No step is inferred
+from the previous one. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain unchanged.
+
+The 2026-08-27c mirror synchronization appends this correction to
+`todo-l1-network-master.md`, `EXECUTION-ORDER.md` and `thesis-realization-roadmap.md`. The other
+three section 12 mirrors are byte-unchanged. All six digests were recomputed from the local files;
+the section 12 table contains those exact post-update values. These hashes are synchronization
+evidence only and never runtime authority.
