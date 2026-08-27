@@ -799,6 +799,19 @@ require_text scripts/native_shadow_boot_produce_phase_arm64_v1.py 'BLOCKER_CLEAR
 require_text native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json '"staged-inode-ctime-is-not-fs-now"'
 require_text native/containment/native-shadow-boot-e2fsprogs-candidate-preregistration-arm64-v1.json '"unblocksOnlyOnAPassingStaticRead": true'
 
+# The result of that one production pair. It is pinned by the digest the two
+# replicas converged on rather than by the file's own name, so a later edit that
+# keeps the name and changes the answer does not pass. The two boundaries below
+# are pinned for the same reason a green result needs them most: two identical
+# images say the writer is deterministic and say nothing about whether the guest
+# boots.
+require_file native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json
+require_text native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json '"sha256": "9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc"'
+require_text native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json '"runId": "33045285925"'
+require_text native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json '"activationAllowed": false'
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_root_disk_determinism_green_arm64_v1.py
+
 # The verification stage is separate from the producer on purpose: a producer
 # that checks its own output can only confirm that it did what it did. debugfs
 # keeps the inspector role v1 sealed for it -- read-only, never `-w`.

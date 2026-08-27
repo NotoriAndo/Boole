@@ -1,0 +1,328 @@
+{
+  "activationAllowed": false,
+  "appendOnly": {
+    "modifiesNothing": true,
+    "predecessorLinkedAs": "cause removed in the successor",
+    "predecessorStaysAsWritten": true,
+    "recordsLeftByteUnchanged": [
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json",
+        "sha256": "af815ee609a2fbee4dc4a81ba0d331bd851b8a60792b87ed61583d642e861725",
+        "sizeBytes": 16053
+      },
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json",
+        "sha256": "f125e487c03b560fd753924bee7d830d25eec97ddcfd6bf8982526f57e636f6c",
+        "sizeBytes": 35393
+      },
+      {
+        "path": "native/containment/native-shadow-boot-e2fsprogs-candidate-preregistration-arm64-v1.json",
+        "sha256": "73a65cc350de346d4fdf286d2dcc63f70c2df2f97c971daf5b6dcd738a2dba11",
+        "sizeBytes": 18362
+      },
+      {
+        "path": "native/containment/native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json",
+        "sha256": "b5c7f0e855be84289149d970ed06182b763d17f973856f943b99c50d365e25df",
+        "sizeBytes": 13747
+      },
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+        "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+        "sizeBytes": 357104
+      }
+    ],
+    "why": "The failure record and the authority that governed this run were both written before the outcome was known. A green result is exactly when softening them would be easiest and would cost the most, so they are bound here by digest instead."
+  },
+  "bootableClaim": false,
+  "boundaries": {
+    "cleanMacEvidence": false,
+    "guestBootVerified": false,
+    "productRelease": false,
+    "publicMiningOrBenchmark": false,
+    "rootDiskDeterministic": true,
+    "runtimeCompatibilityVerified": false
+  },
+  "converged": {
+    "initrd": {
+      "sha256": "4674128144befeea20b1cbeb5af340b981b7b125d32d43630c721bb4b0aecab2",
+      "sizeBytes": 1010932716
+    },
+    "kernel": {
+      "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+      "sizeBytes": 57860488
+    },
+    "rootDisk": {
+      "sha256": "9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc",
+      "sizeBytes": 1168314368
+    }
+  },
+  "convergenceNote": "The sealed digest is not one replica's file chosen over the other's. Two jobs on separate runners, each producing exactly once and neither able to see the other's output, both arrived at it.",
+  "doesNotUnlock": [
+    "CURL.3",
+    "clean-Mac evidence",
+    "product release",
+    "public mining",
+    "activationAllowed"
+  ],
+  "greenConditions": [
+    {
+      "condition": "the two replicas' kernel files are byte-identical",
+      "evidence": "both d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+      "verdict": "MET"
+    },
+    {
+      "condition": "the two replicas' initrd files are byte-identical",
+      "evidence": "both 4674128144befeea20b1cbeb5af340b981b7b125d32d43630c721bb4b0aecab2",
+      "verdict": "MET"
+    },
+    {
+      "condition": "the two replicas' root disk files are byte-identical",
+      "evidence": "both 9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc, and the compare job reported identical: 3 outputs",
+      "verdict": "MET"
+    },
+    {
+      "condition": "no timestamp anywhere in the image is a wall-clock value",
+      "evidence": "the time audit read every superblock and inode stamp on both replicas and counted 0 outside [0, 1]",
+      "verdict": "MET"
+    },
+    {
+      "condition": "loader provenance lies entirely inside the frozen closure on both replicas",
+      "evidence": "every library the writer and the checker opened was recorded by path and sha256, all inside the frozen tree or the sealed writer set, and the two replicas' digest lists are equal",
+      "verdict": "MET"
+    },
+    {
+      "condition": "frozen e2fsck -f -n exits 0 on both replicas",
+      "evidence": "the frozen 1.47.0 checker, which did not write the image, exited 0 on both with no repair option used",
+      "verdict": "MET"
+    },
+    {
+      "condition": "zero unexplained differences",
+      "evidence": "the only textual difference between the two results is the ephemeral scratch directory name",
+      "verdict": "MET"
+    }
+  ],
+  "invariants": {
+    "BF.7": "HOLD",
+    "CURL.3": "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED",
+    "LLM-MINEABLE-ELIGIBLE-V5": 14160,
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "activationAllowed": false,
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "perReplicaReport": [
+    {
+      "fsck": {
+        "argvOptions": [
+          "-f",
+          "-n"
+        ],
+        "exitCode": 0,
+        "passed": true,
+        "ran": true,
+        "repairOptionsUsed": false,
+        "verdict": "13457/18432 files (0.2% non-contiguous), 252715/285233 blocks"
+      },
+      "initrd": {
+        "sha256": "4674128144befeea20b1cbeb5af340b981b7b125d32d43630c721bb4b0aecab2",
+        "sizeBytes": 1010932716
+      },
+      "inputAuthorities": {
+        "bootSourceLockNote": "the 191-package guest lock, re-read off disk by the produce phase and required to equal the digest the selection record binds before any writing starts",
+        "bootSourceLockPath": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+        "bootSourceLockSha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+        "guestBuildReceipt": {
+          "builderSha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+          "layerDigest": "sha256:215c3e9a98a8057ca25aef2a6a8e5bf2c75b63153030d3ef105871bf6809641e",
+          "manifestDigest": "sha256:28c5d6b15ec6a951e7f32e9a85fc749974514dce6b84e7eae3d32879537a63e6",
+          "rootfsContentManifestSha256": "2284f6a2f5422886a52721cf58b7b73eae23b962ae4d51246b8862e7adeebc8e",
+          "sourceLockSha256": "9a175a4b5710ba94eedba6476094bc78e77a20510af24dc7944ecdbec5752594"
+        },
+        "guestBuildReceiptNote": "fields copied verbatim out of the guest layer's own build receipt. Its sourceLockSha256 is the digest that builder recorded for the lock it consumed when the layer was built, which is a different and older document than the boot lock above -- the two are not expected to match and neither is derived from the other."
+      },
+      "kernel": {
+        "disposition": "matched-the-seal",
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "sizeBytes": 57860488
+      },
+      "loaderLibraries": {
+        "checker": {
+          "ld-linux-aarch64.so.1": "bd29514c1b45cc29b152011dd7c504e00dce240c19e4dd120196053873af9180",
+          "libblkid.so.1": "f4b7998ebe4fa8ed0e783a507d71d01f3d888898593a951d3a5ec8e352bad93a",
+          "libc.so.6": "9afdc5d81e698fae93da3d7f244c248ea9850c88002c4041314d46d6f42eba33",
+          "libcom_err.so.2": "f45f39d8c4ed63815b6dec3d39620d450e6c1c4ae2ebdbfdcd3137e9080c9465",
+          "libe2p.so.2": "f31d68e45ee0412d5fe4c2b09c582c9922ee79786bda3d47c75e838be3fd5ae7",
+          "libext2fs.so.2": "83b1c7cbda2767c400f70af2c7648eb0457bc8be4eba9224c8f5c2d8ce16ac3c",
+          "libss.so.2": "48db81bb452200b8306ecad9096b770f629e030f80fe896bfd9f391e03d85b5a",
+          "libuuid.so.1": "9f57e2e2474a45afb7ef4a4b3b093a4f9d334e0ceb8c797d9ac443f0d88f0d0b"
+        },
+        "writer": {
+          "ld-linux-aarch64.so.1": "bd29514c1b45cc29b152011dd7c504e00dce240c19e4dd120196053873af9180",
+          "libblkid.so.1": "f4b7998ebe4fa8ed0e783a507d71d01f3d888898593a951d3a5ec8e352bad93a",
+          "libc.so.6": "9afdc5d81e698fae93da3d7f244c248ea9850c88002c4041314d46d6f42eba33",
+          "libcom_err.so.2": "f45f39d8c4ed63815b6dec3d39620d450e6c1c4ae2ebdbfdcd3137e9080c9465",
+          "libe2p.so.2": "85ea4f7b70d499b204c030e45e91d95b814ab8dd26db6cd788a62831d92222c6",
+          "libext2fs.so.2": "6f0fe581693a63d0dcf075874f85448670bda656a7f79dcf040ed3bb88ea6fa0",
+          "libuuid.so.1": "9f57e2e2474a45afb7ef4a4b3b093a4f9d334e0ceb8c797d9ac443f0d88f0d0b"
+        }
+      },
+      "replica": 1,
+      "rootDisk": {
+        "sha256": "9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc",
+        "sizeBytes": 1168314368
+      },
+      "staticVerification": {
+        "kernel-is-arm64": true,
+        "launcher-digest-matches-seal": true,
+        "launcher-service-is-enabled": true,
+        "modes-owners-and-paths-match-the-lock": true,
+        "pid1-is-systemd": true,
+        "replay-node-absent": true
+      },
+      "timeAudit": {
+        "allowedTimestamps": [
+          0,
+          1
+        ],
+        "passed": true,
+        "violationCount": 0
+      },
+      "toolDigests": {
+        "debugfs": "2c0bf348d91f9b3bd6eec6666b9897b9f733c430e6baa8066bd70b645b2ca023",
+        "e2fsck": "05b3292174fdaadf96324ad349c006b1881b20647826bd869162e5ad8d34723b",
+        "mke2fs": "d20ac1862b68136bd1ffc03b19d3be24733d714345c2e1531178d13d3ddb5945"
+      },
+      "writerTime": 1
+    },
+    {
+      "fsck": {
+        "argvOptions": [
+          "-f",
+          "-n"
+        ],
+        "exitCode": 0,
+        "passed": true,
+        "ran": true,
+        "repairOptionsUsed": false,
+        "verdict": "13457/18432 files (0.2% non-contiguous), 252715/285233 blocks"
+      },
+      "initrd": {
+        "sha256": "4674128144befeea20b1cbeb5af340b981b7b125d32d43630c721bb4b0aecab2",
+        "sizeBytes": 1010932716
+      },
+      "inputAuthorities": {
+        "bootSourceLockNote": "the 191-package guest lock, re-read off disk by the produce phase and required to equal the digest the selection record binds before any writing starts",
+        "bootSourceLockPath": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+        "bootSourceLockSha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+        "guestBuildReceipt": {
+          "builderSha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+          "layerDigest": "sha256:215c3e9a98a8057ca25aef2a6a8e5bf2c75b63153030d3ef105871bf6809641e",
+          "manifestDigest": "sha256:28c5d6b15ec6a951e7f32e9a85fc749974514dce6b84e7eae3d32879537a63e6",
+          "rootfsContentManifestSha256": "2284f6a2f5422886a52721cf58b7b73eae23b962ae4d51246b8862e7adeebc8e",
+          "sourceLockSha256": "9a175a4b5710ba94eedba6476094bc78e77a20510af24dc7944ecdbec5752594"
+        },
+        "guestBuildReceiptNote": "fields copied verbatim out of the guest layer's own build receipt. Its sourceLockSha256 is the digest that builder recorded for the lock it consumed when the layer was built, which is a different and older document than the boot lock above -- the two are not expected to match and neither is derived from the other."
+      },
+      "kernel": {
+        "disposition": "matched-the-seal",
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "sizeBytes": 57860488
+      },
+      "loaderLibraries": {
+        "checker": {
+          "ld-linux-aarch64.so.1": "bd29514c1b45cc29b152011dd7c504e00dce240c19e4dd120196053873af9180",
+          "libblkid.so.1": "f4b7998ebe4fa8ed0e783a507d71d01f3d888898593a951d3a5ec8e352bad93a",
+          "libc.so.6": "9afdc5d81e698fae93da3d7f244c248ea9850c88002c4041314d46d6f42eba33",
+          "libcom_err.so.2": "f45f39d8c4ed63815b6dec3d39620d450e6c1c4ae2ebdbfdcd3137e9080c9465",
+          "libe2p.so.2": "f31d68e45ee0412d5fe4c2b09c582c9922ee79786bda3d47c75e838be3fd5ae7",
+          "libext2fs.so.2": "83b1c7cbda2767c400f70af2c7648eb0457bc8be4eba9224c8f5c2d8ce16ac3c",
+          "libss.so.2": "48db81bb452200b8306ecad9096b770f629e030f80fe896bfd9f391e03d85b5a",
+          "libuuid.so.1": "9f57e2e2474a45afb7ef4a4b3b093a4f9d334e0ceb8c797d9ac443f0d88f0d0b"
+        },
+        "writer": {
+          "ld-linux-aarch64.so.1": "bd29514c1b45cc29b152011dd7c504e00dce240c19e4dd120196053873af9180",
+          "libblkid.so.1": "f4b7998ebe4fa8ed0e783a507d71d01f3d888898593a951d3a5ec8e352bad93a",
+          "libc.so.6": "9afdc5d81e698fae93da3d7f244c248ea9850c88002c4041314d46d6f42eba33",
+          "libcom_err.so.2": "f45f39d8c4ed63815b6dec3d39620d450e6c1c4ae2ebdbfdcd3137e9080c9465",
+          "libe2p.so.2": "85ea4f7b70d499b204c030e45e91d95b814ab8dd26db6cd788a62831d92222c6",
+          "libext2fs.so.2": "6f0fe581693a63d0dcf075874f85448670bda656a7f79dcf040ed3bb88ea6fa0",
+          "libuuid.so.1": "9f57e2e2474a45afb7ef4a4b3b093a4f9d334e0ceb8c797d9ac443f0d88f0d0b"
+        }
+      },
+      "replica": 2,
+      "rootDisk": {
+        "sha256": "9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc",
+        "sizeBytes": 1168314368
+      },
+      "staticVerification": {
+        "kernel-is-arm64": true,
+        "launcher-digest-matches-seal": true,
+        "launcher-service-is-enabled": true,
+        "modes-owners-and-paths-match-the-lock": true,
+        "pid1-is-systemd": true,
+        "replay-node-absent": true
+      },
+      "timeAudit": {
+        "allowedTimestamps": [
+          0,
+          1
+        ],
+        "passed": true,
+        "violationCount": 0
+      },
+      "toolDigests": {
+        "debugfs": "2c0bf348d91f9b3bd6eec6666b9897b9f733c430e6baa8066bd70b645b2ca023",
+        "e2fsck": "05b3292174fdaadf96324ad349c006b1881b20647826bd869162e5ad8d34723b",
+        "mke2fs": "d20ac1862b68136bd1ffc03b19d3be24733d714345c2e1531178d13d3ddb5945"
+      },
+      "writerTime": 1
+    }
+  ],
+  "predecessor": {
+    "causeRemoved": "staged-inode-ctime-is-not-fs-now",
+    "how": "The frozen writer copied each staged file's st_ctime into i_ctime after the fixed time had already been written, and no caller can set st_ctime. The writer was replaced with an official build that reads SOURCE_DATE_EPOCH, arms the flag mke2fs branches on, and clamps i_ctime to it.",
+    "rootDiskShasThatDisagreed": [
+      "b3299ed161557a195a9f58bb899fc61979ecb7456de94b9d89ac951c2e320b96",
+      "11099b116c3241a4441ba6ed3cfd4b7db6a160779c97271bcce5bf6e99b7153a"
+    ],
+    "runId": "32966212739"
+  },
+  "production": {
+    "commit": "cb44b34011b491e652fb961ed4dcb13fd3d1ac1b",
+    "dispatchCount": 1,
+    "producedPerReplica": 1,
+    "refusedBeforeProducing": {
+      "artifactsCreated": 0,
+      "commit": "c362c8eaba14166c9cab9d46a843b876209bed81",
+      "countsAgainstTheOnePair": false,
+      "imagesWritten": 0,
+      "runId": "33042531739",
+      "why": "Both replicas refused at the preflight gate, which runs before the output directory is created. Nothing was written and nothing was uploaded, so the one production pair the authority allows was not spent."
+    },
+    "replicas": 2,
+    "runId": "33045285925",
+    "runner": "ubuntu-24.04-arm",
+    "workflow": ".github/workflows/native-shadow-boot-produce-arm64.yml"
+  },
+  "record": "native-shadow-boot-root-disk-determinism-green-arm64-v1",
+  "release": "NATIVE-SHADOW-BOOT-ROOT-DISK-DETERMINISM-GREEN-ARM64-V1",
+  "schema": "native-shadow-boot-root-disk-determinism-green-arm64-v1",
+  "sealedAs": "ROOT-DISK-DETERMINISM-GREEN successor result",
+  "status": "ROOT-DISK-DETERMINISM-GREEN-NOT-A-BOOT-NOT-AN-ACTIVATION",
+  "unexplainedDifferences": {
+    "count": 0,
+    "explained": true,
+    "how": "The two PRODUCE-RESULT.json files are byte-identical once that name is masked; every digest, exit code, timestamp and library path below it agrees without masking.",
+    "theOnlyDifference": "the ephemeral scratch directory name in recorded paths (boole-native-shadow-boot-produce.z51iZH against .CzRJT3)"
+  },
+  "unlocks": [
+    "MAC.3 closed-local development-Mac boot work"
+  ],
+  "writerTime": {
+    "supersededVariable": "E2FSPROGS_FAKE_TIME",
+    "value": 1,
+    "variable": "SOURCE_DATE_EPOCH",
+    "why": "The selected build reads SOURCE_DATE_EPOCH first: it sets fs->now and arms the flag the writer branches on. E2FSPROGS_FAKE_TIME is read too but sets the time without arming the flag, which is the branch the sealed failure ran on."
+  }
+}
