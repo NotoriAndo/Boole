@@ -1319,6 +1319,7 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "STATIC-INSTANCE-E
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "runtime image -> closed-local issue/check -> cross-network replay gate -> private testnet -> BF.7 zero-reward testnet -> BF.8 activation evidence -> separately approved activation"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "means a non-consensus integration network before BF.7"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "does not remove or replace the formal BF.3, BF.6, BF.6a, RP0-MD or deterministic-resource"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Section 26.5 remains unchanged as a historical record"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "production pair is ready but has not been dispatched"
 require_text docs/native-submission-shadow-verification-v1.md "TESTNET/PUBLIC TASK-INVENTORY CORRECTION"
 require_text docs/native-submission-shadow-verification-v1.md "A testnet answer MUST be rejected in every public-network domain"

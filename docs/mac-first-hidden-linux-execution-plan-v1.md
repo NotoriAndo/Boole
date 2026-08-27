@@ -1819,9 +1819,9 @@ continuation. In particular:
    implementation plan and an operator decision after those gates are green.
 
 This correction is a plan and test contract, not its implementation. No network-domain binding,
-testnet run or activation is claimed here. The current image cursor in section 26.5 is unchanged:
-the plucky writer remedy and sealed production path are landed on `main`; the one-shot Phase C
-production pair is ready but has not been dispatched, and Phase D remains blocked until that pair
-is GREEN.
+testnet run or activation is claimed here. Section 26.5 remains unchanged as a historical record.
+The current cursor is that the plucky writer remedy and sealed production path are landed on
+`main`; the one-shot Phase C production pair is ready but has not been dispatched, and Phase D
+remains blocked until that pair is GREEN.
 `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false`,
 `activationAllowed=false` and `bootableClaim=false` remain unchanged.
