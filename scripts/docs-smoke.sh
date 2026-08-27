@@ -975,6 +975,22 @@ require_text native/containment/native-shadow-mac3-runtime-serving-gap-measureme
 require_text native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json 'observedOnDeveloperMachine'
 require_text scripts/self-test.sh scripts/test_native_shadow_mac3_runtime_serving_gap_measurement_arm64_v1.py
 
+# What closing the serving gap would take, all of it, before any of it is built.
+# Pinned here is what stops the plan from drifting into an implementation report
+# or a quiet resolution of an open question: three gaps rather than the one that
+# was measured, the byte headroom stated as an upper bound rather than a result,
+# the held condition carried over unrelaxed, and nothing built, staged or run.
+require_file native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json
+require_text native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json 'MAC3-SERVING-GAP-CLOSURE-PLANNED-NOT-IMPLEMENTED'
+require_text native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json '"count": 3'
+require_text native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json '"builderChanged": false'
+require_text native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json '"lockSuccessorProduced": false'
+require_text native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json '"walkedInThisSession": false'
+require_text native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json '"anyWritablePathCoversAFixedPath": false'
+require_text native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json 'whatThisDoesNotEstablish'
+require_text native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json 'heldConditionUnchanged'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_serving_gap_closure_plan_arm64_v1.py
+
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
 # the three the console named because it comes from the guest's own systemd --
@@ -1090,9 +1106,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "1d54fda29299a320dc7c0a50bad7014fc39d88ae5389b978ddcfe237167e930a"
-require_text docs/native-submission-shadow-verification-v1.md "922a7b9c0c09a808e22a70781431eb1c443a4bd494a3dd9dea77cf1a427563b6"
-require_text docs/native-submission-shadow-verification-v1.md "aab4a6273b69af97de654f5c2530a357f8b6d17d9d13721dbc1c1b445939dd91"
+require_text docs/native-submission-shadow-verification-v1.md "041ebbfde81a04a81791201c1214c145619a3d85945b87314e6bee44f85fea72"
+require_text docs/native-submission-shadow-verification-v1.md "babc7f18fb71f0c365b703559694d85d08d32c1038e3c17024e0670cc4489086"
+require_text docs/native-submission-shadow-verification-v1.md "da47bdf36df592ba029081585baa3618e55cee02ce217c80d80e1dffa5167f17"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "That sentence stays as written."
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "necessary but not sufficient"

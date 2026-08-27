@@ -1,0 +1,292 @@
+{
+ "activationAllowed": false,
+ "bootPerformed": false,
+ "boundaries": [
+  "no image was produced and no production was dispatched",
+  "no boot was performed and serving is not claimed",
+  "no builder, lock, plan or unit file was edited by this plan",
+  "no pass condition was reworded, waived or relaxed",
+  "no wallet material, model key or node secret is named or moved",
+  "no consensus, reward, peer-to-peer or activation code is touched",
+  "no external acquisition, paid API, public mining or leaderboard claim is involved"
+ ],
+ "builderChanged": false,
+ "builderCommonGround": {
+  "bootBuilder": {
+   "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+   "sha256": "a5dd54198878473c162ec306fbccd6edac8b22f036d9cf84d244b5f010f96d87",
+   "sizeBytes": 37435
+  },
+  "bootClosureRoots": [
+   "guest-init-and-launcher-file-manifest",
+   "guest-kernel-and-module-file-manifest",
+   "installed-rust-toolchain-file-manifest",
+   "python-interpreter-and-stdlib-file-manifest",
+   "system-linker-and-runtime-file-manifest"
+  ],
+  "bootLock": {
+   "artifactCount": 197,
+   "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+   "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+   "sizeBytes": 357104
+  },
+  "howTheBuilderIsReached": "The digest both locks name belongs to the arm64 projection, which is a small module rather than the assembler itself. At import it reads the frozen legacy builder, refuses unless those bytes match the digest it pins, applies a fixed list of textual replacements and executes the result. So the checks that enforce the limits live in the legacy module and are reached only through a projection that has already verified it.",
+  "legacyBuilder": {
+   "path": "scripts/native_shadow_rootfs_builder.py",
+   "sha256": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
+   "sizeBytes": 108296
+  },
+  "legacyDigestPinnedByTheProjection": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
+  "note": "The boot rootfs and the runtime rootfs are not different kinds of object. One builder module assembles both, under one schema and one set of limits, and the boot closure roots are a strict superset of the runtime ones. So the nested tree is not new material to acquire -- it is content the boot image already carries at the top level, placed a second time under a prefix.",
+  "recipesEqual": true,
+  "rootsOnlyInBoot": [
+   "guest-init-and-launcher-file-manifest",
+   "guest-kernel-and-module-file-manifest"
+  ],
+  "runtimeClosureRoots": [
+   "installed-rust-toolchain-file-manifest",
+   "python-interpreter-and-stdlib-file-manifest",
+   "system-linker-and-runtime-file-manifest"
+  ],
+  "runtimeLock": {
+   "artifactCount": 62,
+   "path": "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json",
+   "sha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+   "sizeBytes": 102952
+  },
+  "runtimeRootsAreASubsetOfBootRoots": true,
+  "schema": "boole.native-shadow.runtime-rootfs-source-lock.arm64.v1",
+  "schemasEqual": true,
+  "sharedBuilder": {
+   "path": "scripts/native_shadow_rootfs_builder_arm64_v1.py",
+   "sha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+   "sizeBytes": 3680
+  },
+  "sharedBuilderSha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4"
+ },
+ "gapsToClose": {
+  "count": 3,
+  "gaps": [
+   {
+    "architecturalDecision": false,
+    "closedBy": "an account database baked into the image, because the thing that would normally create it cannot write to a read-only root",
+    "consequence": "systemd cannot resolve boole-node or boole-native-checker, so the launcher's service-identity prerequisite will refuse. systemd-sysusers would normally create them at boot, and it cannot on a read-only root. This is recorded now so that refusal is a known result rather than a surprise, and so nobody later reads it as the image being broken.",
+    "id": "account-database",
+    "kindOfChange": "tracked-file rows added to the lock and to the builder staging table",
+    "note": "systemd-sysusers would create these accounts at boot and cannot, because the root is read-only. Baking the database in is the same kind of edit the ten existing tracked-file rows already are.",
+    "path": "/etc/passwd",
+    "refusesAtStage": "verify_fixed_launcher_prelock_prerequisites",
+    "requiresNewImage": true,
+    "stageOrder": 1,
+    "what": "the account database the guest's own sysusers file expects to fill in"
+   },
+   {
+    "architecturalDecision": true,
+    "closedBy": "the already-sealed arm64 runtime rootfs and its content manifest placed into the image; the manifest digest the launcher compiles against and the digest the replay expectation seals are the same value, so no new artefact is invented to close this",
+    "consequence": "the launcher refuses at verify_runtime_rootfs_replay. Serving executions was never in reach for this image, and no pass condition below asks for it.",
+    "id": "runtime-rootfs-and-its-content-manifest",
+    "kindOfChange": "a second rootfs tree nested inside the boot rootfs, plus one tracked-file row for the manifest",
+    "note": "This is the only one of the three that is not a table edit. The tree has to be assembled a second time under a prefix, and whether that fits is a byte question rather than a naming one.",
+    "path": "/var/lib/boole/native-shadow/runtime-rootfs",
+    "refusesAtStage": "verify_runtime_rootfs_replay",
+    "requiresNewImage": true,
+    "stageOrder": 7,
+    "what": "the runtime rootfs and its content manifest the launcher verifies before it serves anything"
+   },
+   {
+    "architecturalDecision": false,
+    "closedBy": "the launcher's standard output and error also going to the console the host already captures and hashes, which adds no device, no network and no shared directory",
+    "consequence": "where the launcher refuses is not observable, which the sealed boot receipt records as a limit of that run rather than as a property of the launcher.",
+    "id": "refusal-is-not-readable",
+    "kindOfChange": "an edit to the launcher unit, which moves that file's digest in the lock",
+    "note": "The unit already sets StandardOutput=journal and StandardError=journal. The journal is not forwarded to the console the host captures, so where the launcher refused is not readable from outside the guest.",
+    "path": "the launcher's own output",
+    "refusesAtStage": "none -- this one hides the refusal rather than causing it",
+    "requiresNewImage": true,
+    "stageOrder": 0,
+    "what": "a channel by which the launcher's refusal can be read"
+   }
+  ],
+  "note": "Read back out of the sealed runtime contract rather than restated. Each row keeps the contract's own wording and adds where in the launcher's startup the gap bites and what kind of change closing it is.",
+  "source": {
+   "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+   "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f",
+   "sizeBytes": 17589
+  }
+ },
+ "heldConditionUnchanged": {
+  "id": "launcher-runs-under-an-unprivileged-account",
+  "note": "Still awaiting an operator decision and still not relaxed by this plan. A boot run judged against a condition under question could not return a clean verdict, which is a second reason the one allowed production is not spent yet.",
+  "relaxed": false,
+  "satisfied": false,
+  "state": "awaiting an operator decision",
+  "waived": false
+ },
+ "lockSuccessorProduced": false,
+ "notEstablishedByThisPlan": [
+  "that any gap is closed -- nothing was built, staged or produced",
+  "that the nesting fits once assembled, since only pinned upper bounds were compared",
+  "that the entry limit holds, which no pinned number in the repository answers",
+  "that a produced image would pass, which the sealed production criteria are what would judge",
+  "that serving is reachable, which only a boot would show"
+ ],
+ "pinsThatMove": [
+  {
+   "gap": "account-database",
+   "moves": [
+    "the boot source lock gains tracked-file rows for the account database",
+    "the builder's staging table gains the matching entries"
+   ],
+   "movesADigestOfAnExistingFile": false
+  },
+  {
+   "gap": "runtime-rootfs-and-its-content-manifest",
+   "moves": [
+    "the boot source lock gains the runtime rootfs as an input and one tracked-file row for the manifest",
+    "the builder learns to assemble the runtime tree under a prefix",
+    "the boot rootfs layer digest changes, and with it the initrd and root disk digests"
+   ],
+   "movesADigestOfAnExistingFile": false
+  },
+  {
+   "fileEdited": {
+    "path": "native/systemd/boole-native-shadow-launcher.service",
+    "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+    "sizeBytes": 704
+   },
+   "gap": "refusal-is-not-readable",
+   "moves": [
+    "the launcher unit is edited, so its digest moves in the lock's trackedFiles and in its authorityBindings"
+   ],
+   "movesADigestOfAnExistingFile": true
+  }
+ ],
+ "producedOn": "2026-08-27",
+ "productionDispatched": false,
+ "release": "NATIVE-SHADOW-MAC3-SERVING-GAP-CLOSURE-PLAN-ARM64-V1-PLANNED-NOT-IMPLEMENTED",
+ "schema": "boole.native-shadow.mac3-serving-gap-closure-plan.arm64.v1",
+ "servingClaim": false,
+ "stagingPathsAreNotMasked": {
+  "anyWritablePathCoversAFixedPath": false,
+  "fixedManifestPath": "/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json",
+  "fixedRootfsPath": "/var/lib/boole/native-shadow/runtime-rootfs",
+  "note": "A path staged read-only is worth nothing if something mounts over it at boot. Every writable path in the sealed contract is under /run on tmpfs, and the tmpfiles configuration creates directories under /var/lib/boole rather than mounting anything there, so the two fixed guest paths stay visible.",
+  "tmpfilesDeclaresOnlyDirectories": true,
+  "tmpfilesSource": {
+   "path": "native/tmpfiles.d/boole-native-shadow.conf",
+   "sha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+   "sizeBytes": 233
+  },
+  "writablePaths": [
+   "/run/boole",
+   "/run/boole/native-shadow",
+   "/run/boole/native-shadow/launcher.lock",
+   "/run/boole/native-shadow/launcher.sock"
+  ]
+ },
+ "status": "MAC3-SERVING-GAP-CLOSURE-PLANNED-NOT-IMPLEMENTED",
+ "successorChainRequired": {
+  "note": "Every one of the three gaps lands in the same four sealed records, in the same fixed order, because each is append-only and each is the input the next one checks against. This is why the three are scheduled together rather than one per chain -- three chains would produce three successors for the same four records.",
+  "steps": [
+   {
+    "order": 1,
+    "what": "the boot source lock plan successor"
+   },
+   {
+    "order": 2,
+    "what": "the lock generator"
+   },
+   {
+    "order": 3,
+    "what": "the boot source lock successor"
+   },
+   {
+    "order": 4,
+    "what": "the builder's staging table"
+   }
+  ],
+  "walkedInThisSession": false
+ },
+ "theByteBudget": {
+  "currentBoot": {
+   "initrdCompression": "none",
+   "initrdSizeBytes": 1010933296,
+   "rootDiskSizeBytes": 1168334848,
+   "source": {
+    "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json",
+    "sha256": "95655e74754c27166902a4030c92608d32a5f76e250b091863b923fa69a5deeb",
+    "sizeBytes": 17536
+   },
+   "whyInitrdIsTheProxy": "the initrd is built uncompressed from the same single input layer, so its size is an upper bound on that layer's assembled payload bytes"
+  },
+  "fitsUnderTheSealedLimit": true,
+  "headroomBytes": 369994192,
+  "largestSingleFileConcern": "the nested tree is a directory of ordinary files, so no single member approaches maxFileBytes; the manifest itself is far below it",
+  "limits": {
+   "enforcedBy": {
+    "path": "scripts/native_shadow_rootfs_builder.py",
+    "sha256": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
+    "sizeBytes": 108296
+   },
+   "maxEntries": 200000,
+   "maxFileBytes": 536870912,
+   "maxTotalBytes": 2147483648,
+   "reachedThrough": {
+    "path": "scripts/native_shadow_rootfs_builder_arm64_v1.py",
+    "sha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+    "sizeBytes": 3680
+   },
+   "whatMaxTotalBytesCounts": "the sum of file payload bytes in the assembled rootfs, checked once after assembly and again per source archive during the scan"
+  },
+  "note": "Whether the nested tree fits is the load-bearing question, because the limits are sealed in both locks and the builder refuses rather than truncates. This is an upper bound, not a measurement of the assembled result: the two sizes below are a cpio and a tar, and both carry headers and padding the assembled payload does not.",
+  "runtimeToNest": {
+   "contentManifestSha256": "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa",
+   "contentManifestSizeBytes": 1285116,
+   "layerSizeBytes": 766556160,
+   "source": {
+    "path": "native/containment/native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json",
+    "sha256": "e6b01bcce89bf2900bfa3e510ac79a8c2863c7701843cd4a1b20f2d987309e66",
+    "sizeBytes": 2072
+   }
+  },
+  "upperBoundSumBytes": 1777489456,
+  "whatThisDoesNotEstablish": [
+   "that the assembled result fits -- only that the pinned sizes leave room",
+   "that the entry count fits, because neither tree's entry count is pinned anywhere in the repository and neither can be counted without a build",
+   "that the nesting is deterministic, which the two-replica condition in the production criteria is what would answer"
+  ]
+ },
+ "whatThisIs": "What it would take to close every gap between the guest that boots today and a guest the launcher would serve in, written before any of it is built. The previous record measured one gap. Reading the sealed runtime contract back shows three, and the launcher refuses at the earliest of them, so closing only the measured one would spend the single allowed production on an image that still stops before reaching it. This plan states which sealed pins each gap moves, which of the three is a design decision rather than a table edit, and whether the one design decision is even representable under the build limits that are already sealed.",
+ "whyDuplicationAndNotSymlinks": {
+  "checksThatDecideThis": [
+   "the directory must be on a read-only mount",
+   "the manifest must be a regular file, root-owned, mode 0444, with exactly one link and exactly the sealed size",
+   "the manifest's own digest must equal the value the launcher compiles against",
+   "every observed path must be named by the manifest, and every named path must be observed"
+  ],
+  "manifestRequiredLinkCount": 1,
+  "manifestRequiredMode": "0444",
+  "manifestRequiredSizeBytes": 1285116,
+  "note": "Pointing the nested path at the top-level copy would cost almost no bytes, and it does not work. The verifier walks the tree it is given and compares every path against the manifest, kind included, then requires the observed path set to equal the manifest's exactly. A symlink where the manifest says file is a mismatch, and a path the manifest does not name is refused outright.",
+  "source": {
+   "path": "crates/boole-native-shadow-launcher/src/runtime_rootfs_replay.rs",
+   "sha256": "7cac9770285ed1660fbb400fee97668d620c49b13a00a3de7e272c4a9b9380b9",
+   "sizeBytes": 20148
+  }
+ },
+ "whyTheyAreOneUnit": {
+  "criteriaSource": {
+   "path": "native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json",
+   "sha256": "417d2497072519031506664553a0d9b478c53a7bf7983f431332f69bbecec4b8",
+   "sizeBytes": 18385
+  },
+  "measurementSource": {
+   "path": "native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json",
+   "sha256": "17d6d1cf58652d9962abd1863f92e4a81cad9571e4663e7ee66f2cfaa9779864",
+   "sizeBytes": 13483
+  },
+  "note": "The launcher checks its service-identity prerequisite first and the runtime rootfs seventh. An image that closes only the seventh still refuses at the first, so the run that produced it answered nothing. All three gaps require a new image, all three move the same sealed lock, and exactly one production run is allowed -- so they are one unit of work or the run is wasted.",
+  "productionRunsAllowed": 1,
+  "productionRunsSpent": 0
+ }
+}
