@@ -812,6 +812,48 @@ require_text native/containment/native-shadow-boot-root-disk-determinism-green-a
 require_text native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json '"activationAllowed": false'
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_root_disk_determinism_green_arm64_v1.py
 
+# The MAC.3 boot qualification, frozen before the one attempt it allows. The
+# three pins below are the ones a run that went badly would be tempted to move:
+# the count of allowed attempts, the read-only attachment of the sealed image,
+# and the statement that nothing here is a claim that the guest boots. Pinning
+# them in the gate means changing them fails on every push rather than quietly
+# on the day it matters.
+require_file native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json
+require_text native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json '"runsAllowed": 1'
+require_text native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json '"rootDiskAttachedReadOnly": true'
+require_text native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json '"activationAllowed": false'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_closed_local_boot_qualification_arm64_v1.py
+
+# The host that performs it. It is a development-Mac program that CI cannot run,
+# so what the gate holds is its contract: no network device, no shared
+# directory, the image opened read-only, and an ad-hoc signature carrying the
+# one entitlement virtualization needs. A Team ID or a Developer ID certificate
+# appearing here would be a release identity on a closed-local run.
+require_file native/mac3/boole-mac3-closed-local-boot.swift
+require_file native/mac3/boole-mac3-closed-local-boot.entitlements
+require_text native/mac3/boole-mac3-closed-local-boot.swift 'configuration.networkDevices = []'
+require_text native/mac3/boole-mac3-closed-local-boot.swift 'configuration.directorySharingDevices = []'
+require_text native/mac3/boole-mac3-closed-local-boot.swift 'readOnly: true'
+require_text native/mac3/boole-mac3-closed-local-boot.entitlements 'com.apple.security.virtualization'
+forbid_text native/mac3/boole-mac3-closed-local-boot.entitlements 'com.apple.developer.team-identifier'
+require_file scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py
+require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'CODESIGN_IDENTITY = "-"'
+require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'RUNS_ALLOWED = 1'
+
+# The result of that one attempt. It did not pass, and the verdict is pinned
+# here in the same words the record uses, so softening it later fails the gate
+# rather than passing quietly. The attempt is also pinned as spent: the driver
+# reads this record before it will start anything, which is why a wiped scratch
+# directory cannot buy a second run.
+require_file native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json '"verdict": "FAIL"'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json '"runsPerformed": 1'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json '"rerunPermitted": false'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json '"guest-systemd-is-pid-1"'
+require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'assert_no_run_has_been_spent(SEALED_RESULT_PATH)'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_closed_local_boot_result_arm64_v1.py
+
 # The verification stage is separate from the producer on purpose: a producer
 # that checks its own output can only confirm that it did what it did. debugfs
 # keeps the inspector role v1 sealed for it -- read-only, never `-w`.

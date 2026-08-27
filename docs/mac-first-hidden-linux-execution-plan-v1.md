@@ -21,10 +21,12 @@ REQUIREMENTS (section 21); BOOT-ROOTFS-DEPENDENCY-CANDIDATE-ARM64-V1 FROZEN — 
 SELECTION ONLY (section 22); BOOT-ROOTFS-PAYLOAD-ACQUISITION-ARM64-V1 GREEN — 191/191 PACKAGE
 PAYLOADS ACQUIRED AND VERIFIED, SOURCE LOCK/BOOT AUTHORITY STILL ABSENT (section 23);
 ROOT-DISK-BYTE-IDENTITY GREEN — TWO ARM64 REPLICAS CONVERGED ON ONE ROOT DISK, THE §25 FAILURE'S
-CAUSE REMOVED AND THE SEALED FAILURE RECORD LEFT AS WRITTEN (section 27); THIS IS A DETERMINISTIC
+CAUSE REMOVED AND THE SEALED FAILURE RECORD LEFT AS WRITTEN (section 28); THIS IS A DETERMINISTIC
 WRITER, NOT A BOOTED GUEST;
-MAC.3 CLOSED-LOCAL DEVELOPMENT UNBLOCKED BUT NOT STARTED — NOT RELEASE-READY, NO ACTIVATION
-AUTHORITY.**
+MAC.3 CLOSED-LOCAL BOOT ATTEMPTED ONCE, VERDICT FAIL — THE KERNEL BOOTED FROM THE SEALED IMAGE AND
+MOUNTED ITS EXT4 ROOT READ-ONLY, AND PID 1 FROZE BECAUSE THE ROOT FILESYSTEM HAS NO `/proc`, `/sys`
+OR `/dev` MOUNT POINTS (section 29); THE ATTEMPT WAS NOT REPEATED AND THE CONDITIONS WERE NOT
+RELAXED — NOT RELEASE-READY, NO ACTIVATION AUTHORITY.**
 
 This plan defines the product boundary for running Boole's native-answer checker for Mac users.
 It does not weaken or replace the current Linux production-containment authority, and it does not
@@ -1912,3 +1914,76 @@ CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED
 `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
 Base activation `false` and `activationAllowed=false` remain unchanged. No public mining, no
 paid-API benchmark and no release claim is made anywhere in this section.
+
+## 29. The guest was booted once on a development Mac, and did not pass
+
+The one attempt allowed by the frozen MAC.3 qualification was performed and is sealed in
+`native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json`. Verdict: **FAIL**.
+Five of the six pre-registered conditions were met; `guest-systemd-is-pid-1` was not. The attempt
+was not repeated and no condition was reworded to make it pass.
+
+### 29.1 What the run established
+
+The kernel from run `33045285925` booted on Virtualization.framework with no initrd, on a machine
+built with no network device, no shared directory and no writable disk. virtio-blk presented the
+sealed image as `/dev/vda` at its exact size, `2281864` 512-byte blocks. The kernel mounted the
+ext4 filesystem read-only from it, reported the root mounted, and executed
+`/usr/lib/systemd/systemd` as its init process. Afterwards the image hashed to
+`9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc`, the value it had before, so the
+read-only attachment held.
+
+That is the boot path — loader, disk, filesystem, hand-off — working end to end against the sealed
+image. It is not a booted userspace, and this section does not claim one.
+
+### 29.2 What failed, and why it is the image rather than the boot
+
+PID 1 stopped four lines after the hand-off:
+
+```text
+Run /usr/lib/systemd/systemd as init process
+Failed to mount proc (type proc) on /proc (...): No such file or directory
+Failed to mount sysfs (type sysfs) on /sys (...): No such file or directory
+Failed to mount devtmpfs (type devtmpfs) on /dev (...): No such file or directory
+Freezing execution.
+```
+
+The root filesystem has no mount-point directories for the kernel's virtual filesystems. Its top
+level holds `usr`, `etc`, `opt`, `var`, `boot` and the usr-merge symlinks, and nothing else. The
+kernel had already said as much before the hand-off, with `devtmpfs: error mounting -2` and
+`Failed to create /dev/root: -2`. The frozen marker for the failed condition is a `systemd[1]:` log
+line, which systemd emits only once those mounts exist, so the condition is not met and the record
+says so.
+
+Three things this is not. Not the boot loader: the kernel ran and handed over. Not the image's
+determinism: the bytes read here are the bytes both replicas produced. Not the absent account
+database registered before the run: systemd froze long before any user lookup.
+
+### 29.3 What the failure does and does not move
+
+The determinism result stands unchanged — two identical images are still two identical images. What
+the run adds is that a deterministic image is not yet a booting userspace, which is exactly the gap
+section 28 said two identical images could not speak to.
+
+The three missing mount points are recorded as found *by this run*, not back-dated into the list of
+gaps registered before it. That list still holds exactly the two it held: the absent account
+database and the absent runtime rootfs.
+
+Continuing requires a new guest image whose builder creates those empty directories, and with them
+the `/run` and `/tmp` the same startup needs. That is a new production of the root disk. The
+standing instruction allows exactly one production pair and it has been spent, so a new one requires
+a separate operator approval before it may be produced or booted again.
+
+### 29.4 Execution cursor
+
+```text
+ROOT-DISK-BYTE-IDENTITY  GREEN — 두 복제본 바이트 동일, run 33045285925, 봉인 유지
+PHASE C (production pair)  COMPLETE — 1회 dispatch, replica당 1회 생산, 소진됨
+PHASE D (MAC.3 closed-local boot)  RUN ONCE / VERDICT FAIL — 조건 6개 중 5개 충족,
+  PID 1이 /proc·/sys·/dev 없음으로 정지; 재실행 없음, 기준 완화 없음
+NEXT (blocked on approval)  이미지 빌더가 마운트 지점 디렉터리를 만들도록 고친 뒤 새 생산 1회
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation `false`, `activationAllowed=false` and `bootableClaim=false` remain unchanged. No
+public mining, no paid-API benchmark and no release claim is made anywhere in this section.

@@ -1,0 +1,159 @@
+{
+  "abortConditions": [
+    "a second qualification run of any kind against this image",
+    "the sealed kernel or root disk failing its digest check immediately before boot",
+    "needing a Team ID, a Developer ID certificate, a provisioning profile or notarization to carry the virtualization entitlement",
+    "needing to modify, repack or remount the sealed image to get further",
+    "the sealed root disk being byte-different after the run",
+    "a network device, a shared directory or a writable disk appearing in the machine configuration",
+    "needing to relax, reword or drop any condition below to call the run a pass"
+  ],
+  "activationAllowed": false,
+  "boot": {
+    "kernelCommandLine": "console=hvc0 root=/dev/vda ro init=/usr/lib/systemd/systemd",
+    "loader": "linux",
+    "noInitrd": true,
+    "why": {
+      "console=hvc0": "the virtio console the host attaches. Without it the run produces no evidence in either direction.",
+      "init=/usr/lib/systemd/systemd": "the real binary. /usr/sbin/init is a symlink to it, and naming the symlink adds a way for the boot to fail for a reason that is not about the image.",
+      "ro": "matches the read-only attachment. The guest is refused writes at the device, and asking for them would only produce noise.",
+      "root=/dev/vda": "the sealed image is a bare ext4 filesystem with no partition table, attached as the only block device."
+    }
+  },
+  "bootableClaim": false,
+  "boundaries": {
+    "cleanMacEvidence": false,
+    "guestBootVerified": false,
+    "launcherServing": false,
+    "productRelease": false,
+    "publicMiningOrBenchmark": false,
+    "runtimeCompatibilityVerified": false
+  },
+  "frozenBefore": "any qualification run",
+  "host": {
+    "architecture": "arm64",
+    "closedLocal": true,
+    "framework": "Virtualization.framework",
+    "machine": "development Mac",
+    "os": "macOS",
+    "why": "MAC.3 is closed-local development work. The clean-Mac question is a different gate with a different environment, and this record does not touch it."
+  },
+  "invariants": {
+    "BF.7": "HOLD",
+    "CURL.3": "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED",
+    "LLM-MINEABLE-ELIGIBLE-V5": 14160,
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "activationAllowed": false,
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "isolation": {
+    "hostFilesystemExposedToGuest": false,
+    "networkDevices": 0,
+    "rootDiskAttachedReadOnly": true,
+    "sharedDirectories": 0,
+    "why": "The guest is a filesystem built from 191 pinned packages and a launcher. It has no reason to reach the network or the host's files, and the cheapest way to keep a boot from becoming something else is to give it nothing to reach.",
+    "writableDisksAttached": 0
+  },
+  "knownAbsentBeforeTheRun": [
+    {
+      "consequence": "systemd cannot resolve boole-node or boole-native-checker, so the launcher's service-identity prerequisite will refuse. systemd-sysusers would normally create them at boot, and it cannot on a read-only root. This is recorded now so that refusal is a known result rather than a surprise, and so nobody later reads it as the image being broken.",
+      "how": "listed from the produced image's own entry table: /etc/passwd, /etc/group, /etc/fstab and /etc/nsswitch.conf have no entry",
+      "path": "/etc/passwd",
+      "what": "the account database the guest's own sysusers file expects to fill in"
+    },
+    {
+      "consequence": "the launcher refuses at verify_runtime_rootfs_replay. Serving executions was never in reach for this image, and no pass condition below asks for it.",
+      "how": "the produced image has 0 entries under /var/lib/boole",
+      "path": "/var/lib/boole/native-shadow/runtime-rootfs",
+      "what": "the runtime rootfs and its content manifest the launcher verifies before it serves anything"
+    }
+  ],
+  "notEstablishedByAPass": [
+    "the launcher reaching a serving state, or serving any execution",
+    "runtime compatibility of the guest toolchain",
+    "CURL.3, which stays DEFERRED / NOT PASSED",
+    "clean-Mac evidence, which needs an environment this is not",
+    "product release readiness of any kind",
+    "public mining, a paid-API benchmark or a leaderboard claim",
+    "activation, which stays false with every gate before it still in place"
+  ],
+  "passConditions": [
+    {
+      "condition": "the two files loaded are the ones two arm64 replicas independently converged on",
+      "id": "loads-the-converged-image",
+      "judgedBy": "the host re-hashes the kernel and the root disk immediately before configuring the machine and refuses to start on any mismatch; both digests are written into the run receipt"
+    },
+    {
+      "condition": "the machine is configured with no network device, no shared directory and no writable disk",
+      "id": "closed-local-configuration",
+      "judgedBy": "the configuration the host built is serialised into the run receipt and read back: the counts must be zero and the single disk attachment must be read-only"
+    },
+    {
+      "condition": "the guest kernel executes and mounts the sealed ext4 as its root filesystem",
+      "id": "kernel-reaches-its-root-filesystem",
+      "judgedBy": "the captured console shows the kernel banner and an EXT4-fs line naming the root device mounted read-only"
+    },
+    {
+      "condition": "PID 1 is the systemd that was built into this image",
+      "id": "guest-systemd-is-pid-1",
+      "judgedBy": "the captured console shows systemd's own startup banner reporting version 255, which is the version the image carries"
+    },
+    {
+      "condition": "the sealed root disk is byte-identical after the run",
+      "id": "sealed-image-unchanged-after-the-run",
+      "judgedBy": "the host re-hashes the root disk file after the machine stops and compares it with the digest in the green record. Read-only is a claim about the attachment; this is the check that the claim held, and it is the one condition the guest cannot fake."
+    },
+    {
+      "condition": "the run leaves a transcript that can be read by someone who was not there",
+      "id": "console-transcript-captured-and-hashed",
+      "judgedBy": "the whole console stream is written to a file, its sha256 and byte count go into the run receipt, and the file is kept whatever the verdict"
+    }
+  ],
+  "predecessor": {
+    "path": "native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json",
+    "sha256": "07a41497c99554eba5453bbc9771f3c450ec22bb80d2852c30174d66fa76fad1",
+    "unlocks": "MAC.3 closed-local development-Mac boot work",
+    "why": "that record is what allows this attempt at all, and it is bound by digest so this one cannot outlive an edit to it"
+  },
+  "record": "native-shadow-mac3-closed-local-boot-qualification-arm64-v1",
+  "recordRegardlessOfVerdict": [
+    "the furthest boot stage the console shows the guest reaching",
+    "every service that entered a failed state, by unit name",
+    "whether the launcher unit was started at all, and where it refused",
+    "the machine's stop reason and exit status",
+    "the console transcript in full, by digest and byte count"
+  ],
+  "release": "NATIVE-SHADOW-MAC3-CLOSED-LOCAL-BOOT-QUALIFICATION-ARM64-V1",
+  "runsAllowed": 1,
+  "runsPerformed": 0,
+  "schema": "native-shadow-mac3-closed-local-boot-qualification-arm64-v1",
+  "signing": {
+    "adHocOnly": true,
+    "developerIdCertificate": false,
+    "entitlement": "com.apple.security.virtualization",
+    "notarization": false,
+    "provisioningProfile": false,
+    "teamId": false,
+    "why": "the entitlement is what Virtualization.framework requires; an ad-hoc signature carries it on the machine that produced it and nowhere else, which is exactly the reach this work is allowed."
+  },
+  "status": "MAC3-CLOSED-LOCAL-BOOT-QUALIFICATION-PRE-FROZEN-NOT-RUN",
+  "subject": {
+    "initrd": {
+      "sha256": "4674128144befeea20b1cbeb5af340b981b7b125d32d43630c721bb4b0aecab2",
+      "sizeBytes": 1010932716,
+      "used": false,
+      "whyUnused": "the guest kernel has virtio-blk and ext4 built in rather than as modules, so it can reach the sealed root filesystem without one. The initrd carries the same tree as a cpio archive and has no /init, so using it would mean adding a boot path this image was not built for."
+    },
+    "kernel": {
+      "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+      "sizeBytes": 57860488
+    },
+    "rootDisk": {
+      "sha256": "9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc",
+      "sizeBytes": 1168314368
+    },
+    "verifiedImmediatelyBeforeBoot": true
+  }
+}
