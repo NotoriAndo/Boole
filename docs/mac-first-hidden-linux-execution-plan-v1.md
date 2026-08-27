@@ -20,6 +20,9 @@ KERNEL/SYSTEMD-GUEST/IMAGE-BUILDER AUTHORITIES UNDEFINED AND NO BOOT ARTIFACTS P
 REQUIREMENTS (section 21); BOOT-ROOTFS-DEPENDENCY-CANDIDATE-ARM64-V1 FROZEN — SIGNED-METADATA
 SELECTION ONLY (section 22); BOOT-ROOTFS-PAYLOAD-ACQUISITION-ARM64-V1 GREEN — 191/191 PACKAGE
 PAYLOADS ACQUIRED AND VERIFIED, SOURCE LOCK/BOOT AUTHORITY STILL ABSENT (section 23);
+ROOT-DISK-BYTE-IDENTITY GREEN — TWO ARM64 REPLICAS CONVERGED ON ONE ROOT DISK, THE §25 FAILURE'S
+CAUSE REMOVED AND THE SEALED FAILURE RECORD LEFT AS WRITTEN (section 27); THIS IS A DETERMINISTIC
+WRITER, NOT A BOOTED GUEST;
 MAC.3 CLOSED-LOCAL DEVELOPMENT UNBLOCKED BUT NOT STARTED — NOT RELEASE-READY, NO ACTIVATION
 AUTHORITY.**
 
@@ -1825,3 +1828,87 @@ The current cursor is that the plucky writer remedy and sealed production path a
 remains blocked until that pair is GREEN.
 `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false`,
 `activationAllowed=false` and `bootableClaim=false` remain unchanged.
+
+## 28. The root disk was produced twice again, and the two copies were identical
+
+Run `33045285925` dispatched the produce workflow once, at commit
+`cb44b34011b491e652fb961ed4dcb13fd3d1ac1b`. Two arm64 jobs each produced exactly once, on separate
+runners, neither able to read the other's output. They converged:
+
+```text
+guest-kernel     d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336     57,860,488 B
+guest-initrd     4674128144befeea20b1cbeb5af340b981b7b125d32d43630c721bb4b0aecab2  1,010,932,716 B
+guest-root-disk  9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc  1,168,314,368 B
+```
+
+This section supersedes the closing cursor sentence of 27.3: the pair has now been dispatched
+once and is GREEN. Section 27 itself is left as written.
+
+The sealed digest is not one replica's file chosen over the other's; it is the value both arrived at
+independently. The `compare` job reported `identical: 3 outputs`. The result is sealed append-only in
+`native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json`.
+
+### 28.1 What removed the cause
+
+Section 26 established that `i_ctime` survived the successor's writer time because `set_inode_extra`
+runs after `ext2fs_write_new_inode` and copies each staged file's `st_ctime`, which no caller can
+set. The writer was replaced rather than worked around: an official `e2fsprogs 1.47.2-1ubuntu1` build
+reads `SOURCE_DATE_EPOCH` first, which both sets `fs->now` and arms the flag `set_inode_extra`
+branches on. `E2FSPROGS_FAKE_TIME` is still read, but sets the time without arming that flag — which
+is the branch the sealed failure ran on.
+
+The writer was added as an image-production tool only. The 191 guest packages were not replaced and
+not deleted: the guest tree and the tool tree are extracted separately from the same layer bytes, so
+adding a writer changes what writes the image and not one byte of what is written. The produce phase
+re-reads the guest lock off disk and refuses if it has moved.
+
+### 28.2 What the record does not do
+
+The sealed failure record and the successor authority are not edited. A green result is exactly when
+softening them would be easiest and would cost the most, so the new record binds them by digest
+instead, and the tests hash them back off disk. The successor authority still says the cause is open,
+because against the writer it was written for the cause *is* open. What allows production is a
+separate derivation, keyed on the cause by name, so a second cause or a renamed one has no clearance
+and still refuses.
+
+An earlier dispatch, run `33042531739` at commit `c362c8e`, refused at that gate on both replicas
+before the output directory was created. Nothing was written and nothing was uploaded, so it did not
+spend the one production pair.
+
+### 28.3 The seven conditions, and the evidence for each
+
+Every condition was registered before the run.
+
+- Kernel, initrd and root disk byte-identical across replicas — the three digests above, plus the
+  `compare` job's own verdict.
+- No wall-clock timestamp anywhere in the image — the audit read every superblock and inode stamp on
+  both replicas and counted zero values outside `[0, 1]`.
+- Loader provenance inside the frozen closure — every library the writer and the checker opened is
+  recorded by path and `sha256`, and the two replicas' lists are equal. The writer and the checker do
+  not share `libext2fs.so.2`: the writer loads the selected build's, the checker the frozen one's.
+- Frozen `e2fsck -f -n` exits 0 on both — the checker is a different binary from the writer and did
+  not write the image, `-f` forces a full check so that a clean superblock cannot buy a pass that
+  checked nothing, and `-n` opens the filesystem read-only. No repair option was used.
+- Zero unexplained differences — the only textual difference between the two results is the ephemeral
+  scratch directory name; masking it makes the two files byte-identical.
+
+### 28.4 What this is not
+
+Two identical images say the writer is deterministic. They do not say the guest boots. `bootableClaim`
+is false in the record, and the record refuses clean-Mac evidence, CURL.3, product release, public
+mining and activation along with it. What it unlocks is MAC.3 closed-local development-Mac boot work
+and nothing else.
+
+### 28.5 Execution cursor
+
+```text
+ROOT-DISK-BYTE-IDENTITY  GREEN — 두 복제본 바이트 동일, run 33045285925, append-only 봉인 완료
+DETERMINISM SUCCESSOR  RESOLVED — 원인 staged-inode-ctime-is-not-fs-now 제거 (기존 봉인 기록은 무수정)
+PHASE C (production pair)  COMPLETE — 1회 dispatch, replica당 1회 생산, 재실행 없음
+PHASE D (MAC.3 closed-local boot)  UNBLOCKED / IN PROGRESS — 개발용 Mac 로컬 부팅 자격 확인
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation `false` and `activationAllowed=false` remain unchanged. No public mining, no
+paid-API benchmark and no release claim is made anywhere in this section.
