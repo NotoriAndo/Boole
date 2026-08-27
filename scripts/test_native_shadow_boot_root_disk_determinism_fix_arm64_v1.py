@@ -26,6 +26,7 @@ from scripts import native_shadow_boot_root_disk_arm64_v1 as root_disk
 from scripts import native_shadow_boot_root_disk_execute_arm64_v1 as execute
 from scripts import native_shadow_boot_root_disk_time_audit_arm64_v1 as audit
 from scripts import native_shadow_boot_produce_phase_arm64_v1 as produce
+from scripts import native_shadow_boot_writer_tree_arm64_v1 as writer_tree
 
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -548,9 +549,29 @@ class CheckerBindingTests(unittest.TestCase):
         )
 
     def test_the_checker_path_sits_inside_the_frozen_tree(self) -> None:
-        tools = produce.tool_paths(pathlib.Path("/frozen"))
+        tools = produce.tool_paths(pathlib.Path("/frozen"), pathlib.Path("/writer"))
         self.assertEqual(tools["e2fsck"], "/frozen/usr/sbin/e2fsck")
-        self.assertTrue(tools["mke2fs"].startswith("/frozen/"))
+
+    def test_the_inspector_stays_in_the_frozen_tree_as_well(self) -> None:
+        """It is the independent inspector, so it must not follow the writer."""
+
+        tools = produce.tool_paths(pathlib.Path("/frozen"), pathlib.Path("/writer"))
+        self.assertTrue(tools["debugfs"].startswith("/frozen/"), tools["debugfs"])
+        self.assertTrue(tools["config"].startswith("/frozen/"), tools["config"])
+
+    def test_the_writer_comes_out_of_the_writer_tree_instead(self) -> None:
+        """The sealed authority still pins the writer that failed, unedited.
+
+        Its row is left where it is and simply stops being the path that runs:
+        the record of the first pair keeps saying what that pair used, and the
+        binary this run executes is the one the writer tree holds.
+        """
+
+        tools = produce.tool_paths(pathlib.Path("/frozen"), pathlib.Path("/writer"))
+        self.assertEqual(
+            tools["mke2fs"], f"/writer/{writer_tree.WRITER_TREE_PATH}"
+        )
+        self.assertFalse(tools["mke2fs"].startswith("/frozen/"))
 
     def test_a_tool_from_some_other_package_is_refused(self) -> None:
         authority = {
@@ -560,7 +581,9 @@ class CheckerBindingTests(unittest.TestCase):
             ]
         }
         with self.assertRaises(produce.ProducePhaseError) as caught:
-            produce.tool_paths(pathlib.Path("/frozen"), authority=authority)
+            produce.tool_paths(
+                pathlib.Path("/frozen"), pathlib.Path("/writer"), authority=authority
+            )
         self.assertIn("frozen e2fsprogs package", str(caught.exception))
 
 

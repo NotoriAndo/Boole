@@ -47,6 +47,7 @@ from scripts import native_shadow_boot_initrd_arm64_v1 as initrd
 from scripts import native_shadow_boot_kernel_extract_arm64_v1 as kernel_extract
 from scripts import native_shadow_boot_root_disk_arm64_v1 as root_disk
 from scripts import native_shadow_boot_root_disk_execute_arm64_v1 as root_disk_execute
+from scripts import native_shadow_boot_writer_tree_arm64_v1 as writer_tree_module
 from scripts import native_shadow_rootfs_builder_boot_arm64_v1 as boot_builder
 from scripts import native_shadow_rootfs_portable_boot_arm64_v1 as portable_boot
 
@@ -138,14 +139,23 @@ def assert_production_unblocked(
 
 
 def tool_paths(
-    tree: pathlib.Path, *, authority: Optional[Mapping[str, Any]] = None
+    tree: pathlib.Path,
+    writer_tree: pathlib.Path,
+    *,
+    authority: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, str]:
-    """Where the two frozen tools and their config sit inside the frozen tree.
+    """Where each tool and the config sit, in whichever tree holds it.
 
     The runner is Ubuntu 24.04 arm64 and ships its own `mke2fs`, its own
-    `debugfs` and its own `mke2fs.conf`.  Every one of the three is named
-    relative to the tree so that none of the runner's copies can be the one that
-    writes the image.
+    `debugfs` and its own `mke2fs.conf`.  Every one is named relative to a tree
+    so that none of the runner's copies can be the one that writes the image.
+
+    The writer is the one tool that no longer comes from the frozen tree.  The
+    sealed authority's row for it is left exactly as it was -- it is the record
+    of what the first pair used, and that pair's failure is what the row is
+    evidence of -- and simply stops being the path that runs.  The inspector,
+    the read-only checker and the config stay frozen, so the image is still
+    judged by tools that did not write it.
     """
 
     document = builder_authority() if authority is None else authority
@@ -163,6 +173,7 @@ def tool_paths(
         raise ProducePhaseError(
             "the builder authority pins no " + ", ".join(missing)
         )
+    found["mke2fs"] = str(writer_tree / writer_tree_module.WRITER_TREE_PATH)
     found["config"] = str(tree / MKE2FS_CONFIG_GUEST_PATH.lstrip("/"))
     # The read-only checker was not pinned when this authority was sealed, and
     # the authority is not edited after the fact to say it was.  It ships in the
@@ -226,12 +237,13 @@ def plan_for(
     *,
     layer: bytes,
     tree: pathlib.Path,
+    writer_tree: pathlib.Path,
     image: pathlib.Path,
     staging: pathlib.Path,
 ) -> dict[str, Any]:
     """The frozen root disk plan for this layer, with nothing left to choose."""
 
-    tools = tool_paths(tree)
+    tools = tool_paths(tree, writer_tree)
     try:
         return root_disk.root_disk_plan(
             layer=layer,
@@ -399,11 +411,31 @@ def produce(
     initrd_raw = initrd.initrd_bytes(layer)
     produced["initrd"].write_bytes(initrd_raw)
 
+    # The writer set is unpacked into a tree of its own, beside the frozen one
+    # rather than inside it: the guest tree is what gets written into the image
+    # and not one byte of it moves because the tool that writes it changed.
+    writer_tree = scratch / "writer"
+    try:
+        writer_receipt = writer_tree_module.materialize(
+            cas_roots=[store], zstd=zstd, writer_tree=writer_tree
+        )
+    except writer_tree_module.WriterTreeError as exc:
+        raise ProducePhaseError(f"the writer set is not usable: {exc}") from exc
+    (scratch / "writer-tree-receipt.json").write_bytes(
+        root_disk.canonical_json(writer_receipt)
+    )
+
     image = produced["root-disk"]
-    plan = plan_for(layer=layer, tree=tree, image=image, staging=scratch / "staging")
+    plan = plan_for(
+        layer=layer,
+        tree=tree,
+        writer_tree=writer_tree,
+        image=image,
+        staging=scratch / "staging",
+    )
     (scratch / "root-disk-plan.json").write_bytes(root_disk.canonical_json(plan))
     try:
-        disk_result = root_disk_execute.execute(plan, layer, tree)
+        disk_result = root_disk_execute.execute(plan, layer, tree, writer_tree)
     except root_disk_execute.RootDiskExecuteError as exc:
         raise ProducePhaseError(str(exc)) from exc
 
