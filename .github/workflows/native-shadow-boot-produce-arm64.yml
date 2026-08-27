@@ -105,6 +105,44 @@ jobs:
             --zstd "$(readlink -f "$(command -v zstd)")" \
             --result "$RUNNER_TEMP/acquire/ci-payload-acquisition.json"
 
+      - name: Acquire the sealed ext4 writer set
+        # Two packages, on a path of their own. The step above derives its plan
+        # from the sealed boot source lock and requires that closure to be
+        # covered exactly once, so these could not be added to it without
+        # editing a sealed record -- which is a stop, not a step.
+        #
+        # They are an addition and never a substitution: the acquirer refuses
+        # any digest or name the lock already seals, and re-measures the lock
+        # itself against what the selection record said it was. The 191 guest
+        # packages are not re-downloaded, not replaced and not deleted.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/acquire"
+          python3 scripts/native_shadow_boot_writer_set_acquire_arm64_v1.py acquire \
+            --cas "$PWD/local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas" \
+            --result "$RUNNER_TEMP/acquire/writer-set-acquisition.json"
+
+      - name: Prove the writer set unpacks to the three sealed digests
+        # Three files come out of those two packages, and only two of the three
+        # were measured before anything was fetched: the writer, and the library
+        # its own Pre-Depends pins to the writer's exact version. The second
+        # library it loads is pinned in the production plan and had no package
+        # to measure against until now.
+        #
+        # Unpacking here settles that while the run has produced nothing. A
+        # wrong pin stops a job with no image in it, which is recoverable; the
+        # same stop inside the one-shot production step would not be. The tree
+        # is thrown away -- production builds its own.
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/native_shadow_boot_writer_tree_arm64_v1.py \
+            --cas "$PWD/local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas" \
+            --zstd "$(readlink -f "$(command -v zstd)")" \
+            --writer-tree "$RUNNER_TEMP/writer-set-proof" \
+            --receipt "$RUNNER_TEMP/acquire/writer-tree-receipt.json"
+
       - name: Rebuild the launcher and match its sealed digest
         # The last step that is allowed to reach the network. Everything after
         # this runs with the network taken away.

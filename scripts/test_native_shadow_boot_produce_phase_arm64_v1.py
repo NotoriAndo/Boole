@@ -27,6 +27,7 @@ import unittest
 from scripts import native_shadow_boot_image_produce_arm64_v1 as producer
 from scripts import native_shadow_boot_produce_phase_arm64_v1 as phase
 from scripts import native_shadow_boot_root_disk_arm64_v1 as root_disk
+from scripts import native_shadow_boot_writer_tree_arm64_v1 as writer_tree
 from scripts.test_native_shadow_boot_initrd_arm64_v1 import SMALL, tar_bytes
 
 
@@ -38,6 +39,8 @@ MODULE_SOURCE = (REPO / "scripts/native_shadow_boot_produce_phase_arm64_v1.py").
     encoding="utf-8"
 )
 LAYER = tar_bytes(SMALL)
+# The writer set is unpacked beside the frozen tree, never inside it.
+WRITER = pathlib.Path("/writer")
 
 
 def builder_authority() -> dict:
@@ -47,15 +50,20 @@ def builder_authority() -> dict:
 class ToolPathTests(unittest.TestCase):
     """The two tools are in the frozen tree, at the paths the authority froze."""
 
-    def test_the_tool_paths_come_from_the_builder_authority(self) -> None:
+    def test_the_inspector_path_comes_from_the_builder_authority(self) -> None:
         tree = pathlib.Path("/tree")
-        found = phase.tool_paths(tree)
+        found = phase.tool_paths(tree, WRITER)
         expected = {
             row["role"]: str(tree / row["memberPath"].lstrip("./"))
             for row in builder_authority()["toolBinaries"]
         }
-        self.assertEqual(found["mke2fs"], expected["ext4-image-writer"])
         self.assertEqual(found["debugfs"], expected["ext4-image-inspector"])
+
+    def test_the_writer_path_comes_from_the_writer_tree(self) -> None:
+        """The authority's writer row stays; it is no longer what runs."""
+
+        found = phase.tool_paths(pathlib.Path("/tree"), WRITER)
+        self.assertEqual(found["mke2fs"], str(WRITER / writer_tree.WRITER_TREE_PATH))
 
     def test_the_tool_member_paths_are_not_restated_here(self) -> None:
         """A second copy of a frozen path is a second thing that can drift."""
@@ -63,23 +71,34 @@ class ToolPathTests(unittest.TestCase):
         for row in builder_authority()["toolBinaries"]:
             self.assertNotIn(row["memberPath"].lstrip("."), MODULE_SOURCE)
 
-    def test_every_tool_path_stays_inside_the_tree(self) -> None:
+    def test_every_tool_path_stays_inside_one_of_the_two_trees(self) -> None:
         tree = pathlib.Path("/tree")
-        for value in phase.tool_paths(tree).values():
-            self.assertTrue(value.startswith(str(tree) + "/"), value)
+        roots = (str(tree) + "/", str(WRITER) + "/")
+        for value in phase.tool_paths(tree, WRITER).values():
+            self.assertTrue(value.startswith(roots), value)
+
+    def test_the_checkers_and_the_config_stay_in_the_frozen_tree(self) -> None:
+        """Only the writer moved; a checker that followed it would share its blind spots."""
+
+        tree = pathlib.Path("/tree")
+        found = phase.tool_paths(tree, WRITER)
+        for name in ("config", "debugfs", "e2fsck"):
+            self.assertTrue(found[name].startswith(str(tree) + "/"), found[name])
 
     def test_the_config_the_tools_read_is_inside_the_tree_too(self) -> None:
         """`MKE2FS_CONFIG` pointing at the runner's own file would unfreeze it."""
 
         tree = pathlib.Path("/tree")
         self.assertEqual(
-            phase.tool_paths(tree)["config"],
+            phase.tool_paths(tree, WRITER)["config"],
             str(tree / phase.MKE2FS_CONFIG_GUEST_PATH.lstrip("/")),
         )
 
     def test_a_tool_role_the_authority_does_not_name_is_refused(self) -> None:
         with self.assertRaises(phase.ProducePhaseError):
-            phase.tool_paths(pathlib.Path("/tree"), authority={"toolBinaries": []})
+            phase.tool_paths(
+                pathlib.Path("/tree"), WRITER, authority={"toolBinaries": []}
+            )
 
 
 class PinnedSizeTests(unittest.TestCase):
@@ -104,6 +123,7 @@ class PinnedSizeTests(unittest.TestCase):
         plan = phase.plan_for(
             layer=LAYER,
             tree=pathlib.Path("/tree"),
+            writer_tree=WRITER,
             image=pathlib.Path("/out/guest-root-disk"),
             staging=pathlib.Path("/staging/root"),
         )
@@ -114,6 +134,7 @@ class PinnedSizeTests(unittest.TestCase):
         plan = phase.plan_for(
             layer=LAYER,
             tree=pathlib.Path("/tree"),
+            writer_tree=WRITER,
             image=pathlib.Path("/out/guest-root-disk"),
             staging=pathlib.Path("/staging/root"),
         )

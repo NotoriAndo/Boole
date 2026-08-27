@@ -1,0 +1,396 @@
+{
+  "acceptanceCriteria": {
+    "binaries": [
+      {
+        "mustHonourTheFixedTime": true,
+        "name": "mke2fs",
+        "why": "create_inode is linked into it in this build, which is where the overwrite lives"
+      },
+      {
+        "mustHonourTheFixedTime": true,
+        "name": "libext2fs",
+        "why": "it owns fs->now, the inode write primitives and the superblock stamping"
+      }
+    ],
+    "establishedByRunningTheBinary": false,
+    "evidenceStandard": {
+      "absenceCountedOverAStatedWindow": true,
+      "offsetsRecomputedFromStructOffsets": true,
+      "positiveControlInTheSameBinary": true,
+      "why": "the same standard the frozen binary's walk was held to, so the two reads are comparable evidence"
+    },
+    "paths": [
+      {
+        "failCondition": "a load from the stat buffer's st_ctime reaching a store into the inode buffer's i_ctime, which is what the frozen binary does",
+        "id": "staged-file-inode",
+        "mustBeRead": true,
+        "passCondition": "no instruction writes i_ctime from the staged file's st_ctime; the field must come from fs->now or be left as ext2fs_write_new_inode set it",
+        "what": "the inode mke2fs -d writes for a regular file copied from the staging tree"
+      },
+      {
+        "failCondition": "a wall-clock call reaching these stamps when fs->now is set",
+        "id": "self-created-inode-and-superblock",
+        "mustBeRead": true,
+        "passCondition": "these still take fs->now, so the candidate does not regress the path the fixed time already handles",
+        "what": "the inodes mke2fs creates itself, including the root and lost+found, and the superblock stamps"
+      }
+    ],
+    "staticOnly": true,
+    "why": "The frozen binary's defect was established by reading it. A candidate accepted on observed output would be accepted on a sample rather than on the code path."
+  },
+  "activationAllowed": false,
+  "approval": {
+    "conditionsCarriedIntoThisRecord": [
+      "Do not assume a newer version fixed it; statically read the actual candidate binary.",
+      "Check both the i_ctime of a staged regular file inode and the inodes and superblock mke2fs creates itself.",
+      "Confirm both mke2fs and libext2fs use the fixed time.",
+      "Allow only candidates whose official origin, signature, version and sha256 are verifiable; no forks and no local patches.",
+      "Pre-register candidate, origin, size, verification method and the source-lock addition method on a remote branch before downloading.",
+      "Do not modify the existing 191-package source lock or any sealed record; add to a successor only."
+    ],
+    "grantedFor": "identifying and verifying an official candidate, then adding it to a successor source lock",
+    "option": "Pin an official e2fsprogs whose create_inode honours fs->now."
+  },
+  "bindings": {
+    "recordsThatStayByteUnchanged": [
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json",
+        "sealedBy": "6961eacd9d2b05b2298aa7753380600f08a6ea46",
+        "sealedBySubject": "native-shadow: seal the arm64 root-disk determinism hard stop and its cause (#253)",
+        "sha256": "af815ee609a2fbee4dc4a81ba0d331bd851b8a60792b87ed61583d642e861725",
+        "sizeBytes": 16053,
+        "verifiedAgainstTheSealingCommit": true
+      },
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json",
+        "sealedBy": "152a907c950b4897d9a311ab53eb41d97918a92e",
+        "sealedBySubject": "native-shadow: pin the sealed boot records by digest (#255)",
+        "sha256": "f125e487c03b560fd753924bee7d830d25eec97ddcfd6bf8982526f57e636f6c",
+        "sizeBytes": 35393,
+        "verifiedAgainstTheSealingCommit": true
+      },
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+        "sealedBy": "170f5b9df7c8ab82b3f65b85b636abae33236a45",
+        "sealedBySubject": "native-shadow: seal ARM64 boot rootfs source lock over verified payloads (#239)",
+        "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+        "sizeBytes": 357104,
+        "verifiedAgainstTheSealingCommit": true
+      }
+    ]
+  },
+  "bootableClaim": false,
+  "boundaries": {
+    "claimsAReplacementWorks": false,
+    "claimsARootDiskIsDeterministic": false,
+    "dispatchesProduction": false,
+    "modifiesASealedRecord": false,
+    "publicMiningOrBenchmark": false
+  },
+  "candidateDiscovery": {
+    "debsFetchedSoFar": 0,
+    "fieldsResolvedFromTheSignedIndex": [
+      "version",
+      "poolPath",
+      "sizeBytes",
+      "sha256",
+      "indexStanzaSha256"
+    ],
+    "howResolved": [
+      "Reconstructed the frozen Ubuntu archive keyring from the digest-pinned ubuntu-keyring deb and confirmed both the deb and the extracted keyring against the digests the existing lock already pins.",
+      "Fetched each candidate suite's InRelease and verified its signature with that keyring using gpgv.",
+      "Took the Packages index digest from the signed InRelease body and checked the fetched index against it.",
+      "Read the e2fsprogs and libext2fs2t64 stanzas from the verified index."
+    ],
+    "mustBeAppendedAndPushedBeforeFetchingTheDeb": true,
+    "order": [
+      "Fetch and verify the candidate suite's InRelease against the frozen Ubuntu keyring.",
+      "Fetch the Packages index the verified InRelease pins and check its digest.",
+      "Read the e2fsprogs and libext2fs stanzas and record version, size and sha256 here.",
+      "Push this record with those values.",
+      "Only then fetch the debs and check each against the recorded sha256."
+    ],
+    "resolvedAt": "before any deb was fetched",
+    "resolvedCandidates": [
+      {
+        "inReleaseSignatureVerified": true,
+        "packages": [
+          {
+            "name": "e2fsprogs",
+            "poolPath": "pool/main/e/e2fsprogs/e2fsprogs_1.47.0-2.4~exp1ubuntu4.1_arm64.deb",
+            "sha256": "95f305751689654f41813818f9d4f029880072657d2ee7a1a27b7d19e02a53e6",
+            "sizeBytes": 594152,
+            "version": "1.47.0-2.4~exp1ubuntu4.1"
+          },
+          {
+            "name": "libext2fs2t64",
+            "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.0-2.4~exp1ubuntu4.1_arm64.deb",
+            "sha256": "f32a0f3298b60aa158c3bae59ba5ebef9de600901bb1918d3ee133ba58cd4648",
+            "sizeBytes": 224882,
+            "version": "1.47.0-2.4~exp1ubuntu4.1"
+          }
+        ],
+        "packagesIndexDigestVerified": true,
+        "packagesIndexPath": "main/binary-arm64/Packages.xz",
+        "packagesIndexSha256": "85c042d164bd52f463d0b401e3a5b6a5141c0d2e0b5564db552d939b32a26d7b",
+        "packagesIndexSizeBytes": 1190484,
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20260801T000000Z",
+        "suite": "noble-updates",
+        "verifiedWithKeyringSha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+      },
+      {
+        "inReleaseSignatureVerified": true,
+        "packages": [
+          {
+            "name": "e2fsprogs",
+            "poolPath": "pool/main/e/e2fsprogs/e2fsprogs_1.47.1-1ubuntu1_arm64.deb",
+            "sha256": "d24dba5be1955df2c544d6a76372e0e36fd993680bc1dc0b4c741aeabd7cbb8d",
+            "sizeBytes": 602670,
+            "version": "1.47.1-1ubuntu1"
+          },
+          {
+            "name": "libext2fs2t64",
+            "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.1-1ubuntu1_arm64.deb",
+            "sha256": "3fde6dfdbc4f0701ee109e46aa67c5d537978580df68cd3824fc2027f05b70f4",
+            "sizeBytes": 227946,
+            "version": "1.47.1-1ubuntu1"
+          }
+        ],
+        "packagesIndexDigestVerified": true,
+        "packagesIndexPath": "main/binary-arm64/Packages.xz",
+        "packagesIndexSha256": "cea09535469d6c66b69abae64e389340d2c6441677ac9d6ffc4038fa2ada291c",
+        "packagesIndexSizeBytes": 1409024,
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20260801T000000Z",
+        "suite": "oracular",
+        "verifiedWithKeyringSha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+      },
+      {
+        "inReleaseSignatureVerified": true,
+        "packages": [
+          {
+            "name": "e2fsprogs",
+            "poolPath": "pool/main/e/e2fsprogs/e2fsprogs_1.47.2-1ubuntu1_arm64.deb",
+            "sha256": "89c94171d47851896b9c0bf600dd753b5b8770a4550b38304cd873fa7c8aabea",
+            "sizeBytes": 607866,
+            "version": "1.47.2-1ubuntu1"
+          },
+          {
+            "name": "libext2fs2t64",
+            "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.2-1ubuntu1_arm64.deb",
+            "sha256": "da4d465823f2653b35bd316f9c479e4a531165e01840151184f015f6e0d391a5",
+            "sizeBytes": 230570,
+            "version": "1.47.2-1ubuntu1"
+          }
+        ],
+        "packagesIndexDigestVerified": true,
+        "packagesIndexPath": "main/binary-arm64/Packages.xz",
+        "packagesIndexSha256": "0ac59116f4c564b241181d7a26d84d4497e2449162cd4424c944b27d2c649a9f",
+        "packagesIndexSizeBytes": 1432472,
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20260801T000000Z",
+        "suite": "plucky",
+        "verifiedWithKeyringSha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+      },
+      {
+        "inReleaseSignatureVerified": true,
+        "packages": [
+          {
+            "name": "e2fsprogs",
+            "poolPath": "pool/main/e/e2fsprogs/e2fsprogs_1.47.2-3ubuntu2_arm64.deb",
+            "sha256": "d1db6b13455d2b6c090e2a4132c2f25de61c7cac2aff9351e18e6f144b55a69b",
+            "sizeBytes": 619922,
+            "version": "1.47.2-3ubuntu2"
+          },
+          {
+            "name": "libext2fs2t64",
+            "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.2-3ubuntu2_arm64.deb",
+            "sha256": "fb8dc5582731c824805b55a425925c37be331cd746b5768cb718755c10582b7a",
+            "sizeBytes": 243532,
+            "version": "1.47.2-3ubuntu2"
+          }
+        ],
+        "packagesIndexDigestVerified": true,
+        "packagesIndexPath": "main/binary-arm64/Packages.xz",
+        "packagesIndexSha256": "bef71adde2ea52b690f150b86e9a0185f27fb1c245ea6067f7551c5467fa9814",
+        "packagesIndexSizeBytes": 1435080,
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20260801T000000Z",
+        "suite": "questing",
+        "verifiedWithKeyringSha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+      },
+      {
+        "inReleaseSignatureVerified": true,
+        "packages": [
+          {
+            "name": "e2fsprogs",
+            "poolPath": "pool/main/e/e2fsprogs/e2fsprogs_1.47.2-3ubuntu4_arm64.deb",
+            "sha256": "e2cfcc93c594746fd1ca6f7a55141638d9eea74d92d18c98bb2b2cb11e02e7fc",
+            "sizeBytes": 603218,
+            "version": "1.47.2-3ubuntu4"
+          },
+          {
+            "name": "libext2fs2t64",
+            "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.2-3ubuntu4_arm64.deb",
+            "sha256": "9cdd0a8467cb8938710b66e3f6b6bfb617d8719c64887149fb103d28996e3c30",
+            "sizeBytes": 231636,
+            "version": "1.47.2-3ubuntu4"
+          }
+        ],
+        "packagesIndexDigestVerified": true,
+        "packagesIndexPath": "main/binary-arm64/Packages.xz",
+        "packagesIndexSha256": "537715817d9ed77cc919f5123edb91a48d9ae97abf05588a8f18208cc7227e08",
+        "packagesIndexSizeBytes": 1468492,
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20260801T000000Z",
+        "suite": "resolute",
+        "verifiedWithKeyringSha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+      }
+    ],
+    "whyEmpty": "Empty at pre-registration and filled here from signature-verified indexes. No deb has been fetched at the time this list was written."
+  },
+  "candidateFamily": {
+    "assumeNewerVersionIsFixed": false,
+    "currentlyFrozen": {
+      "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z",
+      "suite": "noble",
+      "version": "1.47.0-2.4~exp1ubuntu4"
+    },
+    "decidedByStaticReadOfTheCandidateBinary": true,
+    "forbidden": {
+      "forks": true,
+      "latestVersionDiscoveryOutsideTheSignedIndex": true,
+      "localPatches": true,
+      "selfBuiltFromTarball": true,
+      "unsignedOrUnverifiableOrigin": true
+    },
+    "officialDistributionOnly": true,
+    "origin": "Ubuntu archive snapshots served from snapshot.ubuntu.com, the same origin the existing 191-package lock already uses",
+    "packagesACandidateMustSupply": [
+      "e2fsprogs",
+      "libext2fs2t64"
+    ],
+    "searchOrder": "Ubuntu suites later than noble, in ascending release order, taking the e2fsprogs and libext2fs binary packages that suite publishes.",
+    "whyThisOrigin": "Its trust chain is already frozen and verified in this repository, so a candidate needs no new trust root."
+  },
+  "defect": {
+    "fieldsThatMustBecomeDeterministic": [
+      "i_ctime"
+    ],
+    "fieldsTheFixedTimeAlreadyHandles": [
+      "i_atime",
+      "i_crtime",
+      "i_mtime",
+      "s_lastcheck",
+      "s_mkfs_time",
+      "s_wtime"
+    ],
+    "howTheTwoSetsWereSeparated": "In the sealed run the fixed time was the no-op value 0, so every stamp fell back to the wall clock and all seven fields moved. Only i_ctime is written from the staged file's stat, so it is the only one a non-zero fixed time leaves moving.",
+    "recordCountsFromTheSealedDiff": {
+      "i_atime": 5,
+      "i_crtime": 13450,
+      "i_ctime": 13451,
+      "i_mtime": 5,
+      "s_lastcheck": 5,
+      "s_mkfs_time": 5,
+      "s_wtime": 5
+    },
+    "settableFromUserspace": false,
+    "site": "mke2fs create_inode set_inode_extra, which runs after ext2fs_write_new_inode and overwrites the times it wrote",
+    "whyTheFrozenBinaryCannotBeMadeDeterministic": "i_ctime is copied from the staging file's st_ctime, and st_ctime cannot be set from userspace by any caller. E2FSPROGS_FAKE_TIME=1 fixes every other stamp because those go through fs->now, which is why it is necessary but not sufficient. No environment value, staging order or builder flag reaches the field, so the fix has to be a different binary."
+  },
+  "deferredToTheOperator": {
+    "decidedHere": false,
+    "options": [
+      "local-patch",
+      "different-image-builder"
+    ],
+    "why": "Both were excluded by the approval. If a hard stop is reached they are the operator's call, not this record's."
+  },
+  "hardStopConditions": [
+    {
+      "id": "no-official-candidate-fixes-it",
+      "meaning": "no official e2fsprogs build reachable through this trust chain removes the staged-ctime write",
+      "proceedAnyway": false,
+      "stop": true
+    },
+    {
+      "id": "candidate-still-copies-staged-ctime",
+      "meaning": "a candidate was read and still writes i_ctime from the staged file's st_ctime",
+      "proceedAnyway": false,
+      "stop": true
+    },
+    {
+      "id": "origin-or-signature-unverifiable",
+      "meaning": "the candidate's origin, signature, version or digest cannot be established",
+      "proceedAnyway": false,
+      "stop": true
+    },
+    {
+      "id": "static-read-inconclusive",
+      "meaning": "the candidate binary cannot be read to the evidence standard recorded here",
+      "proceedAnyway": false,
+      "stop": true
+    }
+  ],
+  "invariants": {
+    "BF.7": "HOLD",
+    "CURL.3": "DEFERRED / NOT PASSED",
+    "LLM-MINEABLE-ELIGIBLE-V5": 14160,
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "preRegistration": {
+    "amendForbidden": true,
+    "downloadsPerformedByThisRecord": 0,
+    "followUpCommitsAllowedOnSameBranch": true,
+    "producedArtifactsByThisRecord": 0,
+    "productionCodeChangedByThisRecord": false,
+    "pushedToRemoteBeforeAnyDownload": true,
+    "why": "A criterion written after seeing the candidate is not a criterion. The accept/reject rule, the trust chain and the stop conditions are fixed in the remote before anything is fetched."
+  },
+  "productionReadiness": {
+    "blocked": true,
+    "dispatchForbiddenWhileBlocked": true,
+    "note": "A passing read unblocks exactly one production of two arm64 replicas, on the terms the successor authority record already fixed.",
+    "unblocksOnlyOnAPassingStaticRead": true
+  },
+  "schema": "native-shadow-boot-e2fsprogs-candidate-preregistration-arm64-v1",
+  "sourceLockAdditionMethod": {
+    "existingLockEdited": false,
+    "existingLockPath": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+    "existingPackageCountThatStays": 191,
+    "existingPackagesRedownloaded": 0,
+    "fullRehashOfTheExistingPackages": "once, immediately before the successor lock is sealed, and not before",
+    "how": "A successor lock record binds the existing lock by digest and adds only the candidate packages. The 191 entries are reused from the content-addressed store without a network request.",
+    "successorOnly": true
+  },
+  "status": "PRE-REGISTERED-NO-CANDIDATE-FETCHED-PRODUCTION-STILL-BLOCKED",
+  "trustChain": {
+    "aStepThatCannotBeCompletedIsAStop": true,
+    "steps": [
+      {
+        "artifactIdInTheExistingLock": "ubuntu-keyring",
+        "how": "the archive signing keyring already frozen in the source lock, matched by digest",
+        "sha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31",
+        "verifies": "ubuntu-keyring"
+      },
+      {
+        "artifactIdInTheExistingLock": "ubuntu-inrelease",
+        "how": "the candidate suite's InRelease, signature checked against that keyring",
+        "note": "the pinned digest is noble's; a candidate suite has its own InRelease, verified the same way against the same keyring",
+        "sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+        "verifies": "ubuntu-inrelease"
+      },
+      {
+        "artifactIdInTheExistingLock": "ubuntu-packages-index",
+        "how": "the Packages index digest as pinned by the verified InRelease",
+        "note": "as above, the candidate suite's own index is verified through its own InRelease",
+        "sha256": "4a1901e6124fb0a111f5dffc8f5c14474f449e2ecfa71f2eaf0b29917edb53f9",
+        "verifies": "ubuntu-packages-index"
+      },
+      {
+        "how": "the package stanza digest from the verified index, then the downloaded file's sha256",
+        "verifies": "deb"
+      }
+    ]
+  }
+}

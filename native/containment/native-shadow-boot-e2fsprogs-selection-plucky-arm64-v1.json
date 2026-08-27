@@ -1,0 +1,328 @@
+{
+  "activationAllowed": false,
+  "appendOnly": {
+    "modifiesNothing": true,
+    "predecessor": {
+      "commit": "d8ef4d2bf5b81dfebc94159ac8cbdc4e07981ec4",
+      "leftByteUnchanged": true,
+      "path": "native/containment/native-shadow-boot-e2fsprogs-candidate-preregistration-arm64-v1.json",
+      "sha256": "73a65cc350de346d4fdf286d2dcc63f70c2df2f97c971daf5b6dcd738a2dba11",
+      "why": "The pre-registration record is the statement made while debsFetchedSoFar was zero. Editing it to agree with what was later read would destroy the only property that made it worth writing."
+    },
+    "sealedRecordsLeftUnchanged": [
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json",
+        "sha256": "af815ee609a2fbee4dc4a81ba0d331bd851b8a60792b87ed61583d642e861725"
+      },
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+        "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf"
+      }
+    ]
+  },
+  "approval": {
+    "boundariesCarriedIntoThisRecord": [
+      "the Plucky tools are added as image-production tools only",
+      "the 191 Noble guest packages are neither replaced nor deleted",
+      "the auxiliary library that must match the writer exactly is sealed with it as one set",
+      "the loader's actual use of that library is confirmed by path and SHA-256",
+      "the Noble debugfs stays as it is, as an independent inspector",
+      "the candidate verdict test carries both a Noble negative control and a Plucky positive control",
+      "commit d8ef4d2 is not modified; this is a new append-only record",
+      "official repository metadata, signature, package size and SHA-256 are pinned before anything is fetched into permanent storage",
+      "the two arm64 replica productions run exactly once"
+    ],
+    "grantedFor": "Proceed with Plucky e2fsprogs 1.47.2-1ubuntu1 as the image writer."
+  },
+  "bootableClaim": false,
+  "boundaries": {
+    "claimsAReplacementWorks": false,
+    "claimsARootDiskIsDeterministic": false,
+    "dispatchesProduction": false,
+    "fetchesIntoPermanentStorage": false,
+    "modifiesASealedRecord": false,
+    "publicMiningOrBenchmark": false,
+    "replacesAGuestPackage": false
+  },
+  "controls": {
+    "negative": {
+      "library": {
+        "memberPath": "/usr/lib/aarch64-linux-gnu/libext2fs.so.2.4",
+        "sha256": "dc59a13fbff5218a8aad104415189fe00eda3badf984f66ec7f77487e90a8bd1",
+        "sizeBytes": 462856
+      },
+      "libraryMeasurement": {
+        "flagArmedAt": [],
+        "hasFakeTimeString": true,
+        "hasSourceDateEpochString": false,
+        "timeCallsNotBehindTheFlag": [
+          "0x13aac",
+          "0x1b1dc",
+          "0x1b1e4",
+          "0x2056c",
+          "0x289cc",
+          "0x2d3f8",
+          "0x305d0",
+          "0x3249c",
+          "0x34818",
+          "0x3d8e4",
+          "0x3d8f0"
+        ]
+      },
+      "package": {
+        "name": "libext2fs2t64",
+        "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.0-2.4~exp1ubuntu4.1_arm64.deb",
+        "sha256": "f32a0f3298b60aa158c3bae59ba5ebef9de600901bb1918d3ee133ba58cd4648",
+        "sizeBytes": 224882,
+        "version": "1.47.0-2.4~exp1ubuntu4.1"
+      },
+      "role": "negative",
+      "suite": "noble-updates",
+      "verdict": "DEFECT",
+      "version": "1.47.0-2.4~exp1ubuntu4.1",
+      "why": "the library never arms the fixed-time flag, so the writer's clamped branch is unreachable and i_ctime comes from the staging filesystem",
+      "writer": {
+        "memberPath": "/usr/sbin/mke2fs",
+        "sha256": "84419f91298e173cf1569b3a9c957c9f3e26a28852a6025800ed9e0cd9227ea2",
+        "sizeBytes": 133512
+      },
+      "writerMeasurement": {
+        "window": null
+      }
+    },
+    "positive": {
+      "library": {
+        "memberPath": "/usr/lib/aarch64-linux-gnu/libext2fs.so.2.4",
+        "sha256": "6f0fe581693a63d0dcf075874f85448670bda656a7f79dcf040ed3bb88ea6fa0",
+        "sizeBytes": 463016
+      },
+      "libraryMeasurement": {
+        "flagArmedAt": [
+          "0x2d210",
+          "0x34154"
+        ],
+        "hasFakeTimeString": true,
+        "hasSourceDateEpochString": true,
+        "timeCallsNotBehindTheFlag": [
+          "0x28b38",
+          "0x30e40"
+        ]
+      },
+      "package": {
+        "name": "libext2fs2t64",
+        "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.2-1ubuntu1_arm64.deb",
+        "sha256": "da4d465823f2653b35bd316f9c479e4a531165e01840151184f015f6e0d391a5",
+        "sizeBytes": 230570,
+        "version": "1.47.2-1ubuntu1"
+      },
+      "role": "positive",
+      "suite": "plucky",
+      "verdict": "FIXED",
+      "version": "1.47.2-1ubuntu1",
+      "why": "i_ctime is clamped to the fixed time and the library arms the gate",
+      "writer": {
+        "memberPath": "/usr/sbin/mke2fs",
+        "sha256": "d20ac1862b68136bd1ffc03b19d3be24733d714345c2e1531178d13d3ddb5945",
+        "sizeBytes": 199208
+      },
+      "writerMeasurement": {
+        "fixedTimeFlagLoads": 1,
+        "fsNowLoads": 1,
+        "instructions": 50,
+        "stagedCtimeLoads": 1,
+        "window": "0xee48..0xef0c"
+      }
+    },
+    "why": "A rule that passes everything has decided nothing. The negative control is an e2fsprogs from the frozen suite carrying the same upstream 1.47.0 as the writer whose failure is sealed, so the code that accepted the selected build has to reject the defect itself, in the same run, from the same measurements."
+  },
+  "criterion": {
+    "appliedBy": "scripts/native_shadow_boot_e2fsprogs_static_read_arm64_v1.py",
+    "establishedByRunningTheBinary": false,
+    "fixedBeforeAnyCandidateWasRead": true,
+    "libraryGateIsDecisive": "The writer's clamped branch is taken only when bit 0 at +0xc8 of struct_ext2_filsys is armed, and only the library arms it. A library that never arms it leaves that branch unreachable whatever the writer looks like, so the gate is read first. The span heuristic that finds set_inode_extra is version-specific -- the frozen build inlined the function away -- and the gate is not.",
+    "staticOnly": true,
+    "structOffsets": {
+      "structExt2FilsysFixedTimeFlag": "0xc8",
+      "structExt2FilsysNow": "0xb8",
+      "structStatCtime": "0x68"
+    }
+  },
+  "guestPackages": {
+    "count": 191,
+    "deleted": false,
+    "replaced": false,
+    "sourceLockPath": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+    "sourceLockSha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+    "why": "The guest tree and the tool tree are extracted separately from the same layer bytes. Adding a writer to the tool tree therefore changes what writes the image, and not one byte of what is written."
+  },
+  "hardStopConditions": [
+    {
+      "basis": "mke2fs declares seven DT_NEEDED libraries. Two come from the writer set; the other five are supplied by packages already frozen in the 191-package lock, each clearing the version floor the package itself declares. No package outside those two sets is required.",
+      "condition": "the Plucky tool requires unexpected additional packages",
+      "id": "writer-needs-extra-packages",
+      "state": "CLEARED"
+    },
+    {
+      "basis": "Every remaining Pre-Depends is a '>=' floor, and the frozen guest version clears each one. Nothing in the guest has to move.",
+      "condition": "it only works if the guest Noble packages are changed",
+      "id": "guest-must-change",
+      "state": "CLEARED"
+    },
+    {
+      "basis": "Not reachable by reading a package. The writer has not been run, so no loader has resolved anything yet. It is cleared, if at all, by the loader evidence a production run records: every library the writer opened, by path and SHA-256, against the version each is pinned to.",
+      "condition": "the loader mixes libraries of differing versions",
+      "id": "loader-mixes-versions",
+      "state": "NOT-YET-REACHED"
+    },
+    {
+      "basis": "The mke2fs argument vector is the existing contract and this record changes none of it. Whether the produced image matches it is decided by reading the image, which has not been produced.",
+      "condition": "the ext4 feature set or file layout differs from the existing contract",
+      "id": "ext4-contract-changes",
+      "state": "NOT-YET-REACHED"
+    },
+    {
+      "basis": "No image has been produced, so no check has been run.",
+      "condition": "e2fsck -n fails",
+      "id": "e2fsck-fails",
+      "state": "NOT-YET-REACHED"
+    },
+    {
+      "basis": "No replica has produced anything under the selected writer.",
+      "condition": "the two root disks mismatch again",
+      "id": "root-disks-mismatch-again",
+      "state": "NOT-YET-REACHED"
+    }
+  ],
+  "independentCheckers": {
+    "debugfs": {
+      "replacedByTheSelection": false,
+      "role": "ext4-image-inspector",
+      "version": "1.47.0-2.4~exp1ubuntu4"
+    },
+    "e2fsck": {
+      "replacedByTheSelection": false,
+      "role": "ext4-image-read-only-checker",
+      "version": "1.47.0-2.4~exp1ubuntu4"
+    },
+    "why": "A checker built from the same source as the writer shares the writer's blind spots. Keeping the frozen build for the inspector and the read-only checker means the image is judged by a tool that did not write it and was pinned before the writer was chosen."
+  },
+  "record": "native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1",
+  "selection": {
+    "currentlyFrozen": {
+      "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z",
+      "suite": "noble",
+      "verdict": "DEFECT",
+      "version": "1.47.0-2.4~exp1ubuntu4"
+    },
+    "selected": {
+      "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20260801T000000Z",
+      "suite": "plucky",
+      "verdict": "FIXED",
+      "version": "1.47.2-1ubuntu1"
+    },
+    "whyThisOneAndNotALaterOne": "It is the oldest available build that passes the rule, so it is the smallest move away from the frozen set that removes the cause."
+  },
+  "status": "SELECTED-BY-STATIC-READ-NOT-FETCHED-NOT-PRODUCED",
+  "writerTime": {
+    "fakeTimeAloneArmsTheFlag": false,
+    "planMustChange": true,
+    "variableThePlanCurrentlySets": "E2FSPROGS_FAKE_TIME",
+    "variableTheSelectedBuildHonours": "SOURCE_DATE_EPOCH",
+    "why": "In the selected build the library reads SOURCE_DATE_EPOCH first: it sets fs->now and arms the flag. E2FSPROGS_FAKE_TIME is only a fallback and sets fs->now without arming the flag, which leaves the writer on its unclamped branch. Carrying the plan's variable across unchanged would reproduce the sealed failure with a newer binary."
+  },
+  "writerToolSet": {
+    "declaredButNotLoadedByTheWriter": [
+      {
+        "constraint": ">= 1.38",
+        "package": "libss2",
+        "why": "libss.so.2 is debugfs's line editor; mke2fs does not link it"
+      }
+    ],
+    "fetchedIntoPermanentStorage": false,
+    "index": {
+      "inReleaseSignatureVerified": true,
+      "packagesIndexDigestVerified": true,
+      "packagesIndexPath": "main/binary-arm64/Packages.xz",
+      "packagesIndexSha256": "0ac59116f4c564b241181d7a26d84d4497e2449162cd4424c944b27d2c649a9f",
+      "packagesIndexSizeBytes": 1432472,
+      "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20260801T000000Z",
+      "suite": "plucky",
+      "verifiedWithKeyringSha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+    },
+    "mustMatchTheWriterExactly": {
+      "evidence": "Pre-Depends: libblkid1 (>= 2.36), libc6 (>= 2.38), libcom-err2 (>= 1.43.9), libext2fs2t64 (= 1.47.2-1ubuntu1), libss2 (>= 1.38), libuuid1 (>= 2.16)",
+      "packages": [
+        "libext2fs2t64"
+      ],
+      "readFromTheCandidateControlFile": true,
+      "why": "Which auxiliary library has to match the writer exactly is not this record's judgement. The package states one exact-version dependency and five floors; the exact one is the set sealed with the writer."
+    },
+    "packages": [
+      {
+        "name": "e2fsprogs",
+        "poolPath": "pool/main/e/e2fsprogs/e2fsprogs_1.47.2-1ubuntu1_arm64.deb",
+        "sha256": "89c94171d47851896b9c0bf600dd753b5b8770a4550b38304cd873fa7c8aabea",
+        "sizeBytes": 607866,
+        "version": "1.47.2-1ubuntu1"
+      },
+      {
+        "name": "libext2fs2t64",
+        "poolPath": "pool/main/e/e2fsprogs/libext2fs2t64_1.47.2-1ubuntu1_arm64.deb",
+        "sha256": "da4d465823f2653b35bd316f9c479e4a531165e01840151184f015f6e0d391a5",
+        "sizeBytes": 230570,
+        "version": "1.47.2-1ubuntu1"
+      }
+    ],
+    "satisfiedByTheFrozenGuest": [
+      {
+        "constraint": ">= 2.36",
+        "frozenVersion": "2.39.3-9ubuntu6",
+        "package": "libblkid1",
+        "soname": "libblkid.so.1"
+      },
+      {
+        "constraint": ">= 2.38",
+        "frozenVersion": "2.39-0ubuntu8",
+        "package": "libc6",
+        "soname": "libc.so.6"
+      },
+      {
+        "constraint": ">= 2.38",
+        "frozenVersion": "2.39-0ubuntu8",
+        "package": "libc6",
+        "soname": "ld-linux-aarch64.so.1"
+      },
+      {
+        "constraint": ">= 1.43.9",
+        "frozenVersion": "1.47.0-2.4~exp1ubuntu4",
+        "package": "libcom-err2",
+        "soname": "libcom_err.so.2"
+      },
+      {
+        "constraint": ">= 2.16",
+        "frozenVersion": "2.39.3-9ubuntu6",
+        "package": "libuuid1",
+        "soname": "libuuid.so.1"
+      }
+    ],
+    "suppliedByTheWriterSet": [
+      {
+        "package": "libext2fs2t64",
+        "soname": "libext2fs.so.2"
+      },
+      {
+        "package": "libext2fs2t64",
+        "soname": "libe2p.so.2"
+      }
+    ],
+    "writerNeeded": [
+      "libext2fs.so.2",
+      "libcom_err.so.2",
+      "libblkid.so.1",
+      "libuuid.so.1",
+      "libe2p.so.2",
+      "libc.so.6",
+      "ld-linux-aarch64.so.1"
+    ]
+  }
+}

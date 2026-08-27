@@ -26,6 +26,7 @@ from scripts import native_shadow_boot_root_disk_arm64_v1 as root_disk
 from scripts import native_shadow_boot_root_disk_execute_arm64_v1 as execute
 from scripts import native_shadow_boot_root_disk_time_audit_arm64_v1 as audit
 from scripts import native_shadow_boot_produce_phase_arm64_v1 as produce
+from scripts import native_shadow_boot_writer_tree_arm64_v1 as writer_tree
 
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -94,11 +95,11 @@ class WriterTimeTests(unittest.TestCase):
     """RED 1 and 2: the sentinel is refused and a fixed non-zero time is required."""
 
     def test_the_writer_is_no_longer_handed_the_unset_sentinel(self) -> None:
-        value = root_disk.mke2fs_env(config="/x")[root_disk.FAKE_TIME_ENV]
+        value = root_disk.mke2fs_env(config="/x")[root_disk.WRITER_TIME_ENV]
         self.assertNotEqual(value, "0")
 
     def test_the_writer_time_is_fixed_and_positive(self) -> None:
-        value = root_disk.mke2fs_env(config="/x")[root_disk.FAKE_TIME_ENV]
+        value = root_disk.mke2fs_env(config="/x")[root_disk.WRITER_TIME_ENV]
         self.assertGreater(int(value), 0)
         self.assertEqual(value, root_disk.EXT4_WRITER_TIME)
 
@@ -108,7 +109,22 @@ class WriterTimeTests(unittest.TestCase):
 
     def test_an_environment_that_pins_the_sentinel_is_refused(self) -> None:
         with self.assertRaises(execute.RootDiskExecuteError):
-            execute.assert_writer_time({root_disk.FAKE_TIME_ENV: "0"})
+            execute.assert_writer_time({root_disk.WRITER_TIME_ENV: "0"})
+
+    def test_an_environment_that_pins_only_the_superseded_name_is_refused(self) -> None:
+        """A fixed non-zero time under the wrong name is the worst case here.
+
+        It looks like the fix from the outside -- a real timestamp, pinned, not
+        the sentinel -- and the writer reads it, stores it and leaves the clamp
+        unarmed, so the staged st_ctime goes into the image exactly as before.
+        Nothing downstream would show it: the two replicas would simply differ
+        again, and the sentinel test above would have passed.
+        """
+
+        with self.assertRaises(execute.RootDiskExecuteError):
+            execute.assert_writer_time(
+                {root_disk.SUPERSEDED_WRITER_TIME_ENV: root_disk.EXT4_WRITER_TIME}
+            )
 
     def test_the_source_epoch_stays_what_the_staged_inputs_mean(self) -> None:
         self.assertEqual(initrd.CANONICAL_MTIME, 0)
@@ -192,9 +208,7 @@ class WallClockTests(unittest.TestCase):
         self.assertFalse(row["looksLikeAWallClock"])
 
 
-def evidence(*, sha256: str = "a" * 64, directory: str = "/frozen/lib") -> dict:
-    """A complete loader-evidence block, so each test can spoil exactly one thing."""
-
+def _closure(rows, *, sha256: str, directory: str, loader_from=None) -> dict:
     libraries = {
         row["soname"]: {
             "package": row["package"],
@@ -202,66 +216,129 @@ def evidence(*, sha256: str = "a" * 64, directory: str = "/frozen/lib") -> dict:
             "sha256": sha256,
             "sizeBytes": 1,
         }
-        for row in root_disk.SHARED_LIBRARIES
+        for row in rows
     }
-    loader = next(name for name in libraries if name.startswith("ld-"))
+    loader_libraries = loader_from if loader_from is not None else libraries
+    loader = next(name for name in loader_libraries if name.startswith("ld-"))
     return {
         "libraries": libraries,
         "libraryPath": str(directory),
-        "loader": dict(libraries[loader], soname=loader),
+        "loader": dict(loader_libraries[loader], soname=loader),
         "tree": "/frozen",
     }
+
+
+def evidence(*, sha256: str = "a" * 64, directory: str = "/frozen/lib") -> dict:
+    """Both loader-evidence closures, so each test can spoil exactly one thing.
+
+    The writer's two libraries come out of their own tree and the rest out of
+    the frozen one, which is the arrangement the assertion has to accept; every
+    other test here takes that accepted shape and breaks one field of it.
+    """
+
+    checker = _closure(root_disk.SHARED_LIBRARIES, sha256=sha256, directory=directory)
+    writer = _closure(
+        root_disk.WRITER_LIBRARIES,
+        sha256=sha256,
+        directory=directory,
+        loader_from=checker["libraries"],
+    )
+    for row in root_disk.WRITER_LIBRARIES:
+        if row["origin"] == root_disk.ORIGIN_WRITER_SET and directory is not None:
+            writer["libraries"][row["soname"]]["path"] = f"/writer/lib/{row['soname']}"
+    writer["libraryPath"] = f"/writer/lib:{directory}"
+    writer["tree"] = "/writer"
+    return {"checker": checker, "writer": writer}
 
 
 class LoaderEvidenceTests(unittest.TestCase):
     """RED 6, 7 and 8: the loader's real inputs are recorded and bounded."""
 
     FROZEN = pathlib.Path("/frozen")
+    WRITER = pathlib.Path("/writer")
+
+    def check(self, evidence: dict) -> bool:
+        return execute.assert_loader_evidence(
+            evidence, tree=self.FROZEN, writer_tree=self.WRITER
+        )
 
     def test_evidence_missing_a_pinned_library_is_refused(self) -> None:
         spoiled = evidence()
-        spoiled["libraries"].pop("libext2fs.so.2")
+        spoiled["checker"]["libraries"].pop("libext2fs.so.2")
         with self.assertRaises(execute.RootDiskExecuteError) as caught:
-            execute.assert_loader_evidence(spoiled, tree=self.FROZEN)
+            self.check(spoiled)
         self.assertIn("libext2fs.so.2", str(caught.exception))
+
+    def test_evidence_missing_a_library_the_writer_needs_is_refused(self) -> None:
+        """The two closures are checked apart, so neither covers for the other."""
+
+        spoiled = evidence()
+        spoiled["writer"]["libraries"].pop("libext2fs.so.2")
+        with self.assertRaises(execute.RootDiskExecuteError) as caught:
+            self.check(spoiled)
+        self.assertIn("libext2fs.so.2", str(caught.exception))
+        self.assertIn("writer closure", str(caught.exception))
+
+    def test_evidence_with_no_writer_closure_at_all_is_refused(self) -> None:
+        spoiled = evidence()
+        spoiled.pop("writer")
+        with self.assertRaises(execute.RootDiskExecuteError) as caught:
+            self.check(spoiled)
+        self.assertIn("writer closure", str(caught.exception))
 
     def test_evidence_with_no_loader_at_all_is_refused(self) -> None:
         spoiled = evidence()
-        spoiled.pop("loader")
+        spoiled["checker"].pop("loader")
         with self.assertRaises(execute.RootDiskExecuteError):
-            execute.assert_loader_evidence(spoiled, tree=self.FROZEN)
+            self.check(spoiled)
 
     def test_evidence_without_a_path_is_refused(self) -> None:
         with self.assertRaises(execute.RootDiskExecuteError) as caught:
-            execute.assert_loader_evidence(evidence(directory=None), tree=self.FROZEN)
+            self.check(evidence(directory=None))
         self.assertIn("no path", str(caught.exception))
 
     def test_a_library_outside_the_frozen_tree_is_refused(self) -> None:
         spoiled = evidence()
-        spoiled["libraries"]["libc.so.6"]["path"] = "/usr/lib/aarch64-linux-gnu/libc.so.6"
+        path = "/usr/lib/aarch64-linux-gnu/libc.so.6"
+        spoiled["checker"]["libraries"]["libc.so.6"]["path"] = path
         with self.assertRaises(execute.RootDiskExecuteError) as caught:
-            execute.assert_loader_evidence(spoiled, tree=self.FROZEN)
+            self.check(spoiled)
         self.assertIn("outside the frozen tree", str(caught.exception))
+
+    def test_a_writer_library_from_neither_pinned_tree_is_refused(self) -> None:
+        """The writer may search two trees, which is two more places to slip.
+
+        `libc.so.6` is the frozen guest's in this closure, so a runner copy of
+        it is neither the writer set's nor the frozen tree's and has to be
+        caught even though the closure it sits in has a second allowed root.
+        """
+
+        spoiled = evidence()
+        path = "/usr/lib/aarch64-linux-gnu/libc.so.6"
+        spoiled["writer"]["libraries"]["libc.so.6"]["path"] = path
+        with self.assertRaises(execute.RootDiskExecuteError) as caught:
+            self.check(spoiled)
+        self.assertIn("outside the writer set and the frozen tree", str(caught.exception))
 
     def test_a_loader_outside_the_frozen_tree_is_refused(self) -> None:
         spoiled = evidence()
-        spoiled["loader"]["path"] = "/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"
+        spoiled["checker"]["loader"]["path"] = (
+            "/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"
+        )
         with self.assertRaises(execute.RootDiskExecuteError) as caught:
-            execute.assert_loader_evidence(spoiled, tree=self.FROZEN)
+            self.check(spoiled)
         self.assertIn("outside the frozen tree", str(caught.exception))
 
     def test_a_digest_that_is_not_a_digest_is_refused(self) -> None:
         with self.assertRaises(execute.RootDiskExecuteError):
-            execute.assert_loader_evidence(evidence(sha256="not-a-digest"), tree=self.FROZEN)
+            self.check(evidence(sha256="not-a-digest"))
 
     def test_a_prefix_of_the_tree_path_is_not_inside_the_tree(self) -> None:
         with self.assertRaises(execute.RootDiskExecuteError):
-            execute.assert_loader_evidence(
-                evidence(directory="/frozen-elsewhere/lib"), tree=self.FROZEN
-            )
+            self.check(evidence(directory="/frozen-elsewhere/lib"))
 
-    def test_evidence_entirely_inside_the_frozen_tree_is_accepted(self) -> None:
-        self.assertTrue(execute.assert_loader_evidence(evidence(), tree=self.FROZEN))
+    def test_evidence_entirely_inside_the_pinned_trees_is_accepted(self) -> None:
+        self.assertTrue(self.check(evidence()))
 
 
 class FilesystemCheckTests(unittest.TestCase):
@@ -407,7 +484,10 @@ class ReplicaEvidenceTests(unittest.TestCase):
         summary = produce.assert_replica_evidence(self.result())
         self.assertEqual(summary["fsckExitCode"], 0)
         self.assertEqual(summary["writerTime"], 1)
-        self.assertEqual(summary["librariesRecorded"], len(root_disk.SHARED_LIBRARIES))
+        self.assertEqual(
+            summary["librariesRecorded"],
+            len(root_disk.SHARED_LIBRARIES) + len(root_disk.WRITER_LIBRARIES),
+        )
 
     def test_a_result_with_no_evidence_block_at_all_is_refused(self) -> None:
         with self.assertRaises(produce.ProducePhaseError):
@@ -429,9 +509,26 @@ class ReplicaEvidenceTests(unittest.TestCase):
 
     def test_a_library_outside_the_frozen_tree_is_refused_here_too(self) -> None:
         spoiled = evidence()
-        spoiled["libraries"]["libc.so.6"]["path"] = "/usr/lib/aarch64-linux-gnu/libc.so.6"
+        path = "/usr/lib/aarch64-linux-gnu/libc.so.6"
+        spoiled["checker"]["libraries"]["libc.so.6"]["path"] = path
         with self.assertRaises(execute.RootDiskExecuteError):
             produce.assert_replica_evidence(self.result(loaderEvidence=spoiled))
+
+    def test_a_writer_library_outside_the_pinned_trees_is_refused_here_too(self) -> None:
+        """A replica could pass every checker-side test and still write badly."""
+
+        spoiled = evidence()
+        path = "/usr/lib/aarch64-linux-gnu/libext2fs.so.2"
+        spoiled["writer"]["libraries"]["libext2fs.so.2"]["path"] = path
+        with self.assertRaises(execute.RootDiskExecuteError):
+            produce.assert_replica_evidence(self.result(loaderEvidence=spoiled))
+
+    def test_a_result_that_names_no_writer_set_tree_is_refused(self) -> None:
+        spoiled = evidence()
+        spoiled.pop("writer")
+        with self.assertRaises(produce.ProducePhaseError) as caught:
+            produce.assert_replica_evidence(self.result(loaderEvidence=spoiled))
+        self.assertIn("writer set tree", str(caught.exception))
 
 
 class CheckerBindingTests(unittest.TestCase):
@@ -452,9 +549,29 @@ class CheckerBindingTests(unittest.TestCase):
         )
 
     def test_the_checker_path_sits_inside_the_frozen_tree(self) -> None:
-        tools = produce.tool_paths(pathlib.Path("/frozen"))
+        tools = produce.tool_paths(pathlib.Path("/frozen"), pathlib.Path("/writer"))
         self.assertEqual(tools["e2fsck"], "/frozen/usr/sbin/e2fsck")
-        self.assertTrue(tools["mke2fs"].startswith("/frozen/"))
+
+    def test_the_inspector_stays_in_the_frozen_tree_as_well(self) -> None:
+        """It is the independent inspector, so it must not follow the writer."""
+
+        tools = produce.tool_paths(pathlib.Path("/frozen"), pathlib.Path("/writer"))
+        self.assertTrue(tools["debugfs"].startswith("/frozen/"), tools["debugfs"])
+        self.assertTrue(tools["config"].startswith("/frozen/"), tools["config"])
+
+    def test_the_writer_comes_out_of_the_writer_tree_instead(self) -> None:
+        """The sealed authority still pins the writer that failed, unedited.
+
+        Its row is left where it is and simply stops being the path that runs:
+        the record of the first pair keeps saying what that pair used, and the
+        binary this run executes is the one the writer tree holds.
+        """
+
+        tools = produce.tool_paths(pathlib.Path("/frozen"), pathlib.Path("/writer"))
+        self.assertEqual(
+            tools["mke2fs"], f"/writer/{writer_tree.WRITER_TREE_PATH}"
+        )
+        self.assertFalse(tools["mke2fs"].startswith("/frozen/"))
 
     def test_a_tool_from_some_other_package_is_refused(self) -> None:
         authority = {
@@ -464,7 +581,9 @@ class CheckerBindingTests(unittest.TestCase):
             ]
         }
         with self.assertRaises(produce.ProducePhaseError) as caught:
-            produce.tool_paths(pathlib.Path("/frozen"), authority=authority)
+            produce.tool_paths(
+                pathlib.Path("/frozen"), pathlib.Path("/writer"), authority=authority
+            )
         self.assertIn("frozen e2fsprogs package", str(caught.exception))
 
 

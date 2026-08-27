@@ -12,11 +12,20 @@ apart on purpose.
 Three findings from reading the frozen tools shaped this, and each is recorded
 in the plan rather than assumed away.
 
-`SOURCE_DATE_EPOCH` does nothing here.  The string is absent from this build of
-`mke2fs`; what the shipped `libext2fs.so.2.4` actually reads is
-`E2FSPROGS_FAKE_TIME`.  Setting the wrong variable would have left the
-superblock's mkfs time at wall clock and split the two jobs on a field neither
-of them chose.
+The writer is not the guest's own `mke2fs`.  The guest's copy overwrites each
+staged file's `i_ctime` from the staging file's `st_ctime`, which no caller can
+set, so the two jobs split on a field neither of them chose -- the failure
+sealed in the root-disk determinism hard-stop record.  The writer here is a
+selected official build that clamps that field to a fixed time, added as a
+production tool only: the 191 packages the guest is built from do not move, and
+the inspector and the read-only checker stay on the frozen build so the image is
+judged by tools that did not write it.
+
+Which variable carries that fixed time is not interchangeable.  `SOURCE_DATE_EPOCH`
+sets it *and* arms the flag the writer branches on; `E2FSPROGS_FAKE_TIME` sets it
+and leaves the flag clear, which puts the writer back on the branch that copies
+the staged time.  Setting the wrong one of the two would look correct and
+reproduce the sealed failure with a newer binary.
 
 `mke2fs -d` walks the staging tree with `opendir`/`readdir` and never sorts it:
 `scandir`, `alphasort` and `versionsort` are all absent from the binary.  On
@@ -27,12 +36,16 @@ entries in logical path byte order removes the dependency.  That is an
 assumption about the runner's kernel, so it is listed as one, and the byte
 comparison is what settles it.
 
-Every shared library the two tools need is already inside the frozen package
-set.  `mke2fs` and `debugfs` name eight `DT_NEEDED` sonames between them, and
-each one is shipped by one of the 191 packages -- `libe2p.so.2` among them,
-which comes from `libext2fs2t64` rather than from a package of its own.  What is
-*not* settled is which copy the loader picks at run time, so the plan lists the
-providers and leaves the resolution to be recorded at build time.
+There are two library closures rather than one, and keeping them apart is the
+cost of changing the writer.  `debugfs` and `e2fsck` need eight `DT_NEEDED`
+sonames between them, all shipped by the 191 frozen packages -- `libe2p.so.2`
+among them, which comes from `libext2fs2t64` rather than from a package of its
+own.  The writer needs seven, and two of those must be the build sealed with it,
+because a new `mke2fs` resolved against the old `libext2fs` would find the flag
+unarmed and write staged times again with nothing in the output saying so.  What
+is *not* settled here is which copy the loader picks at run time, so the plan
+lists the providers for each closure and leaves the resolution to be recorded,
+and compared, at build time.
 """
 
 from __future__ import annotations
@@ -54,7 +67,12 @@ BLOCK_SIZE = 4096
 INODE_SIZE = 256
 EXT4_UUID = "00000000-0000-4000-8000-000000000001"
 EXT4_HASH_SEED = "00000000-0000-4000-8000-000000000002"
-FAKE_TIME_ENV = "E2FSPROGS_FAKE_TIME"
+# The variable the selected writer honours.  Its predecessor,
+# `E2FSPROGS_FAKE_TIME`, is still read by this family of tools and is still not
+# enough: it sets the fixed time without arming the flag the writer branches on,
+# so a plan that set it would look correct and produce the sealed failure.
+WRITER_TIME_ENV = "SOURCE_DATE_EPOCH"
+SUPERSEDED_WRITER_TIME_ENV = "E2FSPROGS_FAKE_TIME"
 STAGING_FILESYSTEM = "tmpfs"
 RESERVED_BLOCK_PERCENT = 0
 VOLUME_LABEL = ""
@@ -64,10 +82,10 @@ ACTIVATION_ALLOWED = False
 # The time handed to the ext4 writer, which is not the time the staged inputs
 # carry.  `CANONICAL_MTIME` is zero and stays zero: it is what every staged file
 # is stamped with, and the image reproduces it faithfully.  But zero is also the
-# frozen library's "no fixed time was given" sentinel -- `ext2fs_initialize`
-# stores the parsed variable at `fs->now` and every writer of a time field tests
-# `cbz` against it before falling back to `time()`.  Handing it zero therefore
-# asked for the wall clock, which is how two builds of identical inputs came out
+# library's "no fixed time was given" sentinel -- `ext2fs_initialize` stores the
+# parsed variable at `fs->now` and every writer of a time field tests `cbz`
+# against it before falling back to `time()`.  Handing it zero therefore asked
+# for the wall clock, which is how two builds of identical inputs came out
 # different.  One is the smallest value the sentinel does not swallow.
 EXT4_WRITER_TIME = "1"
 ALLOWED_TIMESTAMPS = (CANONICAL_MTIME, int(EXT4_WRITER_TIME))
@@ -76,8 +94,27 @@ ALLOWED_TIMESTAMPS = (CANONICAL_MTIME, int(EXT4_WRITER_TIME))
 # a violation report can say which kind of wrong value it found.
 WALL_CLOCK_LOWER_BOUND = 1000000
 
-MKE2FS_SHA256 = "763be3ec03774647799b1186d30b4b524e6e73dd27be01cbe0be4b6043f62cb1"
-MKE2FS_SIZE_BYTES = 133512
+# The writer is no longer the guest's own mke2fs.  The guest's copy overwrites
+# each staged file's `i_ctime` from the staging file's `st_ctime`, which no
+# caller can set, so it cannot produce the same image twice.  This one clamps
+# that field to the fixed time.  It is an official build, selected by a static
+# read of the shipped binaries recorded in
+# `native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json`, and it is added
+# as a production tool: the 191 packages the guest is built from do not move,
+# and the inspector and the read-only checker below stay on the frozen build so
+# that the image is judged by tools that did not write it.
+MKE2FS_SHA256 = "d20ac1862b68136bd1ffc03b19d3be24733d714345c2e1531178d13d3ddb5945"
+MKE2FS_SIZE_BYTES = 199208
+WRITER_PACKAGE_SHA256 = (
+    "89c94171d47851896b9c0bf600dd753b5b8770a4550b38304cd873fa7c8aabea"
+)
+# Sealed with the writer because the package itself says so: its `Pre-Depends`
+# names one exact-version dependency, `libext2fs2t64 (= 1.47.2-1ubuntu1)`, and
+# five floors that the frozen guest already clears.  Which auxiliary library has
+# to match the writer exactly is therefore not this plan's judgement.
+WRITER_LIBRARY_PACKAGE_SHA256 = (
+    "da4d465823f2653b35bd316f9c479e4a531165e01840151184f015f6e0d391a5"
+)
 DEBUGFS_SHA256 = "2c0bf348d91f9b3bd6eec6666b9897b9f733c430e6baa8066bd70b645b2ca023"
 DEBUGFS_SIZE_BYTES = 271944
 E2FSCK_SHA256 = "05b3292174fdaadf96324ad349c006b1881b20647826bd869162e5ad8d34723b"
@@ -207,10 +244,10 @@ def mke2fs_argv(*, mke2fs: str, image: str, staging: str, blocks: int, inodes: i
 
 def mke2fs_env(*, config: str) -> dict[str, str]:
     return {
-        FAKE_TIME_ENV: EXT4_WRITER_TIME,
         "LC_ALL": "C",
         "MKE2FS_CONFIG": config,
         "TZ": "UTC",
+        WRITER_TIME_ENV: EXT4_WRITER_TIME,
     }
 
 
@@ -229,15 +266,18 @@ def e2fsck_env() -> dict[str, str]:
 UNVERIFIED_ASSUMPTIONS = [
     {
         "detail": (
-            "this build of mke2fs has no SOURCE_DATE_EPOCH string; the shipped "
-            "libext2fs.so.2.4 has E2FSPROGS_FAKE_TIME. Read from the binaries, not run. "
-            "The first pair of builds falsified the value this was set to rather than "
-            "the variable: zero is the library's unset sentinel, so it was honoured by "
-            "being ignored. A non-zero fixed time replaces it."
+            "this build's libext2fs reads SOURCE_DATE_EPOCH, stores it as the fixed "
+            "time and arms the flag mke2fs branches on to clamp i_ctime; "
+            "E2FSPROGS_FAKE_TIME is read too but sets the time without arming the "
+            "flag, which leaves the writer on the branch that copies the staged "
+            "st_ctime. Read from the shipped binaries, not run. This supersedes the "
+            "assumption made about the previous writer, whose falsification is sealed "
+            "in the root-disk determinism hard-stop record."
         ),
-        "id": "fake-time-honoured-by-this-build",
+        "id": "writer-honours-source-date-epoch",
         "onMismatch": "abort-never-relax",
-        "settledBy": "the superblock times in the two independent builds",
+        "settledBy": "the inode and superblock times in the two independent builds",
+        "supersedes": "fake-time-honoured-by-this-build",
     },
     {
         "detail": (
@@ -250,12 +290,19 @@ UNVERIFIED_ASSUMPTIONS = [
     },
     {
         "detail": (
-            "every DT_NEEDED soname is shipped by a frozen package, but which copy the "
-            "loader picks is a run-time fact this plan cannot settle."
+            "every DT_NEEDED soname is shipped by a pinned package, but which copy the "
+            "loader picks is a run-time fact this plan cannot settle. There are now two "
+            "closures rather than one -- the writer's and the checkers' -- and they "
+            "hold different builds of libext2fs, so a loader handed the wrong one would "
+            "run the new writer against the old library and reinstate the defect "
+            "silently."
         ),
         "id": "loader-resolves-only-frozen-libraries",
         "onMismatch": "abort-never-relax",
-        "settledBy": "the resolved library paths recorded at build time",
+        "settledBy": (
+            "the resolved library paths and digests recorded at build time for each "
+            "closure separately"
+        ),
     },
 ]
 
@@ -272,6 +319,71 @@ SHARED_LIBRARIES = [
     {"logicalPath": "/usr/lib/aarch64-linux-gnu/libss.so.2", "package": "libss2", "soname": "libss.so.2"},
     {"logicalPath": "/usr/lib/aarch64-linux-gnu/libuuid.so.1", "package": "libuuid1", "soname": "libuuid.so.1"},
 ]
+
+# Where each library in a closure came from.  The distinction is the whole point
+# of describing two closures: a writer-set library is pinned here by digest
+# because it is the reason the writer was changed, while a frozen-guest library
+# is whatever the frozen tree holds and must be the same bytes in both closures.
+ORIGIN_WRITER_SET = "writer-set"
+ORIGIN_FROZEN_GUEST = "frozen-guest"
+
+# Read from the writer's ELF header.  `libss.so.2` is absent on purpose: it is
+# debugfs's line editor and the writer does not link it, which is why the writer
+# closure is seven libraries where the checkers' is eight.
+WRITER_NEEDED = (
+    "ld-linux-aarch64.so.1",
+    "libblkid.so.1",
+    "libc.so.6",
+    "libcom_err.so.2",
+    "libe2p.so.2",
+    "libext2fs.so.2",
+    "libuuid.so.1",
+)
+
+WRITER_LIBRARIES = [
+    {"logicalPath": "/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1", "origin": ORIGIN_FROZEN_GUEST, "package": "libc6", "soname": "ld-linux-aarch64.so.1"},
+    {"logicalPath": "/usr/lib/aarch64-linux-gnu/libblkid.so.1", "origin": ORIGIN_FROZEN_GUEST, "package": "libblkid1", "soname": "libblkid.so.1"},
+    {"logicalPath": "/usr/lib/aarch64-linux-gnu/libc.so.6", "origin": ORIGIN_FROZEN_GUEST, "package": "libc6", "soname": "libc.so.6"},
+    {"logicalPath": "/usr/lib/aarch64-linux-gnu/libcom_err.so.2", "origin": ORIGIN_FROZEN_GUEST, "package": "libcom-err2", "soname": "libcom_err.so.2"},
+    {
+        "logicalPath": "/usr/lib/aarch64-linux-gnu/libe2p.so.2",
+        "origin": ORIGIN_WRITER_SET,
+        "package": "libext2fs2t64",
+        "sha256": "85ea4f7b70d499b204c030e45e91d95b814ab8dd26db6cd788a62831d92222c6",
+        "sizeBytes": 69584,
+        "soname": "libe2p.so.2",
+    },
+    {
+        "logicalPath": "/usr/lib/aarch64-linux-gnu/libext2fs.so.2",
+        "origin": ORIGIN_WRITER_SET,
+        "package": "libext2fs2t64",
+        "sha256": "6f0fe581693a63d0dcf075874f85448670bda656a7f79dcf040ed3bb88ea6fa0",
+        "sizeBytes": 463016,
+        "soname": "libext2fs.so.2",
+    },
+    {"logicalPath": "/usr/lib/aarch64-linux-gnu/libuuid.so.1", "origin": ORIGIN_FROZEN_GUEST, "package": "libuuid1", "soname": "libuuid.so.1"},
+]
+
+
+def _sole_directory(rows: list[dict[str, Any]]) -> str:
+    """The one directory a set of libraries lives in, or an error.
+
+    Both closures land in the same directory, which is what turns the loader's
+    search order into the whole mechanism: the writer's copy of a soname is
+    found before the frozen one because its directory is named first, and for
+    that to mean anything there has to be exactly one directory to name.
+    """
+
+    directories = {str(pathlib.PurePosixPath(row["logicalPath"]).parent) for row in rows}
+    if len(directories) != 1:
+        raise RootDiskPlanError(
+            f"the libraries are spread across {sorted(directories)}; "
+            "there is no single path to point the loader at"
+        )
+    return directories.pop()
+
+
+LIBRARY_DIRECTORY = _sole_directory(SHARED_LIBRARIES + WRITER_LIBRARIES)
 
 
 def root_disk_plan(
@@ -342,7 +454,7 @@ def root_disk_plan(
                 "sizeBytes": E2FSCK_SIZE_BYTES,
             },
             "mke2fs": {
-                "packageSha256": E2FSPROGS_PACKAGE_SHA256,
+                "packageSha256": WRITER_PACKAGE_SHA256,
                 "path": mke2fs,
                 "role": "ext4-image-writer",
                 "sha256": MKE2FS_SHA256,
@@ -351,6 +463,7 @@ def root_disk_plan(
         },
         "unverifiedAssumptions": UNVERIFIED_ASSUMPTIONS,
         "volumeLabel": VOLUME_LABEL,
+        "writerLibraries": WRITER_LIBRARIES,
     }
 
 
