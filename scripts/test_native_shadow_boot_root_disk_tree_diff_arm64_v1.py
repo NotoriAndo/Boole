@@ -360,6 +360,152 @@ class InitrdComparisonTest(unittest.TestCase):
         self.assertTrue(found["ok"])
 
 
+class InitrdAccountingTest(unittest.TestCase):
+    """Every byte of difference between two archives, accounted for."""
+
+    BASE = [
+        {"path": "etc", "kind": "directory", "mode": 0o755},
+        {"path": "etc/hostname", "kind": "file", "mode": 0o644, "raw": b"boole\n"},
+        {"path": "usr", "kind": "directory", "mode": 0o755},
+        {"path": "usr/bin", "kind": "directory", "mode": 0o755},
+    ]
+
+    def _rows(self):
+        return tuple(
+            {"gid": 0, "kind": "directory", "mode": format(MODES[name], "04o"), "path": name, "uid": 0}
+            for name in REQUIRED
+        )
+
+    def _archive(self, rows, *, sort: bool = True) -> bytes:
+        from scripts.native_shadow_boot_initrd_arm64_v1 import initrd_bytes
+        from scripts.test_native_shadow_boot_initrd_arm64_v1 import tar_bytes
+
+        return initrd_bytes(tar_bytes(rows, sort=sort))
+
+    def _required(self):
+        return [{"path": name, "kind": "directory", "mode": MODES[name]} for name in REQUIRED]
+
+    def test_five_inserted_directories_account_for_the_whole_difference(self) -> None:
+        found = mod.initrd_record_accounting(
+            before=self._archive(self.BASE),
+            after=self._archive(self.BASE + self._required()),
+            rows=self._rows(),
+        )
+        self.assertEqual(found["reasons"], [])
+        self.assertTrue(found["ok"])
+        self.assertEqual(found["addedRecords"], sorted(REQUIRED))
+        self.assertEqual(found["removedRecords"], [])
+        self.assertEqual(found["fieldDifferences"], {})
+        self.assertTrue(found["byteAccounting"]["balanced"])
+
+    def test_the_added_records_explain_the_size_growth_exactly(self) -> None:
+        before = self._archive(self.BASE)
+        after = self._archive(self.BASE + self._required())
+        found = mod.initrd_record_accounting(before=before, after=after, rows=self._rows())
+        accounting = found["byteAccounting"]
+        self.assertEqual(accounting["beforeBytes"], len(before))
+        self.assertEqual(accounting["afterBytes"], len(after))
+        self.assertEqual(
+            accounting["afterBytes"] - accounting["beforeBytes"],
+            accounting["addedRecordBytes"],
+        )
+
+    def test_every_shared_record_is_renumbered_by_the_insertions_before_it(self) -> None:
+        found = mod.initrd_record_accounting(
+            before=self._archive(self.BASE),
+            after=self._archive(self.BASE + self._required()),
+            rows=self._rows(),
+        )
+        self.assertTrue(found["renumbering"]["consistent"])
+        # /usr sorts after all five, so it moves by the full five.
+        self.assertEqual(found["renumbering"]["shifts"]["usr"], 5)
+        # /etc sorts before every one of them except dev, so it moves by one.
+        self.assertEqual(found["renumbering"]["shifts"]["etc"], 1)
+
+    def test_a_changed_file_is_reported_and_fails(self) -> None:
+        changed = [
+            dict(row, raw=b"other\n") if row["path"] == "etc/hostname" else row
+            for row in self.BASE
+        ]
+        found = mod.initrd_record_accounting(
+            before=self._archive(self.BASE),
+            after=self._archive(changed + self._required()),
+            rows=self._rows(),
+        )
+        self.assertFalse(found["ok"])
+        self.assertIn("etc/hostname", found["fieldDifferences"])
+
+    def test_a_changed_mode_is_reported_and_fails(self) -> None:
+        changed = [
+            dict(row, mode=0o600) if row["path"] == "etc/hostname" else row
+            for row in self.BASE
+        ]
+        found = mod.initrd_record_accounting(
+            before=self._archive(self.BASE),
+            after=self._archive(changed + self._required()),
+            rows=self._rows(),
+        )
+        self.assertFalse(found["ok"])
+        self.assertIn("mode", found["fieldDifferences"]["etc/hostname"])
+
+    def test_a_sixth_added_record_fails(self) -> None:
+        extra = self._required() + [{"path": "srv", "kind": "directory", "mode": 0o755}]
+        found = mod.initrd_record_accounting(
+            before=self._archive(self.BASE),
+            after=self._archive(self.BASE + extra),
+            rows=self._rows(),
+        )
+        self.assertFalse(found["ok"])
+        self.assertIn("srv", found["addedRecords"])
+
+    def test_two_identical_archives_fail_because_the_five_are_absent(self) -> None:
+        found = mod.initrd_record_accounting(
+            before=self._archive(self.BASE),
+            after=self._archive(self.BASE),
+            rows=self._rows(),
+        )
+        self.assertFalse(found["ok"])
+
+    def test_the_writer_refuses_to_emit_an_unsorted_layer_at_all(self) -> None:
+        from scripts.native_shadow_boot_initrd_arm64_v1 import InitrdBuildError
+
+        later = self.BASE + self._required()
+        reordered = sorted(later, key=lambda row: row["path"], reverse=True)
+        with self.assertRaises(InitrdBuildError):
+            self._archive(reordered, sort=False)
+
+    def test_a_record_numbered_out_of_step_is_caught(self) -> None:
+        from scripts.native_shadow_boot_initrd_arm64_v1 import _record, parse_newc
+
+        later = self._archive(self.BASE + self._required())
+        out = b"".join(
+            _record(
+                ino=row["ino"] + 1 if row["name"] == "usr" else row["ino"],
+                mode=row["mode"],
+                nlink=row["nlink"],
+                name=row["name"],
+                data=row["data"],
+            )
+            for row in parse_newc(later)
+        )
+        found = mod.initrd_record_accounting(
+            before=self._archive(self.BASE), after=out, rows=self._rows()
+        )
+        self.assertFalse(found["ok"])
+        self.assertFalse(found["renumbering"]["consistent"])
+        self.assertIn("usr", found["renumbering"]["inconsistentRecords"])
+
+    def test_a_removed_record_fails(self) -> None:
+        without = [row for row in self.BASE if row["path"] != "usr/bin"]
+        found = mod.initrd_record_accounting(
+            before=self._archive(self.BASE),
+            after=self._archive(without + self._required()),
+            rows=self._rows(),
+        )
+        self.assertFalse(found["ok"])
+        self.assertEqual(found["removedRecords"], ["usr/bin"])
+
+
 class ResolveOutputsTest(unittest.TestCase):
     def test_the_names_come_from_the_producer_rather_than_from_here(self) -> None:
         from scripts import native_shadow_boot_root_disk_readback_arm64_v1 as readback

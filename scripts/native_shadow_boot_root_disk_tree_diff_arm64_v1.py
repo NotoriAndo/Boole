@@ -41,6 +41,7 @@ from typing import Any, Callable, Optional
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from scripts import native_shadow_boot_image_verify_arm64_v1 as image_verify
+from scripts import native_shadow_boot_initrd_arm64_v1 as initrd
 from scripts import native_shadow_boot_root_disk_readback_arm64_v1 as readback
 from scripts import native_shadow_boot_rootfs_mount_point_audit_arm64_v1 as mount_points
 
@@ -254,6 +255,147 @@ def document(
     return found
 
 
+def _archive_records(raw: bytes) -> tuple[dict[str, dict[str, Any]], int]:
+    """Each `newc` record by name, with the span of bytes it occupies."""
+
+    records: dict[str, dict[str, Any]] = {}
+    start = 0
+    total = 0
+    for row in initrd.parse_newc(raw):
+        total = row["dataEnd"]
+        span, start = row["dataEnd"] - start, row["dataEnd"]
+        if row["name"] == initrd.TRAILER_NAME:
+            continue
+        if row["name"] in records:
+            raise RootDiskTreeDiffError(f"the archive names {row['name']} twice")
+        records[row["name"]] = {
+            "filesize": row["filesize"],
+            "gid": row["gid"],
+            "ino": row["ino"],
+            "mode": row["mode"],
+            "mtime": row["mtime"],
+            "nlink": row["nlink"],
+            "sha256": hashlib.sha256(row["data"]).hexdigest(),
+            "span": span,
+            "uid": row["uid"],
+        }
+    return records, total
+
+
+def initrd_record_accounting(
+    *, before: bytes, after: bytes, rows: tuple[dict[str, Any], ...]
+) -> dict[str, Any]:
+    """Account for every byte by which one archive differs from another.
+
+    The tree comparison answers whether anything else changed.  This answers the
+    narrower question the digest raised: the archive numbers its entries from
+    one, so inserting five renumbers everything after them, and the digest moves
+    without any content moving.  Saying so is reading the writer; showing it is
+    checking that each shared record moved by exactly the number of insertions
+    that precede it, and that the growth in bytes is exactly the five new
+    records and nothing else.
+    """
+
+    was, before_bytes = _archive_records(before)
+    now, after_bytes = _archive_records(after)
+
+    reasons: list[str] = []
+    added = sorted(set(now) - set(was))
+    removed = sorted(set(was) - set(now))
+    for name in removed:
+        reasons.append(f"{name} is a record of the earlier archive and not of the later one")
+
+    # `ino` is the record's position, so it is checked by the renumbering below
+    # rather than compared; `span` follows from the fields that are compared.
+    compared = ("filesize", "gid", "mode", "mtime", "nlink", "sha256", "uid")
+    field_differences: dict[str, dict[str, Any]] = {}
+    for name in sorted(set(was) & set(now)):
+        fields = {
+            field: {"after": now[name][field], "before": was[name][field]}
+            for field in compared
+            if was[name][field] != now[name][field]
+        }
+        if fields:
+            field_differences[name] = fields
+            reasons.append(f"{name} differs in {', '.join(sorted(fields))}")
+
+    wanted = {row["path"]: row for row in rows}
+    for name in sorted(set(added) - set(wanted)):
+        reasons.append(f"{name} was added and is not one of the required directories")
+    for name in sorted(set(wanted) - set(added)):
+        reasons.append(f"{name} is required and was not added")
+    for name, row in sorted(wanted.items()):
+        record = now.get(name)
+        if record is None or name not in added:
+            continue
+        if record["mode"] & 0o170000 != 0o040000:
+            reasons.append(f"{name} was added as something other than a directory")
+        elif record["mode"] & 0o7777 != int(row["mode"], 8):
+            reasons.append(
+                f"{name} was added with mode {record['mode'] & 0o7777:04o}, "
+                f"not {int(row['mode'], 8):04o}"
+            )
+        if (record["uid"], record["gid"]) != (0, 0):
+            reasons.append(f"{name} was added owned by {record['uid']}:{record['gid']}")
+        if record["filesize"]:
+            reasons.append(f"{name} was added carrying {record['filesize']} bytes of content")
+
+    inserted_at = sorted(now[name]["ino"] for name in added)
+    shifts: dict[str, int] = {}
+    inconsistent: list[str] = []
+    for name in sorted(set(was) & set(now)):
+        shift = now[name]["ino"] - was[name]["ino"]
+        shifts[name] = shift
+        expected = sum(1 for position in inserted_at if position < now[name]["ino"])
+        if shift != expected:
+            inconsistent.append(name)
+    if inconsistent:
+        reasons.append(
+            f"{len(inconsistent)} record(s) are not numbered by the insertions before "
+            f"them, the first being {inconsistent[0]}"
+        )
+
+    added_bytes = sum(now[name]["span"] for name in added)
+    balanced = after_bytes - before_bytes == added_bytes
+    if not balanced:
+        reasons.append(
+            f"the archive grew by {after_bytes - before_bytes} bytes, and the added "
+            f"records are {added_bytes} bytes"
+        )
+
+    return {
+        "addedRecords": added,
+        "byteAccounting": {
+            "addedRecordBytes": added_bytes,
+            "afterBytes": after_bytes,
+            "balanced": balanced,
+            "beforeBytes": before_bytes,
+        },
+        "fieldDifferences": field_differences,
+        "ok": not reasons,
+        "reasons": reasons[:CHANGE_SUMMARY_LIMIT],
+        "removedRecords": removed,
+        "renumbering": {
+            "consistent": not inconsistent,
+            "inconsistentRecords": inconsistent[:CHANGE_SUMMARY_LIMIT],
+            "shifts": shifts,
+        },
+    }
+
+
+def _renumbering_summary(renumbering: dict[str, Any]) -> dict[str, Any]:
+    """The shifts, counted rather than listed: one line per distinct shift."""
+
+    counted: dict[str, int] = {}
+    for shift in renumbering["shifts"].values():
+        counted[str(shift)] = counted.get(str(shift), 0) + 1
+    return {
+        "consistent": renumbering["consistent"],
+        "inconsistentRecords": renumbering["inconsistentRecords"],
+        "recordsByShift": counted,
+    }
+
+
 def resolve_outputs(outputs: pathlib.Path, key: str) -> pathlib.Path:
     """Which file in a produced set is which, asked of the producer authority."""
 
@@ -273,14 +415,33 @@ def _subject(before: pathlib.Path, after: pathlib.Path) -> dict[str, Any]:
 def compare_initrds(*, before: pathlib.Path, after: pathlib.Path) -> dict[str, Any]:
     """Compare two `newc` archives.  No Linux and no root: the archive is bytes."""
 
-    trees = [image_verify.tree_from_initrd(path.read_bytes()) for path in (before, after)]
-    difference = diff_trees(trees[0], trees[1])
-    return document(
+    rows = mount_points.required_root_directories()
+    raw = [path.read_bytes() for path in (before, after)]
+    difference = diff_trees(*(image_verify.tree_from_initrd(one) for one in raw))
+    accounting = initrd_record_accounting(before=raw[0], after=raw[1], rows=rows)
+    found = verdict(diff=difference, rows=rows)
+    if not accounting["ok"]:
+        found = {
+            "ok": False,
+            "reasons": (found["reasons"] + accounting["reasons"])[:CHANGE_SUMMARY_LIMIT],
+        }
+    document_found = document(
         subject=_subject(before, after),
         container="initrd",
         diff=difference,
-        verdict=verdict(diff=difference, rows=mount_points.required_root_directories()),
+        verdict=found,
     )
+    document_found["recordAccounting"] = {
+        "addedRecords": accounting["addedRecords"],
+        "byteAccounting": accounting["byteAccounting"],
+        "fieldDifferences": {
+            name: sorted(fields) for name, fields in sorted(accounting["fieldDifferences"].items())
+        },
+        "ok": accounting["ok"],
+        "removedRecords": accounting["removedRecords"],
+        "renumbering": _renumbering_summary(accounting["renumbering"]),
+    }
+    return document_found
 
 
 def compare_root_disks(
@@ -361,6 +522,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"added:   {found['addedPaths']}")
     print(f"removed: {found['removedPaths']}")
     print(f"changed: {sorted(found['changedPaths'])}")
+    accounting = found.get("recordAccounting")
+    if accounting:
+        byte = accounting["byteAccounting"]
+        print(
+            f"bytes:   {byte['beforeBytes']} -> {byte['afterBytes']}, "
+            f"added records {byte['addedRecordBytes']}, "
+            f"balanced {str(byte['balanced']).lower()}"
+        )
+        print(
+            f"numbering: consistent {str(accounting['renumbering']['consistent']).lower()}, "
+            f"records by shift {accounting['renumbering']['recordsByShift']}"
+        )
     for reason in found["verdict"]["reasons"]:
         print(f"  {reason}")
     passed = found["verdict"]["ok"]
