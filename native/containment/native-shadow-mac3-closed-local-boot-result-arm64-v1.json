@@ -1,0 +1,213 @@
+{
+  "activationAllowed": false,
+  "appendOnly": {
+    "policy": "Records already sealed are bound here by digest and left byte-unchanged.",
+    "recordsLeftByteUnchanged": [
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+        "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a",
+        "sizeBytes": 8597
+      },
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json",
+        "sha256": "07a41497c99554eba5453bbc9771f3c450ec22bb80d2852c30174d66fa76fad1",
+        "sizeBytes": 15925
+      },
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json",
+        "sha256": "af815ee609a2fbee4dc4a81ba0d331bd851b8a60792b87ed61583d642e861725",
+        "sizeBytes": 16053
+      },
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-successor-authority-arm64-v1.json",
+        "sha256": "f125e487c03b560fd753924bee7d830d25eec97ddcfd6bf8982526f57e636f6c",
+        "sizeBytes": 35393
+      }
+    ]
+  },
+  "bootableClaim": false,
+  "boundaries": {
+    "cleanMacEvidence": false,
+    "curl3": false,
+    "guestBootVerified": false,
+    "launcherServed": false,
+    "productRelease": false,
+    "publicMining": false
+  },
+  "console": {
+    "decisiveExcerpt": [
+      "[    0.051891] devtmpfs: error mounting -2",
+      "[    0.051918] Failed to create /dev/root: -2",
+      "[    0.052557] Freeing unused kernel memory: 12224K",
+      "[    0.055811] Checked W+X mappings: passed, no W+X pages found",
+      "[    0.055854] Run /usr/lib/systemd/systemd as init process",
+      "Failed to mount proc (type proc) on /proc (MS_NOSUID|MS_NODEV|MS_NOEXEC \"\"): No such file or directory",
+      "",
+      "Failed to mount sysfs (type sysfs) on /sys (MS_NOSUID|MS_NODEV|MS_NOEXEC \"\"): No such file or directory",
+      "",
+      "Failed to mount devtmpfs (type devtmpfs) on /dev (MS_NOSUID|MS_STRICTATIME \"mode=0755,size=4m\"): No such file or directory",
+      "",
+      "Freezing execution.",
+      ""
+    ],
+    "lineCount": 73,
+    "sha256": "577df5c6c9bb034fbfdfb1c336bd0478bbe921e3e5bdf95f6b5a8de2b7ea2623",
+    "sizeBytes": 4780
+  },
+  "determinismNote": "The two replicas remain byte-identical and that record stands. What this run shows is that a deterministic image is not yet a booting userspace.",
+  "determinismResultUnaffected": true,
+  "doesNotUnlock": [
+    "the launcher reaching a serving state, or serving any execution",
+    "runtime compatibility of the guest toolchain",
+    "CURL.3, which stays DEFERRED / NOT PASSED",
+    "clean-Mac evidence, which needs an environment this is not",
+    "product release readiness of any kind",
+    "public mining, a paid-API benchmark or a leaderboard claim",
+    "activation, which stays false with every gate before it still in place"
+  ],
+  "foundByThisRun": [
+    {
+      "path": "/proc",
+      "shownBy": "Failed to mount proc (type proc) on /proc (...): No such file or directory",
+      "what": "the mount point for procfs is absent from the root filesystem"
+    },
+    {
+      "path": "/sys",
+      "shownBy": "Failed to mount sysfs (type sysfs) on /sys (...): No such file or directory",
+      "what": "the mount point for sysfs is absent from the root filesystem"
+    },
+    {
+      "path": "/dev",
+      "shownBy": "Failed to mount devtmpfs (type devtmpfs) on /dev (...): No such file or directory; the kernel had already reported devtmpfs: error mounting -2 and Failed to create /dev/root: -2",
+      "what": "the mount point for devtmpfs is absent from the root filesystem"
+    }
+  ],
+  "host": {
+    "architecture": "arm64",
+    "closedLocal": true,
+    "dryRun": false,
+    "framework": "Virtualization.framework",
+    "kernelCommandLine": "console=hvc0 root=/dev/vda ro init=/usr/lib/systemd/systemd",
+    "machine": {
+      "cpuCount": 2,
+      "memoryBytes": 2147483648,
+      "networkDevices": 0,
+      "serialPorts": 1,
+      "sharedDirectories": 0,
+      "socketDevices": 0,
+      "storageDevices": 1
+    },
+    "machineKind": "development Mac",
+    "os": "macOS",
+    "outcome": "stopped-at-timeout",
+    "ranForSeconds": 195.296875,
+    "signing": "ad-hoc, com.apple.security.virtualization only",
+    "timeoutSeconds": 180
+  },
+  "invariants": {
+    "BF.7": "HOLD",
+    "CURL.3": "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED",
+    "LLM-MINEABLE-ELIGIBLE-V5": 14160,
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "activationAllowed": false,
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "judgedAgainst": {
+    "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+    "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a",
+    "sizeBytes": 8597
+  },
+  "notRetried": "The run was performed once and was not repeated. Five of six conditions were met; the sixth was not, and the frozen conditions were not relaxed to make it one.",
+  "passConditions": [
+    {
+      "condition": "the two files loaded are the ones two arm64 replicas independently converged on",
+      "evidence": "the host re-hashed both files and read the sealed digests",
+      "id": "loads-the-converged-image",
+      "judgedBy": "the host re-hashes the kernel and the root disk immediately before configuring the machine and refuses to start on any mismatch; both digests are written into the run receipt",
+      "verdict": "MET"
+    },
+    {
+      "condition": "the machine is configured with no network device, no shared directory and no writable disk",
+      "evidence": "no network device, no shared directory, one read-only disk",
+      "id": "closed-local-configuration",
+      "judgedBy": "the configuration the host built is serialised into the run receipt and read back: the counts must be zero and the single disk attachment must be read-only",
+      "verdict": "MET"
+    },
+    {
+      "condition": "the guest kernel executes and mounts the sealed ext4 as its root filesystem",
+      "evidence": "the transcript contains 'EXT4-fs (vda): mounted filesystem'",
+      "id": "kernel-reaches-its-root-filesystem",
+      "judgedBy": "the captured console shows the kernel banner and an EXT4-fs line naming the root device mounted read-only",
+      "verdict": "MET"
+    },
+    {
+      "condition": "PID 1 is the systemd that was built into this image",
+      "evidence": "the transcript never shows 'systemd[1]:'",
+      "id": "guest-systemd-is-pid-1",
+      "judgedBy": "the captured console shows systemd's own startup banner reporting version 255, which is the version the image carries",
+      "verdict": "NOT MET"
+    },
+    {
+      "condition": "the sealed root disk is byte-identical after the run",
+      "evidence": "the image hashed to 9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc before and after",
+      "id": "sealed-image-unchanged-after-the-run",
+      "judgedBy": "the host re-hashes the root disk file after the machine stops and compares it with the digest in the green record. Read-only is a claim about the attachment; this is the check that the claim held, and it is the one condition the guest cannot fake.",
+      "verdict": "MET"
+    },
+    {
+      "condition": "the run leaves a transcript that can be read by someone who was not there",
+      "evidence": "4780 bytes, sha256 577df5c6c9bb034fbfdfb1c336bd0478bbe921e3e5bdf95f6b5a8de2b7ea2623",
+      "id": "console-transcript-captured-and-hashed",
+      "judgedBy": "the whole console stream is written to a file, its sha256 and byte count go into the run receipt, and the file is kept whatever the verdict",
+      "verdict": "MET"
+    }
+  ],
+  "release": "NATIVE-SHADOW-MAC3-CLOSED-LOCAL-BOOT-RESULT-ARM64-V1",
+  "rerunPermitted": false,
+  "rootDisk": {
+    "note": "Hashed on both sides of the run by the driver, not reported by the guest.",
+    "sha256After": "9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc",
+    "sha256Before": "9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc"
+  },
+  "runsAllowed": 1,
+  "runsPerformed": 1,
+  "schema": "boole.native-shadow.mac3-closed-local-boot-result.arm64.v1",
+  "status": "MAC3-CLOSED-LOCAL-BOOT-QUALIFICATION-RUN-COMPLETE-VERDICT-FAIL",
+  "subject": {
+    "initrd": {
+      "sha256": "4674128144befeea20b1cbeb5af340b981b7b125d32d43630c721bb4b0aecab2",
+      "used": false,
+      "whyUnused": "the guest kernel has virtio-blk and ext4 built in rather than as modules, so it can reach the sealed root filesystem without one. The initrd carries the same tree as a cpio archive and has no /init, so using it would mean adding a boot path this image was not built for."
+    },
+    "kernel": {
+      "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+      "sizeBytes": 57860488
+    },
+    "rootDisk": {
+      "attachedReadOnly": true,
+      "sha256": "9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc",
+      "sizeBytes": 1168314368
+    }
+  },
+  "verdict": "FAIL",
+  "whatFailed": {
+    "cause": "The root filesystem has no mount-point directories for the kernel's virtual filesystems. Its top level holds usr, etc, opt, var, boot and the usr-merge symlinks and nothing else, so there is no /proc, /sys or /dev for PID 1 to mount over.",
+    "condition": "guest-systemd-is-pid-1",
+    "notTheCause": [
+      "Not the boot loader: the kernel ran and handed over to init.",
+      "Not the image's determinism: the same bytes both replicas produced were read here.",
+      "Not the missing account database: systemd froze before reaching any user lookup."
+    ],
+    "observed": "systemd started as PID 1 and stopped before identifying itself: it could not mount /proc, /sys or /dev, each failing with No such file or directory, and then printed Freezing execution. The frozen marker for this condition is a systemd[1]: log line, which systemd emits only after those mounts exist."
+  },
+  "whatWorked": [
+    "The kernel started from the sealed image, with no initrd, on Virtualization.framework.",
+    "virtio-blk presented the sealed disk as /dev/vda at its exact size, 2281864 512-byte blocks.",
+    "The ext4 filesystem mounted read-only from that device and the kernel reported the root mounted.",
+    "The kernel executed /usr/lib/systemd/systemd as its init process, so the path and the binary are both real.",
+    "The sealed image hashed identically before and after, so the read-only attachment held."
+  ],
+  "whatWouldBeNeeded": "A new guest image whose builder creates the empty mount-point directories, and with it the /run and /tmp the same startup needs. That is a new production of the root disk, which the standing instruction allows exactly once and has already spent, so it requires a separate operator approval before it may be produced or booted again."
+}

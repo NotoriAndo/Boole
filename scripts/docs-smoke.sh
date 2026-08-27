@@ -841,6 +841,19 @@ require_file scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py
 require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'CODESIGN_IDENTITY = "-"'
 require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'RUNS_ALLOWED = 1'
 
+# The result of that one attempt. It did not pass, and the verdict is pinned
+# here in the same words the record uses, so softening it later fails the gate
+# rather than passing quietly. The attempt is also pinned as spent: the driver
+# reads this record before it will start anything, which is why a wiped scratch
+# directory cannot buy a second run.
+require_file native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json '"verdict": "FAIL"'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json '"runsPerformed": 1'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json '"rerunPermitted": false'
+require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json '"guest-systemd-is-pid-1"'
+require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'assert_no_run_has_been_spent(SEALED_RESULT_PATH)'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_closed_local_boot_result_arm64_v1.py
+
 # The verification stage is separate from the producer on purpose: a producer
 # that checks its own output can only confirm that it did what it did. debugfs
 # keeps the inspector role v1 sealed for it -- read-only, never `-w`.

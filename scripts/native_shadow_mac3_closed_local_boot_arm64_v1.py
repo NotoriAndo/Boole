@@ -28,6 +28,9 @@ CONTAINMENT = REPO / "native/containment"
 QUALIFICATION_PATH = (
     CONTAINMENT / "native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json"
 )
+SEALED_RESULT_PATH = (
+    CONTAINMENT / "native-shadow-mac3-closed-local-boot-result-arm64-v1.json"
+)
 HOST_SOURCE_PATH = REPO / "native/mac3/boole-mac3-closed-local-boot.swift"
 ENTITLEMENTS_PATH = REPO / "native/mac3/boole-mac3-closed-local-boot.entitlements"
 
@@ -322,6 +325,10 @@ def command_qualify(args: argparse.Namespace) -> int:
 
     record = qualification()
     assert_record_has_an_attempt_left(record)
+    # The sealed result is checked first and on purpose: a wiped scratch
+    # directory must not buy a second attempt, and the record that says the
+    # attempt was spent lives in the repository rather than in /tmp.
+    assert_no_run_has_been_spent(SEALED_RESULT_PATH)
     assert_no_run_has_been_spent(receipt_path)
     assert_no_run_has_been_spent(result_path)
 
