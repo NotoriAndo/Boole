@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `2d33aa36f85797b1694cb080edaf3e62e945b2eb1f2e14530839894c79724844` (updated 2026-08-27f — the successor guest booted once and passed 6/6; the launcher is recorded as started and not as serving. This digest also picks up the 27d and 27e entries, which were written but never mirrored here) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `7eb836eefeb7b7565cad5c548d9db170d7c70ea650871dd550a7798463f05157` (updated 2026-08-27f — Phase D successor attempt is RUN ONCE / PASS, cursor moves to MAC.3 guest runtime. This digest also picks up the 27d and 27e entries, which were written but never mirrored here) |
+| `local-docs/todo/todo-l1-network-master.md` | `9196310572c35148676fae1656beb85126050f7db7f98bb2bc6fcb0be7071648` (updated 2026-08-27h — two of the three gaps are closed as files and the third is left named as open; no image was built and nothing is claimed to serve. This digest also picks up the 27g entry, which recorded the frozen runtime contract) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `de6054d7aeab7e7136596a0aa91fa21784ed20d102b9f613660a421ef8118373` (updated 2026-08-27h — the cursor is the MAC.3 guest runtime input set at FROZEN / NOT BUILT; the runtime rootfs stays open because it is a builder change rather than an input file. This digest also picks up the 27g entry, which froze the runtime contract) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `a143135ec0538f0731e687e74b24af7448df1739c9aa8a246d71150f7196ed59` (updated 2026-08-27f — one precondition is met and only that one; the ordering to BF.7 and activation is unchanged. This digest also picks up the 27d and 27e entries, which were written but never mirrored here) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `7d6fafb4376cadc679f99c9b6c5730bb505b72327934ca80989798cf5568aa20` (updated 2026-08-27h — inputs and results are kept in separate columns; the ordering to BF.7 and activation is unchanged. This digest also picks up the 27g entry, which promoted observability from a sentence to a checkable contract) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the

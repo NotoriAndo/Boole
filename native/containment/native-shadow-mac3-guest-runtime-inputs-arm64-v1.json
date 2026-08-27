@@ -1,0 +1,218 @@
+{
+  "accounts": {
+    "boole-native-checker": {
+      "gid": 991,
+      "home": "/nonexistent",
+      "shell": "/bin/false",
+      "uid": 991
+    },
+    "boole-node": {
+      "gid": 990,
+      "home": "/nonexistent",
+      "shell": "/usr/sbin/nologin",
+      "uid": 990
+    }
+  },
+  "activationAllowed": false,
+  "appendOnly": {
+    "note": "Nothing sealed is edited. The two files this set supersedes stay in the tree at their sealed digests, because four authority records name them and those records are not reopened. A successor image would stage the v2 files to the same guest paths; the v1 files remain the inputs of the image that already booted.",
+    "recordsLeftByteUnchanged": [
+      {
+        "path": "native/systemd/boole-native-shadow-launcher.service",
+        "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+        "sizeBytes": 704
+      },
+      {
+        "path": "native/tmpfiles.d/boole-native-shadow.conf",
+        "sha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+        "sizeBytes": 233
+      },
+      {
+        "path": "native/sysusers.d/boole-native-shadow.conf",
+        "sha256": "75b1ae8eb024396dcb36d3713435115dba68a8c52b05705ce4fe3b8e7f616445",
+        "sizeBytes": 192
+      },
+      {
+        "path": "native/etc/machine-id",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sizeBytes": 0
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f",
+        "sizeBytes": 17589
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json",
+        "sha256": "bf703945ec02f1f66b492f7bb0c6e4080190caea17dc063e2868ef688669abb7",
+        "sizeBytes": 24273
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json",
+        "sha256": "95655e74754c27166902a4030c92608d32a5f76e250b091863b923fa69a5deeb",
+        "sizeBytes": 17536
+      },
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json",
+        "sha256": "d1d76942070408e1c0e2163b58165eca60468a44365ed9cb3e695b49a9efba70",
+        "sizeBytes": 12632
+      },
+      {
+        "path": "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json",
+        "sha256": "6e4a2ae19493f81a58e6130ea95676967cb08fd7d7f3694eb90f673e6e3a1820",
+        "sizeBytes": 4938
+      },
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+        "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+        "sizeBytes": 357104
+      }
+    ]
+  },
+  "boundContract": {
+    "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+    "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f",
+    "sizeBytes": 17589
+  },
+  "boundaries": [
+    "no wallet seed, passphrase or key derivation material is named here or staged into the guest",
+    "no model API key is named here or staged into the guest",
+    "no reward, block, consensus or peer-to-peer authority is granted to the guest",
+    "no network device and no shared directory is added by any file in this set",
+    "no operator key, team identifier, certificate or provisioning profile is created",
+    "no public mining, no public testnet, no paid benchmark and no leaderboard claim"
+  ],
+  "doesNotClose": [
+    {
+      "consequence": "the launcher still refuses at verify_runtime_rootfs_replay. Serving executions is not in reach for an image built from this input set alone, and this record claims no otherwise.",
+      "gap": "/var/lib/boole/native-shadow/runtime-rootfs",
+      "why": "this one is not an input file. The runtime rootfs is a tree the build materialises from the already-sealed package set, so closing it is a change to the builder and to what the image contains, not a file that can be added to a staging table. It stays open here on purpose, and it stays open in the contract."
+    }
+  ],
+  "frozenBefore": "any image is produced from these inputs",
+  "identityContractClauses": [
+    {
+      "clause": "the passwd name equals the fixed account name",
+      "satisfiedBy": "both entries are written under exactly the names the launcher compiles in"
+    },
+    {
+      "clause": "the account's user id and primary group id are both non-zero",
+      "satisfiedBy": "990 and 991, chosen inside the system range and below the first regular user id"
+    },
+    {
+      "clause": "the account's home is /nonexistent",
+      "satisfiedBy": "both entries name /nonexistent, matching the sysusers file the image already ships"
+    },
+    {
+      "clause": "the account's shell is nologin or false",
+      "satisfiedBy": "node carries /usr/sbin/nologin and checker carries /bin/false, matching the sysusers file"
+    },
+    {
+      "clause": "a group of the same name exists whose id equals the passwd primary group id",
+      "satisfiedBy": "the group file carries boole-node at 990 and boole-native-checker at 991"
+    },
+    {
+      "clause": "looking the primary group id up by number returns that same-named group",
+      "satisfiedBy": "990 and 991 each appear exactly once in the group file, so the reverse lookup is unambiguous"
+    },
+    {
+      "clause": "the account's full group list is exactly its primary group",
+      "satisfiedBy": "neither account appears in any group's member list; every member list in the file is empty"
+    },
+    {
+      "clause": "node and checker share neither a user id nor a primary group id",
+      "satisfiedBy": "990 against 991 on both"
+    }
+  ],
+  "imageProduced": false,
+  "inputs": [
+    {
+      "closesGap": "/etc/passwd",
+      "guestPath": "/etc/passwd",
+      "path": "native/etc/passwd",
+      "sha256": "d7b3ce429ca6ed85a23d1810691719e607fd50e6ce54d3ea6d307829ca66b8ab",
+      "sizeBytes": 259,
+      "what": "the account database the guest's own sysusers file expects to fill in",
+      "why": "systemd-sysusers is the thing that would normally write this, and it cannot write to a read-only root. Baking it into the image is the only way the two accounts exist at the moment the launcher asks for them. Sysusers still runs and still finds both accounts already present, which is the case in which it writes nothing."
+    },
+    {
+      "closesGap": "/etc/passwd",
+      "guestPath": "/etc/group",
+      "path": "native/etc/group",
+      "sha256": "511fb0f6573fd67e0070eab6873655f3f51aaa78b36bacadbd49d30a854f40b2",
+      "sizeBytes": 73,
+      "what": "the group database the identity contract reads twice, by name and by number",
+      "why": "the contract does not accept a passwd entry on its own. It asks for a group of the same name whose number matches, then asks the number to resolve back to that same group, then asks for the account's full group list to be exactly that one number. All three questions are answered from this file."
+    },
+    {
+      "closesGap": "/etc/passwd",
+      "guestPath": "/etc/shadow",
+      "path": "native/etc/shadow",
+      "sha256": "6380bdaffa703d9f96db5876e9f758c888dc4652bb145ce3ac52266141756218",
+      "sizeBytes": 128,
+      "what": "the password file, with every entry locked",
+      "why": "each account carries * rather than a hash, which is the value no password can ever match. It is present so the account database is complete and self-consistent, not so anything can log in. Nothing in the guest offers a login prompt."
+    },
+    {
+      "closesGap": "/etc/passwd",
+      "guestPath": "/etc/gshadow",
+      "path": "native/etc/gshadow",
+      "sha256": "d32024a972c5341df5574542db6c7f2c8fe595c393b125d6a6c4d59c7dbde06a",
+      "sizeBytes": 61,
+      "what": "the group password file, with every entry locked and no members",
+      "why": "the member lists are empty here for the same reason they are empty in the group file: an account that appears in another group's member list would fail the contract clause that its full group list be exactly its own primary group."
+    },
+    {
+      "closesGap": "/etc/passwd",
+      "guestPath": "/etc/nsswitch.conf",
+      "path": "native/etc/nsswitch.conf",
+      "sha256": "796450cf1faebb3a577bda80918be349ca1ee9b9bfb9fe7f7cbb7dfbbb177b36",
+      "sizeBytes": 267,
+      "what": "the lookup order, pinned to files for every database",
+      "why": "glibc has a built-in default when this file is absent, so the guest would probably have resolved from files anyway. Probably is not a property worth relying on, and the file is four lines. No entry names the systemd module, which the image does not ship, and none names dns, which would want a network the guest does not have."
+    },
+    {
+      "closesGap": "the launcher's own output",
+      "guestPath": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+      "path": "native/systemd/boole-native-shadow-launcher-v2.service",
+      "sha256": "4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55",
+      "sizeBytes": 720,
+      "supersedes": "native/systemd/boole-native-shadow-launcher.service",
+      "what": "the launcher unit with its output also going to the console",
+      "why": "the sealed boot receipt records that where the launcher refuses was not observable. Two lines change: standard output and standard error each gain the console alongside the journal. The console is a channel the host already captures and hashes, so this adds no device, no network and no shared directory. Every other line, including the capability set and the account the unit runs as, is byte-identical to v1."
+    },
+    {
+      "closesGap": "every write lands on tmpfs",
+      "guestPath": "/usr/lib/tmpfiles.d/boole-native-shadow.conf",
+      "path": "native/tmpfiles.d/boole-native-shadow-v2.conf",
+      "sha256": "730ae451fd1c70d41e9a865004040bca03db8cda29dd458cf6bb4d8e75f23b10",
+      "sizeBytes": 80,
+      "supersedes": "native/tmpfiles.d/boole-native-shadow.conf",
+      "what": "the runtime directory rules, with the three that cannot succeed removed",
+      "why": "v1 asks for three directories under /var/lib/boole on a filesystem mounted read-only. Those three lines cannot succeed and were never going to. Removing them makes the condition that every write lands on tmpfs true by construction rather than true because the failures happened to be harmless. The two lines that remain are both under /run, which is tmpfs. The launcher's lock and socket live there and nowhere else. Nothing the launcher needs was under /var/lib/boole: the replay node unit is the only thing that names node-state, and that unit is not staged into this image."
+    }
+  ],
+  "release": "NATIVE-SHADOW-MAC3-GUEST-RUNTIME-INPUTS-ARM64-V1",
+  "schema": "boole.native-shadow.mac3-guest-runtime-inputs.arm64.v1",
+  "servingClaim": false,
+  "statedPlainly": [
+    {
+      "fact": "neither shell named in the account database is present in the image",
+      "why": "the boot package set contains no login package and no coreutils, so /usr/sbin/nologin and /bin/false are both absent. The identity contract compares the shell as a string and never executes or stats it, so this does not affect resolution. Nothing in the guest ever runs a shell for these accounts. It is recorded here so a later reader finds it stated rather than discovers it."
+    },
+    {
+      "fact": "root's shell is set to nologin rather than the value base-passwd would install",
+      "why": "base-passwd's master file names /bin/bash, and the image ships no bash and no dash. Naming a shell that does not exist and could not be reached is worse than naming the one that refuses by design. This is a deliberate deviation from the packaged default, recorded as a deviation."
+    },
+    {
+      "fact": "the account database is authored here rather than derived from base-passwd",
+      "why": "base-passwd is in the sealed package set and carries master files for passwd and group, but its entries are installed by a maintainer script the deterministic build does not run. Rather than half-derive it, the four entries are written out in full. root and nobody keep the numbers base-passwd uses; the two service accounts are new."
+    },
+    {
+      "fact": "no image has been produced from this input set",
+      "why": "these files change what a future image would contain. They change nothing about the image that already booted, whose result stays sealed and unedited. Production is governed by the contract: criteria frozen first, exactly one production, both replicas byte-identical, and a mismatch after the fact is a stop rather than a retry."
+    }
+  ],
+  "status": "MAC3-GUEST-RUNTIME-INPUTS-FROZEN-NOT-BUILT",
+  "whatThisIs": "The files a successor image would stage to close two of the three gaps the MAC.3 guest runtime contract names. It is a record of inputs, not of a result. No image was built from it, no guest was booted from it, and nothing here is evidence that the launcher serves anything."
+}

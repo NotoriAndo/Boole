@@ -1682,3 +1682,75 @@ or notarization exists or was created. This is not clean-Mac evidence, `Boole.ap
 notarized release, or a Mac production result. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`
 and `BF.7=HOLD` remain unchanged. MAC.4 route binding is not started.
+
+### 13.5 MAC.3 guest runtime contract addendum — 2026-08-27
+
+`native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json` freezes the shape a
+MAC.3 guest runtime run must have before any run answers it. It opens work and reports none: its
+status reads `MAC3-GUEST-RUNTIME-CONTRACT-FROZEN-NOT-RUN`, it carries no verdict, and
+`servingClaim`, `launcherServing`, `cleanMacEvidence`, `runtimeCompatibilityVerified` and
+`productRelease` are all `false`.
+
+The record binds by digest every file its survey read, the sealed boot receipt and qualification it
+follows, and the producer authority that seals the launcher. Nothing sealed is edited.
+
+Three gaps stand between the sealed boot and a serving launcher, and each requires a file inside a
+read-only, content-addressed image, so a new production is required and is recorded as *required
+and not performed*, with one run allowed, criteria frozen first, byte-identical replicas, a
+read-only `e2fsck`, and a hard stop rather than a retry on any post-result mismatch:
+
+1. an account database in the image, because `systemd-sysusers` cannot write one on a read-only root;
+2. the arm64 runtime rootfs and its content manifest, whose sealed digest and the digest the
+   launcher is compiled against are already the same value;
+3. a readable path for the launcher's own output, satisfied by sending it to the console the host
+   already captures and hashes — no device, no network and no shared directory is added.
+
+Nine of the ten minimum conditions are frozen with their checking method recorded. The tenth, *the
+launcher runs under an unprivileged account*, is **held**: `privilege.rs` requires the launcher to
+be root holding exactly four capabilities and to verify that mask itself, and
+`native-shadow-launcher-privilege-gate.sh` proves both a missing and an extra capability fail
+closed. The launcher is the component that drops to the unprivileged node and checker accounts, so
+running it unprivileged would remove that delegation rather than tighten it. A least-privilege
+reading that matches the sealed design is recorded beside the condition with `readingApplied:
+false`; the condition itself is stored verbatim, and the contract's tests fail if it is ever marked
+satisfied, waived or reworded while held.
+
+No wallet seed, model API key or node secret is placed in or passed to the guest, and no
+`SharePool`, block, reward, P2P or consensus consumer is added. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD` and `activationAllowed=false` are unchanged. MAC.4 route binding is not
+started.
+
+### 13.6 MAC.3 guest runtime input set addendum — 2026-08-27
+
+`native/containment/native-shadow-mac3-guest-runtime-inputs-arm64-v1.json` freezes the seven files a
+successor image would stage. It is a record of inputs, not of a result: `imageProduced: false`,
+`servingClaim: false`, `activationAllowed: false`, and no verdict field.
+
+Five of the seven are the account database — `/etc/passwd`, `/etc/group`, `/etc/shadow`,
+`/etc/gshadow`, `/etc/nsswitch.conf` — baked because `systemd-sysusers` cannot write to a read-only
+root. `boole-node` resolves at 990 and `boole-native-checker` at 991, with `/nonexistent` homes and
+the two shells the identity contract allows. Every clause `resolve_one` checks in
+`crates/boole-native-shadow-protocol/src/service_identities.rs` is answered from those files,
+including the one that requires the account's full group list to be exactly its primary gid, which
+is why every member list in `group` and `gshadow` is empty. Neither shell path exists in the image;
+the contract compares the shell as a string and nothing execs it, and the record says so rather than
+leaving it to be discovered.
+
+The remaining two are successors staged to the guest paths their predecessors occupy.
+`boole-native-shadow-launcher-v2.service` changes exactly two lines — standard output and standard
+error each gain `console` beside `journal` — and the capability set, `NoNewPrivileges` and
+`User=root` are byte-identical, so observability is not bought by widening what the launcher holds.
+`boole-native-shadow-v2.conf` keeps the two `/run/boole` rules and drops the three `/var/lib/boole`
+rules that could not succeed on a read-only root.
+
+`/var/lib/boole/native-shadow/runtime-rootfs` stays open. It is a builder change rather than an
+input file, `verify_runtime_rootfs_replay` still refuses, and no input in the set claims to close
+it. The v1 launcher unit, tmpfiles config, sysusers config and machine-id are left byte-unchanged
+and are verified as such by the record's own tests.
+
+No wallet seed, model API key or node secret is placed in or passed to the guest, and no
+`SharePool`, block, reward, P2P or consensus consumer is added. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD` and `activationAllowed=false` are unchanged. MAC.4 route binding is not
+started.

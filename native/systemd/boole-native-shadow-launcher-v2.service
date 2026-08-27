@@ -1,0 +1,32 @@
+[Unit]
+Description=Boole native-shadow qualification launcher
+After=systemd-sysusers.service systemd-tmpfiles-setup.service
+StartLimitIntervalSec=30s
+StartLimitBurst=3
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/boole/boole-native-shadow-launcher
+User=root
+Group=root
+Slice=system.slice
+Delegate=cpu memory pids
+CapabilityBoundingSet=CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN
+AmbientCapabilities=
+NoNewPrivileges=no
+PrivateMounts=yes
+UMask=0117
+Restart=on-failure
+RestartSec=1s
+KillMode=control-group
+TimeoutStopSec=20s
+SendSIGKILL=yes
+TasksMax=infinity
+MemoryMax=infinity
+MemorySwapMax=infinity
+WorkingDirectory=/
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

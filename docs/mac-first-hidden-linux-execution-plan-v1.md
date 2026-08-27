@@ -2093,3 +2093,162 @@ Base activation `false` and `activationAllowed=false` remain unchanged. `bootabl
 `true` only in the scope written above and in the sealed result: this image, this closed
 configuration, one development Mac. No public mining, no paid-API benchmark and no release claim is
 made anywhere in this section.
+
+## 31. The MAC.3 guest runtime contract, frozen before anything answers it (2026-08-27)
+
+The guest boots. That is the whole of what §30 sealed, and the launcher's own refusal point stayed
+invisible inside it. This section opens the next step by writing down what "the launcher serves"
+would have to mean, before any run is allowed to claim it.
+
+### 31.1 The read-only survey
+
+Seven areas were surveyed without producing anything, and each finding is bound in
+`native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json` to the digest of the
+file it was read from.
+
+| Area | What is there today |
+| --- | --- |
+| Account database | No `/etc/passwd`, no `/etc/group`. The sysusers configuration that would create the two accounts ships in the image, but nothing can write them on a read-only root. |
+| Launcher binary and digest | Sealed at `11b5d1cf…`, 2,006,632 bytes, at `/usr/libexec/boole/boole-native-shadow-launcher`, admitted only by rebuild-and-match-seal. |
+| Service and enablement wiring | Unit staged into `/usr/lib/systemd/system`; the enablement symlink is a declared derived entry. §30 recording the unit as started is that wiring working. |
+| Runtime directory | `/run/boole` and `/run/boole/native-shadow` (`2750`, `root:boole-node`), lock at mode `0600`. `/run` is a tmpfs, so these are writable already. |
+| Socket path | `/run/boole/native-shadow/launcher.sock`, same tmpfs, peer uid and gid checked against the resolved node account on every connection. |
+| tmpfiles and sysusers configuration | Both ship. Three tmpfiles lines ask for directories under `/var/lib/boole`, which is on the read-only root and cannot take them; the two under `/run` can. |
+| Writes needed on a read-only root | The runtime directory, socket and lock need nothing. `/var/lib/boole/native-shadow/node-state` is not on a tmpfs, and the replay node unit declares it read-write. |
+
+### 31.2 The three gaps, and what closes each
+
+- **The account database.** The launcher resolves `boole-node` and `boole-native-checker` before it
+  does anything else. Closing this means baking the database into the image, precisely because the
+  thing that would normally create it cannot write to a read-only root.
+- **The runtime rootfs.** The launcher verifies `/var/lib/boole/native-shadow/runtime-rootfs`
+  against a content manifest whose digest it is compiled against. That digest and the one the arm64
+  replay expectation already seals are the same value, so nothing new is invented to close this.
+- **A readable path for the launcher's own output.** Sending its standard output and error to the
+  console the host already captures and hashes adds no device, no network and no shared directory,
+  and turns "not observable from this run" into an observation.
+
+Each gap is a file that has to be *inside* an image that is read-only and content-addressed, so
+none of them can be added to the one that already booted. A new production is required. It is
+recorded as required and not as performed.
+
+### 31.3 The ten conditions, and the one that is held
+
+Nine of the ten minimum conditions are frozen with the method that will check each of them written
+beside it. The tenth — *the launcher runs under an unprivileged account* — is held, not softened.
+
+The launcher is a privilege manager. It refuses to start unless it is root holding exactly four
+capabilities, verifies that mask itself before anything else, and is what drops to the unprivileged
+node and checker accounts on the way to the work. `crates/boole-native-shadow-launcher/src/privilege.rs`
+requires it and `scripts/native-shadow-launcher-privilege-gate.sh` proves both a missing and an
+extra capability fail closed. Running the launcher itself unprivileged is therefore not a
+configuration change; it would remove the delegation and account separation the containment is
+built on.
+
+A reading that keeps the intent — least privilege, with every served execution unprivileged — is
+recorded beside the condition and explicitly **not applied**. Which of the two the project takes is
+the operator's decision, and the record fails its own tests if that condition is ever marked
+satisfied, waived or reworded while it is still held.
+
+### 31.4 Execution cursor
+
+```
+PHASE D (MAC.3 closed-local boot, attempt 2)  RUN ONCE / VERDICT PASS — sealed, §30
+MAC.3 runtime contract                        FROZEN / NOT RUN — ten conditions, one held
+MAC.3 guest runtime inputs                    OPEN — account database, runtime rootfs, readable output
+NEW IMAGE PRODUCTION                           REQUIRED / NOT PERFORMED — one pair, frozen criteria first
+MAC.4 authenticated host-guest transport       NOT STARTED — not begun in this session
+CURL.3                                         DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED
+```
+
+`mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` are unchanged by this section. No serving claim, no clean-Mac claim, no
+public mining and no paid-API benchmark is made anywhere in it.
+
+## 32. The MAC.3 guest runtime input set, frozen before an image exists (2026-08-27)
+
+Section 31 named three gaps. This section closes two of them as files and refuses to pretend it
+closed the third. Nothing here was built, booted or served; §30's sealed boot result and §31's
+frozen contract are byte-unchanged.
+
+Record: `native/containment/native-shadow-mac3-guest-runtime-inputs-arm64-v1.json`, status
+`MAC3-GUEST-RUNTIME-INPUTS-FROZEN-NOT-BUILT`, `imageProduced: false`, `servingClaim: false`,
+`activationAllowed: false`. It carries no verdict field, and its tests fail if one is added.
+
+### 32.1 The account database
+
+`systemd-sysusers` is the thing that would normally write `/etc/passwd`, and it cannot write to a
+read-only root. So the database is baked. Five files:
+
+| Repo path | Guest path | What it settles |
+| --- | --- | --- |
+| `native/etc/passwd` | `/etc/passwd` | `boole-node` at 990 and `boole-native-checker` at 991, homes `/nonexistent`, shells `/usr/sbin/nologin` and `/bin/false` |
+| `native/etc/group` | `/etc/group` | same-named groups at the same numbers, every member list empty |
+| `native/etc/shadow` | `/etc/shadow` | every entry `*`, which no password matches |
+| `native/etc/gshadow` | `/etc/gshadow` | same groups, locked, no members |
+| `native/etc/nsswitch.conf` | `/etc/nsswitch.conf` | every database resolves from files and nothing else |
+
+The identity contract in `crates/boole-native-shadow-protocol/src/service_identities.rs` asks eight
+questions, and all eight are answered from these files rather than at runtime: the name matches; uid
+and gid are both non-zero; home is `/nonexistent`; the shell is one of the two allowed; a same-named
+group exists at the passwd primary gid; that gid resolves back to exactly that group; the account's
+full group list is exactly its primary gid, which is why every member list is empty; and node and
+checker share neither number. `sysusers` still runs, still finds both accounts present, and in that
+case writes nothing — so the read-only root stops being a problem rather than being worked around.
+
+Three things are stated in the record rather than left for a later reader to find. Neither shell
+named exists in the image: the boot package set contains no `login` and no `coreutils`. The contract
+compares the shell as a string and never executes or stats it, and nothing in the guest runs a shell
+for these accounts, so resolution is unaffected. Root's shell is `nologin` rather than the `/bin/bash`
+`base-passwd` would install, because the image ships neither bash nor dash and naming an unreachable
+shell is worse than naming the one that refuses by design. And the database is authored rather than
+derived from `base-passwd`, whose entries are installed by a maintainer script the deterministic
+build does not run; root and nobody keep the numbers `base-passwd` uses.
+
+`nsswitch.conf` names no `systemd` module — the image ships no `libnss-systemd` — and no `dns`,
+which would want a network the guest does not have.
+
+### 32.2 A channel the refusal can be read on
+
+`native/systemd/boole-native-shadow-launcher-v2.service` differs from v1 in exactly two lines, and
+the tests assert that as a line-by-line comparison rather than as prose: `StandardOutput` and
+`StandardError` each gain `console` alongside `journal`. The console is a channel the host already
+captures and hashes, so this adds no device, no network and no shared directory. The capability set,
+`NoNewPrivileges`, `User=root` and every other line are byte-identical to v1.
+
+### 32.3 Writes, by construction rather than by luck
+
+`native/tmpfiles.d/boole-native-shadow-v2.conf` keeps the two `/run/boole` rules and drops the three
+`/var/lib/boole` rules. Those three ask for directories on a filesystem mounted read-only; they
+could never have succeeded. Removing them makes "every write lands on tmpfs" true because nothing
+else is asked for, rather than true because the failures happened to be harmless. Nothing the
+launcher needs was under `/var/lib/boole`: the replay node unit is the only thing that names
+`node-state`, and that unit is not staged into this image.
+
+Both successors go to the **same guest paths** as the files they replace. The v1 files stay in the
+tree at their sealed digests, because four authority records name them and those records are not
+reopened.
+
+### 32.4 The gap that stays open
+
+`/var/lib/boole/native-shadow/runtime-rootfs` is not an input file. It is a tree the build
+materialises from the already-sealed package set, so closing it is a change to the builder and to
+what the image contains. It stays open in this record and in §31's contract, the launcher still
+refuses at `verify_runtime_rootfs_replay`, and no condition below is answered by these inputs.
+
+### 32.5 Execution cursor
+
+```
+PHASE D (MAC.3 closed-local boot, attempt 2)  RUN ONCE / VERDICT PASS — sealed, §30
+MAC.3 runtime contract                        FROZEN / NOT RUN — ten conditions, one held
+MAC.3 guest runtime inputs                    FROZEN / NOT BUILT — two gaps closed as files, one open
+MAC.3 runtime rootfs in the image             OPEN — a builder change, not an input file
+NEW IMAGE PRODUCTION                          REQUIRED / NOT PERFORMED — one pair, frozen criteria first
+MAC.4 authenticated host-guest transport      NOT STARTED — not begun in this session
+CURL.3                                        DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED
+```
+
+No wallet seed, model API key or node secret is named in or staged into the guest by any file in
+this set. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false`
+and `activationAllowed=false` are unchanged. No serving claim, no public mining and no paid-API
+benchmark is made anywhere in this section.
