@@ -1804,3 +1804,35 @@ P2P or consensus consumer is added. CURL.3 remains
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD` and `activationAllowed=false` are unchanged. MAC.4 route binding is not
 started.
+
+### 13.8 Runtime serving gap measurement addendum — 2026-08-27
+
+Appended, not edited. Section 13.7 recorded what a successor image would be judged against. This
+records what such an image would have to carry for the launcher to reach serving, measured against
+the tree.
+
+The launcher's `main` runs nine stages. The seventh verifies a read-only runtime rootfs against a
+content manifest whose digest is compiled into the binary; the ninth serves. Both the tree and the
+manifest live at fixed absolute paths that the binary cannot be configured away from — it reads no
+environment variable. The boot image builder mentions neither path, nor their shared parent, at all.
+That is the gap: a property of a tracked file, not a prediction about a run.
+
+The material for closing it is complete. The boot rootfs lock names 197 artifacts and the runtime
+rootfs lock names 62; all 259 resolve against the local content-addressed cache by digest, with none
+absent and nothing fetched. Those cache counts are recorded as local observations and marked
+not reproducible on a clean runner, since the cache is untracked; the locks stay the authority.
+
+An earlier reading held that the 766,556,160-byte arm64 layer was a required acquisition and
+therefore a stop condition. That was wrong and is kept in the record rather than dropped: the layer
+is an output, not an input, and it is rebuilt from the locked inputs on every pull request by the
+`native-shadow-rootfs-replay-linux-arm64` job and compared against the sealed expectation. What
+remains unestablished is whether that rebuild could run on the developer Mac; the job that works runs
+on a Linux arm64 runner as root.
+
+Four steps remain: extend the four sealed staging records, teach the builder to place both paths,
+produce one image pair, boot it once. The last two are one-shot and each must be sealed after it
+runs, which is why none was started here. Forty-seven tests bind the record, and three deliberate
+mutations were each caught.
+
+No image was produced, no boot was performed, nothing was fetched, and no sealed record was
+modified. `activationAllowed` stays `false` and no serving claim is made.

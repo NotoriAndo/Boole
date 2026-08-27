@@ -1,0 +1,211 @@
+{
+  "schema": "boole.native-shadow.mac3-runtime-serving-gap-measurement.arm64.v1",
+  "release": "MAC3-RUNTIME-SERVING-GAP-MEASUREMENT-ARM64-V1",
+  "status": "MAC3-RUNTIME-SERVING-GAP-MEASURED-NOT-CLOSED",
+  "whatThisIs": "A measurement of the distance between the guest that boots today and a guest in which the launcher would reach serving. The successor boot passed and the launcher binary is sealed, and neither of those establishes the third thing: that the launcher, once started, would find what it refuses to run without. This record names what it looks for, what would have to be built to put it there, and how much of the material for that build is already in hand. Nothing here was produced, dispatched or booted.",
+  "producedOn": "2026-08-27",
+  "productionDispatched": false,
+  "bootPerformed": false,
+  "acquisitionPerformed": false,
+  "servingClaim": false,
+  "activationAllowed": false,
+  "launcherStartupChain": {
+    "note": "Read out of the launcher binary's main function in order. The rootfs check is the seventh of nine, so a guest that fails it never reaches the serving call at the end.",
+    "source": {
+      "path": "crates/boole-native-shadow-launcher/src/bin/boole-native-shadow-launcher.rs",
+      "sha256": "d3d41bc4b06670bf557490210fc57acc0977f999334abafb2c0284be08c83e20",
+      "sizeBytes": 1855
+    },
+    "stages": [
+      {
+        "order": 1,
+        "call": "verify_fixed_launcher_prelock_prerequisites",
+        "what": "Checks the preconditions that must hold before any lock is taken."
+      },
+      {
+        "order": 2,
+        "call": "acquire_fixed_launcher_lifetime_lock",
+        "what": "Takes the single lifetime lock at a fixed run-time path, so two launchers cannot both run."
+      },
+      {
+        "order": 3,
+        "call": "acquire_fresh_launcher_instance",
+        "what": "Mints the instance identity this run is known by."
+      },
+      {
+        "order": 4,
+        "call": "enter_fixed_manager_cgroup",
+        "what": "Moves the process into the fixed manager control group."
+      },
+      {
+        "order": 5,
+        "call": "recover_fixed_startup_orphans",
+        "what": "Clears anything a previous run left behind before serving again."
+      },
+      {
+        "order": 6,
+        "call": "verify_fixed_startup_toolchain_compatibility",
+        "what": "Confirms the checker toolchain behaves as the sealed authority says."
+      },
+      {
+        "order": 7,
+        "call": "verify_runtime_rootfs_replay",
+        "what": "Opens the runtime rootfs read-only and verifies every path in it against the frozen content manifest. This is the stage the current image cannot pass."
+      },
+      {
+        "order": 8,
+        "call": "assemble_verified_closed_local_replay_startup",
+        "what": "Assembles the verified startup from the compatibility and rootfs results, so serving is handed only things that already passed."
+      },
+      {
+        "order": 9,
+        "call": "serve_qualified_three_fixed_unix_executions",
+        "what": "Serves. Reached only if all eight prior stages returned."
+      }
+    ]
+  },
+  "fixedGuestPathsRequired": [
+    {
+      "guestPath": "/var/lib/boole/native-shadow/runtime-rootfs",
+      "kind": "directory",
+      "mustBeReadOnlyMount": true,
+      "whyItMatters": "The launcher opens it, requires the mount to be read-only, and then compares the whole tree against the manifest. A writable mount is refused even if every byte is correct.",
+      "presentInCurrentImage": false
+    },
+    {
+      "guestPath": "/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json",
+      "kind": "file",
+      "mustBeReadOnlyMount": false,
+      "expectedSha256": "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa",
+      "expectedSizeBytes": 1285116,
+      "expectedSchema": "boole.native-shadow.rootfs-content-manifest.arm64.v1",
+      "whyItMatters": "Its digest is compiled into the launcher. A manifest that is merely present, or present for the other architecture, is refused before it is parsed.",
+      "presentInCurrentImage": false
+    }
+  ],
+  "whatTheImageBuilderKnows": {
+    "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+    "sha256": "a5dd54198878473c162ec306fbccd6edac8b22f036d9cf84d244b5f010f96d87",
+    "sizeBytes": 37435,
+    "mentionsOfRequiredPaths": 0,
+    "whatWasChecked": "The builder source was searched for both fixed guest paths and for their shared parent directory. All three counts are zero.",
+    "consequence": "The image the builder produces cannot contain either path, so a launcher started inside it would fail at the seventh stage and never serve. This is the gap, stated as a property of the builder rather than as a prediction about a run."
+  },
+  "materialInventory": {
+    "note": "What a build would consume, and how much of it is already cached on the machine that would run the build. Counts drawn from tracked locks are re-derived by the tests; counts about the local cache are not, and are marked accordingly.",
+    "locks": [
+      {
+        "role": "boot-rootfs",
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+        "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+        "sizeBytes": 357104,
+        "artifactsRequired": 197,
+        "totalArtifactBytes": 323568113,
+        "whatItFeeds": "The guest's own userland: the packages, the archive index and keyring, and the three Rust distribution archives.",
+        "localPresence": {
+          "observedOnDeveloperMachine": true,
+          "reproducibleOnACleanRunner": false,
+          "whyNot": "The cache lives under local-docs, which is not tracked, so a clean runner starts without it. That is why the tests bound to this record check that these numbers are labelled as local observations rather than trying to reproduce them.",
+          "method": "For every artifact the lock names, its recorded SHA-256 was looked up as a filename in the content-addressed cache directory. Present means the file is there under that digest; no byte was re-hashed and nothing was fetched.",
+          "cacheDirectory": "local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas/sha256",
+          "present": 197,
+          "absent": 0
+        }
+      },
+      {
+        "role": "runtime-rootfs",
+        "path": "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json",
+        "sha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+        "sizeBytes": 102952,
+        "artifactsRequired": 62,
+        "totalArtifactBytes": 181623999,
+        "whatItFeeds": "The separate read-only tree the launcher verifies and confines each checker execution to.",
+        "localPresence": {
+          "observedOnDeveloperMachine": true,
+          "reproducibleOnACleanRunner": false,
+          "whyNot": "The cache lives under local-docs, which is not tracked, so a clean runner starts without it. That is why the tests bound to this record check that these numbers are labelled as local observations rather than trying to reproduce them.",
+          "method": "For every artifact the lock names, its recorded SHA-256 was looked up as a filename in the content-addressed cache directory. Present means the file is there under that digest; no byte was re-hashed and nothing was fetched.",
+          "cacheDirectory": "local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas/sha256",
+          "present": 62,
+          "absent": 0
+        }
+      }
+    ]
+  },
+  "whyThisIsNotAnAcquisition": {
+    "note": "The large object this needs is a derived one. It is built from the locked inputs above, and it is already rebuilt from them on every pull request and compared against a sealed expectation. The question is therefore whether the build output is put into the image, not whether the material can be obtained.",
+    "ciJob": "native-shadow-rootfs-replay-linux-arm64",
+    "ciScript": "scripts/native-shadow-portable-rootfs-replay-linux-arm64.sh",
+    "ciScriptSha256": "5b4fbde81a538d68fd01e96dcb5e9c02c76628dda75035d2f392a82ef3bdb68d",
+    "expectationPath": "native/containment/native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json",
+    "expectationSha256": "e6b01bcce89bf2900bfa3e510ac79a8c2863c7701843cd4a1b20f2d987309e66",
+    "derivedLayerSizeBytes": 766556160,
+    "derivedLayerDigest": "sha256:dfeafb2918764736bdcd94d0fd121ed8eee2ef88d0a82e1ef28b3e625723bc0d",
+    "newExternalAcquisitionRequired": false,
+    "whatIsNotShownByThis": "That the rebuild can be run on this developer machine. The job runs on a Linux arm64 runner as root; the Mac is neither. Reproducibility of the layer is established, portability of the build host is not."
+  },
+  "correctionOfAnEarlierReading": {
+    "note": "Kept because the reasoning that produced it would otherwise recur, and because a measurement that hides its own false start is less trustworthy than one that does not.",
+    "whatWasConcluded": "That closing this gap required obtaining a 766,556,160-byte arm64 layer that is absent from the machine, and that this amounted to a new external acquisition and therefore a stop condition.",
+    "whyItWasWrong": "The absent object was searched for as an input. It is an output. Its four content digests are missing locally because nothing has built it here, not because its sources are missing. Every one of the sources is present: both locks resolve completely against the local cache, with nothing absent.",
+    "whatItWouldHaveCost": "Stopping a line of work that is not blocked, and asking the operator to approve a download that nothing requires.",
+    "wasAHardStop": false,
+    "howItWasCaught": "By resolving the runtime lock's artifact list against the cache instead of looking for the finished layer, which turned an apparent absence into a complete input set."
+  },
+  "remainingStepsToServing": [
+    {
+      "order": 1,
+      "what": "Extend the four sealed staging records in order, so the boot lock covers the runtime rootfs material as well as the seven guest input files.",
+      "changes": "The source lock plan, the lock generator, the lock itself, and the builder's staging table.",
+      "oneShot": false,
+      "touchesSealedRecords": [
+        "native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v1.json",
+        "scripts/native_shadow_boot_rootfs_source_lock_arm64_v1.py",
+        "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+        "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py"
+      ]
+    },
+    {
+      "order": 2,
+      "what": "Teach the image builder to place the runtime rootfs tree and its content manifest at the two fixed guest paths, the tree read-only.",
+      "changes": "The builder's projection of the guest filesystem.",
+      "oneShot": false,
+      "touchesSealedRecords": [
+        "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py"
+      ]
+    },
+    {
+      "order": 3,
+      "what": "Produce one new image pair under the criteria already frozen for it, two replicas byte-identical across kernel, initrd and root disk.",
+      "changes": "Nothing in the tree; it produces artifacts and one result file.",
+      "oneShot": true,
+      "touchesSealedRecords": [
+        "native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json"
+      ]
+    },
+    {
+      "order": 4,
+      "what": "Boot that image once against the ten MAC.3 runtime conditions, sealed before the run.",
+      "changes": "Nothing in the tree; it produces one result file.",
+      "oneShot": true,
+      "touchesSealedRecords": []
+    }
+  ],
+  "whyNotWalkedInThisSession": "Steps three and four are each allowed exactly once, and each has to be sealed after it runs. Steps one and two are a single unit of work whose review cycle is measured in tens of minutes per change. Starting the chain with too little time left risks reaching a one-shot step that cannot be sealed before the session ends, which is the one outcome that cannot be undone. The material being complete removes the question of whether this is possible; it does not by itself make the remaining time sufficient.",
+  "notEstablishedByThisMeasurement": [
+    "That the launcher would serve once the two paths exist. The other six startup stages have not been exercised inside the guest.",
+    "That step one and step two are small. Their size was scoped, not attempted.",
+    "That the runtime rootfs can be built on this developer machine. The rebuild that is known to work runs on a Linux arm64 runner as root.",
+    "That the image would still be deterministic once a large tree is staged into it. Determinism was established for the current, smaller projection.",
+    "That the local cache is trustworthy as an authority. It was consulted by digest as a convenience; the locks remain the authority."
+  ],
+  "boundaries": [
+    "No image was produced and no boot was performed.",
+    "No file was fetched, and no package was re-downloaded.",
+    "No sealed record, image, or prior boot result was modified.",
+    "No consensus, reward, peer-to-peer or activation code was read for change or touched.",
+    "No wallet material, model credential or node secret was read, copied or placed anywhere.",
+    "mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and activationAllowed false are unchanged by this record.",
+    "This is a closed local measurement. It makes no public mining, paid-API benchmark, testnet or leaderboard claim."
+  ]
+}
