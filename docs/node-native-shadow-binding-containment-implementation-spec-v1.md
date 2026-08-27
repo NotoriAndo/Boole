@@ -1754,3 +1754,53 @@ No wallet seed, model API key or node secret is placed in or passed to the guest
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD` and `activationAllowed=false` are unchanged. MAC.4 route binding is not
 started.
+
+### 13.7 Successor image production criteria addendum — 2026-08-27
+
+The input set sealed in 13.6 does not reach the guest until an image carries it. This addendum
+records the criteria that image would be judged against, frozen before one exists, and the survey of
+what carrying it would cost.
+
+`native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json`
+(`417d2497072519031506664553a0d9b478c53a7bf7983f431332f69bbecec4b8`) holds attempt
+`MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-ATTEMPT-1` at one run allowed and none spent, with the result
+path named and absent from the tree. Seven production conditions each name the check that judges
+them; the containment-relevant ones are that the runtime rootfs manifest in the image must **equal**
+the value the launcher compiles against rather than merely be present, that the launcher executable
+must be byte-identical to the sealed one, and that the absence of wallet material, model API keys,
+node secrets, network devices and shared directories is verified against the produced image rather
+than inferred from the input list.
+
+Five abort conditions stop the run. `criteria-would-have-to-be-loosened` makes rewording, waiving or
+dropping a condition a reason to stop rather than a step toward passing, and `replicas-disagree`
+forbids re-running until two builds coincide.
+
+`successorChainForStaging` records the four sealed records that a staging extension would have to
+supersede — the source lock plan, the lock generator, the lock, and the boot builder's staging table
+— in that order, each with its current digest. Two findings are recorded because they change what is
+possible: the 191 package rows are already sealed in the dependency candidate result, so a successor
+lock needs no payload re-acquisition, and the boot module's own digest is computed at import rather
+than pinned, so adding staging entries breaks no pin. None of the four is edited here. The re-acquisition finding is recorded as a demonstration rather
+than an inference: regenerating the sealed lock in place returned the lock, its result and its plan
+byte-identical, and the generator contains no `urllib`, `requests`, `socket` or `subprocess`, so it
+has no path by which to fetch. What it does not establish -- that a successor pair would be correct
+-- is stated in the same field. The pin finding is demonstrated the same way: a probe entry added to
+the staging table imported cleanly and was refused only by the lock-coverage check failing on the
+count, after which the builder was restored byte-identically, which places the block at the lock
+rather than at any frozen digest.
+
+`whyItIsNotWalkedYet` records why the chain is deferred rather than leaving the deferral
+unexplained. A partial walk stages the seven inputs but not the runtime rootfs, so a production run
+would fail `the-runtime-rootfs-and-its-manifest-are-in-the-image` by construction and spend the one
+allowed run on a known answer; and because the runtime rootfs also adds tracked material to the plan
+and the lock, splitting the work would build two append-only successor chains over the same four
+records instead of one. The two are treated as a single unit of work, neither is started, and the
+condition that would reverse the decision is stated.
+
+Fifty tests bind the record, registered in `scripts/self-test.sh` and pinned in
+`scripts/docs-smoke.sh`. No image was produced and no production was dispatched. No wallet seed,
+model API key or node secret is placed in or passed to the guest, and no `SharePool`, block, reward,
+P2P or consensus consumer is added. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD` and `activationAllowed=false` are unchanged. MAC.4 route binding is not
+started.

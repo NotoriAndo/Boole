@@ -1,0 +1,286 @@
+{
+  "abortConditions": [
+    {
+      "abortIf": "the result path is occupied when the run is about to start",
+      "id": "result-file-already-exists",
+      "why": "one allowed attempt cannot be spent twice, and the filesystem is what says so"
+    },
+    {
+      "abortIf": "any of the three files differs between the two replicas",
+      "id": "replicas-disagree",
+      "why": "a build that does not reproduce is the finding. Re-running until two happen to agree would replace determinism with sampling."
+    },
+    {
+      "abortIf": "passing requires any condition above to be reworded, waived or dropped",
+      "id": "criteria-would-have-to-be-loosened",
+      "why": "a condition changed after the run describes the run instead of testing it. The stop is the point at which an operator decides, not the point at which the record is edited."
+    },
+    {
+      "abortIf": "any digest frozen here no longer matches the file it names",
+      "id": "input-drift",
+      "why": "the criteria would then be about a tree that no longer exists"
+    },
+    {
+      "abortIf": "producing or checking the image requires a network device, a shared directory, an operator key or a paid service",
+      "id": "isolation-would-have-to-be-bypassed",
+      "why": "none of those is in scope, and needing one is a result worth recording as such"
+    }
+  ],
+  "activationAllowed": false,
+  "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-ATTEMPT-1",
+  "bootableClaim": false,
+  "boundaries": [
+    "no wallet seed, passphrase or key derivation material is placed in or passed to the guest",
+    "no model API key is placed in or passed to the guest",
+    "no reward, block, consensus or peer-to-peer authority is granted to the guest",
+    "no network device and no shared directory is configured for the guest",
+    "no operator key, team identifier, certificate or provisioning profile is created",
+    "no public mining, no public testnet, no paid benchmark and no leaderboard claim"
+  ],
+  "frozenBefore": "any successor image production",
+  "notEstablishedByAPass": [
+    "that the launcher serves anything; production is not booting, and booting is not serving",
+    "that the held condition on the launcher's account is resolved; it stays held",
+    "that the guest is ready for a node connection; MAC.4 is not started",
+    "that mining, rewards, consensus or activation move at all"
+  ],
+  "predecessorRecords": {
+    "leftByteUnchanged": [
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json",
+        "sha256": "bf703945ec02f1f66b492f7bb0c6e4080190caea17dc063e2868ef688669abb7",
+        "sizeBytes": 24273
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json",
+        "sha256": "95655e74754c27166902a4030c92608d32a5f76e250b091863b923fa69a5deeb",
+        "sizeBytes": 17536
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f",
+        "sizeBytes": 17589
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-guest-runtime-inputs-arm64-v1.json",
+        "sha256": "9e4586454ad5ac5b7760a7462a7289cca9b202279faaa1f2632a7ba425b899da",
+        "sizeBytes": 13078
+      },
+      {
+        "path": "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json",
+        "sha256": "6e4a2ae19493f81a58e6130ea95676967cb08fd7d7f3694eb90f673e6e3a1820",
+        "sizeBytes": 4938
+      },
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json",
+        "sha256": "07a41497c99554eba5453bbc9771f3c450ec22bb80d2852c30174d66fa76fad1",
+        "sizeBytes": 15925
+      },
+      {
+        "path": "native/systemd/boole-native-shadow-launcher.service",
+        "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+        "sizeBytes": 704
+      },
+      {
+        "path": "native/tmpfiles.d/boole-native-shadow.conf",
+        "sha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+        "sizeBytes": 233
+      },
+      {
+        "path": "native/sysusers.d/boole-native-shadow.conf",
+        "sha256": "75b1ae8eb024396dcb36d3713435115dba68a8c52b05705ce4fe3b8e7f616445",
+        "sizeBytes": 192
+      }
+    ],
+    "note": "None of these is reopened. The image that already booted, its result and the conditions it was judged against stay exactly as sealed; this record is about a different image that does not exist yet."
+  },
+  "producedBy": ".github/workflows/native-shadow-boot-produce-arm64.yml",
+  "producedOn": "ubuntu-24.04-arm, which is the runner the producer authority sealed",
+  "productionConditions": [
+    {
+      "condition": "the production workflow is dispatched once and produces two replicas",
+      "id": "exactly-one-production-pair",
+      "judgedBy": "this record allows one run and the result path is empty when it starts. The driver reads the count off the filesystem rather than off this record, so a second dispatch finds the result already written and refuses."
+    },
+    {
+      "condition": "the two replicas produce identical kernel, initrd and root disk",
+      "id": "both-replicas-agree-byte-for-byte",
+      "judgedBy": "each replica publishes a SHA-256 manifest of the three files; the three digests are compared pairwise and every pair must be equal. A single differing byte anywhere is a failure of this condition, not a rounding error to be explained."
+    },
+    {
+      "condition": "e2fsck reports the produced ext4 clean without writing to it",
+      "id": "the-root-disk-passes-a-read-only-check",
+      "judgedBy": "e2fsck runs in its read-only mode against the produced root disk and must exit reporting no error; the file's digest is re-taken afterwards and must be unchanged, which is what proves the check itself wrote nothing."
+    },
+    {
+      "condition": "every staged input appears at its guest path with the digest frozen here",
+      "id": "the-seven-inputs-are-in-the-image-at-their-frozen-digests",
+      "judgedBy": "the produced image's own entry table is read and each of the seven guest paths is looked up and hashed. A missing path and a wrong digest are the same failure."
+    },
+    {
+      "condition": "the runtime rootfs the launcher verifies is present under /var/lib/boole/native-shadow/runtime-rootfs together with its content manifest",
+      "id": "the-runtime-rootfs-and-its-manifest-are-in-the-image",
+      "judgedBy": "the manifest digest read out of the produced image must equal the digest the launcher compiles against, which is the same value the replay expectation seals. Equality between those two is the whole condition; a manifest that is merely present is not enough."
+    },
+    {
+      "condition": "the launcher in the produced image is byte-identical to the sealed one",
+      "id": "the-launcher-binary-is-unchanged",
+      "judgedBy": "the executable is hashed out of the produced image and compared with the digest the runtime contract froze. Changing what the guest runs is a different change and would need its own record."
+    },
+    {
+      "condition": "the produced image contains no wallet material, no model API key, no node secret, no network device configuration and no shared-directory mount",
+      "id": "nothing-secret-and-nothing-connected-is-in-the-image",
+      "judgedBy": "the entry table is searched for the paths and the byte patterns those would occupy, and the count must be zero for each. This is checked on the produced image rather than argued from the input list, because the input list is not the only thing that ends up in an image."
+    }
+  ],
+  "recordRegardlessOfVerdict": "The result is written to the result path whether it passes or fails, with the same detail either way. A failed production is evidence about the build, and deleting it would make the next attempt look like the first.",
+  "release": "NATIVE-SHADOW-MAC3-SUCCESSOR-IMAGE-PRODUCTION-CRITERIA-ARM64-V1",
+  "resultPath": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v1.json",
+  "runsAllowed": 1,
+  "runsPerformed": 0,
+  "schema": "boole.native-shadow.mac3-successor-image-production-criteria.arm64.v1",
+  "servingClaim": false,
+  "stagedInputs": [
+    {
+      "gid": 0,
+      "guestPath": "/etc/passwd",
+      "mode": "0444",
+      "path": "native/etc/passwd",
+      "sha256": "d7b3ce429ca6ed85a23d1810691719e607fd50e6ce54d3ea6d307829ca66b8ab",
+      "sizeBytes": 259,
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "guestPath": "/etc/group",
+      "mode": "0444",
+      "path": "native/etc/group",
+      "sha256": "511fb0f6573fd67e0070eab6873655f3f51aaa78b36bacadbd49d30a854f40b2",
+      "sizeBytes": 73,
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "guestPath": "/etc/shadow",
+      "mode": "0444",
+      "path": "native/etc/shadow",
+      "sha256": "6380bdaffa703d9f96db5876e9f758c888dc4652bb145ce3ac52266141756218",
+      "sizeBytes": 128,
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "guestPath": "/etc/gshadow",
+      "mode": "0444",
+      "path": "native/etc/gshadow",
+      "sha256": "d32024a972c5341df5574542db6c7f2c8fe595c393b125d6a6c4d59c7dbde06a",
+      "sizeBytes": 61,
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "guestPath": "/etc/nsswitch.conf",
+      "mode": "0444",
+      "path": "native/etc/nsswitch.conf",
+      "sha256": "796450cf1faebb3a577bda80918be349ca1ee9b9bfb9fe7f7cbb7dfbbb177b36",
+      "sizeBytes": 267,
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "guestPath": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+      "mode": "0444",
+      "path": "native/systemd/boole-native-shadow-launcher-v2.service",
+      "sha256": "4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55",
+      "sizeBytes": 720,
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "guestPath": "/usr/lib/tmpfiles.d/boole-native-shadow.conf",
+      "mode": "0444",
+      "path": "native/tmpfiles.d/boole-native-shadow-v2.conf",
+      "sha256": "730ae451fd1c70d41e9a865004040bca03db8cda29dd458cf6bb4d8e75f23b10",
+      "sizeBytes": 80,
+      "uid": 0
+    }
+  ],
+  "status": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-CRITERIA-PRE-FROZEN-NOT-RUN",
+  "stillRequiredBeforeADispatch": [
+    {
+      "requirement": "the builder stages all seven inputs",
+      "state": "not done",
+      "why": "the boot builder's staging table names four files and none of them is the account database. Until it changes, a production would reproduce the image that already booted, which is a run spent on a known answer."
+    },
+    {
+      "requirement": "a successor boot rootfs source lock covering the added tracked files",
+      "state": "not done",
+      "why": "the sealed lock lists exactly the ten tracked files staged today, and the lock is generated from a plan that lists the same ten. Adding files to the builder without a successor plan and lock would leave both describing a tree the build no longer uses."
+    },
+    {
+      "requirement": "the builder materialises the runtime rootfs and its manifest",
+      "state": "not done",
+      "why": "this is the gap neither runtime record could close with a file. It needs the checker toolchain closure staged inside the boot image, which means package payloads rather than tracked text, so it is builder and CI work rather than an input that can be written down."
+    },
+    {
+      "requirement": "this record merged to main",
+      "state": "pending",
+      "why": "criteria that are not on main are not frozen; they are a draft in a branch"
+    }
+  ],
+  "subject": "one production of the three arm64 boot files -- kernel, initrd and root disk -- from the frozen input set, run twice as two independent replicas of the same recipe",
+  "successorChainForStaging": {
+    "noRedownloadDemonstrated": {
+      "claim": "a successor lock can be sealed without re-acquiring any package payload",
+      "howItWasChecked": "the sealed lock was regenerated in place with the generator's --write mode and the tree compared afterwards: the lock, its result and its plan came back byte-identical, at lock digest 9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf. The generator also contains no network code at all -- no urllib, no requests, no socket and no subprocess -- so there is no path by which it could have fetched anything.",
+      "whatItDoesNotShow": "that the successor plan and lock are correct, or that anything was staged. Reproducing the existing pair shows the generator is deterministic and offline, not that a different pair would pass.",
+      "whyItMatters": "this chain was previously treated as blocked on a package cache that this host does not have. It is not. The 191 package rows are read from the dependency candidate result that is already sealed in the tree, so the blocking step was never the packages."
+    },
+    "note": "What adding the seven inputs to the image actually costs, surveyed read-only and written down before any of it is edited, so the size of the change is known in advance rather than discovered halfway through. Every record below is left byte-unchanged by this commit; the digests are what a successor would have to supersede rather than modify.",
+    "orderMatters": "The plan is sealed before the lock because the lock is generated from it and verified against it. The builder's staging table is changed last, because until the lock lists a file, staging it is what the replay check refuses on.",
+    "pinsSurviveStagingDemonstrated": {
+      "claim": "adding entries to the builder's staging table is refused by lock coverage, not by a digest pin",
+      "howItWasChecked": "one probe entry was added to the staging table and the module was imported. It imported cleanly, so no pinned digest refused the change. The only check that refused was the one asserting the authority table covers every tracked file in the boot lock, which failed on the count -- eleven entries against the lock's ten. The builder was then restored byte-identically to a5dd54198878473c162ec306fbccd6edac8b22f036d9cf84d244b5f010f96d87 and its tests are green again.",
+      "whatItDoesNotShow": "that a full seven-entry extension passes. A single probe shows which check refuses first, not that nothing else refuses later.",
+      "whyItMatters": "it fixes which step is actually blocking. Step four is not held up by a frozen digest that would need re-sealing; it is held up only by the lock not listing the file yet, which is exactly what steps one to three produce. The ordering recorded above is therefore the real ordering rather than a guess at one."
+    },
+    "steps": [
+      {
+        "order": 1,
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v1.json",
+        "sha256": "c047c20144167a4f28f222c4026a33e2d70b89340ee13cba79c207b7c92dc583",
+        "sizeBytes": 14099,
+        "successorMustChange": "trackedFiles and authorityBindings grow from ten rows to seventeen, expected.trackedFileCount follows, and guestInitRoles gains a role per added file. The package closure, repository snapshot and build recipe are carried forward unchanged, because none of the 191 packages changes."
+      },
+      {
+        "order": 2,
+        "path": "scripts/native_shadow_boot_rootfs_source_lock_arm64_v1.py",
+        "sha256": "02cc8917c19a7f07810645cde70cf388e7a9ed7dd1b0814028fbcf9ae407577a",
+        "sizeBytes": 25470,
+        "successorMustChange": "it reads the successor plan and writes the successor lock. Its digest is pinned inside the plan it reads, and the plan's digest is pinned inside it, so the two are re-sealed together with the embedded plan digest zeroed while the tool is hashed, which is how the existing pair already breaks that cycle."
+      },
+      {
+        "order": 3,
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+        "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+        "sizeBytes": 357104,
+        "successorMustChange": "regenerated from the successor plan. No package is re-downloaded and no digest is recomputed from a payload: the 191 package rows come from the dependency candidate result that is already sealed in the tree."
+      },
+      {
+        "order": 4,
+        "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+        "sha256": "a5dd54198878473c162ec306fbccd6edac8b22f036d9cf84d244b5f010f96d87",
+        "sizeBytes": 37435,
+        "successorMustChange": "its staging table gains the seven entries. This file's own digest is computed at import rather than pinned as a literal, and the two builder digests it does pin belong to other files, so extending the table does not invalidate a pin."
+      }
+    ],
+    "whatThisIsNot": "Surveying the chain is not walking it. Nothing in this commit edits any of the four, and the staging extension remains not done.",
+    "whyItIsNotWalkedYet": {
+      "consequence": "The staging extension and the runtime rootfs are treated as one unit of work rather than two, and neither is started here. This is a sequencing decision, not a claim that either is hard or that either is done.",
+      "decision": "walk it once for both gaps rather than twice for one",
+      "reasoning": "Walking these four steps would stage the seven input files and nothing else, which leaves the runtime rootfs gap open. A production run under these criteria would then fail the runtime-rootfs condition by construction -- the one allowed run spent on an answer already known. Closing the runtime rootfs afterwards would mean a second successor for the same four records, because it also adds tracked material to the plan and the lock. Since every successor here is append-only, doing it twice costs two full chains, two sets of superseded records and two rounds of consumer updates, to reach a state one chain could have reached.",
+      "whatWouldChangeIt": "If the runtime rootfs turns out not to touch the plan or the lock, the two stop being one unit and the staging extension can go first on its own."
+    }
+  },
+  "whatThisIs": "The conditions a successor arm64 boot image must meet, written down before one exists. It decides what would count as acceptable rather than describing what came out. No image has been produced under it and no dispatch has been made."
+}
