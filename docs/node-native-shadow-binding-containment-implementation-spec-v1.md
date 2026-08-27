@@ -1754,3 +1754,85 @@ No wallet seed, model API key or node secret is placed in or passed to the guest
 `DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
 `RP0-MD=HOLD`, `BF.7=HOLD` and `activationAllowed=false` are unchanged. MAC.4 route binding is not
 started.
+
+### 13.7 Successor image production criteria addendum — 2026-08-27
+
+The input set sealed in 13.6 does not reach the guest until an image carries it. This addendum
+records the criteria that image would be judged against, frozen before one exists, and the survey of
+what carrying it would cost.
+
+`native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json`
+(`417d2497072519031506664553a0d9b478c53a7bf7983f431332f69bbecec4b8`) holds attempt
+`MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-ATTEMPT-1` at one run allowed and none spent, with the result
+path named and absent from the tree. Seven production conditions each name the check that judges
+them; the containment-relevant ones are that the runtime rootfs manifest in the image must **equal**
+the value the launcher compiles against rather than merely be present, that the launcher executable
+must be byte-identical to the sealed one, and that the absence of wallet material, model API keys,
+node secrets, network devices and shared directories is verified against the produced image rather
+than inferred from the input list.
+
+Five abort conditions stop the run. `criteria-would-have-to-be-loosened` makes rewording, waiving or
+dropping a condition a reason to stop rather than a step toward passing, and `replicas-disagree`
+forbids re-running until two builds coincide.
+
+`successorChainForStaging` records the four sealed records that a staging extension would have to
+supersede — the source lock plan, the lock generator, the lock, and the boot builder's staging table
+— in that order, each with its current digest. Two findings are recorded because they change what is
+possible: the 191 package rows are already sealed in the dependency candidate result, so a successor
+lock needs no payload re-acquisition, and the boot module's own digest is computed at import rather
+than pinned, so adding staging entries breaks no pin. None of the four is edited here. The re-acquisition finding is recorded as a demonstration rather
+than an inference: regenerating the sealed lock in place returned the lock, its result and its plan
+byte-identical, and the generator contains no `urllib`, `requests`, `socket` or `subprocess`, so it
+has no path by which to fetch. What it does not establish -- that a successor pair would be correct
+-- is stated in the same field. The pin finding is demonstrated the same way: a probe entry added to
+the staging table imported cleanly and was refused only by the lock-coverage check failing on the
+count, after which the builder was restored byte-identically, which places the block at the lock
+rather than at any frozen digest.
+
+`whyItIsNotWalkedYet` records why the chain is deferred rather than leaving the deferral
+unexplained. A partial walk stages the seven inputs but not the runtime rootfs, so a production run
+would fail `the-runtime-rootfs-and-its-manifest-are-in-the-image` by construction and spend the one
+allowed run on a known answer; and because the runtime rootfs also adds tracked material to the plan
+and the lock, splitting the work would build two append-only successor chains over the same four
+records instead of one. The two are treated as a single unit of work, neither is started, and the
+condition that would reverse the decision is stated.
+
+Fifty tests bind the record, registered in `scripts/self-test.sh` and pinned in
+`scripts/docs-smoke.sh`. No image was produced and no production was dispatched. No wallet seed,
+model API key or node secret is placed in or passed to the guest, and no `SharePool`, block, reward,
+P2P or consensus consumer is added. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD` and `activationAllowed=false` are unchanged. MAC.4 route binding is not
+started.
+
+### 13.8 Runtime serving gap measurement addendum — 2026-08-27
+
+Appended, not edited. Section 13.7 recorded what a successor image would be judged against. This
+records what such an image would have to carry for the launcher to reach serving, measured against
+the tree.
+
+The launcher's `main` runs nine stages. The seventh verifies a read-only runtime rootfs against a
+content manifest whose digest is compiled into the binary; the ninth serves. Both the tree and the
+manifest live at fixed absolute paths that the binary cannot be configured away from — it reads no
+environment variable. The boot image builder mentions neither path, nor their shared parent, at all.
+That is the gap: a property of a tracked file, not a prediction about a run.
+
+The material for closing it is complete. The boot rootfs lock names 197 artifacts and the runtime
+rootfs lock names 62; all 259 resolve against the local content-addressed cache by digest, with none
+absent and nothing fetched. Those cache counts are recorded as local observations and marked
+not reproducible on a clean runner, since the cache is untracked; the locks stay the authority.
+
+An earlier reading held that the 766,556,160-byte arm64 layer was a required acquisition and
+therefore a stop condition. That was wrong and is kept in the record rather than dropped: the layer
+is an output, not an input, and it is rebuilt from the locked inputs on every pull request by the
+`native-shadow-rootfs-replay-linux-arm64` job and compared against the sealed expectation. What
+remains unestablished is whether that rebuild could run on the developer Mac; the job that works runs
+on a Linux arm64 runner as root.
+
+Four steps remain: extend the four sealed staging records, teach the builder to place both paths,
+produce one image pair, boot it once. The last two are one-shot and each must be sealed after it
+runs, which is why none was started here. Forty-seven tests bind the record, and three deliberate
+mutations were each caught.
+
+No image was produced, no boot was performed, nothing was fetched, and no sealed record was
+modified. `activationAllowed` stays `false` and no serving claim is made.

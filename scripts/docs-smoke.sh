@@ -943,6 +943,38 @@ require_text native/systemd/boole-native-shadow-launcher-v2.service 'StandardOut
 require_text native/systemd/boole-native-shadow-launcher-v2.service 'CapabilityBoundingSet=CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN'
 require_text scripts/self-test.sh scripts/test_native_shadow_mac3_guest_runtime_inputs_arm64_v1.py
 
+# What a successor image would have to satisfy, frozen before one exists. Pinned
+# here is the part that keeps it a test rather than a description: one run
+# allowed, none spent, an empty result path, and loosening a condition listed as
+# a reason to stop rather than as a step. The survey of what staging the inputs
+# would cost is pinned too, because knowing the size of a change in advance is
+# what stops it from being discovered halfway through.
+require_file native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json
+require_text native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json 'MAC3-SUCCESSOR-IMAGE-PRODUCTION-CRITERIA-PRE-FROZEN-NOT-RUN'
+require_text native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json '"runsAllowed": 1'
+require_text native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json '"runsPerformed": 0'
+require_text native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json 'criteria-would-have-to-be-loosened'
+require_text native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json '"activationAllowed": false'
+require_text native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json 'successorChainForStaging'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_successor_image_production_criteria_arm64_v1.py
+
+# How far the booting guest is from a guest the launcher would serve in, measured
+# rather than recalled. Pinned here is what keeps the measurement honest about
+# its own two kinds of claim: the builder's zero mentions of the paths the
+# launcher requires, the fact that the large object is derived on every pull
+# request rather than fetched, and the earlier reading that got this backwards
+# being kept in the record instead of quietly dropped.
+require_file native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json
+require_text native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json 'MAC3-RUNTIME-SERVING-GAP-MEASURED-NOT-CLOSED'
+require_text native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json '"mentionsOfRequiredPaths": 0'
+require_text native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json '"newExternalAcquisitionRequired": false'
+require_text native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json '"bootPerformed": false'
+require_text native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json '"productionDispatched": false'
+require_text native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json 'correctionOfAnEarlierReading'
+require_text native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json 'observedOnDeveloperMachine'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_runtime_serving_gap_measurement_arm64_v1.py
+
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
 # the three the console named because it comes from the guest's own systemd --
@@ -1058,9 +1090,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "9196310572c35148676fae1656beb85126050f7db7f98bb2bc6fcb0be7071648"
-require_text docs/native-submission-shadow-verification-v1.md "de6054d7aeab7e7136596a0aa91fa21784ed20d102b9f613660a421ef8118373"
-require_text docs/native-submission-shadow-verification-v1.md "7d6fafb4376cadc679f99c9b6c5730bb505b72327934ca80989798cf5568aa20"
+require_text docs/native-submission-shadow-verification-v1.md "1d54fda29299a320dc7c0a50bad7014fc39d88ae5389b978ddcfe237167e930a"
+require_text docs/native-submission-shadow-verification-v1.md "922a7b9c0c09a808e22a70781431eb1c443a4bd494a3dd9dea77cf1a427563b6"
+require_text docs/native-submission-shadow-verification-v1.md "aab4a6273b69af97de654f5c2530a357f8b6d17d9d13721dbc1c1b445939dd91"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "That sentence stays as written."
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "necessary but not sufficient"

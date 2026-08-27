@@ -2252,3 +2252,220 @@ No wallet seed, model API key or node secret is named in or staged into the gues
 this set. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false`
 and `activationAllowed=false` are unchanged. No serving claim, no public mining and no paid-API
 benchmark is made anywhere in this section.
+
+## 33. The successor image production criteria, and the chain that precedes them (2026-08-27)
+
+Section 32 froze seven files and left one gap open. Those files change nothing until an image
+carries them, and carrying them means producing an image. This section records what a produced
+image would be judged against, written before one exists, and what producing it would actually
+cost, measured without editing anything.
+
+`native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json`
+(18385 bytes, `417d2497072519031506664553a0d9b478c53a7bf7983f431332f69bbecec4b8`) is the record.
+Attempt identity `MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-ATTEMPT-1`, one run allowed, none spent,
+result path named and empty. It carries no `verdict`, `passed` or `result` field, and its tests
+fail if one appears.
+
+### 33.1 What would count as acceptable
+
+| id | condition |
+| --- | --- |
+| `exactly-one-production-pair` | dispatched once, two replicas |
+| `both-replicas-agree-byte-for-byte` | kernel, initrd and root disk all identical |
+| `the-root-disk-passes-a-read-only-check` | `e2fsck` clean, and the disk's digest unchanged afterwards |
+| `the-seven-inputs-are-in-the-image-at-their-frozen-digests` | a missing path and a wrong digest are the same failure |
+| `the-runtime-rootfs-and-its-manifest-are-in-the-image` | equal to what the launcher compiles against; merely present is not enough |
+| `the-launcher-binary-is-unchanged` | changing what the guest runs would need its own record |
+| `nothing-secret-and-nothing-connected-is-in-the-image` | checked on the produced image, not argued from the input list |
+
+Each row carries the check that judges it, so none of them is a sentence that could be satisfied by
+agreement. The read-only check re-takes the disk's digest afterwards, because a filesystem check
+that repaired something and reported success would otherwise pass.
+
+### 33.2 Where it stops instead of continuing
+
+Five abort conditions. `criteria-would-have-to-be-loosened` is the load-bearing one: if passing
+requires any condition above to be reworded, waived or dropped, the run stops and an operator
+decides. `replicas-disagree` stops rather than retries — re-running until two builds happen to
+agree would replace determinism with sampling, and a build that does not reproduce is itself the
+finding.
+
+### 33.3 The chain that has to be walked first, measured read-only
+
+Staging the seven inputs is not a builder edit; it is four sealed records in a fixed order. The
+record's `successorChainForStaging` lists each with its current digest and what a successor would
+have to change:
+
+1. the boot rootfs source lock **plan** — ten tracked files and ten authority bindings grow to
+   seventeen, `expected.trackedFileCount` follows, and `guestInitRoles` gains a role per file;
+2. the lock **generator** — it reads the successor plan and writes the successor lock. Its digest
+   is pinned inside the plan and the plan's digest inside it, so the pair is re-sealed with the
+   embedded plan digest zeroed while the tool is hashed, which is how the existing pair already
+   breaks that cycle;
+3. the **lock** itself — regenerated from the successor plan;
+4. the boot builder's staging table — seven entries added.
+
+Measuring it produced two findings worth recording. First, **no package is re-downloaded**: the 191
+package rows come from the dependency candidate result already sealed in the tree, so a successor
+lock does not need the payload cache that this host does not have. Second, **extending the staging
+table invalidates no pin**: the two builder digests the boot module pins belong to other files, and
+its own digest is computed at import rather than written as a literal.
+
+The first of those two was promoted from an inference to a demonstration. The sealed lock was
+regenerated in place with the generator's `--write` mode and the tree compared afterwards: the
+lock, its result and its plan all came back byte-identical, at lock digest
+`9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf`. The generator also contains no
+network code at all -- no `urllib`, `requests`, `socket` or `subprocess` -- so there is no path by
+which it could have fetched anything. What that does not show is recorded too: reproducing the
+existing pair establishes that the generator is deterministic and offline, not that a different
+pair would pass.
+
+The second was demonstrated as well. One probe entry was added to the staging table and the module
+imported cleanly, so no pinned digest refused it; the only check that refused was the one asserting
+the authority table covers every tracked file in the boot lock, and it failed on the count -- eleven
+against the lock's ten. The builder was restored byte-identically and its tests are green. That
+fixes which step is actually blocking: step four is held up by the lock not listing the file yet,
+which is what steps one to three produce, rather than by a digest that would need re-sealing. A
+single probe shows which check refuses first, not that a full seven-entry extension passes, and the
+record says so.
+
+Nothing in this section opens any of the four. Surveying the chain is not walking it, and the record
+says so in its own `whatThisIsNot` field.
+
+Not walking it is a decision rather than a silence, so the record states it. Walking these four
+steps stages the seven input files and nothing else, which leaves the runtime rootfs gap open; a
+production run under these criteria would then fail
+`the-runtime-rootfs-and-its-manifest-are-in-the-image` by construction, spending the one allowed run
+on an answer already known. Closing the runtime rootfs afterwards would require a second successor
+for the same four records, because it also adds tracked material to the plan and the lock. Every
+successor here is append-only, so doing it twice costs two full chains, two sets of superseded
+records and two rounds of consumer updates to reach a state one chain could have reached. The
+staging extension and the runtime rootfs are therefore treated as one unit of work, and neither is
+started. The record also names what would reverse that: if the runtime rootfs turns out not to touch
+the plan or the lock, the two stop being one unit and the staging extension can go first alone.
+
+### 33.4 Execution cursor
+
+```
+MAC.3 successor image production criteria = PRE-FROZEN / NOT RUN
+  runsAllowed = 1, runsPerformed = 0, result path empty
+  successor chain measured, four records left byte-unchanged
+  next = walk steps 1-4, then one production, only with time to seal the result
+```
+
+No image was produced and no production was dispatched. No wallet seed, model API key or node
+secret is named in or staged into the guest. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` are unchanged. No
+serving claim, no public mining and no paid-API benchmark is made anywhere in this section.
+
+## 34. What the launcher would need, and what it would cost to get there (2026-08-27)
+
+Section 33 froze what a successor image would be judged against. This section answers the question
+that sits underneath it: what would have to be *in* such an image for the launcher to reach serving,
+and is that material obtainable at all. The answer was measured against the tree, not recalled, and
+one earlier reading of it was wrong in a way worth keeping on the record.
+
+`native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json` holds the
+measurement. It dispatched no production, performed no boot, and fetched nothing.
+
+### 34.1 The launcher's startup chain, read out of the binary
+
+The launcher's `main` runs nine stages in a fixed order, each handing its result to the next. The
+seventh opens the runtime rootfs read-only and compares the whole tree against a frozen content
+manifest whose digest is compiled into the binary. Serving is the ninth. A guest that fails the
+seventh therefore never reaches the ninth — the launcher does not start degraded, it does not start.
+
+Two things must exist at fixed absolute paths inside the guest for that seventh stage to pass:
+
+| Guest path | What it is | Constraint |
+| --- | --- | --- |
+| `/var/lib/boole/native-shadow/runtime-rootfs` | The read-only tree each checker execution is confined to | Must be a read-only mount; a writable one is refused even if every byte is right |
+| `/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json` | The byte-level description of that tree | Exactly 1,285,116 bytes at the arm64 digest the binary compiles against |
+
+Neither path is a configurable value. The binary reads no environment variable, so there is no
+setting that could relocate them and no way to satisfy the stage other than by putting them there.
+
+### 34.2 The gap, stated as a property of the builder
+
+The boot image builder mentions neither path. It mentions their shared parent directory zero times
+as well. That is the whole gap, and it is a fact about a tracked file rather than a prediction about
+a run: the image the builder produces cannot contain what the launcher requires, so a launcher
+started inside it fails at the seventh stage.
+
+This is why MAC.3 is not closed by the successor boot passing. Booting and serving are two claims,
+and only the first has been established.
+
+### 34.3 The material, counted rather than assumed
+
+A build needs two locked input sets. Both were resolved artifact by artifact against the local
+content-addressed cache, by digest lookup, fetching nothing and re-hashing nothing.
+
+| Lock | Artifacts required | Present locally | Absent |
+| --- | --- | --- | --- |
+| Boot rootfs (the guest's own userland, including the three Rust distribution archives) | 197 | 197 | 0 |
+| Runtime rootfs (the tree the launcher verifies) | 62 | 62 | 0 |
+
+Nothing is missing. The counts about the local cache are recorded as local observations and marked
+as not reproducible on a clean runner, because the cache is untracked; the tests bound to this record
+check that they are *labelled* that way rather than trying to reproduce them. The locks themselves
+remain the authority, and their digests are re-derived by those tests.
+
+### 34.4 An earlier reading that was wrong, kept rather than dropped
+
+Before the locks were resolved, the runtime rootfs was read as blocked: the arm64 layer the
+expectation names is 766,556,160 bytes and none of its four content digests is present locally, which
+was taken to mean a new external acquisition was required, and therefore a stop condition.
+
+That was wrong, and the record says so in its own field. The absent object was searched for as an
+input when it is an output. Its digests are missing locally because nothing has built it here, not
+because its sources are missing — and every source is present, as the table above shows. The layer
+is rebuilt from those locked inputs on **every pull request**, by the `native-shadow-rootfs-replay-linux-arm64`
+job on a Linux arm64 runner, and compared against the sealed expectation. Reproducibility of that
+layer is therefore already demonstrated continuously.
+
+What the correction would have cost, had it not been caught: stopping a line of work that is not
+blocked, and asking the operator to approve a download that nothing requires. It was caught by
+resolving the lock's artifact list against the cache instead of looking for the finished layer.
+
+What this still does not establish is recorded alongside it — in particular that the rebuild could
+run on the developer Mac. The job that is known to work runs on a Linux arm64 runner as root, and
+the Mac is neither. Portability of the build host is an open question; reproducibility of the layer
+is not.
+
+### 34.5 What remains, and why it was not started here
+
+| Step | What | One-shot |
+| --- | --- | --- |
+| 1 | Extend the four sealed staging records so the boot lock covers the runtime rootfs material | no |
+| 2 | Teach the image builder to place both paths, the tree read-only | no |
+| 3 | Produce one image pair under the criteria frozen in section 33 | yes |
+| 4 | Boot it once against the ten MAC.3 runtime conditions | yes |
+
+Steps three and four are each allowed exactly once and each must be sealed after it runs. Steps one
+and two are a single unit whose review cycle is measured in tens of minutes per change. Starting the
+chain with too little time left risks reaching a one-shot step that cannot be sealed before the
+session ends, which is the one outcome that cannot be undone. The material being complete removes
+the question of whether this is possible; it does not by itself make the remaining time sufficient.
+
+### 34.6 Execution cursor
+
+```
+MAC.3 runtime serving gap = MEASURED / NOT CLOSED
+  launcher needs two fixed guest paths; builder mentions them 0 times
+  material complete: boot 197/197, runtime 62/62, absent 0
+  derived layer rebuilt every PR on Linux arm64 -- not an acquisition
+  next = steps 1-2 (chain + builder), then one production, then one boot
+```
+
+Forty-seven tests bind the record, and three deliberate mutations — a drifted builder mention count,
+a lock digest pointed away from the file it names, and a local observation relabelled as a repo fact
+— were each caught, after which regenerating restored the identical digest.
+
+No image was produced, no production was dispatched, no boot was performed and nothing was fetched.
+No sealed record, image or prior boot result was modified. No wallet seed, model API key or node
+secret was read, copied or staged anywhere. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` are unchanged. No
+serving claim, no public mining, no testnet and no paid-API benchmark is made anywhere in this
+section.
