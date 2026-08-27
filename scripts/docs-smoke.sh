@@ -854,6 +854,22 @@ require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm6
 require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'assert_no_run_has_been_spent(SEALED_RESULT_PATH)'
 require_text scripts/self-test.sh scripts/test_native_shadow_mac3_closed_local_boot_result_arm64_v1.py
 
+# The five directories the kernel filesystems are mounted on. The one MAC.3 boot
+# froze because none of them is in the image, and the list is five rather than
+# the three the console named because it comes from the guest's own systemd --
+# the mount table decoded out of the libsystemd-shared the image ships, plus
+# every .mount unit in it and the absence of /etc/fstab. Pinned here so the
+# audit cannot quietly shrink back to what one transcript happened to show.
+require_file native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json
+require_text native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json '"mountTableEntryCount": 22'
+require_text native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json '"presentInImage": false'
+require_text native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json '"mode": "1777"'
+require_text native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json '"bootableClaim": false'
+require_text native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json '"successorImageProduced": false'
+require_file scripts/native_shadow_boot_rootfs_mount_point_audit_arm64_v1.py
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py 'runtime_mount_point_entries()'
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_rootfs_runtime_mount_points_arm64_v1.py
+
 # The verification stage is separate from the producer on purpose: a producer
 # that checks its own output can only confirm that it did what it did. debugfs
 # keeps the inspector role v1 sealed for it -- read-only, never `-w`.

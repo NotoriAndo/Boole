@@ -8,7 +8,7 @@ pin -- and records its own digest separately as ``BOOT_PROJECTION_SHA256``,
 because the widening below is not covered by the pin and should not pretend to
 be.
 
-Six kinds of change, in decreasing order of ordinariness.
+Seven kinds of change, in decreasing order of ordinariness.
 
 The first two are what a projection is for: the authority-file table grows from
 six entries to ten (machine-id, the launcher unit, and the sysusers and tmpfiles
@@ -86,6 +86,18 @@ the authority's own ``launcher-digest-mismatch`` rather than being written into
 the tree.  Supplying it is the caller's decision, so ``build_oci_layout`` takes
 it by keyword and ``verify_oci_layout`` forwards it to its own rebuild.
 
+The seventh is the one a boot depends on.  Directories reach the tree only when
+some member needs them as a parent, and no member needs ``/proc``, so the image
+had nowhere for the kernel filesystems to be mounted -- which is exactly where
+the single MAC.3 boot stopped, with PID 1 freezing after three failed mounts.
+The five directories are merged in from
+``native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json``, whose list is
+five rather than the three that transcript named because it was taken from the
+guest's own systemd: the mount table decoded out of the ``libsystemd-shared``
+the image ships, every ``.mount`` unit in it, and the absence of ``/etc/fstab``.
+That record is read rather than restated here, and it is checked against the
+sealed closure exception's ``runtimeFilesystemRoots`` so the two cannot drift.
+
 Projecting a builder is not building an image.  Nothing here writes one.
 """
 
@@ -102,6 +114,7 @@ from typing import Any, Optional
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+from scripts import native_shadow_boot_rootfs_mount_point_audit_arm64_v1 as mount_points
 from scripts import native_shadow_rootfs_builder_arm64_v1 as arm64
 
 
@@ -332,6 +345,19 @@ REPLACEMENTS = (
         '        elif command == "verify":\n'
         '            sub.add_argument("--layout", required=True, type=pathlib.Path)\n'
         '            sub.add_argument("--launcher", type=pathlib.Path)\n',
+        1,
+    ),
+    # Seventh, and the one a boot depends on. `_ensure_parents` fills in every
+    # directory some member needs, and no member needs `/proc`, so none of the
+    # five the kernel filesystems are mounted on ends up in the tree. PID 1
+    # mounts four of them before it runs a unit and stops if one is missing --
+    # which is what the single MAC.3 boot showed. They are merged before
+    # `_ensure_parents` so an entry that already exists still collides loudly
+    # rather than being overwritten from here.
+    (
+        "    _ensure_parents(entries)\n",
+        '    _merge(entries, runtime_mount_point_entries(), "runtime mount point")\n'
+        "    _ensure_parents(entries)\n",
         1,
     ),
     (
@@ -605,6 +631,16 @@ def _dangling_allowed(path: str, resolved: str) -> bool:
     return DANGLING_SYMLINKS.get(path) == resolved
 
 
+def runtime_mount_point_entries() -> dict[str, dict[str, Any]]:
+    """The five directories the kernel filesystems are mounted on.
+
+    Read from the audit record rather than listed here, so the builder and the
+    check that reads a produced tree cannot end up with different lists.
+    """
+
+    return mount_points.mount_point_entries()
+
+
 def usrmerge_path(path: str) -> str:
     """``lib/modules/x`` and ``usr/lib/modules/x`` are one path on merged-/usr."""
 
@@ -681,6 +717,7 @@ _IMPL["METADATA_EXCEPTIONS"] = METADATA_EXCEPTIONS
 _IMPL["_usrmerge"] = _usrmerge
 _IMPL["USRMERGE_ROOTS"] = USRMERGE_ROOTS
 _IMPL["_dangling_allowed"] = _dangling_allowed
+_IMPL["runtime_mount_point_entries"] = runtime_mount_point_entries
 _IMPL["DANGLING_SYMLINKS"] = DANGLING_SYMLINKS
 _IMPL["launcher_entry"] = launcher_entry
 _IMPL["read_launcher"] = read_launcher

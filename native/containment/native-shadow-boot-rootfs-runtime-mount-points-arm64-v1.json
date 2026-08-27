@@ -1,0 +1,374 @@
+{
+  "activationAllowed": false,
+  "appendOnly": {
+    "note": "Nothing sealed is edited. The closure exception already names these five as runtime filesystems, for a different purpose -- allowing symlinks to point into them. This record adds the directories themselves and is checked against that list rather than restating it.",
+    "recordsLeftByteUnchanged": [
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json",
+        "sha256": "70374fd617a12b7d8a3f07c3693cc4b9efe237631e4886ab9d92fd5de9145266",
+        "sizeBytes": 8707
+      },
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json",
+        "sha256": "af815ee609a2fbee4dc4a81ba0d331bd851b8a60792b87ed61583d642e861725",
+        "sizeBytes": 16053
+      },
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json",
+        "sha256": "07a41497c99554eba5453bbc9771f3c450ec22bb80d2852c30174d66fa76fad1",
+        "sizeBytes": 15925
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+        "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a",
+        "sizeBytes": 8597
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json",
+        "sha256": "0fdd8b4711c9f76127a9bf71c86c63f87a8a05501eb61ef864cef2e8bca24f8c",
+        "sizeBytes": 10837
+      }
+    ]
+  },
+  "audit": {
+    "conclusion": "Every mount target in the table and in the units is either one of five top-level paths or sits below one of them. What sits below is created after the mount, on a kernel or tmpfs filesystem that is writable, so only the five tops need to be in the image. /tmp is the fifth for the opposite reason: nothing is mounted there.",
+    "fstab": {
+      "consequence": "systemd-fstab-generator produces no mount units, so it adds no mount points.",
+      "guestPath": "/etc/fstab",
+      "presentInImage": false
+    },
+    "method": "The mount table was decoded from the relocated .data.rel.ro of the libsystemd-shared the image ships, rather than read from systemd's published source, so the list is the one this guest will execute. The mount units were read from the image for their Where=, /etc/fstab was searched for in the image listing, and tmp.mount was located to see whether anything mounts over /tmp.",
+    "mountUnitCount": 7,
+    "mountUnits": [
+      {
+        "enabled": true,
+        "guestPath": "/usr/lib/systemd/system/dev-hugepages.mount",
+        "type": "hugetlbfs",
+        "unit": "dev-hugepages.mount",
+        "what": "hugetlbfs",
+        "where": "/dev/hugepages"
+      },
+      {
+        "enabled": true,
+        "guestPath": "/usr/lib/systemd/system/dev-mqueue.mount",
+        "type": "mqueue",
+        "unit": "dev-mqueue.mount",
+        "what": "mqueue",
+        "where": "/dev/mqueue"
+      },
+      {
+        "enabled": false,
+        "guestPath": "/usr/lib/systemd/system/proc-sys-fs-binfmt_misc.mount",
+        "type": "binfmt_misc",
+        "unit": "proc-sys-fs-binfmt_misc.mount",
+        "what": "binfmt_misc",
+        "where": "/proc/sys/fs/binfmt_misc"
+      },
+      {
+        "enabled": true,
+        "guestPath": "/usr/lib/systemd/system/sys-fs-fuse-connections.mount",
+        "type": "fusectl",
+        "unit": "sys-fs-fuse-connections.mount",
+        "what": "fusectl",
+        "where": "/sys/fs/fuse/connections"
+      },
+      {
+        "enabled": true,
+        "guestPath": "/usr/lib/systemd/system/sys-kernel-config.mount",
+        "type": "configfs",
+        "unit": "sys-kernel-config.mount",
+        "what": "configfs",
+        "where": "/sys/kernel/config"
+      },
+      {
+        "enabled": true,
+        "guestPath": "/usr/lib/systemd/system/sys-kernel-debug.mount",
+        "type": "debugfs",
+        "unit": "sys-kernel-debug.mount",
+        "what": "debugfs",
+        "where": "/sys/kernel/debug"
+      },
+      {
+        "enabled": true,
+        "guestPath": "/usr/lib/systemd/system/sys-kernel-tracing.mount",
+        "type": "tracefs",
+        "unit": "sys-kernel-tracing.mount",
+        "what": "tracefs",
+        "where": "/sys/kernel/tracing"
+      }
+    ],
+    "observedTopLevelBefore": [
+      "bin",
+      "boot",
+      "etc",
+      "lib",
+      "opt",
+      "sbin",
+      "usr",
+      "var"
+    ],
+    "subject": {
+      "guestInitrdSha256": "4674128144befeea20b1cbeb5af340b981b7b125d32d43630c721bb4b0aecab2",
+      "guestRootDiskSha256": "9834036f7738f3848fff23e5c3d1be85cd1f288f7ca43d2094b815eca2b378cc",
+      "replica": "replica-1 of the sealed converged pair"
+    },
+    "systemd": {
+      "mountTable": [
+        {
+          "options": null,
+          "type": "proc",
+          "what": "proc",
+          "where": "/proc"
+        },
+        {
+          "options": null,
+          "type": "sysfs",
+          "what": "sysfs",
+          "where": "/sys"
+        },
+        {
+          "options": "mode=0755,size=4m",
+          "type": "devtmpfs",
+          "what": "devtmpfs",
+          "where": "/dev"
+        },
+        {
+          "options": null,
+          "type": "securityfs",
+          "what": "securityfs",
+          "where": "/sys/kernel/security"
+        },
+        {
+          "options": "smackfsdef=*",
+          "type": "smackfs",
+          "what": "smackfs",
+          "where": "/sys/fs/smackfs"
+        },
+        {
+          "options": "mode=01777,smackfsroot=*",
+          "type": "tmpfs",
+          "what": "tmpfs",
+          "where": "/dev/shm"
+        },
+        {
+          "options": "mode=01777",
+          "type": "tmpfs",
+          "what": "tmpfs",
+          "where": "/dev/shm"
+        },
+        {
+          "options": "mode=0620,gid=5",
+          "type": "devpts",
+          "what": "devpts",
+          "where": "/dev/pts"
+        },
+        {
+          "options": "mode=0755,smackfsroot=*,size=20%,nr_inodes=800k",
+          "type": "tmpfs",
+          "what": "tmpfs",
+          "where": "/run"
+        },
+        {
+          "options": "mode=0755,size=20%,nr_inodes=800k",
+          "type": "tmpfs",
+          "what": "tmpfs",
+          "where": "/run"
+        },
+        {
+          "options": "mode=1777,size=5242880",
+          "type": "tmpfs",
+          "what": "tmpfs",
+          "where": "/run/lock"
+        },
+        {
+          "options": "nsdelegate,memory_recursiveprot",
+          "type": "cgroup2",
+          "what": "cgroup2",
+          "where": "/sys/fs/cgroup"
+        },
+        {
+          "options": "nsdelegate",
+          "type": "cgroup2",
+          "what": "cgroup2",
+          "where": "/sys/fs/cgroup"
+        },
+        {
+          "options": null,
+          "type": "cgroup2",
+          "what": "cgroup2",
+          "where": "/sys/fs/cgroup"
+        },
+        {
+          "options": "mode=0755,size=4m,nr_inodes=1k",
+          "type": "tmpfs",
+          "what": "tmpfs",
+          "where": "/sys/fs/cgroup"
+        },
+        {
+          "options": "nsdelegate",
+          "type": "cgroup2",
+          "what": "cgroup2",
+          "where": "/sys/fs/cgroup/unified"
+        },
+        {
+          "options": null,
+          "type": "cgroup2",
+          "what": "cgroup2",
+          "where": "/sys/fs/cgroup/unified"
+        },
+        {
+          "options": "none,name=systemd,xattr",
+          "type": "cgroup",
+          "what": "cgroup",
+          "where": "/sys/fs/cgroup/systemd"
+        },
+        {
+          "options": "none,name=systemd",
+          "type": "cgroup",
+          "what": "cgroup",
+          "where": "/sys/fs/cgroup/systemd"
+        },
+        {
+          "options": null,
+          "type": "pstore",
+          "what": "pstore",
+          "where": "/sys/fs/pstore"
+        },
+        {
+          "options": null,
+          "type": "efivarfs",
+          "what": "efivarfs",
+          "where": "/sys/firmware/efi/efivars"
+        },
+        {
+          "options": "mode=0700",
+          "type": "bpf",
+          "what": "bpf",
+          "where": "/sys/fs/bpf"
+        }
+      ],
+      "mountTableEntryCount": 22,
+      "mountTableSource": {
+        "guestPath": "/usr/lib/aarch64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "readFrom": ".data.rel.ro with R_AARCH64_RELATIVE relocations applied",
+        "sha256": "af9c15ca791ebe78556b9193419bff327c9c275b8aa2ec7bca91e319c087694a",
+        "sizeBytes": 3946088
+      },
+      "pid1": {
+        "guestPath": "/usr/lib/systemd/systemd",
+        "sha256": "ab970cc6f829555cad7e6891823b9c82b02f277b8fae081b7072b05e94f23f90",
+        "sizeBytes": 133456
+      },
+      "version": "255"
+    },
+    "tmpMount": {
+      "consequence": "nothing mounts over /tmp, so /tmp must exist as a directory in the image.",
+      "enabled": false,
+      "guestPath": "/usr/share/systemd/tmp.mount"
+    }
+  },
+  "bootableClaim": false,
+  "boundaries": {
+    "consensusSurfaceTouched": false,
+    "guestBootVerified": false,
+    "paidApiBenchmark": false,
+    "publicMining": false,
+    "publicRelease": false,
+    "successorImageProduced": false
+  },
+  "cause": {
+    "conditionNotMet": "guest-systemd-is-pid-1",
+    "namedByTheTranscript": [
+      "/proc",
+      "/sys",
+      "/dev"
+    ],
+    "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json",
+    "sha256": "0fdd8b4711c9f76127a9bf71c86c63f87a8a05501eb61ef864cef2e8bca24f8c",
+    "sizeBytes": 10837,
+    "verdict": "FAIL"
+  },
+  "determinismResultUnaffected": true,
+  "invariants": {
+    "BF.7": "HOLD",
+    "CURL.3": "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED",
+    "LLM-MINEABLE-ELIGIBLE-V5": 14160,
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "activationAllowed": false,
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "modeRationale": "These are the modes Debian and Ubuntu base-files give the same five directories. A mount point's own mode is invisible once something is mounted over it, so matching the base system is the only reason to prefer one number over another. /tmp is the exception that matters: nothing is mounted over it here, so its 1777 is the mode processes will actually see.",
+  "notRequiredBecauseTheyAreCreatedAfterTheMount": [
+    "/dev/hugepages",
+    "/dev/mqueue",
+    "/dev/pts",
+    "/dev/shm",
+    "/proc/sys/fs/binfmt_misc",
+    "/run/lock",
+    "/sys/firmware/efi/efivars",
+    "/sys/fs/bpf",
+    "/sys/fs/cgroup",
+    "/sys/fs/cgroup/systemd",
+    "/sys/fs/cgroup/unified",
+    "/sys/fs/fuse/connections",
+    "/sys/fs/pstore",
+    "/sys/fs/smackfs",
+    "/sys/kernel/config",
+    "/sys/kernel/debug",
+    "/sys/kernel/security",
+    "/sys/kernel/tracing"
+  ],
+  "platform": {
+    "architecture": "arm64",
+    "distribution": "ubuntu-24.04-noble"
+  },
+  "release": "NATIVE-SHADOW-BOOT-ROOTFS-RUNTIME-MOUNT-POINTS-ARM64-V1",
+  "requiredRootDirectories": [
+    {
+      "gid": 0,
+      "kind": "directory",
+      "mode": "0755",
+      "path": "dev",
+      "reason": "devtmpfs is mounted here first; the kernel device nodes live on it, not in the image.",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "kind": "directory",
+      "mode": "0555",
+      "path": "proc",
+      "reason": "procfs is mounted here first, and PID 1 stops if the directory is absent.",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "kind": "directory",
+      "mode": "0755",
+      "path": "run",
+      "reason": "the runtime tmpfs is mounted here; systemd puts its own state on it before any unit runs.",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "kind": "directory",
+      "mode": "0555",
+      "path": "sys",
+      "reason": "sysfs is mounted here first, and every cgroup and kernel mount below it depends on it.",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "kind": "directory",
+      "mode": "1777",
+      "path": "tmp",
+      "reason": "nothing is mounted over /tmp in this image, so it has to be a real directory on the root filesystem.",
+      "uid": 0
+    }
+  ],
+  "schema": "boole.native-shadow.boot-rootfs-runtime-mount-points.v1",
+  "status": "RUNTIME-MOUNT-POINT-DIRECTORIES-AUDITED-AND-REQUIRED-NO-IMAGE-PRODUCED",
+  "whatWouldBeNeeded": "One successor production of the two arm64 replicas, run exactly once, and a boot attempt only if the two images are byte-identical and carry all five directories.",
+  "whyThisRecordExists": "The one MAC.3 closed-local boot reached PID 1 and froze, because the image carries no directory for systemd to mount /proc, /sys and /dev on. The console named three. This record names the five the guest's own systemd actually needs, so the successor image is not built against a list that came out of one transcript."
+}
