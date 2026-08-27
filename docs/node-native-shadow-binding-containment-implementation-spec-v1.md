@@ -1649,3 +1649,36 @@ measurement protocol; MAC.3 is blocked/not started until those choices are froze
 MAC.2-B staged verifier is implemented and GREEN. Later measurement results are earned by MAC.3–MAC.5 rather than
 being impossible preconditions to MAC.3. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`
 and `BF.7=HOLD` remain unchanged.
+
+### 13.4 MAC.3 closed-local guest boot addendum — 2026-08-27
+
+The sealed arm64 guest image was booted on Apple Virtualization.framework on a development Mac,
+once, under a qualification frozen and merged before the run. A first attempt on the predecessor
+image had already been spent and sealed as FAIL; that record is referenced here and is byte-unchanged.
+
+PR #264 (main `e7dc43e7a692aec9f7518d7e8605bc6d8d693b93`) made the boot driver select the attempt it
+is run under instead of assuming one, so each attempt is judged against its own sealed digests and
+seals to its own result path. The run itself is recorded in
+`native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json`.
+
+All six frozen conditions were MET: the converged image was the image loaded; the machine carried no
+network device, no shared directory and no writable disk, with a single read-only root attachment;
+the kernel mounted the sealed ext4 read-only as its root; systemd 255.4 ran as PID 1 and reached the
+image's default target; the sealed root disk hashed identically before and after; and the console was
+captured and hashed in both its raw and judged forms.
+
+What this closes is narrow. It establishes that the guest image boots to a running systemd inside the
+closed local machine. It does **not** establish the launcher reaching a serving state: the unit is
+reported Started, which only means systemd executed it, and the unit logs to the guest journal, which
+a closed machine gives no channel to read — so where the launcher refused was not observed and is
+recorded as unobserved rather than inferred. The account database and the runtime rootfs the launcher
+verifies remain absent, exactly as registered before the run.
+
+The qualification remains loopback-only, `nonIssuable=true` and `activationAllowed=false`. No
+`SharePool`, block, reward, P2P or consensus consumer was added, and no wallet seed, model API key or
+node secret was placed in or passed to the guest. The host binary is ad-hoc signed with
+`com.apple.security.virtualization` alone: no Team ID, Developer ID certificate, provisioning profile
+or notarization exists or was created. This is not clean-Mac evidence, `Boole.app`, a signed or
+notarized release, or a Mac production result. CURL.3 remains
+`DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED`. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`
+and `BF.7=HOLD` remain unchanged. MAC.4 route binding is not started.

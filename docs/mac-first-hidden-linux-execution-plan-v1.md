@@ -1987,3 +1987,109 @@ CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED
 `LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
 Base activation `false`, `activationAllowed=false` and `bootableClaim=false` remain unchanged. No
 public mining, no paid-API benchmark and no release claim is made anywhere in this section.
+
+## 30. The successor guest was booted once, and passed (2026-08-27)
+
+Section 29 recorded a run that did not pass. This records the run that followed it. Nothing in
+section 29 is edited by this one: the first attempt's qualification, its sealed failure and the two
+determinism records were re-hashed immediately before this run and are byte-unchanged.
+
+### 30.1 What was frozen before the run
+
+The successor qualification
+(`native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json`, sha256
+`bf703945ec02f1f66b492f7bb0c6e4080190caea17dc063e2868ef688669abb7`) was merged before it could be
+run. It opened one allowance, named its own result path so neither attempt could overwrite the
+other's evidence, and carried the six pass conditions **byte-identical** to the first attempt's. The
+driver re-checks that identity against the first attempt's file before it will build a machine, so a
+reworded bar is refused rather than run.
+
+The subject is the image two arm64 replicas independently converged on: kernel
+`d29e317d…f1336`, initrd `3ae76ced…88ca` (hashed, not attached — this image boots without one) and
+root disk `566614b6…c41b`.
+
+One correctness defect was found and fixed in the driver before the run, in PR #264: the six judging
+rules resolved the expected digests internally, which meant the *first* attempt's subject. A
+successor run would have been judged against the failed image's digests. Each rule now receives the
+digests of the attempt actually selected.
+
+### 30.2 Preflight, then exactly one run
+
+Twenty read-only checks ran immediately before the machine was created: the tree matched its remote
+and was clean at `e7dc43e7a692aec9f7518d7e8605bc6d8d693b93`, the record was at the digest it was
+merged with, the attempt was unspent, no result file existed, the three sealed images matched by
+size and digest, the six conditions were byte-identical to the first attempt's, and the declared
+machine was closed. A dry run built and validated the configuration without creating a virtual
+machine, which costs nothing against the allowance.
+
+The run then happened once: 15:27:27Z to 15:30:44Z, 195.1 seconds inside the machine, stopped by the
+host at its 180-second limit because a closed guest has no channel to be told to shut down. Host
+exit status 0. No host process, socket or temporary file of the machine outlived it.
+
+### 30.3 The verdict
+
+All six conditions MET, judged by the frozen wording:
+
+```text
+loads-the-converged-image                MET
+closed-local-configuration               MET   0 network devices, 0 shared directories, 1 read-only disk
+kernel-reaches-its-root-filesystem       MET   EXT4-fs (vda): mounted filesystem ... ro
+guest-systemd-is-pid-1                   MET   systemd 255.4-1ubuntu8, arm64, vm-other
+sealed-image-unchanged-after-the-run     MET   566614b6…c41b before and after
+console-transcript-captured-and-hashed   MET   20409 bytes, sha256 e7d09560…8f2160
+```
+
+The five empty directories the successor builder adds were the whole of the fix. PID 1 mounted
+`/proc`, `/sys` and `/dev` and did not freeze, which is precisely where the first attempt stopped,
+and the guest went on to reach `sysinit.target`, `basic.target`, `multi-user.target` and its default
+`graphical.target`. Exactly one unit entered a failed state: `ldconfig.service`, which rebuilds the
+dynamic linker cache and cannot, because the root is attached read-only. That is the containment
+working, not a defect.
+
+The transcript has two digests because it has two forms. The raw file is 20409 bytes, sha256
+`e7d09560…8f2160`. The judge reads it as text, which collapses the 230 CRLF pairs the guest emitted
+into single newlines: 20179 bytes, sha256 `22c4551c…38f2e`. 20409 − 20179 = 230, exactly the pairs
+counted. The file is valid UTF-8 and nothing was dropped. Both digests are recorded so neither has
+to be taken on trust.
+
+### 30.4 What the pass does not say
+
+`boole-native-shadow-launcher.service` is reported by systemd as **Started**. That means systemd
+executed its `ExecStart` — the unit is `Type=exec` with `User=root`, so it needed no account lookup
+and the absent `/etc/passwd` did not block it. Started is not a serving state and is not read as one
+here.
+
+Where the launcher refused is **not observable from this run**. The unit sets
+`StandardOutput=journal` and `StandardError=journal`, so its own output went to the guest journal; a
+machine with no network device, no shared directory and no writable disk has no channel out, and the
+run was stopped from the host rather than shut down from inside. The console shows no failed state
+for the unit across the 195 seconds, and that is the whole of what this run establishes about it.
+Making it observable means routing the launcher's output to the console the host already captures,
+or the authenticated transport MAC.4 is for.
+
+The two gaps registered before the first run are still gaps: the account database the guest's own
+sysusers file expects to fill in, and the runtime rootfs and manifest under `/var/lib/boole` the
+launcher verifies before it serves anything.
+
+This is a closed-local boot on one development Mac, ad-hoc signed with
+`com.apple.security.virtualization` and no Team ID, Developer ID certificate, provisioning profile or
+notarization. It is not clean-Mac evidence, not a product release, not runtime compatibility, and not
+public mining, a paid-API benchmark or a leaderboard claim.
+
+### 30.5 Execution cursor
+
+```text
+ROOT-DISK-BYTE-IDENTITY  GREEN — 두 복제본 바이트 동일, 봉인 유지
+PHASE C (production pair)  COMPLETE — 1회 dispatch, replica당 1회 생산, 소진됨
+PHASE D (MAC.3 closed-local boot, attempt 1)  RUN ONCE / VERDICT FAIL — 기록 보존, 수정 없음
+PHASE D (MAC.3 closed-local boot, attempt 2)  RUN ONCE / VERDICT PASS — 6/6 충족,
+  기본 target 도달, 봉인 이미지 전후 동일, 재실행 없음, 기준 완화 없음
+NEXT  MAC.3 guest runtime / launcher serving — 계정 DB·런타임 rootfs·읽을 수 있는 출력 경로
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED
+```
+
+`LLM-MINEABLE-ELIGIBLE-V5=14,160`, `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation `false` and `activationAllowed=false` remain unchanged. `bootableClaim` becomes
+`true` only in the scope written above and in the sealed result: this image, this closed
+configuration, one development Mac. No public mining, no paid-API benchmark and no release claim is
+made anywhere in this section.
