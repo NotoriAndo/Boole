@@ -267,46 +267,84 @@ class FrozenLoaderTests(unittest.TestCase):
 
     def tree(self) -> pathlib.Path:
         root = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
-        for row in plan_mod.SHARED_LIBRARIES:
+        for row in [*plan_mod.SHARED_LIBRARIES, *plan_mod.WRITER_LIBRARIES]:
             path = root / row["logicalPath"].lstrip("/")
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(row["soname"].encode("utf-8"))
         return root
 
+    def writer_tree(self) -> pathlib.Path:
+        """Only the libraries sealed with the writer, which is the whole set it holds."""
+
+        root = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        for row in plan_mod.WRITER_LIBRARIES:
+            if row["origin"] != plan_mod.ORIGIN_WRITER_SET:
+                continue
+            path = root / row["logicalPath"].lstrip("/")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"writer set " + row["soname"].encode("utf-8"))
+        return root
+
     def test_the_plan_s_argv_is_kept_whole_after_the_loader(self) -> None:
         scratch = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         plan = a_plan(scratch)
-        argv = mod.frozen_invocation(plan, self.tree())
+        argv = mod.frozen_invocation(plan, self.tree(), self.writer_tree())
         self.assertEqual(argv[-len(plan["mke2fs"]["argv"]) :], plan["mke2fs"]["argv"])
 
-    def test_the_loader_that_runs_it_is_the_one_in_the_tree(self) -> None:
+    def test_the_loader_that_runs_it_is_the_one_in_the_frozen_tree(self) -> None:
+        """The writer set supplies two libraries and no interpreter.
+
+        Its directory is searched first, so if it ever shipped an ``ld-`` the
+        writer would run under an interpreter nobody pinned.  It does not, and
+        the argv says so rather than leaving it to be true by accident.
+        """
+
         scratch = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
-        tree = self.tree()
-        argv = mod.frozen_invocation(a_plan(scratch), tree)
+        tree, writer_tree = self.tree(), self.writer_tree()
+        argv = mod.frozen_invocation(a_plan(scratch), tree, writer_tree)
         self.assertEqual(
             argv[0], str(tree / "usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1")
         )
 
-    def test_only_the_frozen_library_directory_is_searched(self) -> None:
+    def test_only_the_two_pinned_library_directories_are_searched(self) -> None:
+        """And the writer's is first, which is what decides the libext2fs question."""
+
         scratch = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
-        tree = self.tree()
-        argv = mod.frozen_invocation(a_plan(scratch), tree)
+        tree, writer_tree = self.tree(), self.writer_tree()
+        argv = mod.frozen_invocation(a_plan(scratch), tree, writer_tree)
         self.assertEqual(argv[1], "--library-path")
-        self.assertEqual(argv[2], str(tree / "usr/lib/aarch64-linux-gnu"))
+        self.assertEqual(
+            argv[2],
+            f"{writer_tree / 'usr/lib/aarch64-linux-gnu'}:"
+            f"{tree / 'usr/lib/aarch64-linux-gnu'}",
+        )
 
     def test_a_tree_without_the_loader_is_refused(self) -> None:
         scratch = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         empty = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         with self.assertRaises(mod.RootDiskExecuteError):
-            mod.frozen_invocation(a_plan(scratch), empty)
+            mod.frozen_invocation(a_plan(scratch), empty, self.writer_tree())
 
     def test_a_tree_missing_one_pinned_library_is_refused(self) -> None:
         scratch = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
-        tree = self.tree()
-        (tree / plan_mod.SHARED_LIBRARIES[-1]["logicalPath"].lstrip("/")).unlink()
+        tree, writer_tree = self.tree(), self.writer_tree()
+        (tree / plan_mod.WRITER_LIBRARIES[-1]["logicalPath"].lstrip("/")).unlink()
         with self.assertRaises(mod.RootDiskExecuteError) as caught:
-            mod.frozen_invocation(a_plan(scratch), tree)
-        self.assertIn(plan_mod.SHARED_LIBRARIES[-1]["soname"], str(caught.exception))
+            mod.frozen_invocation(a_plan(scratch), tree, writer_tree)
+        self.assertIn(plan_mod.WRITER_LIBRARIES[-1]["soname"], str(caught.exception))
+
+    def test_a_tree_missing_a_checker_only_library_is_refused(self) -> None:
+        """`libss.so.2` is debugfs's and the writer never loads it.
+
+        Nothing in the writer's closure would notice it missing, so the check
+        that does has to be the one that builds the checker's closure.
+        """
+
+        tree, writer_tree = self.tree(), self.writer_tree()
+        (tree / "usr/lib/aarch64-linux-gnu/libss.so.2").unlink()
+        with self.assertRaises(mod.RootDiskExecuteError) as caught:
+            mod.loader_evidence(tree, writer_tree)
+        self.assertIn("libss.so.2", str(caught.exception))
 
     def test_the_copies_that_were_named_are_recorded(self) -> None:
         tree = self.tree()

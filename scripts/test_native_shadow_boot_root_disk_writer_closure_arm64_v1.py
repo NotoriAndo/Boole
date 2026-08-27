@@ -20,6 +20,9 @@ executor's checks, read without producing an image.
 """
 from __future__ import annotations
 
+import pathlib
+import shutil
+import tempfile
 import unittest
 
 from scripts import native_shadow_boot_root_disk_arm64_v1 as plan_mod
@@ -261,6 +264,115 @@ class AssumptionTests(unittest.TestCase):
         rows = {row["id"]: row for row in plan_mod.UNVERIFIED_ASSUMPTIONS}
         self.assertIn("loader-resolves-only-frozen-libraries", rows)
         self.assertIn("writer", rows["loader-resolves-only-frozen-libraries"]["detail"])
+
+
+class WriterTreeTests(unittest.TestCase):
+    """Two directories on disk, searched in the order the loader will search them.
+
+    The writer set is not merged into the frozen tree and the frozen tree is not
+    copied into the writer's.  Both would work and both would destroy the
+    property that makes this checkable: the guest's 191 packages have to stay
+    the bytes they were, and the two builds of ``libext2fs.so.2`` have to stay
+    distinguishable by which directory they came out of.  So the writer's
+    directory holds the sealed set and nothing else, the frozen directory is
+    untouched, and the loader is given both with the writer's first.
+    """
+
+    def trees(self, *, writer_files=WRITER_SUPPLIED, guest_extra=()):
+        root = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        guest, writer = root / "frozen", root / "writer"
+        directory = str(plan_mod.LIBRARY_DIRECTORY).lstrip("/")
+        (guest / directory).mkdir(parents=True)
+        (writer / directory).mkdir(parents=True)
+        for row in [*plan_mod.SHARED_LIBRARIES, *plan_mod.WRITER_LIBRARIES]:
+            name = pathlib.PurePosixPath(row["logicalPath"]).name
+            (guest / directory / name).write_bytes(b"frozen " + name.encode())
+        for name in sorted(set(writer_files) | set(guest_extra)):
+            if name in writer_files:
+                (writer / directory / name).write_bytes(b"writer set " + name.encode())
+        return guest, writer
+
+    def test_the_writer_set_wins_and_the_rest_comes_from_the_frozen_tree(self) -> None:
+        guest, writer = self.trees()
+        resolved = execute.resolve_writer_libraries(writer, guest)
+
+        self.assertEqual(set(resolved), set(plan_mod.WRITER_NEEDED))
+        for row in plan_mod.WRITER_LIBRARIES:
+            found = resolved[row["soname"]]
+            self.assertEqual(found["origin"], row["origin"], row["soname"])
+            expected = writer if row["origin"] == plan_mod.ORIGIN_WRITER_SET else guest
+            self.assertTrue(found["path"].startswith(str(expected) + "/"), found)
+
+    def test_the_loader_is_given_the_writer_directory_first(self) -> None:
+        """Search order is the whole mechanism; reversed, the frozen build wins."""
+
+        guest, writer = self.trees()
+        directories = execute.writer_library_path(writer, guest).split(":")
+        self.assertEqual(len(directories), 2)
+        self.assertTrue(directories[0].startswith(str(writer) + "/"))
+        self.assertTrue(directories[1].startswith(str(guest) + "/"))
+
+    def test_a_writer_set_library_missing_from_its_own_tree_is_refused(self) -> None:
+        """Falling back to the frozen copy is exactly the silent failure.
+
+        The frozen tree has a ``libext2fs.so.2`` of its own, so a writer tree
+        that is short one library still resolves -- against the build whose flag
+        is never armed.  The image would come out with staged times in it and
+        nothing would have gone wrong out loud.
+        """
+
+        guest, writer = self.trees(writer_files={"libe2p.so.2"})
+        with self.assertRaises(execute.RootDiskExecuteError) as caught:
+            execute.resolve_writer_libraries(writer, guest)
+        self.assertIn("libext2fs.so.2", str(caught.exception))
+
+    def test_the_writer_tree_may_hold_only_the_libraries_sealed_with_it(self) -> None:
+        """Anything else in that directory is searched first and shadows a frozen one."""
+
+        guest, writer = self.trees()
+        self.assertEqual(
+            sorted(execute.assert_writer_tree_is_only_the_sealed_set(writer)),
+            sorted(WRITER_SUPPLIED),
+        )
+
+        (writer / str(plan_mod.LIBRARY_DIRECTORY).lstrip("/") / "libc.so.6").write_bytes(b"x")
+        with self.assertRaises(execute.RootDiskExecuteError) as caught:
+            execute.assert_writer_tree_is_only_the_sealed_set(writer)
+        self.assertIn("libc.so.6", str(caught.exception))
+
+    def test_a_versioned_build_of_a_sealed_library_is_not_a_stray(self) -> None:
+        """Debian ships libext2fs.so.2.4 with libext2fs.so.2 as a symlink to it."""
+
+        guest, writer = self.trees()
+        directory = writer / str(plan_mod.LIBRARY_DIRECTORY).lstrip("/")
+        (directory / "libext2fs.so.2").unlink()
+        (directory / "libext2fs.so.2.4").write_bytes(b"writer set libext2fs.so.2.4")
+        (directory / "libext2fs.so.2").symlink_to("libext2fs.so.2.4")
+        self.assertIn("libext2fs.so.2", execute.assert_writer_tree_is_only_the_sealed_set(writer))
+
+    def test_the_evidence_names_both_closures_and_which_tree_each_came_from(self) -> None:
+        guest, writer = self.trees()
+        evidence = execute.loader_evidence(guest, writer)
+
+        self.assertEqual(set(evidence["writer"]["libraries"]), set(plan_mod.WRITER_NEEDED))
+        self.assertEqual(
+            set(evidence["checker"]["libraries"]),
+            {row["soname"] for row in plan_mod.SHARED_LIBRARIES},
+        )
+        self.assertEqual(evidence["writer"]["tree"], str(writer))
+        self.assertEqual(evidence["checker"]["tree"], str(guest))
+        for closure in ("checker", "writer"):
+            self.assertTrue(evidence[closure]["loader"]["path"].startswith(str(guest) + "/"))
+
+    def test_the_argv_runs_the_frozen_loader_over_both_directories(self) -> None:
+        guest, writer = self.trees()
+        argv = execute.frozen_invocation(plan(), guest, writer)
+
+        self.assertTrue(argv[0].startswith(str(guest) + "/"))
+        self.assertEqual(argv[1], execute.LIBRARY_PATH_OPTION)
+        self.assertEqual(argv[2], execute.writer_library_path(writer, guest))
+        self.assertEqual(argv[3:], list(plan()["mke2fs"]["argv"]))
 
 
 if __name__ == "__main__":

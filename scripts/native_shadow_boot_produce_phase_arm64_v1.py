@@ -479,12 +479,20 @@ def assert_replica_evidence(result: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(writer, int) or writer <= 0:
         raise ProducePhaseError(f"the writer was handed no fixed time: {writer!r}")
     loader = evidence["loaderEvidence"]
-    if not isinstance(loader, Mapping) or not loader.get("tree"):
+    checker = loader.get("checker") if isinstance(loader, Mapping) else None
+    writer_closure = loader.get("writer") if isinstance(loader, Mapping) else None
+    if not isinstance(checker, Mapping) or not checker.get("tree"):
         raise ProducePhaseError("the evidence names no frozen tree")
-    root_disk_execute.assert_loader_evidence(loader, tree=pathlib.Path(loader["tree"]))
+    if not isinstance(writer_closure, Mapping) or not writer_closure.get("tree"):
+        raise ProducePhaseError("the evidence names no writer set tree")
+    root_disk_execute.assert_loader_evidence(
+        loader,
+        tree=pathlib.Path(checker["tree"]),
+        writer_tree=pathlib.Path(writer_closure["tree"]),
+    )
     return {
         "fsckExitCode": fsck["exitCode"],
-        "librariesRecorded": len(loader["libraries"]),
+        "librariesRecorded": len(checker["libraries"]) + len(writer_closure["libraries"]),
         "rootDiskSha256": result.get("rootDisk", {}).get("sha256"),
         "timestampsOutsideTheClosedSet": 0,
         "writerTime": writer,

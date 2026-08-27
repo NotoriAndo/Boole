@@ -365,6 +365,27 @@ WRITER_LIBRARIES = [
 ]
 
 
+def _sole_directory(rows: list[dict[str, Any]]) -> str:
+    """The one directory a set of libraries lives in, or an error.
+
+    Both closures land in the same directory, which is what turns the loader's
+    search order into the whole mechanism: the writer's copy of a soname is
+    found before the frozen one because its directory is named first, and for
+    that to mean anything there has to be exactly one directory to name.
+    """
+
+    directories = {str(pathlib.PurePosixPath(row["logicalPath"]).parent) for row in rows}
+    if len(directories) != 1:
+        raise RootDiskPlanError(
+            f"the libraries are spread across {sorted(directories)}; "
+            "there is no single path to point the loader at"
+        )
+    return directories.pop()
+
+
+LIBRARY_DIRECTORY = _sole_directory(SHARED_LIBRARIES + WRITER_LIBRARIES)
+
+
 def root_disk_plan(
     *,
     layer: bytes,

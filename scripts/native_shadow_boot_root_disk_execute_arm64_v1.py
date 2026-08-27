@@ -49,6 +49,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from scripts.native_shadow_boot_root_disk_arm64_v1 import (
     CANONICAL_MTIME,
     E2FSCK_ACCEPTED_EXIT_CODES,
+    LIBRARY_DIRECTORY,
+    ORIGIN_FROZEN_GUEST,
     ORIGIN_WRITER_SET,
     SHARED_LIBRARIES,
     SUPERSEDED_WRITER_TIME_ENV,
@@ -89,6 +91,7 @@ BUILD_FILE_MODE = 0o600
 # second copy of a soname the plan already froze.
 LOADER_SONAME_PREFIX = "ld-"
 LIBRARY_PATH_OPTION = "--library-path"
+LIBRARY_PATH_SEPARATOR = ":"
 
 
 class RootDiskExecuteError(RuntimeError):
@@ -228,17 +231,27 @@ def mke2fs_environment(plan: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _library_directory() -> pathlib.PurePosixPath:
-    """The one directory the plan's eight libraries all live in."""
+    """The one directory both closures live in, as the plan derives it."""
 
-    directories = {
-        pathlib.PurePosixPath(row["logicalPath"]).parent for row in SHARED_LIBRARIES
-    }
-    if len(directories) != 1:
-        raise RootDiskExecuteError(
-            "the plan's libraries are spread across directories; "
-            "there is no single path to point the loader at"
-        )
-    return directories.pop()
+    return pathlib.PurePosixPath(LIBRARY_DIRECTORY)
+
+
+def _library_directory_of(tree: pathlib.Path) -> pathlib.Path:
+    return tree / str(_library_directory()).lstrip("/")
+
+
+def writer_library_path(writer_tree: pathlib.Path, tree: pathlib.Path) -> str:
+    """The two directories the writer's loader searches, in that order.
+
+    Order is the mechanism.  Both trees hold a `libext2fs.so.2`, and the one
+    that wins is whichever directory is named first; naming them the other way
+    round would run the selected writer against the build whose fixed-time flag
+    is never armed, which is the sealed failure with a newer binary on top.
+    """
+
+    return LIBRARY_PATH_SEPARATOR.join(
+        str(_library_directory_of(root)) for root in (writer_tree, tree)
+    )
 
 
 def _loader_logical_path() -> str:
@@ -278,59 +291,212 @@ def resolved_libraries(tree: pathlib.Path) -> dict[str, dict[str, Any]]:
     return resolved
 
 
-def loader_evidence(tree: pathlib.Path) -> dict[str, Any]:
-    """Which files on disk the loader was pointed at, named as such.
+def assert_writer_tree_is_only_the_sealed_set(writer_tree: pathlib.Path) -> list[str]:
+    """The writer's directory holds its own libraries and nothing else.
 
-    ``resolved_libraries`` already computes this; the loader itself is one of the
-    rows, and this says which one so a reader does not have to know that a
-    soname beginning ``ld-`` is the interpreter.
+    Its directory is searched first, so anything sitting in it shadows the
+    frozen build of the same soname -- a stray `libc.so.6` there would silently
+    become the one the writer runs against, and the digest comparison that
+    guards the closure only covers sonames the writer is known to need.  The
+    versioned file and the soname symlink Debian ships are the same library, so
+    both count as the soname they belong to.
     """
 
-    libraries = resolved_libraries(tree)
+    directory = _library_directory_of(writer_tree)
+    sealed = sorted(
+        row["soname"] for row in WRITER_LIBRARIES if row["origin"] == ORIGIN_WRITER_SET
+    )
+    try:
+        present = sorted(entry.name for entry in directory.iterdir())
+    except OSError as exc:
+        raise RootDiskExecuteError(
+            f"{ABORT_LOADER_EVIDENCE}: the writer tree has no library directory "
+            f"at {directory}"
+        ) from exc
+
+    claimed: dict[str, list[str]] = {soname: [] for soname in sealed}
+    stray: list[str] = []
+    for name in present:
+        owner = next(
+            (s for s in sealed if name == s or name.startswith(s + ".")), None
+        )
+        if owner is None:
+            stray.append(name)
+        else:
+            claimed[owner].append(name)
+    if stray:
+        raise RootDiskExecuteError(
+            f"{ABORT_LOADER_EVIDENCE}: the writer tree's library directory holds "
+            f"{stray}, which is not part of the set sealed with the writer and "
+            f"would be searched before the frozen build of the same name"
+        )
+    absent = [soname for soname, files in claimed.items() if not files]
+    if absent:
+        raise RootDiskExecuteError(
+            f"{ABORT_LOADER_EVIDENCE}: the writer tree supplies no {absent}"
+        )
+    return sealed
+
+
+def resolve_writer_libraries(
+    writer_tree: pathlib.Path, tree: pathlib.Path
+) -> dict[str, dict[str, Any]]:
+    """The copy of each of the writer's libraries the loader will find first.
+
+    The search is done the way the loader will do it -- writer tree, then frozen
+    tree -- rather than by assuming each row is where its origin says.  A writer
+    tree that is short a library still resolves, against the frozen build whose
+    fixed-time flag is never armed, so the first hit is recorded with the tree it
+    came out of and the mismatch is caught rather than papered over.
+    """
+
+    resolved: dict[str, dict[str, Any]] = {}
+    for row in WRITER_LIBRARIES:
+        member = row["logicalPath"].lstrip("/")
+        for root, origin in ((writer_tree, ORIGIN_WRITER_SET), (tree, ORIGIN_FROZEN_GUEST)):
+            path = root / member
+            if not path.is_file():
+                continue
+            raw = path.read_bytes()
+            resolved[row["soname"]] = {
+                "origin": origin,
+                "package": row["package"],
+                "path": str(path),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "sizeBytes": len(raw),
+            }
+            break
+        else:
+            raise RootDiskExecuteError(
+                f"{ABORT_LOADER_EVIDENCE}: neither the writer tree nor the frozen "
+                f"tree has {row['soname']} at {row['logicalPath']}"
+            )
+        if resolved[row["soname"]]["origin"] != row["origin"]:
+            raise RootDiskExecuteError(
+                f"{ABORT_LOADER_EVIDENCE}: {row['soname']} resolved to the "
+                f"{resolved[row['soname']]['origin']} copy at "
+                f"{resolved[row['soname']]['path']}, and the plan says it comes "
+                f"from the {row['origin']}"
+            )
+    return resolved
+
+
+def _closure(
+    libraries: Mapping[str, Mapping[str, Any]],
+    *,
+    library_path: str,
+    tree: pathlib.Path,
+    loader_from: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
     soname = pathlib.PurePosixPath(_loader_logical_path()).name
     return {
-        "libraries": libraries,
-        "libraryPath": str(tree / str(_library_directory()).lstrip("/")),
-        "loader": dict(libraries[soname], soname=soname),
+        "libraries": dict(libraries),
+        "libraryPath": library_path,
+        "loader": dict(loader_from[soname], soname=soname),
         "tree": str(tree),
     }
 
 
-def assert_loader_evidence(evidence: Mapping[str, Any], *, tree: pathlib.Path) -> bool:
-    """Every file the writer loaded is a frozen file, and is written down.
+def loader_evidence(tree: pathlib.Path, writer_tree: pathlib.Path) -> dict[str, Any]:
+    """Which files on disk each loader was pointed at, named as such.
 
-    The runner ships its own copy of all eight sonames.  A path outside the
-    frozen tree means the image was written partly by the runner, and no digest
-    comparison downstream would show it -- the image would just be different, or
-    worse, the same by luck.
+    There are two closures now and they are recorded apart, because what makes
+    the arrangement checkable is that they differ in exactly two libraries.  A
+    single merged list would still be true and would no longer show that.  Both
+    are run by the frozen loader -- the writer set supplies no interpreter -- so
+    the loader itself comes out of the frozen tree in both.
     """
 
-    loader = evidence.get("loader")
+    assert_writer_tree_is_only_the_sealed_set(writer_tree)
+    checker = resolved_libraries(tree)
+    writer = resolve_writer_libraries(writer_tree, tree)
+    return {
+        "checker": _closure(
+            checker,
+            library_path=str(_library_directory_of(tree)),
+            tree=tree,
+            loader_from=checker,
+        ),
+        "writer": _closure(
+            writer,
+            library_path=writer_library_path(writer_tree, tree),
+            tree=writer_tree,
+            loader_from=checker,
+        ),
+    }
+
+
+def _assert_closure(
+    closure: Mapping[str, Any], *, sonames: set, roots: list, where: str, what: str
+) -> None:
+    loader = closure.get("loader")
     if not isinstance(loader, Mapping):
-        raise RootDiskExecuteError(f"{ABORT_LOADER_EVIDENCE}: no dynamic loader recorded")
-    libraries = evidence.get("libraries")
+        raise RootDiskExecuteError(
+            f"{ABORT_LOADER_EVIDENCE}: no dynamic loader recorded for the {what}"
+        )
+    libraries = closure.get("libraries")
     if not isinstance(libraries, Mapping):
-        raise RootDiskExecuteError(f"{ABORT_LOADER_EVIDENCE}: no library paths recorded")
-    missing = {row["soname"] for row in SHARED_LIBRARIES} - set(libraries)
+        raise RootDiskExecuteError(
+            f"{ABORT_LOADER_EVIDENCE}: no library paths recorded for the {what}"
+        )
+    missing = sonames - set(libraries)
     if missing:
         raise RootDiskExecuteError(
-            f"{ABORT_LOADER_EVIDENCE}: no path recorded for {sorted(missing)}"
+            f"{ABORT_LOADER_EVIDENCE}: the {what} records no path for {sorted(missing)}"
         )
-    root = str(tree)
+    allowed = [str(root) for root in roots]
     for name, row in sorted(list(libraries.items()) + [("the dynamic loader", loader)]):
         path = row.get("path") if isinstance(row, Mapping) else None
         if not path:
-            raise RootDiskExecuteError(f"{ABORT_LOADER_EVIDENCE}: {name} has no path")
+            raise RootDiskExecuteError(
+                f"{ABORT_LOADER_EVIDENCE}: {name} in the {what} has no path"
+            )
         digest = str(row.get("sha256", ""))
         if len(digest) != 64 or set(digest) - set("0123456789abcdef"):
             raise RootDiskExecuteError(
                 f"{ABORT_LOADER_EVIDENCE}: {name} at {path} has no usable digest"
             )
-        if not str(path).startswith(root + "/"):
+        if not any(str(path).startswith(root + "/") for root in allowed):
             raise RootDiskExecuteError(
                 f"{ABORT_LOADER_EVIDENCE}: {name} resolved to {path}, which is "
-                f"outside the frozen tree {root}"
+                f"outside {where} ({', '.join(allowed)})"
             )
+
+
+def assert_loader_evidence(
+    evidence: Mapping[str, Any], *, tree: pathlib.Path, writer_tree: pathlib.Path
+) -> bool:
+    """Every file either tool loaded is a pinned file, and is written down.
+
+    The runner is Ubuntu 24.04 arm64 and ships its own copy of every one of
+    these sonames.  A path outside the two pinned trees means the image was
+    written, or read back, partly by the runner -- and no digest comparison
+    downstream would show it, because the image would simply be different, or
+    worse, the same by luck.
+    """
+
+    for what, roots, where, sonames in (
+        (
+            "checker closure",
+            [tree],
+            "the frozen tree",
+            {row["soname"] for row in SHARED_LIBRARIES},
+        ),
+        (
+            "writer closure",
+            [writer_tree, tree],
+            "the writer set and the frozen tree",
+            {row["soname"] for row in WRITER_LIBRARIES},
+        ),
+    ):
+        closure = evidence.get(what.split()[0])
+        if not isinstance(closure, Mapping):
+            raise RootDiskExecuteError(
+                f"{ABORT_LOADER_EVIDENCE}: the evidence records no {what}"
+            )
+        _assert_closure(
+            closure, sonames=sonames, roots=roots, where=where, what=what
+        )
     return True
 
 
@@ -451,7 +617,7 @@ def run_fsck(plan: Mapping[str, Any], tree: pathlib.Path) -> dict[str, Any]:
     if forbidden:
         raise RootDiskExecuteError(f"{ABORT_FSCK}: the argv carries {forbidden}")
     loader = tree / _loader_logical_path().lstrip("/")
-    library_path = tree / str(_library_directory()).lstrip("/")
+    library_path = _library_directory_of(tree)
     finished = subprocess.run(  # noqa: S603 - pinned argv from the frozen plan
         [str(loader), LIBRARY_PATH_OPTION, str(library_path), *argv],
         env={str(k): str(v) for k, v in contract.get("env", {}).items()},
@@ -469,23 +635,37 @@ def run_fsck(plan: Mapping[str, Any], tree: pathlib.Path) -> dict[str, Any]:
     }
 
 
-def frozen_invocation(plan: Mapping[str, Any], tree: pathlib.Path) -> list[str]:
-    """The plan's argv, run by the frozen loader against only frozen libraries.
+def frozen_invocation(
+    plan: Mapping[str, Any], tree: pathlib.Path, writer_tree: pathlib.Path
+) -> list[str]:
+    """The plan's argv, run by the frozen loader against only pinned libraries.
 
     The runner is Ubuntu 24.04 arm64 and ships its own copies of every one of
     these sonames, so leaving the search to the default path would let the
-    runner's libraries write an image the closure never pinned.
+    runner's libraries write an image the closure never pinned.  The interpreter
+    is the frozen one in both closures: the writer set supplies two libraries
+    and no `ld-`, and running the selected writer under the runner's interpreter
+    would put the whole search back in the runner's hands.
     """
 
-    resolved_libraries(tree)
+    resolve_writer_libraries(writer_tree, tree)
     loader = tree / _loader_logical_path().lstrip("/")
     if not loader.is_file():
         raise RootDiskExecuteError(f"the frozen tree has no dynamic loader at {loader}")
-    library_path = tree / str(_library_directory()).lstrip("/")
-    return [str(loader), LIBRARY_PATH_OPTION, str(library_path), *mke2fs_command(plan)]
+    return [
+        str(loader),
+        LIBRARY_PATH_OPTION,
+        writer_library_path(writer_tree, tree),
+        *mke2fs_command(plan),
+    ]
 
 
-def execute(plan: Mapping[str, Any], layer: bytes, tree: pathlib.Path) -> dict[str, Any]:
+def execute(
+    plan: Mapping[str, Any],
+    layer: bytes,
+    tree: pathlib.Path,
+    writer_tree: pathlib.Path,
+) -> dict[str, Any]:
     """Stage, check the tools, write the image, and report what was written."""
 
     if os.geteuid() != 0:
@@ -494,12 +674,15 @@ def execute(plan: Mapping[str, Any], layer: bytes, tree: pathlib.Path) -> dict[s
             "into the image, and the frozen plan says root:root throughout"
         )
     digests = assert_tools(plan)
-    evidence = loader_evidence(tree)
-    assert_loader_evidence(evidence, tree=tree)
+    evidence = loader_evidence(tree, writer_tree)
+    assert_loader_evidence(evidence, tree=tree, writer_tree=writer_tree)
+    assert_no_version_mixing(
+        evidence["writer"]["libraries"], evidence["checker"]["libraries"]
+    )
     environment = mke2fs_environment(plan)
     writer_time = assert_writer_time(environment)
     created = stage_tree(plan, layer)
-    argv = frozen_invocation(plan, tree)
+    argv = frozen_invocation(plan, tree, writer_tree)
     finished = subprocess.run(  # noqa: S603 - pinned argv from the frozen plan
         argv,
         env=environment,
@@ -548,7 +731,11 @@ def execute(plan: Mapping[str, Any], layer: bytes, tree: pathlib.Path) -> dict[s
         },
         "loaderEvidence": evidence,
         "release": RELEASE,
-        "resolvedLibraries": evidence["libraries"],
+        # Kept under the name the earlier results used, and now the writer's
+        # closure: these are the libraries that wrote the image.  The checker's
+        # are alongside them in the evidence rather than merged in, because the
+        # two agreeing everywhere except the sealed set is the property.
+        "resolvedLibraries": evidence["writer"]["libraries"],
         "schema": SCHEMA,
         "stagedEntryCount": len(created),
         "status": STATUS,
@@ -567,6 +754,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--plan", type=pathlib.Path, required=True)
     run.add_argument("--layer", type=pathlib.Path, required=True)
     run.add_argument("--tree", type=pathlib.Path, required=True)
+    run.add_argument("--writer-tree", type=pathlib.Path, required=True)
     run.add_argument("--output", type=pathlib.Path, required=True)
     return parser
 
@@ -575,7 +763,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parser().parse_args(argv)
     try:
         plan = json.loads(args.plan.read_text(encoding="utf-8"))
-        result = execute(plan, args.layer.read_bytes(), args.tree)
+        result = execute(plan, args.layer.read_bytes(), args.tree, args.writer_tree)
     except (RootDiskExecuteError, OSError, ValueError) as exc:
         print(f"root-disk-execute: {exc}", file=sys.stderr)
         return 1
