@@ -870,6 +870,12 @@ require_file scripts/native_shadow_boot_rootfs_mount_point_audit_arm64_v1.py
 require_text scripts/native_shadow_rootfs_builder_boot_arm64_v1.py 'runtime_mount_point_entries()'
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_rootfs_runtime_mount_points_arm64_v1.py
 
+# Every check the verification stage had passed on the image that froze, because
+# none of them asked whether PID 1 could get past its first act. The seventh
+# does, and it reads the same audit record the builder writes from.
+require_text scripts/native_shadow_boot_image_verify_arm64_v1.py '"runtime-mount-points-present"'
+require_text scripts/native_shadow_boot_image_verify_arm64_v1.py 'mount_points.required_root_directories()'
+
 # The verification stage is separate from the producer on purpose: a producer
 # that checks its own output can only confirm that it did what it did. debugfs
 # keeps the inspector role v1 sealed for it -- read-only, never `-w`.
