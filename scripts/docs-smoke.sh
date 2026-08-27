@@ -866,8 +866,24 @@ require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm6
 require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json '"runsPerformed": 1'
 require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json '"rerunPermitted": false'
 require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json '"guest-systemd-is-pid-1"'
-require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'assert_no_run_has_been_spent(SEALED_RESULT_PATH)'
+require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'assert_no_run_has_been_spent(sealed_result_path(attempt))'
+require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'return SEALED_RESULT_PATH'
 require_text scripts/self-test.sh scripts/test_native_shadow_mac3_closed_local_boot_result_arm64_v1.py
+
+# The successor attempt is selected, never assumed, and selecting one is not the
+# same as reopening the other. Each attempt seals to the path its own record
+# names, so the receipt that records the first failure is neither overwritten
+# nor read as the second attempt's; the conditions are compared against the
+# first attempt's file before a machine is built, so a reworded bar fails here
+# rather than passing as a successor; and the closed-machine properties are
+# refused up front as well as read back off the host afterwards.
+require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-2'
+require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'def assert_attempt_identity'
+require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'def assert_conditions_are_not_relaxed'
+require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'def assert_isolation_is_closed'
+require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'assert_conditions_are_not_relaxed(record)'
+require_text scripts/native_shadow_mac3_closed_local_boot_arm64_v1.py 'assert_isolation_is_closed(record)'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_closed_local_boot_successor_driver_arm64_v2.py
 
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
