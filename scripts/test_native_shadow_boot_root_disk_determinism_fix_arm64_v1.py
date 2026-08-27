@@ -94,11 +94,11 @@ class WriterTimeTests(unittest.TestCase):
     """RED 1 and 2: the sentinel is refused and a fixed non-zero time is required."""
 
     def test_the_writer_is_no_longer_handed_the_unset_sentinel(self) -> None:
-        value = root_disk.mke2fs_env(config="/x")[root_disk.FAKE_TIME_ENV]
+        value = root_disk.mke2fs_env(config="/x")[root_disk.WRITER_TIME_ENV]
         self.assertNotEqual(value, "0")
 
     def test_the_writer_time_is_fixed_and_positive(self) -> None:
-        value = root_disk.mke2fs_env(config="/x")[root_disk.FAKE_TIME_ENV]
+        value = root_disk.mke2fs_env(config="/x")[root_disk.WRITER_TIME_ENV]
         self.assertGreater(int(value), 0)
         self.assertEqual(value, root_disk.EXT4_WRITER_TIME)
 
@@ -108,7 +108,22 @@ class WriterTimeTests(unittest.TestCase):
 
     def test_an_environment_that_pins_the_sentinel_is_refused(self) -> None:
         with self.assertRaises(execute.RootDiskExecuteError):
-            execute.assert_writer_time({root_disk.FAKE_TIME_ENV: "0"})
+            execute.assert_writer_time({root_disk.WRITER_TIME_ENV: "0"})
+
+    def test_an_environment_that_pins_only_the_superseded_name_is_refused(self) -> None:
+        """A fixed non-zero time under the wrong name is the worst case here.
+
+        It looks like the fix from the outside -- a real timestamp, pinned, not
+        the sentinel -- and the writer reads it, stores it and leaves the clamp
+        unarmed, so the staged st_ctime goes into the image exactly as before.
+        Nothing downstream would show it: the two replicas would simply differ
+        again, and the sentinel test above would have passed.
+        """
+
+        with self.assertRaises(execute.RootDiskExecuteError):
+            execute.assert_writer_time(
+                {root_disk.SUPERSEDED_WRITER_TIME_ENV: root_disk.EXT4_WRITER_TIME}
+            )
 
     def test_the_source_epoch_stays_what_the_staged_inputs_mean(self) -> None:
         self.assertEqual(initrd.CANONICAL_MTIME, 0)

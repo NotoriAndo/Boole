@@ -17,6 +17,7 @@ comparison, not here.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import pathlib
@@ -26,6 +27,36 @@ import unittest
 from scripts import native_shadow_boot_root_disk_arm64_v1 as plan_mod
 from scripts import native_shadow_boot_root_disk_execute_arm64_v1 as mod
 from scripts.test_native_shadow_boot_initrd_arm64_v1 import SMALL, tar_bytes
+
+
+MODULE_PATH = pathlib.Path(mod.__file__)
+
+_HAS_DOCSTRING = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+def code_strings(path: pathlib.Path) -> list:
+    """Every string literal the module's code holds, minus its docstrings."""
+
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    prose = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, _HAS_DOCSTRING):
+            continue
+        body = node.body
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            prose.add(id(body[0].value))
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in prose
+    ]
 
 
 LAYER = tar_bytes(SMALL)
@@ -208,7 +239,7 @@ class CommandTests(unittest.TestCase):
         environment = mod.mke2fs_environment(plan)
         self.assertEqual(environment, dict(plan["mke2fs"]["env"]))
         self.assertNotIn("PATH", environment)
-        self.assertNotIn("SOURCE_DATE_EPOCH", environment)
+        self.assertNotIn(plan_mod.SUPERSEDED_WRITER_TIME_ENV, environment)
 
     def test_nothing_in_this_module_reaches_the_network(self) -> None:
         source = pathlib.Path(
@@ -287,11 +318,20 @@ class FrozenLoaderTests(unittest.TestCase):
             self.assertEqual(len(row["sha256"]), 64)
 
     def test_the_soname_list_comes_from_the_plan_not_from_here(self) -> None:
-        source = pathlib.Path(
-            "scripts/native_shadow_boot_root_disk_execute_arm64_v1.py"
-        ).read_text(encoding="utf-8")
-        for row in plan_mod.SHARED_LIBRARIES:
-            self.assertNotIn(row["soname"], source)
+        """A second copy of the list can drift; prose about the list cannot.
+
+        This used to read the file's raw text, which stopped distinguishing the
+        two once the module had to explain its own hazard -- two closures now
+        hold different builds of the same soname, and a reader who is not told
+        which is which cannot check the guard.  Naming a library in a docstring
+        copies nothing.  So the string constants are taken from the parse tree
+        with the docstrings left out, and both lists are checked rather than
+        the one that existed when the rule was written.
+        """
+
+        joined = "\n".join(code_strings(MODULE_PATH))
+        for row in [*plan_mod.SHARED_LIBRARIES, *plan_mod.WRITER_LIBRARIES]:
+            self.assertNotIn(row["soname"], joined)
 
 
 class BoundaryTests(unittest.TestCase):

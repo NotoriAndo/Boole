@@ -232,9 +232,18 @@ class InventoryTests(unittest.TestCase):
 class CauseTests(unittest.TestCase):
     """Why.  Read out of the frozen binaries, not inferred from the outcome."""
 
-    def test_the_cause_names_the_variable_the_producer_sets(self) -> None:
+    def test_the_cause_names_the_variable_the_producer_set_at_the_time(self) -> None:
+        """The producer has since stopped setting it, and the record still names it.
+
+        The variable is part of the failure, not part of the current design, so
+        it is pinned here against the constant the producer keeps for the name
+        it superseded rather than against the one it now sets.  Tying it to the
+        live variable instead would make the record follow the fix around.
+        """
+
         cause = document()["cause"]
-        self.assertEqual(cause["variable"], root_disk.FAKE_TIME_ENV)
+        self.assertEqual(cause["variable"], root_disk.SUPERSEDED_WRITER_TIME_ENV)
+        self.assertNotEqual(root_disk.WRITER_TIME_ENV, cause["variable"])
 
     def test_the_record_keeps_the_value_that_was_set_when_it_failed(self) -> None:
         """The record is a seal, not a mirror of the producer.
@@ -243,25 +252,45 @@ class CauseTests(unittest.TestCase):
         this an equality against the live module would quietly rewrite what the
         failure was every time the fix moved, which is the one thing this record
         exists to prevent.
+
+        The producer no longer sets that variable at all, which is a stronger
+        statement than setting it to something else: a fixed non-zero time under
+        the superseded name is read by the new writer without arming its clamp,
+        so it would reproduce this failure while looking like the fix.
         """
 
         cause = document()["cause"]
         self.assertEqual(cause["valueSet"], "0")
-        self.assertNotEqual(
-            root_disk.mke2fs_env(config="/x")[root_disk.FAKE_TIME_ENV],
-            cause["valueSet"],
-        )
+        environment = root_disk.mke2fs_env(config="/x")
+        self.assertNotIn(cause["variable"], environment)
+        self.assertNotEqual(environment[root_disk.WRITER_TIME_ENV], cause["valueSet"])
 
     def test_the_value_that_was_set_is_the_sentinel_that_disables_it(self) -> None:
         cause = document()["cause"]
         self.assertEqual(cause["sentinel"], "0")
         self.assertIs(cause["pinTookEffect"], False)
 
-    def test_the_disassembly_evidence_is_from_the_binary_the_plan_pinned(self) -> None:
-        """A cause read out of some other mke2fs would not be this cause."""
+    def test_the_disassembly_evidence_is_from_the_binary_that_failed(self) -> None:
+        """A cause read out of some other mke2fs would not be this cause.
+
+        The binary it was read out of is the writer the sealed builder authority
+        names, which the plan no longer pins -- replacing it is the fix.  So the
+        anchor moved from the live plan to the other sealed record, and the two
+        digests being different is asserted rather than assumed: if the plan
+        went back to this writer the failure would come back with it.
+        """
+
+        sealed = json.loads(
+            (
+                REPO
+                / "native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json"
+            ).read_text(encoding="utf-8")
+        )
+        failed = {row["role"]: row for row in sealed["toolBinaries"]}["ext4-image-writer"]
 
         binaries = {row["name"]: row for row in document()["cause"]["binaries"]}
-        self.assertEqual(binaries["mke2fs"]["sha256"], root_disk.MKE2FS_SHA256)
+        self.assertEqual(binaries["mke2fs"]["sha256"], failed["sha256"])
+        self.assertNotEqual(binaries["mke2fs"]["sha256"], root_disk.MKE2FS_SHA256)
         self.assertRegex(binaries["libext2fs.so.2.4"]["sha256"], r"\A[0-9a-f]{64}\Z")
 
     def test_the_evidence_shows_the_branch_and_the_two_stores_it_reaches(self) -> None:
@@ -288,9 +317,35 @@ class AssumptionTests(unittest.TestCase):
     """The producer wrote down what it could not settle.  This settles them."""
 
     def test_every_assumption_the_producer_listed_is_dispositioned(self) -> None:
-        recorded = {row["id"] for row in document()["assumptions"]}
+        """The lists may differ now, but only by a stated supersession.
+
+        This was an equality until the producer replaced an assumption the
+        record had falsified.  An equality cannot survive that, and relaxing it
+        to a subset would let an assumption be dropped silently, which is worse
+        than the drift it was guarding against.  So each side's difference has
+        to be accounted for: the producer may only stop declaring an assumption
+        by naming the one it supersedes, and may only supersede one this record
+        marked FALSIFIED.  An assumption that was HELD or left UNSETTLED cannot
+        be retired this way.
+        """
+
+        rows = {row["id"]: row for row in document()["assumptions"]}
+        recorded = set(rows)
         declared = {row["id"] for row in root_disk.UNVERIFIED_ASSUMPTIONS}
-        self.assertEqual(recorded, declared)
+        successors = {
+            row["id"] for row in root_disk.UNVERIFIED_ASSUMPTIONS if row.get("supersedes")
+        }
+        superseded = {
+            row["supersedes"]
+            for row in root_disk.UNVERIFIED_ASSUMPTIONS
+            if row.get("supersedes")
+        }
+
+        self.assertEqual(recorded - declared, superseded)
+        self.assertEqual(declared - recorded, successors)
+        for old in superseded:
+            self.assertIn(old, rows)
+            self.assertEqual(rows[old]["disposition"], "FALSIFIED", old)
 
     def test_the_time_assumption_is_recorded_falsified(self) -> None:
         rows = {row["id"]: row for row in document()["assumptions"]}

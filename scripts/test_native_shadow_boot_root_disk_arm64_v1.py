@@ -4,10 +4,31 @@
 from __future__ import annotations
 
 import json
+import pathlib
 import unittest
 
 from scripts import native_shadow_boot_root_disk_arm64_v1 as mod
 from scripts.test_native_shadow_boot_initrd_arm64_v1 import SMALL, tar_bytes
+
+
+REPO = pathlib.Path(__file__).resolve().parents[1]
+CONTAINMENT = REPO / "native/containment"
+
+
+def sealed_authority() -> dict:
+    return json.loads(
+        (CONTAINMENT / "native-shadow-boot-image-builder-authority-arm64-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+
+def selection_record() -> dict:
+    return json.loads(
+        (CONTAINMENT / "native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
 
 
 LAYER = tar_bytes(SMALL)
@@ -79,16 +100,27 @@ class ArgvTests(unittest.TestCase):
 
 class EnvironmentTests(unittest.TestCase):
     def test_the_time_knob_this_build_of_mke2fs_actually_reads_is_set(self) -> None:
-        """1.47.0 has no SOURCE_DATE_EPOCH; libext2fs reads E2FSPROGS_FAKE_TIME."""
+        """Both variables reach this writer and only one of them arms the clamp.
+
+        The statement this test used to make was true of the writer it was
+        written about: 1.47.0 has no SOURCE_DATE_EPOCH at all, so
+        E2FSPROGS_FAKE_TIME was the only knob there was.  The selected build
+        reads SOURCE_DATE_EPOCH first -- it stores the fixed time and arms the
+        flag mke2fs branches on -- and keeps E2FSPROGS_FAKE_TIME as a fallback
+        that stores the time and leaves the flag clear.  So the superseded name
+        is not a second way of asking for the same thing; setting it would put
+        the writer back on the branch that copies each staged file's own
+        st_ctime, which is the sealed failure with a newer binary.
+        """
 
         env = plan()["mke2fs"]["env"]
-        self.assertEqual(env["E2FSPROGS_FAKE_TIME"], mod.EXT4_WRITER_TIME)
-        self.assertNotIn("SOURCE_DATE_EPOCH", env)
+        self.assertEqual(env[mod.WRITER_TIME_ENV], mod.EXT4_WRITER_TIME)
+        self.assertNotIn(mod.SUPERSEDED_WRITER_TIME_ENV, env)
 
     def test_the_time_knob_is_not_the_value_the_library_treats_as_unset(self) -> None:
         """Setting it to zero is how the first pair of builds got two wall clocks."""
 
-        self.assertNotEqual(plan()["mke2fs"]["env"]["E2FSPROGS_FAKE_TIME"], "0")
+        self.assertNotEqual(plan()["mke2fs"]["env"][mod.WRITER_TIME_ENV], "0")
 
     def test_the_config_comes_from_the_frozen_package_not_the_runner(self) -> None:
         """mke2fs reads its feature defaults from this file."""
@@ -159,17 +191,35 @@ class SizeTests(unittest.TestCase):
 
 
 class ToolPinTests(unittest.TestCase):
-    def test_the_tool_digests_match_the_sealed_builder_authority(self) -> None:
-        import pathlib
+    def test_the_inspector_is_still_the_one_the_sealed_authority_named(self) -> None:
+        """The writer moved and the inspector did not, and that is deliberate.
 
-        sealed = json.loads(
-            pathlib.Path(
-                "native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json"
-            ).read_text(encoding="utf-8")
-        )
-        by_role = {row["role"]: row for row in sealed["toolBinaries"]}
-        self.assertEqual(by_role["ext4-image-writer"]["sha256"], mod.MKE2FS_SHA256)
+        Keeping the sealed inspector is what makes the check independent: an
+        image written by the new e2fsprogs is read back by a build that knows
+        nothing about it, so a defect shared by writer and checker cannot agree
+        with itself into a pass.
+        """
+
+        by_role = {row["role"]: row for row in sealed_authority()["toolBinaries"]}
         self.assertEqual(by_role["ext4-image-inspector"]["sha256"], mod.DEBUGFS_SHA256)
+
+    def test_the_writer_is_the_replacement_the_selection_record_measured(self) -> None:
+        """Not the sealed writer any more -- and not an unrecorded one either.
+
+        The sealed authority's writer is the binary whose defect is sealed in
+        the hard-stop record, so the plan pinning it again would mean nothing
+        had changed.  The digest it points at instead has to be the build the
+        append-only selection record read and returned FIXED for, or the swap
+        is to something nobody measured.
+        """
+
+        by_role = {row["role"]: row for row in sealed_authority()["toolBinaries"]}
+        self.assertNotEqual(by_role["ext4-image-writer"]["sha256"], mod.MKE2FS_SHA256)
+
+        positive = selection_record()["controls"]["positive"]
+        self.assertEqual(positive["verdict"], "FIXED")
+        self.assertEqual(positive["writer"]["sha256"], mod.MKE2FS_SHA256)
+        self.assertEqual(positive["writer"]["sizeBytes"], mod.MKE2FS_SIZE_BYTES)
 
     def test_the_plan_records_the_digests_the_producer_must_check(self) -> None:
         tools = plan()["tools"]
@@ -192,7 +242,7 @@ class DeterminismTests(unittest.TestCase):
         """These are assumptions until two arm64 jobs agree; naming them is the point."""
 
         ids = {row["id"] for row in plan()["unverifiedAssumptions"]}
-        self.assertIn("fake-time-honoured-by-this-build", ids)
+        self.assertIn("writer-honours-source-date-epoch", ids)
         self.assertIn("staging-readdir-order-is-creation-order", ids)
         self.assertIn("loader-resolves-only-frozen-libraries", ids)
         for row in plan()["unverifiedAssumptions"]:

@@ -49,9 +49,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from scripts.native_shadow_boot_root_disk_arm64_v1 import (
     CANONICAL_MTIME,
     E2FSCK_ACCEPTED_EXIT_CODES,
-    FAKE_TIME_ENV,
+    ORIGIN_WRITER_SET,
     SHARED_LIBRARIES,
+    SUPERSEDED_WRITER_TIME_ENV,
     WALL_CLOCK_LOWER_BOUND,
+    WRITER_LIBRARIES,
+    WRITER_TIME_ENV,
     canonical_json,
     layer_entries,
     staging_entries,
@@ -67,6 +70,7 @@ ABORT_TOOL_DIGEST_MISMATCH = "tool-binary-digest-mismatch"
 ABORT_OUTPUT_MISSING = "output-missing-or-empty"
 ABORT_WRITER_TIME = "ext4-writer-time-unusable"
 ABORT_LOADER_EVIDENCE = "loader-provenance-outside-the-frozen-closure"
+ABORT_LIBRARY_VERSION_MIXED = "writer-and-checker-closures-disagree"
 ABORT_FSCK = "read-only-filesystem-check-did-not-pass"
 ABORT_WALL_CLOCK = "wall-clock-survived-in-the-image"
 
@@ -331,28 +335,92 @@ def assert_loader_evidence(evidence: Mapping[str, Any], *, tree: pathlib.Path) -
 
 
 def assert_writer_time(env: Mapping[str, str]) -> int:
-    """The writer is handed a fixed time, and not the library's unset sentinel."""
+    """The writer is handed a fixed time, by the variable that arms the clamp.
 
-    raw = env.get(FAKE_TIME_ENV)
+    Two variables reach this writer and only one of them is enough.  The
+    superseded one sets the fixed time and leaves the flag clear, which puts the
+    writer back on the branch that copies each staged file's own `st_ctime` --
+    the sealed failure, with a newer binary and nothing in the output to say so.
+    So an environment carrying only that one is refused here rather than run.
+    """
+
+    raw = env.get(WRITER_TIME_ENV)
     if raw is None:
+        superseded = env.get(SUPERSEDED_WRITER_TIME_ENV)
+        detail = (
+            f"it pins {SUPERSEDED_WRITER_TIME_ENV}={superseded!r}, which this writer "
+            f"reads without arming the clamp"
+            if superseded is not None
+            else "every time field would come from the wall clock"
+        )
         raise RootDiskExecuteError(
-            f"{ABORT_WRITER_TIME}: the environment pins no {FAKE_TIME_ENV}, so every "
-            f"time field would come from the wall clock"
+            f"{ABORT_WRITER_TIME}: the environment pins no {WRITER_TIME_ENV}; {detail}"
         )
     try:
         value = int(str(raw))
     except ValueError as exc:
-        raise RootDiskExecuteError(f"{ABORT_WRITER_TIME}: {FAKE_TIME_ENV}={raw!r}") from exc
+        raise RootDiskExecuteError(
+            f"{ABORT_WRITER_TIME}: {WRITER_TIME_ENV}={raw!r}"
+        ) from exc
     if value == 0:
         raise RootDiskExecuteError(
-            f"{ABORT_WRITER_TIME}: {FAKE_TIME_ENV}=0 is the library's unset sentinel, "
+            f"{ABORT_WRITER_TIME}: {WRITER_TIME_ENV}=0 is the library's unset sentinel, "
             f"not a time; it asks for the wall clock"
         )
     if value >= WALL_CLOCK_LOWER_BOUND:
         raise RootDiskExecuteError(
-            f"{ABORT_WRITER_TIME}: {FAKE_TIME_ENV}={value} is in wall-clock range"
+            f"{ABORT_WRITER_TIME}: {WRITER_TIME_ENV}={value} is in wall-clock range"
         )
     return value
+
+
+def assert_no_version_mixing(
+    writer: Mapping[str, Mapping[str, Any]],
+    checker: Mapping[str, Mapping[str, Any]],
+) -> None:
+    """The two closures differ in exactly the libraries sealed with the writer.
+
+    Changing the writer put a second build of `libext2fs.so.2` on the machine,
+    and the failure that buys is silent: the new `mke2fs` resolving the frozen
+    library finds the fixed-time flag unarmed and writes staged times again,
+    producing an image that looks like every other failed one.  There is no
+    output to inspect for it, so it is checked here instead.
+
+    Both directions matter.  A writer-set library that is not the pinned build
+    means the writer ran against the wrong `libext2fs`; a shared library whose
+    bytes differ between the closures means the writer's tree was assembled from
+    something other than the frozen guest, which is the same hazard arriving
+    from the other side.
+    """
+
+    for row in WRITER_LIBRARIES:
+        soname = row["soname"]
+        resolved = writer.get(soname)
+        if resolved is None:
+            raise RootDiskExecuteError(
+                f"{ABORT_LIBRARY_VERSION_MIXED}: the writer closure resolved no "
+                f"{soname}"
+            )
+        if row["origin"] == ORIGIN_WRITER_SET:
+            if resolved.get("sha256") != row["sha256"]:
+                raise RootDiskExecuteError(
+                    f"{ABORT_LIBRARY_VERSION_MIXED}: the writer resolved {soname} to "
+                    f"{resolved.get('sha256')}, and the build sealed with it is "
+                    f"{row['sha256']}"
+                )
+            continue
+        counterpart = checker.get(soname)
+        if counterpart is None:
+            raise RootDiskExecuteError(
+                f"{ABORT_LIBRARY_VERSION_MIXED}: the checker closure resolved no "
+                f"{soname} to compare the writer's copy against"
+            )
+        if resolved.get("sha256") != counterpart.get("sha256"):
+            raise RootDiskExecuteError(
+                f"{ABORT_LIBRARY_VERSION_MIXED}: {soname} is {resolved.get('sha256')} "
+                f"for the writer and {counterpart.get('sha256')} for the checkers; "
+                f"outside the sealed set the two closures must be the same bytes"
+            )
 
 
 def fsck_passed(exit_code: int) -> bool:

@@ -51,7 +51,21 @@ def predecessor() -> dict:
 
 
 def live_writer_time() -> str:
-    return root_disk.mke2fs_env(config="/x")[root_disk.FAKE_TIME_ENV]
+    return root_disk.mke2fs_env(config="/x")[root_disk.WRITER_TIME_ENV]
+
+
+def sealed_authority() -> dict:
+    path = REPO / (
+        "native/containment/native-shadow-boot-image-builder-authority-arm64-v1.json"
+    )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def selection_record() -> dict:
+    path = REPO / (
+        "native/containment/native-shadow-boot-e2fsprogs-selection-plucky-arm64-v1.json"
+    )
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class PreRegistrationTests(unittest.TestCase):
@@ -146,10 +160,20 @@ class TimeDesignTests(unittest.TestCase):
         self.assertEqual(source["value"], initrd.CANONICAL_MTIME)
         self.assertFalse(source["changedBySuccessor"])
 
-    def test_the_writer_time_names_the_variable_the_producer_sets(self) -> None:
+    def test_the_writer_time_names_the_variable_that_writer_read(self) -> None:
+        """The bar was written for a writer that has since been replaced.
+
+        It names E2FSPROGS_FAKE_TIME because that was the only time knob the
+        binary in front of it had.  Repointing this at whatever the producer
+        currently sets would let the bar follow the implementation, so it stays
+        pinned to the superseded name and the difference is asserted instead.
+        """
+
         self.assertEqual(
-            document()["time"]["ext4WriterTime"]["variable"], root_disk.FAKE_TIME_ENV
+            document()["time"]["ext4WriterTime"]["variable"],
+            root_disk.SUPERSEDED_WRITER_TIME_ENV,
         )
+        self.assertNotEqual(root_disk.WRITER_TIME_ENV, root_disk.SUPERSEDED_WRITER_TIME_ENV)
 
     def test_the_producer_holds_one_of_the_two_values_the_record_names(self) -> None:
         """Before the fix it is the sentinel, after it the pin.  Never a third thing."""
@@ -180,6 +204,43 @@ class TimeDesignTests(unittest.TestCase):
         self.assertIn("0", refused)
         for row in document()["time"]["forbiddenSubstitutions"]:
             self.assertTrue(row["why"].strip())
+
+    def test_the_refused_swap_was_about_the_writer_that_has_been_replaced(self) -> None:
+        """The producer now sets a variable this record refuses, and that is not a breach.
+
+        What the bar forbade was swapping the name while keeping the binary:
+        with that build of libext2fs, SOURCE_DATE_EPOCH is not read at all, so
+        the swap would have removed the pin and left nothing in its place.  The
+        writer has since been replaced by one that reads it first and arms the
+        clamp on it, which makes it that build's time knob rather than a
+        substitute for one.
+
+        Left as prose this would read as the bar being talked around, so the
+        scope is checked instead: the refusal still stands for the binary it was
+        written about, the plan no longer pins that binary, and the replacement
+        is the one an append-only record measured and said reads this variable.
+        """
+
+        refused = {row["value"] for row in document()["time"]["forbiddenSubstitutions"]}
+        self.assertIn(root_disk.WRITER_TIME_ENV, refused)
+
+        failed = {row["role"]: row for row in sealed_authority()["toolBinaries"]}
+        self.assertNotEqual(failed["ext4-image-writer"]["sha256"], root_disk.MKE2FS_SHA256)
+
+        writer_time = selection_record()["writerTime"]
+        self.assertTrue(writer_time["planMustChange"])
+        self.assertFalse(writer_time["fakeTimeAloneArmsTheFlag"])
+        self.assertEqual(
+            writer_time["variableTheSelectedBuildHonours"], root_disk.WRITER_TIME_ENV
+        )
+        self.assertEqual(
+            writer_time["variableThePlanCurrentlySets"],
+            root_disk.SUPERSEDED_WRITER_TIME_ENV,
+        )
+        self.assertEqual(
+            selection_record()["controls"]["positive"]["writer"]["sha256"],
+            root_disk.MKE2FS_SHA256,
+        )
 
     def test_the_inspector_is_not_promoted_to_a_writer(self) -> None:
         self.assertTrue(document()["time"]["debugfsMustNotBecomeAWriter"]["required"])
@@ -542,7 +603,7 @@ class StaticNegativeTests(unittest.TestCase):
 
     def test_the_absence_is_what_makes_the_successor_value_insufficient(self) -> None:
         consequence = self.negative()["consequence"]
-        self.assertIn(root_disk.FAKE_TIME_ENV, consequence)
+        self.assertIn(root_disk.SUPERSEDED_WRITER_TIME_ENV, consequence)
         self.assertIn("not sufficient", consequence)
 
 
