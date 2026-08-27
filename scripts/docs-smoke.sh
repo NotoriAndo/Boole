@@ -903,6 +903,46 @@ require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm6
 require_text native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json 'DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED'
 require_text scripts/self-test.sh scripts/test_native_shadow_mac3_closed_local_boot_result_arm64_v2.py
 
+# The MAC.3 guest runtime contract, frozen before anything answers it. What is
+# pinned here is the half that a later wave would be tempted to soften: the
+# record reads as unrun, it claims no serving, and the one condition the sealed
+# containment contradicts stays held rather than reworded into one the current
+# design happens to satisfy. A new image is named as required and not as made.
+require_file native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json
+require_text native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json 'MAC3-GUEST-RUNTIME-CONTRACT-FROZEN-NOT-RUN'
+require_text native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json '"frozenBefore": "any guest runtime run"'
+require_text native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json '"servingClaim": false'
+require_text native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json '"condition": "the launcher runs under an unprivileged account"'
+require_text native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json '"state": "awaiting an operator decision"'
+require_text native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json '"relaxed": false'
+require_text native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json '"readingApplied": false'
+require_text native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json '"performed": false'
+require_text native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json '"activationAllowed": false'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_guest_runtime_contract_arm64_v1.py
+
+# The input set that would close two of the contract's three gaps. Pinned here
+# is the part that separates an input from a result: no image was built, nothing
+# serves, and the gap these files cannot close is still named as open rather
+# than quietly dropped once two of three looked done. The two v1 files these
+# supersede stay in the tree at their sealed digests, because four records name
+# them; the successors go to the same guest paths instead of editing them.
+require_file native/containment/native-shadow-mac3-guest-runtime-inputs-arm64-v1.json
+require_text native/containment/native-shadow-mac3-guest-runtime-inputs-arm64-v1.json 'MAC3-GUEST-RUNTIME-INPUTS-FROZEN-NOT-BUILT'
+require_text native/containment/native-shadow-mac3-guest-runtime-inputs-arm64-v1.json '"imageProduced": false'
+require_text native/containment/native-shadow-mac3-guest-runtime-inputs-arm64-v1.json '"servingClaim": false'
+require_text native/containment/native-shadow-mac3-guest-runtime-inputs-arm64-v1.json '"gap": "/var/lib/boole/native-shadow/runtime-rootfs"'
+require_text native/containment/native-shadow-mac3-guest-runtime-inputs-arm64-v1.json '"activationAllowed": false'
+require_file native/etc/passwd
+require_file native/etc/group
+require_file native/etc/nsswitch.conf
+require_file native/systemd/boole-native-shadow-launcher-v2.service
+require_file native/tmpfiles.d/boole-native-shadow-v2.conf
+require_file native/systemd/boole-native-shadow-launcher.service
+require_file native/tmpfiles.d/boole-native-shadow.conf
+require_text native/systemd/boole-native-shadow-launcher-v2.service 'StandardOutput=journal+console'
+require_text native/systemd/boole-native-shadow-launcher-v2.service 'CapabilityBoundingSet=CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_ADMIN'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_guest_runtime_inputs_arm64_v1.py
+
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
 # the three the console named because it comes from the guest's own systemd --
@@ -1018,9 +1058,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "2d33aa36f85797b1694cb080edaf3e62e945b2eb1f2e14530839894c79724844"
-require_text docs/native-submission-shadow-verification-v1.md "7eb836eefeb7b7565cad5c548d9db170d7c70ea650871dd550a7798463f05157"
-require_text docs/native-submission-shadow-verification-v1.md "a143135ec0538f0731e687e74b24af7448df1739c9aa8a246d71150f7196ed59"
+require_text docs/native-submission-shadow-verification-v1.md "9196310572c35148676fae1656beb85126050f7db7f98bb2bc6fcb0be7071648"
+require_text docs/native-submission-shadow-verification-v1.md "de6054d7aeab7e7136596a0aa91fa21784ed20d102b9f613660a421ef8118373"
+require_text docs/native-submission-shadow-verification-v1.md "7d6fafb4376cadc679f99c9b6c5730bb505b72327934ca80989798cf5568aa20"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "That sentence stays as written."
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "necessary but not sufficient"

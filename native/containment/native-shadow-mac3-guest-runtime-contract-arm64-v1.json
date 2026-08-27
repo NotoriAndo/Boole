@@ -1,0 +1,348 @@
+{
+ "activationAllowed": false,
+ "appendOnly": {
+  "note": "Nothing sealed is edited. The boot receipt, the qualification it was judged against and the producer authority are bound by digest here so this record cannot outlive an edit to them.",
+  "recordsLeftByteUnchanged": [
+   {
+    "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json",
+    "sha256": "95655e74754c27166902a4030c92608d32a5f76e250b091863b923fa69a5deeb",
+    "sizeBytes": 17536
+   },
+   {
+    "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json",
+    "sha256": "bf703945ec02f1f66b492f7bb0c6e4080190caea17dc063e2868ef688669abb7",
+    "sizeBytes": 24273
+   },
+   {
+    "path": "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json",
+    "sha256": "6e4a2ae19493f81a58e6130ea95676967cb08fd7d7f3694eb90f673e6e3a1820",
+    "sizeBytes": 4938
+   },
+   {
+    "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json",
+    "sha256": "0fdd8b4711c9f76127a9bf71c86c63f87a8a05501eb61ef864cef2e8bca24f8c",
+    "sizeBytes": 10837
+   }
+  ]
+ },
+ "boundaries": {
+  "cleanMacEvidence": false,
+  "closedLocalGuestBootVerified": true,
+  "launcherServing": false,
+  "productRelease": false,
+  "runtimeCompatibilityVerified": false
+ },
+ "conditions": [
+  {
+   "condition": "systemd does not enter emergency and reaches its target",
+   "howItWillBeChecked": "read from the console transcript the run captures: the target it settles on is compared with the guest's own default, and any emergency or rescue unit appearing at all is a failure rather than a note.",
+   "id": "systemd-does-not-enter-emergency-and-reaches-its-target",
+   "status": "frozen"
+  },
+  {
+   "condition": "the launcher service starts on its own",
+   "howItWillBeChecked": "the console transcript has to show systemd starting the unit without a console command having asked for it, which the enablement symlink in the image is what produces.",
+   "id": "launcher-service-starts-without-being-asked",
+   "status": "frozen"
+  },
+  {
+   "condition": "the launcher executable matches the sealed fingerprint",
+   "howItWillBeChecked": "the digest is compared against the producer authority's sealed launcher block before the image is built, and the guest reports the digest of the file it actually executed once it can speak.",
+   "id": "launcher-executable-matches-the-sealed-digest",
+   "status": "frozen"
+  },
+  {
+   "condition": "the launcher runs under an unprivileged account",
+   "howItWillBeChecked": "held: see heldCondition. No check is registered for a condition whose conflict with the sealed containment has not been resolved, because registering one would decide the question this record is holding open.",
+   "id": "launcher-runs-under-an-unprivileged-account",
+   "status": "held"
+  },
+  {
+   "condition": "every write the guest needs lands on tmpfs",
+   "howItWillBeChecked": "the mount table the guest executes is read from the image, and every path the launcher and its units write to is required to resolve to a tmpfs mount; the root disk being unchanged afterwards is the independent half of the same check.",
+   "id": "every-write-lands-on-tmpfs",
+   "status": "frozen"
+  },
+  {
+   "condition": "the root disk stays read-only",
+   "howItWillBeChecked": "the disk is attached read-only by the host configuration, and its digest is taken before and after the run and required to be identical, the same way the sealed boot receipt established it.",
+   "id": "root-disk-stays-read-only",
+   "status": "frozen"
+  },
+  {
+   "condition": "the machine has no network device and no shared directory",
+   "howItWillBeChecked": "counted from the host virtual-machine configuration before the run starts, as the sealed boot receipt already counts them: zero network devices, zero shared directories, zero socket devices.",
+   "id": "no-network-device-and-no-shared-directory",
+   "status": "frozen"
+  },
+  {
+   "condition": "no host wallet, model key or node secret is present in the guest",
+   "howItWillBeChecked": "the image is built from a fixed input list with no host path and no environment passthrough, and the produced image is searched for the known secret-bearing filenames and for the host's own wallet and key directories, which must have no entry.",
+   "id": "no-host-wallet-model-key-or-node-secret-in-the-guest",
+   "status": "frozen"
+  },
+  {
+   "condition": "readiness and a clean shutdown are observed",
+   "howItWillBeChecked": "the launcher's own readiness point has to be visible to the host, which today it is not; making it visible is part of what this contract opens. The shutdown half is read from the console transcript.",
+   "id": "readiness-and-clean-shutdown-are-observed",
+   "status": "frozen"
+  },
+  {
+   "condition": "no guest process, socket or temporary file survives the shutdown",
+   "howItWillBeChecked": "counted on the host after the run the way the sealed boot receipt counts host processes, extended to the socket path and the working directory; the guest's own tmpfs is gone with the machine by construction.",
+   "id": "nothing-of-the-guest-survives-the-shutdown",
+   "status": "frozen"
+  }
+ ],
+ "doesNotUnlock": {
+  "mac4NodeBinding": false,
+  "publicMiningOrBenchmark": false,
+  "rewardOrActivation": false
+ },
+ "frozenBefore": "any guest runtime run",
+ "gaps": [
+  {
+   "closedBy": "an account database baked into the image, because the thing that would normally create it cannot write to a read-only root",
+   "consequence": "systemd cannot resolve boole-node or boole-native-checker, so the launcher's service-identity prerequisite will refuse. systemd-sysusers would normally create them at boot, and it cannot on a read-only root. This is recorded now so that refusal is a known result rather than a surprise, and so nobody later reads it as the image being broken.",
+   "path": "/etc/passwd",
+   "requiresNewImage": true,
+   "what": "the account database the guest's own sysusers file expects to fill in"
+  },
+  {
+   "closedBy": "the already-sealed arm64 runtime rootfs and its content manifest placed into the image; the manifest digest the launcher compiles against and the digest the replay expectation seals are the same value, so no new artefact is invented to close this",
+   "consequence": "the launcher refuses at verify_runtime_rootfs_replay. Serving executions was never in reach for this image, and no pass condition below asks for it.",
+   "path": "/var/lib/boole/native-shadow/runtime-rootfs",
+   "requiresNewImage": true,
+   "what": "the runtime rootfs and its content manifest the launcher verifies before it serves anything"
+  },
+  {
+   "closedBy": "the launcher's standard output and error also going to the console the host already captures and hashes, which adds no device, no network and no shared directory",
+   "consequence": "where the launcher refuses is not observable, which the sealed boot receipt records as a limit of that run rather than as a property of the launcher.",
+   "path": "the launcher's own output",
+   "requiresNewImage": true,
+   "what": "a channel by which the launcher's refusal can be read"
+  }
+ ],
+ "heldCondition": {
+  "contradictedBy": [
+   {
+    "path": "crates/boole-native-shadow-launcher/src/privilege.rs",
+    "sha256": "f8d479c04077cc931bf3c49fec01a4fee28c2384ee8ac6f22e00930f73be0aae",
+    "sizeBytes": 13709
+   },
+   {
+    "path": "scripts/native-shadow-launcher-privilege-gate.sh",
+    "sha256": "72c5b5136600919c765750a119d6e72d32f7edd52e45059ac243c4149953e63b",
+    "sizeBytes": 4689
+   }
+  ],
+  "id": "launcher-runs-under-an-unprivileged-account",
+  "ifTheOperatorChoosesTheOtherWay": "changing the launcher to run unprivileged is a containment change, not a runtime one, and would need its own pre-registration, its own RED tests and its own review of what the delegation is replaced with.",
+  "readingApplied": false,
+  "readingOffered": "the launcher starts as root holding exactly the four sealed capabilities, verifies that mask itself and refuses on any mismatch, and every execution it serves runs under an unprivileged account. This keeps the intent -- least privilege -- and matches what is already sealed, but it is a different sentence from the one given, so it is not applied here.",
+  "relaxed": false,
+  "satisfied": false,
+  "state": "awaiting an operator decision",
+  "waived": false,
+  "why": "The launcher is a privilege manager. It refuses to start unless it is root holding exactly four capabilities, checks that itself before it does anything else, and is what drops to the unprivileged node and checker accounts on the way to the work. Running the launcher itself unprivileged is not a configuration change: it would remove the delegation and account separation the containment is built on."
+ },
+ "launcher": {
+  "acquisition": "rebuild-and-match-seal",
+  "guestLogicalPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+  "sha256": "11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434",
+  "sizeBytes": 2006632,
+  "startupOrder": [
+   "verify the privilege mask it was started with",
+   "take the lifetime lock under the runtime directory",
+   "acquire a fresh instance identity",
+   "enter the fixed manager cgroup",
+   "recover startup orphans",
+   "verify toolchain compatibility",
+   "verify the runtime rootfs against its sealed content manifest",
+   "assemble the closed-local replay startup",
+   "serve the fixed executions"
+  ],
+  "whereItStopsToday": "the account resolution at the first step, because the guest has no account database; the runtime rootfs check would stop it again after that."
+ },
+ "newImageProduction": {
+  "performed": false,
+  "required": true,
+  "rules": [
+   "the successor contract and its pass conditions are frozen in a separate file before any result exists",
+   "the existing images and the existing boot results are not edited",
+   "the production pair runs exactly once",
+   "both replicas must agree byte for byte on kernel, initrd and root disk",
+   "the root disk must pass a read-only e2fsck",
+   "a mismatch after the result file exists is a hard stop, not a retry"
+  ],
+  "runsAllowed": 1,
+  "why": "every gap above is a file that has to be inside the image, and the image is read-only and content-addressed, so none of them can be added to the one that already booted."
+ },
+ "release": "MAC3-GUEST-RUNTIME-CONTRACT-ARM64-V1-FROZEN-BEFORE-ANY-RUNTIME-RUN",
+ "schema": "boole.native-shadow.mac3-guest-runtime-contract.arm64.v1",
+ "servingClaim": false,
+ "status": "MAC3-GUEST-RUNTIME-CONTRACT-FROZEN-NOT-RUN",
+ "survey": [
+  {
+   "area": "account-database",
+   "finding": "the image has no /etc/passwd and no /etc/group. The sysusers configuration that would create the two accounts is in the image, but systemd-sysusers cannot write them on a read-only root.",
+   "how": "listed from the produced image's own entry table for the failed image, and carried to this one by the read-only comparison of the two trees, which added exactly /dev, /proc, /run, /sys, /tmp and removed nothing.",
+   "read": [
+    {
+     "path": "native/sysusers.d/boole-native-shadow.conf",
+     "sha256": "75b1ae8eb024396dcb36d3713435115dba68a8c52b05705ce4fe3b8e7f616445",
+     "sizeBytes": 192
+    },
+    {
+     "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json",
+     "sha256": "95655e74754c27166902a4030c92608d32a5f76e250b091863b923fa69a5deeb",
+     "sizeBytes": 17536
+    }
+   ],
+   "readOnly": true
+  },
+  {
+   "area": "launcher-binary-and-digest",
+   "finding": "the launcher is a build product, not a package and not a tracked file. The producer authority seals its digest, size and guest path, and allows it into the image only by rebuild-and-match-seal.",
+   "how": "read from the sealed producer authority and from the emitter that enforces it, without building anything.",
+   "read": [
+    {
+     "path": "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json",
+     "sha256": "6e4a2ae19493f81a58e6130ea95676967cb08fd7d7f3694eb90f673e6e3a1820",
+     "sizeBytes": 4938
+    },
+    {
+     "path": "scripts/native_shadow_launcher_emit_arm64_v1.py",
+     "sha256": "8255ed2bff0246e7042197257a24dcc8f290aeaf8cd8eda43a396450cb5f64a1",
+     "sizeBytes": 5988
+    }
+   ],
+   "readOnly": true
+  },
+  {
+   "area": "service-and-enablement-wiring",
+   "finding": "the unit is staged into /usr/lib/systemd/system and the enablement symlink under /etc/systemd/system/multi-user.target.wants is a declared derived entry. The sealed boot receipt records the unit being started, which is that wiring working.",
+   "how": "read from the boot rootfs builder's staging table and from the guest-init compatibility contract that names the symlink.",
+   "read": [
+    {
+     "path": "native/systemd/boole-native-shadow-launcher.service",
+     "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+     "sizeBytes": 704
+    },
+    {
+     "path": "native/containment/native-shadow-guest-init-compatibility-arm64-v1.json",
+     "sha256": "ee67e23bc89fa456a6e43a1c93d9d4a0faa8cf09e5d04b9a9678c17499d267b0",
+     "sizeBytes": 4718
+    }
+   ],
+   "readOnly": true
+  },
+  {
+   "area": "runtime-directory",
+   "finding": "/run/boole and /run/boole/native-shadow, the second owned root:boole-node at mode 2750, holding the lifetime lock at mode 0600. /run is a tmpfs, so these are writable on a read-only root.",
+   "how": "read from the launcher's fixed runtime component list and from the tmpfiles configuration that creates them.",
+   "read": [
+    {
+     "path": "native/tmpfiles.d/boole-native-shadow.conf",
+     "sha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+     "sizeBytes": 233
+    },
+    {
+     "path": "crates/boole-native-shadow-launcher/src/lifetime_lock.rs",
+     "sha256": "f40fd403ba3d74bbcd494000cc414847e8ca0cfd24c1b7f45df4cf8a16b58f64",
+     "sizeBytes": 28323
+    }
+   ],
+   "readOnly": true
+  },
+  {
+   "area": "socket-path",
+   "finding": "/run/boole/native-shadow/launcher.sock, a Unix socket on the same tmpfs, with the peer's uid and gid checked against the resolved node account on every connection.",
+   "how": "read from the qualification listener's fixed socket path and its peer-credential check.",
+   "read": [
+    {
+     "path": "crates/boole-native-shadow-launcher/src/qualification/listener.rs",
+     "sha256": "bbc831b00c3b387f51dba57da5184966948de1f17116e1fedc7ba3efa5b74b99",
+     "sizeBytes": 21257
+    }
+   ],
+   "readOnly": true
+  },
+  {
+   "area": "tmpfiles-and-sysusers-configuration",
+   "finding": "both are staged into the image. The tmpfiles configuration asks for three directories under /var/lib/boole, which is on the read-only root, so those three lines cannot succeed as the image stands; the two under /run can.",
+   "how": "read from the two configuration files and from the mount-point audit that says which of the paths are on a writable filesystem.",
+   "read": [
+    {
+     "path": "native/tmpfiles.d/boole-native-shadow.conf",
+     "sha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+     "sizeBytes": 233
+    },
+    {
+     "path": "native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json",
+     "sha256": "d1d76942070408e1c0e2163b58165eca60468a44365ed9cb3e695b49a9efba70",
+     "sizeBytes": 12632
+    }
+   ],
+   "readOnly": true
+  },
+  {
+   "area": "writes-needed-on-a-read-only-root",
+   "finding": "two kinds. The runtime directory, socket and lock are already on tmpfs and need nothing. The node state directory under /var/lib is not, and the replay node unit declares it read-write, so it needs a tmpfs of its own before that unit could run.",
+   "how": "read from the two unit files and the tmpfiles configuration against the audited mount table.",
+   "read": [
+    {
+     "path": "native/systemd/boole-native-shadow-replay-node.service",
+     "sha256": "0ae883d2fbe6afc04b3dd3038bbc293f9f7174fe19a2a5b6a230e2579251d430",
+     "sizeBytes": 1024
+    },
+    {
+     "path": "native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json",
+     "sha256": "d1d76942070408e1c0e2163b58165eca60468a44365ed9cb3e695b49a9efba70",
+     "sizeBytes": 12632
+    }
+   ],
+   "readOnly": true
+  }
+ ],
+ "whatThisIs": "the shape a MAC.3 guest runtime run has to have before it is allowed to answer anything. It opens work and reports none.",
+ "writablePaths": [
+  {
+   "filesystem": "tmpfs",
+   "mode": "0755",
+   "owner": "root:root",
+   "path": "/run/boole",
+   "why": "the parent of the runtime directory"
+  },
+  {
+   "filesystem": "tmpfs",
+   "mode": "2750",
+   "owner": "root:boole-node",
+   "path": "/run/boole/native-shadow",
+   "why": "the runtime directory the lock and socket live in"
+  },
+  {
+   "filesystem": "tmpfs",
+   "mode": "0600",
+   "owner": "root:root",
+   "path": "/run/boole/native-shadow/launcher.lock",
+   "why": "the lifetime lock that makes a second launcher refuse"
+  },
+  {
+   "filesystem": "tmpfs",
+   "mode": "as bound",
+   "owner": "root:boole-node",
+   "path": "/run/boole/native-shadow/launcher.sock",
+   "why": "the socket executions are requested on, with peer credentials checked against the resolved node account"
+  }
+ ],
+ "writesNotYetSeparated": [
+  {
+   "closedBy": "a tmpfs mounted at /var/lib/boole before tmpfiles runs",
+   "consequence": "the tmpfiles line that creates it cannot succeed, and the unit that declares it read-write could not start.",
+   "declaredBy": "native/systemd/boole-native-shadow-replay-node.service",
+   "onToday": "the read-only root",
+   "path": "/var/lib/boole/native-shadow/node-state"
+  }
+ ]
+}
