@@ -2681,3 +2681,108 @@ Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD,
 Base activation false and activationAllowed=false are unchanged. No public
 mining, no leaderboard claim and no paid-API benchmark is made anywhere in this
 section.
+
+## 37. The entry count, bounded — and a sentence of mine that was too strong (2026-08-28)
+
+Production is gated on two budgets. The byte budget was answered when the closure
+plan was sealed: the pinned sizes sum to 1,777,489,456 against a 2,147,483,648
+limit. The entry budget was left open there, and the reason given was that no
+entry count was pinned anywhere in the repository.
+
+That reason was wrong, and it was wrong in my own record. It is corrected here
+rather than fixed in place.
+
+### 37.1 What the earlier sentence said
+
+The closure plan's list of things it did not establish contains, verbatim:
+
+> that the entry count fits, because neither tree's entry count is pinned
+> anywhere in the repository and neither can be counted without a build
+
+Section 36.5 of this document repeated it, ending on *"still gated on an
+entry-count check that no pinned number in the tree answers."* Both stay as
+written. Neither is edited.
+
+### 37.2 Which half was overstated
+
+The clause **"neither tree's entry count is pinned anywhere in the repository."**
+One is. When the two boot root disk replicas failed byte identity, the
+investigation had to walk both trees from the root inode in directory-block order
+and compare every entry field by field. It could not do that without counting
+them, and the count it reached is sealed in the hard-stop record: **13,448
+entries** — 1,445 directories, 11,350 files, 653 symlinks, which sum exactly.
+
+I wrote the earlier sentence after searching the *build inputs* for a pinned
+count. There is none there, which is true and still true. I did not look at the
+records describing *produced output*, which is where the number was.
+
+### 37.3 What stays true
+
+The rest of it. Neither tree's assembly-input entry count is pinned, and neither
+can be counted exactly without a build. So what the pinned number buys is a
+**bound**, not the count the builder's limit is actually applied to.
+
+### 37.4 The bound
+
+The nested arrangement is one runtime tree inside one boot tree. The runtime
+closure is contained in the boot closure — this is recomputed from the two locks
+rather than recalled: every one of the runtime lock's 3 closure roots is among
+the boot lock's 5, and every one of its 62 artifact digests is among the boot
+lock's 197, with nothing on the runtime side that is not also on the boot side.
+The boot side adds the guest init, the launcher and the kernel; the runtime side
+adds nothing of its own.
+
+So a runtime tree cannot hold more entries than a boot tree does, and two
+boot-sized trees bounds the pair:
+
+| | entries |
+|---|---|
+| counted boot root disk | 13,448 |
+| bound on the nested pair (×2) | 26,896 |
+| sealed limit, both locks | 200,000 |
+| headroom | 173,104 |
+
+A margin of 7.44×. The bound is deliberately loose — the runtime side is three of
+five roots and sixty-two of a hundred and ninety-seven artifacts, so the real
+total sits well under it.
+
+### 37.5 Why this is still a bound and not a count
+
+The builder compares its limit against the entry set it has **assembled and is
+about to write**, and raises `assembled rootfs exceeds entry limit` rather than
+trimming the tree to fit — a truncating limit would have made this bound
+worthless, since a tree that fits by being cut is not the tree that was staged.
+The pinned number counts entries found in the image **after** it was written,
+including the two the filesystem tool creates for itself. Close, but not the same
+number, and the record does not claim they are.
+
+What would make the bound wrong is entries that come from neither closure:
+generated mount points, a second copy of a manifest, per-layer padding. The
+margin is wide enough that none of these is likely to matter — which is a reason
+to expect the pre-assembly check to pass, not a reason to skip it. It stays
+required.
+
+### 37.6 Was this a hard stop?
+
+No. The over-statement was a negative claim inside a list of things the record
+explicitly did *not* establish. Erring toward "this is not known" left every gate
+in place; correcting it only widens what is known. Nothing was skipped, relaxed
+or passed because of it. It is recorded because a record that quietly improves
+itself is worth less than one that shows where it was wrong.
+
+### 37.7 Cursor
+
+```
+nested entry budget = BOUNDED / NOT MEASURED
+  bound 26,896 <= limit 200,000, headroom 173,104, margin 7.44x
+  rests on: 13,448 counted + runtime closure contained in boot closure
+  bytes 1,777,489,456 <= 2,147,483,648 unchanged from the closure plan
+  both pre-production budgets now have bounds under their limits
+  pre-assembly entry check still required; closure plan unedited
+```
+
+No tree was assembled, no image was produced, no production was dispatched and no
+boot was performed. Serving is not claimed. mineable_now=0, REWARD_READY=0,
+RP0-MD=HOLD, BF.7=HOLD, Base activation false and activationAllowed=false are
+unchanged. No public mining, no leaderboard claim and no paid-API benchmark is
+made anywhere in this section.

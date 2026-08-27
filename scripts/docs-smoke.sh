@@ -1011,6 +1011,27 @@ require_text scripts/self-test.sh scripts/test_native_shadow_mac3_condition_4_co
 # The sealed contract keeps saying held; the correction succeeds it, never edits it.
 require_text native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json '"readingApplied": false'
 
+# The entry-count half of the nesting budget. The closure plan answered the byte
+# half and said the entry half could not be had because no entry count was pinned
+# anywhere; one was, and this record carries the bound that follows from it plus
+# the correction of that sentence. Pinned here is what keeps it a bound rather
+# than a measurement: it stays an upper bound, it keeps the assembly input and
+# the produced output apart as different numbers, the pre-assembly check is still
+# required, and the closure plan is succeeded rather than edited.
+require_file native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json
+require_text native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json 'MAC3-NESTED-RUNTIME-ENTRY-BUDGET-BOUNDED-NOT-MEASURED'
+require_text native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json '"limitAppliesTo": "assembly-input"'
+require_text native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json '"countedNumberDescribes": "produced-output"'
+require_text native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json '"sameNumber": false'
+require_text native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json '"preAssemblyCheckStillRequired": true'
+require_text native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json '"builderRefusesRatherThanTruncates": true'
+require_text native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json '"runtimeIsContainedInBoot": true'
+require_text native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json '"earlierRecordEdited": false'
+require_text native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json '"treeAssembled": false'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_nested_runtime_entry_budget_arm64_v1.py
+# The closure plan keeps the sentence that was too strong, so both halves stay readable.
+require_text native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json "neither tree's entry count is pinned anywhere in the repository"
+
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
 # the three the console named because it comes from the guest's own systemd --
@@ -1126,9 +1147,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "644346f308f7bc181a8616eb135248e8ab84c75b55128bcad2d618d2ba3bd4c5"
-require_text docs/native-submission-shadow-verification-v1.md "9e1e4d0bd2472ba2f13b7c58bf47f47aad96c616455afd8005b62d0e5553a17a"
-require_text docs/native-submission-shadow-verification-v1.md "1d3ec2e81c43e1b6d399170c79b5270724726d560d793eec3b18f818c53e0e46"
+require_text docs/native-submission-shadow-verification-v1.md "24b6232137b742f638a1987bef1f89a43c3490c771bc466fce6c89880c5fd06c"
+require_text docs/native-submission-shadow-verification-v1.md "3006506521f993d2a0f393e4789d38f247623df570d9b869ea967658a6bac045"
+require_text docs/native-submission-shadow-verification-v1.md "3357a080447229a680bbf7d488036d7653dc34ec5dbd55239cef5f4f6bc740a9"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "That sentence stays as written."
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "necessary but not sufficient"

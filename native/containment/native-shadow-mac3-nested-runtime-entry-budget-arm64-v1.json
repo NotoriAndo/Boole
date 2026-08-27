@@ -1,0 +1,130 @@
+{
+  "activationAllowed": false,
+  "boundaries": [
+    "No builder, source lock, systemd unit or launcher source file was edited.",
+    "No image was produced, no production was dispatched and no boot was performed.",
+    "The sealed closure plan and the determinism hard-stop record are unedited.",
+    "The fourth MAC.3 condition's correction is unaffected; this record does not touch it.",
+    "Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD.",
+    "Base activation is false and activationAllowed is false, both unchanged.",
+    "No public mining, no paid-API benchmark and no leaderboard claim is made."
+  ],
+  "correctionOfAnEarlierStatement": {
+    "earlierField": "theByteBudget.whatThisDoesNotEstablish",
+    "earlierRecord": {
+      "path": "native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json",
+      "sha256": "a5e0b6674d0d40e21a0dc515457f65617fc9d9ab10b3b6ca49fe9622c02c064c",
+      "sizeBytes": 16274
+    },
+    "earlierRecordEdited": false,
+    "earlierRecordStatus": "MAC3-SERVING-GAP-CLOSURE-PLANNED-NOT-IMPLEMENTED",
+    "earlierStatement": "that the entry count fits, because neither tree's entry count is pinned anywhere in the repository and neither can be counted without a build",
+    "howItIsCorrected": "By succession. The closure plan keeps its original sentence, byte for byte, and docs-smoke pins both halves so a reader meets the over-statement and its correction together rather than finding a record that was quietly improved after the fact.",
+    "wasAHardStop": false,
+    "whatStaysTrue": "The rest of it. Neither tree's assembly-input entry count is pinned, and neither can be counted exactly without a build. The pinned number describes the produced output of one tree, so it yields a bound on the pair rather than the count the builder's limit is actually applied to.",
+    "whatWasOverstated": "The clause 'neither tree's entry count is pinned anywhere in the repository'. One is. The boot root disk's entry count, thirteen thousand four hundred and forty-eight, is pinned in the determinism hard-stop record, which walked both replicas entry by entry and had to count them to do so. The sentence was written from a search of the build inputs and did not look at the records describing produced output.",
+    "whyNot": "The over-statement was a negative claim inside a list of things the record explicitly did not establish. Erring toward 'this is not known' left every gate in place; correcting it only widens what is known. No check was skipped, relaxed or passed because of it."
+  },
+  "nothingWasBuilt": {
+    "bootPerformed": false,
+    "builderChanged": false,
+    "imageProduced": false,
+    "productionDispatched": false,
+    "sourceLockSuccessorProduced": false,
+    "treeAssembled": false
+  },
+  "producedOn": "2026-08-28",
+  "release": "NATIVE-SHADOW-BOOT-PRODUCE-PHASE-ARM64-V1",
+  "schema": "boole.native-shadow.mac3-nested-runtime-entry-budget.arm64.v1",
+  "status": "MAC3-NESTED-RUNTIME-ENTRY-BUDGET-BOUNDED-NOT-MEASURED",
+  "subsetProof": {
+    "bootArtifactCount": 197,
+    "bootClosureRootCount": 5,
+    "bootLock": {
+      "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+      "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+      "sizeBytes": 357104
+    },
+    "closureRootsOnlyInBoot": [
+      "guest-init-and-launcher-file-manifest",
+      "guest-kernel-and-module-file-manifest"
+    ],
+    "closureRootsOnlyInRuntime": [],
+    "note": "Every closure root the runtime lock names is a closure root the boot lock names, and every artifact digest the runtime lock pins is one the boot lock pins. The boot side adds the guest init, the launcher and the kernel; the runtime side adds nothing of its own. That is what makes a boot-sized tree an upper bound on a runtime-sized one.",
+    "runtimeArtifactCount": 62,
+    "runtimeArtifactsAbsentFromBoot": 0,
+    "runtimeClosureRootCount": 3,
+    "runtimeIsContainedInBoot": true,
+    "runtimeLock": {
+      "path": "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json",
+      "sha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+      "sizeBytes": 102952
+    }
+  },
+  "theBound": {
+    "boundedTotalEntries": 26896,
+    "fitsUnderTheSealedLimit": true,
+    "headroomEntries": 173104,
+    "marginFactor": 7.44,
+    "maxEntries": 200000,
+    "multiplier": 2,
+    "whyTwice": "The nested arrangement is one runtime tree inside one boot tree. The runtime closure is contained in the boot closure, so a runtime tree built from it cannot hold more entries than a boot tree does. Two boot-sized trees therefore bounds the pair. It is deliberately loose: the runtime side is three of five closure roots and sixty-two of a hundred and ninety-seven artifacts, so the real total sits well under this number."
+  },
+  "theCountedTree": {
+    "directories": 1445,
+    "entries": 13448,
+    "files": 11350,
+    "method": "Both images were walked from the root inode in directory-block order and every entry compared field by field, content included.",
+    "note": "This number exists because a byte-identity investigation had to walk the whole tree to find which fields differed between the two replicas. The count is a by-product of that walk, which is why it is a count of what was written rather than of what was staged.",
+    "source": {
+      "path": "native/containment/native-shadow-boot-root-disk-determinism-hard-stop-arm64-v1.json",
+      "sha256": "af815ee609a2fbee4dc4a81ba0d331bd851b8a60792b87ed61583d642e861725",
+      "sizeBytes": 16053
+    },
+    "sourceStatus": "ROOT-DISK-BYTE-IDENTITY-FAILED-CAUSE-CONFIRMED-STOP-HELD-NOT-BOOT-AUTHORITY",
+    "symlinks": 653,
+    "whichSide": "produced-output",
+    "whichTree": "boot root disk, arm64"
+  },
+  "theLimit": {
+    "bothLocksAgree": true,
+    "builderRefusesRatherThanTruncates": true,
+    "comparedAgainst": "assembled-entry-set",
+    "enforcedIn": {
+      "path": "scripts/native_shadow_rootfs_builder.py",
+      "refusal": "assembled rootfs exceeds entry limit",
+      "sha256": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
+      "sizeBytes": 108296
+    },
+    "maxEntries": 200000,
+    "note": "The builder compares the assembled entry set against the recipe limit and raises, so exceeding it is a refusal to build rather than a tree quietly trimmed to fit. A truncating limit would have made this bound worthless, because a tree that fits by being cut is not the tree that was staged.",
+    "sealedIn": [
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+        "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+        "sizeBytes": 357104
+      },
+      {
+        "path": "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json",
+        "sha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+        "sizeBytes": 102952
+      }
+    ]
+  },
+  "whatThisDoesNotEstablish": [
+    "that the nested tree was assembled, which nothing here builds",
+    "that the assembled entry count is any particular number, only that it is bounded",
+    "that the nesting is deterministic, which only two byte-identical replicas would answer",
+    "that the three serving gaps are closed, which are untouched by this record",
+    "that a boot was performed or that serving was reached"
+  ],
+  "whatThisIs": "The entry-count half of the budget for nesting a runtime tree inside a boot tree, answered as an upper bound. The byte half was answered when the closure plan was sealed; the entry half was left open there on the grounds that no entry count was pinned anywhere in the repository. That was too strong. One count is pinned, in the record that walked both root disk replicas entry by entry, and the already-sealed containment of the runtime closure inside the boot closure turns it into a bound on the pair. This record carries the bound, the arithmetic behind it, and the correction of the sentence that said it could not be had.",
+  "whyThisIsABoundAndNotACount": {
+    "countedNumberDescribes": "produced-output",
+    "difference": "The builder applies its limit to the entry set it has assembled and is about to write. The pinned number counts the entries found in the image after it was written, including the two entries the filesystem tool creates for itself. The two are close but they are not the same number, and this record does not claim they are.",
+    "limitAppliesTo": "assembly-input",
+    "preAssemblyCheckStillRequired": true,
+    "sameNumber": false,
+    "whatWouldMakeThisWrong": "Entries that come from neither closure. If the nesting generates mount points, writes a second copy of a manifest, or the builder pads per layer, those are outside the bound and would have to be added to it. The margin is wide enough that none of these is likely to matter, but a wide margin is a reason to expect the check to pass, not a reason to skip it."
+  }
+}
