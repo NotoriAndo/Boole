@@ -3053,3 +3053,119 @@ launcher seal is unmoved. Serving is not claimed. mineable_now=0, REWARD_READY=0
 RP0-MD=HOLD, BF.7=HOLD, Base activation false and activationAllowed=false are
 unchanged. No public mining, no leaderboard claim and no paid-API benchmark is
 made anywhere in this section.
+
+## 40. The lock generator, and the sealed contract that has to refuse it (2026-08-28)
+
+The first step named fifteen files. This section is the second: the tool that
+knows how to build a successor lock out of them and how to refuse one that is
+wrong. It deliberately seals nothing. The successor lock and its result document
+are still absent when this step finishes, and the tool refuses to check them with
+a message that hands sealing to the third step by name. That refusal is pinned in
+the documentation gate, so a later step that wants to seal has to supersede the
+pin on the record rather than let it lapse.
+
+### 40.1 The successor keeps the shape thirty consumers already read
+
+The sealed guest-init contract opens a source lock and requires its top-level keys
+to be exactly twelve, no more. About thirty files read that lock. So the successor
+carries the same twelve keys, and the assembly that produces them is the
+predecessor's own function, called with the successor plan rather than
+reimplemented beside it.
+
+That is also why the nested runtime tree is not a key of the lock. It is declared
+in the plan, checked by this tool against the two places its digest is already
+sealed, and recorded in the result the tool emits — never smuggled into a document
+whose shape is frozen.
+
+### 40.2 The predecessor's grounds are run, not restated
+
+Eight of the acceptance grounds the first lock had to pass — identity, build
+recipe, repository, ordering, package closure, seeds, tracked files, authority
+bindings — are imported from the predecessor generator and executed. None is
+retyped. Restating a ground in new words is exactly how one gets quietly weaker,
+and there is no wording here to weaken. On top of those, this tool adds its own:
+the release string, the derived entries read from the contract's own requirement
+list, one binding per tracked file and no more, the two recorded replacements, all
+eight account clauses, the nested tree, and the audit below.
+
+### 40.3 The sealed contract has to refuse the successor, and that is correct
+
+The contract pins the digest of both files the successor replaces. It compares
+each tracked file against its pin and raises on a difference. So it cannot accept
+the successor lock: the successor's whole purpose is that those two digests moved.
+
+There were three ways out and two of them were wrong. Editing the contract would
+move a seal four authority records name. Relaxing the digest comparison would be
+loosening a pass condition, which is a stop condition, not an engineering choice.
+
+### 40.4 The shadow lock
+
+The third way is to ask the contract a question it can answer. Alongside the real
+successor lock the tool builds a shadow of it — never written to disk — in which
+the two replaced sources are restored to their sealed predecessors and everything
+else is left exactly as the successor has it. Before the shadow is handed over,
+the tool requires that the only rows differing between the successor and its
+shadow are precisely the two the plan records as replacements; an unrecorded third
+move survives into the shadow, and the contract then refuses it by name.
+
+The contract's verdict on the shadow must equal the predecessor's sealed verdict:
+the same status, and the same single unmet requirement — the launcher binary,
+which is a build output and is deferred on purpose. That is a proof, through the
+contract's own public entry point with no pass condition touched, that the
+successor is additive everywhere except the two replacements it records.
+
+The successor's own requirement list is meanwhile strictly stricter than the
+contract's: every one of the contract's rows is kept, the two replaced rows are
+given concrete successor digests instead of inherited ones, five account rows are
+added, and only the launcher binary is left open.
+
+### 40.5 What the tool checks that the plan could only assert
+
+The account database is re-parsed from the bytes of the passwd and group files and
+all eight launcher clauses are answered again here, in the tool, rather than read
+back from the plan. The two password-bearing files are required to be root-only.
+
+The nested tree is checked against the launcher binary's compiled-in constants —
+and that check is sharper than it looks, because each of those three constants is
+declared twice in the launcher source, once for this architecture and once for
+everything else, with different values. The tool reads the architecture-gated
+declaration specifically. The same digest is then checked against the sealed
+replay expectation, and the lock that drives the assembly is required to be the
+sealed runtime lock, at its sealed digest, with its sixty-two artifacts and three
+closure roots.
+
+Seventy-three tests cover this, twenty-two of them mutations that feed the tool a
+deliberately broken input and require one particular refusal, named by its own
+words. The naming is the point. A test that only checks that something was refused
+passes just as happily when the broken input trips over an unrelated check on the
+way, and one of these did exactly that until it was corrected.
+
+### 40.6 What this does not establish
+
+Not that the successor lock is sealed — it is not written, and writing it is the
+third step. Not that the builder accepts the fifteen sources; its staging table
+still names four. Not that the nested tree was assembled, or that the derived
+manifest reproduces the digest the launcher compiles against, since nothing was
+assembled. Not that the launcher binary requirement is met; it is deferred and the
+verdict says so. Not that any of the three gaps is closed at runtime, which only a
+boot would show.
+
+### 40.7 Cursor
+
+```
+boot source lock generator = SUCCESSOR-LOCK-GENERATOR-WRITTEN-NOTHING-SEALED
+  successor chain step 2 of 4; steps 3-4 not started
+  lock shape unchanged: the same 12 keys the frozen contract requires
+  predecessor grounds imported and executed, not restated
+  frozen contract refuses the successor by design; answered by a shadow lock
+  shadow verdict must equal the predecessor's, missing role: launcher binary only
+  account clauses re-derived in the tool; nested tree checked against arm64 pins
+  next: the lock successor, then the builder's staging table
+```
+
+No document was sealed, no image was produced, no production was dispatched and no
+boot was performed. No launcher source file, builder, existing generator or
+existing source lock was modified, and the launcher seal is unmoved. Serving is
+not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base
+activation false and activationAllowed=false are unchanged. No public mining, no
+leaderboard claim and no paid-API benchmark is made anywhere in this section.
