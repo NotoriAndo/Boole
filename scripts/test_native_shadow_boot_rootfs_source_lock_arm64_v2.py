@@ -3,10 +3,17 @@
 
 The first step named the files. This step is the tool that knows how to build a
 successor lock out of them and refuse one that is wrong. It deliberately seals
-nothing: the tests below require the successor lock and its result to be absent,
+nothing: the tests below required the successor lock and its result to be absent,
 because writing them is the third step. When that step runs, the right move is a
 step-three gate that supersedes ``ChainPositionTests`` with the sealed digests --
 not a quiet relaxation here.
+
+Superseded on 2026-08-28 by the third step, which sealed both documents. The three
+tests in ``ChainPositionTests`` that asserted absence now assert the sealed state
+and defer the digests to
+``scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py``, which is
+where the byte facts live. Everything else in this file is unchanged: the tool it
+gates was run by the third step, not edited.
 """
 from __future__ import annotations
 
@@ -26,6 +33,7 @@ from scripts import native_shadow_boot_rootfs_source_lock_arm64_v2 as tool
 from scripts import native_shadow_guest_init_compatibility_arm64_v1 as guest_init
 
 CONTAINMENT = REPO_ROOT / "native" / "containment"
+SEALED_GATE = REPO_ROOT / "scripts" / "test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py"
 CONTRACT_PATH = CONTAINMENT / "native-shadow-guest-init-compatibility-arm64-v1.json"
 PREDECESSOR_LOCK_PATH = CONTAINMENT / "native-shadow-boot-rootfs-source-lock-arm64-v1.json"
 PREDECESSOR_RESULT_PATH = (
@@ -105,19 +113,46 @@ class ChainPositionTests(Fixture):
         self.assertNotIn(tool.PLAN_SHA256, self.plan.get("release", ""))
         self.assertEqual(self.result["generatorSha256"], tool.sha256_file(tool.TOOL_PATH))
 
-    def test_the_successor_documents_are_not_sealed_yet(self):
-        self.assertFalse(tool.LOCK_PATH.exists())
-        self.assertFalse(tool.RESULT_PATH.exists())
+    def test_the_successor_documents_are_sealed_by_the_third_step(self):
+        """Superseded: these two lines required absence until the third step ran.
 
-    def test_check_refuses_until_the_sealing_step_runs(self):
-        with self.assertRaises(tool.SourceLockError) as raised:
-            tool.main(["--check"])
-        self.assertIn("third step", str(raised.exception))
+        The digests they were sealed at are pinned in the step-three gate, so this
+        assertion stays about chain position and does not become a second, weaker
+        copy of the byte facts.
+        """
+
+        self.assertTrue(tool.LOCK_PATH.is_file())
+        self.assertTrue(tool.RESULT_PATH.is_file())
+        self.assertTrue(SEALED_GATE.is_file())
+        sealed = SEALED_GATE.read_text(encoding="utf-8")
+        self.assertIn(tool.sha256_file(tool.LOCK_PATH), sealed)
+        self.assertIn(tool.sha256_file(tool.RESULT_PATH), sealed)
+
+    def test_check_accepts_once_the_sealing_step_has_run(self):
+        """Superseded: --check refused while the documents were absent."""
+
+        self.assertEqual(tool.main(["--check"]), 0)
 
     def test_a_dry_run_builds_and_verifies_and_writes_nothing(self):
+        before = (tool.LOCK_PATH.read_bytes(), tool.RESULT_PATH.read_bytes())
         self.assertEqual(tool.main(["--dry-run"]), 0)
-        self.assertFalse(tool.LOCK_PATH.exists())
-        self.assertFalse(tool.RESULT_PATH.exists())
+        self.assertEqual((tool.LOCK_PATH.read_bytes(), tool.RESULT_PATH.read_bytes()), before)
+
+    def test_the_refusal_that_hands_sealing_to_the_third_step_is_still_reachable(self):
+        """The tool still refuses --check when a sealed document is missing.
+
+        The third step supersedes the absence, not the refusal: delete either
+        document and the tool says so rather than regenerating it silently.
+        """
+
+        original = tool.LOCK_PATH.read_bytes()
+        tool.LOCK_PATH.unlink()
+        try:
+            with self.assertRaises(tool.SourceLockError) as raised:
+                tool.main(["--check"])
+            self.assertIn("third step", str(raised.exception))
+        finally:
+            tool.LOCK_PATH.write_bytes(original)
 
     def test_the_predecessor_documents_are_left_byte_unchanged(self):
         unchanged = {

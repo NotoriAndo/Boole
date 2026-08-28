@@ -1121,6 +1121,40 @@ require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py '"activat
 require_file scripts/test_native_shadow_boot_rootfs_source_lock_arm64_v2.py
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_rootfs_source_lock_arm64_v2.py
 
+# The third of the four ordered steps: the two successor documents, sealed. The
+# second step's gate required them to be absent, so the digests are pinned here
+# and in the step-three gate rather than left to whichever run wrote them last.
+# The generator is pinned at the digest it had when it ran, because this step ran
+# it and did not edit it; the sealed result document records that same digest, so
+# a later edit to the tool moves both and fails rather than reinterpreting bytes
+# that are already sealed. The launcher-unit and tmpfiles digests are pinned on
+# both sides -- the sealed lock carries the successor value, and the frozen
+# contract still pins the predecessor value and therefore still refuses the sealed
+# lock. That refusal is the point, so it is a pin and not an accident.
+require_file native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json
+require_file native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json
+require_text native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json '"release": "NATIVE-SHADOW-BOOT-ROOTFS-SOURCE-LOCK-ARM64-V2-SOURCE-SHAPE-ONLY-NOT-BOOTABLE"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json '"activationAllowed": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json '"sha256": "4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json '"sha256": "730ae451fd1c70d41e9a865004040bca03db8cda29dd458cf6bb4d8e75f23b10"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json '"status": "BOOT-ROOTFS-SOURCE-LOCK-SUCCESSOR-SEALED-LAUNCHER-BINARY-DEFERRED-NOT-BOOT-AUTHORITY"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json '"sourceLockSha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json '"generatorSha256": "8218db5cba96440a78bb7cc88edec54f0edb1110684150d1964378f681369b9d"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json '"status": "BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json '"nestedRuntimeTreeAssembled": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json '"state": "declared-not-assembled"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json '"bootableClaim": false'
+require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.json '"sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8"'
+require_text native/containment/native-shadow-guest-init-compatibility-arm64-v1.json '"sha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721"'
+require_file scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py
+require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py 'SEALED_LOCK_SHA256 = "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f"'
+require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py 'SEALED_RESULT_SHA256 = "0542978a6c49287b27c46a836ae3c1aa548d61e4e065b345ebccbb8d8821dedd"'
+require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py 'GENERATOR_SHA256 = "8218db5cba96440a78bb7cc88edec54f0edb1110684150d1964378f681369b9d"'
+require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py 'def test_the_frozen_contract_still_refuses_the_sealed_lock_itself'
+require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py 'def test_the_fourth_step_has_not_run'
+require_text scripts/test_native_shadow_boot_rootfs_source_lock_arm64_v2.py 'Superseded on 2026-08-28 by the third step'
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py
+
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
 # the three the console named because it comes from the guest's own systemd --
@@ -1236,9 +1270,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "e5daba41d8dd167ff61c883d4415185cbc34a8cf7b555c994b31f0f96ec066f3"
-require_text docs/native-submission-shadow-verification-v1.md "8c8339df1c9e4c1589e91b03208fd469ad644dae62d03f98f84e4533fc4e8e34"
-require_text docs/native-submission-shadow-verification-v1.md "2af9c3231acb1a6205bb1b70f52ea30fa72c483937fb746d57b65e78c1a3e2a0"
+require_text docs/native-submission-shadow-verification-v1.md "4d625666d325b3ac9daf6660a23ae20ea1793f1133c28f3871a1001c79c0d821"
+require_text docs/native-submission-shadow-verification-v1.md "a3bd561ca37b0c37a1756138e01bfa66ae544074269e08ad7e071b722acee203"
+require_text docs/native-submission-shadow-verification-v1.md "860ea69a343b0dae946f59f4eab3ff326cf7bbfa40d757e359395eade034cfd8"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"

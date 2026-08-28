@@ -1,0 +1,93 @@
+{
+  "accountDatabase": {
+    "accounts": [
+      {
+        "gid": 991,
+        "name": "boole-native-checker",
+        "uid": 991
+      },
+      {
+        "gid": 990,
+        "name": "boole-node",
+        "uid": 990
+      }
+    ],
+    "bakedIntoTheImage": true,
+    "identityClausesVerified": 8,
+    "provisionedAtBoot": false
+  },
+  "activationAllowed": false,
+  "bootArtifactsWritten": 0,
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "guestBootVerified": false,
+    "imageBuilderAuthorityPresent": false,
+    "kernelImageExtracted": false,
+    "launcherElfPresent": false,
+    "maintainerScriptsExecuted": false,
+    "nestedRuntimeTreeAssembled": false,
+    "runtimeCompatibilityVerified": false
+  },
+  "counts": {
+    "artifacts": 197,
+    "authorityBindings": 15,
+    "derivedEntries": 8,
+    "packageBytes": 208936876,
+    "packages": 191,
+    "seedPackages": 7,
+    "trackedFiles": 15
+  },
+  "deferredRoles": [
+    {
+      "cause": "the guest placement is pinned here, but the digest belongs to the ARM64 launcher build authority, whose result is sealed separately",
+      "guestPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+      "resolvedBy": "arm64-launcher-build-authority",
+      "role": "tracked-file:launcher-binary"
+    }
+  ],
+  "gapsAddressed": [
+    "account-database",
+    "refusal-is-not-readable",
+    "runtime-rootfs-and-its-content-manifest"
+  ],
+  "generatorSha256": "8218db5cba96440a78bb7cc88edec54f0edb1110684150d1964378f681369b9d",
+  "nestedTree": {
+    "assembled": false,
+    "contentManifestSha256": "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa",
+    "drivingSourceLockSha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+    "guestPrefix": "/var/lib/boole/native-shadow/runtime-rootfs",
+    "id": "runtime-rootfs",
+    "layerSizeBytes": 766556160,
+    "state": "declared-not-assembled"
+  },
+  "payloadAcquisitionResultSha256": "60408c39ac48f3b7ef272e050349dee84ee28693d6c33e528c77898927f4b3df",
+  "payloadsVerified": true,
+  "planSha256": "da4e7af1dd3cb1db9e263363210c1aec30b7f1bd60ddf87c73fa3921bc018777",
+  "predecessorBootSourceLockSha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+  "predecessorContractAudit": {
+    "contractSha256": "ee67e23bc89fa456a6e43a1c93d9d4a0faa8cf09e5d04b9a9678c17499d267b0",
+    "missingRoles": [
+      "tracked-file:launcher-binary"
+    ],
+    "note": "the frozen contract pins the digest of both superseded files, so it refuses the successor lock itself. This verdict is its verdict on the successor with those two sources restored, which is what makes the supersessions the only difference",
+    "shadowSourceLockSha256": "0d4431f594bc323e782060bc8cb1744bdb1a68d7ec814774d6e970a393921bf0",
+    "status": "BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS"
+  },
+  "predecessorSourceLockSha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+  "productionByteProvenanceComplete": false,
+  "schema": "boole.native-shadow.boot-rootfs-source-lock-result.arm64.v2",
+  "signedRepositoryMetadataVerified": true,
+  "sourceLockSha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f",
+  "sourceShapeAudit": {
+    "missingRoles": [
+      "tracked-file:launcher-binary"
+    ],
+    "status": "BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS"
+  },
+  "status": "BOOT-ROOTFS-SOURCE-LOCK-SUCCESSOR-SEALED-LAUNCHER-BINARY-DEFERRED-NOT-BOOT-AUTHORITY",
+  "supersessions": [
+    "launcher-unit",
+    "tmpfiles-config"
+  ]
+}
