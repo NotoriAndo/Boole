@@ -3262,3 +3262,137 @@ source lock was modified, and the launcher seal is unmoved. Serving is not
 claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation
 false and activationAllowed=false are unchanged. No public mining, no leaderboard
 claim and no paid-API benchmark is made anywhere in this section.
+
+## 42. A builder that can read the sealed lock (2026-08-28)
+
+The last of the four ordered steps. The lock has named fifteen files since the
+third step sealed it; nothing could read it, because the builder decides which
+sources may appear in a lock by comparing the lock against a table, exactly, in
+both directions, and that table named ten. This step widens the table to fifteen.
+
+It widens it by projecting the builder again rather than by editing it. The
+predecessor keeps its bytes and its ten rows, so the lock it was written for still
+validates against it; the successor executes the same derived source a second time
+with the wider table bound into it. That is the relationship the predecessor
+already has to the frozen arm64 builder, and the arm64 builder to the frozen
+original — a fourth layer, not a new kind of thing.
+
+### 42.1 It took two modules, and the reason is worth stating
+
+The plan named one. What the work found is that a sealed lock does not reach a
+builder directly: it passes through the release gate that turns a source lock into
+a build input, and that gate accepts exactly one release string. So the sealed
+successor was refused there, before the widened table was ever reached, with a
+refusal about identity rather than about the table.
+
+Moving that one string is the second module. Widening which lock is accepted is
+not accepting both: the successor gate refuses the predecessor release exactly as
+the predecessor gate refuses the successor release, and the gate asserts both
+directions. Everything else about that gate is unchanged — the lock must still be
+canonical exact, must still declare `activationAllowed: false`, and must still
+carry the two tool roles.
+
+### 42.2 What the widened table holds
+
+Fifteen tracked sources against ten. Five are the account files the guest's own
+identity contract reads — `passwd`, `shadow`, `group`, `gshadow` and
+`nsswitch.conf`. Two are sources the successor lock supersedes, and both keep the
+guest path their predecessors were given, because only the bytes moved. The
+remaining eight are carried forward untouched, and the gate checks that they are
+byte-identical entries rather than merely present.
+
+### 42.3 The namespace is rebuilt, not copied
+
+This is the part that would have been wrong the obvious way. The functions inside
+a projected namespace read the table from the globals they were compiled with, so
+rebinding the name in a copy of that namespace leaves every function still reading
+the predecessor's ten while the module's own attribute reports fifteen. The
+derived source is therefore executed a second time and the wider tables are bound
+into the fresh namespace, which costs about a hundredth of a second.
+
+Rebuilding a namespace means reproducing everything the predecessor put in it.
+Three names are recomputed from the wider tables; nine are reused by identity. The
+gate parses the predecessor's own source for the names it injects and requires
+that set to equal the twelve, so a tenth injection added there fails the test here
+rather than going unnoticed until something reads a name that is missing.
+
+### 42.4 The evidence is end-to-end, and cost nothing to take
+
+The sealed lock is run through the real production path — release gate, then
+normalization, then validation — with no artifact store, so no package is hashed
+and nothing is downloaded. Two refusals answer the question:
+
+| builder | refusal |
+| --- | --- |
+| predecessor | `authority binding identity/source set differs` |
+| successor | `complete source lock needs an artifact store` |
+
+The second is the whole result. It is raised after the binding-identity and
+tracked-path comparisons have both passed, so reaching it means the source shape
+of the sealed lock is accepted in full; what stops the run is the absence of a
+package store, which is a build input and not a contract. The first shows the
+predecessor still refuses, so the widening is real rather than a rename.
+
+### 42.5 The nested tree is declared, and deliberately not merged
+
+The successor lock declares a second rootfs staged under
+`/var/lib/boole/native-shadow/runtime-rootfs`, with its content manifest beside
+the tree rather than inside it, read-only, at the digest the launcher verifies
+against. This step provides the two functions that would place it: one derives the
+manifest, one re-roots an assembled tree under the prefix and puts the manifest
+next to it.
+
+The manifest is derived by the *runtime* builder rather than this one, and that is
+not an implementation detail. The document records the closure each entry belongs
+to; derived under the boot closures it would name five where the launcher expects
+three, and could never equal the digest the launcher compiles against. Deriving it
+by the builder that will be read is what makes the comparison meaningful.
+
+What this step does not do is merge that tree into a build. The sealed plan
+requires the assembled byte and entry totals to be measured rather than bounded,
+and requires that measurement immediately before assembly, which is a production
+step this chain has not opened. A test asserts the not-merged state so it cannot
+be read as done.
+
+### 42.6 The third step's gate is superseded on its own terms
+
+Step three's gate asserted that the fourth step had not run, and said in its own
+text that the right move when it did was a step-four gate carrying the new table,
+not a quiet relaxation. Its assertions are kept, under a name that now says what
+they mean: the predecessor projection still holds its four rows with the
+predecessor sources staged and no account file present, which is exactly why the
+lock step three sealed goes on validating against it. A second test names where
+the widened table went, and a dated note records the supersession.
+
+### 42.7 What this does not establish
+
+Not that a tree was assembled: none was. Not that the declared manifest digest was
+reproduced from a real assembled tree — it is checked against the seal and the
+replay expectation, and derived only from synthetic entries here. Not that the
+totals are measured; they are still the bounds the plan sealed, and the plan's own
+requirement to remeasure before assembly is unspent. Not that the launcher binary
+requirement is met. Not that an image would build, produce or boot. Not that
+serving is reachable.
+
+### 42.8 Cursor
+
+```
+boot rootfs builder successor = BOOT-ROOTFS-BUILDER-STAGING-TABLE-ARM64-V2-SOURCE-SHAPE-GREEN-NOT-ASSEMBLED
+  successor chain step 4 of 4; all four steps written
+  staging table 10 -> 15 tracked files, by projection; predecessor bytes unmoved
+  release gate projected too: one release string moved, both directions refused
+  measured end to end with no artifact store: predecessor refuses the lock,
+    successor reaches "complete source lock needs an artifact store"
+  nested tree declared at the launcher's manifest digest; not merged into a build
+  step three's absence test superseded on the record, not relaxed
+  next: remeasure the assembled totals immediately before assembly, then open
+    image production once
+```
+
+No image was produced, no production was dispatched and no boot was performed. No
+package was downloaded or hashed. No launcher source file, launcher seal, frozen
+builder, existing projection, existing generator or sealed source lock was
+modified. Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD,
+BF.7=HOLD, Base activation false and activationAllowed=false are unchanged. No
+public mining, no leaderboard claim and no paid-API benchmark is made anywhere in
+this section.
