@@ -1315,6 +1315,72 @@ require_text native/containment/native-shadow-mac3-successor-production-authorit
 require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"imageProducedClaim": false'
 require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"activationAllowed": false'
 
+# 2026-08-28 -- the successor production path, wired to the authority above.
+#
+# The authority named a workflow, a result path and a set of inputs before any
+# of them existed. These pins are the other half: the module, the wrapper and
+# the workflow that actually consume them, held to the same shape the authority
+# pre-registered rather than to whatever they drift into.
+#
+# The three gaps the wave exists to close are each pinned by the check that
+# closes them, not by a comment saying they are closed: the five account files,
+# the v2 launcher unit whose output reaches the console the host already
+# collects, and the nested runtime tree with its content manifest.
+require_file scripts/native_shadow_successor_produce_phase_arm64_v2.py
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'RELEASE = "NATIVE-SHADOW-SUCCESSOR-PRODUCE-PHASE-ARM64-V2"'
+require_text scripts/self-test.sh scripts/test_native_shadow_successor_produce_phase_arm64_v2.py
+# The predecessor phase is reached for its lock-independent image helpers and
+# for nothing that decides which lock is built. Its own name for the first lock
+# is what marks the functions this path may not call.
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'HISTORICAL_LOCK_CONSTANT = "BOOT_SOURCE_LOCK_PATH"'
+# Whether the preflight could have produced an image is answered from this
+# module's own call graph, not from a promise about it.
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'def assert_preflight_creates_no_outputs'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'the preflight can reach the production entry point'
+# Production and measurement share one assembler object, which is what stops the
+# two from agreeing about a tree neither of them built the same way.
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'def assert_shared_assembler'
+# The staged entry carries its bytes and no digest, so the checks hash what will
+# be written. Reading a claimed digest would compare None against a seal.
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'def _staged_bytes'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'is staged without its bytes'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'LAUNCHER_UNIT_SOURCE = "native/systemd/boole-native-shadow-launcher-v2.service"'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '"4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55"'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '"StandardOutput": "journal+console"'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '"StandardError": "journal+console"'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '"CAP_SYS_ADMIN"'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '"bootableClaim": BOOTABLE_CLAIM'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '"servingClaim": SERVING_CLAIM'
+
+# The wrapper. The staging tree is built on a tmpfs this file mounts and the
+# phase runs inside the transient unit the sealed producer authority prints, so
+# two replicas that agree agree about the image and not about their runners.
+# The unit is not spelled here: a second copy of a frozen list is a thing that
+# can weaken without anyone noticing.
+require_file scripts/native-shadow-successor-produce-arm64.sh
+require_text scripts/native-shadow-successor-produce-arm64.sh 'mount -t tmpfs -o mode=0755,nodev,nosuid tmpfs "$staging"'
+require_text scripts/native-shadow-successor-produce-arm64.sh 'isolation-argv'
+require_text scripts/native-shadow-successor-produce-arm64.sh 'a successor result is already here and is not replaced'
+require_text scripts/native-shadow-successor-produce-arm64.sh 'native_shadow_boot_root_disk_readback_arm64_v1.py'
+
+# The workflow the authority named. Two modes: one repeatable and producing
+# nothing, one the single dispatch. The preflight mode's claim is checked
+# against the filesystem afterwards rather than against the code that ran.
+require_file .github/workflows/native-shadow-successor-produce-arm64.yml
+require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'options: [preflight, produce]'
+require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'Require this run to have produced nothing'
+require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'sudo ./scripts/native-shadow-successor-produce-arm64.sh'
+require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'replica: [1, 2]'
+require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'Require the two independent runs to agree byte for byte'
+# The two prose records of the same wiring, held so that the code can change only
+# alongside the account of it. The local assembly is pinned as what it is -- the
+# wrong operating system and architecture -- because that is the sentence a later
+# reader would otherwise be tempted to drop.
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Successor production wiring addendum"
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "assert_preflight_creates_no_outputs"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "successor production path = WIRED-NOT-RUN"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "The tests were richer than reality"
+
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
 # the three the console named because it comes from the guest's own systemd --
