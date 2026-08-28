@@ -3286,3 +3286,54 @@ Coverage after this addendum: 240 tests in the successor phase gate. No image
 exists, so producing, booting and serving are all unclaimed, and `mineable_now`,
 `REWARD_READY`, activation and every consensus, reward and peer-to-peer path are
 untouched.
+
+### The accounting correction (2026-08-28)
+
+The table above counts two spent production attempts. That is wrong, and the
+document it summarises said so on the same page: the rows in `priorAttempts`
+record one dispatch refused inside the isolation before any output file existed
+— ruled unspent — and one that wrote its marker and is spent. Two dispatches,
+one unspent and one spent. The operator ruled on the difference at
+`2026-08-28T15:01:05Z`; the correction landed before the third authority had
+been dispatched even once.
+
+The table is left standing rather than edited, for the same reason the earlier
+records are: a wrong number that was acted on is history, and history is
+appended to. Nothing was acted on here — `runsPerformed` was and is `0` — but
+the rule does not have an exception for that, and it is a poor rule that gets
+one.
+
+What changed, in the third authority only:
+
+| | before | after |
+| --- | --- | --- |
+| `priorProductionAttemptsSpent` | 2 | 1 |
+| `priorProductionDispatches` | — | 2 |
+| `priorProductionDispatchesUnspent` | — | 1 |
+
+Every sentence in that document that called both dispatches spent was reworded
+with the numbers, because prose is what a reader acts on and a right number
+beside a wrong sentence is not a corrected document. The change is recorded in
+the document under `accountingCorrection`, together with the digest the file had
+when it merged, so the edit is checkable rather than quiet.
+
+The gate now counts instead of quoting: the totals in the summary block are
+asserted to equal the count of the rows they summarise, so the two halves cannot
+drift apart again without a test failing. Correcting the authority moved its
+digest, which moved the digest the module pins, which moved the producer
+fingerprint — all three were re-sealed in that order.
+
+### Accounting after the correction
+
+| | |
+| --- | --- |
+| prior production dispatches | 2 |
+| of those, unspent | 1 |
+| of those, spent | 1 |
+| images preserved | 0 |
+| production attempts granted here | 1, unused |
+| boot attempts used | 0 |
+
+Coverage after this addendum: 243 tests in the successor phase gate. Nothing
+above claims an image exists, boots or serves, and no consensus, reward,
+activation or peer-to-peer path is touched.

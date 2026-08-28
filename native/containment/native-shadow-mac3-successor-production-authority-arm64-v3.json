@@ -1,10 +1,31 @@
 {
+  "accountingCorrection": {
+    "anythingRanUnderTheUncorrectedBytes": false,
+    "correctedAt": "2026-08-28T15:20:00Z",
+    "nowIs": {
+      "priorProductionAttemptsSpent": 1,
+      "priorProductionDispatches": 2,
+      "priorProductionDispatchesUnspent": 1
+    },
+    "ruledAt": "2026-08-28T15:01:05Z",
+    "ruledBy": "operator",
+    "supersededDigestIsRecordedNotRepaired": "The digest above is the bytes this file had when it was merged.  It is kept so the change is checkable, not so the earlier bytes can be restored.",
+    "supersededSha256": "0ff5000c0cea751a32d88d79028a2b53380262551517fe9ec2c1072df35afe06",
+    "was": {
+      "priorProductionAttemptsSpent": 2
+    },
+    "what": "The summary block said two production attempts had been spent while the rows it summarised recorded one unspent dispatch and one spent one.  The rows were right and are unchanged; the summary was wrong and is corrected here, together with every sentence in this document that repeated it.",
+    "whatWasNotTouched": "The previous authority, both hard-stop records and the operator's budget ruling are unchanged and still bound by digest in boundInputDigests.  The rows in priorAttempts are unchanged.  The attempt identifier, the run budget and every boundary are unchanged.",
+    "whyThatMatters": "runsPerformed was and is 0 and the production workflow was never dispatched under this authority, so no attempt was granted, refused or spent while the wrong total was written down.  Correcting it now is the same act as correcting it before the document landed."
+  },
   "activationAllowed": false,
   "attemptAccounting": {
     "bootAttemptsUsed": 0,
-    "note": "These are the operator's numbers, quoted rather than recomputed.  The first two attempts are spent and are not revisited by this authority; this authority carries exactly one new attempt and nothing else.",
+    "note": "These are the operator's numbers.  A dispatch and a spent attempt are counted separately here because they are not the same event: the production workflow was dispatched twice under the previous authority -- two prior dispatches, one unspent and one spent.  The first was refused inside the isolation before any output file existed and was ruled unspent; the second wrote its marker and is spent whatever happened after.  Every total in this block is the count of the rows in priorAttempts and can be re-derived from them.  This authority carries exactly one new attempt and nothing else.",
     "priorImage": "created, lost, not adoptable",
-    "priorProductionAttemptsSpent": 2,
+    "priorProductionAttemptsSpent": 1,
+    "priorProductionDispatches": 2,
+    "priorProductionDispatchesUnspent": 1,
     "productionAttemptsGrantedHere": 1,
     "rulingReceivedAt": "2026-08-28T13:25:29Z",
     "spendingRule": "if the marker is written under this authority and the run then fails, this attempt is spent too, and the wave stops"
@@ -60,7 +81,7 @@
       },
       {
         "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json",
-        "role": "the authority the two spent attempts ran under, preserved not corrected",
+        "role": "the authority the two prior dispatches ran under, preserved not corrected",
         "sha256": "c52e319790e3ca52ba6d635007e541f25e12d6d1497c1abb46ef00b1684b6e58"
       },
       {
@@ -89,7 +110,7 @@
         "sha256": "15f88cf286879ae30aae10bb7819aefea91095a819d96c2634ee9ecc4ea2f305"
       }
     ],
-    "note": "Every file this authority depends on, in one table, so that drift is checked by iterating rather than by reading prose.  A digest here that no longer matches its file is an abort condition, not a note to update.  The four records of the two spent attempts are in this table for that reason: preserving them is a condition of this attempt, and a condition the production re-checks on the runner is worth more than one only a test reads."
+    "note": "Every file this authority depends on, in one table, so that drift is checked by iterating rather than by reading prose.  A digest here that no longer matches its file is an abort condition, not a note to update.  The four records of the two prior dispatches are in this table for that reason: preserving them is a condition of this attempt, and a condition the production re-checks on the runner is worth more than one only a test reads."
   },
   "boundaries": [
     "no wallet seed, passphrase or key derivation material is placed in or passed to the guest",
@@ -199,7 +220,7 @@
     ],
     "onAnyFailure": "the production is not started",
     "passRequires": [
-      "every file in boundInputDigests still hashes to the digest bound here, including the four records of the two spent attempts",
+      "every file in boundInputDigests still hashes to the digest bound here, including the four records of the two prior dispatches",
       "the launcher-excluded totals equal the sealed measurement exactly",
       "the launcher-included totals equal the production-bound set exactly",
       "the runtime content manifest digest equals the sealed value",
@@ -458,5 +479,5 @@
       }
     ]
   },
-  "whatThisIs": "The inputs, the boundaries and the pass conditions of one further successor arm64 boot image production, written down before it runs and after two attempts under the previous authority were spent.  It changes the attempt identifier, the result path and the budget boundary, and carries everything else over from the authority it supersedes.  Nothing here edits the previous authority, either failure record, or the operator's ruling; all four stay byte-unchanged and are bound here by digest."
+  "whatThisIs": "The inputs, the boundaries and the pass conditions of one further successor arm64 boot image production, written down before it runs and after two prior dispatches, one unspent and one spent, under the previous authority.  It changes the attempt identifier, the result path and the budget boundary, and carries everything else over from the authority it supersedes.  Nothing here edits the previous authority, either failure record, or the operator's ruling; all four stay byte-unchanged and are bound here by digest."
 }

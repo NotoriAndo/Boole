@@ -1,7 +1,7 @@
 {
   "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V3-ATTEMPT-1",
   "authorityPath": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v3.json",
-  "authoritySha256": "0ff5000c0cea751a32d88d79028a2b53380262551517fe9ec2c1072df35afe06",
+  "authoritySha256": "4b9309146ebf05adbd064b2604c5d6693585e30a9a5550eece601d41b9cd282b",
   "boundaries": {
     "activationAllowed": false,
     "bootableClaim": false,
@@ -12,7 +12,7 @@
     {
       "path": "scripts/native_shadow_successor_produce_phase_arm64_v2.py",
       "role": "the phase itself: preflight, marker, production, result",
-      "sha256": "613e59750789f9578999729f4163fc16366c19f055fc441160e4d00fb3fc8c39"
+      "sha256": "a9ad4ab331fee025207dddf3b0c7b90f988cfd57517e85f56e07f778195d1bae"
     },
     {
       "path": "scripts/native-shadow-successor-produce-arm64.sh",
@@ -27,7 +27,7 @@
     {
       "path": "scripts/test_native_shadow_successor_produce_phase_arm64_v2.py",
       "role": "the gate that has to pass before any of the above runs",
-      "sha256": "d02dcb92eead6273cf8f0a9cd4dcfda5c990cdb0de14c13d365f76edc5e99a9f"
+      "sha256": "46a1785c6b916986989efed37555865c9532b71baddf9bba7d393eccd3377c8b"
     },
     {
       "path": "scripts/native_shadow_boot_image_produce_arm64_v1.py",
@@ -52,5 +52,5 @@
     "that this producer has run under this authority even once"
   ],
   "whyThisIsASeparateRecord": "the module pins the authority's digest, so the authority cannot pin the module's.  Sealing the producer in a record that points at the authority, and that nothing points back at, keeps both statements checkable without either having to be written twice.",
-  "writtenAfter": "the module was final and its bytes were on main, so the digests below are the bytes that will run"
+  "writtenAfter": "the module was final and the authority's accounting had been corrected on the operator's ruling, so the digests below are the bytes that will run and the authority named above is the corrected one"
 }

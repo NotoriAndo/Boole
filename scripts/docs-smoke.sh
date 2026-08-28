@@ -1392,8 +1392,10 @@ require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'cla
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class KeptEvidenceSurvivesAFailedReplicaTests'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class OneShotSectionRehearsedOnFakeFilesTests'
 
-# 2026-08-28 -- the third authority. Two attempts were spent under the second
-# one; this carries exactly one more, and is sealed before it runs. It changes
+# 2026-08-28 -- the third authority. The production workflow was dispatched
+# twice under the second one -- one dispatch refused before it could spend
+# anything, one spent -- and this carries exactly one more, sealed before it
+# runs. It changes
 # the attempt identifier, the result path and the budget boundary -- which now
 # names the marker instead of the output directory, because that is where the
 # code had already drawn it -- and carries everything else over unchanged. The
@@ -1410,10 +1412,20 @@ require_text "$V3_AUTHORITY" '"attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM6
 require_text "$V3_AUTHORITY" '"status": "SUCCESSOR-PRODUCTION-RE-AUTHORISED-AFTER-REPAIR-NOT-RUN"'
 require_text "$V3_AUTHORITY" '"runsAllowed": 1'
 require_text "$V3_AUTHORITY" '"runsPerformed": 0'
-require_text "$V3_AUTHORITY" '"priorProductionAttemptsSpent": 2'
+require_text "$V3_AUTHORITY" '"priorProductionDispatches": 2'
+require_text "$V3_AUTHORITY" '"priorProductionDispatchesUnspent": 1'
+require_text "$V3_AUTHORITY" '"priorProductionAttemptsSpent": 1'
 require_text "$V3_AUTHORITY" '"productionAttemptsGrantedHere": 1'
 require_text "$V3_AUTHORITY" '"bootAttemptsUsed": 0'
 require_text "$V3_AUTHORITY" '"priorImage": "created, lost, not adoptable"'
+# The totals above are the count of the rows below them. The wording was
+# corrected with them, on the operator's ruling, before anything ran under this
+# authority; the correction is recorded in the document rather than applied to
+# it quietly.
+require_text "$V3_AUTHORITY" 'two prior dispatches, one unspent and one spent'
+require_text "$V3_AUTHORITY" '"accountingCorrection"'
+require_text "$V3_AUTHORITY" '"anythingRanUnderTheUncorrectedBytes": false'
+forbid_text "$V3_AUTHORITY" 'two spent attempts'
 require_text "$V3_AUTHORITY" 'native-shadow-mac3-successor-image-production-result-arm64-v3.json'
 require_text "$V3_AUTHORITY" 'A refusal raised before ATTEMPT-CONSUMED.json exists'
 require_text "$V3_AUTHORITY" '"declaredAdditions"'
@@ -1434,6 +1446,8 @@ require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'native-s
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ThirdAuthorityTests'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ProducerFingerprintTests'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'SPENT_AUTHORITY_PATH'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'def test_the_summary_counts_the_rows_it_summarises'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'def test_the_correction_is_recorded_rather_than_made_quietly'
 
 # 2026-08-28 -- the successor production path, wired to the authority above.
 #
