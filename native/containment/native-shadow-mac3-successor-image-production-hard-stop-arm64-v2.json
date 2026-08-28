@@ -1,0 +1,167 @@
+{
+  "accounting": {
+    "attemptsAllowedByThisAuthority": 1,
+    "attemptsRemainingUnderThisAuthority": 0,
+    "bootAttemptsStarted": 0,
+    "bootAttemptsUsed": 0,
+    "consumedMarkerWritten": true,
+    "imageOutputFilesCreated": "all three, on both replicas",
+    "note": "The authority on disk still reads runsPerformed 0.  It was never updated, because the run died before it could write its result document, and it is left byte-unchanged rather than corrected.  The marker is what spent the attempt and it is the number to believe.",
+    "preservedArtifacts": 0,
+    "productionBudgetConsumed": 1,
+    "workflowRunsDispatched": 1
+  },
+  "appendOnly": {
+    "policy": "This record is added.  Nothing already sealed is edited, moved or re-hashed, and the digests below are re-derived from the files as they stand.",
+    "recordsLeftByteUnchanged": [
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json",
+        "role": "the first dispatch, which produced no output file and was ruled unspent",
+        "sha256": "98f1bbed5a0cfe4c6f8365552f80d9408027e4e43c262e84e19631e441041115"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-budget-ruling-arm64-v1.json",
+        "role": "the operator ruling that declared that first dispatch unspent",
+        "sha256": "f1059b8bde4ce4acd13be0058acedec6c1293089a78675ba8612c7c41575a82e"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json",
+        "role": "the authority the second dispatch ran under, still reading runsPerformed 0",
+        "sha256": "c52e319790e3ca52ba6d635007e541f25e12d6d1497c1abb46ef00b1684b6e58"
+      },
+      {
+        "path": "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json",
+        "role": "the producer authority that prints the transient unit",
+        "sha256": "6e4a2ae19493f81a58e6130ea95676967cb08fd7d7f3694eb90f673e6e3a1820"
+      }
+    ],
+    "why": "The first record and its ruling are still true about the first dispatch.  This record is about the second one and revises neither."
+  },
+  "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V2-ATTEMPT-1",
+  "authoritySha256": "c52e319790e3ca52ba6d635007e541f25e12d6d1497c1abb46ef00b1684b6e58",
+  "boundaries": {
+    "activationAllowed": false,
+    "bootableClaim": false,
+    "guestBootVerified": false,
+    "imageProducedClaim": false,
+    "publicMiningOrBenchmark": false,
+    "runtimeCompatibilityVerified": false,
+    "servingClaim": false,
+    "whyImageProducedIsFalse": "Three files were written and passed the content check, and then the run died and the runner was destroyed with them.  No image survives, no digest of one was ever recorded, and nothing downstream may treat this as a produced image."
+  },
+  "cause": {
+    "class": "a line that had never been executed, on the one path that only runs once",
+    "consumers": "none.  `outputManifest` appears exactly once in the repository -- at the line that raised.  Nothing reads it.",
+    "error": "ValueError: dictionary update sequence element #0 has length 1; 2 is required",
+    "line": 1465,
+    "path": "scripts/native_shadow_successor_produce_phase_arm64_v2.py",
+    "statement": "\"outputManifest\": [dict(row) for row in manifest_entries],",
+    "what": "manifest_from_directory returns a mapping of output name to digest.  Iterating a mapping yields its keys, so each `row` was the string \"guest-kernel\", and dict() of a string tries to read its characters as pairs.",
+    "whyTheTestsMissedIt": "Nothing executed produce() past the marker.  The single test that names produce() checks its signature and raises TypeError before the body runs, so the result document had never been assembled by any test.  182 tests in that gate, and none of them reached the line."
+  },
+  "evidence": {
+    "consumedMarker": {
+      "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V2-ATTEMPT-1",
+      "authoritySha256": "c52e319790e3ca52ba6d635007e541f25e12d6d1497c1abb46ef00b1684b6e58",
+      "consumed": true,
+      "readFrom": "the job console, both replicas, in full",
+      "whyItSurvived": "The upload that was supposed to keep this file failed.  The marker was written by root at mode 0600 and the upload action runs as the runner account, so it was refused with EACCES on both replicas.  The marker was also echoed to the console when it was written, and that copy is what answers the accounting question."
+    },
+    "runLog": "the complete job log of run 33174443939, kept outside the repository",
+    "theThreeFilesExisted": {
+      "how": "The statement that raised is the one immediately after manifest_from_directory returned.  That helper opens each of the three named outputs, refuses a name that is not a regular file and refuses one that is zero bytes, and hashes what it reads.  It returned, so all three existed and were non-empty on both replicas.",
+      "whatItDoesNotEstablish": "what those files hashed to.  The digests were computed inside the run and died with it, so there is no digest of a produced file anywhere -- not in a record, not in an artifact, not in the log."
+    },
+    "twoReplicasAgreedBeforeTheCrash": {
+      "preflightResultSha256": "58f0bd7e940583a530a32980920bb05cda1ada0bde927c0f04744c8989d6defb",
+      "what": "Both replicas ran the sealed preflight inside the production unit and produced byte-identical result documents.  The determinism this wave depends on held up to the point the run died.",
+      "whyItIsNotAProductionClaim": "Agreeing about a measurement of an assembled tree is not agreeing about three image files.  The compare job never ran, and no image digest exists to compare."
+    }
+  },
+  "headSha": "a45026282ce1dd7928bdec6960fb71c99b2aa195",
+  "invariants": {
+    "BF.7": "HOLD",
+    "CURL.3": "DEFERRED-NOT PASSED",
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "activationAllowed": false,
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "operatorRuling": {
+    "accountingTheOperatorFixed": {
+      "bootOpportunitiesUsed": 0,
+      "existingImage": "created, lost, not adoptable",
+      "existingProductionAttempt": "spent",
+      "newProductionOpportunitiesGranted": 1
+    },
+    "conditions": [
+      "the existing failure record and authority document are preserved, not edited",
+      "an append-only authority under a new attempt id",
+      "RED tests reproducing all three defects first",
+      "a minimal fix for the three defects",
+      "images kept after a failure are marked UNQUALIFIED-DIAGNOSTIC so they cannot be taken for an official image",
+      "a free integration test that runs the assembly, permission and failure-preservation paths end to end on small stand-in files",
+      "PR, CI green, merge to main",
+      "the new production authority and the fixed producer fingerprint sealed before the run",
+      "a free preflight pass, then exactly one two-replica production"
+    ],
+    "receivedAt": "2026-08-28T13:25:29Z",
+    "spendingRule": "If the marker is written in the new production and it then fails, the new opportunity is spent too.  Nothing boots until the three files of both replicas match byte for byte and the result is preserved.",
+    "what": "The operator confirmed the attempt above as spent and granted exactly one further production attempt, conditional on the repair below landing on main first."
+  },
+  "record": "native-shadow-mac3-successor-image-production-hard-stop-arm64-v2",
+  "relatedDefectsFoundInTheSameRun": [
+    {
+      "id": "consumed-marker-cannot-be-uploaded",
+      "kept": "the console echo, which is why the accounting question is answerable at all",
+      "what": "The marker is written 0600 by root, and the artifact upload runs as the runner account.  Both replicas failed the upload with EACCES.",
+      "wouldCost": "on a future attempt whose console is truncated or lost, the accounting question would have no answer"
+    },
+    {
+      "id": "produced-files-are-discarded-when-a-later-step-fails",
+      "what": "The steps that keep the manifest, the evidence and the three files ran only on success.  This run built all three, passed the content check, and then discarded them because a later statement raised.",
+      "wouldCost": "an attempt that produces a good image and loses it, which is what happened here"
+    }
+  ],
+  "release": "NATIVE-SHADOW-MAC3-SUCCESSOR-IMAGE-PRODUCTION-HARD-STOP-ARM64-V2",
+  "runId": 33174443939,
+  "schema": "boole.native-shadow.mac3-successor-image-production-hard-stop.v2",
+  "status": "HARD-STOP-ATTEMPT-CONSUMED-NO-IMAGE-PRESERVED",
+  "supersedes": {
+    "leftByteUnchanged": true,
+    "path": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json",
+    "what": "the first dispatch, which failed inside the isolation before any output file existed and was ruled unspent"
+  },
+  "timeline": [
+    "13:13:39Z  the one allowed dispatch starts on head a450262, two replicas",
+    "13:17:27Z  the sealed preflight passes inside the production unit, both replicas, identical result",
+    "13:18:15Z  ATTEMPT-CONSUMED.json is written and echoed to the console -- from here the attempt is spent",
+    "13:18:15Z  kernel extracted, initrd written, writer set materialised, ext4 image written",
+    "13:18:39Z  the produced image passes its content check",
+    "13:18:39Z  the result document raises while being assembled; the run stops",
+    "13:18:41Z  the marker upload is refused with EACCES; the steps that keep the images never run",
+    "13:18:42Z  both replicas end in failure; the compare job is skipped; zero artifacts exist"
+  ],
+  "whatIsNotClaimed": [
+    "that an image was produced -- nothing survives to point at",
+    "that the two replicas produced identical images -- the comparison never ran",
+    "that the image boots, serves, or is fit for anything",
+    "any public mining, reward, consensus, P2P or activation result"
+  ],
+  "whatWasNotDone": [
+    "no re-production, and no second dispatch under this authority",
+    "no boot",
+    "no relaxation of any condition",
+    "no edit to any sealed record, authority, launcher source or launcher binary",
+    "no change to the consensus, reward, P2P or activation paths"
+  ],
+  "whatWouldBeNeededForANewAttempt": [
+    "an operator ruling granting a further production attempt, since this one is spent",
+    "the result-document assembly extracted into a function a test can execute, and a test that executes it",
+    "the marker written world-readable so the evidence upload can succeed",
+    "the steps that keep the produced files and the manifest running even when a later step fails",
+    "what a failed attempt leaves marked as unqualified, so it cannot be taken for a production",
+    "an append-only authority under a new attempt id, sealed before the run"
+  ]
+}
