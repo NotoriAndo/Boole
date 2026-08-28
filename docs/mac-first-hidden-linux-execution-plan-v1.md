@@ -4114,3 +4114,95 @@ module was modified. Bootable and serving are not claimed. mineable_now=0,
 REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and
 activationAllowed=false are unchanged. No public mining, no leaderboard claim and
 no paid-API benchmark is made anywhere in this section.
+
+### 45.12 The fourth preflight run: the tree, measured on the machine that will build it (addendum)
+
+Run 33164208857, on `main` at `4e86eb0`, ran every step of the production except
+the part that costs the attempt, and every one of them passed.
+
+**What it did.** Resolved the host tools from `PATH`; acquired the frozen Rust
+distribution and re-proved its sealed record byte for byte; acquired the frozen
+package payloads; rebuilt the launcher from source and matched it against its
+seal; assembled the successor staging tree for real — the account database, the
+v2 unit and its enablement link, the nested runtime rootfs and its content
+manifest, all merged through the one materialization function production also
+consumes; wrote that tree out; walked it with a function that knows nothing about
+the table that produced it; and compared both against the measurement sealed
+before any of this existed.
+
+**What it answered.** Nine quantities, three sides — the assembled table, the
+independent walk, and the seal — and all three agree:
+
+| Quantity | Value |
+| --- | --- |
+| entries | 17,674 |
+| byKind | 1,736 directories, 15,101 files, 837 symlinks |
+| payloadBytes | 1,771,449,867 |
+| largestFileBytes | 160,096,808 |
+| largestFilePath | `opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly` |
+| pathManifestSha256 | `a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736` |
+| caseFoldedSiblings | 20 |
+| duplicatePaths | 0 |
+| symlinkEscapes | 0 |
+
+`largestFilePath` is in that table for a reason. It is the quantity the previous
+run refused on, and it agrees now because both sides break the tie the same way:
+among the regular files of greatest size, the path whose canonical bytes sort
+first. The sealed value came back, on a different filesystem, unchanged.
+
+**The launcher, projected separately.** The measured tree does not contain the
+launcher; the production-bound tree does. The rebuilt binary matched its seal at
+`11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434`, 2,006,632
+bytes, and the two entries it adds are recorded one row each: the directory
+`/usr/libexec/boole`, and the file `/usr/libexec/boole/boole-native-shadow-launcher`.
+With them the tree is 17,676 entries and 1,773,456,499 payload bytes — the
+sealed with-launcher projection exactly. All three limits pass with room: 17,676
+against 200,000 entries, 160,096,808 against 536,870,912 for a single file, and
+1,773,456,499 against 2,147,483,648 in total.
+
+**The three gaps, read back out of the tree rather than out of the plan.** The
+account database is five files — `/etc/group`, `/etc/gshadow`, `/etc/nsswitch.conf`,
+`/etc/passwd`, `/etc/shadow` — all owned by uid 0 and gid 0, the two shadow files
+at mode 0400 and the rest at 0444. The launcher unit is the v2 service at
+`/usr/lib/systemd/system/boole-native-shadow-launcher.service`, digest
+`4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55`, with
+`StandardOutput` and `StandardError` both `journal+console` so the host reads the
+launcher's own words off the console it already collects, an empty
+`AmbientCapabilities`, and a bounding set of exactly four: `CAP_SETGID`,
+`CAP_SETUID`, `CAP_SETPCAP`, `CAP_SYS_ADMIN`. The enablement symlink is staged at
+`/etc/systemd/system/multi-user.target.wants/`. The nested runtime content
+manifest is present at `/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json`,
+1,285,116 bytes, digest `200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa`
+— the sealed one.
+
+**What it did not do.** No `mke2fs`, no initrd, no root disk, no output
+directory, no artifact upload, no attempt consumed. The workflow's own step —
+*Require this run to have produced nothing* — passed after the phase, and the
+record says `outputsCreated: false`. `imageProducedClaim`, `bootableClaim`,
+`servingClaim` and `activationAllowed` are all false in it.
+
+**What was sealed.** The bytes the runner wrote, unmodified, at the path the
+authority named before any of this ran:
+`native/containment/native-shadow-mac3-successor-preflight-result-arm64-v1.json`,
+digest `be4a84e1c058fa25804cfade07727e35613369f58b0307182b93f24a4ecfb071` — the
+digest the run itself printed. Nine tests hold it, and they do not read the
+record's own claims back to itself: the nine quantities are re-checked against
+the sealed measurement, the launcher digests against the sealed launcher result,
+the lock digest against the successor lock and against not the predecessor's, and
+the two added entries against the difference between the two entry counts.
+
+```
+successor preflight = PASSED-ON-ARM64 / PRODUCED-NOTHING / SEALED
+  run 33164208857 on main 4e86eb0
+  nine quantities, three sides, all agreeing
+  three gaps read back out of the assembled tree
+  result be4a84e1...b071, sealed at the pre-registered path
+  production attempts still 0, boot attempts still 0
+  next: the one-shot production, two replicas, exactly once
+```
+
+Producing is not booting and booting is not serving. This run produced nothing at
+all, so none of the three is claimed. Production attempts 0, boot attempts 0,
+`runsPerformed=0`. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base
+activation false and activationAllowed=false are unchanged. No public mining, no
+leaderboard claim and no paid-API benchmark is made anywhere in this section.

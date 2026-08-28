@@ -2984,3 +2984,72 @@ sealed record, launcher source, launcher binary, predecessor module, predecessor
 workflow or predecessor result was touched. Production attempts stay 0, boot
 attempts stay 0, `runsPerformed` stays 0, and neither successor result path
 exists. Producing is not booting and booting is not serving; neither is claimed.
+
+### 13.23 Successor preflight result addendum (2026-08-28)
+
+Run 33164208857, on `main` at `4e86eb0`, completed every preflight step. The
+result is sealed at the path the authority pre-registered:
+`native/containment/native-shadow-mac3-successor-preflight-result-arm64-v1.json`,
+digest `be4a84e1c058fa25804cfade07727e35613369f58b0307182b93f24a4ecfb071`, which
+is the digest the run printed for the file it wrote.
+
+**The nine quantities, from three sides.** Assembled table, independent walk of
+the written tree, and the measurement sealed before the successor path existed:
+
+| Quantity | Value |
+| --- | --- |
+| entries | 17674 |
+| byKind | directory 1736, file 15101, symlink 837 |
+| payloadBytes | 1771449867 |
+| largestFileBytes | 160096808 |
+| largestFilePath | `opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly` |
+| pathManifestSha256 | `a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736` |
+| caseFoldedSiblings | 20 |
+| duplicatePaths | 0 |
+| symlinkEscapes | 0 |
+
+`largestFilePath` agrees because both sides now break the tie on the path's own
+canonical bytes (§13.22). The sealed value returned unchanged on a filesystem
+that is not the one it was first measured on.
+
+**Launcher projection.** Rebuilt digest
+`11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434` at 2,006,632
+bytes, matching the seal; not included in the measured tree. Two production-bound
+additions, one row each: `/usr/libexec/boole` (directory, 0 bytes) and
+`/usr/libexec/boole/boole-native-shadow-launcher` (file, 2,006,632 bytes). With
+them: 17,676 entries and 1,773,456,499 payload bytes — the sealed with-launcher
+projection. Limits: 17,676 < 200,000; 160,096,808 < 536,870,912; 1,773,456,499 <
+2,147,483,648.
+
+**The three gaps, read back out of the assembled tree.**
+
+| Gap | Evidence in the record |
+| --- | --- |
+| guest account database | `/etc/group` 0444, `/etc/gshadow` 0400, `/etc/nsswitch.conf` 0444, `/etc/passwd` 0444, `/etc/shadow` 0400; all uid 0 gid 0, each with its digest and size |
+| nested runtime rootfs and its content manifest | `/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json`, 1,285,116 bytes, `200f0257…87aa`, equal to the sealed manifest digest |
+| launcher output on the console the host collects | v2 unit `4c31bce4…bd55`, `StandardOutput`/`StandardError` both `journal+console`, `AmbientCapabilities` empty, bounding set exactly `CAP_SETGID`, `CAP_SETUID`, `CAP_SETPCAP`, `CAP_SYS_ADMIN`, enablement symlink staged under `multi-user.target.wants` |
+
+**What it did not do.** No `mke2fs`, no initrd, no root disk, no output
+directory, no artifact upload, no attempt consumed. `outputsCreated` is false and
+the workflow's *Require this run to have produced nothing* step passed after the
+phase. `imageProducedClaim`, `bootableClaim`, `servingClaim` and
+`activationAllowed` are all false.
+
+| Test | What it refuses |
+| --- | --- |
+| the sealed bytes are the bytes the run wrote | a re-typed or hand-edited result |
+| it sits where the authority said it would | a result path invented after the fact |
+| both sides agree with each other and with the seal | a preflight that quietly disagrees on any of the nine |
+| the launcher projection is the sealed one | a rebuilt launcher that is not the sealed binary |
+| the two added entries are recorded one row each | the launcher's two entries hidden in a total |
+| the three gaps are closed in the tree that was assembled | evidence read off the declarations rather than the tree |
+| it reads the successor lock and the successor authority | a result derived from the predecessor lock |
+| the run that wrote it created nothing and claims nothing | a measurement recorded as a production |
+| the totals are inside the sealed limits | totals that pass by having the limits moved |
+
+Coverage after this addendum: 147 tests in the successor phase gate. Six more
+docs-smoke pins. No sealed record, launcher source, launcher binary, predecessor
+module, predecessor workflow or predecessor result was touched. Production
+attempts stay 0, boot attempts stay 0, `runsPerformed` stays 0, and the
+production result path does not exist. Producing is not booting and booting is
+not serving; this run produced nothing, so none of the three is claimed.
