@@ -1,0 +1,120 @@
+{
+  "activationAllowed": false,
+  "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V3-ATTEMPT-1",
+  "authoritySha256": "4b9309146ebf05adbd064b2604c5d6693585e30a9a5550eece601d41b9cd282b",
+  "bootableClaim": false,
+  "boundaries": {
+    "activationAllowed": false,
+    "bootableClaim": false,
+    "guestBootVerified": false,
+    "imageProducedClaim": false,
+    "publicMiningOrBenchmark": false,
+    "runtimeCompatibilityVerified": false,
+    "servingClaim": false,
+    "whyImageProducedIsFalse": "Three files were written, both replicas wrote the same three, and they are preserved.  The production did not pass, so none of them is a produced image for any purpose downstream.  Keeping is not adopting."
+  },
+  "diagnosticPath": "native/containment/native-shadow-mac3-successor-image-production-diagnostic-arm64-v3.json",
+  "disqualifiedOutputs": {
+    "artifactNames": [
+      "successor-unqualified-diagnostic-1",
+      "successor-unqualified-diagnostic-2"
+    ],
+    "files": {
+      "guest-initrd": "2fc4b4f473e6dd3d8ac3697fc5be07ab2828e93acc0c2ff5f8e20ef473c3833e",
+      "guest-kernel": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+      "guest-root-disk": "51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c"
+    },
+    "mayNotBeAdopted": true,
+    "theseAreProductionDigests": false,
+    "why": "The run they came from failed.  The digests are written down so that the files cannot be swapped and so that nothing can pick them up later as though they had passed; they are not a production record and no boot qualification may name them."
+  },
+  "evidence": {
+    "e2fsck": {
+      "exitCode": 0,
+      "invocation": "e2fsck -f -n",
+      "passed": true,
+      "repairOptionsUsed": false,
+      "timesPerReplica": 1
+    },
+    "entryCountInTheReadBackImage": 17677,
+    "markerSha256": "0d09f5131e3f24e2f293c72bc7aaabbff124ad61b6aeb1bd9041cfa02b0286df",
+    "phaseSelfVerification": {
+      "against": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+      "passed": true,
+      "what": "the produce phase verified the staging tree it built against the successor source lock, inside the sealed unit, and that verification passed on both replicas"
+    },
+    "readBackChecksThatPassed": [
+      "kernel-is-arm64",
+      "launcher-digest-matches-seal",
+      "launcher-service-is-enabled",
+      "pid1-is-systemd",
+      "replay-node-absent",
+      "runtime-mount-points-present"
+    ]
+  },
+  "failedCheck": {
+    "cause": {
+      "builtAndSelfVerifiedAgainst": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+      "comparedAgainst": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+      "sourceLockSha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f",
+      "what": "The read-back stage reads its expectations from the predecessor's source lock, which it names through the v1 produce phase module rather than through the successor phase that built the image.  The successor lock and the predecessor lock disagree about exactly the two files this wave rewrote, so the stage compared a successor image against a predecessor expectation and reported the difference the wave intended.",
+      "whereItIsWritten": "scripts/native_shadow_boot_root_disk_readback_arm64_v1.py, at the line that reads phase.BOOT_SOURCE_LOCK_PATH",
+      "whyItHadNeverFired": "This stage runs after the produce phase returns.  The second dispatch raised while assembling its result document, one stage earlier, so no successor production had ever reached the read-back before.  It is the same shape of defect as the one that stopped that dispatch: a step on the once-only path that nothing had executed."
+    },
+    "detail": "/usr/lib/systemd/system/boole-native-shadow-launcher.service: sha256 mismatch; /usr/lib/tmpfiles.d/boole-native-shadow.conf: sha256 mismatch",
+    "differences": [
+      {
+        "expectedByTheChecker": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+        "guestPath": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+        "produced": "4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55",
+        "whatItIs": "the launcher's service unit -- the file this wave rewrote so the launcher's refusal and ready lines reach the console the host already collects"
+      },
+      {
+        "expectedByTheChecker": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+        "guestPath": "/usr/lib/tmpfiles.d/boole-native-shadow.conf",
+        "produced": "730ae451fd1c70d41e9a865004040bca03db8cda29dd458cf6bb4d8e75f23b10",
+        "whatItIs": "the runtime directory declaration the rewritten unit depends on"
+      }
+    ],
+    "id": "modes-owners-and-paths-match-the-lock",
+    "identicalOnBothReplicas": true,
+    "stage": "root disk read-back, run by the wrapper outside the sealed unit because a loop mount is a device the unit may not hold",
+    "whatItDoesNotShow": "It is not evidence that the image is wrong.  Both produced values are the values the successor lock tracks.  What failed is the comparison, not the thing compared -- and the attempt is spent all the same, because the marker was written before any of this."
+  },
+  "headSha": "2e2779eaef26a1953e0ba3cf00ef36b40c9af94b",
+  "imageProducedClaim": false,
+  "passed": false,
+  "record": "native-shadow-mac3-successor-image-production-result-arm64-v3",
+  "release": "NATIVE-SHADOW-MAC3-SUCCESSOR-IMAGE-PRODUCTION-RESULT-ARM64-V3",
+  "replicaComparison": {
+    "byteIdenticalWhenCheckedByHand": true,
+    "how": "the two preserved diagnostic copies were downloaded and hashed locally; the kernel, the initrd and the root disk are identical between them",
+    "sealedComparisonJobRan": false,
+    "thisSatisfiesTheAuthority": false,
+    "why": "The comparison job the authority names runs on the outputs of two replicas that finished.  Neither finished, so the job was skipped and no manifest was published.  The equality recorded here was measured on disqualified copies by hand.  It is evidence that the build is deterministic; it is not the comparison the authority requires and it qualifies nothing."
+  },
+  "replicas": 2,
+  "runId": 33187401110,
+  "runsPerformed": 1,
+  "schema": "boole.native-shadow.mac3-successor-image-production-result.arm64.v3",
+  "servingClaim": false,
+  "status": "SUCCESSOR-PRODUCTION-FAILED-ATTEMPT-CONSUMED",
+  "timeline": [
+    "15:54:21Z  the one allowed production was dispatched on main",
+    "15:57:25Z  replica 1 entered the sealed unit; its preflight passed",
+    "15:58:37Z  replica 1 wrote ATTEMPT-CONSUMED.json -- the attempt is spent",
+    "15:59:07Z  replica 1 finished the three files and its result document",
+    "15:59:12Z  replica 1 failed the root disk read-back",
+    "15:59:36Z  replica 2 wrote the same marker",
+    "16:00:07Z  replica 2 finished the three files and its result document",
+    "16:00:12Z  replica 2 failed the same check with the same detail",
+    "16:01:53Z  the run completed as a failure; the compare job was skipped"
+  ],
+  "verdict": "FAILED",
+  "whatWasNotDone": [
+    "nothing was re-run, re-dispatched or retried after the marker",
+    "no criterion was relaxed, reworded or reordered to let this pass",
+    "no boot was started; the boot budget is untouched",
+    "no produced digest was adopted, sealed as a production digest, or named in a qualification record"
+  ]
+}

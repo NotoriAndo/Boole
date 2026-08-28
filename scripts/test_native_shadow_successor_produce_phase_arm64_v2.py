@@ -2613,9 +2613,16 @@ class ConsumedAttemptHardStopTests(unittest.TestCase):
         self.assertEqual(len(ruling["conditions"]), 9)
 
     def test_it_does_not_sit_where_a_production_result_belongs(self) -> None:
+        """A stop record is not a result document, even once one exists.
+
+        This used to assert the result path was empty, which was true while
+        nothing had run.  Something has run since, and the assertion that
+        still means something is that these are two files with two jobs.
+        """
+
         result = REPO_ROOT / mod.authority()["resultPath"]
         self.assertNotEqual(SECOND_HARD_STOP_PATH, result)
-        self.assertFalse(result.exists(), "a production result exists on disk")
+        self.assertNotEqual(SECOND_HARD_STOP_PATH.read_bytes(), result.read_bytes())
 
     def test_it_is_canonical_and_says_which_record_it_follows(self) -> None:
         raw = SECOND_HARD_STOP_PATH.read_bytes()
@@ -2805,7 +2812,9 @@ class ThirdAuthorityTests(unittest.TestCase):
             "activationAllowed",
         ):
             self.assertFalse(self.document[key], msg=key)
-        self.assertFalse((REPO_ROOT / self.document["resultPath"]).exists())
+        result = read_json(REPO_ROOT / self.document["resultPath"])
+        for key in ("bootableClaim", "servingClaim", "imageProducedClaim"):
+            self.assertFalse(result[key], msg=f"result {key}")
 
     def test_the_preserved_records_are_bound_where_the_run_rechecks_them(self) -> None:
         """Preservation is checked on the runner, not only here.
@@ -2851,15 +2860,61 @@ class ProducerFingerprintTests(unittest.TestCase):
     def setUp(self) -> None:
         self.record = read_json(PRODUCER_FINGERPRINT_PATH)
 
-    def test_every_digest_is_the_file_it_names(self) -> None:
+    def test_every_digest_is_the_file_it_names_unless_the_drift_is_declared(
+        self,
+    ) -> None:
+        """The seal is a record of bytes that have now run, so it is not re-sealed.
+
+        Four of the five files it pins are the producer itself and still match
+        byte for byte.  The fifth is this test file, which grew the records of
+        what the run did -- after the run.  Re-sealing it would make the record
+        claim to pin bytes that never produced anything, so instead the drift is
+        declared in the stop record and checked here against it.
+        """
         rows = self.record["files"]
         self.assertGreaterEqual(len(rows), 5)
+        declared = {
+            row["path"]: row["sealedSha256"]
+            for row in read_json(THIRD_HARD_STOP_PATH)[
+                "producerFingerprintAfterTheAttempt"
+            ]["pinsThatNoLongerMatchTheLiveFile"]
+        }
         for row in rows:
-            self.assertEqual(
-                row["sha256"],
-                digest_of(REPO_ROOT / row["path"]),
-                msg=f"{row['path']} moved after it was sealed",
-            )
+            live = digest_of(REPO_ROOT / row["path"])
+            if row["path"] in declared:
+                self.assertEqual(
+                    row["sha256"],
+                    declared[row["path"]],
+                    msg=f"{row['path']}: the declaration quotes a digest the seal "
+                    "does not carry",
+                )
+                self.assertNotEqual(
+                    row["sha256"],
+                    live,
+                    msg=f"{row['path']} is declared drifted but still matches; "
+                    "the declaration should be removed rather than kept",
+                )
+            else:
+                self.assertEqual(
+                    row["sha256"],
+                    live,
+                    msg=f"{row['path']} moved after it was sealed and the move "
+                    "is not declared",
+                )
+
+    def test_the_producing_bytes_themselves_did_not_move(self) -> None:
+        declared = {
+            row["path"]
+            for row in read_json(THIRD_HARD_STOP_PATH)[
+                "producerFingerprintAfterTheAttempt"
+            ]["pinsThatNoLongerMatchTheLiveFile"]
+        }
+        self.assertEqual(
+            declared,
+            {str(pathlib.Path(__file__).resolve().relative_to(REPO_ROOT))},
+            msg="only the gate file may drift; the module, the wrapper, the "
+            "workflow and the frozen helper are the bytes that ran",
+        )
 
     def test_it_covers_the_module_the_wrapper_and_the_workflow(self) -> None:
         paths = {row["path"] for row in self.record["files"]}
@@ -2903,3 +2958,431 @@ class ProducerFingerprintTests(unittest.TestCase):
             PRODUCER_FINGERPRINT_PATH.read_bytes(),
             (json.dumps(self.record, indent=2, sort_keys=True) + "\n").encode("utf-8"),
         )
+
+
+THIRD_HARD_STOP_PATH = (
+    CONTAINMENT / "native-shadow-mac3-successor-image-production-hard-stop-arm64-v3.json"
+)
+PRODUCTION_RESULT_PATH = (
+    CONTAINMENT / "native-shadow-mac3-successor-image-production-result-arm64-v3.json"
+)
+
+
+def _lock_digest(path: pathlib.Path, logical: str) -> str:
+    """What a sealed source lock says the content of one guest path must be."""
+
+    lock = read_json(path)
+    for row in lock["trackedFiles"]:
+        if row["logicalPath"] == logical:
+            return row["sha256"]
+    raise AssertionError(f"{logical} is not tracked by {path.name}")
+
+
+class ThirdProductionResultTests(unittest.TestCase):
+    """The result of the one attempt the third authority carried.
+
+    The authority says the result is written whether it passes or fails, with
+    the same detail either way.  It failed.  The detail is here because a
+    failure nobody wrote down is a failure the next attempt repeats.
+    """
+
+    def setUp(self) -> None:
+        self.document = read_json(PRODUCTION_RESULT_PATH)
+        self.authority = read_json(AUTHORITY_PATH)
+
+    def test_it_is_the_result_the_authority_asked_for(self) -> None:
+        self.assertEqual(
+            PRODUCTION_RESULT_PATH,
+            REPO_ROOT / self.authority["resultPath"],
+        )
+        self.assertEqual(self.document["attemptId"], self.authority["attemptId"])
+        self.assertEqual(
+            self.document["authoritySha256"], digest_of(AUTHORITY_PATH)
+        )
+
+    def test_the_verdict_is_the_one_the_run_reached(self) -> None:
+        self.assertFalse(self.document["passed"])
+        self.assertEqual(self.document["verdict"], "FAILED")
+        self.assertEqual(
+            self.document["failedCheck"]["id"],
+            "modes-owners-and-paths-match-the-lock",
+        )
+
+    def test_it_claims_nothing_the_run_did_not_establish(self) -> None:
+        for key in (
+            "activationAllowed",
+            "bootableClaim",
+            "guestBootVerified",
+            "imageProducedClaim",
+            "servingClaim",
+        ):
+            self.assertFalse(self.document["boundaries"][key], msg=key)
+
+    def test_the_produced_files_are_recorded_and_disqualified(self) -> None:
+        """Digests are written down precisely so they cannot be adopted quietly.
+
+        A file kept without its digest can be swapped; a digest kept without a
+        disqualification can be picked up by the next step as though it had
+        passed.  Both halves are needed.
+        """
+
+        outputs = self.document["disqualifiedOutputs"]
+        self.assertTrue(outputs["mayNotBeAdopted"])
+        self.assertFalse(outputs["theseAreProductionDigests"])
+        self.assertEqual(
+            sorted(outputs["files"]),
+            ["guest-initrd", "guest-kernel", "guest-root-disk"],
+        )
+        for digest in outputs["files"].values():
+            self.assertEqual(len(digest), 64)
+
+    def test_the_two_disputed_paths_are_the_lock_disagreement_they_look_like(
+        self,
+    ) -> None:
+        """Re-derived from both locks on disk rather than quoted.
+
+        The claim this record makes is that the produced bytes are what the
+        successor lock tracks and the rejected expectation is what the
+        predecessor lock tracks.  That claim is checkable here, so it is
+        checked here.
+        """
+
+        for row in self.document["failedCheck"]["differences"]:
+            self.assertEqual(
+                row["produced"], _lock_digest(SUCCESSOR_LOCK_PATH, row["guestPath"])
+            )
+            self.assertEqual(
+                row["expectedByTheChecker"],
+                _lock_digest(PREDECESSOR_LOCK_PATH, row["guestPath"]),
+            )
+            self.assertNotEqual(row["produced"], row["expectedByTheChecker"])
+
+    def test_it_names_where_the_checker_read_its_expectation_from(self) -> None:
+        cause = self.document["failedCheck"]["cause"]
+        self.assertEqual(
+            cause["comparedAgainst"],
+            str(PREDECESSOR_LOCK_PATH.relative_to(REPO_ROOT)),
+        )
+        self.assertEqual(
+            cause["builtAndSelfVerifiedAgainst"],
+            str(SUCCESSOR_LOCK_PATH.relative_to(REPO_ROOT)),
+        )
+        self.assertEqual(cause["sourceLockSha256"], digest_of(SUCCESSOR_LOCK_PATH))
+
+    def test_the_checks_that_did_pass_are_recorded_too(self) -> None:
+        """A failure report that lists only the failure overstates the failure."""
+
+        evidence = self.document["evidence"]
+        self.assertTrue(evidence["e2fsck"]["passed"])
+        self.assertFalse(evidence["e2fsck"]["repairOptionsUsed"])
+        self.assertEqual(evidence["e2fsck"]["invocation"], "e2fsck -f -n")
+        self.assertTrue(evidence["phaseSelfVerification"]["passed"])
+
+    def test_the_replica_comparison_the_authority_wanted_did_not_happen(self) -> None:
+        """Byte equality was observed, and it is not the sealed comparison.
+
+        The workflow's compare job never ran, because the step before it
+        failed.  What is recorded instead is a check run by hand on the two
+        preserved and disqualified copies, and it is labelled as that.
+        """
+
+        comparison = self.document["replicaComparison"]
+        self.assertFalse(comparison["sealedComparisonJobRan"])
+        self.assertTrue(comparison["byteIdenticalWhenCheckedByHand"])
+        self.assertFalse(comparison["thisSatisfiesTheAuthority"])
+
+    def test_it_is_canonical(self) -> None:
+        self.assertEqual(
+            PRODUCTION_RESULT_PATH.read_bytes(),
+            (json.dumps(self.document, indent=2, sort_keys=True) + "\n").encode(
+                "utf-8"
+            ),
+        )
+
+
+class ThirdHardStopTests(unittest.TestCase):
+    """The stop after the third attempt was consumed.
+
+    The marker was written, so the attempt is spent.  Nothing here re-runs
+    anything, relaxes anything or asks for a different verdict.
+    """
+
+    def setUp(self) -> None:
+        self.record = read_json(THIRD_HARD_STOP_PATH)
+        self.authority = read_json(AUTHORITY_PATH)
+
+    def test_the_attempt_it_stops_is_the_authoritys_attempt(self) -> None:
+        self.assertEqual(self.record["attemptId"], self.authority["attemptId"])
+        self.assertEqual(self.record["authoritySha256"], digest_of(AUTHORITY_PATH))
+
+    def test_the_budget_is_spent_and_says_so(self) -> None:
+        budget = self.record["accounting"]
+        self.assertTrue(budget["consumedMarkerWritten"])
+        self.assertEqual(budget["attemptsAllowedByThisAuthority"], 1)
+        self.assertEqual(budget["productionBudgetConsumed"], 1)
+        self.assertEqual(budget["attemptsRemainingUnderThisAuthority"], 0)
+        self.assertEqual(budget["bootAttemptsUsed"], 0)
+        self.assertEqual(budget["retriesAfterTheMarker"], 0)
+
+    def test_it_quotes_the_stop_condition_it_triggered(self) -> None:
+        """Word for word from the authority, re-read here rather than copied."""
+
+        self.assertIn(
+            self.record["condition"],
+            self.authority["hardStopConditions"]["declaredAdditions"],
+        )
+        self.assertIn("ATTEMPT-CONSUMED.json is written", self.record["condition"])
+
+    def test_the_marker_that_spent_it_is_the_one_the_runner_wrote(self) -> None:
+        marker = self.record["evidence"]["consumedMarker"]
+        self.assertEqual(len(marker["sha256"]), 64)
+        self.assertTrue(marker["identicalOnBothReplicas"])
+        self.assertTrue(marker["collectedOffTheRunner"])
+        self.assertEqual(
+            marker["document"]["authoritySha256"], digest_of(AUTHORITY_PATH)
+        )
+
+    def test_the_repairs_that_held_are_recorded_as_having_held(self) -> None:
+        """The previous stop bought three fixes.  This run is what they cost.
+
+        Two of them are the reason there is anything to look at now, and a
+        record that only listed what went wrong would lose that.
+        """
+
+        held = self.record["repairsThatHeld"]
+        self.assertEqual(
+            sorted(held),
+            [
+                "marker-not-readable-by-the-account-that-collects-it",
+                "produced-files-discarded-when-a-later-step-fails",
+                "result-document-assembly",
+            ],
+        )
+
+    def test_the_earlier_records_are_bound_and_unchanged(self) -> None:
+        rows = self.record["appendOnly"]["recordsLeftByteUnchanged"]
+        paths = {row["path"] for row in rows}
+        for path in (
+            HARD_STOP_PATH,
+            SECOND_HARD_STOP_PATH,
+            RULING_PATH,
+            SPENT_AUTHORITY_PATH,
+            AUTHORITY_PATH,
+        ):
+            self.assertIn(str(path.relative_to(REPO_ROOT)), paths)
+        for row in rows:
+            self.assertEqual(row["sha256"], digest_of(REPO_ROOT / row["path"]))
+
+    def test_it_does_not_sit_where_the_result_belongs(self) -> None:
+        self.assertNotEqual(THIRD_HARD_STOP_PATH, PRODUCTION_RESULT_PATH)
+        self.assertEqual(
+            self.record["resultPath"], self.authority["resultPath"]
+        )
+
+    def test_it_claims_nothing(self) -> None:
+        for key in (
+            "activationAllowed",
+            "bootableClaim",
+            "guestBootVerified",
+            "imageProducedClaim",
+            "publicMiningOrBenchmark",
+            "servingClaim",
+        ):
+            self.assertFalse(self.record["boundaries"][key], msg=key)
+
+    def test_it_is_canonical(self) -> None:
+        self.assertEqual(
+            THIRD_HARD_STOP_PATH.read_bytes(),
+            (json.dumps(self.record, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        )
+
+
+DIAGNOSTIC_PATH = (
+    CONTAINMENT
+    / "native-shadow-mac3-successor-image-production-diagnostic-arm64-v3.json"
+)
+
+
+class ThirdAttemptDiagnosticTests(unittest.TestCase):
+    """What the two produced images actually contain, recomputed by reading them.
+
+    The images were listed and extracted read only.  Nothing here adopts them,
+    and finding that both replicas contain the same thing is not the sealed
+    comparison the authority asks for.
+    """
+
+    def setUp(self) -> None:
+        self.record = read_json(DIAGNOSTIC_PATH)
+        self.result = read_json(PRODUCTION_RESULT_PATH)
+
+    def test_it_is_bound_to_the_attempt_it_diagnoses(self) -> None:
+        authority = read_json(AUTHORITY_PATH)
+        self.assertEqual(self.record["attemptId"], authority["attemptId"])
+        self.assertEqual(self.record["authoritySha256"], digest_of(AUTHORITY_PATH))
+        self.assertEqual(self.record["runId"], self.result["runId"])
+
+    def test_the_images_were_read_and_not_written(self) -> None:
+        method = self.record["method"]
+        self.assertTrue(method["readOnly"])
+        self.assertFalse(method["anyImageModified"])
+        self.assertFalse(method["anyImageMounted"])
+
+    def test_every_mismatch_is_content_and_not_permission_or_owner(self) -> None:
+        rows = self.record["mismatches"]
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertEqual(row["fieldsThatDiffer"], ["sha256"])
+            for field in ("gid", "kind", "mode", "uid"):
+                self.assertEqual(
+                    row["actual"][field],
+                    row["expectedByPredecessorLock"][field],
+                    msg=f"{row['logicalPath']}: {field}",
+                )
+
+    def test_each_mismatch_is_what_the_successor_lock_asks_for(self) -> None:
+        for row in self.record["mismatches"]:
+            self.assertEqual(row["actual"], row["expectedBySuccessorLock"])
+            self.assertTrue(row["agreesWithSuccessorLock"])
+
+    def test_the_recomputation_reproduces_the_digests_the_check_reported(
+        self,
+    ) -> None:
+        reported = {
+            row["guestPath"]: row["produced"]
+            for row in self.result["failedCheck"]["differences"]
+        }
+        recomputed = {
+            row["logicalPath"]: row["actual"]["sha256"]
+            for row in self.record["mismatches"]
+        }
+        self.assertEqual(recomputed, reported)
+
+    def test_nothing_else_in_either_image_disagrees_with_its_own_lock(self) -> None:
+        comparison = self.record["recomputedComparison"]
+        self.assertGreaterEqual(comparison["entriesCompared"], 20)
+        for replica in ("replica1", "replica2"):
+            self.assertEqual(comparison[replica]["againstSuccessorLock"], [])
+            self.assertEqual(
+                comparison[replica]["againstPredecessorLock"],
+                [row["logicalPath"] for row in self.record["mismatches"]],
+            )
+
+    def test_the_two_replicas_agreeing_is_not_recorded_as_a_pass(self) -> None:
+        agreement = self.record["replicaAgreement"]
+        self.assertTrue(agreement["mismatchSetsIdentical"])
+        self.assertFalse(agreement["isThisAProductionDeterminismPass"])
+        self.assertFalse(agreement["sealedComparisonJobRan"])
+
+    def test_it_separates_a_wrong_builder_from_a_wrong_baseline(self) -> None:
+        determination = self.record["determination"]
+        self.assertFalse(determination["builderDefect"])
+        self.assertTrue(determination["checkerBaselineWrong"])
+        self.assertEqual(determination["status"], "ROOT-CAUSE-RESOLVED")
+        self.assertIn(
+            "native_shadow_boot_root_disk_readback_arm64_v1.py",
+            determination["whereItIsWritten"],
+        )
+
+    def test_the_two_baselines_are_named_by_digest(self) -> None:
+        baselines = self.record["baselines"]
+        self.assertEqual(
+            baselines["comparedAgainst"]["sha256"], digest_of(PREDECESSOR_LOCK_PATH)
+        )
+        self.assertEqual(
+            baselines["builtAgainst"]["sha256"], digest_of(SUCCESSOR_LOCK_PATH)
+        )
+        self.assertNotEqual(
+            baselines["comparedAgainst"]["path"], baselines["builtAgainst"]["path"]
+        )
+
+    def test_the_evidence_it_reasons_from_is_fingerprinted(self) -> None:
+        evidence = self.record["evidenceFingerprints"]
+        self.assertEqual(len(evidence["artifacts"]), 4)
+        for row in evidence["artifacts"]:
+            self.assertTrue(row["githubDigest"].startswith("sha256:"))
+        names = {(row["replica"], row["name"]) for row in evidence["files"]}
+        self.assertEqual(
+            names,
+            {
+                (replica, name)
+                for replica in (1, 2)
+                for name in (
+                    "ATTEMPT-CONSUMED.json",
+                    "PRODUCE-RESULT.json",
+                    "ROOT-DISK-READBACK.json",
+                    "guest-initrd",
+                    "guest-kernel",
+                    "guest-root-disk",
+                )
+            },
+        )
+        for row in evidence["files"]:
+            self.assertEqual(len(row["sha256"]), 64)
+
+    def test_the_log_digests_do_not_pretend_to_be_reproducible(self) -> None:
+        for row in self.record["evidenceFingerprints"]["jobLogs"]:
+            self.assertFalse(row["reproducible"])
+            self.assertTrue(row["retrievedAt"])
+
+    def test_it_claims_nothing(self) -> None:
+        for key, value in self.record["boundaries"].items():
+            self.assertFalse(value, msg=key)
+        self.assertFalse(self.record["outputsAdoptable"])
+
+    def test_it_is_canonical(self) -> None:
+        self.assertEqual(
+            DIAGNOSTIC_PATH.read_bytes(),
+            (json.dumps(self.record, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        )
+
+
+class ThirdAttemptAccountingTests(unittest.TestCase):
+    """The seven numbers the operator asked to see in the failure record."""
+
+    def setUp(self) -> None:
+        self.accounting = read_json(THIRD_HARD_STOP_PATH)["accounting"]
+
+    def test_the_numbers_are_the_ones_the_operator_asked_for(self) -> None:
+        self.assertEqual(
+            {
+                key: self.accounting[key]
+                for key in (
+                    "bootAttemptsUsed",
+                    "officialImages",
+                    "priorProductionAttemptsSpent",
+                    "priorProductionDispatches",
+                    "priorProductionDispatchesUnspent",
+                    "productionAttemptsRemaining",
+                    "thisAttemptSpent",
+                    "totalProductionAttemptsSpent",
+                )
+            },
+            {
+                "bootAttemptsUsed": 0,
+                "officialImages": 0,
+                "priorProductionAttemptsSpent": 1,
+                "priorProductionDispatches": 2,
+                "priorProductionDispatchesUnspent": 1,
+                "productionAttemptsRemaining": 0,
+                "thisAttemptSpent": 1,
+                "totalProductionAttemptsSpent": 2,
+            },
+        )
+
+    def test_the_total_is_the_sum_of_the_parts(self) -> None:
+        self.assertEqual(
+            self.accounting["totalProductionAttemptsSpent"],
+            self.accounting["priorProductionAttemptsSpent"]
+            + self.accounting["thisAttemptSpent"],
+        )
+        self.assertEqual(
+            self.accounting["priorProductionDispatches"],
+            self.accounting["priorProductionDispatchesUnspent"]
+            + self.accounting["priorProductionAttemptsSpent"],
+        )
+
+    def test_the_diagnostic_images_are_counted_and_disowned(self) -> None:
+        images = self.accounting["diagnosticImages"]
+        self.assertEqual(images["setsPerReplica"], 1)
+        self.assertEqual(images["replicas"], 2)
+        self.assertFalse(images["adoptable"])

@@ -2113,4 +2113,74 @@ require_text docs/native-submission-shadow-verification-v1.md "14,160 is a templ
 require_text docs/native-submission-shadow-verification-v1.md "without invoking the checker or mutating the public ledger"
 require_text docs/native-submission-shadow-verification-v1.md "The reciprocal replay must also fail"
 
+# 2026-08-28 -- the third attempt ran, spent itself and failed. Three records
+# are added and nothing already sealed is edited: what the run did, the stop
+# that follows it, and what the two produced images actually contain when they
+# are read back.
+#
+# The failure is not the image. Both replicas agree with the lock they were
+# built from on every entry, including permission bits and ownership; they
+# disagree only with a different lock, and only on the two files this wave
+# rewrote. So the pins below hold the separation the diagnosis rests on: the
+# builder is not at fault, the baseline the checker read is.
+#
+# The images are kept and fingerprinted, and they may not be adopted. Keeping
+# is not adopting, and two replicas containing the same thing is not the sealed
+# comparison the authority asks for.
+V3_RESULT=native/containment/native-shadow-mac3-successor-image-production-result-arm64-v3.json
+V3_STOP=native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v3.json
+V3_DIAGNOSTIC=native/containment/native-shadow-mac3-successor-image-production-diagnostic-arm64-v3.json
+require_file "$V3_RESULT"
+require_text "$V3_RESULT" '"verdict": "FAILED"'
+require_text "$V3_RESULT" '"runsPerformed": 1'
+require_text "$V3_RESULT" '"id": "modes-owners-and-paths-match-the-lock"'
+require_text "$V3_RESULT" '"mayNotBeAdopted": true'
+require_text "$V3_RESULT" '"theseAreProductionDigests": false'
+require_text "$V3_RESULT" '"sealedComparisonJobRan": false'
+require_text "$V3_RESULT" '"thisSatisfiesTheAuthority": false'
+require_text "$V3_RESULT" '"imageProducedClaim": false'
+require_text "$V3_RESULT" '"bootableClaim": false'
+require_text "$V3_RESULT" '"servingClaim": false'
+require_text "$V3_RESULT" '"activationAllowed": false'
+require_file "$V3_STOP"
+# The seven quantities the operator asked to see, kept apart rather than
+# collapsed: two dispatches before this one, one of them unspent, this one
+# spent, nothing left, no boot, no official image, and one disowned set of
+# files per replica.
+require_text "$V3_STOP" '"priorProductionDispatches": 2'
+require_text "$V3_STOP" '"priorProductionDispatchesUnspent": 1'
+require_text "$V3_STOP" '"priorProductionAttemptsSpent": 1'
+require_text "$V3_STOP" '"thisAttemptSpent": 1'
+require_text "$V3_STOP" '"totalProductionAttemptsSpent": 2'
+require_text "$V3_STOP" '"productionAttemptsRemaining": 0'
+require_text "$V3_STOP" '"bootAttemptsUsed": 0'
+require_text "$V3_STOP" '"officialImages": 0'
+require_text "$V3_STOP" '"adoptable": false'
+require_text "$V3_STOP" '"retriesAfterTheMarker": 0'
+require_text "$V3_STOP" '"recordsLeftByteUnchanged"'
+require_text "$V3_STOP" '"stillPinsLiveBytes": false'
+require_text "$V3_STOP" 'Re-sealing'
+require_file "$V3_DIAGNOSTIC"
+require_text "$V3_DIAGNOSTIC" '"status": "ROOT-CAUSE-RESOLVED-NO-REPAIR-AND-NO-NEW-ATTEMPT-HERE"'
+require_text "$V3_DIAGNOSTIC" '"builderDefect": false'
+require_text "$V3_DIAGNOSTIC" '"checkerBaselineWrong": true'
+require_text "$V3_DIAGNOSTIC" 'native_shadow_boot_root_disk_readback_arm64_v1.py'
+require_text "$V3_DIAGNOSTIC" '"readOnly": true'
+require_text "$V3_DIAGNOSTIC" '"anyImageModified": false'
+require_text "$V3_DIAGNOSTIC" '"anyImageMounted": false'
+require_text "$V3_DIAGNOSTIC" '"fieldsThatDiffer"'
+require_text "$V3_DIAGNOSTIC" '"mismatchSetsIdentical": true'
+require_text "$V3_DIAGNOSTIC" '"isThisAProductionDeterminismPass": false'
+require_text "$V3_DIAGNOSTIC" '"outputsAdoptable": false'
+require_text "$V3_DIAGNOSTIC" '"githubDigest"'
+require_text "$V3_DIAGNOSTIC" '"reproducible": false'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ThirdProductionResultTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ThirdHardStopTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ThirdAttemptDiagnosticTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ThirdAttemptAccountingTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'def test_it_separates_a_wrong_builder_from_a_wrong_baseline'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'def test_the_producing_bytes_themselves_did_not_move'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'The third attempt: spent, failed, and read back'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'SUCCESSOR-IMAGE-PRODUCTION  SPENT / FAILED'
+
 printf 'docs-smoke: PASS\n' >&2
