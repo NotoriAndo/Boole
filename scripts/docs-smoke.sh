@@ -1341,6 +1341,8 @@ require_file native/containment/native-shadow-mac3-successor-image-production-ha
 require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json '"outputFilesCreated": 0'
 require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json '"spentVerdict": "OPERATOR-DECISION-PENDING"'
 require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json '"isolationRelaxed": false'
+require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json '"sealedAuthorityRule"'
+require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json '"undefinedMiddle"'
 require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'def pin_temporary_directory'
 require_text scripts/native-shadow-successor-produce-arm64.sh '--preflight-only'
 require_text scripts/native-shadow-successor-produce-arm64.sh 'preflight_scratch="$scratch/preflight"'

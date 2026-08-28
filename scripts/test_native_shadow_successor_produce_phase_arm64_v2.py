@@ -1691,6 +1691,21 @@ class SpentAttemptHardStopTests(unittest.TestCase):
             sorted(predecessor.output_names()),
         )
 
+    def test_the_rule_it_quotes_is_the_authority_s_own_sentence(self) -> None:
+        # A record that paraphrases the rule it is asking about is a record that
+        # can shade it. The quote is compared against the sealed authority on
+        # disk, so the question the operator answers is the authority's own
+        # wording and not this file's account of it.
+        disagreement = self.record["budget"]["twoRulesDisagree"]
+        self.assertEqual(
+            disagreement["sealedAuthorityRule"],
+            self.authority["budgetBoundary"]["rule"],
+        )
+        # And the reason it needs answering: the sentence names the free case
+        # and the consumed case, and this run landed between the two.
+        self.assertIn("output directory exists", disagreement["sealedAuthorityRule"])
+        self.assertIn("output file has been created", disagreement["sealedAuthorityRule"])
+
     def test_it_claims_nothing_the_run_did_not_establish(self) -> None:
         for claim, value in self.record["boundaries"].items():
             self.assertFalse(value, claim)

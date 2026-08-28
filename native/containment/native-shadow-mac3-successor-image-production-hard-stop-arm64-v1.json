@@ -24,7 +24,9 @@
     "spentVerdict": "OPERATOR-DECISION-PENDING",
     "twoRulesDisagree": {
       "preRegisteredWorkflowComment": "the output directory is created inside the wrapper and not before, which is where the budget line falls: everything above is refusable for free, and a failure from here on has spent the attempt -- which reads this attempt as spent",
+      "sealedAuthorityRule": "A refusal raised before the production output directory exists does not consume the one allowed attempt.  Once any output file has been created, the attempt is consumed whatever happens next.",
       "standingInstruction": "an attempt is spent once any output file has been created -- which reads this attempt as unspent",
+      "undefinedMiddle": "The sealed rule names the case that costs nothing -- a refusal raised before the output directory exists -- and the case that costs the attempt -- once any output file has been created. This run landed between the two: the directory existed and no output file ever did. The operator rather than the runner settles which side it belongs to.",
       "why": "The wrapper created an empty output directory before it started the transient unit, because a systemd ReadWritePaths entry has to exist. No output file was ever written. The two statements are consistent everywhere except here, and the operator rather than the runner settles which one governs."
     },
     "whatWasNotWritten": [
