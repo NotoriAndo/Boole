@@ -88,7 +88,7 @@ CONTAINMENT = REPO_ROOT / "native/containment"
 AUTHORITY_PATH = (
     CONTAINMENT / "native-shadow-mac3-successor-production-authority-arm64-v3.json"
 )
-# The authority the two spent attempts ran under.  It is not the current one and
+# The authority the two prior dispatches ran under.  It is not the current one and
 # it is not edited: the documents written about those attempts are judged
 # against the bytes that were sealed when they ran.
 SPENT_AUTHORITY_PATH = (
@@ -1214,7 +1214,7 @@ class BudgetBoundaryTests(unittest.TestCase):
         self.assertIn("the attempt is consumed whatever happens next", rule)
 
     def test_the_older_wording_is_preserved_rather_than_corrected(self) -> None:
-        # The authority the spent attempts ran under still says what it said.
+        # The authority the prior dispatches ran under still says what it said.
         # Moving the line forward is a statement about the next attempt, not a
         # revision of how the last two were judged.
         older = read_json(SPENT_AUTHORITY_PATH)["budgetBoundary"]["rule"]
@@ -2635,10 +2635,10 @@ class ConsumedAttemptHardStopTests(unittest.TestCase):
 class ThirdAuthorityTests(unittest.TestCase):
     """The one further attempt the operator granted, written down before it runs.
 
-    Two attempts were spent under the previous authority: the first created an
+    Two dispatches ran under the previous authority: the first created an
     empty output directory and was ruled unspent, the second wrote its marker,
-    built all three files and then lost them.  This authority carries one new
-    attempt and nothing else.  What it may not do is quietly become a better
+    built all three files and then lost them.  One of the two was therefore
+    spent.  This authority carries one new attempt and nothing else.  What it may not do is quietly become a better
     version of the one it replaces, so the checks below are mostly about what
     stayed the same.
     """
@@ -2660,13 +2660,62 @@ class ThirdAuthorityTests(unittest.TestCase):
         )
         self.assertNotEqual(self.document["attemptId"], self.spent["attemptId"])
 
-    def test_the_accounting_is_the_operators_and_not_a_recount(self) -> None:
+    def test_the_summary_counts_the_rows_it_summarises(self) -> None:
+        """The totals at the top are counted here from the rows at the bottom.
+
+        The first draft of this document said two attempts were spent while
+        listing one unspent and one spent underneath it.  A dispatch and a
+        spent attempt are not the same event, and quoting a total next to the
+        detail it is meant to total is how the two came apart.  Counting it
+        here means they cannot come apart again silently.
+        """
+
         accounting = self.document["attemptAccounting"]
-        self.assertEqual(accounting["priorProductionAttemptsSpent"], 2)
+        attempts = self.document["priorAttempts"]
+        self.assertEqual(accounting["priorProductionDispatches"], len(attempts))
+        self.assertEqual(
+            accounting["priorProductionAttemptsSpent"],
+            sum(1 for row in attempts if row["spent"]),
+        )
+        self.assertEqual(
+            accounting["priorProductionDispatchesUnspent"],
+            sum(1 for row in attempts if not row["spent"]),
+        )
+
+    def test_the_operators_corrected_numbers_are_the_ones_written_down(self) -> None:
+        accounting = self.document["attemptAccounting"]
+        self.assertEqual(accounting["priorProductionDispatches"], 2)
+        self.assertEqual(accounting["priorProductionDispatchesUnspent"], 1)
+        self.assertEqual(accounting["priorProductionAttemptsSpent"], 1)
         self.assertEqual(accounting["productionAttemptsGrantedHere"], 1)
         self.assertEqual(accounting["bootAttemptsUsed"], 0)
         self.assertEqual(accounting["priorImage"], "created, lost, not adoptable")
         self.assertIn("this attempt is spent too", accounting["spendingRule"])
+
+    def test_no_wording_left_calls_both_dispatches_spent(self) -> None:
+        """Prose is checked too, because prose is what a reader believes.
+
+        The numbers can be right while the sentence beside them is wrong, and
+        the sentence is the part a person acts on.
+        """
+
+        text = AUTHORITY_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("two spent attempts", text)
+        self.assertNotIn("first two attempts are spent", text)
+        self.assertIn("two prior dispatches, one unspent and one spent", text)
+
+    def test_the_correction_is_recorded_rather_than_made_quietly(self) -> None:
+        """What was changed, by whose ruling, and that nothing had run yet."""
+
+        correction = self.document["accountingCorrection"]
+        self.assertEqual(correction["was"]["priorProductionAttemptsSpent"], 2)
+        self.assertEqual(correction["nowIs"]["priorProductionAttemptsSpent"], 1)
+        self.assertEqual(correction["nowIs"]["priorProductionDispatches"], 2)
+        self.assertEqual(correction["nowIs"]["priorProductionDispatchesUnspent"], 1)
+        self.assertFalse(correction["anythingRanUnderTheUncorrectedBytes"])
+        self.assertEqual(correction["ruledAt"], "2026-08-28T15:01:05Z")
+        self.assertEqual(len(correction["supersededSha256"]), 64)
+        self.assertNotEqual(correction["supersededSha256"], digest_of(AUTHORITY_PATH))
 
     def test_the_four_earlier_records_are_bound_byte_unchanged(self) -> None:
         """Every document this one follows, re-derived from the file on disk.
@@ -2778,7 +2827,7 @@ class ThirdAuthorityTests(unittest.TestCase):
             mod.assert_bound_inputs(self.document, REPO_ROOT), len(bound)
         )
         self.assertIn(
-            "including the four records of the two spent attempts",
+            "including the four records of the two prior dispatches",
             " ".join(self.document["preflight"]["passRequires"]),
             msg="the free mode does not check the preservation the paid one does",
         )
