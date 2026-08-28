@@ -12,6 +12,17 @@ successor lock, binds replay tools into it exactly as production does, and hands
 it to each builder.  The predecessor refuses on its narrower table.  The successor
 passes every source-shape check and stops at the one thing this step does not
 open -- the payload store.  No package is hashed and no artifact is read.
+
+2026-08-28 addendum: the fifth step merged the nested tree, on the terms this
+gate's own ``ChainPositionTests`` set.  Those tests said the merge would open with
+the measurement that is taken immediately before assembly, and that is what
+happened -- in a successor projection, not here.  Every assertion in this file
+still holds without a word changed: this step's module keeps its bytes, keeps
+``NESTED_RUNTIME_TREE_ASSEMBLED`` false, and still does not call
+``build_oci_layout``; the sealed result it reads still records a declared bound
+rather than a measurement, because the measurement was sealed in a new file
+beside it.  Two tests are renamed to say what they now mean, and one names where
+the merge went: ``scripts/test_native_shadow_boot_staging_measure_arm64_v1.py``.
 """
 
 from __future__ import annotations
@@ -25,6 +36,7 @@ import unittest
 from scripts import native_shadow_rootfs_builder_arm64_v1 as arm64
 from scripts import native_shadow_rootfs_builder_boot_arm64_v1 as boot_v1
 from scripts import native_shadow_rootfs_builder_boot_arm64_v2 as mod
+from scripts import native_shadow_rootfs_builder_boot_arm64_v3 as successor_merge
 from scripts import native_shadow_rootfs_portable_boot_arm64_v1 as portable_v1
 from scripts import native_shadow_rootfs_portable_boot_arm64_v2 as portable_v2
 
@@ -74,6 +86,12 @@ SUPERSEDED_ROLES = {
 
 def read_json(path: pathlib.Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def module_sha256(module) -> str:
+    """The bytes a successor pins its predecessor by."""
+
+    return hashlib.sha256(pathlib.Path(module.__file__).resolve().read_bytes()).hexdigest()
 
 
 def arm64_constant(name: str) -> str:
@@ -487,15 +505,44 @@ class ChainPositionTests(unittest.TestCase):
         self.assertFalse(mod.ACTIVATION_ALLOWED)
         self.assertFalse(mod.NESTED_RUNTIME_TREE_ASSEMBLED)
 
-    def test_the_nested_tree_is_not_merged_into_a_build_yet(self) -> None:
-        """Merging it is opened together with the measurement taken immediately
-        before assembly, which is a production step rather than this one."""
+    def test_this_projection_still_does_not_merge_the_nested_tree(self) -> None:
+        """Superseded 2026-08-28 by the fifth step, as this test's own terms required.
+
+        It said merging opens with the measurement taken immediately before
+        assembly.  That measurement was taken, and the merge opened where the
+        measurement could consume it -- in the successor projection, not here.
+        What the assertions guard is the half that did not move: this module still
+        stages the tree and hands it on without building anything from it, so the
+        lock it was written for still builds here exactly as it did.
+        """
 
         source = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
         self.assertNotIn("build_oci_layout(", source.split('"""', 2)[-1])
         self.assertIn("nested_tree_entries", source)
+        self.assertNotIn('"nested runtime tree"', mod._derived_source())
+
+    def test_the_merge_lives_in_the_successor_projection(self) -> None:
+        """One line, in the builder, before the parent directories are derived."""
+
+        source = successor_merge.__file__ and pathlib.Path(
+            successor_merge.__file__
+        ).read_text(encoding="utf-8")
+        self.assertIn('_merge(entries, nested_tree, "nested runtime tree")', source)
+        self.assertEqual(successor_merge.BOOT_V2_SHA256, module_sha256(mod))
+        derived = successor_merge._derived_source()
+        self.assertLess(
+            derived.index('_merge(entries, nested_tree, "nested runtime tree")'),
+            derived.index("    _ensure_parents(entries)\n"),
+        )
 
     def test_the_totals_are_still_bounds_rather_than_measurements(self) -> None:
+        """The declared bound stays on this step's record; the measurement is new.
+
+        The fifth step did not rewrite this file -- it sealed
+        ``native-shadow-boot-staging-tree-measurement-arm64-v1.json`` beside it,
+        which is why every number here is still the number this step sealed.
+        """
+
         nested = read_json(SEALED_RESULT_PATH)["nestedTree"]
         self.assertFalse(nested["assembled"])
         self.assertEqual(nested["state"], "declared-not-assembled")

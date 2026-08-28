@@ -3396,3 +3396,147 @@ modified. Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD,
 BF.7=HOLD, Base activation false and activationAllowed=false are unchanged. No
 public mining, no leaderboard claim and no paid-API benchmark is made anywhere in
 this section.
+
+## 43. The assembled tree, measured rather than added up (2026-08-28)
+
+The sealed plan said the totals had to be measured immediately before assembly,
+and the fourth step left two numbers standing that looked like they could be
+added: 13454 entries in the boot table, 4217 in the nested tree. Their sum is
+17671. The assembled tree holds **17674**. Three directories exist in the result
+that neither table listed, because assembling one tree inside another derives the
+parents the merge needs. Adding the two numbers would have been wrong by three
+entries and would have looked right.
+
+That is the whole reason the plan asked for a measurement.
+
+### 43.1 The merge went into a fifth projection, and had to
+
+Editing the fourth step's module to add the merge would have falsified what that
+step sealed: a constant saying the nested tree is not assembled, a test asserting
+the not-merged state, and a section of its own gate written to say so. Changing a
+sealed pass criterion to take a measurement is a stop condition, not a step. So
+the merge lives in a successor projection, the fifth in the chain, and every
+assertion the fourth step made stays literally true.
+
+### 43.2 One function, not two that agree
+
+The measurement and any future production call the same assembler. The merge is
+threaded into the frozen builder's own assembly function, at the site the boot
+projection already reserved — after the kernel mount points are merged, before
+parent directories are derived. Three things follow from that site, and each is a
+check that would otherwise have had to be re-implemented:
+
+- the frozen merge refuses a path collision in its own words rather than
+  overwriting, so a nested path landing on a boot path stops the run;
+- parent derivation runs afterwards, so the nested tree's parents are derived by
+  the builder rather than guessed by the caller — which is where the three extra
+  directories come from;
+- the entry and byte limit checks at the end of that function see the combined
+  table, not either half.
+
+Both the image-layout entry point and the measurement entry point reach that one
+object. The gate proves it by replacing the assembler and watching both callers
+arrive at the replacement, rather than by reading the two call sites and trusting
+them to stay in step.
+
+### 43.3 Two independent measurements of the same tree
+
+The builder's entry table is one measurement. The other is a read-only walk of
+the tree actually written to disk — `lstat` on every path, no `follow_symlinks`,
+directories, regular files and symlinks counted separately. Eight keys are
+compared, and all eight are identical:
+
+| | value |
+| --- | --- |
+| entries | 17674 |
+| directories / files / symlinks | 1736 / 15101 / 837 |
+| payload bytes | 1771449867 |
+| largest single file | 160096808 |
+| largest file path | `opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly` |
+| path collisions / duplicates / symlink escapes | 0 / 0 / 0 |
+| byte-ordered path manifest | `a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736` |
+
+Neither number comes from `du` or from an archive size. A third, throwaway
+cross-check with `find` and `stat` returned the same count and the same byte
+total, and is recorded here as a cross-check rather than as the result.
+
+The nested tree's content manifest on disk is the digest the launcher compiles
+against — `200f0257…`, 1285116 bytes — so the manifest is verified as a file in
+the assembled tree rather than as a value carried in a table.
+
+### 43.4 The macOS trap that would have looked like a real failure
+
+The tree contains 20 sibling paths that differ only in case; the kernel headers
+ship both `xt_mark.h` and `xt_MARK.h`. Default APFS folds case, so on an ordinary
+directory the write would have collapsed those pairs, the walk would have counted
+fewer files than the builder, and the run would have hit the "two measurements
+disagree" stop condition — for an environment reason, with no defect anywhere in
+the chain.
+
+The tool now refuses to write into a case-folding directory before it writes
+anything, by probing the destination. The real run was taken on a case-sensitive
+APFS volume, and both spellings are present in the result. Case-folded siblings
+are also counted on both sides, so a folding destination fails the agreement check
+even if the probe were somehow satisfied.
+
+### 43.5 The three limits, applied to the larger figure
+
+The limits are read out of the sealed lock's own build recipe rather than typed
+into the tool:
+
+| limit | sealed value | measured | with the sealed launcher |
+| --- | --- | --- | --- |
+| entries | 200000 | 17674 | 17676 |
+| total payload bytes | 2147483648 | 1771449867 | 1773456499 |
+| single file bytes | 536870912 | 160096808 | 160096808 |
+
+The sealed launcher is an aarch64 Linux binary and cannot exist on the measuring
+host; the only local build is a macOS object the builder would refuse. Relaxing
+the digest check to include it is a stop condition, and quietly leaving it out
+would understate the answer. So the tree is measured without it and the record
+adds its sealed size and the two entries it would place, and all three limits are
+re-applied to that larger figure. The decision is taken on the complete number.
+
+Nothing is truncated, sampled or excluded to fit; over a limit the tool fails.
+The payload sits at about 83% of the total-byte limit, which is the tight one —
+worth knowing before anything else is added to this tree.
+
+### 43.6 Measurement mode cannot make an image
+
+The tool accepts exactly two external executables, both replay tools, and refuses
+every other path with a message that names measurement mode. Nine image-producing
+tools are refused by name, and the gate asserts each of those names appears in the
+source exactly once — in the refusal list — so one cannot be reached by a call
+added later. The module does not import the production phase and does not contain
+the words for kernel extraction, initrd or root disk.
+
+### 43.7 What this does not establish
+
+Not that an image was produced: none was. Not that an image would build, serve or
+boot. Not that the launcher binary requirement is met — it is accounted for, not
+present. Not that file ownership in the final image is right; a non-root writer
+cannot reproduce uid 0, and no required measurement depends on it. Passing the
+three limits means the preconditions for opening image production are met, and
+nothing more than that.
+
+### 43.8 Cursor
+
+```
+boot staging tree measurement = BOOT-STAGING-TREE-MEASURED-NOT-PRODUCED
+  merged and measured through one assembler, in a fifth projection;
+    the fourth step's sealed assertions unchanged
+  17674 entries / 1771449867 payload bytes / 160096808 largest file
+  builder table and independent on-disk walk agree on all eight keys
+  13454 + 4217 = 17671 would have been wrong by three derived directories
+  nested content manifest on disk equals the digest the launcher reads
+  three sealed limits satisfied, re-applied with the launcher accounted for
+  next: image production, exactly once, two replicas
+```
+
+No image was produced, no production was dispatched and no boot was performed. No
+package was downloaded or hashed. No launcher source file, launcher seal, frozen
+builder, existing projection, existing generator or sealed source lock was
+modified. Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD,
+BF.7=HOLD, Base activation false and activationAllowed=false are unchanged. No
+public mining, no leaderboard claim and no paid-API benchmark is made anywhere in
+this section.
