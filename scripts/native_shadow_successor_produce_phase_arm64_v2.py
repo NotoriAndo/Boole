@@ -43,6 +43,11 @@ import stat
 import sys
 from typing import Any, Iterable, Mapping, Optional
 
+# A workflow runs this file as `python3 scripts/<name>.py`, which puts `scripts/`
+# on the path and not the root the package below is under.  The predecessor phase
+# carries the same line for the same reason.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
 from scripts import native_shadow_boot_image_verify_arm64_v1 as image_verify
 from scripts import native_shadow_boot_initrd_arm64_v1 as initrd
 from scripts import native_shadow_boot_kernel_extract_arm64_v1 as kernel_extract

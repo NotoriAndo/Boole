@@ -45,6 +45,8 @@ import io
 import json
 import os
 import pathlib
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -1239,6 +1241,42 @@ class CommandLineTests(unittest.TestCase):
             self.assertEqual(first, digest_of(path))
             with self.assertRaises(mod.SuccessorProduceError):
                 mod._write_once(path, {"release": mod.RELEASE})
+
+    def test_the_module_imports_when_it_is_run_the_way_a_workflow_runs_it(
+        self,
+    ) -> None:
+        # Every test above imports this module as `scripts.<name>`, which puts
+        # the repository root on the path before the module is even read.  A
+        # workflow types `python3 scripts/<name>.py`, which puts `scripts/` there
+        # instead -- and then the module's own `from scripts import ...` block
+        # has nothing to import from.  No amount of importing it here would ever
+        # notice, so it is run the other way, in a subprocess, with PYTHONPATH
+        # taken away so an inherited one cannot answer for it.
+        environment = dict(os.environ)
+        environment.pop("PYTHONPATH", None)
+        finished = subprocess.run(
+            [sys.executable, str(pathlib.Path(mod.__file__).resolve())],
+            capture_output=True,
+            cwd=REPO_ROOT,
+            env=environment,
+            text=True,
+        )
+        self.assertNotIn("ModuleNotFoundError", finished.stderr)
+        # Reaching argparse is the proof the import block completed; a usage
+        # error is the expected end of a run with no subcommand.
+        self.assertEqual(finished.returncode, 2, finished.stderr)
+
+    def test_the_predecessor_puts_the_root_on_the_path_and_so_does_this(
+        self,
+    ) -> None:
+        for module in (predecessor, mod):
+            source = module_source(module)
+            insert = source.index("sys.path.insert(0")
+            self.assertLess(
+                insert,
+                source.index("from scripts import"),
+                f"{module.__name__} imports the package before it can be found",
+            )
 
     def test_the_result_paths_are_the_ones_the_authority_named(self) -> None:
         document = mod.authority()
