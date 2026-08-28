@@ -297,14 +297,28 @@ jobs:
             --result "$RUNNER_TEMP/evidence/PRODUCE-RESULT.json"
 
       - name: Keep the manifest and the evidence
+        # Kept whether or not this replica finished. Evidence about a run that
+        # failed is the evidence somebody actually needs, and a run that failed
+        # before the manifest step legitimately has none -- so absence is an
+        # answer here rather than an error.
+        #
+        # That is not a weakened check on the path that matters: on the success
+        # path the two steps above have already written the manifest into this
+        # directory and read the result document back out of it, so an empty
+        # directory cannot reach here without one of them having failed first,
+        # and the compare job below runs only when this job succeeded.
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: successor-manifest-${{ matrix.replica }}
           path: ${{ runner.temp }}/evidence
-          if-no-files-found: error
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Keep the produced files
+        # Only from a replica that finished. This is the name the compare job
+        # consumes, so it must never hold anything but a completed production.
+        if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: successor-outputs-${{ matrix.replica }}
@@ -313,16 +327,34 @@ jobs:
           retention-days: 7
           compression-level: 1
 
-      - name: Keep the consumed-attempt marker if this replica spent the attempt
-        # The one thing that has to outlive a failed replica. The runner is
-        # destroyed with the job, and the accounting question afterwards is
-        # exactly whether the marker was written -- so it is kept whenever any
-        # step above failed, and its absence is a legitimate answer rather than
-        # an error.
+      - name: Keep what a failed replica left, under a name that disowns it
+        # The first attempt built all three files, passed the content check,
+        # raised one statement later, and was destroyed with the runner because
+        # this step ran only on success. An attempt that produces a good image
+        # and loses it is the worst outcome a budget of one has.
         #
-        # Only the marker. A half-written image is not evidence of a production
-        # and must not be uploadable as one.
+        # Keeping is not adopting. The phase writes UNQUALIFIED-DIAGNOSTIC.json
+        # into this directory on its way out of a failed section, and the
+        # artifact name says the same thing again, so nothing here can be
+        # mistaken for the produced files above: the compare job does not read
+        # this name, and no digest taken from it is a production digest.
         if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: successor-unqualified-diagnostic-${{ matrix.replica }}
+          path: ${{ runner.temp }}/boot-outputs
+          if-no-files-found: ignore
+          retention-days: 7
+          compression-level: 1
+
+      - name: Keep the consumed-attempt marker whatever happened here
+        # The one thing that has to outlive this replica. The runner is
+        # destroyed with the job, and the accounting question afterwards is
+        # exactly whether the marker was written -- so it is kept on its own,
+        # unconditionally, and its absence is a legitimate answer rather than
+        # an error. Its own upload cannot then depend on the outcome of the
+        # larger upload above it.
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: successor-attempt-consumed-${{ matrix.replica }}

@@ -1360,6 +1360,38 @@ require_text scripts/native-shadow-successor-produce-arm64.sh 'preflight_scratch
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class SpentAttemptHardStopTests'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ProvenIsolationBeforeTheBudgetLineTests'
 
+# 2026-08-28 -- the second dispatch, which wrote the marker, built all three
+# files, passed the content check and then died assembling the document that
+# reports what it built. The record is added beside the first rather than
+# replacing it, and the three defects that run exposed are repaired here: the
+# assembly is a function a free test runs, the marker lands readable to the
+# account that uploads it, and what a failed replica produced is kept under a
+# name and a document that disown it.
+require_file native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json
+require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json '"status": "HARD-STOP-ATTEMPT-CONSUMED-NO-IMAGE-PRESERVED"'
+require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json '"productionBudgetConsumed": 1'
+require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json '"preservedArtifacts": 0'
+require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json '"imageProducedClaim": false'
+require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json '"newProductionOpportunitiesGranted": 1'
+require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json '"bootOpportunitiesUsed": 0'
+require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json '"leftByteUnchanged": true'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'COLLECTABLE_FILE_MODE = 0o444'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'os.chmod(str(partial), COLLECTABLE_FILE_MODE)'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'UNQUALIFIED_MARKER_NAME = "UNQUALIFIED-DIAGNOSTIC.json"'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'def write_unqualified_diagnostic'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'def make_outputs_readable'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'def consumed_attempt(outputs):'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'def production_result('
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'with consumed_attempt(outputs):'
+require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'successor-unqualified-diagnostic-'
+require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'Keep what a failed replica left, under a name that disowns it'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ConsumedAttemptHardStopTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ResultDocumentAssemblyTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class MarkerIsReadableToWhoeverCollectsItTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class FailureAfterTheMarkerKeepsWhatItProducedTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class KeptEvidenceSurvivesAFailedReplicaTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class OneShotSectionRehearsedOnFakeFilesTests'
+
 # 2026-08-28 -- the successor production path, wired to the authority above.
 #
 # The authority named a workflow, a result path and a set of inputs before any

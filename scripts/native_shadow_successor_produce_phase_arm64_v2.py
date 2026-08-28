@@ -40,6 +40,7 @@ The rebuilt bytes arrive as an argument and are matched against the seal.
 from __future__ import annotations
 
 import ast
+import contextlib
 import hashlib
 import json
 import os
@@ -967,6 +968,11 @@ def assert_preflight_creates_no_outputs() -> None:
             "the preflight can reach the consumed-attempt marker, which is the "
             "budget line itself"
         )
+    if "consumed_attempt" in reachable:
+        raise SuccessorProduceError(
+            "the preflight can enter the spent section, whose first act is to "
+            "write the marker"
+        )
     reached = _reached_modules(reachable) & IMAGE_STEP_ALIASES
     if reached:
         raise SuccessorProduceError(
@@ -1004,6 +1010,11 @@ def assert_single_subprocess_gateway() -> None:
                     f"{function.attr}"
                 )
 
+
+# Read for everyone, written by nobody else.  The phase writes as root inside
+# the transient unit and every step that collects what it wrote runs as the
+# ordinary runner account.
+COLLECTABLE_FILE_MODE = 0o444
 
 CONSUMED_MARKER_NAME = "ATTEMPT-CONSUMED.json"
 
@@ -1065,6 +1076,13 @@ def write_consumed_marker(outputs) -> pathlib.Path:
             handle.write(raw)
             handle.flush()
             os.fsync(handle.fileno())
+        # Readable before the rename rather than after it, so the name that
+        # answers the budget question is readable from the instant it exists.
+        # A temporary file is created at mode 0600 and a rename keeps that, and
+        # the account that collects this off the runner is not the root account
+        # that wrote it: the first attempt's marker could not be uploaded at
+        # all, and the only copy that survived was the console echo below.
+        os.chmod(str(partial), COLLECTABLE_FILE_MODE)
         os.replace(str(partial), str(marker))
     except BaseException:
         if partial.exists():
@@ -1109,6 +1127,143 @@ def attempt_consumed(*, marker_written: bool) -> bool:
     """
 
     return bool(marker_written)
+
+
+UNQUALIFIED_MARKER_NAME = "UNQUALIFIED-DIAGNOSTIC.json"
+
+UNQUALIFIED_MARKER_RULE = (
+    "These files were left by a production attempt that did not finish.  They "
+    "are kept as diagnostic material and as nothing else: they are not a "
+    "qualified image, they are not adopted, they are not booted, and no digest "
+    "taken from them is a production digest."
+)
+
+
+def unqualified_marker(outputs) -> pathlib.Path:
+    """The one name that says a kept file is not a produced image."""
+
+    return pathlib.Path(outputs) / UNQUALIFIED_MARKER_NAME
+
+
+def write_unqualified_diagnostic(outputs, failure: BaseException) -> pathlib.Path:
+    """Keep what a failed attempt left, under a document that disowns it.
+
+    The first attempt built all three files, passed the content check, raised
+    one statement later, and was destroyed with the runner, because the steps
+    that keep the outputs ran only when every step before them had passed.  An
+    attempt that produces a good image and loses it is the worst outcome
+    available to a budget of one.
+
+    Keeping is not adopting.  A run that failed after the marker produced
+    something whose qualification was never established, so what is kept says
+    so, in the same directory, next to the files it is about.
+    """
+
+    outputs = pathlib.Path(outputs)
+    marker = unqualified_marker(outputs)
+    reserved = {CONSUMED_MARKER_NAME, UNQUALIFIED_MARKER_NAME}
+    kept = sorted(
+        path.name
+        for path in outputs.iterdir()
+        if path.is_file() and path.name not in reserved and not path.name.startswith(".")
+    )
+    payload = {
+        "attemptConsumed": True,
+        "attemptId": authority()["attemptId"],
+        "authoritySha256": AUTHORITY_SHA256,
+        "failure": f"{type(failure).__name__}: {failure}",
+        "filesKept": kept,
+        "mayBeAdopted": False,
+        "mayBeBooted": False,
+        "qualifiedImage": False,
+        "release": RELEASE,
+        "rule": UNQUALIFIED_MARKER_RULE,
+        "schema": (
+            "boole.native-shadow.mac3-successor-image-production-unqualified"
+            "-diagnostic.v1"
+        ),
+        "status": "UNQUALIFIED-DIAGNOSTIC",
+    }
+    raw = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    handle = tempfile.NamedTemporaryFile(
+        dir=str(outputs), prefix=".unqualified-diagnostic-partial.", delete=False
+    )
+    partial = pathlib.Path(handle.name)
+    try:
+        with handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(str(partial), COLLECTABLE_FILE_MODE)
+        os.replace(str(partial), str(marker))
+    except BaseException:
+        if partial.exists():
+            partial.unlink()
+        raise
+    try:
+        sys.stdout.write(f"{UNQUALIFIED_MARKER_NAME}\n{raw.decode('utf-8')}")
+        sys.stdout.flush()
+    except OSError as exc:
+        sys.stderr.write(f"{UNQUALIFIED_MARKER_NAME}: console echo failed: {exc}\n")
+    return marker
+
+
+def make_outputs_readable(outputs) -> None:
+    """Grant read to whoever collects this, and take nothing away.
+
+    The phase runs as root inside the transient unit and the step that uploads
+    runs as the ordinary runner account.  Everything here is additive: a mode
+    only ever gains the read bits, so this cannot be the thing that made a file
+    unusable to the step that wrote it.
+    """
+
+    outputs = pathlib.Path(outputs)
+    for path in [outputs, *sorted(outputs.rglob("*"))]:
+        try:
+            current = path.lstat()
+        except OSError:
+            continue
+        if stat.S_ISLNK(current.st_mode):
+            continue
+        mode = stat.S_IMODE(current.st_mode)
+        wanted = mode | (0o055 if stat.S_ISDIR(current.st_mode) else 0o044)
+        if wanted == mode:
+            continue
+        try:
+            os.chmod(str(path), wanted)
+        except OSError as exc:
+            sys.stderr.write(f"{path.name}: could not be made collectable: {exc}\n")
+
+
+@contextlib.contextmanager
+def consumed_attempt(outputs):
+    """The section that spends the attempt: marked before it, kept after it.
+
+    Entering writes the marker, so everything inside is on the spent side of the
+    budget line by construction rather than by the order somebody remembered to
+    write the statements in.  Leaving it badly writes the diagnostic and leaves
+    what was produced where it is, readable, disowned, and available to the
+    operator who has to decide what happened.
+
+    The diagnostic is written on the way out and never instead of the failure:
+    if it cannot be written, the failure that caused it is still what comes out
+    of here, and the complaint goes to the console.
+    """
+
+    outputs = pathlib.Path(outputs)
+    write_consumed_marker(outputs)
+    try:
+        yield
+    except BaseException as failure:
+        try:
+            write_unqualified_diagnostic(outputs, failure)
+        except BaseException as second:
+            sys.stderr.write(
+                f"{UNQUALIFIED_MARKER_NAME}: could not be written: {second}\n"
+            )
+        raise
+    finally:
+        make_outputs_readable(outputs)
 
 
 def assert_attempt_available(*, runs_performed: int) -> None:
@@ -1327,6 +1482,93 @@ def _with_launcher(totals: Mapping[str, Any]) -> dict:
     }
 
 
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def production_result(
+    *,
+    manifest_entries: Mapping[str, str],
+    output_names: Iterable[str],
+    build_receipt: Mapping[str, Any],
+    builder_internal: Mapping[str, Any],
+    kernel_sha256: str,
+    kernel_disposition: Any,
+    root_disk: Any,
+    root_disk_evidence: Any,
+    verify_report: Mapping[str, Any],
+) -> dict:
+    """What the run produced, said once, in a function a free test can run.
+
+    This assembly is where the first attempt died.  It had never been executed:
+    the section it sits in needs root, aarch64, a payload store and the one
+    attempt there is, so nothing but the attempt itself could reach it.  The
+    field it raised on -- ``outputManifest`` -- appears nowhere else in the
+    repository, so no consumer would have noticed the shape either.  What it
+    raised on was a type: ``manifest_from_directory`` returns a mapping of
+    output name to digest, iterating a mapping yields its keys, and each key was
+    handed to ``dict`` as though it were a row.
+
+    So it takes plain values and returns a document, which is a thing a test
+    with three files of a few bytes in it can run for nothing.  The manifest is
+    checked rather than trusted, because a document that quietly dropped an
+    output would read like a smaller production instead of a broken one.
+    """
+
+    names = tuple(output_names)
+    if not isinstance(manifest_entries, Mapping):
+        raise SuccessorProduceError(
+            "the output manifest is not a mapping of output name to digest: "
+            f"{type(manifest_entries).__name__}"
+        )
+    missing = [name for name in names if name not in manifest_entries]
+    if missing:
+        raise SuccessorProduceError(
+            "the output manifest is missing an output this phase produces: "
+            + ", ".join(missing)
+        )
+    extra = sorted(set(manifest_entries) - set(names))
+    if extra:
+        raise SuccessorProduceError(
+            "the output manifest carries what this phase does not produce: "
+            + ", ".join(extra)
+        )
+    rows = []
+    for name in names:
+        digest = manifest_entries[name]
+        if not _is_sha256(digest):
+            raise SuccessorProduceError(
+                f"the output manifest has no sha256 digest for {name}: {digest!r}"
+            )
+        rows.append({"name": name, "sha256": digest})
+
+    return {
+        "activationAllowed": ACTIVATION_ALLOWED,
+        "authoritySha256": AUTHORITY_SHA256,
+        "bootableClaim": BOOTABLE_CLAIM,
+        "boundaries": {
+            "guestBootVerified": GUEST_BOOT_VERIFIED,
+            "guestImageBuilt": True,
+            "runtimeCompatibilityVerified": False,
+        },
+        "buildReceipt": build_receipt,
+        "builderInternal": builder_internal,
+        "kernel": {"disposition": kernel_disposition, "sha256": kernel_sha256},
+        "outputManifest": rows,
+        "outputsCreated": True,
+        "release": RELEASE,
+        "rootDisk": root_disk,
+        "rootDiskEvidence": root_disk_evidence,
+        "servingClaim": SERVING_CLAIM,
+        "sourceLockSha256": SOURCE_LOCK_SHA256,
+        "verifyReport": verify_report,
+    }
+
+
 def produce(
     *,
     repository_root: pathlib.Path,
@@ -1399,78 +1641,70 @@ def produce(
     # The budget line, and it is an act rather than a side effect.  Everything
     # above it is refusable for free, including the layout build and the tree
     # extraction just above, which write into the scratch and never into the
-    # outputs.  From here on the attempt is consumed whatever happens next, and
-    # the marker says so on the disk and on the console before the first image
-    # file exists.
-    write_consumed_marker(outputs)
-
-    kernel_result, kernel_disposition = kernel_extract.extract(
-        cas_roots=[artifact_store],
-        zstd_path=pathlib.Path(zstd),
-        out_dir=outputs,
-        result_path=pathlib.Path(scratch) / "kernel-extract-result.json",
-    )
-    initrd_raw = initrd.initrd_bytes(layer)
-    produced["initrd"].write_bytes(initrd_raw)
-
-    writer_tree = pathlib.Path(scratch) / "writer"
-    try:
-        writer_receipt = writer_tree_module.materialize(
-            cas_roots=[artifact_store], zstd=pathlib.Path(zstd), writer_tree=writer_tree
+    # outputs.  Entering the section below writes the marker, so from here on
+    # the attempt is consumed whatever happens next -- and leaving it badly
+    # leaves what was produced where it is, readable and disowned, rather than
+    # discarding it with the runner.
+    with consumed_attempt(outputs):
+        kernel_result, kernel_disposition = kernel_extract.extract(
+            cas_roots=[artifact_store],
+            zstd_path=pathlib.Path(zstd),
+            out_dir=outputs,
+            result_path=pathlib.Path(scratch) / "kernel-extract-result.json",
         )
-    except writer_tree_module.WriterTreeError as exc:
-        raise SuccessorProduceError(f"the writer set is not usable: {exc}") from exc
-    (pathlib.Path(scratch) / "writer-tree-receipt.json").write_bytes(
-        root_disk.canonical_json(writer_receipt)
-    )
+        initrd_raw = initrd.initrd_bytes(layer)
+        produced["initrd"].write_bytes(initrd_raw)
 
-    plan = phase.plan_for(
-        layer=layer,
-        tree=tree,
-        writer_tree=writer_tree,
-        image=produced["root-disk"],
-        staging=pathlib.Path(scratch) / "staging",
-    )
-    try:
-        disk_result = root_disk_execute.execute(plan, layer, tree, writer_tree)
-    except root_disk_execute.RootDiskExecuteError as exc:
-        raise SuccessorProduceError(str(exc)) from exc
+        writer_tree = pathlib.Path(scratch) / "writer"
+        try:
+            writer_receipt = writer_tree_module.materialize(
+                cas_roots=[artifact_store],
+                zstd=pathlib.Path(zstd),
+                writer_tree=writer_tree,
+            )
+        except writer_tree_module.WriterTreeError as exc:
+            raise SuccessorProduceError(f"the writer set is not usable: {exc}") from exc
+        (pathlib.Path(scratch) / "writer-tree-receipt.json").write_bytes(
+            root_disk.canonical_json(writer_receipt)
+        )
 
-    report = image_verify.verify_tree(
-        tree=image_verify.tree_from_initrd(initrd_raw),
-        expectations=image_verify.expectations_from_lock(sealed_source_lock()),
-        launcherSha256=_sha256(launcher_binary),
-        kernel=produced["kernel"].read_bytes(),
-    )
-    if not report["passed"]:
-        failed = [row["id"] for row in report["checks"] if not row["ok"]]
-        raise SuccessorProduceError("the produced image failed: " + ", ".join(failed))
+        plan = phase.plan_for(
+            layer=layer,
+            tree=tree,
+            writer_tree=writer_tree,
+            image=produced["root-disk"],
+            staging=pathlib.Path(scratch) / "staging",
+        )
+        try:
+            disk_result = root_disk_execute.execute(plan, layer, tree, writer_tree)
+        except root_disk_execute.RootDiskExecuteError as exc:
+            raise SuccessorProduceError(str(exc)) from exc
 
-    manifest_entries = producer.manifest_from_directory(outputs, phase.output_names())
-    return {
-        "activationAllowed": ACTIVATION_ALLOWED,
-        "authoritySha256": AUTHORITY_SHA256,
-        "bootableClaim": BOOTABLE_CLAIM,
-        "boundaries": {
-            "guestBootVerified": GUEST_BOOT_VERIFIED,
-            "guestImageBuilt": True,
-            "runtimeCompatibilityVerified": False,
-        },
-        "buildReceipt": build_receipt,
-        "builderInternal": computed,
-        "kernel": {
-            "disposition": kernel_disposition,
-            "sha256": kernel_result["kernel"]["sha256"],
-        },
-        "outputManifest": [dict(row) for row in manifest_entries],
-        "outputsCreated": True,
-        "release": RELEASE,
-        "rootDisk": disk_result["image"],
-        "rootDiskEvidence": phase.root_disk_evidence(disk_result),
-        "servingClaim": SERVING_CLAIM,
-        "sourceLockSha256": SOURCE_LOCK_SHA256,
-        "verifyReport": report,
-    }
+        report = image_verify.verify_tree(
+            tree=image_verify.tree_from_initrd(initrd_raw),
+            expectations=image_verify.expectations_from_lock(sealed_source_lock()),
+            launcherSha256=_sha256(launcher_binary),
+            kernel=produced["kernel"].read_bytes(),
+        )
+        if not report["passed"]:
+            failed = [row["id"] for row in report["checks"] if not row["ok"]]
+            raise SuccessorProduceError(
+                "the produced image failed: " + ", ".join(failed)
+            )
+
+        return production_result(
+            manifest_entries=producer.manifest_from_directory(
+                outputs, phase.output_names()
+            ),
+            output_names=phase.output_names(),
+            build_receipt=build_receipt,
+            builder_internal=computed,
+            kernel_sha256=kernel_result["kernel"]["sha256"],
+            kernel_disposition=kernel_disposition,
+            root_disk=disk_result["image"],
+            root_disk_evidence=phase.root_disk_evidence(disk_result),
+            verify_report=report,
+        )
 
 
 def _resolved_tool(name: str) -> pathlib.Path:

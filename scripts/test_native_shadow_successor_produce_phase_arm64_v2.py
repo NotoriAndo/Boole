@@ -49,6 +49,7 @@ import json
 import os
 import pathlib
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1881,10 +1882,16 @@ class ConsumedMarkerTests(unittest.TestCase):
         self.assertIn(marker.read_text(encoding="utf-8").strip(), echoed)
 
     def test_the_production_marks_before_it_writes_any_image_file(self) -> None:
+        # The mark is now the act of entering the section rather than a
+        # statement inside it, so it cannot be moved down past an image step by
+        # anyone editing that section.
         source = inspect.getsource(mod.produce)
-        mark = source.index("write_consumed_marker(")
+        mark = source.index("consumed_attempt(")
         for alias in ("kernel_extract.", "initrd.", "root_disk_execute.", "producer."):
             self.assertLess(mark, source.index(alias), alias)
+        self.assertIn(
+            "write_consumed_marker", inspect.getsource(mod.consumed_attempt)
+        )
 
     def test_nothing_touches_the_outputs_between_the_directory_and_the_mark(
         self,
@@ -1895,7 +1902,7 @@ class ConsumedMarkerTests(unittest.TestCase):
         # have quietly moved back to where it was.
         source = inspect.getsource(mod.produce)
         window = source[
-            source.index("outputs.mkdir(") : source.index("write_consumed_marker(")
+            source.index("outputs.mkdir(") : source.index("consumed_attempt(")
         ]
         self.assertNotIn("outputs)", window.replace("phase.output_paths(outputs)", ""))
         self.assertIn("_extract_tree", window)
@@ -1914,16 +1921,24 @@ class ConsumedMarkerTests(unittest.TestCase):
         self.assertIn(f"$outputs/{mod.CONSUMED_MARKER_NAME}", source)
         self.assertIn("already says the attempt was consumed: no retry", source)
 
-    def test_a_failed_replica_keeps_the_marker_and_not_the_image(self) -> None:
+    def test_a_failed_replica_keeps_the_marker(self) -> None:
+        # This test used to require that a failed replica keep the marker *and
+        # nothing else*, on the reasoning that a half-written image must not be
+        # uploadable as evidence of a production.  The first real production
+        # showed what that costs: three finished files, content-checked, thrown
+        # away with the runner because a later statement raised.  The operator's
+        # ruling of 2026-08-28 replaced the rule -- what a failed replica
+        # produced is kept, under a name and a document that disown it, which is
+        # ``KeptEvidenceSurvivesAFailedReplicaTests`` above.  The marker keeps
+        # its own upload either way, so the accounting question never depends on
+        # a larger one succeeding.
         source = WORKFLOW_PATH.read_text(encoding="utf-8")
         keep = source.index("ATTEMPT-CONSUMED.json")
         step = source.rindex("- name:", 0, keep)
         block = source[step:keep]
-        self.assertIn("if: failure()", block)
+        self.assertIn("if: always()", block)
         self.assertIn("upload-artifact", block)
-        # Only the marker: a half-written image must not be uploadable as
-        # evidence of a production.
-        self.assertNotIn("boot-outputs\n", source[keep - 200 : keep])
+        self.assertIn("successor-attempt-consumed-", block)
 
 
 class OperatorBudgetRulingTests(unittest.TestCase):
@@ -2003,3 +2018,578 @@ class OperatorBudgetRulingTests(unittest.TestCase):
         self.assertIn("before the first image", replacement["writtenWhen"].lower())
         self.assertTrue(replacement["atomic"])
         self.assertIn("whatever happens next", replacement["afterTheMarker"])
+
+
+class ResultDocumentAssemblyTests(unittest.TestCase):
+    """The statement that spent an attempt, given a test that executes it.
+
+    The first attempt built all three files, passed the content check, and then
+    raised while assembling the document that reports what it built.  The cause
+    was a type: ``manifest_from_directory`` returns a mapping of output name to
+    digest, iterating a mapping yields its keys, and the assembly treated each
+    key as a row.  Nothing read the field it was building, and no test had ever
+    executed the assembly, so both halves of the mistake were invisible.
+
+    The assembly is now a function that takes plain values and returns a
+    document, which is a thing a free test can run.  These tests run it.
+    """
+
+    OUTPUT_NAMES = predecessor.output_names()
+
+    def setUp(self) -> None:
+        self.outputs = pathlib.Path(tempfile.mkdtemp(prefix="boole-result-assembly."))
+        self.addCleanup(shutil.rmtree, self.outputs, True)
+
+    def _fake_outputs(self) -> dict:
+        """Three tiny files under the real output names, and their digests."""
+
+        digests = {}
+        for index, name in enumerate(self.OUTPUT_NAMES):
+            raw = f"stand-in for {name}\n".encode("utf-8") * (index + 1)
+            (self.outputs / name).write_bytes(raw)
+            digests[name] = hashlib.sha256(raw).hexdigest()
+        return digests
+
+    def _assemble(self, manifest_entries) -> dict:
+        return mod.production_result(
+            manifest_entries=manifest_entries,
+            output_names=self.OUTPUT_NAMES,
+            build_receipt={"stand-in": True},
+            builder_internal={"entries": 0},
+            kernel_sha256="0" * 64,
+            kernel_disposition="stand-in",
+            root_disk={"stand-in": True},
+            root_disk_evidence={"stand-in": True},
+            verify_report={"passed": True, "checks": []},
+        )
+
+    def test_what_the_producer_returns_is_what_the_assembly_accepts(self) -> None:
+        # The exact seam that failed: the helper's real return value, handed to
+        # the assembly, with nothing in between to launder the type.
+        digests = self._fake_outputs()
+        entries = mod.producer.manifest_from_directory(self.outputs, self.OUTPUT_NAMES)
+        document = self._assemble(entries)
+        self.assertEqual(
+            document["outputManifest"],
+            [{"name": name, "sha256": digests[name]} for name in self.OUTPUT_NAMES],
+        )
+
+    def test_each_output_is_one_row_in_the_order_the_phase_names_them(self) -> None:
+        self._fake_outputs()
+        entries = mod.producer.manifest_from_directory(self.outputs, self.OUTPUT_NAMES)
+        rows = self._assemble(entries)["outputManifest"]
+        self.assertEqual([row["name"] for row in rows], list(self.OUTPUT_NAMES))
+        for row in rows:
+            self.assertEqual(sorted(row), ["name", "sha256"])
+            self.assertRegex(row["sha256"], r"\A[0-9a-f]{64}\Z")
+
+    def test_a_name_the_manifest_does_not_carry_is_refused(self) -> None:
+        # A document that quietly omitted an output would read like a production
+        # of two files, which is not a thing this phase is allowed to report.
+        with self.assertRaises(mod.SuccessorProduceError):
+            self._assemble({self.OUTPUT_NAMES[0]: "0" * 64})
+
+    def test_a_manifest_carrying_something_extra_is_refused(self) -> None:
+        entries = {name: "0" * 64 for name in self.OUTPUT_NAMES}
+        entries["guest-something-else"] = "0" * 64
+        with self.assertRaises(mod.SuccessorProduceError):
+            self._assemble(entries)
+
+    def test_a_digest_that_is_not_a_digest_is_refused(self) -> None:
+        entries = {name: "0" * 64 for name in self.OUTPUT_NAMES}
+        entries[self.OUTPUT_NAMES[1]] = "not a digest"
+        with self.assertRaises(mod.SuccessorProduceError):
+            self._assemble(entries)
+
+    def test_the_document_claims_nothing_the_run_did_not_establish(self) -> None:
+        self._fake_outputs()
+        entries = mod.producer.manifest_from_directory(self.outputs, self.OUTPUT_NAMES)
+        document = self._assemble(entries)
+        self.assertFalse(document["bootableClaim"])
+        self.assertFalse(document["servingClaim"])
+        self.assertFalse(document["activationAllowed"])
+        self.assertFalse(document["boundaries"]["guestBootVerified"])
+        self.assertFalse(document["boundaries"]["runtimeCompatibilityVerified"])
+        self.assertTrue(document["outputsCreated"])
+        self.assertEqual(document["authoritySha256"], mod.AUTHORITY_SHA256)
+        self.assertEqual(document["release"], mod.RELEASE)
+
+    def test_the_production_assembles_its_result_through_this_function(self) -> None:
+        # Otherwise there would be two assemblies, and the tested one would not
+        # be the one that runs on the attempt that costs something.
+        source = inspect.getsource(mod.produce)
+        self.assertIn("production_result(", source)
+        self.assertNotIn('"outputManifest"', source)
+
+    def test_the_document_is_canonical_json(self) -> None:
+        # It is written with the canonical writer and compared byte for byte
+        # between two replicas, so it has to survive the trip.
+        self._fake_outputs()
+        entries = mod.producer.manifest_from_directory(self.outputs, self.OUTPUT_NAMES)
+        document = self._assemble(entries)
+        raw = mod.staging.canonical_json(document)
+        self.assertEqual(json.loads(raw.decode("utf-8")), document)
+
+
+class MarkerIsReadableToWhoeverCollectsItTests(unittest.TestCase):
+    """The evidence that could not be uploaded off the runner that made it.
+
+    The marker is written by root inside the transient unit, and the step that
+    keeps it runs as the ordinary runner account.  A temporary file is created
+    at mode 0600 and a rename preserves that, so both replicas refused the
+    upload with ``EACCES`` and the only surviving copy was the console echo.
+    The echo is worth keeping, but it is a second copy, not a substitute for
+    the file the accounting question is about.
+    """
+
+    def setUp(self) -> None:
+        self.outputs = pathlib.Path(tempfile.mkdtemp(prefix="boole-marker-mode."))
+        self.addCleanup(shutil.rmtree, self.outputs, True)
+
+    def test_the_marker_can_be_read_by_an_account_that_did_not_write_it(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            marker = mod.write_consumed_marker(self.outputs)
+        mode = stat.S_IMODE(marker.stat().st_mode)
+        self.assertTrue(mode & stat.S_IROTH, oct(mode))
+        self.assertTrue(mode & stat.S_IRGRP, oct(mode))
+
+    def test_it_is_never_on_disk_under_a_mode_that_cannot_be_read(self) -> None:
+        # Made readable before the rename rather than after it, so the name that
+        # answers the budget question is readable from the instant it exists.
+        observed = {}
+        real_replace = mod.os.replace
+
+        def watch(source, destination):
+            observed["mode"] = stat.S_IMODE(os.stat(source).st_mode)
+            return real_replace(source, destination)
+
+        with mock.patch.object(mod.os, "replace", side_effect=watch):
+            with contextlib.redirect_stdout(io.StringIO()):
+                mod.write_consumed_marker(self.outputs)
+        self.assertTrue(observed["mode"] & stat.S_IROTH, oct(observed["mode"]))
+
+    def test_it_is_not_writable_by_anyone_who_did_not_write_it(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            marker = mod.write_consumed_marker(self.outputs)
+        mode = stat.S_IMODE(marker.stat().st_mode)
+        self.assertFalse(mode & stat.S_IWOTH, oct(mode))
+        self.assertFalse(mode & stat.S_IWGRP, oct(mode))
+
+
+class FailureAfterTheMarkerKeepsWhatItProducedTests(unittest.TestCase):
+    """Files that existed, passed their content check, and were thrown away.
+
+    The steps that keep the outputs ran only on success, so the first attempt
+    built three files, verified them, raised one statement later, and was
+    destroyed with the runner.  Nothing survives to point at and no digest of a
+    produced file was ever recorded.
+
+    Keeping them is not adopting them.  A run that failed after the marker
+    produced something that is not a qualified image, and the files are kept
+    with a document that says exactly that, under a name a later reader cannot
+    mistake for a production.
+    """
+
+    OUTPUT_NAMES = predecessor.output_names()
+
+    def setUp(self) -> None:
+        self.outputs = pathlib.Path(tempfile.mkdtemp(prefix="boole-kept-on-failure."))
+        self.addCleanup(shutil.rmtree, self.outputs, True)
+
+    def _write_fake_outputs(self) -> None:
+        for name in self.OUTPUT_NAMES:
+            (self.outputs / name).write_bytes(f"stand-in for {name}\n".encode("utf-8"))
+
+    def test_a_failure_after_the_marker_leaves_the_files_where_they_were(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(mod.SuccessorProduceError):
+                with mod.consumed_attempt(self.outputs):
+                    self._write_fake_outputs()
+                    raise mod.SuccessorProduceError("something after the marker")
+        for name in self.OUTPUT_NAMES:
+            self.assertTrue((self.outputs / name).is_file(), name)
+
+    def test_what_is_kept_says_it_is_not_a_qualified_image(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(mod.SuccessorProduceError):
+                with mod.consumed_attempt(self.outputs):
+                    self._write_fake_outputs()
+                    raise mod.SuccessorProduceError("something after the marker")
+        diagnostic = mod.unqualified_marker(self.outputs)
+        self.assertTrue(diagnostic.is_file())
+        document = json.loads(diagnostic.read_text(encoding="utf-8"))
+        self.assertEqual(document["status"], "UNQUALIFIED-DIAGNOSTIC")
+        self.assertFalse(document["qualifiedImage"])
+        self.assertFalse(document["mayBeBooted"])
+        self.assertFalse(document["mayBeAdopted"])
+        self.assertIn("something after the marker", document["failure"])
+        self.assertEqual(document["attemptId"], mod.authority()["attemptId"])
+        self.assertTrue(document["attemptConsumed"])
+
+    def test_the_kept_files_can_be_read_by_the_account_that_collects_them(
+        self,
+    ) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(mod.SuccessorProduceError):
+                with mod.consumed_attempt(self.outputs):
+                    self._write_fake_outputs()
+                    for name in self.OUTPUT_NAMES:
+                        (self.outputs / name).chmod(0o600)
+                    raise mod.SuccessorProduceError("something after the marker")
+        for path in sorted(self.outputs.iterdir()):
+            mode = stat.S_IMODE(path.stat().st_mode)
+            self.assertTrue(mode & stat.S_IROTH, f"{path.name} is {oct(mode)}")
+
+    def test_a_run_that_finished_leaves_no_diagnostic_behind(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            with mod.consumed_attempt(self.outputs):
+                self._write_fake_outputs()
+        self.assertFalse(mod.unqualified_marker(self.outputs).exists())
+        self.assertTrue(mod.consumed_marker(self.outputs).is_file())
+
+    def test_a_finished_run_is_still_readable_to_whoever_collects_it(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            with mod.consumed_attempt(self.outputs):
+                self._write_fake_outputs()
+                for name in self.OUTPUT_NAMES:
+                    (self.outputs / name).chmod(0o600)
+        for path in sorted(self.outputs.iterdir()):
+            self.assertTrue(stat.S_IMODE(path.stat().st_mode) & stat.S_IROTH, path.name)
+
+    def test_the_diagnostic_never_hides_the_failure_that_caused_it(self) -> None:
+        # Preserving evidence must not become a way to lose the reason. If the
+        # diagnostic itself cannot be written, the original failure is still the
+        # one that comes out.
+        with mock.patch.object(
+            mod, "write_unqualified_diagnostic", side_effect=OSError("full disk")
+        ):
+            with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stderr(io.StringIO()) as complaint:
+                    with self.assertRaises(mod.SuccessorProduceError) as raised:
+                        with mod.consumed_attempt(self.outputs):
+                            raise mod.SuccessorProduceError("the original failure")
+        self.assertIn("the original failure", str(raised.exception))
+        self.assertIn("full disk", complaint.getvalue())
+
+    def test_the_marker_is_written_before_the_section_it_guards(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            with self.assertRaises(mod.SuccessorProduceError):
+                with mod.consumed_attempt(self.outputs):
+                    self.assertTrue(mod.consumed_marker(self.outputs).is_file())
+                    raise mod.SuccessorProduceError("after the marker")
+        self.assertIn(mod.CONSUMED_MARKER_NAME, printed.getvalue())
+
+    def test_the_production_runs_its_one_shot_section_inside_that_guard(self) -> None:
+        source = inspect.getsource(mod.produce)
+        self.assertIn("with consumed_attempt(outputs):", source)
+        guard = source.index("with consumed_attempt(outputs):")
+        for alias in ("kernel_extract.", "initrd.", "root_disk_execute.", "producer."):
+            self.assertLess(guard, source.index(alias), alias)
+
+    def test_the_preflight_cannot_reach_the_guard_either(self) -> None:
+        reachable = mod._local_call_graph("preflight")
+        self.assertNotIn("consumed_attempt", reachable)
+        self.assertNotIn("write_unqualified_diagnostic", reachable)
+        mod.assert_preflight_creates_no_outputs()
+
+
+class KeptEvidenceSurvivesAFailedReplicaTests(unittest.TestCase):
+    """The other half of the same defect, in the job that runs the phase.
+
+    The module can keep a file on the disk of a runner that is about to be
+    destroyed.  Whether anything survives is decided by the steps that upload,
+    and those ran only when every step before them had passed.
+    """
+
+    def setUp(self) -> None:
+        self.source = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    def _step(self, needle: str) -> str:
+        at = self.source.index(needle)
+        start = self.source.rindex("      - name:", 0, at)
+        try:
+            end = self.source.index("\n      - name:", at)
+        except ValueError:
+            end = len(self.source)
+        return self.source[start:end]
+
+    def test_the_marker_is_kept_whatever_happened(self) -> None:
+        block = self._step("successor-attempt-consumed-")
+        self.assertIn("if: always()", block)
+        self.assertIn("if-no-files-found: ignore", block)
+
+    def test_a_failed_replica_keeps_what_it_produced(self) -> None:
+        block = self._step("successor-unqualified-diagnostic-")
+        self.assertIn("if: failure()", block)
+        self.assertIn("boot-outputs", block)
+        self.assertIn("if-no-files-found: ignore", block)
+
+    def test_what_a_failed_replica_keeps_is_not_named_like_a_production(
+        self,
+    ) -> None:
+        # Two names, and the difference between them is the whole point: the
+        # compare job consumes one of them and a human reading the other cannot
+        # believe it is looking at a produced image.
+        kept = self._step("successor-unqualified-diagnostic-")
+        self.assertNotIn("name: successor-outputs-", kept)
+        produced = self._step("name: successor-outputs-")
+        self.assertIn("if: success()", produced)
+
+    def test_the_evidence_is_kept_whether_or_not_the_replica_finished(self) -> None:
+        block = self._step("successor-manifest-")
+        self.assertIn("if: always()", block)
+        self.assertIn("if-no-files-found: ignore", block)
+
+
+class OneShotSectionRehearsedOnFakeFilesTests(unittest.TestCase):
+    """The whole spent section, end to end, for nothing.
+
+    Everything between the marker and the result document had never been
+    executed by a test.  It could not be: the real section extracts a kernel,
+    builds an initrd and writes an ext4 image, which needs root, aarch64, a
+    payload store and the one attempt there is.  So the three parts that are not
+    about images -- marking, assembling the result, and what is left behind --
+    ran for the first time on the attempt that had to work.
+
+    Here they run on three files of a few bytes each.  The section is entered
+    the way the production enters it, the manifest is taken with the real
+    helper, the document is assembled by the real assembly and written by the
+    real writer, and the failing variant goes through the same guard.  Nothing
+    in this class needs root, an image tool or a payload, and it costs nothing,
+    which is the point: this is the rehearsal the first attempt never had.
+    """
+
+    OUTPUT_NAMES = predecessor.output_names()
+
+    def setUp(self) -> None:
+        self.outputs = pathlib.Path(tempfile.mkdtemp(prefix="boole-rehearsal."))
+        self.addCleanup(shutil.rmtree, self.outputs, True)
+
+    def _produce_fake_files(self) -> dict:
+        digests = {}
+        for index, name in enumerate(self.OUTPUT_NAMES):
+            raw = b"stand-in\n" * (index + 1)
+            path = self.outputs / name
+            path.write_bytes(raw)
+            # As root inside the unit would leave them if the umask were
+            # unkind: the collector still has to be able to read them.
+            path.chmod(0o600)
+            digests[name] = hashlib.sha256(raw).hexdigest()
+        return digests
+
+    def _run_the_section(self, *, fail_with=None) -> dict:
+        with contextlib.redirect_stdout(io.StringIO()):
+            with mod.consumed_attempt(self.outputs):
+                digests = self._produce_fake_files()
+                if fail_with is not None:
+                    raise fail_with
+                entries = mod.producer.manifest_from_directory(
+                    self.outputs, self.OUTPUT_NAMES
+                )
+                document = mod.production_result(
+                    manifest_entries=entries,
+                    output_names=self.OUTPUT_NAMES,
+                    build_receipt={"stand-in": True},
+                    builder_internal={"entries": 0},
+                    kernel_sha256=digests[self.OUTPUT_NAMES[0]],
+                    kernel_disposition="stand-in",
+                    root_disk={"stand-in": True},
+                    root_disk_evidence={"stand-in": True},
+                    verify_report={"passed": True, "checks": []},
+                )
+            mod._write_once(self.outputs / "PRODUCE-RESULT.json", document)
+        return digests
+
+    def test_the_section_runs_through_to_a_written_result(self) -> None:
+        digests = self._run_the_section()
+        written = json.loads(
+            (self.outputs / "PRODUCE-RESULT.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            written["outputManifest"],
+            [{"name": name, "sha256": digests[name]} for name in self.OUTPUT_NAMES],
+        )
+        self.assertTrue(written["outputsCreated"])
+        self.assertFalse(written["bootableClaim"])
+
+    def test_everything_it_leaves_behind_can_be_collected(self) -> None:
+        self._run_the_section()
+        left = sorted(path.name for path in self.outputs.iterdir())
+        self.assertEqual(
+            left,
+            sorted(
+                [mod.CONSUMED_MARKER_NAME, "PRODUCE-RESULT.json", *self.OUTPUT_NAMES]
+            ),
+        )
+        for path in sorted(self.outputs.iterdir()):
+            mode = stat.S_IMODE(path.stat().st_mode)
+            self.assertTrue(mode & stat.S_IROTH, f"{path.name} is {oct(mode)}")
+
+    def test_two_rehearsals_of_the_same_inputs_write_the_same_bytes(self) -> None:
+        second = pathlib.Path(tempfile.mkdtemp(prefix="boole-rehearsal."))
+        self.addCleanup(shutil.rmtree, second, True)
+        self._run_the_section()
+        first_bytes = (self.outputs / "PRODUCE-RESULT.json").read_bytes()
+        self.outputs = second
+        self._run_the_section()
+        self.assertEqual(first_bytes, (second / "PRODUCE-RESULT.json").read_bytes())
+
+    def test_the_failing_variant_keeps_the_files_and_says_they_are_unqualified(
+        self,
+    ) -> None:
+        with self.assertRaises(mod.SuccessorProduceError):
+            self._run_the_section(
+                fail_with=mod.SuccessorProduceError("the content check failed")
+            )
+        for name in self.OUTPUT_NAMES:
+            self.assertTrue((self.outputs / name).is_file(), name)
+        self.assertFalse((self.outputs / "PRODUCE-RESULT.json").exists())
+        document = json.loads(
+            mod.unqualified_marker(self.outputs).read_text(encoding="utf-8")
+        )
+        self.assertEqual(document["status"], "UNQUALIFIED-DIAGNOSTIC")
+        self.assertIn("the content check failed", document["failure"])
+        self.assertEqual(sorted(document["filesKept"]), sorted(self.OUTPUT_NAMES))
+        for path in sorted(self.outputs.iterdir()):
+            mode = stat.S_IMODE(path.stat().st_mode)
+            self.assertTrue(mode & stat.S_IROTH, f"{path.name} is {oct(mode)}")
+
+    def test_the_failure_the_first_attempt_actually_hit_is_caught_here(self) -> None:
+        # The literal defect, replayed through the same seam: a mapping handed
+        # to an assembly that expected rows.  It is a refusal now rather than a
+        # ValueError from the standard library, and either way this test would
+        # have failed before the attempt was dispatched.
+        self._produce_fake_files()
+        entries = mod.producer.manifest_from_directory(self.outputs, self.OUTPUT_NAMES)
+        self.assertIsInstance(entries, dict)
+        # The statement as it was written. Iterating a mapping yields its keys,
+        # so this is `dict("guest-kernel")`, and it never reached the assembly.
+        with self.assertRaises(ValueError):
+            [dict(row) for row in entries]
+        # What it was trying to build, handed to the assembly that now checks.
+        with self.assertRaises(mod.SuccessorProduceError):
+            mod.production_result(
+                manifest_entries=list(entries),
+                output_names=self.OUTPUT_NAMES,
+                build_receipt={},
+                builder_internal={},
+                kernel_sha256="0" * 64,
+                kernel_disposition="stand-in",
+                root_disk={},
+                root_disk_evidence={},
+                verify_report={"passed": True, "checks": []},
+            )
+
+
+SECOND_HARD_STOP_PATH = (
+    CONTAINMENT
+    / "native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json"
+)
+
+
+class ConsumedAttemptHardStopTests(unittest.TestCase):
+    """The record of the attempt that was spent, and what it may not touch.
+
+    The first dispatch produced no output file and was ruled unspent.  The
+    second wrote the marker, built all three files, passed the content check and
+    then died assembling the document that reports what it built.  Two failures,
+    two records, and the earlier one is not edited to accommodate the later --
+    the digests it and its ruling hash to are re-derived here from the files
+    themselves, so a silent revision of either fails this gate.
+    """
+
+    def setUp(self) -> None:
+        self.record = json.loads(SECOND_HARD_STOP_PATH.read_text(encoding="utf-8"))
+
+    def test_the_earlier_records_are_left_byte_unchanged(self) -> None:
+        rows = self.record["appendOnly"]["recordsLeftByteUnchanged"]
+        self.assertEqual(len(rows), 4)
+        for row in rows:
+            path = REPO_ROOT / row["path"]
+            self.assertTrue(path.is_file(), row["path"])
+            found = hashlib.sha256(path.read_bytes()).hexdigest()
+            self.assertEqual(found, row["sha256"], row["path"])
+
+    def test_the_authority_it_ran_under_is_the_one_the_module_pins(self) -> None:
+        self.assertEqual(self.record["authoritySha256"], mod.AUTHORITY_SHA256)
+        self.assertEqual(self.record["attemptId"], mod.authority()["attemptId"])
+
+    def test_the_accounting_says_the_attempt_is_spent_and_nothing_survived(
+        self,
+    ) -> None:
+        accounting = self.record["accounting"]
+        self.assertEqual(accounting["workflowRunsDispatched"], 1)
+        self.assertTrue(accounting["consumedMarkerWritten"])
+        self.assertEqual(accounting["productionBudgetConsumed"], 1)
+        self.assertEqual(accounting["attemptsRemainingUnderThisAuthority"], 0)
+        self.assertEqual(accounting["preservedArtifacts"], 0)
+        self.assertEqual(accounting["bootAttemptsUsed"], 0)
+
+    def test_it_claims_no_image_and_no_boot(self) -> None:
+        boundaries = self.record["boundaries"]
+        for flag in (
+            "activationAllowed",
+            "bootableClaim",
+            "guestBootVerified",
+            "imageProducedClaim",
+            "publicMiningOrBenchmark",
+            "runtimeCompatibilityVerified",
+            "servingClaim",
+        ):
+            self.assertFalse(boundaries[flag], flag)
+
+    def test_it_names_the_statement_that_raised(self) -> None:
+        cause = self.record["cause"]
+        self.assertEqual(
+            cause["path"], "scripts/native_shadow_successor_produce_phase_arm64_v2.py"
+        )
+        self.assertIn("outputManifest", cause["statement"])
+        self.assertIn("ValueError", cause["error"])
+
+    def test_the_defect_it_names_is_not_in_the_module_any_more(self) -> None:
+        source = mod._module_source(mod._this_module())
+        self.assertNotIn(self.record["cause"]["statement"], source)
+        self.assertIn("def production_result(", source)
+
+    def test_the_two_related_defects_are_repaired_as_well(self) -> None:
+        ids = {row["id"] for row in self.record["relatedDefectsFoundInTheSameRun"]}
+        self.assertEqual(
+            ids,
+            {
+                "consumed-marker-cannot-be-uploaded",
+                "produced-files-are-discarded-when-a-later-step-fails",
+            },
+        )
+        self.assertIn("COLLECTABLE_FILE_MODE", inspect.getsource(mod.write_consumed_marker))
+        self.assertIn(
+            "successor-unqualified-diagnostic-",
+            WORKFLOW_PATH.read_text(encoding="utf-8"),
+        )
+
+    def test_the_operator_ruling_is_recorded_with_its_accounting(self) -> None:
+        ruling = self.record["operatorRuling"]
+        accounting = ruling["accountingTheOperatorFixed"]
+        self.assertEqual(accounting["existingProductionAttempt"], "spent")
+        self.assertEqual(accounting["newProductionOpportunitiesGranted"], 1)
+        self.assertEqual(accounting["bootOpportunitiesUsed"], 0)
+        self.assertIn("not adoptable", accounting["existingImage"])
+        self.assertEqual(len(ruling["conditions"]), 9)
+
+    def test_it_does_not_sit_where_a_production_result_belongs(self) -> None:
+        result = REPO_ROOT / mod.authority()["resultPath"]
+        self.assertNotEqual(SECOND_HARD_STOP_PATH, result)
+        self.assertFalse(result.exists(), "a production result exists on disk")
+
+    def test_it_is_canonical_and_says_which_record_it_follows(self) -> None:
+        raw = SECOND_HARD_STOP_PATH.read_bytes()
+        self.assertEqual(
+            raw,
+            (json.dumps(self.record, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        )
+        supersedes = self.record["supersedes"]
+        self.assertTrue(supersedes["leftByteUnchanged"])
+        self.assertEqual(
+            REPO_ROOT / supersedes["path"],
+            CONTAINMENT
+            / "native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json",
+        )
