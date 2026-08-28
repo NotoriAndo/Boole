@@ -201,10 +201,16 @@ done < <(
 # is sealed with private devices and a loop mount is exactly a device, so the
 # reading has to be its own stage -- which is also the honest arrangement, since
 # the stage that checks the work is then not the stage that did it.
-python3 "$ROOT/scripts/native_shadow_boot_root_disk_readback_arm64_v1.py" verify \
+#
+# Through the successor's own consumer. The predecessor's reads the predecessor's
+# source lock, and the two locks disagree about exactly the files this wave
+# rewrote, so the third attempt built a correct image and was failed by a
+# baseline of the wrong generation. This consumer can reach one lock: the one
+# the phase above built against, at the digest the authority bound.
+python3 "$ROOT/scripts/native_shadow_successor_root_disk_readback_arm64_v2.py" verify \
   --outputs "$outputs" \
   --mountpoint "$scratch/readback" \
-  --result "$outputs/ROOT-DISK-READBACK.json"
+  --result "$outputs/SUCCESSOR-ROOT-DISK-READBACK.json"
 
 python3 "$ROOT/scripts/native_shadow_boot_image_produce_arm64_v1.py" manifest \
   --repository-root "$ROOT" \

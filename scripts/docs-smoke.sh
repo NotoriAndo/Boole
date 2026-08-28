@@ -1513,7 +1513,24 @@ require_file scripts/native-shadow-successor-produce-arm64.sh
 require_text scripts/native-shadow-successor-produce-arm64.sh 'mount -t tmpfs -o mode=0755,nodev,nosuid tmpfs "$staging"'
 require_text scripts/native-shadow-successor-produce-arm64.sh 'isolation-argv'
 require_text scripts/native-shadow-successor-produce-arm64.sh 'a successor result is already here and is not replaced'
-require_text scripts/native-shadow-successor-produce-arm64.sh 'native_shadow_boot_root_disk_readback_arm64_v1.py'
+
+# The read-back consumer, which is the successor's own. Reading a successor
+# image back through the predecessor's consumer compares it against the
+# predecessor's source lock, and that is what spent the third attempt.
+require_text scripts/native-shadow-successor-produce-arm64.sh 'native_shadow_successor_root_disk_readback_arm64_v2.py'
+require_text scripts/native-shadow-successor-produce-arm64.sh '$outputs/SUCCESSOR-ROOT-DISK-READBACK.json'
+forbid_text scripts/native-shadow-successor-produce-arm64.sh 'native_shadow_boot_root_disk_readback_arm64_v1.py'
+require_file scripts/native_shadow_successor_root_disk_readback_arm64_v2.py
+require_text scripts/native_shadow_successor_root_disk_readback_arm64_v2.py 'SOURCE_LOCK_PATH = phase.SOURCE_LOCK_PATH'
+require_text scripts/native_shadow_successor_root_disk_readback_arm64_v2.py 'def assert_no_lock_fallback'
+require_text scripts/native_shadow_successor_root_disk_readback_arm64_v2.py 'RESULT_NAME = "SUCCESSOR-ROOT-DISK-READBACK.json"'
+require_file scripts/test_native_shadow_successor_root_disk_readback_arm64_v2.py
+require_text scripts/self-test.sh 'scripts/test_native_shadow_successor_root_disk_readback_arm64_v2.py'
+
+# The predecessor keeps its own consumer and its own lock, byte for byte: it was
+# never wrong, and correcting the successor does not get to disturb it.
+require_text scripts/native-shadow-boot-produce-arm64.sh 'native_shadow_boot_root_disk_readback_arm64_v1.py'
+require_text scripts/native_shadow_boot_root_disk_readback_arm64_v1.py 'phase.BOOT_SOURCE_LOCK_PATH'
 
 # The workflow the authority named. Two modes: one repeatable and producing
 # nothing, one the single dispatch. The preflight mode's claim is checked
@@ -2179,8 +2196,29 @@ require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'cla
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ThirdAttemptDiagnosticTests'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ThirdAttemptAccountingTests'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'def test_it_separates_a_wrong_builder_from_a_wrong_baseline'
-require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'def test_the_producing_bytes_themselves_did_not_move'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'def test_every_moved_pin_says_why_it_moved'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'The third attempt: spent, failed, and read back'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'SUCCESSOR-IMAGE-PRODUCTION  SPENT / FAILED'
+
+# The correction, added beside that failure rather than into it.
+#
+# The record is what makes the wrapper's moved digest legible: the producer
+# fingerprint pins the bytes that produced the third attempt and is deliberately
+# not re-sealed over the corrected ones, so the move is declared here instead.
+# It authorises nothing -- a new attempt still needs a new authority, a new
+# fingerprint over the corrected bytes, and a free preflight first.
+V1_CORRECTION=native/containment/native-shadow-mac3-successor-readback-correction-arm64-v1.json
+require_file "$V1_CORRECTION"
+require_text "$V1_CORRECTION" '"status": "READBACK-CORRECTED-NO-NEW-ATTEMPT-AUTHORISED-HERE"'
+require_text "$V1_CORRECTION" 'scripts/native_shadow_successor_root_disk_readback_arm64_v2.py'
+require_text "$V1_CORRECTION" 'native-shadow-boot-rootfs-source-lock-arm64-v2.json'
+require_text "$V1_CORRECTION" '"pinsThisCorrectionMoves"'
+require_text "$V1_CORRECTION" '"producerFingerprintNotReSealed"'
+require_text "$V1_CORRECTION" '"recordsLeftByteUnchanged"'
+require_text "$V1_CORRECTION" '"whatMustHappenBeforeANewAttempt"'
+require_text "$V1_CORRECTION" '"bootableClaim": false'
+require_text "$V1_CORRECTION" '"servingClaim": false'
+require_text "$V1_CORRECTION" '"activationAllowed": false'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ReadbackCorrectionTests'
 
 printf 'docs-smoke: PASS\n' >&2
