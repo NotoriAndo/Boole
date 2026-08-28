@@ -1,0 +1,244 @@
+{
+  "activationAllowed": false,
+  "attemptAccounting": {
+    "bootAttemptsUsed": 0,
+    "note": "The grant was one attempt and one attempt was used.  Nothing is left: a further production needs a further authority, written the way this one was.",
+    "priorProductionAttemptsSpent": 2,
+    "priorUnspentDispatches": 1,
+    "priorWorkflowDispatches": 3,
+    "productionAttemptsGrantedHere": 1,
+    "productionAttemptsRemainingAfterThisRun": 0,
+    "productionAttemptsSpentInTotal": 3,
+    "thisAttemptSpent": true,
+    "whenItWasSpent": "19:18:36Z in replica 1 and 19:18:36Z in replica 2, when each wrote the consumed-attempt marker; both then finished"
+  },
+  "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V4-ATTEMPT-1",
+  "authorityLeftByteUnchanged": true,
+  "authorityPath": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json",
+  "authoritySha256": "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc",
+  "bootableClaim": false,
+  "boundInputDigests": [
+    {
+      "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json",
+      "sha256": "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc",
+      "what": "the permission this run was dispatched under"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v4.json",
+      "sha256": "de25e3ac769ab4c575fff6b0839a2ccee2273decdbdd15eb87b3ed2a4c90b765",
+      "what": "the bytes that were allowed to produce, sealed before the run"
+    },
+    {
+      "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+      "sha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f",
+      "what": "the successor source lock the read-back judged the image against"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v3.json",
+      "sha256": "db4af374f7a62ab2ee27546b6118d8182d786b653fcd3abefd327613d6bce066",
+      "what": "the third attempt's result, which this one does not replace or amend"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v3.json",
+      "sha256": "026427bf0000903872fb663e36529b5d5e991d5a4e333b56d66b2c4baff2bc58",
+      "what": "the third attempt's stop record"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-image-production-diagnostic-arm64-v3.json",
+      "sha256": "de14a1d38d1e70d93af22ce6f4183e4cc3d9b8b00ab53f427c352f46675c4cab",
+      "what": "the third attempt's diagnosis, which named the defect this run was the test of"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-readback-correction-arm64-v1.json",
+      "sha256": "e60e60cd02f74a440e6a908d633e35322fff7626ccd1bea881adc878908c9067",
+      "what": "the record of the correction that made this run possible"
+    },
+    {
+      "path": "scripts/native_shadow_successor_root_disk_readback_arm64_v2.py",
+      "sha256": "8ada8ffa5cdf8405973af7e65589a89ee16bdaddc5bb6e7127dac8c607ce8fa0",
+      "what": "the read-back consumer that judged the image"
+    },
+    {
+      "path": "scripts/native-shadow-successor-produce-arm64.sh",
+      "sha256": "e63e3e22d876910381b3604be621e7193772cfa842439eef0afe326ba470a07c",
+      "what": "the wrapper that ran the phase and then called that consumer"
+    },
+    {
+      "path": ".github/workflows/native-shadow-successor-produce-arm64.yml",
+      "sha256": "a6ff2019a9e8f95580ebcb82e32d3a12f1a0397bb25912478716772683601b61",
+      "what": "the workflow that was dispatched once"
+    }
+  ],
+  "boundaries": {
+    "activationAllowed": false,
+    "bootableClaim": false,
+    "guestBootVerified": false,
+    "imageProducedClaim": true,
+    "publicMiningOrBenchmark": false,
+    "runtimeCompatibilityVerified": false,
+    "servingClaim": false,
+    "whatImageProducedMeans": "Three files exist, two independent arm64 runners produced them byte for byte alike, the root disk was mounted read-only and read back against the lock it was built from, and its filesystem checked clean.  That is all it means.  No virtual machine was started, no guest was booted, nothing was served, and no activation follows from it."
+  },
+  "consumedMarker": {
+    "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V4-ATTEMPT-1",
+    "authoritySha256": "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc",
+    "identicalBetweenReplicas": true,
+    "name": "ATTEMPT-CONSUMED.json",
+    "preservedAs": [
+      "successor-attempt-consumed-1",
+      "successor-attempt-consumed-2"
+    ],
+    "sha256": "1f9719091b7190f8efbd0b4e1e962c3eefdc4ccf39a83152332d66d5f93ba673",
+    "writtenBefore": "the first image output file",
+    "writtenByBothReplicas": true
+  },
+  "digestsMatchTheThirdAttempt": {
+    "theDigestsAreTheSame": true,
+    "thirdAttemptOutputsAreAdopted": false,
+    "thirdAttemptRecordSha256": "db4af374f7a62ab2ee27546b6118d8182d786b653fcd3abefd327613d6bce066",
+    "whatThisDoesNotDo": "It does not adopt the third attempt's copies.  Those were left by a run that failed, they are recorded as disqualified, and they stay that way.  What is adopted here is this run's production, which was built, read back and compared under a passing authority.  Equal bytes do not make an unqualified set qualified.",
+    "whatThisShows": "The third attempt built exactly what this one built, to the byte, and was failed by a baseline of the wrong generation.  The builder was never the defect, and the identical digests are the plainest evidence of that available."
+  },
+  "e2fsck": {
+    "exitCode": 0,
+    "invocation": "e2fsck -f -n",
+    "passed": true,
+    "repairOptionsUsed": false,
+    "rootDiskSha256Afterwards": "51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c",
+    "summary": "17687/22528 files (0.2% non-contiguous), 435530/496979 blocks",
+    "timesPerReplica": 1,
+    "whereTheDigestWasRecomputed": "The manifest step hashes the outputs after the producer returns, which is after the check ran, and its digest for the root disk is the one recorded above.  A read-only check that altered the image would show as a different digest there."
+  },
+  "headSha": "7d185776b98bb1bf6c4f141fc99af2ae249c93fb",
+  "imageProducedClaim": true,
+  "outputs": {
+    "guest-initrd": "2fc4b4f473e6dd3d8ac3697fc5be07ab2828e93acc0c2ff5f8e20ef473c3833e",
+    "guest-kernel": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+    "guest-root-disk": "51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c"
+  },
+  "passed": true,
+  "perReplicaResultDocument": {
+    "replica1Sha256": "d7fbc49d8bba4365a451fa141d03d7a49033601f2cf89f70cc145f4c0bba3ddb",
+    "replica2Sha256": "ceb98523a48a4ab406a81eb5cf6a0fd267f5896fc6cb44f89a85c95cf3f9bd3c",
+    "whyTheyDiffer": "The two result documents differ only in the random suffix of the scratch directory each run was given, which they record inside their evidence paths.  With that suffix normalised the two are identical, and with every recorded filesystem path dropped they are identical as parsed objects.  The three produced files are byte for byte the same, which is what the authority requires."
+  },
+  "preservation": {
+    "artifactNames": [
+      "successor-attempt-consumed-1",
+      "successor-attempt-consumed-2",
+      "successor-manifest-1",
+      "successor-manifest-2",
+      "successor-outputs-1",
+      "successor-outputs-2"
+    ],
+    "committedToTheRepository": false,
+    "outputManifestSha256": "b9e3e294ab6fc6745499f1104bbc643b6d40487c79f40b8e87ebce61653df866",
+    "retentionDays": 7,
+    "sizesBytes": {
+      "guest-initrd": 1776433848,
+      "guest-kernel": 57860488,
+      "guest-root-disk": 2035625984
+    },
+    "why": "Three and a half gigabytes do not belong in a git history.  The digests here are what survives the retention window, and they are enough to recognise the files again or to know that a later copy is not them."
+  },
+  "producerFingerprintAfterTheAttempt": {
+    "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v4.json",
+    "pinsThatNoLongerMatchTheLiveFile": [
+      {
+        "path": "scripts/test_native_shadow_successor_produce_phase_arm64_v2.py",
+        "sealedSha256": "0c2bd803e81b97f83d96d41a47c9a761b2f41799ee91562af01ef6beeb4b38bd",
+        "whyItChanged": "the tests that describe what this run produced were added to it after the run produced them"
+      }
+    ],
+    "sha256": "de25e3ac769ab4c575fff6b0839a2ccee2273decdbdd15eb87b3ed2a4c90b765",
+    "stillPinsLiveBytes": false,
+    "whyItIsNotReSealed": "It is a record of the bytes that ran, taken before they ran.  Re-sealing it now would make it pin a file that never produced anything, which is the one thing it exists to rule out.  Six of its seven pins still match the live file byte for byte.  The seventh is the gate, and its drift is declared here rather than absorbed quietly.",
+    "whyThereIsNoCorrectedDigest": "The file that moved is the gate that reads this record.  A digest of its current bytes, written here, would become part of those bytes the moment it was written, and could never be right.  The sealed digest is quoted instead: it is a past value, so it stays true."
+  },
+  "producerFingerprintPath": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v4.json",
+  "producerFingerprintSha256": "de25e3ac769ab4c575fff6b0839a2ccee2273decdbdd15eb87b3ed2a4c90b765",
+  "readBack": {
+    "checksThatFailed": [],
+    "checksThatPassed": [
+      "kernel-is-arm64",
+      "launcher-digest-matches-seal",
+      "launcher-service-is-enabled",
+      "modes-owners-and-paths-match-the-lock",
+      "pid1-is-systemd",
+      "replay-node-absent",
+      "runtime-mount-points-present"
+    ],
+    "consumer": "scripts/native_shadow_successor_root_disk_readback_arm64_v2.py",
+    "consumerSha256": "8ada8ffa5cdf8405973af7e65589a89ee16bdaddc5bb6e7127dac8c607ce8fa0",
+    "entryCount": 17677,
+    "passed": true,
+    "resultDocument": "SUCCESSOR-ROOT-DISK-READBACK.json",
+    "resultDocumentIdenticalBetweenReplicas": true,
+    "resultDocumentSha256": "5e3dcb7c6cc8e4e170a42f14dd262ef3a56fb5bcf61045c8d2e54a713e6dfdda",
+    "sourceLockPath": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+    "sourceLockSha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f",
+    "whatItProves": "The image was mounted read-only outside the producer's sealed unit and its contents were compared with the successor source lock at the digest this authority bound.  The check that failed the third attempt, modes-owners-and-paths-match-the-lock, is the one that reports all tracked paths matching here."
+  },
+  "record": "native-shadow-mac3-successor-image-production-result-arm64-v4",
+  "release": "NATIVE-SHADOW-MAC3-SUCCESSOR-IMAGE-PRODUCTION-RESULT-ARM64-V4",
+  "replicaComparison": {
+    "byteIdenticalWhenCheckedByHand": true,
+    "filesCompared": [
+      "guest-initrd",
+      "guest-kernel",
+      "guest-root-disk"
+    ],
+    "how": "Twice.  The sealed compare job fetched both manifests and reported 'identical: 3 outputs'.  Afterwards both output artifacts were downloaded and the three files hashed and compared locally, outside CI; the digests match the manifests and each file is byte-identical to its counterpart.",
+    "sealedComparisonJobPassed": true,
+    "sealedComparisonJobRan": true,
+    "thisSatisfiesTheAuthority": true
+  },
+  "replicas": 2,
+  "reruns": {
+    "failedJobs": 0,
+    "replicasDispatchedByHand": 0,
+    "workflow": 0
+  },
+  "runId": 33202978318,
+  "runsPerformed": 1,
+  "schema": "boole.native-shadow.mac3-successor-image-production-result.arm64.v4",
+  "servingClaim": false,
+  "status": "SUCCESSOR-PRODUCTION-PASSED",
+  "timeline": [
+    "19:07:37Z  the one free preflight ran on this main and passed, having produced nothing",
+    "19:14:27Z  the one allowed production was dispatched on main 7d18577",
+    "19:17:21Z  replica 1 entered the sealed unit; its preflight passed inside it",
+    "19:18:36Z  replica 1 wrote ATTEMPT-CONSUMED.json -- the attempt is spent",
+    "19:18:36Z  replica 2 wrote the same marker",
+    "19:19:00Z  replica 1 finished the three files and its result document",
+    "19:19:05Z  replica 1 passed the root disk read-back, 17677 entries",
+    "19:19:11Z  replica 2 passed the same read-back with the same count",
+    "19:19:14Z  replica 1 published its manifest and evidence",
+    "19:19:21Z  replica 2 published its manifest and evidence",
+    "19:20:08Z  the compare job started",
+    "19:20:16Z  the compare job reported the three outputs identical",
+    "19:20:17Z  the run completed as a success"
+  ],
+  "unqualifiedOutputs": [],
+  "verdict": "PASSED",
+  "whatTheAuthorityRequired": {
+    "bothReplicasProduced": true,
+    "byteIdenticalInitrd": true,
+    "byteIdenticalKernel": true,
+    "byteIdenticalRootDisk": true,
+    "compareJobRanAndPassed": true,
+    "e2fsckPassed": true,
+    "officialResultDocumentWritten": true,
+    "readBackPassed": true,
+    "rootDiskDigestUnchangedAcrossFsck": true,
+    "unqualifiedOutputsAbsent": true
+  },
+  "whatWasNotDone": [
+    "nothing was re-run, re-dispatched or retried; the workflow was dispatched once and no job was restarted",
+    "no criterion was relaxed, reworded or reordered, before or after the run",
+    "no boot was started; the boot budget is untouched and boot criteria are not sealed yet",
+    "no guest was connected to a node, and no testnet, mining, reward, block, consensus or peer-to-peer path was touched",
+    "the third attempt's records were not edited; its outputs stay disqualified"
+  ],
+  "whyTheAuthorityIsNotEdited": "The produce phase pins the authority by digest, so re-writing the authority to say the run happened would break the binding that made the run legitimate and would leave every record that quotes that digest wrong.  The authority keeps runsPerformed at 0 because it describes a permission, not a history; the history is this document."
+}
