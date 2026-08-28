@@ -1988,3 +1988,83 @@ assembled, no image produced, no production dispatched and no boot performed.
 Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD,
 Base activation false and activationAllowed=false are unchanged. MAC.4 route
 binding is not started.
+
+### 13.12 Condition 4 descent source contract addendum (2026-08-28)
+
+`native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json`
+gives the two descent clauses of the corrected fourth condition a contract they
+did not have, and states in the same record which half of the question that
+leaves unmeasured. Its two labels travel together: `STATIC-SOURCE-CONTRACT-GREEN`
+and `UNIT-LEVEL-DROP-FAILURE-MATRIX = NOT-MEASURED`.
+
+The correction record named one source file per clause and stopped there. The
+function both clauses point at — `verify_dropped_privileges` in the per-request
+containment module — has one call site and no test, and the module is gated to
+Linux, so it is absent from a macOS build entirely. Its launcher-side counterpart
+avoids that by splitting the decision out as a pure function compiled under test
+on every platform; the descent side never was.
+
+The obvious fix is blocked, and blocked deliberately. The launcher build result
+seals the produced binary's digest and pins the build authority's digest; the
+build authority pins the digest of all 33 launcher source files; the image
+producer's `acquisition` is `rebuild-and-match-seal`. A behavioural test requires
+editing a pinned file, so the build script's `this build disagrees with the
+sealed launcher build result;` would fire before an image could be produced. The
+extraction was written, passed five tests, survived six deliberate weakenings and
+cross-compiled clean for Linux — and was then reverted to the sealed bytes. Both
+files are re-stamped in this record at their sealed digests.
+
+The contract lives in `scripts/`, which the build authority does not pin. Thirteen
+conditions read the sealed source: the digest is unchanged; uid 0 and gid 0 are
+each refused, by separate conditions, because they are separate failures; the
+real, effective and saved slots are compared through `getresuid`/`getresgid` and
+refused when any differs; a retained supplementary group refuses; all five
+capability sets must be exactly zero; `NoNewPrivs` must be `1`; a missing,
+duplicated, empty or unparsable field refuses rather than passing; every pinned
+refusal follows its own decision; the refusal counts per function are exact; there
+is exactly one success path; the stages run drop → verify → identity lookup, all
+before the exec, each propagating on failure; and the shipped region above the
+test module holds exactly one `libc::SYS_clone3` and one `libc::execve(` with none
+of `std::process::Command`, `libc::fork(`, `libc::vfork(`, `libc::posix_spawn`,
+`libc::execl`, `libc::execvp` or `libc::system(`.
+
+The gate carries its own weakening fixtures — seventeen variants of the sealed
+source, built in memory, never written. Each deletes one condition or inverts one
+order: the uid check, the gid check, the syscall identity refusal, the
+supplementary group refusal, one capability set dropped from the required list, a
+tolerated non-empty set, the no_new_privs refusal, a tolerated missing field, a
+tolerated duplicate, a tolerated malformed identity, drop and verify swapped,
+verification moved after the exec, a second exec, a shell spawn, an early success
+return, a refusal moved ahead of its decision, and an unaccounted refusal. Each is
+required to be caught by the condition it weakens; nine are caught by two or three
+conditions independently. Twenty-seven tests, registered in self-test, with the
+labels and the not-measured flags pinned in docs-smoke.
+
+The evidence is recorded in two separate places because it is two different
+things. Real-kernel evidence exists for the launcher-side capability policy:
+`scripts/native-shadow-launcher-privilege-gate.sh` runs
+`privilege::tests::real_kernel_privilege_matches_frozen_policy` under `systemd-run`
+on ubuntu-24.04 with the exact set, a missing capability and an extra one, and
+requires the two rejections to come through the production verifier with their
+exact masks. No real-kernel evidence exists for the checker-side descent
+verification — not the five failure paths, which were never fault-injected, and
+not the normal path, which no tracked run reaches: the launcher crate's six
+real-kernel gated tests are all in other modules and the one real guest boot
+refused before serving for want of an account database. An earlier reading
+assumed the normal path had already run end to end; the record corrects that
+rather than inheriting it.
+
+Re-sealing the current launcher is explicitly not the way back:
+`byResealingTheCurrentLauncher` and `usableAsEvidenceForTheCurrentImage` are both
+false. The image about to be produced contains the launcher as sealed now, so a
+re-seal after production describes a different binary and a re-seal before it
+changes the artifact production reproduces. The record instead names a launcher
+v2 successor chain — new source authority, new binary, new image, new boot
+criteria — which would move the drop failure matrix to measured for that binary
+and no other.
+
+No launcher source file, builder, lock, plan or unit was edited. The correction
+record is unedited and its stamps are re-verified. No image was produced, no
+production dispatched, no boot performed and no re-seal scheduled. Serving is not
+claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation
+false and activationAllowed=false are unchanged.

@@ -1032,6 +1032,33 @@ require_text scripts/self-test.sh scripts/test_native_shadow_mac3_nested_runtime
 # The closure plan keeps the sentence that was too strong, so both halves stay readable.
 require_text native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json "neither tree's entry count is pinned anywhere in the repository"
 
+# The descent half of corrected condition 4: the two clauses that named a source
+# file and nothing else now have a source-level contract behind them. The two
+# labels have to stay together -- the contract is green, and the unit-level drop
+# failure matrix is still not measured -- so a later reader cannot take the green
+# half alone. The record also has to keep saying that the stronger test was
+# written and reverted rather than quietly dropped, that the launcher seal is
+# what deferred it, and that re-sealing the current launcher is not the way back.
+require_file native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"status": "STATIC-SOURCE-CONTRACT-GREEN"'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"unitLevelDropFailureMatrix": "NOT-MEASURED"'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"acquisition": "rebuild-and-match-seal"'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"revertedBeforeCommit": true'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"couldHaveBeenForced": false'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"wouldHaveAbortedImageProduction": true'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"launcherSourceChanged": false'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"launcherResealed": false'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"predecessorEdited": false'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"deferredNotAbandoned": true'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"byResealingTheCurrentLauncher": false'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"usableAsEvidenceForTheCurrentImage": false'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"fixturesAreInTheGateScript": true'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"sameEvidence": false'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"normalPathObservedOnARealKernel": false'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json '"failurePathsFaultInjected": false'
+require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json 'not a behavioural test'
+require_text scripts/self-test.sh scripts/test_native_shadow_mac3_condition_4_descent_refusal_gate_arm64_v1.py
+
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
 # the three the console named because it comes from the guest's own systemd --
@@ -1147,9 +1174,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "24b6232137b742f638a1987bef1f89a43c3490c771bc466fce6c89880c5fd06c"
-require_text docs/native-submission-shadow-verification-v1.md "3006506521f993d2a0f393e4789d38f247623df570d9b869ea967658a6bac045"
-require_text docs/native-submission-shadow-verification-v1.md "3357a080447229a680bbf7d488036d7653dc34ec5dbd55239cef5f4f6bc740a9"
+require_text docs/native-submission-shadow-verification-v1.md "e73e73352172711c65058f221df7652bc6e7c63fd13a959a6659c8bd2b68870d"
+require_text docs/native-submission-shadow-verification-v1.md "a2c1d9d523941cd486eca11f41ac9725e20f1d02e6a31622c9ac16ca270bbcf7"
+require_text docs/native-submission-shadow-verification-v1.md "b4c942b71795babcc8baf89db3672e40e8276ab46782d5e18ad883cd78bd53cf"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "That sentence stays as written."
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "necessary but not sufficient"

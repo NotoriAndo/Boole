@@ -2786,3 +2786,127 @@ boot was performed. Serving is not claimed. mineable_now=0, REWARD_READY=0,
 RP0-MD=HOLD, BF.7=HOLD, Base activation false and activationAllowed=false are
 unchanged. No public mining, no leaderboard claim and no paid-API benchmark is
 made anywhere in this section.
+
+## 38. The descent, fixed as a source contract — and the half that stays unmeasured (2026-08-28)
+
+The corrected fourth condition has two clauses about the descent: the submitted
+answer and its checker start only after the launcher has dropped to the sealed
+unprivileged identity, and a failed descent, a root-state execution or a chance of
+regaining privilege is refused. Section 36 recorded both as already enforced and
+named one source file for each. Checking that turned up a real gap, and closing
+it turned out to be blocked by a seal. This section is what could honestly be done
+instead, and what it does not buy.
+
+### 38.1 The gap
+
+The function both clauses point at — the one that reads the kernel's own answer
+after the descent and refuses when the answer is wrong — has one call site and no
+test. Its module compiles only on Linux, so it never built on the machine this
+work is done on. Its counterpart on the launcher side avoids exactly this by
+splitting the decision out as a pure function that compiles under test on every
+platform; the descent side never was.
+
+### 38.2 What was tried, and why it was reverted
+
+The decision half was extracted the same way, given five table-driven tests, and
+checked by weakening the checks six different ways: every weakening was caught.
+The Linux-only module cross-compiled and passed clippy with warnings denied for
+the Linux target. It worked. It was still reverted.
+
+The launcher build seal is a chain of three links. The sealed build result pins
+the produced binary's digest and the digest of the build authority; the build
+authority pins the digest of all 33 launcher source files; and the image producer
+acquires the launcher by rebuilding it and requiring the bytes to equal the seal.
+So a change to any launcher source file, test code included, is refused at the
+first link. That is not a tooling accident — it is the point of the chain. Two
+pinned files had changed, so the work was reverted to the sealed bytes and kept
+only as prose. Being correct and passing is not enough to spend a seal that the
+next step depends on.
+
+### 38.3 What was added instead
+
+A source contract, in `scripts/`, which the build authority does not pin, so it
+costs no seal. It reads the sealed source and requires thirteen conditions to
+hold: the source is byte-for-byte the sealed source; a root uid is refused; a root
+gid is refused independently; the real, effective and saved identities are
+compared directly and refused when any slot differs; a retained supplementary
+group is refused; all five kernel capability sets are required to be exactly
+empty; no_new_privs is required to be set; a missing, duplicated, empty or
+unparsable status field refuses rather than reading as a satisfied check; every
+refusal sits after the decision that makes it one; the refusal counts are exact,
+so nothing was deleted and no unaccounted early exit was added; there is exactly
+one success path; the descent is dropped, then verified, before the exec, with a
+failed stage propagating; and the shipped code has exactly one child creation and
+exactly one exec of the answer with none of the ordinary spawn shortcuts, so
+there is no road to a submitted answer that the verification does not guard.
+
+A gate that only reads for text can rot into a gate that reads for nothing. So
+the gate carries seventeen weakened variants of the sealed source, held in memory
+and never written to disk. Each deletes one condition or inverts one order, and
+each must be caught by the condition it weakens. A condition that stopped
+checking anything would let its own variant through and fail the gate. Nine of
+the seventeen are caught by two or three conditions independently.
+
+### 38.4 Two kinds of evidence, kept apart
+
+Reading source and running a kernel answer different questions, and a green
+static gate must not later be read as a descent that was observed.
+
+What has run on a real kernel is the launcher-side capability policy: a
+three-case fault-injection matrix under systemd on ubuntu-24.04, in CI, where the
+exact sealed set passes and a missing or an extra capability is refused through
+the production verifier with its exact mask.
+
+What has not run on a real kernel is the checker-side descent verification. Not
+its five failure paths, which were never fault-injected anywhere, and not its
+normal path either: the function runs only inside the contained child that
+per-request execution creates, the launcher crate's six real-kernel gated tests
+are all in other modules, and the one real guest boot refused before serving
+because the guest has no account database. An earlier reading of this work
+assumed the normal path had already run in an existing end-to-end run. It has
+not. The weaker true claim is recorded rather than the stronger convenient one.
+
+### 38.5 Why the stronger test needs a successor chain, not a re-seal
+
+The image about to be produced contains the launcher as it is sealed now. Adding
+tests to launcher source and re-sealing afterwards would leave the image and the
+seal describing different binaries; re-sealing before production would change the
+artifact production is meant to reproduce. Either way the test would not be
+evidence about the binary in the image.
+
+The tests belong to a separate launcher v2 chain, walked from the start: a new
+source authority pinning every launcher file including the new tests, one double
+arm64 build to seal the new binary against it, an image produced from that
+binary, and boot criteria written for that image before the run that judges it.
+That chain would move the drop failure matrix from not measured to measured, for
+the v2 binary and no other. It cannot be used retroactively as evidence for the
+current image.
+
+### 38.6 What this does not establish
+
+Not a behavioural test: no synthetic kernel status is fed to the parser, so how it
+answers a forged or adversarial status is still unobserved. Not that the refusals
+are correct — only that they are present, ordered, counted and reached before the
+single exec. Not that the descent was observed on a booted guest; it is read here,
+never run. Not that the syscall half is exercised. Not that the launcher reaches
+serving: the three sealed runtime gaps are untouched and still open. Not that the
+corrected fourth condition is satisfied; it remains pre-registered and unbuilt.
+
+### 38.7 Cursor
+
+```
+descent contract = STATIC-SOURCE-CONTRACT-GREEN
+  UNIT-LEVEL-DROP-FAILURE-MATRIX = NOT-MEASURED
+  13 conditions over the sealed source, 17 weakening variants, each caught
+  launcher source unchanged: linux.rs and privilege.rs at their sealed digests
+  launcher not re-sealed; no re-seal scheduled by this section
+  real-kernel evidence: launcher-side capability matrix only
+  checker-side descent: normal path and 5 failure paths both unobserved
+  next: account DB, runtime rootfs + manifest, refusal output to host console
+```
+
+No image was produced, no production was dispatched and no boot was performed. No
+launcher source file, builder, source lock or systemd unit was modified. Serving
+is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base
+activation false and activationAllowed=false are unchanged. No public mining, no
+leaderboard claim and no paid-API benchmark is made anywhere in this section.
