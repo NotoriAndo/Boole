@@ -3960,3 +3960,157 @@ module was modified. Bootable and serving are not claimed. mineable_now=0,
 REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and
 activationAllowed=false are unchanged. No public mining, no leaderboard claim and
 no paid-API benchmark is made anywhere in this section.
+
+### 45.11 The second and third preflight runs, and a quantity made a property of the tree (addendum)
+
+**The second run: a module that could not be run the way it is run.** Run
+33156887243 got further than the first — every acquisition step passed and the
+launcher was rebuilt and matched its seal — and then stopped before it read a
+single byte of any tree:
+
+```
+ModuleNotFoundError: No module named 'scripts'
+```
+
+The workflow invokes the phase as `python3 scripts/<name>.py`. That puts
+`scripts/` on the interpreter's path rather than the directory the `scripts`
+package sits in, so the module's own `from scripts import ...` block had nothing
+to import from. The predecessor phase carries a line that inserts the repository
+root ahead of that block. The successor did not.
+
+No test in the file could have noticed. Every one of them imports the module as
+`scripts.<name>`, which puts the root on the path before the module is read. The
+defect lives exactly in the gap between how the tests reach the module and how
+the workflow reaches it, and a test written like its neighbours is blind to it by
+construction.
+
+It would have been expensive on the other path. The production wrapper creates
+the output directory before it invokes the phase, so this same exception would
+have been raised on the far side of the line the budget is drawn on. It was
+raised in the mode that creates nothing instead.
+
+Two tests hold it. The module is run in a subprocess from the repository root
+with `PYTHONPATH` removed, so an inherited one cannot answer for it, and is
+required to reach its own argument parser rather than an import error; and both
+phases are required to put the root on the path before they import the package,
+so the two cannot drift apart again. A sweep of the remaining modules found no
+third case that any workflow or shell script invokes as a script.
+
+**The third run: a quantity that was not a property of the tree.** Run
+33157320718 assembled the tree, wrote it, walked it, and stopped at the
+comparison:
+
+```
+the assembled table and the staging tree disagree on largestFilePath:
+'opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly'
+against
+'var/lib/boole/native-shadow/runtime-rootfs/opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly'
+```
+
+This one is not a wiring gap, and the record has to be exact about what it does
+and does not show.
+
+What it shows is that the tree is the sealed tree. The phase measures twice: once
+from the assembled entry table and once from an independent walk of what was
+written. The table comparison passed on all nine quantities — 17,674 entries, the
+same three kind counts, 1,771,449,867 payload bytes, the same largest size, no
+collisions, no duplicates, no escapes, and the same path manifest digest
+`a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736`. A path
+manifest digest is a statement about which paths exist, and it matched the seal
+exactly.
+
+What failed is the walk's answer to a different question. Two files in this tree
+have exactly the sealed largest size, 160,096,808 bytes: the checker toolchain's
+`libLLVM` in the guest's own root, and the copy of it inside the nested runtime
+rootfs that the fourth condition requires be carried for replay. Both copies
+belong there. `traverse_staging_tree` kept the first file it met at the maximum
+size — the comparison is a strict `>` — and it meets files in whatever order the
+directory it is reading hands them to it. The table is iterated in a fixed order
+and always answers `opt/…`; the walk was iterated in filesystem order and this
+time answered `var/…`.
+
+The two modes do not walk the same kind of filesystem. The production wrapper
+mounts a tmpfs and builds the tree on it; the preflight job writes under
+`RUNNER_TEMP`, which is the runner's ordinary disk. Directory read order is not
+the same property on the two, and neither of them promises write order.
+
+So `largestFilePath`, read off a walk, was a property of the filesystem rather
+than of the tree whenever two files tie for largest. It was recorded in the
+sealed measurement as though it were a property of the tree, and it agreed with
+the table there because the order on that host happened to agree.
+
+The production path does not ask this question. `produce` compares the table's
+totals and never writes or walks a staging tree — the whole function was read to
+confirm it: no write, no traversal, no comparison against a walk. The
+disagreement was contained in the preflight's comparison, and no image production
+would have failed on it.
+
+**The decision, and why it changes no sealed value.** Resolving it meant deciding
+what a sealed criterion means, which is not a decision this path may take on its
+own. It was reported to the operator as a HARD STOP under *the measurement result
+and the actual successor preflight disagree*, with three ways out written down
+and one recommended: make the tie-break deterministic so the byte-smallest path
+wins at equal size. The operator approved that one and fixed its exact wording —
+*among the regular files of greatest size, the path whose canonical path bytes
+sort first* — together with what may not be used to sort: no locale, no
+case-insensitive order, no Unicode normalisation or case fold, and not the order
+the filesystem offered. Directories and symlinks are not candidates, and size
+stays the regular file's payload bytes.
+
+That recommendation is provable rather than likely, and the proof is in the
+function that produced the sealed value. `builder_totals` iterates
+`sorted(paths, key=…encode("utf-8"))` — the same ordering the path manifest
+digest is built from — and keeps the first file at the maximum. Those two rules
+together are exactly *the byte-wise smallest path among the files of greatest
+size*, taken over every path in the tree. So the sealed `opt/…` is not merely
+smaller than the `var/…` the walk found; it is the minimum over all files that
+tie, and no unobserved further copy can sort ahead of it. Defining the walk's
+tie-break the same way reproduces the sealed value by construction. This is not a
+criterion relaxed or a value revised: nine quantities are still compared and the
+sealed numbers are untouched. It is the implicit rule that made the sealed value
+written down where the other side of the comparison can also read it.
+
+It is also the smaller inconsistency to fix rather than a new rule. Every other
+quantity `traverse_staging_tree` returns is already order-independent — counts,
+sums, and a path manifest digest computed over sorted paths. `largestFilePath`
+alone was read in whatever order the directory offered.
+
+The two alternatives were named and not taken: matching the preflight's
+filesystem to the production's leaves the tie in place and relies on the order
+happening to agree, and dropping the quantity from the comparison removes a
+criterion rather than defining it.
+
+**What was changed.** One function, `largest_regular_file`, holds the rule and
+its reasons; `traverse_staging_tree` collects each regular file's path and size
+and asks it, instead of keeping a running winner in directory order.
+`builder_totals` was not touched — it already computes the rule, and the sealed
+values came out of those bytes. Nine tests hold the rule, and the operator named
+eight of them: the same answer from a tied pair given both ways round; the
+byte-smallest of more than two ties; every permutation of an encounter order
+giving one answer; a strictly larger file winning whatever the tie rule says;
+paths differing only in case ordered by their bytes; the same character composed
+two ways staying two paths; directories and symlinks never candidates even when
+they look the right size; the sealed tree still answering `opt/…`; and the table
+and the walk agreeing on a tree written once and read both ways round. The last
+of those reproduces the runner's refusal on a laptop: before the fix it fails
+with `'etc/aa-tie' against 'etc/zz-tie'`, which is the runner's message with
+smaller names.
+
+```
+successor preflight = DISPATCHED-THRICE / REFUSED-BEFORE-OUTPUT / TIE-BREAK-FIXED
+  run 2: the phase could not be run the way a workflow runs it
+  run 3: the tree matches the seal; one order-dependent quantity did not
+  the rule that produced the sealed value, written where both sides read it
+  no sealed record, criterion or measured value changed
+  nothing assembled into an image, no output directory, no artifact
+  production attempts unchanged at 0
+  next: re-dispatch the preflight; seal its result only if all nine agree
+```
+
+Still nothing produced or booted. Production attempts 0, boot attempts 0,
+`runsPerformed=0`, and neither successor result file exists. No launcher source,
+launcher seal, sealed lock, sealed measurement, sealed criteria or predecessor
+module was modified. Bootable and serving are not claimed. mineable_now=0,
+REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and
+activationAllowed=false are unchanged. No public mining, no leaderboard claim and
+no paid-API benchmark is made anywhere in this section.

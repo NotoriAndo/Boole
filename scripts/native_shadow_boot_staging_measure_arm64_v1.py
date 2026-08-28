@@ -149,6 +149,41 @@ def _path_manifest_sha256(paths: list) -> str:
     ).hexdigest()
 
 
+def largest_regular_file(sized_paths) -> tuple:
+    """The greatest size, and the byte-smallest path among the files that reach it.
+
+    Two regular files in the staging tree carry exactly the same largest size --
+    the checker toolchain's ``libLLVM`` in the guest root, and the copy of it
+    inside the nested runtime rootfs carried for replay -- so "the largest file"
+    needs a second question answered before it names one path.  Answering it by
+    whichever file was met first makes the answer a property of the filesystem
+    the tree was written to rather than of the tree, and the two modes do not
+    write to the same kind of filesystem.
+
+    The rule is the one that produced the sealed value.  ``builder_totals``
+    iterates its paths in the ordering the path manifest is built from -- the
+    paths' own UTF-8 bytes -- and keeps the first file at the maximum, which
+    together is exactly this: among the regular files of greatest size, the path
+    whose canonical bytes sort first.  Sorting by anything else -- a locale, a
+    case fold, a Unicode normalisation, the order a directory was read in --
+    would answer a different question, so none of them appear here.
+
+    An empty size wins nothing: a tree of only zero-byte files reports no path,
+    which is what the sealed side reports for the same tree.
+    """
+
+    largest_bytes = 0
+    largest_path = ""
+    for path, size in sized_paths:
+        if size > largest_bytes:
+            largest_bytes = size
+            largest_path = path
+        elif size == largest_bytes and largest_path:
+            if path.encode("utf-8") < largest_path.encode("utf-8"):
+                largest_path = path
+    return largest_bytes, largest_path
+
+
 def _case_folded_siblings(paths: list) -> int:
     """How many entries share a case-folded name with another entry.
 
@@ -231,8 +266,7 @@ def traverse_staging_tree(destination: pathlib.Path) -> dict:
     destination = pathlib.Path(destination)
     kinds: dict = {}
     payload = 0
-    largest_bytes = 0
-    largest_path = ""
+    sized_files: list = []
     escapes = 0
     paths: list = []
     pending = [destination]
@@ -253,15 +287,14 @@ def traverse_staging_tree(destination: pathlib.Path) -> dict:
                 elif stat.S_ISREG(info.st_mode):
                     kind = "file"
                     payload += info.st_size
-                    if info.st_size > largest_bytes:
-                        largest_bytes = info.st_size
-                        largest_path = relative
+                    sized_files.append((relative, info.st_size))
                 else:
                     raise StagingMeasurementError(
                         f"staging tree holds something that is not a file, directory "
                         f"or symlink: {relative}"
                     )
                 kinds[kind] = kinds.get(kind, 0) + 1
+    largest_bytes, largest_path = largest_regular_file(sized_files)
     return {
         "entries": len(paths),
         "byKind": kinds,

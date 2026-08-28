@@ -1265,6 +1265,13 @@ require_text scripts/test_native_shadow_boot_staging_measure_arm64_v1.py 'def te
 require_text scripts/test_native_shadow_boot_staging_measure_arm64_v1.py 'def test_a_forbidden_tool_is_refused_before_it_is_run'
 require_text scripts/test_native_shadow_boot_staging_measure_arm64_v1.py 'def test_nothing_is_truncated_or_excluded_to_fit'
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_staging_measure_arm64_v1.py
+# The largest file is a property of the tree, not of the order it was read in.
+# Two files carry the sealed largest size, so "the largest file" needs a second
+# question answered: among the regular files of greatest size, the path whose
+# canonical bytes sort first -- the rule that produced the sealed value, now
+# written where the walk reads it too.
+require_text scripts/native_shadow_boot_staging_measure_arm64_v1.py 'def largest_regular_file'
+require_text scripts/test_native_shadow_boot_staging_measure_arm64_v1.py 'def test_the_table_and_the_walk_choose_the_same_path_under_a_tie'
 
 # Step six: the successor production path, pre-registered before it exists.
 #
