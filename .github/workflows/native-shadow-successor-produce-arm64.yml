@@ -255,12 +255,17 @@ jobs:
         # producer authority prints. Two replicas agree byte for byte only if
         # both ran in that same environment.
         #
-        # The wrapper runs the preflight through the sealed unit first and
-        # creates the output directory only after that has passed, so the
+        # The wrapper runs the preflight through the sealed unit first, so the
         # environment the production runs in is proved while nothing has been
-        # produced. That is also where the budget line falls: everything above
-        # the output directory is refusable for free, and a failure once an
-        # output exists has spent the attempt.
+        # produced.
+        #
+        # The budget line is not this directory and not any directory. The
+        # phase writes an ATTEMPT-CONSUMED marker atomically, immediately before
+        # its first image file: above it every refusal is free, and below it the
+        # attempt is spent whatever happens next. The first production failed in
+        # the gap that reading a directory left -- the isolation needs the
+        # directory to exist before it can start, so its existence was never a
+        # decision this phase made.
         shell: bash
         run: |
           set -euo pipefail
@@ -307,6 +312,23 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 1
+
+      - name: Keep the consumed-attempt marker if this replica spent the attempt
+        # The one thing that has to outlive a failed replica. The runner is
+        # destroyed with the job, and the accounting question afterwards is
+        # exactly whether the marker was written -- so it is kept whenever any
+        # step above failed, and its absence is a legitimate answer rather than
+        # an error.
+        #
+        # Only the marker. A half-written image is not evidence of a production
+        # and must not be uploadable as one.
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: successor-attempt-consumed-${{ matrix.replica }}
+          path: ${{ runner.temp }}/boot-outputs/ATTEMPT-CONSUMED.json
+          if-no-files-found: ignore
+          retention-days: 7
 
   compare:
     # Byte identity or nothing. A difference is reported and stops the run; it

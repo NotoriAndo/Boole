@@ -1,0 +1,64 @@
+{
+  "accounting": {
+    "attemptsRemaining": 1,
+    "emptyOutputDirectoryCreated": true,
+    "imageOutputFilesCreated": 0,
+    "productionBudgetConsumed": 0,
+    "uploadedArtifacts": 0,
+    "workflowRunsDispatched": 1
+  },
+  "activationAllowed": false,
+  "boundaries": {
+    "guestBootVerified": false,
+    "imageProduced": false,
+    "launcherServing": false,
+    "productRelease": false,
+    "publicMiningOrBenchmark": false
+  },
+  "boundaryReplacedWith": {
+    "afterTheMarker": "the attempt is consumed whatever happens next, and a failure is reported as a hard stop rather than retried",
+    "atomic": true,
+    "beforeTheMarker": "every refusal is free and may be repeated",
+    "howItIsWritten": "built in full, written to a neighbouring name that is not the marker, fsynced, renamed into place, and the directory entry fsynced after it -- so a run that dies halfway leaves the marker absent rather than half written",
+    "markerName": "ATTEMPT-CONSUMED.json",
+    "preservedOnFailure": "echoed to the console the host already collects, and uploaded on its own when a replica fails; a half-written image is not uploaded",
+    "whyNotTheDirectory": "a systemd ReadWritePaths entry has to exist before the transient unit starts, so the output directory is something the isolation requires rather than something the phase decided.  A boundary a run can cross without meaning to is a boundary that gets argued about afterwards.",
+    "writtenWhen": "immediately before the first image output file"
+  },
+  "decidedBy": "operator",
+  "grounds": [
+    "only the output directory was created and zero output files were written",
+    "the run never reached the image production function",
+    "zero artifacts were uploaded",
+    "the pre-registered rule says the attempt is consumed once any output file has been created",
+    "creating an empty directory is therefore not consumption of the production budget"
+  ],
+  "pinned": {
+    "authoritySha256": "c52e319790e3ca52ba6d635007e541f25e12d6d1497c1abb46ef00b1684b6e58",
+    "hardStopRecordSha256": "98f1bbed5a0cfe4c6f8365552f80d9408027e4e43c262e84e19631e441041115",
+    "headSha": "7ae77e671a0fb8e399e1de02a6c14cbc7602c850",
+    "runId": "33167259417"
+  },
+  "priorRecordsUnmodified": [
+    "the sealed production authority, including its own budget rule and its runsPerformed of zero",
+    "the hard stop record, including its spentVerdict of OPERATOR-DECISION-PENDING, which was true when it was written",
+    "every earlier sealed measurement, lock, preflight result and image record"
+  ],
+  "record": "native-shadow-mac3-successor-image-production-budget-ruling-arm64-v1",
+  "release": "NATIVE-SHADOW-SUCCESSOR-PRODUCE-PHASE-ARM64-V2",
+  "requiredBeforeReDispatch": [
+    "merge the isolated-preflight correction to main once its required checks are green",
+    "add this operator ruling as an append-only record rather than editing the sealed authority",
+    "write the ATTEMPT-CONSUMED marker atomically, immediately before the first image output file",
+    "treat a failure before the marker as unspent and a failure after it as spent whatever the outcome",
+    "run the free preflight-only mode on arm64 exactly once",
+    "run the two-replica production exactly once, and only if that preflight passed"
+  ],
+  "ruling": "The run is recorded as one workflow dispatch and as zero consumption of the image production budget.  One production attempt remains.  The empty boundary that made the question possible is removed before the attempt is used: the budget line moves from the output directory to a marker the phase writes deliberately and atomically.",
+  "schema": "boole.native-shadow.mac3-successor-image-production-budget-ruling.v1",
+  "status": "OPERATOR-RULED-ATTEMPT-UNSPENT-BOUNDARY-MOVED-TO-A-WRITTEN-MARKER",
+  "supersedes": {
+    "hardStopRecord": "native-shadow-mac3-successor-image-production-hard-stop-arm64-v1",
+    "onlyInVerdict": "the failure record's account of what happened is unchanged and remains the evidence; what this adds is the verdict it deferred"
+  }
+}

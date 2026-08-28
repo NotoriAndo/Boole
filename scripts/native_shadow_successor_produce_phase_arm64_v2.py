@@ -21,12 +21,17 @@ identity of the mapping, not the equality of two copies, because two copies can
 drift and one object cannot.  The totals are frozen in this file from the sealed
 record, and a run that reaches different ones fails instead of adopting them.
 
-The other is that the expensive step happens once.  A refusal raised before the
-output directory exists has cost nothing and may be repeated; a failure raised
-after an output file exists has spent the only attempt there is.  Everything that
-can be checked is therefore checked on the near side of that line, which is why
+The other is that the expensive step happens once.  The line that says so is a
+marker this file writes on purpose, atomically, immediately before the first
+image file: a refusal raised before it has cost nothing and may be repeated, and
+a failure raised after it has spent the only attempt there is, whatever happens
+next.  It used to be the output directory, until a production failed in the one
+case that reading did not name -- the directory existed because the isolation
+needs it to exist, and no output file was ever written.  Everything that can be
+checked is therefore checked on the near side of the marker, which is why
 ``preflight`` exists at all: it does the whole assembly and the whole walk, and
-it cannot reach an image tool, because its call graph never touches one.
+it cannot reach an image tool or the marker, because its call graph never
+touches either.
 
 Neither the launcher source nor its sealed binary is rebuilt or modified here.
 The rebuilt bytes arrive as an argument and are matched against the seal.
@@ -957,6 +962,11 @@ def assert_preflight_creates_no_outputs() -> None:
     reachable = _local_call_graph("preflight")
     if "produce" in reachable:
         raise SuccessorProduceError("the preflight can reach the production entry point")
+    if "write_consumed_marker" in reachable:
+        raise SuccessorProduceError(
+            "the preflight can reach the consumed-attempt marker, which is the "
+            "budget line itself"
+        )
     reached = _reached_modules(reachable) & IMAGE_STEP_ALIASES
     if reached:
         raise SuccessorProduceError(
@@ -995,10 +1005,110 @@ def assert_single_subprocess_gateway() -> None:
                 )
 
 
-def attempt_consumed(*, outputs_created: bool) -> bool:
-    """Where the budget line falls, in one place, as the authority draws it."""
+CONSUMED_MARKER_NAME = "ATTEMPT-CONSUMED.json"
 
-    return bool(outputs_created)
+CONSUMED_MARKER_RULE = (
+    "From this file onward the one allowed production attempt is consumed, "
+    "whatever happens next.  A failure after this point is not retried; it is "
+    "reported to the operator as a hard stop."
+)
+
+
+def consumed_marker(outputs) -> pathlib.Path:
+    """The one name that answers the budget question."""
+
+    return pathlib.Path(outputs) / CONSUMED_MARKER_NAME
+
+
+def write_consumed_marker(outputs) -> pathlib.Path:
+    """Say the attempt is spent, on the disk and on the console, just before it is.
+
+    Written atomically, because the whole point of a boundary is that a run
+    which dies halfway lands on one side of it.  The document is built in full,
+    flushed to a neighbouring name that is not the marker, fsynced, and only
+    then renamed into place; a crash anywhere before the rename leaves the
+    marker absent and the attempt unspent, which is the honest reading of a run
+    that never reached its first image file.
+
+    Echoed to stdout as well, because the disk it is written to belongs to a
+    runner that is about to be destroyed and the console is what the host
+    already collects.
+    """
+
+    outputs = pathlib.Path(outputs)
+    marker = consumed_marker(outputs)
+    if marker.exists():
+        raise SuccessorProduceError(
+            f"a consumed-attempt marker is already here and is not replaced: {marker}"
+        )
+
+    payload = {
+        "attemptId": authority()["attemptId"],
+        "authoritySha256": AUTHORITY_SHA256,
+        "consumed": True,
+        "outputNames": list(historical_phase().output_names()),
+        "release": RELEASE,
+        "rule": CONSUMED_MARKER_RULE,
+        "schema": (
+            "boole.native-shadow.mac3-successor-image-production-attempt-consumed.v1"
+        ),
+        "writtenBefore": "the first image output file",
+    }
+    raw = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+    handle = tempfile.NamedTemporaryFile(
+        dir=str(outputs), prefix=".attempt-consumed-partial.", delete=False
+    )
+    partial = pathlib.Path(handle.name)
+    try:
+        with handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(str(partial), str(marker))
+    except BaseException:
+        if partial.exists():
+            partial.unlink()
+        raise
+
+    # Past the rename the marker exists, so the attempt is spent and the run is
+    # committed.  What is left is durability across a power cut and evidence for
+    # a host reading the console -- both worth doing, neither worth aborting a
+    # run for.  Raising here would spend the one attempt on a failure in the
+    # part that only records the spending, so both say so and continue.
+    try:
+        directory = os.open(str(outputs), os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except OSError as exc:
+        sys.stderr.write(f"{CONSUMED_MARKER_NAME}: directory fsync failed: {exc}\n")
+
+    try:
+        sys.stdout.write(f"{CONSUMED_MARKER_NAME}\n{raw.decode('utf-8')}")
+        sys.stdout.flush()
+    except OSError as exc:
+        sys.stderr.write(f"{CONSUMED_MARKER_NAME}: console echo failed: {exc}\n")
+    return marker
+
+
+def attempt_consumed(*, marker_written: bool) -> bool:
+    """Where the budget line falls, in one place, and now on a deliberate act.
+
+    It used to be the output directory.  The first production found the case
+    that sits between the sealed rule's two sentences: the directory existed,
+    because a systemd ``ReadWritePaths`` entry has to exist before the unit
+    starts, and no output file was ever written.  The operator settled that case
+    as unspent and asked for a boundary with no such gap in it.
+
+    So the answer is a file this phase writes on purpose, immediately before the
+    first image file, rather than a directory the isolation needed in order to
+    run at all.  Before the marker nothing is spent; after it the attempt is
+    spent whatever happens next.
+    """
+
+    return bool(marker_written)
 
 
 def assert_attempt_available(*, runs_performed: int) -> None:
@@ -1265,9 +1375,11 @@ def produce(
             f"sealed measurement projects {EXPECTED_WITH_LAUNCHER['entries']}"
         )
 
-    # Everything above this line is refusable for free.  The output directory is
-    # made here and not one statement earlier, so a refusal above costs nothing
-    # and a failure below has spent the attempt.
+    # The output directory is made here because the three paths are needed, not
+    # because the budget turns on it.  The first production proved that a
+    # directory is something the isolation requires in order to start at all --
+    # a `ReadWritePaths` entry has to exist before the unit does -- so it cannot
+    # also be the thing that says an attempt was spent.
     outputs = pathlib.Path(outputs)
     outputs.mkdir(parents=True, exist_ok=True)
     produced = phase.output_paths(outputs)
@@ -1283,6 +1395,15 @@ def produce(
     )
     layer = phase.layer_bytes(oci, build_receipt)
     phase._extract_tree(layer, tree)
+
+    # The budget line, and it is an act rather than a side effect.  Everything
+    # above it is refusable for free, including the layout build and the tree
+    # extraction just above, which write into the scratch and never into the
+    # outputs.  From here on the attempt is consumed whatever happens next, and
+    # the marker says so on the disk and on the console before the first image
+    # file exists.
+    write_consumed_marker(outputs)
+
     kernel_result, kernel_disposition = kernel_extract.extract(
         cas_roots=[artifact_store],
         zstd_path=pathlib.Path(zstd),

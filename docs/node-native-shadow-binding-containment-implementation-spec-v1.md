@@ -3105,3 +3105,74 @@ that path would read like a production that had happened. Boot attempts stay 0,
 Coverage after this addendum: 159 tests in the successor phase gate. Nine more
 docs-smoke pins. Producing is not booting and booting is not serving; this
 attempt produced nothing, so none of the three is claimed.
+
+### 13.25 The budget line becomes a written act (2026-08-28)
+
+Append-only; §13.24 is unedited.
+
+**What changed in the code.** `attempt_consumed` used to take `outputs_created`
+and return it. That is the sentence the first production found the gap in, and it
+was in the source as well as in the prose. It now takes `marker_written`, and the
+marker is a file the phase writes deliberately:
+
+- `CONSUMED_MARKER_NAME` is `ATTEMPT-CONSUMED.json`, one name under the outputs.
+- `write_consumed_marker` builds the document in full, writes it to a
+  `.attempt-consumed-partial.` neighbour, fsyncs the file, `os.replace`s it onto
+  the marker name, then fsyncs the directory. On any exception before the rename
+  the partial is removed and the marker does not exist.
+- It refuses rather than overwrites if a marker is already there, so a retry into
+  the same outputs cannot quietly reset the accounting.
+- It echoes the document to stdout, because the disk belongs to a runner that is
+  about to be destroyed.
+- Its content is deterministic -- no clock -- so two replicas of one attempt write
+  identical markers. The comparison itself is unaffected either way: the manifest
+  names the three outputs explicitly.
+
+**Where it sits in `produce`.** After the layout build and the tree extraction,
+both of which write into the scratch, and immediately before `kernel_extract`,
+which is the first call that writes into the outputs. So a failure in the
+expensive middle is still unspent.
+
+**What the preflight cannot do.** `assert_preflight_creates_no_outputs` now
+refuses a call graph from `preflight` that reaches `write_consumed_marker`, in
+addition to `produce` and the image-step aliases. The preflight could not consume
+a budget it cannot mark.
+
+**Workflow.** A `if: failure()` step uploads `ATTEMPT-CONSUMED.json` alone, with
+`if-no-files-found: ignore` because its absence is a real answer. The produce
+job's pre-registered budget comment is corrected forward to name the marker; the
+sealed authority's own sentence is left alone.
+
+| test | what it holds |
+| --- | --- |
+| `test_the_boundary_is_the_marker_and_not_the_directory` | the predicate reads the marker, not a directory |
+| `test_writing_it_leaves_the_marker_and_no_half_written_neighbour` | one file afterwards, no partial left behind |
+| `test_a_crash_before_the_rename_leaves_no_marker` | `os.replace` cut mid-write, marker absent, attempt unspent |
+| `test_a_stumble_after_the_rename_does_not_abort_a_committed_run` | the durability and console steps that follow the rename are best effort, and say what they lost |
+| `test_the_mark_never_asks_the_system_for_a_temporary_directory` | the defect that spent the first attempt, refused at the one place it would now cost the most |
+| `test_a_second_write_is_refused_rather_than_overwriting` | no silent reset of the accounting |
+| `test_it_says_the_attempt_is_spent_whatever_happens_next` | content bound to the sealed attempt id and digest |
+| `test_two_replicas_write_the_same_bytes` | deterministic, no clock |
+| `test_the_console_carries_it_as_well_as_the_disk` | evidence survives a destroyed runner |
+| `test_the_production_marks_before_it_writes_any_image_file` | the mark precedes every image alias in `produce` |
+| `test_nothing_touches_the_outputs_between_the_directory_and_the_mark` | the window stays scratch-only |
+| `test_the_preflight_cannot_reach_the_marker` | the free mode cannot spend the budget |
+| `test_the_wrapper_refuses_an_outputs_that_already_says_consumed` | a retry is refused before the tmpfs is even mounted |
+| `test_a_failed_replica_keeps_the_marker_and_not_the_image` | the failure upload is the marker alone |
+
+`OperatorBudgetRulingTests` adds seven more, each re-deriving a digest or a number
+from the files beside the record rather than from the record itself, including
+that the ruling edits neither the authority nor the failure record it supersedes.
+
+The marker writes through a `NamedTemporaryFile` given an explicit `dir=`, which
+is the outputs directory it is about to rename into. That is not a detail: the
+attempt already spent was spent by `tempfile` asking the system where to put
+things inside a unit that had taken every candidate away, and the mark is the
+last step where the same mistake could still refuse a run that had assembled
+everything and produced nothing. One test raises the original
+`FileNotFoundError` from `gettempdir` and requires the mark to be written
+anyway.
+
+Coverage after this addendum: 182 tests in the successor phase gate, twelve more
+docs-smoke pins. No image exists, so producing, booting and serving are all
+unclaimed.
