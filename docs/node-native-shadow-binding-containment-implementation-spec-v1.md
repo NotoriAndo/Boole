@@ -2820,3 +2820,59 @@ downloaded and none was re-hashed. No sealed record, launcher source, launcher
 seal, frozen builder, existing projection or existing workflow was modified.
 Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD,
 Base activation false and activationAllowed=false are unchanged.
+
+### 13.21 Preflight dispatch addendum (2026-08-28)
+
+The successor workflow was dispatched in `preflight` mode for the first time
+(run 33156573907, `ubuntu-24.04-arm`) and refused at its fourth step, before any
+assembly:
+
+```
+ci-payload-acquire: cargo-rustdist is absent from the store;
+it is fetched by scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py,
+which runs before this one
+```
+
+**What it was.** The `produce` job acquires the frozen Rust distribution and then
+the package payloads. The `preflight` job had only the second of the two, so the
+store it would have assembled from was not the store the production assembles
+from. The package acquirer refuses an incomplete store and names the tool that
+fills it, so the run stopped rather than measuring a tree built from different
+inputs.
+
+**Where it landed.** On the free side of the budget boundary. No staging tree was
+assembled, no output directory was created, no artifact was uploaded and no part
+of the single allowed production was consumed. `runsPerformed` stays 0 and both
+successor result paths stay absent. The preflight is declared repeatable by the
+authority (`preflightIsRepeatable: true`), and this is the case that declaration
+exists for.
+
+**What now holds it.** `WorkflowAcquisitionTests`, six tests, each RED against the
+workflow as dispatched:
+
+| Test | What it refuses |
+| --- | --- |
+| production acquires both staging inputs | a production that stops depending on runner state |
+| preflight acquires every staging input the production does | the asymmetry that fired here |
+| each job acquires the toolchain before the packages | the order that turns a fillable store into a stop |
+| preflight acquires before it assembles | measuring a store filled afterwards |
+| preflight does not fetch the image writer | an image tool entering the no-output mode |
+| production does fetch the image writer | a production that cannot write |
+
+The ext4 writer set is deliberately outside the symmetry: it is the tool that
+writes the image, not an input the staging tree reads. The jobs are read out of
+the workflow by indentation rather than through a YAML parser — the gate must
+pass on a runner that is not promised one, and the only question asked is which
+lines belong to which job.
+
+**What was added to the workflow.** The production's acquisition step, unchanged,
+including its re-proof: the sealed acquisition record is removed, regenerated from
+the frozen identities and required by `git diff --exit-code` to return byte for
+byte. Archives already in the content-addressed store are verified in place and
+never re-fetched, so a warm store issues no request; a fresh runner fetches the
+same three archives the production path already fetches.
+
+Coverage after this addendum: 136 tests in the successor phase gate, 130 of them
+refusals. Forty-two docs-smoke pins. No sealed record, launcher source, launcher
+binary, predecessor module, predecessor workflow or predecessor result was
+touched. Producing is not booting and booting is not serving; neither is claimed.

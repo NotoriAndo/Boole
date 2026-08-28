@@ -69,6 +69,20 @@ jobs:
             }
           done
 
+      - name: Acquire the frozen Rust distribution and re-prove its sealed record
+        # The same step the production runs, and for the same reason: the store
+        # the staging tree reads is not complete without the three distribution
+        # archives, and the package acquirer below refuses a store that is
+        # missing them. A preflight that skipped this would be reading a store
+        # the production would never have had.
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed=native/containment/native-shadow-boot-rustdist-acquisition-result-arm64-v1.json
+          rm "$sealed"
+          python3 scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py --acquire
+          git diff --exit-code -- "$sealed"
+
       - name: Acquire the frozen package payloads
         shell: bash
         run: |

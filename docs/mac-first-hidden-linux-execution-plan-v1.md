@@ -3898,3 +3898,65 @@ measurement, sealed criteria or predecessor module was modified. Bootable and
 serving are not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD,
 Base activation false and activationAllowed=false are unchanged. No public mining,
 no leaderboard claim and no paid-API benchmark is made anywhere in this section.
+
+### 45.10 What the first preflight run found (addendum)
+
+The first dispatch of the successor workflow in `preflight` mode, run 33156573907
+on `ubuntu-24.04-arm`, stopped at its fourth step:
+
+```
+ci-payload-acquire: cargo-rustdist is absent from the store;
+it is fetched by scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py,
+which runs before this one
+```
+
+The `produce` job acquires the frozen Rust distribution before it acquires the
+package payloads. The `preflight` job did not — it had the second acquirer and
+not the first. The store the preflight assembled from was therefore never the
+store the production would have assembled from, and the package acquirer said so
+rather than guessing.
+
+This is the boundary working as designed rather than an accident that happened to
+be survivable. The workflow's own header says the preflight does everything the
+production does except the part that costs the attempt, and acquisition is not
+that part. The gap surfaced in the mode that produces nothing, before any
+assembly, before any output directory, and it cost no part of the one allowed
+production. Had the same asymmetry been discovered on the production path it
+would have stopped a replica; had it been an asymmetry in the other direction — a
+preflight that filled a store the production would not have — it would have
+passed a preflight the production then failed, which is the expensive shape.
+
+Six tests now hold the symmetry, all RED first against the workflow as dispatched:
+the production runs both staging acquirers, the preflight runs every staging
+acquirer the production runs, each job takes the toolchain before the packages,
+the preflight acquires before it assembles, the preflight does **not** fetch the
+ext4 writer set, and the production does. The writer set is excluded on purpose:
+it is the tool that writes the image rather than an input the staging tree reads,
+and asking a no-output mode to fetch an image writer would undo the mode. The
+tests read the workflow by indentation rather than through a YAML parser, because
+the runner this gate has to pass on is not promised one and the question is only
+which lines sit in which job.
+
+The preflight step added to the `preflight` job is the production's step
+unchanged, including its re-proof: the sealed acquisition record is removed,
+regenerated from the frozen identities, and required by `git diff --exit-code` to
+come back byte for byte. An artifact already present in the store is verified in
+place and never re-fetched, so this adds no download to a warm store; on a fresh
+runner it is the same three archives the production path already fetches.
+
+```
+successor preflight = DISPATCHED-ONCE / REFUSED-BEFORE-ASSEMBLY / RE-RUNNABLE
+  136 refusal tests, RED before GREEN
+  the refusal was a wiring asymmetry, not a measurement disagreement
+  nothing assembled, nothing written, no output directory, no artifact
+  production attempts unchanged at 0
+  next: re-dispatch the preflight, then seal its result before any production
+```
+
+Still nothing produced or booted. Production attempts 0, boot attempts 0,
+`runsPerformed=0`, and neither successor result file exists. No launcher source,
+launcher seal, sealed lock, sealed measurement, sealed criteria or predecessor
+module was modified. Bootable and serving are not claimed. mineable_now=0,
+REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and
+activationAllowed=false are unchanged. No public mining, no leaderboard claim and
+no paid-API benchmark is made anywhere in this section.

@@ -1390,6 +1390,13 @@ require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'Requir
 require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'sudo ./scripts/native-shadow-successor-produce-arm64.sh'
 require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'replica: [1, 2]'
 require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'Require the two independent runs to agree byte for byte'
+# Both modes fill the store the same way. The first run of the preflight found
+# this missing from it: the package acquirer refuses a store without the three
+# distribution archives, so the no-output mode stopped before it assembled
+# anything -- on the free side of the budget line, which is where a wiring gap
+# is supposed to land.
+require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'Acquire the frozen Rust distribution and re-prove its sealed record'
+require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'the production would never have had'
 # The two prose records of the same wiring, held so that the code can change only
 # alongside the account of it. The local assembly is pinned as what it is -- the
 # wrong operating system and architecture -- because that is the sentence a later
@@ -1402,6 +1409,12 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "The tests were ri
 # symlink, and a result that raised no exception is not evidence.
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Enablement and evidence addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "the wants symlink is now required, not inferred"
+# The first dispatch, and the asymmetry it refused on. Held in prose because the
+# run identifier is the only place the refusal itself survives -- the workflow log
+# expires, the sealed result was never written, and the fix on its own reads like
+# a step somebody happened to add.
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Preflight dispatch addendum"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "successor preflight = DISPATCHED-ONCE / REFUSED-BEFORE-ASSEMBLY / RE-RUNNABLE"
 
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than

@@ -74,10 +74,34 @@ REPLAY_EXPECTATION_PATH = (
     CONTAINMENT / "native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json"
 )
 MISSING_TOOL = pathlib.Path("/nonexistent/replay-tool")
+WORKFLOW_PATH = (
+    REPO_ROOT / ".github/workflows/native-shadow-successor-produce-arm64.yml"
+)
 
 
 def read_json(path: pathlib.Path) -> dict:
     return json.loads(path.read_bytes().decode("utf-8"))
+
+
+def workflow_job(name: str) -> str:
+    """One job's block, cut out of the workflow by indentation.
+
+    No YAML parser is used.  The runner this gate has to pass on is not promised
+    one, and the question asked below is which lines belong to which job, which
+    the indentation already answers exactly.
+    """
+
+    lines = WORKFLOW_PATH.read_text(encoding="utf-8").splitlines()
+    try:
+        start = lines.index(f"  {name}:") + 1
+    except ValueError:
+        raise AssertionError(f"the workflow has no {name} job") from None
+    block = []
+    for line in lines[start:]:
+        if line.strip() and not line.startswith("    "):
+            break
+        block.append(line)
+    return "\n".join(block)
 
 
 def digest_of(path: pathlib.Path) -> str:
@@ -999,6 +1023,62 @@ class PreflightProducesNothingTests(unittest.TestCase):
 
     def test_the_production_signature_is_the_one_that_takes_outputs(self) -> None:
         self.assertIn("outputs", inspect.signature(mod.produce).parameters)
+
+
+class WorkflowAcquisitionTests(unittest.TestCase):
+    """The preflight has to reach the store the production would have reached.
+
+    The header over the workflow says the preflight does everything the
+    production does except the part that costs the attempt.  Acquisition is not
+    that part.  A preflight missing one acquirer reads a store the production
+    never would have, and then answers a different question than the one it is
+    being run to answer -- in either direction.  It can fail on a store the
+    production would have filled, which is the cheap way to find out, and it can
+    pass on one the production would have refused, which is not.
+
+    The ext4 writer set is deliberately *not* required here.  That one is the
+    tool that writes the image rather than an input the staging tree reads, and
+    asking the no-output mode to fetch an image writer would undo the mode.
+    """
+
+    STAGING_ACQUIRERS = (
+        "scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py",
+        "scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py",
+    )
+    IMAGE_WRITER_ACQUIRER = "scripts/native_shadow_boot_writer_set_acquire_arm64_v1.py"
+    ASSEMBLY = "native_shadow_successor_produce_phase_arm64_v2.py preflight"
+
+    def test_the_production_acquires_both_staging_inputs(self) -> None:
+        block = workflow_job("produce")
+        for acquirer in self.STAGING_ACQUIRERS:
+            self.assertIn(acquirer, block)
+
+    def test_the_preflight_acquires_every_staging_input_the_production_does(
+        self,
+    ) -> None:
+        block = workflow_job("preflight")
+        for acquirer in self.STAGING_ACQUIRERS:
+            self.assertIn(acquirer, block, f"the preflight never runs {acquirer}")
+
+    def test_each_job_acquires_the_toolchain_before_the_packages(self) -> None:
+        # The package acquirer refuses a store without the distribution and says
+        # which tool fills it, so the wrong order is a stop rather than a wrong
+        # store -- but it is a stop in the job that was meant to be the cheap one.
+        rustdist, payloads = self.STAGING_ACQUIRERS
+        for job in ("preflight", "produce"):
+            block = workflow_job(job)
+            self.assertLess(block.index(rustdist), block.index(payloads), job)
+
+    def test_the_preflight_acquires_before_it_assembles(self) -> None:
+        block = workflow_job("preflight")
+        for acquirer in self.STAGING_ACQUIRERS:
+            self.assertLess(block.index(acquirer), block.index(self.ASSEMBLY), acquirer)
+
+    def test_the_preflight_does_not_fetch_the_image_writer(self) -> None:
+        self.assertNotIn(self.IMAGE_WRITER_ACQUIRER, workflow_job("preflight"))
+
+    def test_the_production_does_fetch_the_image_writer(self) -> None:
+        self.assertIn(self.IMAGE_WRITER_ACQUIRER, workflow_job("produce"))
 
 
 class PreflightRecordTests(unittest.TestCase):
