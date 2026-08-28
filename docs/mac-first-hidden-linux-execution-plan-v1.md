@@ -4339,3 +4339,53 @@ stop. No boot begins before both replicas have produced identical images.
 Boot attempts stay 0 and `runsPerformed` stays 0. mineable_now=0, REWARD_READY=0,
 RP0-MD=HOLD, BF.7=HOLD, Base activation false and activationAllowed=false are
 unchanged. No image exists yet, so no image, boot or serving is claimed.
+
+## 46. The third attempt, spent and failed on a baseline it never built against (2026-08-28)
+
+The single production the third authority carried was dispatched once and ran to
+completion on both replicas. Both wrote `ATTEMPT-CONSUMED.json`, built the
+kernel, the initrd and the root disk, and wrote their result documents. Both
+then failed the root-disk read-back on the same check with the same detail. The
+marker is the line the budget was moved to, so the attempt is spent: no retry,
+no second dispatch, no relaxed criterion, no boot.
+
+**The failure, and what it is not.** The read-back stage reads its expectations
+from the predecessor's source lock, reached through the v1 produce phase module,
+while the successor phase built and verified against the successor lock. The two
+locks differ precisely on the files this wave rewrote — the launcher service unit
+and the runtime directory declaration that closes the third of the three holes —
+so a successor image checked against the predecessor lock can fail on nothing
+else. Reading both images back, read-only, confirms it: all 23 entries agree with
+the successor lock on content, permission bits, owner, group and entry kind, and
+the only disagreement is with the other lock, on content alone. The builder is
+not at fault. The baseline the checker read is.
+
+**What exists now.** Three appended records — the result, the stop, and the
+read-back diagnosis — and two preserved, fingerprinted, disqualified sets of
+files. They may not be adopted, named in a qualification, or cited as a
+determinism pass; the comparison job the authority requires never ran. The
+authority's own `runsPerformed` is left at zero and every earlier record is
+byte-unchanged, exactly as before: the marker is what counts an attempt, and the
+stop records are what count them.
+
+**What was deliberately not done.** No code was repaired, no new production
+attempt was granted, no image was adopted and no boot was begun. The cause is
+stated; acting on it is a separate decision.
+
+### 46.1 Corrected execution cursor
+
+```text
+SUCCESSOR-IMAGE-PRODUCTION  SPENT / FAILED — 2 of 2 attempts spent, 0 remaining
+SUCCESSOR-IMAGE-ROOT-CAUSE  RESOLVED — read-back reads the predecessor lock
+SUCCESSOR-IMAGE-REPAIR  NOT STARTED — needs a new operator grant before it runs
+GUEST-BOOT  NOT STARTED — 0 boot attempts used, boot budget untouched
+MAC.4  NOT STARTED — does not begin automatically
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — release gate retained
+MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
+```
+
+`mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation
+`false` and `activationAllowed=false` remain unchanged. No image is claimed to
+exist, boot or serve. No clean-Mac canary, VM boot, real release build,
+production key, public mining, paid API benchmark, user installation or
+activation occurred.

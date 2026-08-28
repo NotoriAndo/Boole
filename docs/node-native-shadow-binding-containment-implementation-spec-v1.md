@@ -3337,3 +3337,64 @@ fingerprint — all three were re-sealed in that order.
 Coverage after this addendum: 243 tests in the successor phase gate. Nothing
 above claims an image exists, boots or serves, and no consensus, reward,
 activation or peer-to-peer path is touched.
+
+### The third attempt: spent, failed, and read back (2026-08-28)
+
+The one authorised production ran. Both replicas wrote the consumption marker,
+built all three files, wrote their result documents, and then failed the same
+check — `modes-owners-and-paths-match-the-lock` — with byte-identical detail.
+The marker is what spends an attempt, so the attempt is spent. There was no
+retry, no relaxation and no second dispatch.
+
+Three records were added and nothing already sealed was edited. The result
+document says what the run did. The stop record says what state that leaves.
+The diagnostic record says what the produced images actually contain.
+
+**Why it failed.** The read-back stage compares the image against a source lock
+it reaches through the predecessor's produce phase — the v1 lock — while the
+successor phase built and self-verified against the v2 lock. The two locks were
+always meant to disagree about the files this wave rewrote, so the check
+reported exactly those files. The stage had never run in a successor production
+before: the previous dispatch died one stage earlier, assembling its result
+document. Same shape of defect, one step further down the once-only path.
+
+**How a wrong builder was separated from a wrong baseline.** Both root disks
+were listed and selectively extracted read-only — no mount, no loop device, no
+write. Every tracked file and derived entry was compared against both locks, on
+content, permission bits, owner, group and entry kind. Both images agree with
+the successor lock on all 23 entries. Both disagree with the predecessor lock on
+exactly two paths, and only on content: the modes are `0444` and the owner and
+group are root in the image and in both locks. A builder at fault would disagree
+with the lock it was built from. This one does not.
+
+**What the images are not.** They are kept, fingerprinted and disqualified.
+Keeping is not adopting. The two replicas containing the same entries with the
+same digests is a useful observation — it rules out a one-off — but the
+comparison job the authority names never ran, so it is recorded as a diagnostic
+observation and explicitly not as production determinism.
+
+**What was not re-sealed.** The producer fingerprint. It is a record of the
+bytes that ran, taken before they ran; re-sealing it now would make it pin a
+gate file that never produced anything. The four files that are the producer
+proper are byte-unchanged and still match. The fifth is the gate file, which
+grew these tests after the run, and its drift is declared in the stop record and
+checked against that declaration rather than absorbed.
+
+### Accounting after the third attempt
+
+| | |
+| --- | --- |
+| prior production dispatches | 2 |
+| of those, unspent | 1 |
+| of those, spent | 1 |
+| this attempt | spent |
+| total production attempts spent | 2 |
+| production attempts remaining | 0 |
+| boot attempts used | 0 |
+| official images | 0 |
+| diagnostic images | one set per replica, not adoptable |
+
+Coverage after this addendum: 278 tests in the successor phase gate. Nothing
+above claims an image exists, boots or serves; no repair was applied and no
+further production attempt was granted here, and no consensus, reward,
+activation or peer-to-peer path is touched.

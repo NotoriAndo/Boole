@@ -1,0 +1,145 @@
+{
+  "accounting": {
+    "attemptsAllowedByThisAuthority": 1,
+    "attemptsRemainingUnderThisAuthority": 0,
+    "bootAttemptsStarted": 0,
+    "bootAttemptsUsed": 0,
+    "consumedMarkerWritten": true,
+    "diagnosticImages": {
+      "adoptable": false,
+      "replicas": 2,
+      "setsPerReplica": 1,
+      "what": "guest-kernel, guest-initrd and guest-root-disk, preserved under a name that disowns them"
+    },
+    "howToReadThese": "Two dispatches happened before this one: one was refused before it could write anything and was ruled unspent, the other wrote its marker and is spent.  This attempt wrote its marker too, so it is spent as well.  Two production chances are gone in total, none is left, no boot has been started, and no image counts as produced.",
+    "imageOutputFilesCreated": "all three, on both replicas",
+    "note": "The authority on disk still reads runsPerformed 0.  It is left byte-unchanged rather than corrected, exactly as the previous authority was: the marker is what spends an attempt, and the records that count them are these stop records.  The result document written beside this one reads runsPerformed 1.",
+    "officialImages": 0,
+    "preservedArtifacts": 4,
+    "priorProductionAttemptsSpent": 1,
+    "priorProductionDispatches": 2,
+    "priorProductionDispatchesUnspent": 1,
+    "productionAttemptsRemaining": 0,
+    "productionBudgetConsumed": 1,
+    "retriesAfterTheMarker": 0,
+    "thisAttemptSpent": 1,
+    "totalProductionAttemptsSpent": 2,
+    "workflowRunsDispatched": 1
+  },
+  "appendOnly": {
+    "policy": "This record is added.  Nothing already sealed is edited, moved or re-hashed, and every digest below is re-derived from the file as it stands.",
+    "recordsLeftByteUnchanged": [
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json",
+        "role": "the first dispatch, which produced no output file and was ruled unspent",
+        "sha256": "98f1bbed5a0cfe4c6f8365552f80d9408027e4e43c262e84e19631e441041115"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-budget-ruling-arm64-v1.json",
+        "role": "the operator ruling that declared that first dispatch unspent",
+        "sha256": "f1059b8bde4ce4acd13be0058acedec6c1293089a78675ba8612c7c41575a82e"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json",
+        "role": "the second dispatch, which wrote its marker and lost its files",
+        "sha256": "cb948b6c34aa88247ce90782fe873d6a1d3c743dd8c43143a4c18a67e0bfccaa"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json",
+        "role": "the authority those two dispatches ran under",
+        "sha256": "c52e319790e3ca52ba6d635007e541f25e12d6d1497c1abb46ef00b1684b6e58"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v3.json",
+        "role": "the authority this attempt ran under, still reading runsPerformed 0",
+        "sha256": "4b9309146ebf05adbd064b2604c5d6693585e30a9a5550eece601d41b9cd282b"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json",
+        "role": "the producer bytes sealed before this attempt ran",
+        "sha256": "601d5405d6a4b75561f00ebeaa8c9d96fee3de76dde61b9f6a7680a344df6521"
+      }
+    ],
+    "why": "Each earlier record is still true about the dispatch it describes.  This one is about the third and revises none of them."
+  },
+  "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V3-ATTEMPT-1",
+  "authoritySha256": "4b9309146ebf05adbd064b2604c5d6693585e30a9a5550eece601d41b9cd282b",
+  "boundaries": {
+    "activationAllowed": false,
+    "bootableClaim": false,
+    "guestBootVerified": false,
+    "imageProducedClaim": false,
+    "publicMiningOrBenchmark": false,
+    "runtimeCompatibilityVerified": false,
+    "servingClaim": false
+  },
+  "condition": "ATTEMPT-CONSUMED.json is written and the run then fails, for any reason",
+  "diagnosticPath": "native/containment/native-shadow-mac3-successor-image-production-diagnostic-arm64-v3.json",
+  "evidence": {
+    "consumedMarker": {
+      "collectedOffTheRunner": true,
+      "document": {
+        "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V3-ATTEMPT-1",
+        "authoritySha256": "4b9309146ebf05adbd064b2604c5d6693585e30a9a5550eece601d41b9cd282b",
+        "consumed": true,
+        "writtenBefore": "the first image output file"
+      },
+      "identicalOnBothReplicas": true,
+      "sha256": "0d09f5131e3f24e2f293c72bc7aaabbff124ad61b6aeb1bd9041cfa02b0286df",
+      "uploadedAs": [
+        "successor-attempt-consumed-1",
+        "successor-attempt-consumed-2"
+      ]
+    },
+    "runId": 33187401110,
+    "whereTheDetailIs": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v3.json"
+  },
+  "headSha": "2e2779eaef26a1953e0ba3cf00ef36b40c9af94b",
+  "producerFingerprintAfterTheAttempt": {
+    "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json",
+    "pinsThatNoLongerMatchTheLiveFile": [
+      {
+        "path": "scripts/test_native_shadow_successor_produce_phase_arm64_v2.py",
+        "sealedSha256": "46a1785c6b916986989efed37555865c9532b71baddf9bba7d393eccd3377c8b",
+        "whyItChanged": "the tests that describe what the run did were added to it after the run"
+      }
+    ],
+    "sha256": "601d5405d6a4b75561f00ebeaa8c9d96fee3de76dde61b9f6a7680a344df6521",
+    "stillPinsLiveBytes": false,
+    "whyItIsNotReSealed": "It is a record of the bytes that ran, taken before they ran.  Re-sealing it now would make it pin a file that never produced anything, which is the one thing it exists to rule out.  The four files that are the producer proper -- the module, the wrapper, the workflow and the frozen helper -- are byte-unchanged and still match.  The fifth is the gate file, and its drift is declared here rather than absorbed quietly."
+  },
+  "record": "native-shadow-mac3-successor-image-production-hard-stop-arm64-v3",
+  "release": "NATIVE-SHADOW-MAC3-SUCCESSOR-IMAGE-PRODUCTION-HARD-STOP-ARM64-V3",
+  "repairsThatHeld": [
+    "marker-not-readable-by-the-account-that-collects-it",
+    "produced-files-discarded-when-a-later-step-fails",
+    "result-document-assembly"
+  ],
+  "repairsThatHeldNote": "All three fixes the previous stop bought did their job.  The result document assembled without raising, the marker came off the runner and is byte-identical on both replicas, and the files a failed replica produced were kept under a name that disowns them.  There is something to look at this time because of them.",
+  "resultPath": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v3.json",
+  "schema": "boole.native-shadow.mac3-successor-image-production-hard-stop.arm64.v3",
+  "status": "SUCCESSOR-PRODUCTION-ATTEMPT-CONSUMED-AND-FAILED-STOPPED",
+  "supersedes": {
+    "leftByteUnchanged": true,
+    "path": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json",
+    "what": "the stop after the second dispatch.  This record follows it and does not revise it."
+  },
+  "whatIsNotClaimed": [
+    "that an adoptable image exists",
+    "that anything boots or serves",
+    "that the replica comparison the authority requires was performed",
+    "that the produced files may be used by any later step"
+  ],
+  "whatWasNotDone": [
+    "no retry, re-dispatch or re-production after the marker",
+    "no relaxation, rewording or reordering of any pass condition",
+    "no boot",
+    "no edit to any earlier record, authority or ruling"
+  ],
+  "whatWouldBeNeededForANewAttempt": [
+    "an operator ruling granting a further production attempt, since this authority's budget is spent",
+    "a fix that points the read-back stage at the source lock the image was built from, landed on main under the ordinary gates first",
+    "a free preflight and a rehearsal of the read-back on files that cost nothing, so the stage is exercised before it is trusted with the one-shot path again",
+    "a new authority, a new attempt identifier and a re-sealed producer fingerprint, written before the dispatch"
+  ]
+}

@@ -1,0 +1,251 @@
+{
+  "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V3-ATTEMPT-1",
+  "authoritySha256": "4b9309146ebf05adbd064b2604c5d6693585e30a9a5550eece601d41b9cd282b",
+  "baselines": {
+    "builtAgainst": {
+      "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+      "sha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f",
+      "trackedFiles": 15
+    },
+    "comparedAgainst": {
+      "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+      "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+      "trackedFiles": 10
+    },
+    "whereTheyDisagree": [
+      "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+      "/usr/lib/tmpfiles.d/boole-native-shadow.conf"
+    ],
+    "why": "The successor lock adds the five guest account files and rewrites the two service-output files.  On everything else the two locks agree, so a successor image checked against the predecessor lock can only fail on the files this wave changed -- which is exactly what happened."
+  },
+  "boundaries": {
+    "activationAllowed": false,
+    "bootableClaim": false,
+    "guestBootVerified": false,
+    "imageProducedClaim": false,
+    "productionDeterminismPass": false,
+    "publicMiningOrBenchmark": false,
+    "runtimeCompatibilityVerified": false,
+    "servingClaim": false
+  },
+  "determination": {
+    "builderDefect": false,
+    "checkerBaselineWrong": true,
+    "howTheTwoWereSeparated": "If the builder were wrong, the images would disagree with the lock they were built from.  Every one of the entries compared agrees with the successor lock, on content, permission bits, owner, group and entry kind, in both replicas.  The only disagreement is with a different lock, and only on the files the two locks were always meant to differ on.  That separates the two candidates cleanly: the thing that is wrong is which lock was read, not what was written.",
+    "oneLine": "The read-back stage checks a successor image against the predecessor's source lock, so the two files this wave rewrote are reported as mismatches.",
+    "rootCause": "scripts/native_shadow_boot_root_disk_readback_arm64_v1.py reads its expectations from the v1 produce phase module's BOOT_SOURCE_LOCK_PATH, which is the predecessor lock, rather than from the phase that built the image.  The successor produce phase pins the successor lock and verified against it inside the sealed unit; the read-back stage, which runs after it and outside the unit, does not consult that choice.",
+    "status": "ROOT-CAUSE-RESOLVED",
+    "whatIsNotFixedHere": "Nothing.  This record states the cause; it changes no code, grants no further attempt and proposes no edit to any sealed file.",
+    "whereItIsWritten": "scripts/native_shadow_boot_root_disk_readback_arm64_v1.py, at the line that reads phase.BOOT_SOURCE_LOCK_PATH"
+  },
+  "evidenceFingerprints": {
+    "artifacts": [
+      {
+        "githubDigest": "sha256:989fb5e8951144149030311eef1aa4414ecda2c33f2a0d85ec01ac26ace98717",
+        "id": 9692442988,
+        "name": "successor-attempt-consumed-1",
+        "sizeBytes": 588
+      },
+      {
+        "githubDigest": "sha256:a08f287def57456c3cf16e953664dee47c8698160d0b628056472a99338e4fbf",
+        "id": 9692442666,
+        "name": "successor-unqualified-diagnostic-1",
+        "sizeBytes": 1375220924
+      },
+      {
+        "githubDigest": "sha256:f0aaf3b821c904331442a2747b8adada4f57cd808b7903e802c90ae8ac6988cb",
+        "id": 9692476719,
+        "name": "successor-attempt-consumed-2",
+        "sizeBytes": 588
+      },
+      {
+        "githubDigest": "sha256:2f038e3b37492b0102c35fbf0f0174d451358a4cf9dd1ec4449eed74d7d6b7f2",
+        "id": 9692475987,
+        "name": "successor-unqualified-diagnostic-2",
+        "sizeBytes": 1375220922
+      }
+    ],
+    "files": [
+      {
+        "name": "ATTEMPT-CONSUMED.json",
+        "replica": 1,
+        "sha256": "0d09f5131e3f24e2f293c72bc7aaabbff124ad61b6aeb1bd9041cfa02b0286df"
+      },
+      {
+        "name": "PRODUCE-RESULT.json",
+        "replica": 1,
+        "sha256": "9e11cff2aba98f681b3c9f8f6d2055d29ae37f5cd5ca0203b615f3ab0a598945"
+      },
+      {
+        "name": "ROOT-DISK-READBACK.json",
+        "replica": 1,
+        "sha256": "887e8d9cfa1abce1b8aa62a143a6f9134c2baeb7d31aedccf60cd2451e8b126e"
+      },
+      {
+        "name": "guest-initrd",
+        "replica": 1,
+        "sha256": "2fc4b4f473e6dd3d8ac3697fc5be07ab2828e93acc0c2ff5f8e20ef473c3833e"
+      },
+      {
+        "name": "guest-kernel",
+        "replica": 1,
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336"
+      },
+      {
+        "name": "guest-root-disk",
+        "replica": 1,
+        "sha256": "51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c"
+      },
+      {
+        "name": "ATTEMPT-CONSUMED.json",
+        "replica": 2,
+        "sha256": "0d09f5131e3f24e2f293c72bc7aaabbff124ad61b6aeb1bd9041cfa02b0286df"
+      },
+      {
+        "name": "PRODUCE-RESULT.json",
+        "replica": 2,
+        "sha256": "705675f6cf189cbe724d38bb5a686b2fb1c668bcdca927d3a44d7e6d99af1fe9"
+      },
+      {
+        "name": "ROOT-DISK-READBACK.json",
+        "replica": 2,
+        "sha256": "887e8d9cfa1abce1b8aa62a143a6f9134c2baeb7d31aedccf60cd2451e8b126e"
+      },
+      {
+        "name": "guest-initrd",
+        "replica": 2,
+        "sha256": "2fc4b4f473e6dd3d8ac3697fc5be07ab2828e93acc0c2ff5f8e20ef473c3833e"
+      },
+      {
+        "name": "guest-kernel",
+        "replica": 2,
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336"
+      },
+      {
+        "name": "guest-root-disk",
+        "replica": 2,
+        "sha256": "51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c"
+      }
+    ],
+    "jobLogs": [
+      {
+        "bytes": 55019,
+        "jobId": 98903856801,
+        "name": "produce (1)",
+        "reproducible": false,
+        "retrievedAt": "2026-08-28T16:33:00Z",
+        "sha256": "67071ef5f86c7379267acd079f47f0b1b7b66b4b8101adb1e633d4c9bca2c7ba"
+      },
+      {
+        "bytes": 55020,
+        "jobId": 98903856432,
+        "name": "produce (2)",
+        "reproducible": false,
+        "retrievedAt": "2026-08-28T16:33:00Z",
+        "sha256": "964b61fadaa3e95ac5a7e40af9b02a1600ce83d09fe1e838c9a1407d05ab43be"
+      }
+    ],
+    "note": "The artifact digests are the ones the forge computed when it stored the uploads; the file digests were taken from the downloaded copies before anything was read out of them.  A job log carries the time it was fetched, so its digest is of the copy retrieved at the stated moment and is not something a second fetch has to reproduce.",
+    "whyFirst": "The evidence was pinned before it was reasoned over, so that a later reading cannot quietly be a reading of different bytes."
+  },
+  "method": {
+    "anyImageModified": false,
+    "anyImageMounted": false,
+    "how": "Each root disk was listed and selected files extracted with the 7-Zip ext handler, which opens the image for reading.  Permission bits, owner, group and entry kind come from the listing; content digests come from the extracted bytes.  No loop device, no mount, no write.",
+    "readOnly": true,
+    "tool": "7-Zip 17.05 (p7zip), ext handler",
+    "whatWasCompared": "every tracked file and every derived entry in the successor lock, against both the successor lock and the predecessor lock, in both replicas"
+  },
+  "mismatches": [
+    {
+      "actual": {
+        "gid": 0,
+        "kind": "file",
+        "mode": "0444",
+        "sha256": "4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55",
+        "uid": 0
+      },
+      "agreesWithSuccessorLock": true,
+      "expectedByPredecessorLock": {
+        "gid": 0,
+        "kind": "file",
+        "mode": "0444",
+        "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+        "uid": 0
+      },
+      "expectedBySuccessorLock": {
+        "gid": 0,
+        "kind": "file",
+        "mode": "0444",
+        "sha256": "4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55",
+        "uid": 0
+      },
+      "fieldsThatDiffer": [
+        "sha256"
+      ],
+      "identicalOnBothReplicas": true,
+      "logicalPath": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+      "whatItIs": "the launcher's service unit, rewritten by this wave so the launcher's refusal and ready lines reach the console the host already collects"
+    },
+    {
+      "actual": {
+        "gid": 0,
+        "kind": "file",
+        "mode": "0444",
+        "sha256": "730ae451fd1c70d41e9a865004040bca03db8cda29dd458cf6bb4d8e75f23b10",
+        "uid": 0
+      },
+      "agreesWithSuccessorLock": true,
+      "expectedByPredecessorLock": {
+        "gid": 0,
+        "kind": "file",
+        "mode": "0444",
+        "sha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+        "uid": 0
+      },
+      "expectedBySuccessorLock": {
+        "gid": 0,
+        "kind": "file",
+        "mode": "0444",
+        "sha256": "730ae451fd1c70d41e9a865004040bca03db8cda29dd458cf6bb4d8e75f23b10",
+        "uid": 0
+      },
+      "fieldsThatDiffer": [
+        "sha256"
+      ],
+      "identicalOnBothReplicas": true,
+      "logicalPath": "/usr/lib/tmpfiles.d/boole-native-shadow.conf",
+      "whatItIs": "the runtime directory declaration the rewritten unit depends on"
+    }
+  ],
+  "outputsAdoptable": false,
+  "recomputedComparison": {
+    "entriesCompared": 23,
+    "replica1": {
+      "againstPredecessorLock": [
+        "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+        "/usr/lib/tmpfiles.d/boole-native-shadow.conf"
+      ],
+      "againstSuccessorLock": []
+    },
+    "replica2": {
+      "againstPredecessorLock": [
+        "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+        "/usr/lib/tmpfiles.d/boole-native-shadow.conf"
+      ],
+      "againstSuccessorLock": []
+    }
+  },
+  "record": "native-shadow-mac3-successor-image-production-diagnostic-arm64-v3",
+  "release": "NATIVE-SHADOW-MAC3-SUCCESSOR-IMAGE-PRODUCTION-DIAGNOSTIC-ARM64-V3",
+  "replicaAgreement": {
+    "isThisAProductionDeterminismPass": false,
+    "mismatchSetsIdentical": true,
+    "sameThreeFileDigests": true,
+    "sealedComparisonJobRan": false,
+    "why": "Both replicas contain the same entries with the same content, permissions and ownership, and their three output files hash the same.  That is useful for reading the failure -- it rules out a one-off -- but the outputs are disqualified and the comparison job the authority names never ran.  It is a diagnostic observation and may not be cited as production determinism."
+  },
+  "runId": 33187401110,
+  "schema": "boole.native-shadow.mac3-successor-image-production-diagnostic.arm64.v3",
+  "status": "ROOT-CAUSE-RESOLVED-NO-REPAIR-AND-NO-NEW-ATTEMPT-HERE"
+}
