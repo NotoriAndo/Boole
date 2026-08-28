@@ -1930,3 +1930,61 @@ No builder, lock, plan, unit or launcher source file was edited. No image was
 produced, no production dispatched and no boot performed. Serving is not claimed.
 mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false
 and activationAllowed=false are unchanged. MAC.4 route binding is not started.
+
+### 13.11 Nested runtime entry budget addendum (2026-08-28)
+
+`native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json`
+answers the entry-count half of the budget for nesting a runtime tree inside a
+boot tree, as an upper bound, and corrects a sentence in the closure plan that
+said the answer could not be had.
+
+The closure plan's list of things it did not establish reads, verbatim, *"that
+the entry count fits, because neither tree's entry count is pinned anywhere in
+the repository and neither can be counted without a build."* The clause about
+nothing being pinned is wrong. The boot root disk's entry count is pinned in the
+determinism hard-stop record, which walked both replicas from the root inode in
+directory-block order and could not have compared them without counting: 13,448
+entries, being 1,445 directories, 11,350 files and 653 symlinks, which the tests
+require to sum. The earlier sentence was written from a search of the build
+inputs, where there is indeed no pinned count, and did not reach the records
+describing produced output.
+
+The bound follows from that count plus containment. The runtime closure is a
+subset of the boot closure, recomputed here from the two locks rather than
+recalled — 3 closure roots of 5, 62 artifact digests of 197, nothing on the
+runtime side absent from the boot side. A runtime tree therefore cannot exceed a
+boot tree in entries, so two boot-sized trees bounds the pair at 26,896 against
+the 200,000 both locks seal, leaving 173,104 of headroom at a margin of 7.44×.
+With the byte half already at 1,777,489,456 of 2,147,483,648, both pre-production
+budgets now carry a bound under their limit.
+
+The record is required to keep the two sides of the build apart. The builder
+applies its limit to the assembled entry set it is about to write and raises
+`assembled rootfs exceeds entry limit` rather than trimming — the test locates
+that string in the builder source and requires it to sit on a `raise` line,
+because a truncating limit would make the bound worthless. The pinned number
+describes the written image instead, including the two entries the filesystem
+tool creates for itself. `sameNumber` is false and
+`preAssemblyCheckStillRequired` is true, both pinned in docs-smoke: a 7.44×
+margin is a reason to expect the check to pass, not a reason to drop it. What
+would invalidate the bound is named — entries originating in neither closure,
+such as generated mount points, a duplicated manifest, or per-layer padding.
+
+Twenty-four tests, registered in self-test and pinned in docs-smoke. Six
+deliberate mutations — calling the bound a measurement, drifting the counted
+entries, claiming a runtime-only closure root, inflating the margin, claiming the
+closure plan had been edited, and dropping the pre-assembly requirement — were
+each caught, and regenerating restored the identical digest.
+
+The over-statement was not a hard stop. It was a negative claim inside a list of
+things the record explicitly did not establish, so erring toward "not known" left
+every gate in place and correcting it only widens what is known. Nothing was
+skipped, relaxed or passed because of it. The closure plan keeps its original
+sentence byte for byte and docs-smoke pins it, so the over-statement and its
+correction are read together.
+
+No builder, lock, plan, unit or launcher source file was edited. No tree was
+assembled, no image produced, no production dispatched and no boot performed.
+Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD,
+Base activation false and activationAllowed=false are unchanged. MAC.4 route
+binding is not started.
