@@ -2568,3 +2568,98 @@ existing generator or sealed source lock was edited. No package was downloaded a
 none was re-hashed. No image was produced, no production dispatched and no boot
 performed. Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD,
 BF.7=HOLD, Base activation false and activationAllowed=false are unchanged.
+
+### 13.18 Successor production authority addendum (2026-08-28)
+
+The record: `native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json`,
+schema `boole.native-shadow.mac3-successor-production-authority.arm64.v2`, release
+`NATIVE-SHADOW-MAC3-SUCCESSOR-PRODUCTION-AUTHORITY-ARM64-V2`, status
+`SUCCESSOR-PRODUCTION-PRE-REGISTERED-NOT-WIRED-NOT-RUN`. It is a pre-registration:
+it is sealed before the path it describes exists, and before any preflight or
+production has run.
+
+**Why it supersedes rather than edits.** The predecessor,
+`native-shadow-mac3-successor-image-production-criteria-arm64-v1.json` at
+`417d2497…ec4b8`, names `.github/workflows/native-shadow-boot-produce-arm64.yml`
+as its producer. That workflow reads
+`native-shadow-boot-rootfs-source-lock-arm64-v1.json`
+(`native_shadow_boot_produce_phase_arm64_v1.py` line 66), imports
+`native_shadow_rootfs_builder_boot_arm64_v1` (line 51) and calls `build_oci_layout`
+with no nested tree (line 561). It therefore cannot satisfy the successor criteria
+it was named in. The predecessor also listed three requirements as `not done`, and
+the successor authority names, for each, the sealed record that closed it:
+
+| Requirement | Closed by | Digest |
+| --- | --- | --- |
+| the builder stages all seven inputs | `native-shadow-boot-rootfs-source-lock-arm64-v2.json` | `1a1a1df9…5a9f` |
+| a successor lock covering them | `native-shadow-boot-rootfs-source-lock-result-arm64-v2.json` | `0542978a…dedd` |
+| the runtime rootfs and its manifest are materialised | `native-shadow-boot-staging-tree-measurement-arm64-v1.json` | `a9b53199…5a18` |
+
+`supersedes.predecessor.leftByteUnchanged` is `true` and the predecessor's digest
+is pinned in `boundInputDigests`, so a predecessor quietly rewritten fails the
+successor's own drift check rather than passing it.
+
+**The separations.** `producedBy` is
+`.github/workflows/native-shadow-successor-produce-arm64.yml`; `attemptId` is
+`MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V2-ATTEMPT-1`; `resultPath` is
+`native-shadow-mac3-successor-image-production-result-arm64-v2.json`;
+`preflightResultPath` is
+`native-shadow-mac3-successor-preflight-result-arm64-v1.json`. None of the four
+collides with a predecessor name. `historicalPathLeftIntact.paths` lists the seven
+predecessor files that stay unmodified, and
+`historicalPathLeftIntact.crossContaminationIsRefused` states the two-way refusal:
+predecessor lock into successor builder, successor lock into predecessor builder,
+neither falling back to the other.
+
+**The shared assembler.** `sharedMaterialization` requires the production path and
+the measurement path to reach one function object rather than two that agree. In
+the fifth projection that object is `_assemble_entries` inside the derived
+namespace: `materialize_staging_tree` calls `_IMPL["_assemble_entries"]` directly
+(`native_shadow_rootfs_builder_boot_arm64_v3.py` lines 308-310), and the derived
+`build_oci_layout` calls the same name resolved through the same globals mapping,
+because the source was compiled with `_IMPL` as its globals dict. The check is
+therefore identity of the mapping, not equality of two copies.
+
+**Required arguments.** `requiredArguments.mustBeRequiredWithNoDefault` names
+`nested_tree` and the content manifest expectation. The builder itself keeps
+`nested_tree=None` as its default, because a projection may not change its
+predecessor's defaults; the obligation to make it mandatory belongs to the
+successor production entry point, which is a property of the caller and is stated
+as such. `requiredArguments.forbidden` lists the default, both fallback directions,
+and continuing when the manifest is absent or hashes differently.
+
+**The budget boundary.** `budgetBoundary.rule`: a refusal raised before the
+production output directory exists does not consume the one allowed attempt; once
+any output file has been created, the attempt is consumed whatever happens next.
+`budgetBoundary.preflightNeverConsumes` records that the preflight creates no
+output directory by construction. `preflight.mustNeverDo` names the six calls that
+would make that false: `mke2fs`, initrd generation, root disk generation, creating
+the output directory, uploading an artifact, and consuming an attempt.
+
+**The frozen numbers.** `expectedMeasurements.withoutLauncher` carries
+entries 17674, payload 1771449867, largest file 160096808, path manifest
+`a342a1a5…3736`, and zero for collisions, duplicates and symlink escapes;
+`withSealedLauncher` carries entries 17676 and payload 1773456499. `limits`
+repeats the three sealed ceilings and states that exceeding one is a refusal, never
+a truncation.
+
+**Production shape.** `production` fixes one dispatch, two replicas, one production
+per replica, replica isolation until a third comparison job, `e2fsck -f -n` exactly
+once per replica with `-p`, `-y` and `-a` forbidden, the root disk digest retaken
+afterwards to prove the check wrote nothing, and byte-identity of all three files
+as the comparison's pass condition. `production.onGreen` requires the recorded
+digests to be the ones both replicas reached independently rather than one chosen.
+`bootableClaim`, `servingClaim`, `imageProducedClaim` and `activationAllowed` are
+all `false` in the record as sealed.
+
+**Drift checking.** `boundInputDigests.files` is eleven rows of `{path, sha256,
+role}` covering both locks, the lock result, the measurement, the predecessor
+criteria, the launcher build authority and result, the runtime source lock, the
+runtime replay expectation, the frozen builder, the fifth projection and the
+release gate. Every one was recomputed on disk before the record was sealed and
+all eleven matched. Nine of the eleven were verified again as part of the wider
+Phase A authority sweep; none differed.
+
+Twenty-five docs-smoke pins cover this record. Nothing in this addendum modifies a
+sealed record, a launcher source, a launcher seal, a frozen builder, an existing
+projection or an existing workflow.

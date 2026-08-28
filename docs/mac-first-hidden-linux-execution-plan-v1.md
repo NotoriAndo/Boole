@@ -3540,3 +3540,120 @@ modified. Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD,
 BF.7=HOLD, Base activation false and activationAllowed=false are unchanged. No
 public mining, no leaderboard claim and no paid-API benchmark is made anywhere in
 this section.
+
+## 44. The successor production path, pre-registered before it exists (2026-08-28)
+
+### 44.1 Why a pre-registration and not just an implementation
+
+The measurement in §43 established that the assembled tree is what it needs to be.
+It did not establish that anything would produce an image from it, because nothing
+does yet: the production path in the tree reads the predecessor lock, imports the
+predecessor builder, and passes no nested tree at all. Dispatching it would build
+the image that already booted — a run spent on a known answer, out of a budget of
+one.
+
+So the next thing written down is not the wiring. It is the record the wiring will
+be judged against, written while no result exists to shade it. Pre-registration is
+worth something only when it is impossible to reach back and adjust: after a
+production has run, every condition in the record is a condition someone could
+have chosen because it passed.
+
+### 44.2 What the predecessor record already said
+
+A successor criteria record was sealed earlier in the tree. It names the
+predecessor workflow as its producer, and it was accurate when written: that
+workflow was the only one, and the record said plainly that three things were
+missing.
+
+| Requirement it listed | State then | Closed by |
+| --- | --- | --- |
+| the builder stages all seven inputs | not done | the successor source lock, widening the staging table from ten tracked files to fifteen |
+| a successor boot rootfs source lock covering them | not done | the successor plan sealed first, the lock generated from it |
+| the builder materialises the runtime rootfs and its manifest | not done | the fifth projection's merge, exercised for real by the §43 measurement |
+
+All three are closed. The fourth line it listed — that the record be merged to
+main — was closed when it was sealed.
+
+What cannot happen is correcting its producer field. A record edited to name a
+different workflow after that workflow exists is a record describing the run
+rather than committing to it, and the same edit would erase the evidence that the
+three requirements were once open. So the correction goes in a successor
+authority, and the predecessor's digest is pinned inside it, byte-unchanged.
+
+### 44.3 What separation actually has to mean
+
+"Separate successor path" is easy to say and easy to half-do. Four things are
+separated, and each has a failure it prevents:
+
+- **A separate authority record.** The predecessor's stays as sealed, so the image
+  that already booted stays checkable against the criteria it was judged by.
+- **A separate workflow.** The predecessor workflow keeps reading the predecessor
+  lock. Re-pointing it would have made the earlier boot unreproducible, which is
+  the one thing history is for.
+- **A separate attempt identifier and result path.** One allowed attempt cannot be
+  spent twice, and the filesystem is what says so. Sharing a result path would
+  make the second dispatch look like the first.
+- **Refusal in both directions.** The predecessor lock handed to the successor
+  builder must refuse; the successor lock handed to the predecessor builder must
+  refuse. Neither may fall back to the other, because a fallback turns a
+  misconfiguration into a silently wrong image.
+
+### 44.4 Where the budget boundary is drawn, and why there
+
+The rule is one sentence: a refusal raised before the output directory exists does
+not consume the attempt; once any output file has been created, the attempt is
+consumed whatever happens next.
+
+The reason it is drawn at the filesystem rather than at an exception type is that
+the filesystem is the only witness that survives a crashed job. An authority or
+preflight refusal leaves nothing behind, so the next run genuinely is the first. A
+half-written image leaves something behind, so the next run is not — and calling it
+the first would be the first step towards running until the answer is good.
+
+The preflight inherits this for free: it creates no output directory at all, so no
+preflight outcome can consume the production budget. That is a property of what it
+is allowed to call, not a promise about how carefully it is written.
+
+### 44.5 The numbers it commits to in advance
+
+| Quantity | Value | Where it must appear |
+| --- | --- | --- |
+| entries, launcher excluded | 17674 | preflight, matching the sealed measurement |
+| payload bytes, launcher excluded | 1771449867 | preflight |
+| path manifest digest | `a342a1a5…3736` | preflight |
+| entries, launcher included | 17676 | preflight and production |
+| payload bytes, launcher included | 1773456499 | preflight and production |
+| launcher size | 2006632 | rebuilt on the runner, compared with the seal |
+| limits | 200000 / 536870912 / 2147483648 | both totals, refuse on exceeding |
+
+Nothing is truncated, sampled or excluded to fit. A tree that does not fit is the
+finding.
+
+### 44.6 What this does not establish
+
+Not that the successor path exists — it does not yet; this record is what it will
+be measured against. Not that a preflight passes. Not that an image builds, boots
+or serves. Not that the launcher's held condition is resolved; it stays held. The
+one allowed production attempt is unspent, and the boot attempt after it is not
+opened by anything here.
+
+### 44.7 Cursor
+
+```
+successor production authority = SUCCESSOR-PRODUCTION-PRE-REGISTERED-NOT-WIRED-NOT-RUN
+  predecessor criteria superseded on its own terms, bytes unchanged
+  its three open requirements closed, each named with the record that closed it
+  separate authority / workflow / attempt id / result path, refusal both ways
+  eleven bound input digests, checked by iterating rather than by reading
+  budget boundary: before an output file exists it is unspent, after it is spent
+  runsAllowed=1 runsPerformed=0, preflight repeatable because it produces nothing
+  next: the refusal tests, every one of them RED first
+```
+
+No image was produced, no production was dispatched and no boot was performed. No
+package was downloaded or hashed. No launcher source file, launcher seal, frozen
+builder, existing projection, existing generator, sealed source lock or sealed
+criteria record was modified. Serving is not claimed. mineable_now=0,
+REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and
+activationAllowed=false are unchanged. No public mining, no leaderboard claim and
+no paid-API benchmark is made anywhere in this section.
