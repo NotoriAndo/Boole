@@ -1,0 +1,465 @@
+{
+  "schema": "boole.native-shadow.mac3-condition-4-descent-refusal-gate.arm64.v1",
+  "release": "MAC3-CONDITION-4-DESCENT-REFUSAL-GATE-ARM64-V1",
+  "status": "STATIC-SOURCE-CONTRACT-GREEN",
+  "unitLevelDropFailureMatrix": "NOT-MEASURED",
+  "activationAllowed": false,
+  "servingClaim": false,
+  "servingGapsClosed": false,
+  "servingGapsRemaining": 3,
+  "whatThisIs": "Two clauses of the corrected fourth condition are about the descent: the submitted answer and its checker start only after the launcher has dropped to the sealed unprivileged identity, and a failed descent, a root-state execution or a chance of regaining privilege is refused. The correction record said both clauses were already enforced and named one source file for each. Checking that turned up a real gap: the function both clauses point at has one call site and no test, and its module is compiled only on Linux, so it never built on the machine the work is done on. This record fixes the contract that source must keep -- which refusals exist, in what order, and with no path around them -- and states plainly which half of the question that leaves unmeasured.",
+  "appendOnly": {
+    "predecessorEdited": false,
+    "predecessor": {
+      "path": "native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json",
+      "sha256": "e1f53448078b0cde1f3ed771563dd8f6842fa70a8f6ea27fa43612a656391bdf",
+      "sizeBytes": 18881
+    },
+    "predecessorStampsStillMatchTheTree": true,
+    "clausesGivenEnforcement": [
+      "descent-failure-root-execution-or-reacquisition-refuses",
+      "submissions-and-checker-start-only-after-descent"
+    ],
+    "how": "the correction record is left exactly as sealed and none of its stamps moved, because this record adds enforcement rather than changing what was enforced. It supersedes nothing; it fills in the half of two clauses that had a file named and no check behind it."
+  },
+  "whatWasMissing": {
+    "function": "verify_dropped_privileges",
+    "source": {
+      "path": "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs",
+      "sha256": "881869e356647d31aead38a9f4b4addaa5227042f60cef72249225dd945dae6a",
+      "sizeBytes": 94164
+    },
+    "callSites": 1,
+    "unitTests": 0,
+    "whyItCouldNotBeTestedOnTheDevelopmentMachine": {
+      "path": "crates/boole-native-shadow-launcher/src/per_request_containment.rs",
+      "sha256": "72a11da34818f14e4ca24ab6d529b713654637d72f40746f7d876735edebe902",
+      "sizeBytes": 22510,
+      "moduleGate": "#[cfg(target_os = \"linux\")]\nmod linux;",
+      "consequence": "the whole module is absent from a macOS build, so neither the function nor a test of it is compiled there. Its counterpart on the launcher side avoids this by splitting the decision out as a pure function compiled under test on every platform; the descent side never was."
+    }
+  },
+  "whyBehaviouralTestsWereNotAdded": {
+    "shortAnswer": "the launcher source tree is frozen by the seal that image production checks against, and a behavioural test of this function requires editing that tree.",
+    "sealChain": {
+      "buildResult": {
+        "path": "native/containment/native-shadow-launcher-build-result-arm64-v1.json",
+        "sha256": "eca743b903a6ef22ef214a14890042edaee3afd80af11c97503c255b67c0764c",
+        "sizeBytes": 1028
+      },
+      "buildAuthority": {
+        "path": "native/containment/native-shadow-launcher-build-authority-arm64-v1.json",
+        "sha256": "64f4ea0c6b574e1479e51a78e250da8fac6f3d3522d60cb03dde65b53da594ee",
+        "sizeBytes": 9239
+      },
+      "producerAuthority": {
+        "path": "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json",
+        "sha256": "6e4a2ae19493f81a58e6130ea95676967cb08fd7d7f3694eb90f673e6e3a1820",
+        "sizeBytes": 4938
+      },
+      "launcherSha256": "11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434",
+      "launcherSizeBytes": 2006632,
+      "sourceFilesPinned": 33,
+      "acquisition": "rebuild-and-match-seal",
+      "howTheLinksHold": "image production rebuilds the launcher and requires the bytes to equal the sealed digest. The sealed result pins the digest of the build authority, and the build authority pins the digest of every launcher source file. So a change to any of those files, test code included, is refused at the first link -- not as an accident of tooling but as the point of the chain."
+    },
+    "refusalIsAutomatic": {
+      "path": "scripts/native_shadow_launcher_build_arm64_v1.py",
+      "sha256": "fcec46877a9077106a0a9d1be6fcc1fb32a55918cba4fbb4db9beb4058fb4b01",
+      "sizeBytes": 21037,
+      "message": "this build disagrees with the sealed launcher build result; "
+    },
+    "whatWasTriedAndReverted": {
+      "attempt": "the decision half of the descent check was extracted into a pure function beside its launcher counterpart, compiled under test on every platform, and given five table-driven tests covering extra and missing capabilities, root surviving in any identity slot, no_new_privs unset, and missing, duplicated or malformed status fields.",
+      "itWorked": true,
+      "evidence": "the five tests passed on the development machine, six deliberate weakenings of the checks were each caught by at least one of them, and the Linux-only module cross-compiled and passed clippy with warnings denied for the Linux target.",
+      "whyItWasStillReverted": "it changed two pinned launcher source files, which breaks the seal chain above and would abort the image production the operator has sequenced next. Being correct and passing is not enough to spend a seal that later steps depend on.",
+      "revertedBeforeCommit": true,
+      "committed": false,
+      "couldHaveBeenForced": false,
+      "wouldHaveAbortedImageProduction": true,
+      "launcherSourceRestoredTo": [
+        {
+          "path": "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs",
+          "sha256": "881869e356647d31aead38a9f4b4addaa5227042f60cef72249225dd945dae6a",
+          "sizeBytes": 94164
+        },
+        {
+          "path": "crates/boole-native-shadow-launcher/src/privilege.rs",
+          "sha256": "f8d479c04077cc931bf3c49fec01a4fee28c2384ee8ac6f22e00930f73be0aae",
+          "sizeBytes": 13709
+        }
+      ]
+    }
+  },
+  "theGate": {
+    "path": "scripts/test_native_shadow_mac3_condition_4_descent_refusal_gate_arm64_v1.py",
+    "reads": {
+      "path": "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs",
+      "sha256": "881869e356647d31aead38a9f4b4addaa5227042f60cef72249225dd945dae6a",
+      "sizeBytes": 94164
+    },
+    "whatItDoes": "it reads the sealed source and requires every condition below to hold: each refusal present, each refusal after the decision that makes it one, the descent verified before the exec, and exactly one path to the answer. It lives under scripts/, which the launcher build authority does not pin, so it costs no seal.",
+    "howItAvoidsRotting": "each condition is a function over source text, and the gate carries a table of weakened variants of the sealed source held in memory. Every variant deletes one condition or inverts one order, and the gate requires each variant to be caught by the condition it weakens. A condition that stopped checking anything would let its own variant through and fail the gate.",
+    "fixturesAreInTheGateScript": true,
+    "sealedFileIsNeverWritten": true,
+    "refusalCounts": {
+      "verify_dropped_privileges": 5,
+      "require_status_ids": 1,
+      "require_status_field": 1
+    },
+    "capabilitySetsRequiredEmpty": [
+      "CapInh",
+      "CapPrm",
+      "CapEff",
+      "CapBnd",
+      "CapAmb"
+    ]
+  },
+  "conditions": [
+    {
+      "id": "absent-or-unreadable-field-refuses",
+      "requires": "a missing, duplicated, empty or unparsable status field refuses instead of reading as a satisfied check."
+    },
+    {
+      "id": "capability-sets-refusal",
+      "requires": "all five kernel capability sets are required to be exactly empty, and the comparison is against zero so a single retained bit fails as a whole set would."
+    },
+    {
+      "id": "every-pinned-refusal-present-and-ordered",
+      "requires": "every refusal this record names is present in the sealed source and sits after the decision that makes it a refusal."
+    },
+    {
+      "id": "gid-zero-refusal",
+      "requires": "the same for the process Gid, so a surviving root group fails closed independently of the uid."
+    },
+    {
+      "id": "no-new-privs-refusal",
+      "requires": "no_new_privs is required to be set, which is the flag that closes reacquisition across the exec."
+    },
+    {
+      "id": "refusal-count-exact",
+      "requires": "no refusal was deleted and no unaccounted early exit was added: the number of returned refusals in each function still equals the recorded count."
+    },
+    {
+      "id": "sealed-source-digest-unchanged",
+      "requires": "the launcher source this gate reads is byte-for-byte the source the seal covers, so no condition below is checked against a source that has drifted."
+    },
+    {
+      "id": "single-answer-execution-path",
+      "requires": "the shipped code has exactly one child creation and exactly one exec of the answer, and none of the ordinary spawn shortcuts, so there is no path to a submitted answer that the descent verification does not guard."
+    },
+    {
+      "id": "single-success-path",
+      "requires": "the descent verification has exactly one success path, so no early success return can skip the checks."
+    },
+    {
+      "id": "supplementary-groups-refusal",
+      "requires": "a leftover supplementary group membership is refused rather than ignored."
+    },
+    {
+      "id": "syscall-identity-refusal",
+      "requires": "the real, effective and saved identities are compared directly through getresuid and getresgid and refused when any slot differs, which is the shape a process keeps when it can return to root."
+    },
+    {
+      "id": "uid-zero-refusal",
+      "requires": "the descent verification asks the kernel for the process Uid and refuses when any of the four reported slots is not the sealed account, which is how a surviving root uid fails closed."
+    },
+    {
+      "id": "verification-precedes-execution",
+      "requires": "the descent is dropped, then verified, then the runtime identity is looked up, and every one of those stages is reached before the exec, with a failed stage propagating rather than continuing."
+    }
+  ],
+  "weakeningFixtures": [
+    {
+      "id": "delete-the-uid-identity-check",
+      "condition": "uid-zero-refusal",
+      "weakens": "stops asking the kernel whether every Uid slot is the sealed account"
+    },
+    {
+      "id": "delete-the-gid-identity-check",
+      "condition": "gid-zero-refusal",
+      "weakens": "stops asking the kernel whether every Gid slot is the sealed group"
+    },
+    {
+      "id": "delete-the-syscall-identity-refusal",
+      "condition": "syscall-identity-refusal",
+      "weakens": "accepts a root real, effective or saved identity"
+    },
+    {
+      "id": "delete-the-supplementary-group-refusal",
+      "condition": "supplementary-groups-refusal",
+      "weakens": "accepts a checker that kept its supplementary groups"
+    },
+    {
+      "id": "drop-one-capability-set-from-the-required-list",
+      "condition": "capability-sets-refusal",
+      "weakens": "stops requiring the bounding set to be empty"
+    },
+    {
+      "id": "tolerate-a-non-empty-capability-set",
+      "condition": "capability-sets-refusal",
+      "weakens": "reads the capability sets and then accepts them whatever they hold"
+    },
+    {
+      "id": "delete-the-no-new-privs-refusal",
+      "condition": "no-new-privs-refusal",
+      "weakens": "accepts a checker that can still regain privilege through exec"
+    },
+    {
+      "id": "tolerate-a-missing-status-field",
+      "condition": "absent-or-unreadable-field-refuses",
+      "weakens": "turns an unreadable field into an empty string instead of a refusal"
+    },
+    {
+      "id": "tolerate-a-duplicated-or-empty-status-field",
+      "condition": "absent-or-unreadable-field-refuses",
+      "weakens": "accepts the first of two conflicting kernel answers"
+    },
+    {
+      "id": "tolerate-a-malformed-identity-value",
+      "condition": "absent-or-unreadable-field-refuses",
+      "weakens": "turns an unparsable identity list into a default instead of a refusal"
+    },
+    {
+      "id": "invert-the-drop-and-verify-stage-order",
+      "condition": "verification-precedes-execution",
+      "weakens": "verifies the descent before performing it"
+    },
+    {
+      "id": "move-the-verification-after-the-exec",
+      "condition": "verification-precedes-execution",
+      "weakens": "runs the answer first and checks the descent afterwards"
+    },
+    {
+      "id": "add-a-second-answer-execution-path",
+      "condition": "single-answer-execution-path",
+      "weakens": "adds a second exec that no descent verification guards"
+    },
+    {
+      "id": "add-a-forbidden-process-spawn",
+      "condition": "single-answer-execution-path",
+      "weakens": "reaches the answer through a shell instead of the contained exec"
+    },
+    {
+      "id": "add-an-early-success-return",
+      "condition": "single-success-path",
+      "weakens": "returns success before any of the checks run"
+    },
+    {
+      "id": "invert-a-refusal-and-its-decision",
+      "condition": "every-pinned-refusal-present-and-ordered",
+      "weakens": "keeps the refusal text while moving the decision behind it"
+    },
+    {
+      "id": "add-an-unaccounted-refusal",
+      "condition": "refusal-count-exact",
+      "weakens": "adds a refusal the record does not describe"
+    }
+  ],
+  "refusalsPinned": [
+    {
+      "id": "identity-syscall-failed",
+      "inFunction": "verify_dropped_privileges",
+      "kind": "return",
+      "decision": "libc::getresuid(&mut real_uid, &mut effective_uid, &mut saved_uid) } != 0",
+      "message": "return Err(io::Error::last_os_error().to_string());",
+      "refuses": "the kernel would not say who the process is, so the descent cannot be confirmed and is treated as failed rather than assumed."
+    },
+    {
+      "id": "syscall-identity-mismatch",
+      "inFunction": "verify_dropped_privileges",
+      "kind": "return",
+      "decision": "if [real_uid, effective_uid, saved_uid] != [uid; 3]",
+      "message": "\"checker real/effective/saved identity mismatch\"",
+      "refuses": "the process still holds a different identity in its real, effective or saved slot -- the shape a process keeps when it can return to root."
+    },
+    {
+      "id": "supplementary-groups-retained",
+      "inFunction": "verify_dropped_privileges",
+      "kind": "return",
+      "decision": "if unsafe { libc::getgroups(0, std::ptr::null_mut()) } != 0",
+      "message": "\"checker retained supplementary groups\"",
+      "refuses": "a leftover group membership, which grants access the sealed identity was not meant to have."
+    },
+    {
+      "id": "capability-set-not-exactly-empty",
+      "inFunction": "verify_dropped_privileges",
+      "kind": "return",
+      "decision": "u64::from_str_radix(value, 16).map_err(|_| \"malformed capability set\")? != 0",
+      "message": "format!(\"checker {field} is not exact empty\")",
+      "refuses": "any capability left in any of the five kernel sets. The comparison is against zero, so one extra bit fails exactly as a whole set would."
+    },
+    {
+      "id": "no-new-privileges-not-set",
+      "inFunction": "verify_dropped_privileges",
+      "kind": "return",
+      "decision": "if require_status_field(&status, \"NoNewPrivs\")? != \"1\"",
+      "message": "\"checker no_new_privs was not enabled\"",
+      "refuses": "a process that could still gain privilege across the exec, which is the reacquisition the clause names."
+    },
+    {
+      "id": "kernel-status-identity-mismatch",
+      "inFunction": "require_status_ids",
+      "kind": "return",
+      "decision": "if ids != [expected; 4]",
+      "message": "format!(\"checker {field} identity mismatch\")",
+      "refuses": "root, or any other identity, surviving in any of the four slots the kernel reports -- the check that a root-state answer execution fails."
+    },
+    {
+      "id": "kernel-status-identity-malformed",
+      "inFunction": "require_status_ids",
+      "kind": "propagated",
+      "decision": "collect::<Result<Vec<_>, _>>()",
+      "message": "format!(\"checker {field} is malformed\")",
+      "refuses": "an identity line that does not parse, rather than reading past it."
+    },
+    {
+      "id": "kernel-status-field-cardinality",
+      "inFunction": "require_status_field",
+      "kind": "return",
+      "decision": "if values.next().is_some() || value.is_empty()",
+      "message": "format!(\"checker status has invalid {field} cardinality\")",
+      "refuses": "a duplicated or empty status line, which is how a forged status would hide a second value behind the first."
+    },
+    {
+      "id": "kernel-status-field-absent",
+      "inFunction": "require_status_field",
+      "kind": "propagated",
+      "decision": ".ok_or_else(|| ",
+      "message": "format!(\"checker status lacks {field}\")",
+      "refuses": "a missing field, so an absent line cannot read as a satisfied check."
+    }
+  ],
+  "orderPinned": {
+    "stages": [
+      "install-stdio",
+      "drop-privileges",
+      "verify-privileges",
+      "verify-runtime-identity-lookup"
+    ],
+    "execCall": "libc::execve(CHECKER_PATH.as_ptr()",
+    "verifiedStructurally": true,
+    "pinnedByLineNumber": false,
+    "whyNotByLineNumber": "the correction record pins these positions as line numbers, which move whenever anything above them is edited. Pinning the order of the stage names instead keeps the claim true across edits that do not touch the order, and false the moment the order changes.",
+    "howFailureStops": "each stage is wrapped by the setup-stage helper and its result is propagated with the question mark, so a failed descent or a failed verification returns before the exec is reached."
+  },
+  "singleAnswerExecutionPath": {
+    "execCall": "libc::execve(",
+    "execCallOccurrences": 1,
+    "childCreationCall": "libc::SYS_clone3",
+    "childCreationCallOccurrences": 1,
+    "forbiddenSpawnApis": [
+      "std::process::Command",
+      "libc::fork(",
+      "libc::vfork(",
+      "libc::posix_spawn",
+      "libc::execl",
+      "libc::execvp",
+      "libc::system("
+    ],
+    "scope": "the shipped region of the module, above its test module",
+    "why": "a refusal that only guards one road is not a refusal if a second road exists. The shipped code creates the contained child once and execs the answer once, and the descent verification sits between them, so every answer that runs has passed it. The forks and process spawns elsewhere in the file are inside the test module and are not shipped."
+  },
+  "evidenceSeparation": {
+    "sameEvidence": false,
+    "why": "reading source and running a kernel answer different questions. Keeping them apart is what stops a green static gate from being read later as a proof that the descent was observed.",
+    "staticSourceContract": {
+      "kind": "source-text",
+      "gate": "test_native_shadow_mac3_condition_4_descent_refusal_gate_arm64_v1.py",
+      "ranOnARealKernel": false,
+      "establishes": "which refusals exist in the shipped source, in what order, and that no second execution path bypasses them."
+    },
+    "realLinuxKernelEvidence": [
+      {
+        "path": "scripts/native-shadow-launcher-privilege-gate.sh",
+        "provingTest": "privilege::tests::real_kernel_privilege_matches_frozen_policy",
+        "covers": "the root launcher's own capability set on a real kernel, with a three-case fault-injection matrix: the exact sealed set passes, a missing capability is refused through the production verifier with its exact mask, and an extra capability is refused the same way.",
+        "coversTheCheckerSideDescentVerification": false
+      },
+      {
+        "path": ".github/workflows/ci.yml",
+        "provingTest": "./scripts/native-shadow-launcher-privilege-gate.sh",
+        "covers": "the job that runs that matrix on a real ubuntu-24.04 kernel on every change, rather than once by hand.",
+        "coversTheCheckerSideDescentVerification": false
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json",
+        "provingTest": "boole-native-shadow-launcher.service",
+        "covers": "a real arm64 Linux guest booting to its default target with the launcher unit started. The launcher refused before serving because the guest has no account database, so no request reached the descent.",
+        "coversTheCheckerSideDescentVerification": false
+      }
+    ],
+    "whatHasNoRealKernelEvidence": {
+      "function": "verify_dropped_privileges",
+      "normalPathObservedOnARealKernel": false,
+      "failurePathsFaultInjected": false,
+      "failurePathsNotMeasured": 5,
+      "theFivePaths": [
+        "a uid slot still root",
+        "a gid slot still root",
+        "a retained supplementary group",
+        "a retained capability in any of the five sets",
+        "no_new_privs not set"
+      ],
+      "whyNotObserved": "the function runs only inside the contained child that per-request execution creates, and nothing tracked serves a request through that path. The launcher crate has six real-kernel gated tests and none is in this module, and the one real guest boot refused before serving. So the launcher-side capability policy has real-kernel fault injection and the checker-side descent verification has none -- neither its failure paths nor its normal path.",
+      "correctsAnEarlierAssumption": "an earlier reading of this work assumed the normal descent path had already run in an existing Linux end-to-end run. It has not. What ran on a real kernel is the launcher-side capability policy, which is different code. Recording the weaker, true claim rather than the stronger, convenient one."
+    }
+  },
+  "whatThisDoesNotEstablish": [
+    "not a behavioural test: no synthetic kernel status is fed to the parser, so how it answers a forged or adversarial status is still unobserved.",
+    "not that the refusals are correct, only that they are present, ordered, counted and reached before the single exec.",
+    "not observed on a booted guest: the descent is read here, never run.",
+    "the five failure paths were not fault-injected on the sealed binary, on a real kernel or anywhere else; the unit-level drop failure matrix is NOT-MEASURED.",
+    "not that the normal descent path has been exercised on a real kernel either; no tracked run reaches it.",
+    "not that the launcher reaches serving; the three sealed runtime gaps are untouched and still open.",
+    "not that the syscall half of the descent check is exercised; getresuid, getresgid and getgroups are still only run inside a real guest.",
+    "not that the corrected fourth condition has been satisfied; it remains pre-registered and unbuilt."
+  ],
+  "whenTheStrongerTestBecomesPossible": {
+    "deferredNotAbandoned": true,
+    "byResealingTheCurrentLauncher": false,
+    "usableAsEvidenceForTheCurrentImage": false,
+    "whyAResealWouldBeWrong": "the image about to be produced contains the launcher as it is sealed now. Adding tests to launcher source and re-sealing afterwards would leave the image and the seal describing different binaries, and re-sealing before production would change the artifact the production step is meant to reproduce. Either way the test would not be evidence about the binary in the image.",
+    "launcherV2SuccessorChain": [
+      {
+        "step": "new-launcher-source-authority",
+        "what": "a fresh authority pinning the digest of every launcher source file including the new tests, superseding nothing already sealed."
+      },
+      {
+        "step": "new-launcher-binary",
+        "what": "one double arm64 build under the existing CI job to learn and seal the new ELF digest against that authority."
+      },
+      {
+        "step": "new-boot-image",
+        "what": "an image produced from the new sealed launcher, never the current one with a new seal stapled on."
+      },
+      {
+        "step": "new-boot-qualification-criteria",
+        "what": "boot criteria written for that image from the start, so the run that qualifies it is judged against its own pre-registered bar."
+      }
+    ],
+    "whatItWouldAdd": "the five table-driven tests already written and passing on the development machine: extra and missing capabilities on the descent side, root surviving in any identity slot, no_new_privs unset, and missing, duplicated or malformed status fields -- each verified to fail when the corresponding check is weakened. That would turn the unit-level drop failure matrix from NOT-MEASURED into measured, for the launcher v2 binary and no other.",
+    "successorShouldCarry": "the behavioural tests and the new launcher digest together, in the v2 chain, with no retroactive claim about the current image."
+  },
+  "boundaries": [
+    "no image was produced, no production was dispatched and no boot was performed.",
+    "no launcher source file, builder, source lock or systemd unit was modified by this record.",
+    "the launcher ELF seal is untouched; the two source digests it depends on are unchanged and re-verified here.",
+    "the current launcher was not re-sealed and no re-seal is scheduled by this record.",
+    "the correction record is unedited; this record adds to it rather than replacing it.",
+    "serving is not claimed.",
+    "no wallet material, model API key or node secret is introduced anywhere by this change.",
+    "mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and activationAllowed=false are unchanged.",
+    "no public mining, paid-API benchmark or leaderboard claim is made."
+  ],
+  "nothingWasBuiltOrBooted": {
+    "imageProduced": false,
+    "productionDispatched": false,
+    "bootPerformed": false,
+    "builderChanged": false,
+    "unitFileChanged": false,
+    "launcherSourceChanged": false,
+    "launcherResealed": false
+  }
+}
