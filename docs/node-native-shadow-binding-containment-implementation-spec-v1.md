@@ -2068,3 +2068,98 @@ record is unedited and its stamps are re-verified. No image was produced, no
 production dispatched, no boot performed and no re-seal scheduled. Serving is not
 claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation
 false and activationAllowed=false are unchanged.
+
+### 13.13 Boot source lock plan successor addendum (2026-08-28)
+
+`native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json`
+is the first of the four steps the serving-gap closure plan fixed in order. It
+names the files the next three steps operate on. Its status is
+`BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED`, and every
+field of `whatWasBuilt` — lock, tree, builder, image, production, boot — is
+false.
+
+The predecessor plan is kept, not edited. It is stamped in the successor at its
+sealed digest and size, and it appears in an `appendOnly.recordsLeftByteUnchanged`
+list of eight records that the gate re-verifies against the working tree on every
+run. Seven sections that the successor does not change — the build recipe, the
+closure roots, the derived entries, the launcher binary block, the package
+selection, the repository block and the tool digests — are carried over and
+required to be byte-identical under canonical serialization, so a silent drift in
+a carried section fails the gate rather than passing as a rewrite.
+
+`trackedFiles` goes from ten rows to fifteen. Five rows are added for the account
+database frozen earlier in `native-shadow-mac3-guest-runtime-inputs-arm64-v1.json`
+— `/etc/passwd`, `/etc/group`, `/etc/shadow`, `/etc/gshadow` and
+`/etc/nsswitch.conf`. The password-bearing pair is mode `0400` and the other three
+are `0444`; Ubuntu hands the password files to a `shadow` group, this image has no
+such group and no process that would join it, so the narrower mode is the honest
+one and `modeRationale.perFile` says why for each file. Two rows are superseded in
+place of an edit: the launcher unit moves to
+`native/systemd/boole-native-shadow-launcher-v2.service`, which differs from its
+predecessor on exactly two lines (`StandardOutput` and `StandardError` each gain
+`+console`), and the tmpfiles configuration moves to
+`native/tmpfiles.d/boole-native-shadow-v2.conf`, which drops the three
+`/var/lib/boole` rules that cannot succeed on a read-only root and keeps the two
+`/run` rules the launcher's lock and socket actually need. Both guest paths are
+unchanged, both predecessors stay in the tree at their sealed digests, and both
+authority binding identities are inherited rather than reissued —
+`authorityBindings` is required to be one-for-one with `trackedFiles` and to
+reproduce every predecessor identity under the supersession mapping.
+
+The gate does not take the account database on trust. It parses
+`native/etc/passwd` and `native/etc/group` as bytes and re-derives all eight
+clauses `service_identities::resolve_one` enforces: exact passwd name, non-zero
+uid, non-zero gid, `/nonexistent` home, a shell in {`/usr/sbin/nologin`,
+`/bin/false`}, a same-named group at the passwd gid, a reverse gid lookup
+returning that group, a group list equal to the primary gid alone, and no shared
+uid or gid between `boole-node` (990) and `boole-native-checker` (991). It also
+requires the plan's `identityContractClauses` to equal the frozen list verbatim,
+so the clause list cannot be quietly shortened.
+
+`nestedTrees` declares the runtime rootfs at
+`/var/lib/boole/native-shadow/runtime-rootfs`, `state:
+"declared-not-assembled"`, `requiresBuilderChange: true`. Its `drivenBy` is
+`native-shadow-runtime-rootfs-source-lock-arm64-v1.json` — 62 artifacts, 3 closure
+roots — and not the boot lock, because the content manifest records each entry's
+closure names and an assembly from the boot lock would emit the boot lock's five
+and miss the digest the launcher compiles against. The manifest itself is
+`isATrackedSourceRow: false`: the closure plan expected a tracked row, and the
+successor records the refinement rather than performing it silently. Committing
+1,285,116 bytes of build output as a source would duplicate a document the builder
+already emits; requiring the derived digest to equal
+`RUNTIME_ROOTFS_CONTENT_MANIFEST_SHA256` is the same check with one copy fewer.
+The gate reads that constant, its size and its schema out of
+`crates/boole-native-shadow-launcher/src/authority_arch.rs` under the arm64
+feature gate, and cross-checks both against
+`native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json`, so the plan
+cannot drift from either seal.
+
+`discrepancyFound` records that
+`native-shadow-guest-init-compatibility-arm64-v1.json` lists `/var/lib/boole`
+among `filesystemLayout.writableMounts` and that the audited image contradicts it.
+`native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json` decoded the mount
+table from the shipped `libsystemd-shared` and read the seven mount units
+directly; no `/etc/fstab` is present, five top-level paths are mounted — `/dev`,
+`/proc`, `/run`, `/sys`, `/tmp` — and neither `/var` nor anything below it appears
+in either list. Both halves of the runtime-rootfs gap depend on this: a tmpfs there
+would hide a baked tree at boot and fail the launcher's `ST_RDONLY` check. The
+contract is not edited — `earlierRecordEdited` is false and four authority records
+name it at its sealed digest — and `wouldHaveBeenAHardStop` is false, since no
+pass condition moved and the correction removes a mount rather than adding one.
+The gate asserts both directions: that the stale clause is really in the sealed
+contract, and that nothing in the audited mount lists covers the nested prefix.
+
+`theBudgets` carries the byte headroom and the bounded entry total with
+`isAMeasurementOfTheAssembledTree: false` on each and
+`mustBeRemeasuredImmediatelyBeforeAssembly: true`. Both remain bounds read back
+from sealed records, not counts of a tree that exists.
+
+Forty-eight tests, registered in self-test, with the status, the step position,
+the counts, the not-built flags and the not-a-tracked-row decision pinned in
+docs-smoke.
+
+No lock was generated, no generator, builder or staging table was edited, no
+launcher source file was touched and the launcher seal is unmoved. No image was
+produced, no production dispatched and no boot performed. Serving is not claimed.
+mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and
+activationAllowed=false are unchanged.
