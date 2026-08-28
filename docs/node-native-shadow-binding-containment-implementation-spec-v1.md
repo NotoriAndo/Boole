@@ -2447,3 +2447,124 @@ downloaded or hashed. No tree was assembled, no image produced, no production
 dispatched and no boot performed. Serving is not claimed. mineable_now=0,
 REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and
 activationAllowed=false are unchanged.
+
+### 13.17 Boot staging tree measurement addendum (2026-08-28)
+
+The sealed plan requires the assembled entry and byte totals to be measured
+immediately before assembly rather than bounded or summed. §13.16 left two
+declared numbers — 13454 boot entries and 4217 nested entries — whose sum, 17671,
+is not the answer. The assembled tree holds 17674: `_ensure_parents` derives three
+directories that neither table lists, because the nested tree is re-rooted under a
+prefix whose intermediate components no entry names.
+
+`scripts/native_shadow_rootfs_builder_boot_arm64_v3.py` is the fifth projection
+layer and the only place the merge exists. It pins the predecessor at
+`82b96d5a1ab465a710725d580ef58ddb3e1bd4f1db2a11b7e6ccb85fb6acf655`, calls
+`boot_v2._derived_source()`, and applies six replacements with expected count 1
+each. The load-bearing one inserts
+
+```
+    if nested_tree is not None:
+        _merge(entries, nested_tree, "nested runtime tree")
+```
+
+between the frozen builder's `_merge(entries, runtime_mount_point_entries(),
+"runtime mount point")` and its `_ensure_parents(entries)`. The other five thread
+an optional `nested_tree` parameter through `_assemble_entries`,
+`build_oci_layout` and `verify_oci_layout` and their call sites. The site is
+chosen, not incidental: the frozen `_merge` raises `rootfs path collision differs
+(nested runtime tree): <path>` rather than overwriting; `_ensure_parents` runs
+after it, so the derived parents are the builder's; and the `assembled rootfs
+exceeds entry limit` / `... total byte limit` checks that close
+`_assemble_entries` see the combined table. The namespace is re-executed and the
+widened tables re-injected for the reason recorded in §13.16.
+
+`materialize_staging_tree(validated, repository_root, artifact_store, *,
+launcher_binary=None, nested_tree=None)` returns
+`_IMPL["_assemble_entries"](...)` directly. It is a name for the production
+assembler, not a second implementation.
+`test_both_entry_points_call_the_same_assembler` substitutes `_IMPL`'s assembler
+with a recorder and asserts both `materialize_staging_tree` and
+`build_oci_layout` reach it with the same `nested_tree` object, so a future copy
+that merely agrees fails here. `nested_runtime_tree` composes the predecessors —
+`portable_arm64.materialize_runtime_lock`, `arm64.validate_source_lock`,
+`arm64._assemble_entries`, `boot_v2.nested_tree_entries` — and re-roots nothing
+itself; `test_the_rerooting_is_the_predecessors_and_is_not_repeated_here` asserts
+that at source level.
+
+`scripts/native_shadow_boot_staging_measure_arm64_v1.py` takes the measurement.
+`write_staging_tree` refuses symlink escapes first, then writes the tree through
+the frozen builder's own `_layer_bytes(entries, mtime)` tar stream and extracts
+with `numeric_owner=True`; ownership is not compared, because a non-root writer
+cannot reproduce uid 0 and no required measurement depends on it.
+`traverse_staging_tree` walks with `os.scandir(follow_symlinks=False)` and
+`stat.S_ISLNK/S_ISDIR/S_ISREG` only. `assert_measurements_agree` compares eight
+keys — `entries`, `byKind`, `payloadBytes`, `largestFileBytes`,
+`largestFilePath`, `pathCollisions`, `duplicatePaths`, `symlinkEscapes`,
+`caseFoldedSiblings` and `pathManifestSha256` — and both sides are byte-identical.
+`_path_manifest_sha256` hashes newline-terminated UTF-8 paths ordered by their
+encoded bytes. Neither total comes from `du` or an archive size.
+
+`assert_case_sensitive` writes `BooleCaseProbe` and refuses the destination if
+`boolecaseprobe` resolves, before anything is assembled. The tree contains 20
+sibling pairs differing only in case (`xt_mark.h` / `xt_MARK.h` among them), so on
+default APFS the walk would have counted fewer files than the builder and tripped
+the disagreement stop for an environment reason. The run was taken on a
+case-sensitive APFS sparse image, detached and deleted afterwards;
+`caseFoldedSiblings` is computed on both sides so a folding destination fails the
+agreement check independently of the probe.
+
+`assert_within_limits(recipe, totals)` reads `maxEntries`, `maxTotalBytes` and
+`maxFileBytes` from the sealed lock's `buildRecipe` rather than from constants,
+and is applied twice: to the walked tree and again to the tree plus the sealed
+launcher. The launcher is an aarch64 Linux ELF at
+`11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434`, 2006632
+bytes; no such file exists on the measuring host, `launcher_entry` refuses the
+local macOS build, and the arm64 CI job publishes no artifact. `launcher_accounting`
+therefore adds its sealed size and the two entries it would place, and the limits
+are decided on that larger figure. Nothing is truncated or excluded to fit;
+`assert_within_limits` raises on excess.
+
+`ALLOWED_REPLAY_TOOLS` is `{"gpgv", "zstd"}` and `assert_replay_tool` refuses
+every other path with a message naming measurement mode.
+`FORBIDDEN_EXECUTABLES` names nine image-producing tools, and
+`test_no_image_tool_is_named_outside_the_refusal_list` requires each token to
+appear exactly once in the module source, so none can be reached by a call added
+later. The module does not contain `native_shadow_boot_produce_phase`, `initrd`,
+`root_disk` or `kernel_extract`, and a test asserts that.
+
+`native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json`
+seals the result at schema
+`boole.native-shadow.boot-staging-tree-measurement.arm64.v1` and
+`authorityStatus` `MEASURED-NOT-PRODUCED`. `builderInternal` and
+`independentTraversal` are identical: 17674 entries (1736 directories, 15101
+files, 837 symlinks), 1771449867 payload bytes, largest file 160096808 at
+`opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly`,
+zero collisions, duplicates and escapes, 20 case-folded siblings, path manifest
+`a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736`.
+`withSealedLauncher` is 17676 entries and 1773456499 bytes against limits 200000,
+2147483648 and 536870912. `nestedContentManifest` records the file present in the
+assembled tree at `200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa`,
+1285116 bytes — the digest the launcher compiles against.
+`imageProductionPreconditionsMet` is true; `imageProduced`, `servingClaim`,
+`bootClaim` and `activationAllowed` are false.
+
+`test_the_nested_tree_is_not_merged_into_a_build_yet` in §13.16 is superseded on
+the terms it set. Its assertions are kept verbatim under
+`test_this_projection_still_does_not_merge_the_nested_tree`, with
+`assertNotIn('"nested runtime tree"', mod._derived_source())` added;
+`test_the_merge_lives_in_the_successor_projection` names where the merge went and
+requires `successor_merge.BOOT_V2_SHA256` to equal that module's own digest; a
+dated note in the gate docstring records the supersession. The step-four gate is
+43 tests as a result, superseding the count of 42 recorded in §13.16.
+
+Thirty-seven tests in the step-five gate, registered in self-test; 229 across the
+five chain gates together. The predecessor digest, the merge line, the boundary
+flags, the schema, three of the forbidden tool names, the sealed measurement's
+numbers and the superseded and new test names are pinned in docs-smoke.
+
+No frozen builder, existing projection, launcher source file, launcher seal,
+existing generator or sealed source lock was edited. No package was downloaded and
+none was re-hashed. No image was produced, no production dispatched and no boot
+performed. Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD,
+BF.7=HOLD, Base activation false and activationAllowed=false are unchanged.

@@ -1,0 +1,69 @@
+{
+  "activationAllowed": false,
+  "authorityStatus": "MEASURED-NOT-PRODUCED",
+  "bootClaim": false,
+  "bootSourceLockRelease": "NATIVE-SHADOW-BOOT-ROOTFS-SOURCE-LOCK-ARM64-V2-SOURCE-SHAPE-ONLY-NOT-BOOTABLE",
+  "bootSourceLockSha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f",
+  "builderInternal": {
+    "byKind": {
+      "directory": 1736,
+      "file": 15101,
+      "symlink": 837
+    },
+    "caseFoldedSiblings": 20,
+    "duplicatePaths": 0,
+    "entries": 17674,
+    "largestFileBytes": 160096808,
+    "largestFilePath": "opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly",
+    "pathCollisions": 0,
+    "pathManifestSha256": "a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736",
+    "payloadBytes": 1771449867,
+    "symlinkEscapes": 0
+  },
+  "builderProjectionSha256": "93bd05d06e43cc69f325036d204b7b57721e358dd5c5d5990227ef88c4de8c39",
+  "frozenBuilderSha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+  "imageProduced": false,
+  "imageProductionPreconditionsMet": true,
+  "independentTraversal": {
+    "byKind": {
+      "directory": 1736,
+      "file": 15101,
+      "symlink": 837
+    },
+    "caseFoldedSiblings": 20,
+    "duplicatePaths": 0,
+    "entries": 17674,
+    "largestFileBytes": 160096808,
+    "largestFilePath": "opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly",
+    "pathCollisions": 0,
+    "pathManifestSha256": "a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736",
+    "payloadBytes": 1771449867,
+    "symlinkEscapes": 0
+  },
+  "launcher": {
+    "entriesItWouldAdd": 2,
+    "guestPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+    "includedInTheMeasuredTree": false,
+    "sealedSha256": "11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434",
+    "sealedSizeBytes": 2006632
+  },
+  "limits": {
+    "maxEntries": 200000,
+    "maxFileBytes": 536870912,
+    "maxTotalBytes": 2147483648
+  },
+  "nestedContentManifest": {
+    "guestPath": "/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json",
+    "sha256": "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa",
+    "sizeBytes": 1285116
+  },
+  "nestedSourceLockSha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+  "payloadBytesIsAMeasuredTotal": true,
+  "schema": "boole.native-shadow.boot-staging-tree-measurement.arm64.v1",
+  "servingClaim": false,
+  "withSealedLauncher": {
+    "entries": 17676,
+    "largestFileBytes": 160096808,
+    "payloadBytes": 1773456499
+  }
+}

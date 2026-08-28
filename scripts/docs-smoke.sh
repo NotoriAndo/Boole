@@ -1195,10 +1195,76 @@ require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py 'def tes
 require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py 'def test_the_predecessor_builder_refuses_the_successor_lock'
 require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py 'def test_the_successor_builder_passes_every_source_shape_check'
 require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py 'def test_an_unsorted_closure_is_refused_with_the_predecessors_words'
-require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py 'def test_the_nested_tree_is_not_merged_into_a_build_yet'
+require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py 'def test_this_projection_still_does_not_merge_the_nested_tree'
 require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py '2026-08-28 addendum: the fourth step ran'
 require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py 'def test_the_widened_table_lives_in_the_successor_projection'
 require_text scripts/self-test.sh scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py
+
+# The fifth step: the nested runtime tree is merged, and the assembled tree is
+# measured rather than added up. The two numbers the fourth step left standing
+# -- 13454 boot entries and 4217 nested entries -- do not sum to the answer:
+# assembling them derives three parent directories neither table listed, so the
+# real total is 17674. That is exactly why the sealed plan required a
+# measurement of a real assembly instead of arithmetic.
+#
+# The merge lives in a successor projection rather than in the fourth step's
+# module, because editing that module would falsify assertions the fourth step
+# sealed. It is threaded into the frozen builder's own assembler, at the site
+# the boot projection already reserved: after the mount-point merge and before
+# parent derivation, so the frozen _merge refuses collisions in its own words,
+# the derived parents are derived rather than guessed, and the limit checks at
+# the end of that function see the combined table. Both the measurement and any
+# future production call that one function -- the gate proves it is one object,
+# not two that agree.
+#
+# The measurement itself is a read-only walk of a tree written to disk, checked
+# against the builder's own totals key by key. Neither number comes from du or
+# from an archive size. The sealed launcher is an aarch64 Linux binary that
+# cannot exist on the measuring host, so it is not in the walked tree; rather
+# than omit it, the record adds its sealed size and two entries and re-applies
+# all three limits to that larger figure.
+#
+# Passing the limits is a statement that image production's preconditions are
+# met. It is not a claim that an image was produced, that it serves, or that it
+# boots.
+require_file scripts/native_shadow_rootfs_builder_boot_arm64_v3.py
+require_file scripts/native_shadow_boot_staging_measure_arm64_v1.py
+require_file scripts/test_native_shadow_boot_staging_measure_arm64_v1.py
+require_file native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v3.py 'BOOT_V2_SHA256 = "82b96d5a1ab465a710725d580ef58ddb3e1bd4f1db2a11b7e6ccb85fb6acf655"'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v3.py '_merge(entries, nested_tree, "nested runtime tree")'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v3.py 'BOOTABLE_CLAIM = False'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v3.py 'ACTIVATION_ALLOWED = False'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v3.py 'IMAGE_PRODUCED_CLAIM = False'
+require_text scripts/native_shadow_boot_staging_measure_arm64_v1.py 'IMAGE_PRODUCED_CLAIM = False'
+require_text scripts/native_shadow_boot_staging_measure_arm64_v1.py 'SERVING_CLAIM = False'
+require_text scripts/native_shadow_boot_staging_measure_arm64_v1.py 'BOOT_CLAIM = False'
+require_text scripts/native_shadow_boot_staging_measure_arm64_v1.py 'MEASUREMENT_SCHEMA = "boole.native-shadow.boot-staging-tree-measurement.arm64.v1"'
+require_text scripts/native_shadow_boot_staging_measure_arm64_v1.py '"mke2fs",'
+require_text scripts/native_shadow_boot_staging_measure_arm64_v1.py '"mkinitramfs",'
+require_text scripts/native_shadow_boot_staging_measure_arm64_v1.py '"qemu-img",'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"authorityStatus": "MEASURED-NOT-PRODUCED"'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"entries": 17674'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"payloadBytes": 1771449867'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"largestFileBytes": 160096808'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"pathManifestSha256": "a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736"'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"pathCollisions": 0'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"duplicatePaths": 0'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"symlinkEscapes": 0'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"caseFoldedSiblings": 20'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"imageProductionPreconditionsMet": true'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"imageProduced": false'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"servingClaim": false'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"bootClaim": false'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"payloadBytesIsAMeasuredTotal": true'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"includedInTheMeasuredTree": false'
+require_text native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json '"entries": 17676'
+require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py '2026-08-28 addendum: the fifth step merged the nested tree'
+require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py 'def test_the_merge_lives_in_the_successor_projection'
+require_text scripts/test_native_shadow_boot_staging_measure_arm64_v1.py 'def test_both_entry_points_call_the_same_assembler'
+require_text scripts/test_native_shadow_boot_staging_measure_arm64_v1.py 'def test_a_forbidden_tool_is_refused_before_it_is_run'
+require_text scripts/test_native_shadow_boot_staging_measure_arm64_v1.py 'def test_nothing_is_truncated_or_excluded_to_fit'
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_staging_measure_arm64_v1.py
 
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
@@ -1315,9 +1381,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "954e558ba499534e42f332d67eb9083149d05fca51d555483f1b882358cbf4db"
-require_text docs/native-submission-shadow-verification-v1.md "a5ddab8ee725f5ab00e00996a1983518e70dd027c14496f0149f3043dd8d569a"
-require_text docs/native-submission-shadow-verification-v1.md "abbd61fcc67d3a75c31022959cfd1743ac7e5c87db9edeedf5429ea00ffa18af"
+require_text docs/native-submission-shadow-verification-v1.md "43ec61aa6208f9330b9c0e01413e0d746023ec8fd829976a97af2898f57e1935"
+require_text docs/native-submission-shadow-verification-v1.md "99c41f71bb04f89d37b220a4d33e8406640fe4454be830e8feae8ff6d55164a7"
+require_text docs/native-submission-shadow-verification-v1.md "8148f86077c59d8047b95cafa53d8266984b714b2d7b0b14d67d9efaa90a67d8"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
