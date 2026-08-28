@@ -40,19 +40,28 @@ cas=""
 launcher=""
 outputs=""
 result=""
+preflight_only="no"
 while [[ $# -gt 0 ]]; do
   case $1 in
     --cas) [[ $# -ge 2 ]] || die "--cas needs a path"; cas=$2; shift 2 ;;
     --launcher) [[ $# -ge 2 ]] || die "--launcher needs a path"; launcher=$2; shift 2 ;;
     --outputs) [[ $# -ge 2 ]] || die "--outputs needs a path"; outputs=$2; shift 2 ;;
     --result) [[ $# -ge 2 ]] || die "--result needs a path"; result=$2; shift 2 ;;
+    --preflight-only) preflight_only="yes"; shift ;;
     *) die "unexpected argument: $1" ;;
   esac
 done
 [[ -n $cas ]] || die "--cas is required: the verified payloads are an input"
 [[ -n $launcher ]] || die "--launcher is required: the rebuilt ELF is an input"
-[[ -n $outputs ]] || die "--outputs is required"
 [[ -n $result ]] || die "--result is required"
+# The repeatable mode is repeatable because it cannot reach an output. Handing
+# it somewhere to put one is refused rather than ignored: a flag that quietly
+# drops an argument is a flag that can be believed to have honoured it.
+if [[ $preflight_only == "yes" ]]; then
+  [[ -z $outputs ]] || die "--preflight-only produces nothing and takes no --outputs"
+else
+  [[ -n $outputs ]] || die "--outputs is required"
+fi
 
 for command_name in env gpgv mkdir mktemp mount mountpoint python3 readlink rm \
   systemd-run umount uname zstd; do
@@ -65,9 +74,12 @@ done
 # is not root produces an image belonging to whoever invoked it.
 [[ ${EUID} -eq 0 ]] || die "the produce phase must run as root"
 
-[[ $outputs == /* ]] || die "--outputs must be absolute: $outputs"
-[[ $result == "$outputs"/* ]] \
-  || die "--result must land under --outputs, the only place the unit may write it"
+[[ $result == /* ]] || die "--result must be absolute: $result"
+if [[ $preflight_only != "yes" ]]; then
+  [[ $outputs == /* ]] || die "--outputs must be absolute: $outputs"
+  [[ $result == "$outputs"/* ]] \
+    || die "--result must land under --outputs, the only place the unit may write it"
+fi
 [[ -d $cas && ! -L $cas ]] || die "the acquired payload store is absent: $cas"
 [[ -f $launcher && ! -L $launcher ]] || die "the rebuilt launcher is absent: $launcher"
 
@@ -79,6 +91,9 @@ done
 
 scratch="$(mktemp -d /tmp/boole-native-shadow-successor-produce.XXXXXX)"
 staging="$scratch/staging"
+# The isolated preflight below builds its own tree and must not leave one where
+# the production builds its own.
+preflight_scratch="$scratch/preflight"
 cleanup() {
   if mountpoint -q "$staging" 2>/dev/null; then
     umount "$staging"
@@ -86,7 +101,10 @@ cleanup() {
   rm -rf -- "$scratch"
 }
 trap cleanup EXIT
-mkdir -p "$scratch/tmp" "$staging" "$outputs"
+mkdir -p "$scratch/tmp" "$staging" "$preflight_scratch"
+# For this script's own steps, which run on the host. The phase inside the unit
+# does not get this: systemd-run starts the unit with a cleaned environment, and
+# the phase names its own temporary directory out of the scratch instead.
 export TMPDIR="$scratch/tmp"
 
 # The image writer walks the staging tree with readdir and never sorts it, so
@@ -97,6 +115,54 @@ mount -t tmpfs -o mode=0755,nodev,nosuid tmpfs "$staging"
 
 gpgv_path="$(readlink -f "$(command -v gpgv)")"
 zstd_path="$(readlink -f "$(command -v zstd)")"
+
+# The preflight, run where the production runs.
+#
+# The attempt that was spent first passed a preflight and then failed in
+# production on the same tree, because the two ran in different places: the
+# preflight beside the unit, where the whole filesystem is writable, and the
+# production inside it, where almost none of it is. A preflight the production's
+# environment cannot reach cannot speak for it, whatever it assembles.
+#
+# So the same mode runs through the same sealed unit first. It is given one
+# writable directory and no output directory exists yet, so a failure here is a
+# failure that produced nothing -- which is the cheap half of the budget rule
+# and now also the honest one, because the output directory below is created
+# after this has passed rather than before it starts.
+preflight_isolation=()
+while IFS= read -r line; do
+  preflight_isolation+=("$line")
+done < <(
+  python3 "$ROOT/scripts/native_shadow_boot_image_produce_arm64_v1.py" isolation-argv \
+    --repository-root "$ROOT" \
+    --read-write-path "$preflight_scratch" \
+    -- \
+    /usr/bin/env python3 \
+    "$ROOT/scripts/native_shadow_successor_produce_phase_arm64_v2.py" preflight \
+    --scratch "$preflight_scratch" \
+    --gpgv "$gpgv_path" \
+    --zstd "$zstd_path" \
+    --launcher "$launcher" \
+    --cas "$cas" \
+    --result "$preflight_scratch/PREFLIGHT-RESULT.json"
+)
+[[ ${#preflight_isolation[@]} -gt 0 ]] \
+  || die "the producer authority yielded no transient unit for the preflight"
+
+"${preflight_isolation[@]}"
+
+[[ -f $preflight_scratch/PREFLIGHT-RESULT.json ]] \
+  || die "the isolated preflight wrote no result document"
+
+if [[ $preflight_only == "yes" ]]; then
+  cp "$preflight_scratch/PREFLIGHT-RESULT.json" "$result"
+  printf 'native-shadow-successor-produce-arm64: preflight PASS, produced nothing\n'
+  exit 0
+fi
+
+# The budget line. Above it the run can be refused for free; from here on an
+# output can exist.
+mkdir -p "$outputs"
 
 # The sealed authority prints the unit, one argument per line. Writing the same
 # arguments here would be a second copy of a frozen list, and a second copy is a

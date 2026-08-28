@@ -3053,3 +3053,55 @@ module, predecessor workflow or predecessor result was touched. Production
 attempts stay 0, boot attempts stay 0, `runsPerformed` stays 0, and the
 production result path does not exist. Producing is not booting and booting is
 not serving; this run produced nothing, so none of the three is claimed.
+
+### 13.24 Production attempt one addendum: the preflight that answered for the wrong place (2026-08-28)
+
+Run 33167259417, `produce`, head `7ae77e67`, one dispatch. Both replicas failed
+identically at `tempfile.TemporaryDirectory`, reached from `_verify_inrelease`
+by way of `nested_runtime_tree`, with every candidate temporary directory
+read-only inside the sealed unit. Ten steps had passed, including each replica's
+own preflight and the launcher digest match.
+
+| What existed afterwards | Count |
+| --- | --- |
+| guest-kernel, guest-initrd, guest-root-disk | 0 |
+| uploaded artifacts | 0 |
+| output directories the wrapper created | 1, empty |
+
+**The gap.** The preflight ran beside the transient unit and the production ran
+inside it. Everything the preflight proves about the tree it proves correctly;
+nothing it proves is about the place the tree is built in. `systemd-run` does not
+carry the caller's environment into the unit, and `ProtectSystem=strict` leaves
+only the handed paths writable, so an exported `TMPDIR` is neither inherited nor
+substitutable.
+
+| Test | What it refuses |
+| --- | --- |
+| the phase pins a temporary directory under the scratch | a run that depends on a writable `/tmp` |
+| a caller that names no place lands under the scratch | repairing one call site and leaving its neighbour |
+| the pin happens before the phase reads any input | a pin taken after the first read |
+| the wrapper runs a preflight inside the unit | a preflight that answers for somewhere else |
+| the isolated preflight runs before the outputs directory | proving the environment after the budget line |
+| the isolated preflight cannot write the outputs | a free check able to spend what it protects |
+| the isolated preflight gets a scratch of its own | a staging tree left where the production builds one |
+
+The first pins the correction, the second names the second call site that would
+otherwise have taken over the failure, and the third is ordering rather than
+presence: a pin taken after the first read is a pin the failing run would still
+have missed. The last four are read off the wrapper's own source, because the
+property is about what runs before what.
+
+**Left byte-unchanged.** The sealed producer authority and every isolation
+property it prints, the launcher source and binary and sealed digest, the
+predecessor wrapper and phase and image records, the shared rootfs builder the
+predecessor is also built from, and every sealed measurement, lock and preflight
+result. `isolationRelaxed` is false and no non-isolated fallback exists.
+
+**Budget.** Recorded as `OPERATOR-DECISION-PENDING` in a record of its own rather
+than in the authority's result path, which stays absent: a failure sitting in
+that path would read like a production that had happened. Boot attempts stay 0,
+`runsPerformed` stays 0, and no second production has been dispatched.
+
+Coverage after this addendum: 159 tests in the successor phase gate. Nine more
+docs-smoke pins. Producing is not booting and booting is not serving; this
+attempt produced nothing, so none of the three is claimed.

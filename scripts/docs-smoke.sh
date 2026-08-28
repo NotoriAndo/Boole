@@ -1333,6 +1333,20 @@ require_text native/containment/native-shadow-mac3-successor-preflight-result-ar
 require_text native/containment/native-shadow-mac3-successor-preflight-result-arm64-v1.json '"pathManifestSha256": "a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736"'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class SealedPreflightResultTests'
 
+# The first production attempt failed inside the isolation the preflight had
+# never entered, before any output file existed. The record of it, the
+# correction that answers every indirect caller at once, and the preflight that
+# now runs where the production runs.
+require_file native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json
+require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json '"outputFilesCreated": 0'
+require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json '"spentVerdict": "OPERATOR-DECISION-PENDING"'
+require_text native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json '"isolationRelaxed": false'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'def pin_temporary_directory'
+require_text scripts/native-shadow-successor-produce-arm64.sh '--preflight-only'
+require_text scripts/native-shadow-successor-produce-arm64.sh 'preflight_scratch="$scratch/preflight"'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class SpentAttemptHardStopTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ProvenIsolationBeforeTheBudgetLineTests'
+
 # 2026-08-28 -- the successor production path, wired to the authority above.
 #
 # The authority named a workflow, a result path and a set of inputs before any

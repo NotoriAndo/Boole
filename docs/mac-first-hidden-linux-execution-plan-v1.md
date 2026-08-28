@@ -4206,3 +4206,71 @@ all, so none of the three is claimed. Production attempts 0, boot attempts 0,
 `runsPerformed=0`. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base
 activation false and activationAllowed=false are unchanged. No public mining, no
 leaderboard claim and no paid-API benchmark is made anywhere in this section.
+
+### 45.13 The first production attempt, and where its preflight could not see (2026-08-28)
+
+The production was dispatched once, on `7ae77e67`, with every pre-dispatch
+requirement met: local head equal to `origin/main`, a clean tree, the authority
+and the sealed preflight result matching their files on disk, a production
+attempt count of zero, no result and no artifact anywhere, and the four earlier
+dispatches confirmed one at a time to have run the preflight job and skipped the
+produce job. Both replicas then failed at the same call, 437 and 440 milliseconds
+after their unit started:
+
+```
+FileNotFoundError: [Errno 2] No usable temporary directory found
+in ['/tmp', '/var/tmp', '/usr/tmp', '/']
+```
+
+**What produced nothing.** No kernel, no initrd, no root disk; no artifact was
+uploaded and the manifest, evidence and comparison steps never ran. The phase
+assembles the nested runtime tree in `main` and calls `produce` afterwards, and
+`produce` is where the output directory is created, so the traceback stops
+before the first line of the budget. The empty output directory the run did
+leave behind was made by the wrapper, which has to create it because a systemd
+`ReadWritePaths` entry must exist before the unit starts.
+
+**Why the environment refused.** The production runs inside the sealed transient
+unit, which mounts the filesystem hierarchy read-only except the paths it is
+handed. `systemd-run` starts a unit with a cleaned environment, so the `TMPDIR`
+the wrapper exported never reached the phase, and two helpers deep in the shared
+rootfs builder -- the InRelease signature check and the zstd decompressor -- ask
+for a temporary directory without naming a place. Both are on the produce path.
+Repairing one would have moved the failure to the other.
+
+**Why no earlier run could have caught it.** The preflight ran beside the unit,
+where the whole filesystem is writable; the production ran inside it, where
+almost none of it is. The fourth preflight assembled this tree, walked it, and
+agreed with the sealed measurement on all nine quantities -- and none of that
+could speak for an environment it never entered. The predecessor image needs no
+nested runtime tree, so the predecessor production never reached a helper that
+asks for a temporary directory at all. The nested runtime tree is one of the
+three gaps this wave exists to close, and it brought a new environment
+requirement in with it.
+
+**The budget, and why the operator settles it.** Two pre-registered statements
+disagree here and nowhere else. The standing instruction spends an attempt once
+an output *file* exists, and none did. The workflow's own comment puts the line
+at the output *directory*, and one existed. A runner that picked the reading
+favouring itself would be granting itself a second one-shot, so the question went
+to the operator with the facts and a recommendation, and no second production has
+been dispatched.
+
+**The correction, which widens nothing.** The phase now names its temporary
+directory once, out of the scratch it was already handed -- the directory the
+isolation was already told it may write -- so every indirect caller is answered
+without editing a shared module the predecessor image is also built from. The
+wrapper runs the preflight through the same sealed unit before it produces, and
+creates the output directory only after that has passed, which puts the budget
+line where the phase's own comment always put it. The repeatable preflight mode
+runs through that same unit too, so the correction can be proved without
+touching the production budget; that mode refuses an `--outputs` rather than
+ignoring one.
+
+No isolation property was changed, no non-isolated fallback was added, and the
+sealed producer authority, the launcher source, the launcher binary, its sealed
+digest, the predecessor path and every sealed record are byte-unchanged. Boot
+attempts stay 0 and `runsPerformed` stays 0. mineable_now=0, REWARD_READY=0,
+RP0-MD=HOLD, BF.7=HOLD, Base activation false and activationAllowed=false are
+unchanged. No image was produced, so no image is claimed; producing is not
+booting and booting is not serving.

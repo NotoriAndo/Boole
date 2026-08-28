@@ -1,0 +1,82 @@
+{
+  "activationAllowed": false,
+  "attempt": {
+    "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V2-ATTEMPT-1",
+    "authoritySha256": "c52e319790e3ca52ba6d635007e541f25e12d6d1497c1abb46ef00b1684b6e58",
+    "dispatches": 1,
+    "headSha": "7ae77e671a0fb8e399e1de02a6c14cbc7602c850",
+    "mode": "produce",
+    "preflightResultSha256": "be4a84e1c058fa25804cfade07727e35613369f58b0307182b93f24a4ecfb071",
+    "runId": "33167259417",
+    "startedAt": "2026-08-28T11:28:05Z"
+  },
+  "boundaries": {
+    "guestBootVerified": false,
+    "imageProduced": false,
+    "launcherServing": false,
+    "productRelease": false,
+    "publicMiningOrBenchmark": false
+  },
+  "budget": {
+    "artifactsUploaded": 0,
+    "outputDirectoryCreated": true,
+    "outputFilesCreated": 0,
+    "spentVerdict": "OPERATOR-DECISION-PENDING",
+    "twoRulesDisagree": {
+      "preRegisteredWorkflowComment": "the output directory is created inside the wrapper and not before, which is where the budget line falls: everything above is refusable for free, and a failure from here on has spent the attempt -- which reads this attempt as spent",
+      "standingInstruction": "an attempt is spent once any output file has been created -- which reads this attempt as unspent",
+      "why": "The wrapper created an empty output directory before it started the transient unit, because a systemd ReadWritePaths entry has to exist. No output file was ever written. The two statements are consistent everywhere except here, and the operator rather than the runner settles which one governs."
+    },
+    "whatWasNotWritten": [
+      "guest-kernel",
+      "guest-initrd",
+      "guest-root-disk"
+    ]
+  },
+  "cause": {
+    "confirmedBy": "both replicas failed identically, 437ms and 440ms after the unit started, on the same call and the same message",
+    "failingCall": "tempfile.TemporaryDirectory, reached from _verify_inrelease inside the shared rootfs builder, by way of nested_runtime_tree",
+    "message": "FileNotFoundError: [Errno 2] No usable temporary directory found in ['/tmp', '/var/tmp', '/usr/tmp', '/']",
+    "reachedBeforeAnyImageStep": "the phase's main() assembles the nested runtime tree before it calls produce(), and produce() is where the output directory is created. The traceback stops in main().",
+    "secondSiteOnTheSamePath": "a zstd helper in the same builder asks for a temporary directory without naming one too, so repairing only the signature check would have moved the failure rather than removed it",
+    "what": "The production runs inside the sealed transient unit, which mounts the filesystem hierarchy read-only except the paths it is handed. systemd-run starts the unit with a cleaned environment, so the TMPDIR the wrapper exported did not reach the phase. Python's default candidates were therefore all unwritable."
+  },
+  "correction": {
+    "isolationRelaxed": false,
+    "leftByteUnchanged": [
+      "the sealed producer authority and every isolation property it prints",
+      "the launcher source, the launcher binary and its sealed digest",
+      "the predecessor wrapper, the predecessor phase and the predecessor image records",
+      "the shared rootfs builder the predecessor image is also built from",
+      "every sealed measurement, lock and preflight result"
+    ],
+    "what": [
+      "The phase names its temporary directory once, out of the scratch it was already handed -- the directory the isolation was already told it may write. Every indirect caller is answered, and nothing is widened.",
+      "The wrapper runs the preflight through the same sealed unit before it produces, so the environment the production runs in is proved while nothing has been produced.",
+      "The output directory is created after that preflight has passed rather than before it starts, which puts the budget line where the phase's own comment puts it.",
+      "The repeatable preflight mode runs through that same unit, so the correction can be proved without touching the production budget."
+    ]
+  },
+  "gapFound": {
+    "closedBy": "the preflight now runs through the same transient unit, in both the repeatable mode and the wrapper's own first step",
+    "what": "The preflight ran beside the transient unit and the production ran inside it. A preflight the production's environment cannot reach cannot speak for it: this one assembled the tree, walked it, agreed with the sealed measurement on all nine quantities, and still could not predict a failure that depends only on where it ran.",
+    "whyItWasNotSeenEarlier": "the predecessor image needs no nested runtime tree, so the predecessor production never reached a helper that asks for a temporary directory. The nested runtime tree is one of the three gaps this wave exists to close, and it brought a new environment requirement with it."
+  },
+  "hardStop": {
+    "condition": "a production run failed after the output directory existed, and the two pre-registered budget statements disagree about whether that spends the attempt",
+    "noReRun": "no second production has been dispatched and none will be until the operator settles the budget question",
+    "reportedTo": "operator",
+    "reportedVia": "telegram"
+  },
+  "notPerformed": [
+    "a second production dispatch",
+    "any boot of any image",
+    "any edit to a sealed record, a past result or a past verdict",
+    "any relaxation of the isolation, and any non-isolated fallback",
+    "public mining, a paid API benchmark, or any release claim"
+  ],
+  "record": "native-shadow-mac3-successor-image-production-hard-stop-arm64-v1",
+  "release": "NATIVE-SHADOW-SUCCESSOR-PRODUCE-PHASE-ARM64-V2",
+  "schema": "boole.native-shadow.mac3-successor-image-production-hard-stop.arm64.v1",
+  "status": "SUCCESSOR-IMAGE-PRODUCTION-FAILED-BEFORE-ANY-OUTPUT-FILE-CAUSE-CONFIRMED-BUDGET-VERDICT-WITH-OPERATOR"
+}
