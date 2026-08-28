@@ -2163,3 +2163,103 @@ launcher source file was touched and the launcher seal is unmoved. No image was
 produced, no production dispatched and no boot performed. Serving is not claimed.
 mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and
 activationAllowed=false are unchanged.
+
+### 13.14 Boot source lock successor generator addendum (2026-08-28)
+
+`scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py` is the second of the
+four ordered steps. It builds the successor lock from the frozen §13.13 plan and
+refuses one that is wrong. It seals nothing:
+`native-shadow-boot-rootfs-source-lock-arm64-v2.json` and
+`native-shadow-boot-rootfs-source-lock-result-arm64-v2.json` do not exist, so
+`--check` finds no sealed documents to compare against and refuses with a message
+naming sealing as the third step. The gate asserts that exact refusal — the
+successor documents are required to be absent until the third step writes them —
+and docs-smoke pins the wording, so the third step has to supersede it on the
+record.
+
+`LOCK_SCHEMA` is `predecessor.LOCK_SCHEMA`, not a new string.
+`guest_init._validate_source_lock_identity` calls `_exact` on the twelve
+top-level keys — `activationAllowed`, `artifacts`, `authorityBindings`,
+`buildRecipe`, `closureRoots`, `derivedEntries`, `platform`, `release`, `rust`,
+`schema`, `trackedFiles`, `ubuntu` — and roughly thirty files read that document,
+so the successor keeps the shape exactly. `build_source_lock` builds a shim plan
+carrying `expected.lockRelease = LOCK_RELEASE` and delegates to
+`predecessor.build_source_lock`; the assembly is not reimplemented. The nested
+runtime tree is consequently not a lock key: it lives in the plan, is verified
+here, and is recorded in the result document.
+
+`verify_source_lock` runs `predecessor._verify_identity`, `_verify_build_recipe`,
+`_verify_repository`, `_verify_ordering`, `_verify_package_closure`,
+`_verify_seeds`, `_verify_tracked_files` and `_verify_authority_bindings` by
+import, not by restatement. It then adds `_verify_release` (against the
+predecessor *boot* lock's release, not the baseline runtime lock's),
+`_verify_derived_entries` (roles read from the contract's own
+`derivedEntryRequirements`, since the v2 plan carries no
+`expected.derivedEntryRoles`), `_verify_bindings_are_one_for_one`,
+`_verify_supersessions`, `_verify_account_database`, `_verify_nested_tree` and
+`_audit_shadow`, and finally requires `_missing_roles` to equal
+`deferred_roles(plan)` exactly.
+
+`guest_init._tracked_roles` compares each tracked digest against its pin and
+raises `tracked file digest differs` on a mismatch. The frozen contract pins
+launcher-unit `126f0d88…` and tmpfiles-config `ad9676f2…`, both of which the
+successor supersedes, so the contract necessarily refuses the successor lock.
+Editing the contract would move a seal four authority records name, and relaxing
+the comparison is a stop condition. `build_shadow_lock` takes the third route: a
+deep copy of the successor with the two superseded rows and their bindings
+restored to `oldSourcePath`/`oldSha256`, written only to a temporary file.
+`_audit_shadow` first requires the set of rows differing between the successor and
+its shadow to equal the plan's recorded `supersessions` exactly — an unrecorded
+third move survives into the shadow and is refused there by role name — then calls
+`guest_init.audit_successor_source_shape` on it and requires the verdict to equal
+the predecessor result's `sourceShapeAudit` in both `status`
+(`BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS`) and `missingRoles`
+(`['tracked-file:launcher-binary']`). No pass condition is touched; the contract's
+own public entry point answers for everything that did not move.
+
+`_successor_requirements` is strictly stricter than the contract's list: all five
+contract rows kept, the two superseded rows given concrete successor digests in
+place of inherited ones, five `/etc/*` account rows added — ten rows, every digest
+non-null except `tracked-file:launcher-binary`, which is a build output and is
+deferred by the plan.
+
+`_verify_supersessions` requires, per row, that the old digest equals the
+contract's pin, that the predecessor file is still in the tree at that digest,
+that the successor file on disk matches its recorded digest and size, that the two
+differ, that the tracked row carries the successor source, that mode, uid and gid
+are unchanged, and that the binding identity is inherited from the predecessor
+lock. `_verify_account_database` re-parses `native/etc/passwd` and
+`native/etc/group` and answers all eight `resolve_one` clauses in the tool rather
+than reading them back from the plan, requires `_PASSWORD_BEARING` (`/etc/shadow`,
+`/etc/gshadow`) to be `0400`, and requires the plan's `identityContractClauses`
+verbatim.
+
+`_verify_nested_tree` reads `RUNTIME_ROOTFS_CONTENT_MANIFEST_SHA256`, its size and
+its schema out of `authority_arch.rs`. Each name is declared twice there — once
+under `#[cfg(all(feature = "linux-arm64-authority", any(target_os = "linux",
+test)))]` and once ungated — with different values, so `_arm64_constant` and
+`_arm64_number` scan the preceding attribute, skip `not(feature = …)` and join
+continuation lines; a name-only match would read the wrong constant. The digest is
+cross-checked against `native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json`,
+and the driving lock is required to be the sealed runtime lock at its sealed
+digest and size with 62 artifacts and 3 closure roots. No tracked path may fall
+under the nested prefix.
+
+`build_result` emits `sourceShapeAudit`, `supersessions`, `accountDatabase`,
+`nestedTree`, `counts`, `deferredRoles` (built from the plan's
+`guestInitRoles` rows in `state: "deferred"`, each carrying its own `closedBy`),
+`planSha256`, `generatorSha256`, the predecessor lock and result digests, and a
+`boundaries` block whose eight flags — including `nestedRuntimeTreeAssembled` —
+are all false.
+
+Seventy-three tests, registered in self-test; twenty-two are mutations that assert
+the specific refusal message, so a mutation tripping an unrelated check on the way
+fails rather than passing as a refusal. `ChainPositionTests` asserts the successor
+documents are absent; the third step supersedes that class with the sealed digests
+rather than relaxing it.
+
+No document was sealed, no existing generator, builder, staging table or source
+lock was edited, no launcher source file was touched and the launcher seal is
+unmoved. No image was produced, no production dispatched and no boot performed.
+Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD,
+Base activation false and activationAllowed=false are unchanged.

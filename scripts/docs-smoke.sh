@@ -1091,6 +1091,36 @@ require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64
 require_file scripts/test_native_shadow_boot_rootfs_source_lock_plan_arm64_v2.py
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_rootfs_source_lock_plan_arm64_v2.py
 
+# The second of the four ordered steps: the tool that builds a successor lock out
+# of the files the first step named, and refuses one that is wrong. It seals
+# nothing, so the refusal wording that hands sealing to the third step is pinned
+# here -- if a later step wants to seal, it supersedes this pin on the record
+# rather than quietly dropping it. The predecessor's grounds are imported and
+# run rather than reworded, so the import is pinned too: restating a ground is
+# how it gets weakened. The frozen guest-init contract pins the digest of both
+# superseded sources and therefore refuses the successor outright; the shadow
+# lock is how that refusal is answered instead of routed around, so the shadow
+# and the verdict it has to reproduce are pinned as the load-bearing part.
+require_file scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py 'PLAN_SCHEMA = "boole.native-shadow.boot-rootfs-source-lock-plan.arm64.v2"'
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py 'RESULT_SCHEMA = "boole.native-shadow.boot-rootfs-source-lock-result.arm64.v2"'
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py 'LOCK_RELEASE = "NATIVE-SHADOW-BOOT-ROOTFS-SOURCE-LOCK-ARM64-V2-SOURCE-SHAPE-ONLY-NOT-BOOTABLE"'
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py 'BOOT-ROOTFS-SOURCE-LOCK-SUCCESSOR-SEALED-LAUNCHER-BINARY-DEFERRED-NOT-BOOT-AUTHORITY'
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py 'PLAN_SHA256 = "da4e7af1dd3cb1db9e263363210c1aec30b7f1bd60ddf87c73fa3921bc018777"'
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py 'LOCK_SCHEMA = predecessor.LOCK_SCHEMA'
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py 'return predecessor.build_source_lock(shim)'
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py 'predecessor._verify_package_closure(source_lock)'
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py 'predecessor._verify_authority_bindings(source_lock)'
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py 'def build_shadow_lock('
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py 'the frozen guest-init contract refused the unmoved part of the successor'
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py "the frozen contract's verdict on the unmoved part differs from the predecessor's"
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py 'the successor documents are not sealed yet. Sealing them is the third step of the '
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py '"nestedRuntimeTreeAssembled": False'
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py '"bootableClaim": False'
+require_text scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py '"activationAllowed": False'
+require_file scripts/test_native_shadow_boot_rootfs_source_lock_arm64_v2.py
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_rootfs_source_lock_arm64_v2.py
+
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
 # the three the console named because it comes from the guest's own systemd --
@@ -1206,9 +1236,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "626b4525bf11ff4d76e36fd8c7f8f1f84f6c934af4de58f77e22e6b0addf455d"
-require_text docs/native-submission-shadow-verification-v1.md "33570ef1db9d695b1de0b623a4fc1280aaa31737e718cfac51a1c0f1b737e899"
-require_text docs/native-submission-shadow-verification-v1.md "1e01888c5057f2773fcd614175ebba6678561bbcca1958a3d2147e762971aabb"
+require_text docs/native-submission-shadow-verification-v1.md "e5daba41d8dd167ff61c883d4415185cbc34a8cf7b555c994b31f0f96ec066f3"
+require_text docs/native-submission-shadow-verification-v1.md "8c8339df1c9e4c1589e91b03208fd469ad644dae62d03f98f84e4533fc4e8e34"
+require_text docs/native-submission-shadow-verification-v1.md "2af9c3231acb1a6205bb1b70f52ea30fa72c483937fb746d57b65e78c1a3e2a0"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
