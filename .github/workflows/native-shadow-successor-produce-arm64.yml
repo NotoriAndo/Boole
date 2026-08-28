@@ -56,13 +56,14 @@ jobs:
           components: rustfmt, clippy
 
       - name: Require the host tools this path resolves from PATH
-        # gpgv and zstd, and nothing else. mke2fs and debugfs are deliberately
-        # absent: this mode cannot reach an image tool, and asking the runner
-        # for one would suggest otherwise.
+        # The tools that stand up the isolation, and nothing else. mke2fs and
+        # debugfs are deliberately absent: this mode cannot reach an image tool,
+        # and asking the runner for one would suggest otherwise.
         shell: bash
         run: |
           set -euo pipefail
-          for tool in gpgv python3 readlink zstd; do
+          for tool in env gpgv mkdir mktemp mount mountpoint python3 readlink \
+            rm systemd-run umount uname zstd; do
             command -v "$tool" >/dev/null || {
               printf 'the runner has no %s\n' "$tool" >&2
               exit 1
@@ -98,17 +99,24 @@ jobs:
           python3 scripts/native_shadow_launcher_emit_arm64_v1.py emit
           --out "$RUNNER_TEMP/launcher"
 
-      - name: Assemble and measure, and create no output
+      - name: Assemble and measure inside the production isolation, and create no output
+        # Through the same wrapper and the same sealed transient unit the
+        # production runs in, because a preflight run somewhere else answers
+        # for somewhere else. The first spent attempt passed a preflight beside
+        # the unit and then failed inside it, on a tree the preflight had
+        # already assembled and agreed with.
+        #
         # Whether this run could have produced an image is not a promise made
         # here: the module refuses to start unless its own call graph from the
-        # preflight entry point reaches no image step at all.
+        # preflight entry point reaches no image step at all, and the flag below
+        # refuses an --outputs rather than ignoring one.
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/native_shadow_successor_produce_phase_arm64_v2.py preflight \
+          sudo ./scripts/native-shadow-successor-produce-arm64.sh \
+            --preflight-only \
             --cas "$PWD/$CAS" \
             --launcher "$RUNNER_TEMP/launcher" \
-            --scratch "$RUNNER_TEMP/preflight" \
             --result "$RUNNER_TEMP/PREFLIGHT-RESULT.json"
 
       - name: Require this run to have produced nothing
@@ -240,20 +248,6 @@ jobs:
           python3 scripts/native_shadow_launcher_emit_arm64_v1.py emit
           --out "$RUNNER_TEMP/launcher"
 
-      - name: Prove this replica would pass its own preflight
-        # Same assembly, same walk, same comparison with the sealed measurement,
-        # and still no output directory. A tree that disagrees with the seal
-        # stops the replica here, where nothing has been produced and the one
-        # allowed attempt is therefore still unspent.
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 scripts/native_shadow_successor_produce_phase_arm64_v2.py preflight \
-            --cas "$PWD/$CAS" \
-            --launcher "$RUNNER_TEMP/launcher" \
-            --scratch "$RUNNER_TEMP/preflight" \
-            --result "$RUNNER_TEMP/PREFLIGHT-RESULT.json"
-
       - name: Produce the three successor boot files offline
         # Exactly once, through the successor wrapper rather than a bare
         # interpreter: the staging tree has to be built on a tmpfs the wrapper
@@ -261,9 +255,12 @@ jobs:
         # producer authority prints. Two replicas agree byte for byte only if
         # both ran in that same environment.
         #
-        # The output directory is created inside the wrapper and not before,
-        # which is where the budget line falls: everything above is refusable
-        # for free, and a failure from here on has spent the attempt.
+        # The wrapper runs the preflight through the sealed unit first and
+        # creates the output directory only after that has passed, so the
+        # environment the production runs in is proved while nothing has been
+        # produced. That is also where the budget line falls: everything above
+        # the output directory is refusable for free, and a failure once an
+        # output exists has spent the attempt.
         shell: bash
         run: |
           set -euo pipefail

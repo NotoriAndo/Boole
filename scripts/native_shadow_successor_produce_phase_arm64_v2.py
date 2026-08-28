@@ -41,6 +41,7 @@ import os
 import pathlib
 import stat
 import sys
+import tempfile
 from typing import Any, Iterable, Mapping, Optional
 
 # A workflow runs this file as `python3 scripts/<name>.py`, which puts `scripts/`
@@ -1407,8 +1408,40 @@ def _parser():
     return parser
 
 
+
+def pin_temporary_directory(scratch) -> pathlib.Path:
+    """Name the place a temporary directory is taken from, once, for the whole
+    run.
+
+    The production runs inside a transient unit that mounts the filesystem
+    hierarchy read-only except the paths it was handed, and `systemd-run` does
+    not carry the caller's environment in, so an exported ``TMPDIR`` does not
+    reach here.  Python's default list -- /tmp, /var/tmp, /usr/tmp, / -- is
+    then entirely unwritable, and two helpers deep in the shared builder ask
+    for a temporary directory without naming one: the InRelease signature
+    check and the zstd decompressor.  Both are on this path.
+
+    Neither is this module's to edit.  The predecessor image is built from the
+    same base module and has to keep reproducing byte for byte, so the fix
+    belongs where the writable place is already known: the scratch the caller
+    handed in, which is the directory the isolation was already told it may
+    write.  Pinning it widens nothing.
+
+    The scratch is not the staging tree -- that is a subdirectory of it, on a
+    tmpfs the wrapper mounts -- so nothing taken from here can reach the image.
+    """
+
+    pinned = pathlib.Path(scratch) / "tmp"
+    pinned.mkdir(parents=True, exist_ok=True)
+    tempfile.tempdir = str(pinned)
+    return pinned
+
+
 def main(argv: Optional[list] = None) -> int:
     arguments = _parser().parse_args(argv)
+    # Before anything is read, because a run that reads first is a run that can
+    # still be stopped by the environment the reading happens in.
+    pin_temporary_directory(arguments.scratch)
     gpgv = _named_or_resolved_tool("gpgv", arguments.gpgv)
     zstd = _named_or_resolved_tool("zstd", arguments.zstd)
     try:

@@ -45,6 +45,7 @@ import io
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -57,6 +58,25 @@ from scripts import native_shadow_rootfs_builder_boot_arm64_v3 as builder
 from scripts import native_shadow_rootfs_portable_boot_arm64_v1 as predecessor_gate
 from scripts import native_shadow_rootfs_portable_boot_arm64_v2 as successor_gate
 from scripts import native_shadow_successor_produce_phase_arm64_v2 as mod
+
+
+
+@contextlib.contextmanager
+def restored_temporary_directory():
+    """Give the process its temporary directory back.
+
+    ``main`` names one out of the scratch it was handed, and the naming outlives
+    the call because that is the whole point of it -- helpers deep in the shared
+    builder ask for a temporary directory without naming a place, and this is
+    what answers them.  A test that let the pin escape would leave every later
+    test pointed at a scratch it had already deleted.
+    """
+
+    previous = tempfile.tempdir
+    try:
+        yield
+    finally:
+        tempfile.tempdir = previous
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -1051,7 +1071,11 @@ class WorkflowAcquisitionTests(unittest.TestCase):
         "scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py",
     )
     IMAGE_WRITER_ACQUIRER = "scripts/native_shadow_boot_writer_set_acquire_arm64_v1.py"
-    ASSEMBLY = "native_shadow_successor_produce_phase_arm64_v2.py preflight"
+    # The assembling step, which the wrapper now runs inside the production's
+    # own transient unit rather than beside it. The assertion below is the one
+    # it always was -- acquisition first -- and only the name of the step it
+    # points at has moved.
+    ASSEMBLY = "--preflight-only"
 
     def test_the_production_acquires_both_staging_inputs(self) -> None:
         block = workflow_job("produce")
@@ -1204,7 +1228,7 @@ class CommandLineTests(unittest.TestCase):
             scratch = pathlib.Path(scratch)
             launcher = scratch / "launcher"
             launcher.write_bytes(b"not the sealed launcher")
-            with mock.patch.object(mod, "produce", refuse):
+            with mock.patch.object(mod, "produce", refuse), restored_temporary_directory():
                 with self.assertRaises(mod.SuccessorProduceError):
                     mod.main(
                         [
@@ -1501,3 +1525,196 @@ class SealedPreflightResultTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+WRAPPER_PATH = REPO_ROOT / "scripts/native-shadow-successor-produce-arm64.sh"
+
+
+class TemporaryDirectoryInsideTheIsolationTests(unittest.TestCase):
+    """The production runs where the whole filesystem is read-only but two
+    directories, and the transient unit does not inherit the caller's
+    environment.  Python's default temporary directory is therefore unusable
+    there, and two helpers deep in the shared builder -- the InRelease
+    signature check and the zstd decompressor -- ask for one without naming a
+    place.  Both are on the produce path and neither is this wave's to edit:
+    the predecessor image is built from the same base module and has to stay
+    reproducible.
+
+    So the phase names the place once, for every caller and every indirect
+    use, out of the scratch it was already handed -- the directory the
+    isolation was already told it may write.  Pinning it is not a widening of
+    the isolation; it points at what the unit could always write.
+    """
+
+    def setUp(self) -> None:
+        self.previous = tempfile.tempdir
+        self.addCleanup(self._restore)
+        tempfile.tempdir = None
+        self.root = pathlib.Path(
+            tempfile.mkdtemp(prefix="boole-successor-tempdir.")
+        )
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def _restore(self) -> None:
+        tempfile.tempdir = self.previous
+
+    def test_the_phase_pins_a_temporary_directory_under_the_scratch(self) -> None:
+        scratch = self.root / "scratch"
+        pinned = mod.pin_temporary_directory(scratch)
+        self.assertEqual(pinned, scratch / "tmp")
+        self.assertTrue(pinned.is_dir())
+
+    def test_a_caller_that_names_no_place_lands_under_the_scratch(self) -> None:
+        # The failure this refuses: a helper that asks for a temporary
+        # directory without naming one, and is answered with a read-only /tmp.
+        scratch = self.root / "scratch"
+        pinned = mod.pin_temporary_directory(scratch)
+        self.assertEqual(pathlib.Path(tempfile.gettempdir()), pinned)
+        with tempfile.TemporaryDirectory(prefix="boole-probe.") as probe:
+            self.assertEqual(pathlib.Path(probe).parent, pinned)
+
+    def test_the_pin_happens_before_the_phase_reads_any_input(self) -> None:
+        # Ordering, not merely presence.  A pin taken after the first read is
+        # a pin the failing run would still have missed.
+        scratch = self.root / "early"
+        with self.assertRaises(mod.SuccessorProduceError):
+            mod.main(
+                [
+                    "preflight",
+                    "--cas",
+                    str(self.root / "absent-store"),
+                    "--launcher",
+                    str(self.root / "absent-launcher"),
+                    "--scratch",
+                    str(scratch),
+                    "--result",
+                    str(self.root / "unwritten.json"),
+                ]
+            )
+        self.assertEqual(pathlib.Path(tempfile.gettempdir()), scratch / "tmp")
+
+
+class ProvenIsolationBeforeTheBudgetLineTests(unittest.TestCase):
+    """The run that spent an attempt passed a preflight and then failed in
+    production on the same tree, because the two ran in different places: the
+    preflight beside the unit, the production inside it.  A preflight that
+    cannot be reached by the production's environment cannot speak for it.
+
+    The wrapper therefore runs the preflight through the same sealed unit
+    first, and creates the output directory only after that has passed --
+    which also puts the budget line where the phase's own comment puts it.
+    """
+
+    def setUp(self) -> None:
+        self.source = WRAPPER_PATH.read_text(encoding="utf-8")
+
+    def _index(self, needle: str) -> int:
+        found = self.source.find(needle)
+        self.assertNotEqual(found, -1, "the wrapper does not contain %r" % needle)
+        return found
+
+    def test_the_wrapper_runs_a_preflight_inside_the_unit(self) -> None:
+        # Through the sealed unit, not beside it: the mode is handed to the
+        # same isolation-argv the production is handed to.
+        self._index('--read-write-path "$preflight_scratch"')
+        self.assertLess(
+            self._index("preflight_isolation=("),
+            self._index('"${preflight_isolation[@]}"'),
+        )
+
+    def test_the_isolated_preflight_runs_before_the_outputs_directory(self) -> None:
+        self.assertLess(
+            self._index("$preflight_scratch"),
+            self._index('mkdir -p "$outputs"'),
+        )
+
+    def test_the_isolated_preflight_cannot_write_the_outputs(self) -> None:
+        # Its unit is built with one read-write path, not two.  A preflight
+        # that could write there would be a preflight able to spend the
+        # attempt it exists to protect.
+        preflight_argv = self.source[
+            self._index("preflight_isolation=(") : self._index('mkdir -p "$outputs"')
+        ]
+        self.assertIn('--read-write-path "$preflight_scratch"', preflight_argv)
+        self.assertNotIn("$outputs", preflight_argv)
+
+    def test_the_isolated_preflight_gets_a_scratch_of_its_own(self) -> None:
+        # Sharing the produce scratch would leave a staging tree behind for
+        # the production to find, and the production builds its own.
+        self.assertIn('preflight_scratch="$scratch/preflight"', self.source)
+
+
+HARD_STOP_PATH = (
+    CONTAINMENT / "native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json"
+)
+
+
+class SpentAttemptHardStopTests(unittest.TestCase):
+    """The first production attempt, written down while it is still the last.
+
+    A failure record is worth only what it is bound to, so the digests it
+    carries are re-derived from the files on disk rather than read back out of
+    itself, and the path it does not occupy is checked as carefully as the one
+    it does: the authority names a result path for a production, and a failure
+    that sat in it would read like a production that had happened.
+    """
+
+    def setUp(self) -> None:
+        self.record = json.loads(HARD_STOP_PATH.read_text(encoding="utf-8"))
+        self.authority = json.loads(AUTHORITY_PATH.read_text(encoding="utf-8"))
+
+    def _sha256(self, path: pathlib.Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def test_it_does_not_occupy_the_authority_s_result_path(self) -> None:
+        result = REPO_ROOT / self.authority["resultPath"]
+        self.assertNotEqual(HARD_STOP_PATH, result)
+        self.assertFalse(result.exists(), "a production result exists on disk")
+
+    def test_the_attempt_it_names_is_the_authority_s_attempt(self) -> None:
+        attempt = self.record["attempt"]
+        self.assertEqual(attempt["attemptId"], self.authority["attemptId"])
+        self.assertEqual(attempt["dispatches"], self.authority["production"]["dispatches"])
+        self.assertEqual(attempt["authoritySha256"], self._sha256(AUTHORITY_PATH))
+        self.assertEqual(
+            attempt["preflightResultSha256"], self._sha256(PREFLIGHT_RESULT_PATH)
+        )
+
+    def test_no_output_file_was_written_and_none_is_claimed(self) -> None:
+        budget = self.record["budget"]
+        self.assertEqual(budget["outputFilesCreated"], 0)
+        self.assertEqual(budget["artifactsUploaded"], 0)
+        self.assertTrue(budget["outputDirectoryCreated"])
+        self.assertEqual(budget["spentVerdict"], "OPERATOR-DECISION-PENDING")
+        self.assertEqual(
+            sorted(budget["whatWasNotWritten"]),
+            sorted(predecessor.output_names()),
+        )
+
+    def test_the_rule_it_quotes_is_the_authority_s_own_sentence(self) -> None:
+        # A record that paraphrases the rule it is asking about is a record that
+        # can shade it. The quote is compared against the sealed authority on
+        # disk, so the question the operator answers is the authority's own
+        # wording and not this file's account of it.
+        disagreement = self.record["budget"]["twoRulesDisagree"]
+        self.assertEqual(
+            disagreement["sealedAuthorityRule"],
+            self.authority["budgetBoundary"]["rule"],
+        )
+        # And the reason it needs answering: the sentence names the free case
+        # and the consumed case, and this run landed between the two.
+        self.assertIn("output directory exists", disagreement["sealedAuthorityRule"])
+        self.assertIn("output file has been created", disagreement["sealedAuthorityRule"])
+
+    def test_it_claims_nothing_the_run_did_not_establish(self) -> None:
+        for claim, value in self.record["boundaries"].items():
+            self.assertFalse(value, claim)
+
+    def test_the_correction_widened_no_isolation(self) -> None:
+        # The one thing a fix under time pressure is most likely to reach for,
+        # and the one thing the standing instruction refuses outright.
+        self.assertFalse(self.record["correction"]["isolationRelaxed"])
+        self.assertIn(
+            "no second production has been dispatched",
+            self.record["hardStop"]["noReRun"],
+        )
