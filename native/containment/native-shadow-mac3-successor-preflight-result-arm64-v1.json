@@ -1,0 +1,183 @@
+{
+  "activationAllowed": false,
+  "authoritySha256": "c52e319790e3ca52ba6d635007e541f25e12d6d1497c1abb46ef00b1684b6e58",
+  "bootableClaim": false,
+  "builderInternal": {
+    "byKind": {
+      "directory": 1736,
+      "file": 15101,
+      "symlink": 837
+    },
+    "caseFoldedSiblings": 20,
+    "duplicatePaths": 0,
+    "entries": 17674,
+    "largestFileBytes": 160096808,
+    "largestFilePath": "opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly",
+    "pathCollisions": 0,
+    "pathManifestSha256": "a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736",
+    "payloadBytes": 1771449867,
+    "symlinkEscapes": 0
+  },
+  "gapEvidence": {
+    "accountDatabase": [
+      {
+        "gid": 0,
+        "guestPath": "/etc/group",
+        "mode": "0444",
+        "sha256": "511fb0f6573fd67e0070eab6873655f3f51aaa78b36bacadbd49d30a854f40b2",
+        "sizeBytes": 73,
+        "uid": 0
+      },
+      {
+        "gid": 0,
+        "guestPath": "/etc/gshadow",
+        "mode": "0400",
+        "sha256": "d32024a972c5341df5574542db6c7f2c8fe595c393b125d6a6c4d59c7dbde06a",
+        "sizeBytes": 61,
+        "uid": 0
+      },
+      {
+        "gid": 0,
+        "guestPath": "/etc/nsswitch.conf",
+        "mode": "0444",
+        "sha256": "796450cf1faebb3a577bda80918be349ca1ee9b9bfb9fe7f7cbb7dfbbb177b36",
+        "sizeBytes": 267,
+        "uid": 0
+      },
+      {
+        "gid": 0,
+        "guestPath": "/etc/passwd",
+        "mode": "0444",
+        "sha256": "d7b3ce429ca6ed85a23d1810691719e607fd50e6ce54d3ea6d307829ca66b8ab",
+        "sizeBytes": 259,
+        "uid": 0
+      },
+      {
+        "gid": 0,
+        "guestPath": "/etc/shadow",
+        "mode": "0400",
+        "sha256": "6380bdaffa703d9f96db5876e9f758c888dc4652bb145ce3ac52266141756218",
+        "sizeBytes": 128,
+        "uid": 0
+      }
+    ],
+    "launcherUnit": {
+      "capabilityBoundingSet": [
+        "CAP_SETGID",
+        "CAP_SETUID",
+        "CAP_SETPCAP",
+        "CAP_SYS_ADMIN"
+      ],
+      "directives": {
+        "AmbientCapabilities": "",
+        "ExecStart": "/usr/libexec/boole/boole-native-shadow-launcher",
+        "Group": "root",
+        "StandardError": "journal+console",
+        "StandardOutput": "journal+console",
+        "User": "root",
+        "WantedBy": "multi-user.target"
+      },
+      "enablement": {
+        "gid": 0,
+        "guestPath": "/etc/systemd/system/multi-user.target.wants/boole-native-shadow-launcher.service",
+        "kind": "symlink",
+        "stagedMode": "0777",
+        "target": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+        "uid": 0
+      },
+      "guestPath": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+      "mode": "0444",
+      "sha256": "4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55",
+      "source": "native/systemd/boole-native-shadow-launcher-v2.service"
+    },
+    "runtimeContentManifest": {
+      "guestPath": "/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json",
+      "mode": "0444",
+      "sha256": "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa",
+      "sizeBytes": 1285116
+    }
+  },
+  "imageProducedClaim": false,
+  "independentTraversal": {
+    "byKind": {
+      "directory": 1736,
+      "file": 15101,
+      "symlink": 837
+    },
+    "caseFoldedSiblings": 20,
+    "duplicatePaths": 0,
+    "entries": 17674,
+    "largestFileBytes": 160096808,
+    "largestFilePath": "opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly",
+    "pathCollisions": 0,
+    "pathManifestSha256": "a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736",
+    "payloadBytes": 1771449867,
+    "symlinkEscapes": 0
+  },
+  "launcher": {
+    "guestPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+    "includedInTheMeasuredTree": false,
+    "rebuiltSha256": "11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434",
+    "sealedSha256": "11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434",
+    "sealedSizeBytes": 2006632
+  },
+  "limits": {
+    "maxEntries": 200000,
+    "maxFileBytes": 536870912,
+    "maxTotalBytes": 2147483648
+  },
+  "nestedContentManifest": {
+    "guestPath": "/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json",
+    "sha256": "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa",
+    "sizeBytes": 1285116
+  },
+  "outputsCreated": false,
+  "productionBoundAdditions": [
+    {
+      "guestPath": "/usr/libexec/boole",
+      "kind": "directory",
+      "sizeBytes": 0,
+      "why": "the parent the launcher needs, absent from the measured tree"
+    },
+    {
+      "guestPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+      "kind": "file",
+      "sizeBytes": 2006632,
+      "why": "the rebuilt launcher, digest-matched against its seal"
+    }
+  ],
+  "provenance": {
+    "artifactStore": "/home/runner/work/Boole/Boole/local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas",
+    "authoritySha256": "c52e319790e3ca52ba6d635007e541f25e12d6d1497c1abb46ef00b1684b6e58",
+    "launcherBuildResultSha256": "eca743b903a6ef22ef214a14890042edaee3afd80af11c97503c255b67c0764c",
+    "measurementSha256": "a9b53199ca519def2232687c096a7fbefeef13a26f68ba44fcb9a3da30d35d18",
+    "modules": {
+      "__main__": "c07dc33cea6d1483640f5ce4d572ce261fb4bc0cbb8f76270caa3ca9c240d7a8",
+      "scripts.native_shadow_boot_produce_phase_arm64_v1": "325fd01b8791be3b22566dd71c0c05f992ea1ed295470d3ee342accd76cf87a8",
+      "scripts.native_shadow_boot_staging_measure_arm64_v1": "d7deacc81e1262b8bd6c9b525a2784850db55c7d93425458243daf5d45fc75b1",
+      "scripts.native_shadow_rootfs_builder_boot_arm64_v1": "a5dd54198878473c162ec306fbccd6edac8b22f036d9cf84d244b5f010f96d87",
+      "scripts.native_shadow_rootfs_builder_boot_arm64_v3": "93bd05d06e43cc69f325036d204b7b57721e358dd5c5d5990227ef88c4de8c39",
+      "scripts.native_shadow_rootfs_portable_boot_arm64_v2": "15f88cf286879ae30aae10bb7819aefea91095a819d96c2634ee9ecc4ea2f305"
+    },
+    "platform": {
+      "machine": "aarch64",
+      "python": "3.12.3",
+      "release": "6.17.0-1022-azure",
+      "system": "Linux"
+    },
+    "repositoryRoot": "/home/runner/work/Boole/Boole",
+    "sourceLockSha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f",
+    "tools": {
+      "gpgv": "/usr/bin/gpgv",
+      "zstd": "/usr/local/bin/zstd"
+    }
+  },
+  "release": "NATIVE-SHADOW-SUCCESSOR-PRODUCE-PHASE-ARM64-V2",
+  "servingClaim": false,
+  "sourceLockSha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f",
+  "withSealedLauncher": {
+    "entries": 17676,
+    "largestFileBytes": 160096808,
+    "payloadBytes": 1773456499
+  }
+}

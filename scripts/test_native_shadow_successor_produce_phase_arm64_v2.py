@@ -71,6 +71,9 @@ SUCCESSOR_LOCK_PATH = CONTAINMENT / "native-shadow-boot-rootfs-source-lock-arm64
 MEASUREMENT_PATH = (
     CONTAINMENT / "native-shadow-boot-staging-tree-measurement-arm64-v1.json"
 )
+PREFLIGHT_RESULT_PATH = (
+    CONTAINMENT / "native-shadow-mac3-successor-preflight-result-arm64-v1.json"
+)
 LAUNCHER_RESULT_PATH = CONTAINMENT / "native-shadow-launcher-build-result-arm64-v1.json"
 REPLAY_EXPECTATION_PATH = (
     CONTAINMENT / "native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json"
@@ -1349,6 +1352,151 @@ class PredecessorIsUntouchedTests(unittest.TestCase):
         self.assertFalse(mod.SERVING_CLAIM)
         self.assertFalse(mod.IMAGE_PRODUCED_CLAIM)
         self.assertFalse(mod.ACTIVATION_ALLOWED)
+
+
+class SealedPreflightResultTests(unittest.TestCase):
+    """What the arm64 run answered, kept where it can be checked rather than read.
+
+    The preflight is repeatable, so a result is only worth sealing if the bytes
+    sealed are the bytes the runner wrote.  These pin the digest the run reported
+    and then re-derive every claim in the record from the sealed files beside it,
+    so a hand-edited or re-typed result fails here rather than being believed by
+    the production that reads it.
+
+    The record is a measurement.  It establishes that the successor path
+    assembles the sealed tree with the three gaps closed in it; it does not
+    produce an image, and nothing in it may say otherwise.
+    """
+
+    RUN_ID = "33164208857"
+    RESULT_SHA256 = "be4a84e1c058fa25804cfade07727e35613369f58b0307182b93f24a4ecfb071"
+    AGREEMENT_KEYS = (
+        "entries",
+        "byKind",
+        "payloadBytes",
+        "largestFileBytes",
+        "largestFilePath",
+        "pathManifestSha256",
+        "caseFoldedSiblings",
+        "duplicatePaths",
+        "symlinkEscapes",
+    )
+
+    def setUp(self) -> None:
+        self.result = read_json(PREFLIGHT_RESULT_PATH)
+
+    def test_the_sealed_bytes_are_the_bytes_the_run_wrote(self) -> None:
+        self.assertEqual(digest_of(PREFLIGHT_RESULT_PATH), self.RESULT_SHA256)
+
+    def test_it_sits_where_the_authority_said_it_would(self) -> None:
+        named = mod.authority()["preflightResultPath"]
+        self.assertEqual(
+            PREFLIGHT_RESULT_PATH, REPO_ROOT / named, msg=f"authority names {named}"
+        )
+
+    def test_both_sides_agree_with_each_other_and_with_the_seal(self) -> None:
+        """The comparison that refused three runs ago, kept as a sealed answer.
+
+        Nine quantities, three sides: what the assembled table says, what an
+        independent walk of the written tree says, and what the measurement
+        sealed before any of this existed.  ``largestFilePath`` is in here
+        because it is the one that disagreed, and it agrees now for a reason --
+        the tie is broken on the path's own bytes on both sides.
+        """
+
+        sealed = read_json(MEASUREMENT_PATH)
+        for key in self.AGREEMENT_KEYS:
+            table = self.result["builderInternal"][key]
+            walk = self.result["independentTraversal"][key]
+            self.assertEqual(table, walk, msg=f"the two sides disagree on {key}")
+            self.assertEqual(
+                table, sealed["builderInternal"][key], msg=f"{key} is not the sealed one"
+            )
+
+    def test_the_launcher_projection_is_the_sealed_one(self) -> None:
+        sealed = read_json(MEASUREMENT_PATH)
+        self.assertEqual(self.result["withSealedLauncher"], sealed["withSealedLauncher"])
+        launcher = self.result["launcher"]
+        self.assertEqual(launcher["rebuiltSha256"], sealed["launcher"]["sealedSha256"])
+        self.assertEqual(launcher["sealedSha256"], launcher["rebuiltSha256"])
+        self.assertEqual(launcher["sealedSizeBytes"], sealed["launcher"]["sealedSizeBytes"])
+        self.assertEqual(launcher["sealedSizeBytes"], 2006632)
+        self.assertFalse(launcher["includedInTheMeasuredTree"])
+
+    def test_the_two_added_entries_are_recorded_one_row_each(self) -> None:
+        rows = self.result["productionBoundAdditions"]
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(
+            [(row["guestPath"], row["kind"], row["sizeBytes"]) for row in rows],
+            [
+                ("/usr/libexec/boole", "directory", 0),
+                ("/usr/libexec/boole/boole-native-shadow-launcher", "file", 2006632),
+            ],
+        )
+        self.assertEqual(
+            self.result["withSealedLauncher"]["entries"]
+            - self.result["builderInternal"]["entries"],
+            len(rows),
+        )
+
+    def test_the_three_gaps_are_closed_in_the_tree_that_was_assembled(self) -> None:
+        gaps = self.result["gapEvidence"]
+        self.assertEqual(
+            [row["guestPath"] for row in gaps["accountDatabase"]],
+            [
+                "/etc/group",
+                "/etc/gshadow",
+                "/etc/nsswitch.conf",
+                "/etc/passwd",
+                "/etc/shadow",
+            ],
+        )
+        self.assertEqual(
+            [row["uid"] for row in gaps["accountDatabase"]], [0, 0, 0, 0, 0]
+        )
+        unit = gaps["launcherUnit"]
+        self.assertEqual(
+            unit["capabilityBoundingSet"],
+            ["CAP_SETGID", "CAP_SETUID", "CAP_SETPCAP", "CAP_SYS_ADMIN"],
+        )
+        self.assertEqual(unit["directives"]["StandardOutput"], "journal+console")
+        self.assertEqual(unit["directives"]["StandardError"], "journal+console")
+        self.assertEqual(unit["directives"]["AmbientCapabilities"], "")
+        self.assertEqual(
+            gaps["runtimeContentManifest"]["sha256"],
+            read_json(MEASUREMENT_PATH)["nestedContentManifest"]["sha256"],
+        )
+
+    def test_it_reads_the_successor_lock_and_the_successor_authority(self) -> None:
+        self.assertEqual(self.result["sourceLockSha256"], digest_of(SUCCESSOR_LOCK_PATH))
+        self.assertNotEqual(
+            self.result["sourceLockSha256"], digest_of(PREDECESSOR_LOCK_PATH)
+        )
+        self.assertEqual(self.result["authoritySha256"], digest_of(AUTHORITY_PATH))
+        self.assertEqual(
+            self.result["provenance"]["measurementSha256"], digest_of(MEASUREMENT_PATH)
+        )
+        self.assertEqual(
+            self.result["provenance"]["launcherBuildResultSha256"],
+            digest_of(LAUNCHER_RESULT_PATH),
+        )
+
+    def test_the_run_that_wrote_it_created_nothing_and_claims_nothing(self) -> None:
+        self.assertFalse(self.result["outputsCreated"])
+        for claim in (
+            "imageProducedClaim",
+            "bootableClaim",
+            "servingClaim",
+            "activationAllowed",
+        ):
+            self.assertFalse(self.result[claim], msg=claim)
+
+    def test_the_totals_are_inside_the_sealed_limits(self) -> None:
+        limits = self.result["limits"]
+        with_launcher = self.result["withSealedLauncher"]
+        self.assertLess(with_launcher["entries"], limits["maxEntries"])
+        self.assertLess(with_launcher["largestFileBytes"], limits["maxFileBytes"])
+        self.assertLess(with_launcher["payloadBytes"], limits["maxTotalBytes"])
 
 
 if __name__ == "__main__":

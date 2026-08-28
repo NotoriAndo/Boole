@@ -1322,6 +1322,17 @@ require_text native/containment/native-shadow-mac3-successor-production-authorit
 require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"imageProducedClaim": false'
 require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"activationAllowed": false'
 
+# The preflight result the arm64 runner actually wrote, sealed at the path the
+# authority named before it existed. Repeatable runs are only evidence if the
+# bytes kept are the bytes produced, so the gate re-derives every claim in it
+# from the sealed files beside it. It measured; it produced nothing.
+require_file native/containment/native-shadow-mac3-successor-preflight-result-arm64-v1.json
+require_text native/containment/native-shadow-mac3-successor-preflight-result-arm64-v1.json '"outputsCreated": false'
+require_text native/containment/native-shadow-mac3-successor-preflight-result-arm64-v1.json '"imageProducedClaim": false'
+require_text native/containment/native-shadow-mac3-successor-preflight-result-arm64-v1.json '"largestFilePath": "opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly"'
+require_text native/containment/native-shadow-mac3-successor-preflight-result-arm64-v1.json '"pathManifestSha256": "a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736"'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class SealedPreflightResultTests'
+
 # 2026-08-28 -- the successor production path, wired to the authority above.
 #
 # The authority named a workflow, a result path and a set of inputs before any
