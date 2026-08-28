@@ -1,0 +1,610 @@
+{
+  "activationAllowed": false,
+  "attemptAccounting": {
+    "bootAttemptsUsed": 0,
+    "note": "These are the operator's numbers.  A dispatch and a spent attempt are counted separately here because they are not the same event: the production workflow has been dispatched three times, once refused inside the isolation before any output file existed and ruled unspent, and twice past the marker and therefore spent.  Every total in this block is the count of the rows in priorAttempts and can be re-derived from them.  This authority carries exactly one new attempt and nothing else.",
+    "priorDiagnosticReplicas": {
+      "adoptable": false,
+      "qualified": false,
+      "replicas": 2,
+      "setsPerReplica": 1,
+      "what": "kept, fingerprinted and disqualified; the comparison job the authority names never ran"
+    },
+    "priorOfficialImages": 0,
+    "priorProductionAttemptsSpent": 2,
+    "priorUnspentDispatches": 1,
+    "priorWorkflowDispatches": 3,
+    "productionAttemptsGrantedHere": 1,
+    "productionAttemptsRemainingBeforeThisGrant": 0,
+    "spendingRule": "if the marker is written under this authority and the run then fails, this attempt is spent too, and the wave stops"
+  },
+  "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V4-ATTEMPT-1",
+  "bootableClaim": false,
+  "boundInputDigests": {
+    "files": [
+      {
+        "path": ".github/workflows/native-shadow-successor-produce-arm64.yml",
+        "role": "the workflow that dispatches the two replicas and compares them",
+        "sha256": "a6ff2019a9e8f95580ebcb82e32d3a12f1a0397bb25912478716772683601b61"
+      },
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+        "role": "successor source lock",
+        "sha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f"
+      },
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json",
+        "role": "successor source lock result",
+        "sha256": "0542978a6c49287b27c46a836ae3c1aa548d61e4e065b345ebccbb8d8821dedd"
+      },
+      {
+        "path": "native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json",
+        "role": "sealed staging measurement",
+        "sha256": "a9b53199ca519def2232687c096a7fbefeef13a26f68ba44fcb9a3da30d35d18"
+      },
+      {
+        "path": "native/containment/native-shadow-launcher-build-authority-arm64-v1.json",
+        "role": "launcher build authority",
+        "sha256": "64f4ea0c6b574e1479e51a78e250da8fac6f3d3522d60cb03dde65b53da594ee"
+      },
+      {
+        "path": "native/containment/native-shadow-launcher-build-result-arm64-v1.json",
+        "role": "sealed launcher rebuild result",
+        "sha256": "eca743b903a6ef22ef214a14890042edaee3afd80af11c97503c255b67c0764c"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-budget-ruling-arm64-v1.json",
+        "role": "the ruling that declared the first attempt unspent",
+        "sha256": "f1059b8bde4ce4acd13be0058acedec6c1293089a78675ba8612c7c41575a82e"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json",
+        "role": "predecessor criteria, superseded and left byte-unchanged",
+        "sha256": "417d2497072519031506664553a0d9b478c53a7bf7983f431332f69bbecec4b8"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-diagnostic-arm64-v3.json",
+        "role": "the read-back diagnosis that separated a wrong builder from a wrong baseline",
+        "sha256": "de14a1d38d1e70d93af22ce6f4183e4cc3d9b8b00ab53f427c352f46675c4cab"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json",
+        "role": "the first attempt's record",
+        "sha256": "98f1bbed5a0cfe4c6f8365552f80d9408027e4e43c262e84e19631e441041115"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json",
+        "role": "the second attempt's record, the one that spent the budget",
+        "sha256": "cb948b6c34aa88247ce90782fe873d6a1d3c743dd8c43143a4c18a67e0bfccaa"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v3.json",
+        "role": "the third attempt's record, the second one that spent the budget",
+        "sha256": "026427bf0000903872fb663e36529b5d5e991d5a4e333b56d66b2c4baff2bc58"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v3.json",
+        "role": "the third attempt's production result, failed and preserved",
+        "sha256": "db4af374f7a62ab2ee27546b6118d8182d786b653fcd3abefd327613d6bce066"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json",
+        "role": "the producer fingerprint of the attempt that ran, deliberately not re-sealed",
+        "sha256": "601d5405d6a4b75561f00ebeaa8c9d96fee3de76dde61b9f6a7680a344df6521"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json",
+        "role": "the authority the two prior dispatches ran under, preserved not corrected",
+        "sha256": "c52e319790e3ca52ba6d635007e541f25e12d6d1497c1abb46ef00b1684b6e58"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v3.json",
+        "role": "the authority the third dispatch ran under, preserved not corrected",
+        "sha256": "4b9309146ebf05adbd064b2604c5d6693585e30a9a5550eece601d41b9cd282b"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-readback-correction-arm64-v1.json",
+        "role": "the correction record, which declares the producer bytes that moved",
+        "sha256": "e60e60cd02f74a440e6a908d633e35322fff7626ccd1bea881adc878908c9067"
+      },
+      {
+        "path": "native/containment/native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json",
+        "role": "runtime rootfs replay expectation",
+        "sha256": "e6b01bcce89bf2900bfa3e510ac79a8c2863c7701843cd4a1b20f2d987309e66"
+      },
+      {
+        "path": "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json",
+        "role": "runtime rootfs source lock, the nested tree's driver",
+        "sha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0"
+      },
+      {
+        "path": "scripts/native-shadow-successor-produce-arm64.sh",
+        "role": "the wrapper the workflow calls, with the read-back rewired",
+        "sha256": "e63e3e22d876910381b3604be621e7193772cfa842439eef0afe326ba470a07c"
+      },
+      {
+        "path": "scripts/native_shadow_rootfs_builder_arm64_v1.py",
+        "role": "frozen builder the projection chain starts from",
+        "sha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4"
+      },
+      {
+        "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v3.py",
+        "role": "successor builder projection, the one that merges the nested tree",
+        "sha256": "93bd05d06e43cc69f325036d204b7b57721e358dd5c5d5990227ef88c4de8c39"
+      },
+      {
+        "path": "scripts/native_shadow_rootfs_portable_boot_arm64_v2.py",
+        "role": "successor release gate",
+        "sha256": "15f88cf286879ae30aae10bb7819aefea91095a819d96c2634ee9ecc4ea2f305"
+      },
+      {
+        "path": "scripts/native_shadow_successor_root_disk_readback_arm64_v2.py",
+        "role": "the successor read-back consumer this attempt is the first to use",
+        "sha256": "8ada8ffa5cdf8405973af7e65589a89ee16bdaddc5bb6e7127dac8c607ce8fa0"
+      }
+    ],
+    "note": "Every file this authority depends on, in one table, so that drift is checked by iterating rather than by reading prose.  A digest here that no longer matches its file is an abort condition, not a note to update.  The records of the three prior dispatches are in this table for that reason: preserving them is a condition of this attempt, and a condition the production re-checks on the runner is worth more than one only a test reads.  The producing module and its gate are named in the producer fingerprint instead, because the module pins this authority's digest and a pin in both directions could not be written in either order."
+  },
+  "boundaries": [
+    "no wallet seed, passphrase or key derivation material is placed in or passed to the guest",
+    "no model API key is placed in or passed to the guest",
+    "no reward, block, consensus or peer-to-peer authority is granted to the guest",
+    "no network device and no shared directory is configured for the guest",
+    "no operator key, team identifier, certificate or provisioning profile is created",
+    "no public mining, no public testnet, no paid benchmark and no leaderboard claim"
+  ],
+  "budgetBoundary": {
+    "afterConsumption": "no re-run, no retry and no second dispatch in this wave.  A consumed attempt that failed is reported to the operator as a hard stop.",
+    "changedFromTheSecondAuthority": "The second authority drew the line at the first output file.  Two dispatches showed that line cannot be read after the fact: the first created the output directory and no file in it, and the operator had to rule on whether that counted.  The line is now a file the run writes on purpose, so the question is answered by looking rather than by reasoning.  This is narrower than the old rule, not wider -- everything that spent an attempt under the old wording still spends one under this one.",
+    "preflightNeverConsumes": "the preflight cannot reach the section that writes the marker, and a test reads its call graph to say so.  No preflight outcome can consume the production budget.",
+    "rule": "A refusal raised before ATTEMPT-CONSUMED.json exists does not consume the one allowed attempt.  Once that file has been written, the attempt is consumed whatever happens next -- including a failure, a crash, a cancelled job or a destroyed runner.",
+    "whyItIsDrawnThere": "the marker is written before the first image file and is the only thing in the output directory whose presence means one specific thing.  It is written atomically, echoed to the console as it is written, and left world-readable so the step that collects it can, which is three independent ways for it to survive a job that dies."
+  },
+  "expectedMeasurements": {
+    "note": "These are the numbers the sealed measurement recorded.  The preflight must reproduce the first set exactly; the production-bound set is what the same tree becomes once the launcher the runner rebuilds is staged into it.",
+    "withSealedLauncher": {
+      "entries": 17676,
+      "largestFileBytes": 160096808,
+      "payloadBytes": 1773456499
+    },
+    "withoutLauncher": {
+      "duplicatePaths": 0,
+      "entries": 17674,
+      "largestFileBytes": 160096808,
+      "pathCollisions": 0,
+      "pathManifestSha256": "a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736",
+      "payloadBytes": 1771449867,
+      "symlinkEscapes": 0
+    }
+  },
+  "frozenBefore": "any successor preflight and any successor production under this authority",
+  "grant": {
+    "authorisedBy": "operator",
+    "authorises": "exactly one further successor arm64 boot image production, dispatched exactly once",
+    "doesNotAuthorise": [
+      "booting the produced image",
+      "starting MAC.4",
+      "connecting a node",
+      "any testnet, public mining, reward, block, consensus or peer-to-peer activation"
+    ],
+    "onlyAfter": [
+      "the read-back correction is merged into the default branch",
+      "this authority and the producer fingerprint below are merged into the default branch",
+      "a free preflight has run on the production path and passed"
+    ],
+    "reason": "The third attempt was failed by a baseline of the wrong generation rather than by anything wrong with what it built.  The defect is diagnosed, corrected, and gated, and the correction is proved on the free path before the paid one is used.",
+    "rerunsForbidden": [
+      "re-running the workflow",
+      "re-running a failed job",
+      "dispatching a replica by hand",
+      "any retry after the marker exists"
+    ]
+  },
+  "hardStopConditions": {
+    "declaredAdditions": [
+      "the read-back consumer named here is not the one the wrapper calls",
+      "the read-back reaches, or could reach, a source lock other than the one bound here",
+      "a produced set is called qualified while its read-back did not pass",
+      "progress would require editing the third authority, the third hard-stop record, the third production result, the read-back diagnosis or the correction record"
+    ],
+    "inheritedFromTheSecondAuthority": [
+      "any sealed digest named here differs from the file it names",
+      "the preflight totals differ from the sealed measurement",
+      "any of the three gaps is not closed in the assembled tree",
+      "the production path and the measurement path reach different merge functions",
+      "the preflight consumes any part of the production budget",
+      "a production fails after any output file exists",
+      "the two replicas disagree, or e2fsck reports an error",
+      "progress would require editing a sealed record, the launcher source or the sealed launcher binary",
+      "progress would require relaxing isolation or falling back to an unisolated run"
+    ],
+    "inheritedFromTheThirdAuthority": [
+      "ATTEMPT-CONSUMED.json is written and the run then fails, for any reason",
+      "a produced file is kept without UNQUALIFIED-DIAGNOSTIC.json beside it",
+      "the marker cannot be read back off the runner by the collecting step",
+      "progress would require editing the second authority, either hard-stop record, or the operator's budget ruling"
+    ],
+    "note": "The thirteen conditions carried over are carried over word for word: nine from the second authority and four from the third.  The four below are added, and adding is the only edit this list takes.  No inherited condition is reworded, reordered or dropped, and a test reads both earlier authorities to check that."
+  },
+  "historicalPathLeftIntact": {
+    "crossContaminationIsRefused": "The predecessor path handed the successor lock, and the successor path handed the predecessor lock, must each refuse rather than build.  Neither direction may fall back to the other.",
+    "evidenceItReadsThePredecessorLock": [
+      {
+        "file": "scripts/native_shadow_boot_produce_phase_arm64_v1.py",
+        "line": 66,
+        "reads": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json"
+      },
+      {
+        "file": "scripts/native_shadow_boot_produce_phase_arm64_v1.py",
+        "imports": "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+        "line": 51
+      },
+      {
+        "file": "scripts/native_shadow_boot_produce_phase_arm64_v1.py",
+        "line": 561,
+        "note": "build_oci_layout is called with no nested tree argument, so the runtime rootfs and its manifest cannot be in what it produces."
+      }
+    ],
+    "note": "The predecessor production path is not edited, not re-pointed and not deleted.  It reads the v1 lock and imports the v1 builder, which is exactly what reproduces the image that already booted.  Keeping it runnable is what makes the earlier boot result still checkable.",
+    "paths": [
+      "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+      "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+      "scripts/native_shadow_boot_produce_phase_arm64_v1.py",
+      "scripts/native-shadow-boot-produce-arm64.sh",
+      ".github/workflows/native-shadow-boot-produce-arm64.yml",
+      "native/systemd/boole-native-shadow-launcher.service",
+      "native/tmpfiles.d/boole-native-shadow.conf"
+    ]
+  },
+  "imageProducedClaim": false,
+  "limits": {
+    "appliedTo": "both the measured tree and the production-bound totals",
+    "maxEntries": 200000,
+    "maxFileBytes": 536870912,
+    "maxTotalBytes": 2147483648,
+    "onExceeding": "refuse.  Nothing is truncated, sampled or excluded to fit -- a tree that does not fit is the finding, and shrinking it to pass would hide it."
+  },
+  "notEstablishedByAPass": [
+    "that the image boots; producing is not booting",
+    "that the launcher serves anything; booting is not serving",
+    "that the guest is ready for a node connection; MAC.4 is not started",
+    "that mining, rewards, consensus or activation move at all"
+  ],
+  "preflight": {
+    "mustNeverDo": [
+      "run mke2fs",
+      "generate an initrd",
+      "generate a root disk",
+      "create the production output directory",
+      "write the consumed-attempt marker",
+      "upload a kernel, an initrd, a root disk or the consumed-attempt marker",
+      "consume a production attempt"
+    ],
+    "onAnyFailure": "the production is not started",
+    "passRequires": [
+      "every file in boundInputDigests still hashes to the digest bound here, including the four records of the two prior dispatches",
+      "the launcher-excluded totals equal the sealed measurement exactly",
+      "the launcher-included totals equal the production-bound set exactly",
+      "the runtime content manifest digest equals the sealed value",
+      "the five account files are present at their guest paths with the frozen mode and ownership",
+      "the v2 unit is present, enabled, and carries console output on both streams",
+      "path collisions, duplicate paths and symlink escapes are each zero",
+      "all three limits pass on both totals",
+      "the result digest and the full provenance are recorded",
+      "the successor read-back consumer is bound to the successor source lock and can reach no other",
+      "the predecessor path and the successor path each refuse the other's lock",
+      "no consumed-attempt marker and no production output exists anywhere on the runner afterwards"
+    ],
+    "performs": [
+      "confirm the exact artifact store is present and complete",
+      "rebuild the launcher and compare its digest and size with the sealed values",
+      "assemble the account database, the v2 unit, the nested runtime rootfs and its content manifest into the staging tree for real",
+      "walk the written staging tree independently and compare with the builder's own totals",
+      "compute the full path manifest and content manifest",
+      "apply the three sealed limits to both totals",
+      "read the three closed gaps back out of the assembled tree rather than out of the declarations naming them"
+    ],
+    "producedNothingIsCheckedAgainstTheDisk": "The step that follows the run asks the filesystem whether any of the three output names or the consumed-attempt marker exists anywhere under the runner temporary tree, and fails if one does.  The four names are read out of the producer authority and the phase rather than written down again here.",
+    "purpose": "Establish, without producing anything, that the successor path assembles exactly the tree the measurement sealed and that the three gaps are closed in the tree it actually assembles.",
+    "runsOn": "the same arm64 Linux environment the production uses",
+    "uploadsItMay": {
+      "artifact": "successor-preflight-result",
+      "contents": "PREFLIGHT-RESULT.json and nothing else",
+      "why": "The third authority wrote 'upload an artifact' in this list while the workflow uploaded its evidence document, which read as a contradiction between the rule and the run.  The rule was never about evidence: a small JSON document describing a run that produced nothing is the whole point of a repeatable preflight, and forbidding it would leave the cheap mode with nothing to show.  What is forbidden is an image artifact, and it is now named as one."
+    },
+    "uploadsItMayNot": [
+      "successor-outputs-*",
+      "successor-unqualified-diagnostic-*",
+      "successor-attempt-consumed-*"
+    ]
+  },
+  "preflightIsRepeatable": true,
+  "preflightResultPath": "native/containment/native-shadow-mac3-successor-preflight-result-arm64-v1.json",
+  "preflightResultStillStands": {
+    "leftByteUnchanged": true,
+    "path": "native/containment/native-shadow-mac3-successor-preflight-result-arm64-v1.json",
+    "sha256": "be4a84e1c058fa25804cfade07727e35613369f58b0307182b93f24a4ecfb071",
+    "takenUnder": "native-shadow-mac3-successor-production-authority-arm64-v2.json",
+    "why": "it measures the assembled tree, and every input that tree is built from is bound by digest in this authority at the same value the second one bound it at.  Nothing it measured changed, so it is not re-taken and not re-written; it records the digest of the authority it ran under, which is the second one, and that is correct.",
+    "yetANewPreflightRunsAnyway": "the attempt still begins with a full preflight inside the production unit, because a sealed measurement is not a statement about this runner on this day"
+  },
+  "priorAttempts": [
+    {
+      "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V2-ATTEMPT-1",
+      "leftByteUnchanged": true,
+      "outcome": "failed inside the isolation before any output file existed; ruled unspent by the operator, then re-dispatched",
+      "recordPath": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v1.json",
+      "recordSha256": "98f1bbed5a0cfe4c6f8365552f80d9408027e4e43c262e84e19631e441041115",
+      "rulingPath": "native/containment/native-shadow-mac3-successor-image-production-budget-ruling-arm64-v1.json",
+      "rulingSha256": "f1059b8bde4ce4acd13be0058acedec6c1293089a78675ba8612c7c41575a82e",
+      "spent": false
+    },
+    {
+      "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V2-ATTEMPT-1",
+      "leftByteUnchanged": true,
+      "outcome": "wrote the marker, built all three files, passed the content check, then raised while assembling its result document; the runner was destroyed with the files on it",
+      "recordPath": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json",
+      "recordSha256": "cb948b6c34aa88247ce90782fe873d6a1d3c743dd8c43143a4c18a67e0bfccaa",
+      "spent": true
+    },
+    {
+      "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V3-ATTEMPT-1",
+      "diagnosisPath": "native/containment/native-shadow-mac3-successor-image-production-diagnostic-arm64-v3.json",
+      "diagnosisSha256": "de14a1d38d1e70d93af22ce6f4183e4cc3d9b8b00ab53f427c352f46675c4cab",
+      "leftByteUnchanged": true,
+      "outcome": "wrote the marker, built all three files in both replicas, and failed the read-back in both, byte-identically, because the read-back compared the image against the predecessor's source lock",
+      "recordPath": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v3.json",
+      "recordSha256": "026427bf0000903872fb663e36529b5d5e991d5a4e333b56d66b2c4baff2bc58",
+      "resultPath": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v3.json",
+      "resultSha256": "db4af374f7a62ab2ee27546b6118d8182d786b653fcd3abefd327613d6bce066",
+      "spent": true
+    }
+  ],
+  "producedBy": ".github/workflows/native-shadow-successor-produce-arm64.yml",
+  "producedOn": "ubuntu-24.04-arm, the runner the predecessor producer authority sealed",
+  "producerFingerprint": {
+    "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v4.json",
+    "what": "the digests of the module, the wrapper, the workflow, the gate, the frozen helper and the read-back consumer that will run this attempt, sealed after all of them are final and before any of them runs",
+    "whyNoDigestHere": "the module pins this authority's digest, so pinning the module's digest here -- directly or through a record that carries it -- would close a loop in which neither file could be written first.  The fingerprint record points at this authority; this authority names only its path.  The direction is one way on purpose."
+  },
+  "producerPinsThatMovedElsewhere": {
+    "note": "The two other producer pins that no longer match the third fingerprint are declared where they moved, and are not restated here.  One file, one declaration: two records claiming the same move can disagree about it.",
+    "rows": [
+      {
+        "declaredIn": "native/containment/native-shadow-mac3-successor-readback-correction-arm64-v1.json",
+        "path": "scripts/native-shadow-successor-produce-arm64.sh"
+      },
+      {
+        "declaredIn": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v3.json",
+        "path": "scripts/test_native_shadow_successor_produce_phase_arm64_v2.py"
+      }
+    ]
+  },
+  "producerPinsThatMovedSinceTheThirdAttempt": [
+    {
+      "correctedDigestIsRecordedIn": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v4.json",
+      "path": "scripts/native_shadow_successor_produce_phase_arm64_v2.py",
+      "sealedIn": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json",
+      "sealedSha256": "a9ad4ab331fee025207dddf3b0c7b90f988cfd57517e85f56e07f778195d1bae",
+      "whyItMoved": "It is the file that names this authority and pins its digest, so granting a further attempt is exactly a change to these bytes.",
+      "whyNoCorrectedDigestHere": "the module pins this authority's digest.  Writing the module's current digest here -- even as a declaration of drift -- would close the loop this record exists to avoid, so the corrected value is recorded in the producer fingerprint, which is written after this file and points at it."
+    },
+    {
+      "correctedSha256": "a6ff2019a9e8f95580ebcb82e32d3a12f1a0397bb25912478716772683601b61",
+      "declaredHereBecause": "this authority binds the workflow's corrected digest, and the record that carries the other two moves was written before this change to it",
+      "path": ".github/workflows/native-shadow-successor-produce-arm64.yml",
+      "sealedIn": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json",
+      "sealedSha256": "9e3f255904f884c4d73c99d570f539d9f88683f0658500dc91809ce1eecec345",
+      "whyItMoved": "The step that claims the preflight produced nothing now also asks the disk whether the consumed-attempt marker exists.  The claim is about the budget, and it was the one part of that claim resting on a reading of the call graph rather than on a look at the disk."
+    }
+  ],
+  "production": {
+    "beforeDispatchRequires": [
+      "the local head equals origin/main and the tree is clean",
+      "this authority's digest matches the file on disk",
+      "the producer fingerprint record's digests match the files they name",
+      "the read-back correction is on main",
+      "the preflight result digest matches the file on disk",
+      "a free preflight has run under this authority and passed",
+      "the production attempt count under this authority is zero",
+      "no production result and no production artifact exists for this attempt",
+      "no consumed-attempt marker exists for this attempt"
+    ],
+    "claimsThatStayFalse": [
+      "bootableClaim",
+      "servingClaim",
+      "activationAllowed"
+    ],
+    "comparisonJobPasses": "when the kernel, the initrd and the root disk are byte-identical between the two replicas.  A single differing byte is a failure of determinism, not a rounding error to be explained.",
+    "dispatches": 1,
+    "e2fsck": {
+      "invocation": "e2fsck -f -n",
+      "provesItWroteNothing": "the root disk digest is retaken afterwards and must be unchanged",
+      "repairOptionsForbidden": [
+        "-p",
+        "-y",
+        "-a",
+        "-f -y"
+      ],
+      "timesPerReplica": 1
+    },
+    "onGreen": "the recorded digests are the ones both replicas reached independently.  Neither replica is picked as the winner, because picking one would turn a disagreement into a choice.",
+    "productionsPerReplica": 1,
+    "readBack": {
+      "consumer": "scripts/native_shadow_successor_root_disk_readback_arm64_v2.py",
+      "consumerSha256": "8ada8ffa5cdf8405973af7e65589a89ee16bdaddc5bb6e7127dac8c607ce8fa0",
+      "onFailure": "the attempt is spent, the produced files are kept under a name and a document that disown them, and the wave stops.  A failed read-back can never yield a qualified set.",
+      "resultDocument": "SUCCESSOR-ROOT-DISK-READBACK.json",
+      "sourceLockPath": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+      "sourceLockSha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f",
+      "whyItIsNamedHere": "The third attempt failed because this stage read the other generation's lock.  Naming the consumer and the lock in the authority means the pairing is a bound input rather than a property of whichever module the wrapper happened to call."
+    },
+    "replicaIsolation": "neither replica may read the other's outputs, artifacts or logs while it builds.  The comparison happens in a third job, after both have finished.",
+    "replicas": 2,
+    "steps": [
+      "rebuild the launcher on the runner and match the sealed digest",
+      "assemble the same successor staging tree the preflight assembled",
+      "produce the kernel, the initrd and the root disk",
+      "read the produced root disk back against the successor source lock, through the successor's own consumer",
+      "run e2fsck in its read-only mode exactly once against the produced root disk",
+      "publish a SHA-256 manifest of the three files"
+    ]
+  },
+  "readBackCorrectionRequiredFirst": {
+    "defect": "the successor wrapper read its image back through the predecessor's consumer, which takes its expectations from the predecessor's source lock, so a successor image was judged against a baseline of the wrong generation",
+    "fix": "a successor read-back consumer that can reach exactly one source lock -- the successor's, at the digest this authority binds -- selectable by no flag, argument, environment variable or value read out of the image, and refusing to load if its own text names the other generation's lock",
+    "recordPath": "native/containment/native-shadow-mac3-successor-readback-correction-arm64-v1.json",
+    "recordSha256": "e60e60cd02f74a440e6a908d633e35322fff7626ccd1bea881adc878908c9067",
+    "why": "the defect is the reason the third attempt was spent, so correcting it is a precondition of this authority rather than a follow-up to it"
+  },
+  "recordRegardlessOfVerdict": "The result is written whether it passes or fails, with the same detail either way.  A failed production is evidence about the build; deleting it would make the next attempt look like the first.",
+  "release": "NATIVE-SHADOW-MAC3-SUCCESSOR-PRODUCTION-AUTHORITY-ARM64-V4",
+  "requiredArguments": {
+    "forbidden": [
+      "a default value for the nested tree in the successor production entry point",
+      "a fallback from the successor lock to the predecessor lock",
+      "a fallback from the predecessor lock to the successor lock",
+      "continuing when the content manifest is absent or hashes differently"
+    ],
+    "mustBeRequiredWithNoDefault": [
+      "nested_tree",
+      "content manifest expectation"
+    ],
+    "note": "The builder keeps the nested tree optional because a projection may not change its predecessor's defaults.  The successor production path is where the argument becomes mandatory, and that is a property of the caller."
+  },
+  "resultPath": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v4.json",
+  "runsAllowed": 1,
+  "runsPerformed": 0,
+  "schema": "boole.native-shadow.mac3-successor-production-authority.arm64.v4",
+  "servingClaim": false,
+  "sharedMaterialization": {
+    "howItIsChecked": "the namespace a measurement reaches through materialize_staging_tree and the namespace a production reaches through build_oci_layout are required to be the same mapping object.  Two equal copies fail this, because two copies can drift and one object cannot.",
+    "requirement": "The production path and the measurement path must reach one function object, not two functions that agree.",
+    "theFunction": "_assemble_entries, in the fifth projection's derived namespace"
+  },
+  "status": "SUCCESSOR-PRODUCTION-RE-AUTHORISED-AFTER-READBACK-CORRECTION-NOT-RUN",
+  "subject": "one production of the three arm64 boot files -- kernel, initrd and root disk -- assembled through the merge the staging measurement already took, run twice on two independent runners and required to agree byte for byte.",
+  "successorInputs": {
+    "accountDatabase": [
+      {
+        "guestPath": "/etc/passwd",
+        "source": "native/etc/passwd"
+      },
+      {
+        "guestPath": "/etc/shadow",
+        "source": "native/etc/shadow"
+      },
+      {
+        "guestPath": "/etc/group",
+        "source": "native/etc/group"
+      },
+      {
+        "guestPath": "/etc/gshadow",
+        "source": "native/etc/gshadow"
+      },
+      {
+        "guestPath": "/etc/nsswitch.conf",
+        "source": "native/etc/nsswitch.conf"
+      }
+    ],
+    "builder": {
+      "frozenBuilderPath": "scripts/native_shadow_rootfs_builder_arm64_v1.py",
+      "frozenBuilderSha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+      "materializationFunction": "materialize_staging_tree",
+      "module": "scripts/native_shadow_rootfs_builder_boot_arm64_v3.py",
+      "nestedTreeAssembler": "nested_runtime_tree",
+      "productionEntryPoint": "build_oci_layout",
+      "sha256": "93bd05d06e43cc69f325036d204b7b57721e358dd5c5d5990227ef88c4de8c39"
+    },
+    "launcherBuildAuthority": {
+      "expectedLauncherSha256": "11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434",
+      "expectedLauncherSizeBytes": 2006632,
+      "guestPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+      "path": "native/containment/native-shadow-launcher-build-authority-arm64-v1.json",
+      "rebuiltOnTheRunnerBy": "scripts/native_shadow_launcher_emit_arm64_v1.py",
+      "resultPath": "native/containment/native-shadow-launcher-build-result-arm64-v1.json",
+      "resultSha256": "eca743b903a6ef22ef214a14890042edaee3afd80af11c97503c255b67c0764c",
+      "sha256": "64f4ea0c6b574e1479e51a78e250da8fac6f3d3522d60cb03dde65b53da594ee"
+    },
+    "launcherUnit": {
+      "consoleOutput": "StandardOutput=journal+console and StandardError=journal+console",
+      "guestPath": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+      "source": "native/systemd/boole-native-shadow-launcher-v2.service",
+      "supersededSource": "native/systemd/boole-native-shadow-launcher.service stays in the tree as the predecessor path's input and is not staged into the successor image. Only the source bytes moved; the guest path is the same one.",
+      "why": "the host already captures and hashes the guest console.  A launcher that writes only to the journal is a launcher whose refusal the host cannot read, which is the third of the three gaps this successor closes."
+    },
+    "measurementResult": {
+      "path": "native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json",
+      "sha256": "a9b53199ca519def2232687c096a7fbefeef13a26f68ba44fcb9a3da30d35d18"
+    },
+    "nestedRuntime": {
+      "contentManifestGuestPath": "/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json",
+      "contentManifestSha256": "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa",
+      "contentManifestSizeBytes": 1285116,
+      "drivingSourceLockPath": "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json",
+      "drivingSourceLockSha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+      "guestPrefix": "/var/lib/boole/native-shadow/runtime-rootfs",
+      "layerSizeBytes": 766556160,
+      "replayExpectationPath": "native/containment/native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json",
+      "replayExpectationSealsTheSameManifest": "its rootfsContentManifestSha256 is the value the builder's own nested tree declaration carries, so the manifest read out of the assembled tree answers to a record sealed before the merge existed.",
+      "replayExpectationSha256": "e6b01bcce89bf2900bfa3e510ac79a8c2863c7701843cd4a1b20f2d987309e66"
+    },
+    "releaseGate": {
+      "entryPoint": "materialize_runtime_lock",
+      "module": "scripts/native_shadow_rootfs_portable_boot_arm64_v2.py",
+      "sha256": "15f88cf286879ae30aae10bb7819aefea91095a819d96c2634ee9ecc4ea2f305"
+    },
+    "sourceLock": {
+      "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+      "release": "NATIVE-SHADOW-BOOT-ROOTFS-SOURCE-LOCK-ARM64-V2-SOURCE-SHAPE-ONLY-NOT-BOOTABLE",
+      "sha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f"
+    }
+  },
+  "supersedes": {
+    "note": "Nothing in the superseded records is edited.  The predecessor criteria record and the three requirements it listed as not done are carried over from the third authority unchanged, because they are still closed by the same records.  The third authority still reads runsPerformed 0, which was true when it was sealed and was never updated because attempts are counted where attempts are counted: in the hard-stop records.  Its producer fingerprint still pins the bytes that produced the third attempt, and is deliberately not re-sealed over the corrected ones.",
+    "predecessor": {
+      "leftByteUnchanged": true,
+      "path": "native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json",
+      "sha256": "417d2497072519031506664553a0d9b478c53a7bf7983f431332f69bbecec4b8"
+    },
+    "producerFingerprint": {
+      "leftByteUnchanged": true,
+      "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json",
+      "sha256": "601d5405d6a4b75561f00ebeaa8c9d96fee3de76dde61b9f6a7680a344df6521",
+      "what": "the bytes that produced the third attempt, so that failure stays reconstructible from the record that belongs to it"
+    },
+    "productionAuthority": {
+      "leftByteUnchanged": true,
+      "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v3.json",
+      "sha256": "4b9309146ebf05adbd064b2604c5d6693585e30a9a5550eece601d41b9cd282b",
+      "what": "the authority the third dispatch ran under.  It granted one attempt, the attempt was spent, and the record of that is the third hard-stop document rather than a number edited into this field."
+    },
+    "requirementsItListedAsNotDone": [
+      {
+        "closedBy": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+        "closedBySha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f",
+        "how": "the fourth projection widened the staging table from ten tracked files to fifteen: the five account files, and the launcher unit and tmpfiles configuration re-pointed at their v2 sources.",
+        "requirement": "the builder stages all seven inputs"
+      },
+      {
+        "closedBy": "native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json",
+        "closedBySha256": "0542978a6c49287b27c46a836ae3c1aa548d61e4e065b345ebccbb8d8821dedd",
+        "how": "the successor plan was sealed first and the lock generated from it, in that order, so the lock is verified against the plan rather than written beside it.",
+        "requirement": "a successor boot rootfs source lock covering the added tracked files"
+      },
+      {
+        "closedBy": "native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json",
+        "closedBySha256": "a9b53199ca519def2232687c096a7fbefeef13a26f68ba44fcb9a3da30d35d18",
+        "how": "the fifth projection merges the nested runtime tree, and the measurement assembled it for real through that merge and walked the written tree back.  The manifest was read out of the written tree, not out of the declaration that names it.",
+        "requirement": "the builder materialises the runtime rootfs and its manifest"
+      }
+    ],
+    "theSecondAuthorityBelowThat": {
+      "leftByteUnchanged": true,
+      "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json",
+      "sha256": "c52e319790e3ca52ba6d635007e541f25e12d6d1497c1abb46ef00b1684b6e58",
+      "what": "the authority the first two dispatches ran under.  It still reads runsPerformed 0, which was true when it was sealed and was never updated because the run that spent it died before it could write anything.  It is preserved with that number rather than corrected: the two hard-stop records are where the attempts are counted."
+    }
+  },
+  "whatThisIs": "The inputs, the boundaries and the pass conditions of one further successor arm64 boot image production, written down before it runs and after three prior dispatches, one unspent and two spent.  It changes the attempt identifier, the result path and the accounting, binds the corrected read-back consumer and the lock it is paired with, and carries everything else over from the authority it supersedes.  Nothing here edits any earlier authority, failure record, result, diagnosis or ruling; all of them stay byte-unchanged and are bound here by digest."
+}

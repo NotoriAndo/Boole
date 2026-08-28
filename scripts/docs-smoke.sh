@@ -1442,7 +1442,6 @@ require_text "$V3_FINGERPRINT" 'scripts/native_shadow_successor_produce_phase_ar
 require_text "$V3_FINGERPRINT" 'scripts/native-shadow-successor-produce-arm64.sh'
 require_text "$V3_FINGERPRINT" '.github/workflows/native-shadow-successor-produce-arm64.yml'
 require_text "$V3_FINGERPRINT" '"imageProducedClaim": false'
-require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'native-shadow-mac3-successor-production-authority-arm64-v3.json'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ThirdAuthorityTests'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ProducerFingerprintTests'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'SPENT_AUTHORITY_PATH'
@@ -2220,5 +2219,58 @@ require_text "$V1_CORRECTION" '"bootableClaim": false'
 require_text "$V1_CORRECTION" '"servingClaim": false'
 require_text "$V1_CORRECTION" '"activationAllowed": false'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ReadbackCorrectionTests'
+
+# 2026-08-29 -- the one further attempt the correction earned.
+#
+# The numbers here are the operator's, and they are pinned as text because the
+# distinction they draw is the one the last three dispatches kept blurring: a
+# workflow that was dispatched is not the same event as an attempt that was
+# spent. Three of the former, two of the latter, one of them refused before any
+# output existed. The gate re-derives every one of these from the detail rows;
+# these pins are what stops the wording from being quietly softened first.
+V4_AUTHORITY=native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json
+V4_FINGERPRINT=native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v4.json
+require_file "$V4_AUTHORITY"
+require_text "$V4_AUTHORITY" '"attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V4-ATTEMPT-1"'
+require_text "$V4_AUTHORITY" '"status": "SUCCESSOR-PRODUCTION-RE-AUTHORISED-AFTER-READBACK-CORRECTION-NOT-RUN"'
+require_text "$V4_AUTHORITY" '"runsAllowed": 1'
+require_text "$V4_AUTHORITY" '"runsPerformed": 0'
+require_text "$V4_AUTHORITY" '"priorWorkflowDispatches": 3'
+require_text "$V4_AUTHORITY" '"priorUnspentDispatches": 1'
+require_text "$V4_AUTHORITY" '"priorProductionAttemptsSpent": 2'
+require_text "$V4_AUTHORITY" '"productionAttemptsGrantedHere": 1'
+require_text "$V4_AUTHORITY" '"productionAttemptsRemainingBeforeThisGrant": 0'
+require_text "$V4_AUTHORITY" '"bootAttemptsUsed": 0'
+require_text "$V4_AUTHORITY" '"priorOfficialImages": 0'
+require_text "$V4_AUTHORITY" '"priorDiagnosticReplicas"'
+require_text "$V4_AUTHORITY" '"adoptable": false'
+require_text "$V4_AUTHORITY" '"readBackCorrectionRequiredFirst"'
+require_text "$V4_AUTHORITY" 'scripts/native_shadow_successor_root_disk_readback_arm64_v2.py'
+require_text "$V4_AUTHORITY" 'native-shadow-boot-rootfs-source-lock-arm64-v2.json'
+require_text "$V4_AUTHORITY" '"resultDocument": "SUCCESSOR-ROOT-DISK-READBACK.json"'
+require_text "$V4_AUTHORITY" '"uploadsItMay"'
+require_text "$V4_AUTHORITY" 'successor-preflight-result'
+require_text "$V4_AUTHORITY" 'upload a kernel, an initrd, a root disk or the consumed-attempt marker'
+forbid_text "$V4_AUTHORITY" '"upload an artifact"'
+require_text "$V4_AUTHORITY" '"inheritedFromTheSecondAuthority"'
+require_text "$V4_AUTHORITY" '"inheritedFromTheThirdAuthority"'
+require_text "$V4_AUTHORITY" '"leftByteUnchanged": true'
+require_text "$V4_AUTHORITY" '"bootableClaim": false'
+require_text "$V4_AUTHORITY" '"servingClaim": false'
+require_text "$V4_AUTHORITY" '"imageProducedClaim": false'
+require_text "$V4_AUTHORITY" '"activationAllowed": false'
+require_file "$V4_FINGERPRINT"
+require_text "$V4_FINGERPRINT" '"status": "PRODUCER-SEALED-NOT-RUN"'
+require_text "$V4_FINGERPRINT" '"attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V4-ATTEMPT-1"'
+require_text "$V4_FINGERPRINT" 'scripts/native_shadow_successor_produce_phase_arm64_v2.py'
+require_text "$V4_FINGERPRINT" 'scripts/native-shadow-successor-produce-arm64.sh'
+require_text "$V4_FINGERPRINT" '.github/workflows/native-shadow-successor-produce-arm64.yml'
+require_text "$V4_FINGERPRINT" 'scripts/native_shadow_successor_root_disk_readback_arm64_v2.py'
+require_text "$V4_FINGERPRINT" 'scripts/test_native_shadow_successor_root_disk_readback_arm64_v2.py'
+require_text "$V4_FINGERPRINT" '"imageProducedClaim": false'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'native-shadow-mac3-successor-production-authority-arm64-v4.json'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class FourthAuthorityTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ThirdProducerFingerprintTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'def test_the_totals_are_the_rows_added_up'
 
 printf 'docs-smoke: PASS\n' >&2

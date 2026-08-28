@@ -4438,3 +4438,75 @@ exist, boot or serve. No production was dispatched, no marker was written, no
 budget was granted or spent, and no clean-Mac canary, VM boot, real release
 build, production key, public mining, paid API benchmark, user installation or
 activation occurred.
+
+## 48. The fourth authority (2026-08-29)
+
+The correction in §47 repaired a wire and granted nothing. This section is the
+grant: one further successor arm64 image production, dispatched exactly once,
+written down before it runs.
+
+**What the numbers say, and why they are two numbers.** The production workflow
+has been dispatched three times. One of those dispatches was refused inside the
+isolation before any output file existed and was ruled unspent; two went past
+the marker and are spent. A dispatch and a spent attempt are not the same event,
+and the authority now counts them separately: `priorWorkflowDispatches` 3,
+`priorUnspentDispatches` 1, `priorProductionAttemptsSpent` 2,
+`productionAttemptsRemainingBeforeThisGrant` 0,
+`productionAttemptsGrantedHere` 1, `bootAttemptsUsed` 0,
+`priorOfficialImages` 0. The two diagnostic replicas the third attempt left are
+still unqualified and still not adoptable. Every one of those totals is
+re-derived in the gate from the three detail rows it summarises, so a summary
+that drifted from its detail would fail rather than read plausibly.
+
+**What is newly bound.** The read-back consumer and the lock it is paired with.
+The third attempt failed because the stage that judges the image was outside
+everything that was sealed: the wrapper called whichever module it named, and no
+pin noticed that the module read the other generation's baseline. The authority
+now names the consumer, its digest, the source lock, the lock's digest and the
+result document, and the producer fingerprint seals the consumer and its gate
+alongside the wrapper, the workflow, the phase and the frozen helper.
+
+**A contradiction found while writing it.** The third authority forbade the
+preflight to "upload an artifact", while the preflight legitimately uploads a
+small JSON document saying it produced nothing. Read literally the rule banned
+the evidence along with the image. The fourth authority names what is actually
+forbidden — a kernel, an initrd, a root disk or the consumed-attempt marker —
+and names the one upload that is allowed.
+
+**A budget claim moved off the call graph.** The preflight's "produced nothing"
+step now also asks the filesystem whether the consumed-attempt marker exists,
+with the marker's name read out of the phase rather than written down a second
+time. That the preflight cannot reach the code that writes it was already
+checked; a look at the disk is cheaper to keep true than a reading of the code.
+
+**The direction of the binding is unchanged.** The module pins the authority's
+digest, so the authority pins neither the module nor the gate — directly or
+through any record that carries them. It names the producer fingerprint by path
+only. The fingerprint points at the authority; nothing points back.
+
+**What was not re-sealed, again.** The third producer fingerprint. It still pins
+the bytes that produced the third attempt, and the three files that have moved
+since are each declared in exactly one place: the gate in the third hard-stop
+record, the wrapper in the correction record, the workflow in this authority.
+
+### 48.1 Execution cursor after the fourth authority
+
+```text
+SUCCESSOR-IMAGE-PRODUCTION  1 ATTEMPT AUTHORISED / NOT DISPATCHED
+SUCCESSOR-IMAGE-ROOT-CAUSE  RESOLVED — read-back read the predecessor lock
+SUCCESSOR-IMAGE-REPAIR  MERGED — wire corrected under its own review
+SUCCESSOR-IMAGE-AUTHORITY  V4 SEALED — runsAllowed 1, runsPerformed 0
+SUCCESSOR-IMAGE-PREFLIGHT  NOT RUN — free, creates no marker and no image
+GUEST-BOOT  NOT STARTED — 0 boot attempts used, boot budget untouched
+MAC.4  NOT STARTED — does not begin automatically
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — release gate retained
+MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
+```
+
+The cursors in §46.1 and §47.1 are left as they were written; this one is added
+beside them. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation `false` and `activationAllowed=false` remain unchanged. No image
+is claimed to exist, boot or serve. No production was dispatched, no marker was
+written, no attempt was spent, and no clean-Mac canary, VM boot, real release
+build, production key, public mining, paid API benchmark, user installation or
+activation occurred.

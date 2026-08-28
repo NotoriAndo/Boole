@@ -79,15 +79,17 @@ GUEST_BOOT_VERIFIED = False
 
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
 CONTAINMENT = REPOSITORY_ROOT / "native/containment"
-# The third authority: one further attempt, granted after two dispatches under
-# the second -- one refused before it could spend anything, one spent.  The
-# second is not edited and not repointed; it is bound by digest in the table
-# below, along with the two records that count those dispatches, so a run that
-# would need any of them changed stops instead.
+# The fourth authority: one further attempt, granted after three dispatches --
+# one refused before it could spend anything, two spent.  The third spent itself
+# on a read-back that compared a successor image against the predecessor's
+# source lock, which is a wire and not a builder, and the wire is corrected.
+# Neither earlier authority is edited or repointed; both are bound by digest in
+# the table below, along with every record that counts those dispatches, so a
+# run that would need any of them changed stops instead.
 AUTHORITY_PATH = (
-    CONTAINMENT / "native-shadow-mac3-successor-production-authority-arm64-v3.json"
+    CONTAINMENT / "native-shadow-mac3-successor-production-authority-arm64-v4.json"
 )
-AUTHORITY_SHA256 = "4b9309146ebf05adbd064b2604c5d6693585e30a9a5550eece601d41b9cd282b"
+AUTHORITY_SHA256 = "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc"
 SOURCE_LOCK_PATH = CONTAINMENT / "native-shadow-boot-rootfs-source-lock-arm64-v2.json"
 SOURCE_LOCK_SHA256 = "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f"
 SOURCE_LOCK_RELEASE = (

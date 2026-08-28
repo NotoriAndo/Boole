@@ -3445,3 +3445,73 @@ attempts spent, none remaining, no boot attempts used, no official images, and
 the two diagnostic replicas still not adoptable. Nothing here claims an image
 exists, boots or serves, and no consensus, reward, activation or peer-to-peer
 path is touched.
+
+### The fourth authority (2026-08-29)
+
+The correction above repaired a wire and authorised nothing. This is the grant
+that follows it: one further successor arm64 image production, dispatched
+exactly once, sealed before it runs.
+
+**Accounting, counted twice and made to agree.** Three workflow dispatches, of
+which one was refused inside the isolation before any output file existed and
+was ruled unspent, and two went past `ATTEMPT-CONSUMED.json` and are spent. The
+authority states those as `priorWorkflowDispatches` 3,
+`priorUnspentDispatches` 1, `priorProductionAttemptsSpent` 2,
+`productionAttemptsRemainingBeforeThisGrant` 0 and
+`productionAttemptsGrantedHere` 1, with `bootAttemptsUsed` 0,
+`priorOfficialImages` 0 and the two diagnostic replicas still unqualified and
+not adoptable. It also carries one detail row per dispatch, each bound to the
+record that documents it by digest, and the gate re-derives every total from
+those rows. A summary is only worth what the detail behind it says.
+
+| dispatch | record | spent |
+| --- | --- | --- |
+| second authority, attempt 1 | hard-stop v1 + budget ruling v1 | no |
+| second authority, attempt 1 (re-dispatch) | hard-stop v2 | yes |
+| third authority, attempt 1 | hard-stop v3 + result v3 + diagnosis v3 | yes |
+
+**The judge is inside the seal now.** `production.readBack` names the successor
+consumer, its digest, the successor source lock, the lock's digest and the
+result document `SUCCESSOR-ROOT-DISK-READBACK.json`, and states that a failed
+read-back can never yield a qualified set. The producer fingerprint seals seven
+files rather than five: the phase, the wrapper, the workflow, the phase gate,
+the frozen helper, and now the read-back consumer and its own gate. A producer
+sealed without the thing that judges its output is only half sealed, and the
+third attempt is what that costs.
+
+**The preflight rule said more than it meant.** The third authority's
+`preflight.mustNeverDo` included "upload an artifact", while the preflight job
+uploads `successor-preflight-result` — a single JSON document whose entire
+content is a statement that nothing was produced. The fourth authority replaces
+that line with "upload a kernel, an initrd, a root disk or the consumed-attempt
+marker", adds `uploadsItMay` naming the one permitted artifact and its one
+permitted file, and adds `uploadsItMayNot` naming the three production artifact
+prefixes. The prohibition is unchanged in substance and now says what it means.
+
+**"Produced nothing" is asked of the disk.** The step that makes that claim
+already searched the runner's temporary tree for the three output names, read
+out of the producer authority. It now also searches for the consumed-attempt
+marker, with the name read out of the phase module. The three names are what a
+production makes; the marker is what a production spends, and a budget claim
+that rested on reading the call graph now rests on looking at the filesystem.
+
+**One-way binding, unchanged.** The phase module pins `AUTHORITY_SHA256`, so the
+authority pins neither the module nor its gate, directly or through any record
+that carries their digests, and a test reads the authority's raw text to confirm
+neither digest appears anywhere in it. The authority names the producer
+fingerprint by path and records why it carries no digest for it; the fingerprint
+carries the authority's digest. Written in that order, both statements are
+checkable and neither has to be written twice.
+
+**Three moved pins, three separate declarations.** The third producer
+fingerprint is still not re-sealed. The phase gate's move is declared in the
+third hard-stop record, the wrapper's in the correction record, and the
+workflow's in this authority — one file, one declaration, and the gate refuses
+two records that claim the same move.
+
+**What this authorises, and what it does not.** One dispatch. No workflow rerun,
+no failed-job rerun, no replica dispatched by hand, and no retry once the marker
+exists. It does not authorise booting the produced image, starting MAC.4,
+connecting a node, or any testnet, public mining, reward, block, consensus or
+peer-to-peer activation. `bootableClaim`, `servingClaim`, `imageProducedClaim`
+and `activationAllowed` stay `false` whatever the run returns.
