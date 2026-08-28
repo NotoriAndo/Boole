@@ -2333,3 +2333,117 @@ source lock was edited, and the launcher seal is unmoved. No tree was assembled,
 image produced, no production dispatched and no boot performed. Serving is not
 claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation
 false and activationAllowed=false are unchanged.
+
+### 13.16 Boot rootfs builder staging table addendum (2026-08-28)
+
+The fourth and last of the four ordered steps. `validate_source_lock` in the
+frozen builder compares a lock's authority bindings against
+`EXPECTED_AUTHORITY_FILES` exactly and in both directions, refusing a mismatch
+with `authority binding identity/source set differs`, and compares the tracked
+rows' `sourcePath`/`logicalPath` pairs the same way. That table named ten entries
+while the sealed successor lock names fifteen, so nothing could read the lock the
+third step sealed.
+
+Two modules widen it.
+
+`scripts/native_shadow_rootfs_builder_boot_arm64_v2.py` projects
+`native_shadow_rootfs_builder_boot_arm64_v1.py` a fourth time. It pins the
+predecessor at `a5dd54198878473c162ec306fbccd6edac8b22f036d9cf84d244b5f010f96d87`
+and calls the predecessor's `_derived_source()`, so the source it executes is the
+source the predecessor executes. `BOOT_AUTHORITY_FILES` is
+`dict(boot_v1.BOOT_AUTHORITY_FILES, **SUCCESSOR_AUTHORITY_FILES)`: four
+predecessor rows, seven successor rows, nine after the two superseded ids merge,
+and fifteen tracked files once the six inherited from the arm64 layer are counted.
+The five account rows are `guest-passwd`, `guest-shadow`, `guest-group`,
+`guest-gshadow` and `guest-nsswitch`, each mapping `native/etc/<file>` to
+`/etc/<file>`. The two superseded rows keep the predecessor's guest paths and name
+the `-v2` sources.
+
+`scripts/native_shadow_rootfs_portable_boot_arm64_v2.py` projects the release
+gate. `materialize_runtime_lock` accepts exactly one `SOURCE_LOCK_RELEASE`, and
+the predecessor projection names the predecessor boot lock's release, so it raised
+`PortableAuthorityError: portable source lock identity differs` on the sealed
+successor before the builder was reached. The successor's `REPLACEMENTS` move that
+one string and repoint three module references at the v2 builder, with expected
+counts of 1 and 3 asserted at projection time. `PORTABLE_V2_DERIVED_ENTRIES` is
+inherited by identity so the x86-only loader alias stays dropped. The predecessor
+is pinned at `4598e73f9389f41d739edb59660b69b99376a7be1788af24406a58b64d6e0a62`.
+
+The namespace is re-executed rather than copied. Functions compiled into the
+projected namespace resolve `EXPECTED_AUTHORITY_FILES` through the globals dict
+they were compiled with, so rebinding it in a shallow copy would leave every
+function reading ten while the module attribute reported fifteen.
+`RECOMPUTED_INJECTIONS` names the three recomputed from the wider tables
+(`EXPECTED_AUTHORITY_FILES`, `EXPECTED_PROVENANCE_CLOSURE_ROOTS`,
+`REQUIRED_PROVENANCE_CLOSURES`) and `INHERITED_INJECTIONS` the nine reused by
+identity. `_assert_injection_accounting()` parses the predecessor's own source for
+`^_IMPL\["(\w+)"\] = ` and raises `BootSuccessorProjectionError` unless the parsed
+set equals the union of the two, so a tenth injection there fails at import here.
+
+`validate_source_lock` restates the predecessor's closure-sortedness guard rather
+than inheriting it, because the predecessor's version ends by calling its own
+narrower namespace. It raises the predecessor's `BootProjectionError` class,
+shared by binding rather than redefined, so a caller catching the predecessor's
+class still catches it;
+`test_an_unsorted_closure_is_refused_with_the_predecessors_words` requires both
+modules to raise the same class with byte-identical messages. `RootfsBuildError`
+is not shared: each projection layer keeps its own, and a test records that.
+
+Measured end to end with no artifact store, so no package is hashed. The sealed
+lock is passed through `portable_v2.materialize_runtime_lock`, then
+`boot_v1.normalized_runtime_lock`, then validation:
+
+| builder | refusal |
+| --- | --- |
+| `native_shadow_rootfs_builder_boot_arm64_v1` | `authority binding identity/source set differs` |
+| `native_shadow_rootfs_builder_boot_arm64_v2` | `complete source lock needs an artifact store` |
+
+The second is raised after the binding-identity and tracked-path comparisons pass,
+so reaching it establishes that the sealed lock's source shape is accepted in
+full. `complete` is derived from lock content rather than the `require_complete`
+flag: once `zstdPath` is present the lock is complete, which is why the check is
+reachable without hashing anything.
+
+`NESTED_RUNTIME_TREE` declares `guestPrefix`
+`/var/lib/boole/native-shadow/runtime-rootfs`, `contentManifestGuestPath`
+`/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json` at mode `0444`,
+`contentManifestSha256`
+`200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa`,
+`contentManifestSizeBytes` 1285116, the driving runtime lock at
+`829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0`, and
+`layerSizeBytes` 766556160 with `layerSizeBytesIsAMeasuredTotal` false.
+`nested_content_manifest` derives the document through the *runtime* builder's
+`_entry_manifest`, not this one: the manifest records each entry's closure names,
+and under the boot five it would name five where the launcher expects the runtime
+three. `nested_tree_entries` re-roots each entry under the prefix — a symlink
+keeps its `target` text and moves its `resolvedTarget`, a hardlink moves its
+`target` — and places the manifest beside the tree, refusing a collision. Passing
+`sha256=None` derives without comparing and is for reading the shape, never for a
+build.
+
+Nothing merges that tree into `build_oci_layout`.
+`test_the_nested_tree_is_not_merged_into_a_build_yet` asserts the not-merged state
+and `NESTED_RUNTIME_TREE_ASSEMBLED` is false, because the sealed plan requires the
+assembled byte and entry totals to be measured immediately before assembly.
+
+`test_the_fourth_step_has_not_run` in §13.15 is superseded here on the terms it
+set for itself. Its assertions are kept under
+`test_the_fourth_step_widened_the_table_without_editing_this_one`: the predecessor
+projection still holds exactly its four rows with the predecessor sources staged
+and no account file present, which is why the lock the third step sealed still
+validates against it. `test_the_widened_table_lives_in_the_successor_projection`
+names where the fifteen went, and a dated note in that gate's module docstring
+records the supersession. The step-three gate is 27 tests as a result, superseding
+the count of 26 recorded in §13.15.
+
+Forty-two tests in the step-four gate, registered in self-test; 191 across the
+four chain gates together. Both predecessor digests, the account sources, the two
+superseded sources, the nested-tree constants, the four boundary flags, the
+step-four gate's named tests and the supersession note are pinned in docs-smoke.
+
+No frozen builder, existing projection, launcher source file, existing generator
+or sealed source lock was edited, and the launcher seal is unmoved. No package was
+downloaded or hashed. No tree was assembled, no image produced, no production
+dispatched and no boot performed. Serving is not claimed. mineable_now=0,
+REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and
+activationAllowed=false are unchanged.

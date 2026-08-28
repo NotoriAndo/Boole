@@ -12,6 +12,16 @@ is not edited by this step -- its digest is pinned too, and the sealed result
 document must agree with it. What the sealed documents say is checked against what
 the tool computes now, so a later edit to any input moves a digest and fails here
 instead of quietly producing a different lock under the same name.
+
+2026-08-28 addendum: the fourth step ran, so ``test_the_fourth_step_has_not_run``
+is superseded here on the terms it set for itself. It required a step-four gate to
+carry the widened table rather than a relaxation in this file, and that is what
+happened -- the fifteen rows and their digests are gated by
+``scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py``. What stays here is
+the half the fourth step did not move: the predecessor projection this step's
+sealed lock was measured against still holds its four rows and its own bytes. The
+test keeps its assertions under a name that now says what they mean, and a second
+test names where the widened table went.
 """
 from __future__ import annotations
 
@@ -27,6 +37,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts import native_shadow_boot_rootfs_source_lock_arm64_v2 as tool
 from scripts import native_shadow_guest_init_compatibility_arm64_v1 as guest_init
 from scripts import native_shadow_rootfs_builder_boot_arm64_v1 as builder
+from scripts import native_shadow_rootfs_builder_boot_arm64_v2 as successor_builder
 
 CONTAINMENT = REPO_ROOT / "native" / "containment"
 
@@ -286,11 +297,17 @@ class ChainPositionTests(Fixture):
         self.assertFalse(self.result["boundaries"]["imageBuilderAuthorityPresent"])
         self.assertEqual(self.result["bootArtifactsWritten"], 0)
 
-    def test_the_fourth_step_has_not_run(self):
-        """The builder's staging table still names four files, not fifteen.
+    def test_the_fourth_step_widened_the_table_without_editing_this_one(self):
+        """Superseded 2026-08-28 by the fourth step, as this test's own terms required.
 
-        When the fourth step grows it, the right move is a step-four gate that
-        supersedes this test with the new table -- not a quiet relaxation here.
+        It asked for the widened table to arrive in a step-four gate rather than
+        as a relaxation here, so what it now holds is the half that step could not
+        move: the predecessor projection still names its four files with the
+        predecessor sources staged and no account file present, which is why the
+        lock this step sealed goes on validating against it.
+
+        The widened fifteen and the digests that pin it are checked by
+        ``scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py``.
         """
 
         self.assertEqual(
@@ -303,6 +320,25 @@ class ChainPositionTests(Fixture):
             self.assertNotIn(record["newSource"], staged)
         for account in ("native/etc/passwd", "native/etc/group"):
             self.assertNotIn(account, staged)
+
+    def test_the_widened_table_lives_in_the_successor_projection(self):
+        """The five account rows and both superseded sources are staged there."""
+
+        successor = {
+            source: logical
+            for source, logical in successor_builder.BOOT_AUTHORITY_FILES.values()
+        }
+        for record in SUPERSEDED.values():
+            self.assertNotIn(record["oldSource"], successor)
+            self.assertEqual(successor[record["newSource"]], record["guestPath"])
+        for account, guest_path in (
+            ("native/etc/group", "/etc/group"),
+            ("native/etc/gshadow", "/etc/gshadow"),
+            ("native/etc/nsswitch.conf", "/etc/nsswitch.conf"),
+            ("native/etc/passwd", "/etc/passwd"),
+            ("native/etc/shadow", "/etc/shadow"),
+        ):
+            self.assertEqual(successor[account], guest_path)
 
 
 if __name__ == "__main__":

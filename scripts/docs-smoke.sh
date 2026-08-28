@@ -1151,9 +1151,54 @@ require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.
 require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py 'SEALED_RESULT_SHA256 = "0542978a6c49287b27c46a836ae3c1aa548d61e4e065b345ebccbb8d8821dedd"'
 require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py 'GENERATOR_SHA256 = "8218db5cba96440a78bb7cc88edec54f0edb1110684150d1964378f681369b9d"'
 require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py 'def test_the_frozen_contract_still_refuses_the_sealed_lock_itself'
-require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py 'def test_the_fourth_step_has_not_run'
+require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py 'def test_the_fourth_step_widened_the_table_without_editing_this_one'
 require_text scripts/test_native_shadow_boot_rootfs_source_lock_arm64_v2.py 'Superseded on 2026-08-28 by the third step'
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py
+
+# The fourth of the four ordered steps: the builder's staging table, widened by
+# projection rather than by edit. The predecessor keeps its bytes and its four
+# boot rows, so the lock it was written for still validates against it, and its
+# digest is pinned inside the successor -- an edit there fails here instead of
+# being projected onward. The successor runs the same builder a second time with
+# nine boot rows, fifteen tracked files in total.
+#
+# The release gate moved too, and had to. It accepts exactly one release string,
+# so the sealed successor lock was refused there before the widened table was
+# ever reached; widening which lock is accepted is not accepting both, so the
+# predecessor release is refused by the successor exactly as the successor
+# release is refused by the predecessor.
+#
+# The nested runtime tree is declared at the content-manifest digest the launcher
+# compiles against and deliberately not merged into a build: the sealed plan
+# requires the assembled totals to be measured rather than bounded, and that
+# measurement is taken immediately before assembly. The gate asserts the
+# not-merged state so it cannot be mistaken for done.
+require_file scripts/native_shadow_rootfs_builder_boot_arm64_v2.py
+require_file scripts/native_shadow_rootfs_portable_boot_arm64_v2.py
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v2.py 'BOOT_V1_SHA256 = "a5dd54198878473c162ec306fbccd6edac8b22f036d9cf84d244b5f010f96d87"'
+require_text scripts/native_shadow_rootfs_portable_boot_arm64_v2.py '"4598e73f9389f41d739edb59660b69b99376a7be1788af24406a58b64d6e0a62"'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v2.py 'BOOTABLE_CLAIM = False'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v2.py 'ACTIVATION_ALLOWED = False'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v2.py 'NESTED_RUNTIME_TREE_ASSEMBLED = False'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v2.py '"native/etc/passwd",'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v2.py '"native/etc/shadow",'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v2.py '"native/systemd/boole-native-shadow-launcher-v2.service",'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v2.py '"native/tmpfiles.d/boole-native-shadow-v2.conf",'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v2.py '"guestPrefix": "/var/lib/boole/native-shadow/runtime-rootfs"'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v2.py '"200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa"'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v2.py '"contentManifestSizeBytes": 1285116'
+require_text scripts/native_shadow_rootfs_builder_boot_arm64_v2.py '"layerSizeBytesIsAMeasuredTotal": False'
+require_text scripts/native_shadow_rootfs_portable_boot_arm64_v2.py 'BOOTABLE_CLAIM = False'
+require_text scripts/native_shadow_rootfs_portable_boot_arm64_v2.py 'ACTIVATION_ALLOWED = False'
+require_file scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py
+require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py 'def test_the_predecessor_builder_table_is_left_at_ten'
+require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py 'def test_the_predecessor_builder_refuses_the_successor_lock'
+require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py 'def test_the_successor_builder_passes_every_source_shape_check'
+require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py 'def test_an_unsorted_closure_is_refused_with_the_predecessors_words'
+require_text scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py 'def test_the_nested_tree_is_not_merged_into_a_build_yet'
+require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py '2026-08-28 addendum: the fourth step ran'
+require_text scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py 'def test_the_widened_table_lives_in_the_successor_projection'
+require_text scripts/self-test.sh scripts/test_native_shadow_rootfs_builder_boot_arm64_v2.py
 
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
@@ -1270,9 +1315,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "4d625666d325b3ac9daf6660a23ae20ea1793f1133c28f3871a1001c79c0d821"
-require_text docs/native-submission-shadow-verification-v1.md "a3bd561ca37b0c37a1756138e01bfa66ae544074269e08ad7e071b722acee203"
-require_text docs/native-submission-shadow-verification-v1.md "860ea69a343b0dae946f59f4eab3ff326cf7bbfa40d757e359395eade034cfd8"
+require_text docs/native-submission-shadow-verification-v1.md "954e558ba499534e42f332d67eb9083149d05fca51d555483f1b882358cbf4db"
+require_text docs/native-submission-shadow-verification-v1.md "a5ddab8ee725f5ab00e00996a1983518e70dd027c14496f0149f3043dd8d569a"
+require_text docs/native-submission-shadow-verification-v1.md "abbd61fcc67d3a75c31022959cfd1743ac7e5c87db9edeedf5429ea00ffa18af"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
