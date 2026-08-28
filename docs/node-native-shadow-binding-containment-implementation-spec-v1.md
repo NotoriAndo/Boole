@@ -2759,3 +2759,120 @@ package was downloaded and none was re-hashed. No sealed record, launcher source
 launcher seal, frozen builder, existing projection or existing workflow was
 modified. Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD,
 BF.7=HOLD, Base activation false and activationAllowed=false are unchanged.
+
+### 13.20 Enablement and evidence addendum (2026-08-28)
+
+Two of the sealed authority's `preflight.passRequires` clauses were not actually
+answered by the code written against them. Both are now.
+
+**Enabled is a symlink, not a directive.** `passRequires` says the v2 unit must be
+"present, enabled, and carries console output on both streams". The check read
+`WantedBy=multi-user.target` from the unit text. That directive is what
+`systemctl enable` consults; what systemd reads at boot is
+`/etc/systemd/system/multi-user.target.wants/boole-native-shadow-launcher.service`.
+The successor source lock stages exactly that symlink as a derived entry —
+`target` the unit's guest path, mode `0777`, uid and gid 0 — and nothing checked
+it. `assert_launcher_enabled` now requires it: present, `kind == "symlink"`,
+pointing at `LAUNCHER_UNIT_GUEST_PATH`, root-owned, at the staged mode. It is
+called from `assert_launcher_unit`, so the shared assembler enforces it on the
+production run as well, on the free side of the budget boundary. Five refusals
+cover it, and a sixth reads the expected shape out of the lock's own
+`derivedEntries` rather than out of the module.
+
+**The result now carries findings, not the absence of an exception.**
+`gap_evidence(entries, destination)` reads the three closed gaps back off the
+written staging tree — which is what `preflight.performs` asks for when it says
+"read the three closed gaps back out of the assembled tree rather than out of the
+declarations naming them", the entry table being a declaration too. It records
+each account file's mode, size and digest as found; the unit's digest, its seven
+required directives and its four bounding capabilities as found; the enablement
+link's target as found; and the manifest's digest, size and mode as found. Any
+disagreement with a seal is a refusal, phrased as being about the *written* file
+so the message distinguishes "the table was wrong" from "the writer did something
+else". Ownership is not read from disk — `write_staging_tree` states it cannot
+reproduce ownership off root, so a uid from that tree would be the preflight's own
+user; the recorded uid and gid come from the entry the image writer copies from,
+and a test asserts the function never mentions `st_uid` or `st_gid`.
+
+`provenance(...)` supplies the clause about "the full provenance": the SHA-256 of
+every module this path reads code out of, hashed from the file at call time, plus
+this module's own; the authority, source lock, measurement and launcher build
+result digests; the resolved `gpgv` and `zstd` paths; the repository root and
+artifact store; and the host's sysname, machine, kernel release and Python
+version. Both blocks are keys in the document `preflight` returns, so the digest
+of the sealed result covers them.
+
+`produce` was deliberately left without the disk-side readback. It runs the same
+three assertions on the same entry table through the same assembler, before
+`outputs.mkdir`, so the gaps are enforced where a refusal is free; a second
+readback after that line would only create new ways to fail on the side of the
+boundary where failure spends the single attempt.
+
+**Coverage after the addendum.** 130 tests, still every one a refusal or a shape
+assertion, each RED before GREEN. Forty docs-smoke pins over the phase, the
+wrapper and the workflow. The local macOS assembly figure in 13.19 is unchanged
+and remains what it was: evidence of wiring on the wrong operating system and
+architecture, not the arm64 Linux preflight the authority requires.
+
+No image was produced, no production was dispatched and no boot was performed.
+Production attempts 0, boot attempts 0, `runsPerformed=0`. No package was
+downloaded and none was re-hashed. No sealed record, launcher source, launcher
+seal, frozen builder, existing projection or existing workflow was modified.
+Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD,
+Base activation false and activationAllowed=false are unchanged.
+
+### 13.21 Preflight dispatch addendum (2026-08-28)
+
+The successor workflow was dispatched in `preflight` mode for the first time
+(run 33156573907, `ubuntu-24.04-arm`) and refused at its fourth step, before any
+assembly:
+
+```
+ci-payload-acquire: cargo-rustdist is absent from the store;
+it is fetched by scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py,
+which runs before this one
+```
+
+**What it was.** The `produce` job acquires the frozen Rust distribution and then
+the package payloads. The `preflight` job had only the second of the two, so the
+store it would have assembled from was not the store the production assembles
+from. The package acquirer refuses an incomplete store and names the tool that
+fills it, so the run stopped rather than measuring a tree built from different
+inputs.
+
+**Where it landed.** On the free side of the budget boundary. No staging tree was
+assembled, no output directory was created, no artifact was uploaded and no part
+of the single allowed production was consumed. `runsPerformed` stays 0 and both
+successor result paths stay absent. The preflight is declared repeatable by the
+authority (`preflightIsRepeatable: true`), and this is the case that declaration
+exists for.
+
+**What now holds it.** `WorkflowAcquisitionTests`, six tests, each RED against the
+workflow as dispatched:
+
+| Test | What it refuses |
+| --- | --- |
+| production acquires both staging inputs | a production that stops depending on runner state |
+| preflight acquires every staging input the production does | the asymmetry that fired here |
+| each job acquires the toolchain before the packages | the order that turns a fillable store into a stop |
+| preflight acquires before it assembles | measuring a store filled afterwards |
+| preflight does not fetch the image writer | an image tool entering the no-output mode |
+| production does fetch the image writer | a production that cannot write |
+
+The ext4 writer set is deliberately outside the symmetry: it is the tool that
+writes the image, not an input the staging tree reads. The jobs are read out of
+the workflow by indentation rather than through a YAML parser — the gate must
+pass on a runner that is not promised one, and the only question asked is which
+lines belong to which job.
+
+**What was added to the workflow.** The production's acquisition step, unchanged,
+including its re-proof: the sealed acquisition record is removed, regenerated from
+the frozen identities and required by `git diff --exit-code` to return byte for
+byte. Archives already in the content-addressed store are verified in place and
+never re-fetched, so a warm store issues no request; a fresh runner fetches the
+same three archives the production path already fetches.
+
+Coverage after this addendum: 136 tests in the successor phase gate, 130 of them
+refusals. Forty-two docs-smoke pins. No sealed record, launcher source, launcher
+binary, predecessor module, predecessor workflow or predecessor result was
+touched. Producing is not booting and booting is not serving; neither is claimed.

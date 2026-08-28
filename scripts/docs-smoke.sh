@@ -1351,6 +1351,24 @@ require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '"Standar
 require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '"CAP_SYS_ADMIN"'
 require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '"bootableClaim": BOOTABLE_CLAIM'
 require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '"servingClaim": SERVING_CLAIM'
+# `WantedBy=` inside the unit is a request; systemd acts on the wants link. A
+# tree with the unit and without the link holds a launcher that is installed and
+# never started, which is indistinguishable from a working image until it boots.
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'LAUNCHER_UNIT_ENABLEMENT_GUEST_PATH'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '/etc/systemd/system/multi-user.target.wants/boole-native-shadow-launcher.service'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'def assert_launcher_enabled'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'the unit is installed and never started'
+# The three gaps are read back off the tree the writer produced, not off the
+# table it was handed. Ownership is deliberately not among them: a preflight that
+# is not root cannot reproduce it, so a uid read there is whoever ran it.
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'def gap_evidence'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'the written staging tree has no'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '"gapEvidence": gaps'
+# What the sealed result has to carry for a later reader to trace it back to the
+# exact text that produced it.
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'def provenance'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'PROVENANCE_MODULES'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py '"provenance": provenance('
 
 # The wrapper. The staging tree is built on a tmpfs this file mounts and the
 # phase runs inside the transient unit the sealed producer authority prints, so
@@ -1372,6 +1390,13 @@ require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'Requir
 require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'sudo ./scripts/native-shadow-successor-produce-arm64.sh'
 require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'replica: [1, 2]'
 require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'Require the two independent runs to agree byte for byte'
+# Both modes fill the store the same way. The first run of the preflight found
+# this missing from it: the package acquirer refuses a store without the three
+# distribution archives, so the no-output mode stopped before it assembled
+# anything -- on the free side of the budget line, which is where a wiring gap
+# is supposed to land.
+require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'Acquire the frozen Rust distribution and re-prove its sealed record'
+require_text .github/workflows/native-shadow-successor-produce-arm64.yml 'the production would never have had'
 # The two prose records of the same wiring, held so that the code can change only
 # alongside the account of it. The local assembly is pinned as what it is -- the
 # wrong operating system and architecture -- because that is the sentence a later
@@ -1380,6 +1405,16 @@ require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "assert_preflight_creates_no_outputs"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "successor production path = WIRED-NOT-RUN"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "The tests were richer than reality"
+# The addendum that found what the first pass did not ask: enablement is a
+# symlink, and a result that raised no exception is not evidence.
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Enablement and evidence addendum"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "the wants symlink is now required, not inferred"
+# The first dispatch, and the asymmetry it refused on. Held in prose because the
+# run identifier is the only place the refusal itself survives -- the workflow log
+# expires, the sealed result was never written, and the fix on its own reads like
+# a step somebody happened to add.
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Preflight dispatch addendum"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "successor preflight = DISPATCHED-ONCE / REFUSED-BEFORE-ASSEMBLY / RE-RUNNABLE"
 
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
