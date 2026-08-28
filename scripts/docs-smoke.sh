@@ -1059,6 +1059,38 @@ require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-g
 require_text native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json 'not a behavioural test'
 require_text scripts/self-test.sh scripts/test_native_shadow_mac3_condition_4_descent_refusal_gate_arm64_v1.py
 
+# The first of the four ordered steps that close the three serving gaps. It
+# names files and nothing more, so the pins here are mostly about what it did
+# NOT do: no lock, no tree, no builder change, no image, no production, no boot.
+# The counts are pinned because the whole point of the step is which files the
+# next three steps operate on, and the manifest's not-a-tracked-row decision is
+# pinned because it refines what the closure plan asked for rather than
+# following it silently.
+require_file native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"status": "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"lockGenerated": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"treeAssembled": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"builderChanged": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"imageProduced": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"productionDispatched": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"bootPerformed": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"activationAllowed": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"trackedFileCountBefore": 10'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"trackedFileCountAfter": 15'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"addedTrackedSources": 5'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"supersededTrackedSources": 2'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"predecessorLeftInTree": true'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"leftByteUnchanged": true'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"state": "declared-not-assembled"'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"requiresBuilderChange": true'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"isATrackedSourceRow": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"earlierRecordEdited": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"wouldHaveBeenAHardStop": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"isAMeasurementOfTheAssembledTree": false'
+require_text native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v2.json '"mustBeRemeasuredImmediatelyBeforeAssembly": true'
+require_file scripts/test_native_shadow_boot_rootfs_source_lock_plan_arm64_v2.py
+require_text scripts/self-test.sh scripts/test_native_shadow_boot_rootfs_source_lock_plan_arm64_v2.py
+
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
 # the three the console named because it comes from the guest's own systemd --
@@ -1174,10 +1206,12 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "e73e73352172711c65058f221df7652bc6e7c63fd13a959a6659c8bd2b68870d"
-require_text docs/native-submission-shadow-verification-v1.md "a2c1d9d523941cd486eca11f41ac9725e20f1d02e6a31622c9ac16ca270bbcf7"
-require_text docs/native-submission-shadow-verification-v1.md "b4c942b71795babcc8baf89db3672e40e8276ab46782d5e18ad883cd78bd53cf"
+require_text docs/native-submission-shadow-verification-v1.md "626b4525bf11ff4d76e36fd8c7f8f1f84f6c934af4de58f77e22e6b0addf455d"
+require_text docs/native-submission-shadow-verification-v1.md "33570ef1db9d695b1de0b623a4fc1280aaa31737e718cfac51a1c0f1b737e899"
+require_text docs/native-submission-shadow-verification-v1.md "1e01888c5057f2773fcd614175ebba6678561bbcca1958a3d2147e762971aabb"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "That sentence stays as written."
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "necessary but not sufficient"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "staged-inode-ctime-is-not-fs-now"

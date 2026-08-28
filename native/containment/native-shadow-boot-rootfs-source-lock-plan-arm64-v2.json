@@ -1,0 +1,712 @@
+{
+  "activationAllowed": false,
+  "appendOnly": {
+    "note": "Nothing sealed is edited. The predecessor plan keeps its bytes, the two superseded source files stay in the tree at their sealed digests, and the guest-init contract keeps the clause this record disagrees with. Succession is by new file only.",
+    "recordsLeftByteUnchanged": [
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v1.json",
+        "sha256": "c047c20144167a4f28f222c4026a33e2d70b89340ee13cba79c207b7c92dc583",
+        "sizeBytes": 14099
+      },
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+        "sha256": "9eb70e05e0daf8cc56c0741c5c8ca266cad819d059ca28bcadeaecf84c0531cf",
+        "sizeBytes": 357104
+      },
+      {
+        "path": "native/containment/native-shadow-guest-init-compatibility-arm64-v1.json",
+        "sha256": "ee67e23bc89fa456a6e43a1c93d9d4a0faa8cf09e5d04b9a9678c17499d267b0",
+        "sizeBytes": 4718
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json",
+        "sha256": "a5e0b6674d0d40e21a0dc515457f65617fc9d9ab10b3b6ca49fe9622c02c064c",
+        "sizeBytes": 16274
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f",
+        "sizeBytes": 17589
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-guest-runtime-inputs-arm64-v1.json",
+        "sha256": "9e4586454ad5ac5b7760a7462a7289cca9b202279faaa1f2632a7ba425b899da",
+        "sizeBytes": 13078
+      },
+      {
+        "path": "native/systemd/boole-native-shadow-launcher.service",
+        "sha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+        "sizeBytes": 704
+      },
+      {
+        "path": "native/tmpfiles.d/boole-native-shadow.conf",
+        "sha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+        "sizeBytes": 233
+      }
+    ]
+  },
+  "authorityBindings": [
+    {
+      "id": "checker-entrypoint",
+      "sha256": "d17dca244628bb55f6fbbf799c71adcae3d548169ef0655ca27c8eb1f7ba95d7",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/checker.py"
+    },
+    {
+      "id": "checker-policy",
+      "sha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/policy.json"
+    },
+    {
+      "id": "checker-release",
+      "sha256": "23b9c235a638cf08d38b2082af19d599320c9e5e5fc785bc1e14f51b4667f210",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json"
+    },
+    {
+      "id": "execution-policy",
+      "sha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f",
+      "sourcePath": "native/containment/native-shadow-execution-policy-arm64-v1.json"
+    },
+    {
+      "id": "guest-group",
+      "sha256": "511fb0f6573fd67e0070eab6873655f3f51aaa78b36bacadbd49d30a854f40b2",
+      "sourcePath": "native/etc/group"
+    },
+    {
+      "id": "guest-gshadow",
+      "sha256": "d32024a972c5341df5574542db6c7f2c8fe595c393b125d6a6c4d59c7dbde06a",
+      "sourcePath": "native/etc/gshadow"
+    },
+    {
+      "id": "guest-machine-id",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sourcePath": "native/etc/machine-id"
+    },
+    {
+      "id": "guest-nsswitch",
+      "sha256": "796450cf1faebb3a577bda80918be349ca1ee9b9bfb9fe7f7cbb7dfbbb177b36",
+      "sourcePath": "native/etc/nsswitch.conf"
+    },
+    {
+      "id": "guest-passwd",
+      "sha256": "d7b3ce429ca6ed85a23d1810691719e607fd50e6ce54d3ea6d307829ca66b8ab",
+      "sourcePath": "native/etc/passwd"
+    },
+    {
+      "id": "guest-shadow",
+      "sha256": "6380bdaffa703d9f96db5876e9f758c888dc4652bb145ce3ac52266141756218",
+      "sourcePath": "native/etc/shadow"
+    },
+    {
+      "id": "launcher-unit",
+      "sha256": "4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55",
+      "sourcePath": "native/systemd/boole-native-shadow-launcher-v2.service"
+    },
+    {
+      "id": "registry",
+      "sha256": "d636e56dbf7e32d6054a1d4abfaeb97c6ebdf5119d217fe7740db0513984badd",
+      "sourcePath": "fixtures/native-shadow/registry-arm64-v1.json"
+    },
+    {
+      "id": "sysusers-config",
+      "sha256": "75b1ae8eb024396dcb36d3713435115dba68a8c52b05705ce4fe3b8e7f616445",
+      "sourcePath": "native/sysusers.d/boole-native-shadow.conf"
+    },
+    {
+      "id": "tmpfiles-config",
+      "sha256": "730ae451fd1c70d41e9a865004040bca03db8cda29dd458cf6bb4d8e75f23b10",
+      "sourcePath": "native/tmpfiles.d/boole-native-shadow-v2.conf"
+    },
+    {
+      "id": "toolchain-identity",
+      "sha256": "666cdd6a6908822b35a3839e905ab03bed2846ce8e49091ccd163b5f59947f36",
+      "sourcePath": "native/containment/native-shadow-toolchain-identity-arm64-v1.json"
+    }
+  ],
+  "boundaries": [
+    "no image was produced, no production was dispatched and no boot was performed",
+    "no builder, no lock and no generator was edited by this plan",
+    "no launcher source file was touched and the launcher seal is unmoved",
+    "no pass condition was reworded, waived or relaxed",
+    "no wallet seed, passphrase, key derivation material or model API key is named or staged",
+    "no reward, block, consensus, peer-to-peer or activation authority is granted to the guest",
+    "no network device and no shared directory is added",
+    "no operator key, team identifier, certificate or provisioning profile is created",
+    "no external acquisition, paid API, public mining, public testnet or leaderboard claim"
+  ],
+  "buildRecipe": {
+    "baseImage": "empty",
+    "builderSha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+    "canonicalMtime": 0,
+    "maintainerScripts": "never-execute-or-copy",
+    "maxEntries": 200000,
+    "maxFileBytes": 536870912,
+    "maxTotalBytes": 2147483648,
+    "network": "forbidden",
+    "output": "oci-image-layout-single-uncompressed-layer-v1",
+    "ownership": "root:root-only",
+    "zstdToolRole": "zstd"
+  },
+  "carriedForwardVerbatim": [
+    "buildRecipe",
+    "closureRoots",
+    "derivedEntries",
+    "launcherBinary",
+    "packageSelection",
+    "repository",
+    "toolDigests"
+  ],
+  "changesFromPredecessor": {
+    "addedTrackedSources": 5,
+    "nestedTreesAdded": 1,
+    "supersededTrackedSources": 2,
+    "supersessions": [
+      {
+        "logicalPath": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+        "newSha256": "4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55",
+        "newSizeBytes": 720,
+        "newSourcePath": "native/systemd/boole-native-shadow-launcher-v2.service",
+        "oldSha256": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+        "oldSourcePath": "native/systemd/boole-native-shadow-launcher.service",
+        "predecessorLeftInTree": true,
+        "role": "launcher-unit",
+        "what": "the launcher unit with its output also going to the console",
+        "why": "the sealed boot receipt records that where the launcher refuses was not observable. Two lines change: standard output and standard error each gain the console alongside the journal. The console is a channel the host already captures and hashes, so this adds no device, no network and no shared directory. Every other line, including the capability set and the account the unit runs as, is byte-identical to v1."
+      },
+      {
+        "logicalPath": "/usr/lib/tmpfiles.d/boole-native-shadow.conf",
+        "newSha256": "730ae451fd1c70d41e9a865004040bca03db8cda29dd458cf6bb4d8e75f23b10",
+        "newSizeBytes": 80,
+        "newSourcePath": "native/tmpfiles.d/boole-native-shadow-v2.conf",
+        "oldSha256": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+        "oldSourcePath": "native/tmpfiles.d/boole-native-shadow.conf",
+        "predecessorLeftInTree": true,
+        "role": "tmpfiles-config",
+        "what": "the runtime directory rules, with the three that cannot succeed removed",
+        "why": "v1 asks for three directories under /var/lib/boole on a filesystem mounted read-only. Those three lines cannot succeed and were never going to. Removing them makes the condition that every write lands on tmpfs true by construction rather than true because the failures happened to be harmless. The two lines that remain are both under /run, which is tmpfs. The launcher's lock and socket live there and nowhere else. Nothing the launcher needs was under /var/lib/boole: the replay node unit is the only thing that names node-state, and that unit is not staged into this image."
+      }
+    ],
+    "trackedFileCountAfter": 15,
+    "trackedFileCountBefore": 10,
+    "unchangedTrackedSources": 8
+  },
+  "closureRoots": [
+    {
+      "logicalRoots": [
+        "/etc/systemd",
+        "/usr/lib/sysusers.d",
+        "/usr/lib/systemd",
+        "/usr/lib/tmpfiles.d",
+        "/usr/libexec/boole"
+      ],
+      "name": "guest-init-and-launcher-file-manifest"
+    },
+    {
+      "logicalRoots": [
+        "/boot",
+        "/usr/lib/modules"
+      ],
+      "name": "guest-kernel-and-module-file-manifest"
+    }
+  ],
+  "derivedEntries": [
+    {
+      "gid": 0,
+      "kind": "symlink",
+      "logicalPath": "/etc/systemd/system/multi-user.target.wants/boole-native-shadow-launcher.service",
+      "mode": "0777",
+      "target": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+      "uid": 0
+    }
+  ],
+  "discrepancyFound": {
+    "correctedHere": "This plan records the audited image as the fact and the contract clause as the stale half. The contract is not edited: four authority records name it at its sealed digest.",
+    "earlierRecord": {
+      "path": "native/containment/native-shadow-guest-init-compatibility-arm64-v1.json",
+      "sha256": "ee67e23bc89fa456a6e43a1c93d9d4a0faa8cf09e5d04b9a9678c17499d267b0",
+      "sizeBytes": 4718
+    },
+    "earlierRecordEdited": false,
+    "earlierStatement": "filesystemLayout.writableMounts lists /var/lib/boole as a tmpfs mounted at every boot",
+    "howItWasChecked": "The mount table was decoded from the relocated read-only data of the libsystemd-shared the image ships, and the seven mount units in the image were read directly. No fstab is present, so no generator adds one. Five top-level paths are mounted: /dev, /proc, /run, /sys and /tmp. /var is not among them and nothing sits below /var in either list.",
+    "source": {
+      "path": "native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json",
+      "sha256": "d1d76942070408e1c0e2163b58165eca60468a44365ed9cb3e695b49a9efba70",
+      "sizeBytes": 12632
+    },
+    "whatTheAuditShows": "No such mount exists in the image that booted. Nothing is mounted over /var, so a tree staged under /var/lib/boole is neither masked nor made writable.",
+    "whyItMatters": "Both halves of the runtime-rootfs gap depend on it. If /var/lib/boole were a tmpfs, a baked tree there would be hidden at boot and the launcher's read-only check would fail on the writable mount. Neither happens.",
+    "wouldHaveBeenAHardStop": false
+  },
+  "gapsAddressed": [
+    {
+      "closedByThisPlan": "declared",
+      "id": "account-database",
+      "kindOfChange": "tracked-file rows added to the lock and to the builder staging table",
+      "refusesAtStage": "verify_fixed_launcher_prelock_prerequisites",
+      "stillRequires": [
+        "the lock generator learns the five rows",
+        "the boot source lock successor carries them",
+        "the builder's staging table accepts the five sources"
+      ],
+      "what": "the account database the guest's own sysusers file expects to fill in"
+    },
+    {
+      "closedByThisPlan": "declared",
+      "id": "refusal-is-not-readable",
+      "kindOfChange": "an edit to the launcher unit, which moves that file's digest in the lock",
+      "refusesAtStage": "none -- this one hides the refusal rather than causing it",
+      "stillRequires": [
+        "the lock generator points the launcher-unit row at the successor file",
+        "the boot source lock successor carries the moved digest",
+        "the builder's staging table names the successor source"
+      ],
+      "what": "a channel by which the launcher's refusal can be read"
+    },
+    {
+      "closedByThisPlan": "declared",
+      "id": "runtime-rootfs-and-its-content-manifest",
+      "kindOfChange": "a second rootfs tree nested inside the boot rootfs, plus one tracked-file row for the manifest",
+      "refusesAtStage": "verify_runtime_rootfs_replay",
+      "stillRequires": [
+        "the builder learns to assemble the runtime closure a second time under the prefix",
+        "the derived content manifest is required to equal the digest the launcher compiles against",
+        "the assembled byte and entry totals are measured rather than bounded"
+      ],
+      "what": "the runtime rootfs and its content manifest the launcher verifies before it serves anything"
+    }
+  ],
+  "guestInitRoles": [
+    {
+      "closedBy": "derivedEntries: the multi-user.target.wants symlink is pinned by path and target",
+      "role": "derived-entry:launcher-enablement",
+      "state": "closed"
+    },
+    {
+      "closedBy": "ubuntu.seeds and ubuntu.seedPackageIds carry the systemd package, so PID 1 is real systemd rather than a static shim",
+      "role": "package-seed:systemd",
+      "state": "closed"
+    },
+    {
+      "closedBy": "trackedFiles: passwd, group, shadow, gshadow and nsswitch.conf are pinned, so both fixed accounts resolve at the moment the launcher asks",
+      "role": "tracked-file:account-database",
+      "state": "closed"
+    },
+    {
+      "closedBy": "trackedFiles: /etc/machine-id is a zero-byte source file, so every boot derives an ephemeral runtime identity",
+      "role": "tracked-file:empty-machine-id",
+      "state": "closed"
+    },
+    {
+      "closedBy": "the guest placement is pinned here, but the digest belongs to the ARM64 launcher build authority, whose result is sealed separately",
+      "correctsThePredecessor": {
+        "earlierClosedBy": "the guest placement is pinned here, but the digest belongs to the ARM64 launcher build authority, which has not run",
+        "why": "the build has since run and its result is sealed in native/containment/native-shadow-launcher-build-result-arm64-v1.json. The role stays deferred because this plan still does not carry the digest: the build result does, and the image producer rebuilds and matches it."
+      },
+      "role": "tracked-file:launcher-binary",
+      "state": "deferred"
+    },
+    {
+      "closedBy": "trackedFiles: the successor unit's source bytes are pinned, and its two changed lines send the launcher's refusal to the console the host captures",
+      "role": "tracked-file:launcher-unit",
+      "state": "closed"
+    },
+    {
+      "closedBy": "trackedFiles: the sysusers source bytes are pinned, and the accounts they describe are baked in rather than created at boot",
+      "correctsThePredecessor": {
+        "earlierClosedBy": "trackedFiles: the sysusers source bytes are pinned, so accounts are provisioned by systemd-sysusers at every boot",
+        "why": "systemd-sysusers cannot write to a read-only root, so it never provisioned anything. The predecessor sentence described an intention. The accounts are now in the image and sysusers finds them already present."
+      },
+      "role": "tracked-file:sysusers-config",
+      "state": "closed"
+    },
+    {
+      "closedBy": "trackedFiles: the successor tmpfiles source bytes are pinned, and the three rules that could not succeed on a read-only root are gone",
+      "role": "tracked-file:tmpfiles-config",
+      "state": "closed"
+    }
+  ],
+  "identityContractClauses": [
+    {
+      "clause": "the passwd name equals the fixed account name",
+      "satisfiedBy": "both entries are written under exactly the names the launcher compiles in"
+    },
+    {
+      "clause": "the account's user id and primary group id are both non-zero",
+      "satisfiedBy": "990 and 991, chosen inside the system range and below the first regular user id"
+    },
+    {
+      "clause": "the account's home is /nonexistent",
+      "satisfiedBy": "both entries name /nonexistent, matching the sysusers file the image already ships"
+    },
+    {
+      "clause": "the account's shell is nologin or false",
+      "satisfiedBy": "node carries /usr/sbin/nologin and checker carries /bin/false, matching the sysusers file"
+    },
+    {
+      "clause": "a group of the same name exists whose id equals the passwd primary group id",
+      "satisfiedBy": "the group file carries boole-node at 990 and boole-native-checker at 991"
+    },
+    {
+      "clause": "looking the primary group id up by number returns that same-named group",
+      "satisfiedBy": "990 and 991 each appear exactly once in the group file, so the reverse lookup is unambiguous"
+    },
+    {
+      "clause": "the account's full group list is exactly its primary group",
+      "satisfiedBy": "neither account appears in any group's member list; every member list in the file is empty"
+    },
+    {
+      "clause": "node and checker share neither a user id nor a primary group id",
+      "satisfiedBy": "990 against 991 on both"
+    }
+  ],
+  "launcherBinary": {
+    "binaryName": "boole-native-shadow-launcher",
+    "cargoProfile": "release",
+    "cratePath": "crates/boole-native-shadow-launcher",
+    "digestBoundary": "deferred-to-arm64-launcher-build-authority",
+    "gid": 0,
+    "logicalPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+    "mode": "0755",
+    "rustTarget": "aarch64-unknown-linux-gnu",
+    "uid": 0
+  },
+  "modeRationale": {
+    "note": "The three files anything reads are world-readable. The two that carry password fields are readable by root alone. Ubuntu gives the password files to a shadow group; this image has no shadow group and no process that would join it, so the narrower mode is the honest one.",
+    "perFile": {
+      "/etc/group": "read twice by the identity contract, by name and by number",
+      "/etc/gshadow": "the same reason as the password file it accompanies",
+      "/etc/nsswitch.conf": "glibc reads it in every process that resolves a name",
+      "/etc/passwd": "the identity contract reads it and nothing writes it",
+      "/etc/shadow": "no process below root has any reason to read a password file"
+    }
+  },
+  "nestedTrees": [
+    {
+      "contentManifest": {
+        "gid": 0,
+        "guestPath": "/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json",
+        "hardLinkCountMustBe": 1,
+        "isATrackedSourceRow": false,
+        "mode": "0444",
+        "schema": "boole.native-shadow.rootfs-content-manifest.arm64.v1",
+        "sha256": "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa",
+        "sizeBytes": 1285116,
+        "uid": 0,
+        "whereTheDigestIsAlreadySealed": [
+          {
+            "how": "compiled into the sealed launcher as RUNTIME_ROOTFS_CONTENT_MANIFEST_SHA256",
+            "path": "crates/boole-native-shadow-launcher/src/authority_arch.rs"
+          },
+          {
+            "how": "sealed as expectedOutput.rootfsContentManifestSha256",
+            "path": "native/containment/native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json"
+          }
+        ],
+        "whyItIsNotATrackedSourceRow": "The closure plan expected one tracked-file row for it. A tracked row would mean committing 1,285,116 bytes of build output as though they were a source, and the builder already emits this document from the entries it assembled. Deriving it from the nested assembly and requiring the derived digest to equal the value the launcher compiles against is the same check with one fewer copy of the same bytes."
+      },
+      "drivenBy": {
+        "artifactCount": 62,
+        "closureRootCount": 3,
+        "path": "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json",
+        "sha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+        "sizeBytes": 102952,
+        "whyNotTheBootLock": "The manifest records each entry's closure names. Assembled from the boot lock the closure names would be the boot lock's five, and the document would not match the digest the launcher compiles against. The nested assembly is therefore driven by the runtime lock, whose artifacts the boot lock already carries in full."
+      },
+      "guestPrefix": "/var/lib/boole/native-shadow/runtime-rootfs",
+      "id": "runtime-rootfs",
+      "layerSizeBytes": 766556160,
+      "requiresBuilderChange": true,
+      "state": "declared-not-assembled",
+      "subsetProof": {
+        "runtimeArtifactsAbsentFromBoot": 0,
+        "runtimeIsContainedInBoot": true,
+        "source": {
+          "path": "native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json",
+          "sha256": "00c51a52bf72f16ba2a46ddb04113385b6144d36fa5fb2e14c36f34d6715a757",
+          "sizeBytes": 9017
+        }
+      },
+      "whyTheReadOnlyCheckPasses": {
+        "guestInitContractSaysOtherwise": true,
+        "launcherRequires": "fstatvfs on the opened directory reports ST_RDONLY",
+        "note": "The launcher opens the prefix and refuses unless the filesystem under it is mounted read-only. The root disk is mounted read-only and nothing is mounted over /var, so the check is answered by the root mount itself rather than by a mount added for it.",
+        "rootDiskReadOnly": true,
+        "source": {
+          "path": "native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json",
+          "sha256": "d1d76942070408e1c0e2163b58165eca60468a44365ed9cb3e695b49a9efba70",
+          "sizeBytes": 12632
+        }
+      }
+    }
+  ],
+  "packageSelection": {
+    "canonicalOrdering": "packages sorted by packageId, artifacts sorted by id, seeds and seed package IDs sorted and unique",
+    "dependencyFields": [
+      "Depends",
+      "Pre-Depends"
+    ],
+    "foreignArchitectureSelection": "forbidden",
+    "multiArchQualifier": "native-index-only",
+    "providerSelection": "direct-then-explicit-pin-else-stop",
+    "sourceOfTruth": "every package row must be byte-identical to the verified dependency candidate closure and must appear in the payload acquisition result"
+  },
+  "predecessor": {
+    "leftByteUnchanged": true,
+    "path": "native/containment/native-shadow-boot-rootfs-source-lock-plan-arm64-v1.json",
+    "release": "NATIVE-SHADOW-BOOT-ROOTFS-SOURCE-LOCK-PLAN-ARM64-V1-FROZEN-BEFORE-RESULT",
+    "sha256": "c047c20144167a4f28f222c4026a33e2d70b89340ee13cba79c207b7c92dc583",
+    "sizeBytes": 14099,
+    "whatItStillGoverns": "the boot source lock that already exists, and every record that pins that lock. This successor governs a lock that has not been generated."
+  },
+  "producedOn": "2026-08-28",
+  "release": "NATIVE-SHADOW-BOOT-ROOTFS-SOURCE-LOCK-PLAN-ARM64-V2-FROZEN-BEFORE-SUCCESSOR-LOCK",
+  "repository": {
+    "repositories": [
+      {
+        "architecture": "arm64",
+        "component": "main",
+        "id": "noble-main",
+        "inReleaseArtifactId": "ubuntu-inrelease",
+        "keyringArtifactId": "ubuntu-keyring",
+        "packagesIndexArtifactId": "ubuntu-packages-index",
+        "packagesIndexPath": "main/binary-arm64/Packages.xz",
+        "snapshotBase": "https://snapshot.ubuntu.com/ubuntu/20240425T160000Z",
+        "suite": "noble"
+      }
+    ],
+    "snapshot": "2024-04-25T16:00:00Z",
+    "snapshotId": "20240425T160000Z",
+    "verification": {
+      "toolRole": "gpgv"
+    }
+  },
+  "schema": "boole.native-shadow.boot-rootfs-source-lock-plan.arm64.v2",
+  "status": "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED",
+  "successorChainPosition": {
+    "note": "The order is fixed because each step is the input the next one checks against. This record is the first, and it produces no lock, no builder change and no image.",
+    "remaining": [
+      {
+        "order": 2,
+        "state": "not-started",
+        "what": "the lock generator"
+      },
+      {
+        "order": 3,
+        "state": "not-started",
+        "what": "the boot source lock successor"
+      },
+      {
+        "order": 4,
+        "state": "not-started",
+        "what": "the builder's staging table"
+      }
+    ],
+    "source": {
+      "path": "native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json",
+      "sha256": "a5e0b6674d0d40e21a0dc515457f65617fc9d9ab10b3b6ca49fe9622c02c064c",
+      "sizeBytes": 16274
+    },
+    "step": 1,
+    "what": "the boot source lock plan successor"
+  },
+  "theBudgets": {
+    "bytes": {
+      "headroomBytes": 369994192,
+      "isAMeasurementOfTheAssembledTree": false,
+      "maxTotalBytes": 2147483648,
+      "source": {
+        "path": "native/containment/native-shadow-mac3-serving-gap-closure-plan-arm64-v1.json",
+        "sha256": "a5e0b6674d0d40e21a0dc515457f65617fc9d9ab10b3b6ca49fe9622c02c064c",
+        "sizeBytes": 16274
+      }
+    },
+    "entries": {
+      "boundedTotalEntries": 26896,
+      "isAMeasurementOfTheAssembledTree": false,
+      "maxEntries": 200000,
+      "source": {
+        "path": "native/containment/native-shadow-mac3-nested-runtime-entry-budget-arm64-v1.json",
+        "sha256": "00c51a52bf72f16ba2a46ddb04113385b6144d36fa5fb2e14c36f34d6715a757",
+        "sizeBytes": 9017
+      }
+    },
+    "mustBeRemeasuredImmediatelyBeforeAssembly": true,
+    "note": "Both are upper bounds read back from sealed records rather than counts of an assembled tree. Neither is evidence that the tree fits; both say a tree of this shape has room. The measurement that decides is taken immediately before assembly."
+  },
+  "toolDigests": {
+    "gpgvSha256": "f1c71affd4ce40e3c5a53b8cb0ac9601fbcd31d6834b732dd0c7b0145dce1995",
+    "zstdSha256": "aff8169fb421bb925fb16c44a7e0143fa2c7a941dc45cce76b15062a2ce54917"
+  },
+  "trackedFiles": [
+    {
+      "gid": 0,
+      "logicalPath": "/etc/group",
+      "mode": "0444",
+      "role": "guest-group",
+      "sha256": "511fb0f6573fd67e0070eab6873655f3f51aaa78b36bacadbd49d30a854f40b2",
+      "sourcePath": "native/etc/group",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/etc/gshadow",
+      "mode": "0400",
+      "role": "guest-gshadow",
+      "sha256": "d32024a972c5341df5574542db6c7f2c8fe595c393b125d6a6c4d59c7dbde06a",
+      "sourcePath": "native/etc/gshadow",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/etc/machine-id",
+      "mode": "0444",
+      "role": "empty-machine-id",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sourcePath": "native/etc/machine-id",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/etc/nsswitch.conf",
+      "mode": "0444",
+      "role": "guest-nsswitch",
+      "sha256": "796450cf1faebb3a577bda80918be349ca1ee9b9bfb9fe7f7cbb7dfbbb177b36",
+      "sourcePath": "native/etc/nsswitch.conf",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/etc/passwd",
+      "mode": "0444",
+      "role": "guest-passwd",
+      "sha256": "d7b3ce429ca6ed85a23d1810691719e607fd50e6ce54d3ea6d307829ca66b8ab",
+      "sourcePath": "native/etc/passwd",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/etc/shadow",
+      "mode": "0400",
+      "role": "guest-shadow",
+      "sha256": "6380bdaffa703d9f96db5876e9f758c888dc4652bb145ce3ac52266141756218",
+      "sourcePath": "native/etc/shadow",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+      "mode": "0444",
+      "role": "launcher-unit",
+      "sha256": "4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55",
+      "sourcePath": "native/systemd/boole-native-shadow-launcher-v2.service",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/lib/sysusers.d/boole-native-shadow.conf",
+      "mode": "0444",
+      "role": "sysusers-config",
+      "sha256": "75b1ae8eb024396dcb36d3713435115dba68a8c52b05705ce4fe3b8e7f616445",
+      "sourcePath": "native/sysusers.d/boole-native-shadow.conf",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/lib/tmpfiles.d/boole-native-shadow.conf",
+      "mode": "0444",
+      "role": "tmpfiles-config",
+      "sha256": "730ae451fd1c70d41e9a865004040bca03db8cda29dd458cf6bb4d8e75f23b10",
+      "sourcePath": "native/tmpfiles.d/boole-native-shadow-v2.conf",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/RELEASE-MANIFEST.json",
+      "mode": "0444",
+      "role": "checker-release-manifest",
+      "sha256": "23b9c235a638cf08d38b2082af19d599320c9e5e5fc785bc1e14f51b4667f210",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/RELEASE-MANIFEST-arm64-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/checker.py",
+      "mode": "0444",
+      "role": "checker-entrypoint",
+      "sha256": "d17dca244628bb55f6fbbf799c71adcae3d548169ef0655ca27c8eb1f7ba95d7",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/checker.py",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/checkers/rust-tuple-struct-project-v1/policy.json",
+      "mode": "0444",
+      "role": "checker-policy",
+      "sha256": "940bc5d864a5ba488f4f3e85ea7b133afacfd1170e17a869233ee5724b25a685",
+      "sourcePath": "native/checker/rust-tuple-struct-project-v1/policy.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/execution-policy-v1.json",
+      "mode": "0444",
+      "role": "guest-execution-policy",
+      "sha256": "df8be9eb7f3d92335d22b95a7e9423d8baaa2d581a2fd3b3633f60ae63db4e3f",
+      "sourcePath": "native/containment/native-shadow-execution-policy-arm64-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/registry-v1.json",
+      "mode": "0444",
+      "role": "checker-registry",
+      "sha256": "d636e56dbf7e32d6054a1d4abfaeb97c6ebdf5119d217fe7740db0513984badd",
+      "sourcePath": "fixtures/native-shadow/registry-arm64-v1.json",
+      "uid": 0
+    },
+    {
+      "gid": 0,
+      "logicalPath": "/usr/share/boole/native-shadow/toolchain-identity-v1.json",
+      "mode": "0444",
+      "role": "toolchain-identity",
+      "sha256": "666cdd6a6908822b35a3839e905ab03bed2846ce8e49091ccd163b5f59947f36",
+      "sourcePath": "native/containment/native-shadow-toolchain-identity-arm64-v1.json",
+      "uid": 0
+    }
+  ],
+  "whatThisDoesNotEstablish": [
+    "that any gap is closed, since no lock was generated and no tree was assembled",
+    "that the successor lock will validate, since the generator has not been changed to emit it",
+    "that the builder accepts the five new sources, since its staging table still names four",
+    "that the nested tree fits, since only bounds were compared and nothing was assembled",
+    "that the derived content manifest reproduces the digest the launcher compiles against",
+    "that a produced image would pass, which the sealed production criteria are what would judge",
+    "that serving is reachable, which only a boot would show"
+  ],
+  "whatWasBuilt": {
+    "bootPerformed": false,
+    "builderChanged": false,
+    "imageProduced": false,
+    "lockGenerated": false,
+    "productionDispatched": false,
+    "treeAssembled": false
+  },
+  "whichFilesThisPlanNames": {
+    "builderBoot": {
+      "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+      "sha256": "a5dd54198878473c162ec306fbccd6edac8b22f036d9cf84d244b5f010f96d87",
+      "sizeBytes": 37435
+    },
+    "builderLegacy": {
+      "path": "scripts/native_shadow_rootfs_builder.py",
+      "sha256": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
+      "sizeBytes": 108296
+    },
+    "lockGenerator": {
+      "path": "scripts/native_shadow_boot_rootfs_source_lock_arm64_v1.py",
+      "sha256": "02cc8917c19a7f07810645cde70cf388e7a9ed7dd1b0814028fbcf9ae407577a",
+      "sizeBytes": 25470
+    },
+    "note": "Pinned as the shape the next three steps start from. This plan changes none of them."
+  }
+}

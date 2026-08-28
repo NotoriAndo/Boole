@@ -2910,3 +2910,146 @@ launcher source file, builder, source lock or systemd unit was modified. Serving
 is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base
 activation false and activationAllowed=false are unchanged. No public mining, no
 leaderboard claim and no paid-API benchmark is made anywhere in this section.
+
+## 39. The three gaps become one plan, and the first step of it is written down (2026-08-28)
+
+The one real guest boot refused before it served anything, and the measurement of
+that refusal named three gaps: the guest has no account database, so the launcher
+refuses at its first check; the runtime rootfs and the content manifest the
+launcher verifies before serving are not in the image; and the launcher's refusal
+goes only to the journal, which is why the first boot showed nothing about why it
+stopped. Closing them takes four steps in a fixed order, because each step is the
+input the next one checks against. This section is the first of the four. It names
+files. It generates no lock, changes no builder and produces no image.
+
+### 39.1 What the successor names
+
+The boot source lock plan is superseded by a second plan, written as a new file
+next to the first. The predecessor keeps its bytes; four authority records name it
+at its sealed digest and none of them is touched.
+
+The tracked source list goes from ten files to fifteen. Five are added — the
+passwd, group, shadow, gshadow and name-service switch files, all frozen in an
+earlier record and already in the tree. Two are replaced by successor files rather
+than edited, so the count of ten becomes fifteen with eight rows carried through
+unchanged. Each of the fifteen keeps the identity the predecessor gave it, so the
+two replacements inherit the names their predecessors had rather than inventing
+new ones.
+
+### 39.2 The account database, checked against the launcher's own eight clauses
+
+The launcher resolves each of its two fixed accounts and refuses unless eight
+things are true at once: the passwd name is exactly the compiled-in name; the user
+number is not root's and the group number is not root's; the home directory is the
+non-existent one; the shell is one of the two that refuse to run anything; a group
+of the same name exists with the same number; looking that number back up returns
+that same group; the account's group list is exactly its own primary group and
+nothing else; and the two accounts share neither number.
+
+The plan does not assert this. The gate that accompanies it re-derives all eight
+from the bytes of the two files themselves, by parsing them the way the C library
+would. The two accounts are numbered 990 and 991, both non-root, both with the
+non-existent home, one refusing through nologin and the other through false,
+each with a same-named group at its own number, and neither listed as a member of
+any group — including its own, which is how a primary-only group list is written
+in this format.
+
+### 39.3 The two files that are replaced rather than edited
+
+The launcher unit gains the console alongside the journal on both of its output
+streams. Two lines change; every other line, the capability set and the account
+the unit runs as included, is byte-identical. The console is a channel the host
+already captures, so this adds no device, no network and no shared directory.
+
+The runtime directory rules lose three of their five lines. Those three ask for
+directories under a path on a filesystem mounted read-only. They could never have
+succeeded. Removing them makes "every write lands on a memory-backed filesystem"
+true by construction rather than true because the failures happened to be
+harmless. The two that remain are both under the run directory, which is
+memory-backed, and the launcher's lock and socket live there and nowhere else.
+
+Both predecessors stay in the tree at their sealed digests. Succession here is by
+new file, never by edit.
+
+### 39.4 The nested runtime tree, and the manifest that is derived rather than committed
+
+The launcher verifies a second, complete rootfs nested inside the boot one, and
+before it will serve anything it reads that tree's content manifest and requires
+its digest, its byte count and its schema to equal three values compiled into the
+sealed binary. The plan declares that tree: where it sits, which lock drives its
+assembly, and that it is declared and not assembled.
+
+Which lock drives it is not a detail. The manifest records, for every entry, the
+closure names that entry came from. Assembled from the boot lock those names would
+be the boot lock's five, and the document would not match the digest the launcher
+compiles against. So the nested assembly is driven by the runtime lock, whose
+sixty-two artifacts the boot lock already carries in full.
+
+The closure plan expected one tracked-source row for the manifest. This plan
+refines that and says so. A tracked row would mean committing 1,285,116 bytes of
+build output as though they were a source, when the builder already emits that
+document from the entries it assembled. Deriving it and requiring the derived
+digest to equal the value the launcher compiles against is the same check with one
+fewer copy of the same bytes in the repository.
+
+### 39.5 A sealed contract that disagrees with the image that booted
+
+The launcher opens the nested tree and refuses unless the filesystem under it
+reports itself read-only. Whether that check can pass depends on what is mounted
+where, and the guest-init contract sealed earlier says the path the tree sits
+under is a memory-backed filesystem mounted at every boot. If that were true, a
+tree baked there would be hidden the moment the guest started, and the read-only
+check would fail on a writable mount.
+
+It is not true of the image that booted. The mount table was decoded out of the
+shipped systemd library and the seven mount units in the image were read directly;
+no fstab is present, so nothing generates more. Five top-level paths are mounted,
+and the one in question is not among them, nor is anything below it. A tree staged
+there is neither masked nor made writable, and the read-only requirement is
+answered by the root disk's own mount rather than by a mount added for it.
+
+The contract is not edited. Four authority records name it at its sealed digest.
+The plan records the audited image as the fact, the contract clause as the stale
+half, and the disagreement as a disagreement. This was not a hard stop: no pass
+condition moved, and the direction of the correction removes a mount rather than
+adding one.
+
+### 39.6 The two budgets are still bounds
+
+Both pre-production budgets were answered earlier — the byte total against the
+sealed limit with room left over, and the entry total as an upper bound at roughly
+a seventh of its limit. The plan carries both and labels each as what it is: a
+bound read back from a sealed record, not a count of an assembled tree. Neither is
+evidence that the tree fits. The measurement that decides is taken immediately
+before assembly, and the plan says so rather than letting a comfortable margin
+retire the check.
+
+### 39.7 What this does not establish
+
+Not that any gap is closed: no lock was generated and no tree was assembled. Not
+that the successor lock will validate, since the generator has not been changed to
+emit it. Not that the builder accepts the five new sources — its staging table
+still names four. Not that the nested tree fits, since only bounds were compared.
+Not that the derived manifest reproduces the digest the launcher compiles against.
+Not that a produced image would pass, which the sealed production criteria are
+what would judge. Not that serving is reachable, which only a boot would show.
+
+### 39.8 Cursor
+
+```
+boot source lock plan = BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED
+  successor chain step 1 of 4; steps 2-4 not started
+  tracked sources 10 -> 15: 5 added, 2 superseded by new file, 8 carried
+  account database: all 8 identity clauses re-derived from the bytes
+  nested runtime tree: declared, not assembled; manifest derived, not tracked
+  guest-init contract clause on the writable mount: contradicted, not edited
+  both budgets remain bounds; remeasure immediately before assembly
+  next: the lock generator, then the lock successor, then the staging table
+```
+
+No image was produced, no production was dispatched and no boot was performed. No
+launcher source file, builder, source lock or generator was modified, and the
+launcher seal is unmoved. Serving is not claimed. mineable_now=0, REWARD_READY=0,
+RP0-MD=HOLD, BF.7=HOLD, Base activation false and activationAllowed=false are
+unchanged. No public mining, no leaderboard claim and no paid-API benchmark is
+made anywhere in this section.
