@@ -4389,3 +4389,52 @@ MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
 exist, boot or serve. No clean-Mac canary, VM boot, real release build,
 production key, public mining, paid API benchmark, user installation or
 activation occurred.
+
+## 47. The read-back correction (2026-08-29)
+
+The cause named in §46 is a wire, and this section repairs the wire and nothing
+else. The successor wrapper no longer calls the predecessor's read-back; it
+calls a successor consumer that can reach exactly one source lock — the one the
+producing phase proves and the production authority binds. The predecessor keeps
+its own wrapper, its own consumer and its own lock, untouched, because that path
+was never wrong.
+
+**What makes it fail closed.** The lock is not selectable: no flag, no argument,
+no environment variable, nothing read out of the image. A lock whose bytes have
+moved is refused before anything is attached to a loop device. The consumer
+refuses to load if its own text names the other generation's lock, so a fallback
+between the two generations is not expressible rather than merely unused.
+Successor material judged against the other lock is refused, and material of the
+other generation judged against this one is refused, both ways.
+
+**What a refusal now leaves.** The unqualified-diagnostic marker, written into
+the outputs directory before the refusal is raised, and a result document named
+for the successor. The third attempt left files that said nothing about whether
+they were a production; a failed read-back now disowns them itself.
+
+**What is deliberately still not re-sealed.** The producer fingerprint. The
+wrapper's moved digest is declared, with both the sealed and the corrected
+value, in `native-shadow-mac3-successor-readback-correction-arm64-v1.json`, and
+checked against the live file.
+
+### 47.1 Execution cursor after the correction
+
+```text
+SUCCESSOR-IMAGE-PRODUCTION  SPENT / FAILED — 2 of 2 prior attempts spent
+SUCCESSOR-IMAGE-ROOT-CAUSE  RESOLVED — read-back read the predecessor lock
+SUCCESSOR-IMAGE-REPAIR  MERGED-PENDING-AUTHORITY — wire corrected, nothing granted
+SUCCESSOR-IMAGE-NEXT-ATTEMPT  NOT AUTHORISED HERE — needs a new authority, a new
+  producer fingerprint over the corrected bytes, and a free preflight first
+GUEST-BOOT  NOT STARTED — 0 boot attempts used, boot budget untouched
+MAC.4  NOT STARTED — does not begin automatically
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — release gate retained
+MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
+```
+
+The cursor in §46.1 is left as it was written; this one is added beside it.
+`mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation
+`false` and `activationAllowed=false` remain unchanged. No image is claimed to
+exist, boot or serve. No production was dispatched, no marker was written, no
+budget was granted or spent, and no clean-Mac canary, VM boot, real release
+build, production key, public mining, paid API benchmark, user installation or
+activation occurred.

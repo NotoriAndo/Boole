@@ -3398,3 +3398,50 @@ Coverage after this addendum: 278 tests in the successor phase gate. Nothing
 above claims an image exists, boots or serves; no repair was applied and no
 further production attempt was granted here, and no consensus, reward,
 activation or peer-to-peer path is touched.
+
+### The read-back correction (2026-08-29)
+
+The defect above is wiring, so the repair is wiring. The successor wrapper now
+reads its image back through a consumer of its own,
+`scripts/native_shadow_successor_root_disk_readback_arm64_v2.py`, which reaches
+exactly one source lock: the successor's, at the digest the producing phase
+already proves and the production authority already bound. The lock is not a
+flag, not an argument, not an environment variable and not a value read out of
+the image. A lock whose bytes have moved is refused while the image is still an
+unopened file.
+
+**The predecessor is untouched.** Its wrapper still calls its own consumer and
+its own consumer still reaches its own lock. That path was never wrong, and the
+gate holds both halves of the separation: the successor consumer refuses to load
+if its own text so much as names the other generation's lock, so a fallback
+between the two is not expressible rather than merely unused.
+
+**A refusal now disowns what it left.** The third attempt left three files and a
+failing report under names that said nothing about whether they were a
+production, and the operator had to establish that by hand. A read-back that
+fails now writes the unqualified-diagnostic marker into the outputs directory
+before it raises, and the result document is named
+`SUCCESSOR-ROOT-DISK-READBACK.json` so a document from one generation can never
+be read as the other's proof.
+
+**What was still not re-sealed.** The producer fingerprint, again. It pins the
+bytes that produced the third attempt; re-sealing it over the corrected wrapper
+would make it claim to have frozen something that never ran, and the failure it
+belongs to would stop being reconstructible from it. The wrapper's move is
+declared instead, in
+`native/containment/native-shadow-mac3-successor-readback-correction-arm64-v1.json`,
+which carries both the sealed digest and the corrected one and is checked
+against the live file rather than trusted.
+
+**What this authorises: nothing.** No image was produced here, no attempt was
+dispatched, no budget was granted or spent. Before another attempt may run there
+must be a new production authority written append-only, a new producer
+fingerprint over the corrected bytes, and a free preflight that creates no
+marker and no image.
+
+Coverage after this addendum: 284 tests in the successor phase gate and 51 in
+the new consumer's own gate. Accounting is unchanged from the table above — two
+attempts spent, none remaining, no boot attempts used, no official images, and
+the two diagnostic replicas still not adoptable. Nothing here claims an image
+exists, boots or serves, and no consensus, reward, activation or peer-to-peer
+path is touched.

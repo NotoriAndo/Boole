@@ -2865,56 +2865,87 @@ class ProducerFingerprintTests(unittest.TestCase):
     ) -> None:
         """The seal is a record of bytes that have now run, so it is not re-sealed.
 
-        Four of the five files it pins are the producer itself and still match
-        byte for byte.  The fifth is this test file, which grew the records of
-        what the run did -- after the run.  Re-sealing it would make the record
-        claim to pin bytes that never produced anything, so instead the drift is
-        declared in the stop record and checked here against it.
+        Two of the files it pins have moved since.  One is this test file, which
+        grew the records of what the run did -- after the run.  The other is the
+        wrapper, whose one wrong line is what the correction changes.  Re-sealing
+        either would make the record claim to pin bytes that never produced
+        anything, so instead each move is declared, and checked here against the
+        declaration rather than waved through.
         """
         rows = self.record["files"]
         self.assertGreaterEqual(len(rows), 5)
-        declared = {
-            row["path"]: row["sealedSha256"]
-            for row in read_json(THIRD_HARD_STOP_PATH)[
-                "producerFingerprintAfterTheAttempt"
-            ]["pinsThatNoLongerMatchTheLiveFile"]
-        }
         for row in rows:
             live = digest_of(REPO_ROOT / row["path"])
-            if row["path"] in declared:
-                self.assertEqual(
-                    row["sha256"],
-                    declared[row["path"]],
-                    msg=f"{row['path']}: the declaration quotes a digest the seal "
-                    "does not carry",
-                )
-                self.assertNotEqual(
-                    row["sha256"],
-                    live,
-                    msg=f"{row['path']} is declared drifted but still matches; "
-                    "the declaration should be removed rather than kept",
-                )
-            else:
+            declaration = self.declared_drift().get(row["path"])
+            if declaration is None:
                 self.assertEqual(
                     row["sha256"],
                     live,
                     msg=f"{row['path']} moved after it was sealed and the move "
                     "is not declared",
                 )
+                continue
+            self.assertEqual(
+                row["sha256"],
+                declaration["sealedSha256"],
+                msg=f"{row['path']}: the declaration quotes a digest the seal "
+                "does not carry",
+            )
+            self.assertNotEqual(
+                row["sha256"],
+                live,
+                msg=f"{row['path']} is declared drifted but still matches; "
+                "the declaration should be removed rather than kept",
+            )
+            if "correctedSha256" in declaration:
+                self.assertEqual(
+                    declaration["correctedSha256"],
+                    live,
+                    msg=f"{row['path']} moved again after the correction "
+                    "declared where it had moved to",
+                )
 
-    def test_the_producing_bytes_themselves_did_not_move(self) -> None:
+    def declared_drift(self) -> dict:
+        """Every pin that no longer matches its file, and where that is written.
+
+        Two records, because the two drifts happened for different reasons at
+        different times: one after the attempt ran, one to correct what the
+        attempt found.  Neither is allowed to be silent.
+        """
+
         declared = {
-            row["path"]
+            row["path"]: row
             for row in read_json(THIRD_HARD_STOP_PATH)[
                 "producerFingerprintAfterTheAttempt"
             ]["pinsThatNoLongerMatchTheLiveFile"]
         }
+        for row in read_json(READBACK_CORRECTION_PATH)["pinsThisCorrectionMoves"]:
+            self.assertNotIn(
+                row["path"],
+                declared,
+                msg="one file, one declaration: two records claiming the same "
+                "drift can disagree about it",
+            )
+            declared[row["path"]] = row
+        return declared
+
+    def test_every_moved_pin_says_why_it_moved(self) -> None:
+        """Only these two, and each with a reason written next to it."""
+
+        declared = self.declared_drift()
         self.assertEqual(
-            declared,
-            {str(pathlib.Path(__file__).resolve().relative_to(REPO_ROOT))},
-            msg="only the gate file may drift; the module, the wrapper, the "
-            "workflow and the frozen helper are the bytes that ran",
+            set(declared),
+            {
+                str(pathlib.Path(__file__).resolve().relative_to(REPO_ROOT)),
+                "scripts/native-shadow-successor-produce-arm64.sh",
+            },
+            msg="the module, the workflow and the frozen helper are the bytes "
+            "that ran and are not allowed to drift at all",
         )
+        for path, row in declared.items():
+            self.assertTrue(
+                row.get("whyItChanged") or row.get("whyItMoved"), msg=path
+            )
 
     def test_it_covers_the_module_the_wrapper_and_the_workflow(self) -> None:
         paths = {row["path"] for row in self.record["files"]}
@@ -2962,6 +2993,9 @@ class ProducerFingerprintTests(unittest.TestCase):
 
 THIRD_HARD_STOP_PATH = (
     CONTAINMENT / "native-shadow-mac3-successor-image-production-hard-stop-arm64-v3.json"
+)
+READBACK_CORRECTION_PATH = (
+    CONTAINMENT / "native-shadow-mac3-successor-readback-correction-arm64-v1.json"
 )
 PRODUCTION_RESULT_PATH = (
     CONTAINMENT / "native-shadow-mac3-successor-image-production-result-arm64-v3.json"
@@ -3386,3 +3420,60 @@ class ThirdAttemptAccountingTests(unittest.TestCase):
         self.assertEqual(images["setsPerReplica"], 1)
         self.assertEqual(images["replicas"], 2)
         self.assertFalse(images["adoptable"])
+
+
+class ReadbackCorrectionTests(unittest.TestCase):
+    """The record of the correction, held to the files it says it made.
+
+    It is written here rather than in the corrected consumer's own gate because
+    the record pins that gate's digest.  A record and the file that checks it
+    cannot both pin each other, so the checking is done from the file the record
+    already declares as moved.
+    """
+
+    def setUp(self) -> None:
+        self.record = read_json(READBACK_CORRECTION_PATH)
+
+    def test_it_names_the_bytes_it_added_and_they_are_those_bytes(self) -> None:
+        for block in (self.record["correction"]["consumerAdded"],
+                      self.record["correction"]["gate"]):
+            path = REPO_ROOT / block["path"]
+            self.assertTrue(path.is_file(), msg=block["path"])
+            self.assertEqual(block["sha256"], digest_of(path), msg=block["path"])
+
+    def test_the_records_it_says_it_left_alone_are_still_those_bytes(self) -> None:
+        for row in self.record["appendOnly"]["recordsLeftByteUnchanged"]:
+            self.assertEqual(
+                row["sha256"],
+                digest_of(REPO_ROOT / row["path"]),
+                msg=f"{row['path']}: the correction claims not to have touched "
+                "this, and it has moved",
+            )
+
+    def test_the_rewiring_it_describes_is_the_rewiring_in_the_wrapper(self) -> None:
+        rewired = self.record["correction"]["rewired"]
+        wrapper = (REPO_ROOT / rewired["path"]).read_text(encoding="utf-8")
+        self.assertIn(pathlib.Path(rewired["to"]).name, wrapper)
+        self.assertNotIn(pathlib.Path(rewired["from"]).name, wrapper)
+        self.assertIn(rewired["resultDocumentRenamed"]["to"], wrapper)
+
+    def test_the_predecessor_it_says_it_left_alone_is_left_alone(self) -> None:
+        alone = self.record["correction"]["predecessorLeftAlone"]
+        wrapper = (REPO_ROOT / alone["wrapper"]).read_text(encoding="utf-8")
+        self.assertIn(pathlib.Path(alone["consumer"]).name, wrapper)
+
+    def test_it_authorises_nothing_and_claims_nothing(self) -> None:
+        self.assertFalse(self.record["activationAllowed"])
+        self.assertFalse(self.record["bootableClaim"])
+        self.assertFalse(self.record["servingClaim"])
+        self.assertEqual(
+            self.record["status"],
+            "READBACK-CORRECTED-NO-NEW-ATTEMPT-AUTHORISED-HERE",
+        )
+        self.assertGreaterEqual(len(self.record["whatMustHappenBeforeANewAttempt"]), 4)
+
+    def test_it_is_canonical_json(self) -> None:
+        self.assertEqual(
+            READBACK_CORRECTION_PATH.read_bytes(),
+            (json.dumps(self.record, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        )

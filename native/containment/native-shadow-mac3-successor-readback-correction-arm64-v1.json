@@ -1,0 +1,102 @@
+{
+  "activationAllowed": false,
+  "appendOnly": {
+    "how": "Nothing sealed was edited to make this correction.  The records the third attempt left still hash to what they hashed to, and this document is added beside them rather than into them.",
+    "recordsLeftByteUnchanged": [
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v3.json",
+        "sha256": "db4af374f7a62ab2ee27546b6118d8182d786b653fcd3abefd327613d6bce066"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v3.json",
+        "sha256": "026427bf0000903872fb663e36529b5d5e991d5a4e333b56d66b2c4baff2bc58"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-diagnostic-arm64-v3.json",
+        "sha256": "de14a1d38d1e70d93af22ce6f4183e4cc3d9b8b00ab53f427c352f46675c4cab"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json",
+        "sha256": "601d5405d6a4b75561f00ebeaa8c9d96fee3de76dde61b9f6a7680a344df6521"
+      }
+    ]
+  },
+  "bootableClaim": false,
+  "correction": {
+    "consumerAdded": {
+      "howItIsBound": "The lock is taken from the producing phase, which checks its digest and its release string before parsing it, and the production authority bound that same digest.  There is no argument, no flag, no environment variable and no value read out of the image that can select a different one.",
+      "noFallback": "The module refuses to load if its own text names the other generation's lock, so a fallback between the two is not expressible here rather than merely unused.",
+      "path": "scripts/native_shadow_successor_root_disk_readback_arm64_v2.py",
+      "reachesExactlyOneLock": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+      "sha256": "8ada8ffa5cdf8405973af7e65589a89ee16bdaddc5bb6e7127dac8c607ce8fa0",
+      "whatItRefuses": [
+        "a source lock whose bytes have moved, before anything is attached to a loop device",
+        "a source lock of the other generation, by its release string",
+        "successor material judged against the other generation's lock",
+        "material of the other generation judged against this one's",
+        "any difference in content digest, permission bits, owner, group, kind, symlink target, or presence at a tracked path",
+        "a path that must not exist in a produced image"
+      ]
+    },
+    "defect": {
+      "diagnosedIn": {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-diagnostic-arm64-v3.json",
+        "sha256": "de14a1d38d1e70d93af22ce6f4183e4cc3d9b8b00ab53f427c352f46675c4cab"
+      },
+      "oneLine": "The successor wrapper read its image back through the predecessor's consumer, which takes its expectations from the predecessor's source lock.",
+      "whatItCost": "One production attempt.  The three files it built were what the successor lock asks for; the baseline they were compared against was the wrong generation."
+    },
+    "gate": {
+      "path": "scripts/test_native_shadow_successor_root_disk_readback_arm64_v2.py",
+      "sha256": "b05ddfe4e9bc734903561ffedeca7713a21cbf5142e186f4a29a7ece5bb2aff4"
+    },
+    "oneLine": "The successor reads its own image back against the lock it was built from, through a consumer that can reach no other lock.",
+    "predecessorLeftAlone": {
+      "consumer": "scripts/native_shadow_boot_root_disk_readback_arm64_v1.py",
+      "why": "The predecessor's path was never wrong: it reads its own images against its own lock.  Correcting the successor does not get to disturb it, and the gate holds both halves of that.",
+      "wrapper": "scripts/native-shadow-boot-produce-arm64.sh"
+    },
+    "rewired": {
+      "alsoAdded": "A read-back that refuses now writes the document that disowns what the run left.  The third attempt left three files and a failing report under names that said nothing about whether they were a production.",
+      "from": "scripts/native_shadow_boot_root_disk_readback_arm64_v1.py",
+      "path": "scripts/native-shadow-successor-produce-arm64.sh",
+      "resultDocumentRenamed": {
+        "from": "ROOT-DISK-READBACK.json",
+        "to": "SUCCESSOR-ROOT-DISK-READBACK.json",
+        "why": "So a document left by one generation can never be read as the other's proof, whatever ends up in an outputs directory."
+      },
+      "to": "scripts/native_shadow_successor_root_disk_readback_arm64_v2.py"
+    }
+  },
+  "pinsThisCorrectionMoves": [
+    {
+      "correctedSha256": "e63e3e22d876910381b3604be621e7193772cfa842439eef0afe326ba470a07c",
+      "path": "scripts/native-shadow-successor-produce-arm64.sh",
+      "sealedIn": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json",
+      "sealedSha256": "3339c8ba86e0c4add30bf8d3df7e956f2f980374b47fd5f9541ec694b9956be9",
+      "whyItMoved": "It is the line that named the wrong consumer.  Correcting the defect is exactly a change to these bytes."
+    }
+  ],
+  "producerFingerprintNotReSealed": {
+    "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json",
+    "sha256": "601d5405d6a4b75561f00ebeaa8c9d96fee3de76dde61b9f6a7680a344df6521",
+    "whatReplacesIt": "A new producer fingerprint, written against the merged corrected bytes, under a new production authority.  Until that exists, no attempt may be dispatched.",
+    "why": "That record pins the bytes that produced the third attempt.  Re-sealing it over the corrected bytes would make it claim to have frozen something that never ran, and the failure it belongs to would no longer be reconstructible from it."
+  },
+  "release": "NATIVE-SHADOW-MAC3-SUCCESSOR-READBACK-CORRECTION-ARM64-V1",
+  "schema": "boole.native-shadow.mac3-successor-readback-correction.arm64.v1",
+  "servingClaim": false,
+  "status": "READBACK-CORRECTED-NO-NEW-ATTEMPT-AUTHORISED-HERE",
+  "whatIsNotClaimedHere": [
+    "No image was produced by this correction, and no attempt was dispatched.",
+    "No production budget was granted or spent here.",
+    "The two diagnostic replicas the third attempt left remain unqualified and may not be adopted.",
+    "Nothing here is a boot, a node, a testnet, a mining run, or a public-network claim."
+  ],
+  "whatMustHappenBeforeANewAttempt": [
+    "This correction merged into the default branch through its own review.",
+    "A new production authority, written append-only, that states the budget in full and grants what it grants explicitly.",
+    "A new producer fingerprint pinning the corrected bytes, written after everything else it pins is final.",
+    "A free preflight on the production path that creates no marker and no image."
+  ]
+}
