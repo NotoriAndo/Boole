@@ -3807,3 +3807,94 @@ predecessor phase, wrapper and workflow are byte-unchanged. Serving is not
 claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation
 false and activationAllowed=false are unchanged. No public mining, no leaderboard
 claim and no paid-API benchmark is made anywhere in this section.
+
+### 45.9 Two things the 110 tests were still not asking (addendum)
+
+Reading the sealed authority's own pass conditions against the code that was
+supposed to satisfy them turned up two gaps. Neither is a bug in what was
+written; both are questions nobody had asked.
+
+**The unit was checked for wanting to start, not for being started.** The
+authority requires the v2 unit to be "present, enabled, and carries console
+output on both streams". The check read `WantedBy=multi-user.target` out of the
+unit file and treated that as enablement. It is not. `WantedBy=` is what the unit
+asks for at `systemctl enable` time; what systemd acts on at boot is a symlink in
+`/etc/systemd/system/multi-user.target.wants/`. The source lock does stage that
+symlink — it is there in the derived entries, pointing at the unit, root-owned —
+but nothing asserted it. An image assembled without it would hold a launcher that
+is installed, correct, capability-bounded, and never run, and every check would
+have been green. The boot would have looked like a silent guest, which is exactly
+the failure this whole wave exists to stop being ambiguous about.
+
+Five new refusals now cover it: a missing link, a link pointing at another unit, a
+copy of the unit staged in the wants directory instead of a link, a link owned by
+somebody other than root, and the seal reading its shape out of the lock rather
+than out of this file. The check runs inside `assert_launcher_unit`, which the
+shared assembler calls, so it guards the production run too — and it guards it
+before the output directory exists, which is the side of the budget line where a
+refusal is free.
+
+**The result recorded that the gaps were closed, not what was found.** The
+authority also requires the preflight result to carry "the five account files …
+with the frozen mode and ownership", the unit's evidence, and "the result digest
+and the full provenance". The document had the totals and the manifest digest, and
+for the rest it had the fact that no exception had been raised. That is a claim
+about the run, not evidence from it.
+
+So the three gaps are now read back off the tree the writer produced, rather than
+off the entry table it was handed — the table is a declaration too, and the
+authority asks for the assembled tree. `gap_evidence` walks the written staging
+tree and records each account file's mode, size and digest as found, the unit's
+digest and every required directive as found, the enablement link's target as
+found, and the manifest's digest, size and mode as found; any disagreement with
+the seal is a refusal. Ownership is deliberately *not* read from disk: the writer
+says outright that it cannot reproduce ownership when it is not root, so a uid
+read there would record whoever ran the preflight. The owner each entry carries
+into the image comes from the table the image writer copies it from, and that is
+the one recorded. A test asserts the function never touches `st_uid` or `st_gid`,
+so the distinction cannot be quietly lost later.
+
+Provenance is now a recomputed block rather than a sentence: the digest of every
+module this path reads code out of, hashed from the file at run time; the
+authority, source lock, measurement and launcher-build-result digests; the
+resolved gpgv and zstd paths; the repository root and artifact store; and the
+host's system, machine, kernel release and Python version. A later reader can
+take a sealed result and find the exact text that produced it, which is the only
+form of "which build was this" that survives a five-layer projection chain.
+
+The local macOS assembly was re-run against the real lock and the already-verified
+store to check that the new refusals are satisfied by the real tree rather than
+only by fixtures: 17674 entries, 1771449867 payload bytes and path manifest
+`a342a1a5…3736` — the sealed measurement, unchanged — with the enablement symlink
+staged at mode `0777`, root-owned, pointing at the unit's guest path, and
+`gap_evidence` returning the five account rows, the unit's seven directives and
+four capabilities, the link's target and the manifest's digest, size and mode. The
+gap readback was exercised against the three gaps written out on their own,
+because this filesystem is case-insensitive and the full tree holds twenty
+case-folded sibling pairs that a write here would silently merge. That is still
+evidence of wiring on the wrong operating system and architecture.
+
+The production path deliberately did **not** gain the disk-side readback. It runs
+the same three assertions on the same entry table through the same shared
+assembler, and it runs them before the output directory is made. Adding a second
+readback after that line would only add new ways to fail on the far side of the
+budget boundary, where a failure spends the one attempt there is.
+
+```
+successor production path = WIRED-NOT-RUN
+  130 refusal tests, RED before GREEN, no happy-path assertion among them
+  the wants symlink is now required, not inferred from WantedBy=
+  the three gaps are read back off the written tree, not off the table
+  the result carries what was found, and the provenance to trace it
+  ownership is read from the table, never from a tree a non-root run wrote
+  production keeps its refusals on the free side of the budget line
+  next: the preflight on arm64 Linux, sealed as a result before any production
+```
+
+Still nothing produced, dispatched or booted. Production attempts 0, boot attempts
+0, `runsPerformed=0`, and neither successor result file exists. No package was
+downloaded or re-hashed. No launcher source, launcher seal, sealed lock, sealed
+measurement, sealed criteria or predecessor module was modified. Bootable and
+serving are not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD,
+Base activation false and activationAllowed=false are unchanged. No public mining,
+no leaderboard claim and no paid-API benchmark is made anywhere in this section.

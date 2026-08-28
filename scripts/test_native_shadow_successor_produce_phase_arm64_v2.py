@@ -43,6 +43,7 @@ import hashlib
 import inspect
 import io
 import json
+import os
 import pathlib
 import tempfile
 import unittest
@@ -135,6 +136,31 @@ def unit_entries(source: str) -> dict:
     return {key: file_entry(key, (REPO_ROOT / source).read_bytes(), 0o444)}
 
 
+# The link that makes the unit start at boot.  Spelled out here rather than read
+# from the module, so the test says what the guest path has to be and the module
+# is checked against it instead of against itself.
+ENABLEMENT_GUEST_PATH = (
+    "/etc/systemd/system/multi-user.target.wants/boole-native-shadow-launcher.service"
+)
+
+
+def enablement_entry(**overrides) -> dict:
+    """The enablement symlink, shaped the way the builder stages a derived one."""
+
+    key = ENABLEMENT_GUEST_PATH.lstrip("/")
+    entry = {
+        "path": key,
+        "kind": "symlink",
+        "mode": 0o777,
+        "uid": 0,
+        "gid": 0,
+        "target": mod.LAUNCHER_UNIT_GUEST_PATH,
+        "resolvedTarget": mod.LAUNCHER_UNIT_GUEST_PATH.lstrip("/"),
+    }
+    entry.update(overrides)
+    return {key: entry}
+
+
 def rewritten_unit(entries: dict, old: str, new: str) -> dict:
     key = mod.LAUNCHER_UNIT_GUEST_PATH.lstrip("/")
     text = entries[key]["raw"].decode("utf-8")
@@ -170,8 +196,31 @@ def manifest_sealed_as(raw: bytes):
 def complete_entries() -> dict:
     entries = account_entries()
     entries.update(unit_entries(mod.LAUNCHER_UNIT_SOURCE))
+    entries.update(enablement_entry())
     entries.update(manifest_entry())
     return entries
+
+
+@contextlib.contextmanager
+def written_tree(entries: dict):
+    """The table written out by the same writer the preflight writes with.
+
+    The gaps are read back off this rather than off the table, because the table
+    is what the writer was asked for and this is what it did.
+
+    The manifest seal is pointed at the stand-in for the duration, because the
+    fixture cannot hold the real 1.2MB manifest and the seal and the bytes have
+    to travel together -- otherwise a refusal about the manifest would fire in
+    tests that are about something else entirely, and pass for the wrong reason.
+    """
+
+    with manifest_sealed_as(MANIFEST_STAND_IN):
+        with tempfile.TemporaryDirectory() as scratch:
+            table = dict(entries)
+            measure.builder.__getattr__("_ensure_parents")(table)
+            destination = pathlib.Path(scratch) / "staging"
+            measure.write_staging_tree(table, destination, 0)
+            yield destination
 
 
 def walked(**overrides) -> dict:
@@ -507,6 +556,48 @@ class LauncherUnitTests(unittest.TestCase):
         with self.assertRaises(mod.SuccessorProduceError):
             mod.assert_launcher_unit(entries)
 
+    def test_the_enablement_link_is_the_one_the_lock_stages(self) -> None:
+        # `WantedBy=` inside the file is a request, not an installation.  systemd
+        # acts on the link in the wants directory, and that link is a separate
+        # staged entry that the image writer would happily leave out.
+        staged = {
+            row["logicalPath"]: row
+            for row in read_json(SUCCESSOR_LOCK_PATH)["derivedEntries"]
+        }
+        sealed = staged[ENABLEMENT_GUEST_PATH]
+        self.assertEqual(mod.LAUNCHER_UNIT_ENABLEMENT_GUEST_PATH, ENABLEMENT_GUEST_PATH)
+        self.assertEqual(sealed["kind"], "symlink")
+        self.assertEqual(sealed["target"], mod.LAUNCHER_UNIT_GUEST_PATH)
+        self.assertEqual(int(sealed["mode"], 8), mod.LAUNCHER_UNIT_ENABLEMENT_MODE)
+        self.assertEqual(sealed["uid"], 0)
+        self.assertEqual(sealed["gid"], 0)
+
+    def test_a_unit_staged_without_its_enablement_link_is_refused(self) -> None:
+        entries = complete_entries()
+        del entries[ENABLEMENT_GUEST_PATH.lstrip("/")]
+        with self.assertRaises(mod.SuccessorProduceError):
+            mod.assert_launcher_unit(entries)
+
+    def test_an_enablement_link_pointing_at_something_else_is_refused(self) -> None:
+        entries = complete_entries()
+        entries.update(enablement_entry(target="/usr/lib/systemd/system/getty.service"))
+        with self.assertRaises(mod.SuccessorProduceError):
+            mod.assert_launcher_unit(entries)
+
+    def test_an_enablement_link_staged_as_a_regular_file_is_refused(self) -> None:
+        # A copy of the unit in the wants directory is not an enablement: systemd
+        # would start whatever that copy says, which need not be this unit.
+        entries = complete_entries()
+        entries.update(enablement_entry(kind="file", raw=b"[Unit]\n"))
+        with self.assertRaises(mod.SuccessorProduceError):
+            mod.assert_launcher_unit(entries)
+
+    def test_an_enablement_link_owned_by_someone_else_is_refused(self) -> None:
+        entries = complete_entries()
+        entries.update(enablement_entry(uid=1000))
+        with self.assertRaises(mod.SuccessorProduceError):
+            mod.assert_launcher_unit(entries)
+
     def test_a_unit_that_starts_something_else_is_refused(self) -> None:
         entries = rewritten_unit(
             complete_entries(),
@@ -594,10 +685,15 @@ class ContentManifestTests(unittest.TestCase):
             mod.assert_content_manifest(entries)
 
     def test_the_checks_read_the_staged_bytes_and_not_a_claimed_digest(self) -> None:
-        # The builder stages content, not digests: a real entry has `raw` and no
-        # `sha256` at all.  Every one of these checks has to hash what is there.
+        # The builder stages content, not digests: a real file entry has `raw`
+        # and no `sha256` at all, and a real symlink entry carries a target and
+        # no bytes.  Every one of these checks has to read what is there.
         for entry in complete_entries().values():
-            self.assertIn("raw", entry)
+            if entry["kind"] == "symlink":
+                self.assertIn("target", entry)
+                self.assertNotIn("raw", entry)
+            else:
+                self.assertIn("raw", entry)
             self.assertNotIn("sha256", entry)
             self.assertNotIn("sizeBytes", entry)
 
@@ -615,6 +711,100 @@ class ContentManifestTests(unittest.TestCase):
         self.assertEqual(nested["sha256"], mod.CONTENT_MANIFEST_SHA256)
         self.assertEqual(nested["sizeBytes"], mod.CONTENT_MANIFEST_SIZE_BYTES)
         self.assertEqual(nested["guestPath"], mod.CONTENT_MANIFEST_GUEST_PATH)
+
+
+class GapReadbackTests(unittest.TestCase):
+    """The three gaps read out of the written tree, not out of the table.
+
+    The authority asks the preflight to read the closed gaps back out of the
+    assembled tree "rather than out of the declarations naming them".  The entry
+    table is a declaration too -- it is what the writer was asked for.  This is
+    what the writer did, and it is that tree the image would be made from.
+    """
+
+    def test_a_complete_tree_yields_evidence_for_all_three(self) -> None:
+        with written_tree(complete_entries()) as destination:
+            evidence = mod.gap_evidence(complete_entries(), destination)
+        self.assertEqual(
+            [row["guestPath"] for row in evidence["accountDatabase"]],
+            [row["guestPath"] for row in mod.ACCOUNT_DATABASE],
+        )
+        self.assertEqual(
+            evidence["launcherUnit"]["sha256"],
+            mod.LAUNCHER_UNIT_SHA256,
+        )
+        self.assertEqual(
+            evidence["launcherUnit"]["enablement"]["target"],
+            mod.LAUNCHER_UNIT_GUEST_PATH,
+        )
+        self.assertEqual(
+            evidence["runtimeContentManifest"]["guestPath"],
+            mod.CONTENT_MANIFEST_GUEST_PATH,
+        )
+
+    def test_the_recorded_account_rows_carry_what_the_seal_is_checked_against(
+        self,
+    ) -> None:
+        with written_tree(complete_entries()) as destination:
+            evidence = mod.gap_evidence(complete_entries(), destination)
+        for row, sealed in zip(evidence["accountDatabase"], mod.ACCOUNT_DATABASE):
+            self.assertEqual(row["sha256"], sealed["sha256"])
+            self.assertEqual(row["mode"], f"{sealed['mode']:04o}")
+            self.assertEqual(row["uid"], 0)
+            self.assertEqual(row["gid"], 0)
+            self.assertGreater(row["sizeBytes"], 0)
+
+    def test_an_account_file_the_writer_did_not_write_is_refused(self) -> None:
+        with written_tree(complete_entries()) as destination:
+            (destination / "etc/shadow").unlink()
+            with self.assertRaises(mod.SuccessorProduceError):
+                mod.gap_evidence(complete_entries(), destination)
+
+    def test_an_account_file_the_writer_changed_is_refused(self) -> None:
+        with written_tree(complete_entries()) as destination:
+            path = destination / "etc/passwd"
+            path.chmod(0o644)
+            path.write_bytes(b"root:x:0:0:root:/root:/bin/sh\n")
+            with self.assertRaises(mod.SuccessorProduceError):
+                mod.gap_evidence(complete_entries(), destination)
+
+    def test_a_unit_the_writer_did_not_write_is_refused(self) -> None:
+        with written_tree(complete_entries()) as destination:
+            (destination / mod.LAUNCHER_UNIT_GUEST_PATH.lstrip("/")).unlink()
+            with self.assertRaises(mod.SuccessorProduceError):
+                mod.gap_evidence(complete_entries(), destination)
+
+    def test_an_enablement_link_missing_from_the_written_tree_is_refused(self) -> None:
+        with written_tree(complete_entries()) as destination:
+            (destination / ENABLEMENT_GUEST_PATH.lstrip("/")).unlink()
+            with self.assertRaises(mod.SuccessorProduceError):
+                mod.gap_evidence(complete_entries(), destination)
+
+    def test_an_enablement_link_the_writer_pointed_elsewhere_is_refused(self) -> None:
+        with written_tree(complete_entries()) as destination:
+            link = destination / ENABLEMENT_GUEST_PATH.lstrip("/")
+            link.unlink()
+            link.symlink_to("/usr/lib/systemd/system/getty.service")
+            with self.assertRaises(mod.SuccessorProduceError):
+                mod.gap_evidence(complete_entries(), destination)
+
+    def test_a_manifest_the_writer_changed_is_refused(self) -> None:
+        with written_tree(complete_entries()) as destination:
+            path = destination / mod.CONTENT_MANIFEST_GUEST_PATH.lstrip("/")
+            path.chmod(0o644)
+            path.write_bytes(b'{"entries": [], "stand-in": false}\n')
+            with self.assertRaises(mod.SuccessorProduceError):
+                mod.gap_evidence(complete_entries(), destination)
+
+    def test_the_evidence_says_nothing_about_ownership_on_disk(self) -> None:
+        # A preflight that is not root cannot reproduce ownership, and the
+        # writer says so.  The owner each file carries into the image comes from
+        # the entry the image writer copies it from, so that is where the
+        # recorded uid and gid come from -- and reading them off this tree
+        # instead would record whoever happened to run the preflight.
+        source = inspect.getsource(mod.gap_evidence)
+        self.assertNotIn("st_uid", source)
+        self.assertNotIn("st_gid", source)
 
 
 class LauncherBinaryTests(unittest.TestCase):
@@ -809,6 +999,84 @@ class PreflightProducesNothingTests(unittest.TestCase):
 
     def test_the_production_signature_is_the_one_that_takes_outputs(self) -> None:
         self.assertIn("outputs", inspect.signature(mod.produce).parameters)
+
+
+class PreflightRecordTests(unittest.TestCase):
+    """What the sealed result has to carry, checked against the authority's list.
+
+    The preflight itself cannot run here -- it needs the payload store and an
+    arm64 host -- so what is checked is the document it returns: which keys it
+    has, and that every one of them comes from a value this file computed rather
+    than from a sentence claiming it was computed.
+    """
+
+    def returned_keys(self, function) -> set:
+        tree = ast.parse(inspect.getsource(function))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
+                return {key.value for key in node.value.keys}
+        raise AssertionError(f"{function.__name__} returns no dict literal")
+
+    def test_the_document_answers_every_pass_requirement(self) -> None:
+        keys = self.returned_keys(mod.preflight)
+        for required in (
+            "builderInternal",
+            "gapEvidence",
+            "independentTraversal",
+            "launcher",
+            "limits",
+            "nestedContentManifest",
+            "provenance",
+            "withSealedLauncher",
+        ):
+            self.assertIn(required, keys)
+
+    def test_the_gaps_are_read_off_the_written_tree_by_the_preflight(self) -> None:
+        self.assertIn("gap_evidence(", inspect.getsource(mod.preflight))
+
+    def test_the_provenance_names_every_sealed_input_it_read(self) -> None:
+        record = mod.provenance(
+            repository_root=REPO_ROOT,
+            artifact_store=pathlib.Path("/store"),
+            gpgv=pathlib.Path("/usr/bin/gpgv"),
+            zstd=pathlib.Path("/usr/bin/zstd"),
+        )
+        self.assertEqual(record["authoritySha256"], mod.AUTHORITY_SHA256)
+        self.assertEqual(record["sourceLockSha256"], mod.SOURCE_LOCK_SHA256)
+        self.assertEqual(record["measurementSha256"], mod.MEASUREMENT_SHA256)
+        self.assertEqual(record["tools"]["gpgv"], "/usr/bin/gpgv")
+        self.assertEqual(record["tools"]["zstd"], "/usr/bin/zstd")
+        self.assertEqual(record["artifactStore"], "/store")
+
+    def test_the_provenance_module_digests_are_the_ones_it_verified(self) -> None:
+        modules = mod.provenance(
+            repository_root=REPO_ROOT,
+            artifact_store=pathlib.Path("/store"),
+            gpgv=pathlib.Path("/usr/bin/gpgv"),
+            zstd=pathlib.Path("/usr/bin/zstd"),
+        )["modules"]
+        self.assertEqual(modules[builder.__name__], mod.BUILDER_SHA256)
+        self.assertEqual(modules[successor_gate.__name__], mod.RELEASE_GATE_SHA256)
+        self.assertEqual(modules[mod.__name__], digest_of(pathlib.Path(mod.__file__)))
+
+    def test_the_provenance_records_the_host_the_run_happened_on(self) -> None:
+        platform = mod.provenance(
+            repository_root=REPO_ROOT,
+            artifact_store=pathlib.Path("/store"),
+            gpgv=pathlib.Path("/usr/bin/gpgv"),
+            zstd=pathlib.Path("/usr/bin/zstd"),
+        )["platform"]
+        self.assertEqual(platform["system"], os.uname().sysname)
+        self.assertEqual(platform["machine"], os.uname().machine)
+
+    def test_the_provenance_claims_nothing_it_did_not_read(self) -> None:
+        # Every digest in the record is either recomputed here or one of this
+        # file's own sealed constants.  A provenance block that carried a value
+        # nobody read would be a sentence, not evidence.
+        source = inspect.getsource(mod.provenance)
+        self.assertNotIn('"true"', source)
+        self.assertNotIn("bootable", source.lower())
+        self.assertNotIn("serving", source.lower())
 
 
 class BudgetBoundaryTests(unittest.TestCase):

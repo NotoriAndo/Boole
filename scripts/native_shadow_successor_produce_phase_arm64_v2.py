@@ -39,6 +39,8 @@ import hashlib
 import json
 import os
 import pathlib
+import stat
+import sys
 from typing import Any, Iterable, Mapping, Optional
 
 from scripts import native_shadow_boot_image_verify_arm64_v1 as image_verify
@@ -118,6 +120,14 @@ LAUNCHER_BOUNDING_CAPABILITIES = (
     "CAP_SETPCAP",
     "CAP_SYS_ADMIN",
 )
+# `WantedBy=` in the unit file is what the unit asks for; this link is what
+# systemd acts on.  A tree with the unit and without the link holds a launcher
+# that is installed and never started, which looks identical to a working image
+# until the guest boots in silence.
+LAUNCHER_UNIT_ENABLEMENT_GUEST_PATH = (
+    "/etc/systemd/system/multi-user.target.wants/boole-native-shadow-launcher.service"
+)
+LAUNCHER_UNIT_ENABLEMENT_MODE = 0o777
 LAUNCHER_UNIT_REQUIRED = {
     "ExecStart": LAUNCHER_GUEST_PATH,
     "User": "root",
@@ -328,8 +338,6 @@ def assert_no_lock_fallback() -> None:
 
 
 def _this_module() -> Any:
-    import sys
-
     return sys.modules[__name__]
 
 
@@ -479,11 +487,17 @@ def assert_shared_assembler(*, namespace: Optional[dict] = None) -> None:
         )
 
 
-def _entry(entries: Mapping[str, Any], guest_path: str, what: str) -> Mapping[str, Any]:
-    key = guest_path.lstrip("/")
-    entry = entries.get(key)
+def _staged(entries: Mapping[str, Any], guest_path: str, what: str) -> Mapping[str, Any]:
+    """Whatever is staged at that guest path, of whatever kind."""
+
+    entry = entries.get(guest_path.lstrip("/"))
     if entry is None:
         raise SuccessorProduceError(f"the staging tree has no {what}: {guest_path}")
+    return entry
+
+
+def _entry(entries: Mapping[str, Any], guest_path: str, what: str) -> Mapping[str, Any]:
+    entry = _staged(entries, guest_path, what)
     if entry.get("kind") != "file":
         raise SuccessorProduceError(
             f"{guest_path} is staged as {entry.get('kind')!r}, and {what} must be a file"
@@ -575,6 +589,40 @@ def assert_launcher_unit(entries: Mapping[str, Any]) -> None:
             f"the launcher unit hashes to {digest}, the lock stages "
             f"{LAUNCHER_UNIT_SHA256}"
         )
+    assert_launcher_enabled(entries)
+
+
+def assert_launcher_enabled(entries: Mapping[str, Any]) -> None:
+    """The wants link, without which the unit is installed and never started.
+
+    The authority asks for the unit to be present *and enabled*, and those are
+    two staged entries rather than one.  Checking `WantedBy=` proves only that
+    the unit would like to be enabled; systemd reads this directory.
+    """
+
+    link = _staged(entries, LAUNCHER_UNIT_ENABLEMENT_GUEST_PATH, "launcher enablement")
+    if link.get("kind") != "symlink":
+        raise SuccessorProduceError(
+            f"{LAUNCHER_UNIT_ENABLEMENT_GUEST_PATH} is staged as "
+            f"{link.get('kind')!r}; enablement is a symlink, and a copy of the "
+            f"unit here would start whatever that copy says"
+        )
+    if link.get("target") != LAUNCHER_UNIT_GUEST_PATH:
+        raise SuccessorProduceError(
+            f"{LAUNCHER_UNIT_ENABLEMENT_GUEST_PATH} points at "
+            f"{link.get('target')!r} and must point at {LAUNCHER_UNIT_GUEST_PATH!r}"
+        )
+    if link.get("uid") != 0 or link.get("gid") != 0:
+        raise SuccessorProduceError(
+            f"{LAUNCHER_UNIT_ENABLEMENT_GUEST_PATH} is staged as "
+            f"{link.get('uid')}:{link.get('gid')} and must be root:root"
+        )
+    if link.get("mode") != LAUNCHER_UNIT_ENABLEMENT_MODE:
+        raise SuccessorProduceError(
+            f"{LAUNCHER_UNIT_ENABLEMENT_GUEST_PATH} is staged "
+            f"{link.get('mode'):04o}, the lock stages "
+            f"{LAUNCHER_UNIT_ENABLEMENT_MODE:04o}"
+        )
 
 
 def assert_content_manifest(entries: Mapping[str, Any]) -> None:
@@ -598,6 +646,155 @@ def assert_content_manifest(entries: Mapping[str, Any]) -> None:
             f"the runtime content manifest is staged {entry.get('mode'):04o} and "
             f"must be {CONTENT_MANIFEST_MODE:04o}"
         )
+
+
+def _written(destination: pathlib.Path, guest_path: str, what: str) -> pathlib.Path:
+    """The path in the tree that was actually written, present in any form."""
+
+    path = pathlib.Path(destination) / guest_path.lstrip("/")
+    if not path.is_symlink() and not path.exists():
+        raise SuccessorProduceError(
+            f"the written staging tree has no {what}: {guest_path}"
+        )
+    return path
+
+
+def _written_file(destination: pathlib.Path, guest_path: str, what: str) -> tuple:
+    path = _written(destination, guest_path, what)
+    if path.is_symlink() or not path.is_file():
+        raise SuccessorProduceError(
+            f"{guest_path} was written as something other than a regular file, and "
+            f"{what} must be a file"
+        )
+    return path.read_bytes(), stat.S_IMODE(path.lstat().st_mode)
+
+
+def gap_evidence(entries: Mapping[str, Any], destination: pathlib.Path) -> dict:
+    """The three closed gaps, read back off the tree the writer produced.
+
+    ``assert_account_database``, ``assert_launcher_unit`` and
+    ``assert_content_manifest`` read the entry table, which is what the writer was
+    asked for.  This reads what it did, off the tree the image would be made from,
+    and records what it found so the sealed result carries the evidence rather
+    than a claim that the evidence was seen.
+
+    Ownership is deliberately not read from disk.  A preflight that is not root
+    cannot reproduce it, so a uid read here would be whoever ran the preflight.
+    The owner each entry carries into the image is the one the image writer copies
+    from the table, so that is the one recorded.
+    """
+
+    accounts = []
+    for row in ACCOUNT_DATABASE:
+        raw, mode = _written_file(destination, row["guestPath"], "guest account file")
+        digest = _sha256(raw)
+        if digest != row["sha256"]:
+            raise SuccessorProduceError(
+                f"the written {row['guestPath']} hashes to {digest}, the lock "
+                f"stages {row['sha256']}"
+            )
+        if mode != row["mode"]:
+            raise SuccessorProduceError(
+                f"the written {row['guestPath']} is {mode:04o}, the lock stages "
+                f"{row['mode']:04o}"
+            )
+        staged = _entry(entries, row["guestPath"], "guest account file")
+        accounts.append(
+            {
+                "gid": staged["gid"],
+                "guestPath": row["guestPath"],
+                "mode": f"{mode:04o}",
+                "sha256": digest,
+                "sizeBytes": len(raw),
+                "uid": staged["uid"],
+            }
+        )
+
+    raw, unit_mode = _written_file(destination, LAUNCHER_UNIT_GUEST_PATH, "launcher unit")
+    unit_digest = _sha256(raw)
+    if unit_digest != LAUNCHER_UNIT_SHA256:
+        raise SuccessorProduceError(
+            f"the written launcher unit hashes to {unit_digest}, the lock stages "
+            f"{LAUNCHER_UNIT_SHA256}"
+        )
+    directives = _unit_directives(raw.decode("utf-8"))
+    for key, expected in LAUNCHER_UNIT_REQUIRED.items():
+        if directives.get(key) != expected:
+            raise SuccessorProduceError(
+                f"the written launcher unit sets {key}={directives.get(key)!r}; this "
+                f"path requires {key}={expected!r}"
+            )
+    bounding = tuple(directives.get("CapabilityBoundingSet", "").split())
+    if bounding != LAUNCHER_BOUNDING_CAPABILITIES:
+        raise SuccessorProduceError(
+            f"the written launcher unit bounds {list(bounding)}; the correction says "
+            f"exactly {list(LAUNCHER_BOUNDING_CAPABILITIES)}"
+        )
+
+    link = _written(destination, LAUNCHER_UNIT_ENABLEMENT_GUEST_PATH, "launcher enablement")
+    if not link.is_symlink():
+        raise SuccessorProduceError(
+            f"the written {LAUNCHER_UNIT_ENABLEMENT_GUEST_PATH} is not a symlink, so "
+            f"the unit is installed and never started"
+        )
+    target = os.readlink(str(link))
+    if target != LAUNCHER_UNIT_GUEST_PATH:
+        raise SuccessorProduceError(
+            f"the written enablement link points at {target!r} and must point at "
+            f"{LAUNCHER_UNIT_GUEST_PATH!r}"
+        )
+    # The link's own mode is the host's answer, not the tree's: a symlink is 0777
+    # on Linux and whatever the extractor chose elsewhere.  The mode that reaches
+    # the image is the staged one, so the staged one is what is recorded.
+    staged_link = _staged(
+        entries, LAUNCHER_UNIT_ENABLEMENT_GUEST_PATH, "launcher enablement"
+    )
+
+    raw, manifest_mode = _written_file(
+        destination, CONTENT_MANIFEST_GUEST_PATH, "runtime content manifest"
+    )
+    manifest_digest = _sha256(raw)
+    if manifest_digest != CONTENT_MANIFEST_SHA256:
+        raise SuccessorProduceError(
+            f"the written runtime content manifest hashes to {manifest_digest}, the "
+            f"replay expectation seals {CONTENT_MANIFEST_SHA256}"
+        )
+    if len(raw) != CONTENT_MANIFEST_SIZE_BYTES:
+        raise SuccessorProduceError(
+            f"the written runtime content manifest is {len(raw)} bytes, the replay "
+            f"expectation seals {CONTENT_MANIFEST_SIZE_BYTES}"
+        )
+    if manifest_mode != CONTENT_MANIFEST_MODE:
+        raise SuccessorProduceError(
+            f"the written runtime content manifest is {manifest_mode:04o} and must "
+            f"be {CONTENT_MANIFEST_MODE:04o}"
+        )
+
+    return {
+        "accountDatabase": accounts,
+        "launcherUnit": {
+            "capabilityBoundingSet": list(LAUNCHER_BOUNDING_CAPABILITIES),
+            "directives": {key: directives[key] for key in LAUNCHER_UNIT_REQUIRED},
+            "enablement": {
+                "gid": staged_link["gid"],
+                "guestPath": LAUNCHER_UNIT_ENABLEMENT_GUEST_PATH,
+                "kind": "symlink",
+                "stagedMode": f"{staged_link['mode']:04o}",
+                "target": target,
+                "uid": staged_link["uid"],
+            },
+            "guestPath": LAUNCHER_UNIT_GUEST_PATH,
+            "mode": f"{unit_mode:04o}",
+            "sha256": unit_digest,
+            "source": LAUNCHER_UNIT_SOURCE,
+        },
+        "runtimeContentManifest": {
+            "guestPath": CONTENT_MANIFEST_GUEST_PATH,
+            "mode": f"{manifest_mode:04o}",
+            "sha256": manifest_digest,
+            "sizeBytes": len(raw),
+        },
+    }
 
 
 def assert_launcher_binary(raw: bytes) -> None:
@@ -882,6 +1079,51 @@ def _assemble(
     return lock, lock_raw, recipe, entries
 
 
+# Every module this path reads code out of.  Two of them are pinned by constant
+# above; the rest are recorded so that a result can be traced to the exact text
+# that produced it, which is the only form of "which build was this" that
+# survives a projection chain.
+PROVENANCE_MODULES = (base, gate, historical, measurement, staging)
+
+
+def provenance(
+    *,
+    repository_root: pathlib.Path,
+    artifact_store: pathlib.Path,
+    gpgv: pathlib.Path,
+    zstd: pathlib.Path,
+) -> dict:
+    """Where every input came from, hashed here rather than asserted.
+
+    Each digest is recomputed from the file it names.  The two pinned modules
+    were already checked against their constants before anything ran, so this
+    records what was read; for the rest, this is the record.
+    """
+
+    modules = {
+        module.__name__: _sha256(pathlib.Path(module.__file__).read_bytes())
+        for module in PROVENANCE_MODULES
+    }
+    modules[__name__] = _sha256(pathlib.Path(__file__).read_bytes())
+    host = os.uname()
+    return {
+        "artifactStore": str(artifact_store),
+        "authoritySha256": AUTHORITY_SHA256,
+        "launcherBuildResultSha256": _sha256(LAUNCHER_BUILD_RESULT_PATH.read_bytes()),
+        "measurementSha256": MEASUREMENT_SHA256,
+        "modules": modules,
+        "platform": {
+            "machine": host.machine,
+            "python": sys.version.split()[0],
+            "release": host.release,
+            "system": host.sysname,
+        },
+        "repositoryRoot": str(repository_root),
+        "sourceLockSha256": SOURCE_LOCK_SHA256,
+        "tools": {"gpgv": str(gpgv), "zstd": str(zstd)},
+    }
+
+
 def preflight(
     *,
     repository_root: pathlib.Path,
@@ -925,12 +1167,14 @@ def preflight(
     assert_no_conflicts(walked)
     assert_within_limits(LIMITS, _with_launcher(walked))
     nested_on_disk = measurement.nested_manifest_on_disk(destination)
+    gaps = gap_evidence(entries, destination)
 
     return {
         "activationAllowed": ACTIVATION_ALLOWED,
         "authoritySha256": AUTHORITY_SHA256,
         "bootableClaim": BOOTABLE_CLAIM,
         "builderInternal": computed,
+        "gapEvidence": gaps,
         "imageProducedClaim": IMAGE_PRODUCED_CLAIM,
         "independentTraversal": walked,
         "launcher": {
@@ -944,6 +1188,12 @@ def preflight(
         "nestedContentManifest": nested_on_disk,
         "outputsCreated": False,
         "productionBoundAdditions": [dict(row) for row in PRODUCTION_BOUND_ADDITIONS],
+        "provenance": provenance(
+            repository_root=repository_root,
+            artifact_store=artifact_store,
+            gpgv=gpgv,
+            zstd=zstd,
+        ),
         "release": RELEASE,
         "servingClaim": SERVING_CLAIM,
         "sourceLockSha256": SOURCE_LOCK_SHA256,
