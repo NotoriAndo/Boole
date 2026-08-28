@@ -2876,3 +2876,111 @@ Coverage after this addendum: 136 tests in the successor phase gate, 130 of them
 refusals. Forty-two docs-smoke pins. No sealed record, launcher source, launcher
 binary, predecessor module, predecessor workflow or predecessor result was
 touched. Producing is not booting and booting is not serving; neither is claimed.
+
+### 13.22 Preflight runs two and three addendum (2026-08-28)
+
+**Run 33156887243 — the phase could not be run the way a workflow runs it.** Every
+acquisition step passed and the launcher matched its seal; the phase then raised
+`ModuleNotFoundError: No module named 'scripts'` before reading any tree. A
+workflow invokes it as `python3 scripts/<name>.py`, which puts `scripts/` on the
+path rather than the directory the package sits in. The predecessor phase carries
+a line that inserts the repository root before its package imports; the successor
+did not. Every test imports the module as `scripts.<name>`, which puts the root
+on the path first, so no test written like its neighbours could observe it.
+
+The production wrapper creates the output directory before it invokes the phase,
+so the same exception on the production path would have been raised past the
+budget boundary. It was raised in the mode that creates nothing.
+
+| Test | What it refuses |
+| --- | --- |
+| the module imports when it is run the way a workflow runs it | a phase importable only through the test harness |
+| the predecessor puts the root on the path and so does this | the two phases drifting apart again |
+
+The first runs the module in a subprocess from the repository root with
+`PYTHONPATH` removed and requires it to reach its own argument parser. A sweep
+of the remaining modules found no third case any workflow or shell script
+invokes as a script.
+
+**Run 33157320718 — an order-dependent quantity.** The tree was assembled,
+written and walked; the comparison then refused:
+
+```
+the assembled table and the staging tree disagree on largestFilePath:
+'opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly'
+against
+'var/lib/boole/native-shadow/runtime-rootfs/opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly'
+```
+
+**What agreed.** The comparison taken from the assembled entry table passed on
+all nine quantities against the sealed measurement: 17,674 entries; 1,736
+directories, 15,101 files, 837 symlinks; 1,771,449,867 payload bytes; largest
+file 160,096,808 bytes; zero collisions, zero duplicates, zero escapes; path
+manifest digest `a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736`.
+The path manifest digest matching is the statement that the set of paths is the
+sealed set.
+
+**What disagreed, and why.** Two files carry exactly the largest size: the
+checker toolchain's `libLLVM` in the guest root, and its copy inside the nested
+runtime rootfs the fourth condition requires. `traverse_staging_tree` kept the
+first file it met at the maximum — a strict `>` — and meets files in directory
+read order. The table is iterated in a fixed order and answers `opt/…`; the walk
+is iterated in filesystem order and answered `var/…`. The preflight writes its
+tree under `RUNNER_TEMP` on the runner's ordinary disk; the production wrapper
+mounts a tmpfs. Read off a walk, `largestFilePath` was a property of the
+filesystem rather than of the tree whenever two files tie for largest.
+
+**Blast radius.** `produce` never writes or walks a staging tree and never
+compares against a walk; it checks the table's totals only. No image production
+would have failed on this. One sealed record carries `largestFilePath` — the boot
+staging tree measurement — and both of its copies hold `opt/…`. No module in the
+repository pins the measurement module's digest; `MEASUREMENT_SHA256` in the
+successor phase pins the sealed JSON, not the module.
+
+**Why the sealed value is the minimum, not merely the smaller of two.**
+`builder_totals` iterates `sorted(paths, key=lambda value: value.encode("utf-8"))`
+and keeps the first file at the maximum size. The composition of those two rules
+is *the byte-wise smallest path among the files of greatest size*, evaluated over
+every path in the tree, so `opt/…` is the minimum over all ties and no
+unobserved further copy can sort ahead of it. A walk given the same tie-break
+therefore reproduces the sealed value by construction. Every other quantity
+`traverse_staging_tree` returns is already order-independent — counts, sums, and
+a path manifest digest computed over sorted paths; `largestFilePath` alone was
+taken in directory order.
+
+**The rule, as the operator fixed it.** Among the regular files of greatest size,
+the path whose canonical path bytes sort first. Not a locale order, not a
+case-insensitive order, not a Unicode normalisation or case fold, and not the
+filesystem's traversal order; the same canonical path byte ordering the path
+manifest already uses. Directories and symlinks are not candidates, and size
+remains the regular file's payload bytes. This deletes no criterion and revises
+no sealed value — it writes down, where the walk can read it, the rule that
+produced the sealed value.
+
+**What changed.** `largest_regular_file` holds the rule; `traverse_staging_tree`
+collects each regular file's path and size and asks it. `builder_totals` is
+untouched, because it already computes the rule and the sealed values are its
+output.
+
+| Test | What it refuses |
+| --- | --- |
+| two files of the maximum size choose the same path either way | an answer that depends on which was met first |
+| more than two ties still choose the byte smallest | a rule that only handles pairs |
+| every encounter order gives the same answer | order dependence surviving under permutation |
+| a strictly larger file wins regardless of the tie rule | a tie-break that outranks size |
+| paths differing only in case are ordered by raw bytes | a case-insensitive comparison |
+| the same character composed two ways stays two paths | a normalising or folding comparison |
+| directories and symlinks are never candidates | a link target's length passing for a file size |
+| the sealed measurement keeps the path it was sealed with | a rule that revises the seal |
+| the table and the walk choose the same path under a tie | the two sides answering differently |
+
+The last of those writes a tree with two tied files, walks it in both directions,
+and requires the table and both walks to agree. Before the fix it fails with
+`'etc/aa-tie' against 'etc/zz-tie'` — the runner's refusal, reproduced locally.
+
+Coverage after this addendum: 46 tests in the measurement gate, and 211 across
+that gate and the successor phase gate together. Two more docs-smoke pins. No
+sealed record, launcher source, launcher binary, predecessor module, predecessor
+workflow or predecessor result was touched. Production attempts stay 0, boot
+attempts stay 0, `runsPerformed` stays 0, and neither successor result path
+exists. Producing is not booting and booting is not serving; neither is claimed.

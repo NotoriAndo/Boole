@@ -33,12 +33,16 @@ its result is sealed in a file this gate only reads for shape.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import inspect
+import itertools
 import json
+import os
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
 from scripts import native_shadow_boot_staging_measure_arm64_v1 as measure
 from scripts import native_shadow_rootfs_builder_boot_arm64_v2 as boot_v2
@@ -289,6 +293,199 @@ class TraversalTests(unittest.TestCase):
         )
         self.assertEqual(walked["largestFileBytes"], largest[0])
         self.assertEqual(walked["largestFilePath"], largest[1])
+
+
+REAL_SCANDIR = os.scandir
+
+
+@contextlib.contextmanager
+def reversed_scandir(path):
+    """``os.scandir``, handing its entries back in reverse name order.
+
+    The walk reads directories in whatever order the filesystem offers, and the
+    two filesystems this code runs on do not offer the same one: the production
+    wrapper mounts a tmpfs, the preflight job writes to the runner's ordinary
+    disk, and neither promises the order things were written in.  Reversing the
+    order here is not a claim that any filesystem does this; it is the cheapest
+    way to ask the question the runners asked by accident, and to ask it the
+    same way every time.
+
+    It calls the real ``os.scandir`` through a name bound at import, because the
+    thing it is installed in place of is ``os.scandir`` itself.
+    """
+
+    with REAL_SCANDIR(path) as scan:
+        yield sorted(scan, key=lambda item: item.name, reverse=True)
+
+
+class LargestFileTieTests(unittest.TestCase):
+    """The largest file is a property of the tree, not of the order it was read in.
+
+    A preflight run on arm64 disagreed with the sealed measurement on
+    ``largestFilePath`` and on nothing else -- not the entry count, not the
+    payload total, not the path manifest digest.  Two files carry exactly the
+    sealed largest size: the checker toolchain's ``libLLVM`` in the guest root,
+    and the copy of it inside the nested runtime rootfs the fourth condition
+    requires be carried for replay.  Both belong there, and the walk simply met
+    the second one first.
+
+    Every other quantity these two functions return is already independent of
+    order -- counts, sums, and a manifest digest taken over sorted paths.  This
+    one was not, so the rule the sealed value was already produced under is
+    written out instead of left to whichever directory answered first:
+
+        among the regular files of greatest size, the path whose canonical bytes
+        sort first
+
+    Not locale collation.  Not a case-insensitive comparison.  Not any Unicode
+    normalisation.  Not the order the tree was walked in.  Directories and
+    symlinks are not candidates at all, whatever size the filesystem reports for
+    them, because the size in question is regular-file payload.
+    """
+
+    SEALED_LARGEST = (
+        "opt/boole/native-checker-toolchain/lib/libLLVM.so.22.1-rust-1.99.0-nightly"
+    )
+    NESTED_LARGEST = "var/lib/boole/native-shadow/runtime-rootfs/" + SEALED_LARGEST
+    SEALED_LARGEST_BYTES = 160096808
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="boole-staging-tie.")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = pathlib.Path(self.temporary.name) / "tree"
+
+    def test_two_files_of_the_maximum_size_choose_the_same_path_either_way(self) -> None:
+        pair = [
+            (self.SEALED_LARGEST, self.SEALED_LARGEST_BYTES),
+            (self.NESTED_LARGEST, self.SEALED_LARGEST_BYTES),
+        ]
+        answer = (self.SEALED_LARGEST_BYTES, self.SEALED_LARGEST)
+        self.assertEqual(measure.largest_regular_file(pair), answer)
+        self.assertEqual(measure.largest_regular_file(list(reversed(pair))), answer)
+
+    def test_more_than_two_ties_still_choose_the_byte_smallest(self) -> None:
+        tied = [("usr/z", 9), ("opt/a", 9), ("var/m", 9), ("etc/b", 9)]
+        for order in itertools.permutations(tied):
+            self.assertEqual(measure.largest_regular_file(order), (9, "etc/b"))
+
+    def test_every_encounter_order_gives_the_same_answer(self) -> None:
+        rows = [("b/two", 7), ("a/one", 7), ("c/three", 7), ("d/small", 1)]
+        answers = {
+            measure.largest_regular_file(order)
+            for order in itertools.permutations(rows)
+        }
+        self.assertEqual(answers, {(7, "a/one")})
+
+    def test_a_strictly_larger_file_wins_regardless_of_the_tie_rule(self) -> None:
+        # "zzz" sorts last of the three, so a rule that reached for the smallest
+        # path without first taking the greatest size would answer "aaa".
+        rows = [("aaa", 10), ("zzz", 11), ("mmm", 10)]
+        for order in itertools.permutations(rows):
+            self.assertEqual(measure.largest_regular_file(order), (11, "zzz"))
+
+    def test_paths_differing_only_in_case_are_ordered_by_raw_bytes(self) -> None:
+        # 'A' is 0x41 and 'a' is 0x61, so the upper-case path sorts first by
+        # bytes.  A case-insensitive comparison would call these equal and keep
+        # whichever arrived first, which is exactly the behaviour being removed.
+        rows = [("opt/a", 5), ("opt/A", 5)]
+        self.assertEqual(measure.largest_regular_file(rows), (5, "opt/A"))
+        self.assertEqual(measure.largest_regular_file(list(reversed(rows))), (5, "opt/A"))
+
+    def test_the_same_character_composed_two_ways_stays_two_paths(self) -> None:
+        # Precomposed "é" is 0xC3 0xA9; decomposed is "e" then 0xCC 0x81.  A
+        # normalising comparison would fold these into one path; comparing the
+        # bytes keeps them two and puts the decomposed form first, 0x65 < 0xC3.
+        precomposed = "etc/\u00e9"
+        decomposed = "etc/e\u0301"
+        self.assertNotEqual(precomposed, decomposed)
+        pair = [(precomposed, 5), (decomposed, 5)]
+        self.assertEqual(measure.largest_regular_file(pair), (5, decomposed))
+        self.assertEqual(
+            measure.largest_regular_file(list(reversed(pair))), (5, decomposed)
+        )
+
+    def test_directories_and_symlinks_are_never_candidates(self) -> None:
+        """Their reported size is not payload, however large the filesystem calls it.
+
+        A directory's own size is tens or thousands of bytes on both filesystems
+        this runs on, and a symlink's is the length of its target.  Both dwarf
+        the two-byte file here, so a walk that counted either would name the
+        wrong path and the wrong size.
+        """
+
+        entries = {
+            "d": {"path": "d", "kind": "directory", "mode": 0o755, "uid": 0, "gid": 0},
+            "d/small": {
+                "path": "d/small",
+                "kind": "file",
+                "mode": 0o644,
+                "uid": 0,
+                "gid": 0,
+                "raw": b"xy",
+            },
+            "d/link": {
+                "path": "d/link",
+                "kind": "symlink",
+                "mode": 0o777,
+                "uid": 0,
+                "gid": 0,
+                "target": "s" * 60,
+                "resolvedTarget": "d/" + "s" * 60,
+            },
+        }
+        measure.write_staging_tree(entries, self.root, mtime=0)
+        walked = measure.traverse_staging_tree(self.root)
+        self.assertEqual(walked["largestFilePath"], "d/small")
+        self.assertEqual(walked["largestFileBytes"], 2)
+        self.assertEqual(walked["payloadBytes"], 2)
+
+    def test_the_sealed_measurement_keeps_the_path_it_was_sealed_with(self) -> None:
+        """The rule reproduces the seal rather than revising it.
+
+        Both of the sealed measurement's sides already hold the guest-root copy,
+        and they hold it because ``builder_totals`` walks the table in path-byte
+        order and keeps the first file at the maximum -- which is this rule,
+        spelled implicitly.  Applying it to the pair the arm64 run actually tied
+        on has to give the sealed answer back.
+        """
+
+        sealed = read_json(MEASUREMENT_PATH)
+        for side in ("builderInternal", "independentTraversal"):
+            self.assertEqual(sealed[side]["largestFilePath"], self.SEALED_LARGEST)
+            self.assertEqual(sealed[side]["largestFileBytes"], self.SEALED_LARGEST_BYTES)
+        self.assertEqual(
+            measure.largest_regular_file(
+                [
+                    (self.NESTED_LARGEST, self.SEALED_LARGEST_BYTES),
+                    (self.SEALED_LARGEST, self.SEALED_LARGEST_BYTES),
+                ]
+            ),
+            (self.SEALED_LARGEST_BYTES, self.SEALED_LARGEST),
+        )
+
+    def test_the_table_and_the_walk_choose_the_same_path_under_a_tie(self) -> None:
+        """Written one way, read both ways, and the same answer all three times."""
+
+        entries = tiny_tree()
+        for name in ("etc/zz-tie", "etc/aa-tie"):
+            entries[name] = {
+                "path": name,
+                "kind": "file",
+                "mode": 0o644,
+                "uid": 0,
+                "gid": 0,
+                "raw": b"t" * 4096,
+            }
+        measure.write_staging_tree(entries, self.root, mtime=0)
+        computed = measure.builder_totals(entries)
+        self.assertEqual(computed["largestFilePath"], "etc/aa-tie")
+
+        forward = measure.traverse_staging_tree(self.root)
+        with mock.patch.object(measure.os, "scandir", reversed_scandir):
+            backward = measure.traverse_staging_tree(self.root)
+        for walked in (forward, backward):
+            measure.assert_measurements_agree(computed, walked)
+            self.assertEqual(walked["largestFilePath"], "etc/aa-tie")
 
 
 class CaseSensitivityTests(unittest.TestCase):
