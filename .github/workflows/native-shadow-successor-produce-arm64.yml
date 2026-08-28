@@ -99,19 +99,39 @@ jobs:
 
       - name: Require this run to have produced nothing
         # The claim the mode rests on, checked against the filesystem rather
-        # than against the code that just ran. A kernel, an initrd or a root
-        # disk anywhere under the scratch tree means the boundary moved.
+        # than against the code that just ran.
+        #
+        # The three names come from the producer authority rather than from a
+        # guess written here. A guess would have to be a pattern, and a pattern
+        # wide enough to catch a kernel would also catch the guest's own kernel
+        # package inside the staging tree -- failing a preflight that did
+        # exactly what it was supposed to, which teaches the next reader to
+        # widen the exception rather than trust the check.
         shell: bash
         run: |
           set -euo pipefail
-          found=$(find "$RUNNER_TEMP/preflight" \
-            \( -name 'boole-native-shadow-*.img' \
-            -o -name '*initrd*' -o -name 'Image' -o -name 'vmlinuz*' \) -print)
+          names=()
+          while IFS= read -r name; do
+            names+=("$name")
+          done < <(
+            python3 -c "from scripts import native_shadow_boot_produce_phase_arm64_v1 as p; print('\n'.join(p.output_names()))"
+          )
+          [ "${#names[@]}" -eq 3 ] || {
+            printf 'the producer authority named %s outputs, not three\n' \
+              "${#names[@]}" >&2
+            exit 1
+          }
+          expression=()
+          for name in "${names[@]}"; do
+            expression+=(-o -name "$name")
+          done
+          found=$(find "$RUNNER_TEMP" \( "${expression[@]:1}" \) -print)
           if [ -n "$found" ]; then
-            printf 'the preflight created image outputs:\n%s\n' "$found" >&2
+            printf 'the preflight created production outputs:\n%s\n' "$found" >&2
             exit 1
           fi
-          printf 'no image output exists under the scratch tree\n'
+          printf 'none of %s exists anywhere under the runner temp tree\n' \
+            "${names[*]}"
 
       - name: Keep the preflight result
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
