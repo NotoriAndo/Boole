@@ -1392,6 +1392,49 @@ require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'cla
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class KeptEvidenceSurvivesAFailedReplicaTests'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class OneShotSectionRehearsedOnFakeFilesTests'
 
+# 2026-08-28 -- the third authority. Two attempts were spent under the second
+# one; this carries exactly one more, and is sealed before it runs. It changes
+# the attempt identifier, the result path and the budget boundary -- which now
+# names the marker instead of the output directory, because that is where the
+# code had already drawn it -- and carries everything else over unchanged. The
+# nine inherited hard stops are quoted word for word and four are added beside
+# them; adding is the only edit that list takes.
+#
+# The producer is sealed in its own record rather than in the authority: the
+# module carries the authority's digest, so an authority carrying the module's
+# would leave neither file with an order it could be written in.
+V3_AUTHORITY=native/containment/native-shadow-mac3-successor-production-authority-arm64-v3.json
+V3_FINGERPRINT=native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json
+require_file "$V3_AUTHORITY"
+require_text "$V3_AUTHORITY" '"attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V3-ATTEMPT-1"'
+require_text "$V3_AUTHORITY" '"status": "SUCCESSOR-PRODUCTION-RE-AUTHORISED-AFTER-REPAIR-NOT-RUN"'
+require_text "$V3_AUTHORITY" '"runsAllowed": 1'
+require_text "$V3_AUTHORITY" '"runsPerformed": 0'
+require_text "$V3_AUTHORITY" '"priorProductionAttemptsSpent": 2'
+require_text "$V3_AUTHORITY" '"productionAttemptsGrantedHere": 1'
+require_text "$V3_AUTHORITY" '"bootAttemptsUsed": 0'
+require_text "$V3_AUTHORITY" '"priorImage": "created, lost, not adoptable"'
+require_text "$V3_AUTHORITY" 'native-shadow-mac3-successor-image-production-result-arm64-v3.json'
+require_text "$V3_AUTHORITY" 'A refusal raised before ATTEMPT-CONSUMED.json exists'
+require_text "$V3_AUTHORITY" '"declaredAdditions"'
+require_text "$V3_AUTHORITY" '"inherited"'
+require_text "$V3_AUTHORITY" '"leftByteUnchanged": true'
+require_text "$V3_AUTHORITY" '"bootableClaim": false'
+require_text "$V3_AUTHORITY" '"servingClaim": false'
+require_text "$V3_AUTHORITY" '"imageProducedClaim": false'
+require_text "$V3_AUTHORITY" '"activationAllowed": false'
+require_file "$V3_FINGERPRINT"
+require_text "$V3_FINGERPRINT" '"status": "PRODUCER-SEALED-NOT-RUN"'
+require_text "$V3_FINGERPRINT" '"attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V3-ATTEMPT-1"'
+require_text "$V3_FINGERPRINT" 'scripts/native_shadow_successor_produce_phase_arm64_v2.py'
+require_text "$V3_FINGERPRINT" 'scripts/native-shadow-successor-produce-arm64.sh'
+require_text "$V3_FINGERPRINT" '.github/workflows/native-shadow-successor-produce-arm64.yml'
+require_text "$V3_FINGERPRINT" '"imageProducedClaim": false'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v2.py 'native-shadow-mac3-successor-production-authority-arm64-v3.json'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ThirdAuthorityTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ProducerFingerprintTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'SPENT_AUTHORITY_PATH'
+
 # 2026-08-28 -- the successor production path, wired to the authority above.
 #
 # The authority named a workflow, a result path and a set of inputs before any

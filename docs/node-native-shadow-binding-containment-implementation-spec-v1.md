@@ -3176,3 +3176,113 @@ anyway.
 Coverage after this addendum: 182 tests in the successor phase gate, twelve more
 docs-smoke pins. No image exists, so producing, booting and serving are all
 unclaimed.
+
+## Addendum — the second attempt, the repair, and the third authority (2026-08-28)
+
+The second successor production dispatch wrote its consumed-attempt marker,
+extracted the kernel, built the initrd, wrote the ext4 image, passed the content
+check, and then raised while assembling the document that reports what it built.
+Both replicas. Three finished files each, zero artifacts kept: the run died with
+the runner that made them.
+
+The record is `native/containment/native-shadow-mac3-successor-image-production-hard-stop-arm64-v2.json`.
+It is written beside the first attempt's record rather than replacing it, and it
+takes the accounting the first one could not: the marker was written, so the
+attempt is spent, and no image exists to point at. `imageProducedClaim` stays
+false — three files were built and lost, which is not the same as an image.
+
+### Three defects, and why none of them is a relaxed condition
+
+**The assembly.** `manifest_from_directory` returns a mapping of output name to
+digest. Iterating a mapping yields its keys, and the assembly handed each key to
+`dict` as though it were a row. The field it was building, `outputManifest`,
+appears exactly once in the repository — at the line that raised — so no
+consumer would ever have caught the shape. No test could execute it either: it
+sits inside a section that needs root, aarch64, a payload store and the one
+attempt there is. It is now `production_result`, an ordinary function that
+refuses a non-mapping, a missing name, an extra name and a digest that is not a
+sha256, and that tests execute directly.
+
+**The marker's mode.** The marker is written by root inside the transient unit;
+the step that uploads it runs as the ordinary runner account. A temporary file
+is created at mode 0600 and a rename preserves that, so both replicas failed the
+upload with `EACCES`. The marker is now made world-readable *before* the rename,
+so the name that answers the budget question is readable from the instant it
+exists. The console echo that saved this attempt's accounting is kept as well;
+two independent copies is the point.
+
+**What a failed replica leaves.** The steps that kept the manifest, the evidence
+and the three files ran only on success, so a good build followed by a failing
+statement left nothing at all. The section that spends the attempt is now a
+context manager, `consumed_attempt`, which on the way out writes
+`UNQUALIFIED-DIAGNOSTIC.json` naming the failure and makes the output tree
+readable, and the workflow keeps that tree under
+`successor-unqualified-diagnostic-<replica>` — a name that disowns it.
+
+This reverses the rule the previous addendum's table recorded as
+`test_a_failed_replica_keeps_the_marker_and_not_the_image`. That test is now
+`test_a_failed_replica_keeps_the_marker`, and the row above it should be read
+with this paragraph. The earlier rule was written to stop a half-built image
+from being mistaken for a production; the operator's 2026-08-28 ruling replaced
+it, because losing a finished image is the worse of the two outcomes and a
+document that disowns the files answers the original worry directly.
+
+### Rehearsing the one-shot section for free
+
+`OneShotSectionRehearsedOnFakeFilesTests` runs the marker, the real
+`manifest_from_directory`, the real `production_result` and the real writer end
+to end on three stand-in files of a few bytes each, in both the succeeding and
+the failing shape. No root, no aarch64, no payload store, no cost. The path that
+had never been executed before it was executed once, for real, is now executed
+by the gate on every run.
+
+### The third authority
+
+`native/containment/native-shadow-mac3-successor-production-authority-arm64-v3.json`
+carries exactly one further attempt, granted by the operator after the second
+was spent. It changes three things and carries the rest over unchanged:
+
+| what | why |
+| --- | --- |
+| a new attempt id and result path | a spent attempt's identifiers are not reused |
+| the budget boundary named on `ATTEMPT-CONSUMED.json` | the previous wording drew the line at the output directory, and two dispatches showed that line cannot be read after the fact |
+| four preserved records added to `boundInputDigests` | preservation is a condition of this attempt, so the production re-checks it on the runner rather than leaving it to a test |
+
+The nine hard-stop conditions of the second authority are quoted word for word
+under `hardStopConditions.inherited`, and four are added beside them under
+`declaredAdditions`. Adding is the only edit that list takes: a test compares
+the inherited block against the second authority's, so a reworded, reordered or
+dropped condition fails the gate.
+
+The second authority still reads `runsPerformed: 0`. That was true when it was
+sealed and was never updated, because the run that spent it died before it could
+write anything. It is preserved with that number rather than corrected — the two
+hard-stop records are where the attempts are counted, and the third authority
+binds all four documents by digest.
+
+### Why the producer's fingerprint is a separate record
+
+The produce module pins the authority's digest. An authority that pinned the
+module's digest — directly, or through a record whose digest it named — would
+leave neither file with an order it could be written in. So the fixed producer
+is sealed in
+`native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json`,
+which points at the authority and which nothing points back at: the module, the
+wrapper, the workflow, the gate and the frozen producer helper, each at the
+bytes that will run. A test checks that the authority names its path and not its
+digest, and that neither the fingerprint's digest nor the module's appears
+anywhere in the authority's bytes.
+
+### Accounting after this addendum
+
+| | |
+| --- | --- |
+| production attempts spent | 2 |
+| images preserved | 0 |
+| production attempts granted here | 1, unused |
+| boot attempts used | 0 |
+
+Coverage after this addendum: 240 tests in the successor phase gate. No image
+exists, so producing, booting and serving are all unclaimed, and `mineable_now`,
+`REWARD_READY`, activation and every consensus, reward and peer-to-peer path are
+untouched.

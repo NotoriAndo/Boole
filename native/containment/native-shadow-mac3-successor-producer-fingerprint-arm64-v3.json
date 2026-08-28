@@ -1,0 +1,56 @@
+{
+  "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V3-ATTEMPT-1",
+  "authorityPath": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v3.json",
+  "authoritySha256": "0ff5000c0cea751a32d88d79028a2b53380262551517fe9ec2c1072df35afe06",
+  "boundaries": {
+    "activationAllowed": false,
+    "bootableClaim": false,
+    "imageProducedClaim": false,
+    "servingClaim": false
+  },
+  "files": [
+    {
+      "path": "scripts/native_shadow_successor_produce_phase_arm64_v2.py",
+      "role": "the phase itself: preflight, marker, production, result",
+      "sha256": "613e59750789f9578999729f4163fc16366c19f055fc441160e4d00fb3fc8c39"
+    },
+    {
+      "path": "scripts/native-shadow-successor-produce-arm64.sh",
+      "role": "the wrapper the workflow calls",
+      "sha256": "3339c8ba86e0c4add30bf8d3df7e956f2f980374b47fd5f9541ec694b9956be9"
+    },
+    {
+      "path": ".github/workflows/native-shadow-successor-produce-arm64.yml",
+      "role": "the workflow that dispatches the two replicas and compares them",
+      "sha256": "9e3f255904f884c4d73c99d570f539d9f88683f0658500dc91809ce1eecec345"
+    },
+    {
+      "path": "scripts/test_native_shadow_successor_produce_phase_arm64_v2.py",
+      "role": "the gate that has to pass before any of the above runs",
+      "sha256": "d02dcb92eead6273cf8f0a9cd4dcfda5c990cdb0de14c13d365f76edc5e99a9f"
+    },
+    {
+      "path": "scripts/native_shadow_boot_image_produce_arm64_v1.py",
+      "role": "the frozen producer helper the phase hashes its outputs with",
+      "sha256": "5cdc249751a7b8c3128fcff2150059692a00de8590a925f426bc58129056e939"
+    }
+  ],
+  "frozenBefore": "the preflight and the production of this attempt",
+  "onMismatch": "abort.  A digest here that no longer matches its file means the producer changed after it was sealed, and the attempt does not run on a producer nobody registered.",
+  "record": "native-shadow-mac3-successor-producer-fingerprint-arm64-v3",
+  "release": "NATIVE-SHADOW-MAC3-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V3",
+  "repairedDefects": [
+    "result-document-assembly",
+    "marker-not-readable-by-the-account-that-collects-it",
+    "produced-files-discarded-when-a-later-step-fails"
+  ],
+  "schema": "boole.native-shadow.mac3-successor-producer-fingerprint.arm64.v3",
+  "status": "PRODUCER-SEALED-NOT-RUN",
+  "whatIsNotClaimed": [
+    "that an image exists",
+    "that anything boots or serves",
+    "that this producer has run under this authority even once"
+  ],
+  "whyThisIsASeparateRecord": "the module pins the authority's digest, so the authority cannot pin the module's.  Sealing the producer in a record that points at the authority, and that nothing points back at, keeps both statements checkable without either having to be written twice.",
+  "writtenAfter": "the module was final and its bytes were on main, so the digests below are the bytes that will run"
+}
