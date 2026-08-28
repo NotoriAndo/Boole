@@ -1,0 +1,358 @@
+{
+  "activationAllowed": false,
+  "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V2-ATTEMPT-1",
+  "bootableClaim": false,
+  "boundInputDigests": {
+    "files": [
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+        "role": "successor source lock",
+        "sha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f"
+      },
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json",
+        "role": "successor source lock result",
+        "sha256": "0542978a6c49287b27c46a836ae3c1aa548d61e4e065b345ebccbb8d8821dedd"
+      },
+      {
+        "path": "native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json",
+        "role": "sealed staging measurement",
+        "sha256": "a9b53199ca519def2232687c096a7fbefeef13a26f68ba44fcb9a3da30d35d18"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json",
+        "role": "predecessor criteria, superseded and left byte-unchanged",
+        "sha256": "417d2497072519031506664553a0d9b478c53a7bf7983f431332f69bbecec4b8"
+      },
+      {
+        "path": "native/containment/native-shadow-launcher-build-authority-arm64-v1.json",
+        "role": "launcher build authority",
+        "sha256": "64f4ea0c6b574e1479e51a78e250da8fac6f3d3522d60cb03dde65b53da594ee"
+      },
+      {
+        "path": "native/containment/native-shadow-launcher-build-result-arm64-v1.json",
+        "role": "sealed launcher rebuild result",
+        "sha256": "eca743b903a6ef22ef214a14890042edaee3afd80af11c97503c255b67c0764c"
+      },
+      {
+        "path": "native/containment/native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json",
+        "role": "runtime rootfs replay expectation",
+        "sha256": "e6b01bcce89bf2900bfa3e510ac79a8c2863c7701843cd4a1b20f2d987309e66"
+      },
+      {
+        "path": "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json",
+        "role": "runtime rootfs source lock, the nested tree's driver",
+        "sha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0"
+      },
+      {
+        "path": "scripts/native_shadow_rootfs_builder_arm64_v1.py",
+        "role": "frozen builder the projection chain starts from",
+        "sha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4"
+      },
+      {
+        "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v3.py",
+        "role": "successor builder projection, the one that merges the nested tree",
+        "sha256": "93bd05d06e43cc69f325036d204b7b57721e358dd5c5d5990227ef88c4de8c39"
+      },
+      {
+        "path": "scripts/native_shadow_rootfs_portable_boot_arm64_v2.py",
+        "role": "successor release gate",
+        "sha256": "15f88cf286879ae30aae10bb7819aefea91095a819d96c2634ee9ecc4ea2f305"
+      }
+    ],
+    "note": "Every file this authority depends on, in one table, so that drift is checked by iterating rather than by reading prose.  A digest here that no longer matches its file is an abort condition, not a note to update."
+  },
+  "boundaries": [
+    "no wallet seed, passphrase or key derivation material is placed in or passed to the guest",
+    "no model API key is placed in or passed to the guest",
+    "no reward, block, consensus or peer-to-peer authority is granted to the guest",
+    "no network device and no shared directory is configured for the guest",
+    "no operator key, team identifier, certificate or provisioning profile is created",
+    "no public mining, no public testnet, no paid benchmark and no leaderboard claim"
+  ],
+  "budgetBoundary": {
+    "afterConsumption": "no re-run, no retry and no second dispatch in this wave.  A consumed attempt that failed is reported to the operator as a hard stop.",
+    "preflightNeverConsumes": "the preflight creates no output directory by construction, so no preflight outcome can consume the production budget.",
+    "rule": "A refusal raised before the production output directory exists does not consume the one allowed attempt.  Once any output file has been created, the attempt is consumed whatever happens next.",
+    "whyItIsDrawnThere": "the filesystem is the only witness that survives a crashed job.  An authority or preflight refusal leaves no output, so the next run genuinely is the first; a half-written image leaves one, so the next run would not be."
+  },
+  "expectedMeasurements": {
+    "note": "These are the numbers the sealed measurement recorded.  The preflight must reproduce the first set exactly; the production-bound set is what the same tree becomes once the launcher the runner rebuilds is staged into it.",
+    "withSealedLauncher": {
+      "entries": 17676,
+      "largestFileBytes": 160096808,
+      "payloadBytes": 1773456499
+    },
+    "withoutLauncher": {
+      "duplicatePaths": 0,
+      "entries": 17674,
+      "largestFileBytes": 160096808,
+      "pathCollisions": 0,
+      "pathManifestSha256": "a342a1a59178af546c0c0d212aecd770d02333bf9c289a11b42627b271693736",
+      "payloadBytes": 1771449867,
+      "symlinkEscapes": 0
+    }
+  },
+  "frozenBefore": "any successor preflight and any successor production",
+  "hardStopConditions": [
+    "any sealed digest named here differs from the file it names",
+    "the preflight totals differ from the sealed measurement",
+    "any of the three gaps is not closed in the assembled tree",
+    "the production path and the measurement path reach different merge functions",
+    "the preflight consumes any part of the production budget",
+    "a production fails after any output file exists",
+    "the two replicas disagree, or e2fsck reports an error",
+    "progress would require editing a sealed record, the launcher source or the sealed launcher binary",
+    "progress would require relaxing isolation or falling back to an unisolated run"
+  ],
+  "historicalPathLeftIntact": {
+    "crossContaminationIsRefused": "The predecessor path handed the successor lock, and the successor path handed the predecessor lock, must each refuse rather than build.  Neither direction may fall back to the other.",
+    "evidenceItReadsThePredecessorLock": [
+      {
+        "file": "scripts/native_shadow_boot_produce_phase_arm64_v1.py",
+        "line": 66,
+        "reads": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json"
+      },
+      {
+        "file": "scripts/native_shadow_boot_produce_phase_arm64_v1.py",
+        "imports": "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+        "line": 51
+      },
+      {
+        "file": "scripts/native_shadow_boot_produce_phase_arm64_v1.py",
+        "line": 561,
+        "note": "build_oci_layout is called with no nested tree argument, so the runtime rootfs and its manifest cannot be in what it produces."
+      }
+    ],
+    "note": "The predecessor production path is not edited, not re-pointed and not deleted.  It reads the v1 lock and imports the v1 builder, which is exactly what reproduces the image that already booted.  Keeping it runnable is what makes the earlier boot result still checkable.",
+    "paths": [
+      "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json",
+      "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+      "scripts/native_shadow_boot_produce_phase_arm64_v1.py",
+      "scripts/native-shadow-boot-produce-arm64.sh",
+      ".github/workflows/native-shadow-boot-produce-arm64.yml",
+      "native/systemd/boole-native-shadow-launcher.service",
+      "native/tmpfiles.d/boole-native-shadow.conf"
+    ]
+  },
+  "imageProducedClaim": false,
+  "limits": {
+    "appliedTo": "both the measured tree and the production-bound totals",
+    "maxEntries": 200000,
+    "maxFileBytes": 536870912,
+    "maxTotalBytes": 2147483648,
+    "onExceeding": "refuse.  Nothing is truncated, sampled or excluded to fit -- a tree that does not fit is the finding, and shrinking it to pass would hide it."
+  },
+  "notEstablishedByAPass": [
+    "that the image boots; producing is not booting",
+    "that the launcher serves anything; booting is not serving",
+    "that the guest is ready for a node connection; MAC.4 is not started",
+    "that mining, rewards, consensus or activation move at all"
+  ],
+  "preflight": {
+    "mustNeverDo": [
+      "run mke2fs",
+      "generate an initrd",
+      "generate a root disk",
+      "create the production output directory",
+      "upload an artifact",
+      "consume a production attempt"
+    ],
+    "onAnyFailure": "the production is not started",
+    "passRequires": [
+      "the launcher-excluded totals equal the sealed measurement exactly",
+      "the launcher-included totals equal the production-bound set exactly",
+      "the runtime content manifest digest equals the sealed value",
+      "the five account files are present at their guest paths with the frozen mode and ownership",
+      "the v2 unit is present, enabled, and carries console output on both streams",
+      "path collisions, duplicate paths and symlink escapes are each zero",
+      "all three limits pass on both totals",
+      "the result digest and the full provenance are recorded"
+    ],
+    "performs": [
+      "confirm the exact artifact store is present and complete",
+      "rebuild the launcher and compare its digest and size with the sealed values",
+      "assemble the account database, the v2 unit, the nested runtime rootfs and its content manifest into the staging tree for real",
+      "walk the written staging tree independently and compare with the builder's own totals",
+      "compute the full path manifest and content manifest",
+      "apply the three sealed limits to both totals",
+      "read the three closed gaps back out of the assembled tree rather than out of the declarations naming them"
+    ],
+    "purpose": "Establish, without producing anything, that the successor path assembles exactly the tree the measurement sealed and that the three gaps are closed in the tree it actually assembles.",
+    "runsOn": "the same arm64 Linux environment the production uses"
+  },
+  "preflightIsRepeatable": true,
+  "preflightResultPath": "native/containment/native-shadow-mac3-successor-preflight-result-arm64-v1.json",
+  "producedBy": ".github/workflows/native-shadow-successor-produce-arm64.yml",
+  "producedOn": "ubuntu-24.04-arm, the runner the predecessor producer authority sealed",
+  "production": {
+    "beforeDispatchRequires": [
+      "the local head equals origin/main and the tree is clean",
+      "this authority's digest matches the file on disk",
+      "the preflight result digest matches the file on disk",
+      "the production attempt count is zero",
+      "no production result and no production artifact exists"
+    ],
+    "claimsThatStayFalse": [
+      "bootableClaim",
+      "servingClaim",
+      "activationAllowed"
+    ],
+    "comparisonJobPasses": "when the kernel, the initrd and the root disk are byte-identical between the two replicas.  A single differing byte is a failure of determinism, not a rounding error to be explained.",
+    "dispatches": 1,
+    "e2fsck": {
+      "invocation": "e2fsck -f -n",
+      "provesItWroteNothing": "the root disk digest is retaken afterwards and must be unchanged",
+      "repairOptionsForbidden": [
+        "-p",
+        "-y",
+        "-a",
+        "-f -y"
+      ],
+      "timesPerReplica": 1
+    },
+    "onGreen": "the recorded digests are the ones both replicas reached independently.  Neither replica is picked as the winner, because picking one would turn a disagreement into a choice.",
+    "productionsPerReplica": 1,
+    "replicaIsolation": "neither replica may read the other's outputs, artifacts or logs while it builds.  The comparison happens in a third job, after both have finished.",
+    "replicas": 2,
+    "steps": [
+      "rebuild the launcher on the runner and match the sealed digest",
+      "assemble the same successor staging tree the preflight assembled",
+      "produce the kernel, the initrd and the root disk",
+      "run e2fsck in its read-only mode exactly once against the produced root disk",
+      "publish a SHA-256 manifest of the three files"
+    ]
+  },
+  "recordRegardlessOfVerdict": "The result is written whether it passes or fails, with the same detail either way.  A failed production is evidence about the build; deleting it would make the next attempt look like the first.",
+  "release": "NATIVE-SHADOW-MAC3-SUCCESSOR-PRODUCTION-AUTHORITY-ARM64-V2",
+  "requiredArguments": {
+    "forbidden": [
+      "a default value for the nested tree in the successor production entry point",
+      "a fallback from the successor lock to the predecessor lock",
+      "a fallback from the predecessor lock to the successor lock",
+      "continuing when the content manifest is absent or hashes differently"
+    ],
+    "mustBeRequiredWithNoDefault": [
+      "nested_tree",
+      "content manifest expectation"
+    ],
+    "note": "The builder keeps the nested tree optional because a projection may not change its predecessor's defaults.  The successor production path is where the argument becomes mandatory, and that is a property of the caller."
+  },
+  "resultPath": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v2.json",
+  "runsAllowed": 1,
+  "runsPerformed": 0,
+  "schema": "boole.native-shadow.mac3-successor-production-authority.arm64.v2",
+  "servingClaim": false,
+  "sharedMaterialization": {
+    "howItIsChecked": "the namespace a measurement reaches through materialize_staging_tree and the namespace a production reaches through build_oci_layout are required to be the same mapping object.  Two equal copies fail this, because two copies can drift and one object cannot.",
+    "requirement": "The production path and the measurement path must reach one function object, not two functions that agree.",
+    "theFunction": "_assemble_entries, in the fifth projection's derived namespace"
+  },
+  "status": "SUCCESSOR-PRODUCTION-PRE-REGISTERED-NOT-WIRED-NOT-RUN",
+  "subject": "one production of the three arm64 boot files -- kernel, initrd and root disk -- assembled through the merge the staging measurement already took, run twice on two independent runners and required to agree byte for byte.",
+  "successorInputs": {
+    "accountDatabase": [
+      {
+        "guestPath": "/etc/passwd",
+        "source": "native/etc/passwd"
+      },
+      {
+        "guestPath": "/etc/shadow",
+        "source": "native/etc/shadow"
+      },
+      {
+        "guestPath": "/etc/group",
+        "source": "native/etc/group"
+      },
+      {
+        "guestPath": "/etc/gshadow",
+        "source": "native/etc/gshadow"
+      },
+      {
+        "guestPath": "/etc/nsswitch.conf",
+        "source": "native/etc/nsswitch.conf"
+      }
+    ],
+    "builder": {
+      "frozenBuilderPath": "scripts/native_shadow_rootfs_builder_arm64_v1.py",
+      "frozenBuilderSha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+      "materializationFunction": "materialize_staging_tree",
+      "module": "scripts/native_shadow_rootfs_builder_boot_arm64_v3.py",
+      "nestedTreeAssembler": "nested_runtime_tree",
+      "productionEntryPoint": "build_oci_layout",
+      "sha256": "93bd05d06e43cc69f325036d204b7b57721e358dd5c5d5990227ef88c4de8c39"
+    },
+    "launcherBuildAuthority": {
+      "expectedLauncherSha256": "11b5d1cf1728aff271c589129292bcd8ad07a1d928652d2435b1c9010f73c434",
+      "expectedLauncherSizeBytes": 2006632,
+      "guestPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+      "path": "native/containment/native-shadow-launcher-build-authority-arm64-v1.json",
+      "rebuiltOnTheRunnerBy": "scripts/native_shadow_launcher_emit_arm64_v1.py",
+      "resultPath": "native/containment/native-shadow-launcher-build-result-arm64-v1.json",
+      "resultSha256": "eca743b903a6ef22ef214a14890042edaee3afd80af11c97503c255b67c0764c",
+      "sha256": "64f4ea0c6b574e1479e51a78e250da8fac6f3d3522d60cb03dde65b53da594ee"
+    },
+    "launcherUnit": {
+      "consoleOutput": "StandardOutput=journal+console and StandardError=journal+console",
+      "guestPath": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+      "source": "native/systemd/boole-native-shadow-launcher-v2.service",
+      "supersededSource": "native/systemd/boole-native-shadow-launcher.service stays in the tree as the predecessor path's input and is not staged into the successor image. Only the source bytes moved; the guest path is the same one.",
+      "why": "the host already captures and hashes the guest console.  A launcher that writes only to the journal is a launcher whose refusal the host cannot read, which is the third of the three gaps this successor closes."
+    },
+    "measurementResult": {
+      "path": "native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json",
+      "sha256": "a9b53199ca519def2232687c096a7fbefeef13a26f68ba44fcb9a3da30d35d18"
+    },
+    "nestedRuntime": {
+      "contentManifestGuestPath": "/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json",
+      "contentManifestSha256": "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa",
+      "contentManifestSizeBytes": 1285116,
+      "drivingSourceLockPath": "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json",
+      "drivingSourceLockSha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
+      "guestPrefix": "/var/lib/boole/native-shadow/runtime-rootfs",
+      "layerSizeBytes": 766556160,
+      "replayExpectationPath": "native/containment/native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json",
+      "replayExpectationSealsTheSameManifest": "its rootfsContentManifestSha256 is the value the builder's own nested tree declaration carries, so the manifest read out of the assembled tree answers to a record sealed before the merge existed.",
+      "replayExpectationSha256": "e6b01bcce89bf2900bfa3e510ac79a8c2863c7701843cd4a1b20f2d987309e66"
+    },
+    "releaseGate": {
+      "entryPoint": "materialize_runtime_lock",
+      "module": "scripts/native_shadow_rootfs_portable_boot_arm64_v2.py",
+      "sha256": "15f88cf286879ae30aae10bb7819aefea91095a819d96c2634ee9ecc4ea2f305"
+    },
+    "sourceLock": {
+      "path": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+      "release": "NATIVE-SHADOW-BOOT-ROOTFS-SOURCE-LOCK-ARM64-V2-SOURCE-SHAPE-ONLY-NOT-BOOTABLE",
+      "sha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f"
+    }
+  },
+  "supersedes": {
+    "note": "The predecessor criteria record stays byte-unchanged.  It named the predecessor workflow as its producer because, when it was sealed, that was the only workflow there was -- and it said so plainly by listing three requirements as not done.  All three are now closed by records sealed afterwards, and this authority is where that is written down.  Correcting the producer inside the predecessor record would have rewritten history; naming a successor producer here does not.",
+    "predecessor": {
+      "leftByteUnchanged": true,
+      "path": "native/containment/native-shadow-mac3-successor-image-production-criteria-arm64-v1.json",
+      "sha256": "417d2497072519031506664553a0d9b478c53a7bf7983f431332f69bbecec4b8"
+    },
+    "requirementsItListedAsNotDone": [
+      {
+        "closedBy": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+        "closedBySha256": "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f",
+        "how": "the fourth projection widened the staging table from ten tracked files to fifteen: the five account files, and the launcher unit and tmpfiles configuration re-pointed at their v2 sources.",
+        "requirement": "the builder stages all seven inputs"
+      },
+      {
+        "closedBy": "native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json",
+        "closedBySha256": "0542978a6c49287b27c46a836ae3c1aa548d61e4e065b345ebccbb8d8821dedd",
+        "how": "the successor plan was sealed first and the lock generated from it, in that order, so the lock is verified against the plan rather than written beside it.",
+        "requirement": "a successor boot rootfs source lock covering the added tracked files"
+      },
+      {
+        "closedBy": "native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json",
+        "closedBySha256": "a9b53199ca519def2232687c096a7fbefeef13a26f68ba44fcb9a3da30d35d18",
+        "how": "the fifth projection merges the nested runtime tree, and the measurement assembled it for real through that merge and walked the written tree back.  The manifest was read out of the written tree, not out of the declaration that names it.",
+        "requirement": "the builder materialises the runtime rootfs and its manifest"
+      }
+    ]
+  },
+  "whatThisIs": "The inputs, the boundaries and the pass conditions of a successor arm64 boot image production, written down before the path that would run it exists.  It is separate from the predecessor production path in every part that could be confused for it: its own authority record, its own workflow, its own attempt identifier and its own result paths.  Nothing here edits the predecessor."
+}

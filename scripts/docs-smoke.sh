@@ -1266,6 +1266,55 @@ require_text scripts/test_native_shadow_boot_staging_measure_arm64_v1.py 'def te
 require_text scripts/test_native_shadow_boot_staging_measure_arm64_v1.py 'def test_nothing_is_truncated_or_excluded_to_fit'
 require_text scripts/self-test.sh scripts/test_native_shadow_boot_staging_measure_arm64_v1.py
 
+# Step six: the successor production path, pre-registered before it exists.
+#
+# The predecessor criteria record named the predecessor workflow as its producer,
+# and it was right to at the time -- it listed three requirements as not done and
+# that workflow was the only one there was. All three are closed now, but the
+# record cannot be corrected in place: a producer changed after the fact would
+# describe the run instead of committing to it. So the correction lives in a
+# successor authority that supersedes it on its own terms and leaves its bytes
+# alone, which is why the predecessor's digest is pinned here beside the new one.
+#
+# What the pins are for. The successor path has to be impossible to confuse with
+# the predecessor in the two directions that would waste the one allowed attempt:
+# the predecessor lock reaching the successor builder, and the successor lock
+# reaching the predecessor builder. Neither may fall back to the other, so the
+# separate result path, the separate attempt identifier and the separate workflow
+# are all named here rather than left to whoever wires it. The budget boundary is
+# pinned as prose because it is the rule that decides whether a failure cost the
+# attempt: before an output file exists it did not, after one exists it did.
+#
+# The numbers are the ones the sealed measurement already reached, repeated here
+# so that a preflight which quietly disagrees with the measurement fails against
+# a record written before it ran rather than against a memory of one.
+require_file native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"status": "SUCCESSOR-PRODUCTION-PRE-REGISTERED-NOT-WIRED-NOT-RUN"'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V2-ATTEMPT-1"'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"producedBy": ".github/workflows/native-shadow-successor-produce-arm64.yml"'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json 'native-shadow-mac3-successor-image-production-result-arm64-v2.json'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json 'native-shadow-mac3-successor-preflight-result-arm64-v1.json'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"sha256": "417d2497072519031506664553a0d9b478c53a7bf7983f431332f69bbecec4b8"'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"leftByteUnchanged": true'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"materializationFunction": "materialize_staging_tree"'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"nestedTreeAssembler": "nested_runtime_tree"'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '_assemble_entries, in the fifth projection'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"runsAllowed": 1'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"runsPerformed": 0'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"replicas": 2'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"productionsPerReplica": 1'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"invocation": "e2fsck -f -n"'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json 'the attempt is consumed whatever happens next'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json 'the preflight creates no output directory by construction'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"entries": 17674'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"entries": 17676'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"payloadBytes": 1773456499'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"expectedLauncherSizeBytes": 2006632'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"bootableClaim": false'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"servingClaim": false'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"imageProducedClaim": false'
+require_text native/containment/native-shadow-mac3-successor-production-authority-arm64-v2.json '"activationAllowed": false'
+
 # The five directories the kernel filesystems are mounted on. The one MAC.3 boot
 # froze because none of them is in the image, and the list is five rather than
 # the three the console named because it comes from the guest's own systemd --
@@ -1381,9 +1430,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "43ec61aa6208f9330b9c0e01413e0d746023ec8fd829976a97af2898f57e1935"
-require_text docs/native-submission-shadow-verification-v1.md "99c41f71bb04f89d37b220a4d33e8406640fe4454be830e8feae8ff6d55164a7"
-require_text docs/native-submission-shadow-verification-v1.md "8148f86077c59d8047b95cafa53d8266984b714b2d7b0b14d67d9efaa90a67d8"
+require_text docs/native-submission-shadow-verification-v1.md "55e22e3ec503cb4d96b3c502cd8b88af1b3c51e058827f1ac6ddfb2fd11c4251"
+require_text docs/native-submission-shadow-verification-v1.md "e7fc6277dc24506efb61133d89585e04043e5f58cf9962e6c1c889c460f3b38f"
+require_text docs/native-submission-shadow-verification-v1.md "2f6dcfd4f3c82e58c86fce6b64cd4d1e6565a142f33b3dc765cf6b13a872a309"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
