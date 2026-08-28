@@ -23,11 +23,14 @@ direction.  The release gates already refuse each other's locks, and that refusa
 lands before either gate opens a tool, so the test costs nothing and proves the
 half that matters: a misconfiguration cannot quietly become a wrong image.
 
-The second is the budget boundary.  A refusal raised before the output directory
-exists has cost nothing; one raised after an output file exists has cost the only
-attempt there is.  ``BudgetBoundaryTests`` checks that the preflight cannot reach
-the far side of that line -- not because it promises to be careful, but because it
-never calls anything that would create the directory.
+The second is the budget boundary.  It is a marker the production writes on
+purpose, atomically, immediately before its first image file: a refusal raised
+before it has cost nothing, and a failure raised after it has cost the only
+attempt there is.  ``BudgetBoundaryTests`` and ``ConsumedMarkerTests`` check that
+the preflight cannot reach the far side of that line -- not because it promises
+to be careful, but because it never calls anything that would create an image or
+write the marker -- and that a run cut off mid-write lands on the unspent side,
+because the marker is a rename rather than a write.
 
 Nothing here reads the payload store, so the gate runs where the artifacts are
 absent.  Fixtures are hand-built entry tables, which is enough: every refusal in
@@ -1189,18 +1192,21 @@ class PreflightRecordTests(unittest.TestCase):
 
 
 class BudgetBoundaryTests(unittest.TestCase):
-    """Unspent before an output file exists; spent after."""
+    """Unspent before the marker is written; spent after."""
 
     def test_the_boundary_is_the_authoritys_own_words(self) -> None:
+        # The sealed sentence, still quoted here unchanged. It names the free
+        # case and the consumed case; the case it does not name is the one the
+        # first production landed in, and the marker is what removed it.
         rule = mod.authority()["budgetBoundary"]["rule"]
         self.assertIn("before the production output directory exists", rule)
         self.assertIn("the attempt is consumed whatever happens next", rule)
 
-    def test_a_refusal_before_any_output_exists_is_unspent(self) -> None:
-        self.assertFalse(mod.attempt_consumed(outputs_created=False))
+    def test_a_refusal_before_the_marker_is_unspent(self) -> None:
+        self.assertFalse(mod.attempt_consumed(marker_written=False))
 
-    def test_a_failure_after_an_output_exists_is_spent(self) -> None:
-        self.assertTrue(mod.attempt_consumed(outputs_created=True))
+    def test_a_failure_after_the_marker_is_spent(self) -> None:
+        self.assertTrue(mod.attempt_consumed(marker_written=True))
 
     def test_the_preflight_can_never_create_an_output_directory(self) -> None:
         mod.assert_preflight_creates_no_outputs()
@@ -1718,3 +1724,282 @@ class SpentAttemptHardStopTests(unittest.TestCase):
             "no second production has been dispatched",
             self.record["hardStop"]["noReRun"],
         )
+
+
+RULING_PATH = (
+    CONTAINMENT
+    / "native-shadow-mac3-successor-image-production-budget-ruling-arm64-v1.json"
+)
+
+
+class ConsumedMarkerTests(unittest.TestCase):
+    """The budget line, moved off a directory and onto a deliberate act.
+
+    The first production failed in the one case the sealed rule did not name:
+    an output directory existed, because a systemd ``ReadWritePaths`` entry has
+    to exist before the unit starts, and no output file ever did.  A boundary
+    that a run can cross without meaning to is a boundary that will be argued
+    about afterwards, so the answer is now a file this phase writes on purpose,
+    immediately before the first image file, and nothing else.
+    """
+
+    def setUp(self) -> None:
+        self.outputs = pathlib.Path(
+            tempfile.mkdtemp(prefix="boole-consumed-marker.")
+        )
+        self.addCleanup(shutil.rmtree, self.outputs, True)
+
+    def test_the_boundary_is_the_marker_and_not_the_directory(self) -> None:
+        self.assertFalse(mod.attempt_consumed(marker_written=False))
+        self.assertTrue(mod.attempt_consumed(marker_written=True))
+
+    def test_it_lands_at_one_name_under_the_outputs(self) -> None:
+        self.assertEqual(
+            mod.consumed_marker(self.outputs),
+            self.outputs / "ATTEMPT-CONSUMED.json",
+        )
+
+    def test_writing_it_leaves_the_marker_and_no_half_written_neighbour(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            marker = mod.write_consumed_marker(self.outputs)
+        self.assertTrue(marker.is_file())
+        self.assertEqual(sorted(p.name for p in self.outputs.iterdir()), [
+            "ATTEMPT-CONSUMED.json"
+        ])
+
+    def test_a_crash_before_the_rename_leaves_no_marker(self) -> None:
+        # The reason the write is a rename and not a write: a run that dies
+        # halfway must be unspent, and it can only be unspent if the name that
+        # answers the question never held half a document.
+        with mock.patch.object(mod.os, "replace", side_effect=OSError("cut")):
+            with contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(OSError):
+                    mod.write_consumed_marker(self.outputs)
+        self.assertFalse(mod.consumed_marker(self.outputs).exists())
+        self.assertFalse(
+            mod.attempt_consumed(
+                marker_written=mod.consumed_marker(self.outputs).is_file()
+            )
+        )
+        self.assertEqual(list(self.outputs.iterdir()), [])
+
+    def test_a_stumble_after_the_rename_does_not_abort_a_committed_run(self) -> None:
+        # The mirror of the test above. Before the rename, failing is right and
+        # the attempt is unspent. After it the attempt is spent whatever
+        # happens, so failing in the part that merely records the spending
+        # would throw the one attempt away for nothing.
+        with mock.patch.object(mod.os, "fsync", side_effect=OSError("no fsync")):
+            with contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(OSError):
+                    mod.write_consumed_marker(self.outputs)
+        # The file fsync is before the rename, so that one does refuse.
+        self.assertFalse(mod.consumed_marker(self.outputs).exists())
+
+        real_fsync = mod.os.fsync
+        calls = {"n": 0}
+
+        def only_the_directory_fails(fileno):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return real_fsync(fileno)
+            raise OSError("no directory fsync")
+
+        complaint = io.StringIO()
+        with mock.patch.object(mod.os, "fsync", side_effect=only_the_directory_fails):
+            with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stderr(complaint):
+                    marker = mod.write_consumed_marker(self.outputs)
+        self.assertTrue(marker.is_file())
+        # Continuing quietly would be worse than failing. It says what it lost.
+        self.assertIn("directory fsync failed", complaint.getvalue())
+
+    def test_the_mark_never_asks_the_system_for_a_temporary_directory(self) -> None:
+        # The defect that spent the first attempt was a temporary directory the
+        # sealed unit had taken away, wanted by a helper that had never named
+        # one.  The mark is the worst remaining place for that mistake: it runs
+        # inside the same unit, and a run refused here is refused after the
+        # whole tree has been assembled and before anything has been produced.
+        # So it names its own place -- the outputs directory it is about to
+        # write into -- and the system is never asked where to put things.
+        def there_is_no_temporary_directory(*args, **kwargs):
+            raise FileNotFoundError(
+                "No usable temporary directory found in "
+                "['/tmp', '/var/tmp', '/usr/tmp', '/']"
+            )
+
+        with mock.patch.object(
+            mod.tempfile, "gettempdir", side_effect=there_is_no_temporary_directory
+        ), mock.patch.object(
+            mod.tempfile, "gettempdirb", side_effect=there_is_no_temporary_directory
+        ):
+            with contextlib.redirect_stdout(io.StringIO()):
+                marker = mod.write_consumed_marker(self.outputs)
+        self.assertTrue(marker.is_file())
+        self.assertEqual(
+            sorted(p.name for p in self.outputs.iterdir()), ["ATTEMPT-CONSUMED.json"]
+        )
+
+    def test_a_second_write_is_refused_rather_than_overwriting(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            mod.write_consumed_marker(self.outputs)
+            with self.assertRaises(mod.SuccessorProduceError):
+                mod.write_consumed_marker(self.outputs)
+
+    def test_it_says_the_attempt_is_spent_whatever_happens_next(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            marker = mod.write_consumed_marker(self.outputs)
+        document = json.loads(marker.read_text(encoding="utf-8"))
+        self.assertTrue(document["consumed"])
+        self.assertEqual(document["attemptId"], mod.authority()["attemptId"])
+        self.assertEqual(document["authoritySha256"], mod.AUTHORITY_SHA256)
+        self.assertIn("whatever happens next", document["rule"])
+        self.assertIn("not retried", document["rule"])
+        self.assertEqual(
+            sorted(document["outputNames"]), sorted(predecessor.output_names())
+        )
+
+    def test_two_replicas_write_the_same_bytes(self) -> None:
+        # The two replicas have to agree byte for byte on what they produced.
+        # A marker carrying a clock would not be compared -- the manifest names
+        # the three outputs -- but a marker that differs between two runs of the
+        # same attempt is a thing somebody would later have to explain.
+        second = pathlib.Path(tempfile.mkdtemp(prefix="boole-consumed-marker."))
+        self.addCleanup(shutil.rmtree, second, True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            left = mod.write_consumed_marker(self.outputs)
+            right = mod.write_consumed_marker(second)
+        self.assertEqual(left.read_bytes(), right.read_bytes())
+
+    def test_the_console_carries_it_as_well_as_the_disk(self) -> None:
+        # The disk it is written to belongs to a runner that is about to be
+        # destroyed.  The console is what the host already collects.
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            marker = mod.write_consumed_marker(self.outputs)
+        echoed = printed.getvalue()
+        self.assertIn("ATTEMPT-CONSUMED", echoed)
+        self.assertIn(marker.read_text(encoding="utf-8").strip(), echoed)
+
+    def test_the_production_marks_before_it_writes_any_image_file(self) -> None:
+        source = inspect.getsource(mod.produce)
+        mark = source.index("write_consumed_marker(")
+        for alias in ("kernel_extract.", "initrd.", "root_disk_execute.", "producer."):
+            self.assertLess(mark, source.index(alias), alias)
+
+    def test_nothing_touches_the_outputs_between_the_directory_and_the_mark(
+        self,
+    ) -> None:
+        # The layout build and the tree extraction sit here, and both write into
+        # the scratch.  If either ever wrote into the outputs, the marker would
+        # no longer be the first thing in that directory and the boundary would
+        # have quietly moved back to where it was.
+        source = inspect.getsource(mod.produce)
+        window = source[
+            source.index("outputs.mkdir(") : source.index("write_consumed_marker(")
+        ]
+        self.assertNotIn("outputs)", window.replace("phase.output_paths(outputs)", ""))
+        self.assertIn("_extract_tree", window)
+
+    def test_the_preflight_cannot_reach_the_marker(self) -> None:
+        self.assertNotIn(
+            "write_consumed_marker", mod._local_call_graph("preflight")
+        )
+        mod.assert_preflight_creates_no_outputs()
+
+    def test_the_wrapper_refuses_an_outputs_that_already_says_consumed(self) -> None:
+        # The cheapest place to refuse a retry: before the tmpfs is mounted and
+        # long before anything is assembled. The name is spelled in two
+        # languages, so it is compared here rather than trusted twice.
+        source = WRAPPER_PATH.read_text(encoding="utf-8")
+        self.assertIn(f"$outputs/{mod.CONSUMED_MARKER_NAME}", source)
+        self.assertIn("already says the attempt was consumed: no retry", source)
+
+    def test_a_failed_replica_keeps_the_marker_and_not_the_image(self) -> None:
+        source = WORKFLOW_PATH.read_text(encoding="utf-8")
+        keep = source.index("ATTEMPT-CONSUMED.json")
+        step = source.rindex("- name:", 0, keep)
+        block = source[step:keep]
+        self.assertIn("if: failure()", block)
+        self.assertIn("upload-artifact", block)
+        # Only the marker: a half-written image must not be uploadable as
+        # evidence of a production.
+        self.assertNotIn("boot-outputs\n", source[keep - 200 : keep])
+
+
+class OperatorBudgetRulingTests(unittest.TestCase):
+    """The verdict the runner was not allowed to reach on its own.
+
+    It is a separate document for the same reason the failure was: the sealed
+    authority is what the attempt was judged against, and a record that edited
+    it would describe the run instead of committing to it.  So the ruling pins
+    both earlier files by digest, re-derived here from the files themselves.
+    """
+
+    def setUp(self) -> None:
+        self.ruling = json.loads(RULING_PATH.read_text(encoding="utf-8"))
+        self.authority = json.loads(AUTHORITY_PATH.read_text(encoding="utf-8"))
+        self.hard_stop = json.loads(HARD_STOP_PATH.read_text(encoding="utf-8"))
+
+    def _sha256(self, path: pathlib.Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def test_it_pins_the_two_records_it_rules_on(self) -> None:
+        pinned = self.ruling["pinned"]
+        self.assertEqual(pinned["authoritySha256"], self._sha256(AUTHORITY_PATH))
+        self.assertEqual(pinned["hardStopRecordSha256"], self._sha256(HARD_STOP_PATH))
+        self.assertEqual(pinned["runId"], self.hard_stop["attempt"]["runId"])
+
+    def test_the_accounting_is_the_one_the_operator_asked_for(self) -> None:
+        accounting = self.ruling["accounting"]
+        self.assertEqual(accounting["workflowRunsDispatched"], 1)
+        self.assertTrue(accounting["emptyOutputDirectoryCreated"])
+        self.assertEqual(accounting["imageOutputFilesCreated"], 0)
+        self.assertEqual(accounting["productionBudgetConsumed"], 0)
+        self.assertEqual(accounting["attemptsRemaining"], 1)
+
+    def test_the_numbers_are_the_failed_run_s_own_numbers(self) -> None:
+        budget = self.hard_stop["budget"]
+        accounting = self.ruling["accounting"]
+        self.assertEqual(accounting["imageOutputFilesCreated"], budget["outputFilesCreated"])
+        self.assertEqual(accounting["uploadedArtifacts"], budget["artifactsUploaded"])
+        self.assertEqual(
+            accounting["emptyOutputDirectoryCreated"], budget["outputDirectoryCreated"]
+        )
+
+    def test_it_edits_neither_of_the_records_it_supersedes(self) -> None:
+        # The authority still allows one run and still reports none performed,
+        # and the failure record still says the verdict was pending when it was.
+        self.assertEqual(self.authority["runsAllowed"], 1)
+        self.assertEqual(self.authority["runsPerformed"], 0)
+        self.assertEqual(
+            self.hard_stop["budget"]["spentVerdict"], "OPERATOR-DECISION-PENDING"
+        )
+        self.assertEqual(
+            self.hard_stop["budget"]["twoRulesDisagree"]["sealedAuthorityRule"],
+            self.authority["budgetBoundary"]["rule"],
+        )
+
+    def test_it_does_not_sit_where_a_production_result_belongs(self) -> None:
+        result = REPO_ROOT / self.authority["resultPath"]
+        self.assertNotEqual(RULING_PATH, result)
+        self.assertFalse(result.exists(), "a production result exists on disk")
+
+    def test_it_names_what_has_to_happen_before_the_next_dispatch(self) -> None:
+        required = self.ruling["requiredBeforeReDispatch"]
+        self.assertEqual(len(required), 6)
+        joined = " ".join(required).lower()
+        for phrase in (
+            "merge",
+            "append-only",
+            "atomically",
+            "preflight",
+            "exactly once",
+        ):
+            self.assertIn(phrase, joined)
+
+    def test_the_replacement_boundary_is_the_marker(self) -> None:
+        replacement = self.ruling["boundaryReplacedWith"]
+        self.assertEqual(replacement["markerName"], mod.CONSUMED_MARKER_NAME)
+        self.assertIn("before the first image", replacement["writtenWhen"].lower())
+        self.assertTrue(replacement["atomic"])
+        self.assertIn("whatever happens next", replacement["afterTheMarker"])

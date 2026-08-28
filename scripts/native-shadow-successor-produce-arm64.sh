@@ -83,11 +83,16 @@ fi
 [[ -d $cas && ! -L $cas ]] || die "the acquired payload store is absent: $cas"
 [[ -f $launcher && ! -L $launcher ]] || die "the rebuilt launcher is absent: $launcher"
 
-# The one allowed attempt is spent by the existence of an output, so an outputs
-# directory that already holds one is refused before anything runs. The phase
-# refuses to overwrite its own result too; this is the earlier and cheaper half
-# of the same rule, and it is checked before the tmpfs is even mounted.
+# The one allowed attempt is spent by the marker the phase writes just before
+# its first image file, so an outputs directory that already carries one is
+# refused before anything runs. The phase refuses to overwrite both the marker
+# and its own result; this is the earlier and cheaper half of the same rule, and
+# it is checked before the tmpfs is even mounted.
 [[ ! -e $result ]] || die "a successor result is already here and is not replaced: $result"
+if [[ $preflight_only != "yes" ]]; then
+  [[ ! -e $outputs/ATTEMPT-CONSUMED.json ]] \
+    || die "this outputs directory already says the attempt was consumed: no retry"
+fi
 
 scratch="$(mktemp -d /tmp/boole-native-shadow-successor-produce.XXXXXX)"
 staging="$scratch/staging"

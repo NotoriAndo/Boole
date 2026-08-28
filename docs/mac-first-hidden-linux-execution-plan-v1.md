@@ -4274,3 +4274,68 @@ attempts stay 0 and `runsPerformed` stays 0. mineable_now=0, REWARD_READY=0,
 RP0-MD=HOLD, BF.7=HOLD, Base activation false and activationAllowed=false are
 unchanged. No image was produced, so no image is claimed; producing is not
 booting and booting is not serving.
+
+### 45.14 The operator's budget ruling, and a boundary that cannot be crossed by accident (2026-08-28)
+
+**Append-only.** §45.13 stands unedited, including its `OPERATOR-DECISION-PENDING`
+verdict, which was true when it was written.
+
+**The ruling.** The operator settled the case §45.13 reported: the run is one
+workflow dispatch and zero consumption of the image production budget. One
+production attempt remains. The grounds are the ones the record established --
+only the output directory was created, zero output files were written, the run
+never reached the production function, zero artifacts were uploaded, and the
+pre-registered rule consumes the attempt once an output *file* exists. Creating
+an empty directory is therefore not consumption.
+
+The accounting is kept split rather than collapsed into one number:
+
+| quantity | value |
+| --- | --- |
+| workflow runs dispatched | 1 |
+| empty output directory created | yes |
+| image output files created | 0 |
+| production budget consumed | 0 |
+| attempts remaining | 1 |
+| prior failure record | unmodified |
+
+**The condition attached to it.** The empty boundary has to be gone before the
+attempt is used. It is not enough that this particular case was settled; the
+gap that made it arguable has to close.
+
+**Where the line moved to.** From the output directory to an `ATTEMPT-CONSUMED`
+marker the phase writes on purpose, immediately before its first image file. A
+directory is something the isolation requires -- a systemd `ReadWritePaths` entry
+has to exist before the transient unit starts -- so its existence was never a
+decision the phase made. The marker is. Above it every refusal is free, including
+the layout build and the tree extraction, which write into the scratch and never
+into the outputs; below it the attempt is spent whatever happens next.
+
+It is written as a rename, not as a write: the document is built in full, flushed
+to a neighbouring name that is not the marker, fsynced, renamed into place, and
+the directory entry fsynced after it. A run cut off anywhere before the rename
+leaves the marker absent, which is the honest reading of a run that never reached
+its first image file. A test cuts the rename and asserts exactly that.
+
+**Two ways it survives the runner.** The marker is echoed to the console the host
+already collects, and a failed replica uploads it on its own. Only the marker: a
+half-written image is not evidence of a production and must not be uploadable as
+one. Its absence on a failed replica is a legitimate answer rather than an error.
+
+**What was not edited.** The sealed authority, including its own budget sentence
+and its `runsPerformed` of zero. The §45.13 record, including its pending
+verdict. Every earlier sealed measurement, lock, preflight result and image
+record. The ruling is a separate append-only document that pins both files it
+rules on by digest, re-derived from the files themselves.
+
+**The order that follows, and it is not negotiable.** Merge the isolated-preflight
+correction; add the ruling as an append-only record; write the marker; treat a
+failure before it as unspent and after it as spent; run the free preflight-only
+mode on arm64 exactly once; and only if that passes, run the two-replica
+production exactly once. If the marker or any output file exists when a
+re-production fails, the budget is spent, there is no retry, and it is a hard
+stop. No boot begins before both replicas have produced identical images.
+
+Boot attempts stay 0 and `runsPerformed` stays 0. mineable_now=0, REWARD_READY=0,
+RP0-MD=HOLD, BF.7=HOLD, Base activation false and activationAllowed=false are
+unchanged. No image exists yet, so no image, boot or serving is claimed.
