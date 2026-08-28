@@ -79,10 +79,14 @@ GUEST_BOOT_VERIFIED = False
 
 REPOSITORY_ROOT = pathlib.Path(__file__).resolve().parents[1]
 CONTAINMENT = REPOSITORY_ROOT / "native/containment"
+# The third authority: one further attempt, granted after two were spent under
+# the second.  The second is not edited and not repointed -- it is bound by
+# digest in the table below, along with the two records that count those
+# attempts, so a run that would need any of them changed stops instead.
 AUTHORITY_PATH = (
-    CONTAINMENT / "native-shadow-mac3-successor-production-authority-arm64-v2.json"
+    CONTAINMENT / "native-shadow-mac3-successor-production-authority-arm64-v3.json"
 )
-AUTHORITY_SHA256 = "c52e319790e3ca52ba6d635007e541f25e12d6d1497c1abb46ef00b1684b6e58"
+AUTHORITY_SHA256 = "0ff5000c0cea751a32d88d79028a2b53380262551517fe9ec2c1072df35afe06"
 SOURCE_LOCK_PATH = CONTAINMENT / "native-shadow-boot-rootfs-source-lock-arm64-v2.json"
 SOURCE_LOCK_SHA256 = "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f"
 SOURCE_LOCK_RELEASE = (

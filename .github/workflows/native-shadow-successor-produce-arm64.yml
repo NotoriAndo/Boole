@@ -18,8 +18,10 @@ name: native-shadow-successor-produce-arm64
 #   produce    is the one-shot. Two independent arm64 replicas, one production
 #              each, and a third job that requires the three files to be byte
 #              identical between them. The authority allows one dispatch. If it
-#              fails after any output file exists, the attempt is spent and the
-#              answer is to stop and report, not to run it again.
+#              fails after ATTEMPT-CONSUMED.json has been written, the attempt
+#              is spent and the answer is to stop and report, not to run it
+#              again. What such a run produced is kept, under a name and a
+#              document that disown it.
 #
 # Producing the files is not booting them, and booting them is not serving.
 # Nothing here claims any of the three.
