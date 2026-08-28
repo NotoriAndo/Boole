@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+"""Gate the third step of the serving-gap successor chain: sealing the lock.
+
+The second step wrote a tool and deliberately sealed nothing, and its own gate
+required the two successor documents to be absent. This step writes them, so that
+requirement is superseded here rather than relaxed there: the three tests in the
+second step's ``ChainPositionTests`` that asserted absence now assert the sealed
+state and name this file as the gate that carries the digests.
+
+Sealing is a byte fact, so the digests are pinned as literals below. The generator
+is not edited by this step -- its digest is pinned too, and the sealed result
+document must agree with it. What the sealed documents say is checked against what
+the tool computes now, so a later edit to any input moves a digest and fails here
+instead of quietly producing a different lock under the same name.
+"""
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+import unittest
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts import native_shadow_boot_rootfs_source_lock_arm64_v2 as tool
+from scripts import native_shadow_guest_init_compatibility_arm64_v1 as guest_init
+from scripts import native_shadow_rootfs_builder_boot_arm64_v1 as builder
+
+CONTAINMENT = REPO_ROOT / "native" / "containment"
+
+# The bytes this step sealed. Pinned as literals because the point of the step is
+# that these two documents now have one fixed content under one fixed name.
+SEALED_LOCK_SHA256 = "1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f"
+SEALED_LOCK_SIZE_BYTES = 359099
+SEALED_RESULT_SHA256 = "0542978a6c49287b27c46a836ae3c1aa548d61e4e065b345ebccbb8d8821dedd"
+SEALED_RESULT_SIZE_BYTES = 3506
+
+# The generator is not edited by this step. It only ran.
+GENERATOR_SHA256 = "8218db5cba96440a78bb7cc88edec54f0edb1110684150d1964378f681369b9d"
+
+# The two records the successor supersedes, and the digests the frozen contract
+# pins for them. The sealed lock has to carry the successor digests, and the
+# contract has to go on refusing the sealed lock for exactly that reason.
+SUPERSEDED = {
+    "launcher-unit": {
+        "guestPath": "/usr/lib/systemd/system/boole-native-shadow-launcher.service",
+        "old": "126f0d88e24ecc53879aba02ad910d516980b14473ea30ac4ed14e1cd120e0d8",
+        "oldSource": "native/systemd/boole-native-shadow-launcher.service",
+        "new": "4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55",
+        "newSource": "native/systemd/boole-native-shadow-launcher-v2.service",
+    },
+    "tmpfiles-config": {
+        "guestPath": "/usr/lib/tmpfiles.d/boole-native-shadow.conf",
+        "old": "ad9676f2836b097b48e7955c07c165100b2257010bfdb6b4099396fc68f0d721",
+        "oldSource": "native/tmpfiles.d/boole-native-shadow.conf",
+        "new": "730ae451fd1c70d41e9a865004040bca03db8cda29dd458cf6bb4d8e75f23b10",
+        "newSource": "native/tmpfiles.d/boole-native-shadow-v2.conf",
+    },
+}
+
+
+def _read(path: pathlib.Path) -> dict:
+    return json.loads(path.read_bytes().decode("utf-8"))
+
+
+class Fixture(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.lock_bytes = tool.LOCK_PATH.read_bytes()
+        cls.result_bytes = tool.RESULT_PATH.read_bytes()
+        cls.lock = json.loads(cls.lock_bytes.decode("utf-8"))
+        cls.result = json.loads(cls.result_bytes.decode("utf-8"))
+        cls.plan = tool.load_plan()
+
+
+class SealedBytesTests(Fixture):
+    def test_both_successor_documents_exist(self):
+        self.assertTrue(tool.LOCK_PATH.is_file())
+        self.assertTrue(tool.RESULT_PATH.is_file())
+
+    def test_the_sealed_bytes_match_the_pinned_digests(self):
+        self.assertEqual(tool.sha256_bytes(self.lock_bytes), SEALED_LOCK_SHA256)
+        self.assertEqual(len(self.lock_bytes), SEALED_LOCK_SIZE_BYTES)
+        self.assertEqual(tool.sha256_bytes(self.result_bytes), SEALED_RESULT_SHA256)
+        self.assertEqual(len(self.result_bytes), SEALED_RESULT_SIZE_BYTES)
+
+    def test_the_sealed_bytes_are_canonical(self):
+        """Sealed by the same serializer every consumer will re-hash with."""
+
+        self.assertEqual(self.lock_bytes, tool.canonical_json(self.lock))
+        self.assertEqual(self.result_bytes, tool.canonical_json(self.result))
+
+    def test_the_result_names_the_lock_it_sealed(self):
+        self.assertEqual(self.result["sourceLockSha256"], SEALED_LOCK_SHA256)
+
+    def test_the_generator_was_run_not_edited(self):
+        self.assertEqual(tool.sha256_file(tool.TOOL_PATH), GENERATOR_SHA256)
+        self.assertEqual(self.result["generatorSha256"], GENERATOR_SHA256)
+
+    def test_the_sealed_documents_are_regenerated_byte_for_byte(self):
+        """The tool run again on the same inputs reproduces the sealed bytes.
+
+        This is what makes the seal a claim about the inputs rather than about one
+        lucky run: change any input and the regenerated bytes move away from the
+        pinned digests above.
+        """
+
+        _, lock, result = tool.build_and_verify()
+        self.assertEqual(tool.canonical_json(lock), self.lock_bytes)
+        self.assertEqual(tool.canonical_json(result), self.result_bytes)
+
+    def test_check_accepts_the_sealed_documents(self):
+        self.assertEqual(tool.main(["--check"]), 0)
+
+    def test_a_dry_run_still_writes_nothing(self):
+        """--dry-run leaves the sealed bytes alone rather than rewriting them."""
+
+        before = (tool.LOCK_PATH.read_bytes(), tool.RESULT_PATH.read_bytes())
+        self.assertEqual(tool.main(["--dry-run"]), 0)
+        self.assertEqual((tool.LOCK_PATH.read_bytes(), tool.RESULT_PATH.read_bytes()), before)
+
+
+class SealedShapeTests(Fixture):
+    def test_the_lock_keeps_the_twelve_keys_the_contract_requires(self):
+        self.assertEqual(
+            sorted(self.lock),
+            [
+                "activationAllowed",
+                "artifacts",
+                "authorityBindings",
+                "buildRecipe",
+                "closureRoots",
+                "derivedEntries",
+                "platform",
+                "release",
+                "rust",
+                "schema",
+                "trackedFiles",
+                "ubuntu",
+            ],
+        )
+
+    def test_the_lock_schema_is_the_predecessor_schema(self):
+        self.assertEqual(self.lock["schema"], tool.LOCK_SCHEMA)
+
+    def test_the_lock_release_is_the_successor_release(self):
+        self.assertEqual(self.lock["release"], tool.LOCK_RELEASE)
+        self.assertIn("NOT-BOOTABLE", self.lock["release"])
+
+    def test_the_lock_does_not_allow_activation(self):
+        self.assertFalse(self.lock["activationAllowed"])
+        self.assertFalse(self.result["activationAllowed"])
+
+    def test_the_sealed_lock_carries_fifteen_tracked_files_and_their_bindings(self):
+        self.assertEqual(len(self.lock["trackedFiles"]), 15)
+        self.assertEqual(len(self.lock["authorityBindings"]), 15)
+        self.assertEqual(self.result["counts"]["trackedFiles"], 15)
+        self.assertEqual(self.result["counts"]["authorityBindings"], 15)
+
+    def test_the_account_files_are_sealed_as_tracked_sources(self):
+        tracked = {row["logicalPath"]: row for row in self.lock["trackedFiles"]}
+        for path in (
+            "/etc/group",
+            "/etc/gshadow",
+            "/etc/nsswitch.conf",
+            "/etc/passwd",
+            "/etc/shadow",
+        ):
+            self.assertIn(path, tracked)
+        for path in ("/etc/gshadow", "/etc/shadow"):
+            self.assertEqual(tracked[path]["mode"], "0400", path)
+
+    def test_the_superseded_rows_carry_the_successor_digests(self):
+        """Tracked rows key on the guest path; bindings key on the inherited role."""
+
+        tracked = {row["logicalPath"]: row for row in self.lock["trackedFiles"]}
+        bindings = {row["id"]: row for row in self.lock["authorityBindings"]}
+        for role, record in SUPERSEDED.items():
+            row = tracked[record["guestPath"]]
+            self.assertEqual(row["sha256"], record["new"], role)
+            self.assertNotEqual(row["sha256"], record["old"], role)
+            self.assertEqual(row["sourcePath"], record["newSource"], role)
+            self.assertIn(role, bindings)
+            self.assertEqual(bindings[role]["sha256"], record["new"], role)
+            self.assertEqual(bindings[role]["sourcePath"], record["newSource"], role)
+
+    def test_the_superseded_predecessors_are_still_in_the_tree(self):
+        for role, record in SUPERSEDED.items():
+            self.assertEqual(
+                tool.sha256_file(REPO_ROOT / record["oldSource"]), record["old"], role
+            )
+
+    def test_the_superseded_rows_keep_their_guest_placement(self):
+        """Succession replaced the bytes, not where they land in the guest."""
+
+        tracked = {row["logicalPath"]: row for row in self.lock["trackedFiles"]}
+        predecessor = {
+            row["logicalPath"]: row
+            for row in _read(tool.PREDECESSOR_LOCK_PATH)["trackedFiles"]
+        }
+        for record in SUPERSEDED.values():
+            was = predecessor[record["guestPath"]]
+            now = tracked[record["guestPath"]]
+            for field in ("mode", "uid", "gid"):
+                self.assertEqual(now[field], was[field], record["guestPath"])
+
+
+class SealedVerdictTests(Fixture):
+    def test_the_result_status_says_sealed_and_deferred_and_not_boot_authority(self):
+        self.assertEqual(self.result["status"], tool.RESULT_STATUS)
+        self.assertIn("SEALED", self.result["status"])
+        self.assertIn("LAUNCHER-BINARY-DEFERRED", self.result["status"])
+        self.assertIn("NOT-BOOT-AUTHORITY", self.result["status"])
+
+    def test_the_only_deferred_role_is_the_launcher_binary(self):
+        self.assertEqual(
+            [row["role"] for row in self.result["deferredRoles"]],
+            ["tracked-file:launcher-binary"],
+        )
+
+    def test_the_shadow_verdict_still_equals_the_predecessors(self):
+        sealed_predecessor = _read(tool.PREDECESSOR_RESULT_PATH)["sourceShapeAudit"]
+        self.assertEqual(self.result["sourceShapeAudit"]["status"], sealed_predecessor["status"])
+        self.assertEqual(
+            self.result["sourceShapeAudit"]["missingRoles"], sealed_predecessor["missingRoles"]
+        )
+
+    def test_the_frozen_contract_still_refuses_the_sealed_lock_itself(self):
+        """Sealing did not buy the successor the contract's acceptance.
+
+        The contract pins the digest of both superseded files, so it refuses the
+        sealed lock exactly as it refused the unsealed one. Nothing was relaxed to
+        make the seal possible, and the shadow is still what answers for the part
+        that did not move.
+        """
+
+        with self.assertRaises(guest_init.GuestInitCompatibilityError) as raised:
+            guest_init.audit_successor_source_shape(tool.CONTRACT_PATH, tool.LOCK_PATH)
+        self.assertIn("tracked file digest differs", str(raised.exception))
+
+    def test_every_boundary_the_result_records_is_still_false(self):
+        self.assertEqual(sorted(self.result["boundaries"]), [
+            "bootAuthority",
+            "guestBootVerified",
+            "imageBuilderAuthorityPresent",
+            "kernelImageExtracted",
+            "launcherElfPresent",
+            "maintainerScriptsExecuted",
+            "nestedRuntimeTreeAssembled",
+            "runtimeCompatibilityVerified",
+        ])
+        self.assertEqual(set(self.result["boundaries"].values()), {False})
+        self.assertFalse(self.result["bootableClaim"])
+        self.assertEqual(self.result["bootArtifactsWritten"], 0)
+
+    def test_the_nested_tree_is_sealed_as_declared_not_assembled(self):
+        nested = self.result["nestedTree"]
+        self.assertEqual(nested["state"], "declared-not-assembled")
+        self.assertFalse(nested["assembled"])
+        self.assertEqual(
+            nested["contentManifestSha256"],
+            "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa",
+        )
+
+    def test_the_result_names_the_plan_and_both_predecessor_documents(self):
+        self.assertEqual(self.result["planSha256"], tool.PLAN_SHA256)
+        self.assertEqual(
+            self.result["predecessorBootSourceLockSha256"],
+            tool.sha256_file(tool.PREDECESSOR_LOCK_PATH),
+        )
+        self.assertEqual(
+            self.result["predecessorSourceLockSha256"],
+            tool.sha256_file(tool.BASELINE_LOCK_PATH),
+        )
+
+
+class ChainPositionTests(Fixture):
+    """What the third step did, and what it explicitly did not do."""
+
+    def test_this_step_sealed_documents_and_nothing_else(self):
+        """No tree, no image, no boot -- this step wrote two files and ran a tool."""
+
+        self.assertFalse(self.result["boundaries"]["nestedRuntimeTreeAssembled"])
+        self.assertFalse(self.result["boundaries"]["imageBuilderAuthorityPresent"])
+        self.assertEqual(self.result["bootArtifactsWritten"], 0)
+
+    def test_the_fourth_step_has_not_run(self):
+        """The builder's staging table still names four files, not fifteen.
+
+        When the fourth step grows it, the right move is a step-four gate that
+        supersedes this test with the new table -- not a quiet relaxation here.
+        """
+
+        self.assertEqual(
+            sorted(builder.BOOT_AUTHORITY_FILES),
+            ["guest-machine-id", "launcher-unit", "sysusers-config", "tmpfiles-config"],
+        )
+        staged = {source for source, _ in builder.BOOT_AUTHORITY_FILES.values()}
+        for record in SUPERSEDED.values():
+            self.assertIn(record["oldSource"], staged)
+            self.assertNotIn(record["newSource"], staged)
+        for account in ("native/etc/passwd", "native/etc/group"):
+            self.assertNotIn(account, staged)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -2263,3 +2263,73 @@ lock was edited, no launcher source file was touched and the launcher seal is
 unmoved. No image was produced, no production dispatched and no boot performed.
 Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD,
 Base activation false and activationAllowed=false are unchanged.
+
+### 13.15 Boot source lock successor seal addendum (2026-08-28)
+
+The third of the four ordered steps ran
+`scripts/native_shadow_boot_rootfs_source_lock_arm64_v2.py --write` once and
+sealed its two outputs:
+
+| document | sha256 | bytes |
+| --- | --- | --- |
+| `native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json` | `1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f` | 359099 |
+| `native/containment/native-shadow-boot-rootfs-source-lock-result-arm64-v2.json` | `0542978a6c49287b27c46a836ae3c1aa548d61e4e065b345ebccbb8d8821dedd` | 3506 |
+
+The generator was run, not edited. Its digest,
+`8218db5cba96440a78bb7cc88edec54f0edb1110684150d1964378f681369b9d`, is pinned in
+the step-three gate and recorded in the sealed result's `generatorSha256`, so an
+edit to the tool moves both and fails rather than reinterpreting sealed bytes.
+
+`ChainPositionTests` in
+`scripts/test_native_shadow_boot_rootfs_source_lock_arm64_v2.py` required both
+documents to be absent. That requirement is superseded here, not relaxed there: the
+three absence tests now assert the sealed state, the file carries a dated
+supersession note, and the byte facts live in
+`scripts/test_native_shadow_boot_rootfs_source_lock_sealed_arm64_v2.py` so there is
+one copy of them. `test_the_refusal_that_hands_sealing_to_the_third_step_is_still_reachable`
+keeps the refusal path alive: it unlinks the sealed lock, requires `--check` to
+refuse with the same "third step" message, and restores the bytes. Sealing removed
+the absence, not the refusal.
+
+`test_the_sealed_documents_are_regenerated_byte_for_byte` calls `build_and_verify`
+and requires `canonical_json` of both documents to equal the sealed bytes, so the
+seal is a claim about the inputs rather than about one run.
+`test_the_sealed_bytes_are_canonical` requires each file to equal
+`canonical_json` of its own parse, so a reader's recomputed digest is the pinned
+digest.
+
+`test_the_frozen_contract_still_refuses_the_sealed_lock_itself` calls
+`guest_init.audit_successor_source_shape(CONTRACT_PATH, LOCK_PATH)` on the sealed
+lock and requires `GuestInitCompatibilityError` with `tracked file digest
+differs`. The contract pins `126f0d88…` for the launcher unit and `ad9676f2…` for
+the tmpfiles configuration; the sealed lock carries `4c31bce4…` and `730ae451…`.
+Both pairs are pinned in docs-smoke on both sides, so an edit making them agree
+would have to move a pin in plain sight. `test_the_shadow_verdict_still_equals_the_predecessors`
+requires the sealed result's `sourceShapeAudit` to equal the predecessor result's
+in `status` (`BLOCKED_MISSING_GUEST_INIT_REQUIREMENTS`) and `missingRoles`
+(`['tracked-file:launcher-binary']`).
+
+Sealed shape: `trackedFiles` and `authorityBindings` both 15, the twelve top-level
+keys `_exact` requires, `LOCK_SCHEMA` inherited from the predecessor,
+`activationAllowed` false in both documents. `/etc/shadow` and `/etc/gshadow` are
+mode `0400`. `test_the_superseded_rows_keep_their_guest_placement` reads the
+predecessor lock and requires `mode`, `uid` and `gid` to be unchanged for both
+superseded guest paths; the row's `sourcePath` is required to be the `-v2` file and
+the binding under the inherited role id to carry the same digest and source.
+
+`test_the_fourth_step_has_not_run` imports the builder and requires
+`BOOT_AUTHORITY_FILES` to hold exactly `guest-machine-id`, `launcher-unit`,
+`sysusers-config` and `tmpfiles-config`, with the predecessor sources staged, the
+successor sources absent, and no account file present. When the fourth step grows
+that table, it supersedes this test with the new table.
+
+Twenty-six tests in the step-three gate, registered in self-test; 148 across the
+three chain gates together. The sealed documents, their digests, the generator
+digest, the contract's two predecessor pins and the supersession note are all
+pinned in docs-smoke.
+
+No builder, staging table, launcher source file, existing generator or existing
+source lock was edited, and the launcher seal is unmoved. No tree was assembled, no
+image produced, no production dispatched and no boot performed. Serving is not
+claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation
+false and activationAllowed=false are unchanged.
