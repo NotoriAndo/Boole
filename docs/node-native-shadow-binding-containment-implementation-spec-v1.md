@@ -2663,3 +2663,99 @@ Phase A authority sweep; none differed.
 Twenty-five docs-smoke pins cover this record. Nothing in this addendum modifies a
 sealed record, a launcher source, a launcher seal, a frozen builder, an existing
 projection or an existing workflow.
+
+### 13.19 Successor production wiring addendum (2026-08-28)
+
+The addendum above sealed a path that did not exist. This one records the path.
+Three files, none of which replaces anything: the phase
+`scripts/native_shadow_successor_produce_phase_arm64_v2.py`, release
+`NATIVE-SHADOW-SUCCESSOR-PRODUCE-PHASE-ARM64-V2`; the wrapper
+`scripts/native-shadow-successor-produce-arm64.sh`; and the workflow
+`.github/workflows/native-shadow-successor-produce-arm64.yml`, which is the name
+`producedBy` already carried. The predecessor phase, wrapper and workflow are
+byte-unchanged.
+
+**What the phase consumes, and how each is made non-optional.** The successor
+source lock and release gate are reached through
+`native_shadow_rootfs_portable_boot_arm64_v2.materialize_runtime_lock`; the
+staging builder is the fifth projection; the base projection is reached for
+exactly two things, `normalized_runtime_lock` and the launcher seal constants,
+and for nothing that selects a lock. `nested_tree` and
+`content_manifest_sha256` are keyword arguments with no default on both
+`preflight` and `produce`, which is where the pre-registration placed that
+obligation. There is no fallback in either direction: the check is an AST walk
+that finds whichever alias the predecessor phase was imported under and refuses
+attribute access through it, except for the lock-independent image helpers,
+which are named. The functions that may not be called are derived rather than
+listed — whichever functions in the predecessor mention its own constant for the
+first lock, currently three.
+
+**Two properties that no input can express.** `assert_preflight_creates_no_outputs`
+walks this module's local call graph from the `preflight` entry point; if it
+reaches `produce` or any of the image-step module aliases, the module refuses to
+start. `assert_shared_assembler` requires
+`materialize_staging_tree.__globals__["_IMPL"]` to *be* `builder._IMPL` — identity
+of the mapping, satisfying `sharedMaterialization` by there being one object
+rather than two that agree. The merge function, the totals, the three limits and
+the subprocess policy are taken from
+`native_shadow_boot_staging_measure_arm64_v1` by reference for the same reason.
+
+**The three gaps, each closed by the check that closes it.** Five account files
+(`passwd`, `shadow`, `group`, `gshadow`, `nsswitch.conf`) are required by name,
+with mode, uid and gid. The launcher unit is
+`native/systemd/boole-native-shadow-launcher-v2.service` at
+`4c31bce411c9999b8e877977ce8787d0716a977316ae0a7677240b987181bd55`, staged at
+`/usr/lib/systemd/system/boole-native-shadow-launcher.service`, required to carry
+`StandardOutput=journal+console` and `StandardError=journal+console` so the
+launcher's refusals reach the console the host already collects and hashes rather
+than a journal nobody reads; the superseded unit is refused by name. The nested
+runtime tree and its content manifest are required at the digest and size the
+runtime replay expectation seals. The four bounding capabilities are
+`CAP_SETGID`, `CAP_SETUID`, `CAP_SETPCAP`, `CAP_SYS_ADMIN`, held by the root
+supervisor; the answer and checker it starts are the parties dropped to the
+sealed unprivileged account, which is the subject correction and not a loosening.
+
+**A defect the tests did not have.** A staged entry carries `path`, `kind`,
+`mode`, `uid`, `gid` and `raw`, and carries no digest and no size — the builder
+holds the bytes and hashes them when it writes the layer. The account-database
+and content-manifest checks initially read a `sha256` key, which the fixtures
+supplied and the builder does not, so against a real tree they would have
+compared `None` against a sealed value inside the step where the attempt is
+spent. Both now hash the staged bytes through `_staged_bytes`, which refuses an
+entry staged without them; the fixtures were corrected to the real key set and
+three tests were added that defeat an entry claiming a digest it does not carry.
+
+**The wrapper, and why it is not a bare interpreter call.** It mounts a tmpfs for
+the staging tree, because the image writer walks that tree with `readdir` and
+never sorts it; binds `TMPDIR` inside the scratch directory; runs the phase inside
+the transient unit printed by
+`native_shadow_boot_image_produce_arm64_v1.py isolation-argv` rather than a second
+copy of that argument list; and reads the finished disk back in a separate stage,
+because the sealed unit has private devices and a loop mount is a device. It also
+refuses before mounting anything if a result file already exists, which is the
+early half of the budget rule. It is a separate file from the predecessor's rather
+than a flag on it.
+
+**The workflow's two modes.** `preflight` is repeatable and produces nothing; after
+the phase returns, a `find` over the scratch tree fails the job if a kernel, an
+initrd or a root disk exists anywhere under it, so the mode's claim is checked
+against the filesystem rather than against the code that just ran. `produce` is
+the single dispatch: two `ubuntu-24.04-arm` replicas with `fail-fast: false`, each
+proving its own preflight before the output directory exists, each producing once
+through the wrapper, and a third job that requires the three files to be byte
+identical between them.
+
+**Coverage.** 110 tests, every one a refusal, each RED before GREEN;
+`scripts/self-test.sh` runs them. Twenty-eight docs-smoke pins cover the phase, the
+wrapper and the workflow. A local assembly on macOS against the already-verified
+store reaches 17674 entries, 1771449867 payload bytes and path manifest
+`a342a1a5…3736` — the sealed measurement exactly — with all five account files, the
+v2 unit and the content manifest present and passing. That is evidence of wiring on
+the wrong operating system and architecture, not the preflight the authority
+requires, which runs on arm64 Linux.
+
+No image was produced, no production was dispatched and no boot was performed. No
+package was downloaded and none was re-hashed. No sealed record, launcher source,
+launcher seal, frozen builder, existing projection or existing workflow was
+modified. Serving is not claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD,
+BF.7=HOLD, Base activation false and activationAllowed=false are unchanged.

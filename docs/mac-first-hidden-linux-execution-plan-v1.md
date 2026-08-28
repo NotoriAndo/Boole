@@ -3657,3 +3657,153 @@ criteria record was modified. Serving is not claimed. mineable_now=0,
 REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation false and
 activationAllowed=false are unchanged. No public mining, no leaderboard claim and
 no paid-API benchmark is made anywhere in this section.
+
+---
+
+## 45. The successor path, built against its own refusals (2026-08-28)
+
+The pre-registration in section 44 named a workflow, a result path, a budget line
+and eleven input digests before any of them existed. This section is the other
+half: a module that consumes them, a wrapper that runs it in the environment the
+predecessor's production used, and a workflow with two modes. Nothing has been
+dispatched. The one allowed attempt is still unspent.
+
+The order was the one the pre-registration asked for. Every check was written as a
+failing test first, and only then implemented — 110 of them, each naming a way the
+path could quietly become the wrong path.
+
+### 45.1 The tests are all refusals, and that is the point
+
+A test that asserts the successor produces the right tree can pass for a bad
+reason: the tree is right today. The refusals ask a different question — what has
+to be true for this path to *stop*. The predecessor lock reaching the successor
+builder is a stop. The successor lock reaching the predecessor builder is a stop.
+A missing account file, a missing content manifest, a manifest whose digest moved,
+the superseded launcher unit, a launcher whose rebuilt size is not 2006632, a
+staging total that is not 17674 without the launcher or 17676 with it, a payload
+that is not 1773456499, a path manifest that is not the sealed one, a single
+collision or duplicate or symlink escape, a limit exceeded and quietly trimmed
+rather than reported, a runtime argument with a default, an image tool reached
+from the preflight — every one of those is a test, and every one of them failed
+before it passed.
+
+Two of the refusals are about the code's shape rather than its inputs, because
+no input can express them. The preflight's promise to produce nothing is checked
+by walking this module's own call graph from the preflight entry point: if it can
+reach the production entry point, or any of the image steps, the module refuses to
+start. And production and measurement are required to share one assembler *object*
+— identity of the mapping, not equality of two copies — because two functions that
+merely agree today are two functions.
+
+### 45.2 The test that could not be written the way it was first written
+
+One refusal was that the successor must not take its lock from the predecessor.
+The first attempt searched the source text for the predecessor's name. It could
+not work: the string it was looking for was in the file doing the looking, so the
+check failed against itself. Worse, a substring search cannot tell
+`materialize_runtime_lock` (the release gate, legitimate) from
+`normalized_runtime_lock` (the base projection, also legitimate) from a call into
+the predecessor phase (not legitimate). All three end in the same characters.
+
+What matters is which object an attribute is taken from, which is a question about
+the parse tree and not about the characters. The check now finds whatever name the
+predecessor module was imported under and refuses attribute access through it —
+except for the lock-independent image helpers, which are reached deliberately and
+by name. The functions that may not be called are found the same way: whichever
+functions over there mention the predecessor's own constant for the first lock.
+There are three, and the list is derived rather than copied.
+
+### 45.3 A defect the 102 passing tests did not have
+
+With the tests green, the real assembly was run against the local package store —
+not to produce anything, but to get past the shape checks into the code that reads
+actual staged entries. It failed immediately, and the reason was worth the trip.
+
+A staged entry carries `path`, `kind`, `mode`, `uid`, `gid` and `raw`. It carries
+no digest and no size: the builder holds the bytes and hashes them when it writes
+the layer. The account-database check and the content-manifest check were reading
+a `sha256` key. Against the fixtures they read a digest, because the fixtures
+supplied one. Against the builder they would have read nothing, and compared
+nothing against a sealed value — in the production step, where the attempt is
+spent.
+
+The fix is that both checks now hash the bytes that will actually be written, and
+refuse an entry staged without them. The fixture was corrected to the real key set,
+and three tests were added that specifically defeat an entry claiming a digest it
+does not have. The tests were richer than reality, which is the failure mode a
+test suite cannot see from the inside.
+
+### 45.4 Reuse where reuse is the requirement
+
+The merge function, the totals, the three limits and the subprocess policy are
+taken from the measurement module by reference rather than reimplemented. That is
+not economy. The pre-registration refuses a path where production and measurement
+use different merge functions, and the cheapest way to satisfy a rule about two
+things being the same is for there to be one thing.
+
+The same applies downstream: the kernel extraction, the initrd, the writer tree,
+the root-disk plan and execution, and the image verification all come from the
+predecessor's modules, which are untouched. What the successor adds is which lock
+is opened and what gets merged into the tree — nothing about how an image is
+written.
+
+### 45.5 What the local run established, and what it did not
+
+On macOS, against the local store, the successor assembly reaches 17674 entries,
+1771449867 payload bytes and path manifest `a342a1a5…3736` without the launcher —
+the sealed measurement exactly. All five account files, the v2 launcher unit and
+the content manifest are present in that tree and pass their own checks when
+hashed from the bytes.
+
+That is an assembly on the wrong operating system and the wrong architecture. It
+is evidence that the wiring is right, not the preflight the authority requires,
+which has to run on arm64 Linux where production runs. No image tool was called,
+no output directory was created, and nothing was downloaded: the store was already
+verified and was reused as it stood.
+
+### 45.6 The wrapper exists because the environment is part of the output
+
+The production step could not be a bare interpreter call. The predecessor's
+wrapper mounts a tmpfs for the staging tree, because the image writer walks that
+tree with `readdir` and never sorts it; binds `TMPDIR` into the scratch directory;
+runs the phase inside a transient unit whose arguments are printed by the sealed
+producer authority rather than written out; and reads the finished disk back in a
+separate stage, because that unit has private devices and a loop mount is a
+device.
+
+Two replicas produce byte-identical files only if neither of them decides
+anything. A successor wrapper that skipped any of this would be asking two runners
+to agree about their own disk order. It is a separate file from the predecessor's
+rather than a flag on it, for the same reason the phases are separate modules: a
+single script with a mode is one edit away from building the wrong image from the
+right authority.
+
+### 45.7 What this does not establish
+
+Not that the preflight passes on arm64 Linux — it has not been run there. Not that
+an image builds. Not that anything boots or serves. Not that the launcher's held
+condition is resolved; it stays held. The production attempt count is zero, the
+boot attempt count is zero, and neither successor result file exists.
+
+### 45.8 Cursor
+
+```
+successor production path = WIRED-NOT-RUN
+  110 refusal tests, RED before GREEN, no happy-path assertion among them
+  preflight's no-output claim proved from this module's own call graph
+  production and measurement share one assembler object, by identity
+  staged entries hashed from their bytes; a claimed digest is refused
+  local assembly reaches the sealed measurement exactly (macOS, not the gate)
+  wrapper reproduces the predecessor's tmpfs / transient unit / readback
+  workflow: preflight repeatable, produce one dispatch, compare byte-identical
+  next: the preflight on arm64 Linux, sealed as a result before any production
+```
+
+No image was produced, no production was dispatched and no boot was performed. No
+package was downloaded and no package was re-hashed. No launcher source file,
+launcher seal, frozen builder, existing projection, existing generator, sealed
+source lock, sealed measurement or sealed criteria record was modified; the
+predecessor phase, wrapper and workflow are byte-unchanged. Serving is not
+claimed. mineable_now=0, REWARD_READY=0, RP0-MD=HOLD, BF.7=HOLD, Base activation
+false and activationAllowed=false are unchanged. No public mining, no leaderboard
+claim and no paid-API benchmark is made anywhere in this section.

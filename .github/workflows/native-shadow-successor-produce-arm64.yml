@@ -1,0 +1,342 @@
+name: native-shadow-successor-produce-arm64
+
+# The successor image, on a path of its own. The workflow beside this one still
+# reproduces the predecessor image from the first source lock and is not touched
+# by anything here -- separate authority, separate lock, separate result paths,
+# separate attempt identifier. Either can be run without the other, and the
+# predecessor evidence stays reproducible exactly as it was.
+#
+# Two modes, and the difference between them is the whole point.
+#
+#   preflight  does everything the production does except the part that costs
+#              the attempt: rebuilds the launcher, matches it against the seal,
+#              assembles the successor staging tree for real, writes it out,
+#              walks it independently, and compares with the sealed measurement.
+#              It creates no output directory, generates no initrd, writes no
+#              root disk and uploads no image. It may be run as often as wanted.
+#
+#   produce    is the one-shot. Two independent arm64 replicas, one production
+#              each, and a third job that requires the three files to be byte
+#              identical between them. The authority allows one dispatch. If it
+#              fails after any output file exists, the attempt is spent and the
+#              answer is to stop and report, not to run it again.
+#
+# Producing the files is not booting them, and booting them is not serving.
+# Nothing here claims any of the three.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: preflight (repeatable, produces nothing) or produce (one-shot)
+        required: true
+        default: preflight
+        type: choice
+        options: [preflight, produce]
+
+permissions:
+  contents: read
+
+env:
+  CAS: local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas
+
+jobs:
+  preflight:
+    name: preflight (produces nothing)
+    if: inputs.mode == 'preflight'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+
+      - name: Require the host tools this path resolves from PATH
+        # gpgv and zstd, and nothing else. mke2fs and debugfs are deliberately
+        # absent: this mode cannot reach an image tool, and asking the runner
+        # for one would suggest otherwise.
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in gpgv python3 readlink zstd; do
+            command -v "$tool" >/dev/null || {
+              printf 'the runner has no %s\n' "$tool" >&2
+              exit 1
+            }
+          done
+
+      - name: Acquire the frozen package payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/acquire"
+          python3 scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
+            --cas "$PWD/$CAS" \
+            --zstd "$(readlink -f "$(command -v zstd)")" \
+            --result "$RUNNER_TEMP/acquire/ci-payload-acquisition.json"
+
+      - name: Rebuild the launcher and match its sealed digest
+        run: >-
+          python3 scripts/native_shadow_launcher_emit_arm64_v1.py emit
+          --out "$RUNNER_TEMP/launcher"
+
+      - name: Assemble and measure, and create no output
+        # Whether this run could have produced an image is not a promise made
+        # here: the module refuses to start unless its own call graph from the
+        # preflight entry point reaches no image step at all.
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/native_shadow_successor_produce_phase_arm64_v2.py preflight \
+            --cas "$PWD/$CAS" \
+            --launcher "$RUNNER_TEMP/launcher" \
+            --scratch "$RUNNER_TEMP/preflight" \
+            --result "$RUNNER_TEMP/PREFLIGHT-RESULT.json"
+
+      - name: Require this run to have produced nothing
+        # The claim the mode rests on, checked against the filesystem rather
+        # than against the code that just ran.
+        #
+        # The three names come from the producer authority rather than from a
+        # guess written here. A guess would have to be a pattern, and a pattern
+        # wide enough to catch a kernel would also catch the guest's own kernel
+        # package inside the staging tree -- failing a preflight that did
+        # exactly what it was supposed to, which teaches the next reader to
+        # widen the exception rather than trust the check.
+        shell: bash
+        run: |
+          set -euo pipefail
+          names=()
+          while IFS= read -r name; do
+            names+=("$name")
+          done < <(
+            python3 -c "from scripts import native_shadow_boot_produce_phase_arm64_v1 as p; print('\n'.join(p.output_names()))"
+          )
+          [ "${#names[@]}" -eq 3 ] || {
+            printf 'the producer authority named %s outputs, not three\n' \
+              "${#names[@]}" >&2
+            exit 1
+          }
+          expression=()
+          for name in "${names[@]}"; do
+            expression+=(-o -name "$name")
+          done
+          found=$(find "$RUNNER_TEMP" \( "${expression[@]:1}" \) -print)
+          if [ -n "$found" ]; then
+            printf 'the preflight created production outputs:\n%s\n' "$found" >&2
+            exit 1
+          fi
+          printf 'none of %s exists anywhere under the runner temp tree\n' \
+            "${names[*]}"
+
+      - name: Keep the preflight result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: successor-preflight-result
+          path: ${{ runner.temp }}/PREFLIGHT-RESULT.json
+          if-no-files-found: error
+          retention-days: 7
+
+  produce:
+    name: produce (${{ matrix.replica }})
+    if: inputs.mode == 'produce'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    strategy:
+      # Two runs are two pieces of evidence, and neither can see the other's
+      # outputs while it builds. If the first fails the second still has
+      # something to say about why.
+      fail-fast: false
+      matrix:
+        replica: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+
+      - name: Require the host tools the build resolves from PATH
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in env gpgv mkdir mktemp mount mountpoint python3 readlink \
+            rm systemd-run umount uname zstd; do
+            command -v "$tool" >/dev/null || {
+              printf 'the runner has no %s\n' "$tool" >&2
+              exit 1
+            }
+          done
+
+      - name: Acquire the frozen Rust distribution and re-prove its sealed record
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed=native/containment/native-shadow-boot-rustdist-acquisition-result-arm64-v1.json
+          rm "$sealed"
+          python3 scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py --acquire
+          git diff --exit-code -- "$sealed"
+
+      - name: Acquire the frozen package payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/acquire"
+          python3 scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
+            --cas "$PWD/$CAS" \
+            --zstd "$(readlink -f "$(command -v zstd)")" \
+            --result "$RUNNER_TEMP/acquire/ci-payload-acquisition.json"
+
+      - name: Acquire the sealed ext4 writer set
+        # An addition to the 191 guest packages and never a substitution. The
+        # acquirer refuses any digest or name the lock already seals, so nothing
+        # already verified is re-downloaded, replaced or deleted.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/acquire"
+          python3 scripts/native_shadow_boot_writer_set_acquire_arm64_v1.py acquire \
+            --cas "$PWD/$CAS" \
+            --result "$RUNNER_TEMP/acquire/writer-set-acquisition.json"
+
+      - name: Prove the writer set unpacks to the three sealed digests
+        # Settled here, while the run has produced nothing. A wrong pin stops a
+        # job with no image in it, which is recoverable; the same stop inside the
+        # one-shot production step would not be. This tree is thrown away --
+        # production builds its own.
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/native_shadow_boot_writer_tree_arm64_v1.py \
+            --cas "$PWD/$CAS" \
+            --zstd "$(readlink -f "$(command -v zstd)")" \
+            --writer-tree "$RUNNER_TEMP/writer-set-proof" \
+            --receipt "$RUNNER_TEMP/acquire/writer-tree-receipt.json"
+
+      - name: Rebuild the launcher and match its sealed digest
+        # The last step allowed to reach the network.
+        run: >-
+          python3 scripts/native_shadow_launcher_emit_arm64_v1.py emit
+          --out "$RUNNER_TEMP/launcher"
+
+      - name: Prove this replica would pass its own preflight
+        # Same assembly, same walk, same comparison with the sealed measurement,
+        # and still no output directory. A tree that disagrees with the seal
+        # stops the replica here, where nothing has been produced and the one
+        # allowed attempt is therefore still unspent.
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/native_shadow_successor_produce_phase_arm64_v2.py preflight \
+            --cas "$PWD/$CAS" \
+            --launcher "$RUNNER_TEMP/launcher" \
+            --scratch "$RUNNER_TEMP/preflight" \
+            --result "$RUNNER_TEMP/PREFLIGHT-RESULT.json"
+
+      - name: Produce the three successor boot files offline
+        # Exactly once, through the successor wrapper rather than a bare
+        # interpreter: the staging tree has to be built on a tmpfs the wrapper
+        # mounts, and the phase has to run inside the transient unit the sealed
+        # producer authority prints. Two replicas agree byte for byte only if
+        # both ran in that same environment.
+        #
+        # The output directory is created inside the wrapper and not before,
+        # which is where the budget line falls: everything above is refusable
+        # for free, and a failure from here on has spent the attempt.
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo ./scripts/native-shadow-successor-produce-arm64.sh \
+            --cas "$PWD/$CAS" \
+            --launcher "$RUNNER_TEMP/launcher" \
+            --outputs "$RUNNER_TEMP/boot-outputs" \
+            --result "$RUNNER_TEMP/boot-outputs/PRODUCE-RESULT.json"
+
+      - name: Write the SHA-256 manifest
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          python3 scripts/native_shadow_boot_image_produce_arm64_v1.py manifest \
+            --repository-root . \
+            --outputs "$RUNNER_TEMP/boot-outputs" \
+            > "$RUNNER_TEMP/evidence/OUTPUT-MANIFEST.txt"
+          cat "$RUNNER_TEMP/evidence/OUTPUT-MANIFEST.txt"
+
+      - name: Require this replica to have proved what it did
+        # The producer already stops a run whose read-only filesystem check
+        # failed. This is the other case: a result that never ran the check and
+        # reads like one that passed. Absence is a failure, not a gap.
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/boot-outputs/PRODUCE-RESULT.json" \
+            "$RUNNER_TEMP/evidence/PRODUCE-RESULT.json"
+          python3 scripts/native_shadow_boot_produce_phase_arm64_v1.py evidence \
+            --result "$RUNNER_TEMP/evidence/PRODUCE-RESULT.json"
+
+      - name: Keep the manifest and the evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: successor-manifest-${{ matrix.replica }}
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Keep the produced files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: successor-outputs-${{ matrix.replica }}
+          path: ${{ runner.temp }}/boot-outputs
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 1
+
+  compare:
+    # Byte identity or nothing. A difference is reported and stops the run; it
+    # is never resolved by picking one of the two, because picking one would
+    # turn a disagreement into a choice.
+    name: compare
+    if: inputs.mode == 'produce'
+    needs: [produce]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Fetch the first manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: successor-manifest-1
+          path: first
+
+      - name: Fetch the second manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: successor-manifest-2
+          path: second
+
+      - name: Require each run to have proved what it did
+        # Before the two are compared at all. Two replicas that both skipped the
+        # filesystem check would agree with each other perfectly.
+        run: |
+          set -euo pipefail
+          for replica in first second; do
+            printf '== %s ==\n' "$replica"
+            python3 scripts/native_shadow_boot_produce_phase_arm64_v1.py evidence \
+              --result "$replica/PRODUCE-RESULT.json"
+          done
+
+      - name: Require the two independent runs to agree byte for byte
+        run: |
+          set -euo pipefail
+          cat first/OUTPUT-MANIFEST.txt
+          python3 scripts/native_shadow_boot_image_produce_arm64_v1.py compare \
+            --first first/OUTPUT-MANIFEST.txt \
+            --second second/OUTPUT-MANIFEST.txt
