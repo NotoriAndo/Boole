@@ -3515,3 +3515,71 @@ exists. It does not authorise booting the produced image, starting MAC.4,
 connecting a node, or any testnet, public mining, reward, block, consensus or
 peer-to-peer activation. `bootableClaim`, `servingClaim`, `imageProducedClaim`
 and `activationAllowed` stay `false` whatever the run returns.
+
+### The fourth attempt: spent, passed, and not booted (2026-08-29)
+
+The granted attempt was used once and produced an image. The record is
+`native/containment/native-shadow-mac3-successor-image-production-result-arm64-v4.json`,
+appended beside the third attempt's failure rather than written into it.
+
+**Sequence.** The corrected read-back wiring reached `main` first, under pull
+request #289, all eleven required checks green with no rerun, squash-merged as
+`7d18577`. The free preflight then ran once — run 33202458054, PASS, one
+2,450-byte evidence document uploaded, and a filesystem search confirming that
+neither the three output names nor the consumed-attempt marker existed anywhere
+under the runner's temporary tree. The production followed: run 33202978318, one
+dispatch, two replicas as matrix jobs of that one run, both successful.
+
+**Outputs.**
+
+| file | sha256 | bytes |
+| --- | --- | --- |
+| `guest-kernel` | `d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336` | 57,860,488 |
+| `guest-initrd` | `2fc4b4f473e6dd3d8ac3697fc5be07ab2828e93acc0c2ff5f8e20ef473c3833e` | 1,776,433,848 |
+| `guest-root-disk` | `51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c` | 2,035,625,984 |
+
+**The read-back, against its own generation.** Both replicas produced
+`SUCCESSOR-ROOT-DISK-READBACK.json` with identical bytes, judged against
+`native-shadow-boot-rootfs-source-lock-arm64-v2.json` at digest
+`1a1a1df9b61795a46e82f392bda82d29c0cbde0473a11efd1f1cbd7993a85a9f`, over 17,677
+entries. Seven checks passed and none failed, including
+`modes-owners-and-paths-match-the-lock` — the check the third attempt failed,
+and the one the whole correction existed to make answerable. `e2fsck -f -n`
+returned zero in each replica, with no repair option supplied, and the root
+disk's digest is unchanged across the check.
+
+**Determinism, and what it does not license.** The third attempt's disqualified
+outputs hash to the same three values. That is evidence the builder was correct
+from the start and that the defect was confined to the baseline the checker
+read. It is not a promotion: those files stay `UNQUALIFIED-DIAGNOSTIC`, their
+record still says `mayNotBeAdopted: true`, and this record states
+`thirdAttemptOutputsAreAdopted: false`. A test enforces both halves.
+
+**Accounting.** `priorWorkflowDispatches` 3, `priorUnspentDispatches` 1,
+`priorProductionAttemptsSpent` 2, `productionAttemptsGrantedHere` 1,
+`thisAttemptSpent` true, `productionAttemptsSpentInTotal` 3,
+`productionAttemptsRemainingAfterThisRun` 0, `bootAttemptsUsed` 0. Reruns of the
+workflow, of failed jobs, and replicas dispatched by hand: zero each.
+
+**The authority is not edited.** The phase module pins the authority's digest,
+so rewriting the authority to say the run happened would break the binding that
+made the run legitimate. `runsPerformed` stays 0 there and the run is recorded
+here, with `authorityLeftByteUnchanged: true` and the reason written out.
+
+**One moved pin, one declaration, and no corrected digest.** The fourth producer
+fingerprint is not re-sealed. Six of its seven pins still match the live file.
+The seventh is the phase gate, which grew the tests describing this run after
+the run produced them; that move is declared in this record with the sealed
+digest and a reason. It deliberately carries no `correctedSha256`: the file that
+moved is the file that reads the declaration, so any digest of its current bytes
+would be wrong the instant it was written. The predecessor's declarations may
+name a corrected digest because nothing reads them from inside the file they
+describe; this one may not, and the gate refuses one if it appears.
+
+**Claims.** `imageProducedClaim` is `true` and means exactly that three files
+exist, were read back against the successor lock and match each other between
+replicas. `bootableClaim`, `guestBootVerified`, `servingClaim`,
+`runtimeCompatibilityVerified`, `publicMiningOrBenchmark` and
+`activationAllowed` are all `false`. Booting the image, MAC.4, connecting a
+node, and any testnet, public mining, reward, block, consensus or peer-to-peer
+activation remain outside what has happened and outside what is authorised.

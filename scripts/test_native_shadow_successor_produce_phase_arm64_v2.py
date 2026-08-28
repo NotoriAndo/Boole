@@ -3050,32 +3050,115 @@ class ThirdProducerFingerprintTests(unittest.TestCase):
 
 
 class ProducerFingerprintTests(unittest.TestCase):
-    """The bytes that will run, sealed before they run.
+    """The bytes that produced the fourth attempt, sealed before they ran.
 
     Kept out of the authority because the module pins the authority's digest:
     this record points at the authority, and nothing points back at this one.
 
-    Unlike its predecessor this one has not run, so nothing it pins is allowed
-    to have drifted.  It is written last, after the authority, after the module
-    is repointed and after this gate is finished, precisely so that "written
-    last" and "matches the disk" can be the same sentence.
+    It was written last -- after the authority, after the module was repointed,
+    after this gate was finished -- so that "written last" and "matches the
+    disk" could be the same sentence on the day it was sealed.  Then it ran.
+    Like its predecessor it is never re-sealed afterwards, so any file that has
+    moved since must be declared somewhere else and checked here against that
+    declaration.
     """
 
     def setUp(self) -> None:
         self.record = read_json(PRODUCER_FINGERPRINT_PATH)
 
-    def test_every_digest_is_the_file_it_names(self) -> None:
-        """No drift, declared or otherwise.  These bytes have not run yet."""
+    def declared_drift(self) -> dict:
+        """Every pin that no longer matches its file, and where that is written.
 
+        One source, because one thing moved: this gate grew the tests that
+        describe what the run produced, after it produced them.  The rule is
+        the predecessor's -- no drift may be silent, and no two records may
+        claim the same file.
+        """
+
+        declared: dict = {}
+        rows = read_json(FOURTH_PRODUCTION_RESULT_PATH)[
+            "producerFingerprintAfterTheAttempt"
+        ]["pinsThatNoLongerMatchTheLiveFile"]
+        for row in rows:
+            self.assertNotIn(
+                row["path"],
+                declared,
+                msg="one file, one declaration: two records claiming the same "
+                "drift can disagree about it",
+            )
+            declared[row["path"]] = row
+        return declared
+
+    def test_every_digest_is_the_file_it_names_unless_the_drift_is_declared(
+        self,
+    ) -> None:
         rows = self.record["files"]
         self.assertGreaterEqual(len(rows), 7)
+        declared = self.declared_drift()
         for row in rows:
+            live = digest_of(REPO_ROOT / row["path"])
+            declaration = declared.get(row["path"])
+            if declaration is None:
+                self.assertEqual(
+                    row["sha256"],
+                    live,
+                    msg=f"{row['path']} moved after it was sealed and the move "
+                    "is not declared",
+                )
+                continue
             self.assertEqual(
                 row["sha256"],
-                digest_of(REPO_ROOT / row["path"]),
-                msg=f"{row['path']} moved after it was sealed; a seal written "
-                "before a run has nothing it may be out of date about",
+                declaration["sealedSha256"],
+                msg=f"{row['path']}: the declaration quotes a digest the seal "
+                "does not carry",
             )
+            self.assertNotEqual(
+                row["sha256"],
+                live,
+                msg=f"{row['path']} is declared drifted but still matches; the "
+                "declaration should be removed rather than kept",
+            )
+
+    def test_only_the_gate_moved_and_it_says_why(self) -> None:
+        """One file, and the record that declares it stands behind the seal.
+
+        The other six ran and have not been touched since.  If one of them ever
+        needs a declaration, the declaration is not the fix -- the file being
+        back where the seal left it is.
+        """
+
+        declared = self.declared_drift()
+        self.assertEqual(
+            set(declared),
+            {str(pathlib.Path(__file__).resolve().relative_to(REPO_ROOT))},
+        )
+        for row in declared.values():
+            self.assertTrue(row["whyItChanged"].strip())
+        after = read_json(FOURTH_PRODUCTION_RESULT_PATH)[
+            "producerFingerprintAfterTheAttempt"
+        ]
+        self.assertEqual(
+            REPO_ROOT / after["path"], PRODUCER_FINGERPRINT_PATH
+        )
+        self.assertEqual(after["sha256"], digest_of(PRODUCER_FINGERPRINT_PATH))
+        self.assertFalse(after["stillPinsLiveBytes"])
+        self.assertTrue(after["whyItIsNotReSealed"].strip())
+
+    def test_the_moved_gate_is_not_given_a_corrected_digest(self) -> None:
+        """A file cannot carry a true digest of itself.
+
+        The predecessor's declarations may name where a file moved to, because
+        nothing there reads them.  This one is read by the very file it
+        describes: writing its current digest here would change that digest.
+        The sealed value is quoted alone, and it stays true because it is past.
+        """
+
+        after = read_json(FOURTH_PRODUCTION_RESULT_PATH)[
+            "producerFingerprintAfterTheAttempt"
+        ]
+        for row in after["pinsThatNoLongerMatchTheLiveFile"]:
+            self.assertNotIn("correctedSha256", row, msg=row["path"])
+        self.assertTrue(after["whyThereIsNoCorrectedDigest"].strip())
 
     def test_it_covers_everything_between_the_dispatch_and_the_image(
         self,
@@ -3615,14 +3698,24 @@ class FourthAuthorityTests(unittest.TestCase):
         self.assertNotEqual(self.document["attemptId"], self.third["attemptId"])
         self.assertNotEqual(self.document["attemptId"], self.spent["attemptId"])
 
-    def test_the_result_it_asks_for_is_not_one_that_already_exists(self) -> None:
+    def test_the_result_it_asks_for_is_its_own_and_no_earlier_attempts(self) -> None:
+        """Before the run this path had to be empty; now it holds one thing.
+
+        The pre-dispatch form of this check -- that the file does not exist --
+        was true when it mattered and cannot survive the run it guarded.  What
+        it was guarding survives: the path belongs to this attempt alone, and
+        whatever sits there answers to this authority and no other.
+        """
+
         result = REPO_ROOT / self.document["resultPath"]
         self.assertNotEqual(result, PRODUCTION_RESULT_PATH)
         self.assertNotEqual(result, REPO_ROOT / self.third["resultPath"])
-        self.assertFalse(
-            result.exists(),
-            msg="the result of an attempt that has not run cannot be on disk",
-        )
+        self.assertNotEqual(result, REPO_ROOT / self.spent["resultPath"])
+        if result.exists():
+            written = read_json(result)
+            self.assertEqual(written["attemptId"], self.document["attemptId"])
+            self.assertEqual(written["authoritySha256"], digest_of(AUTHORITY_PATH))
+            self.assertEqual(written["runsPerformed"], 1)
 
     def test_the_accounting_is_the_operators_numbers(self) -> None:
         self.assertEqual(
@@ -3945,6 +4038,287 @@ class FourthAuthorityTests(unittest.TestCase):
     def test_it_is_canonical(self) -> None:
         self.assertEqual(
             AUTHORITY_PATH.read_bytes(),
+            (json.dumps(self.document, indent=2, sort_keys=True) + "\n").encode(
+                "utf-8"
+            ),
+        )
+
+
+FOURTH_PRODUCTION_RESULT_PATH = (
+    CONTAINMENT / "native-shadow-mac3-successor-image-production-result-arm64-v4.json"
+)
+
+
+class FourthProductionResultTests(unittest.TestCase):
+    """The result of the one attempt the fourth authority carried.
+
+    It passed.  A passing result is the one that most needs holding to its
+    evidence, because nothing downstream will question it: every number here is
+    checked against the authority that allowed the run, the records that count
+    the budget, and the files the run actually left behind.
+    """
+
+    def setUp(self) -> None:
+        self.document = read_json(FOURTH_PRODUCTION_RESULT_PATH)
+        self.authority = read_json(AUTHORITY_PATH)
+
+    def test_it_is_the_result_the_authority_asked_for(self) -> None:
+        self.assertEqual(
+            FOURTH_PRODUCTION_RESULT_PATH,
+            REPO_ROOT / self.authority["resultPath"],
+        )
+        self.assertEqual(self.document["attemptId"], self.authority["attemptId"])
+        self.assertEqual(self.document["authoritySha256"], digest_of(AUTHORITY_PATH))
+        self.assertEqual(
+            self.document["producerFingerprintSha256"],
+            digest_of(PRODUCER_FINGERPRINT_PATH),
+        )
+
+    def test_it_is_not_the_result_of_any_earlier_attempt(self) -> None:
+        for earlier in (SPENT_AUTHORITY_PATH, THIRD_AUTHORITY_PATH):
+            self.assertNotEqual(
+                FOURTH_PRODUCTION_RESULT_PATH,
+                REPO_ROOT / read_json(earlier)["resultPath"],
+            )
+        self.assertNotEqual(
+            FOURTH_PRODUCTION_RESULT_PATH.read_bytes(),
+            PRODUCTION_RESULT_PATH.read_bytes(),
+        )
+
+    def test_the_verdict_is_the_one_the_run_reached(self) -> None:
+        self.assertTrue(self.document["passed"])
+        self.assertEqual(self.document["verdict"], "PASSED")
+        self.assertEqual(self.document["status"], "SUCCESSOR-PRODUCTION-PASSED")
+
+    def test_it_names_the_one_dispatch_it_came_from(self) -> None:
+        self.assertEqual(self.document["runId"], 33202978318)
+        self.assertEqual(
+            self.document["headSha"], "7d185776b98bb1bf6c4f141fc99af2ae249c93fb"
+        )
+        self.assertEqual(self.document["replicas"], 2)
+        self.assertEqual(self.document["runsPerformed"], 1)
+        reruns = self.document["reruns"]
+        self.assertEqual(reruns["workflow"], 0)
+        self.assertEqual(reruns["failedJobs"], 0)
+        self.assertEqual(reruns["replicasDispatchedByHand"], 0)
+
+    def test_every_check_the_authority_required_is_recorded_as_met(self) -> None:
+        """The pass list is not a summary; each line is answered separately."""
+
+        met = self.document["whatTheAuthorityRequired"]
+        for requirement in (
+            "bothReplicasProduced",
+            "byteIdenticalInitrd",
+            "byteIdenticalKernel",
+            "byteIdenticalRootDisk",
+            "compareJobRanAndPassed",
+            "e2fsckPassed",
+            "officialResultDocumentWritten",
+            "readBackPassed",
+            "rootDiskDigestUnchangedAcrossFsck",
+            "unqualifiedOutputsAbsent",
+        ):
+            self.assertTrue(met[requirement], msg=requirement)
+        self.assertEqual(sorted(met), sorted(set(met)))
+
+    def test_the_read_back_was_judged_against_the_successors_own_lock(self) -> None:
+        """The whole point of the correction, stated as the run measured it."""
+
+        read_back = self.document["readBack"]
+        self.assertTrue(read_back["passed"])
+        self.assertEqual(
+            read_back["sourceLockPath"],
+            self.authority["production"]["readBack"]["sourceLockPath"],
+        )
+        self.assertEqual(
+            read_back["sourceLockSha256"],
+            self.authority["production"]["readBack"]["sourceLockSha256"],
+        )
+        self.assertEqual(read_back["sourceLockSha256"], mod.SOURCE_LOCK_SHA256)
+        self.assertEqual(read_back["entryCount"], 17677)
+        self.assertIn(
+            "modes-owners-and-paths-match-the-lock", read_back["checksThatPassed"]
+        )
+        self.assertEqual(read_back["checksThatFailed"], [])
+        self.assertEqual(
+            read_back["resultDocument"],
+            self.authority["production"]["readBack"]["resultDocument"],
+        )
+
+    def test_the_check_that_failed_last_time_is_the_one_that_passed(self) -> None:
+        third = read_json(PRODUCTION_RESULT_PATH)
+        self.assertIn(third["failedCheck"]["id"], self.document["readBack"]["checksThatPassed"])
+
+    def test_the_filesystem_was_checked_without_being_repaired(self) -> None:
+        fsck = self.document["e2fsck"]
+        self.assertEqual(fsck["invocation"], "e2fsck -f -n")
+        self.assertEqual(fsck["exitCode"], 0)
+        self.assertTrue(fsck["passed"])
+        self.assertFalse(fsck["repairOptionsUsed"])
+        self.assertEqual(fsck["timesPerReplica"], 1)
+        self.assertEqual(
+            fsck["rootDiskSha256Afterwards"], self.document["outputs"]["guest-root-disk"]
+        )
+
+    def test_the_two_replicas_agree_and_were_checked_twice(self) -> None:
+        """Once by the sealed compare job, once by hand off the artifacts."""
+
+        comparison = self.document["replicaComparison"]
+        self.assertTrue(comparison["sealedComparisonJobRan"])
+        self.assertTrue(comparison["sealedComparisonJobPassed"])
+        self.assertTrue(comparison["thisSatisfiesTheAuthority"])
+        self.assertTrue(comparison["byteIdenticalWhenCheckedByHand"])
+        self.assertEqual(
+            sorted(comparison["filesCompared"]),
+            ["guest-initrd", "guest-kernel", "guest-root-disk"],
+        )
+
+    def test_the_outputs_are_named_and_digested(self) -> None:
+        outputs = self.document["outputs"]
+        self.assertEqual(
+            sorted(outputs), ["guest-initrd", "guest-kernel", "guest-root-disk"]
+        )
+        for name, sha in outputs.items():
+            self.assertRegex(sha, r"^[0-9a-f]{64}$", msg=name)
+
+    def test_nothing_disowned_came_out_of_this_run(self) -> None:
+        self.assertTrue(self.document["whatTheAuthorityRequired"]["unqualifiedOutputsAbsent"])
+        self.assertEqual(self.document["unqualifiedOutputs"], [])
+
+    def test_the_matching_digests_do_not_adopt_the_failed_attempts_files(self) -> None:
+        """The third attempt's leftovers hash the same.  They stay disowned.
+
+        The builder is deterministic, so the failed attempt wrote the same bytes
+        this one did.  That makes the coincidence worth stating and worth
+        bounding: what is adopted is this run's production, not the copies kept
+        from a run that failed.
+        """
+
+        coincidence = self.document["digestsMatchTheThirdAttempt"]
+        self.assertTrue(coincidence["theDigestsAreTheSame"])
+        self.assertFalse(coincidence["thirdAttemptOutputsAreAdopted"])
+        self.assertEqual(
+            coincidence["thirdAttemptRecordSha256"], digest_of(PRODUCTION_RESULT_PATH)
+        )
+        third = read_json(PRODUCTION_RESULT_PATH)
+        self.assertEqual(
+            third["disqualifiedOutputs"]["files"], self.document["outputs"]
+        )
+        self.assertTrue(third["disqualifiedOutputs"]["mayNotBeAdopted"])
+
+    def test_the_budget_is_spent_and_says_so(self) -> None:
+        accounting = self.document["attemptAccounting"]
+        authority = self.authority["attemptAccounting"]
+        self.assertEqual(
+            accounting["productionAttemptsGrantedHere"],
+            authority["productionAttemptsGrantedHere"],
+        )
+        self.assertEqual(accounting["thisAttemptSpent"], True)
+        self.assertEqual(accounting["productionAttemptsRemainingAfterThisRun"], 0)
+        self.assertEqual(accounting["bootAttemptsUsed"], 0)
+        self.assertEqual(
+            accounting["priorProductionAttemptsSpent"],
+            authority["priorProductionAttemptsSpent"],
+        )
+        self.assertEqual(
+            accounting["productionAttemptsSpentInTotal"],
+            authority["priorProductionAttemptsSpent"] + 1,
+        )
+
+    def test_the_marker_is_the_one_this_authority_named(self) -> None:
+        marker = self.document["consumedMarker"]
+        self.assertEqual(marker["name"], mod.CONSUMED_MARKER_NAME)
+        self.assertEqual(marker["attemptId"], self.authority["attemptId"])
+        self.assertEqual(marker["authoritySha256"], digest_of(AUTHORITY_PATH))
+        self.assertTrue(marker["writtenByBothReplicas"])
+        self.assertTrue(marker["identicalBetweenReplicas"])
+
+    def test_the_authority_is_left_exactly_as_it_was_sealed(self) -> None:
+        """A run does not edit the permission that allowed it.
+
+        The phase module pins the authority by digest, so re-writing it to say
+        the run happened would break the binding that made the run legitimate.
+        The run is recorded here instead, and this says why in as many words.
+        """
+
+        self.assertEqual(self.authority["runsPerformed"], 0)
+        self.assertTrue(self.document["authorityLeftByteUnchanged"])
+        self.assertIn("digest", self.document["whyTheAuthorityIsNotEdited"].lower())
+
+    def test_it_binds_the_records_it_rests_on(self) -> None:
+        for row in self.document["boundInputDigests"]:
+            path = REPO_ROOT / row["path"]
+            self.assertTrue(path.exists(), msg=row["path"])
+            self.assertEqual(digest_of(path), row["sha256"], msg=row["path"])
+        bound = {row["path"] for row in self.document["boundInputDigests"]}
+        for required in (
+            "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json",
+            "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v4.json",
+            "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v3.json",
+            "native/containment/native-shadow-mac3-successor-readback-correction-arm64-v1.json",
+            "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json",
+        ):
+            self.assertIn(required, bound)
+
+    def test_it_does_not_pin_the_module_or_its_gate(self) -> None:
+        """One-way binding survives the run that the binding permitted.
+
+        The gate's *sealed* digest is here, once, because the drift of a file
+        that has run has to be declared somewhere.  That is a past value and
+        nothing can make it wrong.  The current digests of the module and of
+        this gate are the ones that must stay out: either would have to change
+        the moment it was written down.
+        """
+
+        text = FOURTH_PRODUCTION_RESULT_PATH.read_text(encoding="utf-8")
+        module = REPO_ROOT / "scripts/native_shadow_successor_produce_phase_arm64_v2.py"
+        for path in (module, pathlib.Path(__file__).resolve()):
+            self.assertNotIn(digest_of(path), text, msg=str(path))
+        sealed = read_json(PRODUCER_FINGERPRINT_PATH)["files"]
+        gate = str(pathlib.Path(__file__).resolve().relative_to(REPO_ROOT))
+        pinned = next(row["sha256"] for row in sealed if row["path"] == gate)
+        self.assertEqual(text.count(pinned), 1)
+
+    def test_it_claims_the_image_and_nothing_further(self) -> None:
+        boundaries = self.document["boundaries"]
+        self.assertTrue(boundaries["imageProducedClaim"])
+        for key in (
+            "activationAllowed",
+            "bootableClaim",
+            "guestBootVerified",
+            "publicMiningOrBenchmark",
+            "runtimeCompatibilityVerified",
+            "servingClaim",
+        ):
+            self.assertFalse(boundaries[key], msg=key)
+
+    def test_it_says_where_the_files_are_and_for_how_long(self) -> None:
+        """Artifacts expire.  A record that does not say so ages into a lie."""
+
+        preservation = self.document["preservation"]
+        self.assertEqual(
+            sorted(preservation["artifactNames"]),
+            [
+                "successor-attempt-consumed-1",
+                "successor-attempt-consumed-2",
+                "successor-manifest-1",
+                "successor-manifest-2",
+                "successor-outputs-1",
+                "successor-outputs-2",
+            ],
+        )
+        self.assertEqual(preservation["retentionDays"], 7)
+        self.assertFalse(preservation["committedToTheRepository"])
+
+    def test_what_was_not_done_is_listed(self) -> None:
+        not_done = self.document["whatWasNotDone"]
+        joined = " ".join(not_done).lower()
+        for phrase in ("boot", "retr", "relax"):
+            self.assertIn(phrase, joined)
+
+    def test_it_is_canonical(self) -> None:
+        self.assertEqual(
+            FOURTH_PRODUCTION_RESULT_PATH.read_bytes(),
             (json.dumps(self.document, indent=2, sort_keys=True) + "\n").encode(
                 "utf-8"
             ),

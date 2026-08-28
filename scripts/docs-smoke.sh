@@ -2273,4 +2273,45 @@ require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'cla
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class ThirdProducerFingerprintTests'
 require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'def test_the_totals_are_the_rows_added_up'
 
+# 2026-08-29 -- what that one attempt produced.
+#
+# The pins here are mostly about what the run is *not* allowed to have become
+# on the way into the record. An image exists; it has not been booted, nothing
+# has been served from it, and the failed attempt's byte-identical copies stay
+# disowned rather than being quietly adopted now that the digests agree. The
+# read-back is pinned to the successor's own lock, because reading it against
+# the predecessor's is the whole defect this attempt existed to repair.
+V4_RESULT=native/containment/native-shadow-mac3-successor-image-production-result-arm64-v4.json
+require_file "$V4_RESULT"
+require_text "$V4_RESULT" '"attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V4-ATTEMPT-1"'
+require_text "$V4_RESULT" '"status": "SUCCESSOR-PRODUCTION-PASSED"'
+require_text "$V4_RESULT" '"verdict": "PASSED"'
+require_text "$V4_RESULT" '"runsPerformed": 1'
+require_text "$V4_RESULT" '"runId": 33202978318'
+require_text "$V4_RESULT" 'native-shadow-boot-rootfs-source-lock-arm64-v2.json'
+require_text "$V4_RESULT" '"modes-owners-and-paths-match-the-lock"'
+require_text "$V4_RESULT" '"checksThatFailed": []'
+require_text "$V4_RESULT" '"invocation": "e2fsck -f -n"'
+require_text "$V4_RESULT" '"repairOptionsUsed": false'
+require_text "$V4_RESULT" '"byteIdenticalWhenCheckedByHand": true'
+require_text "$V4_RESULT" '"sealedComparisonJobRan": true'
+require_text "$V4_RESULT" '"thisSatisfiesTheAuthority": true'
+require_text "$V4_RESULT" '"thirdAttemptOutputsAreAdopted": false'
+require_text "$V4_RESULT" '"productionAttemptsSpentInTotal": 3'
+require_text "$V4_RESULT" '"productionAttemptsRemainingAfterThisRun": 0'
+require_text "$V4_RESULT" '"bootAttemptsUsed": 0'
+require_text "$V4_RESULT" '"authorityLeftByteUnchanged": true'
+require_text "$V4_RESULT" '"stillPinsLiveBytes": false'
+require_text "$V4_RESULT" '"whyThereIsNoCorrectedDigest"'
+require_text "$V4_RESULT" '"imageProducedClaim": true'
+require_text "$V4_RESULT" '"bootableClaim": false'
+require_text "$V4_RESULT" '"guestBootVerified": false'
+require_text "$V4_RESULT" '"servingClaim": false'
+require_text "$V4_RESULT" '"activationAllowed": false'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'class FourthProductionResultTests'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'def test_the_check_that_failed_last_time_is_the_one_that_passed'
+require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'def test_the_moved_gate_is_not_given_a_corrected_digest'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'The fourth attempt: spent, passed, and not booted'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'SUCCESSOR-IMAGE-PRODUCTION  SPENT / PASSED'
+
 printf 'docs-smoke: PASS\n' >&2

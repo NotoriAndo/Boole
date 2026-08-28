@@ -4510,3 +4510,85 @@ is claimed to exist, boot or serve. No production was dispatched, no marker was
 written, no attempt was spent, and no clean-Mac canary, VM boot, real release
 build, production key, public mining, paid API benchmark, user installation or
 activation occurred.
+
+## 49. The fourth attempt: spent, passed, and not booted (2026-08-29)
+
+The one attempt the fourth authority granted was used, once, and it produced an
+image. Nothing was booted, nothing is served, and the two claims are kept apart
+on purpose: a file that exists is not a machine that runs.
+
+**The order the operator required, in the order it happened.** The corrected
+wiring went to `main` under its own review first — pull request #289, eleven
+required checks green, no rerun of any kind, squash-merged as `7d18577`. Only
+then was the free preflight dispatched: run 33202458054, one run, PASS. It
+uploaded a single 2,450-byte JSON document and the runner reported that none of
+`guest-kernel`, `guest-initrd`, `guest-root-disk` or the consumed-attempt marker
+existed anywhere under its temporary tree. No budget was touched by it. Then the
+production: run 33202978318, one dispatch, both replicas as matrix jobs of that
+one run, success.
+
+**What the two replicas produced.** Each wrote all three files and a read-back
+result document. `guest-kernel` is
+`d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336`,
+`guest-initrd` is
+`2fc4b4f473e6dd3d8ac3697fc5be07ab2828e93acc0c2ff5f8e20ef473c3833e`, and
+`guest-root-disk` is
+`51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c`. The sealed
+comparison job ran and reported the three outputs identical. Both artifact sets
+were then downloaded and re-hashed off the runner, and the three pairs compared
+byte for byte by hand: identical. The two `PRODUCE-RESULT.json` documents differ
+only in the random suffix of the scratch directory each job was given.
+
+**The check that decided it.** `modes-owners-and-paths-match-the-lock` — the one
+that failed the third attempt — passed in both replicas, against
+`native-shadow-boot-rootfs-source-lock-arm64-v2.json`, with all 17,677 entries
+accounted for. That is the entire repair: the builder was never wrong, and the
+baseline it was judged against now belongs to the same generation as the image.
+`e2fsck -f -n` returned zero for each replica with no repair option given, and
+the root disk's digest afterwards is the digest before it.
+
+**The digests match the attempt that failed.** Exactly. The third attempt's
+disqualified files hash to these same three values, which is worth stating
+plainly because it is the strongest available evidence that the builder was
+deterministic all along and that only the judge was reading the wrong page.
+It changes nothing about those files: they remain `UNQUALIFIED-DIAGNOSTIC`,
+`mayNotBeAdopted` stays `true`, and the record of this attempt says in as many
+words that they are not adopted. Agreeing digests are evidence, not a promotion.
+
+**The accounting, kept whole.** Three prior workflow dispatches, one of them
+unspent; two attempts spent before this one; one granted here; this one spent at
+the moment the marker was written; nothing remaining; zero boot attempts used.
+Zero workflow reruns, zero failed-job reruns, zero replicas dispatched by hand.
+
+**What was not re-sealed.** The fourth producer fingerprint. It pins the bytes
+that ran, taken before they ran; six of its seven pins still match the live file
+exactly. The seventh is the phase gate, which grew the tests describing this run
+after the run produced them. That move is declared once, in this attempt's
+result record, quoting the sealed digest and deliberately carrying no corrected
+one — the file that moved is the file that reads the declaration, so a digest of
+its current bytes would falsify itself the moment it was written.
+
+**Artifacts expire.** The six artifacts are held for seven days and are not
+committed to the repository. The record says so, because a record that lists
+files without saying how long they last ages into a false statement.
+
+### 49.1 Execution cursor after the fourth attempt
+
+```text
+SUCCESSOR-IMAGE-PRODUCTION  SPENT / PASSED — 1 dispatch, 2 replicas, byte-identical
+SUCCESSOR-IMAGE-READBACK  PASSED — successor lock v2, 17,677 entries, all tracked paths match
+SUCCESSOR-IMAGE-FSCK  PASSED — e2fsck -f -n exit 0, no repair, digest unchanged
+SUCCESSOR-IMAGE-BUDGET  EXHAUSTED — 3 attempts spent in total, 0 remaining
+GUEST-BOOT  NOT STARTED — 0 boot attempts used, boot budget untouched
+MAC.4  NOT STARTED — does not begin automatically
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — release gate retained
+MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
+```
+
+The cursors in §46.1, §47.1 and §48.1 are left as they were written; this one is
+added beside them. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain
+unchanged. An image exists and is fingerprinted. It has not been booted, no
+guest has run, no node has been connected, and nothing is served from it. No
+clean-Mac canary, VM boot, real release build, production key, public mining,
+paid API benchmark, user installation or activation occurred.
