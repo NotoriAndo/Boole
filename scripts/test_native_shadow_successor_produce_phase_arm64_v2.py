@@ -86,7 +86,7 @@ def restored_temporary_directory():
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 CONTAINMENT = REPO_ROOT / "native/containment"
 AUTHORITY_PATH = (
-    CONTAINMENT / "native-shadow-mac3-successor-production-authority-arm64-v3.json"
+    CONTAINMENT / "native-shadow-mac3-successor-production-authority-arm64-v4.json"
 )
 # The authority the two prior dispatches ran under.  It is not the current one and
 # it is not edited: the documents written about those attempts are judged
@@ -94,7 +94,16 @@ AUTHORITY_PATH = (
 SPENT_AUTHORITY_PATH = (
     CONTAINMENT / "native-shadow-mac3-successor-production-authority-arm64-v2.json"
 )
+# The authority the third dispatch ran under, on the same footing: superseded,
+# byte-unchanged, and still the yardstick for every record written about that
+# attempt.
+THIRD_AUTHORITY_PATH = (
+    CONTAINMENT / "native-shadow-mac3-successor-production-authority-arm64-v3.json"
+)
 PRODUCER_FINGERPRINT_PATH = (
+    CONTAINMENT / "native-shadow-mac3-successor-producer-fingerprint-arm64-v4.json"
+)
+THIRD_PRODUCER_FINGERPRINT_PATH = (
     CONTAINMENT / "native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json"
 )
 PREDECESSOR_LOCK_PATH = (
@@ -1062,6 +1071,31 @@ class PreflightProducesNothingTests(unittest.TestCase):
     def test_the_production_signature_is_the_one_that_takes_outputs(self) -> None:
         self.assertIn("outputs", inspect.signature(mod.produce).parameters)
 
+    def test_the_preflight_asks_the_disk_about_the_marker_too(self) -> None:
+        """Produced nothing has to include spent nothing, and be looked up.
+
+        The step already asks the filesystem whether any of the three output
+        names exists.  The marker is the file whose presence decides whether an
+        attempt was spent, and it is not one of those three -- so until it is
+        named here the strongest claim the preflight could make about the budget
+        was an inference from the call graph rather than a look at the disk.
+        """
+
+        block = workflow_job("preflight")
+        step = block[block.index("Require this run to have produced nothing") :]
+        self.assertIn(
+            "CONSUMED_MARKER_NAME",
+            step,
+            "the preflight never looks for the file that spends an attempt",
+        )
+        self.assertNotIn(
+            mod.CONSUMED_MARKER_NAME,
+            step,
+            "the name is read out of the phase, not written down a second time "
+            "where the two copies can drift apart",
+        )
+        self.assertIn('names+=("$marker")', step)
+
 
 class WorkflowAcquisitionTests(unittest.TestCase):
     """The preflight has to reach the store the production would have reached.
@@ -1339,13 +1373,14 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(
             document["resultPath"],
             "native/containment/"
-            "native-shadow-mac3-successor-image-production-result-arm64-v3.json",
+            "native-shadow-mac3-successor-image-production-result-arm64-v4.json",
         )
-        self.assertNotEqual(
-            document["resultPath"],
-            read_json(SPENT_AUTHORITY_PATH)["resultPath"],
-            msg="the new attempt writes where a spent attempt would have",
-        )
+        for spent in (SPENT_AUTHORITY_PATH, THIRD_AUTHORITY_PATH):
+            self.assertNotEqual(
+                document["resultPath"],
+                read_json(spent)["resultPath"],
+                msg="the new attempt writes where a spent attempt would have",
+            )
         self.assertNotEqual(document["resultPath"], document["preflightResultPath"])
 
 
@@ -2618,11 +2653,18 @@ class ConsumedAttemptHardStopTests(unittest.TestCase):
         This used to assert the result path was empty, which was true while
         nothing had run.  Something has run since, and the assertion that
         still means something is that these are two files with two jobs.
+
+        The current authority's result does not exist -- its attempt has not
+        been dispatched -- so the bytes are compared against the one production
+        result that does.
         """
 
         result = REPO_ROOT / mod.authority()["resultPath"]
         self.assertNotEqual(SECOND_HARD_STOP_PATH, result)
-        self.assertNotEqual(SECOND_HARD_STOP_PATH.read_bytes(), result.read_bytes())
+        self.assertNotEqual(SECOND_HARD_STOP_PATH, PRODUCTION_RESULT_PATH)
+        self.assertNotEqual(
+            SECOND_HARD_STOP_PATH.read_bytes(), PRODUCTION_RESULT_PATH.read_bytes()
+        )
 
     def test_it_is_canonical_and_says_which_record_it_follows(self) -> None:
         raw = SECOND_HARD_STOP_PATH.read_bytes()
@@ -2651,12 +2693,8 @@ class ThirdAuthorityTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self.document = read_json(AUTHORITY_PATH)
+        self.document = read_json(THIRD_AUTHORITY_PATH)
         self.spent = read_json(SPENT_AUTHORITY_PATH)
-
-    def test_the_module_runs_under_this_one(self) -> None:
-        self.assertEqual(mod.AUTHORITY_PATH, AUTHORITY_PATH)
-        self.assertEqual(mod.AUTHORITY_SHA256, digest_of(AUTHORITY_PATH))
 
     def test_it_carries_exactly_one_attempt_and_has_not_used_it(self) -> None:
         self.assertEqual(self.document["runsAllowed"], 1)
@@ -2706,7 +2744,7 @@ class ThirdAuthorityTests(unittest.TestCase):
         the sentence is the part a person acts on.
         """
 
-        text = AUTHORITY_PATH.read_text(encoding="utf-8")
+        text = THIRD_AUTHORITY_PATH.read_text(encoding="utf-8")
         self.assertNotIn("two spent attempts", text)
         self.assertNotIn("first two attempts are spent", text)
         self.assertIn("two prior dispatches, one unspent and one spent", text)
@@ -2722,7 +2760,9 @@ class ThirdAuthorityTests(unittest.TestCase):
         self.assertFalse(correction["anythingRanUnderTheUncorrectedBytes"])
         self.assertEqual(correction["ruledAt"], "2026-08-28T15:01:05Z")
         self.assertEqual(len(correction["supersededSha256"]), 64)
-        self.assertNotEqual(correction["supersededSha256"], digest_of(AUTHORITY_PATH))
+        self.assertNotEqual(
+            correction["supersededSha256"], digest_of(THIRD_AUTHORITY_PATH)
+        )
 
     def test_the_four_earlier_records_are_bound_byte_unchanged(self) -> None:
         """Every document this one follows, re-derived from the file on disk.
@@ -2790,12 +2830,11 @@ class ThirdAuthorityTests(unittest.TestCase):
 
         fingerprint = self.document["producerFingerprint"]
         self.assertEqual(
-            REPO_ROOT / fingerprint["path"], PRODUCER_FINGERPRINT_PATH
+            REPO_ROOT / fingerprint["path"], THIRD_PRODUCER_FINGERPRINT_PATH
         )
         self.assertNotIn("sha256", fingerprint)
-        raw = AUTHORITY_PATH.read_text(encoding="utf-8")
-        self.assertNotIn(digest_of(PRODUCER_FINGERPRINT_PATH), raw)
-        self.assertNotIn(digest_of(pathlib.Path(mod.__file__)), raw)
+        raw = THIRD_AUTHORITY_PATH.read_text(encoding="utf-8")
+        self.assertNotIn(digest_of(THIRD_PRODUCER_FINGERPRINT_PATH), raw)
 
     def test_the_sealed_preflight_is_kept_with_the_digest_it_recorded(self) -> None:
         standing = self.document["preflightResultStillStands"]
@@ -2843,35 +2882,66 @@ class ThirdAuthorityTests(unittest.TestCase):
 
     def test_it_is_canonical(self) -> None:
         self.assertEqual(
-            AUTHORITY_PATH.read_bytes(),
+            THIRD_AUTHORITY_PATH.read_bytes(),
             (json.dumps(self.document, indent=2, sort_keys=True) + "\n").encode(
                 "utf-8"
             ),
         )
 
 
-class ProducerFingerprintTests(unittest.TestCase):
-    """The bytes that will run, sealed before they run.
+class ThirdProducerFingerprintTests(unittest.TestCase):
+    """The bytes that produced the third attempt, still saying so.
 
-    Kept out of the authority because the module pins the authority's digest:
-    this record points at the authority, and nothing points back at this one.
+    This record is never re-sealed.  It pins bytes that have now run, and
+    re-pointing it at whatever those files say today would make it claim to
+    have frozen something that never produced anything -- the failure it
+    belongs to would stop being reconstructible from it.  So the pins stay
+    where they were, and every file that has moved since is declared somewhere
+    else and checked here against that declaration.
     """
 
     def setUp(self) -> None:
-        self.record = read_json(PRODUCER_FINGERPRINT_PATH)
+        self.record = read_json(THIRD_PRODUCER_FINGERPRINT_PATH)
+
+    def declared_drift(self) -> dict:
+        """Every pin that no longer matches its file, and where that is written.
+
+        Three records, because the three drifts happened for different reasons
+        at different times: this gate grew the records of what the attempt did,
+        after it ran; the wrapper's one wrong line is what the correction
+        changes; the workflow's marker check is what the new authority asked
+        for.  None of them is allowed to be silent, and no two of them may
+        claim the same file.
+        """
+
+        declared: dict = {}
+        sources = (
+            (
+                THIRD_HARD_STOP_PATH,
+                lambda d: d["producerFingerprintAfterTheAttempt"][
+                    "pinsThatNoLongerMatchTheLiveFile"
+                ],
+            ),
+            (READBACK_CORRECTION_PATH, lambda d: d["pinsThisCorrectionMoves"]),
+            (
+                AUTHORITY_PATH,
+                lambda d: d["producerPinsThatMovedSinceTheThirdAttempt"],
+            ),
+        )
+        for path, pick in sources:
+            for row in pick(read_json(path)):
+                self.assertNotIn(
+                    row["path"],
+                    declared,
+                    msg="one file, one declaration: two records claiming the "
+                    "same drift can disagree about it",
+                )
+                declared[row["path"]] = row
+        return declared
 
     def test_every_digest_is_the_file_it_names_unless_the_drift_is_declared(
         self,
     ) -> None:
-        """The seal is a record of bytes that have now run, so it is not re-sealed.
-
-        Two of the files it pins have moved since.  One is this test file, which
-        grew the records of what the run did -- after the run.  The other is the
-        wrapper, whose one wrong line is what the correction changes.  Re-sealing
-        either would make the record claim to pin bytes that never produced
-        anything, so instead each move is declared, and checked here against the
-        declaration rather than waved through.
-        """
         rows = self.record["files"]
         self.assertGreaterEqual(len(rows), 5)
         for row in rows:
@@ -2905,32 +2975,8 @@ class ProducerFingerprintTests(unittest.TestCase):
                     "declared where it had moved to",
                 )
 
-    def declared_drift(self) -> dict:
-        """Every pin that no longer matches its file, and where that is written.
-
-        Two records, because the two drifts happened for different reasons at
-        different times: one after the attempt ran, one to correct what the
-        attempt found.  Neither is allowed to be silent.
-        """
-
-        declared = {
-            row["path"]: row
-            for row in read_json(THIRD_HARD_STOP_PATH)[
-                "producerFingerprintAfterTheAttempt"
-            ]["pinsThatNoLongerMatchTheLiveFile"]
-        }
-        for row in read_json(READBACK_CORRECTION_PATH)["pinsThisCorrectionMoves"]:
-            self.assertNotIn(
-                row["path"],
-                declared,
-                msg="one file, one declaration: two records claiming the same "
-                "drift can disagree about it",
-            )
-            declared[row["path"]] = row
-        return declared
-
     def test_every_moved_pin_says_why_it_moved(self) -> None:
-        """Only these two, and each with a reason written next to it."""
+        """Only these four, and each with a reason written next to it."""
 
         declared = self.declared_drift()
         self.assertEqual(
@@ -2938,14 +2984,24 @@ class ProducerFingerprintTests(unittest.TestCase):
             {
                 str(pathlib.Path(__file__).resolve().relative_to(REPO_ROOT)),
                 "scripts/native-shadow-successor-produce-arm64.sh",
+                str(WORKFLOW_PATH.relative_to(REPO_ROOT)),
+                str(pathlib.Path(mod.__file__).resolve().relative_to(REPO_ROOT)),
             },
-            msg="the module, the workflow and the frozen helper are the bytes "
-            "that ran and are not allowed to drift at all",
+            msg="the frozen helper is the one producer file that ran and is "
+            "not allowed to drift at all",
         )
         for path, row in declared.items():
             self.assertTrue(
                 row.get("whyItChanged") or row.get("whyItMoved"), msg=path
             )
+
+    def test_the_helper_that_hashes_the_outputs_never_moved(self) -> None:
+        """The one pin with no declaration, and the one that must not need one."""
+
+        rows = {row["path"]: row for row in self.record["files"]}
+        helper = "scripts/native_shadow_boot_image_produce_arm64_v1.py"
+        self.assertEqual(rows[helper]["sha256"], digest_of(REPO_ROOT / helper))
+        self.assertNotIn(helper, self.declared_drift())
 
     def test_it_covers_the_module_the_wrapper_and_the_workflow(self) -> None:
         paths = {row["path"] for row in self.record["files"]}
@@ -2962,11 +3018,13 @@ class ProducerFingerprintTests(unittest.TestCase):
 
     def test_it_is_sealed_under_the_authority_it_names(self) -> None:
         self.assertEqual(
-            REPO_ROOT / self.record["authorityPath"], AUTHORITY_PATH
+            REPO_ROOT / self.record["authorityPath"], THIRD_AUTHORITY_PATH
         )
-        self.assertEqual(self.record["authoritySha256"], digest_of(AUTHORITY_PATH))
         self.assertEqual(
-            self.record["attemptId"], read_json(AUTHORITY_PATH)["attemptId"]
+            self.record["authoritySha256"], digest_of(THIRD_AUTHORITY_PATH)
+        )
+        self.assertEqual(
+            self.record["attemptId"], read_json(THIRD_AUTHORITY_PATH)["attemptId"]
         )
 
     def test_it_names_the_three_defects_it_was_sealed_after(self) -> None:
@@ -2977,6 +3035,118 @@ class ProducerFingerprintTests(unittest.TestCase):
                 "marker-not-readable-by-the-account-that-collects-it",
                 "produced-files-discarded-when-a-later-step-fails",
             },
+        )
+
+    def test_it_claims_nothing(self) -> None:
+        self.assertEqual(self.record["status"], "PRODUCER-SEALED-NOT-RUN")
+        for key, value in self.record["boundaries"].items():
+            self.assertFalse(value, msg=key)
+
+    def test_it_is_canonical(self) -> None:
+        self.assertEqual(
+            THIRD_PRODUCER_FINGERPRINT_PATH.read_bytes(),
+            (json.dumps(self.record, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        )
+
+
+class ProducerFingerprintTests(unittest.TestCase):
+    """The bytes that will run, sealed before they run.
+
+    Kept out of the authority because the module pins the authority's digest:
+    this record points at the authority, and nothing points back at this one.
+
+    Unlike its predecessor this one has not run, so nothing it pins is allowed
+    to have drifted.  It is written last, after the authority, after the module
+    is repointed and after this gate is finished, precisely so that "written
+    last" and "matches the disk" can be the same sentence.
+    """
+
+    def setUp(self) -> None:
+        self.record = read_json(PRODUCER_FINGERPRINT_PATH)
+
+    def test_every_digest_is_the_file_it_names(self) -> None:
+        """No drift, declared or otherwise.  These bytes have not run yet."""
+
+        rows = self.record["files"]
+        self.assertGreaterEqual(len(rows), 7)
+        for row in rows:
+            self.assertEqual(
+                row["sha256"],
+                digest_of(REPO_ROOT / row["path"]),
+                msg=f"{row['path']} moved after it was sealed; a seal written "
+                "before a run has nothing it may be out of date about",
+            )
+
+    def test_it_covers_everything_between_the_dispatch_and_the_image(
+        self,
+    ) -> None:
+        """The workflow, the wrapper, the phase, the helper, and both gates.
+
+        The read-back consumer is here because the third attempt is what
+        happens when the thing that judges the image is not part of what is
+        sealed: it can be swapped for another generation's without any pin
+        noticing.
+        """
+
+        paths = {row["path"] for row in self.record["files"]}
+        self.assertEqual(
+            paths,
+            {
+                str(WORKFLOW_PATH.relative_to(REPO_ROOT)),
+                "scripts/native-shadow-successor-produce-arm64.sh",
+                str(pathlib.Path(mod.__file__).resolve().relative_to(REPO_ROOT)),
+                "scripts/native_shadow_boot_image_produce_arm64_v1.py",
+                "scripts/native_shadow_successor_root_disk_readback_arm64_v2.py",
+                str(pathlib.Path(__file__).resolve().relative_to(REPO_ROOT)),
+                "scripts/test_native_shadow_successor_root_disk_readback_arm64_v2.py",
+            },
+        )
+
+    def test_every_pin_says_what_the_file_is_for(self) -> None:
+        for row in self.record["files"]:
+            self.assertTrue(row.get("role"), msg=row["path"])
+            self.assertEqual(len(row["sha256"]), 64)
+
+    def test_it_is_sealed_under_the_authority_it_names(self) -> None:
+        self.assertEqual(REPO_ROOT / self.record["authorityPath"], AUTHORITY_PATH)
+        self.assertEqual(self.record["authoritySha256"], digest_of(AUTHORITY_PATH))
+        self.assertEqual(
+            self.record["attemptId"], read_json(AUTHORITY_PATH)["attemptId"]
+        )
+
+    def test_the_binding_runs_one_way_only(self) -> None:
+        """It points at the authority; the authority does not point back.
+
+        The module pins the authority's digest, so an authority that pinned
+        this record -- or the module, or this gate -- could never be written
+        without one of the two being wrong about the other.
+        """
+
+        raw = AUTHORITY_PATH.read_text(encoding="utf-8")
+        self.assertNotIn(digest_of(PRODUCER_FINGERPRINT_PATH), raw)
+        self.assertNotIn(digest_of(pathlib.Path(mod.__file__).resolve()), raw)
+        self.assertNotIn(digest_of(pathlib.Path(__file__).resolve()), raw)
+
+    def test_it_names_the_defect_it_was_sealed_after(self) -> None:
+        self.assertIn(
+            "root-disk-read-back-against-the-predecessors-source-lock",
+            self.record["repairedDefects"],
+        )
+        self.assertEqual(
+            set(read_json(THIRD_PRODUCER_FINGERPRINT_PATH)["repairedDefects"])
+            - set(self.record["repairedDefects"]),
+            set(),
+            msg="a repair the previous seal recorded does not stop having "
+            "happened because a later one was written",
+        )
+
+    def test_it_supersedes_the_third_without_editing_it(self) -> None:
+        superseded = self.record["supersedes"]
+        self.assertEqual(
+            REPO_ROOT / superseded["path"], THIRD_PRODUCER_FINGERPRINT_PATH
+        )
+        self.assertEqual(
+            superseded["sha256"], digest_of(THIRD_PRODUCER_FINGERPRINT_PATH)
         )
 
     def test_it_claims_nothing(self) -> None:
@@ -3011,7 +3181,6 @@ def _lock_digest(path: pathlib.Path, logical: str) -> str:
             return row["sha256"]
     raise AssertionError(f"{logical} is not tracked by {path.name}")
 
-
 class ThirdProductionResultTests(unittest.TestCase):
     """The result of the one attempt the third authority carried.
 
@@ -3022,7 +3191,7 @@ class ThirdProductionResultTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.document = read_json(PRODUCTION_RESULT_PATH)
-        self.authority = read_json(AUTHORITY_PATH)
+        self.authority = read_json(THIRD_AUTHORITY_PATH)
 
     def test_it_is_the_result_the_authority_asked_for(self) -> None:
         self.assertEqual(
@@ -3031,7 +3200,7 @@ class ThirdProductionResultTests(unittest.TestCase):
         )
         self.assertEqual(self.document["attemptId"], self.authority["attemptId"])
         self.assertEqual(
-            self.document["authoritySha256"], digest_of(AUTHORITY_PATH)
+            self.document["authoritySha256"], digest_of(THIRD_AUTHORITY_PATH)
         )
 
     def test_the_verdict_is_the_one_the_run_reached(self) -> None:
@@ -3143,11 +3312,11 @@ class ThirdHardStopTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.record = read_json(THIRD_HARD_STOP_PATH)
-        self.authority = read_json(AUTHORITY_PATH)
+        self.authority = read_json(THIRD_AUTHORITY_PATH)
 
     def test_the_attempt_it_stops_is_the_authoritys_attempt(self) -> None:
         self.assertEqual(self.record["attemptId"], self.authority["attemptId"])
-        self.assertEqual(self.record["authoritySha256"], digest_of(AUTHORITY_PATH))
+        self.assertEqual(self.record["authoritySha256"], digest_of(THIRD_AUTHORITY_PATH))
 
     def test_the_budget_is_spent_and_says_so(self) -> None:
         budget = self.record["accounting"]
@@ -3173,7 +3342,7 @@ class ThirdHardStopTests(unittest.TestCase):
         self.assertTrue(marker["identicalOnBothReplicas"])
         self.assertTrue(marker["collectedOffTheRunner"])
         self.assertEqual(
-            marker["document"]["authoritySha256"], digest_of(AUTHORITY_PATH)
+            marker["document"]["authoritySha256"], digest_of(THIRD_AUTHORITY_PATH)
         )
 
     def test_the_repairs_that_held_are_recorded_as_having_held(self) -> None:
@@ -3201,7 +3370,7 @@ class ThirdHardStopTests(unittest.TestCase):
             SECOND_HARD_STOP_PATH,
             RULING_PATH,
             SPENT_AUTHORITY_PATH,
-            AUTHORITY_PATH,
+            THIRD_AUTHORITY_PATH,
         ):
             self.assertIn(str(path.relative_to(REPO_ROOT)), paths)
         for row in rows:
@@ -3250,9 +3419,9 @@ class ThirdAttemptDiagnosticTests(unittest.TestCase):
         self.result = read_json(PRODUCTION_RESULT_PATH)
 
     def test_it_is_bound_to_the_attempt_it_diagnoses(self) -> None:
-        authority = read_json(AUTHORITY_PATH)
+        authority = read_json(THIRD_AUTHORITY_PATH)
         self.assertEqual(self.record["attemptId"], authority["attemptId"])
-        self.assertEqual(self.record["authoritySha256"], digest_of(AUTHORITY_PATH))
+        self.assertEqual(self.record["authoritySha256"], digest_of(THIRD_AUTHORITY_PATH))
         self.assertEqual(self.record["runId"], self.result["runId"])
 
     def test_the_images_were_read_and_not_written(self) -> None:
@@ -3420,6 +3589,366 @@ class ThirdAttemptAccountingTests(unittest.TestCase):
         self.assertEqual(images["setsPerReplica"], 1)
         self.assertEqual(images["replicas"], 2)
         self.assertFalse(images["adoptable"])
+
+
+class FourthAuthorityTests(unittest.TestCase):
+    """The one further attempt, written down before it is dispatched.
+
+    Everything about it that matters is a number or a digest, and every number
+    is re-derived here from the rows it claims to summarise rather than read
+    off the summary.  An authority whose totals only agree with themselves is
+    a place a miscount can live.
+    """
+
+    def setUp(self) -> None:
+        self.document = read_json(AUTHORITY_PATH)
+        self.third = read_json(THIRD_AUTHORITY_PATH)
+        self.spent = read_json(SPENT_AUTHORITY_PATH)
+
+    def test_the_module_runs_under_this_one(self) -> None:
+        self.assertEqual(mod.AUTHORITY_PATH, AUTHORITY_PATH)
+        self.assertEqual(mod.AUTHORITY_SHA256, digest_of(AUTHORITY_PATH))
+
+    def test_it_carries_exactly_one_attempt_and_has_not_used_it(self) -> None:
+        self.assertEqual(self.document["runsAllowed"], 1)
+        self.assertEqual(self.document["runsPerformed"], 0)
+        self.assertNotEqual(self.document["attemptId"], self.third["attemptId"])
+        self.assertNotEqual(self.document["attemptId"], self.spent["attemptId"])
+
+    def test_the_result_it_asks_for_is_not_one_that_already_exists(self) -> None:
+        result = REPO_ROOT / self.document["resultPath"]
+        self.assertNotEqual(result, PRODUCTION_RESULT_PATH)
+        self.assertNotEqual(result, REPO_ROOT / self.third["resultPath"])
+        self.assertFalse(
+            result.exists(),
+            msg="the result of an attempt that has not run cannot be on disk",
+        )
+
+    def test_the_accounting_is_the_operators_numbers(self) -> None:
+        self.assertEqual(
+            {
+                key: self.document["attemptAccounting"][key]
+                for key in (
+                    "bootAttemptsUsed",
+                    "priorOfficialImages",
+                    "priorProductionAttemptsSpent",
+                    "priorUnspentDispatches",
+                    "priorWorkflowDispatches",
+                    "productionAttemptsGrantedHere",
+                    "productionAttemptsRemainingBeforeThisGrant",
+                )
+            },
+            {
+                "bootAttemptsUsed": 0,
+                "priorOfficialImages": 0,
+                "priorProductionAttemptsSpent": 2,
+                "priorUnspentDispatches": 1,
+                "priorWorkflowDispatches": 3,
+                "productionAttemptsGrantedHere": 1,
+                "productionAttemptsRemainingBeforeThisGrant": 0,
+            },
+        )
+
+    def test_the_totals_are_the_rows_added_up(self) -> None:
+        """The summary is checked against the detail, not against itself."""
+
+        rows = self.document["priorAttempts"]
+        accounting = self.document["attemptAccounting"]
+        self.assertEqual(len(rows), accounting["priorWorkflowDispatches"])
+        self.assertEqual(
+            sum(1 for row in rows if row["spent"]),
+            accounting["priorProductionAttemptsSpent"],
+        )
+        self.assertEqual(
+            sum(1 for row in rows if not row["spent"]),
+            accounting["priorUnspentDispatches"],
+        )
+        self.assertEqual(
+            accounting["priorUnspentDispatches"]
+            + accounting["priorProductionAttemptsSpent"],
+            accounting["priorWorkflowDispatches"],
+        )
+        self.assertEqual(accounting["productionAttemptsGrantedHere"], 1)
+
+    def test_every_prior_row_points_at_a_record_that_is_still_those_bytes(
+        self,
+    ) -> None:
+        for row in self.document["priorAttempts"]:
+            self.assertTrue(row["leftByteUnchanged"], msg=row["recordPath"])
+            for key in ("recordPath", "rulingPath", "resultPath", "diagnosisPath"):
+                if key not in row:
+                    continue
+                digest = row[key.replace("Path", "Sha256")]
+                self.assertEqual(
+                    digest,
+                    digest_of(REPO_ROOT / row[key]),
+                    msg=f"{row[key]} moved after this authority bound it",
+                )
+
+    def test_the_third_dispatch_is_written_down_as_spent(self) -> None:
+        row = self.document["priorAttempts"][-1]
+        self.assertEqual(row["attemptId"], self.third["attemptId"])
+        self.assertTrue(row["spent"])
+        self.assertEqual(REPO_ROOT / row["recordPath"], THIRD_HARD_STOP_PATH)
+        self.assertEqual(REPO_ROOT / row["resultPath"], PRODUCTION_RESULT_PATH)
+        self.assertEqual(REPO_ROOT / row["diagnosisPath"], DIAGNOSTIC_PATH)
+
+    def test_the_diagnostic_replicas_stay_disowned(self) -> None:
+        replicas = self.document["attemptAccounting"]["priorDiagnosticReplicas"]
+        self.assertEqual(replicas["replicas"], 2)
+        self.assertEqual(replicas["setsPerReplica"], 1)
+        self.assertFalse(replicas["adoptable"])
+        self.assertFalse(replicas["qualified"])
+
+    def test_the_grant_is_for_one_dispatch_and_nothing_downstream(self) -> None:
+        grant = self.document["grant"]
+        self.assertIn("exactly once", grant["authorises"])
+        self.assertTrue(grant["reason"])
+        for forbidden in (
+            "re-running the workflow",
+            "re-running a failed job",
+            "dispatching a replica by hand",
+        ):
+            self.assertIn(forbidden, grant["rerunsForbidden"])
+        joined = " ".join(grant["doesNotAuthorise"]).lower()
+        for word in ("boot", "mac.4", "testnet", "mining", "reward"):
+            self.assertIn(word, joined)
+
+    def test_the_correction_is_a_precondition_and_is_bound_by_digest(self) -> None:
+        block = self.document["readBackCorrectionRequiredFirst"]
+        self.assertEqual(REPO_ROOT / block["recordPath"], READBACK_CORRECTION_PATH)
+        self.assertEqual(block["recordSha256"], digest_of(READBACK_CORRECTION_PATH))
+        self.assertTrue(block["defect"])
+        self.assertTrue(block["fix"])
+
+    def test_the_read_back_is_bound_to_one_consumer_and_one_lock(self) -> None:
+        """The stage that failed the third attempt is now a bound input.
+
+        Naming both halves here means the pairing cannot be changed by editing
+        whichever module the wrapper happens to call.
+        """
+
+        readback = self.document["production"]["readBack"]
+        consumer = REPO_ROOT / readback["consumer"]
+        self.assertEqual(
+            consumer.name, "native_shadow_successor_root_disk_readback_arm64_v2.py"
+        )
+        self.assertEqual(readback["consumerSha256"], digest_of(consumer))
+        lock = REPO_ROOT / readback["sourceLockPath"]
+        self.assertEqual(lock, mod.SOURCE_LOCK_PATH)
+        self.assertEqual(readback["sourceLockSha256"], mod.SOURCE_LOCK_SHA256)
+        self.assertEqual(readback["sourceLockSha256"], digest_of(lock))
+        self.assertEqual(
+            readback["resultDocument"], "SUCCESSOR-ROOT-DISK-READBACK.json"
+        )
+        self.assertIn("never yield a qualified set", readback["onFailure"])
+
+    def test_the_wrapper_calls_the_consumer_this_authority_binds(self) -> None:
+        readback = self.document["production"]["readBack"]
+        wrapper = (
+            REPO_ROOT / "scripts/native-shadow-successor-produce-arm64.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn(pathlib.Path(readback["consumer"]).name, wrapper)
+        self.assertIn(readback["resultDocument"], wrapper)
+
+    def test_the_preflight_may_show_its_evidence_and_may_not_ship_an_image(
+        self,
+    ) -> None:
+        """The third authority forbade uploading 'an artifact' outright.
+
+        The preflight's whole output is a small JSON document saying it made
+        nothing, so a rule read literally forbade the evidence along with the
+        image.  The prohibition is now about images and the marker, and the one
+        allowed upload is named.
+        """
+
+        preflight = self.document["preflight"]
+        forbidden = " ".join(preflight["mustNeverDo"])
+        self.assertNotIn("upload an artifact", forbidden)
+        for phrase in ("kernel", "initrd", "root disk", "consumed-attempt marker"):
+            self.assertIn(phrase, forbidden)
+        self.assertEqual(
+            preflight["uploadsItMay"]["artifact"], "successor-preflight-result"
+        )
+        self.assertIn("PREFLIGHT-RESULT.json", preflight["uploadsItMay"]["contents"])
+        self.assertEqual(
+            set(preflight["uploadsItMayNot"]),
+            {
+                "successor-outputs-*",
+                "successor-unqualified-diagnostic-*",
+                "successor-attempt-consumed-*",
+            },
+        )
+
+    def test_the_preflight_uploads_only_what_the_authority_allows(self) -> None:
+        block = workflow_job("preflight")
+        allowed = self.document["preflight"]["uploadsItMay"]["artifact"]
+        self.assertIn(allowed, block)
+        for forbidden in self.document["preflight"]["uploadsItMayNot"]:
+            self.assertNotIn(forbidden.rstrip("*"), block)
+
+    def test_the_produced_nothing_claim_is_checked_against_the_disk(self) -> None:
+        self.assertIn(
+            "consumed-attempt marker",
+            self.document["preflight"]["producedNothingIsCheckedAgainstTheDisk"],
+        )
+        block = workflow_job("preflight")
+        step = block[block.index("Require this run to have produced nothing") :]
+        self.assertIn("CONSUMED_MARKER_NAME", step)
+
+    def test_no_inherited_stop_condition_was_reworded_or_dropped(self) -> None:
+        """Thirteen conditions carried over, word for word, from two authorities."""
+
+        conditions = self.document["hardStopConditions"]
+        self.assertEqual(
+            conditions["inheritedFromTheThirdAuthority"],
+            self.third["hardStopConditions"]["declaredAdditions"],
+        )
+        self.assertEqual(
+            conditions["inheritedFromTheSecondAuthority"],
+            self.third["hardStopConditions"]["inherited"],
+        )
+        self.assertEqual(
+            conditions["inheritedFromTheSecondAuthority"],
+            self.spent["hardStopConditions"],
+        )
+
+    def test_the_stop_conditions_it_adds_are_about_the_read_back(self) -> None:
+        additions = self.document["hardStopConditions"]["declaredAdditions"]
+        self.assertEqual(len(additions), 4)
+        joined = " ".join(additions)
+        self.assertIn("read-back consumer named here is not the one", joined)
+        self.assertIn("source lock other than the one bound here", joined)
+        self.assertIn("qualified while its read-back did not pass", joined)
+        self.assertIn("would require editing", joined)
+
+    def test_every_bound_digest_is_the_file_it_names(self) -> None:
+        rows = self.document["boundInputDigests"]["files"]
+        for row in rows:
+            self.assertEqual(
+                row["sha256"],
+                digest_of(REPO_ROOT / row["path"]),
+                msg=f"{row['path']} moved after this authority bound it",
+            )
+        paths = {row["path"] for row in rows}
+        for required in (
+            "scripts/native-shadow-successor-produce-arm64.sh",
+            "scripts/native_shadow_successor_root_disk_readback_arm64_v2.py",
+            str(WORKFLOW_PATH.relative_to(REPO_ROOT)),
+            str(THIRD_AUTHORITY_PATH.relative_to(REPO_ROOT)),
+            str(THIRD_PRODUCER_FINGERPRINT_PATH.relative_to(REPO_ROOT)),
+            str(THIRD_HARD_STOP_PATH.relative_to(REPO_ROOT)),
+            str(PRODUCTION_RESULT_PATH.relative_to(REPO_ROOT)),
+            str(DIAGNOSTIC_PATH.relative_to(REPO_ROOT)),
+            str(READBACK_CORRECTION_PATH.relative_to(REPO_ROOT)),
+            str(RULING_PATH.relative_to(REPO_ROOT)),
+        ):
+            self.assertIn(required, paths)
+
+    def test_it_names_the_fingerprint_without_pinning_it(self) -> None:
+        """One direction only, and the reason written where it is enforced."""
+
+        fingerprint = self.document["producerFingerprint"]
+        self.assertEqual(
+            REPO_ROOT / fingerprint["path"], PRODUCER_FINGERPRINT_PATH
+        )
+        self.assertNotIn("sha256", fingerprint)
+        self.assertTrue(fingerprint["whyNoDigestHere"])
+        raw = AUTHORITY_PATH.read_text(encoding="utf-8")
+        self.assertNotIn(digest_of(PRODUCER_FINGERPRINT_PATH), raw)
+        self.assertNotIn(digest_of(pathlib.Path(mod.__file__).resolve()), raw)
+        self.assertNotIn(digest_of(pathlib.Path(__file__).resolve()), raw)
+
+    def test_the_producer_pins_it_declares_are_the_workflow_and_the_module(
+        self,
+    ) -> None:
+        """Two moves this authority is the reason for, declared where it is.
+
+        The workflow's corrected digest is written out, because this authority
+        binds it anyway.  The module's is not: the module pins this authority's
+        digest, so writing the module's current digest here -- even as a
+        declaration that it moved -- would close the loop the split exists to
+        avoid.  It says where the corrected value is instead.
+        """
+
+        rows = {
+            row["path"]: row
+            for row in self.document["producerPinsThatMovedSinceTheThirdAttempt"]
+        }
+        module = str(pathlib.Path(mod.__file__).resolve().relative_to(REPO_ROOT))
+        workflow = str(WORKFLOW_PATH.relative_to(REPO_ROOT))
+        self.assertEqual(set(rows), {module, workflow})
+        sealed = {
+            entry["path"]: entry["sha256"]
+            for entry in read_json(THIRD_PRODUCER_FINGERPRINT_PATH)["files"]
+        }
+        for path, row in rows.items():
+            self.assertEqual(
+                REPO_ROOT / row["sealedIn"], THIRD_PRODUCER_FINGERPRINT_PATH
+            )
+            self.assertEqual(row["sealedSha256"], sealed[path])
+            self.assertNotEqual(row["sealedSha256"], digest_of(REPO_ROOT / path))
+            self.assertTrue(row["whyItMoved"])
+        self.assertEqual(rows[workflow]["correctedSha256"], digest_of(WORKFLOW_PATH))
+        self.assertNotIn("correctedSha256", rows[module])
+        self.assertEqual(
+            REPO_ROOT / rows[module]["correctedDigestIsRecordedIn"],
+            PRODUCER_FINGERPRINT_PATH,
+        )
+        self.assertTrue(rows[module]["whyNoCorrectedDigestHere"])
+
+    def test_the_other_moved_pins_are_pointed_at_rather_than_restated(
+        self,
+    ) -> None:
+        """One file, one declaration.  A restated digest is a second opinion."""
+
+        block = self.document["producerPinsThatMovedElsewhere"]
+        self.assertEqual(
+            {row["path"] for row in block["rows"]},
+            {
+                "scripts/native-shadow-successor-produce-arm64.sh",
+                str(pathlib.Path(__file__).resolve().relative_to(REPO_ROOT)),
+            },
+        )
+        for row in block["rows"]:
+            self.assertEqual(set(row), {"declaredIn", "path"})
+            self.assertTrue((REPO_ROOT / row["declaredIn"]).is_file())
+
+    def test_it_supersedes_the_third_without_editing_it(self) -> None:
+        superseded = self.document["supersedes"]
+        for key, path in (
+            ("productionAuthority", THIRD_AUTHORITY_PATH),
+            ("producerFingerprint", THIRD_PRODUCER_FINGERPRINT_PATH),
+        ):
+            self.assertEqual(REPO_ROOT / superseded[key]["path"], path)
+            self.assertEqual(superseded[key]["sha256"], digest_of(path))
+            self.assertTrue(superseded[key]["leftByteUnchanged"])
+
+    def test_a_pass_still_claims_nothing(self) -> None:
+        for key in (
+            "activationAllowed",
+            "bootableClaim",
+            "imageProducedClaim",
+            "servingClaim",
+        ):
+            self.assertFalse(self.document[key], msg=key)
+        self.assertIn("NOT-RUN", self.document["status"])
+        self.assertEqual(
+            self.document["release"],
+            "NATIVE-SHADOW-MAC3-SUCCESSOR-PRODUCTION-AUTHORITY-ARM64-V4",
+        )
+        self.assertEqual(
+            self.document["schema"],
+            "boole.native-shadow.mac3-successor-production-authority.arm64.v4",
+        )
+
+    def test_it_is_canonical(self) -> None:
+        self.assertEqual(
+            AUTHORITY_PATH.read_bytes(),
+            (json.dumps(self.document, indent=2, sort_keys=True) + "\n").encode(
+                "utf-8"
+            ),
+        )
 
 
 class ReadbackCorrectionTests(unittest.TestCase):

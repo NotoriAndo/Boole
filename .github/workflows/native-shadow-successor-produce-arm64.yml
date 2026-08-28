@@ -131,6 +131,14 @@ jobs:
         # package inside the staging tree -- failing a preflight that did
         # exactly what it was supposed to, which teaches the next reader to
         # widen the exception rather than trust the check.
+        #
+        # The fourth name is the marker, and it is asked about here for a
+        # different reason than the other three. The three are what a production
+        # makes; the marker is what a production spends. That the preflight
+        # cannot reach the section that writes it is already read out of the call
+        # graph by the gate -- but a budget claim resting on a reading of the code
+        # is weaker than one resting on a look at the disk, and this is the
+        # cheaper of the two to keep true.
         shell: bash
         run: |
           set -euo pipefail
@@ -145,13 +153,22 @@ jobs:
               "${#names[@]}" >&2
             exit 1
           }
+          marker=$(
+            python3 -c "from scripts import native_shadow_successor_produce_phase_arm64_v2 as p; print(p.CONSUMED_MARKER_NAME)"
+          )
+          [ -n "$marker" ] || {
+            printf 'the phase named no consumed-attempt marker\n' >&2
+            exit 1
+          }
+          names+=("$marker")
           expression=()
           for name in "${names[@]}"; do
             expression+=(-o -name "$name")
           done
           found=$(find "$RUNNER_TEMP" \( "${expression[@]:1}" \) -print)
           if [ -n "$found" ]; then
-            printf 'the preflight created production outputs:\n%s\n' "$found" >&2
+            printf 'the preflight created production outputs or spent an attempt:\n%s\n' \
+              "$found" >&2
             exit 1
           fi
           printf 'none of %s exists anywhere under the runner temp tree\n' \

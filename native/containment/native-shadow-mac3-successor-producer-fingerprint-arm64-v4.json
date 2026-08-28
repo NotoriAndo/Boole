@@ -1,0 +1,74 @@
+{
+  "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V4-ATTEMPT-1",
+  "authorityPath": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json",
+  "authoritySha256": "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc",
+  "boundaries": {
+    "activationAllowed": false,
+    "bootableClaim": false,
+    "imageProducedClaim": false,
+    "servingClaim": false
+  },
+  "files": [
+    {
+      "path": "scripts/native_shadow_successor_produce_phase_arm64_v2.py",
+      "role": "the phase itself: preflight, marker, production, result",
+      "sha256": "1c1b99257aa5f2d3f144387f72903fc167d6ba8c8b71a74c1b9a6c845073c1a8"
+    },
+    {
+      "path": "scripts/native-shadow-successor-produce-arm64.sh",
+      "role": "the wrapper the workflow calls, with the read-back rewired",
+      "sha256": "e63e3e22d876910381b3604be621e7193772cfa842439eef0afe326ba470a07c"
+    },
+    {
+      "path": ".github/workflows/native-shadow-successor-produce-arm64.yml",
+      "role": "the workflow that dispatches the two replicas and compares them",
+      "sha256": "a6ff2019a9e8f95580ebcb82e32d3a12f1a0397bb25912478716772683601b61"
+    },
+    {
+      "path": "scripts/test_native_shadow_successor_produce_phase_arm64_v2.py",
+      "role": "the gate that has to pass before any of the above runs",
+      "sha256": "0c2bd803e81b97f83d96d41a47c9a761b2f41799ee91562af01ef6beeb4b38bd"
+    },
+    {
+      "path": "scripts/native_shadow_boot_image_produce_arm64_v1.py",
+      "role": "the frozen producer helper the phase hashes its outputs with",
+      "sha256": "5cdc249751a7b8c3128fcff2150059692a00de8590a925f426bc58129056e939"
+    },
+    {
+      "path": "scripts/native_shadow_successor_root_disk_readback_arm64_v2.py",
+      "role": "the read-back consumer that judges the produced root disk, bound to the successor source lock",
+      "sha256": "8ada8ffa5cdf8405973af7e65589a89ee16bdaddc5bb6e7127dac8c607ce8fa0"
+    },
+    {
+      "path": "scripts/test_native_shadow_successor_root_disk_readback_arm64_v2.py",
+      "role": "the gate that holds that consumer to exactly one lock",
+      "sha256": "b05ddfe4e9bc734903561ffedeca7713a21cbf5142e186f4a29a7ece5bb2aff4"
+    }
+  ],
+  "frozenBefore": "the preflight and the production of this attempt",
+  "onMismatch": "abort.  A digest here that no longer matches its file means the producer changed after it was sealed, and the attempt does not run on a producer nobody registered.",
+  "record": "native-shadow-mac3-successor-producer-fingerprint-arm64-v4",
+  "release": "NATIVE-SHADOW-MAC3-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V4",
+  "repairedDefects": [
+    "result-document-assembly",
+    "marker-not-readable-by-the-account-that-collects-it",
+    "produced-files-discarded-when-a-later-step-fails",
+    "root-disk-read-back-against-the-predecessors-source-lock"
+  ],
+  "schema": "boole.native-shadow.mac3-successor-producer-fingerprint.arm64.v4",
+  "status": "PRODUCER-SEALED-NOT-RUN",
+  "supersedes": {
+    "leftByteUnchanged": true,
+    "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v3.json",
+    "sha256": "601d5405d6a4b75561f00ebeaa8c9d96fee3de76dde61b9f6a7680a344df6521",
+    "whatItStillRecords": "the bytes that produced the third attempt.  It is not re-sealed over the corrected ones, because a seal re-pointed after the fact would claim to have frozen something that never ran and the failure it belongs to would stop being reconstructible from it."
+  },
+  "whatIsNewHere": "The read-back consumer and its gate are sealed alongside the producer.  The third attempt is what happens when the thing that judges the image is outside the seal: the wrapper called the predecessor's consumer, which reads the predecessor's source lock, and no pin anywhere noticed that a successor image was being measured against the wrong generation's baseline.  A producer that is sealed without its judge is only half sealed.",
+  "whatIsNotClaimed": [
+    "that an image exists",
+    "that anything boots or serves",
+    "that this producer has run under this authority even once"
+  ],
+  "whyThisIsASeparateRecord": "the module pins the authority's digest, so the authority cannot pin the module's.  Sealing the producer in a record that points at the authority, and that nothing points back at, keeps both statements checkable without either having to be written twice.",
+  "writtenAfter": "the read-back correction was merged, the fourth authority was written and the module was repointed at it, and this gate was final -- so every digest below is the file as it stands and none of them is allowed to have drifted"
+}
