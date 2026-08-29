@@ -4661,3 +4661,78 @@ candidate image exists and is preserved", not "the guest boots".
 `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation
 `false` and `activationAllowed=false` remain unchanged. Nothing was booted, no
 guest ran, no node was connected, and nothing is served.
+
+## 51. Setting the exam before opening the room (2026-08-29)
+
+The conditions a third closed-local boot would be judged by are now sealed, and
+the boot is still not approved. Those are deliberately two things. A document
+that set the exam and opened the run in the same breath would make the review it
+was written for impossible to fail: by the time anyone disagreed with a
+condition, the run would already be permitted. So
+`native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v3.json`
+carries `grantedByThisRecord: false`, and the one approval it waits for is a
+separate instruction naming this record.
+
+**Why a third exam at all.** The first attempt failed at PID 1 for missing mount
+points. The second passed, and stopped short of the launcher because the image
+did not carry the material the launcher looks for — so the launcher's refusal
+there was a known limit rather than a failure, and nothing was graded on it. The
+successor image was produced to put that material in: the account database, the
+nested runtime rootfs with its content manifest, and a launcher unit whose output
+reaches the console the host captures. With all three present, a refusal is a
+failure. The three gaps are recorded as `stillAbsent: false`, each bound to the
+production record or authority that closed it.
+
+**Twenty-one conditions, a strict superset.** The six from the first attempt and
+the nine frozen runtime-contract conditions are carried byte-for-byte out of the
+records that froze them, along with the corrected fourth condition in its
+corrected form — not retyped, because an exam that drifts by a word while looking
+unchanged is the failure mode worth engineering against. Every condition is
+either `carriedFrom` a named path, digest and field, or marked `newInThisRecord`
+with a reason. Five are new. Thirteen operator requirements each name the
+conditions that answer them, and the two conditions no requirement mentions are
+listed as kept anyway rather than dropped.
+
+**Read-only is not a security control.** The archive is `0444` on files and
+`0555` on directories, owned by the account that made it. That refuses a stray
+write and refuses nothing at all to its owner: a `chmod` is one command away and
+no alarm follows it. Reading those modes as protection would be reading a
+convenience as a guarantee. The record therefore says so in as many words, and
+adds the condition that closes it — the three images and both copies of the
+preservation manifest are hashed again at the moment of loading, and any mismatch
+stops the run before a machine exists. The second replica is named as a recovery
+source for some later approved run, explicitly not as a fallback inside this one:
+loading it after the first failed its digest would turn a detected corruption
+into a run that proceeded anyway.
+
+**What a pass would still not establish.** MAC.4 is not started, no node is
+connected, and no mining, reward, consensus or P2P authority is granted — and
+that is a graded condition rather than a note, so a run that drifted into any of
+it would fail rather than be described afterwards as having gone further than
+planned. Exactly one boot is allowed, counted off the filesystem: the driver
+refuses to start when the receipt named by `resultPath` already exists.
+
+**The missing offsite copy.** It does not block this run — a closed-local boot
+reads the archived files and writes nothing back to them — and it remains the
+single point of failure the preservation record named. The record says both, and
+marks it required before anything built on these images is distributed.
+
+### 51.1 Execution cursor after the criteria were sealed
+
+```text
+SUCCESSOR-IMAGE-PRESERVATION  DONE — 18 files, both replicas, read-only, off the expiry clock
+SUCCESSOR-IMAGE-BUDGET  EXHAUSTED — 3 attempts spent in total, 0 remaining
+BOOT-PASS-CRITERIA  SEALED / NOT RUN — 21 conditions, 13 operator requirements, frozen before approval
+BOOT-AUTHORISATION  NOT GRANTED — this record opens no run; one separate approval is required
+GUEST-BOOT  NOT STARTED — 0 boot attempts used, boot budget untouched
+MAC.4  NOT STARTED — excluded from what a pass would cover
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — release gate retained
+MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
+```
+
+The cursors in §46.1 through §50.1 are left as they were written; this one is
+added beside them. MAC.3 is not complete: the position is "a preserved candidate
+image exists and the exam for it is written", not "the guest boots".
+`mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation
+`false` and `activationAllowed=false` remain unchanged. Nothing was booted, no
+guest ran, no node was connected, and nothing is served.

@@ -3624,3 +3624,57 @@ and `publicMiningOrBenchmark` are `false`, and so are `offsiteCopyExists` and
 absence of any scheduled re-verification, and the absence of encryption. A
 preservation record that overstates its own durability is the failure mode it
 exists to prevent.
+
+### Setting the exam before opening the room (2026-08-29)
+
+`native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v3.json`
+freezes what a third closed-local boot would be judged by. It does not authorise
+that boot. `bootAuthorisation.grantedByThisRecord` is `false`, and the approval
+it waits for is a separate instruction naming this record — because a document
+that set the conditions and opened the run at once would make the review it was
+written for impossible to fail.
+
+**The exam is a strict superset of the two before it.** Twenty-one conditions:
+the six from the first attempt's qualification, the nine frozen conditions of the
+guest runtime contract, the corrected fourth condition in its corrected form, and
+five new ones. Every carried condition names the path, digest, field and key it
+came from, and the gate reads the source record and compares the judging text
+byte-for-byte; every other condition carries `newInThisRecord` and a reason. A
+condition with neither is rejected, because that is how an exam quietly gets
+easier. Thirteen operator requirements are each mapped to the conditions that
+answer them, and `conditionsKeptBeyondTheRequestedList` names the two that no
+requirement mentions — kept rather than dropped, and declared rather than
+silently carried.
+
+**Three conditions that were ungraded are now graded.** The second attempt
+recorded the account database, the nested runtime rootfs and the launcher's
+console output as absent, so the launcher's refusal there was a known limit. The
+fourth image carries all three; `gapsOpenAtTheSecondAttempt` records each as
+`stillAbsent: false` with the production record or authority that closed it, and
+`launcher-prerequisites-verify-inside-the-guest` grades the result. Two further
+new conditions cover what a transcript search for hoped-for words would miss — a
+failed unit or a stall — and what a run must not drift into: no transport, no
+node, no mining, reward, consensus or P2P authority.
+
+**Read-only mode is recorded as what it is.** `0444` and `0555` refuse a stray
+write and refuse nothing to the owner. The record states that, and closes it with
+`archive-digests-recomputed-immediately-before-boot`: the three images and both
+copies of the preservation manifest are hashed again at the moment of loading,
+with `onMismatch: "abort"`. The second replica is bound with
+`usedAsFallbackOnDigestMismatch: false` — falling back to it silently would turn
+a detected corruption into a run that continued.
+
+**Nothing is dropped without saying so.** The first attempt's abort conditions
+survive verbatim. The second attempt's are each declared `carried` or
+`superseded`; the one superseded line named five directories added to an image
+two attempts ago, which would sit in the list unable to trigger, and its
+replacement — the digest check — is named and present. Six new aborts cover the
+archive needing to be made writable, the replica being substituted, MAC.4 or a
+node being reached for, a second boot, and a run without the separate approval.
+
+**What the record claims.** Nothing about booting. `runsPerformed` is `0`, the
+result path it names does not exist, and `guestBootVerified`, `launcherServing`,
+`mac4Started`, `nodeConnected`, `miningEnabled`, `bootableClaim`, `servingClaim`
+and `activationAllowed` are all `false`. The missing offsite copy is recorded as
+not blocking a closed-local boot — which reads the files rather than risking them
+— and as required before anything built on these images is distributed.
