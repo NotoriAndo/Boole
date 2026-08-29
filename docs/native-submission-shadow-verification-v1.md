@@ -2208,3 +2208,23 @@ The correction performs and permits zero image-production and boot runs. It
 does not open MAC.4, testnet, mining, reward, consensus, P2P or activation.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:END -->
+
+## Launcher-v2 successor S3-B authority-zero implementation addendum (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:BEGIN -->
+
+The successor producer/readback generation is implemented behind the corrected
+41-file import-time trust boundary. Its manual arm64 workflow exposes a
+repeatable JSON-only rehearsal and a production command that must fail before
+effects while authority is zero. An isolated verify-only edge runs before all
+repository Python in the workflow, and all later Python startup is isolated as
+well. Readback v3 exists with fixed bindings, open-file-descriptor pinning
+across loop setup and verification, private staging plus post-write output
+revalidation before PASS publication, exact promotion-document validation and
+fail-closed cleanup, but its wrapper call is only a future declared edge and
+was not executed here.
+
+No image was produced or read, no guest booted, and MAC.4, testnet, mining,
+reward, consensus, P2P and activation remain unopened.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:END -->

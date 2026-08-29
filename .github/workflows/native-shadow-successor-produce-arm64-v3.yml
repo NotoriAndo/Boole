@@ -1,0 +1,131 @@
+name: native-shadow-successor-produce-arm64-v3
+
+# This manual lane exposes one repeatable, no-image rehearsal and one guard
+# that is expected to refuse production while the future one-use chain is
+# absent.  A production selection failing red is the intended fail-closed
+# result; it is never converted into a successful no-op.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: repeatable rehearsal or authority-zero production guard
+        required: true
+        default: rehearsal
+        type: choice
+        options: [rehearsal, production]
+
+permissions:
+  contents: read
+
+env:
+  CAS: local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas
+
+jobs:
+  production-authority-guard:
+    name: production authority guard (expected refusal)
+    if: inputs.mode == 'production'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Refuse before dependencies, scratch, output, marker, or assembly
+        shell: bash
+        run: ./scripts/native-shadow-successor-produce-arm64-v3.sh --production
+
+  free-rehearsal:
+    name: free rehearsal (one JSON, no image)
+    if: inputs.mode == 'rehearsal'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Verify all 41 repository inputs before repository Python
+        shell: bash
+        run: ./scripts/native-shadow-successor-produce-arm64-v3.sh --verify-bindings-only
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+
+      - name: Require the acquisition and rehearsal tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in env find gpgv ln mkdir mktemp python3 readlink rm uname zstd; do
+            command -v "$tool" >/dev/null || {
+              printf 'the runner has no %s\n' "$tool" >&2
+              exit 1
+            }
+          done
+
+      - name: Acquire the frozen Rust distribution and re-prove its record
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed=native/containment/native-shadow-boot-rustdist-acquisition-result-arm64-v1.json
+          rm "$sealed"
+          python3 -I -S scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py --acquire
+          git diff --exit-code -- "$sealed"
+
+      - name: Acquire the frozen package payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/acquire"
+          python3 -I -S scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
+            --cas "$PWD/$CAS" \
+            --zstd "$(readlink -f "$(command -v zstd)")" \
+            --result "$RUNNER_TEMP/acquire/ci-payload-acquisition.json"
+
+      - name: Emit and independently match the sealed launcher v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/launcher-v2" "$RUNNER_TEMP/rehearsal-artifact"
+          launcher="$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher"
+          seal=native/containment/native-shadow-launcher-build-result-arm64-v2.json
+          python3 -I -S scripts/native_shadow_launcher_emit_arm64_v2.py emit --out "$launcher"
+          expected_sha="$(python3 -I -S -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sha256"])' "$seal")"
+          expected_size="$(python3 -I -S -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sizeBytes"])' "$seal")"
+          actual_sha="$(sha256sum "$launcher" | awk '{print $1}')"
+          actual_size="$(wc -c < "$launcher" | tr -d '[:space:]')"
+          test "$actual_sha" = "$expected_sha"
+          test "$actual_size" = "$expected_size"
+
+      - name: Run the shared assembly as a no-image rehearsal
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/native-shadow-successor-produce-arm64-v3.sh \
+            --rehearsal-only \
+            --cas "$PWD/$CAS" \
+            --launcher "$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher" \
+            --result "$RUNNER_TEMP/rehearsal-artifact/REHEARSAL-RESULT.json"
+
+      - name: Require exactly one canonical JSON artifact member
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="$RUNNER_TEMP/rehearsal-artifact/REHEARSAL-RESULT.json"
+          member_count="$(find "$RUNNER_TEMP/rehearsal-artifact" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d '[:space:]')"
+          test "$member_count" = 1
+          test -f "$artifact"
+          python3 -I -S -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); raw=p.read_bytes(); d=json.loads(raw); expected=(json.dumps(d, indent=2, sort_keys=True)+"\n").encode(); raise SystemExit(0 if raw == expected else 1)' "$artifact"
+
+      - name: Keep the sole rehearsal result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: launcher-v2-successor-v3-free-rehearsal
+          path: ${{ runner.temp }}/rehearsal-artifact/REHEARSAL-RESULT.json
+          if-no-files-found: error
+          retention-days: 7

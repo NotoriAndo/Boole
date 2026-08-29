@@ -5587,3 +5587,58 @@ MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
 `false` and `activationAllowed=false` remain unchanged.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:END -->
+
+## 66. Implementing the authority-zero successor producer and readback generation (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:BEGIN -->
+
+The preregistered S3-B generation now exists as seven new files: producer v3,
+readback v3, their strict wrapper and manual workflow, and three focused gates.
+Before the wrapper invokes repository Python, its stdlib-only verifier checks
+the historical 23-row record, the append-only 18-row correction and all 41
+live direct inputs by path, size and SHA-256. The producer and reader repeat
+the same two-record checks before their own effect boundaries. Every Python
+process in the wrapper and workflow uses isolated startup (`-I -S`), and the
+workflow calls a verify-only wrapper edge before its first acquisition or
+launcher-emitter module, so ambient `sitecustomize` or `PYTHONPATH` code cannot
+run ahead of that boundary.
+
+The repeatable rehearsal and any future separately authorised producer share
+one staging orchestration. Rehearsal accepts no output directory, attempt
+marker or image surface, preserves an exhaustively observed scratch tree and
+may publish exactly one create-once canonical JSON result. The current
+production command is intentionally red: with authority and run count still
+zero, it stops before command discovery, input preparation, scratch creation,
+assembly or any image effect.
+
+Readback v3 fixes the v2 source lock and launcher-v2 result before loop setup,
+uses a read-only loop and `ro,nodev,noexec,nosuid` mount, checks all three output
+file identities before and after readback and again after tree verification,
+keeps their exact inodes open through the verdict, and gives `losetup` the
+already-open root-disk descriptor rather than a replaceable pathname. Its sole
+promotion gate requires the exact result shape, fixed generation bindings,
+observed image identity and observed entry count. Qualified bytes are first
+written to a private candidate, all three retained outputs are rechecked, and
+only then is the candidate hard-linked create-once to the public result name;
+drift leaves only an unqualified diagnostic. It writes fixed create-once pass
+or unqualified documents and treats cleanup failure as a hard stop. Its wrapper
+edge is deliberately declared but unreachable in this authority-zero slice;
+no image exists for this generation and no readback or qualification was run.
+
+### 66.1 Cursor
+
+```text
+S3-B IMPLEMENTATION  GREEN / ARM64 REHEARSAL NOT YET RUN
+EFFECTIVE DIRECT BINDINGS  41 — wrapper verifies before repository-Python import
+FREE NO-IMAGE REHEARSAL  NEXT — repeatable arm64 CI, one JSON only
+READBACK-V3  IMPLEMENTED / UNREACHABLE — future qualified production only
+IMAGE PRODUCTION / GUEST BOOT  NOT AUTHORISED — 0 runs
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+This implementation changes no preserved image, grants no one-use authority
+and makes no bootability or serving claim. `mineable_now=0`, `REWARD_READY=0`,
+`RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` remain unchanged.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:END -->
