@@ -74,6 +74,7 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "GUEST-EVIDENCE-HE
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "UNPRIVILEGED-SUBMISSIONS  REPORTED / NOT DECIDED"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CONSOLE-EVIDENCE-PRODUCER  DECIDED / NOT WRITTEN"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "GUEST-USERLAND  READ FROM THE SEALED SOURCE LOCK"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-FLOW-REHEARSAL  WALKED / NO MACHINE STARTED"
 require_text docs/native-submission-shadow-verification-v1.md "is now claimed and closed on"
 require_text docs/native-submission-shadow-verification-v1.md "PR #221"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "CRASH-RESTART-EXACTLY-ONCE-E2E: GREEN"
