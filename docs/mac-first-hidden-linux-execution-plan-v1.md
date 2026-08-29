@@ -5355,3 +5355,54 @@ The cursors through §60.1 remain historical. No preserved image was modified,
 no image was produced and no machine was started. `mineable_now=0`,
 `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
 `activationAllowed=false` remain unchanged.
+
+## 62. Registering launcher-v2 image integration before wiring it (2026-08-30)
+
+The launcher-v2 emitter was exercised by the required Linux/arm64 job on PR
+#301 after the tracked two-build result was re-proved. The third build emitted
+2,025,192 bytes at SHA-256
+`53412188cec4488cf694450548991607c66e9281ccf54e6b462d34b3a345decd`,
+and the CI shell independently compared both values with the tracked result.
+The emitter result is therefore established as bytes a later free preflight may
+consume; it is still not an image-production authority.
+
+The next generation is pre-registered in
+`native-shadow-mac3-launcher-v2-image-integration-preregistration-arm64-v1.json`.
+It binds the v2 source, authority, result, evidence protocol and emitter; the
+existing source lock, nested runtime tree, account database, service unit,
+builder and release gate; and the historical v4 result, preservation and boot
+criteria. The old v4 producer and workflow remain the files that explain the
+past run. Their known post-run test-gate drift is preserved from the v4 result
+rather than denied or re-sealed.
+
+The launcher is the only projected content change. Its guest path is unchanged,
+its size grows by 18,560 bytes, the staging entry count remains 17,676 and the
+projected payload becomes 1,773,475,059 bytes. The path, kind, mode, UID and GID
+remain fixed. All three frozen limits still pass. These values are re-derived by
+the gate from the source lock, staging measurement and both launcher results;
+the record is not trusted as a second calculator.
+
+One more boundary was found before wiring: builder v3 still carries launcher
+v1's size and digest and correctly refuses v2 bytes. A new builder projection is
+therefore mandatory before a new producer or workflow. It must pin its
+predecessor by digest, accept v2 and refuse v1 without changing the guest path,
+and expose the same assembly function to the repeatable preflight and any later
+production. A global monkeypatch is forbidden. This record implements none of
+those files and grants zero image-production runs.
+
+### 62.1 Cursor
+
+```text
+LAUNCHER V2 EMITTER ARM64 PROOF  GREEN — tracked result reproof + third exact build
+LAUNCHER V2 IMAGE INTEGRATION  PRE-REGISTERED / AUTHORITY 0
+SUCCESSOR BUILDER PROJECTION  NEXT — v2 accepted, v1 refused, same guest path
+FREE ARM64 PREFLIGHT  NOT IMPLEMENTED — no marker, image tool or output allowed
+IMAGE PRODUCTION  NOT AUTHORISED — 0 runs granted
+GUEST BOOT  NOT STARTED — 0 boot attempts used
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+The cursors through §61.1 remain historical. No image tool ran, no attempt mark
+or output directory was created, no preserved image was changed and no machine
+was started. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation `false` and `activationAllowed=false` remain unchanged.

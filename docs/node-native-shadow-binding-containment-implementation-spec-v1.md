@@ -3886,3 +3886,22 @@ arm64 job exercises this path after the two-build result reproof.
 This addendum emits only into runner-temporary storage. It does not edit the
 successor image producer, deploy the launcher into a guest, create an image or
 grant boot, node, MAC.4, mining, reward, consensus or P2P authority.
+
+## Launcher-v2 image-integration preregistration addendum (2026-08-30)
+
+The arm64 emitter path was exercised after the tracked two-build result was
+re-proved and independently observed at SHA-256
+`53412188cec4488cf694450548991607c66e9281ccf54e6b462d34b3a345decd`
+and 2,025,192 bytes. The integration record binds that result and emitter to the
+existing successor staging inputs while granting `imageProductionRunsAllowed=0`.
+
+The expected delta is exactly one file's content: the fixed launcher guest path
+keeps its file kind, mode, UID and GID; staging remains at 17,676 entries and
+payload becomes 1,773,475,059 bytes. Builder v3 still enforces the v1 launcher
+seal, so a new digest-pinned builder projection must precede any new producer.
+That projection must accept v2, reject v1 and supply one assembly function to a
+repeatable no-image preflight and any later separately authorised production.
+The historical v4 workflow and phase remain byte-bound to their past evidence.
+
+This addendum creates no builder projection, producer, workflow, attempt marker,
+image, boot, node transport, testnet, mining, reward, consensus or P2P authority.
