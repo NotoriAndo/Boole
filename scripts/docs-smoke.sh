@@ -2696,4 +2696,30 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'S3-B IMPLEMENTATI
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:BEGIN'
 require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:BEGIN'
 
+# The real native-arm64 free rehearsal is retained byte-for-byte as R1, and
+# F5 seals the exact seven v3 files as historical authority-zero evidence.
+# Neither record grants production, boot or MAC.4 authority.
+V3_REHEARSAL_RESULT=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v1.json
+V3_REHEARSAL_FINGERPRINT=native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v5.json
+require_file "$V3_REHEARSAL_RESULT"
+require_file "$V3_REHEARSAL_FINGERPRINT"
+require_file scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v1.py
+require_file scripts/test_native_shadow_successor_producer_fingerprint_arm64_v5.py
+require_text scripts/self-test.sh 'scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v1.py'
+require_text scripts/self-test.sh 'scripts/test_native_shadow_successor_producer_fingerprint_arm64_v5.py'
+require_text "$V3_REHEARSAL_RESULT" '"status": "PASS-NO-IMAGE-PRODUCED"'
+require_text "$V3_REHEARSAL_RESULT" '"imageProductionRunsAllowed": 0'
+require_text "$V3_REHEARSAL_RESULT" '"imageProduced": false'
+require_text scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v1.py 'd21863e342b701141d6577d3b17cf0a1f26c9211b4b82fa4c8942be96c69f21c'
+require_text scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v1.py 'AUTHORITY-ZERO-STAGING-EVIDENCE'
+require_text "$V3_REHEARSAL_FINGERPRINT" '"historicalAuthorityZeroStagingEvidenceOnly": true'
+require_text "$V3_REHEARSAL_FINGERPRINT" '"productionReadyClaim": false'
+require_text "$V3_REHEARSAL_FINGERPRINT" '"readbackV3ExecutedByRehearsal": false'
+require_text scripts/test_native_shadow_successor_producer_fingerprint_arm64_v5.py '6ca75d732d7d3a064659047d33cb6bf7aaae9b5b01a5ad67754a843093d4f7aa'
+require_text scripts/test_native_shadow_successor_producer_fingerprint_arm64_v5.py 'LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V5-SEALED'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:BEGIN'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'V3 FREE ARM64 REHEARSAL  GREEN / ONE CANONICAL JSON SEALED'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:BEGIN'
+require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:BEGIN'
+
 printf 'docs-smoke: PASS\n' >&2

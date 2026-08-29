@@ -2228,3 +2228,49 @@ No image was produced or read, no guest booted, and MAC.4, testnet, mining,
 reward, consensus, P2P and activation remain unopened.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:END -->
+
+## Launcher-v2 successor free-rehearsal result and F5 fingerprint addendum (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:BEGIN -->
+
+The authority-zero v3 rehearsal ran once on required native Linux arm64 after
+the implementation merged.  Production was skipped and one canonical JSON
+member was uploaded and tracked without a metadata wrapper.
+
+```text
+sourceHeadSha=0649dbc92a228fb67350a7eef864a9c9c612fd3d
+sourceWorkflow=.github/workflows/native-shadow-successor-produce-arm64-v3.yml
+sourceEvent=workflow_dispatch
+sourceRunId=33281151298
+sourceRunAttempt=1
+sourceJobId=99176428509
+artifactId=9723056242
+artifactName=launcher-v2-successor-v3-free-rehearsal
+archiveSizeBytes=3424
+archiveDigest=sha256:a3f6e9c5c9a79712fab1b4454b9401325f543632d5f5f632e3e34e843974b2ef
+artifactMemberCount=1
+artifactMemberName=REHEARSAL-RESULT.json
+payloadSizeBytes=10168
+payloadSha256=d21863e342b701141d6577d3b17cf0a1f26c9211b4b82fa4c8942be96c69f21c
+productionGuardJobConclusion=skipped
+evidenceClass=AUTHORITY-ZERO-STAGING-EVIDENCE
+offlineClaim=false
+runnerGlobalTransientAbsenceClaim=false
+imageProductionClaim=false
+bootClaim=false
+mac4Claim=false
+```
+
+The raw result binds 41 live inputs, exact staging measurements and zero image,
+marker or production-output effects.  Dependency acquisition used the network,
+and the record says nothing about unnamed runner-global transient files.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-REHEARSAL-RESULT-ARM64-V1-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V5-SEALED -->
+
+The 5,458-byte F5 record at SHA-256
+`6ca75d732d7d3a064659047d33cb6bf7aaae9b5b01a5ad67754a843093d4f7aa`
+seals the seven v3 generation files and P1/C1/R1 as historical authority-zero
+staging evidence.  Readback v3 was not run by the rehearsal, and no image,
+boot, serving or MAC.4 boundary is opened.
