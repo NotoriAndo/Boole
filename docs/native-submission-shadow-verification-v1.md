@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `f9e91b9edcb5c09c5f0c18e8a1228b62b12d78608a52d94995396c75032993e4` (updated 2026-08-30b — the append-only master records the launcher-v2 false-green review closures and still-pending arm64 result) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `1ee2513f291a2761f12fa13f006c179873fabe4166d9a2f83e0df7a2479b8906` (updated 2026-08-30b — bind-before-evidence and untracked-candidate refusal are closed; the Linux arm64 double build remains next) |
+| `local-docs/todo/todo-l1-network-master.md` | `381a38d814a3077aa3c42d3793438b4eedf35bc16c0e9444dceddb3f2a444e60` (updated 2026-08-30c — the append-only master records the tracked launcher-v2 result and the sealed-emitter boundary) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `d4012ea2301da7c27e5986b04529b252668db4e01e60a44f4649f4e5e2ad3942` (updated 2026-08-30c — exact arm64 reproof precedes a third fail-closed emitter build; image wiring remains closed) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `59d35baf1311acf4b2a514854ffba282c68f7f7f190b228ee43fcbbd910a4b92` (updated 2026-08-30f — readiness is ordered after verified bind and candidate discovery is kept distinct from authority) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `95e94c5763472844dd4bf3e32fc2e7609f28fd1d292076385c265dcb430f1d17` (updated 2026-08-30g — a sealed result gains a no-overwrite byte consumer without gaining image or boot authority) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2083,3 +2083,17 @@ Those exact candidate bytes are now reviewed and tracked at
 The record can reach `main` only after a fresh required CI job rebuilds twice
 and reproduces it byte-for-byte. It grants no image production, boot, node,
 MAC.4, mining, reward, consensus or P2P authority.
+
+## Launcher v2 sealed-emitter addendum (2026-08-30)
+
+The tracked two-build result now has a narrow byte consumer. The v2 emitter
+reconstructs the complete canonical result, runs one additional Linux/arm64
+build, requires the exact producer-path class set with all counts zero, and
+publishes only a byte-for-byte size and digest match. Exclusive temporary-file
+creation plus no-overwrite hard-link publication prevents an existing path,
+dangling link, stale temporary file or concurrent writer from being replaced.
+
+The required CI job exercises the emitter only after re-proving the tracked
+two-build result. Its output stays in runner-temporary storage. No image
+producer consumes it here, so this addendum grants no image, boot, node, MAC.4,
+mining, reward, consensus or P2P authority.

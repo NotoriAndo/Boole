@@ -1749,9 +1749,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "f9e91b9edcb5c09c5f0c18e8a1228b62b12d78608a52d94995396c75032993e4"
-require_text docs/native-submission-shadow-verification-v1.md "1ee2513f291a2761f12fa13f006c179873fabe4166d9a2f83e0df7a2479b8906"
-require_text docs/native-submission-shadow-verification-v1.md "59d35baf1311acf4b2a514854ffba282c68f7f7f190b228ee43fcbbd910a4b92"
+require_text docs/native-submission-shadow-verification-v1.md "381a38d814a3077aa3c42d3793438b4eedf35bc16c0e9444dceddb3f2a444e60"
+require_text docs/native-submission-shadow-verification-v1.md "d4012ea2301da7c27e5986b04529b252668db4e01e60a44f4649f4e5e2ad3942"
+require_text docs/native-submission-shadow-verification-v1.md "95e94c5763472844dd4bf3e32fc2e7609f28fd1d292076385c265dcb430f1d17"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
@@ -2569,6 +2569,19 @@ require_text scripts/native_shadow_mac3_guest_evidence_protocol_arm64_v2.py 'def
 require_text scripts/native_shadow_mac3_guest_evidence_protocol_arm64_v2.py 'def _exact_int'
 require_text .github/workflows/ci.yml 'native-shadow-launcher-build-arm64-v2'
 require_text .github/workflows/ci.yml 'git ls-files --error-unmatch -- "$result"'
+require_file scripts/native_shadow_launcher_emit_arm64_v2.py
+require_file scripts/test_native_shadow_launcher_emit_arm64_v2.py
+require_text scripts/native_shadow_launcher_emit_arm64_v2.py '0ffa4035b8f7f3e698c2ac57eead4b8122cb0c462ab2cb170a87c1973bb01b08'
+require_text scripts/native_shadow_launcher_emit_arm64_v2.py 'os.O_EXCL'
+require_text scripts/native_shadow_launcher_emit_arm64_v2.py 'src_dir_fd=directory'
+require_text scripts/native_shadow_launcher_emit_arm64_v2.py 'dst_dir_fd=directory'
+require_text scripts/native_shadow_launcher_emit_arm64_v2.py 'os.fsync(directory)'
+require_text scripts/native_shadow_launcher_emit_arm64_v2.py 'def emit(path: pathlib.Path)'
+require_text scripts/native_shadow_launcher_emit_arm64_v2.py 'launcherDeployedIntoGuest'
+require_text scripts/self-test.sh 'scripts/test_native_shadow_launcher_emit_arm64_v2.py'
+require_text .github/workflows/ci.yml 'native_shadow_launcher_emit_arm64_v2.py emit --out "$emitted"'
+require_text .github/workflows/ci.yml 'test "$actual_sha" = "$expected_sha"'
+require_text .github/workflows/ci.yml 'test "$actual_size" = "$expected_size"'
 require_text .github/workflows/ci.yml 'native-shadow arm64 launcher v2 double build did not pass'
 
 printf 'docs-smoke: PASS\n' >&2

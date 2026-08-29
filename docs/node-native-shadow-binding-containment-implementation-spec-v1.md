@@ -3865,3 +3865,24 @@ This is not retrospective approval of the failed discovery job. A new required
 arm64 job must build twice again and compare the computed canonical result with
 the tracked bytes before the branch can merge. The result opens no image,
 boot, node, MAC.4, mining, reward, consensus or P2P boundary.
+
+## Launcher v2 sealed-emitter addendum (2026-08-30)
+
+`scripts/native_shadow_launcher_emit_arm64_v2.py` is the first consumer of the
+tracked v2 result. It does not copy a remembered ELF digest into another
+authority. It pins the complete canonical result, reconstructs it through the
+v2 build module, performs one fresh arm64 build, rechecks the exact path-scan
+key set and zero values, and publishes only matching non-empty bytes.
+Its public API accepts only the output path; build bytes and seal records are
+not caller-injectable alternatives to the tracked result and arm64 build.
+
+Publication is no-overwrite and fail-closed. A fresh sibling file is opened
+with exclusive creation, written completely, made executable and flushed; a
+hard link creates the final name without replacement semantics. An existing
+file, dangling symlink, stale temporary name, wrong digest, wrong size or
+publication failure leaves no newly exposed partial final file. The required
+arm64 job exercises this path after the two-build result reproof.
+
+This addendum emits only into runner-temporary storage. It does not edit the
+successor image producer, deploy the launcher into a guest, create an image or
+grant boot, node, MAC.4, mining, reward, consensus or P2P authority.
