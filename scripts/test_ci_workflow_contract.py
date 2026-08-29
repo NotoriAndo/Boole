@@ -308,7 +308,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
                 r"native-shadow-rootfs-replay-linux,\s*"
                 r"native-shadow-rootfs-replay-linux-arm64,\s*"
                 r"native-shadow-launcher-build-arm64,\s*"
-                r"native-shadow-launcher-build-arm64-v2\]"
+                r"native-shadow-launcher-build-arm64-v2,\s*"
+                r"native-shadow-launcher-v2-image-preflight-arm64\]"
             ),
         )
         self.assertIn("needs.native-shadow-containment-linux.result", job)
@@ -318,6 +319,9 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         )
         self.assertIn("needs.native-shadow-launcher-build-arm64.result", job)
         self.assertIn("needs.native-shadow-launcher-build-arm64-v2.result", job)
+        self.assertIn(
+            "needs.native-shadow-launcher-v2-image-preflight-arm64.result", job
+        )
 
     def test_self_test_runs_the_native_shadow_http_replay_helper_contract(self):
         self.assertIn(
@@ -809,7 +813,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
                 r"native-shadow-rootfs-replay-linux,\s*"
                 r"native-shadow-rootfs-replay-linux-arm64,\s*"
                 r"native-shadow-launcher-build-arm64,\s*"
-                r"native-shadow-launcher-build-arm64-v2\]\s*$",
+                r"native-shadow-launcher-build-arm64-v2,\s*"
+                r"native-shadow-launcher-v2-image-preflight-arm64\]\s*$",
                 re.MULTILINE,
             ),
         )
@@ -821,6 +826,9 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         )
         self.assertIn("needs.native-shadow-launcher-build-arm64.result", job)
         self.assertIn("needs.native-shadow-launcher-build-arm64-v2.result", job)
+        self.assertIn(
+            "needs.native-shadow-launcher-v2-image-preflight-arm64.result", job
+        )
         self.assertIn(
             "native-shadow containment capability probe did not pass",
             job,

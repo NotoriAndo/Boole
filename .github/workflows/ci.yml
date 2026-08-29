@@ -230,9 +230,113 @@ jobs:
           test "$actual_size" = "$expected_size"
           printf 'launcher-v2 emitted sha256=%s size=%s\n' "$actual_sha" "$actual_size"
 
+  native-shadow-launcher-v2-image-preflight-arm64:
+    name: native-shadow-launcher-v2-image-preflight-arm64
+    # This required lane assembles and walks the real launcher-v2 staging tree.
+    # It has no image producer, no boot entry point and no one-use authority.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      CAS: local-docs/native-shadow-runtime-rootfs-source-lock-v1/cas
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+
+      - name: Require the host tools used by acquisition and isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tool in env gpgv mkdir mktemp python3 readlink rm \
+            systemd-run uname zstd; do
+            command -v "$tool" >/dev/null || {
+              printf 'the runner has no %s\n' "$tool" >&2
+              exit 1
+            }
+          done
+
+      - name: Acquire the frozen Rust distribution and re-prove its record
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed=native/containment/native-shadow-boot-rustdist-acquisition-result-arm64-v1.json
+          rm "$sealed"
+          python3 scripts/native_shadow_boot_rustdist_acquire_arm64_v1.py --acquire
+          git diff --exit-code -- "$sealed"
+
+      - name: Acquire the frozen package payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/acquire"
+          python3 scripts/native_shadow_boot_ci_payload_acquire_arm64_v1.py acquire \
+            --cas "$PWD/$CAS" \
+            --zstd "$(readlink -f "$(command -v zstd)")" \
+            --result "$RUNNER_TEMP/acquire/ci-payload-acquisition.json"
+
+      - name: Emit and independently match the sealed launcher v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/launcher-v2" "$RUNNER_TEMP/launcher-v2-preflight"
+          launcher="$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher"
+          result=native/containment/native-shadow-launcher-build-result-arm64-v2.json
+          python3 scripts/native_shadow_launcher_emit_arm64_v2.py emit --out "$launcher"
+          expected_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sha256"])' "$result")"
+          expected_size="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sizeBytes"])' "$result")"
+          actual_sha="$(sha256sum "$launcher" | awk '{print $1}')"
+          actual_size="$(wc -c < "$launcher" | tr -d '[:space:]')"
+          test "$actual_sha" = "$expected_sha"
+          test "$actual_size" = "$expected_size"
+
+      - name: Assemble and walk the launcher-v2 tree inside production isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo ./scripts/native-shadow-launcher-v2-image-preflight-arm64.sh \
+            --cas "$PWD/$CAS" \
+            --launcher "$RUNNER_TEMP/launcher-v2/boole-native-shadow-launcher" \
+            --result "$RUNNER_TEMP/launcher-v2-preflight/PREFLIGHT-RESULT.json"
+
+      - name: Require the free preflight to have produced no forbidden output
+        shell: bash
+        run: |
+          set -euo pipefail
+          names=()
+          while IFS= read -r name; do
+            names+=("$name")
+          done < <(
+            python3 -c 'import json; print("\n".join(json.load(open("native/containment/native-shadow-mac3-launcher-v2-image-integration-preregistration-arm64-v1.json", encoding="utf-8"))["preflight"]["forbiddenNames"]))'
+          )
+          test "${#names[@]}" -eq 4
+          expression=()
+          for name in "${names[@]}"; do
+            expression+=(-o -name "$name")
+          done
+          found="$(find "$RUNNER_TEMP" \( "${expression[@]:1}" \) -print)"
+          test -z "$found" || {
+            printf 'the free preflight created a forbidden output:\n%s\n' "$found" >&2
+            exit 1
+          }
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert d["status"] == "PASS-NO-IMAGE-PRODUCED"; assert d["imageProduced"] is False; assert d["bootableClaim"] is False; assert d["activationAllowed"] is False' \
+            "$RUNNER_TEMP/launcher-v2-preflight/PREFLIGHT-RESULT.json"
+
+      - name: Keep only the canonical preflight report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: launcher-v2-image-preflight-result
+          path: ${{ runner.temp }}/launcher-v2-preflight/PREFLIGHT-RESULT.json
+          if-no-files-found: error
+          retention-days: 7
+
   self-test:
     name: self-test
-    needs: [native-shadow-containment-linux, native-shadow-rootfs-replay-linux, native-shadow-rootfs-replay-linux-arm64, native-shadow-launcher-build-arm64, native-shadow-launcher-build-arm64-v2]
+    needs: [native-shadow-containment-linux, native-shadow-rootfs-replay-linux, native-shadow-rootfs-replay-linux-arm64, native-shadow-launcher-build-arm64, native-shadow-launcher-build-arm64-v2, native-shadow-launcher-v2-image-preflight-arm64]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -252,6 +356,7 @@ jobs:
           NATIVE_SHADOW_ARM64_ROOTFS_REPLAY_RESULT: ${{ needs.native-shadow-rootfs-replay-linux-arm64.result }}
           NATIVE_SHADOW_ARM64_LAUNCHER_BUILD_RESULT: ${{ needs.native-shadow-launcher-build-arm64.result }}
           NATIVE_SHADOW_ARM64_LAUNCHER_V2_BUILD_RESULT: ${{ needs.native-shadow-launcher-build-arm64-v2.result }}
+          NATIVE_SHADOW_ARM64_LAUNCHER_V2_IMAGE_PREFLIGHT_RESULT: ${{ needs.native-shadow-launcher-v2-image-preflight-arm64.result }}
         run: |
           set -euo pipefail
           if [[ "$NATIVE_SHADOW_CONTAINMENT_RESULT" != success ]]; then
@@ -272,6 +377,10 @@ jobs:
           fi
           if [[ "$NATIVE_SHADOW_ARM64_LAUNCHER_V2_BUILD_RESULT" != success ]]; then
             echo "native-shadow arm64 launcher v2 double build did not pass" >&2
+            exit 1
+          fi
+          if [[ "$NATIVE_SHADOW_ARM64_LAUNCHER_V2_IMAGE_PREFLIGHT_RESULT" != success ]]; then
+            echo "native-shadow arm64 launcher v2 image preflight did not pass" >&2
             exit 1
           fi
 
