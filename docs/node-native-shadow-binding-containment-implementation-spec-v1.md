@@ -3678,3 +3678,50 @@ result path it names does not exist, and `guestBootVerified`, `launcherServing`,
 and `activationAllowed` are all `false`. The missing offsite copy is recorded as
 not blocking a closed-local boot — which reads the files rather than risking them
 — and as required before anything built on these images is distributed.
+
+### Refusing to spend the one boot (2026-08-29)
+
+The criteria were sealed before the runner existed. Reading the two side by side
+showed that the program available to carry them out could not: it knows the first
+two attempt names and refuses a third, and it holds six judging rules for
+twenty-one conditions, meeting the missing ones after the machine has run rather
+than before it is built. That ordering is the expensive one — the boot happens,
+the judging loop reaches a condition it does not know, and the single attempt is
+gone with no verdict written.
+
+`native/containment/native-shadow-mac3-closed-local-boot-execution-contract-arm64-v3.json`
+is added beside the sealed criteria and edits nothing in them. It binds them at
+their digest on disk, names a source of evidence for each of the twenty-one
+conditions from a fixed vocabulary, and records `changesAnyPassCondition: false`
+and `bootAuthorisation.grantedByThisRecord: false`. Neither document opens the
+run. `scripts/native_shadow_mac3_closed_local_boot_arm64_v3.py` implements it as a
+new module rather than an extension, so the two runners the earlier attempts were
+judged by stay byte-unchanged.
+
+**Order, not just content.** The one-use mark is created with an exclusive open,
+outside the working directory, before the machine starts — the previous runner
+wrote its receipt after the machine stopped, which records nothing if the host
+dies mid-boot. Five archive targets, the three images and both copies of the
+preservation manifest, are hashed immediately before the machine is configured and
+again after it stops, compared name by name, `onMismatch: "abort"`; the previous
+runner re-hashed the root disk alone.
+
+**Five conditions have no readable evidence in this image.** Four need the
+launcher to speak and it prints nothing on its success path, so an error-free
+transcript is silence rather than a pass; the fifth asks for the image to be
+searched for secret-bearing filenames, and the sealed read-back iterates over the
+paths the lock lists, which is precisely what cannot see an extra file. Each is
+recorded with what is missing and what would make it observable. The effect is
+`refuse-before-any-machine-is-built`, with `conditionsWaived: false` and
+`conditionsReworded: false`: the honest outcomes for an unreadable condition are
+NOT MET or no run, and booting to record a knowable failure spends the attempt for
+nothing. The free preflight reports every blocker rather than the first, with
+`machinesStarted: 0` and `oneUseMarksCreated: 0` stated rather than assumed.
+
+**Where the runner exceeds the sealed judging text it exceeds it upward.** It
+re-hashes five targets where one condition asks for the root disk, and requires the
+socket path and the working directory absent alongside the process counts. Both
+are listed in the contract under `strengthenedNotWeakened` rather than left to be
+discovered. The judging rules themselves take an evidence bundle and no
+filesystem, so the part that decides a verdict runs on every push on a machine
+that cannot boot anything.

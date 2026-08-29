@@ -4736,3 +4736,89 @@ image exists and the exam for it is written", not "the guest boots".
 `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation
 `false` and `activationAllowed=false` remain unchanged. Nothing was booted, no
 guest ran, no node was connected, and nothing is served.
+
+## 52. Refusing to spend the one boot (2026-08-29)
+
+The criteria for the third attempt were sealed before the program that would
+carry them out existed, which was the point: an exam written after the invigilator
+is an exam the invigilator can shape. What that sealing then exposed was a gap
+between the two wide enough to lose the attempt in. The runner the earlier
+attempts used knows two attempt names and refuses a third. It carries six judging
+rules for what are now twenty-one conditions, and meets the missing ones *after*
+the machine has run — the shape that spends the single boot and ends in a
+traceback with no verdict written. It writes its receipt into the scratch working
+directory once the machine has stopped, so a Mac that dies mid-boot leaves no
+record that the boot happened at all. And it re-hashes the root disk afterwards
+and nothing else, out of three images and two manifest copies.
+
+None of those is a defect in the criteria. Each is a way the run could have been
+started, gone wrong, and left nothing behind — with the attempt gone.
+
+**What was added.** An execution contract beside the sealed criteria,
+`native/containment/native-shadow-mac3-closed-local-boot-execution-contract-arm64-v3.json`,
+and a runner, `scripts/native_shadow_mac3_closed_local_boot_arm64_v3.py`. The
+contract edits no condition and grants no authorisation; it binds the criteria at
+their digest on disk and says, for each of the twenty-one conditions, which source
+of evidence answers it. A new runner rather than an extension of the old one, so
+the two gates the earlier attempts were judged by stay byte-unchanged.
+
+**The order the run does things in.** The one-use mark is created with an
+exclusive open, outside the working directory, *before* the machine starts. That
+ordering is the whole reason the file exists: a receipt written afterwards is no
+record at all if the host dies in the middle, because the boot happened and
+nothing on disk says so, and the next run would start believing the attempt was
+unused. A crash now costs the attempt rather than hiding it, and a wiped scratch
+directory cannot buy a second one. The five archive targets — three images and
+both copies of the preservation manifest — are hashed immediately before the
+machine is configured and again after it stops, compared name by name, aborting on
+any mismatch. Both manifest copies are in that set because the record that says
+what the images should hash to is itself a file on a disk whose owner can change
+it, and trusting it without re-reading it is trusting the last time anyone looked.
+
+**Five conditions this image cannot answer.** `launcher-prerequisites-verify-inside-the-guest`,
+`launcher-executable-matches-the-sealed-digest`,
+`launcher-supervises-as-root-and-submissions-run-unprivileged`,
+`readiness-and-clean-shutdown-are-observed` and
+`no-host-wallet-model-key-or-node-secret-in-the-guest`. Four of them need the
+launcher to speak, and the launcher in this image prints nothing on its success
+path — a transcript without an error in it is silence, not a pass. The fifth asks
+for the produced image to be searched for secret-bearing filenames; the sealed
+read-back walks the paths the lock lists and compares those, so a file that is in
+the image and not in the lock is exactly what it cannot see. Each is recorded with
+what is missing and what would make it observable, and observability is a change
+to the image and its evidence, never to the condition.
+
+So the runner refuses before any machine is built. A condition with no readable
+evidence has two honest outcomes — judged NOT MET, or the run does not happen —
+and judging it NOT MET after booting spends the single attempt to produce a
+failure that was knowable beforehand. This is not a verdict on the image: nothing
+here says the boot would fail. It says five of the answers would be unreadable,
+which is why the attempt is being kept rather than spent. The free preflight
+gathers every blocker instead of stopping at the first, and reports zero machines
+started and zero marks created as numbers to be read rather than assumed.
+
+The runner departs from the sealed judging text in two places and both are
+upward: it re-hashes five targets where one condition asks for the root disk, and
+it requires the socket path and the working directory absent alongside the process
+counts. Both are recorded in the contract as strengthenings rather than left to be
+noticed.
+
+### 52.1 Execution cursor after the runner was written
+
+```text
+BOOT-PASS-CRITERIA  SEALED / NOT RUN — 21 conditions, frozen before approval
+BOOT-RUNNER  READY TO REFUSE / HARD STOP — 21 rules, 5 conditions unobservable with this image
+BOOT-AUTHORISATION  NOT GRANTED — neither record opens the run
+GUEST-BOOT  NOT STARTED — 0 boot attempts used, boot budget untouched
+ONE-USE-MARK  NOT CLAIMED — nothing was started, so nothing was marked
+MAC.4  NOT STARTED — named as what would make four of the five stops observable
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — release gate retained
+MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
+```
+
+The cursors in §46.1 through §51.1 are left as they were written. MAC.3 is not
+complete, and the position is now "the exam is written and the room is not ready"
+rather than "the guest boots". `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain
+unchanged. Nothing was booted, no guest ran, no node was connected, and nothing is
+served.
