@@ -3066,3 +3066,44 @@ validation of the input.
 
 Nothing was booted, no image was produced or modified, and no boot was
 authorised.
+
+## Walking the boot flow before spending the attempt (2026-08-29)
+
+- [x] Notice that the real flow does not exist yet: the runner refuses and
+      judges, and the steps between — build the host, start, wait, shut down,
+      gather — were deliberately never written, because a complete boot path
+      behind a check invites deleting the check.
+- [x] Keep that reasoning instead of overturning it: write the sequence with
+      every collaborator injected and no default host, no default clock and no
+      default way to claim the mark, so the only supplier that exists is a
+      stand-in that starts nothing.
+- [x] Name the twelve steps in the order the run needs them, with the two
+      adjacencies that carry the weight: the mark claimed before the start, and
+      shutdown requested only after readiness was actually seen.
+- [x] Take a stalled guest down rather than asking it politely, since there is
+      nothing on the other end to receive the request.
+- [x] RED first: 23 tests, 22 failing, against an API that did not exist.
+- [x] Fix the defect the rehearsal found — the readiness reader returns a
+      (seen, why) pair and the flow truth-tested the pair, so every stall read
+      as ready and a dead machine would have been recorded as shutting down
+      cleanly.
+- [x] Make the two prohibitions testable rather than promised: no one-use mark
+      is claimed, and the sealed result path is refused by comparing against the
+      live path rather than by naming a file.
+- [x] Register in `self-test.sh` (93 test files) and pin the standing in
+      `docs-smoke.sh`.
+- [ ] Teach the launcher to emit the four console records at startup (Rust).
+      Still gated on a new clone, a new fingerprint and criteria sealed again.
+
+### Review
+
+Walked end to end against a healthy stand-in, 16 of 21 conditions read MET. The
+five that do not are exactly the five this image cannot answer, which is the
+result to want: a rehearsal that could reach a full pass would be a way to
+manufacture one.
+
+The pair-truth-testing defect is the whole argument for the slice. It cost
+nothing to find here and would have cost the only attempt there.
+
+Nothing was booted, no image was produced or modified, no machine was started
+and no boot was authorised.

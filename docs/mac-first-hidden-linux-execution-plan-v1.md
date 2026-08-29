@@ -4990,3 +4990,61 @@ The cursors in §46.1 through §53.1 are left as they were written. `mineable_no
 `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
 `activationAllowed=false` remain unchanged. Nothing was booted, no image was
 produced or modified, no node was connected, and nothing is served.
+
+## 55. Walking the flow before spending the attempt
+
+The runner could refuse and it could judge, and between those two it stopped.
+The steps that would build the host, start the machine, wait for it, shut it
+down and gather what it left were never written, on purpose: a complete boot
+path sitting behind a check is a boot path waiting for someone to delete the
+check. That reasoning still holds and this slice does not overturn it.
+
+What it adds is the same sequence with every collaborator handed in from
+outside. There is no default host and no default way to claim the mark. A
+caller who wants the flow to do anything has to supply the thing that does it,
+and the only supplier in the repository is a stand-in that writes files instead
+of starting anything. So the sequence can now be walked from end to end for
+nothing, and the real run is still unwritten rather than merely guarded.
+
+Twelve steps, in the order the run needs them: refuse what can be refused for
+free, hash the archive, claim the one-use mark, start, wait for readiness, ask
+for shutdown, confirm the machine is gone, hash the archive again, count what is
+left on the host, assemble the evidence, judge the twenty-one conditions, write
+the result. Two adjacencies carry most of the weight. The mark is claimed
+before anything starts, so a Mac that dies mid-boot leaves a spent attempt that
+says so on disk. And the shutdown is *requested* only after readiness was
+actually seen — a guest that never got there is taken down rather than asked,
+because there is nothing on the other end to ask politely.
+
+The rehearsal earned its keep immediately. The host-side reader returns a pair —
+whether readiness was seen, and why — and the first draft of the flow tested the
+pair itself for truth. A pair is always truthy, so every stalled guest read as
+ready, and the flow would have asked a dead machine for a graceful shutdown and
+recorded that it obeyed. That is a defect that costs nothing here and would have
+cost the only attempt there.
+
+What a rehearsal cannot do is also fixed and tested rather than promised. It
+claims no one-use mark. It writes nothing to the path a sealed result belongs
+at, and the refusal is checked against the live path rather than by naming a
+file. Everything it writes carries the word in the file name as well as inside
+the file, and lists its own substitutions: there was no host, no guest, no
+archive re-read and no real free-refusal pass. Running it with a healthy
+stand-in still cannot reach a full pass, because the five conditions this image
+cannot answer stay NOT MET — which is the point. A rehearsal that could produce
+a pass would be a way to manufacture one.
+
+### 55.1 Cursor
+
+```text
+BOOT-FLOW-REHEARSAL  WALKED / NO MACHINE STARTED — 12 steps end to end against a stand-in
+BOOT-PASS-CRITERIA  SEALED / NOT RUN — 21 conditions, frozen before approval
+CONSOLE-EVIDENCE-PRODUCER  DECIDED / NOT WRITTEN — the launcher itself, not a separate service
+BOOT-AUTHORISATION  NOT GRANTED — no record here opens the run
+GUEST-BOOT  NOT STARTED — 0 boot attempts used, boot budget untouched
+UNPRIVILEGED-SUBMISSIONS  REPORTED / NOT DECIDED — static binding or MAC.4 is the operator's call
+```
+
+The cursors in §46.1 through §54.1 are left as they were written. `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` remain unchanged. Nothing was booted, no image was
+produced or modified, no node was connected, and nothing is served.
