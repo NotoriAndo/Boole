@@ -1749,9 +1749,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "8e81f06d3413d71e9ba95d973fac5924223807305ad0d2c78acddc6c4474bf96"
-require_text docs/native-submission-shadow-verification-v1.md "c8823aa6bab9514ed0136bfbf6ceacce7b6799c239c06ca2e7e2c1f0a27858e3"
-require_text docs/native-submission-shadow-verification-v1.md "1c48aa6c8c330ce75b4d6309d80791a52174dc17f870237a981e38c1dff3ac1d"
+require_text docs/native-submission-shadow-verification-v1.md "4efab5018712dc534f0214b8b7a526df813c923b3a84bf11d72310dd3d79b027"
+require_text docs/native-submission-shadow-verification-v1.md "4b8a3d904c791727fbd197ce7a5412e691cb7001607650a384158847e5d4e8b8"
+require_text docs/native-submission-shadow-verification-v1.md "bb74e34134e23bac530ee1db298e26ebf0bd19f7a72d5bda3e26c7780672db32"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
@@ -2590,6 +2590,17 @@ require_text native/containment/native-shadow-mac3-launcher-v2-image-integration
 require_text native/containment/native-shadow-mac3-launcher-v2-image-integration-preregistration-arm64-v1.json '"imageProductionRunsAllowed": 0'
 require_text native/containment/native-shadow-mac3-launcher-v2-image-integration-preregistration-arm64-v1.json '"newBuilderProjectionRequired": true'
 require_text native/containment/native-shadow-mac3-launcher-v2-image-integration-preregistration-arm64-v1.json '"payloadBytes": 1773475059'
+require_file native/containment/native-shadow-mac3-launcher-v2-image-preflight-result-arm64-v1.json
+require_text native/containment/native-shadow-mac3-launcher-v2-image-preflight-result-arm64-v1.json '"status": "PASS-NO-IMAGE-PRODUCED"'
+require_text native/containment/native-shadow-mac3-launcher-v2-image-preflight-result-arm64-v1.json '"imageProductionRunsAllowed": 0'
+require_text native/containment/native-shadow-mac3-launcher-v2-image-preflight-result-arm64-v1.json '"imageProduced": false'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER-V2-IMAGE-PREFLIGHT-ARM64-V1-SEALED:BEGIN'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'FREE ARM64 PREFLIGHT  GREEN / RESULT SEALED'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'IMAGE PRODUCTION  NOT AUTHORISED'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md '2a2bfa93796e0ec1463e1d144250e3bc4e2f6b9c2486c35846e3b9f70071d19d'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'beb2920dcfe11ae0f827b73245a8a15bf9e7b055809ad23fac953cef4ed633c8'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md '0dbc17aeaaa8ef63ddeb53ac8b7615f361c21bda95f0ba3d9677bdbdb76dcb9a'
+require_text scripts/self-test.sh 'scripts/test_native_shadow_launcher_v2_image_preflight_result_arm64_v1.py'
 require_text scripts/self-test.sh 'scripts/test_native_shadow_launcher_v2_image_integration_preregistration_arm64_v1.py'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER V2 IMAGE INTEGRATION  PRE-REGISTERED / AUTHORITY 0'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'SUCCESSOR BUILDER PROJECTION  NEXT'

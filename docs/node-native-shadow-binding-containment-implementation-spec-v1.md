@@ -3905,3 +3905,51 @@ The historical v4 workflow and phase remain byte-bound to their past evidence.
 
 This addendum creates no builder projection, producer, workflow, attempt marker,
 image, boot, node transport, testnet, mining, reward, consensus or P2P authority.
+
+### Launcher-v2 authority-zero arm64 staging preflight result (2026-08-30)
+
+<!-- LAUNCHER-V2-IMAGE-PREFLIGHT-ARM64-V1-SEALED:BEGIN -->
+
+Required Linux/arm64 CI exercised the launcher-v2 successor builder before any
+producer authority existed. Builder v4 pins builder v3, replaces exactly the
+historical launcher seal, accepts v2, rejects v1 and exports the same
+materialisation function a later separately authorised producer must consume.
+No global monkeypatch or historical producer edit is involved.
+
+```text
+sourcePullRequest=#303
+sourceHeadSha=6e95d5a73a17dda26adb006cd2c0de5129a1921d
+sourceWorkflow=.github/workflows/ci.yml
+sourceRunId=33272680385
+sourceRunAttempt=1
+sourceJobId=99153889500
+artifactId=9720614194
+artifactName=launcher-v2-image-preflight-result
+archiveSizeBytes=3079
+archiveDigest=sha256:beb2920dcfe11ae0f827b73245a8a15bf9e7b055809ad23fac953cef4ed633c8
+artifactMemberCount=1
+artifactMemberName=PREFLIGHT-RESULT.json
+payloadSizeBytes=9409
+payloadSha256=2a2bfa93796e0ec1463e1d144250e3bc4e2f6b9c2486c35846e3b9f70071d19d
+```
+
+The tracked 9,409-byte result is the exact raw CI payload, not a metadata
+wrapper. The separately reported 3,079-byte archive identity describes
+GitHub's transport envelope and cannot substitute for the payload identity.
+
+The builder table and independent traversal strictly agree on all fields:
+17,676 entries, 1,773,475,059 payload bytes, largest file 160,096,808 bytes,
+path-manifest SHA-256
+`0dbc17aeaaa8ef63ddeb53ac8b7615f361c21bda95f0ba3d9677bdbdb76dcb9a`,
+and zero duplicate paths, collisions or symlink escapes. All 22 preregistered
+inputs, eight repository-file identities, tool identities and the nested
+content manifest are consumed before the report leaves CI.
+
+The only upload is canonical JSON. There is no image tool, attempt mark,
+kernel, initrd, root disk or boot path. The report says
+`PASS-NO-IMAGE-PRODUCED`, is repeatable, grants zero production runs and leaves
+all boot, MAC.4, testnet, mining, reward, consensus, P2P and activation
+authorities false. The next permissible slice is a separate authority-zero
+successor-producer preregistration, not production.
+
+<!-- LAUNCHER-V2-IMAGE-PREFLIGHT-ARM64-V1-SEALED:END -->
