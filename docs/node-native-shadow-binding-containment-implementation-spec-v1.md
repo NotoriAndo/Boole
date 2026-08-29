@@ -3959,9 +3959,10 @@ successor-producer preregistration, not production.
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:BEGIN -->
 
 The canonical launcher-v2 no-image preflight now has an authority-zero
-successor-producer contract. The 19,352-byte record at SHA-256
-`8f806899e2b2cd4a6bfbdbbb6ea067198927b4f76d136e00d3d1bd45017143a8`
-binds 20 exact inputs and freezes 11 new-generation paths before any of those
+successor-producer contract. The 20,145-byte record at SHA-256
+`576bafd10600a05e9ab326e1e507c1a0351381d068f393ce402e295bf93afbec`
+binds 23 exact inputs, including the three directly executed measurement/read-back
+helpers, and freezes 11 new-generation paths before any of those
 paths can implement production.
 
 The free rehearsal must share the future producer and assembler while creating

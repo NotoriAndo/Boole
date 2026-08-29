@@ -62,6 +62,10 @@ EXPECTED_BINDINGS = {
         "a9b53199ca519def2232687c096a7fbefeef13a26f68ba44fcb9a3da30d35d18",
         2_536,
     ),
+    "scripts/native_shadow_boot_staging_measure_arm64_v1.py": (
+        "d7deacc81e1262b8bd6c9b525a2784850db55c7d93425458243daf5d45fc75b1",
+        20_420,
+    ),
     "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json": (
         "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
         102_952,
@@ -81,6 +85,14 @@ EXPECTED_BINDINGS = {
     "scripts/native_shadow_boot_image_produce_arm64_v1.py": (
         "5cdc249751a7b8c3128fcff2150059692a00de8590a925f426bc58129056e939",
         11_173,
+    ),
+    "scripts/native_shadow_boot_image_verify_arm64_v1.py": (
+        "3c97808a6dd7b83feb679ca21ce257019b8d549250c1e39ab87e0a6fccdf6e3e",
+        12_416,
+    ),
+    "scripts/native_shadow_boot_root_disk_readback_arm64_v1.py": (
+        "9c41473050b34b830ac6758d88d217d8844ce3154686c93875c1493b50b90589",
+        9_852,
     ),
     "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json": (
         "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc",
@@ -164,7 +176,7 @@ EXPECTED_TOP_LEVEL_KEYS = {
 }
 
 EXPECTED_HARD_STOPS = [
-    "any of the twenty bound files differs in digest, size or regular-file identity",
+    "any of the twenty-three bound files differs in digest, size or regular-file identity",
     "the tracked preflight payload or its complete CI archive lineage differs",
     "the new generation reuses a historical producer, wrapper, workflow or readback filename",
     "the v3 readback does not bind source-lock v2 and launcher-result v2 before loop setup or mount",
@@ -234,9 +246,9 @@ class LauncherV2SuccessorProducerPreregistrationTests(unittest.TestCase):
             self.record["whatThisRecordDoesNotEstablish"], EXPECTED_NON_CLAIMS
         )
 
-    def test_exactly_twenty_bound_inputs_match_live_bytes(self) -> None:
+    def test_exactly_twenty_three_bound_inputs_match_live_bytes(self) -> None:
         bindings = self.record["bindings"]
-        self.assertEqual(len(bindings), 20)
+        self.assertEqual(len(bindings), 23)
         self.assertEqual({row["path"] for row in bindings}, set(EXPECTED_BINDINGS))
         self.assertEqual(len({row["path"] for row in bindings}), len(bindings))
         for row in bindings:

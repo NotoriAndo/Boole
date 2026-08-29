@@ -5495,8 +5495,9 @@ The exact no-image arm64 preflight result now feeds a separate preregistration
 for the next producer generation. The canonical record is
 `native-shadow-mac3-launcher-v2-successor-producer-preregistration-arm64-v1.json`
 at SHA-256
-`8f806899e2b2cd4a6bfbdbbb6ea067198927b4f76d136e00d3d1bd45017143a8`
-and 19,352 bytes. It binds 20 live inputs, including the raw preflight result,
+`576bafd10600a05e9ab326e1e507c1a0351381d068f393ce402e295bf93afbec`
+and 20,145 bytes. It binds 23 live inputs, including the raw preflight result
+and the three directly executed measurement/read-back helpers,
 launcher-v2 seal, builder v4, source-lock v2, nested runtime lock and the
 historical production and preservation evidence.
 

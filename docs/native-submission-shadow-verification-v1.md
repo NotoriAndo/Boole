@@ -2167,8 +2167,9 @@ runtime authority.
 
 The exact no-image preflight result is now consumed by a separate canonical
 preregistration at SHA-256
-`8f806899e2b2cd4a6bfbdbbb6ea067198927b4f76d136e00d3d1bd45017143a8`
-and 19,352 bytes. It binds 20 live inputs and freezes 11 new-generation names
+`576bafd10600a05e9ab326e1e507c1a0351381d068f393ce402e295bf93afbec`
+and 20,145 bytes. It binds 23 live inputs, including the three directly executed
+measurement/read-back helpers, and freezes 11 new-generation names
 for producer v3, readback v3, the repeatable free rehearsal and any later
 separately authorised production.
 

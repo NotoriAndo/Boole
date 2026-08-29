@@ -72,6 +72,12 @@
       "sizeBytes": 2536
     },
     {
+      "path": "scripts/native_shadow_boot_staging_measure_arm64_v1.py",
+      "role": "the exact staging measurer executed by producer v3",
+      "sha256": "d7deacc81e1262b8bd6c9b525a2784850db55c7d93425458243daf5d45fc75b1",
+      "sizeBytes": 20420
+    },
+    {
       "path": "native/containment/native-shadow-runtime-rootfs-source-lock-arm64-v1.json",
       "role": "the nested runtime rootfs source lock",
       "sha256": "829ca81d321d412746cce7a62d59d7e538c394b92c1b6a9a966f3016b73cede0",
@@ -100,6 +106,18 @@
       "role": "the frozen low-level boot-image producer used by future orchestration",
       "sha256": "5cdc249751a7b8c3128fcff2150059692a00de8590a925f426bc58129056e939",
       "sizeBytes": 11173
+    },
+    {
+      "path": "scripts/native_shadow_boot_image_verify_arm64_v1.py",
+      "role": "the exact tree verifier executed by readback v3",
+      "sha256": "3c97808a6dd7b83feb679ca21ce257019b8d549250c1e39ab87e0a6fccdf6e3e",
+      "sizeBytes": 12416
+    },
+    {
+      "path": "scripts/native_shadow_boot_root_disk_readback_arm64_v1.py",
+      "role": "the exact read-only tree walker executed by readback v3",
+      "sha256": "9c41473050b34b830ac6758d88d217d8844ce3154686c93875c1493b50b90589",
+      "sizeBytes": 9852
     },
     {
       "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json",
@@ -305,7 +323,7 @@
     "reuseHistoricalFilenames": false
   },
   "hardStopConditions": [
-    "any of the twenty bound files differs in digest, size or regular-file identity",
+    "any of the twenty-three bound files differs in digest, size or regular-file identity",
     "the tracked preflight payload or its complete CI archive lineage differs",
     "the new generation reuses a historical producer, wrapper, workflow or readback filename",
     "the v3 readback does not bind source-lock v2 and launcher-result v2 before loop setup or mount",
