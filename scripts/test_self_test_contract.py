@@ -4,6 +4,7 @@ and --locked on every cargo invocation that resolves dependencies."""
 from __future__ import annotations
 
 import re
+import shlex
 import unittest
 from pathlib import Path
 
@@ -18,6 +19,31 @@ def _read(path: Path) -> str:
 
 
 class SelfTestContractTests(unittest.TestCase):
+    def test_every_registered_python_test_path_exists(self) -> None:
+        body = _read(SELF_TEST)
+        python_test_lines = [
+            line
+            for line in body.splitlines()
+            if "python3 -m unittest" in line and not line.lstrip().startswith("#")
+        ]
+        self.assertTrue(
+            python_test_lines,
+            "scripts/self-test.sh must register the Python unittest stage",
+        )
+
+        registered = [
+            token
+            for line in python_test_lines
+            for token in shlex.split(line)
+            if token.startswith("scripts/test_") and token.endswith(".py")
+        ]
+        self.assertTrue(registered, "the Python unittest stage must name test files")
+        for relative_path in registered:
+            self.assertTrue(
+                (ROOT / relative_path).is_file(),
+                f"self-test registers a Python test that does not exist: {relative_path}",
+            )
+
     def test_self_test_runs_native_shadow_rootfs_builder_contract(self) -> None:
         body = _read(SELF_TEST)
         for test_file, purpose in (
