@@ -5486,3 +5486,60 @@ or output was created, no preserved image changed and no machine started.
 `false` and `activationAllowed=false` remain unchanged.
 
 <!-- LAUNCHER-V2-IMAGE-PREFLIGHT-ARM64-V1-SEALED:END -->
+
+## 64. Registering the launcher-v2 producer generation before implementing it (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:BEGIN -->
+
+The exact no-image arm64 preflight result now feeds a separate preregistration
+for the next producer generation. The canonical record is
+`native-shadow-mac3-launcher-v2-successor-producer-preregistration-arm64-v1.json`
+at SHA-256
+`576bafd10600a05e9ab326e1e507c1a0351381d068f393ce402e295bf93afbec`
+and 20,145 bytes. It binds 23 live inputs, including the raw preflight result
+and the three directly executed measurement/read-back helpers,
+launcher-v2 seal, builder v4, source-lock v2, nested runtime lock and the
+historical production and preservation evidence.
+
+This record freezes 11 future names before implementation: a new producer v3,
+wrapper, workflow and gates; readback v3 and its gate; a producer fingerprint,
+free-rehearsal result, future one-use authority and future production result.
+The historical producer, wrapper, workflow and readback remain byte-bound to
+their own past. Their exhausted authority cannot be transferred to the new
+generation, and the already declared producer-v2 test-gate drift is retained
+rather than hidden by a re-seal.
+
+The future free rehearsal may retain one canonical JSON result only. It must
+use the same producer and assembler as a later separately authorised run while
+creating no output directory, attempt mark, kernel, initrd, root disk or other
+production output. Calling the production entry without authority must refuse
+before any marker or output path exists.
+
+Readback v3 must bind source-lock v2 and the launcher-v2 result from repository
+bytes before loop-device setup or mount. CLI, environment and image-provided
+overrides are forbidden; launcher v1 is an explicit refusal. A diagnostic
+failure remains `UNQUALIFIED-DIAGNOSTIC`, and the wrapper may call only the v3
+reader. Its mount retains `ro,nodev,noexec,nosuid`; unmount and loop-device
+cleanup run in `finally`, and cleanup failure is a hard stop. Any future
+authority must bind this preregistration, the free-rehearsal result and a
+producer fingerprint covering the exact seven generation files. The
+fingerprint never binds future authority bytes, so the direction is acyclic.
+
+### 64.1 Cursor
+
+```text
+FREE ARM64 LAUNCHER-V2 IMAGE PREFLIGHT  GREEN / RESULT SEALED
+SUCCESSOR PRODUCER + READBACK-V3  PRE-REGISTERED / AUTHORITY 0
+NEW-GENERATION PRODUCER + READBACK-V3  NEXT — implementation, then free rehearsal
+IMAGE PRODUCTION  NOT AUTHORISED — 0 runs granted or performed
+GUEST BOOT  NOT STARTED — 0 boot attempts used
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+The cursors through §63.1 remain historical. No future producer file is
+implemented by this record, no image tool ran, no output or attempt marker was
+created, no preserved image changed and no machine started. `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` remain unchanged.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:END -->

@@ -1749,9 +1749,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "4efab5018712dc534f0214b8b7a526df813c923b3a84bf11d72310dd3d79b027"
-require_text docs/native-submission-shadow-verification-v1.md "4b8a3d904c791727fbd197ce7a5412e691cb7001607650a384158847e5d4e8b8"
-require_text docs/native-submission-shadow-verification-v1.md "bb74e34134e23bac530ee1db298e26ebf0bd19f7a72d5bda3e26c7780672db32"
+require_text docs/native-submission-shadow-verification-v1.md "77ffa2f983068c3e21517e752f51b8c80215a6fe2e153c9380389f9fb3cbbe71"
+require_text docs/native-submission-shadow-verification-v1.md "6cc91dfe4bde03bca417419f3049360b11878cf5b50c767e65bd0789a98a65c9"
+require_text docs/native-submission-shadow-verification-v1.md "4ff8ee25f983fa1accadc56a45ebe1f9e1de53a988d4f4890231ba324fdc16ca"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
@@ -2608,5 +2608,42 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'IMAGE PRODUCTION 
 require_text .github/workflows/ci.yml 'test "$actual_sha" = "$expected_sha"'
 require_text .github/workflows/ci.yml 'test "$actual_size" = "$expected_size"'
 require_text .github/workflows/ci.yml 'native-shadow arm64 launcher v2 double build did not pass'
+
+# The producer/readback generation is named and bound before implementation.
+# This record is authority-zero: the only next executable path is the free
+# JSON-only rehearsal, and production without a future one-use authority must
+# stop before assembly, output creation, an attempt marker or an image effect.
+V2_SUCCESSOR_PREREG=native/containment/native-shadow-mac3-launcher-v2-successor-producer-preregistration-arm64-v1.json
+require_file "$V2_SUCCESSOR_PREREG"
+require_file scripts/test_native_shadow_launcher_v2_successor_producer_preregistration_arm64_v1.py
+require_text scripts/self-test.sh 'scripts/test_native_shadow_launcher_v2_successor_producer_preregistration_arm64_v1.py'
+require_text "$V2_SUCCESSOR_PREREG" '"schema": "boole.native-shadow.mac3.launcher-v2-successor-producer-preregistration.arm64.v1"'
+require_text "$V2_SUCCESSOR_PREREG" '"status": "PRE-REGISTERED-NO-IMAGE-PRODUCTION-AUTHORITY"'
+require_text "$V2_SUCCESSOR_PREREG" '"imageProductionRunsAllowed": 0'
+require_text "$V2_SUCCESSOR_PREREG" '"imageProductionsPerformed": 0'
+require_text "$V2_SUCCESSOR_PREREG" '"bootsPerformed": 0'
+require_text "$V2_SUCCESSOR_PREREG" '"globalMonkeypatchForbidden": true'
+require_text "$V2_SUCCESSOR_PREREG" '"orchestrationCallable": "prepare_staging"'
+require_text "$V2_SUCCESSOR_PREREG" '"imageEffectCallsAllowed": 0'
+require_text "$V2_SUCCESSOR_PREREG" '"refusesBeforeAssembly": true'
+require_text "$V2_SUCCESSOR_PREREG" '"noexec": true'
+require_text "$V2_SUCCESSOR_PREREG" '"loopDeviceDetached": true'
+require_text "$V2_SUCCESSOR_PREREG" '"qualificationRequiresReadbackPass": true'
+require_text "$V2_SUCCESSOR_PREREG" '"futureAuthorityMustBindProducerFingerprintByDigest": true'
+require_text "$V2_SUCCESSOR_PREREG" '"futureAuthorityMustBindFreeRehearsalResultByDigest": true'
+require_text "$V2_SUCCESSOR_PREREG" '"producerFingerprintMustBindThisRecordByDigest": true'
+require_text "$V2_SUCCESSOR_PREREG" '"producerFingerprintBindsFutureAuthorityBytes": false'
+require_text "$V2_SUCCESSOR_PREREG" 'd7deacc81e1262b8bd6c9b525a2784850db55c7d93425458243daf5d45fc75b1'
+require_text "$V2_SUCCESSOR_PREREG" '3c97808a6dd7b83feb679ca21ce257019b8d549250c1e39ab87e0a6fccdf6e3e'
+require_text "$V2_SUCCESSOR_PREREG" '9c41473050b34b830ac6758d88d217d8844ce3154686c93875c1493b50b90589'
+require_text "$V2_SUCCESSOR_PREREG" 'scripts/native_shadow_successor_produce_phase_arm64_v3.py'
+require_text "$V2_SUCCESSOR_PREREG" 'scripts/native_shadow_successor_root_disk_readback_arm64_v3.py'
+require_text "$V2_SUCCESSOR_PREREG" '.github/workflows/native-shadow-successor-produce-arm64-v3.yml'
+require_text "$V2_SUCCESSOR_PREREG" '"archiveSha256": "beb2920dcfe11ae0f827b73245a8a15bf9e7b055809ad23fac953cef4ed633c8"'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:BEGIN'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'SUCCESSOR PRODUCER + READBACK-V3  PRE-REGISTERED / AUTHORITY 0'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md '576bafd10600a05e9ab326e1e507c1a0351381d068f393ce402e295bf93afbec'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:BEGIN'
+require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:BEGIN'
 
 printf 'docs-smoke: PASS\n' >&2

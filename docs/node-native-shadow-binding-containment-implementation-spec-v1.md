@@ -3953,3 +3953,33 @@ authorities false. The next permissible slice is a separate authority-zero
 successor-producer preregistration, not production.
 
 <!-- LAUNCHER-V2-IMAGE-PREFLIGHT-ARM64-V1-SEALED:END -->
+
+## Launcher-v2 successor producer preregistration (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:BEGIN -->
+
+The canonical launcher-v2 no-image preflight now has an authority-zero
+successor-producer contract. The 20,145-byte record at SHA-256
+`576bafd10600a05e9ab326e1e507c1a0351381d068f393ce402e295bf93afbec`
+binds 23 exact inputs, including the three directly executed measurement/read-back
+helpers, and freezes 11 new-generation paths before any of those
+paths can implement production.
+
+The free rehearsal must share the future producer and assembler while creating
+only canonical JSON: no image tool, production directory, attempt marker or
+image output is permitted. An authorityless production entry refuses before
+those boundaries. Readback v3 binds source-lock v2 and launcher-result v2 from
+repository bytes before loop setup or mount, rejects launcher v1 and refuses
+CLI, environment or image-provided binding overrides. Historical generation
+bytes and their declared gate drift remain evidence and are not rewritten.
+Readback retains `ro,nodev,noexec,nosuid`, performs unmount and loop cleanup in
+`finally`, and cannot enter qualification or replica comparison after failure.
+
+This preregistration grants and consumes zero image or boot runs. A later
+one-use authority may exist only as a separate record that binds this record,
+the free-rehearsal result and a fingerprint of the exact seven generation
+files. That fingerprint binds this preregistration but never future authority
+bytes, so the direction has no digest cycle. MAC.4, testnet, mining, reward,
+consensus, P2P and activation remain unopened.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:END -->
