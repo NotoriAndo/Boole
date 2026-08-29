@@ -44,9 +44,6 @@ QUALIFICATION_PATH = (
 CONTRACT_PATH = (
     CONTAINMENT / "native-shadow-mac3-closed-local-boot-execution-contract-arm64-v3.json"
 )
-HOST_SOURCE_PATH = REPO / "native/mac3/boole-mac3-closed-local-boot.swift"
-ENTITLEMENTS_PATH = REPO / "native/mac3/boole-mac3-closed-local-boot.entitlements"
-
 ATTEMPT = "MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-3"
 
 # Outside the repository and outside any scratch directory. The one thing this
@@ -57,7 +54,6 @@ LEDGER_DIR = pathlib.Path.home() / "boole-artifacts/native-shadow/mac3-boot-ledg
 MANIFEST_AT_THE_ARCHIVE = "preservation-manifest-at-the-archive"
 MANIFEST_IN_THE_REPOSITORY = "preservation-record-in-the-repository"
 
-CODESIGN_IDENTITY = "-"
 BOOT_TIMEOUT_SECONDS = 180
 READ_CHUNK_BYTES = 4 * 1024 * 1024
 
@@ -494,8 +490,9 @@ def _no_failed_unit_and_no_freeze(evidence):
             return False, "the transcript contains %r" % marker
     if not evidence["readinessSeen"]:
         return False, (
-            "the transcript ends without the readiness point being reached, which "
-            "counts as a stall rather than as an absence of evidence"
+            "the transcript ends without the readiness point being reached within the "
+            "run's stated budget of %d seconds, which counts as a stall rather than as "
+            "an absence of evidence" % evidence["timeoutSeconds"]
         )
     return True, "no failed unit, no timeout, and the run reached its readiness point"
 
@@ -714,22 +711,6 @@ def _run(argv: list) -> subprocess.CompletedProcess:
     return subprocess.run(argv, check=True)
 
 
-def swiftc_argv(source: pathlib.Path, binary: pathlib.Path) -> list:
-    return ["swiftc", "-O", "-framework", "Virtualization", str(source), "-o", str(binary)]
-
-
-def codesign_argv(binary: pathlib.Path) -> list:
-    return [
-        "codesign",
-        "--force",
-        "-s",
-        CODESIGN_IDENTITY,
-        "--entitlements",
-        str(ENTITLEMENTS_PATH),
-        str(binary),
-    ]
-
-
 def host_argv(
     host: pathlib.Path,
     kernel: pathlib.Path,
@@ -845,6 +826,7 @@ def preflight(runner=None) -> dict:
         "machinesStarted": 0,
         "oneUseMarksCreated": 0,
         "oneUseMarkClaimed": claimed,
+        "priorClaims": prior_claims(),
         "archive": archive,
         "sealedEvidence": sealed,
         "hardStop": stopped,
@@ -873,15 +855,24 @@ def command_preflight(args: argparse.Namespace) -> int:
 
 
 def command_qualify(args: argparse.Namespace) -> int:
-    """The one attempt. Refuses rather than guesses."""
+    """The one attempt. Refuses rather than guesses.
 
+    The steps past the refusals -- building the host, starting the machine,
+    gathering the evidence -- are deliberately not written yet.  A boot path
+    sitting here complete but unreachable is a boot path waiting for someone to
+    delete the check above it.  Closing the hard stops is what opens writing it,
+    and closing them means changing the image, not the conditions.
+    """
+
+    del args
     assert_attempt_identity()
     assert_every_condition_has_a_rule()
     assert_no_run_has_been_sealed(sealed_result_path())
     assert_one_use_is_unclaimed()
     assert_every_condition_is_observable()
     raise RefusedError(
-        "unreachable while any condition is unobservable; the boot stays unspent"
+        "every refusal passed, but the boot path is not written while any condition "
+        "is unobservable; the attempt stays unspent"
     )
 
 
