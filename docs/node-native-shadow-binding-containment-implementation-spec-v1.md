@@ -3849,3 +3849,19 @@ source properties are exact sets/values rather than merely nonempty fields.
 Finally, a newly generated arm64 result is printed for review but the required
 CI job exits nonzero until the result is committed and the next run re-proves
 its exact bytes. Candidate discovery alone can never satisfy the merge gate.
+
+### Launcher v2 first candidate tracked, still merge-gated (2026-08-30)
+
+The first arm64 discovery job completed both independent builds and both
+overlay-source test runs. The ELFs were byte-identical at 2,025,192 bytes with
+SHA-256 `53412188cec4488cf694450548991607c66e9281ccf54e6b462d34b3a345decd`,
+and all five producer-path counters were zero. It then failed exactly at the
+pre-registered untracked-result check.
+
+The exact candidate is now tracked as
+`native-shadow-launcher-build-result-arm64-v2.json` with record SHA-256
+`0ffa4035b8f7f3e698c2ac57eead4b8122cb0c462ab2cb170a87c1973bb01b08`.
+This is not retrospective approval of the failed discovery job. A new required
+arm64 job must build twice again and compare the computed canonical result with
+the tracked bytes before the branch can merge. The result opens no image,
+boot, node, MAC.4, mining, reward, consensus or P2P boundary.

@@ -2068,3 +2068,18 @@ extra line from satisfying the host comparison. The first arm64 candidate is
 printed but required CI fails while its result is untracked; only a committed
 record that a later run reproduces byte-for-byte may pass. These changes grant
 no build-result status by themselves and open no later authority.
+
+## Launcher v2 first-candidate seal addendum (2026-08-30)
+
+The first Linux/arm64 discovery run produced two byte-identical 2,025,192-byte
+ELFs at SHA-256
+`53412188cec4488cf694450548991607c66e9281ccf54e6b462d34b3a345decd`.
+Both overlay test runs passed and every named producer-path counter was zero.
+The job then failed deliberately because its canonical result was untracked.
+
+Those exact candidate bytes are now reviewed and tracked at
+`native-shadow-launcher-build-result-arm64-v2.json`, whose SHA-256 is
+`0ffa4035b8f7f3e698c2ac57eead4b8122cb0c462ab2cb170a87c1973bb01b08`.
+The record can reach `main` only after a fresh required CI job rebuilds twice
+and reproduces it byte-for-byte. It grants no image production, boot, node,
+MAC.4, mining, reward, consensus or P2P authority.

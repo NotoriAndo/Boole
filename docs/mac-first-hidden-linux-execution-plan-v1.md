@@ -5277,3 +5277,41 @@ The cursors through §58.1 remain historical records. No preserved image was
 modified, no image was produced, and no machine was started. `mineable_now=0`,
 `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
 `activationAllowed=false` remain unchanged.
+
+## 60. Tracking the first arm64 launcher-v2 candidate before reproof (2026-08-30)
+
+The first named Linux/arm64 build run reached the deliberate discovery gate.
+Both independent exports ran the overlay tests and produced byte-identical
+2,025,192-byte ELFs with SHA-256
+`53412188cec4488cf694450548991607c66e9281ccf54e6b462d34b3a345decd`.
+All five real producer-path classes were absent. The candidate record itself is
+canonical JSON with SHA-256
+`0ffa4035b8f7f3e698c2ac57eead4b8122cb0c462ab2cb170a87c1973bb01b08`.
+
+That first run was red by design. It printed the complete candidate and then
+refused it because the result path was not tracked by Git. This section places
+those exact reviewed bytes at the authority's result path; it does not turn
+the discovery run green after the fact. The record may enter `main` only if a
+new required arm64 job performs two fresh builds and `seal_or_reprove` finds
+the tracked bytes exactly equal. Any difference is a hard refusal and the seal
+is never overwritten.
+
+The result keeps every later boundary false. It is a launcher build result, not
+an image-production authority, image, boot result, serving result or MAC.4
+transport claim.
+
+### 60.1 Cursor
+
+```text
+LAUNCHER V2 SOURCE OVERLAY  FROZEN — historical v1 bytes remain unchanged
+ARM64 V2 CANDIDATE  TRACKED — first discovery run intentionally red
+ARM64 V2 REPROOF  REQUIRED BEFORE MERGE — exact bytes or refusal
+SUCCESSOR IMAGE PRODUCTION  NOT AUTHORISED — no production budget opened
+GUEST BOOT  NOT STARTED — 0 boot attempts used
+MAC.4  NOT STARTED — no node request or authenticated transport claim
+```
+
+The cursors through §59.1 remain historical. No preserved image was modified,
+no image was produced and no machine was started. `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` remain unchanged.

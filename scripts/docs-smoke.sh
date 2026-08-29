@@ -2521,6 +2521,7 @@ V1_EVIDENCE_CORRECTION=native/containment/native-shadow-mac3-guest-console-evide
 V2_SOURCE_OVERLAY=native/containment/native-shadow-launcher-source-overlay-arm64-v2.json
 V2_EVIDENCE_PROTOCOL=native/containment/native-shadow-launcher-v2-console-evidence-protocol-arm64-v1.json
 V2_BUILD_AUTHORITY=native/containment/native-shadow-launcher-build-authority-arm64-v2.json
+V2_BUILD_RESULT=native/containment/native-shadow-launcher-build-result-arm64-v2.json
 require_file "$V1_EVIDENCE_CORRECTION"
 require_text "$V1_EVIDENCE_CORRECTION" '"changesAnyPassCondition": false'
 require_text "$V1_EVIDENCE_CORRECTION" 'present is not an alias for resolved'
@@ -2545,6 +2546,19 @@ require_text "$V2_BUILD_AUTHORITY" '"SOURCE_DATE_EPOCH": null'
 require_text "$V2_BUILD_AUTHORITY" '"testCommand"'
 require_text "$V2_BUILD_AUTHORITY" '"--bins"'
 require_text "$V2_BUILD_AUTHORITY" '"guestImageBuilt": false'
+require_file "$V2_BUILD_RESULT"
+require_text "$V2_BUILD_RESULT" '"sha256": "53412188cec4488cf694450548991607c66e9281ccf54e6b462d34b3a345decd"'
+require_text "$V2_BUILD_RESULT" '"sizeBytes": 2025192'
+require_text "$V2_BUILD_RESULT" '"independentBuildCount": 2'
+require_text "$V2_BUILD_RESULT" '"overlaySourceTestRuns": 2'
+require_text "$V2_BUILD_RESULT" '"ambient-home": 0'
+require_text "$V2_BUILD_RESULT" '"cargo-home": 0'
+require_text "$V2_BUILD_RESULT" '"repository-root": 0'
+require_text "$V2_BUILD_RESULT" '"rustup-home": 0'
+require_text "$V2_BUILD_RESULT" '"source-root": 0'
+require_text "$V2_BUILD_RESULT" '"bootableClaim": false'
+require_text "$V2_BUILD_RESULT" '"activationAllowed": false'
+require_text scripts/test_native_shadow_launcher_build_arm64_v2.py '0ffa4035b8f7f3e698c2ac57eead4b8122cb0c462ab2cb170a87c1973bb01b08'
 require_text scripts/self-test.sh 'native-shadow-launcher-v2-contract'
 require_text native/launcher-v2-overlay/active-execution-after.rs.txt 'let mut listener = bind_listener_in_directory('
 require_text native/launcher-v2-overlay/active-execution-after.rs.txt 'crate::console_evidence::emit(&mut stdout.lock(), &records)'

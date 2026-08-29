@@ -16,6 +16,9 @@ import tempfile
 import unittest
 
 
+SEALED_RESULT_SHA256 = "0ffa4035b8f7f3e698c2ac57eead4b8122cb0c462ab2cb170a87c1973bb01b08"
+
+
 def launcher_v2():
     return importlib.import_module("scripts.native_shadow_launcher_build_arm64_v2")
 
@@ -508,6 +511,52 @@ class BuildAuthorityTests(unittest.TestCase):
         self.assertLess(tracked, refused)
         self.assertNotIn("continue-on-error", job)
         self.assertNotIn("|| true", job)
+
+
+class SealedResultTests(unittest.TestCase):
+    """The reviewed first arm64 candidate becomes authority only after reproof."""
+
+    def setUp(self) -> None:
+        self.module = launcher_v2()
+        self.authority = self.module.load_authority()
+
+    def test_the_first_arm64_candidate_is_committed_byte_for_byte(self) -> None:
+        raw = self.module.RESULT_PATH.read_bytes()
+        self.assertEqual(self.module.sha256_bytes(raw), SEALED_RESULT_SHA256)
+        self.assertEqual(
+            self.module.v1.canonical_json(json.loads(raw.decode("utf-8"))), raw
+        )
+
+    def test_the_result_is_exactly_reconstructible_from_its_recorded_build(self) -> None:
+        result = json.loads(self.module.RESULT_PATH.read_text(encoding="utf-8"))
+        expected = self.module.build_result(
+            self.authority,
+            built={
+                "buildCount": result["independentBuildCount"],
+                "producerPathHits": result["producerPathHits"],
+                "sha256": result["launcher"]["sha256"],
+                "sizeBytes": result["launcher"]["sizeBytes"],
+            },
+            identity=result["observedToolchain"],
+        )
+        self.assertEqual(result, expected)
+        self.assertEqual(result["independentBuildCount"], 2)
+        self.assertEqual(result["overlaySourceTestRuns"], 2)
+        self.assertTrue(
+            all(value == 0 for value in result["producerPathHits"].values())
+        )
+        self.assertTrue(
+            all(value is False for value in result["boundaries"].values())
+        )
+        self.assertFalse(result["activationAllowed"])
+        self.assertFalse(result["bootableClaim"])
+
+    def test_the_sealed_result_is_pinned_by_the_document_gate(self) -> None:
+        smoke = (self.module.REPO_ROOT / "scripts/docs-smoke.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("native-shadow-launcher-build-result-arm64-v2.json", smoke)
+        self.assertIn(SEALED_RESULT_SHA256, smoke)
 
 
 if __name__ == "__main__":
