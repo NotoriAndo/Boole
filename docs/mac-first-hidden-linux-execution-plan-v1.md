@@ -4592,3 +4592,72 @@ unchanged. An image exists and is fingerprinted. It has not been booted, no
 guest has run, no node has been connected, and nothing is served from it. No
 clean-Mac canary, VM boot, real release build, production key, public mining,
 paid API benchmark, user installation or activation occurred.
+
+## 50. Preserving what cannot be made again (2026-08-29)
+
+The production budget is zero. The three files the fourth attempt produced
+cannot be built again under any authority that currently exists, the GitHub
+artifacts holding them expire on 2026-09-04, and the download that verified them
+sat in a session scratchpad the operating system is free to clear. So a second
+copy was made somewhere that survives a reboot, before anything else was
+considered.
+
+**What was copied, and how.** All six artifacts, both replicas, in full: 18
+files, 7,739,896,486 bytes. Each file was written under a temporary name, its
+size and SHA-256 compared with the source, and renamed into place only after
+both matched. The whole tree was built beside its final path and renamed there
+in one step, so the final path never existed in a half-copied state. Every
+digest was then re-read at the final path, and re-read a third time after the
+read-only mode was applied. Files are `0444`, directories `0555`, and a write
+attempt into the archive is refused by the filesystem.
+
+**Both replicas were kept whole.** Recording the second replica's digests would
+have met the requirement, since the two sets are byte-identical and the identity
+is proven twice over. Both were kept as bytes anyway. The budget is zero, these
+are the only copies that will ever exist, and a second set on the same disk
+costs 3.6 GB against a loss that cannot be undone.
+
+**Nothing was deleted.** The GitHub artifacts are left to expire on their own
+date rather than being cleared early, the scratchpad download stays where it is,
+and every sealed record is byte-unchanged. Preservation that destroys its own
+source is not preservation.
+
+**The archive layout follows the artifacts.** One directory per GitHub artifact,
+named as the artifact was, so an archived directory and an artifact id refer to
+the same thing without a translation table. The archive also carries its own
+copy of the preservation record, so that separated from this repository it still
+explains what it holds.
+
+**What is in the repository, and what is not.** Only the record: paths, digests,
+sizes, artifact ids and expiry dates. No binary is committed. The archive root
+is a machine-local path, so the gate's on-disk checks skip where the archive is
+not present rather than failing — a runner has nothing truthful to say about a
+disk it cannot see.
+
+**The honest limit.** One copy on one internal disk in one machine is a single
+point of failure. No offsite or removable copy exists and none is scheduled;
+nothing re-reads these digests on a schedule, so silent corruption between now
+and the next manual check would not be noticed; the archive is not encrypted.
+The record says all of this in as many words, because a preservation record that
+claims safety it does not have invites exactly the loss it was written to
+prevent.
+
+### 50.1 Execution cursor after preservation
+
+```text
+SUCCESSOR-IMAGE-PRODUCTION  SPENT / PASSED — 1 dispatch, 2 replicas, byte-identical
+SUCCESSOR-IMAGE-PRESERVATION  DONE — 18 files, both replicas, read-only, off the expiry clock
+SUCCESSOR-IMAGE-BUDGET  EXHAUSTED — 3 attempts spent in total, 0 remaining
+BOOT-PASS-CRITERIA  NOT WRITTEN — the next gate, and it is written before any boot
+GUEST-BOOT  NOT STARTED — 0 boot attempts used, boot budget untouched, not authorised
+MAC.4  NOT STARTED — does not begin automatically
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — release gate retained
+MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
+```
+
+The cursors in §46.1, §47.1, §48.1 and §49.1 are left as they were written; this
+one is added beside them. MAC.3 is not complete: the position is "a bootable
+candidate image exists and is preserved", not "the guest boots".
+`mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation
+`false` and `activationAllowed=false` remain unchanged. Nothing was booted, no
+guest ran, no node was connected, and nothing is served.
