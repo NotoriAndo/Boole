@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `381a38d814a3077aa3c42d3793438b4eedf35bc16c0e9444dceddb3f2a444e60` (updated 2026-08-30c — the append-only master records the tracked launcher-v2 result and the sealed-emitter boundary) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `d4012ea2301da7c27e5986b04529b252668db4e01e60a44f4649f4e5e2ad3942` (updated 2026-08-30c — exact arm64 reproof precedes a third fail-closed emitter build; image wiring remains closed) |
+| `local-docs/todo/todo-l1-network-master.md` | `8e81f06d3413d71e9ba95d973fac5924223807305ad0d2c78acddc6c4474bf96` (updated 2026-08-30d — the append-only master preregisters launcher-v2 image integration at production authority zero) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `c8823aa6bab9514ed0136bfbf6ceacce7b6799c239c06ca2e7e2c1f0a27858e3` (updated 2026-08-30d — the cursor moves to a new predecessor-pinned builder projection and free preflight) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `95e94c5763472844dd4bf3e32fc2e7609f28fd1d292076385c265dcb430f1d17` (updated 2026-08-30g — a sealed result gains a no-overwrite byte consumer without gaining image or boot authority) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `1c48aa6c8c330ce75b4d6309d80791a52174dc17f870237a981e38c1dff3ac1d` (updated 2026-08-30h — reproducible bytes become a zero-authority integration projection before production) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2097,3 +2097,19 @@ The required CI job exercises the emitter only after re-proving the tracked
 two-build result. Its output stays in runner-temporary storage. No image
 producer consumes it here, so this addendum grants no image, boot, node, MAC.4,
 mining, reward, consensus or P2P authority.
+
+## Launcher-v2 image-integration preregistration addendum (2026-08-30)
+
+PR #301 exercised the sealed emitter on Linux arm64. The tracked result was
+re-proved first, then a third build emitted the same 2,025,192-byte file at
+SHA-256
+`53412188cec4488cf694450548991607c66e9281ccf54e6b462d34b3a345decd`;
+the workflow shell compared the emitted digest and size independently.
+
+The following preregistration binds that proved emitter to the current staging
+inputs without granting production. It derives the sole expected content delta
+from launcher v1 and v2 results: entries stay 17,676 and payload becomes
+1,773,475,059 bytes. It also records that the current builder correctly refuses
+v2 under its v1 seal, so a new predecessor-pinned builder projection is the next
+step. Image production runs allowed remain zero; boot, MAC.4, testnet, mining,
+reward, consensus and P2P remain unopened.
