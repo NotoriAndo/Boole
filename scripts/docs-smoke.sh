@@ -2355,4 +2355,50 @@ require_text scripts/self-test.sh 'scripts/test_native_shadow_successor_image_pr
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'SUCCESSOR-IMAGE-PRESERVATION  DONE'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Preserving what cannot be made again'
 
+# Third closed-local boot attempt: the conditions, sealed before the run is
+# approved and before it is run. Two things a record like this softens if left
+# unpinned. First, that it sets the exam without opening it -- a document that
+# did both would make the review it exists for impossible to fail. Second, that
+# the archive's read-only modes stop a slip and not its owner, which is why the
+# digests are recomputed at the moment of loading rather than carried over from
+# the day the copy was made.
+V3_BOOT_CRITERIA=native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v3.json
+require_file "$V3_BOOT_CRITERIA"
+require_text "$V3_BOOT_CRITERIA" '"attemptId": "MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-3"'
+require_text "$V3_BOOT_CRITERIA" 'PRE-FROZEN-NOT-RUN-NOT-AUTHORISED'
+require_text "$V3_BOOT_CRITERIA" '"frozenBefore": "any qualification run"'
+require_text "$V3_BOOT_CRITERIA" '"runsAllowed": 1'
+require_text "$V3_BOOT_CRITERIA" '"runsPerformed": 0'
+require_text "$V3_BOOT_CRITERIA" '"grantedByThisRecord": false'
+require_text "$V3_BOOT_CRITERIA" '"stopsAccidentalOverwrite": true'
+require_text "$V3_BOOT_CRITERIA" '"stopsTheOwnerChangingIt": false'
+require_text "$V3_BOOT_CRITERIA" '"verifiedImmediatelyBeforeBoot": true'
+require_text "$V3_BOOT_CRITERIA" '"onMismatch": "abort"'
+require_text "$V3_BOOT_CRITERIA" '"usedAsFallbackOnDigestMismatch": false'
+require_text "$V3_BOOT_CRITERIA" 'archive-digests-recomputed-immediately-before-boot'
+require_text "$V3_BOOT_CRITERIA" 'launcher-prerequisites-verify-inside-the-guest'
+require_text "$V3_BOOT_CRITERIA" 'no-failed-unit-and-no-freeze-in-the-transcript'
+require_text "$V3_BOOT_CRITERIA" 'exactly-one-boot-of-this-image'
+require_text "$V3_BOOT_CRITERIA" 'nothing-beyond-the-closed-local-boot-is-attempted'
+require_text "$V3_BOOT_CRITERIA" 'launcher-supervises-as-root-and-submissions-run-unprivileged'
+require_text "$V3_BOOT_CRITERIA" '"stillAbsent": false'
+require_text "$V3_BOOT_CRITERIA" '"requiredBeforeProductDistribution": true'
+require_text "$V3_BOOT_CRITERIA" '"blocksThisClosedLocalBoot": false'
+require_text "$V3_BOOT_CRITERIA" '"mac4Started": false'
+require_text "$V3_BOOT_CRITERIA" '"nodeConnected": false'
+require_text "$V3_BOOT_CRITERIA" '"miningEnabled": false'
+require_text "$V3_BOOT_CRITERIA" '"guestBootVerified": false'
+require_text "$V3_BOOT_CRITERIA" '"launcherServing": false'
+require_text "$V3_BOOT_CRITERIA" '"bootableClaim": false'
+require_text "$V3_BOOT_CRITERIA" '"servingClaim": false'
+require_text "$V3_BOOT_CRITERIA" '"activationAllowed": false'
+require_file scripts/test_native_shadow_mac3_closed_local_boot_qualification_arm64_v3.py
+require_text scripts/test_native_shadow_mac3_closed_local_boot_qualification_arm64_v3.py 'class BootIsNotAuthorisedHereTests'
+require_text scripts/test_native_shadow_mac3_closed_local_boot_qualification_arm64_v3.py 'class ReadOnlyIsNotSecurityTests'
+require_text scripts/test_native_shadow_mac3_closed_local_boot_qualification_arm64_v3.py 'def test_every_condition_is_either_carried_or_declared_new'
+require_text scripts/test_native_shadow_mac3_closed_local_boot_qualification_arm64_v3.py 'def test_no_condition_is_left_answering_nothing'
+require_text scripts/self-test.sh 'scripts/test_native_shadow_mac3_closed_local_boot_qualification_arm64_v3.py'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'BOOT-PASS-CRITERIA  SEALED / NOT RUN'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Setting the exam before opening the room'
+
 printf 'docs-smoke: PASS\n' >&2

@@ -1,0 +1,755 @@
+{
+  "abortConditions": [
+    "a network device, a shared directory or a writable disk appearing in the machine configuration",
+    "a second boot of this image, under this record or any other",
+    "a second qualification run of any kind against this image",
+    "any of the three images at the archive, or the preservation manifest, failing its digest or byte-count check immediately before boot",
+    "needing a Team ID, a Developer ID certificate, a provisioning profile or notarization to carry the virtualization entitlement",
+    "needing to modify, repack or remount the sealed image to get further",
+    "needing to relax, reword or drop any condition below to call the run a pass",
+    "needing to start MAC.4, connect a node, or enable mining, rewards, consensus or P2P for the guest in order to reach a pass",
+    "reaching for the first attempt's spent allowance, or any allowance other than the single one this record opens",
+    "the archive, or anything in it, needing to be made writable, re-permissioned or moved before the run can proceed",
+    "the first attempt's records, or the sealed determinism failure, needing an edit of any kind before this attempt can proceed",
+    "the run proceeding without the separate boot approval this record leaves open",
+    "the sealed kernel or root disk failing its digest check immediately before boot",
+    "the sealed root disk being byte-different after the run",
+    "the second replica being loaded in place of a file whose digest did not match, instead of the run stopping"
+  ],
+  "abortConditionsFromTheSecondAttempt": [
+    {
+      "condition": "a second qualification run of any kind against this image",
+      "disposition": "carried"
+    },
+    {
+      "condition": "the sealed kernel or root disk failing its digest check immediately before boot",
+      "disposition": "carried"
+    },
+    {
+      "condition": "needing a Team ID, a Developer ID certificate, a provisioning profile or notarization to carry the virtualization entitlement",
+      "disposition": "carried"
+    },
+    {
+      "condition": "needing to modify, repack or remount the sealed image to get further",
+      "disposition": "carried"
+    },
+    {
+      "condition": "the sealed root disk being byte-different after the run",
+      "disposition": "carried"
+    },
+    {
+      "condition": "a network device, a shared directory or a writable disk appearing in the machine configuration",
+      "disposition": "carried"
+    },
+    {
+      "condition": "needing to relax, reword or drop any condition below to call the run a pass",
+      "disposition": "carried"
+    },
+    {
+      "condition": "reaching for the first attempt's spent allowance, or any allowance other than the single one this record opens",
+      "disposition": "carried"
+    },
+    {
+      "condition": "the first attempt's records, or the sealed determinism failure, needing an edit of any kind before this attempt can proceed",
+      "disposition": "carried"
+    },
+    {
+      "condition": "the successor image turning out to differ from the failed one in anything beyond the five directories named here",
+      "disposition": "superseded",
+      "supersededBy": "any of the three images at the archive, or the preservation manifest, failing its digest or byte-count check immediately before boot",
+      "why": "It names five directories added to the image two attempts ago, which is not the image this record is about.  Carried forward it would sit in the list unable to trigger, which reads as a safeguard and is not one.  What it was for -- the loaded image being other than the one described -- is covered by the digest check, which is stricter because it compares the whole file."
+    }
+  ],
+  "activationAllowed": false,
+  "appendOnly": {
+    "policy": "Records already sealed are bound here by digest and left byte-unchanged.",
+    "recordsLeftByteUnchanged": [
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+        "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a",
+        "sizeBytes": 8597
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json",
+        "sha256": "bf703945ec02f1f66b492f7bb0c6e4080190caea17dc063e2868ef688669abb7",
+        "sizeBytes": 24273
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json",
+        "sha256": "0fdd8b4711c9f76127a9bf71c86c63f87a8a05501eb61ef864cef2e8bca24f8c",
+        "sizeBytes": 10837
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json",
+        "sha256": "95655e74754c27166902a4030c92608d32a5f76e250b091863b923fa69a5deeb",
+        "sizeBytes": 17536
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f",
+        "sizeBytes": 17589
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json",
+        "sha256": "e1f53448078b0cde1f3ed771563dd8f6842fa70a8f6ea27fa43612a656391bdf",
+        "sizeBytes": 18881
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json",
+        "sha256": "9b1af46452a8b827057cb252e589b7a39316fc4a4e58e6e2a43fae4d2b45c86e",
+        "sizeBytes": 26125
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json",
+        "sha256": "17d6d1cf58652d9962abd1863f92e4a81cad9571e4663e7ee66f2cfaa9779864",
+        "sizeBytes": 13483
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json",
+        "sha256": "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc",
+        "sizeBytes": 41237
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v4.json",
+        "sha256": "0faddb098503bbf17bf94ec36148e6ccf1af8fa1335ba0e5e9c79cd9d573b7dd",
+        "sizeBytes": 14002
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-preservation-arm64-v4.json",
+        "sha256": "2ff7a3a30513092495a2d8b67555b4e974ef75af47de08acfe8c049063549126",
+        "sizeBytes": 10112
+      },
+      {
+        "path": "native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json",
+        "sha256": "07a41497c99554eba5453bbc9771f3c450ec22bb80d2852c30174d66fa76fad1",
+        "sizeBytes": 15925
+      }
+    ],
+    "why": "Two attempts and one spent production budget are recorded in files this one leans on.  A successor that edited any of them would be rewriting the evidence it claims to build on, and the digests below are what makes that visible rather than a matter of trust."
+  },
+  "attemptId": "MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-3",
+  "boot": {
+    "kernelCommandLine": "console=hvc0 root=/dev/vda ro init=/usr/lib/systemd/systemd",
+    "loader": "linux",
+    "noInitrd": true,
+    "why": {
+      "console=hvc0": "the virtio console the host attaches. Without it the run produces no evidence in either direction.",
+      "init=/usr/lib/systemd/systemd": "the real binary. /usr/sbin/init is a symlink to it, and naming the symlink adds a way for the boot to fail for a reason that is not about the image.",
+      "ro": "matches the read-only attachment. The guest is refused writes at the device, and asking for them would only produce noise.",
+      "root=/dev/vda": "the sealed image is a bare ext4 filesystem with no partition table, attached as the only block device."
+    }
+  },
+  "bootAuthorisation": {
+    "grantedByThisRecord": false,
+    "requiredBefore": "any boot of this image -- one separate approval, given after this record has been reviewed, for the one run this record would judge",
+    "whoApproves": "the operator, in a separate instruction naming this record",
+    "why": "A document that set the exam and opened the run in the same breath would make the review it was written for impossible to fail: by the time anyone disagreed with a condition, the run would already be permitted.  Sealing the criteria first is what makes disagreement still able to change something."
+  },
+  "bootableClaim": false,
+  "boundaries": {
+    "cleanMacEvidence": false,
+    "guestBootVerified": false,
+    "launcherServing": false,
+    "mac4Started": false,
+    "miningEnabled": false,
+    "nodeConnected": false,
+    "productRelease": false,
+    "publicMiningOrBenchmark": false,
+    "runtimeCompatibilityVerified": false
+  },
+  "conditionsKeptBeyondTheRequestedList": [
+    "every-write-lands-on-tmpfs",
+    "no-host-wallet-model-key-or-node-secret-in-the-guest"
+  ],
+  "earlierAttempts": [
+    {
+      "attemptId": null,
+      "attemptIdNote": "The first attempt predates this identifier scheme: neither its conditions nor its receipt carries one.  Naming it after the fact would put a label in the record that exists nowhere else, so it is identified here by the receipt it wrote.",
+      "rerunPermitted": false,
+      "resultPath": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json",
+      "reusedByThisAttempt": false,
+      "runsAllowed": 1,
+      "runsPerformed": 1,
+      "verdict": "FAIL",
+      "why": "It was made once against a different image and failed at PID 1.  Its allowance is gone and its verdict stands."
+    },
+    {
+      "attemptId": "MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-2",
+      "rerunPermitted": false,
+      "resultPath": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json",
+      "reusedByThisAttempt": false,
+      "runsAllowed": 1,
+      "runsPerformed": 1,
+      "verdict": "PASS",
+      "why": "It was made once against a different image and passed, reaching its default target without the launcher's prerequisites being in reach.  Its allowance is gone, and this attempt does not extend it: a third image is a third exam."
+    }
+  ],
+  "frozenBefore": "any qualification run",
+  "gapsOpenAtTheSecondAttempt": [
+    {
+      "closedBy": "the account database staged into the image from native/etc, because the thing that would normally create it cannot write to a read-only root",
+      "consequenceWhileOpen": "systemd cannot resolve boole-node or boole-native-checker, so the launcher's service-identity prerequisite will refuse. systemd-sysusers would normally create them at boot, and it cannot on a read-only root. This is recorded now so that refusal is a known result rather than a surprise, and so nobody later reads it as the image being broken.",
+      "evidence": {
+        "check": "the read-back check modes-owners-and-paths-match-the-lock compared the produced image against the successor source lock and reported every tracked path matching, with no check failing",
+        "path": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v4.json",
+        "sha256": "0faddb098503bbf17bf94ec36148e6ccf1af8fa1335ba0e5e9c79cd9d573b7dd"
+      },
+      "path": "/etc/passwd",
+      "stillAbsent": false,
+      "what": "the account database the guest's own sysusers file expects to fill in"
+    },
+    {
+      "closedBy": "the already-sealed arm64 runtime rootfs and its content manifest merged into the image, at the manifest digest the replay expectation seals",
+      "consequenceWhileOpen": "the launcher refuses at verify_runtime_rootfs_replay. Serving executions was never in reach for this image, and no pass condition below asks for it.",
+      "evidence": {
+        "check": "the authority binds the nested runtime layer, its guest prefix and the content manifest digest before the run, and the produced image was read back against the source lock the same authority bound",
+        "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json",
+        "sha256": "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc"
+      },
+      "path": "/var/lib/boole/native-shadow/runtime-rootfs",
+      "stillAbsent": false,
+      "what": "the runtime rootfs and its content manifest the launcher verifies before it serves anything"
+    },
+    {
+      "closedBy": "the launcher unit replaced by the v2 unit, which sends standard output and standard error to the console the host already captures and hashes",
+      "consequenceWhileOpen": "where the launcher refuses is not observable, which the sealed boot receipt records as a limit of that run rather than as a property of the launcher.",
+      "evidence": {
+        "check": "the authority names native/systemd/boole-native-shadow-launcher-v2.service as the staged unit source and records why: a launcher writing only to the journal is a launcher whose refusal the host cannot read",
+        "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json",
+        "sha256": "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc"
+      },
+      "path": "the launcher's own output",
+      "stillAbsent": false,
+      "what": "a channel by which the launcher's refusal can be read"
+    }
+  ],
+  "host": {
+    "architecture": "arm64",
+    "closedLocal": true,
+    "framework": "Virtualization.framework",
+    "machine": "development Mac",
+    "os": "macOS",
+    "why": "MAC.3 is closed-local development work. The clean-Mac question is a different gate with a different environment, and this record does not touch it."
+  },
+  "invariants": {
+    "BF.7": "HOLD",
+    "CURL.3": "DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED",
+    "LLM-MINEABLE-ELIGIBLE-V5": 14160,
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "activationAllowed": false,
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "isolation": {
+    "hostFilesystemExposedToGuest": false,
+    "networkDevices": 0,
+    "rootDiskAttachedReadOnly": true,
+    "sharedDirectories": 0,
+    "why": "The guest is a filesystem built from 191 pinned packages and a launcher. It has no reason to reach the network or the host's files, and the cheapest way to keep a boot from becoming something else is to give it nothing to reach.",
+    "writableDisksAttached": 0
+  },
+  "knownAbsentBeforeTheRun": [
+    {
+      "consequence": "everything the run learns, it learns from the console the host captures.  The guest cannot be asked a question and cannot answer one, so no receipt the guest produces is available to this run, and none is required by any condition here.",
+      "inScope": false,
+      "path": "MAC.4",
+      "what": "an authenticated transport between the host and the guest"
+    },
+    {
+      "consequence": "the images survive a reboot and a temporary-directory sweep, and would not survive the loss of the machine.  It does not block a closed-local boot, which reads the files rather than risking them.",
+      "inScope": false,
+      "path": "the archive",
+      "what": "an offsite or removable copy of the three images"
+    }
+  ],
+  "notEstablishedByAPass": [
+    "CURL.3, which stays DEFERRED / NOT PASSED",
+    "MAC.4, which is not started here and is not made closer by a pass",
+    "a node connection, a reward, a block, consensus or P2P authority for the guest",
+    "activation, which stays false with every gate before it still in place",
+    "clean-Mac evidence, which needs an environment this is not",
+    "product release readiness of any kind",
+    "public mining, a paid-API benchmark or a leaderboard claim",
+    "runtime compatibility of the guest toolchain",
+    "that the images are safe from loss, which one archive on one machine does not make them",
+    "the launcher reaching a serving state, or serving any execution"
+  ],
+  "offsiteCopy": {
+    "blocksThisClosedLocalBoot": false,
+    "existsToday": false,
+    "requiredBeforeProductDistribution": true,
+    "why": "A closed-local boot reads the archived files and writes nothing back to them, so the absence of a second site does not make this run less safe or its verdict less true.  It is still the single point of failure the preservation record names, and it has to be answered before anything built on these images is distributed rather than at the moment it becomes urgent."
+  },
+  "operatorRequirements": [
+    {
+      "conditionIds": [
+        "archive-digests-recomputed-immediately-before-boot",
+        "loads-the-converged-image"
+      ],
+      "requirement": "the three images fixed by their path in the permanent archive, their size and their sha256"
+    },
+    {
+      "conditionIds": [
+        "archive-digests-recomputed-immediately-before-boot",
+        "root-disk-stays-read-only",
+        "sealed-image-unchanged-after-the-run"
+      ],
+      "requirement": "the image digests identical immediately before the boot and after the machine stops"
+    },
+    {
+      "conditionIds": [
+        "closed-local-configuration",
+        "no-network-device-and-no-shared-directory"
+      ],
+      "requirement": "zero network devices, zero shared folders and zero writable disks"
+    },
+    {
+      "conditionIds": [
+        "root-disk-stays-read-only",
+        "sealed-image-unchanged-after-the-run"
+      ],
+      "requirement": "the root disk attached read-only"
+    },
+    {
+      "conditionIds": [
+        "kernel-reaches-its-root-filesystem"
+      ],
+      "requirement": "the kernel reaching its root filesystem"
+    },
+    {
+      "conditionIds": [
+        "guest-systemd-is-pid-1"
+      ],
+      "requirement": "systemd running as PID 1"
+    },
+    {
+      "conditionIds": [
+        "launcher-executable-matches-the-sealed-digest",
+        "launcher-service-starts-without-being-asked"
+      ],
+      "requirement": "the v2 launcher service actually starting"
+    },
+    {
+      "conditionIds": [
+        "launcher-prerequisites-verify-inside-the-guest"
+      ],
+      "requirement": "the account database, the runtime rootfs and the content manifest all passing verification"
+    },
+    {
+      "conditionIds": [
+        "launcher-supervises-as-root-and-submissions-run-unprivileged"
+      ],
+      "requirement": "the boundary held that submitted answers and their checker run under an unprivileged account"
+    },
+    {
+      "conditionIds": [
+        "console-transcript-captured-and-hashed",
+        "no-failed-unit-and-no-freeze-in-the-transcript",
+        "readiness-and-clean-shutdown-are-observed",
+        "systemd-does-not-enter-emergency-and-reaches-its-target"
+      ],
+      "requirement": "evidence of readiness on the console, and no failure or freeze message"
+    },
+    {
+      "conditionIds": [
+        "nothing-of-the-guest-survives-the-shutdown"
+      ],
+      "requirement": "zero machines, processes and temporary mounts left after the shutdown"
+    },
+    {
+      "conditionIds": [
+        "exactly-one-boot-of-this-image"
+      ],
+      "requirement": "exactly one boot of the new image permitted"
+    },
+    {
+      "conditionIds": [
+        "nothing-beyond-the-closed-local-boot-is-attempted"
+      ],
+      "requirement": "MAC.4 communication, node connection and mining activation excluded from what a pass covers"
+    }
+  ],
+  "outOfScope": [
+    "MAC.4 host-guest authenticated communication",
+    "connecting a node, or granting the guest any reward, block, consensus or P2P authority",
+    "enabling mining of any kind, or any activation",
+    "moving wallet funds, or placing any wallet seed, passphrase or model key in the guest",
+    "public mining, a paid-API benchmark or a leaderboard claim"
+  ],
+  "passConditions": [
+    {
+      "condition": "the three images loaded are the archived files at the paths, sizes and digests this record names, recomputed at the moment of loading rather than trusted from an earlier check",
+      "id": "archive-digests-recomputed-immediately-before-boot",
+      "judgedBy": "the host reads each of the three files from the permanent archive, compares its byte count and its freshly computed sha256 with the values in subject.images, and recomputes the preservation manifest twice -- the copy inside the archive and the copy tracked in the repository -- against the digest in subject.preservationRecord.  Every one of these is taken immediately before the machine is configured, and any mismatch stops the run before a machine exists.  The results go into the run receipt.",
+      "newInThisRecord": true,
+      "why": "The image no longer lives only in a CI artifact that a workflow produced and would expire; it lives in an archive on a disk whose owner can change its permissions at any time.  A read-only mode prevents a slip, not a decision, so the only honest basis for saying these are the produced bytes is to hash them again at the moment they are used."
+    },
+    {
+      "carriedFrom": {
+        "field": "passConditions",
+        "judgedByKey": "judgedBy",
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+        "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a"
+      },
+      "condition": "the machine is configured with no network device, no shared directory and no writable disk",
+      "id": "closed-local-configuration",
+      "judgedBy": "the configuration the host built is serialised into the run receipt and read back: the counts must be zero and the single disk attachment must be read-only"
+    },
+    {
+      "carriedFrom": {
+        "field": "passConditions",
+        "judgedByKey": "judgedBy",
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+        "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a"
+      },
+      "condition": "the run leaves a transcript that can be read by someone who was not there",
+      "id": "console-transcript-captured-and-hashed",
+      "judgedBy": "the whole console stream is written to a file, its sha256 and byte count go into the run receipt, and the file is kept whatever the verdict"
+    },
+    {
+      "carriedFrom": {
+        "field": "conditions",
+        "judgedByKey": "howItWillBeChecked",
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f"
+      },
+      "condition": "every write the guest needs lands on tmpfs",
+      "id": "every-write-lands-on-tmpfs",
+      "judgedBy": "the mount table the guest executes is read from the image, and every path the launcher and its units write to is required to resolve to a tmpfs mount; the root disk being unchanged afterwards is the independent half of the same check."
+    },
+    {
+      "condition": "this image is booted exactly once under this record, and the run that happens is the separately approved one",
+      "id": "exactly-one-boot-of-this-image",
+      "judgedBy": "the driver refuses to start when the receipt named by resultPath already exists, so the count is read off the filesystem rather than taken on trust; the receipt records the approval it ran under, and a second run of any kind is an abort condition rather than a retry.",
+      "newInThisRecord": true,
+      "why": "The production budget that made this image is spent and cannot be refilled.  A boot is not destructive by itself, but an attempt that could be quietly repeated until it passed would make the verdict meaningless, and the operator asked for exactly one."
+    },
+    {
+      "carriedFrom": {
+        "field": "passConditions",
+        "judgedByKey": "judgedBy",
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+        "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a"
+      },
+      "condition": "PID 1 is the systemd that was built into this image",
+      "id": "guest-systemd-is-pid-1",
+      "judgedBy": "the captured console shows systemd's own startup banner reporting version 255, which is the version the image carries"
+    },
+    {
+      "carriedFrom": {
+        "field": "passConditions",
+        "judgedByKey": "judgedBy",
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+        "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a"
+      },
+      "condition": "the guest kernel executes and mounts the sealed ext4 as its root filesystem",
+      "id": "kernel-reaches-its-root-filesystem",
+      "judgedBy": "the captured console shows the kernel banner and an EXT4-fs line naming the root device mounted read-only"
+    },
+    {
+      "carriedFrom": {
+        "field": "conditions",
+        "judgedByKey": "howItWillBeChecked",
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f"
+      },
+      "condition": "the launcher executable matches the sealed fingerprint",
+      "id": "launcher-executable-matches-the-sealed-digest",
+      "judgedBy": "the digest is compared against the producer authority's sealed launcher block before the image is built, and the guest reports the digest of the file it actually executed once it can speak."
+    },
+    {
+      "condition": "the launcher's own prerequisites pass inside the guest: the service account database resolves the identities it needs, the runtime rootfs is present, and it verifies against its sealed content manifest",
+      "id": "launcher-prerequisites-verify-inside-the-guest",
+      "judgedBy": "the captured console shows the launcher passing account resolution and passing the runtime rootfs verification against the sealed content manifest, with the manifest digest it reports equal to the value the production authority bound.  A refusal at either step is a failure of this condition rather than a known limit, because the material both steps look for is in this image.",
+      "newInThisRecord": true,
+      "why": "The second attempt recorded both of these as absent, so the launcher's refusal there was a known result and nothing was graded on it.  The successor image was produced to put them in.  With the material present, a refusal is a failure, and leaving the condition ungraded would let the one thing this image was made for go unchecked."
+    },
+    {
+      "carriedFrom": {
+        "field": "conditions",
+        "judgedByKey": "howItWillBeChecked",
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f"
+      },
+      "condition": "the launcher service starts on its own",
+      "id": "launcher-service-starts-without-being-asked",
+      "judgedBy": "the console transcript has to show systemd starting the unit without a console command having asked for it, which the enablement symlink in the image is what produces."
+    },
+    {
+      "carriedFrom": {
+        "field": "correctedCondition",
+        "judgedByKey": "howItWillBeChecked",
+        "path": "native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json",
+        "sha256": "e1f53448078b0cde1f3ed771563dd8f6842fa70a8f6ea27fa43612a656391bdf"
+      },
+      "condition": "the launcher runs as root as a least-privilege supervisor holding exactly the four sealed capabilities, and every checker and submission process it creates runs only after descent to a sealed unprivileged account",
+      "id": "launcher-supervises-as-root-and-submissions-run-unprivileged",
+      "judgedBy": "in two halves that fail independently. The launcher half is read from the guest's own kernel status at startup, before the socket is bound: root in every identity slot, effective, permitted and bounding equal to the sealed four-capability mask, inheritable and ambient exactly zero. The submission half is read from the per-request setup order: the descent and its verification both precede the exec, the verification requires empty capability sets and no_new_privs on the child, and any stage failing stops the request before the exec rather than continuing past it."
+    },
+    {
+      "carriedFrom": {
+        "field": "passConditions",
+        "judgedByKey": "judgedBy",
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+        "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a"
+      },
+      "condition": "the two files loaded are the ones two arm64 replicas independently converged on",
+      "id": "loads-the-converged-image",
+      "judgedBy": "the host re-hashes the kernel and the root disk immediately before configuring the machine and refuses to start on any mismatch; both digests are written into the run receipt"
+    },
+    {
+      "condition": "no unit enters a failed state and the guest does not stall: the transcript shows continued progress to the readiness point rather than stopping at one",
+      "id": "no-failed-unit-and-no-freeze-in-the-transcript",
+      "judgedBy": "the console transcript is read for any unit reported as failed, for any dependency or start-job timeout, and for a gap between its last line and the machine stopping that is longer than the run's own stated budget.  Any of the three is a failure.  A transcript that simply ends without reaching readiness counts as a stall rather than as an absence of evidence.",
+      "newInThisRecord": true,
+      "why": "Reaching a target and hanging on the way to it look alike in a transcript that is only searched for the words it hoped to find.  The operator asked for the absence of failure and freeze messages to be part of the exam, which makes the silence itself something that has to be judged."
+    },
+    {
+      "carriedFrom": {
+        "field": "conditions",
+        "judgedByKey": "howItWillBeChecked",
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f"
+      },
+      "condition": "no host wallet, model key or node secret is present in the guest",
+      "id": "no-host-wallet-model-key-or-node-secret-in-the-guest",
+      "judgedBy": "the image is built from a fixed input list with no host path and no environment passthrough, and the produced image is searched for the known secret-bearing filenames and for the host's own wallet and key directories, which must have no entry."
+    },
+    {
+      "carriedFrom": {
+        "field": "conditions",
+        "judgedByKey": "howItWillBeChecked",
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f"
+      },
+      "condition": "the machine has no network device and no shared directory",
+      "id": "no-network-device-and-no-shared-directory",
+      "judgedBy": "counted from the host virtual-machine configuration before the run starts, as the sealed boot receipt already counts them: zero network devices, zero shared directories, zero socket devices."
+    },
+    {
+      "condition": "no authenticated host-guest transport, no node connection and no mining, reward, consensus or P2P authority is started, reached for or granted at any point in the run",
+      "id": "nothing-beyond-the-closed-local-boot-is-attempted",
+      "judgedBy": "the machine configuration in the run receipt carries no network device, no shared directory and no socket device, so there is nothing for a transport to run over; the console transcript is read for any attempt to open one; and the receipt records that no node process was started and no reward, block, consensus or P2P authority was granted to the guest.  Reaching any of these is an abort, not a partial pass.",
+      "newInThisRecord": true,
+      "why": "MAC.4 is the next piece of work and its absence here is deliberate.  Writing it as a graded condition rather than as a note means a run that drifted into it would fail rather than be described afterwards as having gone further than planned."
+    },
+    {
+      "carriedFrom": {
+        "field": "conditions",
+        "judgedByKey": "howItWillBeChecked",
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f"
+      },
+      "condition": "no guest process, socket or temporary file survives the shutdown",
+      "id": "nothing-of-the-guest-survives-the-shutdown",
+      "judgedBy": "counted on the host after the run the way the sealed boot receipt counts host processes, extended to the socket path and the working directory; the guest's own tmpfs is gone with the machine by construction."
+    },
+    {
+      "carriedFrom": {
+        "field": "conditions",
+        "judgedByKey": "howItWillBeChecked",
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f"
+      },
+      "condition": "readiness and a clean shutdown are observed",
+      "id": "readiness-and-clean-shutdown-are-observed",
+      "judgedBy": "the launcher's own readiness point has to be visible to the host, which today it is not; making it visible is part of what this contract opens. The shutdown half is read from the console transcript."
+    },
+    {
+      "carriedFrom": {
+        "field": "conditions",
+        "judgedByKey": "howItWillBeChecked",
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f"
+      },
+      "condition": "the root disk stays read-only",
+      "id": "root-disk-stays-read-only",
+      "judgedBy": "the disk is attached read-only by the host configuration, and its digest is taken before and after the run and required to be identical, the same way the sealed boot receipt established it."
+    },
+    {
+      "carriedFrom": {
+        "field": "passConditions",
+        "judgedByKey": "judgedBy",
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+        "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a"
+      },
+      "condition": "the sealed root disk is byte-identical after the run",
+      "id": "sealed-image-unchanged-after-the-run",
+      "judgedBy": "the host re-hashes the root disk file after the machine stops and compares it with the digest in the green record. Read-only is a claim about the attachment; this is the check that the claim held, and it is the one condition the guest cannot fake."
+    },
+    {
+      "carriedFrom": {
+        "field": "conditions",
+        "judgedByKey": "howItWillBeChecked",
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f"
+      },
+      "condition": "systemd does not enter emergency and reaches its target",
+      "id": "systemd-does-not-enter-emergency-and-reaches-its-target",
+      "judgedBy": "read from the console transcript the run captures: the target it settles on is compared with the guest's own default, and any emergency or rescue unit appearing at all is a failure rather than a note."
+    }
+  ],
+  "predecessorRecords": [
+    {
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+      "role": "the conditions the first attempt was judged by, carried here",
+      "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json",
+      "role": "the second attempt's conditions, and the abort list this one extends",
+      "sha256": "bf703945ec02f1f66b492f7bb0c6e4080190caea17dc063e2868ef688669abb7"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json",
+      "role": "the first attempt's verdict, left as it stands",
+      "sha256": "0fdd8b4711c9f76127a9bf71c86c63f87a8a05501eb61ef864cef2e8bca24f8c"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json",
+      "role": "the second attempt's verdict, left as it stands",
+      "sha256": "95655e74754c27166902a4030c92608d32a5f76e250b091863b923fa69a5deeb"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+      "role": "the frozen guest runtime conditions carried here, and the three gaps",
+      "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json",
+      "role": "the corrected fourth condition, carried here in its corrected form",
+      "sha256": "e1f53448078b0cde1f3ed771563dd8f6842fa70a8f6ea27fa43612a656391bdf"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-condition-4-descent-refusal-gate-arm64-v1.json",
+      "role": "the static contract behind the descent half of that condition",
+      "sha256": "9b1af46452a8b827057cb252e589b7a39316fc4a4e58e6e2a43fae4d2b45c86e"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json",
+      "role": "the measurement that named the distance this image closes",
+      "sha256": "17d6d1cf58652d9962abd1863f92e4a81cad9571e4663e7ee66f2cfaa9779864"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json",
+      "role": "the authority the image was produced under",
+      "sha256": "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v4.json",
+      "role": "the record of the run that produced it",
+      "sha256": "0faddb098503bbf17bf94ec36148e6ccf1af8fa1335ba0e5e9c79cd9d573b7dd"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-successor-image-preservation-arm64-v4.json",
+      "role": "where the images are kept, and at what digests",
+      "sha256": "2ff7a3a30513092495a2d8b67555b4e974ef75af47de08acfe8c049063549126"
+    },
+    {
+      "path": "native/containment/native-shadow-boot-root-disk-determinism-green-arm64-v1.json",
+      "role": "the determinism method and the invariants carried here",
+      "sha256": "07a41497c99554eba5453bbc9771f3c450ec22bb80d2852c30174d66fa76fad1"
+    }
+  ],
+  "readOnlyModeIsNotASecurityControl": {
+    "stopsAccidentalOverwrite": true,
+    "stopsTheOwnerChangingIt": false,
+    "whatFollows": "The pass condition archive-digests-recomputed-immediately-before-boot exists for exactly this reason: the digests are computed again at the moment of loading, so what is trusted is the bytes read then rather than the permissions they were left under.",
+    "why": "The archive is mode 0444 on files and 0555 on directories, owned by the account that made it.  That refuses a stray write, and it refuses nothing at all to whoever owns the files: a chmod is one command away, and no alarm follows it.  Reading the modes as protection would be reading a convenience as a guarantee."
+  },
+  "recomputeImmediatelyBeforeBoot": {
+    "how": "Each file is read from the archive and hashed in full, its byte count compared with this record, and the archive's own manifest copy hashed against the repository's.  Nothing is cached from the preservation run: that check answered for the disk on the day it was made, and this one has to answer for the disk on the day it is used.",
+    "images": [
+      "guest-initrd",
+      "guest-kernel",
+      "guest-root-disk"
+    ],
+    "onMismatch": "abort",
+    "preservationManifestAtTheArchive": true,
+    "preservationRecordInTheRepository": true
+  },
+  "record": "native-shadow-mac3-closed-local-boot-qualification-arm64-v3",
+  "recordRegardlessOfVerdict": [
+    "every service that entered a failed state, by unit name",
+    "the approval the run was performed under",
+    "the console transcript in full, by digest and byte count",
+    "the digests recomputed at the archive immediately before the boot, and whether each matched",
+    "the furthest boot stage the console shows the guest reaching",
+    "the machine's stop reason and exit status",
+    "where the launcher stopped, by the last prerequisite it reported passing",
+    "whether the launcher unit was started at all, and where it refused"
+  ],
+  "release": "NATIVE-SHADOW-MAC3-CLOSED-LOCAL-BOOT-QUALIFICATION-ARM64-V3",
+  "resultPath": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v3.json",
+  "runsAllowed": 1,
+  "runsPerformed": 0,
+  "schema": "boole.native-shadow.mac3-closed-local-boot-qualification.arm64.v3",
+  "servingClaim": false,
+  "signing": {
+    "adHocOnly": true,
+    "developerIdCertificate": false,
+    "entitlement": "com.apple.security.virtualization",
+    "notarization": false,
+    "provisioningProfile": false,
+    "teamId": false,
+    "why": "the entitlement is what Virtualization.framework requires; an ad-hoc signature carries it on the machine that produced it and nowhere else, which is exactly the reach this work is allowed."
+  },
+  "status": "MAC3-CLOSED-LOCAL-BOOT-THIRD-QUALIFICATION-PRE-FROZEN-NOT-RUN-NOT-AUTHORISED",
+  "subject": {
+    "archiveRoot": "/Users/seoyong/boole-artifacts/native-shadow/mac3-successor-arm64-v4",
+    "digestSourceForTheUnchangedCheck": {
+      "field": "subject.images, the row whose name is guest-root-disk, key sha256",
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v3.json",
+      "why": "One carried condition compares the root disk after the run with a digest frozen before it.  Which document holds that digest has to be settled before the run rather than chosen afterwards, and it is this one: the same value the production run recorded and the preservation record archived, restated here and checked against both."
+    },
+    "images": [
+      {
+        "archivePath": "successor-outputs-1/guest-initrd",
+        "bytes": 1776433848,
+        "name": "guest-initrd",
+        "replica": 1,
+        "role": "the initial ramdisk the archive carries",
+        "sha256": "2fc4b4f473e6dd3d8ac3697fc5be07ab2828e93acc0c2ff5f8e20ef473c3833e",
+        "used": false,
+        "whyUnused": "the guest kernel has virtio-blk and ext4 built in rather than as modules, so it reaches the root filesystem without one.  It is archived and named here because it was produced by the same run, not because the boot needs it."
+      },
+      {
+        "archivePath": "successor-outputs-1/guest-kernel",
+        "bytes": 57860488,
+        "name": "guest-kernel",
+        "replica": 1,
+        "role": "the kernel the machine boots",
+        "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336",
+        "used": true
+      },
+      {
+        "archivePath": "successor-outputs-1/guest-root-disk",
+        "bytes": 2035625984,
+        "name": "guest-root-disk",
+        "replica": 1,
+        "role": "the sealed ext4 filesystem attached as the only block device",
+        "sha256": "51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c",
+        "used": true
+      }
+    ],
+    "preservationRecord": {
+      "path": "native/containment/native-shadow-mac3-successor-image-preservation-arm64-v4.json",
+      "sha256": "2ff7a3a30513092495a2d8b67555b4e974ef75af47de08acfe8c049063549126"
+    },
+    "productionRunId": 33202978318,
+    "secondReplica": {
+      "byteIdenticalToTheFirst": true,
+      "exists": true,
+      "paths": {
+        "guest-initrd": "successor-outputs-2/guest-initrd",
+        "guest-kernel": "successor-outputs-2/guest-kernel",
+        "guest-root-disk": "successor-outputs-2/guest-root-disk"
+      },
+      "usedAsFallbackOnDigestMismatch": false,
+      "why": "Two replicas were produced and both were preserved whole, and at the archive they are byte-identical.  That makes the second a recovery source for some later, separately approved run -- not a fallback inside this one.  Loading it after the first failed its digest would turn a detected corruption into a run that proceeded anyway, which is the opposite of what the check is for."
+    },
+    "verifiedImmediatelyBeforeBoot": true
+  },
+  "whatThisIs": "The conditions a third closed-local boot would be judged by, written down before it is approved and before it is run.  Two attempts have been made against two earlier images: the first failed at PID 1 for a missing set of mount points, the second passed and stopped short of the launcher for want of material that image did not carry.  That material is in this image, which is why the launcher's own prerequisites are graded here for the first time.  The image itself no longer lives only in a CI artifact with an expiry: it sits in a permanent archive, which changes what has to be re-established at the moment of loading.  This record opens no run of its own; the approval is separate and comes after this has been read."
+}
