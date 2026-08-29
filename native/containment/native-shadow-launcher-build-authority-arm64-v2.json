@@ -1,0 +1,126 @@
+{
+  "activationAllowed": false,
+  "baseV1Authority": {
+    "path": "native/containment/native-shadow-launcher-build-authority-arm64-v1.json",
+    "sha256": "64f4ea0c6b574e1479e51a78e250da8fac6f3d3522d60cb03dde65b53da594ee"
+  },
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "guestImageBuilt": false,
+    "imageBuilderAuthorityPresent": false,
+    "kernelImageExtracted": false,
+    "launcherDeployedIntoGuest": false,
+    "runtimeCompatibilityVerified": false,
+    "toolchainByteProvenanceClosed": false
+  },
+  "build": {
+    "artifactRelativePath": "target/aarch64-unknown-linux-gnu/release/boole-native-shadow-launcher",
+    "binary": "boole-native-shadow-launcher",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--offline",
+      "--release",
+      "--target",
+      "aarch64-unknown-linux-gnu",
+      "-p",
+      "boole-native-shadow-launcher",
+      "--features",
+      "linux-arm64-authority",
+      "--bin",
+      "boole-native-shadow-launcher"
+    ],
+    "features": [
+      "linux-arm64-authority"
+    ],
+    "guestLogicalPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+    "linker": {
+      "byteProvenanceClosed": false,
+      "selection": "rustc-default-cc-driver-for-aarch64-unknown-linux-gnu"
+    },
+    "package": "boole-native-shadow-launcher",
+    "postprocessCommand": null,
+    "prefetchCommand": [
+      "cargo",
+      "fetch",
+      "--locked"
+    ],
+    "profile": "release",
+    "profileFlags": {
+      "overflowChecks": true,
+      "panic": "abort"
+    },
+    "rustflags": [
+      "--remap-path-prefix",
+      "{sourceRoot}=/boole/launcher-build",
+      "--remap-path-prefix",
+      "{cargoHome}=/boole/cargo-home"
+    ],
+    "testCommand": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "--target",
+      "aarch64-unknown-linux-gnu",
+      "-p",
+      "boole-native-shadow-launcher",
+      "--features",
+      "linux-arm64-authority",
+      "--lib",
+      "--bins"
+    ]
+  },
+  "determinism": {
+    "artifactMustBeByteIdentical": true,
+    "declaredEnvironment": {
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_TERM_COLOR": "never",
+      "LANG": "C",
+      "LC_ALL": "C",
+      "SOURCE_DATE_EPOCH": null,
+      "TZ": "UTC"
+    },
+    "forbidBinaryPostprocessing": true,
+    "forbidEnvironmentNormalizationBeyondDeclared": true,
+    "forbidTimestampSuppression": true,
+    "freshCargoHomePerBuild": true,
+    "independentBuildCount": 2,
+    "mismatchAction": "report-the-difference-never-force-a-match",
+    "producerPathClasses": [
+      "ambient-home",
+      "cargo-home",
+      "repository-root",
+      "rustup-home",
+      "source-root"
+    ],
+    "sourceTreeOrigin": "git-archive-of-tracked-files-only"
+  },
+  "generator": {
+    "path": "scripts/native_shadow_launcher_build_arm64_v2.py",
+    "sha256": "3da19fa85d3612fd12fa756b7a5f9f3e34757b615ba69012632d5c9add1f34e0"
+  },
+  "platform": {
+    "architecture": "aarch64",
+    "os": "linux",
+    "rustTarget": "aarch64-unknown-linux-gnu"
+  },
+  "release": "NATIVE-SHADOW-LAUNCHER-BUILD-ARM64-V2",
+  "schema": "boole.native-shadow.launcher-build-authority.arm64.v2",
+  "sourceOverlay": {
+    "path": "native/containment/native-shadow-launcher-source-overlay-arm64-v2.json",
+    "sha256": "a138cf374459e6c70c591998cae0c974a0ac58965e91d5cbea230f10df7f3970"
+  },
+  "toolchain": {
+    "byteProvenanceClosed": false,
+    "channel": "1.95.0",
+    "declaredBy": "rust-toolchain.toml",
+    "identityProbeScope": "version-and-host-only;not-installed-byte-provenance",
+    "installer": "dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9",
+    "requiredCargoVersionPrefix": "cargo 1.95.0",
+    "requiredHostTriple": "aarch64-unknown-linux-gnu",
+    "requiredRustcVersionPrefix": "rustc 1.95.0"
+  }
+}

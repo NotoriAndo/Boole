@@ -188,7 +188,19 @@ def prerequisites_resolved(read: dict):
     rows = record.get("prerequisites")
     if not rows:
         return False, "the guest reported an empty prerequisite list, which proves nothing"
-    absent = sorted(row["name"] for row in rows if not row.get("present"))
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"name", "resolved"}:
+            return False, (
+                "each prerequisite must carry exactly its name and resolved observation"
+            )
+        if not isinstance(row["name"], str) or not row["name"]:
+            return False, "a prerequisite name is missing or unreadable"
+        if not isinstance(row["resolved"], bool):
+            return False, "a prerequisite resolved observation is not boolean"
+    names = [row["name"] for row in rows]
+    if len(set(names)) != len(names):
+        return False, "the guest reported a prerequisite name more than once"
+    absent = sorted(row["name"] for row in rows if not row["resolved"])
     if absent:
         return False, "the guest could not resolve %s" % ", ".join(absent)
     return True, "the guest resolved all %d prerequisites inside itself" % len(rows)

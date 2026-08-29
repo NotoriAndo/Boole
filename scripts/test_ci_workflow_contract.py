@@ -307,7 +307,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
                 r"needs:\s*\[native-shadow-containment-linux,\s*"
                 r"native-shadow-rootfs-replay-linux,\s*"
                 r"native-shadow-rootfs-replay-linux-arm64,\s*"
-                r"native-shadow-launcher-build-arm64\]"
+                r"native-shadow-launcher-build-arm64,\s*"
+                r"native-shadow-launcher-build-arm64-v2\]"
             ),
         )
         self.assertIn("needs.native-shadow-containment-linux.result", job)
@@ -316,6 +317,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "needs.native-shadow-rootfs-replay-linux-arm64.result", job
         )
         self.assertIn("needs.native-shadow-launcher-build-arm64.result", job)
+        self.assertIn("needs.native-shadow-launcher-build-arm64-v2.result", job)
 
     def test_self_test_runs_the_native_shadow_http_replay_helper_contract(self):
         self.assertIn(
@@ -806,7 +808,8 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
                 r"^\s+needs:\s*\[native-shadow-containment-linux,\s*"
                 r"native-shadow-rootfs-replay-linux,\s*"
                 r"native-shadow-rootfs-replay-linux-arm64,\s*"
-                r"native-shadow-launcher-build-arm64\]\s*$",
+                r"native-shadow-launcher-build-arm64,\s*"
+                r"native-shadow-launcher-build-arm64-v2\]\s*$",
                 re.MULTILINE,
             ),
         )
@@ -817,6 +820,7 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "needs.native-shadow-rootfs-replay-linux-arm64.result", job
         )
         self.assertIn("needs.native-shadow-launcher-build-arm64.result", job)
+        self.assertIn("needs.native-shadow-launcher-build-arm64-v2.result", job)
         self.assertIn(
             "native-shadow containment capability probe did not pass",
             job,
@@ -827,6 +831,10 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
         )
         self.assertIn(
             "native-shadow arm64 portable rootfs replay did not pass",
+            job,
+        )
+        self.assertIn(
+            "native-shadow arm64 launcher v2 double build did not pass",
             job,
         )
 
@@ -1298,6 +1306,39 @@ class NativeShadowArm64LauncherBuildWorkflowContractTest(unittest.TestCase):
         self.assertIn("native-shadow-launcher-build-arm64", job)
         self.assertIn("needs.native-shadow-launcher-build-arm64.result", job)
         self.assertIn("arm64 launcher double build did not pass", job)
+
+    def test_successor_launcher_build_runs_on_pinned_arm64_linux(self):
+        job = self._job("native-shadow-launcher-build-arm64-v2")
+        self.assertIn("runs-on: ubuntu-24.04-arm", job)
+        self.assertIn(
+            "dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9",
+            job,
+        )
+        self.assertIn("toolchain: 1.95.0", job)
+
+    def test_successor_launcher_build_executes_the_frozen_double_build(self):
+        job = self._job("native-shadow-launcher-build-arm64-v2")
+        self.assertIn(
+            "python3 scripts/native_shadow_launcher_build_arm64_v2.py --build",
+            job,
+        )
+        self.assertIn(
+            "native-shadow-launcher-build-result-arm64-v2.json",
+            job,
+            "the arm64-only candidate seal must be visible for exact review",
+        )
+
+    def test_successor_launcher_build_cannot_be_skipped_or_softened(self):
+        job = self._job("native-shadow-launcher-build-arm64-v2")
+        for forbidden in ("continue-on-error", "|| true", "SKIP"):
+            self.assertNotIn(forbidden, job)
+        self.assertRegex(job, re.compile(r"^\s+timeout-minutes:\s*\d+\s*$", re.MULTILINE))
+
+    def test_self_test_requires_the_successor_launcher_double_build(self):
+        job = self._job("self-test")
+        self.assertIn("native-shadow-launcher-build-arm64-v2", job)
+        self.assertIn("needs.native-shadow-launcher-build-arm64-v2.result", job)
+        self.assertIn("arm64 launcher v2 double build did not pass", job)
 
 
 if __name__ == "__main__":

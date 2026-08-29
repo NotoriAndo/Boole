@@ -1749,9 +1749,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "5e4bcca6e5d43256efc0102be526ce19150f90454cfb3d7517ac240c9287f4e9"
-require_text docs/native-submission-shadow-verification-v1.md "e54641edeeff358c560e547738c59ec9d3bd1a1bdd8033a7ba2f6ec56a3e5d5d"
-require_text docs/native-submission-shadow-verification-v1.md "7cd66ab3921eb84f3097c10de3b744a9287fe8f4c142e293f68b18602724eca9"
+require_text docs/native-submission-shadow-verification-v1.md "f9e91b9edcb5c09c5f0c18e8a1228b62b12d78608a52d94995396c75032993e4"
+require_text docs/native-submission-shadow-verification-v1.md "1ee2513f291a2761f12fa13f006c179873fabe4166d9a2f83e0df7a2479b8906"
+require_text docs/native-submission-shadow-verification-v1.md "59d35baf1311acf4b2a514854ffba282c68f7f7f190b228ee43fcbbd910a4b92"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
@@ -2511,5 +2511,64 @@ require_text scripts/test_native_shadow_mac3_closed_local_boot_execution_contrac
 require_text scripts/self-test.sh 'scripts/test_native_shadow_mac3_closed_local_boot_execution_contract_arm64_v3.py'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'BOOT-RUNNER  READY TO REFUSE / HARD STOP'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Refusing to spend the one boot'
+
+# Launcher v2 is a new source/build generation beside the historical v1 seal.
+# These pins keep three easily blurred boundaries exact: the old reader schema
+# was corrected rather than relaxed, the v2 source exists only as a temporary
+# build overlay, and neither the source nor build authority grants an image or
+# a boot. The arm64 result is pinned separately after CI has produced it.
+V1_EVIDENCE_CORRECTION=native/containment/native-shadow-mac3-guest-console-evidence-protocol-arm64-v1-correction.json
+V2_SOURCE_OVERLAY=native/containment/native-shadow-launcher-source-overlay-arm64-v2.json
+V2_EVIDENCE_PROTOCOL=native/containment/native-shadow-launcher-v2-console-evidence-protocol-arm64-v1.json
+V2_BUILD_AUTHORITY=native/containment/native-shadow-launcher-build-authority-arm64-v2.json
+V2_BUILD_RESULT=native/containment/native-shadow-launcher-build-result-arm64-v2.json
+require_file "$V1_EVIDENCE_CORRECTION"
+require_text "$V1_EVIDENCE_CORRECTION" '"changesAnyPassCondition": false'
+require_text "$V1_EVIDENCE_CORRECTION" 'present is not an alias for resolved'
+require_text "$V1_EVIDENCE_CORRECTION" '"runsPerformed": 0'
+require_file "$V2_SOURCE_OVERLAY"
+require_text "$V2_SOURCE_OVERLAY" '"baseV1Authority"'
+require_text "$V2_SOURCE_OVERLAY" '"dropFailureMatrixIsTableDriven": true'
+require_text "$V2_SOURCE_OVERLAY" '"crates/boole-native-shadow-launcher/src/active_execution/mod.rs"'
+require_text "$V2_SOURCE_OVERLAY" '"imageProductionAuthorisation": false'
+require_text "$V2_SOURCE_OVERLAY" '"bootAuthorisation": false'
+require_file "$V2_EVIDENCE_PROTOCOL"
+require_text "$V2_EVIDENCE_PROTOCOL" '"prerequisites"'
+require_text "$V2_EVIDENCE_PROTOCOL" '"submissionsObserved": false'
+require_text "$V2_EVIDENCE_PROTOCOL" '"conditionFourFullySettledByThisRecord": false'
+require_file "$V2_BUILD_AUTHORITY"
+require_text "$V2_BUILD_AUTHORITY" '"{sourceRoot}=/boole/launcher-build"'
+require_text "$V2_BUILD_AUTHORITY" '"{cargoHome}=/boole/cargo-home"'
+require_text "$V2_BUILD_AUTHORITY" '"freshCargoHomePerBuild": true'
+require_text "$V2_BUILD_AUTHORITY" '"independentBuildCount": 2'
+require_text "$V2_BUILD_AUTHORITY" '"postprocessCommand": null'
+require_text "$V2_BUILD_AUTHORITY" '"SOURCE_DATE_EPOCH": null'
+require_text "$V2_BUILD_AUTHORITY" '"testCommand"'
+require_text "$V2_BUILD_AUTHORITY" '"--bins"'
+require_text "$V2_BUILD_AUTHORITY" '"guestImageBuilt": false'
+require_file "$V2_BUILD_RESULT"
+require_text "$V2_BUILD_RESULT" '"sha256": "53412188cec4488cf694450548991607c66e9281ccf54e6b462d34b3a345decd"'
+require_text "$V2_BUILD_RESULT" '"sizeBytes": 2025192'
+require_text "$V2_BUILD_RESULT" '"independentBuildCount": 2'
+require_text "$V2_BUILD_RESULT" '"overlaySourceTestRuns": 2'
+require_text "$V2_BUILD_RESULT" '"ambient-home": 0'
+require_text "$V2_BUILD_RESULT" '"cargo-home": 0'
+require_text "$V2_BUILD_RESULT" '"repository-root": 0'
+require_text "$V2_BUILD_RESULT" '"rustup-home": 0'
+require_text "$V2_BUILD_RESULT" '"source-root": 0'
+require_text "$V2_BUILD_RESULT" '"bootableClaim": false'
+require_text "$V2_BUILD_RESULT" '"activationAllowed": false'
+require_text scripts/test_native_shadow_launcher_build_arm64_v2.py '0ffa4035b8f7f3e698c2ac57eead4b8122cb0c462ab2cb170a87c1973bb01b08'
+require_text scripts/self-test.sh 'native-shadow-launcher-v2-contract'
+require_text native/launcher-v2-overlay/active-execution-after.rs.txt 'let mut listener = bind_listener_in_directory('
+require_text native/launcher-v2-overlay/active-execution-after.rs.txt 'crate::console_evidence::emit(&mut stdout.lock(), &records)'
+require_text native/launcher-v2-overlay/active-execution-after.rs.txt 'let qualification_stream = listener.accept_one()?'
+require_text native/launcher-v2-overlay/active-execution-after.rs.txt 'ListenerBoundConsoleEvidence { reason: String }'
+require_text native/launcher-v2-overlay/boole-native-shadow-launcher.rs 'serve_qualified_three_fixed_unix_executions_with_listener_bound_console_evidence'
+require_text scripts/native_shadow_mac3_guest_evidence_protocol_arm64_v2.py 'def _malformed_transcript'
+require_text scripts/native_shadow_mac3_guest_evidence_protocol_arm64_v2.py 'def _exact_int'
+require_text .github/workflows/ci.yml 'native-shadow-launcher-build-arm64-v2'
+require_text .github/workflows/ci.yml 'git ls-files --error-unmatch -- "$result"'
+require_text .github/workflows/ci.yml 'native-shadow arm64 launcher v2 double build did not pass'
 
 printf 'docs-smoke: PASS\n' >&2

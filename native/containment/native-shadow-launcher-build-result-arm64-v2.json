@@ -1,0 +1,37 @@
+{
+  "activationAllowed": false,
+  "authoritySha256": "1fa2430a04e750d2c3cba22bab03d7a30e2a244300c729ddbd904d282958a5da",
+  "bootableClaim": false,
+  "boundaries": {
+    "bootAuthority": false,
+    "guestImageBuilt": false,
+    "imageBuilderAuthorityPresent": false,
+    "kernelImageExtracted": false,
+    "launcherDeployedIntoGuest": false,
+    "runtimeCompatibilityVerified": false,
+    "toolchainByteProvenanceClosed": false
+  },
+  "independentBuildCount": 2,
+  "launcher": {
+    "guestLogicalPath": "/usr/libexec/boole/boole-native-shadow-launcher",
+    "sha256": "53412188cec4488cf694450548991607c66e9281ccf54e6b462d34b3a345decd",
+    "sizeBytes": 2025192
+  },
+  "observedToolchain": {
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "host": "aarch64-unknown-linux-gnu",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)"
+  },
+  "overlaySourceTestRuns": 2,
+  "producerPathHits": {
+    "ambient-home": 0,
+    "cargo-home": 0,
+    "repository-root": 0,
+    "rustup-home": 0,
+    "source-root": 0
+  },
+  "release": "NATIVE-SHADOW-LAUNCHER-BUILD-ARM64-V2",
+  "schema": "boole.native-shadow.launcher-build-result.arm64.v2",
+  "sourceOverlaySha256": "a138cf374459e6c70c591998cae0c974a0ac58965e91d5cbea230f10df7f3970",
+  "status": "LAUNCHER-V2-ELF-BUILT-BYTE-IDENTICAL-PRODUCER-PATHS-ZERO-NO-IMAGE-NO-BOOT"
+}

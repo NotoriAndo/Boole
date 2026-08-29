@@ -1,0 +1,112 @@
+fn verify_dropped_privileges(uid: u32, gid: u32) -> Result<(), String> {
+    let mut real_uid = 0;
+    let mut effective_uid = 0;
+    let mut saved_uid = 0;
+    let mut real_gid = 0;
+    let mut effective_gid = 0;
+    let mut saved_gid = 0;
+    // SAFETY: all six destinations are valid writable integers.
+    if unsafe { libc::getresuid(&mut real_uid, &mut effective_uid, &mut saved_uid) } != 0
+        || unsafe { libc::getresgid(&mut real_gid, &mut effective_gid, &mut saved_gid) } != 0
+    {
+        return Err(io::Error::last_os_error().to_string());
+    }
+    if [real_uid, effective_uid, saved_uid] != [uid; 3]
+        || [real_gid, effective_gid, saved_gid] != [gid; 3]
+    {
+        return Err("checker real/effective/saved identity mismatch".to_string());
+    }
+    // SAFETY: a zero-length query does not dereference the null pointer.
+    if unsafe { libc::getgroups(0, std::ptr::null_mut()) } != 0 {
+        return Err("checker retained supplementary groups".to_string());
+    }
+
+    let status = std::fs::read_to_string("/proc/self/status").map_err(|error| error.to_string())?;
+    require_status_ids(&status, "Uid", uid)?;
+    require_status_ids(&status, "Gid", gid)?;
+    for field in ["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"] {
+        let value = require_status_field(&status, field)?;
+        if value.len() != 16
+            || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+            || u64::from_str_radix(value, 16).map_err(|_| "malformed capability set")? != 0
+        {
+            return Err(format!("checker {field} is not exact empty"));
+        }
+    }
+    if require_status_field(&status, "NoNewPrivs")? != "1" {
+        return Err("checker no_new_privs was not enabled".to_string());
+    }
+    Ok(())
+}
+
+fn verify_runtime_identity_lookup(uid: u32, gid: u32) -> Result<(), String> {
+    let mut record: libc::passwd = unsafe { mem::zeroed() };
+    let mut result: *mut libc::passwd = std::ptr::null_mut();
+    let mut buffer = [0 as libc::c_char; 4096];
+    // SAFETY: record, result and the fixed buffer remain writable for the
+    // entire re-entrant NSS lookup. The dynamic passwd overlay was already
+    // byte-verified before privileges were dropped.
+    let status = unsafe {
+        libc::getpwuid_r(
+            uid,
+            &mut record,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut result,
+        )
+    };
+    if status != 0 {
+        return Err(io::Error::from_raw_os_error(status).to_string());
+    }
+    if !std::ptr::eq(result, &record)
+        || record.pw_uid != uid
+        || record.pw_gid != gid
+        || record.pw_name.is_null()
+        || record.pw_passwd.is_null()
+        || record.pw_gecos.is_null()
+        || record.pw_dir.is_null()
+        || record.pw_shell.is_null()
+    {
+        return Err("runtime checker identity lookup mismatch".to_string());
+    }
+    // SAFETY: a successful getpwuid_r result points each checked field into
+    // the live buffer and terminates it with NUL.
+    let fields_match = unsafe {
+        CStr::from_ptr(record.pw_name) == c"boole-native-checker"
+            && CStr::from_ptr(record.pw_passwd) == c"x"
+            && CStr::from_ptr(record.pw_gecos) == c"boole-native-checker"
+            && CStr::from_ptr(record.pw_dir) == c"/work/scratch"
+            && CStr::from_ptr(record.pw_shell) == c"/usr/sbin/nologin"
+    };
+    if !fields_match {
+        return Err("runtime checker identity fields mismatch".to_string());
+    }
+    Ok(())
+}
+
+fn require_status_ids(status: &str, field: &str, expected: u32) -> Result<(), String> {
+    let value = require_status_field(status, field)?;
+    let ids = value
+        .split_whitespace()
+        .map(|part| part.parse::<u32>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| format!("checker {field} is malformed"))?;
+    if ids != [expected; 4] {
+        return Err(format!("checker {field} identity mismatch"));
+    }
+    Ok(())
+}
+
+fn require_status_field<'a>(status: &'a str, field: &str) -> Result<&'a str, String> {
+    let prefix = format!("{field}:");
+    let mut values = status
+        .lines()
+        .filter_map(|line| line.strip_prefix(&prefix).map(str::trim));
+    let value = values
+        .next()
+        .ok_or_else(|| format!("checker status lacks {field}"))?;
+    if values.next().is_some() || value.is_empty() {
+        return Err(format!("checker status has invalid {field} cardinality"));
+    }
+    Ok(value)
+}

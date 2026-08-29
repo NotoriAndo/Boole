@@ -3150,8 +3150,11 @@ boot and MAC.4 stay behind their existing gates.
       classify them as build provenance, not secret material.
 - [x] Keep the qualification condition NOT-SETTLED because its literal wording
       forbids host paths; do not rewrite it as "no secret-bearing host path".
-- [ ] Seal launcher-v2 source with deterministic producer-path remapping, the
-      parked console-evidence producer and dynamic privilege tests.
+- [x] Seal launcher-v2 source with deterministic producer-path remapping, the
+      parked console-evidence producer and dynamic privilege tests; emit
+      readiness only after the fixed listener bind, reject malformed or
+      type-aliased host evidence, and keep an untracked first build candidate
+      red in required CI.
 - [ ] Build launcher v2 twice independently and require byte-identical output
       before discussing any successor image.
 

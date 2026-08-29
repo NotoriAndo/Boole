@@ -1,0 +1,54 @@
+{
+  "record": "native-shadow-launcher-v2-console-evidence-protocol-arm64-v1",
+  "schema": 1,
+  "appendOnly": true,
+  "supersedesPayloadSchemaOnly": "native-shadow-mac3-guest-console-evidence-protocol-arm64-v1",
+  "keepsFramingAndConflictRules": true,
+  "prefix": "BOOLE-GUEST-EVIDENCE-1",
+  "prerequisites": [
+    "fixed-launcher-prelock-prerequisites",
+    "fixed-launcher-lifetime-lock",
+    "fresh-launcher-instance",
+    "fixed-manager-cgroup",
+    "fixed-startup-orphan-recovery",
+    "fixed-startup-toolchain-compatibility",
+    "runtime-rootfs-replay",
+    "closed-local-replay-startup",
+    "failed-unit-query"
+  ],
+  "supervisorExpected": {
+    "capabilitiesAmbient": "0000000000000000",
+    "capabilitiesBounding": "00000000002001c0",
+    "capabilitiesEffective": "00000000002001c0",
+    "capabilitiesInheritable": "0000000000000000",
+    "capabilitiesPermitted": "00000000002001c0",
+    "gids": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "noNewPrivileges": 0,
+    "uids": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "sharedFixture": {
+    "path": "native/containment/native-shadow-launcher-v2-console-evidence-example.txt",
+    "sha256": "37ab2f579862cf0a48aa6da1e869fc967c675fd8779023d9dbd1734f3fbf438d"
+  },
+  "guestRecordIsObservationNeverVerdict": true,
+  "submissionsObserved": false,
+  "conditionFourFullySettledByThisRecord": false,
+  "whyConditionFourRemainsPartial": "The root supervisor snapshot is observable at boot. A closed boot executes no submission, so the unprivileged child half is established by the v2 table-driven drop-failure matrix here and remains subject to a later real request execution gate.",
+  "imageProductionAuthorisation": false,
+  "bootAuthorisation": {
+    "grantedByThisRecord": false,
+    "runsPerformed": 0
+  },
+  "activationAllowed": false,
+  "status": "LAUNCHER-V2-CONSOLE-PAYLOAD-SCHEMA-FROZEN-NO-IMAGE-NO-BOOT"
+}

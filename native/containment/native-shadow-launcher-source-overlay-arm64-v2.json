@@ -1,0 +1,89 @@
+{
+  "record": "native-shadow-launcher-source-overlay-arm64-v2",
+  "schema": 1,
+  "appendOnly": true,
+  "baseV1Authority": {
+    "path": "native/containment/native-shadow-launcher-build-authority-arm64-v1.json",
+    "sha256": "64f4ea0c6b574e1479e51a78e250da8fac6f3d3522d60cb03dde65b53da594ee"
+  },
+  "whyOverlay": "The v1 authority live-pins the historical launcher source used by the preserved image. Launcher v2 therefore changes only a temporary exported tree and leaves every v1 source and record byte untouched.",
+  "overlayRoot": "native/launcher-v2-overlay",
+  "completeFiles": [
+    {
+      "destination": "crates/boole-native-shadow-launcher/src/bin/boole-native-shadow-launcher.rs",
+      "sha256": "d2089de111b376980fbebd452697cdaa14b710afecd1de9711aaa1172b22e4a7",
+      "sizeBytes": 6528,
+      "source": "boole-native-shadow-launcher.rs"
+    },
+    {
+      "destination": "crates/boole-native-shadow-launcher/src/console_evidence.rs",
+      "sha256": "725df810004f3ca7c934e673456f7849c764cccc885030e1cb7547ac3004722b",
+      "sizeBytes": 14550,
+      "source": "console_evidence.rs"
+    },
+    {
+      "destination": "crates/boole-native-shadow-launcher/src/drop_privilege_snapshot.rs",
+      "sha256": "246662c95d7fe837955bc04099f02f963226fc73c9dc7f88cb386782527e7e93",
+      "sizeBytes": 10709,
+      "source": "drop_privilege_snapshot.rs"
+    },
+    {
+      "destination": "crates/boole-native-shadow-launcher/src/lib.rs",
+      "sha256": "a7d286642dc8fc337708cd4d9242b392e2ad62af775423e28a5e24f0d12f8a6d",
+      "sizeBytes": 1174,
+      "source": "lib.rs"
+    }
+  ],
+  "exactReplacements": [
+    {
+      "destination": "crates/boole-native-shadow-launcher/src/active_execution/mod.rs",
+      "predecessorSha256": "27d84c2ead6465fc69e2b81cf809e5d407317666ca7f9c0d78af0af04d9164cd",
+      "before": {
+        "sha256": "4ff41da4aa66888c5eb0b341517cbc71e58fcfdb6a34c55e1b5910ae558cd172",
+        "sizeBytes": 2016,
+        "source": "active-execution-before.rs.txt"
+      },
+      "after": {
+        "sha256": "d66cd56f737b2ad39f32262e5986eb7f48d3b49b16630ed034c824002d5ad5e8",
+        "sizeBytes": 3326,
+        "source": "active-execution-after.rs.txt"
+      },
+      "successorSha256": "2d823b982e97940eb84e3191dd9a876d484a73e86f3adef909d1cfe3cf0fe0cf",
+      "successorSizeBytes": 25087,
+      "requiredMatchCount": 1
+    },
+    {
+      "destination": "crates/boole-native-shadow-launcher/src/per_request_containment/linux.rs",
+      "predecessorSha256": "881869e356647d31aead38a9f4b4addaa5227042f60cef72249225dd945dae6a",
+      "before": {
+        "sha256": "d95a28cb127990349fdc167d69938bf5555cb447ce6cfebd19a8f72428f0ce3b",
+        "sizeBytes": 4437,
+        "source": "drop-privilege-before.rs.txt"
+      },
+      "after": {
+        "sha256": "4c35b4fc25b3c4532c5330a545f9dc613a335f2879adcba6c66b09faaec50432",
+        "sizeBytes": 2972,
+        "source": "drop-privilege-after.rs.txt"
+      },
+      "successorSha256": "9536a9619850d3fab18128b9f18d627989b2c56795ee17c7ddf00064f1096822",
+      "successorSizeBytes": 92699,
+      "requiredMatchCount": 1
+    }
+  ],
+  "sharedConsoleFixture": {
+    "path": "native/containment/native-shadow-launcher-v2-console-evidence-example.txt",
+    "sha256": "37ab2f579862cf0a48aa6da1e869fc967c675fd8779023d9dbd1734f3fbf438d",
+    "sizeBytes": 1113
+  },
+  "sourceProperties": {
+    "guestRecordsAreObservationsNotVerdicts": true,
+    "prerequisiteField": "resolved",
+    "supervisorSnapshotIncludesAllIdentitySlotsAndFiveCapabilitySets": true,
+    "dropFailureMatrixIsTableDriven": true,
+    "submissionExecutionObservedByClosedBoot": false
+  },
+  "imageProductionAuthorisation": false,
+  "bootAuthorisation": false,
+  "activationAllowed": false,
+  "status": "LAUNCHER-V2-SOURCE-OVERLAY-FROZEN-NOT-BUILT-NO-IMAGE-NO-BOOT"
+}

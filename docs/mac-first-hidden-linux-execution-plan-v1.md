@@ -5208,3 +5208,110 @@ The cursors through §57.1 remain historical records. The preserved image was no
 modified or mounted, no image was produced, and no machine was started.
 `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation
 `false` and `activationAllowed=false` remain unchanged.
+
+## 59. Freezing launcher v2 before asking arm64 CI for bytes (2026-08-30)
+
+The 23 producer-home strings in the preserved launcher are all Cargo dependency
+source paths. The historical v1 build remapped its temporary workspace but not
+Cargo's source store. The successor therefore uses two explicit remaps: the
+temporary source root becomes `/boole/launcher-build`, and a fresh Cargo home
+owned by each build becomes `/boole/cargo-home`. The produced ELF is refused if
+it still contains the real source root, Cargo home, repository root, ambient
+home or Rustup home. Only path-class names and zero counts may enter a result.
+
+The v1 source and authority remain byte-unchanged. V2 is a complete-file overlay
+applied only to a temporary `git archive` export. It carries the parked console
+evidence producer, the exact `resolved` prerequisite schema, the complete root
+supervisor snapshot and the table-driven post-drop child check. Every UID/GID
+slot, supplementary group set, five capability sets and `NoNewPrivs` value is
+checked. A closed boot still observes no submission, so this source-level matrix
+does not pretend that a real answer was executed.
+
+The build authority requires Linux arm64, Rust 1.95.0, a fresh Cargo home for
+each of exactly two builds, offline compilation after prefetch, byte-identical
+ELFs, no timestamp suppression and no binary post-processing. The named v2 CI
+job is a separate required predecessor of `self-test`; it does not replace the
+historical v1 job.
+
+The first review found two false-green windows and closed them before any arm64
+candidate existed. The console records are no longer emitted by the entry point
+before the socket exists. The v2-only active-execution overlay first binds and
+verifies the fixed socket's owner, group, mode, inode and `CLOEXEC`, then emits
+and flushes exactly four records, and only then accepts the qualification
+connection. A bind failure therefore emits no readiness; an evidence-write
+failure removes the exact bound socket and returns a typed error.
+
+The first double build may discover candidate bytes, but discovery is not a
+seal. CI prints the candidate JSON and digest, then deliberately fails unless
+that exact result path is already tracked by Git. Only a later run that
+byte-for-byte re-proves the reviewed, tracked record may turn the required job
+green. The host parser also checks JSON types rather than Python value aliases:
+booleans cannot stand in for integer UID/GID or `NoNewPrivs` fields, integers
+cannot stand in for prerequisite booleans, and any malformed prefixed record
+invalidates the transcript. Unknown record IDs retain the v1 rule: counted and
+ignored, not silently promoted into evidence.
+
+The earlier host reader had a real schema defect: the sealed prose and parked
+producer used `resolved`, while the reader accepted `present`. The append-only
+correction makes `resolved` the only accepted boolean and rejects missing,
+extra, duplicate and `present`-only rows. No pass condition is changed.
+
+This section freezes source, protocol and build inputs only. The arm64 result
+does not exist yet, no image-production or boot authority is granted, and no
+MAC.4 request is started.
+
+### 59.1 Cursor
+
+```text
+LAUNCHER V2 SOURCE OVERLAY  FROZEN — historical v1 source remains byte-unchanged
+CONSOLE EVIDENCE SCHEMA  CORRECTED / FROZEN — resolved is the sole prerequisite field
+READINESS ORDER  BIND-VERIFIED BEFORE EMIT — a failed listener cannot announce ready
+DROP FAILURE MATRIX  GREEN AT UNIT LEVEL — real submission execution not yet observed
+ARM64 V2 DOUBLE BUILD  PENDING CI — no launcher-v2 result sealed yet
+SUCCESSOR IMAGE PRODUCTION  NOT AUTHORISED — no production budget opened
+GUEST BOOT  NOT STARTED — 0 boot attempts used
+MAC.4  NOT STARTED — no node request or authenticated host/guest transport claim
+```
+
+The cursors through §58.1 remain historical records. No preserved image was
+modified, no image was produced, and no machine was started. `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` remain unchanged.
+
+## 60. Tracking the first arm64 launcher-v2 candidate before reproof (2026-08-30)
+
+The first named Linux/arm64 build run reached the deliberate discovery gate.
+Both independent exports ran the overlay tests and produced byte-identical
+2,025,192-byte ELFs with SHA-256
+`53412188cec4488cf694450548991607c66e9281ccf54e6b462d34b3a345decd`.
+All five real producer-path classes were absent. The candidate record itself is
+canonical JSON with SHA-256
+`0ffa4035b8f7f3e698c2ac57eead4b8122cb0c462ab2cb170a87c1973bb01b08`.
+
+That first run was red by design. It printed the complete candidate and then
+refused it because the result path was not tracked by Git. This section places
+those exact reviewed bytes at the authority's result path; it does not turn
+the discovery run green after the fact. The record may enter `main` only if a
+new required arm64 job performs two fresh builds and `seal_or_reprove` finds
+the tracked bytes exactly equal. Any difference is a hard refusal and the seal
+is never overwritten.
+
+The result keeps every later boundary false. It is a launcher build result, not
+an image-production authority, image, boot result, serving result or MAC.4
+transport claim.
+
+### 60.1 Cursor
+
+```text
+LAUNCHER V2 SOURCE OVERLAY  FROZEN — historical v1 bytes remain unchanged
+ARM64 V2 CANDIDATE  TRACKED — first discovery run intentionally red
+ARM64 V2 REPROOF  REQUIRED BEFORE MERGE — exact bytes or refusal
+SUCCESSOR IMAGE PRODUCTION  NOT AUTHORISED — no production budget opened
+GUEST BOOT  NOT STARTED — 0 boot attempts used
+MAC.4  NOT STARTED — no node request or authenticated transport claim
+```
+
+The cursors through §59.1 remain historical. No preserved image was modified,
+no image was produced and no machine was started. `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` remain unchanged.
