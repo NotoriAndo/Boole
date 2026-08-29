@@ -4920,3 +4920,73 @@ rather than "the guest boots". `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain
 unchanged. Nothing was booted, no guest ran, no image was produced or modified,
 no node was connected, and nothing is served.
+
+## 54. The language the guest speaks on the console (2026-08-29)
+
+Three of the five stopped conditions are properties of a running kernel, so the
+guest has to say them out loud and the serial console is the only way out of a
+closed-local boot. This section fixes what it may say and who says it. Nothing
+here is built into an image, and nothing here opens the run.
+
+A console is shared and line-interleaved. Kernel messages, systemd messages and
+the guest's own records land in it together, so a record is one line carrying a
+fixed prefix the host can find. A record split over two lines could be cut in
+half by another writer between them, which is why none of them are.
+
+What the host refuses to conclude matters more than the format. A record is an
+observation and never a verdict: the guest reports the digest it computed, and
+the host compares it with a value sealed before the machine existed. A guest
+that reported the wrong digest fails its own condition, because the comparison
+happens on the side that already knows the answer. Beyond that, three refusals
+are wired in. A record appearing twice with different payloads is dropped rather
+than settled by preferring the first or the last, since nothing in a transcript
+says which line describes the run being judged. A record id the protocol does
+not define is counted and ignored, so the reader cannot grow a new evidence
+source because a console line asked it to. And a line that carries the prefix
+and then does not parse is an error rather than a shrug, because silence about a
+broken record is how a reader loses evidence quietly.
+
+No record claims that submissions ran unprivileged. A closed boot receives no
+requests, so there is no submission to watch, and printing the claim anyway
+would be manufacturing the evidence rather than collecting it. That half stays
+unobserved and is still the operator's to decide.
+
+The producer is the launcher itself rather than a new service beside it. The
+process that knows which file it executed is the process itself; an outside
+observer would have to first decide which pid is the launcher, and a wrong guess
+there produces a confident record about the wrong process. The launcher already
+reads `/proc/thread-self/status` to verify it holds root identity, the expected
+capability sets and NoNewPrivs, so the privilege record is that same reading
+reported rather than only judged, and no second implementation of it can drift
+from the first. The sealed execution contract had already named the launcher
+printing its own digest as one of the two things that would make that condition
+observable.
+
+A separate helper was possible: the sealed rootfs source lock lists
+`/usr/bin/python3.12` and the `python3` package, so one would have run. It is
+still the wrong shape, for the reasons above. Recording that it was checked
+rather than assumed is the point — the guest's userland was read out of the
+sealed source list, not guessed at.
+
+Teaching the launcher to print these records changes the launcher binary, and so
+the launcher digest the criteria seal and the image bytes that carry it. A new
+clone, a new fingerprint and pass criteria sealed again in advance all come
+first. The host-side reader is written and tested; the guest-side producer is
+decided and not written.
+
+### 54.1 Execution cursor after the console language was fixed
+
+```text
+BOOT-PASS-CRITERIA  SEALED / NOT RUN — 21 conditions, frozen before approval
+CONSOLE-EVIDENCE-FORMAT  DEFINED / READER BUILT — one line per record, host refuses to resolve conflicts
+CONSOLE-EVIDENCE-PRODUCER  DECIDED / NOT WRITTEN — the launcher itself, not a separate service
+GUEST-USERLAND  READ FROM THE SEALED SOURCE LOCK — python3.12 present, so no toolchain was guessed
+BOOT-AUTHORISATION  NOT GRANTED — no record here opens the run
+GUEST-BOOT  NOT STARTED — 0 boot attempts used, boot budget untouched
+UNPRIVILEGED-SUBMISSIONS  REPORTED / NOT DECIDED — static binding or MAC.4 is the operator's call
+```
+
+The cursors in §46.1 through §53.1 are left as they were written. `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` remain unchanged. Nothing was booted, no image was
+produced or modified, no node was connected, and nothing is served.
