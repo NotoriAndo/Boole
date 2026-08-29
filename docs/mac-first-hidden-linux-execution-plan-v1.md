@@ -5406,3 +5406,83 @@ The cursors through §61.1 remain historical. No image tool ran, no attempt mark
 or output directory was created, no preserved image was changed and no machine
 was started. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
 Base activation `false` and `activationAllowed=false` remain unchanged.
+
+## 63. Proving launcher-v2 staging on Linux/arm64 without creating an image (2026-08-30)
+
+<!-- LAUNCHER-V2-IMAGE-PREFLIGHT-ARM64-V1-SEALED:BEGIN -->
+
+PR #303 head `6e95d5a73a17dda26adb006cd2c0de5129a1921d` ran the new required
+`native-shadow-launcher-v2-image-preflight-arm64` lane on Linux arm64. All
+required checks passed and merge commit
+`6a14563ad078578147ac7bcd99b15e2a760e9930` entered `main`. The named job
+uploaded one artifact containing only `PREFLIGHT-RESULT.json`; it contained no
+kernel, initrd, root disk, attempt mark or other image output.
+
+The exact canonical payload is tracked as
+`native/containment/native-shadow-mac3-launcher-v2-image-preflight-result-arm64-v1.json`.
+The payload and GitHub's compressed transport envelope are deliberately kept
+as two different identities:
+
+```text
+sourcePullRequest=#303
+sourceHeadSha=6e95d5a73a17dda26adb006cd2c0de5129a1921d
+sourceWorkflow=.github/workflows/ci.yml
+sourceRunId=33272680385
+sourceRunAttempt=1
+sourceJobId=99153889500
+artifactId=9720614194
+artifactName=launcher-v2-image-preflight-result
+archiveSizeBytes=3079
+archiveDigest=sha256:beb2920dcfe11ae0f827b73245a8a15bf9e7b055809ad23fac953cef4ed633c8
+artifactMemberCount=1
+artifactMemberName=PREFLIGHT-RESULT.json
+payloadSizeBytes=9409
+payloadSha256=2a2bfa93796e0ec1463e1d144250e3bc4e2f6b9c2486c35846e3b9f70071d19d
+```
+
+In human-readable units, the archive is 3,079 bytes and the raw result is
+9,409 bytes. The archive digest describes GitHub's packaging and is never used
+in place of the raw result digest.
+
+Builder v4 pins builder v3 by digest, accepts the sealed launcher-v2 bytes,
+refuses launcher v1 and preserves the launcher path, mode, UID and GID. The
+free preflight used that same assembler under the production isolation shape,
+but had no image tool, boot entry point or attempt-consumption path.
+
+The builder table and independent traversal agreed exactly: 17,676 entries —
+1,737 directories, 15,102 files and 837 symlinks — with payload
+1,773,475,059 bytes. The largest file was 160,096,808 bytes and both
+observations produced path-manifest SHA-256
+`0dbc17aeaaa8ef63ddeb53ac8b7615f361c21bda95f0ba3d9677bdbdb76dcb9a`.
+Duplicate paths, collisions and symlink escapes were all zero. The nested
+content manifest remained at SHA-256
+`200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa`.
+
+The result re-read all 22 preregistered inputs, recorded eight repository-file
+identities and the actual `gpgv` and `zstd` tool identities, and was consumed
+again before upload. Its status is `PASS-NO-IMAGE-PRODUCED`, it is repeatable,
+`imageProduced=false`, `bootableClaim=false`, `activationAllowed=false`, every
+activation authority is false and `imageProductionRunsAllowed=0`.
+
+This result proves staging compatibility only. It does not authorise a producer,
+consume a production run, qualify an image, start a guest, or open MAC.4,
+testnet, mining, reward, consensus or P2P.
+
+### 63.1 Cursor
+
+```text
+LAUNCHER V2 BUILDER PROJECTION  GREEN — predecessor pinned, v2 accepted, v1 refused
+FREE ARM64 PREFLIGHT  GREEN / RESULT SEALED — one canonical JSON, no image output
+STAGING MEASUREMENTS  EXACTLY EQUAL — 17,676 entries / 1,773,475,059 bytes
+SUCCESSOR PRODUCER PREREGISTRATION  NEXT — contract only, authority and runs remain 0
+IMAGE PRODUCTION  NOT AUTHORISED — no one-use budget opened
+GUEST BOOT  NOT STARTED — 0 boot attempts used
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+The cursors through §62.1 remain historical. No image tool ran, no attempt mark
+or output was created, no preserved image changed and no machine started.
+`mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation
+`false` and `activationAllowed=false` remain unchanged.
+
+<!-- LAUNCHER-V2-IMAGE-PREFLIGHT-ARM64-V1-SEALED:END -->
