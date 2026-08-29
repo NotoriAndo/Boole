@@ -29,6 +29,7 @@ a rounding error, and the refusal is the point -- the attempt stays unspent.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -282,12 +283,39 @@ def assert_one_use_is_unclaimed() -> None:
         )
 
 
+def _force_to_the_platter(descriptor: int) -> None:
+    """Put what was written where losing power cannot take it back.
+
+    fsync(2) runs first because it is the guarantee every filesystem here
+    offers.  On Darwin it returns once the data reaches the drive, which may
+    still be the drive's own volatile cache, so F_FULLFSYNC follows to wait for
+    the medium itself.  It is a strengthening rather than a replacement: where
+    the filesystem refuses it, the fsync above still stands.
+    """
+
+    os.fsync(descriptor)
+    full = getattr(fcntl, "F_FULLFSYNC", None)
+    if full is None:
+        return
+    try:
+        fcntl.fcntl(descriptor, full)
+    except OSError:
+        pass
+
+
 def claim_one_use(approval: dict) -> pathlib.Path:
     """Create the mark, or refuse. Exclusive, so two runs cannot both win.
 
     Called immediately before the machine is started rather than after it
     stops.  A run that dies with the Mac still spends the attempt, and this is
     the only way that fact survives the run.
+
+    The exclusive create settles the two-runs case and says nothing about
+    power.  So the bytes and then the directory entry are forced to disk before
+    this returns: a mark still sitting in the page cache when the Mac loses
+    power leaves the boot spent with nothing on disk saying so, which is the
+    one shape this file exists to prevent.  The parent is synced second because
+    a file nothing points at is not a record.
     """
 
     path = ledger_path()
@@ -313,6 +341,13 @@ def claim_one_use(approval: dict) -> pathlib.Path:
         ) from error
     with os.fdopen(handle, "w", encoding="utf-8") as stream:
         stream.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        stream.flush()
+        _force_to_the_platter(stream.fileno())
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        _force_to_the_platter(directory)
+    finally:
+        os.close(directory)
     return path
 
 

@@ -4822,3 +4822,101 @@ rather than "the guest boots". `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`
 `BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain
 unchanged. Nothing was booted, no guest ran, no node was connected, and nothing is
 served.
+
+## 53. Where the evidence would come from (2026-08-29)
+
+The previous section reported the runner as ready to run. That was the wrong
+word. What is ready is the refusal path and the twenty-one-row judging table:
+the program can now say, before any machine is built, which conditions it could
+judge and which it could not. The flow that actually boots, watches, judges and
+seals a result is still unwritten. Nothing here changes that, and nothing here
+opens the run.
+
+Two things were done. The first is a correction. The one-use mark was created
+with an exclusive open before the machine started, which settles two runs racing
+each other and says nothing at all about power. Until now the mark could still
+be sitting in the page cache when the Mac lost power, leaving exactly the shape
+the mark exists to prevent: the machine started and nothing on disk says so. The
+mark's bytes are now flushed and synced, and then the parent directory is synced
+as well, both before the launcher is invoked. The directory is second on purpose
+— bytes no name points at are not a record. On this platform each sync is
+followed by `F_FULLFSYNC`, which waits for the drive's own cache rather than the
+filesystem's; where that call is refused the ordinary sync still stands.
+
+The second is the design of where evidence would come from for the five
+conditions the preserved image cannot answer, split by what each one actually
+needs.
+
+One of the five needs nothing from inside the guest. It asks that the produced
+image contain no host wallet, model key or node secret — a question about a file
+sitting on this disk right now. It was in the hard stop only because nothing had
+been written that asks it. That is now written: the image is opened read-only,
+every byte is searched, and the file is hashed before and after so the record
+shows the sealed file went in and the sealed file came out.
+
+The search is deliberately wider than the condition. The condition asks for
+directory entries; the search reads file contents and blocks no directory points
+at any more. That asymmetry is the whole design, and it cuts one way only.
+Nothing found would settle the question, because an empty superset makes the
+subset empty too. Something found settles nothing on its own — a manual page
+that mentions a filename is a hit and is not a secret. So a hit is neither a
+pass nor a failure until someone explains it, and until then the answer is no.
+
+The scan has been run against the sealed root disk, all 2,035,625,984 bytes of
+it, digest unchanged on both sides. Nothing of this host's was found: zero hits
+on the host's own home path, on the archive root, on the node's key, session and
+signer-nonce directories, and on every one of the wallet and model-key
+environment variable names. What did come back is 135 hits on generic
+secret-bearing shapes — private-key headers, a credentials filename, mnemonic
+and extended-private-key wording. None of those can only come from this machine,
+and none of them is dismissed here. The condition therefore stays in the hard
+stop, not because something of the host's was found, but because a byte search
+cannot tell a manual page from a key file, and the honest reading of an
+unexplained hit is no.
+
+Three of the remaining four are properties of a running kernel: which bytes the
+launcher actually is, which prerequisites resolve inside the guest, and which
+capabilities the supervising process holds. No amount of reading the image from
+outside observes any of them. They need a small service inside the guest that
+reads kernel state directly and prints each answer as a structured record on the
+serial console the host already captures. The fifth needs the host to ask for
+shutdown once it has seen readiness and to confirm the shutdown completed, since
+a machine that was killed and a machine that stopped cleanly look identical from
+outside unless the host asked and was answered.
+
+Both of those change the image. A service inside the guest is new bytes, so the
+preserved fingerprint would no longer describe what runs, and a new clone, a new
+fingerprint and pass criteria sealed again in advance all come first. The
+preserved image is not modified and not booted.
+
+One half of one condition is reported rather than decided. The condition asks
+that the launcher supervise as root and that submissions run unprivileged. A
+closed boot that never receives a request cannot observe the second half, because
+there is no submission to watch. It can be bound statically, judging the
+per-request setup order in the code path, or left to the stage where real
+requests exist. Those two readings mean different things by the same criterion,
+so the choice changes what the sealed condition asserts. It is the operator's
+call. The condition is not relaxed, reworded or waived here.
+
+### 53.1 Execution cursor after the evidence channels were designed
+
+```text
+BOOT-PASS-CRITERIA  SEALED / NOT RUN — 21 conditions, frozen before approval
+BOOT-RUNNER  READY TO REFUSE / HARD STOP — 21 rules, 5 conditions unobservable with this image
+ONE-USE-MARK  DURABLE / NOT CLAIMED — file and parent directory synced before any start
+SECRET-ABSENCE-SCAN  RUN / NOT SETTLED — host-identity 0 hits, secret-shape 135 unexplained
+GUEST-EVIDENCE-HELPER  DESIGNED / NOT BUILT — would change image bytes, so a new seal comes first
+BOOT-AUTHORISATION  NOT GRANTED — no record here opens the run
+GUEST-BOOT  NOT STARTED — 0 boot attempts used, boot budget untouched
+UNPRIVILEGED-SUBMISSIONS  REPORTED / NOT DECIDED — static binding or MAC.4 is the operator's call
+MAC.4  NOT STARTED — named as what would make the remaining stops observable
+CURL.3  DEFERRED-ENVIRONMENT-NOT-AVAILABLE / NOT PASSED — release gate retained
+MAC.5 / MAC.6  BLOCKED — CURL.3 and all intervening gates remain mandatory
+```
+
+The cursors in §46.1 through §52.1 are left as they were written. The position is
+now "the exam is written, one answer sheet is readable and the room is not ready"
+rather than "the guest boots". `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`,
+`BF.7=HOLD`, Base activation `false` and `activationAllowed=false` remain
+unchanged. Nothing was booted, no guest ran, no image was produced or modified,
+no node was connected, and nothing is served.
