@@ -3776,3 +3776,32 @@ entries; journal, slack and unmapped-byte separation; full-range raw-offset to
 one-inode ownership; all 135 rows conserved; and before/after image digests
 identical. Any ambiguity fails closed. This addendum produces no image, starts
 no guest, opens no boot attempt, and starts no MAC.4 transport.
+
+### Preserved-disk reconciliation and producer build-path blocker (2026-08-29)
+
+`native-shadow-mac3-guest-secret-path-content-reconciliation-arm64-v1.json`
+implements the successor contract against preserved replica one. It binds the
+read-only ext4 parser, reconciliation driver, CPython executable, `gpgv`,
+`zstd`, all expected-tree builders and the sealed authorities by digest. It
+reconstructs 17,677 logical paths, hashes all 15,102 regular files
+(1,773,456,499 bytes), checks all 837 symlink targets, verifies both xattr forms
+are absent, and assigns all 435,530 allocated blocks one exact owner class.
+
+The historical 135 raw ranges reconcile exactly to regular-file content: 135
+attributed, zero in journal, metadata, directories, symlinks, slack, free space,
+unmapped space or ambiguous ownership. The image digest is unchanged after the
+read. A second complete execution generated a byte-identical 59,038-byte result.
+
+The reconciliation result and the qualification verdict are deliberately
+separate. The sealed launcher's file content is exact and contains no observed
+wallet, model-key or node-secret material, but it embeds its CI producer's home
+path 23 times as compilation provenance. Because the sealed qualification says
+no host path, not merely no secret-bearing host path, the record sets
+`reconciliationPassed=true`, `conditionSettled=false` and `verdict=NOT-SETTLED`.
+No wording is relaxed after observation.
+
+The blocking successor is launcher v2: remove producer build-home strings under
+a reproducible path-remap contract, add the parked console-evidence producer and
+dynamic privilege tests, seal the source, then require two independent
+byte-identical arm64 builds. This record grants no rebuild, image-production,
+boot, node, MAC.4, mining, reward, consensus or P2P authority.

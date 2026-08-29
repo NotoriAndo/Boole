@@ -5148,3 +5148,63 @@ The cursors through §56.1 remain historical records. This correction did not
 produce, modify, mount or boot an image and grants no execution authority.
 `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation
 `false` and `activationAllowed=false` remain unchanged.
+
+## 58. Reconciling every byte without hiding the producer build path (2026-08-29)
+
+The preserved replica-one root disk was parsed directly and read-only. Its
+2,035,625,984 bytes had SHA-256
+`51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c`
+both before and after. The result is
+`native/containment/native-shadow-mac3-guest-secret-path-content-reconciliation-arm64-v1.json`,
+59,038 bytes with SHA-256
+`5d39cac4d9dd77ff7a34bed9cf24ca01c9e829e7ec443174c4bcd06531dcd838`.
+A second complete run produced the same result byte-for-byte.
+
+The logical tree is exact: 17,677 paths, comprising 1,738 directories, 15,102
+regular files and 837 symlinks. Every regular file was hashed against the
+sealed source or sealed launcher expectation: 1,773,456,499 bytes in all. Every
+symlink target matched. There were no forbidden paths, forbidden targets,
+inline xattr tails or external xattr blocks.
+
+The physical account closes too. All 435,530 allocated blocks have exactly one
+declared role: 422,636 file-data, 1,766 directory-data, 7 symlink-data, 8,192
+journal, 24 extent-metadata, 1,440 allocation-metadata, 12 super/GDT and 1,453
+resize-metadata blocks. The historical 135 generic raw hits are conserved into
+135 exact logical-file occurrences, 50 inodes and 96 physical blocks. There are
+zero journal, directory, symlink, slack, free, metadata, unmapped or ambiguous
+hits. No secret-surrounding bytes are copied into the record.
+
+That reconciliation is a PASS, but the qualification condition is not. The
+actual producer home derived from the sealed preflight was searched in addition
+to the historical local marker. Its spelling occurs 23 times in one exact
+sealed file, `usr/libexec/boole/boole-native-shadow-launcher`, all as compilation
+provenance embedded by Cargo. They are not wallet material, a model key or a
+node secret. They do, however, violate the existing literal requirement that no
+host path be present. This document does not reinterpret that requirement into
+"no secret host path" after seeing the result. The condition therefore remains
+NOT-SETTLED.
+
+The next safe step is a launcher-v2 successor that removes producer build-home
+paths reproducibly and carries the already designed console evidence plus
+dynamic privilege measurement. That successor needs its own source seal and two
+independent byte-identical builds before any image decision. This section grants
+no image-production or boot budget and starts no MAC.4 transport.
+
+### 58.1 Cursor
+
+```text
+PRESERVED EXT4 RECONCILIATION  COMPLETE — path, kind, content and every allocated block accounted
+HISTORICAL RAW HITS  135/135 ATTRIBUTED — journal/slack/free/unmapped/ambiguous hits all zero
+SECRET MATERIAL OBSERVATION  0 — no host wallet, model key or node-secret material observed
+PRODUCER BUILD PATH  23 ATTRIBUTED / BLOCKING — sealed launcher compilation provenance
+SECRET-ABSENCE CONDITION  NOT-SETTLED — literal no-host-path criterion preserved
+LAUNCHER V2 PATH REMAP  NEXT — source seal, deterministic rebuild, evidence producer and privilege tests
+IMAGE PRODUCTION  NOT AUTHORISED — no successor production budget opened
+GUEST BOOT  NOT STARTED — 0 boot attempts used
+MAC.4  NOT STARTED — no node request or authenticated host/guest transport claim
+```
+
+The cursors through §57.1 remain historical records. The preserved image was not
+modified or mounted, no image was produced, and no machine was started.
+`mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation
+`false` and `activationAllowed=false` remain unchanged.

@@ -105,6 +105,33 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'Keeping the raw s
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'PRESERVED-DISK PATH/CONTENT RECONCILIATION  NEXT'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'RAW-HIT HOST ORIGIN  NOT PROVEN'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Raw-scan joined-path correction'
+# The preserved ext4 image is now reconciled path-by-path, byte-by-byte and
+# block-owner-by-block-owner.  That closes the raw inventory methodology gap,
+# but the sealed launcher contains its CI producer's build-home path, so the
+# strict no-host-path condition remains NOT-SETTLED rather than being waived.
+EXT4_SECRET_RECONCILIATION=native/containment/native-shadow-mac3-guest-secret-path-content-reconciliation-arm64-v1.json
+require_file "$EXT4_SECRET_RECONCILIATION"
+require_text "$EXT4_SECRET_RECONCILIATION" 'LOGICAL-PATH-CONTENT-AND-PHYSICAL-OWNER-RECONCILIATION-PASS-HOST-PATH-CONDITION-NOT-SETTLED'
+require_text "$EXT4_SECRET_RECONCILIATION" '"reconciliationPassed":true'
+require_text "$EXT4_SECRET_RECONCILIATION" '"conditionSettled":false'
+require_text "$EXT4_SECRET_RECONCILIATION" '"rawHits":135'
+require_text "$EXT4_SECRET_RECONCILIATION" '"attributedRawHits":135'
+require_text "$EXT4_SECRET_RECONCILIATION" 'SEALED-LAUNCHER-BUILD-PROVENANCE-PATH-NOT-SECRET-MATERIAL-BUT-HOST-PATH-CONDITION-BLOCKER'
+require_text "$EXT4_SECRET_RECONCILIATION" '"hostPathCriterionMet":false'
+require_text "$EXT4_SECRET_RECONCILIATION" '"noHostWalletModelOrNodeSecretMaterialObserved":true'
+require_text "$EXT4_SECRET_RECONCILIATION" '"bootAttempted":false'
+require_text "$EXT4_SECRET_RECONCILIATION" '"mineableNow":0'
+require_file scripts/native_shadow_ext4_readonly_owner_map_arm64_v1.py
+require_file scripts/native_shadow_mac3_guest_secret_path_content_reconcile_arm64_v1.py
+require_file scripts/test_native_shadow_ext4_readonly_owner_map_arm64_v1.py
+require_file scripts/test_native_shadow_mac3_guest_secret_path_content_reconcile_arm64_v1.py
+require_text scripts/self-test.sh 'native-shadow-ext4-secret-reconciliation'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'Reconciling every byte without hiding the producer build path'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'PRODUCER BUILD PATH  23 ATTRIBUTED / BLOCKING'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER V2 PATH REMAP  NEXT'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Preserved-disk reconciliation and producer build-path blocker'
+require_text docs/native-submission-shadow-verification-v1.md 'Preserved ext4 reconciliation addendum'
+require_text docs/native-submission-shadow-verification-v1.md 'conditionSettled=false'
 require_text docs/native-submission-shadow-verification-v1.md "is now claimed and closed on"
 require_text docs/native-submission-shadow-verification-v1.md "PR #221"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "CRASH-RESTART-EXACTLY-ONCE-E2E: GREEN"
@@ -1722,9 +1749,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "55e22e3ec503cb4d96b3c502cd8b88af1b3c51e058827f1ac6ddfb2fd11c4251"
-require_text docs/native-submission-shadow-verification-v1.md "e7fc6277dc24506efb61133d89585e04043e5f58cf9962e6c1c889c460f3b38f"
-require_text docs/native-submission-shadow-verification-v1.md "2f6dcfd4f3c82e58c86fce6b64cd4d1e6565a142f33b3dc765cf6b13a872a309"
+require_text docs/native-submission-shadow-verification-v1.md "5e4bcca6e5d43256efc0102be526ce19150f90454cfb3d7517ac240c9287f4e9"
+require_text docs/native-submission-shadow-verification-v1.md "e54641edeeff358c560e547738c59ec9d3bd1a1bdd8033a7ba2f6ec56a3e5d5d"
+require_text docs/native-submission-shadow-verification-v1.md "7cd66ab3921eb84f3097c10de3b744a9287fe8f4c142e293f68b18602724eca9"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"

@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `55e22e3ec503cb4d96b3c502cd8b88af1b3c51e058827f1ac6ddfb2fd11c4251` (updated 2026-08-27t — the successor production path is pre-registered before it exists: the production path in the tree was confirmed in code to read the predecessor lock and pass no nested tree, so the predecessor criteria record is superseded rather than corrected, with its digest pinned and its bytes unchanged) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `e7fc6277dc24506efb61133d89585e04043e5f58cf9962e6c1c889c460f3b38f` (updated 2026-08-27t — the successor authority is sealed with runsAllowed=1 and runsPerformed=0 against a workflow that does not exist yet; the preflight comes before any dispatch and produces nothing, so image production and boot both remain one-shot and unspent) |
+| `local-docs/todo/todo-l1-network-master.md` | `5e4bcca6e5d43256efc0102be526ce19150f90454cfb3d7517ac240c9287f4e9` (updated 2026-08-29i — the current append-only master now records exact preserved-ext4 reconciliation, no observed wallet/model/node secret material, and the literal no-host-path blocker from 23 sealed launcher build-provenance strings) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `e54641edeeff358c560e547738c59ec9d3bd1a1bdd8033a7ba2f6ec56a3e5d5d` (updated 2026-08-29i — the reconciliation is complete while the secret-absence condition remains NOT-SETTLED; launcher-v2 deterministic path remap is next and image production, boot and MAC.4 remain closed) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `2f6dcfd4f3c82e58c86fce6b64cd4d1e6565a142f33b3dc765cf6b13a872a309` (updated 2026-08-27t — the cheapest way to waste an irreversible run is to trust a report about what the code does; a record naming the wrong producer is superseded rather than corrected; the budget boundary is drawn at something that survives a crash; and separation has to be enumerated or it is half-done) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `7cd66ab3921eb84f3097c10de3b744a9287fe8f4c142e293f68b18602724eca9` (updated 2026-08-29d — exact attribution can clear secret suspicion without satisfying a broader literal policy; producer build provenance remains a blocker until a reproducibly remapped launcher successor exists) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2017,3 +2017,26 @@ The 2026-08-27c mirror synchronization appends this correction to
 three section 12 mirrors are byte-unchanged. All six digests were recomputed from the local files;
 the section 12 table contains those exact post-update values. These hashes are synchronization
 evidence only and never runtime authority.
+
+## Preserved ext4 reconciliation addendum (2026-08-29)
+
+The preserved successor root disk has now been reconciled without mounting or
+modifying it. All 17,677 logical paths, 15,102 regular files and 837 symlinks
+match exact sealed expectations; all 435,530 allocated blocks have one declared
+owner class; and all historical 135 raw candidates belong to exact regular-file
+content with no journal, slack, free, unmapped or ambiguous remainder. No host
+wallet, model key or node-secret material was observed.
+
+That result does not close the qualification condition. The actual CI producer
+home appears 23 times in the exact sealed launcher as compilation provenance.
+It is not secret material, but the frozen condition says no host path. The
+result therefore separates `reconciliationPassed=true` from
+`conditionSettled=false` instead of weakening the sentence after observation.
+
+The next implementation step is a launcher-v2 source seal and deterministic
+producer-path remap, together with the already parked console-evidence producer
+and dynamic privilege tests, followed by two independent byte-identical arm64
+builds. This addendum grants no image-production, boot, node, MAC.4, mining,
+reward, consensus or P2P authority. The 2026-08-29 mirror synchronization also
+brings the three append-only local planning mirrors' current contents back into
+the section 12 digest table; the other three mirrors are byte-unchanged.
