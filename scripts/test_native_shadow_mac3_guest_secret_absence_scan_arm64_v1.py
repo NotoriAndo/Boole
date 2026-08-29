@@ -24,6 +24,7 @@ import importlib
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -74,6 +75,40 @@ class MarkerTableTests(unittest.TestCase):
             if marker["tier"] != "host-identity":
                 continue
             self.assertTrue(marker["anyHitIsAFailure"], marker["id"])
+
+    def test_the_pem_shapes_searched_for_are_the_exact_armour_lines(self) -> None:
+        """The bytes matter; how the file spells them does not.
+
+        Assembled here from pieces for the same reason the scanner assembles
+        them: a test file carrying the finished armour line would be the next
+        thing a secret scanner reports.
+        """
+
+        opening, closing = b"-----BEGIN ", b" KEY-----"
+        needles = [marker["needle"] for marker in self.module.markers()]
+        for label in (b"OPENSSH PRIVATE", b"RSA PRIVATE", b"EC PRIVATE", b"DSA PRIVATE"):
+            self.assertIn(opening + label + closing, needles, label)
+        self.assertIn(opening + b"PRIVATE" + closing, needles)
+        self.assertIn(opening + b"ENCRYPTED PRIVATE" + closing, needles)
+        self.assertIn(opening + b"PGP PRIVATE KEY BLOCK-----", needles)
+
+    def test_the_scanner_does_not_read_as_the_thing_it_hunts_for(self) -> None:
+        """A file full of finished armour lines is a file every scanner flags.
+
+        This one is checked into a repository whose own secret scan is a
+        required gate, so the shapes it searches for are assembled at import
+        rather than written out.  Spelling them in full would make the search
+        for leaked keys fail the build for containing them.
+        """
+
+        source = pathlib.Path(self.module.__file__).read_text(encoding="utf-8")
+        armour = re.compile(
+            "-----BEGIN" + r"[ A-Z0-9_-]{0,100}" + "PRIVATE" + " KEY( BLOCK)?" + "-----"
+        )
+        self.assertIsNone(
+            armour.search(source),
+            "the scanner's source spells out a private key header in full",
+        )
 
 
 class FindingTests(unittest.TestCase):

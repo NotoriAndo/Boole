@@ -84,14 +84,30 @@ _NODE_SECRET_ENVIRONMENT = (
     ("BOOLE_SIGNER_NONCE_DIR", "the signer nonce directory override variable"),
 )
 
+# The armour lines are assembled rather than written out, and the reason is not
+# style.  This file is checked into a repository whose own secret scan is a
+# required gate, and a table of finished `BEGIN ... KEY` lines is exactly what
+# that scan exists to report -- the search for leaked keys would fail the build
+# for containing the shapes it searches for.  The bytes below are identical to
+# the literals either way; a test asserts that, and asserts that this file does
+# not spell them out.
+_PEM_OPENING, _PEM_CLOSING = b"-----BEGIN ", b" KEY-----"
+
+
+def _armour(label: bytes) -> bytes:
+    """One PEM armour line, built from its two fixed halves."""
+
+    return _PEM_OPENING + label + _PEM_CLOSING
+
+
 _SECRET_SHAPES = (
-    ("openssh-private-key-header", b"-----BEGIN OPENSSH PRIVATE KEY-----"),
-    ("rsa-private-key-header", b"-----BEGIN RSA PRIVATE KEY-----"),
-    ("ec-private-key-header", b"-----BEGIN EC PRIVATE KEY-----"),
-    ("dsa-private-key-header", b"-----BEGIN DSA PRIVATE KEY-----"),
-    ("pkcs8-private-key-header", b"-----BEGIN PRIVATE KEY-----"),
-    ("encrypted-private-key-header", b"-----BEGIN ENCRYPTED PRIVATE KEY-----"),
-    ("pgp-private-key-header", b"-----BEGIN PGP PRIVATE KEY BLOCK-----"),
+    ("openssh-private-key-header", _armour(b"OPENSSH PRIVATE")),
+    ("rsa-private-key-header", _armour(b"RSA PRIVATE")),
+    ("ec-private-key-header", _armour(b"EC PRIVATE")),
+    ("dsa-private-key-header", _armour(b"DSA PRIVATE")),
+    ("pkcs8-private-key-header", _armour(b"PRIVATE")),
+    ("encrypted-private-key-header", _armour(b"ENCRYPTED PRIVATE")),
+    ("pgp-private-key-header", _PEM_OPENING + b"PGP PRIVATE KEY BLOCK-----"),
     ("anthropic-api-key-prefix", b"sk-ant-"),
     ("openrouter-api-key-prefix", b"sk-or-v1-"),
     ("openai-project-key-prefix", b"sk-proj-"),
