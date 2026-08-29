@@ -5543,3 +5543,47 @@ created, no preserved image changed and no machine started. `mineable_now=0`,
 `activationAllowed=false` remain unchanged.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:END -->
+
+## 65. Correcting the preregistered repository-Python trust closure before implementation (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:BEGIN -->
+
+The 23-row preregistration in §64 is preserved byte-for-byte as the historical
+decision made before implementation. A fresh import audit then showed that its
+hand-selected rows did not cover the complete repository-Python trust closure.
+Recursive static import analysis found 16 missing helper modules. A fresh
+process additionally observed one module imported only from projected code and
+one policy JSON read while a builder module is imported. Neither is visible to
+the static import walk.
+
+The append-only correction is
+`native-shadow-mac3-launcher-v2-successor-producer-import-closure-correction-arm64-v1.json`,
+SHA-256
+`b199fb616029e2e38169b4d5f7a82cb7d9962be56fb8bd25dd6b17309131a498`,
+10,971 bytes. It adds exactly 18 direct bindings, so future implementation must
+verify the union of the historical 23 and corrected 18 — 41 unique files —
+before importing any repository Python helper. The runtime audit also observed
+three legacy source files that projected wrappers read and execute; each live
+file is already checked against a literal SHA-256 by a now-directly-bound
+wrapper before decode, compile or execution. Those three transitive checks are
+listed explicitly rather than double-counted as direct rows.
+
+This correction does not rewrite §64, grant a production or boot run, or claim
+that producer v3 or readback v3 exists. It closes a trust-boundary omission
+before either implementation or rehearsal can execute.
+
+### 65.1 Cursor
+
+```text
+HISTORICAL PREREGISTRATION  PRESERVED — 23 rows, byte identity unchanged
+IMPORT-TIME TRUST CLOSURE  CORRECTED — 18 direct rows added
+EFFECTIVE DIRECT BINDINGS  41 — verify before repository-Python import
+SUCCESSOR PRODUCER + READBACK-V3  NEXT — implementation, then free rehearsal
+IMAGE PRODUCTION / GUEST BOOT  NOT AUTHORISED — 0 runs
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+`mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation
+`false` and `activationAllowed=false` remain unchanged.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:END -->

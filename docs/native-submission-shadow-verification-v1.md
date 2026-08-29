@@ -2191,3 +2191,20 @@ evidence only. Image-production and boot runs remain zero, and MAC.4, testnet,
 mining, reward, consensus, P2P and activation remain unopened.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:END -->
+
+## Launcher-v2 successor producer import-closure correction addendum (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:BEGIN -->
+
+The historical preregistration remains byte-preserved. An append-only,
+authority-zero correction expands its 23 direct bindings to an effective union
+of 41 after recursive static analysis and a fresh-process import/open audit
+found 18 live omissions. Future producer/readback code must validate both
+records before importing repository Python. Three raw legacy sources remain
+transitively protected by digest-checking projected wrappers and are listed in
+the correction rather than treated as unexplained reads.
+
+The correction performs and permits zero image-production and boot runs. It
+does not open MAC.4, testnet, mining, reward, consensus, P2P or activation.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:END -->

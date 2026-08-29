@@ -2646,4 +2646,24 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md '576bafd10600a05e9
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:BEGIN'
 require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:BEGIN'
 
+# The historical 23-row preregistration remains byte-preserved.  A separate,
+# authority-zero correction closes the full repository-Python import-time trust
+# closure before the generation code is allowed to import any repository helper.
+V2_SUCCESSOR_IMPORT_CORRECTION=native/containment/native-shadow-mac3-launcher-v2-successor-producer-import-closure-correction-arm64-v1.json
+require_file "$V2_SUCCESSOR_IMPORT_CORRECTION"
+require_file scripts/test_native_shadow_launcher_v2_successor_producer_import_closure_correction_arm64_v1.py
+require_text scripts/self-test.sh 'scripts/test_native_shadow_launcher_v2_successor_producer_import_closure_correction_arm64_v1.py'
+require_text "$V2_SUCCESSOR_IMPORT_CORRECTION" 'CORRECTED-BEFORE-REHEARSAL-NO-IMAGE-PRODUCTION-AUTHORITY'
+require_text "$V2_SUCCESSOR_IMPORT_CORRECTION" '"effectiveUniqueBindings": 41'
+require_text "$V2_SUCCESSOR_IMPORT_CORRECTION" '"addedMissingBindings": 18'
+require_text "$V2_SUCCESSOR_IMPORT_CORRECTION" '"imageProductionRunsAllowed": 0'
+require_text "$V2_SUCCESSOR_IMPORT_CORRECTION" '"bootsPerformed": 0'
+require_text "$V2_SUCCESSOR_IMPORT_CORRECTION" '0d82a724332d6cd9ed3b8d30b13d18c545c56caf855d608e68410cd9124e303b'
+require_text "$V2_SUCCESSOR_IMPORT_CORRECTION" '70374fd617a12b7d8a3f07c3693cc4b9efe237631e4886ab9d92fd5de9145266'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:BEGIN'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'EFFECTIVE DIRECT BINDINGS  41'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'b199fb616029e2e38169b4d5f7a82cb7d9962be56fb8bd25dd6b17309131a498'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:BEGIN'
+require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:BEGIN'
+
 printf 'docs-smoke: PASS\n' >&2
