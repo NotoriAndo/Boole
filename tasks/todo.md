@@ -3122,11 +3122,11 @@ and no boot was authorised.
       or a leak; raw tier labels identify candidates, not provenance.
 - [x] Bind the target image to its production and preservation records and keep
       boot authorisation, production, serving and activation false.
-- [ ] Enumerate the preserved ext4 graph and bind its 17,677 logical paths to the
+- [x] Enumerate the preserved ext4 graph and bind its 17,677 logical paths to the
       17,676-entry sealed staging expectation plus `/lost+found`.
-- [ ] Attribute all 135 raw ranges to one physical inode owner, allowing multiple
+- [x] Attribute all 135 raw ranges to one physical inode owner, allowing multiple
       hard-link aliases but refusing journal, slack, unallocated or unmapped bytes.
-- [ ] Bind every candidate file by exact path/kind/content digest and every
+- [x] Bind every candidate file by exact path/kind/content digest and every
       symlink by exact target; broad namespace prefixes are not provenance.
 
 ### Review
@@ -3135,3 +3135,29 @@ This correction settles a methodology defect, not the secret-absence condition.
 No image was produced, modified, mounted or booted. The next safe slice is the
 read-only path/content/physical-owner reconciliation; launcher v2, production,
 boot and MAC.4 stay behind their existing gates.
+
+## Preserve the strict host-path condition after exact reconciliation (2026-08-29)
+
+- [x] Parse the preserved ext4 image read-only and conserve the before/after
+      image digest.
+- [x] Reconcile all 17,677 paths and 1,773,456,499 regular-file bytes to exact
+      sealed expectations.
+- [x] Assign every allocated block exactly one physical owner class and conserve
+      all historical 135 raw hits with zero journal/slack/free/unmapped ambiguity.
+- [x] Derive the real producer build-home marker from sealed preflight evidence
+      instead of assuming the local developer marker is the producer marker.
+- [x] Attribute all 23 producer-marker hits to the exact sealed launcher and
+      classify them as build provenance, not secret material.
+- [x] Keep the qualification condition NOT-SETTLED because its literal wording
+      forbids host paths; do not rewrite it as "no secret-bearing host path".
+- [ ] Seal launcher-v2 source with deterministic producer-path remapping, the
+      parked console-evidence producer and dynamic privilege tests.
+- [ ] Build launcher v2 twice independently and require byte-identical output
+      before discussing any successor image.
+
+### Review
+
+The filesystem, content and block-owner reconciliation is complete and
+reproducible. No wallet, model-key or node-secret material was observed. The
+remaining blocker is narrower and explicit: 23 producer build-path strings in
+the sealed launcher. No image production or boot authority was opened.
