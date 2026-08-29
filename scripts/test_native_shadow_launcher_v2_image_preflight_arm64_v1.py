@@ -16,6 +16,7 @@ same assembler object a later, separately authorised producer would consume.
 from __future__ import annotations
 
 import ast
+import copy
 import hashlib
 import importlib
 import inspect
@@ -452,6 +453,130 @@ class CanonicalRepeatabilityTests(unittest.TestCase):
             with self.assertRaises(mod.LauncherV2PreflightError):
                 mod.write_result_once(path, {"schema": "stand-in"})
             self.assertTrue(path.is_symlink())
+
+
+class ResultVerificationTests(unittest.TestCase):
+    def valid_document(self):
+        mod = preflight_module()
+        prereg = preregistration()
+        baseline = prereg["expectedProjection"]["withoutLauncher"]
+        totals = dict(baseline)
+        totals.update(
+            {
+                "byKind": {"directory": 1737, "file": 15102, "symlink": 837},
+                "entries": EXPECTED_ENTRIES,
+                "pathManifestSha256": "a" * 64,
+                "payloadBytes": EXPECTED_PAYLOAD_BYTES,
+            }
+        )
+        measurement_record = json.loads(
+            (
+                REPO
+                / "native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json"
+            ).read_text(encoding="utf-8")
+        )
+        tool = pathlib.Path("/usr/bin/true")
+        document = mod.build_result_document(
+            preregistration=prereg,
+            computed=totals,
+            walked=totals,
+            launcher_binary=b"x" * V2_LAUNCHER_SIZE,
+            baseline_totals=baseline,
+            nested_manifest=measurement_record["nestedContentManifest"],
+            bound_inputs=mod.verify_bound_inputs(prereg, REPO),
+            gpgv=tool,
+            zstd=tool,
+            repository_root=REPO,
+        )
+        document["launcher"] = prereg["expectedProjection"]["successorLauncher"]
+        return document
+
+    def test_full_result_is_accepted_by_the_read_only_consumer(self) -> None:
+        mod = preflight_module()
+        document = self.valid_document()
+        self.assertEqual(
+            mod.verify_result_document(
+                document,
+                repository_root=REPO,
+                gpgv=pathlib.Path("/usr/bin/true"),
+                zstd=pathlib.Path("/usr/bin/true"),
+            ),
+            document,
+        )
+
+    def test_four_claims_without_the_evidence_are_rejected(self) -> None:
+        mod = preflight_module()
+        truncated = {
+            "activationAllowed": False,
+            "bootableClaim": False,
+            "imageProduced": False,
+            "status": "PASS-NO-IMAGE-PRODUCED",
+        }
+        with self.assertRaises(mod.LauncherV2PreflightError):
+            mod.verify_result_document(
+                truncated,
+                repository_root=REPO,
+                gpgv=pathlib.Path("/usr/bin/true"),
+                zstd=pathlib.Path("/usr/bin/true"),
+            )
+
+    def test_result_file_must_be_canonical_before_it_is_consumed(self) -> None:
+        mod = preflight_module()
+        document = self.valid_document()
+        with tempfile.TemporaryDirectory(prefix="boole-s2-result-consumer.") as scratch:
+            path = pathlib.Path(scratch) / "result.json"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(mod.LauncherV2PreflightError):
+                mod.verify_result_file(
+                    path,
+                    repository_root=REPO,
+                    gpgv=pathlib.Path("/usr/bin/true"),
+                    zstd=pathlib.Path("/usr/bin/true"),
+                )
+            path.write_bytes(mod.canonical_json(document))
+            self.assertEqual(
+                mod.verify_result_file(
+                    path,
+                    repository_root=REPO,
+                    gpgv=pathlib.Path("/usr/bin/true"),
+                    zstd=pathlib.Path("/usr/bin/true"),
+                ),
+                document,
+            )
+
+    def test_identity_measurement_binding_and_provenance_tampering_are_rejected(self) -> None:
+        mod = preflight_module()
+        original = self.valid_document()
+        mutations = (
+            ("launcher", lambda value: value["launcher"].__setitem__("sha256", "0" * 64)),
+            (
+                "measurement",
+                lambda value: value["builderInternal"].__setitem__(
+                    "payloadBytes", value["builderInternal"]["payloadBytes"] - 1
+                ),
+            ),
+            (
+                "binding",
+                lambda value: value["boundInputs"][0].__setitem__("sha256", "0" * 64),
+            ),
+            (
+                "provenance",
+                lambda value: value["provenance"]["repositoryFiles"][0].__setitem__(
+                    "sha256", "0" * 64
+                ),
+            ),
+        )
+        for label, mutate in mutations:
+            changed = copy.deepcopy(original)
+            mutate(changed)
+            with self.subTest(label=label):
+                with self.assertRaises(mod.LauncherV2PreflightError):
+                    mod.verify_result_document(
+                        changed,
+                        repository_root=REPO,
+                        gpgv=pathlib.Path("/usr/bin/true"),
+                        zstd=pathlib.Path("/usr/bin/true"),
+                    )
 
 if __name__ == "__main__":
     unittest.main()

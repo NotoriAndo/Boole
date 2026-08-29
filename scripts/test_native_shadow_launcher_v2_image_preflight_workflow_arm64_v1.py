@@ -130,6 +130,12 @@ class WrapperTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, source)
 
+    def test_wrapper_verifies_the_internal_and_published_results(self) -> None:
+        source = self.source()
+        self.assertEqual(source.count(" verify-result "), 2)
+        self.assertIn('--result "$internal_result"', source)
+        self.assertIn('--result "$result"', source)
+
     def test_wrapper_has_no_marker_image_name_or_image_tool(self) -> None:
         source = self.source()
         self.assertNotIn("ATTEMPT-" + "CONSUMED.json", source)
@@ -169,7 +175,8 @@ class Arm64WorkflowTests(unittest.TestCase):
         # Isolation and host checks belong to the wrapper. Calling Python again
         # beside it would create a second, weaker preflight path.
         after_emitter = body.split(EMITTER_MODULE.name, 1)[1]
-        self.assertNotIn(PREFLIGHT_MODULE.name, after_emitter)
+        self.assertEqual(after_emitter.count(PREFLIGHT_MODULE.name), 1)
+        self.assertIn(f"{PREFLIGHT_MODULE.name} verify-result", after_emitter)
 
     def test_job_requires_a_json_result_and_only_that_result_is_uploaded(self) -> None:
         body = job_text()
@@ -181,6 +188,12 @@ class Arm64WorkflowTests(unittest.TestCase):
         self.assertIn("if-no-files-found: error", body)
         self.assertIn("find \"$RUNNER_TEMP\"", body)
         self.assertIn('["preflight"]["forbiddenNames"]', body)
+
+    def test_job_uses_the_full_result_consumer_instead_of_python_asserts(self) -> None:
+        body = job_text()
+        self.assertIn(PREFLIGHT_MODULE.name, body)
+        self.assertIn(" verify-result ", body)
+        self.assertNotIn("assert d[", body)
 
     def test_job_has_no_image_tool_marker_or_production_entry_point(self) -> None:
         body = job_text()

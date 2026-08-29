@@ -74,6 +74,44 @@ ISOLATION_ARGV_PATH = pathlib.Path("scripts/native_shadow_boot_image_produce_arm
 ISOLATION_AUTHORITY_PATH = pathlib.Path(
     "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json"
 )
+MEASUREMENT_RECORD_PATH = pathlib.Path(
+    "native/containment/native-shadow-boot-staging-tree-measurement-arm64-v1.json"
+)
+
+RESULT_KEYS = frozenset(
+    {
+        "activationAllowed",
+        "authorisations",
+        "bootableClaim",
+        "boundInputs",
+        "builderInternal",
+        "imageProduced",
+        "independentTraversal",
+        "launcher",
+        "limits",
+        "nestedContentManifest",
+        "preregistrationSha256",
+        "projection",
+        "provenance",
+        "repeatable",
+        "schema",
+        "status",
+    }
+)
+MEASUREMENT_KEYS = frozenset(
+    {
+        "byKind",
+        "caseFoldedSiblings",
+        "duplicatePaths",
+        "entries",
+        "largestFileBytes",
+        "largestFilePath",
+        "pathCollisions",
+        "pathManifestSha256",
+        "payloadBytes",
+        "symlinkEscapes",
+    }
+)
 
 ASSEMBLER = builder_v4.materialize_staging_tree
 
@@ -596,21 +634,7 @@ def build_result_document(
             "withLauncherV2": expected_projection()["withLauncherV2"],
         },
         "provenance": {
-            "repositoryFiles": [
-                _repository_file_identity(repository_root, path)
-                for path in (
-                    pathlib.Path(__file__).resolve().relative_to(REPOSITORY_ROOT),
-                    PREFLIGHT_WRAPPER_PATH,
-                    pathlib.Path(builder_v4.__file__).resolve().relative_to(REPOSITORY_ROOT),
-                    MEASUREMENT_PATH,
-                    BASE_PROJECTION_PATH,
-                    pathlib.Path(release_gate_v2.__file__).resolve().relative_to(
-                        REPOSITORY_ROOT
-                    ),
-                    ISOLATION_ARGV_PATH,
-                    ISOLATION_AUTHORITY_PATH,
-                )
-            ],
+            "repositoryFiles": _repository_file_identities(repository_root),
             "sourceLockSha256": SOURCE_LOCK_SHA256,
             "tools": [
                 _tool_identity("gpgv", gpgv),
@@ -635,6 +659,20 @@ def _repository_file_identity(
     }
 
 
+def _repository_file_identities(repository_root: pathlib.Path) -> list[dict[str, Any]]:
+    paths = (
+        pathlib.Path("scripts/native_shadow_launcher_v2_image_preflight_arm64_v1.py"),
+        PREFLIGHT_WRAPPER_PATH,
+        pathlib.Path("scripts/native_shadow_rootfs_builder_boot_arm64_v4.py"),
+        MEASUREMENT_PATH,
+        BASE_PROJECTION_PATH,
+        pathlib.Path("scripts/native_shadow_rootfs_portable_boot_arm64_v2.py"),
+        ISOLATION_ARGV_PATH,
+        ISOLATION_AUTHORITY_PATH,
+    )
+    return [_repository_file_identity(repository_root, path) for path in paths]
+
+
 def _tool_identity(role: str, path: pathlib.Path) -> dict[str, Any]:
     resolved = pathlib.Path(path).resolve()
     if not resolved.is_file() or resolved.is_symlink():
@@ -646,6 +684,163 @@ def _tool_identity(role: str, path: pathlib.Path) -> dict[str, Any]:
         "sha256": _sha256(raw),
         "sizeBytes": len(raw),
     }
+
+
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _bound_document(
+    preregistration: Mapping[str, Any],
+    repository_root: pathlib.Path,
+    relative: pathlib.Path,
+) -> dict:
+    name = relative.as_posix()
+    matches = [
+        row
+        for row in preregistration["bindings"]
+        if isinstance(row, dict) and row.get("path") == name
+    ]
+    if len(matches) != 1:
+        raise LauncherV2PreflightError(
+            f"the preregistration does not bind exactly one {name}"
+        )
+    row = matches[0]
+    return _load_canonical(
+        pathlib.Path(repository_root) / relative,
+        row["sha256"],
+        name,
+    )
+
+
+def _verify_measurement(document: Mapping[str, Any], projection: Mapping[str, Any]) -> None:
+    computed = document.get("builderInternal")
+    walked = document.get("independentTraversal")
+    if not isinstance(computed, dict) or not isinstance(walked, dict):
+        raise LauncherV2PreflightError("the result has no two complete measurements")
+    if set(computed) != MEASUREMENT_KEYS or set(walked) != MEASUREMENT_KEYS:
+        raise LauncherV2PreflightError("the result measurement fields differ")
+    if computed != walked:
+        raise LauncherV2PreflightError("the two result measurements differ")
+
+    baseline = projection["withoutLauncher"]
+    successor = projection["withLauncherV2"]
+    parent_count = successor["entries"] - baseline["entries"] - 1
+    expected_kinds = dict(baseline["byKind"])
+    expected_kinds["directory"] += parent_count
+    expected_kinds["file"] += 1
+    expected = {
+        "byKind": expected_kinds,
+        "caseFoldedSiblings": baseline["caseFoldedSiblings"],
+        "duplicatePaths": baseline["duplicatePaths"],
+        "entries": successor["entries"],
+        "largestFileBytes": successor["largestFileBytes"],
+        "largestFilePath": baseline["largestFilePath"],
+        "pathCollisions": baseline["pathCollisions"],
+        "payloadBytes": successor["payloadBytes"],
+        "symlinkEscapes": baseline["symlinkEscapes"],
+    }
+    for key, value in expected.items():
+        if computed.get(key) != value:
+            raise LauncherV2PreflightError(
+                f"the result measurement differs on {key}: {computed.get(key)!r}"
+            )
+    if not _is_sha256(computed.get("pathManifestSha256")):
+        raise LauncherV2PreflightError("the result path manifest digest is unusable")
+
+
+def verify_result_document(
+    document: Mapping[str, Any],
+    *,
+    repository_root: pathlib.Path,
+    gpgv: pathlib.Path,
+    zstd: pathlib.Path,
+) -> dict:
+    """Consume every result field before the report may leave CI."""
+
+    if not isinstance(document, dict) or set(document) != RESULT_KEYS:
+        raise LauncherV2PreflightError("the result top-level fields differ")
+    preregistration = load_preregistration()
+    repository_root = pathlib.Path(repository_root).resolve()
+    bound_inputs = verify_bound_inputs(preregistration, repository_root)
+    projection = preregistration["expectedProjection"]
+
+    exact = {
+        "activationAllowed": False,
+        "authorisations": preregistration["authorisations"],
+        "bootableClaim": False,
+        "boundInputs": bound_inputs,
+        "imageProduced": False,
+        "launcher": projection["successorLauncher"],
+        "limits": projection["limits"],
+        "preregistrationSha256": PREREGISTRATION_SHA256,
+        "projection": {
+            "baseline": projection["withoutLauncher"],
+            "withLauncherV2": projection["withLauncherV2"],
+        },
+        "repeatable": True,
+        "schema": SCHEMA,
+        "status": "PASS-NO-IMAGE-PRODUCED",
+    }
+    for key, value in exact.items():
+        if document.get(key) != value:
+            raise LauncherV2PreflightError(f"the result differs on {key}")
+
+    _verify_measurement(document, projection)
+    measurement_record = _bound_document(
+        preregistration, repository_root, MEASUREMENT_RECORD_PATH
+    )
+    if document.get("nestedContentManifest") != measurement_record.get(
+        "nestedContentManifest"
+    ):
+        raise LauncherV2PreflightError("the nested content manifest differs")
+
+    expected_provenance = {
+        "repositoryFiles": _repository_file_identities(repository_root),
+        "sourceLockSha256": SOURCE_LOCK_SHA256,
+        "tools": [
+            _tool_identity("gpgv", pathlib.Path(gpgv)),
+            _tool_identity("zstd", pathlib.Path(zstd)),
+        ],
+    }
+    if document.get("provenance") != expected_provenance:
+        raise LauncherV2PreflightError("the result provenance differs")
+    return dict(document)
+
+
+def verify_result_file(
+    path: pathlib.Path,
+    *,
+    repository_root: pathlib.Path,
+    gpgv: pathlib.Path,
+    zstd: pathlib.Path,
+) -> dict:
+    """Require regular canonical bytes and then consume the complete report."""
+
+    path = pathlib.Path(path)
+    try:
+        info = path.lstat()
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise LauncherV2PreflightError(f"result is unreadable: {path}") from exc
+    if not stat.S_ISREG(info.st_mode) or path.is_symlink():
+        raise LauncherV2PreflightError("result is not a regular file")
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise LauncherV2PreflightError("result is not JSON") from exc
+    if raw != canonical_json(document):
+        raise LauncherV2PreflightError("result is not canonical JSON")
+    return verify_result_document(
+        document,
+        repository_root=repository_root,
+        gpgv=gpgv,
+        zstd=zstd,
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -660,8 +855,33 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _result_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Consume a launcher-v2 preflight result without writing anything"
+    )
+    parser.add_argument("--repo-root", type=pathlib.Path, default=REPOSITORY_ROOT)
+    parser.add_argument("--gpgv", type=pathlib.Path, required=True)
+    parser.add_argument("--zstd", type=pathlib.Path, required=True)
+    parser.add_argument("--result", dest="result_path", type=pathlib.Path, required=True)
+    return parser
+
+
 def main(argv: Optional[list[str]] = None) -> int:
-    arguments = _parser().parse_args(argv)
+    arguments_list = list(sys.argv[1:] if argv is None else argv)
+    if arguments_list and arguments_list[0] == "verify-result":
+        arguments = _result_parser().parse_args(arguments_list[1:])
+        document = verify_result_file(
+            arguments.result_path,
+            repository_root=arguments.repo_root,
+            gpgv=arguments.gpgv,
+            zstd=arguments.zstd,
+        )
+        print(
+            "native-shadow-launcher-v2-image-preflight-arm64: RESULT-VERIFIED: "
+            f"{arguments.result_path} sha256={_sha256(canonical_json(document))}"
+        )
+        return 0
+    arguments = _parser().parse_args(arguments_list)
     document = preflight(
         repository_root=arguments.repo_root,
         artifact_store=arguments.cas,

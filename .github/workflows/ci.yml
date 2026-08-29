@@ -323,8 +323,11 @@ jobs:
             printf 'the free preflight created a forbidden output:\n%s\n' "$found" >&2
             exit 1
           }
-          python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert d["status"] == "PASS-NO-IMAGE-PRODUCED"; assert d["imageProduced"] is False; assert d["bootableClaim"] is False; assert d["activationAllowed"] is False' \
-            "$RUNNER_TEMP/launcher-v2-preflight/PREFLIGHT-RESULT.json"
+          python3 scripts/native_shadow_launcher_v2_image_preflight_arm64_v1.py verify-result \
+            --repo-root "$PWD" \
+            --gpgv "$(readlink -f "$(command -v gpgv)")" \
+            --zstd "$(readlink -f "$(command -v zstd)")" \
+            --result "$RUNNER_TEMP/launcher-v2-preflight/PREFLIGHT-RESULT.json"
 
       - name: Keep only the canonical preflight report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

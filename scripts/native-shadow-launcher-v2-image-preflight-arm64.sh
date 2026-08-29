@@ -99,6 +99,11 @@ found="$(find "$scratch" \( "${expression[@]:1}" \) -print)"
 
 [[ -f $internal_result && ! -L $internal_result ]] \
   || die "the isolated preflight wrote no result"
+python3 "$ROOT/scripts/native_shadow_launcher_v2_image_preflight_arm64_v1.py" verify-result \
+  --repo-root "$ROOT" \
+  --gpgv "$gpgv_path" \
+  --zstd "$zstd_path" \
+  --result "$internal_result"
 
 # Copy the canonical report out with create-once semantics.  The result is the
 # only retained file; a race, symlink, or existing path is refused rather than
@@ -137,5 +142,11 @@ try:
 finally:
     temporary.unlink(missing_ok=True)
 PY
+
+python3 "$ROOT/scripts/native_shadow_launcher_v2_image_preflight_arm64_v1.py" verify-result \
+  --repo-root "$ROOT" \
+  --gpgv "$gpgv_path" \
+  --zstd "$zstd_path" \
+  --result "$result"
 
 printf 'native-shadow launcher-v2 image preflight: PASS: %s\n' "$result"
