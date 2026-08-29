@@ -293,6 +293,9 @@ class WiringAndBoundaryTests(unittest.TestCase):
         emitted = job.index("native_shadow_launcher_emit_arm64_v2.py emit")
         self.assertLess(reprove, tracked)
         self.assertLess(tracked, emitted)
+        self.assertIn('actual_sha="$(sha256sum "$emitted" | awk', job)
+        self.assertIn('test "$actual_sha" = "$expected_sha"', job)
+        self.assertIn('test "$actual_size" = "$expected_size"', job)
         self.assertNotIn("continue-on-error", job)
         self.assertNotIn("|| true", job)
 
@@ -309,6 +312,8 @@ class WiringAndBoundaryTests(unittest.TestCase):
         self.assertIn('src_dir_fd=directory', smoke)
         self.assertIn('dst_dir_fd=directory', smoke)
         self.assertIn('os.fsync(directory)', smoke)
+        self.assertIn('test "$actual_sha" = "$expected_sha"', smoke)
+        self.assertIn('test "$actual_size" = "$expected_size"', smoke)
 
     def test_no_image_or_boot_authority_is_opened(self) -> None:
         self.assertFalse(emit.BOOTABLE_CLAIM)

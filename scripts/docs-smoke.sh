@@ -2580,6 +2580,8 @@ require_text scripts/native_shadow_launcher_emit_arm64_v2.py 'def emit(path: pat
 require_text scripts/native_shadow_launcher_emit_arm64_v2.py 'launcherDeployedIntoGuest'
 require_text scripts/self-test.sh 'scripts/test_native_shadow_launcher_emit_arm64_v2.py'
 require_text .github/workflows/ci.yml 'native_shadow_launcher_emit_arm64_v2.py emit --out "$emitted"'
+require_text .github/workflows/ci.yml 'test "$actual_sha" = "$expected_sha"'
+require_text .github/workflows/ci.yml 'test "$actual_size" = "$expected_size"'
 require_text .github/workflows/ci.yml 'native-shadow arm64 launcher v2 double build did not pass'
 
 printf 'docs-smoke: PASS\n' >&2

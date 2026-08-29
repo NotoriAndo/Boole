@@ -214,12 +214,21 @@ jobs:
         # This is a third, independent build. The emitter publishes no bytes
         # unless they reproduce the tracked two-build result exactly, and the
         # output stays in the runner temp directory rather than a guest image.
+        # The shell then checks the emitted file independently against the
+        # tracked result instead of trusting the emitter's exit status alone.
         run: |
           set -euo pipefail
+          result=native/containment/native-shadow-launcher-build-result-arm64-v2.json
           emitted="$RUNNER_TEMP/boole-native-shadow-launcher-v2"
           python3 scripts/native_shadow_launcher_emit_arm64_v2.py emit --out "$emitted"
           test -x "$emitted"
-          sha256sum "$emitted"
+          expected_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sha256"])' "$result")"
+          expected_size="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["launcher"]["sizeBytes"])' "$result")"
+          actual_sha="$(sha256sum "$emitted" | awk '{print $1}')"
+          actual_size="$(wc -c < "$emitted" | tr -d '[:space:]')"
+          test "$actual_sha" = "$expected_sha"
+          test "$actual_size" = "$expected_size"
+          printf 'launcher-v2 emitted sha256=%s size=%s\n' "$actual_sha" "$actual_size"
 
   self-test:
     name: self-test
