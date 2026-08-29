@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `4efab5018712dc534f0214b8b7a526df813c923b3a84bf11d72310dd3d79b027` (updated 2026-08-30e — the append-only master records the launcher-v2 no-image arm64 preflight at production authority zero) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `4b8a3d904c791727fbd197ce7a5412e691cb7001607650a384158847e5d4e8b8` (updated 2026-08-30e — the cursor moves to authority-zero successor-producer preregistration) |
+| `local-docs/todo/todo-l1-network-master.md` | `77ffa2f983068c3e21517e752f51b8c80215a6fe2e153c9380389f9fb3cbbe71` (updated 2026-08-30f — the append-only master freezes the successor producer/readback generation at authority zero) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `6cc91dfe4bde03bca417419f3049360b11878cf5b50c767e65bd0789a98a65c9` (updated 2026-08-30f — the cursor moves to producer-v3/readback-v3 implementation and then free rehearsal) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `bb74e34134e23bac530ee1db298e26ebf0bd19f7a72d5bda3e26c7780672db32` (updated 2026-08-30i — staging evidence is kept distinct from production authority) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `4ff8ee25f983fa1accadc56a45ebe1f9e1de53a988d4f4890231ba324fdc16ca` (updated 2026-08-30j — generation names and one-way digest flow become evidence boundaries before implementation) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2160,3 +2160,33 @@ edited mirrors; those values are synchronization evidence only and never
 runtime authority.
 
 <!-- LAUNCHER-V2-IMAGE-PREFLIGHT-ARM64-V1-SEALED:END -->
+
+## Launcher-v2 successor-producer authority-zero preregistration (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:BEGIN -->
+
+The exact no-image preflight result is now consumed by a separate canonical
+preregistration at SHA-256
+`8f806899e2b2cd4a6bfbdbbb6ea067198927b4f76d136e00d3d1bd45017143a8`
+and 19,352 bytes. It binds 20 live inputs and freezes 11 new-generation names
+for producer v3, readback v3, the repeatable free rehearsal and any later
+separately authorised production.
+
+The rehearsal may retain one canonical JSON result only and must create no
+production directory, attempt mark or image output. Readback v3 must consume
+source-lock v2 and launcher-result v2, reject launcher v1 and refuse binding
+overrides before loop setup or mount. Historical producer bytes and declared
+test-gate drift remain unchanged. The reader retains
+`ro,nodev,noexec,nosuid`, cleans mount and loop state in `finally`, and cannot
+promote a failed diagnostic. A future authority must bind this record, the
+free-rehearsal result and a fingerprint of the exact seven generation files.
+The fingerprint binds this preregistration but not future authority bytes, so
+the chain stays acyclic. This record grants no run.
+
+The 2026-08-30f/2026-08-30j mirror synchronization records the same cursor in
+`todo-l1-network-master.md`, `EXECUTION-ORDER.md` and
+`thesis-realization-roadmap.md`. Those mirror hashes are synchronization
+evidence only. Image-production and boot runs remain zero, and MAC.4, testnet,
+mining, reward, consensus, P2P and activation remain unopened.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:END -->
