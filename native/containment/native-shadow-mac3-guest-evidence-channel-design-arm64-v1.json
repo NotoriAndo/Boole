@@ -1,0 +1,99 @@
+{
+  "record": "native-shadow-mac3-guest-evidence-channel-design-arm64-v1",
+  "schema": 1,
+  "attemptId": "MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-3",
+  "whatThisIs": "The design of how the twenty-one conditions get their evidence, written after the refusal path was built and before any machine is started.  The criteria were sealed first and are not touched here.  The execution contract said how the run would be carried out; it left five conditions in a hard stop because the preserved image cannot speak for itself.  This record says, for each of those five, which channel would carry the evidence, and it corrects one defect in the contract's one-use mark.",
+  "appendOnly": true,
+  "editsAnyEarlierRecord": false,
+  "changesAnyPassCondition": false,
+  "addsTo": [
+    {
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v3.json",
+      "sha256": "74b9507932b4eda97c89753f642bac579593b034b3e9eff24bb5b056c09079a6",
+      "role": "the sealed criteria; unchanged and unread-from here except to name conditions"
+    },
+    {
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-execution-contract-arm64-v3.json",
+      "sha256": "86683f56f78549152b9e2c061403d34649951f675f976a2f9cf8c8ffac331c75",
+      "role": "the execution contract this record strengthens without editing"
+    }
+  ],
+  "correctsTheStatusWording": {
+    "wasReportedAs": "ready to run",
+    "isActually": "the refusal path and the twenty-one-row judging table are ready",
+    "whatIsStillNotWritten": "the flow that actually boots, collects evidence, judges, and seals a result"
+  },
+  "oneUseMark": {
+    "forcedToDiskBeforeStart": true,
+    "durability": "The mark's bytes are written, flushed, and fsynced, and then the parent directory is fsynced as well, before the machine is started.  On Darwin each fsync is followed by F_FULLFSYNC, which waits for the drive's own cache rather than only the filesystem; where the filesystem refuses that call the fsync still stands.",
+    "whyTheExclusiveCreateWasNotEnough": "An exclusive create settles two runs racing each other.  It says nothing about power.  Without the sync the mark can still be sitting in the page cache when the Mac loses power, which leaves exactly the shape the mark exists to prevent: the machine started and nothing on disk says so.",
+    "whyTheParentIsSyncedToo": "Bytes that no directory entry points at are not a record.  The file is synced first and the directory entry second, so the order never leaves a name pointing at nothing.",
+    "orderedBeforeTheBoot": "Both syncs complete before the launcher is invoked, so a crash costs the attempt rather than hiding it.",
+    "provenBy": "scripts/test_native_shadow_mac3_closed_local_boot_execution_contract_arm64_v3.py"
+  },
+  "evidenceChannels": [
+    {
+      "id": "host-side-read-only-image-scan",
+      "carriesConditions": [
+        "no-host-wallet-model-key-or-node-secret-in-the-guest"
+      ],
+      "needsTheGuestToSpeak": false,
+      "needsANewImage": false,
+      "how": "The preserved image is opened read-only on the host and every byte is searched for the host's own wallet and key directories and for known secret-bearing shapes.  The image is hashed before and after, so the record shows the sealed file went in and the sealed file came out.",
+      "why": "This condition asks a question about a file sitting on this disk right now.  It needs nothing from inside the guest, so it was in the hard stop only because nothing had been written that asks it.",
+      "implementedBy": "scripts/native_shadow_mac3_guest_secret_absence_scan_arm64_v1.py",
+      "resultRecord": "native/containment/native-shadow-mac3-guest-secret-absence-scan-arm64-v1.json"
+    },
+    {
+      "id": "in-guest-evidence-helper-on-the-console",
+      "carriesConditions": [
+        "launcher-executable-matches-the-sealed-digest",
+        "launcher-prerequisites-verify-inside-the-guest",
+        "launcher-supervises-as-root-and-submissions-run-unprivileged"
+      ],
+      "needsTheGuestToSpeak": true,
+      "needsANewImage": true,
+      "how": "A small service inside the guest reads kernel state directly -- the launcher's digest, the prerequisite list, its own capability mask, and readiness -- and prints each as a structured record on the serial console, which the host already captures.",
+      "why": "These are properties of a running kernel: which bytes the launcher actually is, which prerequisites resolve inside the guest, and which capabilities the supervising process holds.  No amount of reading the image from outside can observe them, and a guess is not evidence.",
+      "status": "designed, not built into any image",
+      "consequence": "Putting this service in the image changes the image bytes, so it requires a new clone, a new fingerprint, and pass criteria sealed again in advance before any boot."
+    },
+    {
+      "id": "host-shutdown-handshake",
+      "carriesConditions": [
+        "readiness-and-clean-shutdown-are-observed"
+      ],
+      "needsTheGuestToSpeak": true,
+      "needsANewImage": true,
+      "how": "The host waits until it has seen the readiness record on the console, then asks the guest to shut down and confirms that shutdown completed rather than that the process merely disappeared.",
+      "why": "A machine that was killed and a machine that stopped cleanly look the same from outside unless the host asked and was answered."
+    }
+  ],
+  "hardStop": {
+    "stillInForce": true,
+    "why": "A condition this image cannot evidence refuses the run before any machine is built.  It is never waived, reworded, or guessed.",
+    "reportedNotDecided": {
+      "condition": "launcher-supervises-as-root-and-submissions-run-unprivileged",
+      "problem": "Half of this condition is that a submission actually runs as an unprivileged account.  A closed boot that never receives a request cannot observe that half, because there is no submission to watch.",
+      "options": [
+        "bind it statically, judging the per-request setup order in the code path rather than a runtime observation",
+        "leave it for the stage where real requests exist and verify it there"
+      ],
+      "whyThisIsNotDecidedHere": "The two readings mean different things by the same criterion, so choosing one changes what the sealed condition asserts.  That is the operator's call, not the runner's.",
+      "conditionRelaxedHere": false
+    }
+  },
+  "imageBytes": {
+    "currentImageMayBeModified": false,
+    "currentImageMayBeBooted": false,
+    "whyANewImageIsNeeded": "The in-guest helper is new bytes in the image, so the preserved fingerprint no longer describes what would run.  A new clone, a new fingerprint, and pass criteria sealed again in advance come first.",
+    "sealCriteriaBeforeProducing": true
+  },
+  "bootAuthorisation": {
+    "grantedByThisRecord": false,
+    "runsAllowed": 1,
+    "runsPerformed": 0,
+    "why": "This record designs how evidence would be carried.  Approval to spend the one boot is the operator's and is not given by writing a design down."
+  },
+  "status": "evidence channels designed for all five stopped conditions; one of the five now has a built host-side channel and has been run; four still need an image that can speak, and one half of one of those four is reported to the operator undecided"
+}

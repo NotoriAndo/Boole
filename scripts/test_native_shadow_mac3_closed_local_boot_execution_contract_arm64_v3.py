@@ -19,6 +19,7 @@ guess: the runner refuses, and the boot stays unspent.
 import hashlib
 import importlib
 import json
+import os
 import pathlib
 import sys
 import unittest
@@ -33,6 +34,9 @@ CONTRACT_PATH = (
 )
 PRESERVATION_PATH = (
     CONTAINMENT / "native-shadow-mac3-successor-image-preservation-arm64-v4.json"
+)
+DESIGN_PATH = (
+    CONTAINMENT / "native-shadow-mac3-guest-evidence-channel-design-arm64-v1.json"
 )
 
 ATTEMPT = "MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-3"
@@ -63,6 +67,10 @@ def digest(path: pathlib.Path) -> str:
 
 def contract() -> dict:
     return read(CONTRACT_PATH)
+
+
+def design() -> dict:
+    return read(DESIGN_PATH)
 
 
 def qualification() -> dict:
@@ -320,6 +328,132 @@ class OneUseMarkIsClaimedFirstTests(unittest.TestCase):
             )
         self.assertEqual(len(started), 1)
         self.assertTrue(self.module.ledger_path().is_file())
+
+    def _record_syncs(self):
+        """Capture what each fsync was actually pointed at, by identity.
+
+        Patching the call and asserting it happened would prove only that a
+        name was used.  Reading the descriptor's device and inode says which
+        file landed, which is the thing the durability claim rests on.
+        """
+
+        import unittest.mock
+
+        seen = []
+
+        def recorder(descriptor):
+            status = os.fstat(descriptor)
+            seen.append((status.st_dev, status.st_ino))
+
+        return seen, unittest.mock.patch("os.fsync", side_effect=recorder)
+
+    def test_the_mark_is_forced_to_disk_before_the_call_returns(self) -> None:
+        """An exclusive create survives a second run; it does not survive power.
+
+        Without this, the mark can still be in the page cache when the Mac
+        loses power, which leaves exactly the shape the mark exists to prevent:
+        the machine started and nothing on disk says so.  The directory entry
+        is synced too, because bytes nothing points at are not a record.
+        """
+
+        seen, patcher = self._record_syncs()
+        with patcher:
+            path = self.module.claim_one_use({"approval": "test"})
+        mark = os.stat(path)
+        parent = os.stat(path.parent)
+        self.assertIn((mark.st_dev, mark.st_ino), seen, "the mark itself was not synced")
+        self.assertIn(
+            (parent.st_dev, parent.st_ino),
+            seen,
+            "the directory entry pointing at the mark was not synced",
+        )
+        self.assertLess(
+            seen.index((mark.st_dev, mark.st_ino)),
+            seen.index((parent.st_dev, parent.st_ino)),
+            "the directory was synced before the file it points at",
+        )
+
+    def test_nothing_starts_until_the_mark_has_landed(self) -> None:
+        """Item one of the correction: durability is ordered before the boot."""
+
+        seen, patcher = self._record_syncs()
+        synced_when_started = []
+
+        def runner(argv):
+            del argv
+            synced_when_started.append(list(seen))
+            raise RuntimeError("stop here; no machine is actually built in a test")
+
+        with patcher:
+            with self.assertRaises(RuntimeError):
+                self.module.start_the_machine(
+                    host=pathlib.Path("/nonexistent/host"),
+                    kernel=pathlib.Path("/nonexistent/kernel"),
+                    root_disk=pathlib.Path("/nonexistent/root-disk"),
+                    console=pathlib.Path("/nonexistent/console"),
+                    receipt=pathlib.Path("/nonexistent/receipt"),
+                    approval={"approval": "test"},
+                    runner=runner,
+                )
+        path = self.module.ledger_path()
+        mark = os.stat(path)
+        parent = os.stat(path.parent)
+        self.assertEqual(len(synced_when_started), 1)
+        already = synced_when_started[0]
+        self.assertIn(
+            (mark.st_dev, mark.st_ino),
+            already,
+            "the machine was started before the mark reached the disk",
+        )
+        self.assertIn(
+            (parent.st_dev, parent.st_ino),
+            already,
+            "the machine was started before the directory entry reached the disk",
+        )
+
+    def test_the_durability_is_recorded_in_an_addendum_not_by_editing(self) -> None:
+        """The contract is already merged, so the correction is appended to it.
+
+        Editing a record that has been sealed and merged would make the history
+        say something it never said at the time.  The addendum names the
+        contract by digest instead, so the two are readable together and the
+        earlier one is still exactly what was agreed.
+        """
+
+        row = design()["oneUseMark"]
+        self.assertTrue(row["forcedToDiskBeforeStart"])
+        self.assertIn("parent directory", row["durability"])
+        self.assertTrue(design()["appendOnly"])
+        self.assertFalse(design()["editsAnyEarlierRecord"])
+        bound = {row["path"]: row["sha256"] for row in design()["addsTo"]}
+        for path in (CONTRACT_PATH, QUALIFICATION_PATH):
+            relative = str(path.relative_to(REPO))
+            self.assertIn(relative, bound)
+            self.assertEqual(bound[relative], digest(path), relative)
+
+    def test_the_addendum_changes_no_pass_condition_and_grants_no_boot(self) -> None:
+        self.assertFalse(design()["changesAnyPassCondition"])
+        self.assertFalse(design()["bootAuthorisation"]["grantedByThisRecord"])
+        self.assertEqual(design()["bootAuthorisation"]["runsPerformed"], 0)
+        self.assertFalse(design()["imageBytes"]["currentImageMayBeBooted"])
+        self.assertFalse(design()["imageBytes"]["currentImageMayBeModified"])
+
+    def test_every_stopped_condition_has_a_named_evidence_channel(self) -> None:
+        """The five that stop the run are exactly the five that get a channel."""
+
+        stopped = {
+            row["id"]
+            for row in contract()["evidencePlan"]
+            if row["evidenceSource"] == "not-observable-with-this-image"
+        }
+        covered = [
+            identifier
+            for channel in design()["evidenceChannels"]
+            for identifier in channel["carriesConditions"]
+        ]
+        self.assertEqual(len(covered), len(set(covered)), "a condition has two channels")
+        self.assertEqual(set(covered), stopped)
+        self.assertTrue(stopped <= condition_ids())
 
     def test_the_free_preflight_starts_nothing_and_marks_nothing(self) -> None:
         """Item five: prove both counts are zero before anything is approved."""

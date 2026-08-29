@@ -2992,3 +2992,41 @@ HARNESS-DEFECT / UNRESOLVED). **결함 확인 범위만** 재계산. 그다음 R
 public/API/mining/leaderboard 주장 아님. 측정 원본(스크립트·동결·transcript)은 gitignored `local-docs/`
 샌드박스에만, in-tree는 원장의 지문·보존식·계보만. 유료 실행은 매 wave 운영자 승인 + 상한 내 구독 CLI로만.
 `mineable_now = 0`.
+
+## MAC.3 evidence channels for the five stopped conditions (2026-08-29)
+
+- [x] Make the one-use mark survive power loss: sync the file, then the parent
+      directory, both before the machine is started (RED then GREEN, asserting
+      which descriptors were synced by device and inode, and that both syncs
+      precede the launcher call rather than merely happening).
+- [x] Record the correction in an append-only addendum beside the sealed
+      criteria rather than editing the already-merged execution contract, and
+      bind both earlier records into it by digest.
+- [x] Split the five stopped conditions by evidence channel: host-side read-only
+      scan (1), in-guest console helper (3), host shutdown handshake (1).
+- [x] Build the host-side channel — a read-only whole-image byte search — and run
+      it against the sealed root disk.
+- [x] Register the new gate in scripts/self-test.sh and pin the position strings
+      in scripts/docs-smoke.sh.
+- [ ] Write the in-guest evidence helper and unit file (source only; building it
+      into an image needs a new clone, a new fingerprint and criteria sealed
+      again in advance).
+- [ ] Implement the host shutdown handshake and rehearse the whole boot flow
+      against a fake host, which costs nothing and starts nothing.
+
+### Review
+
+The scan read all 2,035,625,984 bytes of the sealed root disk read-only, with
+the digest unchanged on both sides. Host-identity markers: 0 hits — nothing of
+this machine's home path, archive root, node key/session/nonce directories, or
+wallet and model-key environment variable names appears anywhere in the image.
+Generic secret-shape markers: 135 hits, unexplained.
+
+The condition stays in the hard stop. A byte search is a superset of the sealed
+question, so zero would have settled it and 135 does not: the search cannot tell
+a manual page that mentions a filename from a key file, and an unexplained hit
+reads as no. Explaining them means descending to directory-entry level in the
+image, which is the natural next slice for this channel.
+
+Nothing was booted, no image was produced or modified, no boot was authorised,
+and the one boot attempt remains unspent.

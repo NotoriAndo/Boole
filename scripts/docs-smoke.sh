@@ -64,6 +64,14 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "https://github.co
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "MAC.1-PARTIAL — OPERATOR VALUE REQUIRED"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "Mac VM, the Mac production checker and every MAC.2+ gate remain NOT implemented"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
+# The evidence-channel position.  Each of these is a claim that a later edit
+# must not quietly soften: the mark is durable, the scan was run and did not
+# settle the condition, the helper is designed rather than built, and the
+# unprivileged half is the operator's to decide rather than mine to relax.
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "ONE-USE-MARK  DURABLE / NOT CLAIMED"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "SECRET-ABSENCE-SCAN  RUN / NOT SETTLED"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "GUEST-EVIDENCE-HELPER  DESIGNED / NOT BUILT"
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md "UNPRIVILEGED-SUBMISSIONS  REPORTED / NOT DECIDED"
 require_text docs/native-submission-shadow-verification-v1.md "is now claimed and closed on"
 require_text docs/native-submission-shadow-verification-v1.md "PR #221"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "CRASH-RESTART-EXACTLY-ONCE-E2E: GREEN"
