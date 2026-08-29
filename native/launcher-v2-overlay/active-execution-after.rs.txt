@@ -1,0 +1,76 @@
+#[derive(Debug, Error)]
+pub enum ActiveExecutionListenerError {
+    #[error(transparent)]
+    Listener(#[from] FixedQualificationListenerError),
+    #[error("active execution connection {connection} failed: {reason}")]
+    Session { connection: usize, reason: String },
+    #[error("launcher qualification connection failed: {0}")]
+    Qualification(String),
+    #[error("launcher-v2 listener-bound console evidence failed: {reason}")]
+    ListenerBoundConsoleEvidence { reason: String },
+}
+
+/// Qualify one kernel-authenticated node process and then serve the exact three
+/// closed-local replay cases only to that same PID. The one listener and one
+/// startup proof span the complete four-connection session, so a different
+/// process with the same UID/GID cannot enter after qualification.
+pub fn serve_qualified_three_fixed_unix_executions(
+    startup: VerifiedClosedLocalReplayStartup,
+) -> Result<(), ActiveExecutionListenerError> {
+    serve_qualified_three_fixed_unix_executions_inner(startup, None)
+}
+
+/// Bind and verify the one fixed listener before emitting the launcher-v2
+/// evidence records. A bind or socket-identity failure therefore cannot leave
+/// a readiness record on the guest console.
+pub fn serve_qualified_three_fixed_unix_executions_with_listener_bound_console_evidence(
+    startup: VerifiedClosedLocalReplayStartup,
+    records: [crate::console_evidence::Record; 4],
+) -> Result<(), ActiveExecutionListenerError> {
+    serve_qualified_three_fixed_unix_executions_inner(startup, Some(records))
+}
+
+fn serve_qualified_three_fixed_unix_executions_inner(
+    mut startup: VerifiedClosedLocalReplayStartup,
+    bound_records: Option<[crate::console_evidence::Record; 4]>,
+) -> Result<(), ActiveExecutionListenerError> {
+    require_fixed_umask()?;
+    let identities = startup.identities();
+    let runtime_directory = startup.runtime_directory().try_clone().map_err(|source| {
+        FixedQualificationListenerError::Io {
+            stage: "duplicate verified runtime directory for qualified execution listener",
+            source,
+        }
+    })?;
+    let mut listener = bind_listener_in_directory(
+        &runtime_directory,
+        std::path::Path::new(FIXED_SOCKET_PATH),
+        0,
+        identities.node_gid(),
+    )?;
+    if let Some(records) = bound_records {
+        let stdout = io::stdout();
+        if let Err(source) = crate::console_evidence::emit(&mut stdout.lock(), &records) {
+            listener.remove_exact_bound_entry()?;
+            return Err(ActiveExecutionListenerError::ListenerBoundConsoleEvidence {
+                reason: source.to_string(),
+            });
+        }
+    }
+    let qualification_stream = listener.accept_one()?;
+    let qualified_peer = serve_connected_unix_qualification_and_capture_peer(
+        qualification_stream,
+        startup.qualification_startup(),
+    )
+    .map_err(|error| ActiveExecutionListenerError::Qualification(error.to_string()))?;
+    for connection in 1..=3 {
+        let stream = listener.accept_one()?;
+        unix::serve_connected_unix_execution(stream, &mut startup, Some(qualified_peer.pid()))
+            .map_err(|source| ActiveExecutionListenerError::Session {
+                connection,
+                reason: source.to_string(),
+            })?;
+    }
+    listener.remove_exact_bound_entry()?;
+    Ok(())
+}

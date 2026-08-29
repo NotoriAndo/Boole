@@ -3805,3 +3805,47 @@ a reproducible path-remap contract, add the parked console-evidence producer and
 dynamic privilege tests, seal the source, then require two independent
 byte-identical arm64 builds. This record grants no rebuild, image-production,
 boot, node, MAC.4, mining, reward, consensus or P2P authority.
+
+### Launcher v2 source and arm64 build authority (2026-08-30)
+
+Launcher v2 is implemented as a pinned overlay on a temporary export, not as an
+edit to the live v1 source tree. The overlay replaces the entry point and
+library registration, adds the console observation producer and pure
+post-drop-status verifier, and changes the old inlined drop check by one exact
+single-match transformation. Source, destination, size and digest are all
+fixed before compilation.
+
+The successor build owns a fresh Cargo home per build and remaps both it and the
+temporary source tree to fixed logical roots. It scans the final ELF for five
+real producer-path classes before any digest can be sealed, then requires two
+builds to be byte-identical without retries or post-processing. The separate
+Linux/arm64 CI job is a required dependency of `self-test`; v1 remains required
+beside it.
+
+The console contract now has one exact cross-language fixture. The host reader
+correction accepts only the already documented `resolved` boolean and refuses
+the unintended `present` alias. The successor reports the executable digest,
+ordered prerequisites, every supervising UID/GID and capability field, and
+readiness after a fixed failed-unit query. These are observations, never guest
+verdicts. Table tests cover every root-retention, group-retention, capability and
+`NoNewPrivs` failure, but a real submitted answer has not run in this record.
+
+Status: source/authority frozen, arm64 result pending. No image was produced or
+modified; no boot, MAC.4, node, mining, reward, consensus or P2P authority was
+opened.
+
+Pre-commit review closed four fail-open edges before the first arm64 build. The
+v2 entry point passes an exact four-record array to active execution instead of
+writing stdout directly. Active execution performs the verified fixed-socket
+bind first, emits and flushes those records second, and blocks in the first
+accept third. Evidence I/O failure removes the exact socket and returns
+`ListenerBoundConsoleEvidence`; bind failure cannot leave a readiness line.
+
+The host reader now rejects Python bool/int aliases with field-specific exact
+type checks and rejects every condition if the transcript contains a malformed
+prefixed line. Unknown IDs remain counted-and-ignored under the inherited v1
+framing contract. Authority boundary names, overlay status, rationale and
+source properties are exact sets/values rather than merely nonempty fields.
+Finally, a newly generated arm64 result is printed for review but the required
+CI job exits nonzero until the result is committed and the next run re-proves
+its exact bytes. Candidate discovery alone can never satisfy the merge gate.

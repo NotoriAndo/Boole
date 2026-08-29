@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `5e4bcca6e5d43256efc0102be526ce19150f90454cfb3d7517ac240c9287f4e9` (updated 2026-08-29i — the current append-only master now records exact preserved-ext4 reconciliation, no observed wallet/model/node secret material, and the literal no-host-path blocker from 23 sealed launcher build-provenance strings) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `e54641edeeff358c560e547738c59ec9d3bd1a1bdd8033a7ba2f6ec56a3e5d5d` (updated 2026-08-29i — the reconciliation is complete while the secret-absence condition remains NOT-SETTLED; launcher-v2 deterministic path remap is next and image production, boot and MAC.4 remain closed) |
+| `local-docs/todo/todo-l1-network-master.md` | `f9e91b9edcb5c09c5f0c18e8a1228b62b12d78608a52d94995396c75032993e4` (updated 2026-08-30b — the append-only master records the launcher-v2 false-green review closures and still-pending arm64 result) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `1ee2513f291a2761f12fa13f006c179873fabe4166d9a2f83e0df7a2479b8906` (updated 2026-08-30b — bind-before-evidence and untracked-candidate refusal are closed; the Linux arm64 double build remains next) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `7cd66ab3921eb84f3097c10de3b744a9287fe8f4c142e293f68b18602724eca9` (updated 2026-08-29d — exact attribution can clear secret suspicion without satisfying a broader literal policy; producer build provenance remains a blocker until a reproducibly remapped launcher successor exists) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `59d35baf1311acf4b2a514854ffba282c68f7f7f190b228ee43fcbbd910a4b92` (updated 2026-08-30f — readiness is ordered after verified bind and candidate discovery is kept distinct from authority) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2040,3 +2040,31 @@ builds. This addendum grants no image-production, boot, node, MAC.4, mining,
 reward, consensus or P2P authority. The 2026-08-29 mirror synchronization also
 brings the three append-only local planning mirrors' current contents back into
 the section 12 digest table; the other three mirrors are byte-unchanged.
+
+## Launcher v2 pre-build addendum (2026-08-30)
+
+The successor source and build contract are now frozen without editing the v1
+generation. A temporary export receives a digest-bound overlay containing the
+console producer and table-driven child privilege checks. Each of two arm64
+builds receives its own fresh Cargo home; both the source root and Cargo home
+are remapped to fixed logical paths, and the ELF must contain zero occurrences
+of five real producer-path classes before it can be sealed.
+
+The host reader's prerequisite field mismatch is recorded as an append-only
+correction: `resolved` is the sole accepted boolean, while the unintended
+`present` spelling is refused. The shared fixture is consumed by both the Rust
+producer test and Python reader test. A closed boot still executes no answer,
+so the condition-four record stays partial until a later real-request gate.
+
+The named Linux/arm64 v2 build job is required in addition to the historical v1
+job. At this pre-build cursor there is no v2 result yet, no image-production or
+boot authority, and no MAC.4, node, mining, reward, consensus or P2P change.
+
+Pre-build review also pins the operational order and the first-result gate.
+Readiness evidence is emitted only after the fixed listener has been bound and
+its socket identity verified, and before the first accept. Exact JSON types and
+malformed-prefixed-line refusal prevent Python bool/int aliases or an ambiguous
+extra line from satisfying the host comparison. The first arm64 candidate is
+printed but required CI fails while its result is untracked; only a committed
+record that a later run reproduces byte-for-byte may pass. These changes grant
+no build-result status by themselves and open no later authority.

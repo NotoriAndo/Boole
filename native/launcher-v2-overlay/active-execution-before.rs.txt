@@ -1,0 +1,48 @@
+#[derive(Debug, Error)]
+pub enum ActiveExecutionListenerError {
+    #[error(transparent)]
+    Listener(#[from] FixedQualificationListenerError),
+    #[error("active execution connection {connection} failed: {reason}")]
+    Session { connection: usize, reason: String },
+    #[error("launcher qualification connection failed: {0}")]
+    Qualification(String),
+}
+
+/// Qualify one kernel-authenticated node process and then serve the exact three
+/// closed-local replay cases only to that same PID. The one listener and one
+/// startup proof span the complete four-connection session, so a different
+/// process with the same UID/GID cannot enter after qualification.
+pub fn serve_qualified_three_fixed_unix_executions(
+    mut startup: VerifiedClosedLocalReplayStartup,
+) -> Result<(), ActiveExecutionListenerError> {
+    require_fixed_umask()?;
+    let identities = startup.identities();
+    let runtime_directory = startup.runtime_directory().try_clone().map_err(|source| {
+        FixedQualificationListenerError::Io {
+            stage: "duplicate verified runtime directory for qualified execution listener",
+            source,
+        }
+    })?;
+    let mut listener = bind_listener_in_directory(
+        &runtime_directory,
+        std::path::Path::new(FIXED_SOCKET_PATH),
+        0,
+        identities.node_gid(),
+    )?;
+    let qualification_stream = listener.accept_one()?;
+    let qualified_peer = serve_connected_unix_qualification_and_capture_peer(
+        qualification_stream,
+        startup.qualification_startup(),
+    )
+    .map_err(|error| ActiveExecutionListenerError::Qualification(error.to_string()))?;
+    for connection in 1..=3 {
+        let stream = listener.accept_one()?;
+        unix::serve_connected_unix_execution(stream, &mut startup, Some(qualified_peer.pid()))
+            .map_err(|source| ActiveExecutionListenerError::Session {
+                connection,
+                reason: source.to_string(),
+            })?;
+    }
+    listener.remove_exact_bound_entry()?;
+    Ok(())
+}

@@ -177,9 +177,42 @@ jobs:
           sha256sum "$result"
           cat "$result"
 
+  native-shadow-launcher-build-arm64-v2:
+    name: native-shadow-launcher-build-arm64-v2
+    # The successor is built beside, never instead of, the historical v1
+    # launcher. Its frozen overlay adds the evidence producer and remaps both
+    # the workspace and fresh Cargo home before the ELF can be sealed.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: 1.95.0
+          components: rustfmt, clippy
+
+      - name: Build the arm64 launcher v2 ELF twice and require identical bytes
+        run: python3 scripts/native_shadow_launcher_build_arm64_v2.py --build
+
+      - name: Show the launcher v2 build result
+        # The first arm64 run discovers the candidate. It is printed for exact
+        # review, then committed as an immutable result before this PR may merge.
+        run: |
+          set -euo pipefail
+          result=native/containment/native-shadow-launcher-build-result-arm64-v2.json
+          sha256sum "$result"
+          cat "$result"
+          if ! git ls-files --error-unmatch -- "$result" >/dev/null 2>&1; then
+            echo "launcher-v2 candidate was generated, but no tracked build result exists" >&2
+            exit 1
+          fi
+
   self-test:
     name: self-test
-    needs: [native-shadow-containment-linux, native-shadow-rootfs-replay-linux, native-shadow-rootfs-replay-linux-arm64, native-shadow-launcher-build-arm64]
+    needs: [native-shadow-containment-linux, native-shadow-rootfs-replay-linux, native-shadow-rootfs-replay-linux-arm64, native-shadow-launcher-build-arm64, native-shadow-launcher-build-arm64-v2]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -198,6 +231,7 @@ jobs:
           NATIVE_SHADOW_ROOTFS_REPLAY_RESULT: ${{ needs.native-shadow-rootfs-replay-linux.result }}
           NATIVE_SHADOW_ARM64_ROOTFS_REPLAY_RESULT: ${{ needs.native-shadow-rootfs-replay-linux-arm64.result }}
           NATIVE_SHADOW_ARM64_LAUNCHER_BUILD_RESULT: ${{ needs.native-shadow-launcher-build-arm64.result }}
+          NATIVE_SHADOW_ARM64_LAUNCHER_V2_BUILD_RESULT: ${{ needs.native-shadow-launcher-build-arm64-v2.result }}
         run: |
           set -euo pipefail
           if [[ "$NATIVE_SHADOW_CONTAINMENT_RESULT" != success ]]; then
@@ -214,6 +248,10 @@ jobs:
           fi
           if [[ "$NATIVE_SHADOW_ARM64_LAUNCHER_BUILD_RESULT" != success ]]; then
             echo "native-shadow arm64 launcher double build did not pass" >&2
+            exit 1
+          fi
+          if [[ "$NATIVE_SHADOW_ARM64_LAUNCHER_V2_BUILD_RESULT" != success ]]; then
+            echo "native-shadow arm64 launcher v2 double build did not pass" >&2
             exit 1
           fi
 

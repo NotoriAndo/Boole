@@ -1,0 +1,37 @@
+{
+  "record": "native-shadow-mac3-guest-console-evidence-protocol-arm64-v1-correction",
+  "schema": 1,
+  "appendOnly": true,
+  "editsEarlierRecord": false,
+  "corrects": {
+    "path": "native/containment/native-shadow-mac3-guest-console-evidence-protocol-arm64-v1.json",
+    "sha256": "258479e498425c4d2d88b4b11829fdbde67d0443c78ea5cd5db2cf0273efa2e7"
+  },
+  "priorReader": {
+    "path": "scripts/native_shadow_mac3_guest_evidence_protocol_arm64_v1.py",
+    "sha256BeforeCorrection": "dbe0357b05ab767d8fb546676d68ce62d224be7d3e04b6f2ba8be92e9ebeafbf"
+  },
+  "finding": "The rehearsal and the parked guest producer reported each prerequisite with the field resolved, matching the sealed prose, while the host reader looked for present. A healthy record therefore read as unresolved, and a different present-only schema could pass.",
+  "canonicalPrerequisiteRow": {
+    "exactKeys": [
+      "name",
+      "resolved"
+    ],
+    "name": "non-empty string, unique within the record",
+    "resolved": "boolean observation"
+  },
+  "failClosedRules": [
+    "present is not an alias for resolved",
+    "missing, extra, duplicate or non-boolean fields do not pass",
+    "an empty prerequisite list proves nothing"
+  ],
+  "changesAnyPassCondition": false,
+  "whyNotARelaxation": "The sealed record already said whether each prerequisite resolved. The correction makes the reader consume that one stated field and rejects the unintended alternative instead of accepting more inputs.",
+  "bootAuthorisation": {
+    "grantedByThisRecord": false,
+    "runsPerformed": 0
+  },
+  "imageProductionAuthorisation": false,
+  "activationAllowed": false,
+  "status": "READER-SCHEMA-CORRECTED-RESOLVED-IS-THE-ONLY-ACCEPTED-OBSERVATION"
+}

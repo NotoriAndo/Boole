@@ -15,6 +15,7 @@ prints.
 """
 
 import importlib
+import hashlib
 import json
 import pathlib
 import sys
@@ -210,8 +211,8 @@ class HostSideJudgementTests(unittest.TestCase):
             {
                 "launcher-prerequisites": {
                     "prerequisites": [
-                        {"name": "lean-toolchain", "present": True},
-                        {"name": "verifier-corpus", "present": False},
+                        {"name": "lean-toolchain", "resolved": True},
+                        {"name": "verifier-corpus", "resolved": False},
                     ]
                 }
             }
@@ -219,6 +220,28 @@ class HostSideJudgementTests(unittest.TestCase):
         met, why = self.module.prerequisites_resolved(read)
         self.assertFalse(met)
         self.assertIn("verifier-corpus", why)
+
+    def test_present_is_not_an_alias_for_the_sealed_resolved_field(self) -> None:
+        """A producer and reader must not silently speak two similar schemas."""
+
+        read = self.read(
+            {
+                "launcher-prerequisites": {
+                    "prerequisites": [{"name": "lean-toolchain", "present": True}]
+                }
+            }
+        )
+        met, why = self.module.prerequisites_resolved(read)
+        self.assertFalse(met)
+        self.assertIn("resolved", why)
+
+    def test_the_shared_rehearsal_fixture_uses_the_field_the_reader_accepts(self) -> None:
+        rehearsal = importlib.import_module(
+            "native_shadow_mac3_closed_local_boot_rehearsal_arm64_v1"
+        )
+        read = self.module.read_transcript(rehearsal.healthy_console())
+        met, why = self.module.prerequisites_resolved(read)
+        self.assertTrue(met, why)
 
     def test_a_non_root_supervisor_fails(self) -> None:
         read = self.read({"supervisor-privilege": {"uid": 1000}})
@@ -257,6 +280,13 @@ class SealedRecordTests(unittest.TestCase):
             / "native-shadow-mac3-guest-console-evidence-protocol-arm64-v1.json"
         )
         self.record = json.loads(path.read_text(encoding="utf-8"))
+        correction_path = (
+            REPO
+            / "native"
+            / "containment"
+            / "native-shadow-mac3-guest-console-evidence-protocol-arm64-v1-correction.json"
+        )
+        self.correction = json.loads(correction_path.read_text(encoding="utf-8"))
 
     def test_the_prefix_in_the_record_is_the_prefix_in_the_code(self) -> None:
         self.assertEqual(self.record["format"]["prefix"], self.module.PREFIX)
@@ -284,6 +314,31 @@ class SealedRecordTests(unittest.TestCase):
         """It is designed, not built. Saying otherwise would be the whole lie."""
 
         self.assertEqual(self.record["implementedBy"]["guestSideProducer"], "not written yet")
+
+    def test_the_original_record_is_preserved_under_the_correction(self) -> None:
+        path = (
+            REPO
+            / "native"
+            / "containment"
+            / "native-shadow-mac3-guest-console-evidence-protocol-arm64-v1.json"
+        )
+        self.assertEqual(
+            hashlib.sha256(path.read_bytes()).hexdigest(),
+            self.correction["corrects"]["sha256"],
+        )
+
+    def test_the_correction_changes_no_condition_and_grants_no_run(self) -> None:
+        self.assertFalse(self.correction["changesAnyPassCondition"])
+        self.assertFalse(self.correction["bootAuthorisation"]["grantedByThisRecord"])
+        self.assertEqual(self.correction["bootAuthorisation"]["runsPerformed"], 0)
+        self.assertFalse(self.correction["imageProductionAuthorisation"])
+        self.assertFalse(self.correction["activationAllowed"])
+
+    def test_the_correction_names_resolved_as_the_only_boolean_observation(self) -> None:
+        row = self.correction["canonicalPrerequisiteRow"]
+        self.assertEqual(row["exactKeys"], ["name", "resolved"])
+        self.assertIn("boolean", row["resolved"])
+        self.assertIn("present is not an alias", " ".join(self.correction["failClosedRules"]))
 
 
 class BoundaryTests(unittest.TestCase):
