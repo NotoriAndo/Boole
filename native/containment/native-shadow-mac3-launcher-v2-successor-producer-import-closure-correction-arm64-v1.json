@@ -1,0 +1,245 @@
+{
+  "addedBindings": [
+    {
+      "path": "native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "70374fd617a12b7d8a3f07c3693cc4b9efe237631e4886ab9d92fd5de9145266",
+      "sizeBytes": 8707
+    },
+    {
+      "path": "scripts/native_shadow_boot_image_producer_authority_arm64_v2.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "14fe8b5dfc5f6b34a5593895c4c9cc18d4b96c8ec28f9a4800a5c81644b67e69",
+      "sizeBytes": 19219
+    },
+    {
+      "path": "scripts/native_shadow_boot_initrd_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "7e339b6c9dda0af9f0b6ab141e097e74ee695913ec972e29cb15d3cf8bc73fcd",
+      "sizeBytes": 9270
+    },
+    {
+      "path": "scripts/native_shadow_boot_kernel_extract_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "658cd637b65131f8cfb64700fdacd3db10813a527019b417ec48ef6c7d560c3f",
+      "sizeBytes": 15888
+    },
+    {
+      "path": "scripts/native_shadow_boot_produce_phase_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "325fd01b8791be3b22566dd71c0c05f992ea1ed295470d3ee342accd76cf87a8",
+      "sizeBytes": 31684
+    },
+    {
+      "path": "scripts/native_shadow_boot_root_disk_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "09169dc8bdb785e8a18c1a979efee95a7c39723ffb025b54b724294d976f2e68",
+      "sizeBytes": 21276
+    },
+    {
+      "path": "scripts/native_shadow_boot_root_disk_execute_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "b0b2048b87c35285696adae2ddc536afcffa74ade3de879735a6474f8f4a442b",
+      "sizeBytes": 31284
+    },
+    {
+      "path": "scripts/native_shadow_boot_root_disk_time_audit_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "08ad4dc8a6514069f9d46c1e6f35c4f61e1f3f4d6f6d052068a9ecec7f708303",
+      "sizeBytes": 8320
+    },
+    {
+      "path": "scripts/native_shadow_boot_rootfs_mount_point_audit_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "7403fcb4818b30a75c22153712ca02ee5c8b52fbabb3ead6373333e28124f384",
+      "sizeBytes": 8476
+    },
+    {
+      "path": "scripts/native_shadow_boot_rootfs_payload_acquire_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "a165ae89834f21a6109f43959c5e03964b3ddefc315cced0289266a8a6657e5e",
+      "sizeBytes": 40782
+    },
+    {
+      "path": "scripts/native_shadow_boot_writer_tree_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "9842c3a05e2d88036345f0096edf7811f97656c58f207f8cccb2e85f5dd19728",
+      "sizeBytes": 12031
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_acquire_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "0d82a724332d6cd9ed3b8d30b13d18c545c56caf855d608e68410cd9124e303b",
+      "sizeBytes": 2815
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_builder_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "180e893e9643c6fab110016119679b96a5ddf56785cd398b51c8cf8352615ef4",
+      "sizeBytes": 3680
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "a5dd54198878473c162ec306fbccd6edac8b22f036d9cf84d244b5f010f96d87",
+      "sizeBytes": 37435
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v2.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "82b96d5a1ab465a710725d580ef58ddb3e1bd4f1db2a11b7e6ccb85fb6acf655",
+      "sizeBytes": 13822
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v3.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "93bd05d06e43cc69f325036d204b7b57721e358dd5c5d5990227ef88c4de8c39",
+      "sizeBytes": 12505
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_portable_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "67ef26fecbbeaeaf38cf081388b99dab37f9b6417c9e699738a81ab5e45f9cb7",
+      "sizeBytes": 5216
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_portable_boot_arm64_v1.py",
+      "role": "repository Python runtime trust-closure input",
+      "sha256": "4598e73f9389f41d739edb59660b69b99376a7be1788af24406a58b64d6e0a62",
+      "sizeBytes": 3763
+    }
+  ],
+  "authorisations": {
+    "bootAuthorised": false,
+    "consensusActivated": false,
+    "imageProductionAuthorised": false,
+    "imageProductionRunsAllowed": 0,
+    "mac4Started": false,
+    "miningActivated": false,
+    "p2pActivated": false,
+    "rewardActivated": false,
+    "testnetStarted": false
+  },
+  "effectiveBinding": {
+    "addedMissingBindings": 18,
+    "bindingVerificationBeforeRepositoryPythonImport": true,
+    "effectiveUniqueBindings": 41,
+    "predecessorBindings": 23,
+    "unionRequired": true
+  },
+  "futureFingerprintMustBindBothRecords": true,
+  "grantsAuthority": false,
+  "predecessor": {
+    "bindingCount": 23,
+    "path": "native/containment/native-shadow-mac3-launcher-v2-successor-producer-preregistration-arm64-v1.json",
+    "preservedByteUnchanged": true,
+    "sha256": "576bafd10600a05e9ab326e1e507c1a0351381d068f393ce402e295bf93afbec",
+    "sizeBytes": 20145
+  },
+  "repositoryPythonImportClosure": {
+    "algorithm": "recursive Python AST Import and ImportFrom edges limited to live scripts.* modules",
+    "entrypoints": [
+      "scripts/native_shadow_boot_image_verify_arm64_v1.py",
+      "scripts/native_shadow_boot_root_disk_readback_arm64_v1.py",
+      "scripts/native_shadow_boot_staging_measure_arm64_v1.py",
+      "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+      "scripts/native_shadow_rootfs_builder_boot_arm64_v4.py",
+      "scripts/native_shadow_rootfs_portable_boot_arm64_v2.py"
+    ],
+    "paths": [
+      "scripts/native_shadow_boot_image_produce_arm64_v1.py",
+      "scripts/native_shadow_boot_image_producer_authority_arm64_v2.py",
+      "scripts/native_shadow_boot_image_verify_arm64_v1.py",
+      "scripts/native_shadow_boot_initrd_arm64_v1.py",
+      "scripts/native_shadow_boot_kernel_extract_arm64_v1.py",
+      "scripts/native_shadow_boot_produce_phase_arm64_v1.py",
+      "scripts/native_shadow_boot_root_disk_arm64_v1.py",
+      "scripts/native_shadow_boot_root_disk_execute_arm64_v1.py",
+      "scripts/native_shadow_boot_root_disk_readback_arm64_v1.py",
+      "scripts/native_shadow_boot_root_disk_time_audit_arm64_v1.py",
+      "scripts/native_shadow_boot_rootfs_mount_point_audit_arm64_v1.py",
+      "scripts/native_shadow_boot_rootfs_payload_acquire_arm64_v1.py",
+      "scripts/native_shadow_boot_staging_measure_arm64_v1.py",
+      "scripts/native_shadow_boot_writer_tree_arm64_v1.py",
+      "scripts/native_shadow_rootfs_builder_arm64_v1.py",
+      "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+      "scripts/native_shadow_rootfs_builder_boot_arm64_v2.py",
+      "scripts/native_shadow_rootfs_builder_boot_arm64_v3.py",
+      "scripts/native_shadow_rootfs_builder_boot_arm64_v4.py",
+      "scripts/native_shadow_rootfs_portable_arm64_v1.py",
+      "scripts/native_shadow_rootfs_portable_boot_arm64_v1.py",
+      "scripts/native_shadow_rootfs_portable_boot_arm64_v2.py"
+    ]
+  },
+  "repositoryPythonRuntimeClosure": {
+    "algorithm": "fresh-process sys.modules plus Python audit-hook open events for all six entrypoints",
+    "modules": [
+      "scripts/native_shadow_boot_image_produce_arm64_v1.py",
+      "scripts/native_shadow_boot_image_producer_authority_arm64_v2.py",
+      "scripts/native_shadow_boot_image_verify_arm64_v1.py",
+      "scripts/native_shadow_boot_initrd_arm64_v1.py",
+      "scripts/native_shadow_boot_kernel_extract_arm64_v1.py",
+      "scripts/native_shadow_boot_produce_phase_arm64_v1.py",
+      "scripts/native_shadow_boot_root_disk_arm64_v1.py",
+      "scripts/native_shadow_boot_root_disk_execute_arm64_v1.py",
+      "scripts/native_shadow_boot_root_disk_readback_arm64_v1.py",
+      "scripts/native_shadow_boot_root_disk_time_audit_arm64_v1.py",
+      "scripts/native_shadow_boot_rootfs_mount_point_audit_arm64_v1.py",
+      "scripts/native_shadow_boot_rootfs_payload_acquire_arm64_v1.py",
+      "scripts/native_shadow_boot_staging_measure_arm64_v1.py",
+      "scripts/native_shadow_boot_writer_tree_arm64_v1.py",
+      "scripts/native_shadow_rootfs_acquire_arm64_v1.py",
+      "scripts/native_shadow_rootfs_builder_arm64_v1.py",
+      "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+      "scripts/native_shadow_rootfs_builder_boot_arm64_v2.py",
+      "scripts/native_shadow_rootfs_builder_boot_arm64_v3.py",
+      "scripts/native_shadow_rootfs_builder_boot_arm64_v4.py",
+      "scripts/native_shadow_rootfs_portable_arm64_v1.py",
+      "scripts/native_shadow_rootfs_portable_boot_arm64_v1.py",
+      "scripts/native_shadow_rootfs_portable_boot_arm64_v2.py"
+    ],
+    "nonModuleReads": [
+      "native/containment/native-shadow-boot-image-producer-authority-arm64-v2.json",
+      "native/containment/native-shadow-boot-rootfs-closure-exception-arm64-v1.json",
+      "native/containment/native-shadow-launcher-build-result-arm64-v2.json",
+      "scripts/native_shadow_rootfs_acquire.py",
+      "scripts/native_shadow_rootfs_builder.py",
+      "scripts/native_shadow_rootfs_portable_v2.py"
+    ]
+  },
+  "runs": {
+    "bootsAllowed": 0,
+    "bootsPerformed": 0,
+    "freeRehearsalsPerformedByThisRecord": 0,
+    "imageProductionsAllowed": 0,
+    "imageProductionsPerformed": 0
+  },
+  "schema": "boole.native-shadow.mac3.launcher-v2-successor-producer-import-closure-correction.arm64.v1",
+  "status": "CORRECTED-BEFORE-REHEARSAL-NO-IMAGE-PRODUCTION-AUTHORITY",
+  "supersedesForFutureImplementation": true,
+  "timingAndBoundary": {
+    "bootRunsPerformed": 0,
+    "freeRehearsalsPerformed": 0,
+    "imageProductionRunsPerformed": 0,
+    "predecessorRecordRewritten": false,
+    "producerImplementationMerged": false,
+    "readbackImplementationMerged": false
+  },
+  "transitivelyVerifiedInputs": [
+    {
+      "path": "scripts/native_shadow_rootfs_acquire.py",
+      "sha256": "31348981687939ff7cf63b5584947b3e09a92bb35f9f4e76f78a657ae139d49b",
+      "verifiedBy": "scripts/native_shadow_rootfs_acquire_arm64_v1.py"
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_builder.py",
+      "sha256": "aa25701a8a29cfb0059c911a5df8dcc2f09c8b4c61b4ff46adfc0ef446cdf689",
+      "verifiedBy": "scripts/native_shadow_rootfs_builder_arm64_v1.py"
+    },
+    {
+      "path": "scripts/native_shadow_rootfs_portable_v2.py",
+      "sha256": "11fe7f5672655cbfcf88e830d34ccc5b35274857df06cc123ed05e775bcd4fc3",
+      "verifiedBy": "scripts/native_shadow_rootfs_portable_arm64_v1.py"
+    }
+  ]
+}

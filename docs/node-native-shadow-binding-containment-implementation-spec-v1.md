@@ -3983,3 +3983,24 @@ bytes, so the direction has no digest cycle. MAC.4, testnet, mining, reward,
 consensus, P2P and activation remain unopened.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-PREREGISTRATION-ARM64-V1-FROZEN:END -->
+
+## Launcher-v2 successor producer import-closure correction (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:BEGIN -->
+
+The original 23-row preregistration remains immutable evidence. Before any
+producer-v3 or readback-v3 implementation ran, recursive AST analysis plus a
+fresh-process import/open audit found 18 additional direct trust inputs: 16
+statically imported helpers, one helper imported only by projected code, and
+one policy JSON read at module-import time. The authority-zero correction pins
+the resulting 41-file direct union and requires verification of both records
+before the first repository-Python import.
+
+Three additional legacy sources are read through projected wrappers. Their
+live SHA-256 values equal the wrappers' embedded constants, and each wrapper
+checks the value before decode/compile/exec. They are recorded as transitive
+checks, not silently omitted and not double-counted as direct bindings. No
+image, attempt marker, boot or activation authority is created by this
+correction.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:END -->
