@@ -548,6 +548,29 @@ class ResultVerificationTests(unittest.TestCase):
         mod = preflight_module()
         original = self.valid_document()
         mutations = (
+            (
+                "false-as-zero",
+                lambda value: value.__setitem__("activationAllowed", 0),
+            ),
+            (
+                "true-as-one",
+                lambda value: value.__setitem__("repeatable", 1),
+            ),
+            (
+                "authority-false-as-zero",
+                lambda value: value["authorisations"].__setitem__(
+                    "bootAuthorised", 0
+                ),
+            ),
+            (
+                "measurement-zero-as-false",
+                lambda value: (
+                    value["builderInternal"].__setitem__("duplicatePaths", False),
+                    value["independentTraversal"].__setitem__(
+                        "duplicatePaths", False
+                    ),
+                ),
+            ),
             ("launcher", lambda value: value["launcher"].__setitem__("sha256", "0" * 64)),
             (
                 "measurement",

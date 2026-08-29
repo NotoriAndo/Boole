@@ -694,6 +694,22 @@ def _is_sha256(value: Any) -> bool:
     )
 
 
+def _strict_equal(observed: Any, expected: Any) -> bool:
+    """JSON equality that never treats booleans as the integers 0 and 1."""
+
+    if type(observed) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return set(observed) == set(expected) and all(
+            _strict_equal(observed[key], value) for key, value in expected.items()
+        )
+    if isinstance(expected, list):
+        return len(observed) == len(expected) and all(
+            _strict_equal(left, right) for left, right in zip(observed, expected)
+        )
+    return observed == expected
+
+
 def _bound_document(
     preregistration: Mapping[str, Any],
     repository_root: pathlib.Path,
@@ -724,7 +740,7 @@ def _verify_measurement(document: Mapping[str, Any], projection: Mapping[str, An
         raise LauncherV2PreflightError("the result has no two complete measurements")
     if set(computed) != MEASUREMENT_KEYS or set(walked) != MEASUREMENT_KEYS:
         raise LauncherV2PreflightError("the result measurement fields differ")
-    if computed != walked:
+    if not _strict_equal(computed, walked):
         raise LauncherV2PreflightError("the two result measurements differ")
 
     baseline = projection["withoutLauncher"]
@@ -745,7 +761,7 @@ def _verify_measurement(document: Mapping[str, Any], projection: Mapping[str, An
         "symlinkEscapes": baseline["symlinkEscapes"],
     }
     for key, value in expected.items():
-        if computed.get(key) != value:
+        if not _strict_equal(computed.get(key), value):
             raise LauncherV2PreflightError(
                 f"the result measurement differs on {key}: {computed.get(key)!r}"
             )
@@ -787,15 +803,16 @@ def verify_result_document(
         "status": "PASS-NO-IMAGE-PRODUCED",
     }
     for key, value in exact.items():
-        if document.get(key) != value:
+        if not _strict_equal(document.get(key), value):
             raise LauncherV2PreflightError(f"the result differs on {key}")
 
     _verify_measurement(document, projection)
     measurement_record = _bound_document(
         preregistration, repository_root, MEASUREMENT_RECORD_PATH
     )
-    if document.get("nestedContentManifest") != measurement_record.get(
-        "nestedContentManifest"
+    if not _strict_equal(
+        document.get("nestedContentManifest"),
+        measurement_record.get("nestedContentManifest"),
     ):
         raise LauncherV2PreflightError("the nested content manifest differs")
 
@@ -807,7 +824,7 @@ def verify_result_document(
             _tool_identity("zstd", pathlib.Path(zstd)),
         ],
     }
-    if document.get("provenance") != expected_provenance:
+    if not _strict_equal(document.get("provenance"), expected_provenance):
         raise LauncherV2PreflightError("the result provenance differs")
     return dict(document)
 
