@@ -2401,4 +2401,47 @@ require_text scripts/self-test.sh 'scripts/test_native_shadow_mac3_closed_local_
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'BOOT-PASS-CRITERIA  SEALED / NOT RUN'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Setting the exam before opening the room'
 
+# The execution contract sits beside those criteria without editing them, and
+# the runner it describes refuses the boot: five of the twenty-one conditions
+# have no readable evidence in this image, so the one attempt stays unspent
+# rather than being spent on answers nobody could read.
+V3_BOOT_CONTRACT=native/containment/native-shadow-mac3-closed-local-boot-execution-contract-arm64-v3.json
+V3_BOOT_RUNNER=scripts/native_shadow_mac3_closed_local_boot_arm64_v3.py
+require_file "$V3_BOOT_CONTRACT"
+require_text "$V3_BOOT_CONTRACT" '"attemptId": "MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-3"'
+require_text "$V3_BOOT_CONTRACT" 'HARD-STOP-STANDS  BOOT-NOT-AUTHORISED  NOT-RUN'
+require_text "$V3_BOOT_CONTRACT" '"changesAnyPassCondition": false'
+require_text "$V3_BOOT_CONTRACT" '"grantedByThisRecord": false'
+require_text "$V3_BOOT_CONTRACT" '"effect": "refuse-before-any-machine-is-built"'
+require_text "$V3_BOOT_CONTRACT" '"conditionsWaived": false'
+require_text "$V3_BOOT_CONTRACT" '"conditionsReworded": false'
+require_text "$V3_BOOT_CONTRACT" '"beforeTheMachineIsConfigured": true'
+require_text "$V3_BOOT_CONTRACT" '"afterTheMachineStops": true'
+require_text "$V3_BOOT_CONTRACT" '"onMismatch": "abort"'
+require_text "$V3_BOOT_CONTRACT" 'preservation-manifest-at-the-archive'
+require_text "$V3_BOOT_CONTRACT" 'preservation-record-in-the-repository'
+require_text "$V3_BOOT_CONTRACT" '"createdBefore": "the machine is started"'
+require_text "$V3_BOOT_CONTRACT" '"outsideTheWorkingDirectory": true'
+require_text "$V3_BOOT_CONTRACT" '"exclusiveCreate": true'
+require_text "$V3_BOOT_CONTRACT" '"machinesStarted": 0'
+require_text "$V3_BOOT_CONTRACT" '"oneUseMarksCreated": 0'
+require_text "$V3_BOOT_CONTRACT" 'not-observable-with-this-image'
+require_text "$V3_BOOT_CONTRACT" '"editsAnyExistingRecord": false'
+require_text "$V3_BOOT_CONTRACT" '"bootPerformed": false'
+require_text "$V3_BOOT_CONTRACT" '"bootAuthorised": false'
+require_text "$V3_BOOT_CONTRACT" '"runsPerformed": 0'
+require_file "$V3_BOOT_RUNNER"
+require_text "$V3_BOOT_RUNNER" 'MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-3'
+require_text "$V3_BOOT_RUNNER" 'def assert_every_condition_is_observable'
+require_text "$V3_BOOT_RUNNER" 'def claim_one_use'
+require_text "$V3_BOOT_RUNNER" 'def start_the_machine'
+require_text "$V3_BOOT_RUNNER" 'def preflight'
+require_file scripts/test_native_shadow_mac3_closed_local_boot_execution_contract_arm64_v3.py
+require_text scripts/test_native_shadow_mac3_closed_local_boot_execution_contract_arm64_v3.py 'class HardStopTests'
+require_text scripts/test_native_shadow_mac3_closed_local_boot_execution_contract_arm64_v3.py 'class OneUseMarkIsClaimedFirstTests'
+require_text scripts/test_native_shadow_mac3_closed_local_boot_execution_contract_arm64_v3.py 'def test_the_mark_is_written_before_the_machine_is_started'
+require_text scripts/self-test.sh 'scripts/test_native_shadow_mac3_closed_local_boot_execution_contract_arm64_v3.py'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'BOOT-RUNNER  READY TO REFUSE / HARD STOP'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Refusing to spend the one boot'
+
 printf 'docs-smoke: PASS\n' >&2

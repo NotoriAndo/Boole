@@ -1,0 +1,328 @@
+{
+  "appendOnly": {
+    "editsAnyExistingRecord": false,
+    "recordsLeftByteUnchanged": [
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v3.json",
+        "role": "the sealed criteria for this attempt",
+        "sha256": "74b9507932b4eda97c89753f642bac579593b034b3e9eff24bb5b056c09079a6"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v1.json",
+        "role": "the first attempt's conditions",
+        "sha256": "a3be054ac4635386da990500c87b7457a20b15ea935f61f17a471615b17b345a"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v2.json",
+        "role": "the second attempt's conditions",
+        "sha256": "bf703945ec02f1f66b492f7bb0c6e4080190caea17dc063e2868ef688669abb7"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v1.json",
+        "role": "the first attempt's verdict",
+        "sha256": "0fdd8b4711c9f76127a9bf71c86c63f87a8a05501eb61ef864cef2e8bca24f8c"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-closed-local-boot-result-arm64-v2.json",
+        "role": "the second attempt's verdict",
+        "sha256": "95655e74754c27166902a4030c92608d32a5f76e250b091863b923fa69a5deeb"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-guest-runtime-contract-arm64-v1.json",
+        "role": "the frozen guest runtime conditions the criteria carried",
+        "sha256": "27a6c16eabd0162331e635656695b2f4adf3027d39f888bcddd3268e1d78cd9f"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-condition-4-correction-arm64-v1.json",
+        "role": "the corrected fourth condition",
+        "sha256": "e1f53448078b0cde1f3ed771563dd8f6842fa70a8f6ea27fa43612a656391bdf"
+      },
+      {
+        "path": "native/containment/native-shadow-mac3-successor-image-preservation-arm64-v4.json",
+        "role": "the preservation record both manifest copies are checked against",
+        "sha256": "2ff7a3a30513092495a2d8b67555b4e974ef75af47de08acfe8c049063549126"
+      },
+      {
+        "path": "native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json",
+        "role": "the mount-point audit one condition rests on",
+        "sha256": "d1d76942070408e1c0e2163b58165eca60468a44365ed9cb3e695b49a9efba70"
+      }
+    ],
+    "why": "Every record here is bound at the digest it has on disk, so a later edit to any of them shows up as this contract failing rather than as a quiet change under it."
+  },
+  "attemptId": "MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-3",
+  "bootAuthorisation": {
+    "grantedByThisRecord": false,
+    "requiredBefore": "a separate operator approval, given after this contract is on main and after every hard stop below has been closed by a change to the image and its evidence, not by a change to the conditions",
+    "why": "Two documents now describe this attempt and neither opens it.  The criteria record set the exam; this one says the room is not ready.  The approval is a third thing, and it is the operator's."
+  },
+  "boundaries": {
+    "activationAllowed": false,
+    "bootAuthorised": false,
+    "bootPerformed": false,
+    "bootableClaim": false,
+    "imageJudged": false,
+    "leaderboardClaim": false,
+    "nodeConnected": false,
+    "paidApiBenchmark": false,
+    "publicMining": false,
+    "rewardPathTouched": false,
+    "servingClaim": false
+  },
+  "changesAnyPassCondition": false,
+  "evidencePlan": [
+    {
+      "evidenceSource": "runner-computed",
+      "how": "The runner reads all five targets from the archive -- the three images and both copies of the preservation manifest -- immediately before the machine is configured, comparing byte count and sha256 with the sealed values.  A target that was not read at all fails this condition the same way a target that read differently does, so an incomplete check cannot pass as a clean one.",
+      "id": "archive-digests-recomputed-immediately-before-boot"
+    },
+    {
+      "evidenceSource": "host-receipt",
+      "how": "The host serialises the configuration it built into the run receipt and the runner reads it back: zero network devices, zero shared directories, zero socket devices, exactly one storage device, attached read-only.",
+      "id": "closed-local-configuration"
+    },
+    {
+      "evidenceSource": "runner-computed",
+      "how": "The whole console stream is written to a file and hashed, and the digest and byte count go into the receipt.  An empty transcript is a failure of this condition rather than a run with nothing to report.",
+      "id": "console-transcript-captured-and-hashed"
+    },
+    {
+      "evidenceSource": "sealed-record",
+      "how": "The mount-point audit already established that every path the launcher and its units write to resolves to a tmpfs mount, and the runner re-reads that record at its sealed digest rather than trusting the memory of it.  The independent half is the root disk hashing identically before and after the run, which the runner computes itself.",
+      "id": "every-write-lands-on-tmpfs",
+      "sealedEvidence": {
+        "check": "the runtime mount points the guest writes to are audited and required to be tmpfs, with the directories that are created after the mount listed as the ones that do not need to exist in the image",
+        "path": "native/containment/native-shadow-boot-rootfs-runtime-mount-points-arm64-v1.json",
+        "sha256": "d1d76942070408e1c0e2163b58165eca60468a44365ed9cb3e695b49a9efba70"
+      }
+    },
+    {
+      "evidenceSource": "runner-computed",
+      "how": "Two filesystem reads, not one.  The runner refuses if the receipt named by resultPath already exists, and refuses if the one-use mark already exists; the mark is then created before the machine starts and its prior-claim count recorded.  A run that claimed nothing cannot report this condition met.",
+      "id": "exactly-one-boot-of-this-image"
+    },
+    {
+      "evidenceSource": "console-transcript",
+      "how": "The console shows systemd's own startup banner from process 1, reporting the version the image carries.  A kernel panic anywhere in the transcript fails this condition regardless of what came before it.",
+      "id": "guest-systemd-is-pid-1",
+      "markers": [
+        "systemd[1]:",
+        "systemd 255"
+      ]
+    },
+    {
+      "evidenceSource": "console-transcript",
+      "how": "The console shows the root filesystem mounted on the single virtio block device, which is the line the kernel prints once it has one.",
+      "id": "kernel-reaches-its-root-filesystem",
+      "markers": [
+        "EXT4-fs (vda): mounted filesystem",
+        "VFS: Mounted root"
+      ]
+    },
+    {
+      "evidenceSource": "not-observable-with-this-image",
+      "how": "The first half is settled before the image is built and holds.  The second half asks the guest to report the digest of the file it actually executed, and nothing carries a word out of this guest.",
+      "id": "launcher-executable-matches-the-sealed-digest"
+    },
+    {
+      "evidenceSource": "not-observable-with-this-image",
+      "how": "The condition asks for the launcher to be seen passing account resolution and rootfs verification.  The launcher in this image prints nothing on its success path, so a transcript with no error in it is silence rather than a pass.",
+      "id": "launcher-prerequisites-verify-inside-the-guest"
+    },
+    {
+      "evidenceSource": "console-transcript",
+      "how": "systemd names the unit as it starts it, and the console had no command typed into it, so the unit appearing at all is the enablement symlink working.  This is systemd's line about the launcher, not the launcher's own output, which is why it is readable when the launcher's own conditions are not.",
+      "id": "launcher-service-starts-without-being-asked",
+      "markers": [
+        "boole-native-shadow-launcher-v2.service"
+      ]
+    },
+    {
+      "evidenceSource": "not-observable-with-this-image",
+      "how": "The launcher half is read from the guest's own kernel status at startup, which nothing writes to the console.  The submission half needs a request, and there is no transport to send one over in a closed-local boot.",
+      "id": "launcher-supervises-as-root-and-submissions-run-unprivileged"
+    },
+    {
+      "evidenceSource": "host-receipt",
+      "how": "The host re-hashes the kernel and the root disk immediately before configuring the machine, refuses to start on any mismatch, and writes both digests into the receipt where the runner compares them with the sealed values.  A receipt marked as a dry run fails this condition: nothing was loaded.",
+      "id": "loads-the-converged-image"
+    },
+    {
+      "evidenceSource": "console-transcript",
+      "how": "The transcript is read for a failed unit and for a dependency or start-job timeout.  The stall half is answered by the readiness point this run can see: the guest's own default target reached, with the last console line inside the run's stated budget of the machine stopping.  That is systemd's readiness, read from the console -- not the launcher's readiness point, which is its own condition and is stopped.  A transcript that simply ends counts as a stall.",
+      "id": "no-failed-unit-and-no-freeze-in-the-transcript",
+      "markers": [
+        "[FAILED]",
+        "Failed to start",
+        "Dependency failed",
+        "Timed out"
+      ]
+    },
+    {
+      "evidenceSource": "not-observable-with-this-image",
+      "how": "The build-input half holds: the image is built from a fixed list with no host path and no environment passthrough.  The search half does not exist.  The sealed read-back compares the paths the lock tracks and iterates over expected entries only, so an extra file in the image is exactly what it cannot see.",
+      "id": "no-host-wallet-model-key-or-node-secret-in-the-guest"
+    },
+    {
+      "evidenceSource": "host-receipt",
+      "how": "Counted from the host configuration before the run starts, the way the sealed boot receipt counts them: zero network devices, zero shared directories, zero socket devices.",
+      "id": "no-network-device-and-no-shared-directory"
+    },
+    {
+      "evidenceSource": "run-receipt-and-host-check",
+      "how": "Three readings together: the receipt shows nothing for a transport to run over, the receipt records that no node process was started and no reward, block, consensus or P2P authority was granted, and the transcript is read for an attempt to open a transport.  The markers looked for are attempts rather than driver probes, because a kernel announces the drivers it carries whether or not a device exists.",
+      "id": "nothing-beyond-the-closed-local-boot-is-attempted"
+    },
+    {
+      "evidenceSource": "run-receipt-and-host-check",
+      "how": "Counted on the host after the run: no virtual machine, no host process, no temporary mount, and neither the socket path nor the working directory left behind.  The guest's own tmpfs goes with the machine by construction.",
+      "id": "nothing-of-the-guest-survives-the-shutdown"
+    },
+    {
+      "evidenceSource": "not-observable-with-this-image",
+      "how": "The condition says so itself: the launcher's readiness point is not visible to the host today.  This image does not change that, so the half that would carry the condition cannot be read at all.",
+      "id": "readiness-and-clean-shutdown-are-observed"
+    },
+    {
+      "evidenceSource": "run-receipt-and-host-check",
+      "how": "The host reports the disk attached read-only, and the runner hashes the disk before and after the run and requires the two to be identical.  The attachment is the claim; the pair of digests is whether it held.",
+      "id": "root-disk-stays-read-only"
+    },
+    {
+      "evidenceSource": "runner-computed",
+      "how": "Every target hashed before the run is hashed again after the machine stops and the two sets are compared name by name.  The sealed condition asks for the root disk; the runner covers all five, because the previous runner re-hashed one file of three and that is the gap this contract exists to close.  Covering more is a strengthening, and a target missing from the after-run set fails rather than being skipped.",
+      "id": "sealed-image-unchanged-after-the-run"
+    },
+    {
+      "evidenceSource": "console-transcript",
+      "how": "The target compared is the guest's own default, which the second attempt's transcript settled on after passing through multi-user.target.  Reading multi-user as the finishing line would accept a boot that stopped early.  Any emergency or rescue unit appearing at all is a failure rather than a note.",
+      "id": "systemd-does-not-enter-emergency-and-reaches-its-target",
+      "markers": [
+        "Reached target graphical.target",
+        "emergency",
+        "rescue"
+      ]
+    }
+  ],
+  "freePreflight": {
+    "createsAOneUseMark": false,
+    "machinesStarted": 0,
+    "oneUseMarksCreated": 0,
+    "reportsEveryBlockerRatherThanTheFirst": true,
+    "startsAMachine": false,
+    "why": "The point of a check that costs nothing is to show the whole distance still to go, so it gathers every refusal instead of stopping at the earliest one.  It reports both counts as zero explicitly, so that is something read rather than something assumed."
+  },
+  "hardStop": {
+    "conditions": [
+      {
+        "id": "launcher-executable-matches-the-sealed-digest",
+        "whatIsMissing": "the guest reporting the digest of the file it executed; the condition's own wording defers that half to 'once it can speak', and in a closed-local boot it cannot",
+        "whatWouldMakeItObservable": "a one-way channel out of the guest, which is what MAC.4 is for, or the launcher printing the digest of its own executable to the console at startup"
+      },
+      {
+        "id": "launcher-prerequisites-verify-inside-the-guest",
+        "whatIsMissing": "any console output on the launcher's success path; the whole crate prints on failure and on a peer connecting, and on nothing else",
+        "whatWouldMakeItObservable": "the launcher printing one line per prerequisite it passes -- account resolution, and the rootfs manifest digest it verified against -- which is a change to the launcher and therefore to the image"
+      },
+      {
+        "id": "launcher-supervises-as-root-and-submissions-run-unprivileged",
+        "whatIsMissing": "the launcher half is read from the guest's own kernel status at startup and nothing writes it to the console; the submission half needs a request and there is no transport to send one over",
+        "whatWouldMakeItObservable": "the launcher printing its identity slots and its capability masks at startup, and a later attempt with a request path, which a closed-local boot by definition does not have"
+      },
+      {
+        "id": "no-host-wallet-model-key-or-node-secret-in-the-guest",
+        "whatIsMissing": "a search of the produced image for secret-bearing filenames; the sealed read-back walks the paths the lock lists and compares those, so a file that is in the image and not in the lock is invisible to it",
+        "whatWouldMakeItObservable": "a check that walks the image itself and reports every path not in the lock, sealed as its own record before the boot"
+      },
+      {
+        "id": "readiness-and-clean-shutdown-are-observed",
+        "whatIsMissing": "the launcher's readiness point, which the condition itself records as not visible to the host today",
+        "whatWouldMakeItObservable": "the launcher announcing readiness on the console, or a channel out of the guest carrying it"
+      }
+    ],
+    "conditionsReworded": false,
+    "conditionsWaived": false,
+    "effect": "refuse-before-any-machine-is-built",
+    "whatItIsNot": "It is not a verdict on the image.  Nothing here says the boot would fail; it says five of the answers would be unreadable, which is a different thing and is why the attempt is being kept rather than spent.",
+    "why": "A condition with no readable evidence has exactly two honest outcomes: it is judged NOT MET, or the run does not happen.  Judging it NOT MET after booting spends the single attempt to produce a failure that was knowable beforehand.  So the refusal comes first, while nothing has been started and the attempt is still there to be used once the image can answer."
+  },
+  "invariants": {
+    "BF.7": "HOLD",
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "activationAllowed": false,
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "oneUseMark": {
+    "createdAfter": "every refusal above has passed",
+    "createdBefore": "the machine is started",
+    "exclusiveCreate": true,
+    "outsideTheWorkingDirectory": true,
+    "path": "~/boole-artifacts/native-shadow/mac3-boot-ledger/MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-3.used.json",
+    "whatItIsNot": "It is not a receipt and not a verdict.  It records only that the one boot was used.",
+    "why": "A receipt written after the machine stops is no record at all if the Mac dies in the middle: the boot happened and nothing on disk says so, and the next run starts believing the attempt is unused.  The mark is created with an exclusive open before the machine starts, so a crash costs the attempt rather than hiding it.  It lives outside the scratch working directory for the same reason: a wiped scratch directory must not buy a second attempt."
+  },
+  "qualification": {
+    "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v3.json",
+    "role": "the sealed criteria this contract carries out, unedited",
+    "sha256": "74b9507932b4eda97c89753f642bac579593b034b3e9eff24bb5b056c09079a6"
+  },
+  "recomputeOnBothSides": {
+    "afterTheMachineStops": true,
+    "beforeTheMachineIsConfigured": true,
+    "how": "Each target is read in full and hashed, and its byte count compared where the sealed record carries one.  Both copies of the preservation manifest are included because the record that says what the images should hash to is itself a file on a disk whose owner can change it, and trusting it without re-reading it is trusting the last time anyone looked.  The same five are read again after the machine stops and compared name by name.",
+    "onMismatch": "abort",
+    "targets": [
+      "guest-initrd",
+      "guest-kernel",
+      "guest-root-disk",
+      "preservation-manifest-at-the-archive",
+      "preservation-record-in-the-repository"
+    ],
+    "whatChangedFromThePreviousRunner": "It hashed the root disk after the run and nothing else, so a change to the kernel or to either manifest during the run would not have been seen."
+  },
+  "record": "native-shadow-mac3-closed-local-boot-execution-contract-arm64-v3",
+  "release": "NATIVE-SHADOW-MAC3-CLOSED-LOCAL-BOOT-EXECUTION-CONTRACT-ARM64-V3",
+  "runner": {
+    "path": "scripts/native_shadow_mac3_closed_local_boot_arm64_v3.py",
+    "whatItRefusesBefore": [
+      "an attempt identifier that is not this record's",
+      "a receipt already existing at the sealed resultPath",
+      "a one-use mark already claimed",
+      "a sealed condition with no rule to judge it",
+      "any condition this image cannot produce evidence for",
+      "an archive target that does not read as sealed"
+    ],
+    "whatTheOldRunnerDidWrong": [
+      "it knew the first and second attempts only, so the third would have been refused at the first argument",
+      "it carried six rules for what are now twenty-one conditions, and met the missing ones after the machine had run rather than before it was built",
+      "it wrote its receipt into the scratch working directory after the machine stopped, so a crash mid-boot left no record that the boot had happened",
+      "it re-hashed the root disk after the run and nothing else"
+    ],
+    "whyANewOne": "The runner for the first two attempts knows two attempt names and refuses a third, and its subject shape is the earlier record's rather than this one's.  Extending it would edit a program two sealed attempts were judged by; a new module leaves both of those gates byte-unchanged."
+  },
+  "runsAllowed": 1,
+  "runsPerformed": 0,
+  "schema": "boole.native-shadow.mac3.closed-local-boot.execution-contract.arm64.v3",
+  "status": "EXECUTION-CONTRACT-SEALED  HARD-STOP-STANDS  BOOT-NOT-AUTHORISED  NOT-RUN",
+  "strengthenedNotWeakened": [
+    {
+      "id": "sealed-image-unchanged-after-the-run",
+      "sealedJudgedByAsksFor": "the root disk re-hashed after the machine stops",
+      "theRunnerDoes": "all five targets re-hashed and compared name by name"
+    },
+    {
+      "id": "nothing-of-the-guest-survives-the-shutdown",
+      "sealedJudgedByAsksFor": "host processes counted, extended to the socket path and the working directory",
+      "theRunnerDoes": "virtual machines, host processes and temporary mounts counted, with the socket path and the working directory required absent"
+    },
+    {
+      "id": "exactly-one-boot-of-this-image",
+      "sealedJudgedByAsksFor": "the driver refusing to start when the receipt exists",
+      "theRunnerDoes": "that, and a durable one-use mark claimed before the machine starts, so a run that ended badly still counts"
+    }
+  ],
+  "whatThisIs": "How the third attempt would be carried out, written after its criteria were sealed and before any machine is built.  The criteria set the exam; this says who reads each answer, in what order the run does things, and what happens to a question this image cannot answer.  It opens nothing: five of the twenty-one conditions have no readable evidence in this image, and the runner refuses while that is true, so the one boot stays unspent.",
+  "whyTheCriteriaAreNotEdited": "The criteria were sealed before the runner existed precisely so the runner could not shape them.  Discovering that five of them cannot be read today is the sealing working, not a defect in it: an exam that got easier the moment it met a hard question would not have been worth setting.  So nothing here edits, reworders or waives a condition.  The two places the runner departs from a sealed judgedBy it departs upward -- it re-hashes five targets where the condition asks for one, and it counts the socket path and the working directory alongside the processes -- and both are recorded as strengthenings below rather than left to be noticed."
+}
