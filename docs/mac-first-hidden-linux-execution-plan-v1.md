@@ -5091,3 +5091,60 @@ The cursors in §46.1 through §55.1 remain historical records. No image was
 produced or modified, no boot was performed, and no production or boot budget
 was opened. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
 Base activation `false` and `activationAllowed=false` remain unchanged.
+
+## 57. Keeping the raw scan as an inventory, not a joined-path proof (2026-08-29)
+
+Section 53's measurement remains a measurement of the sealed bytes. The root
+disk was opened read-only, all 2,035,625,984 bytes were read, its SHA-256 was
+`51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c`
+before and after, the host tier recorded zero raw matches and the generic
+secret-shape tier recorded 135. The historical result also remained
+`NOT-SETTLED`. None of those facts is edited or discarded.
+
+The inference around joined paths was too broad. An ext4 path is a chain of
+directory entries: a parent entry named `.boole` can point to a directory whose
+child entry is named `keys` without the contiguous bytes `.boole/keys` appearing
+anywhere in the image. A raw zero for a joined multi-component needle therefore
+does not prove that the logical path is absent. Single-needle occurrences and
+non-occurrences remain raw-byte facts; they do not become filesystem structure
+or a condition verdict by themselves.
+
+The raw tier name also did not prove provenance. A string such as
+`BOOLE_LLM_API_KEY` or `boole-artifacts` may occur in source, documentation or
+an ordinary guest file. A hit is still a candidate that must be reconciled, but
+the bytes alone do not prove host origin or a secret leak. The old zero host-tier
+count remains an exact raw-byte fact; it is not promoted into a filesystem or
+provenance result.
+
+The append-only correction is
+`native/containment/native-shadow-mac3-guest-secret-absence-raw-scan-correction-arm64-v1.json`.
+It binds the historical scanner, tests, result and evidence-channel design by
+their unchanged digests; binds the exact production and preservation lineage of
+the root disk; names the superseded joined-path assertions instead of erasing
+them; and keeps the boot condition closed.
+
+The successor must independently enumerate the filesystem graph, bind every
+candidate path and content-bearing entry to an exact sealed expectation or an
+approved local-generation recipe and digest, inspect symlink targets, journal
+and unmapped bytes, and attribute every raw range to one physical inode owner.
+Path aliases from hard links do not create multiple physical owners. Any
+journal, slack, unallocated, unmapped or unreconciled hit remains fail-closed,
+and no secret-surrounding bytes may be copied into the result.
+
+### 57.1 Cursor
+
+```text
+RAW BYTE SCAN  PRESERVED — single-needle 0/135 occurrence facts unchanged
+JOINED-PATH INFERENCE  FALSIFIED — ext4 stores path components as separate directory entries
+RAW-HIT HOST ORIGIN  NOT PROVEN — a marker can occur in ordinary sealed guest content
+SECRET-ABSENCE CONDITION  NOT-SETTLED — no waiver, rewording or boot authority
+PRESERVED-DISK PATH/CONTENT RECONCILIATION  NEXT — exact graph, source binding and physical ownership
+IMAGE PRODUCTION  NOT RUN BY THIS CORRECTION — preserved image unchanged
+GUEST BOOT  NOT STARTED — 0 boot attempts used
+MAC.4  NOT STARTED — no node request or authenticated host/guest transport claim
+```
+
+The cursors through §56.1 remain historical records. This correction did not
+produce, modify, mount or boot an image and grants no execution authority.
+`mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation
+`false` and `activationAllowed=false` remain unchanged.
