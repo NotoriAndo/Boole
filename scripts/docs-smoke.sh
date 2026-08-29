@@ -87,6 +87,24 @@ require_text scripts/self-test.sh 'scripts/test_native_shadow_mac3_runtime_path_
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'RUNTIME-PATH GENERATION  CORRECTED'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER RUNTIME VERIFICATION  NOT MEASURED'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Runtime-path generation correction'
+# The old whole-image scan remains exact raw-byte evidence, but a joined path
+# is a graph of ext4 directory entries rather than a required contiguous byte
+# string.  Keep the condition closed until the raw ranges, graph and sealed
+# content table reconcile independently.
+RAW_SCAN_CORRECTION=native/containment/native-shadow-mac3-guest-secret-absence-raw-scan-correction-arm64-v1.json
+require_file "$RAW_SCAN_CORRECTION"
+require_text "$RAW_SCAN_CORRECTION" 'RAW-SCAN-PATH-AND-ORIGIN-INFERENCES-FALSIFIED-CONDITION-NOT-SETTLED'
+require_text "$RAW_SCAN_CORRECTION" 'PRESERVED-AS-RAW-BYTE-FACTS'
+require_text "$RAW_SCAN_CORRECTION" '"joinedMultiComponentLogicalPathAbsence": "NOT-PROVEN"'
+require_text "$RAW_SCAN_CORRECTION" '"hostOriginOrSecretLeakFromAnyRawHit": "NOT-PROVEN"'
+require_text "$RAW_SCAN_CORRECTION" '"conditionSettled": false'
+require_text "$RAW_SCAN_CORRECTION" '"bootAttemptsUsedByThisRecord": 0'
+require_file scripts/test_native_shadow_mac3_guest_secret_raw_scan_correction_arm64_v1.py
+require_text scripts/self-test.sh 'scripts/test_native_shadow_mac3_guest_secret_raw_scan_correction_arm64_v1.py'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'Keeping the raw scan as an inventory, not a joined-path proof'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'PRESERVED-DISK PATH/CONTENT RECONCILIATION  NEXT'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'RAW-HIT HOST ORIGIN  NOT PROVEN'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Raw-scan joined-path correction'
 require_text docs/native-submission-shadow-verification-v1.md "is now claimed and closed on"
 require_text docs/native-submission-shadow-verification-v1.md "PR #221"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "CRASH-RESTART-EXACTLY-ONCE-E2E: GREEN"

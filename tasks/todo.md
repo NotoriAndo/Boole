@@ -3107,3 +3107,31 @@ nothing to find here and would have cost the only attempt there.
 
 Nothing was booted, no image was produced or modified, no machine was started
 and no boot was authorised.
+
+## Correct the raw secret scan before reconciling candidates (2026-08-29)
+
+- [x] Preserve the historical scanner, test, result and evidence-channel design
+      by exact digest rather than rewriting the record that made the mistake.
+- [x] Keep the measured facts: sealed 2,035,625,984-byte image unchanged,
+      host-tier raw hits 0, generic-shape raw hits 135, verdict NOT SETTLED.
+- [x] Falsify only the joined-path inference with a schematic ext4 graph whose
+      separate `.boole` and `keys` entries contain no `.boole/keys` byte string.
+- [x] Preserve single-needle raw occurrence/non-occurrence facts while refusing
+      to treat them as filesystem membership or a condition verdict by themselves.
+- [x] Supersede the historical claim that a host-tier raw hit proves host origin
+      or a leak; raw tier labels identify candidates, not provenance.
+- [x] Bind the target image to its production and preservation records and keep
+      boot authorisation, production, serving and activation false.
+- [ ] Enumerate the preserved ext4 graph and bind its 17,677 logical paths to the
+      17,676-entry sealed staging expectation plus `/lost+found`.
+- [ ] Attribute all 135 raw ranges to one physical inode owner, allowing multiple
+      hard-link aliases but refusing journal, slack, unallocated or unmapped bytes.
+- [ ] Bind every candidate file by exact path/kind/content digest and every
+      symlink by exact target; broad namespace prefixes are not provenance.
+
+### Review
+
+This correction settles a methodology defect, not the secret-absence condition.
+No image was produced, modified, mounted or booted. The next safe slice is the
+read-only path/content/physical-owner reconciliation; launcher v2, production,
+boot and MAC.4 stay behind their existing gates.

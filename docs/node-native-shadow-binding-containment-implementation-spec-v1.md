@@ -3745,3 +3745,34 @@ This corrects only the generation error. It proves assembly evidence exists. It
 does not claim that this correction directly traversed the preserved ext4 image,
 that the launcher verified the tree at runtime, that a guest booted, or that
 anything served. Those four negatives are enforced by the correction gate.
+
+### Raw-scan joined-path correction (2026-08-29)
+
+The historical whole-image scan is preserved byte-for-byte. It remains exact
+evidence that the sealed disk was read read-only, its digest did not change, and
+the chosen single needles produced 0 host-tier and 135 generic-shape raw
+matches. It never parsed ext4 directory entries. The earlier statement that an
+empty raw-byte superset proves logical path absence is superseded by
+`native-shadow-mac3-guest-secret-absence-raw-scan-correction-arm64-v1.json` only
+for joined multi-component path needles and for the old automatic host-origin
+classification of a raw hit. Single-needle occurrence and non-occurrence counts
+remain exact raw-byte facts.
+
+The counterexample is explicitly schematic: ext4 may store `.boole` in one
+directory entry and `keys` in another directory's entry, so the logical path
+`/.boole/keys` need not exist as contiguous image bytes. The historical
+NOT-SETTLED verdict is retained and the boot condition is not waived, reworded
+or met.
+
+The tier label is not provenance. A host-shaped marker can occur in ordinary
+guest source, documentation or data, so a raw hit does not prove host origin or
+a secret leak without exact logical-path, kind and content binding. Conversely,
+the historical host-tier zero is preserved but does not settle the condition.
+
+The successor contract is stricter: exact sealed input and parser identity;
+unsupported ext4 shapes refused; independent path enumeration; kind-specific
+file-digest or symlink-target binding; approved recipes for locally generated
+entries; journal, slack and unmapped-byte separation; full-range raw-offset to
+one-inode ownership; all 135 rows conserved; and before/after image digests
+identical. Any ambiguity fails closed. This addendum produces no image, starts
+no guest, opens no boot attempt, and starts no MAC.4 transport.
