@@ -75,6 +75,18 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "UNPRIVILEGED-SUBM
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "CONSOLE-EVIDENCE-PRODUCER  DECIDED / NOT WRITTEN"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "GUEST-USERLAND  READ FROM THE SEALED SOURCE LOCK"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-FLOW-REHEARSAL  WALKED / NO MACHINE STARTED"
+# The historical runtime-path zero belongs to builder v1.  The preserved v4
+# image followed producer v2 into builder v3 and carries assembly evidence, but
+# runtime launcher verification and boot remain unmeasured.
+require_file native/containment/native-shadow-mac3-runtime-path-generation-correction-arm64-v1.json
+require_text native/containment/native-shadow-mac3-runtime-path-generation-correction-arm64-v1.json 'CORRECTED-CURRENT-PATHS-PRESENT-RUNTIME-UNMEASURED'
+require_text native/containment/native-shadow-mac3-runtime-path-generation-correction-arm64-v1.json '"imageAssemblyEstablished": true'
+require_text native/containment/native-shadow-mac3-runtime-path-generation-correction-arm64-v1.json '"launcherRuntimeVerificationMeasured": false'
+require_file scripts/test_native_shadow_mac3_runtime_path_generation_correction_arm64_v1.py
+require_text scripts/self-test.sh 'scripts/test_native_shadow_mac3_runtime_path_generation_correction_arm64_v1.py'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'RUNTIME-PATH GENERATION  CORRECTED'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER RUNTIME VERIFICATION  NOT MEASURED'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Runtime-path generation correction'
 require_text docs/native-submission-shadow-verification-v1.md "is now claimed and closed on"
 require_text docs/native-submission-shadow-verification-v1.md "PR #221"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "CRASH-RESTART-EXACTLY-ONCE-E2E: GREEN"

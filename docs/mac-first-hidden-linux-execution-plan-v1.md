@@ -5048,3 +5048,46 @@ The cursors in §46.1 through §54.1 are left as they were written. `mineable_no
 `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
 `activationAllowed=false` remain unchanged. Nothing was booted, no image was
 produced or modified, no node was connected, and nothing is served.
+
+## 56. Keeping the old zero in the generation where it was measured (2026-08-29)
+
+Section 34 measured `native_shadow_rootfs_builder_boot_arm64_v1.py` and was
+right about that file: it mentioned neither fixed runtime path, and the image
+of that generation did not contain them. The mistake was not in that record.
+It was in applying its zero to the later preserved v4 image after a successor
+producer and builder had been added. The historical record remains unchanged;
+this addendum fixes the current interpretation.
+
+The current production chain is different and is now checked end to end rather
+than inferred from one leaf file. The v2 producer pins builder v3, constructs
+the nested runtime tree, makes that tree a required argument of both preflight
+and production, and forwards it to the staging assembler. Builder v3 merges it
+before deriving parent directories. The v4 authority pins that builder and the
+two guest paths, and production run `33202978318` records PASS, read-back PASS,
+17,677 entries and no failed read-back check. The third qualification record
+therefore correctly records the old runtime-rootfs gap as `stillAbsent: false`.
+
+That establishes assembly, not execution. This correction did not parse the
+preserved ext4 image itself, did not boot it and did not see the launcher open
+or verify the manifest at runtime. The production result and qualification
+records also keep runtime compatibility, guest boot and serving false. Those
+boundaries are part of the correction gate so repairing the generation error
+cannot silently turn into a serving claim.
+
+### 56.1 Cursor
+
+```text
+RUNTIME-PATH GENERATION  CORRECTED — builder-v1 zero stays historical; v4 uses producer-v2 → builder-v3
+V4 IMAGE ASSEMBLY  ESTABLISHED — nested tree + manifest bound, production/read-back PASS, 17,677 entries
+PRESERVED-DISK PATH RECONCILIATION  NOT YET RUN — this correction did not inspect ext4 paths directly
+LAUNCHER RUNTIME VERIFICATION  NOT MEASURED — no boot and no serving claim
+SECRET-ABSENCE CONDITION  NOT SETTLED — 135 generic raw hits still need path/content reconciliation
+CONSOLE-EVIDENCE PRODUCER  DECIDED / NOT IN A SEALED SUCCESSOR — launcher source seal remains intact
+BOOT-AUTHORISATION  NOT GRANTED — 0 boot attempts used
+MAC.4  NOT STARTED — no node request or authenticated host/guest transport claim
+```
+
+The cursors in §46.1 through §55.1 remain historical records. No image was
+produced or modified, no boot was performed, and no production or boot budget
+was opened. `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation `false` and `activationAllowed=false` remain unchanged.

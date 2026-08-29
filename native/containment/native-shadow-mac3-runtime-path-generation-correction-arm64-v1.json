@@ -1,0 +1,68 @@
+{
+  "claimBoundary": {
+    "activationAllowed": false,
+    "guestBootVerified": false,
+    "imageAssemblyEstablished": true,
+    "launcherRuntimeVerificationMeasured": false,
+    "preservedRootDiskPathsDirectlyReadByThisCorrection": false,
+    "servingClaim": false
+  },
+  "currentGeneration": {
+    "authority": {
+      "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json",
+      "sha256": "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc"
+    },
+    "builder": {
+      "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v3.py",
+      "sha256": "93bd05d06e43cc69f325036d204b7b57721e358dd5c5d5990227ef88c4de8c39"
+    },
+    "contentManifest": {
+      "replayExpectationPath": "native/containment/native-shadow-runtime-rootfs-replay-expectation-arm64-v1.json",
+      "replayExpectationSha256": "e6b01bcce89bf2900bfa3e510ac79a8c2863c7701843cd4a1b20f2d987309e66",
+      "sha256": "200f025756d4c83e15a306feac982a91aa6130979665d0265c33aee95f3987aa",
+      "sizeBytes": 1285116
+    },
+    "contentManifestGuestPath": "/var/lib/boole/native-shadow/ROOTFS-CONTENT-MANIFEST.json",
+    "producer": {
+      "path": "scripts/native_shadow_successor_produce_phase_arm64_v2.py",
+      "sha256": "1c1b99257aa5f2d3f144387f72903fc167d6ba8c8b71a74c1b9a6c845073c1a8"
+    },
+    "productionResult": {
+      "path": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v4.json",
+      "sha256": "0faddb098503bbf17bf94ec36148e6ccf1af8fa1335ba0e5e9c79cd9d573b7dd"
+    },
+    "productionRunId": 33202978318,
+    "qualification": {
+      "path": "native/containment/native-shadow-mac3-closed-local-boot-qualification-arm64-v3.json",
+      "sha256": "74b9507932b4eda97c89753f642bac579593b034b3e9eff24bb5b056c09079a6"
+    },
+    "runtimeRootfsGuestPath": "/var/lib/boole/native-shadow/runtime-rootfs"
+  },
+  "currentStatement": {
+    "launcherRuntimeVerificationMeasured": false,
+    "runtimeTreeAndManifestWereAssembled": true
+  },
+  "historicalGeneration": {
+    "builder": {
+      "path": "scripts/native_shadow_rootfs_builder_boot_arm64_v1.py",
+      "sha256": "a5dd54198878473c162ec306fbccd6edac8b22f036d9cf84d244b5f010f96d87"
+    },
+    "measurement": {
+      "path": "native/containment/native-shadow-mac3-runtime-serving-gap-measurement-arm64-v1.json",
+      "sha256": "17d6d1cf58652d9962abd1863f92e4a81cad9571e4663e7ee66f2cfaa9779864"
+    }
+  },
+  "historicalStatement": {
+    "describesThePreservedV4Image": false,
+    "wasTrueForItsGeneration": true
+  },
+  "mechanicalBindings": [
+    "main-builds-the-sealed-nested-tree",
+    "main-forwards-the-tree-to-both-modes",
+    "preflight-and-produce-require-the-tree",
+    "assemble-forwards-the-tree-to-builder-v3",
+    "builder-v3-merges-before-deriving-parent-paths"
+  ],
+  "schema": "boole.native-shadow.mac3.runtime-path-generation-correction.arm64.v1",
+  "status": "CORRECTED-CURRENT-PATHS-PRESENT-RUNTIME-UNMEASURED"
+}
