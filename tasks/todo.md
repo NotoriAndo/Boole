@@ -3030,3 +3030,39 @@ image, which is the natural next slice for this channel.
 
 Nothing was booted, no image was produced or modified, no boot was authorised,
 and the one boot attempt remains unspent.
+
+## MAC.3 console evidence protocol (2026-08-29)
+
+- [x] Fix the format the guest speaks on the console: one line per record, a
+      fixed prefix the host can find in kernel and systemd noise.
+- [x] Build the host-side reader, and make it refuse rather than guess —
+      conflicting records dropped, unknown ids ignored, malformed lines reported.
+- [x] Establish the guest's userland from the sealed rootfs source lock rather
+      than assuming it (`/usr/bin/python3.12` and the `python3` package are
+      listed), then decide the producer on merit anyway.
+- [x] Record the producer decision: the launcher itself, not a separate service.
+      The process that knows which file it executed is the process itself, and
+      the launcher already reads `/proc/thread-self/status` for its privilege
+      check, so the record is that reading reported rather than judged twice.
+- [ ] Teach the launcher to emit the four records at startup (Rust). This
+      changes the launcher binary and therefore the sealed launcher digest, so a
+      new clone, a new fingerprint and criteria sealed again come first.
+- [ ] Host shutdown handshake: see readiness, ask for shutdown, confirm it
+      completed rather than that the process merely disappeared.
+- [ ] Rehearse the whole boot flow against a fake host, which costs nothing and
+      starts nothing.
+
+### Review
+
+The reader is 33 tests, most of them about refusing. Its RED was demonstrated by
+swapping in the naive version — last line wins, unknown ids trusted, malformed
+lines shrugged off — which failed five of them.
+
+One test was wrong and was corrected rather than made to pass: it asserted that
+a payload containing a newline is rejected, when what actually holds is that the
+rendered record is always one line because JSON escapes the break. The check in
+the module stayed, relabelled as an assertion of that invariant rather than as
+validation of the input.
+
+Nothing was booted, no image was produced or modified, and no boot was
+authorised.

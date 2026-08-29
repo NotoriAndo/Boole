@@ -1,0 +1,83 @@
+{
+  "record": "native-shadow-mac3-guest-console-evidence-protocol-arm64-v1",
+  "schema": 1,
+  "attemptId": "MAC3-CLOSED-LOCAL-BOOT-ARM64-ATTEMPT-3",
+  "whatThisIs": "The wire format between the guest and the host for the three conditions that are properties of a running kernel, and the decision about which program inside the guest produces it.  It defines a language and a reader.  It builds nothing into any image and authorises no boot.",
+  "appendOnly": true,
+  "editsAnyEarlierRecord": false,
+  "changesAnyPassCondition": false,
+  "addsTo": [
+    {
+      "path": "native/containment/native-shadow-mac3-guest-evidence-channel-design-arm64-v1.json",
+      "role": "names the in-guest console channel; this record fixes its format and its producer"
+    }
+  ],
+  "format": {
+    "oneLinePerRecord": true,
+    "prefix": "BOOLE-GUEST-EVIDENCE-1",
+    "why": "The console is shared and line-interleaved: kernel messages, systemd messages and these records land in it together.  A record split over two lines could be cut in half by another writer between them, so none of them are.  The fixed prefix is what lets the host find them in the noise.",
+    "records": [
+      {
+        "id": "launcher-executable",
+        "feeds": "launcher-executable-matches-the-sealed-digest",
+        "carries": "the path and sha256 of the file the process actually executed"
+      },
+      {
+        "id": "launcher-prerequisites",
+        "feeds": "launcher-prerequisites-verify-inside-the-guest",
+        "carries": "each prerequisite by name with whether it resolved inside the guest"
+      },
+      {
+        "id": "supervisor-privilege",
+        "feeds": "launcher-supervises-as-root-and-submissions-run-unprivileged",
+        "carries": "the supervising process's uid, gid and effective capability set"
+      },
+      {
+        "id": "readiness",
+        "feeds": "readiness-and-clean-shutdown-are-observed",
+        "carries": "readiness and the list of failed units at that moment"
+      }
+    ]
+  },
+  "whatTheHostRefuses": {
+    "aRecordIsAnObservationNotAVerdict": "The guest reports what it measured; the host compares it with a value sealed before the machine existed.  A guest that reported a wrong digest fails its own condition, because the comparison happens on the side that already knows the answer.  No console line is trusted to say a condition passed.",
+    "conflictingRecordsAreDroppedNotResolved": "A record appearing twice with different payloads is discarded rather than settled by preferring the first or the last.  There is no way from the transcript to tell which line describes the run being judged, so the condition reads as unanswered.",
+    "unknownRecordIdsAreIgnored": "A record id the protocol does not define is counted and ignored.  The reader must not grow a new evidence source because a console line asked it to.",
+    "malformedRecordsAreReported": "A line carrying the prefix that then fails to parse is an error rather than a shrug, because silence about a broken record is how a reader loses evidence quietly."
+  },
+  "submissionsAreNotClaimed": {
+    "emitted": false,
+    "why": "Half of the supervision condition is that a submission runs as an unprivileged account.  A closed boot receives no requests, so there is no submission to watch, and a record asserting it anyway would be manufactured rather than observed.  The producer reports the supervising process only, and the unobserved half stays unobserved.",
+    "conditionRelaxedHere": false
+  },
+  "producer": {
+    "decision": "the launcher itself emits these records at startup",
+    "notASeparateInGuestService": true,
+    "why": [
+      "The process that knows which file it executed is the process itself.  An outside observer has to first decide which pid is the launcher, and a wrong guess there produces a confident record about the wrong process.",
+      "The launcher already reads /proc/thread-self/status to verify that it holds root identity, the expected capability sets and NoNewPrivs.  The supervisor-privilege record is that same reading reported rather than only judged, so no second implementation of it can drift from the first.",
+      "The sealed execution contract already named 'the launcher printing the digest of its own executable to the console at startup' as one of the two things that would make this condition observable.",
+      "It adds no new file to the image.  The launcher binary is already built for this architecture by continuous integration and is already what the sealed launcher digest describes."
+    ],
+    "toolchainQuestionSettled": {
+      "question": "whether a separate helper could have been written in shell or Python instead",
+      "answer": "It could have.  The sealed rootfs source lock lists /usr/bin/python3.12 and the python3 package, so a Python helper would have run.  It is still the wrong shape, for the reasons above.",
+      "evidence": "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v1.json"
+    }
+  },
+  "implementedBy": {
+    "hostSideReader": "scripts/native_shadow_mac3_guest_evidence_protocol_arm64_v1.py",
+    "guestSideProducer": "not written yet"
+  },
+  "imageBytes": {
+    "currentImageMayBeModified": false,
+    "currentImageMayBeBooted": false,
+    "whyANewImageIsNeeded": "Teaching the launcher to print these records changes the launcher binary, and therefore the launcher digest the criteria seal and the image bytes that carry it.  A new clone, a new fingerprint and pass criteria sealed again in advance all come first."
+  },
+  "bootAuthorisation": {
+    "grantedByThisRecord": false,
+    "runsAllowed": 1,
+    "runsPerformed": 0
+  },
+  "status": "format defined and the host-side reader built and tested; the guest-side producer is decided but not written, and no image is produced or modified"
+}
