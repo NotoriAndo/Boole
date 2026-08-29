@@ -2314,4 +2314,45 @@ require_text scripts/test_native_shadow_successor_produce_phase_arm64_v2.py 'def
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'The fourth attempt: spent, passed, and not booted'
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'SUCCESSOR-IMAGE-PRODUCTION  SPENT / PASSED'
 
+# 2026-08-29 -- the copy that outlives the artifacts.
+#
+# The budget is zero, so the images cannot be made again; the artifacts holding
+# them expire, and the download that verified them sat somewhere the operating
+# system may clear. The pins below hold the two things such a record is most
+# likely to soften over time: that a single copy on a single disk is not a
+# backup, and that having the files says nothing about booting them. The
+# archive itself is machine-local and deliberately not committed -- only its
+# digests come into the repository.
+V4_PRESERVATION=native/containment/native-shadow-mac3-successor-image-preservation-arm64-v4.json
+require_file "$V4_PRESERVATION"
+require_text "$V4_PRESERVATION" '"status": "PRESERVED-READ-ONLY-ON-ONE-MACHINE"'
+require_text "$V4_PRESERVATION" '"attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V4-ATTEMPT-1"'
+require_text "$V4_PRESERVATION" '"runId": 33202978318'
+require_text "$V4_PRESERVATION" '"productionAttemptsRemaining": 0'
+require_text "$V4_PRESERVATION" '"machineLocal": true'
+require_text "$V4_PRESERVATION" '"committedToTheRepository": false'
+require_text "$V4_PRESERVATION" '"files": "0444"'
+require_text "$V4_PRESERVATION" '"directories": "0555"'
+require_text "$V4_PRESERVATION" '"bothReplicasPreservedInFull": true'
+require_text "$V4_PRESERVATION" '"byteIdenticalAtTheArchive": true'
+require_text "$V4_PRESERVATION" '"anythingDeleted": false'
+require_text "$V4_PRESERVATION" 'It is not a backup'
+require_text "$V4_PRESERVATION" 'single point of failure'
+require_text "$V4_PRESERVATION" '"expiresAt": "2026-09-04'
+require_text "$V4_PRESERVATION" '"imagePreservedClaim": true'
+require_text "$V4_PRESERVATION" '"integrityMonitored": false'
+require_text "$V4_PRESERVATION" '"offsiteCopyExists": false'
+require_text "$V4_PRESERVATION" '"bootableClaim": false'
+require_text "$V4_PRESERVATION" '"guestBootVerified": false'
+require_text "$V4_PRESERVATION" '"servingClaim": false'
+require_text "$V4_PRESERVATION" '"activationAllowed": false'
+require_file scripts/test_native_shadow_successor_image_preservation_arm64_v4.py
+require_text scripts/test_native_shadow_successor_image_preservation_arm64_v4.py 'class PreservationRecordTests'
+require_text scripts/test_native_shadow_successor_image_preservation_arm64_v4.py 'class ArchiveOnDiskTests'
+require_text scripts/test_native_shadow_successor_image_preservation_arm64_v4.py 'def test_it_admits_what_one_copy_on_one_machine_is_not'
+require_text scripts/test_native_shadow_successor_image_preservation_arm64_v4.py 'def test_it_does_not_put_the_images_in_the_repository'
+require_text scripts/self-test.sh 'scripts/test_native_shadow_successor_image_preservation_arm64_v4.py'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'SUCCESSOR-IMAGE-PRESERVATION  DONE'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'Preserving what cannot be made again'
+
 printf 'docs-smoke: PASS\n' >&2

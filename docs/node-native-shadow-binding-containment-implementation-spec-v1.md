@@ -3583,3 +3583,44 @@ replicas. `bootableClaim`, `guestBootVerified`, `servingClaim`,
 `activationAllowed` are all `false`. Booting the image, MAC.4, connecting a
 node, and any testnet, public mining, reward, block, consensus or peer-to-peer
 activation remain outside what has happened and outside what is authorised.
+
+### Preserving what cannot be made again (2026-08-29)
+
+The record is
+`native/containment/native-shadow-mac3-successor-image-preservation-arm64-v4.json`,
+and its gate is `scripts/test_native_shadow_successor_image_preservation_arm64_v4.py`.
+
+**Why it exists.** `productionAttemptsRemainingAfterThisRun` is 0. The images
+cannot be rebuilt under any existing authority; the six artifacts expire
+2026-09-04; the verified download lived in a temporary directory. Two of those
+three facts are clocks, and the third is not durable.
+
+**What the copy guarantees.** 18 files, 7,739,896,486 bytes, both replicas
+whole. Per-file: temporary name, digest and size compared with the source,
+rename only on match. Per-tree: built beside the final path, renamed in one
+step, so no consumer can observe a partial archive. Verified three times — under
+the staging name, at the final path, and again after `0444`/`0555` were applied.
+The two replicas were re-compared byte for byte at the archive after the copy.
+
+**What the record binds.** The attempt id, the run id and head SHA (both checked
+equal to the production record's), the production authority, the producer
+fingerprint and the result document each by live digest, the three image digests
+checked equal to what the run recorded, all six artifact ids with sizes, expiry
+timestamps and GitHub digests, and every preserved file with its own digest and
+size. The archive total is asserted to be the rows added up.
+
+**What stays out of the repository.** The bytes. `committedToTheRepository` is
+`false` and a test asserts no image file exists under `native/containment/`.
+The archive root is machine-local, so `ArchiveOnDiskTests` skips where the
+archive is absent — five skips on a CI runner, five checks on the machine that
+holds it. A skip is the honest result; a pass would be a claim about a disk the
+runner cannot read.
+
+**What it refuses to claim.** `imagePreservedClaim` is `true` and means exactly
+that 18 files exist at a second path with the recorded digests and are read-only
+there. `bootableClaim`, `guestBootVerified`, `servingClaim`, `activationAllowed`
+and `publicMiningOrBenchmark` are `false`, and so are `offsiteCopyExists` and
+`integrityMonitored`. `whatThisDoesNotDo` names the single point of failure, the
+absence of any scheduled re-verification, and the absence of encryption. A
+preservation record that overstates its own durability is the failure mode it
+exists to prevent.

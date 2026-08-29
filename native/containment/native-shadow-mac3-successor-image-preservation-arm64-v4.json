@@ -1,0 +1,237 @@
+{
+  "anythingDeleted": false,
+  "archive": {
+    "appliedMode": {
+      "directories": "0555",
+      "files": "0444"
+    },
+    "committedToTheRepository": false,
+    "fileCount": 18,
+    "howItWasCopied": "Each file was written under a temporary name, its size and SHA-256 compared with the source, and renamed into place only after both matched.  The whole tree was built beside its final path and renamed there in one step, so the final path never existed half-copied.  Every digest was then re-read at the final path, and re-read again after the read-only mode was applied.",
+    "layoutFollowsTheArtifacts": "One directory per GitHub artifact, named as the artifact was, so an archived directory and an artifact id refer to the same thing.",
+    "machineLocal": true,
+    "root": "/Users/seoyong/boole-artifacts/native-shadow/mac3-successor-arm64-v4",
+    "selfDescribingCopy": "PRESERVATION-MANIFEST.json",
+    "totalBytes": 7739896486,
+    "verificationPasses": 3
+  },
+  "artifacts": [
+    {
+      "archivedAs": "successor-outputs-1",
+      "expiresAt": "2026-09-04T19:19:15Z",
+      "githubDigest": "sha256:69eea128fbff8b03688e0562d2aed5e238d35f9aafa5d042a1899e12dd678e40",
+      "id": 9698649662,
+      "name": "successor-outputs-1",
+      "sizeInBytes": 1375220897
+    },
+    {
+      "archivedAs": "successor-outputs-2",
+      "expiresAt": "2026-09-04T19:19:22Z",
+      "githubDigest": "sha256:4a5ae9c5efb8d6bb71c6c8b7e2cde22071a39c512950335929b6119f30114213",
+      "id": 9698652807,
+      "name": "successor-outputs-2",
+      "sizeInBytes": 1375220898
+    },
+    {
+      "archivedAs": "successor-manifest-1",
+      "expiresAt": "2026-09-04T19:19:15Z",
+      "githubDigest": "sha256:ab96d9716ac47bdb22cf9f9d3d9ba73ef9ea972ccdadde9b803e0c1cf2d5ae23",
+      "id": 9698629902,
+      "name": "successor-manifest-1",
+      "sizeInBytes": 3657
+    },
+    {
+      "archivedAs": "successor-manifest-2",
+      "expiresAt": "2026-09-04T19:19:21Z",
+      "githubDigest": "sha256:e50d3b3222c084903fa856beb6aea3f064725693e6f5accd71f88e8b390c0918",
+      "id": 9698633142,
+      "name": "successor-manifest-2",
+      "sizeInBytes": 3658
+    },
+    {
+      "archivedAs": "successor-attempt-consumed-1",
+      "expiresAt": "2026-09-04T19:19:56Z",
+      "githubDigest": "sha256:9caeeb078afbe619612c28820da82fbc841748d4d2ca41e77cf2b39e6fe7bf21",
+      "id": 9698649956,
+      "name": "successor-attempt-consumed-1",
+      "sizeInBytes": 589
+    },
+    {
+      "archivedAs": "successor-attempt-consumed-2",
+      "expiresAt": "2026-09-04T19:20:03Z",
+      "githubDigest": "sha256:9caeeb078afbe619612c28820da82fbc841748d4d2ca41e77cf2b39e6fe7bf21",
+      "id": 9698653138,
+      "name": "successor-attempt-consumed-2",
+      "sizeInBytes": 589
+    }
+  ],
+  "attemptId": "MAC3-SUCCESSOR-IMAGE-PRODUCTION-ARM64-V4-ATTEMPT-1",
+  "authority": {
+    "path": "native/containment/native-shadow-mac3-successor-production-authority-arm64-v4.json",
+    "sha256": "50a76ca2a6926a897006ae0d294509934cb8f6f0b902f09d2dc88941185290cc"
+  },
+  "boundaries": {
+    "activationAllowed": false,
+    "bootableClaim": false,
+    "guestBootVerified": false,
+    "imagePreservedClaim": true,
+    "integrityMonitored": false,
+    "offsiteCopyExists": false,
+    "publicMiningOrBenchmark": false,
+    "servingClaim": false,
+    "whatImagePreservedMeans": "Eighteen files, including three images, exist at a second path outside the repository with the digests the production run recorded, and are read-only there.  It means nothing about running them."
+  },
+  "images": [
+    {
+      "bytes": 1776433848,
+      "name": "guest-initrd",
+      "sha256": "2fc4b4f473e6dd3d8ac3697fc5be07ab2828e93acc0c2ff5f8e20ef473c3833e"
+    },
+    {
+      "bytes": 57860488,
+      "name": "guest-kernel",
+      "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336"
+    },
+    {
+      "bytes": 2035625984,
+      "name": "guest-root-disk",
+      "sha256": "51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c"
+    }
+  ],
+  "preservedFiles": [
+    {
+      "bytes": 664,
+      "path": "successor-attempt-consumed-1/ATTEMPT-CONSUMED.json",
+      "sha256": "1f9719091b7190f8efbd0b4e1e962c3eefdc4ccf39a83152332d66d5f93ba673"
+    },
+    {
+      "bytes": 664,
+      "path": "successor-attempt-consumed-2/ATTEMPT-CONSUMED.json",
+      "sha256": "1f9719091b7190f8efbd0b4e1e962c3eefdc4ccf39a83152332d66d5f93ba673"
+    },
+    {
+      "bytes": 240,
+      "path": "successor-manifest-1/OUTPUT-MANIFEST.txt",
+      "sha256": "b9e3e294ab6fc6745499f1104bbc643b6d40487c79f40b8e87ebce61653df866"
+    },
+    {
+      "bytes": 12050,
+      "path": "successor-manifest-1/PRODUCE-RESULT.json",
+      "sha256": "d7fbc49d8bba4365a451fa141d03d7a49033601f2cf89f70cc145f4c0bba3ddb"
+    },
+    {
+      "bytes": 240,
+      "path": "successor-manifest-2/OUTPUT-MANIFEST.txt",
+      "sha256": "b9e3e294ab6fc6745499f1104bbc643b6d40487c79f40b8e87ebce61653df866"
+    },
+    {
+      "bytes": 12050,
+      "path": "successor-manifest-2/PRODUCE-RESULT.json",
+      "sha256": "ceb98523a48a4ab406a81eb5cf6a0fd267f5896fc6cb44f89a85c95cf3f9bd3c"
+    },
+    {
+      "bytes": 664,
+      "path": "successor-outputs-1/ATTEMPT-CONSUMED.json",
+      "sha256": "1f9719091b7190f8efbd0b4e1e962c3eefdc4ccf39a83152332d66d5f93ba673"
+    },
+    {
+      "bytes": 12050,
+      "path": "successor-outputs-1/PRODUCE-RESULT.json",
+      "sha256": "d7fbc49d8bba4365a451fa141d03d7a49033601f2cf89f70cc145f4c0bba3ddb"
+    },
+    {
+      "bytes": 2255,
+      "path": "successor-outputs-1/SUCCESSOR-ROOT-DISK-READBACK.json",
+      "sha256": "5e3dcb7c6cc8e4e170a42f14dd262ef3a56fb5bcf61045c8d2e54a713e6dfdda"
+    },
+    {
+      "bytes": 1776433848,
+      "path": "successor-outputs-1/guest-initrd",
+      "sha256": "2fc4b4f473e6dd3d8ac3697fc5be07ab2828e93acc0c2ff5f8e20ef473c3833e"
+    },
+    {
+      "bytes": 57860488,
+      "path": "successor-outputs-1/guest-kernel",
+      "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336"
+    },
+    {
+      "bytes": 2035625984,
+      "path": "successor-outputs-1/guest-root-disk",
+      "sha256": "51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c"
+    },
+    {
+      "bytes": 664,
+      "path": "successor-outputs-2/ATTEMPT-CONSUMED.json",
+      "sha256": "1f9719091b7190f8efbd0b4e1e962c3eefdc4ccf39a83152332d66d5f93ba673"
+    },
+    {
+      "bytes": 12050,
+      "path": "successor-outputs-2/PRODUCE-RESULT.json",
+      "sha256": "ceb98523a48a4ab406a81eb5cf6a0fd267f5896fc6cb44f89a85c95cf3f9bd3c"
+    },
+    {
+      "bytes": 2255,
+      "path": "successor-outputs-2/SUCCESSOR-ROOT-DISK-READBACK.json",
+      "sha256": "5e3dcb7c6cc8e4e170a42f14dd262ef3a56fb5bcf61045c8d2e54a713e6dfdda"
+    },
+    {
+      "bytes": 1776433848,
+      "path": "successor-outputs-2/guest-initrd",
+      "sha256": "2fc4b4f473e6dd3d8ac3697fc5be07ab2828e93acc0c2ff5f8e20ef473c3833e"
+    },
+    {
+      "bytes": 57860488,
+      "path": "successor-outputs-2/guest-kernel",
+      "sha256": "d29e317d66517190f6437b9b9bd2cedd26a424fe6da7b1a28451247a13fe1336"
+    },
+    {
+      "bytes": 2035625984,
+      "path": "successor-outputs-2/guest-root-disk",
+      "sha256": "51410d8113c28d6cd28c7b6c7578076226d5e19b6629649199af7b7f86540a1c"
+    }
+  ],
+  "producerFingerprint": {
+    "path": "native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v4.json",
+    "sha256": "de25e3ac769ab4c575fff6b0839a2ccee2273decdbdd15eb87b3ed2a4c90b765"
+  },
+  "productionAttemptsRemaining": 0,
+  "record": "Written after the copy was made and verified, and appended beside the production record rather than into it.",
+  "release": "NATIVE-SHADOW-MAC3-SUCCESSOR-IMAGE-PRESERVATION-ARM64-V4",
+  "replicaIdentity": {
+    "bothReplicasPreservedInFull": true,
+    "byteIdenticalAtTheArchive": true,
+    "filesCompared": [
+      "guest-kernel",
+      "guest-initrd",
+      "guest-root-disk"
+    ],
+    "how": "Compared byte for byte with cmp at the archive after the copy, and independently by SHA-256 over each pair.",
+    "whyBothWereKept": "Recording the second replica's digests would have satisfied the requirement, since the two sets are identical and the identity is proven.  Both were kept as bytes anyway: the budget is zero, these are the only copies that will ever exist, and a second set on the same disk costs 3.6 GB against a loss that cannot be undone."
+  },
+  "resultDocument": {
+    "path": "native/containment/native-shadow-mac3-successor-image-production-result-arm64-v4.json",
+    "sha256": "0faddb098503bbf17bf94ec36148e6ccf1af8fa1335ba0e5e9c79cd9d573b7dd"
+  },
+  "schema": "boole.native-shadow.successor-image-preservation.arm64.v4",
+  "source": {
+    "headSha": "7d185776b98bb1bf6c4f141fc99af2ae249c93fb",
+    "repository": "NotoriAndo/Boole",
+    "runId": 33202978318,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33202978318",
+    "workflow": ".github/workflows/native-shadow-successor-produce-arm64.yml"
+  },
+  "status": "PRESERVED-READ-ONLY-ON-ONE-MACHINE",
+  "whatThisDoesNotDo": [
+    "It is not a backup.  One copy on one internal disk in one machine is a single point of failure, named here rather than left to be assumed.",
+    "No offsite or removable copy exists, and none is scheduled.",
+    "Nothing re-reads these digests on a schedule, so silent bit rot between now and the next manual check would not be noticed.",
+    "The archive is not encrypted and carries no access control beyond the read-only mode and the owning account.",
+    "It says nothing about whether the image boots, serves, or is compatible with any host."
+  ],
+  "whatWasNotDeleted": [
+    "The six GitHub artifacts, which are left to expire on their own date.",
+    "The temporary download under the session scratchpad, left in place.",
+    "Every sealed record of the attempt, byte-unchanged."
+  ],
+  "whyThisExists": "The production budget is spent, so these three files cannot be made again.  The GitHub artifacts that held them expire on 2026-09-04 and the download that verified them sat in a temporary directory the operating system may delete without warning.  A second copy now lives somewhere that survives a reboot."
+}
