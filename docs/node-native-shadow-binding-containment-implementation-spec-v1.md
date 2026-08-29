@@ -3725,3 +3725,23 @@ are listed in the contract under `strengthenedNotWeakened` rather than left to b
 discovered. The judging rules themselves take an evidence bundle and no
 filesystem, so the part that decides a verdict runs on every push on a machine
 that cannot boot anything.
+
+### Runtime-path generation correction (2026-08-29)
+
+The old runtime-gap measurement remains true for the builder it names,
+`native_shadow_rootfs_builder_boot_arm64_v1.py`. It does not describe the v4
+image produced later. The append-only correction record is
+`native/containment/native-shadow-mac3-runtime-path-generation-correction-arm64-v1.json`.
+
+Its gate follows the current lineage rather than searching the predecessor:
+producer v2 pins builder v3, requires a nested tree in preflight and production,
+forwards it to the common assembler, and builder v3 merges it before deriving
+parent paths. The v4 authority pins the same builder, runtime prefix, manifest
+path and manifest digest. The v4 result binds back to that authority and records
+a passing read-back of 17,677 entries; the v3 qualification binds the same run
+and records the runtime-rootfs gap as no longer absent.
+
+This corrects only the generation error. It proves assembly evidence exists. It
+does not claim that this correction directly traversed the preserved ext4 image,
+that the launcher verified the tree at runtime, that a guest booted, or that
+anything served. Those four negatives are enforced by the correction gate.
