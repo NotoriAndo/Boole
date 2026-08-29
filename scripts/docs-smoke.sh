@@ -2666,4 +2666,34 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'b199fb616029e2e38
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:BEGIN'
 require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:BEGIN'
 
+# S3-B implements only the authority-zero generation and its repeatable
+# no-image rehearsal surface.  The readback edge stays declared but unreachable
+# until a future separately sealed authority; no production or boot is opened.
+require_file scripts/native_shadow_successor_produce_phase_arm64_v3.py
+require_file scripts/native_shadow_successor_root_disk_readback_arm64_v3.py
+require_file scripts/native-shadow-successor-produce-arm64-v3.sh
+require_file .github/workflows/native-shadow-successor-produce-arm64-v3.yml
+require_file scripts/test_native_shadow_successor_produce_phase_arm64_v3.py
+require_file scripts/test_native_shadow_successor_root_disk_readback_arm64_v3.py
+require_file scripts/test_native_shadow_successor_produce_workflow_arm64_v3.py
+require_text scripts/self-test.sh 'scripts/test_native_shadow_successor_produce_phase_arm64_v3.py'
+require_text scripts/self-test.sh 'scripts/test_native_shadow_successor_root_disk_readback_arm64_v3.py'
+require_text scripts/self-test.sh 'scripts/test_native_shadow_successor_produce_workflow_arm64_v3.py'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v3.py 'IMPORT_CORRECTION_SHA256'
+require_text scripts/native_shadow_successor_produce_phase_arm64_v3.py 'effective binding union is not exactly forty-one inputs'
+require_text scripts/native-shadow-successor-produce-arm64-v3.sh 'len(seen) != 41'
+require_text scripts/native-shadow-successor-produce-arm64-v3.sh 'python3 -I -S -c'
+require_text scripts/native-shadow-successor-produce-arm64-v3.sh '--verify-bindings-only'
+require_text scripts/native-shadow-successor-produce-arm64-v3.sh 'production authority check'
+require_text scripts/native_shadow_successor_root_disk_readback_arm64_v3.py 'READBACK-V3-PASS-QUALIFIED-FOR-REPLICA-COMPARISON'
+require_text scripts/native_shadow_successor_root_disk_readback_arm64_v3.py '/proc/self/fd/{image.descriptor}'
+require_text scripts/native_shadow_successor_root_disk_readback_arm64_v3.py 'expected_image: FileIdentity'
+require_text scripts/native_shadow_successor_root_disk_readback_arm64_v3.py 'expected_entry_count: int'
+require_text scripts/native_shadow_successor_root_disk_readback_arm64_v3.py 'while the qualified result was staged'
+require_text .github/workflows/native-shadow-successor-produce-arm64-v3.yml 'Verify all 41 repository inputs before repository Python'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:BEGIN'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'S3-B IMPLEMENTATION  GREEN / ARM64 REHEARSAL NOT YET RUN'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:BEGIN'
+require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:BEGIN'
+
 printf 'docs-smoke: PASS\n' >&2

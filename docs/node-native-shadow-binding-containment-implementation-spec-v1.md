@@ -4004,3 +4004,32 @@ image, attempt marker, boot or activation authority is created by this
 correction.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-IMPORT-CLOSURE-CORRECTION-ARM64-V1:END -->
+
+## Launcher-v2 successor S3-B authority-zero implementation (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:BEGIN -->
+
+Producer v3, readback v3, the wrapper, manual workflow and three gates now
+implement the preregistered generation without opening production. The wrapper
+validates the immutable 23-row predecessor plus 18-row correction and their
+41-file union in isolated Python startup before its first repository-Python
+invocation. The workflow invokes the same verify-only edge before acquisition
+or launcher emission, then the wrapper rechecks it at use. Authorityless
+production refuses before host discovery, staging or outputs. The shared free
+rehearsal may emit only one create-once JSON result and has no image-tool or
+attempt-marker surface.
+
+Readback v3 is implemented but not called in this slice. It binds source-lock
+v2 and launcher-result v2, rejects binding overrides, uses read-only loop and
+mount options, retains open descriptors for kernel/initrd/root-disk, attaches
+the root disk through its inherited descriptor rather than a replaceable path,
+and rechecks all three after readback and after tree verification. Its sole
+promotion gate also requires the exact result schema, fixed generation
+bindings, observed root-disk identity and observed entry count. Every failed or
+incompletely cleaned result is disowned. PASS bytes remain private until a
+post-write recheck of all three outputs succeeds; only then does an atomic
+create-once hard link expose the fixed result name, and pending-cleanup failure
+rolls that name back. The declared wrapper edge becomes
+executable only after a future authority and qualified image exist.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-S3B-AUTHORITY-ZERO:END -->
