@@ -5315,3 +5315,43 @@ The cursors through §59.1 remain historical. No preserved image was modified,
 no image was produced and no machine was started. `mineable_now=0`,
 `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
 `activationAllowed=false` remain unchanged.
+
+## 61. Rebuilding sealed launcher-v2 bytes without opening an image boundary (2026-08-30)
+
+The tracked launcher-v2 result is now consumed by a separate fail-closed
+emitter. The emitter pins the canonical result document by its SHA-256 rather
+than restating the ELF digest. It reconstructs the complete result through the
+v2 build authority, requires every declared producer-path counter and no extra
+counter, and requires all counters to remain zero.
+
+One fresh Linux/arm64 build is then compared with the tracked size and digest.
+Wrong or empty bytes are never written. Publication uses a new file opened with
+exclusive creation, flushes complete executable bytes, and exposes the final
+name with a hard link that cannot overwrite a concurrent path. Existing final
+paths, dangling symlinks and stale temporary paths are all refusals. CI runs
+this emitter only after the named v2 job has performed its two-build reproof
+and confirmed that the result file is tracked.
+The public emitter accepts only an output path: a caller cannot substitute a
+builder or an alternate seal to bypass the arm64 host and path-scan checks.
+
+The emitted ELF remains in the CI runner's temporary directory. No successor
+image producer imports this emitter in this slice, no guest tree is changed,
+and no production or boot budget exists. A later image generation needs a new
+authority that pins this emitter and the v2 result; this section does not create
+that authority implicitly.
+
+### 61.1 Cursor
+
+```text
+ARM64 V2 DOUBLE BUILD  REPROVED BY REQUIRED CI — tracked result must match exactly
+LAUNCHER V2 EMITTER  CI-GATED — one additional build, exact seal or no output
+ATOMIC NO-OVERWRITE PUBLICATION  GREEN AT UNIT LEVEL — real arm64 run required before merge
+SUCCESSOR IMAGE PRODUCER WIRING  NOT STARTED — no authority or budget opened
+GUEST BOOT  NOT STARTED — 0 boot attempts used
+MAC.4  NOT STARTED — no node request or authenticated transport claim
+```
+
+The cursors through §60.1 remain historical. No preserved image was modified,
+no image was produced and no machine was started. `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` remain unchanged.

@@ -210,6 +210,17 @@ jobs:
             exit 1
           fi
 
+      - name: Rebuild and emit the sealed launcher v2 once
+        # This is a third, independent build. The emitter publishes no bytes
+        # unless they reproduce the tracked two-build result exactly, and the
+        # output stays in the runner temp directory rather than a guest image.
+        run: |
+          set -euo pipefail
+          emitted="$RUNNER_TEMP/boole-native-shadow-launcher-v2"
+          python3 scripts/native_shadow_launcher_emit_arm64_v2.py emit --out "$emitted"
+          test -x "$emitted"
+          sha256sum "$emitted"
+
   self-test:
     name: self-test
     needs: [native-shadow-containment-linux, native-shadow-rootfs-replay-linux, native-shadow-rootfs-replay-linux-arm64, native-shadow-launcher-build-arm64, native-shadow-launcher-build-arm64-v2]
