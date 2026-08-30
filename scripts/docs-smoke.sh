@@ -2815,9 +2815,9 @@ for doc in \
   require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FAILED-ATTEMPTS-ARM64-V2-SEALED:BEGIN'
 done
 
-# The third free rehearsal reached the claim-bound service but rejected one
-# guest-root absolute OCI symlink before creating R2.  Keep it separate from
-# both the earlier two-attempt record and the future successful result path.
+# The third free rehearsal reached its HEAD-bound service but rejected one
+# guest-root absolute OCI symlink before creating R2.  The historical record
+# stays unchanged and the narrower service/effect wording is pinned below.
 V4_R2_HARD_STOP_V3=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v3.json
 V4_R2_HARD_STOP_GATE_V3=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_hard_stop_arm64_v3.py
 require_file "$V4_R2_HARD_STOP_V3"
@@ -2831,6 +2831,21 @@ for doc in \
   docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
   docs/native-submission-shadow-verification-v1.md; do
   require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-ARM64-V3-SEALED:BEGIN'
+done
+
+V4_R2_HARD_STOP_CORRECTION=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-correction-arm64-v1.json
+V4_R2_HARD_STOP_CORRECTION_GATE=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_hard_stop_correction_arm64_v1.py
+require_file "$V4_R2_HARD_STOP_CORRECTION"
+require_file "$V4_R2_HARD_STOP_CORRECTION_GATE"
+require_text scripts/self-test.sh "$V4_R2_HARD_STOP_CORRECTION_GATE"
+require_text "$V4_R2_HARD_STOP_CORRECTION_GATE" '88a7fc38963f48fa42018ba7e29ab5648f6767f7cecaac66d1aa4e7047c292c8'
+require_text "$V4_R2_HARD_STOP_CORRECTION" '"finalGuestImageOutputsCreatedByRehearsal": 0'
+require_text "$V4_R2_HARD_STOP_CORRECTION" '"transientOciScratchLayoutCreatedByRehearsal": true'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-SCOPE-CORRECTION-ARM64-V1-SEALED:BEGIN'
 done
 
 printf 'docs-smoke: PASS\n' >&2

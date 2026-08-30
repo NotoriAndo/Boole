@@ -5909,3 +5909,19 @@ production, MAC.4, testnet, mining, reward, consensus, P2P or activation
 authority.  The earlier two-attempt record remains byte-unchanged.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-ARM64-V3-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-SCOPE-CORRECTION-ARM64-V1-SEALED:BEGIN -->
+
+### 2026-08-30: append-only scope correction for the third failed rehearsal
+
+The historical v3 failure record remains byte-unchanged.  Its later correction
+is `native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-correction-arm64-v1.json`,
+2,837 bytes at SHA-256
+`88a7fc38963f48fa42018ba7e29ab5648f6767f7cecaac66d1aa4e7047c292c8`.
+The service was a root-owned HEAD-bound rehearsal systemd service, not a
+production-claim-bound service.  A transient OCI scratch layout existed before
+the extractor rejection; only the final guest image outputs remained at zero.
+No runner-global cleanup, R2, production, image, boot or activation claim is
+created by this correction.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-SCOPE-CORRECTION-ARM64-V1-SEALED:END -->
