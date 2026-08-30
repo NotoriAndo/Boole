@@ -196,6 +196,15 @@ jobs:
             --zstd "$(readlink -f "$(command -v zstd)")" \
             --result "$RUNNER_TEMP/acquire/ci-payload-acquisition.json"
 
+      - name: Acquire the sealed ext4 writer set for low-level rehearsal
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/acquire"
+          python3 -I -S scripts/native_shadow_boot_writer_set_acquire_arm64_v1.py acquire \
+            --cas "$PWD/$CAS" \
+            --result "$RUNNER_TEMP/acquire/writer-set-acquisition.json"
+
       - name: Emit and independently match the sealed launcher v2
         shell: bash
         run: |
