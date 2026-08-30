@@ -5760,3 +5760,37 @@ MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
 This record implements no v4 file and grants no run.  `mineable_now=0`,
 `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
 `activationAllowed=false` remain unchanged.
+
+## 69. Production-dispatch fence correction (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCTION-DISPATCH-FENCE-CORRECTION-ARM64-V1-FROZEN -->
+
+The preceding §68 text says that P2 is 8,096 bytes.  That historical prose is
+wrong and remains visible as the reason for this append-only correction.  The
+byte-preserved P2 file is exactly **8,156 bytes** at SHA-256
+`4c801a52d4c6d47dbbc1c9a7657eb8bce215f9f258586b97064359caefd28a95`.
+The correction record is 7,295 bytes at SHA-256
+`16f15bd7b9fcddeb02e104a3628d218817b047a3927fdfd77983ffaf0760910b`.
+
+The second correction is behavioural.  A future A6 field saying
+`workflowDispatchesAllowed=1` is a declaration, not a globally durable claim
+that the single dispatch has been consumed.  A runner-local marker, uploaded
+artifact, cache, absent result-v6 path, concurrency group or human promise
+cannot replace that claim.  Before any effect, only the
+`production-authority-guard` job may receive job-level `contents: write`; it
+must require `github.run_attempt == 1` and atomically create one fixed,
+attempt-specific annotated Git tag ref without force.  An existing ref is a
+hard stop.  Its canonical message binds the live A6 digest, attempt ID, GitHub
+run ID, workflow path and head SHA.  Successful ref creation is the exact run
+consumption moment.  Deleting, updating or reusing that ref is forbidden.
+
+Every replica must re-read the ref and annotated tag message, match the live A6
+and checked-out head, and do so before dependency acquisition, scratch,
+attempt-marker, assembly or image effects.  R2, F6 and A6 must each directly
+bind the correction through the exact `productionDispatchFenceCorrection`
+field (`path`, `sha256`, `sizeBytes` only); a transitive reference is not
+accepted.
+
+This record creates no tag, permits no dispatch or image production, and runs
+no rehearsal or boot.  V4, R2, F6, A6 and result-v6 remain unexecuted or absent;
+MAC.4, testnet, mining, reward, consensus, P2P and activation remain closed.
