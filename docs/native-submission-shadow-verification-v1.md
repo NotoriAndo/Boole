@@ -707,10 +707,10 @@ digests are recorded here so a later local edit cannot be mistaken for this revi
 | local mirror | sha256 |
 | --- | --- |
 | `local-docs/adr/0021-native-submission-shadow-verification.md` | `f8680ebbed2b403231478f48f1a8f44f80a4011da714a1e1bd235efa0309288d` |
-| `local-docs/todo/todo-l1-network-master.md` | `d7d17cd52ff7bc51640081c5f06bc6cc0d67b9824f1811bc163a679a397aec2f` (updated 2026-08-30h — producer-generation v4 is implemented without authority; a fresh R2 rehearsal is next) |
-| `local-docs/todo/EXECUTION-ORDER.md` | `386c4ea0674a0651fa8d2c72536e7cad60927ccb4dba0bdedc98f41af2c19d6e` (updated 2026-08-30h — v4 implementation is complete and the cursor moves to its fresh R2; F6/A6/result-v6 remain absent) |
+| `local-docs/todo/todo-l1-network-master.md` | `619e39e5e8fc140fd8a42f94765980e81c84393fde9234ea81eb8884795c50ad` (updated 2026-08-30i — fresh R2 and F6 are sealed with production authority still zero) |
+| `local-docs/todo/EXECUTION-ORDER.md` | `75fb8a4ead8526785eaf3350920503b6286bd5c4ad5f9d31a880033eefa72774` (updated 2026-08-30i — R2 is green and F6 is sealed; A6, production and boot remain unstarted) |
 | `local-docs/verified-reasoning-substrate-thesis-2026-06-10.md` | `8c520a79bb6a26ef684d866928498fbd9abe456e0a99f072a430033d1ca2a76e` |
-| `local-docs/todo/thesis-realization-roadmap.md` | `8e9673817cdcb7d6882dc0008c3338f0d3c6574fd74b716ade894646b8f7c8b5` (updated 2026-08-30l — executable preparation still does not spend or grant production authority) |
+| `local-docs/todo/thesis-realization-roadmap.md` | `414c20594445bc9352ac702143f44592357a8c38f925106f025a30cf8b87e27c` (updated 2026-08-30m — observed implementation identity may advance while production authority remains zero) |
 | `local-docs/boole-thesis-value-up-verified-zk-encyclopedia-2026-07-21.md` | `84d1ba7a50131d0bbd59b52ab01db382b4471a0648b5403a5ee742d185e6bf82` |
 
 These digests preserve synchronization evidence only. Runtime authority still requires the
@@ -2517,3 +2517,29 @@ R2 opens no production, boot, serving, MAC.4, testnet, mining, reward,
 consensus, P2P or activation boundary.  F6 is the next authority-zero binder.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:END -->
+
+## F6 authority-zero producer fingerprint after fresh R2 (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V6-SEALED -->
+
+Fresh R2 permits an identity seal, not production.  F6 is the canonical
+3,250-byte record at SHA-256
+`0e98b02f2dc8c4752c282dba57e1aa39d1cdc62a83c57d8803d6051ea792c183`.
+It binds P2, R1, F5 and raw R2, followed by the five exact v4 generation files,
+the dispatch-fence correction and the successful R2 gate.  The separate
+GitHub artifact provenance is not promoted into the production authority
+chain.
+
+```text
+R2 GREEN / F6 SEALED / A6 NOT CREATED / PRODUCTION AND BOOT NOT RUN
+```
+
+All F6 authority and run counts remain false or zero.  A6 and result-v6 remain
+absent; the global claim tag, image production, guest boot, MAC.4, testnet,
+mining, reward, consensus, P2P and activation paths remain unexecuted.
+
+The 2026-08-30i/2026-08-30m local mirror synchronization appends the same
+R2-green/F6-sealed cursor to the Master Plan, Execution and thesis roadmap.
+Their byte digests are updated in section 12.  The ADR, verified thesis and
+encyclopedia mirrors remain byte-unchanged.  These hashes are synchronization
+evidence only and grant no runtime authority.

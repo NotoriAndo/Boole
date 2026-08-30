@@ -6027,3 +6027,31 @@ exact five v4 generation files and the successful R2 gate.  A6 remains a later,
 separately authorised record and is not created here.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:END -->
+
+## 74. F6 seals the observed v4 generation without granting production (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V6-SEALED -->
+
+The fresh R2 result now feeds one authority-zero producer fingerprint:
+`native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v6.json`,
+3,250 bytes at SHA-256
+`0e98b02f2dc8c4752c282dba57e1aa39d1cdc62a83c57d8803d6051ea792c183`.
+F6 binds P2, R1, F5 and the successful R2 in that order, plus the exact five
+v4 generation files and their current regression gates.  The GitHub artifact
+provenance remains a separate transport record and does not enter this
+production-authority lineage.
+
+Every F6 authority remains false or zero.  It creates neither A6 nor a result-v6
+record, production claim tag, image or boot permission.  The create-once tag
+fence and claim-bound supervisor are implemented future enforcement mechanisms;
+neither has been exercised by this record.
+
+### 74.1 Cursor
+
+```text
+R2 GREEN / F6 SEALED / A6 NOT CREATED / PRODUCTION AND BOOT NOT RUN
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+The next irreversible edge still requires a separately reviewed A6.  F6 alone
+cannot dispatch production or boot a guest.
