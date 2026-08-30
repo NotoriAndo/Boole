@@ -2867,4 +2867,20 @@ for doc in \
   require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-ARM64-V4-SEALED:BEGIN'
 done
 
+V4_R2_HARD_STOP_CORRECTION_V2=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-correction-arm64-v2.json
+V4_R2_HARD_STOP_CORRECTION_GATE_V2=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_hard_stop_correction_arm64_v2.py
+require_file "$V4_R2_HARD_STOP_CORRECTION_V2"
+require_file "$V4_R2_HARD_STOP_CORRECTION_GATE_V2"
+require_text scripts/self-test.sh "$V4_R2_HARD_STOP_CORRECTION_GATE_V2"
+require_text "$V4_R2_HARD_STOP_CORRECTION_GATE_V2" 'b0f140161df0029eec5359a25d2ec6a207511d6787fa7a9000de997a95b90177'
+require_text "$V4_R2_HARD_STOP_CORRECTION_V2" '"productionRunsObserved": 0'
+require_text "$V4_R2_HARD_STOP_CORRECTION_V2" '"correctScope": "free-rehearsal job"'
+require_text "$V4_R2_HARD_STOP_CORRECTION_V2" '"directObservationLimitedToOneObject": true'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-WORDING-CORRECTION-ARM64-V2-SEALED:BEGIN'
+done
+
 printf 'docs-smoke: PASS\n' >&2

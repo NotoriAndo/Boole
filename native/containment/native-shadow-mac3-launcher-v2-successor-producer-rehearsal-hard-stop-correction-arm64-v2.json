@@ -1,0 +1,72 @@
+{
+  "activationAllowed": false,
+  "appendOnly": true,
+  "authorisations": {
+    "bootAuthorised": false,
+    "consensusActivated": false,
+    "imageProductionAuthorised": false,
+    "imageProductionRunsAllowed": 0,
+    "mac4Started": false,
+    "miningActivated": false,
+    "p2pActivated": false,
+    "rewardActivated": false,
+    "testnetStarted": false
+  },
+  "bootableClaim": false,
+  "cleanupCompleteClaim": false,
+  "correctedRecord": {
+    "path": "native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v4.json",
+    "preservedByteUnchanged": true,
+    "sha256": "96721d93d6016a6ee9c8714672ee9e49c0672336181bc1ef8082ab5445081eae",
+    "sizeBytes": 6147
+  },
+  "corrections": {
+    "productionWriterAcquisition": {
+      "correctedField": "productionPathAlreadyWiredToInvokeTheWriterSetAcquirer",
+      "correctedValue": true,
+      "historicalField": "productionPathAlreadyInvokedTheWriterSetAcquirer",
+      "historicalFieldWasOverbroad": true,
+      "historicalValue": true,
+      "productionClaimTagsObserved": 0,
+      "productionRunsObserved": 0
+    },
+    "timestampScope": {
+      "correctScope": "free-rehearsal job",
+      "historicalCompletedAt": "2026-08-30T15:20:55Z",
+      "historicalStartedAt": "2026-08-30T15:17:05Z",
+      "workflowRunStartedAt": "2026-08-30T15:17:00Z",
+      "workflowRunUpdatedAt": "2026-08-30T15:20:56Z"
+    },
+    "writerOmissionEvidence": {
+      "directObservationLimitedToOneObject": true,
+      "directlyObservedMissingObject": {
+        "name": "e2fsprogs",
+        "sha256": "89c94171d47851896b9c0bf600dd753b5b8770a4550b38304cd873fa7c8aabea"
+      },
+      "staticDerivationBasis": "the exact rehearsal acquisition plans omit the separately sealed writer set",
+      "staticallyDerivedOmittedWriterSet": [
+        {
+          "name": "e2fsprogs",
+          "sha256": "89c94171d47851896b9c0bf600dd753b5b8770a4550b38304cd873fa7c8aabea"
+        },
+        {
+          "name": "libext2fs2t64",
+          "sha256": "da4d465823f2653b35bd316f9c479e4a531165e01840151184f015f6e0d391a5"
+        }
+      ]
+    }
+  },
+  "editsAnyEarlierRecord": false,
+  "offlineClaim": false,
+  "r2SealedByThisCorrection": false,
+  "schema": "boole.native-shadow.mac3.launcher-v2-successor-producer-rehearsal-hard-stop-correction.arm64.v2",
+  "sourceAttempt": {
+    "exactFailure": "native-shadow successor producer v4: FAIL: low-level image preparation failed: the content-addressed store holds no object 89c94171d47851896b9c0bf600dd753b5b8770a4550b38304cd873fa7c8aabea",
+    "freeRehearsalJobId": 99278062868,
+    "headSha": "0029b3df45b87a2f2643abfff0f30f57f0c46d48",
+    "runId": 33319199252
+  },
+  "status": "CORRECTED-SCOPE-NO-R2-NO-AUTHORITY",
+  "subject": "Append-only correction: the production path was wired to invoke the writer-set acquirer but never executed; the timestamps are job-scoped; only the first missing writer object was directly observed while the complete omitted writer set is a static derivation.",
+  "successfulR2ResultsCreatedByThisCorrection": 0
+}

@@ -5958,3 +5958,20 @@ R2 path and grants no A6, production, image, boot, MAC.4, testnet, mining,
 reward, consensus, P2P or activation authority.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-ARM64-V4-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-WORDING-CORRECTION-ARM64-V2-SEALED:BEGIN -->
+
+### Append-only scope correction for the fourth rehearsal
+
+The v4 failure record remains byte-unchanged.  Its correction is
+`native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-correction-arm64-v2.json`,
+3,043 bytes at SHA-256
+`b0f140161df0029eec5359a25d2ec6a207511d6787fa7a9000de997a95b90177`.
+The production path was wired to invoke the writer-set acquirer; production
+execution is not claimed and no production run or claim tag was observed.  The
+recorded timestamps belong to the free-rehearsal job.  The log directly showed
+the missing `e2fsprogs` object; omission of the complete two-package writer set
+is a static derivation from the exact acquisition plans.  This correction
+grants no R2, A6, production, image, boot or activation authority.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-WORDING-CORRECTION-ARM64-V2-SEALED:END -->
