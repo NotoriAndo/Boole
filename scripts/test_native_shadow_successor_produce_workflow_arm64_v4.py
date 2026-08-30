@@ -15,6 +15,11 @@ import tempfile
 import time
 import unittest
 
+from scripts import native_shadow_boot_ci_payload_acquire_arm64_v1 as ci_payload
+from scripts import native_shadow_boot_rustdist_acquire_arm64_v1 as rustdist
+from scripts import native_shadow_boot_writer_set_acquire_arm64_v1 as writer_set
+from scripts import native_shadow_boot_writer_tree_arm64_v1 as writer_tree
+
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 WRAPPER = REPO / "scripts/native-shadow-successor-produce-arm64-v4.sh"
@@ -277,12 +282,12 @@ class WorkflowTopologyTests(unittest.TestCase):
         for repository_python in (
             "native_shadow_boot_rustdist_acquire_arm64_v1.py",
             "native_shadow_boot_ci_payload_acquire_arm64_v1.py",
+            "native_shadow_boot_writer_set_acquire_arm64_v1.py",
             "native_shadow_launcher_emit_arm64_v2.py",
         ):
             self.assertLess(gate, body.index(repository_python))
         self.assertIn("--rehearsal-only", body)
         self.assertNotIn("--outputs", body)
-        self.assertNotIn("writer_set_acquire", body)
         self.assertNotIn("sudo ./scripts/native-shadow-successor-produce", body)
         self.assertIn("R2-RESULT.json", body)
         self.assertIn("member_count", body)
@@ -298,6 +303,58 @@ class WorkflowTopologyTests(unittest.TestCase):
             "qemu-img",
         ):
             self.assertNotIn(forbidden, body)
+
+    def test_rehearsal_acquires_every_package_before_root_isolation(self) -> None:
+        body = workflow_job("free-rehearsal")
+        root_isolation = body.index("sudo /usr/bin/env -i")
+        for acquirer in (
+            "native_shadow_boot_rustdist_acquire_arm64_v1.py",
+            "native_shadow_boot_ci_payload_acquire_arm64_v1.py",
+            "native_shadow_boot_writer_set_acquire_arm64_v1.py",
+        ):
+            self.assertLess(body.index(acquirer), root_isolation)
+        self.assertEqual(body.count('--cas "$PWD/$CAS"'), 2)
+
+    def test_rehearsal_acquirers_cover_every_low_level_package_digest(self) -> None:
+        source_lock_v2 = json.loads(
+            (
+                REPO
+                / "native/containment/native-shadow-boot-rootfs-source-lock-arm64-v2.json"
+            ).read_text(encoding="utf-8")
+        )
+        required = {str(row["sha256"]) for row in source_lock_v2["artifacts"]}
+        pins = writer_tree.sealed_pins()
+        required.add(str(pins["writer"]["packageSha256"]))
+        required.update(str(row["packageSha256"]) for row in pins["libraries"])
+
+        rust_plan = rustdist.load_plan()
+        payload_plan = ci_payload.derive_plan(REPO)
+        writer_plan = writer_set.derive_plan()
+        acquired = {str(row["sha256"]) for row in rust_plan["artifacts"]}
+        acquired.update(str(row["sha256"]) for row in payload_plan["artifacts"])
+        acquired.update(
+            str(row["sha256"]) for row in payload_plan["derivedArtifacts"]
+        )
+        acquired.update(str(row["sha256"]) for row in writer_plan["artifacts"])
+        self.assertEqual(acquired, required)
+
+        documents, _ = ci_payload._sealed(REPO)
+        source_lock_v1 = {
+            str(row["id"]): str(row["sha256"])
+            for row in documents["bootSourceLock"]["artifacts"]
+        }
+        reused = {
+            source_lock_v1[str(identifier)]
+            for identifier in payload_plan["reusedArtifactIds"]
+        }
+        self.assertEqual(
+            reused,
+            {str(row["sha256"]) for row in rust_plan["artifacts"]},
+        )
+        self.assertEqual(
+            {rustdist.CAS_ROOT, ci_payload.CAS_ROOT, writer_set.CAS_ROOT},
+            {ci_payload.CAS_ROOT},
+        )
 
     def test_rehearsal_collection_has_exactly_one_plain_single_link_member(self) -> None:
         body = workflow_job("free-rehearsal")
