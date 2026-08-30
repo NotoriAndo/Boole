@@ -7289,6 +7289,11 @@ class RepositoryImageBackend:
             identity.record() if isinstance(identity, FileIdentity) else identity
             for identity in reused
         )
+        generation = getattr(chain, "generation_identities", ())
+        rows.extend(
+            identity.record() if isinstance(identity, FileIdentity) else identity
+            for identity in generation
+        )
         found: dict[str, Mapping[str, Any]] = {}
         for row in rows:
             if not isinstance(row, Mapping):

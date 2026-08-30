@@ -5080,6 +5080,40 @@ class GenerationChainTest(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 0, completed.stderr.decode())
 
+    def test_script_entrypoint_owns_the_preregistered_v4_bootstrap_before_r2(
+        self,
+    ) -> None:
+        source = (
+            "import importlib.util,pathlib,sys;"
+            f"root=pathlib.Path({str(REPOSITORY_ROOT)!r});"
+            "path=root/'scripts/native_shadow_successor_produce_phase_arm64_v4.py';"
+            "spec=importlib.util.spec_from_file_location('v4_under_test',path);"
+            "module=importlib.util.module_from_spec(spec);"
+            "sys.modules[spec.name]=module;"
+            "spec.loader.exec_module(module);"
+            "sys.modules.pop(spec.name);"
+            "module.__name__='__main__';"
+            "sys.modules['__main__'].__file__=str(path);"
+            "chain=module.verify_preregistered_generation(root);"
+            "request=module.RepositoryImportRequest(root,chain);"
+            "loaded=module.RepositoryImageBackend()._controlled_imports("
+            "request,module.LOW_LEVEL_MODULES);"
+            "assert len(loaded)==10"
+        )
+        environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+
+        completed = subprocess.run(
+            [sys.executable, "-I", "-S", "-c", source],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            env=environment,
+            timeout=30,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode())
+
     def test_controlled_import_rejects_preloaded_bound_module(self) -> None:
         scripts = self.root / "scripts"
         scripts.mkdir(exist_ok=True)
