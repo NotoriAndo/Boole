@@ -2815,4 +2815,22 @@ for doc in \
   require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FAILED-ATTEMPTS-ARM64-V2-SEALED:BEGIN'
 done
 
+# The third free rehearsal reached the claim-bound service but rejected one
+# guest-root absolute OCI symlink before creating R2.  Keep it separate from
+# both the earlier two-attempt record and the future successful result path.
+V4_R2_HARD_STOP_V3=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v3.json
+V4_R2_HARD_STOP_GATE_V3=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_hard_stop_arm64_v3.py
+require_file "$V4_R2_HARD_STOP_V3"
+require_file "$V4_R2_HARD_STOP_GATE_V3"
+require_text scripts/self-test.sh "$V4_R2_HARD_STOP_GATE_V3"
+require_text "$V4_R2_HARD_STOP_GATE_V3" '3cfe5cb9df41c15206e3ca56d5224c7b5e03ebb0a118d8a49fd9b4154bc86e07'
+require_text "$V4_R2_HARD_STOP_V3" '"runId": 33316130780'
+require_text "$V4_R2_HARD_STOP_V3" '"successfulR2ResultsCreatedByThisAttempt": 0'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-ARM64-V3-SEALED:BEGIN'
+done
+
 printf 'docs-smoke: PASS\n' >&2

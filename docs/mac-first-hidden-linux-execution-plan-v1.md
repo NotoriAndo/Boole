@@ -5878,3 +5878,34 @@ network-zero or complete-cleanup claim.  It grants no A6, production, image,
 boot, MAC.4, testnet, mining, reward, consensus, P2P or activation authority.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FAILED-ATTEMPTS-ARM64-V2-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-ARM64-V3-SEALED:BEGIN -->
+
+### 2026-08-30: third free v4 rehearsal failed before R2
+
+The third authority-zero rehearsal reached the claim-bound systemd service,
+then stopped before creating R2 because the disposable OCI scratch extractor
+treated the guest-root link `etc/rmt -> /usr/sbin/rmt` as a host escape.  The
+failure is sealed separately at
+`native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v3.json`,
+5,028 bytes at SHA-256
+`3cfe5cb9df41c15206e3ca56d5224c7b5e03ebb0a118d8a49fd9b4154bc86e07`.
+
+```text
+sourceRunId=33316130780
+freeRehearsalJobId=99269811610
+sourceHeadSha=8dc57c531b01e4b2b72864969eddfdeaeb6cda5a
+exactFailure=native-shadow successor producer v4: FAIL: verified layer 'etc/rmt' link escapes
+artifactsUploadedByThisAttempt=0
+successfulR2ResultsCreatedByThisAttempt=0
+productionGuardJob=skipped
+produceJob=skipped
+compareJob=skipped
+```
+
+This record is not R2 and does not occupy the successful R2 path.  It makes no
+offline, runner-global-cleanup, image, boot or serving claim and grants no A6,
+production, MAC.4, testnet, mining, reward, consensus, P2P or activation
+authority.  The earlier two-attempt record remains byte-unchanged.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-ARM64-V3-SEALED:END -->
