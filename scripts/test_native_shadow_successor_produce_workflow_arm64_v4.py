@@ -1320,7 +1320,7 @@ class WrapperSurfaceTests(unittest.TestCase):
             "ProtectSystem=strict",
             "NoNewPrivileges=yes",
             "PrivateMounts=yes",
-            "RestrictAddressFamilies=none",
+            "RestrictAddressFamilies=AF_UNIX",
             "PrivateDevices=no",
             "DevicePolicy=closed",
             "DeviceAllow=/dev/loop-control rw",
@@ -1351,7 +1351,7 @@ class WrapperSurfaceTests(unittest.TestCase):
         after_isolated_call = production[production.index('"${qualification_argv[@]}"') :]
         self.assertNotIn('python3 -I -S "$PRODUCER" qualify', after_isolated_call)
 
-    def test_untrusted_units_have_no_capabilities_sockets_or_cross_process_control(self) -> None:
+    def test_untrusted_units_have_no_capabilities_network_sockets_or_cross_process_control(self) -> None:
         source = WRAPPER.read_text(encoding="utf-8")
         isolation = source[
             source.index("isolation_prefix()") : source.index("qualification_prefix()")
@@ -1363,8 +1363,8 @@ class WrapperSurfaceTests(unittest.TestCase):
         ]
         self.assertIn("--property=CapabilityBoundingSet=", isolation)
         self.assertIn("--property=AmbientCapabilities=", isolation)
-        self.assertIn("--property=RestrictAddressFamilies=none", isolation)
-        self.assertNotIn("RestrictAddressFamilies=AF_UNIX", isolation)
+        self.assertIn("--property=RestrictAddressFamilies=AF_UNIX", isolation)
+        self.assertNotIn("RestrictAddressFamilies=none", isolation)
         self.assertIn(
             "SystemCallFilter=~kill tkill tgkill pidfd_send_signal rt_sigqueueinfo "
             "rt_tgsigqueueinfo ptrace process_vm_readv process_vm_writev",
@@ -1372,8 +1372,8 @@ class WrapperSurfaceTests(unittest.TestCase):
         )
         self.assertIn("--property=CapabilityBoundingSet=CAP_SYS_ADMIN", qualification)
         self.assertIn("--property=AmbientCapabilities=", qualification)
-        self.assertIn("--property=RestrictAddressFamilies=none", qualification)
-        self.assertNotIn("RestrictAddressFamilies=AF_UNIX", qualification)
+        self.assertIn("--property=RestrictAddressFamilies=AF_UNIX", qualification)
+        self.assertNotIn("RestrictAddressFamilies=none", qualification)
         self.assertIn(
             "SystemCallFilter=~kill tkill tgkill pidfd_send_signal rt_sigqueueinfo "
             "rt_tgsigqueueinfo ptrace process_vm_readv process_vm_writev",
@@ -1967,6 +1967,213 @@ class WrapperSurfaceTests(unittest.TestCase):
                 for unit in reversed(all_units):
                     run("systemctl", "stop", unit)
                     run("systemctl", "reset-failed", unit)
+
+    def test_linux_exact_rehearsal_systemd_property_envelope_is_accepted(self) -> None:
+        """Name the first property that a real systemd manager rejects.
+
+        The free R2 rehearsal installs this envelope before it can assemble a
+        staging tree.  Static source tests cannot prove that the target
+        manager accepts every property, so the required Linux gate applies the
+        exact ordered prefix one property at a time without creating images or
+        attempt markers.
+        """
+
+        require_mode = os.environ.get("BOOLE_REQUIRE_V4_SYSTEMD_ENVELOPE")
+        self.assertIn(require_mode, (None, "1"))
+        capability_failures = []
+        if not sys.platform.startswith("linux"):
+            capability_failures.append("host is not Linux")
+        if getattr(os, "geteuid", lambda: -1)() != 0:
+            capability_failures.append("test is not running as root")
+        for command in ("systemd-run", "systemctl"):
+            if shutil.which(command) is None:
+                capability_failures.append(f"{command} is absent")
+        if not capability_failures:
+            systemd_probe = subprocess.run(
+                ("systemctl", "show-environment"),
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            if systemd_probe.returncode != 0:
+                capability_failures.append("the systemd manager is unavailable")
+        properties = (
+            "PrivateNetwork=yes",
+            "ProtectSystem=strict",
+            "NoNewPrivileges=yes",
+            "KillMode=control-group",
+            "TimeoutStopSec=20s",
+            "SendSIGKILL=yes",
+            "Restart=no",
+            "MemoryAccounting=yes",
+            "MemoryMax=8589934592",
+            "MemorySwapMax=0",
+            "TasksAccounting=yes",
+            "TasksMax=128",
+            "CPUAccounting=yes",
+            "RuntimeMaxSec=1200s",
+            "OOMPolicy=kill",
+            "PrivateDevices=yes",
+            "PrivateMounts=yes",
+            "RestrictAddressFamilies=AF_UNIX",
+            "CapabilityBoundingSet=",
+            "AmbientCapabilities=",
+            "SystemCallFilter=~kill tkill tgkill pidfd_send_signal "
+            "rt_sigqueueinfo rt_tgsigqueueinfo ptrace process_vm_readv "
+            "process_vm_writev",
+        )
+        source_properties = (
+            "PrivateNetwork=yes",
+            "ProtectSystem=strict",
+            "NoNewPrivileges=yes",
+            "KillMode=control-group",
+            "TimeoutStopSec=${transient_unit_stop_timeout_seconds}s",
+            "SendSIGKILL=yes",
+            "Restart=no",
+            "MemoryAccounting=yes",
+            "MemoryMax=${staging_unit_memory_max_bytes}",
+            "MemorySwapMax=0",
+            "TasksAccounting=yes",
+            "TasksMax=${staging_unit_tasks_max}",
+            "CPUAccounting=yes",
+            "RuntimeMaxSec=${staging_unit_runtime_max_seconds}s",
+            "OOMPolicy=kill",
+            "PrivateDevices=yes",
+            "PrivateMounts=yes",
+            "RestrictAddressFamilies=AF_UNIX",
+            "CapabilityBoundingSet=",
+            "AmbientCapabilities=",
+            "SystemCallFilter=~kill tkill tgkill pidfd_send_signal "
+            "rt_sigqueueinfo rt_tgsigqueueinfo ptrace process_vm_readv "
+            "process_vm_writev",
+        )
+        self.assertEqual(len(source_properties), len(properties))
+        source = WRAPPER.read_text(encoding="utf-8")
+        isolation = source[
+            source.index("isolation_prefix()") : source.index("qualification_prefix()")
+        ]
+        cursor = -1
+        for property_value in source_properties:
+            needle = property_value
+            observed = isolation.index(needle)
+            self.assertGreater(observed, cursor, f"property is out of order: {needle}")
+            cursor = observed
+
+        if capability_failures:
+            detail = "; ".join(capability_failures)
+            if require_mode == "1":
+                self.fail(f"required v4 systemd envelope capability missing: {detail}")
+            self.skipTest(detail)
+
+        unique = f"{os.getpid()}-{time.time_ns()}"
+        with tempfile.TemporaryDirectory(prefix="boole-nsv4-envelope-") as directory:
+            writable_one = pathlib.Path(directory) / "scratch"
+            writable_two = pathlib.Path(directory) / "result"
+            writable_one.mkdir()
+            writable_two.mkdir()
+            exact_properties = properties + (
+                f"ReadWritePaths={writable_one}",
+                f"ReadWritePaths={writable_two}",
+            )
+            for property_count in range(1, len(exact_properties) + 1):
+                property_value = exact_properties[property_count - 1]
+                unit = f"boole-nsv4-envelope-{unique}-{property_count}.service"
+                argv = [
+                    "systemd-run",
+                    f"--unit={unit}",
+                    "--pipe",
+                    "--wait",
+                    "--collect",
+                    "--service-type=exec",
+                ]
+                argv.extend(
+                    f"--property={value}"
+                    for value in exact_properties[:property_count]
+                )
+                argv.extend(("--", "/usr/bin/true"))
+                try:
+                    completed = subprocess.run(
+                        argv,
+                        check=False,
+                        text=True,
+                        capture_output=True,
+                        timeout=30,
+                    )
+                    self.assertEqual(
+                        completed.returncode,
+                        0,
+                        "v4 rehearsal systemd envelope first failed after "
+                        f"property {property_count}/{len(exact_properties)} "
+                        f"({property_value!r})\nstdout:\n{completed.stdout}\n"
+                        f"stderr:\n{completed.stderr}",
+                    )
+                finally:
+                    subprocess.run(
+                        ("systemctl", "stop", unit),
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    subprocess.run(
+                        ("systemctl", "reset-failed", unit),
+                        check=False,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+
+            network_unit = f"boole-nsv4-envelope-{unique}-network.service"
+            network_probe = (
+                "import socket\n"
+                "local = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n"
+                "local.close()\n"
+                "for family in (socket.AF_INET, socket.AF_INET6):\n"
+                "    try:\n"
+                "        candidate = socket.socket(family, socket.SOCK_STREAM)\n"
+                "    except OSError:\n"
+                "        continue\n"
+                "    candidate.close()\n"
+                "    raise SystemExit(f'network socket family unexpectedly opened: {family}')\n"
+            )
+            network_argv = [
+                "systemd-run",
+                f"--unit={network_unit}",
+                "--pipe",
+                "--wait",
+                "--collect",
+                "--service-type=exec",
+            ]
+            network_argv.extend(
+                f"--property={value}" for value in exact_properties
+            )
+            network_argv.extend(("--", "/usr/bin/python3", "-I", "-S", "-c", network_probe))
+            try:
+                completed = subprocess.run(
+                    network_argv,
+                    check=False,
+                    text=True,
+                    capture_output=True,
+                    timeout=30,
+                )
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    "the accepted v4 envelope did not preserve AF_UNIX while "
+                    "blocking AF_INET/AF_INET6\n"
+                    f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+                )
+            finally:
+                subprocess.run(
+                    ("systemctl", "stop", network_unit),
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                subprocess.run(
+                    ("systemctl", "reset-failed", network_unit),
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
 
     @unittest.skipUnless(
         sys.platform.startswith("linux")

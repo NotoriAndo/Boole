@@ -1449,7 +1449,7 @@ isolation_prefix() {
     --property=OOMPolicy=kill \
     --property=PrivateDevices=yes \
     --property=PrivateMounts=yes \
-    --property=RestrictAddressFamilies=none \
+    --property=RestrictAddressFamilies=AF_UNIX \
     --property=CapabilityBoundingSet= \
     --property=AmbientCapabilities= \
     '--property=SystemCallFilter=~kill tkill tgkill pidfd_send_signal rt_sigqueueinfo rt_tgsigqueueinfo ptrace process_vm_readv process_vm_writev'
@@ -1485,7 +1485,7 @@ qualification_prefix() {
     --property="RuntimeMaxSec=${staging_unit_runtime_max_seconds}s" \
     --property=OOMPolicy=kill \
     --property=PrivateMounts=yes \
-    --property=RestrictAddressFamilies=none \
+    --property=RestrictAddressFamilies=AF_UNIX \
     --property=PrivateDevices=no \
     --property=DevicePolicy=closed \
     '--property=DeviceAllow=/dev/loop-control rw' \
