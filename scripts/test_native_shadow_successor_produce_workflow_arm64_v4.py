@@ -1320,7 +1320,7 @@ class WrapperSurfaceTests(unittest.TestCase):
             "ProtectSystem=strict",
             "NoNewPrivileges=yes",
             "PrivateMounts=yes",
-            "RestrictAddressFamilies=none",
+            "RestrictAddressFamilies=AF_UNIX",
             "PrivateDevices=no",
             "DevicePolicy=closed",
             "DeviceAllow=/dev/loop-control rw",
@@ -1351,7 +1351,7 @@ class WrapperSurfaceTests(unittest.TestCase):
         after_isolated_call = production[production.index('"${qualification_argv[@]}"') :]
         self.assertNotIn('python3 -I -S "$PRODUCER" qualify', after_isolated_call)
 
-    def test_untrusted_units_have_no_capabilities_sockets_or_cross_process_control(self) -> None:
+    def test_untrusted_units_have_no_capabilities_network_sockets_or_cross_process_control(self) -> None:
         source = WRAPPER.read_text(encoding="utf-8")
         isolation = source[
             source.index("isolation_prefix()") : source.index("qualification_prefix()")
@@ -1363,8 +1363,8 @@ class WrapperSurfaceTests(unittest.TestCase):
         ]
         self.assertIn("--property=CapabilityBoundingSet=", isolation)
         self.assertIn("--property=AmbientCapabilities=", isolation)
-        self.assertIn("--property=RestrictAddressFamilies=none", isolation)
-        self.assertNotIn("RestrictAddressFamilies=AF_UNIX", isolation)
+        self.assertIn("--property=RestrictAddressFamilies=AF_UNIX", isolation)
+        self.assertNotIn("RestrictAddressFamilies=none", isolation)
         self.assertIn(
             "SystemCallFilter=~kill tkill tgkill pidfd_send_signal rt_sigqueueinfo "
             "rt_tgsigqueueinfo ptrace process_vm_readv process_vm_writev",
@@ -1372,8 +1372,8 @@ class WrapperSurfaceTests(unittest.TestCase):
         )
         self.assertIn("--property=CapabilityBoundingSet=CAP_SYS_ADMIN", qualification)
         self.assertIn("--property=AmbientCapabilities=", qualification)
-        self.assertIn("--property=RestrictAddressFamilies=none", qualification)
-        self.assertNotIn("RestrictAddressFamilies=AF_UNIX", qualification)
+        self.assertIn("--property=RestrictAddressFamilies=AF_UNIX", qualification)
+        self.assertNotIn("RestrictAddressFamilies=none", qualification)
         self.assertIn(
             "SystemCallFilter=~kill tkill tgkill pidfd_send_signal rt_sigqueueinfo "
             "rt_tgsigqueueinfo ptrace process_vm_readv process_vm_writev",
@@ -2015,7 +2015,7 @@ class WrapperSurfaceTests(unittest.TestCase):
             "OOMPolicy=kill",
             "PrivateDevices=yes",
             "PrivateMounts=yes",
-            "RestrictAddressFamilies=none",
+            "RestrictAddressFamilies=AF_UNIX",
             "CapabilityBoundingSet=",
             "AmbientCapabilities=",
             "SystemCallFilter=~kill tkill tgkill pidfd_send_signal "
@@ -2040,7 +2040,7 @@ class WrapperSurfaceTests(unittest.TestCase):
             "OOMPolicy=kill",
             "PrivateDevices=yes",
             "PrivateMounts=yes",
-            "RestrictAddressFamilies=none",
+            "RestrictAddressFamilies=AF_UNIX",
             "CapabilityBoundingSet=",
             "AmbientCapabilities=",
             "SystemCallFilter=~kill tkill tgkill pidfd_send_signal "
@@ -2120,6 +2120,60 @@ class WrapperSurfaceTests(unittest.TestCase):
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                     )
+
+            network_unit = f"boole-nsv4-envelope-{unique}-network.service"
+            network_probe = (
+                "import socket\n"
+                "local = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\n"
+                "local.close()\n"
+                "for family in (socket.AF_INET, socket.AF_INET6):\n"
+                "    try:\n"
+                "        candidate = socket.socket(family, socket.SOCK_STREAM)\n"
+                "    except OSError:\n"
+                "        continue\n"
+                "    candidate.close()\n"
+                "    raise SystemExit(f'network socket family unexpectedly opened: {family}')\n"
+            )
+            network_argv = [
+                "systemd-run",
+                f"--unit={network_unit}",
+                "--pipe",
+                "--wait",
+                "--collect",
+                "--service-type=exec",
+            ]
+            network_argv.extend(
+                f"--property={value}" for value in exact_properties
+            )
+            network_argv.extend(("--", "/usr/bin/python3", "-I", "-S", "-c", network_probe))
+            try:
+                completed = subprocess.run(
+                    network_argv,
+                    check=False,
+                    text=True,
+                    capture_output=True,
+                    timeout=30,
+                )
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    "the accepted v4 envelope did not preserve AF_UNIX while "
+                    "blocking AF_INET/AF_INET6\n"
+                    f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+                )
+            finally:
+                subprocess.run(
+                    ("systemctl", "stop", network_unit),
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                subprocess.run(
+                    ("systemctl", "reset-failed", network_unit),
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
 
     @unittest.skipUnless(
         sys.platform.startswith("linux")
