@@ -4826,6 +4826,7 @@ class GenerationChainTest(unittest.TestCase):
             chain=chain,
         )
         calls: list[str] = []
+        consumed_layers: list[bytes] = []
 
         def build_layout(lock, lock_raw, repository_root, artifact_store, output, **kwargs):
             calls.append("build-layout")
@@ -4862,10 +4863,12 @@ class GenerationChainTest(unittest.TestCase):
 
         def root_disk_plan(**kwargs):
             calls.append("root-disk.plan")
+            consumed_layers.append(kwargs["layer"])
             return {"image": kwargs["image"]}
 
         def execute_root_disk(plan, layer, tree, writer_tree):
             calls.append("root-disk.execute")
+            consumed_layers.append(layer)
             pathlib.Path(plan["image"]).write_bytes(b"root-disk")
             return {
                 "activationAllowed": False,
@@ -4905,14 +4908,18 @@ class GenerationChainTest(unittest.TestCase):
             ),
             phase.MODULE_ROOT_DISK: types.SimpleNamespace(
                 E2FSCK_MEMBER_PATH="./usr/sbin/e2fsck",
-                layer_entries=lambda layer: [{}],
+                layer_entries=lambda layer: consumed_layers.append(layer) or [{}],
                 required_bytes=lambda entries: 4096,
                 root_disk_plan=root_disk_plan,
             ),
             phase.MODULE_ROOT_EXECUTE: types.SimpleNamespace(execute=execute_root_disk),
             phase.MODULE_KERNEL: types.SimpleNamespace(extract=extract_kernel),
             phase.MODULE_INITRD: types.SimpleNamespace(
-                initrd_bytes=lambda layer: calls.append("initrd.bytes") or b"initrd"
+                initrd_bytes=lambda layer: (
+                    consumed_layers.append(layer)
+                    or calls.append("initrd.bytes")
+                    or b"initrd"
+                )
             ),
             phase.MODULE_IMAGE_VERIFY: types.SimpleNamespace(
                 tree_from_initrd=lambda raw: {"etc/example": {}},
@@ -4942,6 +4949,7 @@ class GenerationChainTest(unittest.TestCase):
         )
         self.assertEqual(prepared.measurement, {"entries": 1})
         self.assertEqual(prepared.state["layerEntryCount"], 1)
+        sealed_layer = prepared.state["layer"]
 
         request.outputs.mkdir()
         kernel = backend.extract_kernel(request, prepared)
@@ -4955,6 +4963,8 @@ class GenerationChainTest(unittest.TestCase):
 
         self.assertTrue(report["passed"])
         self.assertEqual(readback["status"], phase.READBACK_PASS_STATUS)
+        self.assertEqual(len(consumed_layers), 4)
+        self.assertTrue(all(layer is sealed_layer for layer in consumed_layers))
         self.assertEqual(set(loads.values()), {1})
         self.assertEqual(
             calls[-6:],
@@ -5647,20 +5657,198 @@ class GenerationChainTest(unittest.TestCase):
         ):
             phase._launcher_bytes(launcher, require_sealed=True)
 
-    def test_layer_rejects_absolute_symlink_target(self) -> None:
+    def test_layer_accepts_guest_root_absolute_symlink_without_host_escape(
+        self,
+    ) -> None:
+        raw = io.BytesIO()
+        with tarfile.open(fileobj=raw, mode="w:") as archive:
+            for name in ("etc", "usr", "usr/sbin"):
+                directory = tarfile.TarInfo(name)
+                directory.type = tarfile.DIRTYPE
+                directory.mode = 0o755
+                archive.addfile(directory)
+            payload = tarfile.TarInfo("usr/sbin/rmt")
+            payload.mode = 0o755
+            payload.size = 3
+            archive.addfile(payload, io.BytesIO(b"rmt"))
+            link = tarfile.TarInfo("etc/rmt")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "/usr/sbin/rmt"
+            archive.addfile(link)
+
+        destination = self.root / "tree"
+        count = phase.RepositoryImageBackend._extract_layer(
+            raw.getvalue(), destination
+        )
+
+        self.assertEqual(count, 5)
+        self.assertEqual(os.readlink(destination / "etc/rmt"), "../usr/sbin/rmt")
+        self.assertEqual((destination / "etc/rmt").read_bytes(), b"rmt")
+
+    def test_layer_absolute_symlink_rewrite_preserves_bytes_and_uses_data_filter(
+        self,
+    ) -> None:
+        raw = io.BytesIO()
+        with tarfile.open(fileobj=raw, mode="w:") as archive:
+            directory = tarfile.TarInfo("etc")
+            directory.type = tarfile.DIRTYPE
+            directory.mode = 0o755
+            archive.addfile(directory)
+            link = tarfile.TarInfo("etc/rmt")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "/usr/sbin/rmt"
+            archive.addfile(link)
+        layer = raw.getvalue()
+        before = hashlib.sha256(layer).hexdigest()
+        observed: dict[str, object] = {}
+        real_extractall = tarfile.TarFile.extractall
+
+        def extractall_with_old_python_compatibility(
+            archive, destination, *arguments, **keywords
+        ):
+            observed["filter"] = keywords.pop("filter", None)
+            return real_extractall(
+                archive, destination, *arguments, **keywords
+            )
+
+        with mock.patch.object(
+            phase.tarfile, "data_filter", object(), create=True
+        ), mock.patch.object(
+            phase.tarfile.TarFile,
+            "extractall",
+            new=extractall_with_old_python_compatibility,
+        ):
+            phase.RepositoryImageBackend._extract_layer(
+                layer, self.root / "tree"
+            )
+
+        self.assertEqual(observed, {"filter": "data"})
+        self.assertEqual(hashlib.sha256(layer).hexdigest(), before)
+
+    def test_layer_rejects_absolute_symlink_with_parent_components(self) -> None:
         raw = io.BytesIO()
         with tarfile.open(fileobj=raw, mode="w:") as archive:
             member = tarfile.TarInfo("escape")
             member.type = tarfile.SYMTYPE
-            member.linkname = "/outside"
+            member.linkname = "/../../outside"
             archive.addfile(member)
 
-        with self.assertRaisesRegex(
-            phase.SuccessorProduceV4Error, "link escapes"
-        ):
+        destination = self.root / "tree"
+        with self.assertRaisesRegex(phase.SuccessorProduceV4Error, "link escapes"):
+            phase.RepositoryImageBackend._extract_layer(raw.getvalue(), destination)
+        self.assertFalse(os.path.lexists(destination))
+
+    def test_layer_rejects_guest_root_absolute_hardlink(self) -> None:
+        raw = io.BytesIO()
+        with tarfile.open(fileobj=raw, mode="w:") as archive:
+            directory = tarfile.TarInfo("real")
+            directory.type = tarfile.DIRTYPE
+            directory.mode = 0o755
+            archive.addfile(directory)
+            payload = tarfile.TarInfo("real/payload")
+            payload.size = 1
+            archive.addfile(payload, io.BytesIO(b"x"))
+            hardlink = tarfile.TarInfo("copy")
+            hardlink.type = tarfile.LNKTYPE
+            hardlink.linkname = "/real/payload"
+            archive.addfile(hardlink)
+
+        with self.assertRaisesRegex(phase.SuccessorProduceV4Error, "link escapes"):
             phase.RepositoryImageBackend._extract_layer(
                 raw.getvalue(), self.root / "tree"
             )
+
+    def test_layer_rejects_absolute_hardlink_with_parent_components(self) -> None:
+        raw = io.BytesIO()
+        with tarfile.open(fileobj=raw, mode="w:") as archive:
+            hardlink = tarfile.TarInfo("copy")
+            hardlink.type = tarfile.LNKTYPE
+            hardlink.linkname = "/../../outside"
+            archive.addfile(hardlink)
+
+        with self.assertRaisesRegex(phase.SuccessorProduceV4Error, "link escapes"):
+            phase.RepositoryImageBackend._extract_layer(
+                raw.getvalue(), self.root / "tree"
+            )
+
+    def test_layer_accepts_guest_root_absolute_symlink_with_internal_parent(
+        self,
+    ) -> None:
+        raw = io.BytesIO()
+        with tarfile.open(fileobj=raw, mode="w:") as archive:
+            for name in ("etc", "usr", "usr/sbin"):
+                directory = tarfile.TarInfo(name)
+                directory.type = tarfile.DIRTYPE
+                directory.mode = 0o755
+                archive.addfile(directory)
+            payload = tarfile.TarInfo("usr/sbin/rmt")
+            payload.size = 3
+            archive.addfile(payload, io.BytesIO(b"rmt"))
+            link = tarfile.TarInfo("etc/rmt")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "/usr/lib/../sbin/rmt"
+            archive.addfile(link)
+
+        destination = self.root / "tree"
+        phase.RepositoryImageBackend._extract_layer(raw.getvalue(), destination)
+
+        self.assertEqual(os.readlink(destination / "etc/rmt"), "../usr/sbin/rmt")
+        self.assertEqual((destination / "etc/rmt").read_bytes(), b"rmt")
+
+    def test_layer_rejects_guest_root_symlink_to_root(self) -> None:
+        raw = io.BytesIO()
+        with tarfile.open(fileobj=raw, mode="w:") as archive:
+            link = tarfile.TarInfo("root")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "/"
+            archive.addfile(link)
+
+        with self.assertRaisesRegex(phase.SuccessorProduceV4Error, "link escapes"):
+            phase.RepositoryImageBackend._extract_layer(
+                raw.getvalue(), self.root / "tree"
+            )
+
+    def test_layer_rejects_guest_root_absolute_symlink_cycle(self) -> None:
+        raw = io.BytesIO()
+        with tarfile.open(fileobj=raw, mode="w:") as archive:
+            first = tarfile.TarInfo("a")
+            first.type = tarfile.SYMTYPE
+            first.linkname = "/b"
+            archive.addfile(first)
+            second = tarfile.TarInfo("b")
+            second.type = tarfile.SYMTYPE
+            second.linkname = "/a"
+            archive.addfile(second)
+
+        destination = self.root / "tree"
+        with self.assertRaisesRegex(phase.SuccessorProduceV4Error, "symlink cycle"):
+            phase.RepositoryImageBackend._extract_layer(raw.getvalue(), destination)
+        self.assertFalse(os.path.lexists(destination))
+
+    def test_layer_keeps_guest_root_dangling_absolute_symlink_inside_tree(
+        self,
+    ) -> None:
+        raw = io.BytesIO()
+        with tarfile.open(fileobj=raw, mode="w:") as archive:
+            directory = tarfile.TarInfo("etc")
+            directory.type = tarfile.DIRTYPE
+            directory.mode = 0o755
+            archive.addfile(directory)
+            link = tarfile.TarInfo("etc/missing")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "/usr/sbin/missing"
+            archive.addfile(link)
+
+        destination = self.root / "tree"
+        count = phase.RepositoryImageBackend._extract_layer(
+            raw.getvalue(), destination
+        )
+
+        self.assertEqual(count, 2)
+        self.assertEqual(
+            os.readlink(destination / "etc/missing"), "../usr/sbin/missing"
+        )
+        self.assertFalse((destination / "etc/missing").exists())
 
     def test_layer_rejects_parent_traversing_symlink_target(self) -> None:
         raw = io.BytesIO()
@@ -6130,6 +6318,7 @@ class GenerationChainTest(unittest.TestCase):
                 "json",
                 "os",
                 "pathlib",
+                "posixpath",
                 "re",
                 "selectors",
                 "stat",

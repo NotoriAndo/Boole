@@ -19,6 +19,7 @@ import io
 import json
 import os
 import pathlib
+import posixpath
 import re
 import selectors
 import stat
@@ -7531,14 +7532,25 @@ class RepositoryImageBackend:
                 ) -> str:
                     target = pathlib.PurePosixPath(member.linkname)
                     if target.is_absolute():
-                        raise SuccessorProduceV4Error(
-                            f"verified layer {member.name!r} link escapes"
+                        # OCI rootfs layers use guest-root absolute links such as
+                        # /etc/rmt -> /usr/sbin/rmt.  They are not host-absolute
+                        # authority: validate them from the layer root, then
+                        # rewrite only the disposable extracted tool tree to an
+                        # equivalent relative link before tarfile sees it.
+                        if not relative_to_parent:
+                            raise SuccessorProduceV4Error(
+                                f"verified layer {member.name!r} link escapes"
+                            )
+                        parts = list(target.parts[1:])
+                    else:
+                        parts = (
+                            [
+                                *pathlib.PurePosixPath(member.name).parent.parts,
+                                *target.parts,
+                            ]
+                            if relative_to_parent
+                            else list(target.parts)
                         )
-                    parts = (
-                        [*pathlib.PurePosixPath(member.name).parent.parts, *target.parts]
-                        if relative_to_parent
-                        else list(target.parts)
-                    )
                     stack: list[str] = []
                     for part in parts:
                         if part in ("", "."):
@@ -7551,6 +7563,10 @@ class RepositoryImageBackend:
                             stack.pop()
                         else:
                             stack.append(part)
+                    if target.is_absolute() and not stack:
+                        raise SuccessorProduceV4Error(
+                            f"verified layer {member.name!r} link escapes"
+                        )
                     return "/".join(stack)
 
                 for member in members:
@@ -7635,6 +7651,27 @@ class RepositoryImageBackend:
 
                 for symlink, target in symlink_targets.items():
                     resolve_symlink_path(target, (symlink,))
+
+                # The original verified layer bytes remain untouched and feed
+                # initrd/root-disk production.  This extracted scratch tree is
+                # used only for pinned build tools.  Converting root-internal
+                # absolute links prevents any later host-path traversal while
+                # preserving their meaning inside this tree.
+                for normalized, member in by_name.items():
+                    if not pathlib.PurePosixPath(member.linkname).is_absolute():
+                        continue
+                    target = (
+                        symlink_targets[normalized]
+                        if member.issym()
+                        else normalized_link_target(
+                            member, relative_to_parent=False
+                        )
+                    )
+                    if member.issym():
+                        parent = pathlib.PurePosixPath(normalized).parent.as_posix()
+                        member.linkname = posixpath.relpath(
+                            target or ".", start=parent
+                        )
 
                 destination.mkdir(mode=0o755)
                 extra: dict[str, Any] = {"numeric_owner": True}
