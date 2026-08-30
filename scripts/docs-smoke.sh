@@ -2796,4 +2796,121 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'V4 IMPLEMENTATION
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:BEGIN'
 require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:BEGIN'
 
+# The first two free v4 rehearsals failed before any canonical R2 result or
+# artifact existed.  Pin that narrow history separately so it cannot be
+# rewritten as success and cannot occupy the future successful R2 path.
+V4_R2_HARD_STOP=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v2.json
+V4_R2_HARD_STOP_GATE=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_hard_stop_arm64_v2.py
+require_file "$V4_R2_HARD_STOP"
+require_file "$V4_R2_HARD_STOP_GATE"
+require_text scripts/self-test.sh "$V4_R2_HARD_STOP_GATE"
+require_text "$V4_R2_HARD_STOP_GATE" '7a8cf17bfedfbe424978f41b38314d6ba5304a36df49a566a60ff4e5114328eb'
+require_text "$V4_R2_HARD_STOP" '"runId": 33311411461'
+require_text "$V4_R2_HARD_STOP" '"runId": 33313895353'
+require_text "$V4_R2_HARD_STOP" '"successfulR2ResultsCreatedByTheseAttempts": 0'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FAILED-ATTEMPTS-ARM64-V2-SEALED:BEGIN'
+done
+
+# The third free rehearsal reached its HEAD-bound service but rejected one
+# guest-root absolute OCI symlink before creating R2.  The historical record
+# stays unchanged and the narrower service/effect wording is pinned below.
+V4_R2_HARD_STOP_V3=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v3.json
+V4_R2_HARD_STOP_GATE_V3=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_hard_stop_arm64_v3.py
+require_file "$V4_R2_HARD_STOP_V3"
+require_file "$V4_R2_HARD_STOP_GATE_V3"
+require_text scripts/self-test.sh "$V4_R2_HARD_STOP_GATE_V3"
+require_text "$V4_R2_HARD_STOP_GATE_V3" '3cfe5cb9df41c15206e3ca56d5224c7b5e03ebb0a118d8a49fd9b4154bc86e07'
+require_text "$V4_R2_HARD_STOP_V3" '"runId": 33316130780'
+require_text "$V4_R2_HARD_STOP_V3" '"successfulR2ResultsCreatedByThisAttempt": 0'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-ARM64-V3-SEALED:BEGIN'
+done
+
+V4_R2_HARD_STOP_CORRECTION=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-correction-arm64-v1.json
+V4_R2_HARD_STOP_CORRECTION_GATE=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_hard_stop_correction_arm64_v1.py
+require_file "$V4_R2_HARD_STOP_CORRECTION"
+require_file "$V4_R2_HARD_STOP_CORRECTION_GATE"
+require_text scripts/self-test.sh "$V4_R2_HARD_STOP_CORRECTION_GATE"
+require_text "$V4_R2_HARD_STOP_CORRECTION_GATE" '88a7fc38963f48fa42018ba7e29ab5648f6767f7cecaac66d1aa4e7047c292c8'
+require_text "$V4_R2_HARD_STOP_CORRECTION" '"finalGuestImageOutputsCreatedByRehearsal": 0'
+require_text "$V4_R2_HARD_STOP_CORRECTION" '"transientOciScratchLayoutCreatedByRehearsal": true'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-SCOPE-CORRECTION-ARM64-V1-SEALED:BEGIN'
+done
+
+# The fourth free rehearsal reached low-level preparation but the rehearsal
+# job had not acquired the separately sealed ext4 writer packages.  Preserve
+# that failure without claiming R2 or broad runner cleanup.
+V4_R2_HARD_STOP_V4=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v4.json
+V4_R2_HARD_STOP_GATE_V4=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_hard_stop_arm64_v4.py
+require_file "$V4_R2_HARD_STOP_V4"
+require_file "$V4_R2_HARD_STOP_GATE_V4"
+require_text scripts/self-test.sh "$V4_R2_HARD_STOP_GATE_V4"
+require_text "$V4_R2_HARD_STOP_GATE_V4" '96721d93d6016a6ee9c8714672ee9e49c0672336181bc1ef8082ab5445081eae'
+require_text "$V4_R2_HARD_STOP_V4" '"runId": 33319199252'
+require_text "$V4_R2_HARD_STOP_V4" '"successfulR2ResultsCreatedByThisAttempt": 0'
+require_text "$V4_R2_HARD_STOP_V4" '"transientOciScratchLayoutCreatedByRehearsal": true'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-ARM64-V4-SEALED:BEGIN'
+done
+
+V4_R2_HARD_STOP_CORRECTION_V2=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-correction-arm64-v2.json
+V4_R2_HARD_STOP_CORRECTION_GATE_V2=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_hard_stop_correction_arm64_v2.py
+require_file "$V4_R2_HARD_STOP_CORRECTION_V2"
+require_file "$V4_R2_HARD_STOP_CORRECTION_GATE_V2"
+require_text scripts/self-test.sh "$V4_R2_HARD_STOP_CORRECTION_GATE_V2"
+require_text "$V4_R2_HARD_STOP_CORRECTION_GATE_V2" 'b0f140161df0029eec5359a25d2ec6a207511d6787fa7a9000de997a95b90177'
+require_text "$V4_R2_HARD_STOP_CORRECTION_V2" '"productionRunsObserved": 0'
+require_text "$V4_R2_HARD_STOP_CORRECTION_V2" '"correctScope": "free-rehearsal job"'
+require_text "$V4_R2_HARD_STOP_CORRECTION_V2" '"directObservationLimitedToOneObject": true'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-WORDING-CORRECTION-ARM64-V2-SEALED:BEGIN'
+done
+
+# Fresh authority-zero R2 succeeded on the exact v4 generation.  Keep the raw
+# payload separate from its GitHub transport provenance and preserve zero
+# production/image/boot authority in both records.
+V4_R2_RESULT=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v2.json
+V4_R2_RESULT_GATE=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v2.py
+V4_R2_PROVENANCE=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-artifact-provenance-arm64-v2.json
+V4_R2_PROVENANCE_GATE=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_artifact_provenance_arm64_v2.py
+for path in "$V4_R2_RESULT" "$V4_R2_RESULT_GATE" \
+  "$V4_R2_PROVENANCE" "$V4_R2_PROVENANCE_GATE"; do
+  require_file "$path"
+done
+require_text scripts/self-test.sh "$V4_R2_RESULT_GATE"
+require_text scripts/self-test.sh "$V4_R2_PROVENANCE_GATE"
+require_text "$V4_R2_RESULT_GATE" '7efe89c3bc558455313b76de2a625e708a580d0256760692914e9474eb0171f0'
+require_text "$V4_R2_PROVENANCE_GATE" '6d569cdf8c875d0835df64d38aacd5d7e69cb1f44e2b2eb9bea550d59b12707d'
+require_text "$V4_R2_RESULT" '"status": "PASS-NO-IMAGE-PRODUCED"'
+require_text "$V4_R2_RESULT" '"imageProductionRunsAllowed": 0'
+require_text "$V4_R2_RESULT" '"productionOutputsCreated": 0'
+require_text "$V4_R2_PROVENANCE" '"runId": 33321624511'
+require_text "$V4_R2_PROVENANCE" '"runArtifactTotalCount": 1'
+require_text "$V4_R2_PROVENANCE" '"productionGuardSkipped": true'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-SUCCESS-ARM64-V2-SEALED:BEGIN'
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:BEGIN'
+  require_text "$doc" 'R2 GREEN / F6 NEXT / A6 NOT CREATED'
+done
+
 printf 'docs-smoke: PASS\n' >&2

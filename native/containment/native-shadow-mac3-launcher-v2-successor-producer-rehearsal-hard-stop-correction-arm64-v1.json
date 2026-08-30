@@ -1,0 +1,63 @@
+{
+  "activationAllowed": false,
+  "appendOnly": true,
+  "authorisations": {
+    "bootAuthorised": false,
+    "consensusActivated": false,
+    "imageProductionAuthorised": false,
+    "imageProductionRunsAllowed": 0,
+    "mac4Started": false,
+    "miningActivated": false,
+    "p2pActivated": false,
+    "rewardActivated": false,
+    "testnetStarted": false
+  },
+  "bootableClaim": false,
+  "cleanupCompleteClaim": false,
+  "correctedRecord": {
+    "path": "native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v3.json",
+    "preservedByteUnchanged": true,
+    "sha256": "3cfe5cb9df41c15206e3ca56d5224c7b5e03ebb0a118d8a49fd9b4154bc86e07",
+    "sizeBytes": 5028
+  },
+  "corrections": {
+    "imageEffectScope": {
+      "finalGuestImageOutputsCreatedByRehearsal": 0,
+      "historicalField": "imageFilesCreatedByRehearsal",
+      "historicalFieldWasOverbroad": true,
+      "historicalValue": 0,
+      "reason": "The OCI layout and disposable extraction scratch existed before the absolute symbolic-link rejection. Only the final guest kernel, initrd and root-disk outputs remained at zero, so the historical field name was wider than the observed fact.",
+      "runnerGlobalCleanupClaimed": false,
+      "transientOciScratchLayoutCreatedByRehearsal": true
+    },
+    "serviceSubject": {
+      "correctedPhrase": "root-owned HEAD-bound rehearsal systemd service",
+      "historicalPhrase": "claim-bound systemd service",
+      "historicalPhraseWasOverbroad": true,
+      "productionClaimTagsObserved": 0,
+      "reason": "The rehearsal ran from the verified root-owned HEAD anchor without a production A6 claim tag. Claim-bound is reserved for a future authorised production replica that re-verifies the repository-global dispatch claim."
+    }
+  },
+  "editsAnyEarlierRecord": false,
+  "invariants": {
+    "BF.7": "HOLD",
+    "LLM-MINEABLE-ELIGIBLE-V5": 14160,
+    "REWARD_READY": 0,
+    "RP0-MD": "HOLD",
+    "activationAllowed": false,
+    "baseActivation": false,
+    "mineable_now": 0
+  },
+  "offlineClaim": false,
+  "r2SealedByThisCorrection": false,
+  "schema": "boole.native-shadow.mac3.launcher-v2-successor-producer-rehearsal-hard-stop-correction.arm64.v1",
+  "sourceAttempt": {
+    "exactFailure": "native-shadow successor producer v4: FAIL: verified layer 'etc/rmt' link escapes",
+    "freeRehearsalJobId": 99269811610,
+    "headSha": "8dc57c531b01e4b2b72864969eddfdeaeb6cda5a",
+    "runId": 33316130780
+  },
+  "status": "CORRECTED-SCOPE-NO-R2-NO-AUTHORITY",
+  "subject": "Append-only correction of two overbroad phrases in the third failed free v4 rehearsal record. The original record remains byte-unchanged; the official run identity, exact failure, zero final guest image outputs, absence of R2 and zero authority remain unchanged.",
+  "successfulR2ResultsCreatedByThisCorrection": 0
+}

@@ -4162,3 +4162,172 @@ tag and cannot make an image.  No production, boot, MAC.4, testnet, mining,
 reward, consensus, P2P or activation claim follows.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:END -->
+
+## Two failed free R2 rehearsals, preserved separately (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FAILED-ATTEMPTS-ARM64-V2-SEALED:BEGIN -->
+
+The first two authority-zero v4 rehearsal dispatches failed before a canonical
+R2 result existed.  Their append-only hard-stop record is
+`native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v2.json`,
+8,120 bytes at SHA-256
+`7a8cf17bfedfbe424978f41b38314d6ba5304a36df49a566a60ff4e5114328eb`.
+It does not occupy the distinct successful R2 path.
+
+```text
+sourceRunId=33311411461
+sourceRunId=33313895353
+artifactsUploadedByTheseAttempts=0
+successfulR2ResultsCreatedByTheseAttempts=0
+productionGuardJobs=skipped
+imageProductionClaim=false
+bootClaim=false
+```
+
+The first dispatch stopped when systemd rejected its address-family property
+before the core service started.  The second started systemd but its direct
+program bootstrap lacked the preregistered generation binding.  Later changes
+repair both defects, but R2 remains unsealed by these two attempts.  Because
+dependency and toolchain preparation occurred, this record does not claim
+network-zero execution or complete cleanup.  It grants no A6, production,
+image, boot, MAC.4, testnet, mining, reward, consensus, P2P or activation
+authority.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FAILED-ATTEMPTS-ARM64-V2-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-ARM64-V3-SEALED:BEGIN -->
+
+### 2026-08-30: third free v4 rehearsal failed before R2
+
+The third authority-zero rehearsal reached the claim-bound systemd service,
+then stopped before creating R2 because the disposable OCI scratch extractor
+treated the guest-root link `etc/rmt -> /usr/sbin/rmt` as a host escape.  The
+failure is sealed separately at
+`native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v3.json`,
+5,028 bytes at SHA-256
+`3cfe5cb9df41c15206e3ca56d5224c7b5e03ebb0a118d8a49fd9b4154bc86e07`.
+
+```text
+sourceRunId=33316130780
+freeRehearsalJobId=99269811610
+sourceHeadSha=8dc57c531b01e4b2b72864969eddfdeaeb6cda5a
+exactFailure=native-shadow successor producer v4: FAIL: verified layer 'etc/rmt' link escapes
+artifactsUploadedByThisAttempt=0
+successfulR2ResultsCreatedByThisAttempt=0
+productionGuardJob=skipped
+produceJob=skipped
+compareJob=skipped
+```
+
+This record is not R2 and does not occupy the successful R2 path.  It makes no
+offline, runner-global-cleanup, image, boot or serving claim and grants no A6,
+production, MAC.4, testnet, mining, reward, consensus, P2P or activation
+authority.  The earlier two-attempt record remains byte-unchanged.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-ARM64-V3-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-SCOPE-CORRECTION-ARM64-V1-SEALED:BEGIN -->
+
+### 2026-08-30: append-only scope correction for the third failed rehearsal
+
+The historical v3 failure record remains byte-unchanged.  Its later correction
+is `native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-correction-arm64-v1.json`,
+2,837 bytes at SHA-256
+`88a7fc38963f48fa42018ba7e29ab5648f6767f7cecaac66d1aa4e7047c292c8`.
+The service was a root-owned HEAD-bound rehearsal systemd service, not a
+production-claim-bound service.  A transient OCI scratch layout existed before
+the extractor rejection; only the final guest image outputs remained at zero.
+No runner-global cleanup, R2, production, image, boot or activation claim is
+created by this correction.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-THIRD-FAILED-ATTEMPT-SCOPE-CORRECTION-ARM64-V1-SEALED:END -->
+
+## Fourth free R2 rehearsal hard stop (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-ARM64-V4-SEALED:BEGIN -->
+
+The fourth authority-zero rehearsal reached the root-owned HEAD-bound systemd
+service, then stopped because its content store held the sealed guest closure
+but not the separately sealed ext4 writer packages.  The append-only record is
+`native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-arm64-v4.json`,
+6,147 bytes at SHA-256
+`96721d93d6016a6ee9c8714672ee9e49c0672336181bc1ef8082ab5445081eae`.
+
+```text
+sourceRunId=33319199252
+freeRehearsalJobId=99278062868
+sourceHeadSha=0029b3df45b87a2f2643abfff0f30f57f0c46d48
+artifactsUploadedByThisAttempt=0
+finalGuestImageOutputsCreatedByThisAttempt=0
+successfulR2ResultsCreatedByThisAttempt=0
+productionGuardJob=skipped
+produceJob=skipped
+compareJob=skipped
+```
+
+The missing objects were the already-pinned `e2fsprogs` and
+`libext2fs2t64` writer packages; production already acquired them, while the
+free rehearsal did not.  This is a rehearsal wiring omission, not a change to
+the sealed guest closure.  A transient OCI scratch layout existed, so this is
+not a runner-global cleanup claim.  The record is not R2, occupies no successful
+R2 path and grants no A6, production, image, boot, MAC.4, testnet, mining,
+reward, consensus, P2P or activation authority.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-ARM64-V4-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-WORDING-CORRECTION-ARM64-V2-SEALED:BEGIN -->
+
+### Append-only scope correction for the fourth rehearsal
+
+The v4 failure record remains byte-unchanged.  Its correction is
+`native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-hard-stop-correction-arm64-v2.json`,
+3,043 bytes at SHA-256
+`b0f140161df0029eec5359a25d2ec6a207511d6787fa7a9000de997a95b90177`.
+The production path was wired to invoke the writer-set acquirer; production
+execution is not claimed and no production run or claim tag was observed.  The
+recorded timestamps belong to the free-rehearsal job.  The log directly showed
+the missing `e2fsprogs` object; omission of the complete two-package writer set
+is a static derivation from the exact acquisition plans.  This correction
+grants no R2, A6, production, image, boot or activation authority.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-WORDING-CORRECTION-ARM64-V2-SEALED:END -->
+
+## Fresh v4 R2 result and artifact provenance (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-SUCCESS-ARM64-V2-SEALED:BEGIN -->
+
+Run `33321624511` on main
+`05ebf22e220bcece9e3104238f8ae8e2fef02a3e` completed the exact v4
+Linux-arm64 rehearsal.  The canonical 6,928-byte R2 result has SHA-256
+`7efe89c3bc558455313b76de2a625e708a580d0256760692914e9474eb0171f0`
+and status `PASS-NO-IMAGE-PRODUCED`.  Its production guard, producer and
+comparison jobs were skipped, and its strict authority/effect maps retain zero
+production runs, outputs, markers and boots.  Dependency acquisition used the
+network, and no offline or unnamed runner-global cleanup claim is made.
+
+All prior failed-rehearsal and correction records remain separate and
+byte-preserved.  This success does not convert any failed run into R2.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-SUCCESS-ARM64-V2-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:BEGIN -->
+
+The companion provenance record is 3,181 bytes at SHA-256
+`6d569cdf8c875d0835df64d38aacd5d7e69cb1f44e2b2eb9bea550d59b12707d`.
+It records the GitHub run and job identities, three skipped production jobs,
+the sole artifact API row and a direct ZIP-to-member-to-tracked-payload digest
+chain.  Artifact `9735090846` was a 1,901-byte ZIP at SHA-256
+`31a090eebb44b63d431d06300a8bffa24aa55f8d26cc035e40bc44110fc92dfe`
+with exactly one safe `R2-RESULT.json` member byte-identical to the raw result.
+The raw R2 schema stays free of transport metadata, preserving the one-way
+digest graph needed by F6.
+
+```text
+R2 GREEN / F6 NEXT / A6 NOT CREATED
+PRODUCTION CLAIM TAG / IMAGE / BOOT  NOT CREATED OR RUN
+```
+
+This evidence grants no A6, image production, guest boot, serving, MAC.4,
+testnet, mining, reward, consensus, P2P or activation authority.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:END -->
