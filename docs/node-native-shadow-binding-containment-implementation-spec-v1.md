@@ -4331,3 +4331,23 @@ This evidence grants no A6, image production, guest boot, serving, MAC.4,
 testnet, mining, reward, consensus, P2P or activation authority.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:END -->
+
+## F6 producer-generation identity after fresh R2 (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V6-SEALED -->
+
+The 3,250-byte F6 record at SHA-256
+`0e98b02f2dc8c4752c282dba57e1aa39d1cdc62a83c57d8803d6051ea792c183`
+pins the exact five v4 production-generation files observed by successful R2,
+the P2/R1/F5/R2 predecessor chain, the dispatch-fence correction and the R2
+success gate.  Transport provenance is deliberately excluded from the
+authority lineage because it proves carriage of the raw result, not authority
+to execute production.
+
+```text
+R2 GREEN / F6 SEALED / A6 NOT CREATED / PRODUCTION AND BOOT NOT RUN
+```
+
+F6 records implementation identity only.  Its production, boot, serving,
+MAC.4, testnet, mining, reward, consensus, P2P and activation authorities are
+all false or zero.  No claim tag, image, attempt marker or boot was created.

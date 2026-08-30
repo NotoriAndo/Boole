@@ -1749,9 +1749,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "d7d17cd52ff7bc51640081c5f06bc6cc0d67b9824f1811bc163a679a397aec2f"
-require_text docs/native-submission-shadow-verification-v1.md "386c4ea0674a0651fa8d2c72536e7cad60927ccb4dba0bdedc98f41af2c19d6e"
-require_text docs/native-submission-shadow-verification-v1.md "8e9673817cdcb7d6882dc0008c3338f0d3c6574fd74b716ade894646b8f7c8b5"
+require_text docs/native-submission-shadow-verification-v1.md "619e39e5e8fc140fd8a42f94765980e81c84393fde9234ea81eb8884795c50ad"
+require_text docs/native-submission-shadow-verification-v1.md "75fb8a4ead8526785eaf3350920503b6286bd5c4ad5f9d31a880033eefa72774"
+require_text docs/native-submission-shadow-verification-v1.md "414c20594445bc9352ac702143f44592357a8c38f925106f025a30cf8b87e27c"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
@@ -2911,6 +2911,26 @@ for doc in \
   require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-SUCCESS-ARM64-V2-SEALED:BEGIN'
   require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:BEGIN'
   require_text "$doc" 'R2 GREEN / F6 NEXT / A6 NOT CREATED'
+done
+
+# F6 freezes the exact v4 generation observed by fresh R2 while preserving
+# authority zero.  A6/result-v6 are deliberately not required to exist here.
+V4_F6=native/containment/native-shadow-mac3-successor-producer-fingerprint-arm64-v6.json
+V4_F6_GATE=scripts/test_native_shadow_successor_producer_fingerprint_arm64_v6.py
+require_file "$V4_F6"
+require_file "$V4_F6_GATE"
+require_text scripts/self-test.sh "$V4_F6_GATE"
+require_text "$V4_F6_GATE" '0e98b02f2dc8c4752c282dba57e1aa39d1cdc62a83c57d8803d6051ea792c183'
+require_text "$V4_F6" '"schema": "boole.native-shadow.mac3.successor-producer-fingerprint.arm64.v6"'
+require_text "$V4_F6" '"status": "SEALED-AFTER-FRESH-R2-PRODUCTION-GENERATION-NOT-AUTHORISED"'
+require_text "$V4_F6" '"imageProductionRunsAllowed": 0'
+require_text "$V4_F6" '"sha256": "16f15bd7b9fcddeb02e104a3628d218817b047a3927fdfd77983ffaf0760910b"'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-FINGERPRINT-ARM64-V6-SEALED'
+  require_text "$doc" 'R2 GREEN / F6 SEALED / A6 NOT CREATED / PRODUCTION AND BOOT NOT RUN'
 done
 
 printf 'docs-smoke: PASS\n' >&2
