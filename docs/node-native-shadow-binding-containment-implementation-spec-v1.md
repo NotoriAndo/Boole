@@ -4079,3 +4079,21 @@ F5 at SHA-256
 binds the exact seven v3 generation files, P1, C1 and the raw result.  It is
 historical authority-zero staging evidence.  Readback v3 did not execute, and
 no production, boot, serving or MAC.4 claim follows.
+
+## Production-only successor generation P2 preregistration (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCTION-GENERATION-PREREGISTRATION-ARM64-V1-FROZEN -->
+
+P2 at SHA-256
+`4c801a52d4c6d47dbbc1c9a7657eb8bce215f9f258586b97064359caefd28a95`
+separates the historical authority-zero v3 rehearsal from a future production
+generation.  R1 and F5 are direct byte bindings; F5 remains historical evidence
+and transitively preserves P1, C1 and R1.  The unused A5 and result-v5 names
+were never created or authorised and must remain absent rather than being
+recycled.
+
+Generation v4 introduces five new production adapter, wrapper, workflow and
+gate files while pinning the v3 shared staging function and readback-v3
+security boundary.  A fresh JSON-only R2 of those exact bytes must precede F6
+and A6.  The digest graph is one-way and acyclic.  P2 performs and permits zero
+production and boot runs and opens no MAC.4 or activation boundary.

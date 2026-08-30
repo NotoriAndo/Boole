@@ -5715,3 +5715,48 @@ The cursors through §66.1 remain historical.  No image or attempt marker was
 created, no preserved image changed and no guest started.  `mineable_now=0`,
 `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
 `activationAllowed=false` remain unchanged.
+
+## 68. Pre-registering the separate production-only generation (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCTION-GENERATION-PREREGISTRATION-ARM64-V1-FROZEN -->
+
+The canonical P2 record is
+`native-shadow-mac3-launcher-v2-successor-production-generation-preregistration-arm64-v1.json`,
+8,096 bytes at SHA-256
+`4c801a52d4c6d47dbbc1c9a7657eb8bce215f9f258586b97064359caefd28a95`.
+It binds the raw R1 result and F5 historical fingerprint, then traverses F5 to
+the byte-preserved P1, C1 and R1 records.  The one v3 free rehearsal remains an
+observed historical run; P2 itself performs and permits zero rehearsals,
+productions and boots.
+
+P1 had reserved authority-v5 and result-v5 names before v3 existed.  Neither
+path was ever created and no authority was granted.  P2 withdraws those unused
+reservations for production, requires both paths to remain absent even as
+dangling symbolic links, and forbids reusing them.  F5 is not withdrawn: it
+remains immutable authority-zero rehearsal evidence and cannot become F6 or
+authorise production.
+
+The actual production-only namespace is producer generation v4 with fresh R2,
+F6, A6 and result-v6 records.  Five new executable or gate files may be
+implemented; they must pin and reuse the already proved `prepare_staging`
+implementation plus readback-v3 and its security gate.  A fresh no-image R2 of
+the exact v4 bytes is mandatory before F6 or A6 may exist.  The declared digest
+graph points only from a later binder to already existing predecessors, so no
+record stores its own or a future record's digest.
+
+### 68.1 Cursor
+
+```text
+V3 FREE REHEARSAL R1  GREEN / RAW RESULT SEALED
+V3 FINGERPRINT F5  HISTORICAL AUTHORITY-ZERO EVIDENCE / NOT PRODUCTION READY
+UNUSED A5 / RESULT-V5 RESERVATIONS  WITHDRAWN UNUSED / MUST REMAIN ABSENT
+P2 PRODUCTION GENERATION  PRE-REGISTERED / AUTHORITY 0
+PRODUCTION-GENERATION V4 + R2  NEXT
+F6 / A6 / RESULT-V6  NOT CREATED
+IMAGE PRODUCTION / GUEST BOOT  NOT AUTHORISED — 0 runs
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+This record implements no v4 file and grants no run.  `mineable_now=0`,
+`REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`, Base activation `false` and
+`activationAllowed=false` remain unchanged.
