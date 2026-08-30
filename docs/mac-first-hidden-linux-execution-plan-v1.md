@@ -5975,3 +5975,55 @@ is a static derivation from the exact acquisition plans.  This correction
 grants no R2, A6, production, image, boot or activation authority.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-WORDING-CORRECTION-ARM64-V2-SEALED:END -->
+
+## 73. Fresh authority-zero R2 succeeded; production remains closed (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-SUCCESS-ARM64-V2-SEALED:BEGIN -->
+
+The exact v4 generation at main SHA
+`05ebf22e220bcece9e3104238f8ae8e2fef02a3e` completed one fresh Linux-arm64
+free rehearsal in run `33321624511`.  Its sole raw result is
+`native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v2.json`,
+6,928 bytes at SHA-256
+`7efe89c3bc558455313b76de2a625e708a580d0256760692914e9474eb0171f0`.
+It is canonical JSON with status `PASS-NO-IMAGE-PRODUCED`.  The production
+guard, producer and comparison jobs were skipped.  The raw result records zero
+attempt markers, image outputs, production outputs and boot attempts; every
+production, boot, MAC.4, testnet, mining, reward, consensus and P2P authority
+remains false or zero.
+
+The run acquired its already sealed dependencies over the network, so this is
+not an offline claim.  It also does not claim that unnamed runner-global
+transient files were absent.  The four earlier failed rehearsals and their two
+scope corrections remain byte-preserved as separate historical evidence.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-SUCCESS-ARM64-V2-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:BEGIN -->
+
+The raw result intentionally contains no GitHub wrapper metadata.  Its separate
+3,181-byte transport provenance record at SHA-256
+`6d569cdf8c875d0835df64d38aacd5d7e69cb1f44e2b2eb9bea550d59b12707d`
+binds run `33321624511`, free-rehearsal job `99284488125`, the three skipped
+production jobs and artifact `9735090846`.  The artifact API reported exactly
+one 1,901-byte ZIP with digest
+`31a090eebb44b63d431d06300a8bffa24aa55f8d26cc035e40bc44110fc92dfe`.
+A direct download matched that size and digest and contained exactly one safe
+non-directory, non-symlink member named `R2-RESULT.json`; its 6,928 bytes were
+byte-identical to the tracked raw result.  This freezes the observation made
+while the artifact was available; CI does not pretend to re-download an
+expiring artifact forever.
+
+### 73.1 Cursor
+
+```text
+R2 GREEN / F6 NEXT / A6 NOT CREATED
+PRODUCTION CLAIM TAG / IMAGE / BOOT  NOT CREATED OR RUN
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+R2 is authority-zero evidence, not production permission.  F6 may now pin the
+exact five v4 generation files and the successful R2 gate.  A6 remains a later,
+separately authorised record and is not created here.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:END -->

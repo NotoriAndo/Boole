@@ -2883,4 +2883,34 @@ for doc in \
   require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-WORDING-CORRECTION-ARM64-V2-SEALED:BEGIN'
 done
 
+# Fresh authority-zero R2 succeeded on the exact v4 generation.  Keep the raw
+# payload separate from its GitHub transport provenance and preserve zero
+# production/image/boot authority in both records.
+V4_R2_RESULT=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v2.json
+V4_R2_RESULT_GATE=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_result_arm64_v2.py
+V4_R2_PROVENANCE=native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-artifact-provenance-arm64-v2.json
+V4_R2_PROVENANCE_GATE=scripts/test_native_shadow_launcher_v2_successor_producer_rehearsal_artifact_provenance_arm64_v2.py
+for path in "$V4_R2_RESULT" "$V4_R2_RESULT_GATE" \
+  "$V4_R2_PROVENANCE" "$V4_R2_PROVENANCE_GATE"; do
+  require_file "$path"
+done
+require_text scripts/self-test.sh "$V4_R2_RESULT_GATE"
+require_text scripts/self-test.sh "$V4_R2_PROVENANCE_GATE"
+require_text "$V4_R2_RESULT_GATE" '7efe89c3bc558455313b76de2a625e708a580d0256760692914e9474eb0171f0'
+require_text "$V4_R2_PROVENANCE_GATE" '6d569cdf8c875d0835df64d38aacd5d7e69cb1f44e2b2eb9bea550d59b12707d'
+require_text "$V4_R2_RESULT" '"status": "PASS-NO-IMAGE-PRODUCED"'
+require_text "$V4_R2_RESULT" '"imageProductionRunsAllowed": 0'
+require_text "$V4_R2_RESULT" '"productionOutputsCreated": 0'
+require_text "$V4_R2_PROVENANCE" '"runId": 33321624511'
+require_text "$V4_R2_PROVENANCE" '"runArtifactTotalCount": 1'
+require_text "$V4_R2_PROVENANCE" '"productionGuardSkipped": true'
+for doc in \
+  docs/mac-first-hidden-linux-execution-plan-v1.md \
+  docs/node-native-shadow-binding-containment-implementation-spec-v1.md \
+  docs/native-submission-shadow-verification-v1.md; do
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-SUCCESS-ARM64-V2-SEALED:BEGIN'
+  require_text "$doc" 'LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:BEGIN'
+  require_text "$doc" 'R2 GREEN / F6 NEXT / A6 NOT CREATED'
+done
+
 printf 'docs-smoke: PASS\n' >&2

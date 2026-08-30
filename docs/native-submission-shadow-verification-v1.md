@@ -2479,3 +2479,41 @@ is a static derivation from the exact acquisition plans.  This correction
 grants no R2, A6, production, image, boot or activation authority.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-WORDING-CORRECTION-ARM64-V2-SEALED:END -->
+
+## Fresh authority-zero v4 rehearsal result (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-SUCCESS-ARM64-V2-SEALED:BEGIN -->
+
+The exact v4 bytes on main
+`05ebf22e220bcece9e3104238f8ae8e2fef02a3e` completed fresh Linux-arm64
+run `33321624511`.  The tracked raw R2 payload is 6,928 bytes, SHA-256
+`7efe89c3bc558455313b76de2a625e708a580d0256760692914e9474eb0171f0`,
+and says `PASS-NO-IMAGE-PRODUCED`.  Its production guard, production and
+comparison jobs were skipped; authority and effect counters remain strictly
+false or zero.  Dependency acquisition was networked, so no offline claim is
+made.  The four earlier failures and append-only scope corrections remain
+independent historical records.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-SUCCESS-ARM64-V2-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:BEGIN -->
+
+Transport facts live in a separate 3,181-byte provenance record at SHA-256
+`6d569cdf8c875d0835df64d38aacd5d7e69cb1f44e2b2eb9bea550d59b12707d`.
+It binds run `33321624511`, free job `99284488125`, artifact `9735090846`,
+the three skipped production jobs, the API ZIP digest and the direct sole
+member digest.  The downloaded ZIP was exactly 1,901 bytes at SHA-256
+`31a090eebb44b63d431d06300a8bffa24aa55f8d26cc035e40bc44110fc92dfe`;
+its only member was safe `R2-RESULT.json`, byte-identical to the tracked raw
+payload.  The observation is frozen rather than presented as a perpetual API
+recheck after artifact expiry.
+
+```text
+R2 GREEN / F6 NEXT / A6 NOT CREATED
+PRODUCTION CLAIM TAG / IMAGE / BOOT  NOT CREATED OR RUN
+```
+
+R2 opens no production, boot, serving, MAC.4, testnet, mining, reward,
+consensus, P2P or activation boundary.  F6 is the next authority-zero binder.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:END -->

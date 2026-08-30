@@ -1,0 +1,98 @@
+{
+  "artifact": {
+    "apiDigest": "sha256:31a090eebb44b63d431d06300a8bffa24aa55f8d26cc035e40bc44110fc92dfe",
+    "createdAt": "2026-08-30T16:12:54Z",
+    "expiredAtObservation": false,
+    "expiresAt": "2026-09-06T16:12:53Z",
+    "id": 9735090846,
+    "name": "launcher-v2-successor-v4-free-rehearsal",
+    "runArtifactTotalCount": 1,
+    "sizeInBytes": 1901,
+    "updatedAt": "2026-08-30T16:12:54Z"
+  },
+  "authorityBoundary": {
+    "activationAllowed": false,
+    "authorisations": {
+      "bootAuthorised": false,
+      "consensusActivated": false,
+      "imageProductionAuthorised": false,
+      "imageProductionRunsAllowed": 0,
+      "mac4Started": false,
+      "miningActivated": false,
+      "p2pActivated": false,
+      "rewardActivated": false,
+      "testnetStarted": false
+    },
+    "bootableClaim": false,
+    "effects": {
+      "attemptMarkersCreated": 0,
+      "bootAttempts": 0,
+      "imageOutputsCreated": 0,
+      "productionOutputsCreated": 0
+    },
+    "guestBootClaim": false,
+    "imageProductionClaim": false,
+    "productionGuardSkipped": true
+  },
+  "downloadedZip": {
+    "apiDigestMatched": true,
+    "apiSizeMatched": true,
+    "retrievedAt": "2026-08-30T16:16:44Z",
+    "sha256": "31a090eebb44b63d431d06300a8bffa24aa55f8d26cc035e40bc44110fc92dfe",
+    "sizeBytes": 1901
+  },
+  "jobs": {
+    "freeRehearsal": {
+      "conclusion": "success",
+      "jobId": 99284488125,
+      "jobUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33321624511/job/99284488125",
+      "name": "free-rehearsal"
+    },
+    "skipped": [
+      {
+        "conclusion": "skipped",
+        "jobId": 99284488817,
+        "name": "produce"
+      },
+      {
+        "conclusion": "skipped",
+        "jobId": 99284488851,
+        "name": "production-authority-guard"
+      },
+      {
+        "conclusion": "skipped",
+        "jobId": 99284489829,
+        "name": "compare"
+      }
+    ]
+  },
+  "schema": "boole.native-shadow.mac3.launcher-v2-successor-producer-rehearsal-artifact-provenance.arm64.v2",
+  "soleMember": {
+    "archiveMemberCount": 1,
+    "bytesReadDirectly": true,
+    "directory": false,
+    "name": "R2-RESULT.json",
+    "pathSafe": true,
+    "sha256": "7efe89c3bc558455313b76de2a625e708a580d0256760692914e9474eb0171f0",
+    "sizeBytes": 6928,
+    "symlink": false
+  },
+  "source": {
+    "event": "workflow_dispatch",
+    "headSha": "05ebf22e220bcece9e3104238f8ae8e2fef02a3e",
+    "repository": "NotoriAndo/Boole",
+    "runAttempt": 1,
+    "runId": 33321624511,
+    "runUrl": "https://github.com/NotoriAndo/Boole/actions/runs/33321624511",
+    "workflowName": "native-shadow-successor-produce-arm64-v4",
+    "workflowPath": ".github/workflows/native-shadow-successor-produce-arm64-v4.yml"
+  },
+  "status": "SEALED-SUCCESSFUL-AUTHORITY-ZERO-R2-ARTIFACT-PROVENANCE",
+  "subject": "Bind the fresh authority-zero R2 transport from GitHub Actions to the tracked raw payload.",
+  "trackedPayload": {
+    "byteIdenticalToSoleMember": true,
+    "path": "native/containment/native-shadow-mac3-launcher-v2-successor-producer-rehearsal-result-arm64-v2.json",
+    "sha256": "7efe89c3bc558455313b76de2a625e708a580d0256760692914e9474eb0171f0",
+    "sizeBytes": 6928
+  }
+}

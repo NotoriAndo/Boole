@@ -4291,3 +4291,43 @@ is a static derivation from the exact acquisition plans.  This correction
 grants no R2, A6, production, image, boot or activation authority.
 
 <!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-FOURTH-FAILED-ATTEMPT-WORDING-CORRECTION-ARM64-V2-SEALED:END -->
+
+## Fresh v4 R2 result and artifact provenance (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-SUCCESS-ARM64-V2-SEALED:BEGIN -->
+
+Run `33321624511` on main
+`05ebf22e220bcece9e3104238f8ae8e2fef02a3e` completed the exact v4
+Linux-arm64 rehearsal.  The canonical 6,928-byte R2 result has SHA-256
+`7efe89c3bc558455313b76de2a625e708a580d0256760692914e9474eb0171f0`
+and status `PASS-NO-IMAGE-PRODUCED`.  Its production guard, producer and
+comparison jobs were skipped, and its strict authority/effect maps retain zero
+production runs, outputs, markers and boots.  Dependency acquisition used the
+network, and no offline or unnamed runner-global cleanup claim is made.
+
+All prior failed-rehearsal and correction records remain separate and
+byte-preserved.  This success does not convert any failed run into R2.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-SUCCESS-ARM64-V2-SEALED:END -->
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:BEGIN -->
+
+The companion provenance record is 3,181 bytes at SHA-256
+`6d569cdf8c875d0835df64d38aacd5d7e69cb1f44e2b2eb9bea550d59b12707d`.
+It records the GitHub run and job identities, three skipped production jobs,
+the sole artifact API row and a direct ZIP-to-member-to-tracked-payload digest
+chain.  Artifact `9735090846` was a 1,901-byte ZIP at SHA-256
+`31a090eebb44b63d431d06300a8bffa24aa55f8d26cc035e40bc44110fc92dfe`
+with exactly one safe `R2-RESULT.json` member byte-identical to the raw result.
+The raw R2 schema stays free of transport metadata, preserving the one-way
+digest graph needed by F6.
+
+```text
+R2 GREEN / F6 NEXT / A6 NOT CREATED
+PRODUCTION CLAIM TAG / IMAGE / BOOT  NOT CREATED OR RUN
+```
+
+This evidence grants no A6, image production, guest boot, serving, MAC.4,
+testnet, mining, reward, consensus, P2P or activation authority.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-R2-ARTIFACT-PROVENANCE-ARM64-V2-SEALED:END -->
