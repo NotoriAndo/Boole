@@ -148,6 +148,21 @@ class NativeShadowContainmentWorkflowContractTest(unittest.TestCase):
             "build it explicitly before the filtered --lib test",
         )
 
+    def test_named_linux_job_exercises_v4_supervisor_crash_cleanup(self):
+        job = self._job("native-shadow-containment-linux")
+        self.assertRegex(
+            job,
+            re.compile(
+                r"sudo env PYTHONDONTWRITEBYTECODE=1\s+"
+                r"BOOLE_REQUIRE_V4_SYSTEMD_LIFECYCLE=1\s+"
+                r"python3 -m unittest\s+"
+                r"scripts\.test_native_shadow_successor_produce_workflow_arm64_v4\."
+                r"WrapperSurfaceTests\."
+                r"test_linux_crashed_wrapper_cleanup_removes_all_claim_units"
+            ),
+        )
+        self.assertNotIn("continue-on-error:", job)
+
     def test_clean_linux_rootfs_replay_is_a_named_non_skippable_gate(self):
         job = self._job("native-shadow-rootfs-replay-linux")
         self.assertIn("runs-on: ubuntu-24.04", job)

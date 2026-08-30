@@ -5794,3 +5794,56 @@ accepted.
 This record creates no tag, permits no dispatch or image production, and runs
 no rehearsal or boot.  V4, R2, F6, A6 and result-v6 remain unexecuted or absent;
 MAC.4, testnet, mining, reward, consensus, P2P and activation remain closed.
+
+## 70. Implementing producer generation v4 before its fresh rehearsal (2026-08-30)
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:BEGIN -->
+
+The exact five paths pre-registered by P2 now implement producer generation
+v4.  The free path runs the v4 producer from a root-owned, byte-verified Git
+anchor on required Linux arm64 and may retain exactly one canonical
+`R2-RESULT.json` for seven days.  It has no writer-set acquisition, image tool,
+production or image output directory, attempt-consumed marker or boot edge.
+
+The production path is present but remains unreachable because fresh R2, F6
+and A6 do not yet exist.  If a later A6 is separately sealed, the sole guard
+job must create one non-forced annotated Git tag before any dependency work.
+Each replica and the comparison job then fetch and independently verify that
+exact tag and live A6 binding.  Only the guard has `contents: write`; the token
+is confined to the create/fetch steps and is removed before repository code
+validates the claim.
+
+Each future replica runs its wrapper and direct children under one claim-bound
+systemd supervisor with control-group killing, fixed wall-clock bounds and
+resource accounting.  Preflight, production and qualification are three
+separate claim-named transient services, each with its own cgroup and bounds.
+A failed wrapper supervisor invokes exactly one different claim-bound cleanup
+supervisor, which stops and verifies all three inner services before reading
+recovery state.  If cleanup succeeds the original production failure is
+returned; if cleanup also fails both statuses are reported and the cleanup
+failure is returned.  Only qualified, sealed output plus its logical provenance
+may be retained for seven days.  The comparison checks both provenance
+envelopes before byte-comparing kernel, initrd and root disk.  These are
+implementation contracts, not evidence that production ran.
+
+The required `native-shadow-containment-linux` job also exercises this exact
+lifecycle with disposable real systemd units: it crashes the outer wrapper
+unit, runs the separate cleanup unit, and requires the outer, cleanup and all
+three inner unit/cgroup identities to be absent.  It creates no image and does
+not consume production authority.
+
+### 70.1 Cursor
+
+```text
+V4 IMPLEMENTATION  GREEN / R2 NOT YET RUN
+FREE ARM64 R2  NEXT — one canonical JSON, no image
+F6 / A6 / RESULT-V6  NOT CREATED
+PRODUCTION TAG / IMAGE / BOOT  NOT CREATED OR RUN
+MAC.4 / TESTNET / MINING / REWARD  NOT STARTED
+```
+
+No tag, production dispatch, image, boot or node connection was created in
+this slice.  `mineable_now=0`, `REWARD_READY=0`, `RP0-MD=HOLD`, `BF.7=HOLD`,
+Base activation `false` and `activationAllowed=false` remain unchanged.
+
+<!-- LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:END -->

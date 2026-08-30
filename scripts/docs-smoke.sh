@@ -1749,9 +1749,9 @@ require_text docs/mac-first-hidden-linux-execution-plan-v1.md "RP0-MD=HOLD"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BF.7=HOLD"
 require_text docs/native-submission-shadow-verification-v1.md "Linux/arm64 successor-authority parity milestone"
 require_text docs/native-submission-shadow-verification-v1.md "MAC.2-PARTIAL"
-require_text docs/native-submission-shadow-verification-v1.md "f462cc9e9703306117c394b6cbc3ccac1562001920eb2c0204a72c4c6de85ac0"
-require_text docs/native-submission-shadow-verification-v1.md "7182ae511725d6302e33ed56a382b48ef270bf0fb05f7c68c4ab843616ce9153"
-require_text docs/native-submission-shadow-verification-v1.md "c1c3d59b7720feb5da9d1197b9193d0a095d40cddf7ac3bdddd9cd83e27ae5bf"
+require_text docs/native-submission-shadow-verification-v1.md "d7d17cd52ff7bc51640081c5f06bc6cc0d67b9824f1811bc163a679a397aec2f"
+require_text docs/native-submission-shadow-verification-v1.md "386c4ea0674a0651fa8d2c72536e7cad60927ccb4dba0bdedc98f41af2c19d6e"
+require_text docs/native-submission-shadow-verification-v1.md "8e9673817cdcb7d6882dc0008c3338f0d3c6574fd74b716ade894646b8f7c8b5"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Linux/arm64 authority-parity closure addendum"
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md "Boot source lock plan successor addendum"
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md "BOOT-ROOTFS-SOURCE-LOCK-PLAN-SUCCESSOR-FROZEN-LOCK-NOT-GENERATED"
@@ -2767,5 +2767,33 @@ require_text scripts/test_native_shadow_successor_production_dispatch_fence_corr
 require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCTION-DISPATCH-FENCE-CORRECTION-ARM64-V1-FROZEN'
 require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCTION-DISPATCH-FENCE-CORRECTION-ARM64-V1-FROZEN'
 require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCTION-DISPATCH-FENCE-CORRECTION-ARM64-V1-FROZEN'
+
+# Producer generation v4 now implements the exact five paths P2 declared.  It
+# still has no R2/F6/A6 and therefore cannot create the production claim or an
+# image.  The only executable next edge is the manual authority-zero rehearsal.
+V4_PRODUCER=scripts/native_shadow_successor_produce_phase_arm64_v4.py
+V4_PRODUCER_GATE=scripts/test_native_shadow_successor_produce_phase_arm64_v4.py
+V4_WRAPPER=scripts/native-shadow-successor-produce-arm64-v4.sh
+V4_WORKFLOW=.github/workflows/native-shadow-successor-produce-arm64-v4.yml
+V4_WORKFLOW_GATE=scripts/test_native_shadow_successor_produce_workflow_arm64_v4.py
+for path in "$V4_PRODUCER" "$V4_PRODUCER_GATE" "$V4_WRAPPER" \
+  "$V4_WORKFLOW" "$V4_WORKFLOW_GATE"; do
+  require_file "$path"
+done
+require_text scripts/self-test.sh 'scripts/test_native_shadow_successor_produce_phase_arm64_v4.py'
+require_text scripts/self-test.sh 'scripts/test_native_shadow_successor_produce_workflow_arm64_v4.py'
+require_text "$V4_WORKFLOW" 'options: [rehearsal, production]'
+require_text "$V4_WORKFLOW" 'contents: write'
+require_text "$V4_WORKFLOW" 'git push --atomic --porcelain'
+require_text "$V4_WORKFLOW" '--verify-dispatch-claim'
+require_text "$V4_WORKFLOW" '--property=KillMode=control-group'
+require_text "$V4_WORKFLOW" '"$anchored_wrapper" --cleanup-only'
+require_text "$V4_WORKFLOW" 'retention-days: 7'
+require_text "$V4_WORKFLOW" '--compare-provenanced-replicas'
+require_text "$V4_WORKFLOW" 'cmp -- "$left/outputs/guest-root-disk" "$right/outputs/guest-root-disk"'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:BEGIN'
+require_text docs/mac-first-hidden-linux-execution-plan-v1.md 'V4 IMPLEMENTATION  GREEN / R2 NOT YET RUN'
+require_text docs/node-native-shadow-binding-containment-implementation-spec-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:BEGIN'
+require_text docs/native-submission-shadow-verification-v1.md 'LAUNCHER-V2-SUCCESSOR-PRODUCER-V4-IMPLEMENTED-R2-PENDING:BEGIN'
 
 printf 'docs-smoke: PASS\n' >&2
